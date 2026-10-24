@@ -1193,14 +1193,11 @@ public final class Client implements AutoCloseable {
      * Shuts down the client's gRPC channel.
      *
      * <p>The method waits up to five seconds for channel termination and preserves interruption
-     * status. It closes an {@link ApiKeyCredential} supplied in the options and does not close the
-     * borrowed {@link BlobCache}.
+     * status. The application owns any supplied {@link Credential} and the borrowed
+     * {@link BlobCache}.
      */
     @Override
     public void close() {
-        if (options.getCredential() instanceof ApiKeyCredential) {
-            ((ApiKeyCredential) options.getCredential()).close();
-        }
         channel.shutdown();
         try {
             if (!channel.awaitTermination(5, TimeUnit.SECONDS)) {

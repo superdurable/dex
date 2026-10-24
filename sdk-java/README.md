@@ -466,23 +466,26 @@ ApiKeyCredential credential = ApiKeyCredential.builder(
         URI.create("https://auth.example.com/token"), "dex-server-id", apiKey)
         .exchangeTimeout(Duration.ofSeconds(10))
         .build();
-try (Client client = new Client(registry, blobCache,
+try (ApiKeyCredential ownedCredential = credential;
+        Client client = new Client(registry, blobCache,
         ClientOptions.newBuilder().serverAddress("dex.example.com:8801")
-                .credential(credential).build())) {
+                .credential(ownedCredential).build())) {
     client.searchFlows("", 10);
 }
 ```
 
 The endpoint must use HTTPS; HTTP is allowed only for localhost, 127.0.0.0/8,
-or ::1. The first call exchanges the key. One background refresh starts after
-80% of the token lifetime, and callers keep using the current token until it
+or ::1. The first call exchanges the key. A token call after 80% of the token
+lifetime starts one background refresh, and callers keep using the current token until it
 expires. Concurrent calls share an exchange. Failed refreshes are retried at
 most every five seconds while the token remains valid. An expired token waits
 for the exchange, bounded by the exchange timeout. When Dex rejects a token,
 the credential discards only that token; unary Client calls retry once, while
-pull streams reconnect with a new token. The Client or Worker closes the
-credential and stops any active refresh thread. Use separate credential instances
-for separate lifecycles. An injected `HttpClient` remains the caller's property.
+pull streams reconnect once immediately with a new token, then use normal backoff
+if rejected again. The application closes the credential after every Client and
+Worker sharing it has closed. No timer runs between token calls. A custom
+`HttpConnectionFactory` can open connections through an application-selected
+proxy; the credential disconnects each connection after use.
 The API key and access tokens are omitted from credential descriptions and
 exchange errors.
 

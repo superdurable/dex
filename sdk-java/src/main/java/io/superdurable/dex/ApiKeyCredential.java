@@ -10,14 +10,15 @@
 
 package io.superdurable.dex;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -33,24 +34,25 @@ import java.util.function.LongSupplier;
  *
  * <p>Use this credential when the application holds an API key and Dex accepts access tokens.
  * Use {@link FileCredential} when another process writes an access token to a local file. The
- * first call exchanges the key; concurrent callers share that exchange. After 80% of a token's
- * lifetime, one background exchange starts while callers continue using the valid token. A failed
+ * first call exchanges the key; concurrent callers share that exchange. A token call after 80% of
+ * its lifetime starts one background exchange while callers continue using the valid token. A failed
  * refresh is retried no more often than every five seconds while that token remains valid. An
  * expired token makes callers wait for the shared exchange, up to the configured timeout. Dex
  * rejection discards only the rejected token, and unary Client calls retry once with a fresh one.
  *
  * <p>The token endpoint must use HTTPS, except that HTTP is allowed for localhost, 127.0.0.0/8,
- * and ::1. This class is thread-safe. The Client or Worker closes it when closed; use a separate
- * instance for each Client or Worker lifecycle. A supplied HTTP client is borrowed and is not
- * closed. Neither the API key nor an access token appears in this credential's description or
+ * and ::1. This class is thread-safe. The application owns and closes it after all Clients and
+ * Workers sharing it are closed. A supplied HTTP connection factory remains caller-owned.
+ * Neither the API key nor an access token appears in this credential's description or
  * exchange errors.
  *
  * <pre>{@code
  * ApiKeyCredential credential = ApiKeyCredential.builder(
  *         URI.create("https://auth.example.com/token"), "dex-server-id", apiKey).build();
- * try (Client client = new Client(registry, blobCache,
+ * try (ApiKeyCredential ownedCredential = credential;
+ *         Client client = new Client(registry, blobCache,
  *         ClientOptions.newBuilder().serverAddress("dex.example.com:8801")
- *                 .credential(credential).build())) {
+ *                 .credential(ownedCredential).build())) {
  *     client.searchFlows("", 10);
  * }
  * }</pre>
@@ -63,7 +65,7 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
     private final String serverId;
     private final String apiKey;
     private final Duration exchangeTimeout;
-    private final HttpClient httpClient;
+    private final HttpConnectionFactory httpConnectionFactory;
     private final LongSupplier clock;
     private Thread exchangeThread;
     private String cachedToken;
@@ -79,9 +81,7 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
         this.serverId = builder.serverId;
         this.apiKey = builder.apiKey;
         this.exchangeTimeout = builder.exchangeTimeout;
-        this.httpClient = builder.httpClient == null
-                ? HttpClient.newBuilder().connectTimeout(exchangeTimeout).build()
-                : builder.httpClient;
+        this.httpConnectionFactory = builder.httpConnectionFactory;
         this.clock = builder.clock;
     }
 
@@ -165,10 +165,10 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
     }
 
     /**
-     * Cancels an exchange and stops its daemon thread.
+     * Cancels an exchange and interrupts its daemon thread.
      *
-     * <p>The Client or Worker that receives this credential closes it with its own lifecycle.
-     * Closing it earlier causes later token calls to fail. Closing is safe more than once.
+     * <p>The application closes this credential after every Client and Worker sharing it has
+     * closed. Closing it earlier causes later token calls to fail. Closing is safe more than once.
      */
     @Override
     public synchronized void close() {
@@ -236,22 +236,42 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
         payload.put("server_id", serverId);
         payload.put("api_key", apiKey);
         try {
-            final HttpRequest request = HttpRequest.newBuilder(tokenUrl)
-                    .timeout(exchangeTimeout)
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(payload)))
-                    .build();
-            final HttpResponse<String> response = httpClient.send(
-                    request, HttpResponse.BodyHandlers.ofString());
+            final HttpURLConnection connection = httpConnectionFactory.openConnection(tokenUrl);
+            if (connection == null) {
+                throw new IOException("HTTP connection factory returned null");
+            }
+            final int status;
             final JsonNode body;
             try {
-                body = JSON.readTree(response.body());
-            } catch (IOException malformed) {
-                throw exchangeError(response.statusCode(), "malformed JSON response");
+                final int timeoutMillis = (int) Math.min(Integer.MAX_VALUE,
+                        Math.max(1L, exchangeTimeout.toMillis()));
+                connection.setConnectTimeout(timeoutMillis);
+                connection.setReadTimeout(timeoutMillis);
+                connection.setInstanceFollowRedirects(false);
+                connection.setRequestMethod("POST");
+                connection.setRequestProperty("Content-Type", "application/json");
+                connection.setRequestProperty("Accept", "application/json");
+                connection.setDoOutput(true);
+                final byte[] requestBody = JSON.writeValueAsBytes(payload);
+                connection.setFixedLengthStreamingMode(requestBody.length);
+                try (OutputStream output = connection.getOutputStream()) {
+                    output.write(requestBody);
+                }
+                status = connection.getResponseCode();
+                try (InputStream input = status >= 400
+                        ? connection.getErrorStream() : connection.getInputStream()) {
+                    if (input == null) {
+                        throw exchangeError(status, "empty response");
+                    }
+                    body = JSON.readTree(input);
+                } catch (JsonProcessingException malformed) {
+                    throw exchangeError(status, "malformed JSON response");
+                }
+            } finally {
+                connection.disconnect();
             }
-            if (response.statusCode() != 200) {
-                throw exchangeError(response.statusCode(), responseError(body));
+            if (status != 200) {
+                throw exchangeError(status, responseError(body));
             }
             if (body == null || !body.isObject()) {
                 throw exchangeError(200, "invalid response object");
@@ -269,9 +289,6 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
                         + ("unexpected response".equals(responseError) ? "" : ": " + responseError));
             }
             return new ExchangeResult(token.textValue(), expiry.longValue());
-        } catch (InterruptedException interruption) {
-            Thread.currentThread().interrupt();
-            throw exchangeError(-1, "exchange interrupted");
         } catch (IOException transport) {
             if (transport instanceof ExchangeException) {
                 throw (ExchangeException) transport;
@@ -399,18 +416,39 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
     }
 
     /**
+     * Opens the HTTP connection used for an API key exchange.
+     *
+     * <p>Implement this interface to configure a proxy or supply a connection in tests. The
+     * credential sets its timeout, method, headers, and request body, then disconnects it after
+     * the exchange. For example, {@code uri -> (HttpURLConnection)
+     * uri.toURL().openConnection(proxy)} uses an application-selected proxy.
+     */
+    @FunctionalInterface
+    public interface HttpConnectionFactory {
+        /**
+         * Opens an unconnected HTTP connection to the validated token URL.
+         *
+         * @param tokenUrl the HTTPS token URL, or a permitted loopback HTTP URL
+         * @return an unconnected HTTP connection owned by the credential for this exchange
+         * @throws IOException if a connection cannot be created
+         */
+        HttpURLConnection openConnection(URI tokenUrl) throws IOException;
+    }
+
+    /**
      * Configures the timeout and HTTP transport for an API key credential.
      *
      * <p>Obtain a builder from {@link ApiKeyCredential#builder(URI, String, String)}. The enclosing type shows a
      * complete Client example. Build does not contact the token endpoint. The default timeout is
-     * ten seconds, and a supplied HTTP client remains the caller's property.
+     * ten seconds, and a supplied HTTP connection factory remains the caller's property.
      */
     public static final class Builder {
         private final URI tokenUrl;
         private final String serverId;
         private final String apiKey;
         private Duration exchangeTimeout = Duration.ofSeconds(10);
-        private HttpClient httpClient;
+        private HttpConnectionFactory httpConnectionFactory =
+                tokenUrl -> (HttpURLConnection) tokenUrl.toURL().openConnection();
         private LongSupplier clock = System::nanoTime;
 
         private Builder(final URI tokenUrl, final String serverId, final String apiKey) {
@@ -440,17 +478,20 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
         }
 
         /**
-         * Uses a borrowed HTTP client for token exchanges and proxy configuration.
+         * Uses a connection factory for token exchanges and proxy configuration.
          *
-         * @param value the nonnull HTTP client; the caller retains ownership
+         * <p>The default opens a connection through Java's standard proxy configuration.
+         * See {@link HttpConnectionFactory} for an explicit proxy example.
+         *
+         * @param value the nonnull factory; the caller retains ownership
          * @return this builder
-         * @throws IllegalArgumentException if the client is null
+         * @throws IllegalArgumentException if the factory is null
          */
-        public Builder httpClient(final HttpClient value) {
+        public Builder httpConnectionFactory(final HttpConnectionFactory value) {
             if (value == null) {
-                throw new IllegalArgumentException("httpClient is required");
+                throw new IllegalArgumentException("httpConnectionFactory is required");
             }
-            this.httpClient = value;
+            this.httpConnectionFactory = value;
             return this;
         }
 

@@ -35,6 +35,7 @@ import io.superdurable.gen.WorkerTaskServiceGrpc;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -63,6 +64,7 @@ final class ApiKeyCredentialTest {
     private static final String API_KEY = "private-api-key";
     private static final String TOKEN_A = "private-token-A";
     private static final String TOKEN_B = "private-token-B";
+    private static final String TOKEN_C = "private-token-C";
 
     @Test
     void validatesConstructorAndEndpointScheme() {
@@ -112,6 +114,24 @@ final class ApiKeyCredentialTest {
             assertEquals("{\"server_id\":\"server-17\",\"api_key\":\"private-api-key\"}", request.body);
             assertEquals(1, endpoint.requestCount());
         }
+    }
+
+    @Test
+    void usesInjectedHttpConnectionFactory() throws Exception {
+        final AtomicReference<URI> openedUrl = new AtomicReference<URI>();
+        try (TokenEndpoint endpoint = new TokenEndpoint();
+                ApiKeyCredential credential = ApiKeyCredential.builder(endpoint.url(), "server", API_KEY)
+                        .httpConnectionFactory(url -> {
+                            openedUrl.set(url);
+                            return (HttpURLConnection) url.toURL().openConnection();
+                        }).build()) {
+            endpoint.reply(200, success(TOKEN_A, 60));
+            assertEquals(TOKEN_A, credential.token());
+            assertEquals(endpoint.url(), openedUrl.get());
+        }
+        assertThrows(IllegalArgumentException.class,
+                () -> ApiKeyCredential.builder(URI.create("https://example.com/token"),
+                        "server", API_KEY).httpConnectionFactory(null));
     }
 
     @Test
@@ -315,6 +335,10 @@ final class ApiKeyCredentialTest {
                 assertEquals("Bearer " + TOKEN_B, grpc.takeHeader("SearchFlows"));
                 assertEquals(2, grpc.searchAttempts.get());
                 assertEquals(2, endpoint.requestCount());
+                client.close();
+                if (!shouldRejectBoth) {
+                    assertEquals(TOKEN_B, credential.token());
+                }
             }
         }
     }
@@ -348,6 +372,10 @@ final class ApiKeyCredentialTest {
                 assertEquals("Bearer " + TOKEN_A, grpc.takeHeader("SyncAttributeIndexes"));
                 assertEquals("Bearer " + TOKEN_A, grpc.takeHeader("PollWorkerTask"));
                 assertEquals("Bearer " + TOKEN_B, grpc.takeHeader("PollWorkerTask"));
+                final long firstPollAt = grpc.takePollTime();
+                final long secondPollAt = grpc.takePollTime();
+                assertTrue(secondPollAt - firstPollAt < TimeUnit.MILLISECONDS.toNanos(100),
+                        "the first rejected poll should reconnect before the 100 ms backoff");
                 assertEquals(2, grpc.pollAttempts.get());
                 assertEquals(2, endpoint.requestCount());
             } finally {
@@ -356,6 +384,53 @@ final class ApiKeyCredentialTest {
             }
             assertFalse(workerThread.isAlive());
             assertEquals(null, workerFailure.get());
+            assertEquals(TOKEN_B, credential.token());
+        }
+    }
+
+    @Test
+    void secondRejectedPollUsesBackoff() throws Exception {
+        try (TokenEndpoint endpoint = new TokenEndpoint();
+                AuthenticatedGrpcServer grpc = new AuthenticatedGrpcServer(false, 2);
+                ApiKeyCredential credential = ApiKeyCredential.builder(endpoint.url(), "server", API_KEY)
+                        .build()) {
+            endpoint.reply(200, success(TOKEN_A, 60));
+            endpoint.reply(200, success(TOKEN_B, 60));
+            endpoint.reply(200, success(TOKEN_C, 60));
+            final Worker worker = new Worker(new Registry(Collections.<Flow<?>>emptyList()),
+                    new EmptyBlobCache(), WorkerOptions.newBuilder()
+                            .serverAddress(grpc.address()).credential(credential)
+                            .pull(PullWorkerOptions.newBuilder().appWorkerID("api-key-worker")
+                                    .stopDrainTimeout(Duration.ofSeconds(1)).build())
+                            .build());
+            final AtomicReference<Throwable> workerFailure = new AtomicReference<Throwable>();
+            final Thread workerThread = new Thread(() -> {
+                try {
+                    worker.start();
+                } catch (Throwable failure) {
+                    workerFailure.set(failure);
+                }
+            });
+            workerThread.setDaemon(true);
+            workerThread.start();
+            try {
+                assertEquals("Bearer " + TOKEN_A, grpc.takeHeader("PollWorkerTask"));
+                assertEquals("Bearer " + TOKEN_B, grpc.takeHeader("PollWorkerTask"));
+                assertEquals("Bearer " + TOKEN_C, grpc.takeHeader("PollWorkerTask"));
+                grpc.takePollTime();
+                final long secondPollAt = grpc.takePollTime();
+                final long thirdPollAt = grpc.takePollTime();
+                assertTrue(thirdPollAt - secondPollAt >= TimeUnit.MILLISECONDS.toNanos(100),
+                        "a second rejected poll should use the existing backoff");
+                assertEquals(3, grpc.pollAttempts.get());
+                assertEquals(3, endpoint.requestCount());
+            } finally {
+                worker.close();
+                workerThread.join(5_000L);
+            }
+            assertFalse(workerThread.isAlive());
+            assertEquals(null, workerFailure.get());
+            assertEquals(TOKEN_C, credential.token());
         }
     }
 
@@ -537,13 +612,21 @@ final class ApiKeyCredentialTest {
         private static final Metadata.Key<String> AUTHORIZATION =
                 Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER);
         private final BlockingQueue<String> headers = new LinkedBlockingQueue<String>();
+        private final BlockingQueue<Long> pollTimes = new LinkedBlockingQueue<Long>();
         private final AtomicInteger searchAttempts = new AtomicInteger();
         private final AtomicInteger pollAttempts = new AtomicInteger();
+        private final int pollRejections;
         private final Server server;
 
         private AuthenticatedGrpcServer(final boolean shouldRejectBoth,
                 final boolean shouldRejectFirstPoll)
                 throws IOException {
+            this(shouldRejectBoth, shouldRejectFirstPoll ? 1 : 0);
+        }
+
+        private AuthenticatedGrpcServer(final boolean shouldRejectBoth,
+                final int pollRejections) throws IOException {
+            this.pollRejections = pollRejections;
             final ServerInterceptor authentication = new ServerInterceptor() {
                 @Override
                 public <RequestT, ResponseT> ServerCall.Listener<RequestT> interceptCall(
@@ -556,11 +639,12 @@ final class ApiKeyCredentialTest {
                         searchAttempts.incrementAndGet();
                     } else if ("PollWorkerTask".equals(method)) {
                         pollAttempts.incrementAndGet();
+                        pollTimes.add(System.nanoTime());
                     }
                     if (("SearchFlows".equals(method)
                             && (shouldRejectBoth || !"Bearer ".concat(TOKEN_B).equals(authorization)))
-                            || ("PollWorkerTask".equals(method) && shouldRejectFirstPoll
-                                    && !"Bearer ".concat(TOKEN_B).equals(authorization))) {
+                            || ("PollWorkerTask".equals(method)
+                                    && pollAttempts.get() <= AuthenticatedGrpcServer.this.pollRejections)) {
                         call.close(Status.UNAUTHENTICATED, new Metadata());
                         return new ServerCall.Listener<RequestT>() { };
                     }
@@ -628,6 +712,12 @@ final class ApiKeyCredentialTest {
                 }
             }
             throw new AssertionError("no gRPC request arrived for " + method);
+        }
+
+        private long takePollTime() throws InterruptedException {
+            final Long pollTime = pollTimes.poll(5, TimeUnit.SECONDS);
+            assertTrue(pollTime != null, "no poll attempt arrived");
+            return pollTime;
         }
 
         @Override

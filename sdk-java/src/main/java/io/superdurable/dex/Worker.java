@@ -378,17 +378,14 @@ public final class Worker implements AutoCloseable {
     /**
      * Stops the worker and permanently closes its lifecycle.
      *
-     * <p>An {@link ApiKeyCredential} supplied in the options is closed. The borrowed
-     * {@link BlobCache} is not closed.
+     * <p>The application owns any supplied {@link Credential} and the borrowed
+     * {@link BlobCache}.
      */
     @Override
     public void close() {
         stop();
         synchronized (this) {
             state = State.CLOSED;
-        }
-        if (options.getCredential() instanceof ApiKeyCredential) {
-            ((ApiKeyCredential) options.getCredential()).close();
         }
     }
 

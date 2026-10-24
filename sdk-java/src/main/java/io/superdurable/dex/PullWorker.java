@@ -453,6 +453,8 @@ final class PullWorker {
         private boolean isHalfClosed;
         private boolean isClosed;
         private boolean isRegistered;
+        private boolean hasRetriedRejectedToken;
+        private boolean shouldRetryRejectedTokenImmediately;
         private boolean supportsUnknownNameRejection;
 
         private PullStream(final String queue) {
@@ -521,6 +523,7 @@ final class PullWorker {
                         recordRegisteredStream(this);
                         supportsUnknownNameRejection = response.getRegistered().getSupportsUnknownNameRejection();
                         backoffMillis = 100L;
+                        hasRetriedRejectedToken = false;
                         reconcile();
                     } else {
                         requests.onError(Status.INTERNAL
@@ -818,6 +821,10 @@ final class PullWorker {
                 if (isClosed || generation != openGeneration) {
                     return;
                 }
+                shouldRetryRejectedTokenImmediately = failure != null
+                        && Status.fromThrowable(failure).getCode() == Status.Code.UNAUTHENTICATED
+                        && credential instanceof RejectedTokenCredential && rejectedToken != null
+                        && !hasRetriedRejectedToken;
                 if (failure != null
                         && Status.fromThrowable(failure).getCode() == Status.Code.UNAUTHENTICATED) {
                     GrpcCredential.rejectToken(credential, rejectedToken);
@@ -866,7 +873,11 @@ final class PullWorker {
             if (isDraining) {
                 backoffMillis = 100L;
             }
-            final long delay = retryDelay(isPermanent ? 60_000L : backoffMillis);
+            final long delay = shouldRetryRejectedTokenImmediately
+                    ? 0L : retryDelay(isPermanent ? 60_000L : backoffMillis);
+            if (shouldRetryRejectedTokenImmediately) {
+                hasRetriedRejectedToken = true;
+            }
             if (isDraining) {
                 isDraining = false;
             } else if (!isPermanent) {
