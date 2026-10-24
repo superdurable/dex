@@ -62,6 +62,8 @@ pub use channel::{Channel, ChannelGuard, ChannelMap, ChannelMapLoad, ChannelMess
 pub use client::Client;
 pub use client_options::ClientOptions;
 pub use context::{Context, RecoveryErrorInfo};
+#[cfg(feature = "api-key-credential")]
+pub use credential::{ApiKeyCredential, ApiKeyCredentialBuilder, ApiKeyCredentialError};
 pub use credential::{Credential, CredentialError, FileCredential};
 pub use dex_blob_cache::{BlobCache, BlobCacheConfig};
 pub use flow::{Flow, FlowTimeoutHandler};
