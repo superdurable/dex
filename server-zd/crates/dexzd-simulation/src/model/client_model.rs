@@ -25,7 +25,6 @@ use dexzd_protocol::dexzd::v1::{
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
 
-use crate::model::FLOW_IDS;
 use crate::model::value_generation::{
     ATTRIBUTE_KEYS, ATTRIBUTE_STORE_NAMES, CHANNEL_NAMES, MAX_VALUE_BYTES, STEP_TYPES,
     WIRE_INLINE_THRESHOLD_BYTES, fingerprint, int_value, null_value, oversized_value, pick,
@@ -60,7 +59,7 @@ pub(crate) fn run_settings() -> RunSettings {
     }
 }
 
-pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str) -> Command {
+pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str, is_synced: bool) -> Command {
     let policy = match rng.random_range(0..5) {
         0 => FlowTimeoutPolicy::Fail,
         1 => FlowTimeoutPolicy::Cancel,
@@ -87,7 +86,7 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str) -> Command {
         initial_attributes.push(AttributeWrite {
             key: key.to_owned(),
             value: Some(random_value(rng)),
-            sync_config: sync_config_for(key),
+            sync_config: sync_config_for(key, is_synced),
             ..AttributeWrite::default()
         });
     }
@@ -106,7 +105,7 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str) -> Command {
         flow_start_options: Some(FlowStartOptions {
             id_reuse_policy: id_reuse_policy as i32,
             attributes: initial_attributes,
-            flow_config_override: (flow_id == FLOW_IDS[0]).then(|| FlowConfig {
+            flow_config_override: is_synced.then(|| FlowConfig {
                 attribute_store_names: Some(AttributeStoreNames {
                     names: ATTRIBUTE_STORE_NAMES
                         .iter()
@@ -152,7 +151,7 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str) -> Command {
 }
 
 /// Hard-delete and plain writes share [`ATTRIBUTE_KEYS`], so each replaces the other.
-pub(crate) fn set_attributes(rng: &mut ChaCha8Rng) -> Command {
+pub(crate) fn set_attributes(rng: &mut ChaCha8Rng, is_synced: bool) -> Command {
     let mut attributes = Vec::new();
     let mut hard_delete_objects = Vec::new();
     for write_index in 0..rng.random_range(1..4_u32) {
@@ -181,7 +180,7 @@ pub(crate) fn set_attributes(rng: &mut ChaCha8Rng) -> Command {
             _ => random_value(rng),
         };
         attributes.push(AttributeWrite {
-            sync_config: sync_config_for(&key),
+            sync_config: sync_config_for(&key, is_synced),
             key,
             value: Some(value),
             ..AttributeWrite::default()

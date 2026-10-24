@@ -102,7 +102,7 @@ pub(crate) fn start_attempt(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
     })
 }
 
-pub(crate) fn complete(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
+pub(crate) fn complete(rng: &mut ChaCha8Rng, call: &Call<'_>, is_synced: bool) -> Command {
     let visible = call.visible_values();
     let mut writes = guarded_writes(rng, call);
     for _ in 0..rng.random_range(0..3) {
@@ -115,7 +115,7 @@ pub(crate) fn complete(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
         writes.push(AttributeWrite {
             key: key.to_owned(),
             value: Some(value),
-            sync_config: sync_config_for(key),
+            sync_config: sync_config_for(key, is_synced),
             ..AttributeWrite::default()
         });
     }
@@ -345,7 +345,7 @@ pub(crate) fn stale_attempt_command(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Co
         call.invocation.attempt + 1
     };
     let mut command = match rng.random_range(0..3) {
-        0 => complete(rng, call),
+        0 => complete(rng, call, false),
         1 => fail(rng, call),
         _ => heartbeat(rng, call),
     };

@@ -33,7 +33,7 @@ pub(crate) const ATTRIBUTE_KEYS: &[&str] = &[
 ];
 /// Attribute keys whose plain writes request Attribute Store synchronization.
 pub(crate) const SYNCED_ATTRIBUTE_KEYS: &[&str] = &["status", "orders/1", "orders/2"];
-/// Attribute Stores that runs of `order-1` target; other Flows target none.
+/// Attribute Stores that runs of the Attribute Sync stream target; other Flows target none.
 pub(crate) const ATTRIBUTE_STORE_NAMES: &[&str] = &["primary", "replica"];
 /// Keys a method may lock.
 pub(crate) const LOCK_KEYS: &[&str] = &["counter", "status", "orders/1"];
@@ -225,9 +225,8 @@ fn text(rng: &mut ChaCha8Rng, minimum: usize, maximum: usize) -> String {
         .collect()
 }
 
-/// The sync config of a plain write of `key`, chosen by key so the seeded choices stay unchanged.
-pub(crate) fn sync_config_for(key: &str) -> Option<AttributeSyncConfig> {
-    SYNCED_ATTRIBUTE_KEYS
-        .contains(&key)
+/// The sync config of a plain write of `key`; only the Attribute Sync stream syncs.
+pub(crate) fn sync_config_for(key: &str, is_synced: bool) -> Option<AttributeSyncConfig> {
+    (is_synced && SYNCED_ATTRIBUTE_KEYS.contains(&key))
         .then_some(AttributeSyncConfig { enabled: true })
 }
