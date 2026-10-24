@@ -518,8 +518,7 @@ message FlowTimeoutHandlerOptions {
   ExecuteMethodFailurePolicy failure_policy = 4;
   // Step type started after the final timeout handler failure.
   string failure_proceed_step_type = 5;
-  // server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-  // A Step decision that uses it fails the attempt without retry.
+  // Options of the recovery Step.
   StepOptions failure_proceed_step_options = 6;
   StepDurability durability_override = 7;
   repeated string lock_attribute_keys = 8;

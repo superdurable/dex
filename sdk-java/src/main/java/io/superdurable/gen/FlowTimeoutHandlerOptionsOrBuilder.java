@@ -70,8 +70,7 @@ public interface FlowTimeoutHandlerOptionsOrBuilder extends
 
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -80,8 +79,7 @@ public interface FlowTimeoutHandlerOptionsOrBuilder extends
   boolean hasFailureProceedStepOptions();
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -90,8 +88,7 @@ public interface FlowTimeoutHandlerOptionsOrBuilder extends
   io.superdurable.gen.StepOptions getFailureProceedStepOptions();
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>

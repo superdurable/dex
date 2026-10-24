@@ -3993,8 +3993,7 @@ type FlowTimeoutHandlerOptions struct {
 	FailurePolicy           ExecuteMethodFailurePolicy `protobuf:"varint,4,opt,name=failure_policy,json=failurePolicy,proto3,enum=dex.ExecuteMethodFailurePolicy" json:"failure_policy,omitempty"`
 	// Step type started after the final timeout handler failure.
 	FailureProceedStepType string `protobuf:"bytes,5,opt,name=failure_proceed_step_type,json=failureProceedStepType,proto3" json:"failure_proceed_step_type,omitempty"`
-	// server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-	// A Step decision that uses it fails the attempt without retry.
+	// Options of the recovery Step.
 	FailureProceedStepOptions *StepOptions   `protobuf:"bytes,6,opt,name=failure_proceed_step_options,json=failureProceedStepOptions,proto3" json:"failure_proceed_step_options,omitempty"`
 	DurabilityOverride        StepDurability `protobuf:"varint,7,opt,name=durability_override,json=durabilityOverride,proto3,enum=dex.StepDurability" json:"durability_override,omitempty"`
 	LockAttributeKeys         []string       `protobuf:"bytes,8,rep,name=lock_attribute_keys,json=lockAttributeKeys,proto3" json:"lock_attribute_keys,omitempty"`

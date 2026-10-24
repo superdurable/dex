@@ -672,10 +672,7 @@ export interface FlowTimeoutHandlerOptions {
   failurePolicy: ExecuteMethodFailurePolicy;
   /** Step type started after the final timeout handler failure. */
   failureProceedStepType: string;
-  /**
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
-   */
+  /** Options of the recovery Step. */
   failureProceedStepOptions: StepOptions | undefined;
   durabilityOverride: StepDurability;
   lockAttributeKeys: string[];

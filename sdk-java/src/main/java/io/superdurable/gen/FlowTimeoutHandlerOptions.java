@@ -177,8 +177,7 @@ private static final long serialVersionUID = 0L;
   private io.superdurable.gen.StepOptions failureProceedStepOptions_;
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -190,8 +189,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -203,8 +201,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -1337,8 +1334,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder> failureProceedStepOptionsBuilder_;
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Options of the recovery Step.
      * </pre>
      *
      * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -1349,8 +1345,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Options of the recovery Step.
      * </pre>
      *
      * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -1365,8 +1360,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Options of the recovery Step.
      * </pre>
      *
      * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -1386,8 +1380,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Options of the recovery Step.
      * </pre>
      *
      * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -1405,8 +1398,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Options of the recovery Step.
      * </pre>
      *
      * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -1431,8 +1423,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Options of the recovery Step.
      * </pre>
      *
      * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -1449,8 +1440,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Options of the recovery Step.
      * </pre>
      *
      * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -1462,8 +1452,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Options of the recovery Step.
      * </pre>
      *
      * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -1478,8 +1467,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Options of the recovery Step.
      * </pre>
      *
      * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
