@@ -114,6 +114,7 @@ async fn commit_flow_start(node: &EngineNode, hasher: &PartitionHasher, flow_id:
             }),
             hard_delete_objects: Vec::new(),
             request_fingerprint: Vec::new(),
+            ..FlowStartCommand::default()
         })),
         ..FlowCommand::default()
     };
