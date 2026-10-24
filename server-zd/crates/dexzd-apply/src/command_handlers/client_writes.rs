@@ -36,11 +36,13 @@ use crate::steps::wait_conditions;
 fn deduplicate(
     transaction: &FlowTransaction<'_>,
     cursor: &RunCursor,
+    scope: &CommandScope<'_>,
     kind: RequestKind,
     request_id: &str,
     fingerprint: &[u8],
 ) -> Result<Option<CommandReply>, ApplyError> {
-    if request_id.is_empty() {
+    // Replays answer no client, so they skip request deduplication and store no reply.
+    if request_id.is_empty() || scope.is_replay {
         return Ok(None);
     }
     let Some(record) = cursor.rows.request_dedup(transaction, kind, request_id)? else {
@@ -59,12 +61,13 @@ fn deduplicate(
 fn remember_request(
     transaction: &mut FlowTransaction<'_>,
     cursor: &RunCursor,
+    scope: &CommandScope<'_>,
     kind: RequestKind,
     request_id: &str,
     fingerprint: &[u8],
     reply: &CommandReply,
 ) -> Result<(), ApplyError> {
-    if request_id.is_empty() {
+    if request_id.is_empty() || scope.is_replay {
         return Ok(());
     }
     let capacity = cursor
@@ -103,6 +106,7 @@ pub(crate) fn apply_attributes_set(
     if let Some(reply) = deduplicate(
         transaction,
         &cursor,
+        scope,
         RequestKind::SetAttributes,
         &request.request_id,
         &command.request_fingerprint,
@@ -136,6 +140,7 @@ pub(crate) fn apply_attributes_set(
     remember_request(
         transaction,
         &cursor,
+        scope,
         RequestKind::SetAttributes,
         &request.request_id,
         &command.request_fingerprint,
@@ -193,6 +198,7 @@ pub(crate) fn apply_channel_message_delete(
     if let Some(reply) = deduplicate(
         transaction,
         &cursor,
+        scope,
         RequestKind::DeleteChannelMessage,
         &request.request_id,
         &command.request_fingerprint,
@@ -233,6 +239,7 @@ pub(crate) fn apply_channel_message_delete(
     remember_request(
         transaction,
         &cursor,
+        scope,
         RequestKind::DeleteChannelMessage,
         &request.request_id,
         &command.request_fingerprint,
