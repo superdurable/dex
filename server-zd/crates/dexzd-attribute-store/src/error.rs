@@ -101,11 +101,51 @@ pub enum AttributeStoreError {
     },
 }
 
+/// Which pending writes a failure holds back while it is retried.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttributeStoreFailureScope {
+    /// The store cannot serve any batch, such as a lost connection, a timeout, or failed authentication.
+    Store,
+    /// Postgres rejected this batch's content, such as a constraint violation; other batches can succeed.
+    Batch,
+}
+
+/// SQLSTATE classes caused by the values or columns a batch writes, so retrying other batches can succeed.
+const BATCH_SQLSTATE_CLASSES: [&str; 7] = [
+    "21", // cardinality violation
+    "22", // data exception, such as a value too long or invalid text for the column type
+    "23", // integrity constraint violation
+    "42", // syntax error or access rule violation, such as an undefined column
+    "44", // WITH CHECK OPTION violation
+    "54", // program limit exceeded, such as an index row that is too large
+    "P0", // PL/pgSQL error raised by a trigger
+];
+
+/// Raised under class 42 for a missing grant, which fails every batch of the store.
+const INSUFFICIENT_PRIVILEGE_SQLSTATE: &str = "42501";
+
 impl AttributeStoreError {
     /// Returns true for database and timeout failures, which Go retries until the retry budget runs out,
     /// and false for fencing and invalid settings, tables, or tokens, which a retry cannot fix.
     pub fn is_retryable(&self) -> bool {
         matches!(self, Self::Database { .. } | Self::Timeout { .. })
+    }
+
+    /// Returns [`AttributeStoreFailureScope::Batch`] for a database failure whose SQLSTATE blames the
+    /// batch's values or columns, and [`AttributeStoreFailureScope::Store`] for every other failure:
+    /// connection and timeout failures, server-side unavailability, and non-retryable failures.
+    pub fn failure_scope(&self) -> AttributeStoreFailureScope {
+        let Some(sqlstate) = self.sqlstate() else {
+            return AttributeStoreFailureScope::Store;
+        };
+        let is_batch_class = BATCH_SQLSTATE_CLASSES
+            .iter()
+            .any(|class| sqlstate.starts_with(class));
+        if is_batch_class && sqlstate != INSUFFICIENT_PRIVILEGE_SQLSTATE {
+            AttributeStoreFailureScope::Batch
+        } else {
+            AttributeStoreFailureScope::Store
+        }
     }
 
     /// Returns the SQLSTATE of a database failure, or None for other failures and connection errors.

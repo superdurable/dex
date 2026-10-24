@@ -48,6 +48,15 @@ and `sslrootcert` as a CA bundle path or `system`, with the pgx semantics the Go
 Server uses. Without `sslrootcert`, `verify-ca` and `verify-full` trust the
 system roots. Channel binding uses `tls-server-end-point`.
 
+## Failures
+
+`AttributeStoreError::is_retryable` is true for every database and timeout
+failure, because the Go Server retries them all. `failure_scope` tells the
+caller what a retry should hold back. SQLSTATE classes 21, 22, 23, 42, 44, 54,
+and P0 blame the batch's values or columns, so they return `Batch`. The
+exception is 42501, a missing grant. Every other failure returns `Store`,
+including connection errors without a SQLSTATE and timeouts.
+
 ## Tests
 
 Unit tests run with `cargo test -p dexzd-attribute-store`. The Postgres
