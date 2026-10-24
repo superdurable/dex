@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use s3mock::Durability;
 
 /// Configuration of one s3mock server process; every flag also reads an `S3MOCK_*` environment variable.
-#[derive(Clone, Debug, clap::Parser)]
+#[derive(Clone, clap::Parser)]
 #[command(
     name = "s3mock",
     about = "S3-compatible object store on local disk for Dex development"
@@ -48,7 +48,10 @@ pub struct ServerConfig {
     /// Default off; strict validates SigV4 headers, payloads, signed chunks, and signed trailers before dispatch.
     #[arg(long, env = "S3MOCK_SIGNATURE_VERIFICATION", value_enum, default_value_t = SignatureVerification::Off)]
     pub signature_verification: SignatureVerification,
-    /// Default s3mock; accepted access key identifier in strict mode. Admin endpoints do not require authentication.
+    /// Default off; root requires a root SigV4 signature on test controls when signature verification is strict.
+    #[arg(long, env = "S3MOCK_CONTROL_AUTHENTICATION", value_enum, default_value_t = ControlAuthentication::Off)]
+    pub control_authentication: ControlAuthentication,
+    /// Default s3mock; root access key in strict mode. Only this key can manage credentials.
     #[arg(long, env = "S3MOCK_ACCESS_KEY_ID", default_value = "s3mock")]
     pub access_key_id: String,
     /// Default s3mock; HMAC secret used in strict mode. Use test credentials only; never production credentials.
@@ -88,6 +91,13 @@ pub enum SignatureVerification {
     Strict,
 }
 
+/// Authentication policy for test-control endpoints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum ControlAuthentication {
+    Off,
+    Root,
+}
+
 /// Command-line ETag representation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum EtagModeFlag {
@@ -110,5 +120,28 @@ impl Default for ServerConfig {
             .mut_args(|argument| argument.env(None::<&str>));
         <Self as clap::FromArgMatches>::from_arg_matches(&command.get_matches_from(["s3mock"]))
             .expect("clap defaults form valid server configuration")
+    }
+}
+
+impl std::fmt::Debug for ServerConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ServerConfig")
+            .field("listen_address", &self.listen_address)
+            .field("data_directory", &self.data_directory)
+            .field("durability", &self.durability)
+            .field("fault_seed", &self.fault_seed)
+            .field("counter_prefix_depth", &self.counter_prefix_depth)
+            .field("request_log_capacity", &self.request_log_capacity)
+            .field("etag_mode", &self.etag_mode)
+            .field("signature_verification", &self.signature_verification)
+            .field("control_authentication", &self.control_authentication)
+            .field("access_key_id", &self.access_key_id)
+            .field("secret_access_key", &"<redacted>")
+            .field(
+                "lifecycle_scan_interval_seconds",
+                &self.lifecycle_scan_interval_seconds,
+            )
+            .finish()
     }
 }

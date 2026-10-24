@@ -16,6 +16,7 @@ use s3mock::Store;
 use serde::Serialize;
 use serde_json::json;
 
+use super::credential_admin::dispatch_credentials;
 use super::{Controls, Counters, FaultAction, FaultRule, S3OperationName};
 use crate::server::{RequestBody, S3Response, full_body, run_store_operation};
 
@@ -37,6 +38,9 @@ impl Controls {
         request: Request<RequestBody>,
     ) -> Result<serde_json::Value, (StatusCode, String)> {
         let path = request.uri().path();
+        if path == "/_s3mock/credentials" || path.starts_with("/_s3mock/credentials/") {
+            return dispatch_credentials(store, request, &self.config.access_key_id).await;
+        }
         match (request.method(), path) {
             (&Method::GET, "/_s3mock/faults") => {
                 let state = self.state.lock().expect("control operations cannot panic");
@@ -217,4 +221,8 @@ fn json_response(status: StatusCode, value: &impl Serialize) -> S3Response {
         .header("content-type", "application/json")
         .body(full_body(bytes))
         .expect("admin response headers are static")
+}
+
+pub(crate) fn admin_error(status: StatusCode, code: &str) -> S3Response {
+    json_response(status, &json!({"error": code}))
 }

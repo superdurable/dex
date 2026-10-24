@@ -9,9 +9,11 @@
 //! Deterministic fault selection and bounded request observations shared by all connections.
 
 mod admin;
+mod credential_admin;
 mod observation;
 mod operation;
 
+pub(crate) use admin::admin_error;
 use operation::S3OperationName;
 
 use std::collections::{BTreeMap, VecDeque};

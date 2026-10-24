@@ -8,6 +8,20 @@
 
 //! Library defaults remain independent of command-line environment settings.
 
+use clap::Parser;
+
+#[test]
+fn debug_configuration_redacts_the_root_signing_secret() {
+    let config = s3mock_server::ServerConfig::parse_from([
+        "s3mock",
+        "--secret-access-key",
+        "private-root-signing-secret",
+    ]);
+    let output = format!("{config:?}");
+    assert!(output.contains("<redacted>"));
+    assert!(!output.contains("private-root-signing-secret"));
+}
+
 #[test]
 fn library_defaults_ignore_process_environment() {
     const MARKER: &str = "S3MOCK_LIBRARY_DEFAULTS_CHILD";

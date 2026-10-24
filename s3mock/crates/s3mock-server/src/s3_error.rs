@@ -71,6 +71,12 @@ impl From<StoreError> for S3Error {
     fn from(error: StoreError) -> S3Error {
         let message = error.to_string();
         match error {
+            StoreError::CredentialAlreadyExists => {
+                S3Error::new(StatusCode::CONFLICT, "CredentialAlreadyExists", message)
+            }
+            StoreError::NoSuchCredential => {
+                S3Error::new(StatusCode::NOT_FOUND, "NoSuchCredential", message)
+            }
             StoreError::NoSuchBucket(_) => {
                 S3Error::new(StatusCode::NOT_FOUND, "NoSuchBucket", message)
             }
