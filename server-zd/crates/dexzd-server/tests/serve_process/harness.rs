@@ -304,7 +304,7 @@ impl ServeConfig<'_> {
     }
 }
 
-/// A `dex-server-zd serve` child process; dropping it kills the process.
+/// A `dex-server-zd serve` or `dev` child process; dropping it kills the process.
 pub(crate) struct ServeProcess {
     child: Child,
     address: SocketAddr,
@@ -372,6 +372,36 @@ impl ServeProcess {
             }
         }
         let child = command.spawn().expect("dex-server-zd starts");
+        Self {
+            child,
+            address,
+            log_path,
+        }
+    }
+
+    /// Starts `dev` on `data_directory`, applying the overrides in `config_path`.
+    pub(crate) fn spawn_dev(
+        data_directory: &Path,
+        config_path: &Path,
+        address: SocketAddr,
+        log_path: PathBuf,
+    ) -> Self {
+        let log = fs::File::create(&log_path).expect("the process log file is created");
+        let child = Command::new(env!("CARGO_BIN_EXE_dex-server-zd"))
+            .arg("dev")
+            .arg("--data-dir")
+            .arg(data_directory)
+            .arg("--listen")
+            .arg(address.to_string())
+            .arg("--config")
+            .arg(config_path)
+            .env("RUST_LOG", "info")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(log)
+            .kill_on_drop(true)
+            .spawn()
+            .expect("dex-server-zd dev starts");
         Self {
             child,
             address,

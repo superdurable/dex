@@ -1,0 +1,60 @@
+name: Server ZD Dev Soak Nightly
+
+on:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+    inputs:
+      soak_seconds:
+        description: Seconds that dex-server-zd dev serves the soak workload
+        required: true
+        default: 10800
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-zd-dev-soak-nightly
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_BUILD_JOBS: "4"
+  RUST_BACKTRACE: "1"
+  RUSTUP_TOOLCHAIN: "1.97.1"
+
+jobs:
+  dev-soak:
+    name: Dev soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    defaults:
+      run:
+        working-directory: server-zd
+    env:
+      DEX_ZD_DEV_SOAK_SECONDS: ${{ inputs.soak_seconds || 10800 }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for the RocksDB bindings
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-test
+          save-if: false
+      - name: Validate soak duration
+        shell: bash
+        run: |
+          if ! [[ "$DEX_ZD_DEV_SOAK_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
+             (( ${#DEX_ZD_DEV_SOAK_SECONDS} > 5 || DEX_ZD_DEV_SOAK_SECONDS > 12600 )); then
+            echo 'Use 1-12600 seconds; the job timeout leaves time to build.' >&2
+            exit 1
+          fi
+      - name: Run the dev soak
+        run: >-
+          cargo test --locked -p dexzd-server --test serve_process --
+          --ignored --exact dev_soak::dev_serves_for_the_soak_with_bounded_disk_usage --nocapture
