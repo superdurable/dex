@@ -34,6 +34,26 @@ example, it supports only pull Workers).
 Crate layers are registered in `script/rust-crate-layers.json`; a crate may depend only on crates
 in the same or a lower layer.
 
+## Release binaries
+
+Each published `server-zd/vX.Y.Z` GitHub Release includes native `dex-server-zd` archives for
+Linux amd64, Linux arm64, and macOS arm64:
+
+| Platform | Archive |
+| --- | --- |
+| Linux amd64 | `dex-server-zd_vX.Y.Z_linux_amd64.tar.gz` |
+| Linux arm64 | `dex-server-zd_vX.Y.Z_linux_arm64.tar.gz` |
+| macOS arm64 | `dex-server-zd_vX.Y.Z_darwin_arm64.tar.gz` |
+
+Each archive contains `dex-server-zd`, `LICENSE.md`, `LEGACY_NOTICES.md`, and `LICENSES/`.
+The Release also includes `checksums.txt` with the SHA-256 hash of each archive. Verify the
+downloaded archive against that file before extracting it. Run
+`sha256sum --ignore-missing -c checksums.txt` on Linux or
+`shasum -a 256 --ignore-missing -c checksums.txt` on macOS from the download directory.
+
+Linux archives require glibc 2.28 or newer. They run on Debian 10+, Ubuntu 20.04+, and
+RHEL 8+ without a newer system libstdc++.
+
 ## Metrics
 
 Set `metrics.listen` to a bind address such as `127.0.0.1:9090` to serve plain HTTP `GET /metrics` on a listener separate from `api.listen`. The default empty string disables it. The endpoint is unauthenticated; never expose it publicly. Other paths return 404. The response uses OpenMetrics text with `application/openmetrics-text; version=1.0.0; charset=utf-8`. Metrics are available while a node is recovering or standing by.
@@ -201,6 +221,22 @@ state under `<data-dir>/store`. `dexcli dev -engine zd` starts it with these fla
 node ID to `dev`, anonymous credentials, the embedded endpoint, and the `--listen` address, and it
 rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
 `<log-dir>/dex-server-zd.log`. A `search.backend: paradedb` override uses ParadeDB as `serve` does.
+
+## Stable command-line interface
+
+These commands and flags are part of the Beta compatibility interface. Applications can invoke
+them without depending on the implementation of the server:
+
+| Command | Flag | Meaning |
+| --- | --- | --- |
+| `serve` | `--config <file>` | Required YAML configuration file for a node using external object storage. |
+| `dev` | `--data-dir <dir>` | Required directory for embedded object storage and local state. |
+| `dev` | `--listen <address>` | Plaintext gRPC listen address as `IP:port`; host names are rejected; defaults to `127.0.0.1:8801`. |
+| `dev` | `--config <file>` | Optional YAML configuration overrides. |
+| `dev` | `--log-dir <dir>` | Optional directory that also receives `dex-server-zd.log`. |
+| Both | `--version` | Prints `dex-server-zd X.Y.Z`. |
+
+SIGTERM stops `dev` and exits with status 0.
 
 ## Development
 
