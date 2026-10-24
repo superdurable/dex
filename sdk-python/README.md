@@ -35,7 +35,9 @@ Callers waiting for an expired token share the exchange. Failed refreshes retry
 no more often than every five seconds while the previous token remains valid.
 Each exchange has a 10-second timeout by default, configurable through
 `exchange_timeout`. A Dex `UNAUTHENTICATED` response discards the rejected token
-and retries a unary call once with a fresh token. The credential is thread-safe.
+and retries a unary call once with a fresh token. Pull Worker streams reconnect
+once immediately with a fresh token; a second rejection uses the normal backoff.
+The credential is thread-safe.
 It does not print the API key or access token in errors or formatting. Close it
 after all Clients and Workers sharing it are closed; `close()` waits for any
 background exchange.

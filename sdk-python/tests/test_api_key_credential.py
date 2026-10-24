@@ -15,7 +15,8 @@ import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import cast
+from typing import Any, Coroutine, cast
+from unittest.mock import patch
 
 import grpc
 import pytest
@@ -30,9 +31,12 @@ from dex import (
     ClientOptions,
     DexServiceError,
 )
+from dex._credential_transport import AsyncCredentialRunner
+from dex._pull_worker import PullStream, PullWorkerRuntime
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
+from dex.worker_options import PullWorkerOptions
 
 API_KEY = "never-print-api-key"
 TOKEN_A = "never-print-token-a"
@@ -314,7 +318,7 @@ def test_api_key_single_flight_and_rejected_token(
 
 class RejectingFlowService(dex_pb2_grpc.FlowServiceServicer):
     def __init__(self, reject_all: bool = False) -> None:
-        self.attempts: list[str | None] = []
+        self.attempts: list[str | bytes | None] = []
         self.reject_all = reject_all
 
     def HealthCheck(  # noqa: N802
@@ -391,5 +395,86 @@ def test_api_key_async_client_retries_once(
         asyncio.run(run())
         assert service.attempts == [f"Bearer {TOKEN_A}", f"Bearer {TOKEN_B}"]
         assert len(token_endpoint.requests) == 2
+    finally:
+        credential.close()
+
+
+class RejectedPollError(grpc.RpcError):
+    def code(self) -> grpc.StatusCode:
+        return grpc.StatusCode.UNAUTHENTICATED
+
+
+class RejectedPollCall:
+    async def write(self, request: pb.PollWorkerTaskRequest) -> None:
+        pass
+
+    async def read(self) -> pb.PollWorkerTaskResponse:
+        raise RejectedPollError()
+
+    def cancel(self) -> None:
+        pass
+
+
+class RejectingPollStub:
+    def __init__(self) -> None:
+        self.metadata: list[Any] = []
+
+    def PollWorkerTask(self, *, metadata: Any) -> RejectedPollCall:  # noqa: N802
+        self.metadata.append(metadata)
+        return RejectedPollCall()
+
+
+def test_api_key_poll_retries_immediately_then_uses_permanent_backoff(
+    token_endpoint: TokenEndpoint,
+) -> None:
+    token_endpoint.responses.put((200, token_response(TOKEN_A)))
+    token_endpoint.responses.put((200, token_response(TOKEN_B)))
+    credential = ApiKeyCredential(token_endpoint.url, "server-id", API_KEY)
+
+    async def run() -> None:
+        runner = AsyncCredentialRunner(credential)
+        runtime = PullWorkerRuntime(
+            Registry([]),
+            None,
+            PullWorkerOptions(app_worker_id="api-key-poll-worker"),
+            "unused",
+            None,
+            credential_runner=runner,
+        )
+        stopping = asyncio.Event()
+        runtime._stopping = stopping
+        stub = RejectingPollStub()
+        stream = PullStream(runtime, stub, "api-key-poll-worker")
+        backoffs: list[float] = []
+
+        async def capture_backoff(
+            awaitable: Coroutine[Any, Any, bool], *, timeout: float
+        ) -> bool:
+            awaitable.close()
+            backoffs.append(timeout)
+            stopping.set()
+            raise asyncio.TimeoutError
+
+        try:
+            with patch("dex._pull_worker.asyncio.wait_for", new=capture_backoff), patch(
+                "dex._pull_worker.random.uniform", return_value=0
+            ):
+                await stream.run()
+            assert stub.metadata == [
+                (("authorization", f"Bearer {TOKEN_A}"),),
+                (("authorization", f"Bearer {TOKEN_B}"),),
+            ]
+            assert backoffs == [60]
+            assert credential._token == ""
+            assert len(token_endpoint.requests) == 2
+            assert (
+                runtime.registration.snapshot().queues[0].last_permanent_error
+                is not None
+            )
+        finally:
+            runner.close()
+
+    try:
+        asyncio.run(run())
     finally:
         credential.close()

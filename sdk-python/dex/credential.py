@@ -191,7 +191,9 @@ class ApiKeyCredential:
     callers share one exchange. Failed refreshes retry no more often than every
     five seconds while the old token remains valid. An expired token makes
     callers wait up to exchange_timeout for the in-flight exchange. Dex unary
-    calls retry once with a fresh token after UNAUTHENTICATED.
+    calls retry once with a fresh token after UNAUTHENTICATED. Pull Worker
+    streams reconnect once immediately with a fresh token after
+    UNAUTHENTICATED; a second rejection uses the normal backoff.
 
     The token URL must use HTTPS. HTTP is allowed only on localhost, 127.0.0.0/8,
     or ::1. The instance is thread-safe. Call close() when it is no longer used
