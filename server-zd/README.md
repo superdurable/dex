@@ -173,11 +173,29 @@ no docker, MinIO, or Temporal.
 
 The [MinIO nightly](../.github/workflows/server-zd-minio-nightly.yml) checks the coollabsio
 `RELEASE.2025-10-15T17-29-55Z` build (image digest
-`sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9`). It runs the
-S3 conformance suite, the server-zd object-store and commit-protocol tests, and a `serve` process
-test that writes a Flow, restarts with its local directory, then rebuilds after that directory is
-deleted. This is the MinIO release tracked for compatibility; each additional release needs its
-own matrix entry and passing run. The workflow also supports manual runs.
+`sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9`). The
+server-zd object-store and commit-protocol tests, the `serve` warm and cold restart test, and
+S3 conformance tests for server-zd's object storage contract are required. The remaining S3
+conformance tests are informational; the workflow uploads their result summary. This is the
+MinIO release tracked for compatibility; each additional release needs its own matrix entry and
+passing required tests. The workflow also supports manual runs.
+
+The full S3 conformance suite exercises features beyond server-zd's object storage contract.
+The pinned MinIO release has shown these deviations from the suite's S3 expectations:
+
+| S3 behavior | Observed MinIO behavior | server-zd use |
+| --- | --- | --- |
+| Recreating an owned bucket in `us-east-1` | Returns `BucketAlreadyOwnedByYou` instead of succeeding | No; the bucket is provisioned before server startup |
+| Lifecycle rule expiration | Omits the expected expiration day count when reading the rule | No lifecycle API use |
+| Versioned batch delete | Does not report the new delete marker as the latest version | No bucket versioning use |
+| Multipart upload listing with prefix and markers | Returns an empty page where one upload is expected | No multipart upload listing use |
+| Checksummed multipart part numbering | Accepts a SHA-256 upload completed from part 2 without part 1 | No; server-zd uploads CRC32 parts consecutively from part 1 |
+| Multipart full-object checksum validation | Accepts a wrong checksum header at completion | No full-object checksum header; server-zd uses CRC32 part checksums |
+| Object keys containing `//` | Rejects the key with `XMinioInvalidObjectName` | No; server-zd generates keys without doubled slashes |
+| Reading a delete marker version | Omits `Last-Modified` from the 405 response | No bucket versioning use |
+
+The encrypted multipart conformance fixtures need a test KMS. The workflow configures one for
+each run; an upload initiation failure without it does not measure multipart completion behavior.
 
 ### Persistent format testdata
 
