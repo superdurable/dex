@@ -15,6 +15,7 @@ example, it supports only pull Workers).
 | `dexzd-protocol` | Generated protobuf and gRPC code for the public protocol and internal formats |
 | `dexzd-keyspace` | Identifiers, partition hashing, key encodings, value references |
 | `dexzd-clock` | Wall-clock abstraction for real and simulated time |
+| `dexzd-metrics` | Fixed, process-local OpenMetrics registry and recording handles |
 | `dexzd-object-store` | Object storage interface, S3 implementation, fault-injecting test implementation |
 | `dexzd-visibility-query` | Visibility query parser and type checker |
 | `dexzd-log` | Command log batches and the conditional-write commit protocol |
@@ -32,6 +33,70 @@ example, it supports only pull Workers).
 
 Crate layers are registered in `script/rust-crate-layers.json`; a crate may depend only on crates
 in the same or a lower layer.
+
+## Release binaries
+
+Each published `server-zd/vX.Y.Z` GitHub Release includes native `dex-server-zd` archives for
+Linux amd64, Linux arm64, and macOS arm64:
+
+| Platform | Archive |
+| --- | --- |
+| Linux amd64 | `dex-server-zd_vX.Y.Z_linux_amd64.tar.gz` |
+| Linux arm64 | `dex-server-zd_vX.Y.Z_linux_arm64.tar.gz` |
+| macOS arm64 | `dex-server-zd_vX.Y.Z_darwin_arm64.tar.gz` |
+
+Each archive contains `dex-server-zd`, `LICENSE.md`, `LEGACY_NOTICES.md`, and `LICENSES/`.
+The Release also includes `checksums.txt` with the SHA-256 hash of each archive. Verify the
+downloaded archive against that file before extracting it. Run
+`sha256sum --ignore-missing -c checksums.txt` on Linux or
+`shasum -a 256 --ignore-missing -c checksums.txt` on macOS from the download directory.
+
+Linux archives require glibc 2.28 or newer. They run on Debian 10+, Ubuntu 20.04+, and
+RHEL 8+ without a newer system libstdc++.
+
+## Metrics
+
+Set `metrics.listen` to a bind address such as `127.0.0.1:9090` to serve plain HTTP `GET /metrics` on a listener separate from `api.listen`. The default empty string disables it. The endpoint is unauthenticated; never expose it publicly. Other paths return 404. The response uses OpenMetrics text with `application/openmetrics-text; version=1.0.0; charset=utf-8`. Metrics are available while a node is recovering or standing by.
+
+Every label value is from a closed set. No series has a Flow, Flow type, partition, tenant, or key label.
+
+| Name | Type | Labels | Meaning |
+| --- | --- | --- | --- |
+| `dexzd_build_info` | gauge, always 1 | `version` | Binary version |
+| `dexzd_behavior_version` | gauge | — | Cluster's current version barrier used by new commands |
+| `dexzd_node_role` | gauge, 1 for current role and 0 otherwise | `role`: starting, standby, recovering, serving, draining | Lifecycle state |
+| `dexzd_lease_epoch` | gauge | — | Owner epoch held by this node, 0 when none |
+| `dexzd_lease_renewals_total` | counter | `outcome`: ok, error | Lease renewal attempts |
+| `dexzd_api_requests_total` | counter | `rpc_class`: flow_write, flow_read, search, worker_poll, worker_respond; `code`: gRPC status code in snake_case | Public API calls by final status; unary calls at completion, Worker streams once at close, unauthenticated calls included, health checks excluded |
+| `dexzd_commit_batches_total` | counter | — | Durably committed batches |
+| `dexzd_commit_records_total` | counter | — | Committed commands |
+| `dexzd_commit_bytes_total` | counter | — | Committed batch bytes |
+| `dexzd_commit_latency_seconds` | histogram, buckets 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5 | — | Batch seal to durable acknowledgement |
+| `dexzd_object_store_requests_total` | counter | `operation`: put, get, list, delete; `object_kind`: log, snapshot, manifest, lease, other | Object storage requests; multipart upload counts once as put |
+| `dexzd_object_store_request_errors_total` | counter | `operation`: put, get, list, delete | Failed requests after SDK retries |
+| `dexzd_object_store_put_bytes_total` | counter | — | Uploaded bytes |
+| `dexzd_snapshots_total` | counter | `outcome`: ok, error | Snapshot attempts |
+| `dexzd_snapshot_last_duration_seconds` | gauge | — | Duration of the last successful snapshot |
+| `dexzd_snapshot_last_bytes` | gauge | — | Size of the last successful snapshot |
+| `dexzd_recovery_last_duration_seconds` | gauge | — | Duration of the last completed recovery or takeover replay |
+| `dexzd_recovery_last_replayed_bytes` | gauge | — | Uncompressed command record bytes replayed by the last recovery |
+| `dexzd_local_storage_bytes` | gauge | — | Local SST and WAL bytes, sampled at scrape time |
+| `dexzd_timer_lag_seconds` | gauge | — | Age of the oldest due timer not yet fired, 0 when none |
+| `dexzd_matching_queued_tasks` | gauge | — | Worker tasks waiting for a poll across all Flow types |
+| `dexzd_matching_worker_streams` | gauge | — | Open Worker poll streams |
+| `dexzd_api_request_latency_seconds` | histogram, buckets 0.005, 0.025, 0.1, 0.5, 2.5 | `rpc_class`: flow_write, flow_read, search, worker_respond | Completed unary call latency; Worker poll streams are excluded |
+| `dexzd_step_attempt_failures_total` | counter | `durability`: sync, async; `failure_kind`: worker_error, method_timeout, heartbeat_timeout, dispatch_error, invalid_response, unsupported_feature, value_too_large, request_too_large | Failed Step method attempts |
+| `dexzd_step_retries_exhausted_total` | counter | `durability`: sync, async | Step executions that failed after their last allowed attempt |
+| `dexzd_flow_closes_total` | counter | `close_status`: completed, failed, terminated, canceled | Closed Flow runs |
+| `dexzd_flow_end_to_end_latency_seconds` | histogram, buckets 1, 10, 60, 600, 3600, 21600, 86400 | — | Run start to close using committed timestamps |
+| `dexzd_step_schedule_to_start_latency_seconds` | histogram, buckets 0.005, 0.025, 0.1, 0.5, 2.5, 10 | — | Committed SYNC Step task becoming dispatchable to Worker delivery; ASYNC speculative dispatches have no committed schedule time |
+| `dexzd_worker_stream_events_total` | counter | `event`: delivered, closed | Task deliveries and persistent Worker stream closes |
+
+Worker polling uses a persistent stream, so there is no empty poll outcome. The stream event metric counts each task delivery and each stream close.
+Worker results return on that same stream. There is no separate Worker response RPC, so `worker_respond` remains a zero latency series.
+Long-poll waits are included in `flow_read` latency, which can exceed the highest finite bucket.
+
+On Linux, the scrape also includes `process_resident_memory_bytes`, `process_cpu_seconds_total`, `process_open_fds`, and `process_start_time_seconds`. These process metrics are absent on other platforms.
 
 ## Running
 
@@ -64,12 +129,52 @@ to a separate destination with the same keys; without it they use the primary bu
 | `environment` | `DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID`, `DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY`, and the optional `DEX_ZD_OBJECT_STORE_SESSION_TOKEN`; the hard-delete store reads the `DEX_ZD_HARD_DELETE_STORE_*` variables with the same suffixes |
 | `anonymous` | Unsigned requests, for a local emulator or a bucket that allows anonymous access |
 
+For a shared AWS S3 bucket, set a nonempty `objectStore.prefix` and grant the Server role only
+these S3 actions. Replace `BUCKET` and `PREFIX/` with the bucket and configured prefix; include the
+trailing slash in the policy. Apply the same policy to `objectStore.hardDeleteStore` when configured.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": { "StringLike": { "s3:prefix": "PREFIX/*" } }
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+      "Resource": "arn:aws:s3:::BUCKET/PREFIX/*"
+    }
+  ]
+}
+```
+
+The Server lists only under its configured prefix, including when checking a missing object.
+The `s3:ListBucket` condition must use `StringLike` with `PREFIX/*`. An exact-prefix
+`StringEquals` grant or no `s3:ListBucket` grant is unsupported: a missing object may return
+403, and the Server cannot use a prefixed listing to distinguish it from a denied object.
+With the `StringLike` grant above, AWS S3 returns 404 for missing-object reads; narrower grants
+can return 403. The Server handles either response when the prefixed listing is allowed.
+The startup conditional-write probe also creates and deletes a key under that prefix. No
+unconditioned bucket access or bucket administration action is required. The bucket may be
+unversioned: create-only and replacement writes use `If-None-Match` and `If-Match` with opaque
+ETags, not object versions or MD5 digests. The S3 client sends no server-side encryption headers,
+so the bucket's default SSE-KMS configuration applies. For a customer-managed KMS key, grant the
+role `kms:GenerateDataKey` and `kms:Decrypt` on that key, and allow those actions in its key policy.
+Configure a bucket lifecycle rule to `AbortIncompleteMultipartUpload` after 1–7 days. A crash can
+leave an incomplete upload, and a prefix-confined role cannot list or clean up all abandoned
+multipart uploads.
+
 Startup proceeds in this order:
 
 1. The node binds `api.listen`. gRPC health Check and Watch report NOT_SERVING for `""`,
    `dex.FlowService`, and `dex.WorkerTaskService`; FlowService and WorkerTaskService calls return
    Unavailable while startup continues.
-2. Every destination must pass a conditional-write self-check.
+2. Every S3 destination verifies a prefixed child listing. Every destination then passes a
+   conditional-write self-check.
 3. The node acquires the lease of `cluster.nodeId` for `lease.duration`. A lease that another
    process still holds is awaited until it expires, or fails startup when `lease.failIfHeld` is
    true.
@@ -124,6 +229,27 @@ releases its lease and exits 1.
 
 Logs go to standard error. `RUST_LOG` filters them; the default level is `info`.
 
+### Container image
+
+The `dex-server-zd` image is published for `linux/amd64` and `linux/arm64`. Its entrypoint is
+`/usr/local/bin/dex-server-zd`. By default it runs `serve --config /etc/dex-server-zd/config.yaml`;
+mount a production config at that path. The image includes
+`/etc/dex-server-zd/dex-server-zd.example.yaml` as a reference, not as its active config.
+Mount a writable directory for `localStorage.directory` and set that directory in the config.
+The process runs as UID 10001 and GID 10001. Make the data volume writable by that identity,
+for example by setting Kubernetes `fsGroup: 10001` or changing the directory ownership to
+`10001:10001`.
+
+Port 8801 serves the API and `grpc.health.v1` on `api.listen`. Kubernetes gRPC probes can call
+that service directly. Health is NOT_SERVING during startup and SERVING after recovery completes.
+If the object store startup check fails, the container exits with an error. Docker and Kubernetes
+send SIGTERM directly to the process; it stops accepting work, releases its lease, and normally
+exits 0 within 14.5 seconds.
+
+Release tags `server-zd/vX.Y.Z` publish `dex-server-zd:X.Y.Z` and `dex-server-zd:latest`.
+The manually dispatched main-image workflow builds its selected ref and publishes
+`dex-server-zd:main` and `dex-server-zd:main-<short-sha>` without changing `latest`.
+
 ### dev
 
 ```bash
@@ -135,6 +261,22 @@ state under `<data-dir>/store`. `dexcli dev -engine zd` starts it with these fla
 node ID to `dev`, anonymous credentials, the embedded endpoint, and the `--listen` address, and it
 rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
 `<log-dir>/dex-server-zd.log`. A `search.backend: paradedb` override uses ParadeDB as `serve` does.
+
+## Stable command-line interface
+
+These commands and flags are part of the Beta compatibility interface. Applications can invoke
+them without depending on the implementation of the server:
+
+| Command | Flag | Meaning |
+| --- | --- | --- |
+| `serve` | `--config <file>` | Required YAML configuration file for a node using external object storage. |
+| `dev` | `--data-dir <dir>` | Required directory for embedded object storage and local state. |
+| `dev` | `--listen <address>` | Plaintext gRPC listen address as `IP:port`; host names are rejected; defaults to `127.0.0.1:8801`. |
+| `dev` | `--config <file>` | Optional YAML configuration overrides. |
+| `dev` | `--log-dir <dir>` | Optional directory that also receives `dex-server-zd.log`. |
+| Both | `--version` | Prints `dex-server-zd X.Y.Z`. |
+
+SIGTERM stops `dev` and exits with status 0.
 
 ## Development
 
@@ -152,12 +294,13 @@ no docker, MinIO, or Temporal.
 
 `testdata/v<N>` holds a recorded log, snapshot, cluster metadata, and committed state.
 `cargo test -p dexzd-engine --test format_compat` checks that the current code decodes every
-version and replays it to the recorded state. Recorded versions are immutable; a pinned digest
-of every file fails the test when a byte changes. The scripted workload must also reproduce the
-newest version byte for byte, so a change to the bytes the engine writes for it needs a new
-version.
+version and replays it to the recorded state. A pinned digest of every file fails the test when
+a byte changes. Before server-zd 1.0, regenerate `v1` with its generator when apply results
+change and update its pin. From 1.0 on, recorded versions are immutable. The scripted workload
+must also reproduce the newest version byte for byte, so a later change to the bytes the engine
+writes for it needs a new version.
 
-Add the next version in the change that does any of the following:
+From server-zd 1.0 on, add the next version in the change that does any of the following:
 
 - changes `proto/dexzd/`, the key layout, the object storage layout, or the snapshot format;
 - adds a command kind, a state table, an index kind, or an object kind;
@@ -171,7 +314,7 @@ Add the next version in the change that does any of the following:
 - `dexzd-apply` must be deterministic. It never reads clocks, random numbers, configuration, the
   environment, files, or the network, and it never iterates a hash map. Its `clippy.toml` bans the
   common offenders.
-- A change to the result of applying an already committed command needs a new behavior version
-  with a named predicate.
+- After 1.0, a change to the result of applying an already committed command needs a new behavior
+  version with a named predicate. Before 1.0, regenerate `v1` instead.
 - Persistent formats (`proto/dexzd/`, key layout, object storage layout, snapshots) change only
   additively, following the same rules as `protos/dex.proto`.

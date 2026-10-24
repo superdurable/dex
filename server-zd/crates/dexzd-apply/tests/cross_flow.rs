@@ -22,11 +22,12 @@ use dexzd_keyspace::{
     parse_run_key, run_prefix, run_table_prefix,
 };
 use dexzd_protocol::dex::{
-    AttributeWrite, CloseDecision, CloseDecisionType, FlowConfig, FlowErrorType, FlowResetType,
-    FlowStatus, FlowTimeoutHandlerOptions, FlowTimeoutPolicy, InvokeExecuteMethodResponse,
-    InvokeWaitForMethodResponse, ResetFlowRequest, SetAttributesRequest, StartFlowRequest,
-    StepDecision, StepOptions, StopFlowRequest, StopType, SubFlowCondition, SubFlowOptions,
-    SubFlowReusePolicy, Value, WaitingCondition, WaitingConditionType, WorkerTarget, value,
+    ActiveStepSearchMode, AttributeWrite, CloseDecision, CloseDecisionType, FlowConfig,
+    FlowErrorType, FlowResetType, FlowStatus, FlowTimeoutHandlerOptions, FlowTimeoutPolicy,
+    InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, ResetFlowRequest,
+    SetAttributesRequest, StartFlowRequest, StepDecision, StepDurability, StepOptions,
+    StopFlowRequest, StopType, SubFlowCondition, SubFlowOptions, SubFlowReusePolicy, Value,
+    WaitingCondition, WaitingConditionType, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, CheckpointRecord, ChildFlowStartMessage,
@@ -162,6 +163,18 @@ impl Harness {
     }
 
     fn start_parent_with_timeout(&mut self, timeout_seconds: i32) {
+        self.start_parent_with_timeout_and_config(timeout_seconds, None);
+    }
+
+    fn start_parent_with_config(&mut self, flow_config: FlowConfig) {
+        self.start_parent_with_timeout_and_config(0, Some(flow_config));
+    }
+
+    fn start_parent_with_timeout_and_config(
+        &mut self,
+        timeout_seconds: i32,
+        effective_flow_config: Option<FlowConfig>,
+    ) {
         let outcome = self.apply(
             "parent",
             &[],
@@ -178,6 +191,7 @@ impl Harness {
                 settings: Some(settings()),
                 resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
                 worker_target: Some(pull_worker()),
+                effective_flow_config,
                 ..FlowStartCommand::default()
             }),
         );
@@ -645,6 +659,61 @@ fn wait_for_starts_child_and_completion_wakes_parent() {
         }),
     ));
     assert!(harness.outbox("parent", PARENT_RUN).is_empty());
+}
+
+#[test]
+fn child_flow_inherits_parent_effective_config_and_applies_its_override() {
+    let mut harness = Harness::new();
+    let parent_config = FlowConfig {
+        active_step_search_mode: Some(ActiveStepSearchMode::Disabled as i32),
+        continue_as_new_threshold: Some(100),
+        step_durability: Some(StepDurability::Sync as i32),
+        worker_target: Some(pull_worker()),
+        ..FlowConfig::default()
+    };
+    harness.start_parent_with_config(parent_config.clone());
+    assert_eq!(
+        harness.record("parent", PARENT_RUN).flow_config,
+        Some(parent_config)
+    );
+    assert_ok(&harness.submit_sub_flow_wait(SubFlowCondition {
+        condition_id: "child".to_owned(),
+        sub_flow_type: "ChildFlow".to_owned(),
+        start_step_type: "ChildStep".to_owned(),
+        step_options: Some(StepOptions {
+            skip_wait_for: true,
+            ..StepOptions::default()
+        }),
+        options: Some(SubFlowOptions {
+            flow_config_override: Some(FlowConfig {
+                active_step_search_mode: Some(ActiveStepSearchMode::EnabledForAll as i32),
+                continue_as_new_threshold: Some(25),
+                ..FlowConfig::default()
+            }),
+            ..SubFlowOptions::default()
+        }),
+        ..SubFlowCondition::default()
+    }));
+    let start = harness
+        .outbox("parent", PARENT_RUN)
+        .pop()
+        .expect("child start outbox");
+    let expected_child_config = FlowConfig {
+        active_step_search_mode: Some(ActiveStepSearchMode::EnabledForAll as i32),
+        continue_as_new_threshold: Some(25),
+        step_durability: Some(StepDurability::Sync as i32),
+        worker_target: Some(pull_worker()),
+        ..FlowConfig::default()
+    };
+    let Some(outbox_record::Payload::ChildStart(message)) = start.payload.as_ref() else {
+        panic!("expected child start");
+    };
+    assert_eq!(message.flow_config, Some(expected_child_config.clone()));
+    assert_ok(&harness.deliver_start_outbox(&start, FIRST_CHILD_RUN));
+    assert_eq!(
+        harness.record(CHILD_ID, FIRST_CHILD_RUN).flow_config,
+        Some(expected_child_config)
+    );
 }
 
 #[test]

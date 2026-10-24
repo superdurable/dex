@@ -266,6 +266,21 @@ fn seeded_delay(seed: u64) -> impl Fn(u64) -> Duration + Send + Sync {
     }
 }
 
+#[tokio::test]
+async fn recovery_uses_listing_for_missing_tail() {
+    for (objects, expected_gets, expected_epoch_start_seq) in
+        [(Vec::new(), 0, 1), (vec![(1, batch(1, 1, 64))], 1, 2)]
+    {
+        let faults = BatchGetFaults::delaying(|_| Duration::ZERO);
+        let store = store_with(Arc::clone(&faults), objects).await;
+        let outcome = recover(&store, 1, 2, read_ahead(4))
+            .await
+            .expect("recovery succeeds");
+        assert_eq!(outcome.epoch_start_seq, expected_epoch_start_seq);
+        assert_eq!(faults.started_gets(), expected_gets);
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn recovery_order_and_voiding_are_exact_under_reordered_get_completion() {
     let mut expected_applied: Vec<u64> = (1..=12).collect();

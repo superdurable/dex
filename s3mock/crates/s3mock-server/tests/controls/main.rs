@@ -9,6 +9,7 @@
 //! HTTP and AWS SDK integration coverage of testing controls.
 
 mod configuration;
+mod credentials;
 mod faults;
 mod known_answers;
 mod lifecycle;

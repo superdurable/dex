@@ -9,9 +9,11 @@
 //! Deterministic fault selection and bounded request observations shared by all connections.
 
 mod admin;
+mod credential_admin;
 mod observation;
 mod operation;
 
+pub(crate) use admin::admin_error;
 use operation::S3OperationName;
 
 use std::collections::{BTreeMap, VecDeque};
@@ -46,6 +48,7 @@ pub(crate) enum FaultAction {
     CommitThenDrop {},
     Delay { milliseconds: u64 },
     Error { status: u16 },
+    MissingKeyAccessDenied {},
     FailBeforeCommit {},
     CorruptBody {},
     TruncateResponse {},
@@ -59,6 +62,7 @@ impl FaultAction {
             _ => return None,
         };
         let (status, code) = match status {
+            403 => (http::StatusCode::FORBIDDEN, "AccessDenied"),
             409 => (http::StatusCode::CONFLICT, "ConditionalRequestConflict"),
             503 => (http::StatusCode::SERVICE_UNAVAILABLE, "SlowDown"),
             _ => (http::StatusCode::INTERNAL_SERVER_ERROR, "InternalError"),

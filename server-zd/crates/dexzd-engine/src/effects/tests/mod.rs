@@ -849,6 +849,7 @@ impl EffectHarness {
         let (runner, tasks) = EffectRunner::new(
             &config,
             EffectDependencies {
+                metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                 dispatcher: Arc::clone(&dispatcher) as _,
                 hard_delete_objects: hard_delete_objects.clone(),
                 partition_hasher: hasher.clone(),
@@ -923,6 +924,15 @@ impl EffectHarness {
 
     /// Starts a Flow and returns its run ID.
     pub(super) fn start_flow(&self, request: StartFlowRequest, settings: RunSettings) -> RunId {
+        self.start_flow_with_timeout_policy(request, settings, FlowTimeoutPolicy::Fail)
+    }
+
+    pub(super) fn start_flow_with_timeout_policy(
+        &self,
+        request: StartFlowRequest,
+        settings: RunSettings,
+        timeout_policy: FlowTimeoutPolicy,
+    ) -> RunId {
         let flow = Self::flow(&request.flow_id);
         let new_run_id = uuid::Uuid::now_v7().as_bytes().to_vec();
         let command = FlowCommand {
@@ -932,7 +942,7 @@ impl EffectHarness {
                 new_run_id: new_run_id.clone(),
                 request: Some(request),
                 settings: Some(settings),
-                resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
+                resolved_timeout_policy: timeout_policy as i32,
                 worker_target: Some(WorkerTarget {
                     is_pull_mode: true,
                     ..WorkerTarget::default()

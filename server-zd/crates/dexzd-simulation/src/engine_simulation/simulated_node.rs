@@ -186,6 +186,7 @@ impl NodeProcess {
         let started = EngineNode::start(
             &engine_node_config(local_store_config, incarnation, environment.profile),
             EngineNodeDependencies {
+                metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                 object_store: object_store_port,
                 clock: wall_clock,
                 applier,
@@ -206,6 +207,7 @@ impl NodeProcess {
                 let (effect_runner, effect_tasks) = EffectRunner::new(
                     &effects_config(settings),
                     EffectDependencies {
+                        metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                         dispatcher: worker_port.clone(),
                         hard_delete_objects: hard_delete_objects.clone(),
                         partition_hasher: partition_hasher.clone(),

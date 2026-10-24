@@ -105,7 +105,7 @@ async fn strict_accepts_sdk_memory_file_and_encoded_keys_and_rejects_wrong_crede
             .as_service_error()
             .expect("the controls integration fixture succeeds")
             .code(),
-        Some("AccessDenied")
+        Some("InvalidAccessKeyId")
     );
     assert_eq!(server.admin("GET", "counters", json!(null)).await.0, 200);
     server.server.shutdown().await;

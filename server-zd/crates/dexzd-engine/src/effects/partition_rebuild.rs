@@ -27,7 +27,7 @@ use crate::runtime::FlowAddress;
 pub(crate) async fn rebuild_partition(
     context: &EffectContext,
     partition: PartitionId,
-) -> Result<(), EffectError> {
+) -> Result<usize, EffectError> {
     let startup_uploads = context
         .startup_pending_uploads
         .as_deref()
@@ -51,10 +51,11 @@ pub(crate) async fn rebuild_partition(
             flow,
             effects,
             is_committed: true,
+            scheduled_at: None,
         });
     }
-    tracing::info!(%partition, effect_count, "rebuilt partition effects");
-    Ok(())
+    tracing::debug!(%partition, effect_count, "rebuilt partition effects");
+    Ok(effect_count)
 }
 
 /// Pending invocations start again; running attempts are redispatched with the same attempt.

@@ -204,10 +204,11 @@ pub(crate) enum RouterMessage {
         flow: FlowAddress,
         effects: Vec<ApplyEffect>,
         is_committed: bool,
+        scheduled_at: Option<std::time::Instant>,
     },
     RebuildPartition {
         partition: PartitionId,
-        reply: oneshot::Sender<Result<(), EffectError>>,
+        reply: oneshot::Sender<Result<usize, EffectError>>,
     },
     InvocationStartFinished {
         flow: FlowAddress,
@@ -234,6 +235,8 @@ pub(crate) enum TrackedWork {
 
 /// Dependencies of the effect runner, passed once to [`EffectRunner::new`].
 pub struct EffectDependencies {
+    /// Process-local metrics for timer lag.
+    pub metrics: Arc<dexzd_metrics::NodeMetrics>,
     /// Worker transport for method attempts.
     pub dispatcher: Arc<dyn MethodDispatcher>,
     /// Hard-delete object operations.
@@ -252,6 +255,7 @@ pub struct EffectDependencies {
 
 /// Shared state of every effect task.
 pub(crate) struct EffectContext {
+    pub(crate) metrics: Arc<dexzd_metrics::NodeMetrics>,
     pub(crate) config: EffectsConfig,
     pub(crate) runtime: Arc<dyn EffectRuntime>,
     pub(crate) dispatcher: Arc<dyn MethodDispatcher>,
@@ -389,6 +393,15 @@ impl EffectRunner {
     /// running invocations, timers, outbox messages, hard-delete deletions, retention purges,
     /// and hard-delete uploads that never committed.
     pub async fn rebuild_partition(&self, partition: PartitionId) -> Result<(), EffectError> {
+        self.rebuild_partition_effect_count(partition)
+            .await
+            .map(|_| ())
+    }
+
+    async fn rebuild_partition_effect_count(
+        &self,
+        partition: PartitionId,
+    ) -> Result<usize, EffectError> {
         let (reply, response) = oneshot::channel();
         self.router
             .send(RouterMessage::RebuildPartition { partition, reply })
@@ -408,6 +421,7 @@ impl RuntimeEffectSink for EffectRunner {
             flow: flow.clone(),
             effects: effects.to_vec(),
             is_committed,
+            scheduled_at: is_committed.then(std::time::Instant::now),
         };
         if self.router.send(message).is_err() {
             tracing::debug!("effect runner stopped; effects are rebuilt after restart");
@@ -419,9 +433,9 @@ impl PartitionRuntimeRebuilder for EffectRunner {
     fn rebuild_partition(
         &self,
         partition: PartitionId,
-    ) -> BoxFuture<'_, Result<(), RuntimeRebuildError>> {
+    ) -> BoxFuture<'_, Result<usize, RuntimeRebuildError>> {
         Box::pin(async move {
-            EffectRunner::rebuild_partition(self, partition)
+            self.rebuild_partition_effect_count(partition)
                 .await
                 .map_err(|error| RuntimeRebuildError {
                     partition,
@@ -450,6 +464,7 @@ impl EffectTasks {
                 .clamp(1, Semaphore::MAX_PERMITS),
         ));
         let context = Arc::new(EffectContext {
+            metrics: self.dependencies.metrics,
             config: self.config,
             runtime,
             dispatcher: self.dependencies.dispatcher,
@@ -526,9 +541,10 @@ impl EffectRouter {
                 flow,
                 effects,
                 is_committed,
+                scheduled_at,
             } => {
                 for effect in effects {
-                    self.route_effect(&flow, effect, is_committed);
+                    self.route_effect(&flow, effect, is_committed, scheduled_at);
                 }
             }
             RouterMessage::RebuildPartition { partition, reply } => {
@@ -555,7 +571,13 @@ impl EffectRouter {
         }
     }
 
-    fn route_effect(&mut self, flow: &FlowAddress, effect: ApplyEffect, is_committed: bool) {
+    fn route_effect(
+        &mut self,
+        flow: &FlowAddress,
+        effect: ApplyEffect,
+        is_committed: bool,
+        scheduled_at: Option<std::time::Instant>,
+    ) {
         match effect {
             ApplyEffect::InvocationPending {
                 run_id,
@@ -580,6 +602,7 @@ impl EffectRouter {
                     key,
                     task_id,
                     method_timeout_seconds,
+                    scheduled_at,
                 );
             }
             ApplyEffect::InvocationCanceled { task_id, .. } => {

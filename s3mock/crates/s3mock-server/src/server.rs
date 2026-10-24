@@ -33,8 +33,10 @@ use tokio::task::{JoinHandle, JoinSet};
 use crate::config::ServerConfig;
 use crate::controls::{Controls, FaultAction, ObservedBody, RequestObservation};
 use crate::handlers;
+use crate::policy;
 use crate::routing::{self, S3Operation};
 use crate::s3_error::S3Error;
+use crate::signature::Identity;
 use crate::xml::XmlWriter;
 
 /// How long shutdown waits for in-flight requests before dropping their connections.
@@ -156,7 +158,36 @@ async fn handle_request(
 ) -> Result<S3Response, io::Error> {
     let request = request.map(|body| body.map_err(io::Error::other).boxed());
     if request.uri().path().starts_with("/_s3mock/") {
-        return Ok(controls.admin(store, request).await);
+        let path = request.uri().path();
+        let is_credential_request =
+            path == "/_s3mock/credentials" || path.starts_with("/_s3mock/credentials/");
+        if controls.config.signature_verification == crate::config::SignatureVerification::Off
+            && path.starts_with("/_s3mock/credentials")
+        {
+            return Ok(crate::controls::admin_error(
+                StatusCode::FORBIDDEN,
+                "AccessDenied",
+            ));
+        }
+        let needs_root = is_credential_request
+            || controls.config.control_authentication == crate::config::ControlAuthentication::Root
+                && controls.config.signature_verification
+                    == crate::config::SignatureVerification::Strict;
+        if !needs_root {
+            return Ok(controls.admin(store, request).await);
+        }
+        let verified = crate::signature::verify_request(
+            request,
+            &controls.config,
+            &store,
+            store.temporary_directory(),
+        )
+        .await;
+        return Ok(match verified {
+            Ok((request, identity)) if identity.is_root() => controls.admin(store, request).await,
+            Ok(_) => crate::controls::admin_error(StatusCode::FORBIDDEN, "AccessDenied"),
+            Err(error) => crate::controls::admin_error(error.status, error.code),
+        });
     }
     let started = Instant::now();
     let mut observation =
@@ -174,9 +205,20 @@ async fn handle_request(
         })
         .boxed()
     });
-    let verified =
-        crate::signature::verify_request(request, &controls.config, store.temporary_directory())
-            .await;
+    let verified = crate::signature::verify_request(
+        request,
+        &controls.config,
+        &store,
+        store.temporary_directory(),
+    )
+    .await
+    .and_then(|(request, identity)| {
+        if let Some(policy) = identity.policy() {
+            let operation = routing::route(request.method(), request.uri())?;
+            policy::authorize_operation(policy, &operation, request.headers())?;
+        }
+        Ok((request, identity))
+    });
     let mut fault_reset = controls.fault_reset.subscribe();
     observation.has_existing_bucket = match run_store_operation(&store, {
         let bucket = observation.bucket.clone();
@@ -205,10 +247,26 @@ async fn handle_request(
     }
     let result = match verified {
         Err(error) => Err(error),
-        Ok(request) => match fault.as_ref().and_then(FaultAction::error) {
+        Ok((request, identity)) => match fault.as_ref().and_then(FaultAction::error) {
             Some(error) => Err(error),
-            None => dispatch(store, request).await,
+            None => match routing::route(request.method(), request.uri()) {
+                Ok(operation) => dispatch(store, request, operation, identity).await,
+                Err(error) => Err(error),
+            },
         },
+    };
+    let result = match result {
+        Err(error)
+            if matches!(fault, Some(FaultAction::MissingKeyAccessDenied {}))
+                && error.code == "NoSuchKey" =>
+        {
+            Err(S3Error::new(
+                StatusCode::FORBIDDEN,
+                "AccessDenied",
+                "injected missing-key access denial",
+            ))
+        }
+        other => other,
     };
     if matches!(fault, Some(FaultAction::CommitThenDrop {}))
         && result
@@ -248,10 +306,22 @@ async fn handle_request(
     Ok(Response::from_parts(parts, body))
 }
 
-async fn dispatch(store: Arc<Store>, request: Request<RequestBody>) -> Result<S3Response, S3Error> {
-    let operation = routing::route(request.method(), request.uri())?;
+async fn dispatch(
+    store: Arc<Store>,
+    request: Request<RequestBody>,
+    operation: S3Operation,
+    identity: Identity,
+) -> Result<S3Response, S3Error> {
+    let should_hide_missing_key = match (&operation, identity.policy()) {
+        (
+            S3Operation::GetObject { bucket, key, .. }
+            | S3Operation::HeadObject { bucket, key, .. },
+            Some(policy),
+        ) => !policy.can_list_key_prefix(bucket, key),
+        _ => false,
+    };
     let (parts, body) = request.into_parts();
-    match operation {
+    let result = match operation {
         S3Operation::ListBuckets => handlers::list_buckets(store).await,
         S3Operation::CreateBucket { bucket } => {
             handlers::create_bucket(store, bucket, &parts.headers).await
@@ -275,7 +345,14 @@ async fn dispatch(store: Arc<Store>, request: Request<RequestBody>) -> Result<S3
             handlers::list_multipart_uploads(store, bucket, query).await
         }
         S3Operation::DeleteObjects { bucket } => {
-            handlers::delete_objects(store, bucket, parts.headers, body).await
+            handlers::delete_objects(
+                store,
+                bucket,
+                parts.headers,
+                body,
+                identity.policy().cloned(),
+            )
+            .await
         }
         S3Operation::CreateMultipartUpload { bucket, key } => {
             handlers::create_multipart_upload(store, bucket, key, &parts.headers).await
@@ -322,7 +399,18 @@ async fn dispatch(store: Arc<Store>, request: Request<RequestBody>) -> Result<S3
         S3Operation::DeleteObject { bucket, key, query } => {
             handlers::delete_object(store, bucket, key, query).await
         }
-    }
+    };
+    result.map_err(|error| {
+        if should_hide_missing_key && error.code == "NoSuchKey" {
+            S3Error::new(
+                StatusCode::FORBIDDEN,
+                "AccessDenied",
+                "the credential cannot discover whether this key exists",
+            )
+        } else {
+            error
+        }
+    })
 }
 
 fn render_error(error: S3Error, request_id: &str, is_head: bool) -> S3Response {

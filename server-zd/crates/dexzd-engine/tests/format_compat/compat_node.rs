@@ -38,8 +38,8 @@ impl PartitionRuntimeRebuilder for PassiveRuntime {
     fn rebuild_partition(
         &self,
         _partition: PartitionId,
-    ) -> BoxFuture<'_, Result<(), RuntimeRebuildError>> {
-        Box::pin(async { Ok(()) })
+    ) -> BoxFuture<'_, Result<usize, RuntimeRebuildError>> {
+        Box::pin(async { Ok(0) })
     }
 }
 
@@ -85,6 +85,7 @@ pub(crate) async fn start_engine_node(
     EngineNode::start(
         config,
         EngineNodeDependencies {
+            metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
             object_store,
             clock,
             applier: Arc::new(DeterministicCommandApplier),

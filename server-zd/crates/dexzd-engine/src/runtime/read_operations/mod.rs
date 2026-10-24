@@ -24,6 +24,7 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeRecord, ChannelMessageRecord, HardDeleteObjectReference, PermissionSetRecord,
+    RunRecord,
 };
 
 use crate::effects::HardDeleteObjectOwner;
@@ -158,8 +159,7 @@ impl FlowRuntimeRegistry {
 
     /// Returns the values behind value references, keyed by reference text.
     ///
-    /// Every reference must belong to a run of the entry's Flow. Values that no longer exist
-    /// are omitted.
+    /// References outside the named Flow and values that no longer exist are omitted.
     ///
     /// Reads only committed state, so no client sees a value that may never commit. Dispatch
     /// inlines uncommitted values instead.
@@ -196,24 +196,40 @@ impl FlowRuntimeRegistry {
             let flow = FlowAddress::new(tenant_id, entry.flow_id);
             let context = self.flow_context(&flow);
             let directory = read_directory(committed.as_ref(), context, &flow)?;
-            let is_run_of_flow = directory.is_some_and(|directory| {
-                directory
-                    .runs
-                    .iter()
-                    .any(|run| run.run_id.as_slice() == reference.run_id.as_bytes())
-            });
+            let Some(directory) = directory else {
+                // A purged and an unknown Flow have no directory; the Go Server omits both.
+                continue;
+            };
+            let is_run_of_flow = directory
+                .runs
+                .iter()
+                .any(|run| run.run_id.as_slice() == reference.run_id.as_bytes());
             if !is_run_of_flow {
-                return Err(RuntimeError::invalid_argument(format!(
-                    "blob ID {reference_text:?} does not belong to Flow {}",
-                    flow.flow_id
-                )));
+                continue;
             }
-            read_run(
+            let run_record: Option<RunRecord> = decode_row(
                 committed.as_ref(),
-                context,
-                &flow,
-                &reference.run_id.to_string(),
+                ColumnFamily::Flow,
+                &run_key(
+                    context.flow_hash,
+                    reference.run_id,
+                    RunTable::RunRecord,
+                    &[],
+                ),
+                "run",
             )?;
+            match run_record {
+                Some(record)
+                    if record.flow_id == flow.flow_id
+                        && record.tenant_id == flow.tenant_id.0
+                        && record.is_purging =>
+                {
+                    continue;
+                }
+                Some(record)
+                    if record.flow_id == flow.flow_id && record.tenant_id == flow.tenant_id.0 => {}
+                _ => return Err(RuntimeError::flow_not_found(&flow.flow_id)),
+            }
             if let Some(value) = read_table_value(
                 committed.as_ref(),
                 context.flow_hash,
