@@ -54,6 +54,37 @@ downloaded archive against that file before extracting it. Run
 Linux archives require glibc 2.28 or newer. They run on Debian 10+, Ubuntu 20.04+, and
 RHEL 8+ without a newer system libstdc++.
 
+## Compatibility
+
+Released Go SDK integration suites were run unchanged against the released macOS arm64 binary.
+Each run used pull Workers and `dexcli dev -engine zd` from `cli-v1.16.0`. It followed the steps
+of main's `sdk-go/run-e2e-tests.sh` with `DEX_INTEG_ENGINE=zd`.
+
+| server-zd | Go SDK | Top-level tests | Subtests |
+| --- | --- | --- | --- |
+| `server-zd/v0.1.1` | `sdk-go/v1.16.0` | 53 passed, 4 skipped, 0 failed | 14 passed, 5 skipped, 0 failed |
+| `server-zd/v0.1.1` | `sdk-go/v1.15.0` | 49 passed, 1 skipped, 7 failed | 14 passed, 0 skipped, 5 failed |
+
+Every `sdk-go/v1.15.0` failure is a difference listed below. Its one skip is a push-only test
+that the suite skips with pull Workers. Both versions also passed the two pull Worker tests that
+run against a real server.
+
+The `sdk-go/v1.15.0` suite predates server-zd, so it expects Go Server behavior in these areas.
+From `sdk-go/v1.16.0` on, the suite skips these tests on server-zd or asserts server-zd behavior:
+
+| Area | server-zd behavior | Affected tests |
+| --- | --- | --- |
+| Step failure policies | Proceed-on-failure and proceed-to-configured-Step policies are rejected with `InvalidArgument`. A Worker Step decision that sets one fails the attempt. | `TestProceedOnWaitForFailureFlow`, `TestStepRecovery`, and five `TestStepCancellation` scenarios |
+| Flow retry policies | StartFlow with a Flow retry policy returns `InvalidArgument`. | `TestBasicFlow` |
+| TriggerContinueAsNew | Returns `Unimplemented`. | `TestActionPermissionProjectionContinueAsNew`, `TestSubFlowPartialResultsSurviveContinueAsNewWithoutRestart` |
+| ASYNC Step heartbeats | Heartbeat checkpoints are kept from the first attempt. | `TestAsyncLocalHeartbeatIsIgnoredAndStreamsAreRetained` |
+| Push Workers | Not supported. | `TestMessageSizeHydrationSplitsBlobBatchesAboveLimit` (push-only) |
+
+The [released Go SDK compatibility workflow](../.github/workflows/server-zd-sdk-go-compatibility.yml)
+repeats this check after each server-zd release. It runs the newest `sdk-go` release's suite
+against the Linux amd64 binary. A manual run can choose any server-zd tag and any `sdk-go` tag
+from `sdk-go/v1.16.0` on.
+
 ## Metrics
 
 Set `metrics.listen` to a bind address such as `127.0.0.1:9090` to serve plain HTTP `GET /metrics` on a listener separate from `api.listen`. The default empty string disables it. The endpoint is unauthenticated; never expose it publicly. Other paths return 404. The response uses OpenMetrics text with `application/openmetrics-text; version=1.0.0; charset=utf-8`. Metrics are available while a node is recovering or standing by.
