@@ -446,3 +446,90 @@ async fn a_registered_worker_stream_outlives_its_token() {
     drop(responses);
     server.shutdown().await;
 }
+
+const UNAUTHENTICATED_SERVER_INFO_SERIES: &str =
+    "dexzd_api_requests_total{rpc_class=\"flow_read\",code=\"unauthenticated\"}";
+const OK_SERVER_INFO_SERIES: &str = "dexzd_api_requests_total{rpc_class=\"flow_read\",code=\"ok\"}";
+
+/// Returns the OpenMetrics body of one `GET /metrics`.
+async fn scrape_metrics(address: SocketAddr) -> String {
+    let mut stream = tokio::net::TcpStream::connect(address)
+        .await
+        .expect("the metrics listener is reachable");
+    stream
+        .write_all(b"GET /metrics HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .expect("the scrape request is sent");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .await
+        .expect("the scrape response is received");
+    let response = String::from_utf8(response).expect("the metrics text is UTF-8");
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
+    response
+        .split_once("\r\n\r\n")
+        .expect("the scrape response has a body")
+        .1
+        .to_owned()
+}
+
+/// Sums the samples whose series starts with `series_prefix`; absent series count as zero.
+fn sample_sum(body: &str, series_prefix: &str) -> f64 {
+    body.lines()
+        .filter(|line| line.starts_with(series_prefix))
+        .map(|line| {
+            line.split_whitespace()
+                .last()
+                .expect("the sample has a value")
+                .parse::<f64>()
+                .expect("the sample is numeric")
+        })
+        .sum()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn refused_and_accepted_calls_are_counted_and_health_is_not() {
+    let key_server = KeyServer::start().await;
+    let server =
+        AuthenticatedDevServer::start(&key_server.issuer, "metrics:\n  listen: '127.0.0.1:0'\n")
+            .await;
+    let metrics_address = server
+        .server
+        .as_ref()
+        .expect("the server is running")
+        .metrics_address()
+        .expect("the metrics listener is enabled");
+
+    assert_unauthenticated(
+        server.server_info(None).await,
+        "a bearer credential is required",
+    );
+    server
+        .server_info(Some(FIRST_STATIC_TOKEN))
+        .await
+        .expect("a listed static token is accepted");
+
+    // The accepted call records when its trailers are polled, which can follow the client's return.
+    eventually(Duration::from_secs(5), async || {
+        sample_sum(
+            &scrape_metrics(metrics_address).await,
+            "dexzd_api_requests_total{",
+        ) >= 2.0
+    })
+    .await;
+    let body = scrape_metrics(metrics_address).await;
+    assert_eq!(
+        sample_sum(&body, UNAUTHENTICATED_SERVER_INFO_SERIES),
+        1.0,
+        "{body}"
+    );
+    assert_eq!(sample_sum(&body, OK_SERVER_INFO_SERIES), 1.0, "{body}");
+    // The startup health checks of AuthenticatedDevServer::start add nothing.
+    assert_eq!(
+        sample_sum(&body, "dexzd_api_requests_total{"),
+        2.0,
+        "{body}"
+    );
+    server.shutdown().await;
+}
