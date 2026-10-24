@@ -11,6 +11,7 @@
 mod attribute_sync_invariants;
 mod directory_invariants;
 mod lock_invariants;
+mod search_order_invariants;
 mod value_invariants;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -107,6 +108,7 @@ pub fn check_flow(
 ) -> Result<(), InvariantViolation> {
     directory_invariants::check_directory(flow_id, view)?;
     attribute_sync_invariants::check_index_runs_exist(flow_id, view)?;
+    search_order_invariants::check_search_order(flow_id, view)?;
     for (run_id, run) in view.runs.iter().filter(|(_, run)| run.is_complete) {
         let context = RunContext { flow_id, run_id };
         directory_invariants::check_run_record(&context, run)?;

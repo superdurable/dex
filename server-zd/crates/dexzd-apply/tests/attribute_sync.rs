@@ -540,6 +540,23 @@ fn drop_ack_deletes_entries_and_reports_them() {
         vec![entry(PRIMARY, "status")],
         "a later write syncs again after a drop"
     );
+
+    harness.set(vec![synced("status", string_value("verified"))], "set-2");
+    let partial_drop = harness.ack(PRIMARY, 3, &[], true);
+    assert!(is_ok(&partial_drop.reply));
+    let drop_time = harness.now_micros;
+    assert_eq!(
+        harness.entries(),
+        BTreeMap::from([(entry(PRIMARY, "status"), (4, drop_time))]),
+        "a drop ack restarts the retry window of a newer pending change"
+    );
+    assert!(
+        !partial_drop
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, ApplyEffect::AttributeSyncDropped { .. })),
+        "a drop ack that deletes nothing reports nothing"
+    );
 }
 
 #[test]
