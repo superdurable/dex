@@ -61,15 +61,22 @@ func testGeneralAuthentication(t *testing.T, backend service.BackendType) {
 	internalTokenFile := filepath.Join(t.TempDir(), "internal-token")
 	require.NoError(t, os.WriteFile(internalTokenFile, []byte(internalToken+"\n"), 0o600))
 	issuer := newTestJWTIssuer(t)
-	runtime := startInProcessDexService(t, DexServiceTestConfig{
+	testConfig := DexServiceTestConfig{
 		BackendType: backend,
 		Auth: &config.AuthConfig{Authenticators: []config.AuthenticatorConfig{
 			{Kind: config.AuthenticatorKindStaticTokens, File: tokenFile},
 			{Kind: config.AuthenticatorKindJWT, Issuer: issuer.URL, Audiences: []string{"dex"}, JWKSURL: issuer.URL + "/keys"},
 		}},
-		Internal:   &config.InternalConfig{TokenFile: internalTokenFile},
 		Credential: token,
-	})
+	}
+	var runtime *integRuntime
+	if isServerZDBinaryMode() {
+		// server-zd has no internal listener; its pull Workers send the public credential.
+		runtime = startDexService(t, testConfig)
+	} else {
+		testConfig.Internal = &config.InternalConfig{TokenFile: internalTokenFile}
+		runtime = startInProcessDexService(t, testConfig)
+	}
 	call := func(credential string) codes.Code {
 		_, err := newFlowClientWithCredential(t, runtime.PublicAddress, credential).GetServerInfo(ctx, &emptypb.Empty{})
 		return status.Code(err)
@@ -98,9 +105,11 @@ func testGeneralAuthentication(t *testing.T, backend service.BackendType) {
 		return status.Code(err)
 	}
 	require.Equal(t, codes.Unimplemented, dump(runtime.PublicAddress, internalToken))
-	require.Equal(t, codes.Unauthenticated, dump(runtime.InternalAddress, ""))
-	require.Equal(t, codes.Unauthenticated, dump(runtime.InternalAddress, token))
-	require.Equal(t, codes.InvalidArgument, dump(runtime.InternalAddress, internalToken))
+	if !isServerZDBinaryMode() {
+		require.Equal(t, codes.Unauthenticated, dump(runtime.InternalAddress, ""))
+		require.Equal(t, codes.Unauthenticated, dump(runtime.InternalAddress, token))
+		require.Equal(t, codes.InvalidArgument, dump(runtime.InternalAddress, internalToken))
+	}
 	workerTarget := startWorker(t, basic.NewHandler())
 	flowID := basic.FlowType + "-" + uuid.NewString()
 	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
@@ -114,6 +123,9 @@ func testGeneralAuthentication(t *testing.T, backend service.BackendType) {
 	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, NeedsResults: true, WaitTimeSeconds: 20})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus())
+	if isServerZDBinaryMode() {
+		return
+	}
 	runtime.requireInternalDumpHeaders(t, "authorization", "Bearer "+internalToken)
 	testAuthenticatedStream(t, &config.AuthConfig{Authenticators: []config.AuthenticatorConfig{{Kind: config.AuthenticatorKindStaticTokens, File: tokenFile}}}, token)
 	testInternalAuthenticatedStream(t, internalTokenFile, internalToken)

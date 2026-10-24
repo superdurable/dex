@@ -25,7 +25,7 @@ example, it supports only pull Workers).
 | `dexzd-worker-dispatch` | Pull Worker protocol server |
 | `dexzd-search` | SearchFlows backends |
 | `dexzd-engine` | Commit pipeline, Flow runtime, effects, recovery |
-| `dexzd-api` | FlowService gRPC handlers |
+| `dexzd-api` | FlowService gRPC handlers and public API authentication |
 | `dexzd-server` | The `dex-server-zd` executable |
 | `dexzd-simulation` | Deterministic simulation tests |
 | `dexzd-e2e-tests` | End-to-end tests over the real gRPC protocol |
@@ -123,6 +123,84 @@ has the same 14.5-second total and exit status as a signal received while servin
 releases its lease and exits 1.
 
 Logs go to standard error. `RUST_LOG` filters them; the default level is `info`.
+
+### Authentication
+
+`auth.authenticators` turns on public API authentication. It is empty by default, which leaves
+the API open. The section uses the Go Server's `auth` keys, so an existing Go Server section
+loads unchanged:
+
+```yaml
+auth:
+  authenticators:          # tried in order
+    - kind: jwt
+      issuer: https://issuer.example.com     # exact iss claim
+      audiences: ["dex"]                     # aud must name at least one
+      jwksURL: ""                            # empty uses OIDC discovery from the issuer
+      allowInsecureJWKSURL: false            # server-zd only
+      caFile: ""                             # PEM bundle added to the system roots
+    - kind: staticTokens
+      file: /etc/dex-server-zd/tokens.yaml
+```
+
+Every FlowService and WorkerTaskService call needs an `authorization: Bearer <credential>`
+header. gRPC health needs no credential. A call to a service that server-zd does not serve answers
+UNIMPLEMENTED, as in the Go Server. A rejected call ends with UNAUTHENTICATED. Its
+`ServiceErrorResponse` detail has sub-status `UNCATEGORIZED` and one of two details: "a bearer
+credential is required" or "the credential is not valid". These match the Go Server. Credentials
+are never logged; rejection reasons are logged at debug level.
+
+Authenticators are tried in order:
+
+- A `staticTokens` entry accepts a credential whose SHA-256 hash its file lists.
+- The first `jwt` entry whose `issuer` equals the token's unverified `iss` claim decides alone. If
+  its checks fail, later entries are not tried.
+
+A JWT is accepted when all of these hold:
+
+- Its `alg` is RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512, or EdDSA (Ed25519).
+- Its `kid` names exactly one public signing key. If the key has an `alg`, it must match the
+  token's.
+- The signature verifies. RSA keys need 2048 to 8192 bits.
+- `iss` matches `issuer` exactly, and `aud` names an entry of `audiences`.
+- `exp` is present, and `exp`, `nbf`, and `iat` hold with a 30-second clock skew leeway.
+
+The issuer must be an HTTPS URL, or plain HTTP on `localhost` or a loopback IP. Keys come from
+`jwksURL`, or from the `jwks_uri` of `<issuer>/.well-known/openid-configuration`. A discovered
+document must name the same issuer, and its `jwks_uri` follows the same HTTPS rule. `jwksURL`
+follows it too, unless `allowInsecureJWKSURL` is true. That flag permits a plain `http://` key
+server on a trusted network, such as one inside the cluster. It needs `jwksURL` and relaxes
+nothing else. HTTPS requests trust the system roots plus `caFile`, so a container image needs CA
+certificates. Redirects are not followed, and proxy environment variables are ignored.
+
+The key set follows the Go Server's limits:
+
+- Startup fetches nothing, so an unreachable issuer does not fail startup. The first JWT fetches
+  the keys.
+- Keys refresh at most once a minute. The refresh runs in the background, and requests whose key
+  is cached do not wait for it.
+- A token with an unknown `kid` triggers a refresh at most every ten seconds. Such a request waits
+  for that refresh for at most five seconds, which also bounds each refresh.
+- A failed refresh keeps the previous keys.
+
+A static token file lists hashes, never plaintext tokens:
+
+```yaml
+tokens:
+  - sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+```
+
+Compute a hash with `printf %s "$TOKEN" | sha256sum`. The file must exist and be valid at
+startup, or startup fails. Changes take effect within a second. A malformed update keeps the last
+valid content, while an empty or missing file revokes every token.
+
+A credential is checked once, when a call starts. This matches the Go Server. A pull Worker stream
+that opened with a valid credential stays open after its JWT expires or its static token is
+revoked. The Worker needs a currently valid credential when it reconnects, for example after the
+server asks it to.
+
+`api.listen` serves plaintext gRPC, so bearer credentials cross the network in clear text.
+Terminate TLS in front of the server, or restrict the network to trusted callers.
 
 ### dev
 
