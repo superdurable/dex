@@ -14,13 +14,17 @@ Call `Client::health_check` after bootstrap before declaring the application rea
 
 At shutdown, stop the Worker, join its thread, and close BlobCache. A panic in the Worker thread must not be silently discarded.
 
+## Worker diagnostics
+
+With Rust SDK v1.16.0, Workers report errors and warnings through the **tracing** crate instead of printing to standard error. Examples are a disconnected or rejected task stream, a failed handler, and a failed RPC result. The SDK installs no subscriber. Install one at application startup, such as **tracing_subscriber::fmt().init()**, or these events are discarded. Retry behavior does not depend on the subscriber. [Released Worker diagnostics](https://github.com/superdurable/dex/blob/sdk-rust/v1.16.0/sdk-rust/README.md)
+
 ## Heartbeat progress
 
 Heartbeat long-running Execute work at bounded intervals. On retry, resume from the last heartbeat value. Check cancellation during the same loop.
 
 Server v1.10.1 enforces the Step HeartbeatTimeout for pull Workers; Server v1.10.0 does not. Cancellation reaches a Step handler through heartbeats, so record one within the timeout when a long-running handler must observe cancellation. For a pull target, later attempts after the one-attempt ASYNC local phase receive the last recorded heartbeat. See [pull Worker routing](../core/pull-workers.md).
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.15.0/examples/rust/src/primitives/heartbeat/flow.rs)
+[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.16.0/examples/rust/src/primitives/heartbeat/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/heartbeat/flow.rs -->
 ```rust
 let completed_batches = context.last_heartbeat_value::<i32>()?.unwrap_or_default();
@@ -50,4 +54,4 @@ Consult the Dex production metrics documentation for current metric names rather
 5. locks or transactions that can conflict;
 6. loaded versus declared persistence state.
 
-The Rust SDK does not expose an application tracing facade at this baseline. Use the application's logging/tracing stack around controller and handler boundaries, and do not claim automatic span propagation unless the installed SDK documents it.
+The Rust SDK does not propagate application tracing spans at this baseline. Use the application's logging/tracing stack around controller and handler boundaries, and do not claim automatic span propagation unless the installed SDK documents it.
