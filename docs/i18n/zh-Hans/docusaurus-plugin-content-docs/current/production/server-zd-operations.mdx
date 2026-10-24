@@ -118,14 +118,21 @@ spec:
               containerPort: 8801
             - name: metrics
               containerPort: 9090
+          startupProbe:
+            grpc:
+              port: 8801
+            periodSeconds: 5
+            failureThreshold: 60
           readinessProbe:
             grpc:
               port: 8801
             periodSeconds: 5
           livenessProbe:
-            tcpSocket:
-              port: grpc
+            grpc:
+              port: 8801
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
             - name: config
               mountPath: /etc/dex-server-zd/config.yaml
@@ -198,9 +205,22 @@ pod 内的容器重启后仍然保留，但不会带到新 pod。使用 Persiste
 8801 端口在 **api.listen** 上提供标准的 gRPC health 服务。启动期间，节点等待 lease 和
 重放日志时，health 报告 **NOT_SERVING**。恢复完成后报告 **SERVING**。
 
-gRPC health 只用于 readiness。gRPC liveness probe 会在较长的恢复期间失败，让 pod
-反复重启。如果需要 liveness probe，在 8801 端口上使用 TCP probe。监听器在恢复开始之前
-就已绑定。
+三种 probe 都使用 gRPC health：
+
+- **startupProbe** 在第一次 **SERVING** 之前挡住 liveness probe。**failureThreshold**
+  × **periodSeconds** 至少要等于 **lease.duration** + 1 s + 最坏情况下的恢复时间。lease
+  这一部分用于应对上一个 owner 没有释放 lease 的情况。恢复时间随当前状态和日志尾部增长。
+  空存储的冷恢复用时约 4 s，有真实数据时要预留更多。示例允许 5 分钟。
+- **readinessProbe** 在节点不提供服务时挡住流量。
+- **livenessProbe** 重启不再响应的节点。不要用 TCP probe 做 liveness：卡住的进程仍可能通过
+  内核的连接队列接受 TCP 连接，却不提供任何服务。
+
+正在服务的节点不会在不退出的情况下回到 **NOT_SERVING**，因为丢失 lease 会结束进程。所以在
+gRPC health 上做 liveness 不会造成反复重启。
+
+这组 probe 适用于单副本，这是目前支持的拓扑。standby 副本在接管之前一直是
+**NOT_SERVING**，永远过不了这个 startup probe。standby 需要改用 TCP 或 exec 的 startup
+probe 和 liveness probe。
 
 发生致命错误后，例如 lease 丢失或提交失败，进程会自行退出。启动时如果对象存储不可达，
 进程也会以 1 退出。这两种情况下，Kubernetes 都会按退避策略重启容器。

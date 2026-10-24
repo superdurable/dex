@@ -130,14 +130,21 @@ spec:
               containerPort: 8801
             - name: metrics
               containerPort: 9090
+          startupProbe:
+            grpc:
+              port: 8801
+            periodSeconds: 5
+            failureThreshold: 60
           readinessProbe:
             grpc:
               port: 8801
             periodSeconds: 5
           livenessProbe:
-            tcpSocket:
-              port: grpc
+            grpc:
+              port: 8801
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
             - name: config
               mountPath: /etc/dex-server-zd/config.yaml
@@ -219,9 +226,27 @@ Port 8801 serves the standard gRPC health service on **api.listen**. Health
 reports **NOT_SERVING** during startup, while the node waits for its lease and
 replays the log. It reports **SERVING** after recovery completes.
 
-Use gRPC health for readiness only. A gRPC liveness probe would fail during a
-long recovery and restart the pod in a loop. If you need a liveness probe, use a
-TCP probe on port 8801. The listener binds before recovery starts.
+Use gRPC health for all three probes:
+
+- The **startupProbe** holds off the liveness probe until the first **SERVING**.
+  Size it so that **failureThreshold** × **periodSeconds** is at least
+  **lease.duration** + 1 s + the worst-case recovery time. The lease part covers
+  a previous owner that did not release its lease. Recovery time grows with live
+  state and the log tail. A cold restore of an empty store took about 4 s; plan
+  for more with real data. The example allows 5 minutes.
+- The **readinessProbe** keeps traffic away while the node is not serving.
+- The **livenessProbe** restarts a node that stops answering. Do not use a TCP
+  probe for liveness: a stalled process can still accept TCP connections in the
+  kernel backlog while it serves nothing.
+
+A serving node never returns to **NOT_SERVING** without exiting, because a lost
+lease ends the process. Liveness on gRPC health therefore does not cause restart
+loops.
+
+This probe set is for a single replica, the supported topology. A standby
+replica stays **NOT_SERVING** until it takes over, so it would never pass this
+startup probe. A standby needs a TCP or exec startup probe and liveness probe
+instead.
 
 The process exits on its own after a fatal error, such as a lost lease or a
 failed commit. If object storage is unreachable at startup, the process also
