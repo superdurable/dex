@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,22 +31,35 @@ const (
 	apiKeyRefreshRetryInterval     = 5 * time.Second
 	maxAPIKeyExchangeResponseBytes = 1 << 20
 	maxAPIKeyExchangeErrorRunes    = 200
+	redactedAPIKeySecret           = "[REDACTED]"
 	// Capping the lifetime keeps expiry arithmetic far from time.Duration overflow.
 	maxAPIKeyTokenLifetimeSeconds = math.MaxInt32
 )
 
-// apiKeyCredential follows the SDK API key contract; one mutex serializes exchanges because dexcli rarely calls concurrently.
+// apiKeyCredential follows the SDK API key contract: one shared exchange at a time, run outside the mutex.
 type apiKeyCredential struct {
 	tokenURL   *url.URL
 	serverID   string
 	apiKey     string
 	httpClient *http.Client
+	// now must return monotonic readings; tests replace it before the first call.
+	now func() time.Time
 
 	mu                   sync.Mutex
 	token                string
 	refreshAt            time.Time
 	expiresAt            time.Time
 	nextRefreshAttemptAt time.Time
+	inFlightExchange     *apiKeyExchange
+	// issuedTokens keeps the latest two tokens so that echoed tokens stay redacted.
+	issuedTokens [2]string
+}
+
+// apiKeyExchange is one token exchange; done closes after token and err are set.
+type apiKeyExchange struct {
+	done  chan struct{}
+	token string
+	err   error
 }
 
 func newAPIKeyCredential(tokenURL string, serverID string, apiKey string) (*apiKeyCredential, error) {
@@ -64,6 +78,7 @@ func newAPIKeyCredential(tokenURL string, serverID string, apiKey string) (*apiK
 		serverID:   serverID,
 		apiKey:     apiKey,
 		httpClient: &http.Client{CheckRedirect: refuseAPIKeyExchangeRedirect},
+		now:        time.Now,
 	}, nil
 }
 
@@ -105,57 +120,101 @@ func refuseAPIKeyExchangeRedirect(*http.Request, []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
+// GetRequestMetadata returns a valid cached token at once; a refresh after 80% of its lifetime runs in the background.
 func (c *apiKeyCredential) GetRequestMetadata(ctx context.Context, _ ...string) (map[string]string, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	now := time.Now()
-	hasValidToken := c.token != "" && now.Before(c.expiresAt)
-	if hasValidToken && (now.Before(c.refreshAt) || now.Before(c.nextRefreshAttemptAt)) {
-		return map[string]string{"authorization": "Bearer " + c.token}, nil
-	}
-	token, lifetime, err := c.exchange(ctx)
-	if err != nil {
-		if !hasValidToken {
-			return nil, err
+	now := c.now()
+	if c.token != "" && now.Before(c.expiresAt) {
+		token := c.token
+		if !now.Before(c.refreshAt) && !now.Before(c.nextRefreshAttemptAt) {
+			c.startExchangeLocked()
 		}
-		c.nextRefreshAttemptAt = time.Now().Add(apiKeyRefreshRetryInterval)
-		return map[string]string{"authorization": "Bearer " + c.token}, nil
+		c.mu.Unlock()
+		return map[string]string{"authorization": "Bearer " + token}, nil
 	}
-	c.token = token
-	c.refreshAt = now.Add(lifetime - lifetime/5)
-	c.expiresAt = now.Add(lifetime)
-	c.nextRefreshAttemptAt = time.Time{}
-	return map[string]string{"authorization": "Bearer " + token}, nil
+	exchange := c.startExchangeLocked()
+	c.mu.Unlock()
+	select {
+	case <-exchange.done:
+		if exchange.err != nil {
+			return nil, exchange.err
+		}
+		return map[string]string{"authorization": "Bearer " + exchange.token}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (*apiKeyCredential) RequireTransportSecurity() bool { return false }
 
-// exchange returns the access token and its lifetime, or an *apiKeyExchangeError.
-func (c *apiKeyCredential) exchange(ctx context.Context) (string, time.Duration, error) {
-	exchangeCtx, cancel := context.WithTimeout(ctx, apiKeyExchangeTimeout)
+// startExchangeLocked returns the in-flight exchange, starting one when none is running.
+func (c *apiKeyCredential) startExchangeLocked() *apiKeyExchange {
+	if c.inFlightExchange != nil {
+		return c.inFlightExchange
+	}
+	exchange := &apiKeyExchange{done: make(chan struct{})}
+	c.inFlightExchange = exchange
+	go c.runExchange(exchange, newAPIKeySecrets(c.apiKey, c.issuedTokens[0], c.issuedTokens[1]))
+	return exchange
+}
+
+// runExchange publishes one exchange result and never caches a token that expired before the response arrived.
+func (c *apiKeyCredential) runExchange(exchange *apiKeyExchange, secrets apiKeySecrets) {
+	// The exchange is shared by every waiting call, so no single call's context may cancel it.
+	exchangeCtx, cancel := context.WithTimeout(context.Background(), apiKeyExchangeTimeout)
 	defer cancel()
+	startedAt := c.now()
+	token, lifetime, err := c.exchange(exchangeCtx, secrets)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.inFlightExchange = nil
+	finishedAt := c.now()
+	if err == nil {
+		c.issuedTokens = [2]string{token, c.issuedTokens[0]}
+		if !finishedAt.Before(startedAt.Add(lifetime)) {
+			token = ""
+			err = c.newExchangeError(http.StatusOK, fmt.Sprintf(
+				"the access token expired before the response arrived; expires_in was %s and the exchange took %s",
+				lifetime, finishedAt.Sub(startedAt).Round(time.Millisecond),
+			), nil)
+		}
+	}
+	if err != nil {
+		c.nextRefreshAttemptAt = finishedAt.Add(apiKeyRefreshRetryInterval)
+	} else {
+		c.token = token
+		c.refreshAt = startedAt.Add(lifetime - lifetime/5)
+		c.expiresAt = startedAt.Add(lifetime)
+		c.nextRefreshAttemptAt = time.Time{}
+	}
+	exchange.token, exchange.err = token, err
+	close(exchange.done)
+}
+
+// exchange returns the access token and its lifetime, or an *apiKeyExchangeError without secrets.
+func (c *apiKeyCredential) exchange(exchangeCtx context.Context, secrets apiKeySecrets) (string, time.Duration, error) {
 	requestBody, err := json.Marshal(apiKeyExchangeRequest{ServerID: c.serverID, APIKey: c.apiKey})
 	if err != nil {
-		return "", 0, c.newExchangeError(0, "encode the exchange request", err)
+		return "", 0, c.newExchangeError(0, "encode the exchange request", secrets.redactError(err))
 	}
 	request, err := http.NewRequestWithContext(exchangeCtx, http.MethodPost, c.tokenURL.String(), bytes.NewReader(requestBody))
 	if err != nil {
-		return "", 0, c.newExchangeError(0, "create the exchange request", err)
+		return "", 0, c.newExchangeError(0, "create the exchange request", secrets.redactError(err))
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return "", 0, c.newTransportError(exchangeCtx, err)
+		return "", 0, c.newTransportError(exchangeCtx, err, secrets)
 	}
 	responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, maxAPIKeyExchangeResponseBytes+1))
 	if closeErr := response.Body.Close(); closeErr != nil && readErr == nil {
 		readErr = closeErr
 	}
 	if readErr != nil {
-		return "", 0, c.newTransportError(exchangeCtx, readErr)
+		return "", 0, c.newTransportError(exchangeCtx, readErr, secrets)
 	}
-	return c.parseExchangeResponse(response.StatusCode, responseBody)
+	return c.parseExchangeResponse(response.StatusCode, responseBody, secrets)
 }
 
 type apiKeyExchangeRequest struct {
@@ -163,7 +222,7 @@ type apiKeyExchangeRequest struct {
 	APIKey   string `json:"api_key"`
 }
 
-func (c *apiKeyCredential) parseExchangeResponse(statusCode int, responseBody []byte) (string, time.Duration, error) {
+func (c *apiKeyCredential) parseExchangeResponse(statusCode int, responseBody []byte, secrets apiKeySecrets) (string, time.Duration, error) {
 	if len(responseBody) > maxAPIKeyExchangeResponseBytes {
 		return "", 0, c.newExchangeError(statusCode, "response body exceeds 1 MiB", nil)
 	}
@@ -171,8 +230,11 @@ func (c *apiKeyCredential) parseExchangeResponse(statusCode int, responseBody []
 	isObject := json.Unmarshal(responseBody, &fields) == nil && fields != nil
 	exchangeError := c.newExchangeError(statusCode, "", nil)
 	if isObject {
-		exchangeError.errorCode = truncatedJSONStringField(fields, "error")
-		exchangeError.errorDescription = truncatedJSONStringField(fields, "error_description")
+		if responseToken, hasResponseToken := jsonStringField(fields, "access_token"); hasResponseToken {
+			secrets = newAPIKeySecrets(append(slices.Clone(secrets), responseToken)...)
+		}
+		exchangeError.errorCode = redactedJSONStringField(fields, "error", secrets)
+		exchangeError.errorDescription = redactedJSONStringField(fields, "error_description", secrets)
 	}
 	switch {
 	case statusCode != http.StatusOK:
@@ -215,20 +277,21 @@ func jsonStringField(fields map[string]json.RawMessage, name string) (string, bo
 	return value, true
 }
 
-func truncatedJSONStringField(fields map[string]json.RawMessage, name string) string {
+// redactedJSONStringField redacts before truncating, so a cut can never leave part of a secret.
+func redactedJSONStringField(fields map[string]json.RawMessage, name string, secrets apiKeySecrets) string {
 	value, _ := jsonStringField(fields, name)
-	runes := []rune(value)
+	runes := []rune(secrets.redact(value))
 	if len(runes) > maxAPIKeyExchangeErrorRunes {
 		return string(runes[:maxAPIKeyExchangeErrorRunes])
 	}
-	return value
+	return string(runes)
 }
 
-func (c *apiKeyCredential) newTransportError(exchangeCtx context.Context, err error) *apiKeyExchangeError {
+func (c *apiKeyCredential) newTransportError(exchangeCtx context.Context, err error, secrets apiKeySecrets) *apiKeyExchangeError {
 	if errors.Is(exchangeCtx.Err(), context.DeadlineExceeded) {
-		return c.newExchangeError(0, "timed out", err)
+		return c.newExchangeError(0, "timed out", secrets.redactError(err))
 	}
-	return c.newExchangeError(0, "request failed", err)
+	return c.newExchangeError(0, "request failed", secrets.redactError(err))
 }
 
 func (c *apiKeyCredential) newExchangeError(statusCode int, problem string, cause error) *apiKeyExchangeError {
@@ -276,6 +339,52 @@ func (e *apiKeyExchangeError) Error() string {
 	return message.String()
 }
 
+// GoString keeps %#v on the readable, redacted message.
+func (e *apiKeyExchangeError) GoString() string {
+	return e.Error()
+}
+
 func (e *apiKeyExchangeError) Unwrap() error {
 	return e.cause
+}
+
+// apiKeySecrets holds the API key and known access tokens, longest first, without empty values.
+type apiKeySecrets []string
+
+func newAPIKeySecrets(values ...string) apiKeySecrets {
+	secrets := apiKeySecrets(slices.DeleteFunc(values, func(value string) bool { return value == "" }))
+	// Longest first, so a secret that contains another secret is replaced whole.
+	slices.SortFunc(secrets, func(first, second string) int { return len(second) - len(first) })
+	return secrets
+}
+
+func (secrets apiKeySecrets) redact(text string) string {
+	for _, secret := range secrets {
+		text = strings.ReplaceAll(text, secret, redactedAPIKeySecret)
+	}
+	return text
+}
+
+func (secrets apiKeySecrets) redactError(err error) error {
+	return &redactedAPIKeyExchangeCause{message: secrets.redact(err.Error()), cause: err}
+}
+
+// redactedAPIKeyExchangeCause is a transport error whose text has every known secret redacted.
+type redactedAPIKeyExchangeCause struct {
+	message string
+	cause   error
+}
+
+func (cause *redactedAPIKeyExchangeCause) Error() string {
+	return cause.message
+}
+
+// GoString keeps %#v from printing the unredacted cause.
+func (cause *redactedAPIKeyExchangeCause) GoString() string {
+	return cause.message
+}
+
+// Is matches the unredacted cause without an Unwrap that would expose its text.
+func (cause *redactedAPIKeyExchangeCause) Is(target error) bool {
+	return errors.Is(cause.cause, target)
 }

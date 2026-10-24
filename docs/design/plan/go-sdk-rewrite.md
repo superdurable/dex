@@ -656,16 +656,26 @@ and exposes an HTTP readiness handler. The other SDKs will follow.
 `FileCredential` rereads its file when the file changes, so a rotated token,
 such as a projected service account token, takes effect without a restart.
 
-`APIKeyCredential` posts `{"server_id","api_key"}` as JSON to an `https` token
-URL, or an `http` URL on a loopback host, and caches the returned bearer token.
-It refreshes on the first call after 80% of `expires_in`, runs at most one
-exchange at a time, and keeps serving a still-valid token while a failed
-refresh is retried at most every 5 seconds. Construction does not contact the
-network. The SDK attaches its token in client interceptors instead of
-per-RPC credentials, so an `UNAUTHENTICATED` rejection discards exactly the
-token that the call used. Unary calls retry once with a fresh token; pull poll
-streams only discard the token and rely on their reconnection. Other
-`Credential` implementations keep per-RPC credentials and get no retry.
+`APIKeyCredential` posts `{"server_id":"<server ID>","api_key":"<API key>"}`
+as JSON to an `https` token URL, or an `http` URL on a loopback host, and
+caches the returned bearer token. It refreshes on the first call after 80% of
+`expires_in`, runs at most one exchange at a time, and keeps serving a
+still-valid token while a failed refresh is retried at most every 5 seconds.
+An exchange whose token expired before its response arrived fails, so the
+credential never caches or returns an expired token. Construction does not
+contact the network. Errors redact the API key and known access tokens from the
+endpoint's error fields and from transport errors. The SDK attaches its token
+in client interceptors instead of per-RPC credentials, so an `UNAUTHENTICATED`
+rejection discards exactly the token that the call used. The stream interceptor
+observes rejections from opening, sending, receiving, and closing the send
+side; a pull poll stream reads the final status after a send returns `io.EOF`.
+Unary calls retry once with a fresh token. A rejected pull poll stream
+reconnects once immediately with a fresh token and falls back to the usual
+roughly one-minute backoff if that reconnection is rejected too. The
+application owns the credential, so Client and Worker `Close` do not stop it;
+each exchange goroutine ends within one exchange timeout. Other `Credential`
+implementations keep per-RPC credentials and get neither the retry nor the
+immediate reconnection.
 
 `Worker.WorkerTarget()` returns a fresh copy of the resolved target for
 `ClientOptions`. It does not mutate a caller-owned option value.

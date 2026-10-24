@@ -11,14 +11,18 @@ package command
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -326,6 +330,12 @@ func TestAPIKeySettingsRejectInvalidCombinations(t *testing.T) {
 				"--token-url", "http://auth.example.com/token", "--server-id", cliTestServerID},
 			message: "must use https; http is allowed only for localhost, 127.0.0.0/8, and ::1",
 		},
+		{
+			name: "plain HTTP token URL on a host name that embeds a loopback address",
+			arguments: []string{"health", "--server", address, "--api-key-file", apiKeyPath,
+				"--token-url", "http://127.0.0.1.nip.io/token", "--server-id", cliTestServerID},
+			message: "must use https; http is allowed only for localhost, 127.0.0.0/8, and ::1",
+		},
 	} {
 		t.Run(invalid.name, func(t *testing.T) {
 			clearCLICredentialEnvironment(t)
@@ -425,4 +435,229 @@ func TestAPIKeyCredentialCachesRefreshesAndHidesSecrets(t *testing.T) {
 			require.NotContains(t, formatted, "cli-access-token")
 		}
 	}
+}
+
+// cliTestClock is a manually advanced clock that keeps the monotonic reading of its start.
+type cliTestClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func newCLITestClock() *cliTestClock {
+	return &cliTestClock{now: time.Now()}
+}
+
+func (clock *cliTestClock) Now() time.Time {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	return clock.now
+}
+
+func (clock *cliTestClock) Advance(duration time.Duration) {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	clock.now = clock.now.Add(duration)
+}
+
+func newTestCLIAPIKeyCredential(t *testing.T, tokenURL string, clock *cliTestClock) *apiKeyCredential {
+	t.Helper()
+	credential, err := newAPIKeyCredential(tokenURL, cliTestServerID, cliTestAPIKey)
+	require.NoError(t, err)
+	if clock != nil {
+		credential.now = clock.Now
+	}
+	return credential
+}
+
+func requireCLIAuthorization(t *testing.T, credential *apiKeyCredential, expected string) {
+	t.Helper()
+	requestMetadata, err := credential.GetRequestMetadata(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"authorization": expected}, requestMetadata)
+}
+
+func waitForCLIExchangeIdle(t *testing.T, credential *apiKeyCredential) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		credential.mu.Lock()
+		defer credential.mu.Unlock()
+		return credential.inFlightExchange == nil
+	}, 5*time.Second, time.Millisecond)
+}
+
+// failingCLIRoundTripper fails exchanges with failure once shouldFail is set.
+type failingCLIRoundTripper struct {
+	shouldFail atomic.Bool
+	failure    error
+}
+
+func (roundTripper *failingCLIRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	if roundTripper.shouldFail.Load() {
+		return nil, roundTripper.failure
+	}
+	return http.DefaultTransport.RoundTrip(request)
+}
+
+func TestAPIKeyCredentialRedactsSecretsFromEndpointErrorsAndCauses(t *testing.T) {
+	const cachedToken = "cli-cached-token-secret"
+	const responseToken = "cli-response-token-secret"
+	endpoint := startCLITokenEndpoint(t, func(requestNumber int, writer http.ResponseWriter) {
+		switch requestNumber {
+		case 1:
+			writeCLIAccessToken(writer, cachedToken, 3600)
+		case 2:
+			writeCLITokenResponse(writer, http.StatusUnauthorized, fmt.Sprintf(
+				`{"error":"key %s rejected","error_description":"token %s revoked for key %s"}`, cliTestAPIKey, cachedToken, cliTestAPIKey))
+		case 3:
+			writeCLITokenResponse(writer, http.StatusOK, fmt.Sprintf(
+				`{"access_token":%q,"token_type":"mac","expires_in":60,"error_description":"issued %s"}`, responseToken, responseToken))
+		default:
+			writeCLITokenResponse(writer, http.StatusBadRequest, fmt.Sprintf(
+				`{"error_description":%q}`, strings.Repeat("x", maxAPIKeyExchangeErrorRunes-5)+cliTestAPIKey))
+		}
+	})
+	transportSentinel := errors.New("transport sentinel")
+	roundTripper := &failingCLIRoundTripper{failure: fmt.Errorf(
+		"proxy refused body with key %s and token %s: %w", cliTestAPIKey, cachedToken, transportSentinel,
+	)}
+	credential := newTestCLIAPIKeyCredential(t, endpoint.tokenURL(), nil)
+	credential.httpClient.Transport = roundTripper
+	requireCLIAuthorization(t, credential, "Bearer "+cachedToken)
+	credential.mu.Lock()
+	credential.token = ""
+	credential.mu.Unlock()
+
+	_, endpointFieldsErr := credential.GetRequestMetadata(context.Background())
+	require.EqualError(t, endpointFieldsErr, "API key exchange with "+endpoint.tokenURL()+
+		` failed with HTTP 401; error "key [REDACTED] rejected"; error_description "token [REDACTED] revoked for key [REDACTED]"`,
+		"a token that is no longer cached is still redacted")
+	_, responseTokenErr := credential.GetRequestMetadata(context.Background())
+	require.EqualError(t, responseTokenErr, "API key exchange with "+endpoint.tokenURL()+
+		` failed with HTTP 200: response token_type is not Bearer; error_description "issued [REDACTED]"`)
+	_, truncatedErr := credential.GetRequestMetadata(context.Background())
+	require.ErrorContains(t, truncatedErr, `error_description "`+strings.Repeat("x", maxAPIKeyExchangeErrorRunes-5)+`[REDA"`,
+		"redaction happens before truncation")
+	roundTripper.shouldFail.Store(true)
+	_, transportErr := credential.GetRequestMetadata(context.Background())
+	require.ErrorContains(t, transportErr, "request failed")
+	require.ErrorContains(t, transportErr, "proxy refused body with key [REDACTED] and token [REDACTED]: transport sentinel")
+	require.ErrorIs(t, transportErr, transportSentinel, "errors.Is still matches the redacted cause")
+	var unredactedCause *url.Error
+	require.False(t, errors.As(transportErr, &unredactedCause), "the unredacted transport error stays unreachable")
+
+	for _, value := range []any{endpointFieldsErr, responseTokenErr, truncatedErr, transportErr, errors.Unwrap(transportErr)} {
+		for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
+			formatted := fmt.Sprintf(verb, value)
+			require.NotContains(t, formatted, cliTestAPIKey, verb)
+			require.NotContains(t, formatted, "cli-api-k", verb)
+			require.NotContains(t, formatted, cachedToken, verb)
+			require.NotContains(t, formatted, responseToken, verb)
+		}
+	}
+}
+
+func TestAPIKeyCredentialNeverReturnsTokenThatExpiredBeforeResponse(t *testing.T) {
+	clock := newCLITestClock()
+	endpoint := startCLITokenEndpoint(t, func(requestNumber int, writer http.ResponseWriter) {
+		switch requestNumber {
+		case 1, 3:
+			// The response arrives 3 seconds after the request for a token that lives 2 seconds.
+			clock.Advance(3 * time.Second)
+			writeCLIAccessToken(writer, fmt.Sprintf("cli-expired-token-%d", requestNumber), 2)
+		default:
+			writeCLIAccessToken(writer, fmt.Sprintf("cli-access-token-%d", requestNumber), 100)
+		}
+	})
+	credential := newTestCLIAPIKeyCredential(t, endpoint.tokenURL(), clock)
+
+	_, err := credential.GetRequestMetadata(context.Background())
+	require.EqualError(t, err, "API key exchange with "+endpoint.tokenURL()+" failed with HTTP 200: "+
+		"the access token expired before the response arrived; expires_in was 2s and the exchange took 3s")
+	requireCLIAuthorization(t, credential, "Bearer cli-access-token-2")
+	require.Len(t, endpoint.exchangeBodies(), 2, "the expired token was never cached")
+
+	clock.Advance(85 * time.Second)
+	requireCLIAuthorization(t, credential, "Bearer cli-access-token-2")
+	waitForCLIExchangeIdle(t, credential)
+	require.Len(t, endpoint.exchangeBodies(), 3)
+	requireCLIAuthorization(t, credential, "Bearer cli-access-token-2")
+
+	clock.Advance(5 * time.Second)
+	requireCLIAuthorization(t, credential, "Bearer cli-access-token-2")
+	waitForCLIExchangeIdle(t, credential)
+	requireCLIAuthorization(t, credential, "Bearer cli-access-token-4")
+}
+
+type cliRequestMetadataResult struct {
+	authorization string
+	err           error
+}
+
+func TestAPIKeyCredentialServesCachedTokenDuringDelayedFailedRefresh(t *testing.T) {
+	releaseRefresh := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseRefresh) }) }
+	endpoint := startCLITokenEndpoint(t, func(requestNumber int, writer http.ResponseWriter) {
+		switch requestNumber {
+		case 1:
+			writeCLIAccessToken(writer, "cli-access-token-1", 100)
+		case 2:
+			<-releaseRefresh
+			writeCLITokenResponse(writer, http.StatusServiceUnavailable, `{"error":"temporarily_unavailable"}`)
+		default:
+			writeCLIAccessToken(writer, fmt.Sprintf("cli-access-token-%d", requestNumber), 100)
+		}
+	})
+	t.Cleanup(release)
+	clock := newCLITestClock()
+	credential := newTestCLIAPIKeyCredential(t, endpoint.tokenURL(), clock)
+	requireCLIAuthorization(t, credential, "Bearer cli-access-token-1")
+
+	clock.Advance(85 * time.Second)
+	callConcurrently := func(ctx context.Context, callers int) chan cliRequestMetadataResult {
+		results := make(chan cliRequestMetadataResult, callers)
+		for range callers {
+			go func() {
+				requestMetadata, err := credential.GetRequestMetadata(ctx)
+				results <- cliRequestMetadataResult{authorization: requestMetadata["authorization"], err: err}
+			}()
+		}
+		return results
+	}
+	validTokenResults := callConcurrently(context.Background(), 32)
+	for range 32 {
+		select {
+		case result := <-validTokenResults:
+			require.NoError(t, result.err)
+			require.Equal(t, "Bearer cli-access-token-1", result.authorization)
+		case <-time.After(2 * time.Second):
+			t.Fatal("a call holding a valid token waited for the blocked refresh")
+		}
+	}
+	require.Eventually(t, func() bool { return len(endpoint.exchangeBodies()) == 2 }, 5*time.Second, time.Millisecond)
+
+	clock.Advance(16 * time.Second)
+	expiredTokenResults := callConcurrently(context.Background(), 8)
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	canceledResults := callConcurrently(canceledCtx, 1)
+	cancel()
+	select {
+	case result := <-canceledResults:
+		require.ErrorIs(t, result.err, context.Canceled, "a waiting call honors its own context")
+	case <-time.After(2 * time.Second):
+		t.Fatal("a canceled call kept waiting for the refresh")
+	}
+	select {
+	case result := <-expiredTokenResults:
+		t.Fatalf("a call returned before the refresh finished: %+v", result)
+	case <-time.After(200 * time.Millisecond):
+	}
+	release()
+	for range 8 {
+		result := <-expiredTokenResults
+		require.ErrorContains(t, result.err, "failed with HTTP 503", "the expired token is never returned after a failed refresh")
+		require.Empty(t, result.authorization)
+	}
+	require.Len(t, endpoint.exchangeBodies(), 2, "the waiting calls share the in-flight refresh")
+	requireCLIAuthorization(t, credential, "Bearer cli-access-token-3")
 }

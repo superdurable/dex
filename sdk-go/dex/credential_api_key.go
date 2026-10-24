@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ const (
 	apiKeyRefreshRetryInterval     = 5 * time.Second
 	maxAPIKeyExchangeResponseBytes = 1 << 20
 	maxAPIKeyExchangeErrorRunes    = 200
+	redactedAPIKeySecret           = "[REDACTED]"
 	// Capping the lifetime keeps expiry arithmetic far from time.Duration overflow.
 	maxAPIKeyTokenLifetimeSeconds = math.MaxInt32
 )
@@ -133,10 +135,14 @@ func WithAPIKeyHTTPClient(httpClient *http.Client) APIKeyCredentialOption {
 // an older token therefore never discards a newer one. A Client or Worker retries
 // a rejected unary call exactly once with a fresh token. The retry is safe because
 // Dex rejects an unauthenticated call before executing it. A second rejection
-// fails the call with the UNAUTHENTICATED error. A rejected pull Worker poll stream
-// only discards the token, and the Worker reconnects through its usual stream
-// reconnection, which waits about a minute after an UNAUTHENTICATED rejection.
-// FileCredential and application Credential implementations do not get this retry.
+// fails the call with the UNAUTHENTICATED error. The SDK observes a rejection of a
+// pull Worker poll stream when the stream opens, when a frame is sent or received,
+// and when sending is closed. A rejected poll stream discards its token, and the
+// Worker reconnects once immediately with a fresh token. When that reconnection
+// is rejected too, the Worker falls back to its usual reconnection, which waits
+// about a minute after an UNAUTHENTICATED rejection. FileCredential and
+// application Credential implementations get neither the unary retry nor the
+// immediate reconnection.
 //
 // # Security
 //
@@ -146,16 +152,25 @@ func WithAPIKeyHTTPClient(httpClient *http.Client) APIKeyCredentialOption {
 // in its formatted value. Format verbs such as %v, %+v, and %#v print only the
 // token URL and the server ID. Errors include the token-endpoint error and
 // error_description string fields, truncated to 200 characters, but never the
-// raw response body. The Dex connection itself is plaintext gRPC, so protect the
-// network path between the application and Dex.
+// raw response body. Before an error stores endpoint fields or the text of a
+// transport error, the credential replaces each known secret with [REDACTED].
+// Known secrets are the API key, the two most recently issued access tokens even
+// after they are discarded, and an access_token string in the failed response.
+// The Dex connection itself is plaintext gRPC, so protect the network path
+// between the application and Dex.
 //
 // # Concurrency and lifecycle
 //
 // The credential is safe for concurrent use and may be shared by several Clients
-// and Workers. It starts no long-lived goroutine. Each exchange runs on its own
-// goroutine that ends within the exchange timeout. The default HTTP client uses
-// the shared http.DefaultTransport. There is nothing to close, and dropping the
-// credential leaves no running work beyond an exchange already in flight.
+// and Workers. The application owns the credential. Closing a Client or Worker
+// does not stop the credential's work, because other Clients and Workers may
+// still use it. The credential starts no long-lived goroutine. Each exchange runs
+// on its own goroutine, and that goroutine ends within one exchange timeout. The
+// bound holds when the HTTP client's transport honors request context
+// cancellation, as http.Transport and the default client do. The default HTTP
+// client uses the shared http.DefaultTransport. There is nothing to close, and
+// dropping the credential leaves no running work beyond an exchange already in
+// flight.
 //
 // # Errors
 //
@@ -169,10 +184,14 @@ func WithAPIKeyHTTPClient(httpClient *http.Client) APIKeyCredentialOption {
 // status and includes the error and error_description string fields when present.
 // Exchange errors cover non-200 statuses including redirects, responses that are
 // not a JSON object, missing or invalid access_token, token_type, or expires_in
-// fields, transport failures, and timeouts. Transport failures and timeouts wrap
-// the underlying error, so errors.Is(err, context.DeadlineExceeded) reports a
-// timeout. A failed refresh does not fail any call while the cached token is
-// still valid.
+// fields, transport failures, and timeouts. An exchange whose access token
+// already expired when the response arrived also fails, because its expiry counts
+// from the start of the request. The credential never caches or returns such a
+// token. Transport failures and timeouts match the underlying error through
+// errors.Is, so errors.Is(err, context.DeadlineExceeded) reports a timeout. The
+// error text of the underlying error is redacted, and errors.As cannot extract
+// the unredacted error. A failed refresh does not fail any call while the cached
+// token is still valid.
 //
 // tokenURL is the token endpoint. serverID identifies the Dex server that the
 // endpoint scopes the access token to; the application supplies it and the SDK
@@ -297,6 +316,8 @@ type apiKeyCredential struct {
 	expiresAt            time.Time
 	nextRefreshAttemptAt time.Time
 	inFlightExchange     *apiKeyExchange
+	// issuedTokens keeps the latest two tokens past a discard so that echoed tokens stay redacted.
+	issuedTokens [2]string
 }
 
 // apiKeyExchange is one token exchange; done closes after token and err are set.
@@ -348,21 +369,33 @@ func (credential *apiKeyCredential) startExchangeLocked() *apiKeyExchange {
 	}
 	exchange := &apiKeyExchange{done: make(chan struct{})}
 	credential.inFlightExchange = exchange
-	go credential.runExchange(exchange)
+	secrets := newAPIKeySecrets(credential.apiKey, credential.issuedTokens[0], credential.issuedTokens[1])
+	go credential.runExchange(exchange, secrets)
 	return exchange
 }
 
-func (credential *apiKeyCredential) runExchange(exchange *apiKeyExchange) {
+func (credential *apiKeyCredential) runExchange(exchange *apiKeyExchange, secrets apiKeySecrets) {
 	// The exchange is shared by every waiting caller, so no single call's context may cancel it.
 	ctx, cancel := context.WithTimeout(context.Background(), credential.exchangeTimeout)
 	defer cancel()
 	startedAt := credential.now()
-	token, lifetime, err := credential.exchangeAPIKey(ctx)
+	token, lifetime, err := credential.exchangeAPIKey(ctx, secrets)
 	credential.mu.Lock()
 	defer credential.mu.Unlock()
 	credential.inFlightExchange = nil
+	finishedAt := credential.now()
+	if err == nil {
+		credential.issuedTokens = [2]string{token, credential.issuedTokens[0]}
+		if !finishedAt.Before(startedAt.Add(lifetime)) {
+			token = ""
+			err = credential.newExchangeError(http.StatusOK, fmt.Sprintf(
+				"the access token expired before the response arrived; expires_in was %s and the exchange took %s",
+				lifetime, finishedAt.Sub(startedAt).Round(time.Millisecond),
+			), nil)
+		}
+	}
 	if err != nil {
-		credential.nextRefreshAttemptAt = credential.now().Add(apiKeyRefreshRetryInterval)
+		credential.nextRefreshAttemptAt = finishedAt.Add(apiKeyRefreshRetryInterval)
 	} else {
 		credential.token = token
 		credential.refreshAt = startedAt.Add(lifetime - lifetime/5)
@@ -373,30 +406,30 @@ func (credential *apiKeyCredential) runExchange(exchange *apiKeyExchange) {
 	close(exchange.done)
 }
 
-// exchangeAPIKey returns the access token and its lifetime, or an *apiKeyExchangeError.
-func (credential *apiKeyCredential) exchangeAPIKey(ctx context.Context) (string, time.Duration, error) {
+// exchangeAPIKey returns the access token and its lifetime, or an *apiKeyExchangeError without secrets.
+func (credential *apiKeyCredential) exchangeAPIKey(ctx context.Context, secrets apiKeySecrets) (string, time.Duration, error) {
 	requestBody, err := json.Marshal(apiKeyExchangeRequest{ServerID: credential.serverID, APIKey: credential.apiKey})
 	if err != nil {
-		return "", 0, credential.newExchangeError(0, "encode the exchange request", err)
+		return "", 0, credential.newExchangeError(0, "encode the exchange request", secrets.redactError(err))
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, credential.tokenURL.String(), bytes.NewReader(requestBody))
 	if err != nil {
-		return "", 0, credential.newExchangeError(0, "create the exchange request", err)
+		return "", 0, credential.newExchangeError(0, "create the exchange request", secrets.redactError(err))
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
 	response, err := credential.httpClient.Do(request)
 	if err != nil {
-		return "", 0, credential.newTransportError(ctx, err)
+		return "", 0, credential.newTransportError(ctx, err, secrets)
 	}
 	responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, maxAPIKeyExchangeResponseBytes+1))
 	if closeErr := response.Body.Close(); closeErr != nil && readErr == nil {
 		readErr = closeErr
 	}
 	if readErr != nil {
-		return "", 0, credential.newTransportError(ctx, readErr)
+		return "", 0, credential.newTransportError(ctx, readErr, secrets)
 	}
-	return credential.parseExchangeResponse(response.StatusCode, responseBody)
+	return credential.parseExchangeResponse(response.StatusCode, responseBody, secrets)
 }
 
 type apiKeyExchangeRequest struct {
@@ -404,7 +437,11 @@ type apiKeyExchangeRequest struct {
 	APIKey   string `json:"api_key"`
 }
 
-func (credential *apiKeyCredential) parseExchangeResponse(statusCode int, responseBody []byte) (string, time.Duration, error) {
+func (credential *apiKeyCredential) parseExchangeResponse(
+	statusCode int,
+	responseBody []byte,
+	secrets apiKeySecrets,
+) (string, time.Duration, error) {
 	if len(responseBody) > maxAPIKeyExchangeResponseBytes {
 		return "", 0, credential.newExchangeError(statusCode, "response body exceeds 1 MiB", nil)
 	}
@@ -412,8 +449,11 @@ func (credential *apiKeyCredential) parseExchangeResponse(statusCode int, respon
 	isObject := json.Unmarshal(responseBody, &fields) == nil && fields != nil
 	exchangeError := credential.newExchangeError(statusCode, "", nil)
 	if isObject {
-		exchangeError.errorCode = truncatedJSONStringField(fields, "error")
-		exchangeError.errorDescription = truncatedJSONStringField(fields, "error_description")
+		if responseToken, hasResponseToken := jsonStringField(fields, "access_token"); hasResponseToken {
+			secrets = newAPIKeySecrets(append(slices.Clone(secrets), responseToken)...)
+		}
+		exchangeError.errorCode = redactedJSONStringField(fields, "error", secrets)
+		exchangeError.errorDescription = redactedJSONStringField(fields, "error_description", secrets)
 	}
 	switch {
 	case statusCode != http.StatusOK:
@@ -456,20 +496,21 @@ func jsonStringField(fields map[string]json.RawMessage, name string) (string, bo
 	return value, true
 }
 
-func truncatedJSONStringField(fields map[string]json.RawMessage, name string) string {
+// redactedJSONStringField redacts before truncating, so a cut can never leave part of a secret.
+func redactedJSONStringField(fields map[string]json.RawMessage, name string, secrets apiKeySecrets) string {
 	value, _ := jsonStringField(fields, name)
-	runes := []rune(value)
+	runes := []rune(secrets.redact(value))
 	if len(runes) > maxAPIKeyExchangeErrorRunes {
 		return string(runes[:maxAPIKeyExchangeErrorRunes])
 	}
-	return value
+	return string(runes)
 }
 
-func (credential *apiKeyCredential) newTransportError(ctx context.Context, err error) *apiKeyExchangeError {
+func (credential *apiKeyCredential) newTransportError(ctx context.Context, err error, secrets apiKeySecrets) *apiKeyExchangeError {
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return credential.newExchangeError(0, fmt.Sprintf("timed out after %s", credential.exchangeTimeout), err)
+		return credential.newExchangeError(0, fmt.Sprintf("timed out after %s", credential.exchangeTimeout), secrets.redactError(err))
 	}
-	return credential.newExchangeError(0, "request failed", err)
+	return credential.newExchangeError(0, "request failed", secrets.redactError(err))
 }
 
 func (credential *apiKeyCredential) newExchangeError(statusCode int, problem string, cause error) *apiKeyExchangeError {
@@ -522,6 +563,52 @@ func (exchangeError *apiKeyExchangeError) Error() string {
 	return message.String()
 }
 
+// GoString keeps %#v on the readable, redacted message.
+func (exchangeError *apiKeyExchangeError) GoString() string {
+	return exchangeError.Error()
+}
+
 func (exchangeError *apiKeyExchangeError) Unwrap() error {
 	return exchangeError.cause
+}
+
+// apiKeySecrets holds the API key and known access tokens, longest first, without empty values.
+type apiKeySecrets []string
+
+func newAPIKeySecrets(values ...string) apiKeySecrets {
+	secrets := apiKeySecrets(slices.DeleteFunc(values, func(value string) bool { return value == "" }))
+	// Longest first, so a secret that contains another secret is replaced whole.
+	slices.SortFunc(secrets, func(first, second string) int { return len(second) - len(first) })
+	return secrets
+}
+
+func (secrets apiKeySecrets) redact(text string) string {
+	for _, secret := range secrets {
+		text = strings.ReplaceAll(text, secret, redactedAPIKeySecret)
+	}
+	return text
+}
+
+func (secrets apiKeySecrets) redactError(err error) error {
+	return &redactedAPIKeyExchangeCause{message: secrets.redact(err.Error()), cause: err}
+}
+
+// redactedAPIKeyExchangeCause is a transport error whose text has every known secret redacted.
+type redactedAPIKeyExchangeCause struct {
+	message string
+	cause   error
+}
+
+func (cause *redactedAPIKeyExchangeCause) Error() string {
+	return cause.message
+}
+
+// GoString keeps %#v from printing the unredacted cause.
+func (cause *redactedAPIKeyExchangeCause) GoString() string {
+	return cause.message
+}
+
+// Is matches the unredacted cause without an Unwrap that would expose its text.
+func (cause *redactedAPIKeyExchangeCause) Is(target error) bool {
+	return errors.Is(cause.cause, target)
 }

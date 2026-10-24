@@ -278,9 +278,18 @@ dexcli health --api-key-file ~/.dex/api-key \
 token URL before the first call and expects HTTP 200 with `access_token`,
 `token_type` `Bearer`, and a positive `expires_in`. It does not follow
 redirects. A command that makes several calls reuses the cached token and
-refreshes it after 80% of its lifetime. A failed exchange fails the command before any FlowService
+refreshes it in the background after 80% of its lifetime, while calls keep
+using the still-valid token. A token whose lifetime ended before the exchange
+response arrived is never used. A failed exchange fails the command before any FlowService
 call, with the token URL, the HTTP status, and the endpoint's `error` and
-`error_description` fields. Errors never include the API key or an access token.
+`error_description` fields. Errors never include the API key or an access token;
+`dexcli` replaces them with `[REDACTED]` in the endpoint's fields and in
+transport errors.
+
+`dexcli` does not retry a call that Dex rejects with `UNAUTHENTICATED`, and it
+keeps the rejected access token for later calls of the same command. Each
+command exchanges the API key for a new token when it starts, so rerun a command
+that failed because its token was revoked.
 
 Combining API key settings with a bearer token setting, or setting `--token-url`
 or `--server-id` without an API key, is a usage error that exits with status 2.

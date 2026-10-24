@@ -15,12 +15,17 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -210,6 +215,7 @@ func TestAPIKeyCredentialValidatesConstruction(t *testing.T) {
 		{tokenURL: "http://auth.example.com/token", serverID: testAPIServerID, apiKey: testAPIKey, message: "must use https"},
 		{tokenURL: "http://10.0.0.1/token", serverID: testAPIServerID, apiKey: testAPIKey, message: "must use https"},
 		{tokenURL: "http://localhost.example.com/token", serverID: testAPIServerID, apiKey: testAPIKey, message: "must use https"},
+		{tokenURL: "http://127.0.0.1.nip.io/token", serverID: testAPIServerID, apiKey: testAPIKey, message: "must use https"},
 		{
 			tokenURL: "https://auth.example.com/token", serverID: testAPIServerID, apiKey: testAPIKey,
 			options: []APIKeyCredentialOption{WithAPIKeyExchangeTimeout(0)}, message: "exchange timeout must be positive",
@@ -451,6 +457,232 @@ func TestAPIKeyCredentialNeverFormatsSecrets(t *testing.T) {
 	for _, text := range formatted {
 		require.NotContains(t, text, testAPIKey)
 		require.NotContains(t, text, accessToken)
+	}
+}
+
+// secretEchoingRoundTripper fails exchanges with an error that quotes secrets once shouldFail is set.
+type secretEchoingRoundTripper struct {
+	shouldFail atomic.Bool
+	failure    error
+}
+
+func (roundTripper *secretEchoingRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	if roundTripper.shouldFail.Load() {
+		return nil, roundTripper.failure
+	}
+	return http.DefaultTransport.RoundTrip(request)
+}
+
+func TestAPIKeyCredentialRedactsSecretsFromEndpointErrorsAndCauses(t *testing.T) {
+	const cachedToken = "cached-access-token-secret"
+	const responseToken = "response-access-token-secret"
+	endpoint := startAPIKeyTokenEndpoint(t, func(requestNumber int, writer http.ResponseWriter, _ *http.Request) {
+		switch requestNumber {
+		case 1:
+			writeAPIKeyAccessToken(writer, cachedToken, 3600)
+		case 2:
+			writeAPIKeyExchangeResponse(writer, http.StatusUnauthorized, fmt.Sprintf(
+				`{"error":"key %s rejected","error_description":"token %s revoked for key %s"}`, testAPIKey, cachedToken, testAPIKey))
+		case 3:
+			writeAPIKeyExchangeResponse(writer, http.StatusOK, fmt.Sprintf(
+				`{"access_token":%q,"token_type":"mac","expires_in":60,"error_description":"issued %s"}`, responseToken, responseToken))
+		default:
+			writeAPIKeyExchangeResponse(writer, http.StatusBadRequest, fmt.Sprintf(
+				`{"error_description":%q}`, strings.Repeat("x", maxAPIKeyExchangeErrorRunes-5)+testAPIKey))
+		}
+	})
+	transportSentinel := errors.New("transport sentinel")
+	roundTripper := &secretEchoingRoundTripper{failure: fmt.Errorf(
+		"proxy refused body with key %s and token %s: %w", testAPIKey, cachedToken, transportSentinel,
+	)}
+	credential := newTestAPIKeyCredential(t, endpoint.tokenURL(), nil, WithAPIKeyHTTPClient(&http.Client{Transport: roundTripper}))
+	token, err := credential.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, cachedToken, token)
+	credential.discardRejectedToken(cachedToken)
+
+	_, endpointFieldsErr := credential.Token(context.Background())
+	require.EqualError(t, endpointFieldsErr, "dex: API key exchange with "+endpoint.tokenURL()+
+		` failed with HTTP 401; error "key [REDACTED] rejected"; error_description "token [REDACTED] revoked for key [REDACTED]"`,
+		"a discarded token is still redacted")
+	_, responseTokenErr := credential.Token(context.Background())
+	require.EqualError(t, responseTokenErr, "dex: API key exchange with "+endpoint.tokenURL()+
+		` failed with HTTP 200: response token_type is not Bearer; error_description "issued [REDACTED]"`)
+	_, truncatedErr := credential.Token(context.Background())
+	require.ErrorContains(t, truncatedErr, `error_description "`+strings.Repeat("x", maxAPIKeyExchangeErrorRunes-5)+`[REDA"`,
+		"redaction happens before truncation")
+	roundTripper.shouldFail.Store(true)
+	_, transportErr := credential.Token(context.Background())
+	require.ErrorContains(t, transportErr, "request failed")
+	require.ErrorContains(t, transportErr, "proxy refused body with key [REDACTED] and token [REDACTED]: transport sentinel")
+	require.ErrorIs(t, transportErr, transportSentinel, "errors.Is still matches the redacted cause")
+	var unredactedCause *url.Error
+	require.False(t, errors.As(transportErr, &unredactedCause), "the unredacted transport error stays unreachable")
+
+	for _, value := range []any{endpointFieldsErr, responseTokenErr, truncatedErr, transportErr, errors.Unwrap(transportErr)} {
+		for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
+			formatted := fmt.Sprintf(verb, value)
+			require.NotContains(t, formatted, testAPIKey, verb)
+			require.NotContains(t, formatted, "api-k", verb)
+			require.NotContains(t, formatted, cachedToken, verb)
+			require.NotContains(t, formatted, responseToken, verb)
+		}
+	}
+}
+
+func TestAPIKeyCredentialNeverReturnsTokenThatExpiredBeforeResponse(t *testing.T) {
+	clock := newAPIKeyTestClock()
+	endpoint := startAPIKeyTokenEndpoint(t, func(requestNumber int, writer http.ResponseWriter, _ *http.Request) {
+		switch requestNumber {
+		case 1, 3:
+			// The response arrives 3 seconds after the request for a token that lives 2 seconds.
+			clock.Advance(3 * time.Second)
+			writeAPIKeyAccessToken(writer, fmt.Sprintf("expired-token-%d", requestNumber), 2)
+		default:
+			writeAPIKeyAccessToken(writer, fmt.Sprintf("access-token-%d", requestNumber), 100)
+		}
+	})
+	credential := newTestAPIKeyCredential(t, endpoint.tokenURL(), clock)
+
+	_, err := credential.Token(context.Background())
+	require.EqualError(t, err, "dex: API key exchange with "+endpoint.tokenURL()+" failed with HTTP 200: "+
+		"the access token expired before the response arrived; expires_in was 2s and the exchange took 3s")
+	require.NotContains(t, err.Error(), "expired-token-1")
+	token, err := credential.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "access-token-2", token, "the expired token was never cached")
+	require.Equal(t, 2, endpoint.exchangeCount())
+
+	clock.Advance(85 * time.Second)
+	token, err = credential.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "access-token-2", token)
+	waitForAPIKeyExchangeIdle(t, credential)
+	require.Equal(t, 3, endpoint.exchangeCount())
+	token, err = credential.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "access-token-2", token, "an expired refresh result never replaces a valid token")
+
+	clock.Advance(5 * time.Second)
+	token, err = credential.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "access-token-2", token)
+	waitForAPIKeyExchangeIdle(t, credential)
+	token, err = credential.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "access-token-4", token, "the expired refresh counts as a failure retried after 5 seconds")
+}
+
+func TestAPIKeyCredentialExchangeEndsWithinExchangeTimeoutAfterCallerLeaves(t *testing.T) {
+	endpoint := startAPIKeyTokenEndpoint(t, func(_ int, _ http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+	})
+	credential := newTestAPIKeyCredential(t, endpoint.tokenURL(), nil, WithAPIKeyExchangeTimeout(300*time.Millisecond))
+	callCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	startedAt := time.Now()
+	_, err := credential.Token(callCtx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Less(t, time.Since(startedAt), 250*time.Millisecond, "the caller leaves at its own deadline")
+
+	waitForAPIKeyExchangeIdle(t, credential)
+	elapsed := time.Since(startedAt)
+	require.GreaterOrEqual(t, elapsed, 300*time.Millisecond, "the shared exchange outlives the caller")
+	require.Less(t, elapsed, 2*time.Second, "the exchange goroutine ends within one exchange timeout")
+}
+
+type recordingRejectedTokenDiscarder struct {
+	mu     sync.Mutex
+	tokens []string
+}
+
+func (discarder *recordingRejectedTokenDiscarder) discardRejectedToken(token string) {
+	discarder.mu.Lock()
+	defer discarder.mu.Unlock()
+	discarder.tokens = append(discarder.tokens, token)
+}
+
+func (discarder *recordingRejectedTokenDiscarder) discardedTokens() []string {
+	discarder.mu.Lock()
+	defer discarder.mu.Unlock()
+	return append([]string(nil), discarder.tokens...)
+}
+
+type staticTestCredential string
+
+func (credential staticTestCredential) Token(context.Context) (string, error) {
+	return string(credential), nil
+}
+
+// stubClientStream returns fixed errors so that a test can reject a stream at any operation.
+type stubClientStream struct {
+	grpc.ClientStream
+	sendErr      error
+	receiveErr   error
+	closeSendErr error
+}
+
+func (stream *stubClientStream) SendMsg(any) error { return stream.sendErr }
+func (stream *stubClientStream) RecvMsg(any) error { return stream.receiveErr }
+func (stream *stubClientStream) CloseSend() error  { return stream.closeSendErr }
+
+func TestRejectedTokenStreamDiscardsTokenRejectedByAnyStreamOperation(t *testing.T) {
+	rejection := status.Error(codes.Unauthenticated, "token rejected")
+	unavailable := status.Error(codes.Unavailable, "server unavailable")
+	for _, scenario := range []struct {
+		name           string
+		stream         *stubClientStream
+		openErr        error
+		operate        func(grpc.ClientStream) error
+		expectedErr    error
+		shouldDiscard  bool
+		shouldOpenFail bool
+	}{
+		{name: "open", openErr: rejection, expectedErr: rejection, shouldDiscard: true, shouldOpenFail: true},
+		{name: "open unavailable", openErr: unavailable, expectedErr: unavailable, shouldOpenFail: true},
+		{name: "send", stream: &stubClientStream{sendErr: rejection}, operate: func(stream grpc.ClientStream) error {
+			return stream.SendMsg(nil)
+		}, expectedErr: rejection, shouldDiscard: true},
+		{name: "send end of stream", stream: &stubClientStream{sendErr: io.EOF}, operate: func(stream grpc.ClientStream) error {
+			return stream.SendMsg(nil)
+		}, expectedErr: io.EOF},
+		{name: "receive", stream: &stubClientStream{receiveErr: rejection}, operate: func(stream grpc.ClientStream) error {
+			return stream.RecvMsg(nil)
+		}, expectedErr: rejection, shouldDiscard: true},
+		{name: "receive unavailable", stream: &stubClientStream{receiveErr: unavailable}, operate: func(stream grpc.ClientStream) error {
+			return stream.RecvMsg(nil)
+		}, expectedErr: unavailable},
+		{name: "close send", stream: &stubClientStream{closeSendErr: rejection}, operate: func(stream grpc.ClientStream) error {
+			return stream.CloseSend()
+		}, expectedErr: rejection, shouldDiscard: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			discarder := &recordingRejectedTokenDiscarder{}
+			interceptor := rejectedTokenInterceptor{credential: staticTestCredential("stream-token"), discarder: discarder}
+			observer := &rejectedTokenObserver{}
+			streamer := func(context.Context, *grpc.StreamDesc, *grpc.ClientConn, string, ...grpc.CallOption) (grpc.ClientStream, error) {
+				if scenario.openErr != nil {
+					return nil, scenario.openErr
+				}
+				return scenario.stream, nil
+			}
+			stream, err := interceptor.interceptStream(
+				withRejectedTokenObserver(context.Background(), observer), &grpc.StreamDesc{}, nil, "/dex.Test/Poll", streamer,
+			)
+			if scenario.shouldOpenFail {
+				require.Nil(t, stream)
+			} else {
+				require.NoError(t, err)
+				err = scenario.operate(stream)
+			}
+			require.ErrorIs(t, err, scenario.expectedErr)
+			if scenario.shouldDiscard {
+				require.Equal(t, []string{"stream-token"}, discarder.discardedTokens())
+			} else {
+				require.Empty(t, discarder.discardedTokens())
+			}
+			require.Equal(t, scenario.shouldDiscard, observer.hasDiscardedRejectedToken.Load())
+		})
 	}
 }
 

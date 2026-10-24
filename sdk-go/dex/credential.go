@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -181,14 +182,13 @@ func (interceptor rejectedTokenInterceptor) interceptStream(
 	if err != nil {
 		return nil, err
 	}
-	stream, err := streamer(withBearerToken(ctx, token), descriptor, connection, method, callOptions...)
+	stream := &rejectedTokenStream{token: token, discarder: interceptor.discarder}
+	stream.observer, _ = ctx.Value(rejectedTokenObserverKey{}).(*rejectedTokenObserver)
+	stream.ClientStream, err = streamer(withBearerToken(ctx, token), descriptor, connection, method, callOptions...)
 	if err != nil {
-		if status.Code(err) == codes.Unauthenticated {
-			interceptor.discarder.discardRejectedToken(token)
-		}
-		return nil, err
+		return nil, stream.reportRejection(err)
 	}
-	return &rejectedTokenStream{ClientStream: stream, token: token, discarder: interceptor.discarder}, nil
+	return stream, nil
 }
 
 // rejectedTokenStream reports an UNAUTHENTICATED stream status to the credential that supplied its token.
@@ -196,14 +196,43 @@ type rejectedTokenStream struct {
 	grpc.ClientStream
 	token     string
 	discarder rejectedTokenDiscarder
+	observer  *rejectedTokenObserver
+}
+
+func (stream *rejectedTokenStream) SendMsg(message any) error {
+	return stream.reportRejection(stream.ClientStream.SendMsg(message))
 }
 
 func (stream *rejectedTokenStream) RecvMsg(message any) error {
-	err := stream.ClientStream.RecvMsg(message)
-	if status.Code(err) == codes.Unauthenticated {
-		stream.discarder.discardRejectedToken(stream.token)
+	return stream.reportRejection(stream.ClientStream.RecvMsg(message))
+}
+
+func (stream *rejectedTokenStream) CloseSend() error {
+	return stream.reportRejection(stream.ClientStream.CloseSend())
+}
+
+// reportRejection discards the stream's token when err is UNAUTHENTICATED and returns err unchanged.
+func (stream *rejectedTokenStream) reportRejection(err error) error {
+	if status.Code(err) != codes.Unauthenticated {
+		return err
+	}
+	stream.discarder.discardRejectedToken(stream.token)
+	if stream.observer != nil {
+		stream.observer.hasDiscardedRejectedToken.Store(true)
 	}
 	return err
+}
+
+// rejectedTokenObserver tells a stream owner that the credential discarded the stream's rejected token.
+type rejectedTokenObserver struct {
+	hasDiscardedRejectedToken atomic.Bool
+}
+
+type rejectedTokenObserverKey struct{}
+
+// withRejectedTokenObserver returns ctx so that streams opened with it report discarded tokens to observer.
+func withRejectedTokenObserver(ctx context.Context, observer *rejectedTokenObserver) context.Context {
+	return context.WithValue(ctx, rejectedTokenObserverKey{}, observer)
 }
 
 func withBearerToken(ctx context.Context, token string) context.Context {

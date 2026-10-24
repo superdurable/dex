@@ -840,14 +840,24 @@ client, err := dex.NewClient(registry, cache, dex.ClientOptions{Credential: cred
   every 5 seconds. After the token expires, a call waits for the exchange,
   bounded by `WithAPIKeyExchangeTimeout` (default 10 seconds), and fails with
   the exchange error if no token arrives.
+- The token's expiry counts from the start of the exchange request. If a slow
+  response arrives after that expiry, the exchange fails and the token is never
+  cached or sent.
 - When Dex rejects a call with `UNAUTHENTICATED`, the SDK discards that token if
   it is still cached. A unary call is retried exactly once with a fresh token. A
-  pull Worker poll stream only discards the token and reconnects through its
-  usual reconnection, which waits about a minute after a rejection.
+  rejected pull Worker poll stream discards its token and reconnects once
+  immediately with a fresh token. If that reconnection is rejected too, the
+  Worker falls back to its usual reconnection, which waits about a minute.
 - The credential never follows redirects and never includes the API key or an
-  access token in errors or formatted output. `WithAPIKeyHTTPClient` supplies a
-  proxy-aware or test HTTP client. The credential starts no long-lived goroutine
-  and needs no `Close`.
+  access token in errors or formatted output. It replaces the API key and known
+  access tokens with `[REDACTED]` in the token endpoint's `error` and
+  `error_description` fields and in transport errors. `WithAPIKeyHTTPClient`
+  supplies a proxy-aware or test HTTP client.
+- The application owns the credential and may share it between several Clients
+  and Workers, so closing a Client or Worker does not stop it. The credential
+  starts no long-lived goroutine and needs no `Close`. An exchange goroutine
+  ends within one exchange timeout when the HTTP transport honors request
+  context cancellation, as the default transport does.
 
 `ClientOptions.WorkerTarget` is the default advertised target for StartFlow.
 A per-call `ConfigOverride.WorkerTarget` takes precedence. UpdateFlowConfig does

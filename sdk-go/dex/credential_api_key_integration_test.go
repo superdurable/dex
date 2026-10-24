@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -37,12 +39,12 @@ const (
 // bearerTokenGate rejects calls whose bearer token it does not accept and records every attempt.
 type bearerTokenGate struct {
 	mu         sync.Mutex
-	isAccepted func(authorization string) bool
+	isAccepted func(fullMethod string, authorization string) bool
 	attempts   map[string][]string
 	rejections map[string]int
 }
 
-func newBearerTokenGate(isAccepted func(authorization string) bool) *bearerTokenGate {
+func newBearerTokenGate(isAccepted func(fullMethod string, authorization string) bool) *bearerTokenGate {
 	return &bearerTokenGate{isAccepted: isAccepted, attempts: map[string][]string{}, rejections: map[string]int{}}
 }
 
@@ -52,7 +54,7 @@ func (gate *bearerTokenGate) authorize(ctx context.Context, fullMethod string) e
 	gate.mu.Lock()
 	defer gate.mu.Unlock()
 	gate.attempts[fullMethod] = append(gate.attempts[fullMethod], authorization)
-	if gate.isAccepted(authorization) {
+	if gate.isAccepted(fullMethod, authorization) {
 		return nil
 	}
 	gate.rejections[fullMethod]++
@@ -86,7 +88,13 @@ func (gate *bearerTokenGate) interceptStream(
 func (gate *bearerTokenGate) acceptOnly(authorization string) {
 	gate.mu.Lock()
 	defer gate.mu.Unlock()
-	gate.isAccepted = func(received string) bool { return received == authorization }
+	gate.isAccepted = func(_ string, received string) bool { return received == authorization }
+}
+
+func (gate *bearerTokenGate) rejectAll() {
+	gate.mu.Lock()
+	defer gate.mu.Unlock()
+	gate.isAccepted = func(string, string) bool { return false }
 }
 
 func (gate *bearerTokenGate) attemptsFor(fullMethod string) []string {
@@ -152,7 +160,7 @@ func newAPIKeyTestClient(t *testing.T, address string, credential Credential) *C
 }
 
 func TestClientRetriesRejectedUnaryCallOnceWithFreshAPIKeyToken(t *testing.T) {
-	gate := newBearerTokenGate(func(authorization string) bool { return authorization == "Bearer "+apiKeyAccessTokenB })
+	gate := newBearerTokenGate(func(_ string, authorization string) bool { return authorization == "Bearer "+apiKeyAccessTokenB })
 	address := startBearerTokenGatedServer(t, gate, nil)
 	tokenEndpoint := startSequentialAPIKeyTokenEndpoint(t)
 	credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
@@ -178,7 +186,7 @@ func TestClientRetriesRejectedUnaryCallOnceWithFreshAPIKeyToken(t *testing.T) {
 }
 
 func TestClientFailsUnaryCallAfterSecondRejectedAPIKeyToken(t *testing.T) {
-	gate := newBearerTokenGate(func(string) bool { return false })
+	gate := newBearerTokenGate(func(string, string) bool { return false })
 	address := startBearerTokenGatedServer(t, gate, nil)
 	tokenEndpoint := startSequentialAPIKeyTokenEndpoint(t)
 	credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
@@ -199,60 +207,236 @@ func TestClientFailsUnaryCallAfterSecondRejectedAPIKeyToken(t *testing.T) {
 	require.Equal(t, 2, tokenEndpoint.exchangeCount())
 }
 
-func TestWorkerPollStreamDiscardsRejectedAPIKeyTokenAndReconnectsWithFreshToken(t *testing.T) {
-	gate := newBearerTokenGate(func(string) bool { return true })
-	pullServer := &pullTestServer{registered: make(chan *pullTestStream, 32), firstReconnectQueue: make(chan string, 1)}
-	address := startBearerTokenGatedServer(t, gate, pullServer)
-	tokenEndpoint := startSequentialAPIKeyTokenEndpoint(t)
-	credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
-	require.NoError(t, err)
+// startAPIKeyPullWorker starts a pull Worker whose poll streams use credential, and returns its streams by queue.
+func startAPIKeyPullWorker(
+	t *testing.T,
+	address string,
+	credential Credential,
+	pullServer *pullTestServer,
+	configurePull func(*Worker),
+) (*Worker, map[string]*pullTestStream) {
+	t.Helper()
 	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
 		FlowServiceAddress: address,
 		Credential:         credential,
-		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: "api-key-worker-12345678"},
+		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: apiKeyTestAppWorkerID},
 	})
 	require.NoError(t, err)
+	if configurePull != nil {
+		configurePull(worker)
+	}
 	started := make(chan error, 1)
 	go func() { started <- worker.Start() }()
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, worker.Stop(stopCtx))
+		require.NoError(t, <-started)
+	})
 	registeredByQueue := map[string]*pullTestStream{}
 	for len(registeredByQueue) < 2 {
 		stream := awaitPullRegistration(t, pullServer)
 		registeredByQueue[stream.registration.Queue] = stream
 	}
+	require.NotNil(t, registeredByQueue[GetFinalFlowType(workerFlow)])
+	require.NotNil(t, registeredByQueue[apiKeyTestAppWorkerID])
+	return worker, registeredByQueue
+}
+
+const apiKeyTestAppWorkerID = "api-key-worker-12345678"
+
+func TestWorkerPollStreamDiscardsRejectedAPIKeyTokenAndReconnectsAtOnceWithFreshToken(t *testing.T) {
+	gate := newBearerTokenGate(func(string, string) bool { return true })
+	pullServer := &pullTestServer{registered: make(chan *pullTestStream, 32), firstReconnectQueue: make(chan string, 1)}
+	address := startBearerTokenGatedServer(t, gate, pullServer)
+	tokenEndpoint := startSequentialAPIKeyTokenEndpoint(t)
+	credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
+	require.NoError(t, err)
+	_, registeredByQueue := startAPIKeyPullWorker(t, address, credential, pullServer, nil)
 	flowTypeStream := registeredByQueue[GetFinalFlowType(workerFlow)]
-	appWorkerStream := registeredByQueue["api-key-worker-12345678"]
-	require.NotNil(t, flowTypeStream)
-	require.NotNil(t, appWorkerStream)
+	appWorkerStream := registeredByQueue[apiKeyTestAppWorkerID]
 	require.Equal(t, "Bearer "+apiKeyAccessTokenA, pullStreamAuthorization(flowTypeStream))
 	require.Equal(t, "Bearer "+apiKeyAccessTokenA, pullStreamAuthorization(appWorkerStream))
 	require.Equal(t, 1, tokenEndpoint.exchangeCount())
 
 	gate.acceptOnly("Bearer " + apiKeyAccessTokenB)
 	close(flowTypeStream.abort)
-	apiKey := credential.(*apiKeyCredential)
-	require.Eventually(t, func() bool {
-		apiKey.mu.Lock()
-		defer apiKey.mu.Unlock()
-		return apiKey.token == ""
-	}, 5*time.Second, 10*time.Millisecond, "the rejected stream discards its token")
+	reconnected := awaitPullRegistration(t, pullServer)
+	require.Equal(t, GetFinalFlowType(workerFlow), reconnected.registration.Queue)
+	require.Equal(t, "Bearer "+apiKeyAccessTokenB, pullStreamAuthorization(reconnected),
+		"the rejected stream reconnects at once with a fresh token instead of waiting about a minute")
 	require.Equal(t, 1, gate.rejectionsFor(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName))
-	require.Never(t, func() bool {
-		return gate.rejectionsFor(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName) > 1
-	}, time.Second, 50*time.Millisecond, "a rejected stream gets no extra retry")
-	require.Equal(t, 1, tokenEndpoint.exchangeCount(), "discarding a token does not exchange by itself")
+	require.Equal(t, 2, tokenEndpoint.exchangeCount())
 
 	close(appWorkerStream.abort)
-	reconnected := awaitPullRegistration(t, pullServer)
-	require.Equal(t, "api-key-worker-12345678", reconnected.registration.Queue)
-	require.Equal(t, "Bearer "+apiKeyAccessTokenB, pullStreamAuthorization(reconnected),
-		"the existing reconnect path picks up a fresh token")
-	require.Equal(t, 2, tokenEndpoint.exchangeCount())
+	reconnected = awaitPullRegistration(t, pullServer)
+	require.Equal(t, apiKeyTestAppWorkerID, reconnected.registration.Queue)
+	require.Equal(t, "Bearer "+apiKeyAccessTokenB, pullStreamAuthorization(reconnected), "other streams reuse the fresh token")
 	require.Equal(t, 1, gate.rejectionsFor(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName))
+	require.Equal(t, 2, tokenEndpoint.exchangeCount())
+}
 
-	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func TestWorkerPollStreamFallsBackToBackoffAfterFreshAPIKeyTokenIsRejected(t *testing.T) {
+	gate := newBearerTokenGate(func(string, string) bool { return true })
+	pullServer := &pullTestServer{registered: make(chan *pullTestStream, 32), firstReconnectQueue: make(chan string, 1)}
+	address := startBearerTokenGatedServer(t, gate, pullServer)
+	tokenEndpoint := startSequentialAPIKeyTokenEndpoint(t)
+	credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
+	require.NoError(t, err)
+	worker, registeredByQueue := startAPIKeyPullWorker(t, address, credential, pullServer, nil)
+	flowType := GetFinalFlowType(workerFlow)
+
+	gate.rejectAll()
+	close(registeredByQueue[flowType].abort)
+	require.Eventually(t, func() bool {
+		return gate.rejectionsFor(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName) == 2
+	}, 5*time.Second, 10*time.Millisecond, "the rejected stream reconnects once at once")
+	require.Equal(t,
+		[]string{"Bearer " + apiKeyAccessTokenA, "Bearer " + apiKeyAccessTokenB},
+		gate.attemptsFor(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName)[2:],
+		"after the two initial streams, the rejected reconnection is retried at once with a fresh token",
+	)
+	require.Eventually(t, func() bool {
+		state := worker.PullRegistrationState().Queues[queueStateIndex(worker, flowType)]
+		return status.Code(state.LastPermanentError) == codes.Unauthenticated
+	}, 5*time.Second, 10*time.Millisecond, "the second rejection is reported as permanent")
+	require.Never(t, func() bool {
+		return gate.rejectionsFor(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName) > 2
+	}, 3*time.Second, 50*time.Millisecond, "a second rejection falls back to the long backoff")
+	require.Equal(t, 2, tokenEndpoint.exchangeCount())
+}
+
+// sendAfterRejection delays each send on a stream whose token the server rejects until that rejection arrives.
+type sendAfterRejection struct {
+	isRejected func(authorization string) bool
+
+	mu       sync.Mutex
+	sendErrs []error
+}
+
+func (interceptor *sendAfterRejection) interceptStream(
+	ctx context.Context,
+	descriptor *grpc.StreamDesc,
+	connection *grpc.ClientConn,
+	method string,
+	streamer grpc.Streamer,
+	callOptions ...grpc.CallOption,
+) (grpc.ClientStream, error) {
+	stream, err := streamer(ctx, descriptor, connection, method, callOptions...)
+	if err != nil {
+		return nil, err
+	}
+	outgoing, _ := metadata.FromOutgoingContext(ctx)
+	if !interceptor.isRejected(strings.Join(outgoing.Get("authorization"), ",")) {
+		return stream, nil
+	}
+	return &sendAfterRejectionStream{ClientStream: stream, interceptor: interceptor}, nil
+}
+
+func (interceptor *sendAfterRejection) recordedSendErrors() []error {
+	interceptor.mu.Lock()
+	defer interceptor.mu.Unlock()
+	return append([]error(nil), interceptor.sendErrs...)
+}
+
+type sendAfterRejectionStream struct {
+	grpc.ClientStream
+	interceptor *sendAfterRejection
+}
+
+func (stream *sendAfterRejectionStream) SendMsg(message any) error {
+	// Header returns once the server's rejection arrives, so the send below fails.
+	if _, err := stream.ClientStream.Header(); err != nil {
+		return err
+	}
+	err := stream.ClientStream.SendMsg(message)
+	stream.interceptor.mu.Lock()
+	stream.interceptor.sendErrs = append(stream.interceptor.sendErrs, err)
+	stream.interceptor.mu.Unlock()
+	return err
+}
+
+func TestWorkerPollStreamRejectedBeforeRegistrationIsSentReconnectsWithFreshAPIKeyToken(t *testing.T) {
+	gate := newBearerTokenGate(func(fullMethod string, authorization string) bool {
+		return fullMethod != dexpb.WorkerTaskService_PollWorkerTask_FullMethodName || authorization == "Bearer "+apiKeyAccessTokenB
+	})
+	pullServer := &pullTestServer{registered: make(chan *pullTestStream, 32), firstReconnectQueue: make(chan string, 1)}
+	address := startBearerTokenGatedServer(t, gate, pullServer)
+	tokenEndpoint := startSequentialAPIKeyTokenEndpoint(t)
+	credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
+	require.NoError(t, err)
+	delayedSends := &sendAfterRejection{isRejected: func(authorization string) bool { return authorization == "Bearer "+apiKeyAccessTokenA }}
+	worker, registeredByQueue := startAPIKeyPullWorker(t, address, credential, pullServer, func(worker *Worker) {
+		worker.pull.client = newDelayedSendPollClient(t, address, credential, delayedSends)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	require.NoError(t, worker.WaitPullRegistered(ctx))
+	for queue, stream := range registeredByQueue {
+		require.Equal(t, "Bearer "+apiKeyAccessTokenB, pullStreamAuthorization(stream), queue)
+	}
+	sendErrors := delayedSends.recordedSendErrors()
+	require.Len(t, sendErrors, 2, "each queue's first registration send happened after its rejection")
+	for _, sendErr := range sendErrors {
+		require.ErrorIs(t, sendErr, io.EOF, "gRPC reports a send on a rejected stream as io.EOF")
+	}
+	require.Equal(t, 2, gate.rejectionsFor(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName))
+	require.Equal(t, 2, tokenEndpoint.exchangeCount(), "the rejected token is discarded once and refreshed once")
+}
+
+func TestWorkerReportsUnauthenticatedPollStreamRejectedBeforeRegistrationIsSent(t *testing.T) {
+	gate := newBearerTokenGate(func(fullMethod string, _ string) bool {
+		return fullMethod != dexpb.WorkerTaskService_PollWorkerTask_FullMethodName
+	})
+	pullServer := &pullTestServer{registered: make(chan *pullTestStream, 32), firstReconnectQueue: make(chan string, 1)}
+	address := startBearerTokenGatedServer(t, gate, pullServer)
+	tokenEndpoint := startSequentialAPIKeyTokenEndpoint(t)
+	credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
+	require.NoError(t, err)
+	delayedSends := &sendAfterRejection{isRejected: func(string) bool { return true }}
+	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
+		FlowServiceAddress: address,
+		Credential:         credential,
+		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: apiKeyTestAppWorkerID},
+	})
+	require.NoError(t, err)
+	worker.pull.client = newDelayedSendPollClient(t, address, credential, delayedSends)
+	started := make(chan error, 1)
+	go func() { started <- worker.Start() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = worker.WaitPullRegistered(ctx)
+	require.Equal(t, codes.Unauthenticated, status.Code(err), "the final status replaces io.EOF: %v", err)
+	require.Never(t, func() bool {
+		return gate.rejectionsFor(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName) > 4
+	}, 2*time.Second, 50*time.Millisecond, "each queue reconnects once at once, then backs off")
+	require.Equal(t, 4, gate.rejectionsFor(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName))
+	require.Len(t, delayedSends.recordedSendErrors(), 4)
+	for _, queueState := range worker.PullRegistrationState().Queues {
+		require.Equal(t, codes.Unauthenticated, status.Code(queueState.LastPermanentError), queueState.Queue)
+	}
+	stopCtx, cancelStop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelStop()
 	require.NoError(t, worker.Stop(stopCtx))
 	require.NoError(t, <-started)
+}
+
+// newDelayedSendPollClient returns a poll client whose streams carry credential and then delayedSends.
+func newDelayedSendPollClient(
+	t *testing.T,
+	address string,
+	credential Credential,
+	delayedSends *sendAfterRejection,
+) dexpb.WorkerTaskServiceClient {
+	t.Helper()
+	connection, err := grpc.NewClient(address, append(credentialDialOptions(credential),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainStreamInterceptor(delayedSends.interceptStream),
+	)...)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+	return dexpb.NewWorkerTaskServiceClient(connection)
 }
 
 func pullStreamAuthorization(stream *pullTestStream) string {
