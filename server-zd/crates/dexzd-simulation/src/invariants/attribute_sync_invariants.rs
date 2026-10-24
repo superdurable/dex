@@ -6,11 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Attribute Sync outbox invariants (post-MVP plan section 4.2).
-//!
-//! - AS1: every synced Attribute change not yet acknowledged has an entry at its seq or later.
-//! - AS2: markings never lower an entry's seq; only an ack covering an entry deletes it.
-//! - AS3: the pending index names exactly the stores that have entries.
+//! Attribute Sync outbox invariants AS1 to AS3.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -47,7 +43,7 @@ pub(crate) fn remember_ack(
     }
 }
 
-/// AS2: checks one command's outbox writes against the state before it.
+/// AS2: markings never lower an entry's seq, and only a covering ack deletes an entry.
 pub(crate) fn check_outbox_writes(
     command: &FlowCommand,
     writes: &[StateWrite],
@@ -122,7 +118,8 @@ pub(crate) fn check_outbox_writes(
     Ok(())
 }
 
-/// AS1 and AS3 for one completely decoded run.
+/// AS1: unacknowledged synced changes have an entry at their seq or later. AS3: the index
+/// matches the entries.
 pub(crate) fn check_run_entries(
     context: &RunContext<'_>,
     run: &RunView,

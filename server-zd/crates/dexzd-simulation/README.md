@@ -12,6 +12,8 @@ state and once on a re-decoded twin, requires identical outcomes, and then check
 invariants: lock holders and FIFO waiter order (L1, L3, L4), lost updates on guarded keys (L2),
 fresh snapshots (S5), one result per attempt (S2), value holder sets and garbage rows (I1),
 history event order, the timer index, and agreement of the Flow directory and run records.
+Attribute Sync outbox checks cover unacknowledged changes keeping their entries (AS1), acks
+deleting only the entries they cover (AS2), and the pending index matching the entries (AS3).
 
 ```bash
 cargo test -p dexzd-simulation                                   # fixed seed set

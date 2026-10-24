@@ -6,11 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The Attribute Sync outbox: one run-scoped entry per (Attribute Store, Attribute key) that the
-//! projector writes to the store and then acknowledges.
-//!
-//! Apply cannot read store configuration, so entries name Attribute keys; the projector maps a
-//! key to the main row or an AttributeMap instance row.
+//! Attribute Sync outbox entries, keyed by Attribute key because apply cannot read store
+//! configuration.
 
 use std::collections::BTreeSet;
 
@@ -41,9 +38,7 @@ pub(crate) fn synced_write_keys<'write>(
         .collect()
 }
 
-/// Marks `attribute_keys` pending for every Attribute Store the run currently targets.
-///
-/// A key that is already pending keeps its retry window and takes the newer seq.
+/// Marks `attribute_keys` pending for each current store; a pending key keeps its retry window.
 pub(crate) fn mark_attribute_sync_entries(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,

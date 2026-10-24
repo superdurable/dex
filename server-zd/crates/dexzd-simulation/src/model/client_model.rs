@@ -260,8 +260,7 @@ pub(crate) fn config_update() -> Command {
     })
 }
 
-/// The projector's ack of one store's entries: at, above, or below their seqs, possibly for one
-/// key, and sometimes a drop.
+/// A projector ack of one store's entries, sometimes partial, stale, or a drop.
 pub(crate) fn attribute_sync_ack(rng: &mut ChaCha8Rng, run: &RunView) -> Command {
     let entries: Vec<_> = run.attribute_sync_entries.values().collect();
     let chosen = entries[rng.random_range(0..entries.len())];
