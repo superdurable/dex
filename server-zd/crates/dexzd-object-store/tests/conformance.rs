@@ -1284,7 +1284,11 @@ async fn s3_prefix_confined_reads_disambiguate_access_denied() {
         .get("missing")
         .await
         .expect_err("a denied listing also fails GET");
-    assert!(denied_get.detail.contains("disambiguating ListObjectsV2 failed"));
+    assert!(
+        denied_get
+            .detail
+            .contains("disambiguating ListObjectsV2 failed")
+    );
     assert!(denied_get.detail.contains("original read"));
     assert!(
         object_store

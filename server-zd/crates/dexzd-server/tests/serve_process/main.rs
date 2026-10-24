@@ -207,7 +207,51 @@ async fn sigterm_releases_the_lease_and_a_second_process_takes_over() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn prefix_confined_missing_key_denials_allow_new_cluster_and_log_tail_recovery() {
+async fn prefix_confined_missing_key_denials_allow_new_and_existing_cluster_startup() {
+    let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
+    primary
+        .set_fault_rules(&format!(
+            r#"[{{"operation":"GetObject","bucket":"{PRIMARY_BUCKET}","key_prefix":"{PRIMARY_PREFIX}/","action":{{"type":"missing_key_access_denied"}}}},{{"operation":"HeadObject","bucket":"{PRIMARY_BUCKET}","key_prefix":"{PRIMARY_PREFIX}/","action":{{"type":"missing_key_access_denied"}}}}]"#
+        ))
+        .await;
+    let endpoint = primary.endpoint();
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    for index in 0..2 {
+        let address = free_loopback_address();
+        let config = directory.path().join(format!("{index}.yaml"));
+        ServeConfig {
+            primary_endpoint: &endpoint,
+            hard_delete_endpoint: None,
+            listen: address,
+            local_directory: &directory.path().join(format!("store-{index}")),
+            lease_duration: "2s",
+            fail_if_held: true,
+            parade_db: None,
+        }
+        .write(&config);
+        let mut process = ServeProcess::spawn(
+            &config,
+            address,
+            directory.path().join(format!("{index}.log")),
+        );
+        let _serving_channel = process.wait_until_serving().await;
+        let status = process.terminate(SHUTDOWN_BUDGET).await;
+        assert_eq!(status.code(), Some(0), "{}", process.log());
+    }
+    let requests = primary.request_log().await;
+    assert!(requests.contains("\"status\":403"), "{requests}");
+    let counters = primary.counters().await;
+    for operation in ["HeadBucket", "GetBucketLocation", "ListBuckets"] {
+        assert!(
+            !counters.contains(&format!("\"{operation}\"")),
+            "{counters}"
+        );
+    }
+    primary.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prefix_confined_missing_key_denials_allow_log_tail_recovery() {
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     primary
         .set_fault_rules(&format!(

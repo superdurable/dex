@@ -117,15 +117,15 @@ impl S3ObjectStore {
         key: &str,
         range: Option<ByteRange>,
     ) -> ObjectStoreResult<Option<ObjectContent>> {
-        if let Some(range) = range {
-            if range.start > range.end_inclusive {
-                return Err(ObjectStoreError::new(
-                    ObjectStoreOperation::Get,
-                    key,
-                    ObjectStoreErrorKind::Permanent,
-                    "range start exceeds end",
-                ));
-            }
+        if let Some(range) = range
+            && range.start > range.end_inclusive
+        {
+            return Err(ObjectStoreError::new(
+                ObjectStoreOperation::Get,
+                key,
+                ObjectStoreErrorKind::Permanent,
+                "range start exceeds end",
+            ));
         }
         let mut retried_after_listing = false;
         let response = loop {
