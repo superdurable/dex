@@ -15,11 +15,11 @@ process already writes access tokens to a local file.
 use std::{sync::Arc, time::Duration};
 use dex_sdk::{ApiKeyCredential, ClientOptions, WorkerOptions};
 
+let runtime = tokio::runtime::Runtime::new()?;
 let credential = Arc::new(
-    ApiKeyCredential::builder(token_url, server_id, api_key)
+    runtime.block_on(ApiKeyCredential::builder(token_url, server_id, api_key)
         .exchange_timeout(Duration::from_secs(10))
-        .build()
-        .await?,
+        .build())?,
 );
 let client_options = ClientOptions::new().credential(credential.clone());
 let worker_options = WorkerOptions::new().credential(credential);
@@ -35,6 +35,10 @@ it once. Rejected Worker poll streams reconnect once immediately with a fresh
 token; a second rejection uses the normal Worker backoff.
 The application owns the credential and may share it among Clients and Workers.
 Dropping a Client or Worker releases only its reference; dropping the last owner
-aborts the refresh task. Keep the Tokio runtime used for construction alive
-while the credential is in use. Credential formatting and exchange errors never
+aborts the refresh task. Keep the runtime alive and driving tasks while the
+credential is in use. A multi-thread runtime does this while it remains alive;
+a current-thread runtime must be continuously driven. An injected reqwest
+client builder can configure proxies or private trust roots; the credential
+disables redirects before building it. The default client uses bundled webpki
+trust roots. Credential formatting and exchange errors never
 reveal the API key or an access token.

@@ -387,7 +387,13 @@ impl PullStream {
             .expect("registered pull stream")
             .is_draining = false;
         let result = self.poll_stream().await;
-        self.record_stream_result(result.2.as_ref().err());
+        if !result
+            .2
+            .as_ref()
+            .is_err_and(|status| status.code() == Code::Unauthenticated)
+        {
+            self.record_stream_result(result.2.as_ref().err());
+        }
         result
     }
 
@@ -480,7 +486,9 @@ impl PullStream {
                                     if let Some(reason) = rejection {
                                         let reject = PollWorkerTaskReject { task_id: task.task_id, reason: reason as i32 };
                                         if let Err(status) = send_control_frame(sender.as_ref().expect("open Worker stream"), RequestFrame::Reject(reject)).await {
-                                            self.record_stream_result(Some(&status));
+                                            if status.code() != Code::Unauthenticated {
+                                                self.record_stream_result(Some(&status));
+                                            }
                                             self.cancel_and_wait(&mut active).await;
                                             return (was_registered, false, Err(status));
                                         }
@@ -503,7 +511,9 @@ impl PullStream {
                                 }
                                 Some(ResponseFrame::Ping(_)) => {
                                     if let Err(status) = send_control_frame(sender.as_ref().expect("open Worker stream"), RequestFrame::Pong(PollWorkerTaskPong {})).await {
-                                        self.record_stream_result(Some(&status));
+                                        if status.code() != Code::Unauthenticated {
+                                            self.record_stream_result(Some(&status));
+                                        }
                                         self.cancel_and_wait(&mut active).await;
                                         return (was_registered, false, Err(status));
                                     }
@@ -523,7 +533,9 @@ impl PullStream {
                             return (was_registered, false, Ok(()));
                         }
                         Err(status) => {
-                            self.record_stream_result(Some(&status));
+                            if status.code() != Code::Unauthenticated {
+                                self.record_stream_result(Some(&status));
+                            }
                             self.cancel_and_wait(&mut active).await;
                             return (was_registered, false, Err(status));
                         }

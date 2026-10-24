@@ -84,7 +84,7 @@ pub trait Credential: Send + Sync {
     /// Supplies an asynchronous fresh token after rejection when supported.
     ///
     /// The default returns `None`, so existing credentials continue handling rejection as before.
-    /// [`crate::ApiKeyCredential`] returns a future bounded by its exchange timeout. The SDK uses
+    /// An API-key credential returns a future bounded by its exchange timeout. The SDK uses
     /// this for one unary retry or one immediate Worker stream reconnect after
     /// [`Self::discard_rejected_token`]. Implementations must avoid returning the rejected token.
     /// Errors fail the attempt without exposing token contents.
@@ -299,102 +299,187 @@ impl Service<http::Request<Body>> for RetryChannel {
     fn call(&mut self, request: http::Request<Body>) -> Self::Future {
         let mut channel = self.channel.clone();
         let credential = self.credential.clone();
+        let deadline = request_deadline(&request);
         Box::pin(async move {
-            let rejected_token = match request.headers().get("authorization") {
-                Some(value) => match value.to_str() {
-                    Ok(value) => value.strip_prefix("Bearer ").map(str::to_owned),
-                    Err(_) => None,
-                },
-                None => None,
-            };
-            let is_poll_stream = request.uri().path().ends_with("/PollWorkerTask");
-            if is_poll_stream || credential.is_none() {
-                let response = send_channel_request(&mut channel, request).await?;
-                let Some(credential) = credential else {
-                    return Ok(response);
+            let attempt = async {
+                let mut request = request;
+                let mut rejected_token = match request.headers().get("authorization") {
+                    Some(value) => match value.to_str() {
+                        Ok(value) => value.strip_prefix("Bearer ").map(str::to_owned),
+                        Err(_) => None,
+                    },
+                    None => None,
                 };
-                return Ok(observe_stream_rejection(
-                    response,
-                    credential,
-                    rejected_token,
-                ));
-            }
-            let (parts, body) = request.into_parts();
-            let request_body = match body.collect().await {
-                Ok(body) => body,
-                Err(status) => return Ok(status.into_http()),
-            };
-            let request_trailers = request_body.trailers().cloned();
-            let request_bytes = request_body.to_bytes();
-            let retry_method = parts.method.clone();
-            let retry_uri = parts.uri.clone();
-            let retry_version = parts.version;
-            let retry_headers = parts.headers.clone();
-            let request = http::Request::from_parts(
-                parts,
-                buffered_body(request_bytes.clone(), request_trailers.clone()),
-            );
-            let response = send_channel_request(&mut channel, request).await?;
-            let (response_parts, response_body) = response.into_parts();
-            let response_body = match response_body.collect().await {
-                Ok(body) => body,
-                Err(status) => return Ok(status.into_http()),
-            };
-            let response_trailers = response_body.trailers().cloned();
-            let is_rejected = is_unauthenticated(&response_parts.headers)
-                || response_trailers.as_ref().is_some_and(is_unauthenticated);
-            if !is_rejected {
-                return Ok(http::Response::from_parts(
-                    response_parts,
-                    buffered_body(response_body.to_bytes(), response_trailers),
-                ));
-            }
-            let Some(credential) = credential else {
-                return Ok(http::Response::from_parts(
-                    response_parts,
-                    buffered_body(response_body.to_bytes(), response_trailers),
-                ));
-            };
-            let Some(rejected_token) = rejected_token else {
-                return Ok(http::Response::from_parts(
-                    response_parts,
-                    buffered_body(response_body.to_bytes(), response_trailers),
-                ));
-            };
-            credential.discard_rejected_token(&rejected_token);
-            let Some(fresh_token) = credential.token_after_rejection() else {
-                return Ok(http::Response::from_parts(
-                    response_parts,
-                    buffered_body(response_body.to_bytes(), response_trailers),
-                ));
-            };
-            let fresh_token = match fresh_token.await {
-                Ok(token) => token,
-                Err(error) => return Ok(Status::unauthenticated(error.to_string()).into_http()),
-            };
-            let authorization = match http::HeaderValue::from_str(&format!("Bearer {fresh_token}"))
-            {
-                Ok(value) => value,
-                Err(_) => {
-                    return Ok(Status::unauthenticated("invalid bearer token metadata").into_http());
+                if rejected_token.is_none()
+                    && let Some(credential) = &credential
+                    && let Some(fresh_token) = credential.token_after_rejection()
+                {
+                    let fresh_token = match fresh_token.await {
+                        Ok(token) => token,
+                        Err(error) => {
+                            return Ok(Status::unauthenticated(error.to_string()).into_http());
+                        }
+                    };
+                    let authorization = match bearer_header(&fresh_token) {
+                        Ok(value) => value,
+                        Err(status) => return Ok(status.into_http()),
+                    };
+                    request.headers_mut().insert("authorization", authorization);
+                    rejected_token = Some(fresh_token);
                 }
+                let is_poll_stream =
+                    request.uri().path() == "/dex.WorkerTaskService/PollWorkerTask";
+                if is_poll_stream || credential.is_none() {
+                    let response = send_channel_request(&mut channel, request).await?;
+                    let Some(credential) = credential else {
+                        return Ok(response);
+                    };
+                    return Ok(observe_stream_rejection(
+                        response,
+                        credential,
+                        rejected_token,
+                    ));
+                }
+                let (parts, body) = request.into_parts();
+                let request_body = match body.collect().await {
+                    Ok(body) => body,
+                    Err(status) => return Ok(status.into_http()),
+                };
+                let request_trailers = request_body.trailers().cloned();
+                let request_bytes = request_body.to_bytes();
+                let retry_method = parts.method.clone();
+                let retry_uri = parts.uri.clone();
+                let retry_version = parts.version;
+                let retry_headers = parts.headers.clone();
+                let request = http::Request::from_parts(
+                    parts,
+                    buffered_body(request_bytes.clone(), request_trailers.clone()),
+                );
+                let response = send_channel_request(&mut channel, request).await?;
+                let (response_parts, response_body) = response.into_parts();
+                let response_body = match response_body.collect().await {
+                    Ok(body) => body,
+                    Err(status) => return Ok(status.into_http()),
+                };
+                let response_trailers = response_body.trailers().cloned();
+                let is_rejected = is_unauthenticated(&response_parts.headers)
+                    || response_trailers.as_ref().is_some_and(is_unauthenticated);
+                if !is_rejected {
+                    return Ok(http::Response::from_parts(
+                        response_parts,
+                        buffered_body(response_body.to_bytes(), response_trailers),
+                    ));
+                }
+                let Some(credential) = credential else {
+                    return Ok(http::Response::from_parts(
+                        response_parts,
+                        buffered_body(response_body.to_bytes(), response_trailers),
+                    ));
+                };
+                let Some(rejected_token) = rejected_token else {
+                    return Ok(http::Response::from_parts(
+                        response_parts,
+                        buffered_body(response_body.to_bytes(), response_trailers),
+                    ));
+                };
+                credential.discard_rejected_token(&rejected_token);
+                let Some(fresh_token) = credential.token_after_rejection() else {
+                    return Ok(http::Response::from_parts(
+                        response_parts,
+                        buffered_body(response_body.to_bytes(), response_trailers),
+                    ));
+                };
+                let fresh_token = match fresh_token.await {
+                    Ok(token) => token,
+                    Err(error) => return Ok(Status::unauthenticated(error.to_string()).into_http()),
+                };
+                let authorization = match bearer_header(&fresh_token) {
+                    Ok(value) => value,
+                    Err(status) => return Ok(status.into_http()),
+                };
+                let mut retry = http::Request::new(buffered_body(request_bytes, request_trailers));
+                *retry.method_mut() = retry_method;
+                *retry.uri_mut() = retry_uri;
+                *retry.version_mut() = retry_version;
+                *retry.headers_mut() = retry_headers;
+                retry.headers_mut().insert("authorization", authorization);
+                if let Some(deadline) = deadline
+                    && !set_remaining_timeout(&mut retry, deadline)
+                {
+                    return Ok(Status::deadline_exceeded("request deadline exceeded").into_http());
+                }
+                let response = send_channel_request(&mut channel, retry).await?;
+                let (parts, body) = response.into_parts();
+                let response = observe_stream_rejection(
+                    http::Response::from_parts(parts, body),
+                    credential,
+                    Some(fresh_token),
+                );
+                Ok(response)
             };
-            let mut retry = http::Request::new(buffered_body(request_bytes, request_trailers));
-            *retry.method_mut() = retry_method;
-            *retry.uri_mut() = retry_uri;
-            *retry.version_mut() = retry_version;
-            *retry.headers_mut() = retry_headers;
-            retry.headers_mut().insert("authorization", authorization);
-            let response = send_channel_request(&mut channel, retry).await?;
-            let (parts, body) = response.into_parts();
-            let response = observe_stream_rejection(
-                http::Response::from_parts(parts, body),
-                credential,
-                Some(fresh_token),
-            );
-            Ok(response)
+            if let Some(deadline) = deadline {
+                match tokio::time::timeout_at(deadline.into(), attempt).await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        Ok(Status::deadline_exceeded("request deadline exceeded").into_http())
+                    }
+                }
+            } else {
+                attempt.await
+            }
         })
     }
+}
+
+fn bearer_header(token: &str) -> Result<http::HeaderValue, Status> {
+    http::HeaderValue::from_str(&format!("Bearer {token}"))
+        .map_err(|_| Status::unauthenticated("invalid bearer token metadata"))
+}
+
+fn request_deadline(request: &http::Request<Body>) -> Option<Instant> {
+    let timeout = request.headers().get("grpc-timeout")?.to_str().ok()?;
+    let (amount, unit) = timeout.split_at(timeout.len().checked_sub(1)?);
+    if amount.is_empty() || amount.len() > 8 {
+        return None;
+    }
+    let amount = amount.parse::<u64>().ok()?;
+    let duration = match unit {
+        "H" => Duration::from_secs(amount.checked_mul(3_600)?),
+        "M" => Duration::from_secs(amount.checked_mul(60)?),
+        "S" => Duration::from_secs(amount),
+        "m" => Duration::from_millis(amount),
+        "u" => Duration::from_micros(amount),
+        "n" => Duration::from_nanos(amount),
+        _ => return None,
+    };
+    Instant::now().checked_add(duration)
+}
+
+fn set_remaining_timeout(request: &mut http::Request<Body>, deadline: Instant) -> bool {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return false;
+    }
+    let nanoseconds = remaining.as_nanos();
+    let timeout = [
+        (1, "n"),
+        (1_000, "u"),
+        (1_000_000, "m"),
+        (1_000_000_000, "S"),
+        (60_000_000_000, "M"),
+        (3_600_000_000_000, "H"),
+    ]
+    .into_iter()
+    .find_map(|(unit, suffix)| {
+        let amount = nanoseconds.div_ceil(unit);
+        (amount <= 99_999_999).then(|| format!("{amount}{suffix}"))
+    })
+    .expect("gRPC timeout fits an eight-digit hour value");
+    request.headers_mut().insert(
+        "grpc-timeout",
+        http::HeaderValue::from_str(&timeout).expect("numeric gRPC timeout header"),
+    );
+    true
 }
 
 async fn send_channel_request(
@@ -502,12 +587,15 @@ impl CredentialInterceptor {
 impl Interceptor for CredentialInterceptor {
     fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
         if let Some(credential) = &self.credential {
-            let token = credential
-                .token()
-                .map_err(|error| Status::unauthenticated(error.to_string()))?;
-            let value = MetadataValue::try_from(format!("Bearer {token}"))
-                .map_err(|_| Status::unauthenticated("invalid bearer token metadata"))?;
-            request.metadata_mut().insert("authorization", value);
+            match credential.token() {
+                Ok(token) => {
+                    let value = MetadataValue::try_from(format!("Bearer {token}"))
+                        .map_err(|_| Status::unauthenticated("invalid bearer token metadata"))?;
+                    request.metadata_mut().insert("authorization", value);
+                }
+                Err(_) if credential.token_after_rejection().is_some() => {}
+                Err(error) => return Err(Status::unauthenticated(error.to_string())),
+            }
         }
         Ok(request)
     }

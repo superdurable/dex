@@ -29,7 +29,7 @@ use dex_sdk::{
     Registry, Worker, WorkerOptions,
 };
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio_stream::wrappers::{ReceiverStream, TcpListenerStream};
 use tonic::codegen::{BoxFuture, Service, http};
 use tonic::server::{NamedService, UnaryService};
@@ -42,10 +42,22 @@ const TOKEN_B: &str = "api-key-test-token-b";
 struct TokenEndpoint {
     responses: Mutex<VecDeque<&'static str>>,
     count: Mutex<usize>,
+    refresh_started: Notify,
+    release_refresh: Option<Arc<Notify>>,
 }
 
 async fn exchange_token(State(endpoint): State<Arc<TokenEndpoint>>) -> (StatusCode, String) {
-    *endpoint.count.lock().expect("exchange count lock") += 1;
+    let exchange_count = {
+        let mut count = endpoint.count.lock().expect("exchange count lock");
+        *count += 1;
+        *count
+    };
+    if exchange_count == 2
+        && let Some(release_refresh) = &endpoint.release_refresh
+    {
+        endpoint.refresh_started.notify_one();
+        release_refresh.notified().await;
+    }
     let token = endpoint
         .responses
         .lock()
@@ -226,7 +238,7 @@ impl WorkerTaskService for RejectedWorkerPollService {
     }
 }
 
-fn exercise_rejected_token_retry(accepts_token_b: bool) {
+fn exercise_rejected_token_retry(accepts_token_b: bool, delayed_second_call: bool) {
     let runtime = tokio::runtime::Runtime::new().expect("server runtime");
     let (token_listener, grpc_listener) = runtime.block_on(async {
         let token_listener = TcpListener::bind("127.0.0.1:0")
@@ -245,6 +257,8 @@ fn exercise_rejected_token_retry(accepts_token_b: bool) {
     let endpoint = Arc::new(TokenEndpoint {
         responses: Mutex::new(VecDeque::from([TOKEN_A, TOKEN_B])),
         count: Mutex::new(0),
+        refresh_started: Notify::new(),
+        release_refresh: delayed_second_call.then(|| Arc::new(Notify::new())),
     });
     let router = Router::new()
         .route("/token", post(exchange_token))
@@ -285,7 +299,39 @@ fn exercise_rejected_token_retry(accepts_token_b: bool) {
             .credential(credential.clone()),
     )
     .expect("Dex Client");
-    let result = client.health_check();
+    let result = if delayed_second_call {
+        let client = Arc::new(client);
+        let first_client = Arc::clone(&client);
+        let first = std::thread::spawn(move || first_client.health_check());
+        runtime
+            .block_on(async {
+                tokio::time::timeout(Duration::from_secs(5), endpoint.refresh_started.notified())
+                    .await
+            })
+            .expect("rejected-token exchange started");
+        let second_client = Arc::clone(&client);
+        let (second_result, second_outcome) = std::sync::mpsc::channel();
+        let second = std::thread::spawn(move || {
+            second_result
+                .send(second_client.health_check().is_ok())
+                .expect("send second call result");
+        });
+        assert!(matches!(
+            second_outcome.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        endpoint
+            .release_refresh
+            .as_ref()
+            .expect("refresh gate")
+            .notify_one();
+        let first_result = first.join().expect("first Client call");
+        second.join().expect("second Client call");
+        assert!(second_outcome.recv().expect("second call succeeds"));
+        first_result
+    } else {
+        client.health_check()
+    };
     if accepts_token_b {
         result.expect("second attempt succeeds");
     } else {
@@ -301,11 +347,11 @@ fn exercise_rejected_token_retry(accepts_token_b: bool) {
     } else {
         assert!(exchange_count >= 2);
     }
-    assert_eq!(
-        *headers.lock().expect("header lock"),
-        vec![format!("Bearer {TOKEN_A}"), format!("Bearer {TOKEN_B}"),]
-    );
-    drop(client);
+    let mut expected_headers = vec![format!("Bearer {TOKEN_A}"), format!("Bearer {TOKEN_B}")];
+    if delayed_second_call {
+        expected_headers.push(format!("Bearer {TOKEN_B}"));
+    }
+    assert_eq!(*headers.lock().expect("header lock"), expected_headers);
     drop(credential);
     token_task.abort();
     grpc_task.abort();
@@ -313,15 +359,20 @@ fn exercise_rejected_token_retry(accepts_token_b: bool) {
 
 #[test]
 fn unary_client_retries_once_with_fresh_token() {
-    exercise_rejected_token_retry(true);
+    exercise_rejected_token_retry(true, false);
+}
+
+#[test]
+fn unary_call_started_during_refresh_shares_exchange() {
+    exercise_rejected_token_retry(true, true);
 }
 
 #[test]
 fn unary_client_stops_after_second_rejection() {
-    exercise_rejected_token_retry(false);
+    exercise_rejected_token_retry(false, false);
 }
 
-fn exercise_worker_poll_rejection(accepts_token_b: bool) {
+fn exercise_worker_poll_rejection(accepts_token_b: bool, should_stop_on_rejection: bool) {
     let runtime = tokio::runtime::Runtime::new().expect("server runtime");
     let (token_listener, grpc_listener) = runtime.block_on(async {
         (
@@ -341,6 +392,8 @@ fn exercise_worker_poll_rejection(accepts_token_b: bool) {
     let endpoint = Arc::new(TokenEndpoint {
         responses: Mutex::new(VecDeque::from([TOKEN_A, TOKEN_B])),
         count: Mutex::new(0),
+        refresh_started: Notify::new(),
+        release_refresh: accepts_token_b.then(|| Arc::new(Notify::new())),
     });
     let token_endpoint = Arc::clone(&endpoint);
     let token_task = runtime.spawn(async move {
@@ -384,12 +437,42 @@ fn exercise_worker_poll_rejection(accepts_token_b: bool) {
             WorkerOptions::new()
                 .server_address(grpc_address.to_string())
                 .credential(credential)
-                .pull(PullWorkerOptions::new().app_worker_id("api-key-test-worker")),
+                .pull(
+                    PullWorkerOptions::new()
+                        .app_worker_id("api-key-test-worker")
+                        .stop_on_permanent_stream_rejection(should_stop_on_rejection),
+                ),
         )
         .expect("pull Worker"),
     );
     let running = Arc::clone(&worker);
     let worker_thread = std::thread::spawn(move || running.start());
+    if accepts_token_b {
+        runtime
+            .block_on(async {
+                tokio::time::timeout(Duration::from_secs(5), endpoint.refresh_started.notified())
+                    .await
+            })
+            .expect("reconnect exchange started");
+        let early_readiness = runtime.block_on(async {
+            tokio::time::timeout(Duration::from_millis(100), worker.wait_pull_registered()).await
+        });
+        assert!(
+            early_readiness.is_err(),
+            "first rejection is not a readiness failure"
+        );
+        endpoint
+            .release_refresh
+            .as_ref()
+            .expect("reconnect gate")
+            .notify_one();
+        runtime
+            .block_on(async {
+                tokio::time::timeout(Duration::from_secs(10), worker.wait_pull_registered()).await
+            })
+            .expect("readiness deadline")
+            .expect("reconnected Worker ready");
+    }
     let observed = runtime.block_on(async {
         tokio::time::timeout(Duration::from_secs(10), async {
             let mut polling_interval = tokio::time::interval(Duration::from_millis(100));
@@ -443,10 +526,15 @@ fn exercise_worker_poll_rejection(accepts_token_b: bool) {
 
 #[test]
 fn worker_poll_reconnects_immediately_after_rejected_token() {
-    exercise_worker_poll_rejection(true);
+    exercise_worker_poll_rejection(true, false);
+}
+
+#[test]
+fn worker_poll_reconnects_before_permanent_rejection_stop() {
+    exercise_worker_poll_rejection(true, true);
 }
 
 #[test]
 fn worker_poll_backs_off_after_second_rejection() {
-    exercise_worker_poll_rejection(false);
+    exercise_worker_poll_rejection(false, false);
 }

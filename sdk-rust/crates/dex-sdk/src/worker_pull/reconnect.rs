@@ -22,7 +22,11 @@ impl PullStream {
             }
             let (was_registered, is_reconnecting, result) = self.poll().await;
             if self.stop.borrow().phase != 0 || self.shared.is_retiring(self.stream_id) {
+                self.record_stream_result(None);
                 break;
+            }
+            if was_registered {
+                has_immediate_auth_reconnect = false;
             }
             if result
                 .as_ref()
@@ -30,9 +34,11 @@ impl PullStream {
                 && !has_immediate_auth_reconnect
                 && self.prepare_immediate_auth_reconnect().await
             {
+                self.record_stream_result(None);
                 has_immediate_auth_reconnect = true;
                 continue;
             }
+            self.record_stream_result(result.as_ref().err());
             has_immediate_auth_reconnect = false;
             if was_registered || is_reconnecting {
                 backoff = Duration::from_millis(100);
