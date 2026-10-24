@@ -23,7 +23,9 @@ use dexzd_protocol::dexzd::v1::{
     FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand, TimeTravelCommand,
     TimerSkipCommand, command_reply, flow_command,
 };
-use dexzd_request_validation::{ClientRequest, validate_client_request};
+use dexzd_request_validation::{
+    ClientRequest, validate_client_request, validate_start_flow_request,
+};
 
 use crate::runtime::client_operations::hard_delete_uploads::{
     committed_reply, hard_delete_references, has_hard_delete_values,
@@ -45,10 +47,8 @@ impl FlowRuntimeRegistry {
         tenant_id: TenantId,
         request: StartFlowRequest,
     ) -> Result<StartFlowResponse, RuntimeError> {
-        validate_client_request(
-            ClientRequest::StartFlow(&request),
-            &self.inner.config.validation,
-        )?;
+        let effective_flow_config =
+            validate_start_flow_request(&request, &self.inner.config.validation)?;
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
         let resolved_timeout_policy =
             if request.flow_timeout_seconds > 0 && request.flow_timeout_policy == 0 {
@@ -72,6 +72,7 @@ impl FlowRuntimeRegistry {
             request: Some(request),
             settings: Some(self.inner.config.run_settings),
             resolved_timeout_policy,
+            effective_flow_config: Some(effective_flow_config),
             // Validation accepted only pull targets, which normalize to this value.
             worker_target: Some(WorkerTarget {
                 is_pull_mode: true,

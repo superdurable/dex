@@ -177,6 +177,7 @@ impl Harness {
             }),
             hard_delete_objects: Vec::new(),
             request_fingerprint: Vec::new(),
+            ..FlowStartCommand::default()
         }));
         let Some(command_reply::Reply::StartFlow(reply)) = &outcome.reply.reply else {
             panic!("unexpected start reply {:?}", outcome.reply);
