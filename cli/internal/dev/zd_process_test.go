@@ -55,6 +55,14 @@ func TestZDEngineFlags(t *testing.T) {
 	if config.ZDDataDirectory != overrideDirectory || config.zdDataDirectory() != overrideDirectory {
 		t.Fatalf("zd data directory override = %q", config.ZDDataDirectory)
 	}
+	zdConfig := writeZDTestConfig(t)
+	config, err = parseConfig([]string{"--engine", "zd", "--zd-config", zdConfig}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ZDConfigPath != zdConfig {
+		t.Fatalf("zd config path = %q, want %q", config.ZDConfigPath, zdConfig)
+	}
 	config, err = parseConfig(nil, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +87,11 @@ func TestZDEngineFlags(t *testing.T) {
 			t.Fatalf("--%s: expected zd incompatibility, got %v", flagName, err)
 		}
 	}
-	for _, arguments := range [][]string{{"--engine", "unknown"}, {"--zd-binary", binary}, {"--zd-data-dir", overrideDirectory}, {"--engine", "zd", "--zd-data-dir", ""}} {
+	for _, arguments := range [][]string{
+		{"--engine", "unknown"}, {"--zd-binary", binary}, {"--zd-data-dir", overrideDirectory}, {"--engine", "zd", "--zd-data-dir", ""},
+		{"--zd-config", zdConfig}, {"--engine", "zd", "--zd-config", ""},
+		{"--engine", "zd", "--zd-config", filepath.Join(t.TempDir(), "missing.yaml")}, {"--engine", "zd", "--zd-config", t.TempDir()},
+	} {
 		if _, err := parseConfig(arguments, &bytes.Buffer{}); err == nil {
 			t.Fatalf("accepted invalid arguments %v", arguments)
 		}
@@ -99,9 +111,11 @@ func TestZDSupervisorStartsWebAndStopsChild(t *testing.T) {
 	t.Setenv("DEX_ZD_TEST_STOPPED", stoppedFile)
 	dexPort, webPort := freeZDTestPorts(t)
 	dataDirectory := filepath.Join(testDirectory, "isolated-zd")
+	zdConfig := writeZDTestConfig(t)
 	config, err := parseConfig([]string{
 		"--engine", "zd", "--zd-binary", binary,
 		"--zd-data-dir", dataDirectory,
+		"--zd-config", zdConfig,
 		"--dex-port", strconv.Itoa(dexPort),
 		"--web-port", strconv.Itoa(webPort),
 		"--open=false", "--server-log-folder", filepath.Join(testDirectory, "logs"),
@@ -116,7 +130,7 @@ func TestZDSupervisorStartsWebAndStopsChild(t *testing.T) {
 	finished := make(chan error, 1)
 	go func() { finished <- newSupervisor(config, output, output).Run(runCtx) }()
 	waitForZDTestReady(t, output, finished)
-	expected := []string{"dev", "--data-dir", dataDirectory, "--listen", net.JoinHostPort(config.BindAddress, strconv.Itoa(config.DexPort)), "--log-dir", config.LogDirectory}
+	expected := []string{"dev", "--data-dir", dataDirectory, "--listen", net.JoinHostPort(config.BindAddress, strconv.Itoa(config.DexPort)), "--log-dir", config.LogDirectory, "--config", zdConfig}
 	arguments, err := os.ReadFile(argumentsFile)
 	if err != nil {
 		t.Fatal(err)
@@ -255,6 +269,15 @@ func TestZDSupervisorReportsHealthTimeout(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "deadline exceeded") || !strings.Contains(err.Error(), "dex.WorkerTaskService") || !strings.Contains(err.Error(), "NOT_SERVING") {
 		t.Fatalf("expected health status and timeout, got %v\n%s", err, output.String())
 	}
+}
+
+func writeZDTestConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "zd.yaml")
+	if err := os.WriteFile(path, []byte("retention:\n  closedFlowDuration: 30days\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func buildFakeZDBinary(t *testing.T) string {

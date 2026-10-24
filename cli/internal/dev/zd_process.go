@@ -68,6 +68,9 @@ func startZDProcess(cfg *Config, dataDirectory string, dexAddress string, logs i
 	if cfg.isExplicit("server-log-folder") {
 		arguments = append(arguments, "--log-dir", cfg.LogDirectory)
 	}
+	if cfg.ZDConfigPath != "" {
+		arguments = append(arguments, "--config", cfg.ZDConfigPath)
+	}
 	command := exec.Command(cfg.ZDBinary, arguments...)
 	return startChildProcess(command, logs, "dex-server-zd", true)
 }

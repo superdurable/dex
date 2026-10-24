@@ -63,8 +63,11 @@ Select the Rust zd engine with `dexcli dev --engine zd`. It starts
 `dex-server-zd` and Dex Web without Temporal. Install `dex-server-zd` on PATH,
 set `DEX_SERVER_ZD_BINARY`, or pass `--zd-binary /path/to/dex-server-zd`.
 The CLI stores zd state in `$HOME/.dex/zd/<dex-port>` by default. Pass
-`--zd-data-dir ./zd-state` to choose another directory. It waits for the zd
-gRPC health services before opening Dex Web. zd supports pull Workers only.
+`--zd-data-dir ./zd-state` to choose another directory. Pass
+`--zd-config ./zd.yaml` to override `dex-server-zd` settings such as closed Flow
+retention, Streams, or the search backend. The CLI passes the file to
+`dex-server-zd dev --config`. It waits for the zd gRPC health services before
+opening Dex Web. zd supports pull Workers only.
 Options for Temporal or the in-process Go Server, including
 `--sqlite-db-filename`, `--external-temporal-address`,
 `--verbose-engine-log`, `--attribute-store-config`, and `--blob-store-dir`,
@@ -188,6 +191,7 @@ must exist and be reachable before startup.
 --verbose-engine-log               write Temporal Server logs to temporal-engine-server.log
 --web-port int                     Dex Web port (default 8802)
 --zd-binary string                 dex-server-zd executable (default DEX_SERVER_ZD_BINARY or PATH)
+--zd-config string                 dex-server-zd YAML file with configuration overrides
 --zd-data-dir string               zd state directory (default $HOME/.dex/zd/<dex-port>)
 ```
 

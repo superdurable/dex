@@ -56,6 +56,7 @@ var flagOrder = []string{
 	"verbose-engine-log",
 	"web-port",
 	"zd-binary",
+	"zd-config",
 	"zd-data-dir",
 }
 
@@ -66,6 +67,8 @@ type Config struct {
 	ZDBinary string
 	// ZDDataDirectory defaults to $HOME/.dex/zd/<dex-port> after the Dex port is selected.
 	ZDDataDirectory string
+	// ZDConfigPath defaults empty; when set, dexcli passes it to dex-server-zd dev as --config overrides.
+	ZDConfigPath string
 	// BindAddress defaults to 127.0.0.1 for all owned listeners.
 	BindAddress string
 	// DexPort defaults to 8801 for the Dex gRPC server.
@@ -130,6 +133,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	flags.StringVar(&cfg.Engine, "engine", cfg.Engine, "Dex Server engine: temporal or zd")
 	flags.StringVar(&cfg.ZDBinary, "zd-binary", cfg.ZDBinary, "dex-server-zd executable (default DEX_SERVER_ZD_BINARY or PATH)")
 	flags.StringVar(&cfg.ZDDataDirectory, "zd-data-dir", "", "zd state directory (default $HOME/.dex/zd/<dex-port>)")
+	flags.StringVar(&cfg.ZDConfigPath, "zd-config", "", "dex-server-zd YAML file with configuration overrides")
 	flags.StringVar(
 		&cfg.BlobStoreDirectory,
 		"blob-store-dir",
@@ -196,7 +200,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	cfg.explicitLocalFlags = make(map[string]bool)
 	flags.Visit(func(item *flag.Flag) {
 		switch item.Name {
-		case "dex-port", "web-port", "sqlite-db-filename", "server-log-folder", "verbose-engine-log", "external-temporal-address", "external-temporal-namespace", "attribute-store-config", "zd-binary", "zd-data-dir":
+		case "dex-port", "web-port", "sqlite-db-filename", "server-log-folder", "verbose-engine-log", "external-temporal-address", "external-temporal-namespace", "attribute-store-config", "zd-binary", "zd-data-dir", "zd-config":
 			cfg.explicitLocalFlags[item.Name] = true
 		case "blob-store-dir":
 			cfg.explicitLocalFlags[item.Name] = true
@@ -281,8 +285,15 @@ func (c *Config) validate() error {
 			}
 			c.ZDDataDirectory = dataDirectory
 		}
+		if c.isExplicit("zd-config") {
+			configPath, err := resolveZDConfigPath(c.ZDConfigPath)
+			if err != nil {
+				return err
+			}
+			c.ZDConfigPath = configPath
+		}
 	} else {
-		for _, name := range []string{"zd-binary", "zd-data-dir"} {
+		for _, name := range []string{"zd-binary", "zd-data-dir", "zd-config"} {
 			if c.isExplicit(name) {
 				return fmt.Errorf("--%s requires --engine zd", name)
 			}
@@ -438,6 +449,27 @@ func (c *Config) isExplicit(flagName string) bool {
 
 func (c *Config) autoSQLiteDBFilename() string {
 	return filepath.Join(c.StateDirectory, "dev", strconv.Itoa(c.TemporalPort), localSQLiteFileName)
+}
+
+// resolveZDConfigPath returns the absolute path of an existing regular zd configuration file, or an error naming
+// the empty, unresolvable, unreadable, or non-regular path.
+func resolveZDConfigPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("zd config file is required")
+	}
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve zd config file: %w", err)
+	}
+	info, err := os.Stat(absolutePath)
+	if err != nil {
+		return "", fmt.Errorf("read zd config file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("zd config file %q is not a regular file", absolutePath)
+	}
+	return absolutePath, nil
 }
 
 func (c *Config) zdDataDirectory() string {
