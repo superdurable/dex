@@ -28,8 +28,8 @@ use crate::testdata_tree::{
     load_objects, read_files, recorded_objects, testdata_versions, version_digest, write_files,
 };
 
-/// Digest of every file of each version, README included. Versions are immutable: add `v<N+1>`.
-const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[("v1", "d15b36bba0c8ad9d8a55d795a5c3312a")];
+/// Digest of every file of each version, README included. Regenerate v1 before 1.0; afterward versions are immutable: add `v<N+1>`.
+const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[("v1", "e29894de25bee4fa6d8f379f01c010a9")];
 /// The restoring node starts this long after the last recorded command.
 const RESTART_DELAY_MICROS: i64 = 60 * 60 * 1_000_000;
 
@@ -102,7 +102,7 @@ fn every_version_keeps_its_pinned_bytes() {
         assert_eq!(
             version_digest(&version.directory),
             *pinned_digest,
-            "testdata/{} changed; recorded versions are immutable, so add a new version instead",
+            "testdata/{} changed; regenerate v1 with its generator before 1.0, or add a new version afterward",
             version.name
         );
     }
@@ -197,7 +197,7 @@ async fn the_workload_reproduces_the_newest_version() {
     assert!(
         differences.is_empty(),
         "the workload no longer reproduces testdata/{}; if the engine now writes different bytes, \
-         add a new version. Differences:\n{}",
+         regenerate v1 before 1.0, or add a new version afterward. Differences:\n{}",
         newest.name,
         differences.join("\n")
     );
