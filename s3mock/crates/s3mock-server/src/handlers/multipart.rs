@@ -23,8 +23,8 @@ use super::listing::{ListingEncoder, non_empty};
 use super::object::{expected_checksum, stream_upload};
 use super::request_body::read_small_body;
 use crate::request_headers::{
-    body_encoding, content_headers, header_text, upload_checksum_plan, user_metadata,
-    write_condition,
+    ObjectWrite, body_encoding, content_headers, header_text, refuse_unsupported_write_headers,
+    requested_checksum_algorithm, upload_checksum_plan, user_metadata, write_condition,
 };
 use crate::routing::QueryParameters;
 use crate::s3_error::S3Error;
@@ -41,13 +41,8 @@ pub(crate) async fn create_multipart_upload(
     key: String,
     headers: &HeaderMap,
 ) -> Result<S3Response, S3Error> {
-    let checksum_algorithm = header_text(headers, "x-amz-checksum-algorithm")
-        .map(|name| {
-            ChecksumAlgorithm::from_s3_name(name.trim()).ok_or_else(|| {
-                S3Error::invalid_argument(format!("unsupported checksum algorithm {name:?}"))
-            })
-        })
-        .transpose()?;
+    refuse_unsupported_write_headers(headers, ObjectWrite::CreateMultipartUpload)?;
+    let checksum_algorithm = requested_checksum_algorithm(headers)?;
     let checksum_type = header_text(headers, "x-amz-checksum-type")
         .map(|name| {
             ChecksumType::from_s3_name(name.trim()).ok_or_else(|| {
@@ -96,9 +91,7 @@ pub(crate) async fn upload_part(
     headers: HeaderMap,
     body: crate::server::RequestBody,
 ) -> Result<S3Response, S3Error> {
-    if headers.contains_key("x-amz-copy-source") {
-        return Err(S3Error::not_implemented("UploadPartCopy"));
-    }
+    refuse_unsupported_write_headers(&headers, ObjectWrite::UploadPart)?;
     let upload_id = required_upload_id(&query)?;
     let part_number = query
         .get("partNumber")
@@ -159,7 +152,7 @@ pub(crate) async fn complete_multipart_upload(
     body: crate::server::RequestBody,
 ) -> Result<S3Response, S3Error> {
     let upload_id = required_upload_id(&query)?;
-    let write_condition = write_condition(headers)?;
+    let write_condition = write_condition(headers, "CompleteMultipartUpload")?;
     let expected_checksum = ChecksumAlgorithm::ALL.into_iter().find_map(|algorithm| {
         header_text(headers, algorithm.header_name())
             .map(|value| (algorithm, value.trim().to_owned()))

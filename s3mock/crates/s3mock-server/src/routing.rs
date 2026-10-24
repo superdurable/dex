@@ -8,7 +8,7 @@
 
 //! Maps a path-style request to an S3 operation; unsupported subresources fail with NotImplemented.
 
-use http::{Method, StatusCode, Uri};
+use http::{HeaderMap, Method, StatusCode, Uri};
 use percent_encoding::percent_decode_str;
 
 use crate::s3_error::S3Error;
@@ -155,6 +155,11 @@ pub(crate) enum S3Operation {
         bucket: String,
         key: String,
     },
+    CopyObject {
+        bucket: String,
+        key: String,
+        source: CopySource,
+    },
     GetObject {
         bucket: String,
         key: String,
@@ -170,6 +175,58 @@ pub(crate) enum S3Operation {
         key: String,
         query: QueryParameters,
     },
+}
+
+/// The object a CopyObject reads, from its `x-amz-copy-source` header.
+#[derive(Debug)]
+pub(crate) struct CopySource {
+    pub(crate) bucket: String,
+    pub(crate) key: String,
+    /// `None` copies the current version.
+    pub(crate) version_id: Option<String>,
+}
+
+impl CopySource {
+    /// Parses `[/]<bucket>/<key>[?versionId=<id>]`, whose bucket and key are URL-encoded.
+    fn parse(value: &str) -> Result<CopySource, S3Error> {
+        let invalid = || {
+            S3Error::invalid_argument(
+                "Copy Source must mention the source bucket and key: sourcebucket/sourcekey",
+            )
+        };
+        // A `?` inside the key is encoded, so the first literal `?` starts the query.
+        let (path, query) = value.split_once('?').unwrap_or((value, ""));
+        let path = path.strip_prefix('/').unwrap_or(path);
+        let (raw_bucket, raw_key) = path.split_once('/').ok_or_else(invalid)?;
+        if raw_bucket.starts_with("arn:") {
+            return Err(S3Error::not_implemented(
+                "CopyObject from an access point or ARN copy source",
+            ));
+        }
+        let bucket = decode_component(raw_bucket)?;
+        let key = decode_component(raw_key)?;
+        if bucket.is_empty() || key.is_empty() {
+            return Err(invalid());
+        }
+        let version_id = match query {
+            "" => None,
+            _ => match query.strip_prefix("versionId=") {
+                Some(raw_version_id) if !raw_version_id.is_empty() => {
+                    Some(decode_component(raw_version_id)?)
+                }
+                Some(_) | None => {
+                    return Err(S3Error::invalid_argument(
+                        "the copy source query may contain only versionId",
+                    ));
+                }
+            },
+        };
+        Ok(CopySource {
+            bucket,
+            key,
+            version_id,
+        })
+    }
 }
 
 /// Decoded query parameters in request order.
@@ -216,8 +273,12 @@ impl QueryParameters {
     }
 }
 
-/// Resolves the operation from the method, path-style URI, and query.
-pub(crate) fn route(method: &Method, uri: &Uri) -> Result<S3Operation, S3Error> {
+/// Resolves the operation from the method, path-style URI, query, and copy-source header.
+pub(crate) fn route(
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+) -> Result<S3Operation, S3Error> {
     let query = QueryParameters::parse(uri.query())?;
     let path = uri.path().strip_prefix('/').unwrap_or(uri.path());
     let (raw_bucket, raw_key) = path.split_once('/').unwrap_or((path, ""));
@@ -235,7 +296,7 @@ pub(crate) fn route(method: &Method, uri: &Uri) -> Result<S3Operation, S3Error> 
     if key.is_empty() {
         route_bucket(method, bucket, query)
     } else {
-        route_object(method, bucket, key, query)
+        route_object(method, bucket, key, query, headers)
     }
 }
 
@@ -320,16 +381,35 @@ fn route_object(
     bucket: String,
     key: String,
     query: QueryParameters,
+    headers: &HeaderMap,
 ) -> Result<S3Operation, S3Error> {
+    let copy_source = headers.get("x-amz-copy-source");
     match *method {
+        Method::PUT if copy_source.is_some() && query.contains("uploadId") => {
+            Err(S3Error::not_implemented("UploadPartCopy"))
+        }
         Method::PUT if query.contains("uploadId") => {
             query.require_only(&["uploadId", "partNumber"], "UploadPart")?;
             Ok(S3Operation::UploadPart { bucket, key, query })
         }
-        Method::PUT => {
-            query.require_only(&[], "this object PUT")?;
-            Ok(S3Operation::PutObject { bucket, key })
-        }
+        Method::PUT => match copy_source {
+            Some(copy_source) => {
+                query.require_only(&[], "CopyObject")?;
+                let source = copy_source
+                    .to_str()
+                    .map_err(|_| S3Error::invalid_argument("x-amz-copy-source is not valid text"))
+                    .and_then(CopySource::parse)?;
+                Ok(S3Operation::CopyObject {
+                    bucket,
+                    key,
+                    source,
+                })
+            }
+            None => {
+                query.require_only(&[], "this object PUT")?;
+                Ok(S3Operation::PutObject { bucket, key })
+            }
+        },
         Method::POST if query.contains("uploads") => {
             query.require_only(&["uploads"], "CreateMultipartUpload")?;
             Ok(S3Operation::CreateMultipartUpload { bucket, key })

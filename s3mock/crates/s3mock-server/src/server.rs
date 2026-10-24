@@ -233,7 +233,7 @@ async fn handle_request(
         .await
         .and_then(|(request, identity)| {
             if let Some(policy) = identity.policy() {
-                let operation = routing::route(request.method(), request.uri())?;
+                let operation = routing::route(request.method(), request.uri(), request.headers())?;
                 policy::authorize_operation(policy, &operation, request.headers())?;
             }
             Ok((request, identity))
@@ -269,7 +269,7 @@ async fn handle_request(
         Err(error) => Err(error),
         Ok((request, identity)) => match fault.as_ref().and_then(FaultAction::error) {
             Some(error) => Err(error),
-            None => match routing::route(request.method(), request.uri()) {
+            None => match routing::route(request.method(), request.uri(), request.headers()) {
                 Ok(operation) => dispatch(store, request, operation, identity).await,
                 Err(error) => Err(error),
             },
@@ -345,6 +345,12 @@ async fn dispatch(
             | S3Operation::HeadObject { bucket, key, .. },
             Some(policy),
         ) => !policy.can_list_key_prefix(bucket, key),
+        _ => false,
+    };
+    let should_hide_missing_copy_source = match (&operation, identity.policy()) {
+        (S3Operation::CopyObject { source, .. }, Some(policy)) => {
+            !policy.can_list_key_prefix(&source.bucket, &source.key)
+        }
         _ => false,
     };
     let (parts, body) = request.into_parts();
@@ -423,6 +429,21 @@ async fn dispatch(
         }
         S3Operation::PutObject { bucket, key } => {
             handlers::put_object(store, bucket, key, parts.headers, body).await
+        }
+        S3Operation::CopyObject {
+            bucket,
+            key,
+            source,
+        } => {
+            handlers::copy_object(
+                store,
+                bucket,
+                key,
+                source,
+                &parts.headers,
+                should_hide_missing_copy_source,
+            )
+            .await
         }
         S3Operation::GetObject { bucket, key, query } => {
             handlers::get_object(store, bucket, key, query, &parts.headers).await

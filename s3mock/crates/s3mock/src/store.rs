@@ -54,7 +54,10 @@ pub use object_listing::{
 pub use object_read::{
     ByteRangeRequest, ObjectBody, ObjectReadRequest, ObjectSelection, ReadConditions, ResolvedRange,
 };
-pub use object_write::{PutObjectOutcome, PutObjectRequest, WriteCondition};
+pub use object_write::{
+    CopyObjectOutcome, CopyObjectRequest, MetadataDirective, PutObjectOutcome, PutObjectRequest,
+    WriteCondition,
+};
 
 /// Holds the format version; never change its name or types, since older versions read it to
 /// refuse newer stores.

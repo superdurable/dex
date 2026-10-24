@@ -31,6 +31,7 @@ pub(crate) enum S3OperationName {
     ListObjectsV2,
     ListObjectVersions,
     PutObject,
+    CopyObject,
     GetObject,
     HeadObject,
     DeleteObject,

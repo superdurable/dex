@@ -215,6 +215,14 @@ pub(crate) fn authorize_operation(
         _ => None,
     };
     policy.authorize_with_prefix(action, &resource, prefix)?;
+    if let S3Operation::CopyObject { source, .. } = operation {
+        let source_action = if source.version_id.is_some() {
+            "s3:GetObjectVersion"
+        } else {
+            "s3:GetObject"
+        };
+        policy.authorize(source_action, &object_arn(&source.bucket, &source.key))?;
+    }
     if matches!(operation, S3Operation::CreateBucket { .. })
         && headers
             .get("x-amz-bucket-object-lock-enabled")
@@ -291,7 +299,8 @@ fn operation_permission(operation: &S3Operation) -> (&'static str, String) {
         CreateMultipartUpload { bucket, key }
         | UploadPart { bucket, key, .. }
         | CompleteMultipartUpload { bucket, key, .. }
-        | PutObject { bucket, key } => ("s3:PutObject", object_arn(bucket, key)),
+        | PutObject { bucket, key }
+        | CopyObject { bucket, key, .. } => ("s3:PutObject", object_arn(bucket, key)),
         AbortMultipartUpload { bucket, key, .. } => {
             ("s3:AbortMultipartUpload", object_arn(bucket, key))
         }

@@ -26,6 +26,7 @@ use crate::record::VersionRecord;
 const FOOTER_MAGIC: &[u8; 8] = b"S3MOCK01";
 const FORMAT_VERSION: u16 = 1;
 const FOOTER_TRAILER_LEN: u64 = 4 + 2 + 8;
+const COPY_BUFFER_BYTES: usize = 1024 * 1024;
 
 /// Header stored in every data file so the metadata index can be rebuilt from the files.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -137,6 +138,18 @@ impl ObjectWriter {
         self.checksum.update(data);
         self.size += data.len() as u64;
         Ok(())
+    }
+
+    /// Appends every byte `reader` yields.
+    pub(crate) fn write_from(&mut self, reader: &mut impl Read) -> Result<(), StoreError> {
+        let mut buffer = vec![0u8; COPY_BUFFER_BYTES];
+        loop {
+            let read = reader.read(&mut buffer)?;
+            if read == 0 {
+                return Ok(());
+            }
+            self.write_all(&buffer[..read])?;
+        }
     }
 
     /// Returns the checksum algorithm this writer computes.
