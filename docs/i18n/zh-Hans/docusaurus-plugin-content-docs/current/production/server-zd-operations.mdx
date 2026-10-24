@@ -74,7 +74,7 @@ metrics:
 移除。如果节点失联，旧进程可能与替代进程同时运行。
 
 下面的示例用 PersistentVolumeClaim 存放本地存储，并使用名为 **dex-server-zd**、
-包含 **config.yaml** 的 ConfigMap。把 **REGISTRY** 换成托管镜像的 registry。
+包含 **config.yaml** 的 ConfigMap。镜像是已发布的多架构 release 镜像，支持 amd64 和 arm64。
 
 ~~~yaml
 apiVersion: v1
@@ -112,7 +112,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: dex-server-zd
-          image: REGISTRY/dex-server-zd:0.1.1
+          image: docker.io/superdurable/dex-server-zd:0.1.1
           ports:
             - name: grpc
               containerPort: 8801

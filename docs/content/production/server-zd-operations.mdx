@@ -85,8 +85,8 @@ before Kubernetes confirms that its process stopped. On an unreachable node, the
 old process can keep running next to its replacement.
 
 This example uses a PersistentVolumeClaim for the local store and a ConfigMap
-named **dex-server-zd** that holds **config.yaml**. Replace **REGISTRY** with
-the registry that hosts the image.
+named **dex-server-zd** that holds **config.yaml**. The image is the published
+multi-architecture release image for amd64 and arm64.
 
 ~~~yaml
 apiVersion: v1
@@ -124,7 +124,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: dex-server-zd
-          image: REGISTRY/dex-server-zd:0.1.1
+          image: docker.io/superdurable/dex-server-zd:0.1.1
           ports:
             - name: grpc
               containerPort: 8801
