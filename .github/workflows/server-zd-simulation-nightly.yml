@@ -51,8 +51,39 @@ env:
   RUSTUP_TOOLCHAIN: "1.97.1"
 
 jobs:
+  simulation-refs:
+    name: Resolve simulation refs
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # Each job runs on the workflow's commit (main when scheduled) and the latest server-zd release.
+      - name: Find the latest server-zd release tag
+        id: targets
+        shell: bash
+        run: |
+          main_target=$(jq -cn --arg ref "$GITHUB_SHA" '{label: "main", ref: $ref}')
+          release_tag=$(git -c versionsort.suffix=- tag --list 'server-zd/v*' --sort=-v:refname | head -n 1)
+          if [[ -z "$release_tag" ]]; then
+            echo "No server-zd/v* release tag exists yet; skipping the latest-release runs."
+            targets="[$main_target]"
+          else
+            echo "Latest server-zd release tag: $release_tag"
+            targets=$(jq -cn --argjson main "$main_target" --arg ref "$release_tag" \
+              '[$main, {label: "latest-release", ref: $ref}]')
+          fi
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+
   apply-simulation:
-    name: Apply simulation
+    name: Apply simulation (${{ matrix.target.label }})
+    needs: simulation-refs
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.simulation-refs.outputs.targets) }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     defaults:
@@ -63,6 +94,9 @@ jobs:
       DEXZD_SIMULATION_COMMANDS: ${{ inputs.command_count || 1000 }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.target.ref }}
+          fetch-depth: ${{ matrix.target.label == 'main' && 1 || 0 }}
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
@@ -101,7 +135,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Apply simulation"
+            echo "## Apply simulation (${{ matrix.target.label }}: ${{ matrix.target.ref }})"
             echo "Base seed: ${DEXZD_SIMULATION_BASE_SEED:-not selected}"
             echo "Seed count: $DEXZD_SIMULATION_SEEDS; commands per seed: $DEXZD_SIMULATION_COMMANDS"
             echo "Result: ${{ steps.apply.outcome }}"
@@ -125,7 +159,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dexzd-apply-simulation-failures
+          name: dexzd-apply-simulation-failures-${{ matrix.target.label }}
           path: |
             ${{ runner.temp }}/dexzd-simulation-failures/
             ${{ runner.temp }}/dexzd-simulation.log
@@ -133,11 +167,19 @@ jobs:
           retention-days: 30
 
   seeded-bug-acceptance:
-    name: Seeded bug acceptance
+    name: Seeded bug acceptance (${{ matrix.target.label }})
+    needs: simulation-refs
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.simulation-refs.outputs.targets) }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.target.ref }}
+          fetch-depth: ${{ matrix.target.label == 'main' && 1 || 0 }}
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
@@ -146,7 +188,12 @@ jobs:
         run: script/server-zd-seeded-bugs.sh
 
   engine-simulation:
-    name: Engine simulation
+    name: Engine simulation (${{ matrix.target.label }})
+    needs: simulation-refs
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.simulation-refs.outputs.targets) }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     defaults:
@@ -157,6 +204,9 @@ jobs:
       DEXZD_SIMULATION_SECONDS: ${{ inputs.engine_active_seconds || 300 }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.target.ref }}
+          fetch-depth: ${{ matrix.target.label == 'main' && 1 || 0 }}
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
@@ -196,7 +246,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Engine simulation"
+            echo "## Engine simulation (${{ matrix.target.label }}: ${{ matrix.target.ref }})"
             echo "Base seed: ${DEXZD_SIMULATION_BASE_SEED:-not selected}"
             echo "Seed count: $DEXZD_SIMULATION_SEEDS; simulated seconds per seed: $DEXZD_SIMULATION_SECONDS"
             echo "Result: ${{ steps.engine.outcome }}"
@@ -221,7 +271,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dexzd-engine-simulation-failures
+          name: dexzd-engine-simulation-failures-${{ matrix.target.label }}
           path: |
             ${{ runner.temp }}/dexzd-engine-simulation-failures/
             ${{ runner.temp }}/dexzd-engine-simulation.log
@@ -229,7 +279,12 @@ jobs:
           retention-days: 30
 
   engine-simulation-redeploy-profile:
-    name: Engine simulation redeploy profile
+    name: Engine simulation redeploy profile (${{ matrix.target.label }})
+    needs: simulation-refs
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.simulation-refs.outputs.targets) }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     defaults:
@@ -240,6 +295,9 @@ jobs:
       DEXZD_SIMULATION_SECONDS: ${{ inputs.redeploy_active_seconds || 300 }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.target.ref }}
+          fetch-depth: ${{ matrix.target.label == 'main' && 1 || 0 }}
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
@@ -266,8 +324,19 @@ jobs:
           base_seed=$(od -An -N4 -tu4 /dev/urandom | tr -d '[:space:]')
           echo "DEXZD_SIMULATION_BASE_SEED=$base_seed" >> "$GITHUB_ENV"
           echo "Base seed: $base_seed"
+      - name: Check for the redeploy profile
+        id: profile
+        shell: bash
+        run: |
+          if grep -q 'fn redeploys_with_a_short_history_window_keep_every_invariant' crates/dexzd-simulation/tests/engine_simulation.rs; then
+            echo "is_present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "${{ matrix.target.ref }} predates the redeploy profile; skipping it."
+            echo "is_present=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Run redeploy profile
         id: redeploy
+        if: steps.profile.outputs.is_present == 'true'
         shell: bash
         env:
           DEXZD_SIMULATION_FAILURE_DIR: ${{ runner.temp }}/dexzd-redeploy-simulation-failures
@@ -279,7 +348,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Engine simulation redeploy profile"
+            echo "## Engine simulation redeploy profile (${{ matrix.target.label }}: ${{ matrix.target.ref }})"
             echo "Base seed: ${DEXZD_SIMULATION_BASE_SEED:-not selected}"
             echo "Seed count: $DEXZD_SIMULATION_SEEDS; simulated seconds per seed: $DEXZD_SIMULATION_SECONDS"
             echo "Result: ${{ steps.redeploy.outcome }}"
@@ -303,7 +372,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dexzd-redeploy-simulation-failures
+          name: dexzd-redeploy-simulation-failures-${{ matrix.target.label }}
           path: |
             ${{ runner.temp }}/dexzd-redeploy-simulation-failures/
             ${{ runner.temp }}/dexzd-redeploy-simulation.log

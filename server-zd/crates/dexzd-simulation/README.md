@@ -220,3 +220,11 @@ simulated seconds, about 12 minutes on a recent laptop. Its seeds cost more than
 because lost-store starts replay the whole log. Manual runs accept 16–1,000 seeds and 60–600
 seconds per seed, with at most 20,000 simulated seconds in total. The job has the same
 55-minute command limit, failure reports, and summary as the fixed set's job.
+
+Every nightly simulation job, including the apply simulation and seeded-bug acceptance, runs on
+two refs. One is the workflow's commit, which is main for scheduled runs. The other is the
+latest server-zd release: the newest `server-zd/v*` tag in version order, checked out with full
+history. A resolver job finds that tag at run time. Until a release tag exists, it logs that
+and runs only main. Failures on the released line therefore show up apart from changes on main.
+A release that predates the redeploy profile skips that job with a log line. Each job's summary
+and failure artifact name the ref they ran on.

@@ -53,5 +53,6 @@ close streams, and stalls log writes before crashes and takeovers. A later batch
 then lands above a hole that the successor's EpochStart fills and voids. A later
 start replays the closed stream below that batch.
 
-The nightly workflow runs `script/server-zd-seeded-bugs.sh` in its own job. A
-mutant that the simulation does not catch fails that job.
+The nightly workflow runs `script/server-zd-seeded-bugs.sh` in its own job, on
+main and on the latest `server-zd/v*` release tag. A mutant that the simulation
+does not catch fails that job.
