@@ -91,6 +91,8 @@ func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
+	// Skip before locking the table; a later skip cancels ctx before the rollback cleanup.
+	requireGoServerSetting(t, "Temporal synchronous RPC updates")
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
@@ -314,6 +316,8 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 }
 
 func doTestAttributeSyncMongoDB(t *testing.T, backendType service.BackendType) {
+	// C26: server-zd supports only PostgreSQL Attribute Stores; skip before connecting to MongoDB.
+	requireGoServerSetting(t, "mongodb Attribute Store")
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
