@@ -30,7 +30,8 @@ pub use apply_simulation::{
 };
 pub use engine_simulation::{
     EngineSimulationConfig, EngineSimulationFailure, EngineSimulationFinalState,
-    EngineSimulationSummary, run_engine_seed, run_engine_seed_with_final_state,
+    EngineSimulationProfile, EngineSimulationSummary, run_engine_seed,
+    run_engine_seed_with_final_state,
 };
 pub use invalid_client_inputs::{
     INVALID_CLIENT_INPUT_CLASSES, OVERSIZED_ATTRIBUTE_VALUE, OVERSIZED_CHANNEL_MESSAGE,

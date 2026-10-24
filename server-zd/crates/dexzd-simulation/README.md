@@ -88,9 +88,14 @@ directory invariants hold on the committed history. The engine simulation adds t
 3. **One result per attempt.** The shadow rejects a second applied result (S2). Any frame
    applied again after recovery must reproduce its first outcome exactly.
 4. **Locks.** The shadow checks L1 to L4 after every command, and the recovered store passes
-   `check_flow` again. An old-epoch process may have applied frames the successor has not, so
-   the check uses the window points the shadow retained at the store's applied position. The
-   summary field `recovered_checks_with_older_window_points` counts checks that needed them.
+   `check_flow` again, including right after a takeover while the old-epoch process still runs.
+   A successor replays every batch below its EpochStart before it serves, so its store never
+   lags the shadow. The old-epoch process's own store lags once the successor applies frames.
+   It passes `check_flow` at each periodic check during the overlap and once more before the
+   process is discarded. Each check uses the window points the shadow retained at the store's
+   applied position. The summary field `recovered_checks_with_older_window_points` counts checks
+   that needed them; `recovered_checks_during_old_epoch_overlap` and `old_epoch_store_checks`
+   count the takeover and old-epoch checks.
 5. **Recovered runtime equals a never-crashed one.** The twin is the store of a node that
    applied the canonical log and never crashed: the shadow's rows, partition metadata derived
    from the canonical commands, and node metadata. `compare_store_views` compares every column
@@ -109,7 +114,9 @@ directory invariants hold on the committed history. The engine simulation adds t
    method call is unfinished, and no outbox row or hard-delete object is left waiting.
 
 The log itself is checked too. Copies of one log position must hold the same commands, and a
-partition never applies a new frame below one it already applied.
+partition never applies a new frame below one it already applied. No process applies a frame
+whose batch an EpochStart of a newer epoch at a lower seq of the same stream voided
+(`voided-batch-applied`).
 
 The fixed seed set also asserts that these checks had something to check. It requires every
 fault kind with each effect it can have on a call, such as a timed-out write that did or did
@@ -123,7 +130,8 @@ older-epoch batch at their next seq. Log cleanup deletions, snapshot restores du
 and rejected duplicate results are required too. So are crashes that interrupted each kind of
 outstanding work, recovered deliveries and deletions of that work, running attempts compared
 after the quiet crash, store comparisons right after a recovery, and live runs in the final
-state. Some crashes wait until two log writes are in flight or cross-Flow work is outstanding.
+state. Recovered-store checks during an old-epoch overlap and checks of old-epoch stores are
+required too. Some crashes wait until two log writes are in flight or cross-Flow work is outstanding.
 
 ### Not covered yet
 
@@ -142,7 +150,35 @@ These section 13.1 items need later stages:
   between upload and commit (section 10.3).
 - Worker Stream writes, and the Worker matching layer, which the simulated Workers bypass.
 - More than one node ID, and foreign writers of the manifest and lease.
-- The planted-bug acceptance list.
+
+### Redeploy profile
+
+The fixed set keeps the engine's default history window of 10,000 semantic events and one node
+incarnation, so its windows never advance and its log streams never close. A second test,
+`redeploys_with_a_short_history_window_keep_every_invariant`, runs the
+`RedeploysWithShortHistoryWindow` profile on its own seed group: 16 seeds from `1323171840`
+(`0x4ede0000`). The profile changes every trajectory, so the fixed set's seeds and defaults stay
+as they are.
+
+- Runs use a four-event semantic history window with a prune chunk of one event, so windows
+  advance and prune within a run.
+- Half of the restarts and takeovers start a new node incarnation, as a redeploy does. That
+  start seals the previous log stream and closes it in the manifest.
+- Nodes take no snapshots. A start with a lost store therefore replays every closed stream from
+  its first batch, and a kept or rolled-back store replays closed streams after its applied
+  position.
+- Before about half the active-phase crashes, and at every takeover, the process's next log
+  write stalls until the process dies and never lands. Before such a crash, the profile waits
+  until a later log write lands. That batch then sits above a hole, which the successor's
+  EpochStart fills, so the batch is void.
+
+The test requires incarnation changes, starts whose closed-stream replay covered a batch that an
+EpochStart voided, pruned semantic events, recovered-store checks during an old-epoch overlap,
+old-epoch store checks, and checks that used older window points. The summary fields are
+`incarnation_changes`, `closed_stream_replays_over_voided_batches`,
+`final_pruned_semantic_events`, `recovered_checks_during_old_epoch_overlap`,
+`old_epoch_store_checks`, and `recovered_checks_with_older_window_points`. It reads the same
+environment variables as the fixed set, without the regression seeds.
 
 ### Running
 
@@ -151,13 +187,15 @@ cargo test -p dexzd-simulation --test engine_simulation         # 64 seeds of 12
 DEXZD_SIMULATION_SEEDS=1000 DEXZD_SIMULATION_SECONDS=600 \
   cargo test -p dexzd-simulation --test engine_simulation          # longer budget
 DEXZD_SIMULATION_SEED=7 cargo test -p dexzd-simulation --test engine_simulation -- --nocapture
+DEXZD_SIMULATION_SEED=1323171844 cargo test -p dexzd-simulation --test engine_simulation \
+  redeploys_with_a_short_history_window_keep_every_invariant -- --exact --nocapture
 ```
 
 `DEXZD_SIMULATION_SEEDS` and `DEXZD_SIMULATION_SEED` also select the apply simulation's seeds
 when both tests run. A failing seed prints its reproduction command and the last 400 trace events.
-`DEXZD_SIMULATION_PRINT_EVENTS=1` prints the trace tail of a passing seed. A self-test runs seeds
-twice and requires identical raw traces, final local stores, and stored objects, leases
-included. It compares the two final local stores with `compare_store_views` and no canonicalized
+`DEXZD_SIMULATION_PRINT_EVENTS=1` prints the trace tail of a passing seed. A self-test runs seeds,
+including one redeploy-profile seed, twice and requires identical raw traces, final local
+stores, and stored objects, leases included. It compares the two final local stores with `compare_store_views` and no canonicalized
 fields.
 
 `DEXZD_SIMULATION_BASE_SEED` replaces the fixed set's first seed, so a run covers
@@ -176,3 +214,9 @@ simulated seconds in total. Every run needs at least 64 seeds because the covera
 still apply. The test stops at the first failing seed and has a 55-minute command limit. The
 job uploads the log and any failure report even when the command fails. Its summary lists each
 failing seed's reproduction command and the `twin comparisons:` line.
+
+A separate nightly job runs the redeploy profile with its own random base seed: 48 seeds of 300
+simulated seconds, about 12 minutes on a recent laptop. Its seeds cost more than the fixed set's
+because lost-store starts replay the whole log. Manual runs accept 16–1,000 seeds and 60–600
+seconds per seed, with at most 20,000 simulated seconds in total. The job has the same
+55-minute command limit, failure reports, and summary as the fixed set's job.

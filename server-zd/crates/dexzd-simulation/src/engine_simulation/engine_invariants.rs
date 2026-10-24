@@ -361,6 +361,19 @@ pub(crate) fn run_count(shadow: &ApplyChecker) -> usize {
         .sum()
 }
 
+/// Returns the semantic history events that run windows pruned, summed over the shadow's runs.
+pub(crate) fn pruned_semantic_events(shadow: &ApplyChecker) -> u64 {
+    shadow
+        .state()
+        .rows_with_prefix(ColumnFamily::Flow, &[])
+        .filter(|(key, _)| {
+            parse_run_key(key).is_ok_and(|parsed| parsed.table == RunTable::RunRecord)
+        })
+        .filter_map(|(_, value)| RunRecord::decode(value).ok())
+        .map(|record| record.pruned_semantic_event_count)
+        .sum()
+}
+
 /// Returns every Flow with a run record, clients' Flows and their child Flows alike.
 pub(crate) fn all_flow_ids(shadow: &ApplyChecker) -> BTreeSet<String> {
     shadow

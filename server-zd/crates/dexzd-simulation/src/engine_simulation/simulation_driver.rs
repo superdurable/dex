@@ -32,9 +32,10 @@ use crate::engine_simulation::committed_log::CommittedLog;
 use crate::engine_simulation::engine_invariants::{
     check_acknowledged_writes, check_drained, check_recovered_flows,
     check_running_attempts_redispatched, check_store_matches_twin, has_empty_upload_ledger,
-    outstanding_work, run_count, running_attempts,
+    outstanding_work, running_attempts,
 };
 use crate::engine_simulation::event_trace::EventTrace;
+use crate::engine_simulation::seed_summary::{final_state, finish_summary};
 use crate::engine_simulation::simulated_clients::{
     ClientRecords, ENGINE_FLOW_IDS, ServingNode, SimulatedClient,
 };
@@ -45,12 +46,14 @@ use crate::engine_simulation::simulated_node::{
     ClusterEnvironment, LEASE_TAKEOVER_GRACE, LocalStoreStart, NodeProcess, PARTITION_COUNT,
     ProcessStart, copy_local_store,
 };
-use crate::engine_simulation::simulated_object_store::{SharedObjectStorage, StorageObservations};
+use crate::engine_simulation::simulated_object_store::{
+    SharedObjectStorage, StorageObservations, replays_voided_closed_batch,
+};
 use crate::engine_simulation::simulated_workers::SimulatedWorkers;
 use crate::engine_simulation::workload::{OPERATION_MARKER_PREFIX, start_flow_request};
 use crate::engine_simulation::{
     EngineSimulationConfig, EngineSimulationFailure, EngineSimulationFinalState,
-    EngineSimulationSummary,
+    EngineSimulationProfile, EngineSimulationSummary,
 };
 use crate::invariants::InvariantViolation;
 
@@ -117,6 +120,8 @@ struct Simulation {
     store_copies: VecDeque<Arc<EngineLocalStore>>,
     crashed_process_tasks: Vec<JoinHandle<()>>,
     started_processes: u64,
+    /// Node incarnation of the next start; the redeploy profile raises it at some restarts.
+    incarnation: u32,
     fault_probability: f64,
     summary: EngineSimulationSummary,
     /// Outbox rows undelivered at a crash, which recovered processes must deliver.
@@ -140,8 +145,18 @@ pub(crate) async fn run_simulation(
     simulation.environment.storage.abort_in_flight_writes();
     match outcome {
         Ok(()) => {
-            let final_state = simulation.final_state().await;
-            Ok((simulation.finish_summary(), final_state))
+            let final_state =
+                final_state(&simulation.environment, simulation.serving.as_ref()).await;
+            let records = simulation
+                .client_records
+                .lock()
+                .expect("client records lock is not poisoned");
+            let summary = finish_summary(
+                std::mem::take(&mut simulation.summary),
+                &simulation.environment,
+                &records,
+            );
+            Ok((summary, final_state))
         }
         Err(violation) => {
             simulation
@@ -195,6 +210,7 @@ impl Simulation {
                 trace,
                 id_source: Arc::new(SeededEngineIdSourceForTest::new(seed, id_clock)),
                 retention_after_close,
+                profile: config.profile,
                 origin,
             },
             rng,
@@ -205,6 +221,7 @@ impl Simulation {
             store_copies: VecDeque::new(),
             crashed_process_tasks: Vec::new(),
             started_processes: 0,
+            incarnation: 1,
             fault_probability,
             summary: EngineSimulationSummary::default(),
             outbox_owed_by_recovery: BTreeSet::new(),
@@ -293,6 +310,9 @@ impl Simulation {
                 } else {
                     let kind = self.draw_restart_kind();
                     match self.rng.random_range(0..4) {
+                        0 | 1 if self.is_redeploy_profile() => {
+                            self.wait_for_log_write_above_stalled_one().await;
+                        }
                         0 | 1 => self.wait_for_pipelined_log_writes().await,
                         2 => self.wait_for_cross_flow_work(RunTable::Outbox).await,
                         _ => {
@@ -319,6 +339,23 @@ impl Simulation {
         }
     }
 
+    /// Stalls the serving process's next log write and waits briefly until a later one lands, so
+    /// the successor's EpochStart fills the hole and voids the later batch.
+    async fn wait_for_log_write_above_stalled_one(&self) {
+        let Some(serving) = &self.serving else {
+            return;
+        };
+        serving.object_store.stall_next_log_write();
+        let deadline = Instant::now() + PIPELINED_WRITE_WAIT;
+        while !serving
+            .object_store
+            .has_landed_log_write_above_stalled_one()
+            && Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+
     /// Waits briefly until committed state holds an undelivered outbox row or a pending
     /// hard-delete object, as `table` selects, which the successor must then finish.
     async fn wait_for_cross_flow_work(&self, table: RunTable) {
@@ -333,6 +370,7 @@ impl Simulation {
     async fn run_calm_tail(&mut self) -> Result<(), InvariantViolation> {
         self.trace("calm tail begins");
         for (process, _) in std::mem::take(&mut self.old_epoch_processes) {
+            self.check_old_epoch_store(&process.local_store)?;
             self.crash(process);
         }
         self.fault_probability = 0.0;
@@ -444,6 +482,14 @@ impl Simulation {
             }
             check_acknowledged_writes(&records, &self.environment.committed_log)?;
         }
+        let old_epoch_stores: Vec<Arc<EngineLocalStore>> = self
+            .old_epoch_processes
+            .iter()
+            .map(|(process, _)| Arc::clone(&process.local_store))
+            .collect();
+        for store in &old_epoch_stores {
+            self.check_old_epoch_store(store)?;
+        }
         let Some(serving) = &self.serving else {
             return Ok(());
         };
@@ -470,6 +516,19 @@ impl Simulation {
         Ok(())
     }
 
+    /// Runs invariant 4 on an old-epoch process's store, which lags once its successor applies
+    /// frames.
+    fn check_old_epoch_store(
+        &mut self,
+        store: &EngineLocalStore,
+    ) -> Result<(), InvariantViolation> {
+        if check_recovered_flows(store, &self.environment.committed_log)? {
+            self.summary.recovered_checks_with_older_window_points += 1;
+        }
+        self.summary.old_epoch_store_checks += 1;
+        Ok(())
+    }
+
     /// Crashes processes that stopped by themselves or outlived their overlap, and restarts
     /// the serving process when it stopped.
     async fn replace_stopped_processes(&mut self) -> Result<(), InvariantViolation> {
@@ -480,6 +539,8 @@ impl Simulation {
                 if let Some(reason) = process.stop_reason() {
                     self.record_self_stop(Some(&reason));
                 }
+                // Its store lags most now, after the successor applied frames.
+                self.check_old_epoch_store(&process.local_store)?;
                 self.crash(process);
             } else {
                 still_running.push((process, deadline));
@@ -553,11 +614,28 @@ impl Simulation {
             .restarts_by_local_store
             .entry(kind.name().to_owned())
             .or_default() += 1;
+        self.draw_restart_incarnation();
         let process = self
             .start_until_serving(start, clock_offset, kind.name())
             .await?;
         self.serve(process);
         self.check_recovered_process()
+    }
+
+    /// Starts a new node incarnation at half the redeploy profile's restarts.
+    fn draw_restart_incarnation(&mut self) {
+        if !self.is_redeploy_profile() || !self.rng.random_bool(0.5) {
+            return;
+        }
+        self.incarnation = self
+            .incarnation
+            .checked_add(1)
+            .expect("a seed restarts fewer than u32::MAX times");
+        self.summary.incarnation_changes += 1;
+        self.trace(&format!(
+            "the next start uses incarnation {}",
+            self.incarnation
+        ));
     }
 
     /// Counts the committed work a crash interrupts and remembers what recovery must finish.
@@ -651,6 +729,10 @@ impl Simulation {
             old.process_label
         ));
         self.store_copies.clear();
+        if self.is_redeploy_profile() {
+            // Later batches land above the stalled one's hole, which the successor's EpochStart fills.
+            old.object_store.stall_next_log_write();
+        }
         self.environment
             .storage
             .observations
@@ -665,11 +747,12 @@ impl Simulation {
             .restarts_by_local_store
             .entry(RestartKind::Lost.name().to_owned())
             .or_default() += 1;
+        self.draw_restart_incarnation();
         let process = self
             .start_until_serving(LocalStoreStart::Lost, successor_offset, "takeover")
             .await?;
         self.serve(process);
-        Ok(())
+        self.check_recovered_process()
     }
 
     /// Recovery checks: the recovered store equals the shadow's never-crashed twin and keeps the
@@ -685,6 +768,9 @@ impl Simulation {
         };
         if check_recovered_flows(&serving.local_store, &self.environment.committed_log)? {
             self.summary.recovered_checks_with_older_window_points += 1;
+        }
+        if !self.old_epoch_processes.is_empty() {
+            self.summary.recovered_checks_during_old_epoch_overlap += 1;
         }
         Ok(())
     }
@@ -715,10 +801,14 @@ impl Simulation {
                 local_store: existing.as_ref().map_or(LocalStoreStart::Lost, |store| {
                     LocalStoreStart::Existing(Arc::clone(store))
                 }),
+                incarnation: self.incarnation,
                 clock_offset_micros,
                 object_store: Arc::clone(&object_store),
             };
             let clock = SimulatedWallClock::new(self.environment.origin, clock_offset_micros);
+            let replays_voided_batch = self.is_redeploy_profile()
+                && replays_voided_closed_batch(&self.environment.storage, existing.as_deref())
+                    .await;
             let crash_after = self
                 .rng
                 .random_bool(START_CRASH_PROBABILITY)
@@ -741,6 +831,9 @@ impl Simulation {
             };
             match started {
                 Ok(process) => {
+                    if replays_voided_batch {
+                        self.summary.closed_stream_replays_over_voided_batches += 1;
+                    }
                     process.object_store.mark_serving();
                     process
                         .object_store
@@ -822,6 +915,10 @@ impl Simulation {
         ));
     }
 
+    fn is_redeploy_profile(&self) -> bool {
+        self.config.profile == EngineSimulationProfile::RedeploysWithShortHistoryWindow
+    }
+
     fn later(&mut self, millis: std::ops::Range<u64>) -> Instant {
         Instant::now() + Duration::from_millis(self.rng.random_range(millis))
     }
@@ -831,107 +928,6 @@ impl Simulation {
             .as_ref()
             .map_or_else(String::new, |serving| serving.process_label.clone())
     }
-
-    /// Returns the trace, the serving process's local store, and every stored object.
-    async fn final_state(&self) -> EngineSimulationFinalState {
-        let shared_store = &self.environment.storage.store;
-        let mut objects = BTreeMap::new();
-        let mut start_after = None;
-        loop {
-            let listing = shared_store
-                .list("", start_after.as_deref(), 1_000)
-                .await
-                .expect("the shared in-memory store lists without faults");
-            for object in listing.objects {
-                let content = shared_store
-                    .get(&object.key)
-                    .await
-                    .expect("the shared in-memory store reads without faults");
-                if let Some(content) = content {
-                    objects.insert(object.key, content.bytes);
-                }
-            }
-            match listing.next_start_after {
-                Some(next) => start_after = Some(next),
-                None => break,
-            }
-        }
-        EngineSimulationFinalState {
-            trace_events: self.environment.trace.all_events(),
-            local_store: self
-                .serving
-                .as_ref()
-                .map(|serving| copy_local_store(&serving.local_store)),
-            objects,
-        }
-    }
-
-    fn finish_summary(&mut self) -> EngineSimulationSummary {
-        let mut summary = std::mem::take(&mut self.summary);
-        let environment = &self.environment;
-        summary.trace_hash = environment.trace.digest();
-        summary.trace_events = environment.trace.event_count();
-        summary.recent_events = environment.trace.recent_events();
-        {
-            let observations = environment
-                .storage
-                .observations
-                .lock()
-                .expect("storage observation lock is not poisoned");
-            summary.injected_faults = observations
-                .injected_faults
-                .iter()
-                .map(|((fault, effect), count)| (format!("{fault:?}/{effect:?}"), *count))
-                .collect();
-            summary.precondition_failed_puts = name_counts(&observations.precondition_failed_puts);
-            summary.deleted_objects = name_counts(&observations.deleted_objects);
-            summary
-                .snapshot_reads_during_start
-                .clone_from(&observations.snapshot_reads_during_start);
-            summary.old_epoch_overlaps = observations.old_epoch.overlaps;
-            summary.old_epoch_frames = observations.old_epoch.frames;
-            summary.old_epoch_write_attempts = name_counts(&observations.old_epoch.write_attempts);
-            summary.writes_landed_after_crash =
-                name_counts(&observations.writes_landed_after_crash);
-            summary.epoch_starts_below_landed_batches =
-                observations.epoch_starts_below_landed_batches;
-        }
-        summary.rejected_by_kind = name_counts(&environment.committed_log.rejected_by_kind());
-        summary.worker_behaviors = environment
-            .workers
-            .behavior_counts()
-            .into_iter()
-            .map(|(behavior, count)| (format!("{behavior:?}"), count))
-            .collect();
-        summary.applied_by_kind = environment
-            .committed_log
-            .applied_by_kind()
-            .into_iter()
-            .map(|(kind, count)| (kind.to_owned(), count))
-            .collect();
-        summary.replayed_frames = environment.committed_log.replayed_frames();
-        summary.final_runs = environment.committed_log.with_shadow(run_count);
-        let records = self
-            .client_records
-            .lock()
-            .expect("client records lock is not poisoned");
-        summary.acknowledged_writes = records.acknowledged_writes.len() as u64;
-        summary.checked_reads = records.checked_reads;
-        summary.checked_read_values = records.checked_read_values;
-        summary.client_calls = records
-            .outcomes
-            .iter()
-            .map(|((operation, outcome), count)| (format!("{operation} {outcome}"), *count))
-            .collect();
-        summary
-    }
-}
-
-fn name_counts(counts: &BTreeMap<&'static str, u64>) -> BTreeMap<String, u64> {
-    counts
-        .iter()
-        .map(|(name, count)| ((*name).to_owned(), *count))
-        .collect()
 }
 
 /// Names why a process stopped; `None` means only its registry halted.
