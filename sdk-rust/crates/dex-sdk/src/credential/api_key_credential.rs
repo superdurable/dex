@@ -133,7 +133,9 @@ impl Credential for ApiKeyCredential {
         {
             return Ok(cached.value.clone());
         }
-        Err(CredentialError::new(state.last_error.as_ref().map_or_else(
+        let last_error = state.last_error.clone();
+        drop(state);
+        Err(CredentialError::new(last_error.as_ref().map_or_else(
             || {
                 format!(
                     "token exchange at {} (HTTP status unavailable): access token unavailable",
@@ -333,9 +335,9 @@ pub struct ApiKeyCredentialError {
 impl ApiKeyCredentialError {
     fn configuration(token_url: &str, api_key: &str, detail: &str) -> Self {
         let safe_url = if api_key.is_empty() {
-            token_url.to_string()
+            redact_jwt_substrings(token_url)
         } else {
-            token_url.replace(api_key, "<redacted>")
+            redact_jwt_substrings(token_url).replace(api_key, "<redacted>")
         };
         Self {
             message: format!("token exchange at {safe_url} (HTTP status unavailable): {detail}"),
@@ -382,7 +384,7 @@ impl SharedState {
     }
 
     fn redacted_url(&self) -> String {
-        self.token_url.as_str().replace(&self.api_key, "<redacted>")
+        self.redact(self.token_url.as_str())
     }
 
     async fn exchange(&self) -> Result<CachedToken, ApiKeyCredentialError> {
@@ -490,7 +492,7 @@ impl SharedState {
     }
 
     fn redact(&self, value: &str) -> String {
-        let mut value = value.replace(&self.api_key, "<redacted>");
+        let mut value = redact_jwt_substrings(value).replace(&self.api_key, "<redacted>");
         let state = self.state.lock().expect("API-key credential state lock");
         for token in &state.known_tokens {
             value = value.replace(token, "<redacted>");
@@ -499,6 +501,8 @@ impl SharedState {
     }
 
     fn error(&self, status: &str, detail: &str) -> ApiKeyCredentialError {
+        let status = self.redact(status);
+        let detail = self.redact(detail);
         ApiKeyCredentialError {
             message: format!(
                 "token exchange at {} (HTTP {status}): {detail}",
@@ -564,6 +568,54 @@ impl SharedState {
             }
         }
     }
+}
+
+fn redact_jwt_substrings(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut redacted = String::with_capacity(value.len());
+    let mut index = 0;
+    let mut unchanged_start = 0;
+    while index < bytes.len() {
+        if index > 0 && is_base64url(bytes[index - 1]) {
+            index += 1;
+            continue;
+        }
+        let first_end = base64url_segment_end(bytes, index);
+        if first_end - index < 10 || bytes.get(first_end) != Some(&b'.') {
+            index += 1;
+            continue;
+        }
+        let second_start = first_end + 1;
+        let second_end = base64url_segment_end(bytes, second_start);
+        if second_end - second_start < 10 || bytes.get(second_end) != Some(&b'.') {
+            index += 1;
+            continue;
+        }
+        let third_start = second_end + 1;
+        let third_end = base64url_segment_end(bytes, third_start);
+        if third_end - third_start < 10 {
+            index += 1;
+            continue;
+        }
+        redacted.push_str(&value[unchanged_start..index]);
+        redacted.push_str("<redacted>");
+        index = third_end;
+        unchanged_start = index;
+    }
+    redacted.push_str(&value[unchanged_start..]);
+    redacted
+}
+
+fn base64url_segment_end(bytes: &[u8], start: usize) -> usize {
+    let mut end = start;
+    while end < bytes.len() && is_base64url(bytes[end]) {
+        end += 1;
+    }
+    end
+}
+
+fn is_base64url(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
 }
 
 #[cfg(test)]

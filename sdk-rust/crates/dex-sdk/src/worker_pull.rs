@@ -390,11 +390,19 @@ impl PullStream {
         if !result
             .2
             .as_ref()
-            .is_err_and(|status| status.code() == Code::Unauthenticated)
+            .is_err_and(|status| self.should_defer_stream_rejection(status))
         {
             self.record_stream_result(result.2.as_ref().err());
         }
         result
+    }
+
+    fn should_defer_stream_rejection(&self, status: &Status) -> bool {
+        status.code() == Code::Unauthenticated
+            && self
+                .credential
+                .as_ref()
+                .is_some_and(|credential| credential.token_after_rejection().is_some())
     }
 
     fn record_stream_result(&mut self, failure: Option<&Status>) {
@@ -486,7 +494,7 @@ impl PullStream {
                                     if let Some(reason) = rejection {
                                         let reject = PollWorkerTaskReject { task_id: task.task_id, reason: reason as i32 };
                                         if let Err(status) = send_control_frame(sender.as_ref().expect("open Worker stream"), RequestFrame::Reject(reject)).await {
-                                            if status.code() != Code::Unauthenticated {
+                                            if !self.should_defer_stream_rejection(&status) {
                                                 self.record_stream_result(Some(&status));
                                             }
                                             self.cancel_and_wait(&mut active).await;
@@ -511,7 +519,7 @@ impl PullStream {
                                 }
                                 Some(ResponseFrame::Ping(_)) => {
                                     if let Err(status) = send_control_frame(sender.as_ref().expect("open Worker stream"), RequestFrame::Pong(PollWorkerTaskPong {})).await {
-                                        if status.code() != Code::Unauthenticated {
+                                        if !self.should_defer_stream_rejection(&status) {
                                             self.record_stream_result(Some(&status));
                                         }
                                         self.cancel_and_wait(&mut active).await;
@@ -533,7 +541,7 @@ impl PullStream {
                             return (was_registered, false, Ok(()));
                         }
                         Err(status) => {
-                            if status.code() != Code::Unauthenticated {
+                            if !self.should_defer_stream_rejection(&status) {
                                 self.record_stream_result(Some(&status));
                             }
                             self.cancel_and_wait(&mut active).await;
@@ -959,8 +967,8 @@ mod tests {
     use super::*;
     use crate::value_hydrator::ValueHydrator;
     use crate::{
-        BlobCache, BlobCacheConfig, Context, Flow, HandlerError, HandlerResult, Registry, Rpc,
-        RpcList, RpcResult, Worker, WorkerOptions, WorkerTarget,
+        BlobCache, BlobCacheConfig, Context, FileCredential, Flow, HandlerError, HandlerResult,
+        Registry, Rpc, RpcList, RpcResult, Worker, WorkerOptions, WorkerTarget,
     };
     use dex_protocol::dex::flow_service_client::FlowServiceClient;
     use dex_protocol::dex::worker_task_service_server::{
@@ -1289,6 +1297,15 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn permanent_rejection_updates_readiness_before_cancelled_handler_returns() {
+        for rejection_code in [Code::PermissionDenied, Code::Unauthenticated] {
+            assert_rejection_updates_readiness_before_cancelled_handler_returns(rejection_code)
+                .await;
+        }
+    }
+
+    async fn assert_rejection_updates_readiness_before_cancelled_handler_returns(
+        rejection_code: Code,
+    ) {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind service");
@@ -1302,9 +1319,14 @@ mod tests {
                     while !*server_shutdown.borrow() && server_shutdown.changed().await.is_ok() {}
                 }),
         );
+        let credential_directory = tempfile::tempdir().expect("credential directory");
+        let credential_path = credential_directory.path().join("access-token");
+        std::fs::write(&credential_path, "file-access-token").expect("write credential");
+        let credential: Arc<dyn Credential> =
+            Arc::new(FileCredential::new(&credential_path).expect("file credential"));
         let channel = outbound_task_channel(
             Endpoint::from_shared(format!("http://{address}")).expect("endpoint"),
-            None,
+            Some(credential),
         );
         let (cache, _directory) = test_cache();
         let started = Arc::new(Notify::new());
@@ -1370,7 +1392,7 @@ mod tests {
             .await
             .expect("handler started");
         first
-            .send(Err(Status::permission_denied("rejected while busy")))
+            .send(Err(Status::new(rejection_code, "rejected while busy")))
             .await
             .expect("reject stream");
         let recorded = timeout(Duration::from_secs(5), async {

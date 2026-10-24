@@ -34,6 +34,8 @@ use crate::credential::{CredentialChannel, CredentialInterceptor};
 const API_KEY: &str = "test-api-key-secret";
 const TOKEN_A: &str = "test-access-token-secret-a";
 const TOKEN_B: &str = "test-access-token-secret-b";
+const TOKEN_C: &str = "test-access-token-secret-c";
+const OLD_JWT: &str = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvbGQtdG9rZW4ifQ.abcdefghijklmnop";
 
 struct TokenEndpoint {
     responses: Mutex<VecDeque<(StatusCode, String)>>,
@@ -386,6 +388,57 @@ async fn rejected_token_only_discards_the_cached_value() {
     assert!(!debug.contains(API_KEY));
     assert!(!debug.contains(TOKEN_A));
     assert!(!debug.contains(TOKEN_B));
+}
+
+#[tokio::test]
+async fn older_jwt_echo_is_redacted_after_three_tokens() {
+    let server = endpoint_server(vec![
+        token_response(OLD_JWT, 60),
+        token_response(TOKEN_B, 60),
+        token_response(TOKEN_C, 60),
+        (
+            StatusCode::BAD_REQUEST,
+            format!(
+                r#"{{"error":"invalid_key","error_description":"{OLD_JWT} {TOKEN_B} {TOKEN_C} {API_KEY} harmless"}}"#
+            ),
+        ),
+    ])
+    .await;
+    let credential = ApiKeyCredential::builder(&server.url, "server-1", API_KEY)
+        .build()
+        .await
+        .expect("build credential");
+    for rejected_token in [OLD_JWT, TOKEN_B] {
+        credential.discard_rejected_token(rejected_token);
+        credential
+            .token_after_rejection()
+            .expect("refresh future")
+            .await
+            .expect("fresh token");
+    }
+    assert_eq!(credential.token().expect("third token"), TOKEN_C);
+    assert_eq!(
+        credential
+            .shared
+            .state
+            .lock()
+            .expect("token state lock")
+            .known_tokens,
+        [TOKEN_B, TOKEN_C]
+    );
+    credential.discard_rejected_token(TOKEN_C);
+    let error = credential
+        .token_after_rejection()
+        .expect("refresh future")
+        .await
+        .expect_err("rejected exchange");
+    let formatted = format!("{error:?} {error}");
+    assert!(formatted.contains("harmless"));
+    assert!(!formatted.contains(OLD_JWT));
+    assert!(!formatted.contains(TOKEN_B));
+    assert!(!formatted.contains(TOKEN_C));
+    assert!(!formatted.contains(API_KEY));
+    assert_eq!(server.endpoint.request_count.load(Ordering::SeqCst), 4);
 }
 
 #[tokio::test]
