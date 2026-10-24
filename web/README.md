@@ -65,6 +65,10 @@ package-main Flows named `main.Flow`, make the definition source invalid, and
 the error names both files. Invalid analyzer output remains visible on **v1** Flow
 Rendering but does not appear as a **v2** Flow type.
 
+The v2 status filter sends each status's ExecutionStatus value, such as
+`TimedOut`, and shows its label, such as **Timed out**. Both Dex Servers reject
+the label in a visibility query.
+
 ### Start Flow
 
 The v2 Run workspace shows **Start Flow** when the selected definition contains
@@ -116,7 +120,9 @@ environment variable is `DEX_WEB_START_FLOW_WORKER_TARGET_PULL`. The default is
 false; an explicit address still selects address routing. Headless routing
 applies only to address targets, so both settings can be enabled together.
 `GET /api/v2/catalog` reports this default so the dialog opens with **Pull Worker**
-selected when it is true.
+selected when it is true. The catalog also reports `serverEngine`:
+`temporal`, `cadence`, `zd`, or `unspecified` when the FlowService does not
+answer `GetServerInfo`.
 
 The v2 Work Queue is available at `/v2/work-queue`. Its **Working as** control
 selects one Action permission and filters on the Server-maintained
@@ -496,9 +502,55 @@ docker run IMAGE --services web
 
 Set `web.flowServiceTarget` in the mounted server YAML to the API service
 address. Web starts even when that upstream is unavailable. `/healthz` reports
-process liveness. `/readyz` validates the current definition snapshot and a
-FlowService search, returning `definitionRevision`, source, and definition
+process liveness. `/readyz` validates the current definition snapshot and calls
+FlowService `HealthCheck`, returning `definitionRevision`, source, and definition
 count; `/api/*` returns an upstream error until FlowService is available.
+Readiness does not run a search, because a search can exceed the scan budget of
+a visibility backend.
+
+### Run against server-zd
+
+Web-only `dex-server` also serves Dex Web for server-zd. Point
+`web.flowServiceTarget` at the server-zd plaintext gRPC address. No Temporal or
+Cadence connection is created in this mode.
+
+```yaml
+web:
+  bindAddress: 0.0.0.0
+  port: 8802
+  flowServiceTarget: dex-server-zd:8801
+  # When server-zd authentication is on, supply a static token or service JWT.
+  flowServiceCredentialFile: /etc/dex/web-token
+```
+
+```bash
+dex-server --config web-only.yaml start --services web
+```
+
+Dex Web reads `GetServerInfo` and reports the engine as `serverEngine` in
+`GET /api/v2/catalog`. On server-zd, which dispatches only to pull Workers, the
+Start dialog opens with **Pull Worker** selected and hides the address option.
+`POST /api/v2/start` also selects a pull target there when a request omits both
+target fields. `web.startFlowWorkerTargetPull` keeps its meaning on every engine.
+
+On server-zd, Time Travel keeps the run ID and creates a new run attempt. The
+Run page reloads the whole history when the run attempt changes, because
+events after the fork point no longer belong to the current lineage. The
+summary strip replaces **Run chain** with a **Run attempt** selector. Choosing
+an earlier attempt adds `?runAttempt=N` to the page URL and shows that
+attempt's lineage. Live history stops for an earlier attempt, and live state
+always belongs to the current attempt. Time Travel from that view searches the
+selected attempt. A **TimeTravelFork** event links to the previous run attempt.
+
+`GET /api/flows/history` accepts an optional `runAttempt`; zero or absent
+selects the current attempt. Each event and `GET /api/flows/summary` report
+`runAttempt`, which is zero on the Go Server. `POST /api/flows/time-travel`
+accepts an optional `runAttempt` and returns the new `runAttempt`.
+
+`web/scripts/run-server-zd-e2e.sh` runs the end-to-end test of this mode. It
+starts `dex-server-zd dev`, a web-only `dex-server`, and the Go SDK pull Worker
+from `sdk-go/integ`. Set `DEX_SERVER_ZD_BINARY` to a `dex-server-zd` binary from
+a server-zd release, and build `web/assets/dist` first.
 
 To populate Web with a 90-execution Flow containing serial, fan-out, and fan-in
 sections, run the [Large Step Graph demo](./demo/large-step-graph).
@@ -636,7 +688,8 @@ attributes, timers, queued
 steps, channels, completed outputs, stop, and time travel. Timeline and Execution graph keep
 Selected event in the sidebar, where the critical-action **Review time travel**
 entry opens the operation with that Step execution and its WaitFor or Execute
-method already selected. Backend history IDs remain internal pagination and
+method already selected. A history event time entered in the dialog is read in
+the page's time zone preference and sent as RFC 3339 UTC. Backend history IDs remain internal pagination and
 correlation details. A Time Travel-created run includes a **TimeTravelFork**
 event whose source run links back to the preserved history.
 AttributeMap and ChannelMap instances with decimal-only names appear before

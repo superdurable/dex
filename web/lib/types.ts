@@ -30,6 +30,20 @@ export const FLOW_STATUS = {
 
 export type FlowStatus = (typeof FLOW_STATUS)[keyof typeof FLOW_STATUS];
 
+/** The ExecutionStatus value each status needs in a visibility query; display labels are rejected there. */
+export const FLOW_STATUS_QUERY_VALUE: Record<Exclude<FlowStatus, 'Unspecified'>, string> = {
+  Running: 'Running',
+  Completed: 'Completed',
+  Failed: 'Failed',
+  'Timed out': 'TimedOut',
+  Terminated: 'Terminated',
+  Canceled: 'Canceled',
+  'Continued as new': 'ContinuedAsNew',
+};
+
+/** The engine behind the Dex Server, as reported by Dex Web. */
+export type ServerEngine = 'unspecified' | 'temporal' | 'cadence' | 'zd';
+
 export interface KeyValue {
   key: string;
   value: unknown;
@@ -61,6 +75,8 @@ export interface FlowSummary {
   flowStatusCode: number;
   startTime: string | null;
   closeTime: string | null;
+  /** The current run attempt. Zero or absent on Servers without run attempts. */
+  runAttempt?: number;
 }
 
 export type HistoryEventType =
@@ -74,6 +90,7 @@ export type HistoryEventType =
   | 'StepExecutePending'
   | 'RpcExecutionCompleted'
   | 'ChannelExternalPublish'
+  | 'ChannelExternalDelete'
   | 'TimeTravelFork';
 
 export interface FlowHistoryEvent {
@@ -81,6 +98,8 @@ export interface FlowHistoryEvent {
   eventTime: string | null;
   type: HistoryEventType;
   payload: Record<string, unknown>;
+  /** The run attempt that recorded this event. Zero or absent on Servers without run attempts. */
+  runAttempt?: number;
 }
 
 export interface HistoryPage {
@@ -169,6 +188,7 @@ export interface V2Catalog {
   flows: V2CatalogEntry[];
   definitionRevision: string;
   startFlowWorkerTargetPull?: boolean;
+  serverEngine?: ServerEngine;
 }
 
 export interface V2Flow {

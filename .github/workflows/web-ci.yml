@@ -8,6 +8,8 @@ on:
       - "packages/flow-definition-renderer/**"
       - "server/**"
       - "protos/**"
+      - "sdk-go/integ/web_debug_flow_test.go"
+      - "sdk-go/integ/web_server_zd_test.go"
       - ".github/workflows/web-ci.yml"
   pull_request:
     paths:
@@ -15,6 +17,8 @@ on:
       - "packages/flow-definition-renderer/**"
       - "server/**"
       - "protos/**"
+      - "sdk-go/integ/web_debug_flow_test.go"
+      - "sdk-go/integ/web_server_zd_test.go"
       - ".github/workflows/web-ci.yml"
   workflow_dispatch:
 
@@ -61,6 +65,46 @@ jobs:
         env:
           GOWORK: "off"
         run: make serverCommandIntegTests
+
+  server-zd-e2e:
+    name: Dex Web on server-zd
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # A released server-zd binary keeps this job free of a Rust build.
+      DEX_SERVER_ZD_RELEASE: server-zd/v0.1.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/cmd/server/go.mod
+          cache-dependency-path: |
+            web/go.sum
+            server/go.sum
+            server/cmd/server/go.sum
+            cli/go.sum
+            sdk-go/go.sum
+      - name: Build Dex Web assets
+        working-directory: web
+        run: npm ci && npm run build
+      - name: Download server-zd
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          download_dir="$RUNNER_TEMP/server-zd"
+          gh release download "$DEX_SERVER_ZD_RELEASE" --repo "$GITHUB_REPOSITORY" \
+            --pattern '*_linux_amd64.tar.gz' --pattern checksums.txt --dir "$download_dir"
+          (cd "$download_dir" && sha256sum --check --ignore-missing checksums.txt)
+          tar -xzf "$download_dir"/dex-server-zd_*_linux_amd64.tar.gz -C "$download_dir"
+          echo "DEX_SERVER_ZD_BINARY=$download_dir/dex-server-zd" >> "$GITHUB_ENV"
+      - name: Run Dex Web end-to-end tests against server-zd
+        run: web/scripts/run-server-zd-e2e.sh
 
   docker-image:
     name: Dex Server image

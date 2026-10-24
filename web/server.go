@@ -23,6 +23,7 @@ import (
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/web/api"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const DefaultPort = 8802
@@ -216,7 +217,8 @@ func readinessHandler(client dexpb.FlowServiceClient, provider FlowDefinitionPro
 			return
 		}
 		if client != nil {
-			if _, err := client.SearchFlows(request.Context(), &dexpb.SearchFlowsRequest{PageSize: 1}); err != nil {
+			// A search can exceed a builtin visibility scan budget, so readiness only checks reachability.
+			if _, err := client.HealthCheck(request.Context(), &emptypb.Empty{}); err != nil {
 				api.WriteCodedError(response, http.StatusServiceUnavailable, "FLOW_SERVICE_UNAVAILABLE", "Dex FlowService is unavailable")
 				return
 			}

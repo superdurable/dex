@@ -18,6 +18,7 @@ import (
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type readinessFlowServiceClient struct {
@@ -25,12 +26,12 @@ type readinessFlowServiceClient struct {
 	err error
 }
 
-func (c readinessFlowServiceClient) SearchFlows(
+func (c readinessFlowServiceClient) HealthCheck(
 	context.Context,
-	*dexpb.SearchFlowsRequest,
+	*emptypb.Empty,
 	...grpc.CallOption,
-) (*dexpb.SearchFlowsResponse, error) {
-	return &dexpb.SearchFlowsResponse{}, c.err
+) (*dexpb.HealthInfo, error) {
+	return &dexpb.HealthInfo{Condition: "OK"}, c.err
 }
 
 type failingFlowDefinitionProvider struct{}

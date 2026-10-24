@@ -21,7 +21,7 @@ import { useWebCatalog } from '../WebCatalogProvider';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
 import { permissionActionLabels, permissionsOf } from '../workspace/permissions';
-import { EMPTY_RUN_QUERY } from '../workspace/runQuery';
+import { EMPTY_RUN_QUERY, flowStatusQueryValue } from '../workspace/runQuery';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { useFlowSearch } from '../workspace/useFlowSearch';
 import { useRunQuery } from '../workspace/useRunQuery';
@@ -42,7 +42,7 @@ export function WorkQueueWorkspace() {
   const { ready, canUseV2, catalog, error, definitionUpdateKey } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   // A work queue opens on active work; the control widens it.
-  const runQuery = useRunQuery(entry?.definition, { ...EMPTY_RUN_QUERY, status: openFlowStatusLabel() });
+  const runQuery = useRunQuery(entry?.definition, { ...EMPTY_RUN_QUERY, status: flowStatusQueryValue(openFlowStatusLabel()) });
   const [permission, setPermission] = useState('');
   const workQueuePermissions = useMemo(
     () => permission === '' ? [] : [permission],

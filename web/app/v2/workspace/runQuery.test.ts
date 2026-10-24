@@ -13,6 +13,7 @@ import {
   defaultOperator,
   filterableAttributes,
   hasAdvancedQuery,
+  flowStatusQueryValue,
   isEmptyQuery,
   operatorsFor,
   statusOptions,
@@ -93,6 +94,11 @@ describe('toFilterRows', () => {
     expect(rows({ status: 'Running' })).toEqual(['executionStatus eq Running']);
   });
 
+  it('sends the query value, never the display label, for a timed-out status', () => {
+    expect(rows({ status: 'TimedOut' })).toEqual(['executionStatus eq TimedOut']);
+    expect(rows({ status: 'Timed out' })).toEqual(['executionStatus eq TimedOut']);
+  });
+
   it('compiles a relative window to an absolute start time', () => {
     expect(rows({ since: '24h' })).toEqual(['startTime gte 2026-09-19T12:00:00.000Z']);
   });
@@ -141,10 +147,28 @@ describe('toFilterRows', () => {
 
 describe('statusOptions', () => {
   it('is a real enum with nothing unspecified in it', () => {
-    const options = statusOptions();
-    expect(options).toContain('Running');
-    expect(options).not.toContain('Unspecified');
-    expect(options).not.toContain('Continued as new');
+    const labels = statusOptions().map((option) => option.label);
+    expect(labels).toContain('Running');
+    expect(labels).not.toContain('Unspecified');
+    expect(labels).not.toContain('Continued as new');
+  });
+
+  it('pairs each display label with the value both Dex Servers accept', () => {
+    expect(statusOptions()).toEqual([
+      { value: 'Running', label: 'Running' },
+      { value: 'Completed', label: 'Completed' },
+      { value: 'Failed', label: 'Failed' },
+      { value: 'TimedOut', label: 'Timed out' },
+      { value: 'Terminated', label: 'Terminated' },
+      { value: 'Canceled', label: 'Canceled' },
+    ]);
+  });
+
+  it('maps labels to query values and keeps query values unchanged', () => {
+    expect(flowStatusQueryValue('Timed out')).toBe('TimedOut');
+    expect(flowStatusQueryValue('Continued as new')).toBe('ContinuedAsNew');
+    expect(flowStatusQueryValue('TimedOut')).toBe('TimedOut');
+    expect(flowStatusQueryValue('constructor')).toBe('constructor');
   });
 });
 

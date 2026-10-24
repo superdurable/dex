@@ -96,6 +96,60 @@ describe('selected step event details', () => {
     expect(markup).toContain('previous-run-id');
   });
 
+  it('links a server-zd Time Travel fork to the previous run attempt of the same run', () => {
+    const fork: FlowHistoryEvent = {
+      eventId: 9,
+      eventTime: '2026-08-05T23:44:30Z',
+      type: 'TimeTravelFork',
+      runAttempt: 2,
+      payload: { previousRunId: 'run-1', previousRunAttempt: 1, targetRunAttempt: 1, targetEventId: '3' },
+    };
+
+    const markup = renderDetails(fork);
+
+    expect(markup).toContain('Previous run attempt');
+    expect(markup).toContain('Target event ID');
+    expect(markup).toContain('href="/?runAttempt=1"');
+    expect(markup).not.toContain('/v1/flows/parent/run-1');
+  });
+
+  it('shows external Channel message deletions instead of published values', () => {
+    const deletion: FlowHistoryEvent = {
+      eventId: 11,
+      eventTime: '2026-08-05T23:44:32Z',
+      type: 'ChannelExternalDelete',
+      payload: { messages: [{ channelName: 'notes', messageId: '0198-message' }] },
+    };
+
+    const markup = renderDetails(deletion);
+
+    expect(eventTitle(deletion)).toBe('Channel message deleted');
+    expect(markup).toContain('Deleted messages');
+    expect(markup).toContain('notes');
+    expect(markup).toContain('0198-message');
+    expect(markup).not.toContain('Published messages');
+  });
+
+  it('reads pending Channel messages of a continued run from their messages field', () => {
+    const event: FlowHistoryEvent = {
+      eventId: 1,
+      eventTime: '2026-08-05T23:44:29Z',
+      type: 'FlowStartedOrContinued',
+      payload: {
+        continuedStart: {
+          pendingChannelMessages: {
+            approvals: { messages: [{ channelName: 'approvals', value: 'carried-over', messageId: 'm-1' }] },
+          },
+        },
+      },
+    };
+
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('Pending channels');
+    expect(markup).toContain('carried-over');
+  });
+
   it.each([
     ['sync', 1],
     ['async', 2],

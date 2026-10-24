@@ -46,6 +46,25 @@ type v2TestClient struct {
 	currentGateRequest string
 	invokeRPCHandler   func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error)
 	startFlowHandler   func(context.Context, *dexpb.StartFlowRequest) (*dexpb.StartFlowResponse, error)
+	serverEngine       dexpb.ServerEngine
+	serverInfoErrors   []error
+	serverInfoCalls    int
+}
+
+func (client *v2TestClient) GetServerInfo(
+	context.Context,
+	*emptypb.Empty,
+	...grpc.CallOption,
+) (*dexpb.ServerInfo, error) {
+	client.mutex.Lock()
+	defer client.mutex.Unlock()
+	client.serverInfoCalls++
+	if len(client.serverInfoErrors) > 0 {
+		err := client.serverInfoErrors[0]
+		client.serverInfoErrors = client.serverInfoErrors[1:]
+		return nil, err
+	}
+	return &dexpb.ServerInfo{ServerEngine: client.serverEngine}, nil
 }
 
 func (client *v2TestClient) StartFlow(
@@ -783,6 +802,87 @@ func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 				t.Fatalf("Worker target = %+v", target)
 			}
 		})
+	}
+}
+
+func TestV2StartFlowDefaultsToPullOnServerZD(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		workerTarget string
+		wantStatus   int
+		wantPull     bool
+		wantAddress  string
+	}{
+		{name: "omitted target", wantStatus: http.StatusOK, wantPull: true},
+		{name: "explicit pull", workerTarget: `"workerTargetPull":true,`, wantStatus: http.StatusOK, wantPull: true},
+		{name: "explicit false", workerTarget: `"workerTargetPull":false,`, wantStatus: http.StatusBadRequest},
+		{name: "explicit address", workerTarget: `"workerTargetAddress":"worker:9000","bypassWorkerHealthCheck":true,`, wantStatus: http.StatusOK, wantAddress: "worker:9000"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			client := &v2TestClient{serverEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}
+			definition := testV2Definition()
+			definition.Start = testV2StartDefinition()
+			mux := http.NewServeMux()
+			RegisterDynamicV2Handlers(mux, client, func(context.Context) (V2DefinitionSnapshot, error) {
+				return V2DefinitionSnapshot{Definitions: map[string]V2Definition{"RefundFlow": definition}}, nil
+			}, V2HandlerConfig{WorkerHealthChecker: healthyV2WorkerHealthChecker})
+			catalog := performV2JSON(t, mux, http.MethodGet, "/api/v2/catalog", "")
+			if catalog.Code != http.StatusOK ||
+				!strings.Contains(catalog.Body.String(), `"serverEngine":"zd"`) ||
+				!strings.Contains(catalog.Body.String(), `"startFlowWorkerTargetPull":false`) {
+				t.Fatalf("catalog = %d %q", catalog.Code, catalog.Body.String())
+			}
+			body := `{"flowType":"RefundFlow","flowId":"new",` + testCase.workerTarget + `"input":{"count":1,"labels":[]}}`
+			response := performV2JSON(t, mux, http.MethodPost, "/api/v2/start", body)
+			if response.Code != testCase.wantStatus {
+				t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+			}
+			if testCase.wantStatus != http.StatusOK {
+				return
+			}
+			target := client.startRequests[0].GetFlowStartOptions().GetFlowConfigOverride().GetWorkerTarget()
+			if target.GetIsPullMode() != testCase.wantPull || target.GetAddress() != testCase.wantAddress {
+				t.Fatalf("Worker target = %+v", target)
+			}
+			if client.serverInfoCalls != 1 {
+				t.Fatalf("GetServerInfo calls = %d", client.serverInfoCalls)
+			}
+		})
+	}
+}
+
+func TestV2CatalogServerEngineSurvivesUnavailableFlowService(t *testing.T) {
+	client := &v2TestClient{
+		serverEngine:     dexpb.ServerEngine_SERVER_ENGINE_TEMPORAL,
+		serverInfoErrors: []error{status.Error(codes.Unavailable, "FlowService is starting")},
+	}
+	mux := http.NewServeMux()
+	RegisterDynamicV2Handlers(mux, client, func(context.Context) (V2DefinitionSnapshot, error) {
+		return V2DefinitionSnapshot{Definitions: map[string]V2Definition{"RefundFlow": testV2Definition()}}, nil
+	}, V2HandlerConfig{})
+	for _, wantEngine := range []string{"unspecified", "temporal", "temporal"} {
+		catalog := performV2JSON(t, mux, http.MethodGet, "/api/v2/catalog", "")
+		if catalog.Code != http.StatusOK || !strings.Contains(catalog.Body.String(), `"serverEngine":"`+wantEngine+`"`) {
+			t.Fatalf("catalog = %d %q, want engine %s", catalog.Code, catalog.Body.String(), wantEngine)
+		}
+	}
+	if client.serverInfoCalls != 2 {
+		t.Fatalf("GetServerInfo calls = %d, want a retry after failure and a cached success", client.serverInfoCalls)
+	}
+
+	legacyClient := &v2TestClient{serverInfoErrors: []error{status.Error(codes.Unimplemented, "unknown method")}}
+	legacyMux := http.NewServeMux()
+	RegisterDynamicV2Handlers(legacyMux, legacyClient, func(context.Context) (V2DefinitionSnapshot, error) {
+		return V2DefinitionSnapshot{Definitions: map[string]V2Definition{"RefundFlow": testV2Definition()}}, nil
+	}, V2HandlerConfig{})
+	for range 2 {
+		catalog := performV2JSON(t, legacyMux, http.MethodGet, "/api/v2/catalog", "")
+		if catalog.Code != http.StatusOK || !strings.Contains(catalog.Body.String(), `"serverEngine":"unspecified"`) {
+			t.Fatalf("legacy catalog = %d %q", catalog.Code, catalog.Body.String())
+		}
+	}
+	if legacyClient.serverInfoCalls != 1 {
+		t.Fatalf("legacy GetServerInfo calls = %d", legacyClient.serverInfoCalls)
 	}
 }
 

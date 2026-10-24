@@ -247,7 +247,8 @@ a {
 }
 
 .timezone-control select,
-.results-controls select {
+.results-controls select,
+.summary-strip select {
   padding: 7px 28px 7px 9px;
   border: 1px solid var(--line);
   border-radius: 8px;

@@ -138,14 +138,16 @@ describe('live Flow state failures', () => {
       <StructuredValue
         persistenceKind="channels"
         value={{
-          'updates/text': { values: ['queued'] },
-          'updates/11': { values: ['eleven'] },
-          'updates/2': { values: ['two'] },
+          'updates/text': { messages: [{ channelName: 'updates/text', value: 'queued', messageId: 'm-text' }] },
+          'updates/11': { messages: [{ channelName: 'updates/11', value: 'eleven', messageId: 'm-11' }] },
+          'updates/2': { messages: [{ channelName: 'updates/2', value: 'two', messageId: 'm-2' }] },
         }}
       />,
     );
 
     expect(markup).toContain('updates');
+    expect(markup).toContain('eleven');
+    expect(markup).not.toContain('m-11');
     expect(markup).toContain('<details class="semantic-record semantic-map-entry">');
     expectStrongLabelsInOrder(markup, ['2', '11', 'text']);
   });
@@ -157,7 +159,7 @@ describe('live Flow state failures', () => {
       activeStepExecutions: [],
       queuedSteps: [],
       pendingChannelMessages: {
-        approvals: { values: [{ messageId: '0198-message', value: 'approve' }] },
+        approvals: { messages: [{ channelName: 'approvals', messageId: '0198-message', value: 'approve' }] },
       },
       completedSteps: [],
     };
