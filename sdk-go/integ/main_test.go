@@ -219,6 +219,7 @@ func integrationFlows() []dex.Flow {
 		workerRetryAfterExecuteFlow{},
 		workerOriginStackWaitForFlow{},
 		messageSizeFlow{},
+		webDebugChannelFlow{},
 		&webv2approval.ApprovalFlow{},
 		&webv2reply.ReplyFlow{},
 	}

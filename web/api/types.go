@@ -66,6 +66,8 @@ type flowSummary struct {
 	FlowStatusCode int32   `json:"flowStatusCode"`
 	StartTime      *string `json:"startTime"`
 	CloseTime      *string `json:"closeTime"`
+	// RunAttempt is zero on Servers without run attempts.
+	RunAttempt int32 `json:"runAttempt"`
 }
 
 type historyPage struct {
@@ -79,6 +81,8 @@ type historyEvent struct {
 	EventTime *string                `json:"eventTime"`
 	Type      string                 `json:"type"`
 	Payload   map[string]interface{} `json:"payload"`
+	// RunAttempt is the run attempt that recorded the event, or zero.
+	RunAttempt int32 `json:"runAttempt"`
 }
 
 type flowState struct {
@@ -145,10 +149,13 @@ type timeTravelFlowRequest struct {
 	StepExecutionID  string `json:"stepExecutionId"`
 	HistoryEventTime string `json:"historyEventTime"`
 	StepMethod       int32  `json:"stepMethod"`
+	// RunAttempt selects the run attempt searched for the time travel point; zero selects the current one.
+	RunAttempt int32 `json:"runAttempt"`
 }
 
 type timeTravelFlowResponse struct {
-	RunID string `json:"runId"`
+	RunID      string `json:"runId"`
+	RunAttempt int32  `json:"runAttempt"`
 }
 
 type stopFlowRequest struct {

@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { formatDate } from '@/lib/format';
 import { durabilityLabel, flowErrorTypeLabel } from '@/lib/semantic';
+import { positiveRunAttempt, runAttemptSearch } from '@/lib/timeTravel';
 import {
   buildSelectedTimelineLinks,
   displayEventNumber,
@@ -72,6 +73,18 @@ function pendingPhase(event: FlowHistoryEvent): string {
   return 'Pending';
 }
 
+/** Where an event's previous-run link points: an earlier run attempt of this run, or another run. */
+export function previousRunLink(flowId: string, event: FlowHistoryEvent): { search: string } | string | null {
+  if (event.type === 'TimeTravelFork') {
+    const previousRunAttempt = positiveRunAttempt(event.payload.previousRunAttempt);
+    if (previousRunAttempt > 0) return { search: runAttemptSearch(previousRunAttempt) };
+  }
+  const previousRunId = previousRunID(event);
+  return previousRunId
+    ? `/v1/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(previousRunId)}`
+    : null;
+}
+
 function previousRunID(event: FlowHistoryEvent): string {
   if (event.type === 'TimeTravelFork') {
     return typeof event.payload.previousRunId === 'string' ? event.payload.previousRunId : '';
@@ -98,6 +111,10 @@ export function Timeline({
   const timelineRef = useRef<HTMLDivElement>(null);
   const eventCards = useRef(new Map<number, HTMLDivElement>());
   const orderedEvents = useMemo(() => newestTimelineEvents(events), [events]);
+  const spansRunAttempts = useMemo(
+    () => new Set(events.map((event) => positiveRunAttempt(event.runAttempt))).size > 1,
+    [events],
+  );
   const eventNumbers = useMemo(() => new Map(
     events.map((event) => [event.eventId, displayEventNumber(events, event)]),
   ), [events]);
@@ -272,6 +289,7 @@ export function Timeline({
           const linked = activeStepLink?.fromEventId === event.eventId || activeStepLink?.toEventId === event.eventId;
           const counterpart = activeStepLink?.id === selectedStepLink?.id && linked && !selected;
           const previousRunId = previousRunID(event);
+          const previousRunTarget = previousRunLink(flowId, event);
           return (
             <article
               className={`timeline-row${stepMethodClass(event)}${selected ? ' selected' : ''}${linked ? ' link-highlighted' : ''}${counterpart ? ' link-counterpart' : ''}`}
@@ -303,11 +321,11 @@ export function Timeline({
                   <div>
                     <span className="event-id">#{eventNumbers.get(event.eventId)}</span>
                     <h3>
-                      {previousRunId ? (
+                      {previousRunTarget ? (
                         <Link
                           className="event-run-link"
                           title={previousRunId}
-                          to={`/v1/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(previousRunId)}`}
+                          to={previousRunTarget}
                         >
                           {event.type === 'TimeTravelFork' ? 'Time Travel fork' : 'Flow continued'}
                         </Link>
@@ -317,7 +335,7 @@ export function Timeline({
                   </div>
                   <span className={`event-type tone-${eventTone(event)}`}>{eventTypeLabel(event)}</span>
                 </header>
-                <EventHighlights event={event} />
+                <EventHighlights event={event} showRunAttempt={spansRunAttempts} />
               </div>
             </article>
           );
@@ -327,18 +345,20 @@ export function Timeline({
   );
 }
 
-function EventHighlights({ event }: { event: FlowHistoryEvent }) {
+function EventHighlights({ event, showRunAttempt }: { event: FlowHistoryEvent; showRunAttempt: boolean }) {
   const context = event.payload.context as Record<string, unknown> | undefined;
   const output = event.payload.output as Record<string, unknown> | undefined;
   const failure = output?.failure as Record<string, unknown> | undefined;
   const activityPhase = pendingPhase(event);
-  if (!context && !failure && !activityPhase) return null;
+  const runAttempt = showRunAttempt ? positiveRunAttempt(event.runAttempt) : 0;
+  if (!context && !failure && !activityPhase && runAttempt === 0) return null;
   const backendError = typeof failure?.backendError === 'string'
     && failure.backendError.startsWith('FLOW_ERROR_TYPE_')
     ? flowErrorTypeLabel(failure.backendError)
     : failure?.backendError;
   return (
     <div className="event-highlights">
+      {runAttempt > 0 && <span>Run attempt <b>{runAttempt}</b></span>}
       {activityPhase && <span>Activity phase <b>{activityPhase}</b></span>}
       {context?.durability !== undefined && <span>Durability <b>{durabilityLabel(context.durability)}</b></span>}
       {context?.finalAttempt !== undefined && <span>Final attempt <b>{String(context.finalAttempt)}</b></span>}

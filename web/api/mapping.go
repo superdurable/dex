@@ -46,6 +46,7 @@ func mapSummary(summary *dexpb.GetFlowSummaryResponse) flowSummary {
 		FlowStatusCode: int32(summary.GetFlowStatus()),
 		StartTime:      timestamp(summary.GetStartTime()),
 		CloseTime:      timestamp(summary.GetCloseTime()),
+		RunAttempt:     summary.GetRunAttempt(),
 	}
 }
 
@@ -84,6 +85,8 @@ func mapHistoryEvent(event *dexpb.FlowHistoryEvent) (historyEvent, error) {
 		eventType, payload = "RpcExecutionCompleted", value.RpcExecutionCompleted
 	case *dexpb.FlowHistoryEvent_ChannelExternalPublish:
 		eventType, payload = "ChannelExternalPublish", value.ChannelExternalPublish
+	case *dexpb.FlowHistoryEvent_ChannelExternalDelete:
+		eventType, payload = "ChannelExternalDelete", value.ChannelExternalDelete
 	case *dexpb.FlowHistoryEvent_TimeTravelFork:
 		eventType, payload = "TimeTravelFork", value.TimeTravelFork
 	default:
@@ -94,10 +97,11 @@ func mapHistoryEvent(event *dexpb.FlowHistoryEvent) (historyEvent, error) {
 		return historyEvent{}, fmt.Errorf("map history event %d: %w", event.GetEventId(), err)
 	}
 	return historyEvent{
-		EventID:   event.GetEventId(),
-		EventTime: timestamp(event.GetEventTime()),
-		Type:      eventType,
-		Payload:   mappedPayload,
+		EventID:    event.GetEventId(),
+		EventTime:  timestamp(event.GetEventTime()),
+		Type:       eventType,
+		Payload:    mappedPayload,
+		RunAttempt: event.GetRunAttempt(),
 	}, nil
 }
 

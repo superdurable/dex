@@ -34,6 +34,7 @@ import { useStrandedRuns } from './workspace/useStrandedRuns';
 import { permissionActionLabels, permissionsOf } from './workspace/permissions';
 import { WORK_QUEUE_COPY } from './work-queue/copy';
 import { StartFlowDialog } from './start/StartFlowDialog';
+import { startWorkerTargetOptions } from './start/workerTarget';
 
 export function HomePage() {
   const { ready, canUseV2, error } = useWebCatalog();
@@ -260,7 +261,7 @@ export function RunWorkspace() {
           definition={entry.definition.start}
           definitionRevision={catalog.definitionRevision}
           flowType={entry.flowType}
-          isDefaultPull={catalog.startFlowWorkerTargetPull === true}
+          {...startWorkerTargetOptions(catalog)}
           onClose={() => setStartOpen(false)}
           onDefinitionChanged={handleDefinitionError}
           onStarted={(startedFlowID) => {

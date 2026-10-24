@@ -18,11 +18,20 @@ import (
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type readinessFlowServiceClient struct {
 	dexpb.FlowServiceClient
 	err error
+}
+
+func (c readinessFlowServiceClient) GetServerInfo(
+	context.Context,
+	*emptypb.Empty,
+	...grpc.CallOption,
+) (*dexpb.ServerInfo, error) {
+	return &dexpb.ServerInfo{}, c.err
 }
 
 func (c readinessFlowServiceClient) SearchFlows(

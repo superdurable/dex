@@ -33,6 +33,7 @@ export function StartFlowDialog({
   definitionRevision,
   flowType,
   isDefaultPull,
+  isAddressWorkerTargetSupported = true,
   onClose,
   onDefinitionChanged,
   onStarted,
@@ -41,12 +42,16 @@ export function StartFlowDialog({
   definitionRevision: string;
   flowType: string;
   isDefaultPull: boolean;
+  /** False when the Dex Server dispatches only to pull Workers, so the address option is hidden. */
+  isAddressWorkerTargetSupported?: boolean;
   onClose: () => void;
   onDefinitionChanged: (error: unknown) => boolean;
   onStarted: (flowID: string) => void;
 }) {
   const [flowID, setFlowID] = useState('');
-  const [workerTargetMode, setWorkerTargetMode] = useState<'address' | 'pull'>(isDefaultPull ? 'pull' : 'address');
+  const [workerTargetMode, setWorkerTargetMode] = useState<'address' | 'pull'>(
+    isDefaultPull || !isAddressWorkerTargetSupported ? 'pull' : 'address',
+  );
   const [workerAddress, setWorkerAddress] = useState('');
   const [draft, setDraft] = useState(() => createStartInputDraft(definition.input));
   const [errors, setErrors] = useState<StartInputError[]>([]);
@@ -191,7 +196,7 @@ export function StartFlowDialog({
           </label>
           <fieldset className="sfd-target-mode" disabled={submitting}>
             <legend>Worker target</legend>
-            <label>
+            {isAddressWorkerTargetSupported && <label>
               <input
                 checked={workerTargetMode === 'address'}
                 name="worker-target-mode"
@@ -205,7 +210,7 @@ export function StartFlowDialog({
                 }}
               />
               Worker address
-            </label>
+            </label>}
             <label>
               <input
                 checked={workerTargetMode === 'pull'}

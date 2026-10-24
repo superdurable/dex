@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { FlowV2Definition, V2ValueType } from '@superdurable/flow-definition-renderer';
-import { FLOW_STATUS } from '@/lib/types';
+import { FLOW_STATUS, FLOW_STATUS_QUERY_VALUE, type FlowStatus } from '@/lib/types';
 import { newFilterRow, type FilterRow } from './filters';
 
 /**
@@ -17,7 +17,7 @@ import { newFilterRow, type FilterRow } from './filters';
  * not declare, and no operator offered that the index type will reject.
  */
 export interface RunQuery {
-  /** An execution status label, or '' for any. */
+  /** An ExecutionStatus query value such as `TimedOut`, or '' for any. */
   status: string;
   /** A relative window, or '' for any. Relative because nobody remembers a timestamp. */
   since: SinceWindow;
@@ -63,11 +63,20 @@ const OPERATOR_LABEL: Record<RunOperator, string> = {
   lte: 'at most',
 };
 
+type ListedFlowStatus = Exclude<FlowStatus, 'Unspecified' | 'Continued as new'>;
+
 /** Every status shown in the run list; continued-as-new executions belong to their successor. */
-export function statusOptions(): string[] {
-  return Object.values(FLOW_STATUS).filter(
-    (label) => label !== 'Unspecified' && label !== 'Continued as new',
-  );
+export function statusOptions(): { value: string; label: ListedFlowStatus }[] {
+  return Object.values(FLOW_STATUS)
+    .filter((label): label is ListedFlowStatus => label !== 'Unspecified' && label !== 'Continued as new')
+    .map((label) => ({ value: FLOW_STATUS_QUERY_VALUE[label], label }));
+}
+
+/** The ExecutionStatus query value for a status label; a query value is returned unchanged. */
+export function flowStatusQueryValue(status: string): string {
+  return Object.hasOwn(FLOW_STATUS_QUERY_VALUE, status)
+    ? FLOW_STATUS_QUERY_VALUE[status as keyof typeof FLOW_STATUS_QUERY_VALUE]
+    : status;
 }
 
 /** Every declared Indexed Attribute. The operator picker keeps each one to comparisons it supports. */
@@ -116,7 +125,7 @@ export function toFilterRows(
   const rows: FilterRow[] = [];
 
   if (query.status !== '') {
-    rows.push(newFilterRow('executionStatus', 'eq', query.status));
+    rows.push(newFilterRow('executionStatus', 'eq', flowStatusQueryValue(query.status)));
   }
 
   const window = SINCE_WINDOWS.find((candidate) => candidate.value === query.since);
