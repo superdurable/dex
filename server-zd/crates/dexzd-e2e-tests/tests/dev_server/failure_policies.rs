@@ -7,10 +7,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use dexzd_protocol::dex::{
-    ExecuteMethodFailurePolicy, FlowConfig, FlowResetStepMethod, FlowResetType, FlowStartOptions,
-    FlowStatus, FlowTimeoutHandlerOptions, FlowTimeoutPolicy, GetHistoryEventsRequest,
-    InvokeExecuteMethodOutput, InvokeExecuteMethodResponse, LoadBlobRequestEntry, LoadBlobsRequest,
-    ResetFlowRequest, RetryPolicy, StartFlowRequest, StepOptions, Value, WaitForFlowRequest,
+    CloseDecision, CloseDecisionType, ExecuteMethodFailurePolicy, FlowConfig, FlowResetStepMethod,
+    FlowResetType, FlowStartOptions, FlowStatus, FlowTimeoutHandlerOptions, FlowTimeoutPolicy,
+    GetHistoryEventsRequest, InvokeExecuteMethodOutput, InvokeExecuteMethodResponse,
+    LoadBlobRequestEntry, LoadBlobsRequest, PollWorkerTask, ResetFlowRequest, RetryPolicy,
+    StartFlowRequest, StepDecision, StepMovement, StepOptions, Value, WaitForFlowRequest,
     WaitForMethodFailurePolicy, WorkerErrorResponse, WorkerTarget, flow_history_event,
     invoke_execute_method_output, poll_worker_task, poll_worker_task_frame, value,
 };
@@ -46,12 +47,22 @@ fn worker_error(error_type: &str) -> poll_worker_task_frame::Output {
 }
 
 async fn start_flow(server: &DevServer, flow_id: &str, input: Value, options: StepOptions) {
+    start_flow_at_step(server, flow_id, "FailStep", input, options).await;
+}
+
+async fn start_flow_at_step(
+    server: &DevServer,
+    flow_id: &str,
+    start_step_type: &str,
+    input: Value,
+    options: StepOptions,
+) {
     server
         .flow_client()
         .start_flow(StartFlowRequest {
             flow_id: flow_id.to_owned(),
             flow_type: FLOW_TYPE.to_owned(),
-            start_step_type: "FailStep".to_owned(),
+            start_step_type: start_step_type.to_owned(),
             step_input: Some(input),
             step_options: Some(options),
             flow_start_options: Some(FlowStartOptions {
@@ -91,6 +102,20 @@ async fn load_referenced_input(server: &DevServer, flow_id: &str, value: &Value)
         .get(reference)
         .cloned()
         .expect("the value holder remains live")
+}
+
+fn execute_step_type(task: &PollWorkerTask) -> &str {
+    let Some(poll_worker_task::Request::Execute(request)) = task.request.as_ref() else {
+        panic!("the task runs Execute, got {task:?}");
+    };
+    &request.step_type
+}
+
+fn complete_flow_output() -> poll_worker_task_frame::Output {
+    execute_output(InvokeExecuteMethodResponse {
+        step_decision: Some(force_complete(text_value("done"))),
+        ..InvokeExecuteMethodResponse::default()
+    })
 }
 
 async fn assert_flow_completed(server: &DevServer, flow_id: &str) {
@@ -469,4 +494,123 @@ async fn method_heartbeat_and_retry_deadlines_keep_go_recovery_error_types() {
     assert_timeout_recovery("method-timeout-recovery", 1, 10, 30, "StartToClose", 1).await;
     assert_timeout_recovery("heartbeat-timeout-recovery", 20, 10, 30, "Heartbeat", 10).await;
     assert_timeout_recovery("retry-deadline-recovery", 20, 10, 1, "ScheduleToClose", 1).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lock_wait_before_the_first_attempt_does_not_consume_the_retry_total_duration() {
+    let server = DevServer::start().await;
+    let mut worker = ScriptedWorker::start(server.worker_client(), FLOW_TYPE).await;
+    let flow_id = "lock-wait-retry-duration";
+    start_flow_at_step(
+        &server,
+        flow_id,
+        "ParentStep",
+        text_value("input"),
+        StepOptions {
+            skip_wait_for: true,
+            ..StepOptions::default()
+        },
+    )
+    .await;
+    let locked_options = |total_duration_seconds| StepOptions {
+        skip_wait_for: true,
+        execute_lock_attribute_keys: vec!["k".to_owned()],
+        execute_retry_policy: Some(RetryPolicy {
+            total_duration_seconds,
+            ..RetryPolicy::default()
+        }),
+        ..StepOptions::default()
+    };
+    let parent = worker.next_task().await;
+    assert_eq!(execute_step_type(&parent), "ParentStep");
+    worker.reply(
+        parent.task_id,
+        execute_output(InvokeExecuteMethodResponse {
+            step_decision: Some(StepDecision {
+                next_steps: vec![
+                    StepMovement {
+                        step_type: "HoldStep".to_owned(),
+                        step_options: Some(locked_options(0)),
+                        ..StepMovement::default()
+                    },
+                    StepMovement {
+                        step_type: "QueuedStep".to_owned(),
+                        step_options: Some(locked_options(2)),
+                        ..StepMovement::default()
+                    },
+                ],
+                ..StepDecision::default()
+            }),
+            ..InvokeExecuteMethodResponse::default()
+        }),
+    );
+    let hold = worker.next_task().await;
+    assert_eq!(execute_step_type(&hold), "HoldStep");
+    // The Worker holds the lock longer than QueuedStep's total duration.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    worker.reply(
+        hold.task_id,
+        execute_output(InvokeExecuteMethodResponse {
+            step_decision: Some(StepDecision {
+                close_decision: Some(CloseDecision {
+                    close_decision_type: CloseDecisionType::DeadEnd as i32,
+                    ..CloseDecision::default()
+                }),
+                ..StepDecision::default()
+            }),
+            ..InvokeExecuteMethodResponse::default()
+        }),
+    );
+    let queued = worker.next_task().await;
+    assert_eq!(execute_step_type(&queued), "QueuedStep");
+    worker.reply(queued.task_id, complete_flow_output());
+    assert_flow_completed(&server, flow_id).await;
+    worker.stop().await;
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reset_after_the_retry_total_duration_expired_dispatches_the_restored_step() {
+    let server = DevServer::start().await;
+    let mut worker = ScriptedWorker::start(server.worker_client(), FLOW_TYPE).await;
+    let flow_id = "reset-after-retry-duration";
+    start_flow_at_step(
+        &server,
+        flow_id,
+        "WorkStep",
+        text_value("input"),
+        StepOptions {
+            skip_wait_for: true,
+            execute_retry_policy: Some(RetryPolicy {
+                total_duration_seconds: 2,
+                ..RetryPolicy::default()
+            }),
+            ..StepOptions::default()
+        },
+    )
+    .await;
+    let work = worker.next_task().await;
+    assert_eq!(execute_step_type(&work), "WorkStep");
+    worker.reply(work.task_id, complete_flow_output());
+    assert_flow_completed(&server, flow_id).await;
+    // Reset after WorkStep's original total duration expired.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    server
+        .flow_client()
+        .reset_flow(ResetFlowRequest {
+            flow_id: flow_id.to_owned(),
+            reset_type: FlowResetType::StepExecutionId as i32,
+            step_execution_id: "WorkStep-1".to_owned(),
+            step_method: FlowResetStepMethod::Execute as i32,
+            reason: "replay after the total duration".to_owned(),
+            ..ResetFlowRequest::default()
+        })
+        .await
+        .expect("ResetFlow restores WorkStep");
+    let replayed = worker.next_task().await;
+    assert_eq!(execute_step_type(&replayed), "WorkStep");
+    worker.reply(replayed.task_id, complete_flow_output());
+    assert_flow_completed(&server, flow_id).await;
+    worker.stop().await;
+    server.shutdown().await;
 }

@@ -28,10 +28,10 @@ use dexzd_protocol::dex::{
     AttributeWrite, ChannelMessage, ChannelMessageDeletion, CloseDecision, CloseDecisionType,
     DeleteChannelMessageRequest, FlowResetStepMethod, FlowResetType, FlowStatus, FlowTimeoutPolicy,
     IndexConfig, InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWaitForMethodResponse,
-    InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, SetAttributesRequest,
-    SkipTimerRequest, StartFlowRequest, StepDecision, StepMovement, StepOptions, TimerCondition,
-    Value, WaitingCondition, WaitingConditionType, WorkerErrorResponse, WorkerTarget,
-    flow_history_event, value,
+    InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, RetryPolicy,
+    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StepDecision, StepMovement,
+    StepOptions, TimerCondition, Value, WaitingCondition, WaitingConditionType,
+    WorkerErrorResponse, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, ChannelMessageDeleteCommand,
@@ -111,7 +111,8 @@ impl MemoryState {
 
 const SECOND: i64 = 1_000_000;
 
-/// Attempt rows without timer run attempts and dispatch IDs, so attempts compare.
+/// Attempt rows without timer run attempts, dispatch IDs, and retry duration starts, so attempts
+/// compare.
 type AttemptRows = BTreeMap<(u8, Vec<u8>), Vec<u8>>;
 
 struct Harness {
@@ -347,6 +348,7 @@ impl Harness {
                         StepExecutionRecord::decode(value.as_slice()).expect("Step rows decode");
                     if let Some(invocation) = step.invocation.as_mut() {
                         invocation.task_id.clear();
+                        invocation.retry_started_at_micros = 0;
                     }
                     (parsed.suffix.to_vec(), step.encode_to_vec())
                 }
@@ -616,6 +618,21 @@ fn started_timeouts(outcome: &ApplyOutcome) -> Vec<(String, i32, i32)> {
                 invocation.method,
                 *method_timeout_seconds,
             )),
+            _ => None,
+        })
+        .collect()
+}
+
+fn started_retry_deadlines(outcome: &ApplyOutcome) -> Vec<(String, i64)> {
+    outcome
+        .effects
+        .iter()
+        .filter_map(|effect| match effect {
+            ApplyEffect::InvocationStarted {
+                invocation,
+                retry_deadline_micros,
+                ..
+            } => Some((invocation.step_execution_id.clone(), *retry_deadline_micros)),
             _ => None,
         })
         .collect()
@@ -985,6 +1002,116 @@ fn restored_running_attempts_carry_their_configured_method_timeouts() {
         started_timeouts(&outcome),
         vec![("ChargeStep-1".to_owned(), StepMethod::WaitFor as i32, 7)]
     );
+}
+
+#[test]
+fn retry_total_duration_starts_when_attempt_one_starts_after_its_lock_wait() {
+    let mut harness = Harness::new();
+    let mut request = start_request();
+    request.step_options = Some(StepOptions {
+        skip_wait_for: true,
+        execute_retry_policy: Some(RetryPolicy {
+            total_duration_seconds: 2,
+            ..RetryPolicy::default()
+        }),
+        ..StepOptions::default()
+    });
+    harness.start(request);
+    let pending = harness.step("ChargeStep-1").invocation.unwrap();
+    // A lock wait longer than the total duration.
+    harness.now_micros += 10 * SECOND;
+    let started = harness.apply(Command::StepAttemptStarted(StepAttemptStartedCommand {
+        invocation: Some(key("ChargeStep-1", StepMethod::Execute)),
+        attempt: 1,
+        task_id: vec![1; 16],
+        pull_routing: None,
+    }));
+    let started_at = harness.now_micros;
+    assert!(started_at - pending.first_attempt_at_micros > 10 * SECOND);
+    assert_eq!(
+        started_retry_deadlines(&started),
+        vec![("ChargeStep-1".to_owned(), started_at + 2 * SECOND)]
+    );
+    let running = harness.step("ChargeStep-1").invocation.unwrap();
+    assert_eq!(running.retry_started_at_micros, started_at);
+    // A retry keeps the duration that attempt 1 started.
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(key("ChargeStep-1", StepMethod::Execute)),
+        attempt: 1,
+        kind: 1,
+        worker_error: Some(WorkerErrorResponse {
+            detail: "boom".to_owned(),
+            ..WorkerErrorResponse::default()
+        }),
+        ..StepAttemptFailedCommand::default()
+    }));
+    let backoff = harness.step("ChargeStep-1").invocation.unwrap();
+    assert_eq!(backoff.phase, StepInvocationPhase::Backoff as i32);
+    assert_eq!(backoff.retry_started_at_micros, started_at);
+    harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![TimerId {
+            run_attempt: 1,
+            kind: Some(timer_id::Kind::RetryBackoff(RetryBackoffTimerId {
+                invocation: Some(key("ChargeStep-1", StepMethod::Execute)),
+                next_attempt: 2,
+            })),
+        }],
+    }));
+    let retried = harness.apply(Command::StepAttemptStarted(StepAttemptStartedCommand {
+        invocation: Some(key("ChargeStep-1", StepMethod::Execute)),
+        attempt: 2,
+        task_id: vec![2; 16],
+        pull_routing: None,
+    }));
+    assert_eq!(
+        started_retry_deadlines(&retried),
+        vec![("ChargeStep-1".to_owned(), started_at + 2 * SECOND)]
+    );
+}
+
+#[test]
+fn restored_calls_restart_their_retry_total_duration_at_the_travel_time() {
+    let mut harness = Harness::new();
+    let mut request = start_request();
+    request.step_options = Some(StepOptions {
+        execute_retry_policy: Some(RetryPolicy {
+            total_duration_seconds: 2,
+            ..RetryPolicy::default()
+        }),
+        ..StepOptions::default()
+    });
+    harness.start(request);
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.complete_wait_for("ChargeStep-1");
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    harness.set_attribute("status", "executing", "");
+    let execute_point = harness.history_record(harness.last_seq()).unwrap();
+    harness.complete_execute("ChargeStep-1", 1, force_complete());
+    // Travel long after the restored attempt's original total duration expired.
+    harness.now_micros += 60 * SECOND;
+    let (_, outcome) = harness.travel_to(reset_to_time(execute_point.timestamp_micros));
+    let traveled_at = harness.now_micros;
+    assert_eq!(
+        started_retry_deadlines(&outcome),
+        vec![("ChargeStep-1".to_owned(), traveled_at + 2 * SECOND)]
+    );
+    let restored = harness.step("ChargeStep-1").invocation.unwrap();
+    assert_eq!(restored.phase, StepInvocationPhase::Running as i32);
+    assert_eq!(restored.retry_started_at_micros, traveled_at);
+    // Retries count from the travel time too.
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(key("ChargeStep-1", StepMethod::Execute)),
+        attempt: 1,
+        kind: 1,
+        worker_error: Some(WorkerErrorResponse {
+            detail: "boom".to_owned(),
+            ..WorkerErrorResponse::default()
+        }),
+        ..StepAttemptFailedCommand::default()
+    }));
+    let backoff = harness.step("ChargeStep-1").invocation.unwrap();
+    assert_eq!(backoff.phase, StepInvocationPhase::Backoff as i32);
+    assert_eq!(backoff.attempt, 2);
 }
 
 #[test]

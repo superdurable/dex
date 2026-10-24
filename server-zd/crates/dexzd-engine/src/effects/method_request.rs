@@ -725,27 +725,6 @@ pub(crate) fn configured_method_timeout_seconds(
     })
 }
 
-pub(crate) fn configured_retry_deadline_micros(
-    options: Option<&dex::StepOptions>,
-    method: i32,
-    first_attempt_at_micros: i64,
-) -> i64 {
-    let policy = options.and_then(|options| {
-        if method == StepMethod::WaitFor as i32 {
-            options.wait_for_retry_policy.as_ref()
-        } else {
-            options.execute_retry_policy.as_ref()
-        }
-    });
-    let total_seconds = policy.map_or(0, |policy| i64::from(policy.total_duration_seconds));
-    let total_seconds = if total_seconds > 0 {
-        total_seconds
-    } else {
-        4 * 60 * 60
-    };
-    first_attempt_at_micros.saturating_add(total_seconds.saturating_mul(1_000_000))
-}
-
 #[cfg(test)]
 mod tests {
     use dexzd_keyspace::{RunId, ValueId, ValueReference};

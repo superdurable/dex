@@ -32,8 +32,8 @@ use crate::steps::attempt_snapshot::compute_attempt_snapshot;
 use crate::steps::invocations::{can_take_locks, release_heartbeat_checkpoint};
 use crate::steps::{
     InvocationEnd, NewStepExecution, RetryDecision, apply_step_decision, create_step_execution,
-    decide_retry, end_running_attempt, finish_step, make_invocation_pending, start_attempt,
-    wait_conditions,
+    decide_retry, end_running_attempt, finish_step, make_invocation_pending, method_retry_policy,
+    retry_started_at_micros, start_attempt, wait_conditions,
 };
 use crate::values::{
     ValueHolder, ValueRejection, hold_stored_value, release_stored_value, store_value,
@@ -217,20 +217,15 @@ pub(crate) fn apply_attempt_failed(
     let key = command.invocation.clone().unwrap_or_default();
     let method = StepMethod::try_from(key.method).unwrap_or(StepMethod::Execute);
     let options = step.options.clone().unwrap_or_default();
-    let policy = match method {
-        StepMethod::WaitFor => options.wait_for_retry_policy.as_ref(),
-        StepMethod::Execute | StepMethod::Unspecified => options.execute_retry_policy.as_ref(),
-    };
-    let first_attempt_at = step
+    let policy = method_retry_policy(Some(&options), key.method);
+    let retry_started_at = step
         .invocation
         .as_ref()
-        .map_or(scope.now_micros, |invocation| {
-            invocation.first_attempt_at_micros
-        });
+        .map_or(scope.now_micros, retry_started_at_micros);
     let decision = decide_retry(
         policy,
         command.attempt,
-        first_attempt_at,
+        retry_started_at,
         scope.now_micros,
         worker_error.retry_after_seconds,
         command.is_non_retryable,

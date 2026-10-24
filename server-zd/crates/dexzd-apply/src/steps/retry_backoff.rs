@@ -6,7 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use dexzd_protocol::dex::RetryPolicy;
+use dexzd_protocol::dex::{RetryPolicy, StepOptions};
+use dexzd_protocol::dexzd::v1::{StepInvocationRecord, StepMethod};
 
 pub(crate) const DEFAULT_INITIAL_INTERVAL_SECONDS: i64 = 1;
 pub(crate) const DEFAULT_BACKOFF_COEFFICIENT: f64 = 2.0;
@@ -23,12 +24,50 @@ pub(crate) enum RetryDecision {
     Exhausted,
 }
 
-pub(crate) fn retry_deadline_micros(
-    policy: Option<&RetryPolicy>,
-    first_attempt_at_micros: i64,
+/// Returns the absolute time in microseconds at which the retry policy total duration of the
+/// invocation's method expires. The Go Server's 4-hour default applies when the Step options set
+/// no total duration. A running attempt that is still running at this time fails without retry.
+///
+/// The duration counts from [`retry_started_at_micros`]. Apply reports this value when an attempt
+/// starts, and a rebuilt partition re-arms the same value from the persisted invocation.
+pub fn invocation_retry_deadline_micros(
+    options: Option<&StepOptions>,
+    invocation: &StepInvocationRecord,
 ) -> i64 {
+    retry_deadline_micros(
+        method_retry_policy(options, invocation.method),
+        retry_started_at_micros(invocation),
+    )
+}
+
+/// Returns the retry policy of `method` in the Step options, or `None` when the options leave
+/// it to the Go Server's defaults.
+pub(crate) fn method_retry_policy(
+    options: Option<&StepOptions>,
+    method: i32,
+) -> Option<&RetryPolicy> {
+    options.and_then(|options| {
+        if method == StepMethod::WaitFor as i32 {
+            options.wait_for_retry_policy.as_ref()
+        } else {
+            options.execute_retry_policy.as_ref()
+        }
+    })
+}
+
+/// Returns when the retry policy total duration of the invocation started counting: the start of
+/// attempt 1, or `first_attempt_at_micros` for a record written before that start was persisted.
+pub(crate) fn retry_started_at_micros(invocation: &StepInvocationRecord) -> i64 {
+    if invocation.retry_started_at_micros > 0 {
+        invocation.retry_started_at_micros
+    } else {
+        invocation.first_attempt_at_micros
+    }
+}
+
+fn retry_deadline_micros(policy: Option<&RetryPolicy>, retry_started_at_micros: i64) -> i64 {
     let total_seconds = policy.map_or(0, |policy| i64::from(policy.total_duration_seconds));
-    first_attempt_at_micros.saturating_add(
+    retry_started_at_micros.saturating_add(
         positive_or(total_seconds, DEFAULT_TOTAL_DURATION_SECONDS)
             .saturating_mul(MICROS_PER_SECOND),
     )
@@ -37,13 +76,13 @@ pub(crate) fn retry_deadline_micros(
 /// Decides the retry of a failed attempt with the Go Server's defaults: initial interval 1 s,
 /// coefficient 2, maximum interval 100 s, unlimited attempts, and 4 hours of total duration.
 ///
-/// `failed_attempt` counts from 1. `retry_after_seconds > 0` from the Worker overrides the next
-/// interval. The coefficient is applied by repeated multiplication, never `powf`, so every
-/// platform computes the same interval.
+/// `failed_attempt` counts from 1. The total duration counts from `retry_started_at_micros`.
+/// `retry_after_seconds > 0` from the Worker overrides the next interval. The coefficient is
+/// applied by repeated multiplication, never `powf`, so every platform computes the same interval.
 pub(crate) fn decide_retry(
     policy: Option<&RetryPolicy>,
     failed_attempt: u32,
-    first_attempt_at_micros: i64,
+    retry_started_at_micros: i64,
     now_micros: i64,
     retry_after_seconds: i32,
     is_non_retryable: bool,
@@ -86,7 +125,7 @@ pub(crate) fn decide_retry(
         interval_millis * 1000
     };
     let fires_at_micros = now_micros.saturating_add(interval_micros);
-    let deadline_micros = retry_deadline_micros(Some(policy), first_attempt_at_micros);
+    let deadline_micros = retry_deadline_micros(Some(policy), retry_started_at_micros);
     if fires_at_micros > deadline_micros {
         return RetryDecision::Exhausted;
     }

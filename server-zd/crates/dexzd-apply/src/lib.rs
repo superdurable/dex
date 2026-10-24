@@ -30,6 +30,7 @@ pub use apply_outcome::{ApplyEffect, ApplyError, ApplyOutcome, StateWrite, Waita
 pub use command_handlers::command_replies::CLOSED_RUN_STOP_MESSAGE;
 pub use history::diagnostics;
 pub use state_access::{FlowStateReader, StateReadError, StateRow};
+pub use steps::invocation_retry_deadline_micros;
 
 use dexzd_protocol::dexzd::v1::FlowCommand;
 

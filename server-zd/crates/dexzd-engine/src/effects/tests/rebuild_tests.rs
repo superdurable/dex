@@ -11,6 +11,7 @@ use std::time::Duration;
 use std::sync::{Arc, Mutex};
 
 use dexzd_apply::FlowStateReader;
+use dexzd_clock::WallClock;
 use dexzd_keyspace::row_keys::{
     hard_delete_pending_key, outbox_key, run_item_index_key, run_singleton_key,
 };
@@ -18,7 +19,7 @@ use dexzd_keyspace::{ColumnFamily, IndexKind, RunTable, partition_index_prefix};
 use dexzd_object_store::{FaultAction, ObjectStore, ObjectStoreOperation};
 use dexzd_protocol::dex::{
     AttributeWrite, CloseDecision, CloseDecisionType, FlowStatus, InvokeExecuteMethodResponse,
-    InvokeWaitForMethodResponse, StepDecision, StepOptions,
+    InvokeWaitForMethodResponse, RetryPolicy, StepDecision, StepOptions,
 };
 use dexzd_protocol::dexzd::v1::{
     ChildFlowCompletedMessage, CrossFlowEndpoint, HardDeleteObjectRecord,
@@ -149,6 +150,63 @@ async fn a_restarted_attempt_with_unreadable_state_times_out_at_its_configured_m
             .load(std::sync::atomic::Ordering::SeqCst),
         0
     );
+    second.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_restart_cuts_a_running_attempt_at_its_original_retry_deadline() {
+    let first = EffectHarness::new();
+    first.rebuild_all_partitions().await;
+    let mut request = start_request("order-1");
+    request.step_options = Some(StepOptions {
+        wait_for_timeout_seconds: 60,
+        wait_for_retry_policy: Some(RetryPolicy {
+            total_duration_seconds: 10,
+            ..RetryPolicy::default()
+        }),
+        ..StepOptions::default()
+    });
+    let run_id = first.start_flow(request, settings());
+    let _before = first.dispatcher.next_dispatch().await;
+    let invocation = first
+        .step_execution("order-1", run_id, "ChargeStep-1")
+        .invocation
+        .expect("invocation");
+    assert_eq!(
+        invocation.retry_started_at_micros,
+        invocation.attempt_started_at_micros
+    );
+    let retry_deadline_micros = invocation.retry_started_at_micros + 10 * SECOND_MICROS;
+    let durable = first.durable.clone();
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    first.shutdown().await;
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let second = restart(&durable);
+    second.rebuild_all_partitions().await;
+    let _after = second.dispatcher.next_dispatch().await;
+    let until_deadline = Duration::from_micros(
+        u64::try_from(retry_deadline_micros - durable.clock.now_unix_micros())
+            .expect("the deadline is still ahead"),
+    );
+    tokio::time::sleep(until_deadline - Duration::from_millis(100)).await;
+    second.settle().await;
+    assert!(
+        second
+            .runtime
+            .commands_matching(is_attempt_failed)
+            .is_empty(),
+        "the rebuilt attempt keeps its original deadline"
+    );
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    second.settle().await;
+    let failures = second.runtime.commands_matching(is_attempt_failed);
+    let Some(flow_command::Command::StepAttemptFailed(failure)) = &failures[0].command.command
+    else {
+        panic!("expected a failure");
+    };
+    assert_eq!(failure.kind, StepAttemptFailureKind::RetryDeadline as i32);
+    assert!(failure.is_non_retryable);
     second.shutdown().await;
 }
 
