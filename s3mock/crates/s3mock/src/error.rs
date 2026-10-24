@@ -11,6 +11,10 @@ use std::io;
 /// Error returned by [`crate::Store`] operations, mapped by the server to S3 error codes.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[error("credential already exists")]
+    CredentialAlreadyExists,
+    #[error("credential does not exist")]
+    NoSuchCredential,
     #[error("bucket {0:?} does not exist")]
     NoSuchBucket(String),
     #[error("bucket {0:?} already exists")]

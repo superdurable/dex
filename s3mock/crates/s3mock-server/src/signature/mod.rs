@@ -13,6 +13,7 @@ mod payload;
 use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 
 use futures_util::{StreamExt, TryStreamExt};
 use hmac::{Hmac, Mac};
@@ -21,11 +22,13 @@ use http_body::Body;
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::Frame;
 use percent_encoding::percent_decode_str;
+use s3mock::{CredentialStatus, Store, StoreError};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
 use crate::config::{ServerConfig, SignatureVerification};
+use crate::policy::CredentialPolicy;
 use crate::s3_error::S3Error;
 use crate::server::RequestBody;
 
@@ -38,22 +41,74 @@ pub(crate) struct SignatureContext {
     trailer_names: Vec<String>,
 }
 
+pub(crate) enum Identity {
+    Root,
+    Scoped(CredentialPolicy),
+}
+
+impl Identity {
+    pub(crate) fn policy(&self) -> Option<&CredentialPolicy> {
+        match self {
+            Self::Root => None,
+            Self::Scoped(policy) => Some(policy),
+        }
+    }
+
+    pub(crate) fn is_root(&self) -> bool {
+        matches!(self, Self::Root)
+    }
+}
+
 pub(crate) async fn verify_request(
     request: Request<RequestBody>,
     config: &ServerConfig,
+    store: &Arc<Store>,
     spool_directory: &Path,
-) -> Result<Request<RequestBody>, S3Error> {
+) -> Result<(Request<RequestBody>, Identity), S3Error> {
     if config.signature_verification == SignatureVerification::Off {
-        return Ok(request);
+        return Ok((request, Identity::Root));
     }
-    let context = verify_headers(&request, config)?;
+    if request
+        .uri()
+        .query()
+        .is_some_and(|query| query.split('&').any(|pair| pair.starts_with("X-Amz-")))
+    {
+        return Err(S3Error::not_implemented(
+            "presigned URLs in strict signature mode",
+        ));
+    }
+    let access_key_id = access_key_id(&request)?;
+    let (secret_access_key, identity) = if access_key_id == config.access_key_id {
+        (config.secret_access_key.clone(), Identity::Root)
+    } else {
+        let access_key_id = access_key_id.to_owned();
+        let store = Arc::clone(store);
+        let credential = tokio::task::spawn_blocking(move || store.credential(&access_key_id))
+            .await
+            .map_err(|error| S3Error::internal(format!("credential task failed: {error}")))?
+            .map_err(|error| match error {
+                StoreError::NoSuchCredential => access_denied(),
+                other => S3Error::from(other),
+            })?;
+        if credential.status == CredentialStatus::Disabled {
+            return Err(S3Error::new(
+                StatusCode::FORBIDDEN,
+                "InvalidAccessKeyId",
+                "the access key ID is disabled",
+            ));
+        }
+        let policy = CredentialPolicy::parse(credential.policy)
+            .map_err(|error| S3Error::internal(format!("stored credential policy: {error}")))?;
+        (credential.secret_access_key, Identity::Scoped(policy))
+    };
+    let context = verify_headers(&request, &access_key_id, &secret_access_key)?;
     if request.body().is_end_stream() {
         if !matches!(context.payload_hash.as_str(), "UNSIGNED-PAYLOAD")
             && context.payload_hash != hash(b"")
         {
             return Err(mismatch());
         }
-        return Ok(request);
+        return Ok((request, identity));
     }
     let spool_directory = spool_directory.to_owned();
     let (parts, mut body) = request.into_parts();
@@ -101,25 +156,38 @@ pub(crate) async fn verify_request(
             .into_iter()
             .map(|headers| Ok::<_, io::Error>(Frame::trailers(headers))),
     );
-    Ok(Request::from_parts(
-        parts,
-        BodyExt::boxed(StreamBody::new(stream.chain(trailer_stream))),
+    Ok((
+        Request::from_parts(
+            parts,
+            BodyExt::boxed(StreamBody::new(stream.chain(trailer_stream))),
+        ),
+        identity,
     ))
+}
+
+fn access_key_id(request: &Request<RequestBody>) -> Result<String, S3Error> {
+    let authorization = request
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("AWS4-HMAC-SHA256 "))
+        .ok_or_else(access_denied)?;
+    let credential = authorization
+        .split(',')
+        .find_map(|field| field.trim().strip_prefix("Credential="))
+        .ok_or_else(access_denied)?;
+    Ok(credential
+        .split('/')
+        .next()
+        .ok_or_else(access_denied)?
+        .to_owned())
 }
 
 fn verify_headers(
     request: &Request<RequestBody>,
-    config: &ServerConfig,
+    access_key_id: &str,
+    secret_access_key: &str,
 ) -> Result<SignatureContext, S3Error> {
-    if request
-        .uri()
-        .query()
-        .is_some_and(|query| query.split('&').any(|pair| pair.starts_with("X-Amz-")))
-    {
-        return Err(S3Error::not_implemented(
-            "presigned URLs in strict signature mode",
-        ));
-    }
     let header = |name: &str| {
         request
             .headers()
@@ -143,7 +211,7 @@ fn verify_headers(
     let credential = fields.get("Credential").ok_or_else(access_denied)?;
     let components: Vec<_> = credential.split('/').collect();
     if components.len() != 5
-        || components[0] != config.access_key_id
+        || components[0] != access_key_id
         || components[3] != "s3"
         || components[4] != "aws4_request"
     {
@@ -235,7 +303,7 @@ fn verify_headers(
     );
     let scope = components[1..].join("/");
     let key = hmac(
-        format!("AWS4{}", config.secret_access_key).as_bytes(),
+        format!("AWS4{secret_access_key}").as_bytes(),
         components[1].as_bytes(),
     );
     let key = hmac(&key, components[2].as_bytes());
