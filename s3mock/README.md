@@ -186,6 +186,8 @@ removes them. Rules survive restarts. A rule specifies AllowedOrigin and Allowed
 and may specify AllowedHeader, ExposeHeader, MaxAgeSeconds, and ID. S3 allows one `*` in an origin
 or allowed-header pattern. Requested headers match case-insensitively. The first rule matching the
 origin, method, and every requested header controls the response.
+An AllowedOrigin of `*` returns `Access-Control-Allow-Origin: *` without
+`Access-Control-Allow-Credentials`.
 
 OPTIONS preflights need no signature. A matching preflight or actual request with `Origin` receives
 the S3 `Access-Control-Allow-*`, `Access-Control-Expose-Headers`, `Access-Control-Max-Age`, and
