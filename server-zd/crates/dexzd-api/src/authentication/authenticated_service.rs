@@ -27,12 +27,7 @@ const BEARER_PREFIX: &str = "bearer ";
 const MISSING_CREDENTIAL_DETAIL: &str = "a bearer credential is required";
 const INVALID_CREDENTIAL_DETAIL: &str = "the credential is not valid";
 
-/// Wraps one gRPC service so that every call needs a valid `authorization: Bearer` credential.
-///
-/// The credential is checked once, when a call starts. A streaming call that started with a valid
-/// credential stays open after the credential expires or is revoked, as in the Go Server; a new call
-/// needs a currently valid credential. Rejected calls end with `UNAUTHENTICATED` and the Go Server's
-/// `ServiceErrorResponse` details. Services left unwrapped, such as gRPC health, need no credential.
+/// Requires a valid bearer credential when each call starts, so open streams outlive credential expiry.
 #[derive(Clone)]
 pub struct AuthenticatedService<S> {
     inner: S,

@@ -337,11 +337,7 @@ fn big_endian_integer(text: &str) -> Option<Vec<u8>> {
     Some(bytes[first_significant..].to_vec())
 }
 
-/// Caches one issuer's keys and refreshes them on a task it owns.
-///
-/// A due refresh starts when a request looks up a key: once a minute, or after ten seconds for an
-/// unknown `kid`. A request for an unknown `kid` waits for the running refresh, at most the fetch
-/// timeout; a request for a known key never waits. A failed refresh keeps the previous keys.
+/// Caches one issuer's keys; only a lookup of an unknown `kid` waits for a refresh.
 pub(crate) struct JsonWebKeySetCache {
     shared: Arc<KeySetCacheShared>,
 }

@@ -47,11 +47,7 @@ pub enum EndpointUrlError {
     UnsupportedScheme,
 }
 
-/// Checks a JWT issuer or key set URL.
-///
-/// An HTTPS URL is always accepted. Plain HTTP is accepted on `localhost` and loopback IP
-/// addresses, and on every host when `allows_plain_http` is true, which only an explicitly
-/// configured key set URL may request. The Go Server applies the same rule without the opt-in.
+/// Accepts HTTPS, plain HTTP on loopback, and plain HTTP anywhere when `allows_plain_http` is set.
 ///
 /// # Errors
 ///

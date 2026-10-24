@@ -63,10 +63,7 @@ impl WatchedFileLoadError {
     }
 }
 
-/// Rereads a changed credential file at most once per check interval.
-///
-/// A missing file accepts no credential until it reappears. A malformed update keeps the last
-/// valid content. A change is a different modification time or size, as in the Go Server.
+/// Rereads a changed file at most once per interval; a missing file accepts nothing.
 pub(crate) struct WatchedFile<T> {
     path: PathBuf,
     check_interval: Duration,

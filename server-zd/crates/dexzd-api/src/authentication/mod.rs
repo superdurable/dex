@@ -50,10 +50,7 @@ pub enum CredentialAuthenticatorConfig {
     Jwt(JwtAuthenticatorConfig),
     /// Accepts bearer tokens whose SHA-256 hashes a hot-reloaded YAML file lists.
     StaticTokens {
-        /// File in the Go Server's format, `tokens: [{sha256: <64 hexadecimal characters>}]`.
-        ///
-        /// It must exist at startup. Changes are picked up within a second. A missing or empty
-        /// file revokes every token; a malformed update keeps the last valid content.
+        /// Go Server format file of SHA-256 token hashes, reloaded on change; must exist at startup.
         file: PathBuf,
     },
 }
@@ -126,25 +123,13 @@ enum CredentialAuthenticator {
     Jwt(JwtVerifier),
 }
 
-/// Verifies public API bearer credentials with the configured authenticators, in order.
-///
-/// Static token authenticators accept a credential whose SHA-256 hash they list. The first JWT
-/// authenticator whose issuer equals the credential's unverified `iss` claim decides alone: a
-/// failed check rejects the credential without trying later authenticators, as in the Go Server.
-/// A JWT is accepted when its `alg` is RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384,
-/// ES512, or EdDSA (Ed25519); its `kid` names exactly one public signing key whose `alg`, when
-/// present, matches; the signature verifies; `iss` matches exactly; `aud` names an accepted
-/// audience; and `exp`, which is required, `nbf`, and `iat` hold with a 30-second leeway.
+/// Tries each authenticator in order; a JWT authenticator matching the token's issuer decides alone.
 pub struct PublicApiAuthenticator {
     authenticators: Vec<CredentialAuthenticator>,
 }
 
 impl PublicApiAuthenticator {
-    /// Loads every static token file and prepares every JWT verifier.
-    ///
-    /// No key set is fetched yet: the first JWT from an issuer fetches its keys, so an unreachable
-    /// issuer does not fail startup. With no configuration every credential is rejected; pass `None`
-    /// to [`AuthenticatedService::new`] to disable authentication instead.
+    /// Loads static token files and JWT verifiers; key sets are fetched lazily, so issuers may be down.
     ///
     /// # Errors
     ///

@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Public API authentication of an in-process dev server: JWTs from a loopback key server,
-//! hot-reloaded static tokens, gRPC health without credentials, and Worker streams across expiry.
+//! Public API authentication of an in-process dev server with real key and token files.
 
 use std::net::SocketAddr;
 use std::path::Path;
