@@ -32,6 +32,10 @@ archives and SHA-256 checksums; its notes give the digest of the multi-architect
 `docker.io/superdurable/s3mock:<version>` image. The workflow has no automatic trigger.
 GitHub-enforced locking of published tags and assets requires a separate repository release
 immutability setting.
+Before publishing the GitHub release, the workflow checks that the image digest can be read
+without Docker Hub credentials. If Docker Hub creates the repository as private, make it public
+and rerun the workflow on the same commit and version. The existing image tag is reused only
+when its recorded source commit matches.
 
 The image runs as user 10001. It listens on `0.0.0.0:9000` and stores data in the
 `/var/lib/s3mock` volume. Every command-line flag can be set through its `S3MOCK_*` environment
