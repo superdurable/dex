@@ -1801,3 +1801,73 @@ async fn s3_connection_refused_is_transient() {
         ObjectStoreErrorKind::Transient
     );
 }
+
+#[tokio::test]
+async fn s3_requests_to_a_server_that_stops_reading_time_out() {
+    use dexzd_object_store::ObjectStoreErrorKind;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("the stalled endpoint binds");
+    let address = listener
+        .local_addr()
+        .expect("the stalled endpoint has an address");
+    // Accepts connections and never reads them, like a server that stopped mid-request.
+    let stalled_endpoint = tokio::spawn(async move {
+        let mut connections = Vec::new();
+        while let Ok((connection, _)) = listener.accept().await {
+            connections.push(connection);
+        }
+    });
+    let mut config = S3ObjectStoreConfig::new("us-east-1", "stalled-bucket");
+    config.endpoint = Some(format!("http://{address}"));
+    config.force_path_style = true;
+    config.request_timeout = std::time::Duration::from_secs(1);
+    config.credentials = S3Credentials::Static {
+        access_key_id: "s3mock".to_owned(),
+        secret_access_key: "s3mock".to_owned(),
+        session_token: None,
+    };
+    let store = S3ObjectStore::new(config)
+        .await
+        .expect("the stalled store is configured");
+    let bound = std::time::Duration::from_secs(10);
+    let small_put = tokio::time::timeout(
+        bound,
+        store.put(
+            "small",
+            Bytes::from_static(b"body"),
+            WriteCondition::CreateOnly,
+        ),
+    )
+    .await
+    .expect("a write without a response ends")
+    .expect_err("a write without a response fails");
+    assert_eq!(
+        small_put.kind,
+        ObjectStoreErrorKind::OutcomeUnknown,
+        "{small_put}"
+    );
+    // Larger than the loopback socket buffers, so the client stalls while sending the body.
+    let large_put = tokio::time::timeout(
+        bound,
+        store.put(
+            "large",
+            Bytes::from(vec![7; 4 * 1024 * 1024]),
+            WriteCondition::CreateOnly,
+        ),
+    )
+    .await
+    .expect("a write whose body is never read ends")
+    .expect_err("a write whose body is never read fails");
+    assert_eq!(
+        large_put.kind,
+        ObjectStoreErrorKind::OutcomeUnknown,
+        "{large_put}"
+    );
+    let head = tokio::time::timeout(bound, store.head("small"))
+        .await
+        .expect("a read without a response ends")
+        .expect_err("a read without a response fails");
+    assert_eq!(head.kind, ObjectStoreErrorKind::Transient, "{head}");
+    stalled_endpoint.abort();
+}

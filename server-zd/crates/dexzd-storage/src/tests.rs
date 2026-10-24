@@ -19,14 +19,26 @@ use dexzd_object_store::{
     ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
     ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
 };
-use dexzd_protocol::dexzd::v1::{LogPosition, PartitionMeta, PendingHardDeleteUpload};
+use dexzd_protocol::dexzd::v1::{
+    LogPosition, PartitionMeta, PendingHardDeleteUpload, SnapshotManifest,
+};
 use prost::Message;
 
 use crate::{
     InMemoryLocalStore, LocalReadView, LocalStore, RestoredLocalStore, RocksDbLocalStore,
-    RocksDbStoreOptions, ScanDirection, SnapshotIdentity, WriteBatch, create_snapshot,
-    restore_snapshot, retain_snapshots,
+    RocksDbStoreOptions, ScanDirection, SnapshotIdentity, SnapshotSource, StorageResult,
+    WriteBatch, restore_snapshot, retain_snapshots,
 };
+
+/// Runs `crate::create_snapshot` with a NodeMeta lock that no other writer shares.
+async fn create_snapshot<S: SnapshotSource>(
+    store: &S,
+    objects: &dyn ObjectStore,
+    identity: &SnapshotIdentity,
+    number: u64,
+) -> StorageResult<(String, SnapshotManifest)> {
+    crate::create_snapshot(store, objects, identity, number, &Mutex::new(())).await
+}
 
 #[derive(Default)]
 struct TestObjectStore {

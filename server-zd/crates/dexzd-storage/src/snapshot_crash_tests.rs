@@ -75,10 +75,11 @@ async fn a_crash_after_the_manifest_lands_leaves_the_next_snapshot_number_usable
     let orphan_key = manifest_key(&store, 1);
     faults.arm(&orphan_key);
     let crashing_identity = identity(10);
+    let node_meta_lock = Mutex::new(());
     // Dropping the upload once the manifest landed stands in for the process dying.
     tokio::select! {
         biased;
-        result = create_snapshot(&store, &object_store, &crashing_identity, 1) => {
+        result = create_snapshot(&store, &object_store, &crashing_identity, 1, &node_meta_lock) => {
             panic!("the upload must stall after the manifest lands: {result:?}");
         }
         () = faults.manifest_read_started.notified() => {}
@@ -100,6 +101,7 @@ async fn a_crash_after_the_manifest_lands_leaves_the_next_snapshot_number_usable
         &object_store,
         &identity(20),
         next_snapshot_number(&store),
+        &Mutex::new(()),
     )
     .await
     .expect("the restarted node takes a snapshot");
@@ -125,7 +127,8 @@ async fn a_conflicting_manifest_costs_only_one_snapshot_attempt() {
             &store,
             &object_store,
             &identity(10),
-            next_snapshot_number(&store)
+            next_snapshot_number(&store),
+            &Mutex::new(())
         )
         .await,
         Err(StorageError::SnapshotManifestConflict { .. })
@@ -135,6 +138,7 @@ async fn a_conflicting_manifest_costs_only_one_snapshot_attempt() {
         &object_store,
         &identity(20),
         next_snapshot_number(&store),
+        &Mutex::new(()),
     )
     .await
     .expect("the retry uses the next snapshot number");
