@@ -1178,9 +1178,7 @@ async fn hung_renewal_attempts_time_out_retry_and_report_loss_before_the_local_d
     assert!(tokio::time::Instant::now().into_std() < armed_deadline);
     assert!(matches!(
         &*status.borrow(),
-        LeaseStatus::Lost(detail)
-            if detail.contains("retries ran out before the local lease deadline")
-                && detail.contains("timeout")
+        LeaseStatus::Lost(detail) if detail.contains("renewal exceeded local lease deadline")
     ));
     assert_eq!(validity_deadline.armed_deadline(), Some(armed_deadline));
     store.block_lease_renewals.store(false, Ordering::SeqCst);

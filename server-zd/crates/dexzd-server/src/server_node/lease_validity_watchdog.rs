@@ -93,7 +93,8 @@ fn watch_deadline(
             "the node lease validity deadline passed without a renewal; reporting NOT_SERVING"
         );
         report_not_serving(health.clone());
-        let abort_at = expired_deadline + LEASE_EXPIRY_ABORT_BUDGET;
+        // Counted from noticing, so a process resumed after a freeze still gets the graceful budget.
+        let abort_at = Instant::now().max(expired_deadline) + LEASE_EXPIRY_ABORT_BUDGET;
         loop {
             let remaining = abort_at.saturating_duration_since(Instant::now());
             if remaining.is_zero() {

@@ -261,12 +261,13 @@ releases its lease and exits 1.
 The node serves only within its local lease validity. The deadline is `lease.duration` after the
 last successful renewal was sent, on the local monotonic clock. Renewal starts one third of
 `lease.duration` after the last success. Each attempt has its own timeout of one sixth of
-`lease.duration`, at least 1 second and at most 5 seconds. A renewal must complete 100 ms before
-the deadline. A write that lands after its attempt timed out still counts: a later attempt finds
+`lease.duration`, at least 1 second and at most 5 seconds, while another attempt still fits after
+it. The last attempt may use all the remaining time. A renewal must complete 100 ms before the
+deadline. A write that lands after its attempt timed out still counts: a later attempt finds
 it, and validity counts from when it was sent. A transient failure, such as a 5xx response, a
 throttling response, a lost connection, or a timed-out attempt, is retried after a jittered
-backoff of 200 ms, doubling up to 2 seconds. Retries continue while another attempt still fits
-before the deadline. Then the lease is lost. A conditional write lost to another holder, or a
+backoff of 200 ms, doubling up to 2 seconds. Retries continue until 100 ms before the deadline.
+Then the lease is lost. A conditional write lost to another holder, or a
 permanent storage error, stops the node at once.
 
 After the deadline passes without a renewal, the node accepts no new commands and acknowledges no

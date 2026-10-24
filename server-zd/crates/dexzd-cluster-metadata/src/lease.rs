@@ -675,7 +675,10 @@ impl LeaseOwner {
         }
     }
 
-    /// Renews the lease, retrying transient failures while an attempt still fits before the deadline.
+    /// Renews the lease, retrying transient failures until the renewal cutoff before the deadline.
+    ///
+    /// Each attempt times out after `attempt_timeout` while a retry still fits after it; the last
+    /// attempt may use all remaining time.
     ///
     /// Returns `Ok` after a confirmed renewal, and [`MetadataError::LeaseLost`] or the storage
     /// error that lost the lease otherwise.
@@ -686,7 +689,15 @@ impl LeaseOwner {
         let mut attempt_number: u32 = 0;
         loop {
             attempt_number = attempt_number.saturating_add(1);
-            let attempt_deadline = (Instant::now() + attempt_timeout).min(self.renewal_cutoff());
+            let attempt_cutoff = Instant::now() + attempt_timeout;
+            // The last attempt that fits gets all remaining time, as a single attempt did before.
+            let is_retry_possible_after_attempt =
+                attempt_cutoff + retry_backoff + attempt_timeout <= self.renewal_cutoff();
+            let attempt_deadline = if is_retry_possible_after_attempt {
+                attempt_cutoff
+            } else {
+                self.renewal_cutoff()
+            };
             let attempt = match tokio::time::timeout_at(attempt_deadline, self.renew()).await {
                 Ok(attempt) => attempt,
                 Err(_) if Instant::now() >= self.renewal_cutoff() => Err(
@@ -709,7 +720,7 @@ impl LeaseOwner {
                 Err(RenewalAttemptFailure::Retryable(failure)) => failure,
             };
             let retry_delay = self.renewal_retry_delay(retry_backoff, attempt_number);
-            if Instant::now() + retry_delay + attempt_timeout > self.renewal_cutoff() {
+            if Instant::now() + retry_delay >= self.renewal_cutoff() {
                 return Err(self.lost(&format!(
                     "renewal retries ran out before the local lease deadline; last failure: {failure}"
                 )));
