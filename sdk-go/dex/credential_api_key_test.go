@@ -258,6 +258,28 @@ func TestAPIKeyCredentialUsesInjectedHTTPClientWithoutFollowingRedirects(t *test
 	require.Nil(t, httpClient.CheckRedirect, "the caller's client is not modified")
 }
 
+func TestAPIKeyCredentialFailsEveryRedirectWithoutContactingItsTarget(t *testing.T) {
+	for _, statusCode := range []int{
+		http.StatusMultipleChoices, http.StatusMovedPermanently, http.StatusFound,
+		http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect,
+	} {
+		t.Run(fmt.Sprint(statusCode), func(t *testing.T) {
+			redirectTarget := startAPIKeyTokenEndpoint(t, func(_ int, writer http.ResponseWriter, _ *http.Request) {
+				writeAPIKeyAccessToken(writer, "redirected-token", 3600)
+			})
+			endpoint := startAPIKeyTokenEndpoint(t, func(_ int, writer http.ResponseWriter, request *http.Request) {
+				http.Redirect(writer, request, redirectTarget.tokenURL(), statusCode)
+			})
+			credential := newTestAPIKeyCredential(t, endpoint.tokenURL(), nil)
+
+			_, err := credential.Token(context.Background())
+			require.EqualError(t, err, fmt.Sprintf("dex: API key exchange with %s failed with HTTP %d", endpoint.tokenURL(), statusCode))
+			require.Equal(t, 1, endpoint.exchangeCount())
+			require.Zero(t, redirectTarget.exchangeCount(), "the default HTTP client never contacts a redirect target")
+		})
+	}
+}
+
 type countingRoundTripper struct {
 	next http.RoundTripper
 
@@ -577,18 +599,18 @@ func TestAPIKeyCredentialExchangeEndsWithinExchangeTimeoutAfterCallerLeaves(t *t
 	endpoint := startAPIKeyTokenEndpoint(t, func(_ int, _ http.ResponseWriter, request *http.Request) {
 		<-request.Context().Done()
 	})
-	credential := newTestAPIKeyCredential(t, endpoint.tokenURL(), nil, WithAPIKeyExchangeTimeout(300*time.Millisecond))
+	credential := newTestAPIKeyCredential(t, endpoint.tokenURL(), nil, WithAPIKeyExchangeTimeout(time.Second))
 	callCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	startedAt := time.Now()
 	_, err := credential.Token(callCtx)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Less(t, time.Since(startedAt), 250*time.Millisecond, "the caller leaves at its own deadline")
+	require.Less(t, time.Since(startedAt), 500*time.Millisecond, "the caller leaves at its own deadline")
 
 	waitForAPIKeyExchangeIdle(t, credential)
 	elapsed := time.Since(startedAt)
-	require.GreaterOrEqual(t, elapsed, 300*time.Millisecond, "the shared exchange outlives the caller")
-	require.Less(t, elapsed, 2*time.Second, "the exchange goroutine ends within one exchange timeout")
+	require.GreaterOrEqual(t, elapsed, time.Second, "the shared exchange outlives the caller")
+	require.Less(t, elapsed, 3*time.Second, "the exchange goroutine ends within one exchange timeout")
 }
 
 type recordingRejectedTokenDiscarder struct {

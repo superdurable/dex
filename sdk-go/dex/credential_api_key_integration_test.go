@@ -207,6 +207,60 @@ func TestClientFailsUnaryCallAfterSecondRejectedAPIKeyToken(t *testing.T) {
 	require.Equal(t, 2, tokenEndpoint.exchangeCount())
 }
 
+func TestClientRetryOfRejectedUnaryCallWaitsForFreshAPIKeyTokenOnlyUntilCallContextEnds(t *testing.T) {
+	for _, scenario := range []struct {
+		name        string
+		expectedErr error
+	}{
+		{name: "deadline", expectedErr: context.DeadlineExceeded},
+		{name: "cancellation", expectedErr: context.Canceled},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			gate := newBearerTokenGate(func(_ string, authorization string) bool { return authorization != "Bearer "+apiKeyAccessTokenA })
+			address := startBearerTokenGatedServer(t, gate, nil)
+			refreshStarted := make(chan struct{})
+			releaseRefresh := make(chan struct{})
+			tokenEndpoint := startAPIKeyTokenEndpoint(t, func(requestNumber int, writer http.ResponseWriter, _ *http.Request) {
+				if requestNumber == 1 {
+					writeAPIKeyAccessToken(writer, apiKeyAccessTokenA, 3600)
+					return
+				}
+				close(refreshStarted)
+				<-releaseRefresh
+				writeAPIKeyAccessToken(writer, apiKeyAccessTokenB, 3600)
+			})
+			// Registered after the endpoint, so it runs first and lets the endpoint shut down.
+			t.Cleanup(func() { close(releaseRefresh) })
+			credential, err := APIKeyCredential(tokenEndpoint.tokenURL(), testAPIServerID, testAPIKey)
+			require.NoError(t, err)
+			client := newAPIKeyTestClient(t, address, credential)
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+			if errors.Is(scenario.expectedErr, context.Canceled) {
+				go func() {
+					<-refreshStarted
+					cancel()
+				}()
+			}
+
+			startedAt := time.Now()
+			_, err = client.HealthCheck(ctx)
+			require.ErrorIs(t, err, scenario.expectedErr)
+			require.Less(t, time.Since(startedAt), 3*time.Second, "the call does not wait for the 10 second exchange timeout")
+			select {
+			case <-refreshStarted:
+			default:
+				t.Fatal("the rejection did not start a refresh")
+			}
+			require.Equal(t,
+				[]string{"Bearer " + apiKeyAccessTokenA},
+				gate.attemptsFor(dexpb.FlowService_HealthCheck_FullMethodName),
+				"the retry is abandoned before it reaches Dex",
+			)
+		})
+	}
+}
+
 // startAPIKeyPullWorker starts a pull Worker whose poll streams use credential, and returns its streams by queue.
 func startAPIKeyPullWorker(
 	t *testing.T,

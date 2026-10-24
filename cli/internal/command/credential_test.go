@@ -556,6 +556,33 @@ func TestAPIKeyCredentialRedactsSecretsFromEndpointErrorsAndCauses(t *testing.T)
 	}
 }
 
+func TestAPIKeyCredentialFailsEveryRedirectWithoutContactingItsTarget(t *testing.T) {
+	for _, statusCode := range []int{
+		http.StatusMultipleChoices, http.StatusMovedPermanently, http.StatusFound,
+		http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect,
+	} {
+		t.Run(fmt.Sprint(statusCode), func(t *testing.T) {
+			// It counts every request, because a followed 301, 302, or 303 would arrive as a GET.
+			var redirectTargetRequests atomic.Int32
+			redirectTarget := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				redirectTargetRequests.Add(1)
+				writeCLIAccessToken(writer, "cli-redirected-token", 3600)
+			}))
+			t.Cleanup(redirectTarget.Close)
+			endpoint := startCLITokenEndpoint(t, func(_ int, writer http.ResponseWriter) {
+				writer.Header().Set("Location", redirectTarget.URL+"/token")
+				writer.WriteHeader(statusCode)
+			})
+			credential := newTestCLIAPIKeyCredential(t, endpoint.tokenURL(), nil)
+
+			_, err := credential.GetRequestMetadata(context.Background())
+			require.EqualError(t, err, fmt.Sprintf("API key exchange with %s failed with HTTP %d", endpoint.tokenURL(), statusCode))
+			require.Len(t, endpoint.exchangeBodies(), 1)
+			require.Zero(t, redirectTargetRequests.Load(), "the API key is never sent to a redirect target")
+		})
+	}
+}
+
 func TestAPIKeyCredentialNeverReturnsTokenThatExpiredBeforeResponse(t *testing.T) {
 	clock := newCLITestClock()
 	endpoint := startCLITokenEndpoint(t, func(requestNumber int, writer http.ResponseWriter) {
