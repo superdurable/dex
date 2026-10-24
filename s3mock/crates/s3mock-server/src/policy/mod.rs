@@ -20,6 +20,7 @@ const SUPPORTED_ACTIONS: &[&str] = &[
     "s3:DeleteBucket",
     "s3:DeleteObject",
     "s3:DeleteObjectVersion",
+    "s3:GetBucketCORS",
     "s3:GetBucketLocation",
     "s3:GetBucketObjectLockConfiguration",
     "s3:GetBucketVersioning",
@@ -32,6 +33,7 @@ const SUPPORTED_ACTIONS: &[&str] = &[
     "s3:ListBucketVersions",
     "s3:ListMultipartUploadParts",
     "s3:PutBucketObjectLockConfiguration",
+    "s3:PutBucketCORS",
     "s3:PutBucketVersioning",
     "s3:PutLifecycleConfiguration",
     "s3:PutObject",
@@ -271,6 +273,10 @@ fn operation_permission(operation: &S3Operation) -> (&'static str, String) {
         PutBucketLifecycleConfiguration { bucket } | DeleteBucketLifecycle { bucket } => {
             ("s3:PutLifecycleConfiguration", bucket_arn(bucket))
         }
+        PutBucketCors { bucket } | DeleteBucketCors { bucket } => {
+            ("s3:PutBucketCORS", bucket_arn(bucket))
+        }
+        GetBucketCors { bucket } => ("s3:GetBucketCORS", bucket_arn(bucket)),
         GetObjectLockConfiguration { bucket } => {
             ("s3:GetBucketObjectLockConfiguration", bucket_arn(bucket))
         }

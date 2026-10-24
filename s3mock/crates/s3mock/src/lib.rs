@@ -19,9 +19,9 @@ pub use checksum::{ChecksumAlgorithm, ChecksumType, ObjectChecksum, decode_base6
 pub use data_file::{ObjectWriter, StagedObject, UploadChecksumExpectations};
 pub use error::StoreError;
 pub use record::{
-    BucketRecord, ContentHeaders, DefaultRetention, LifecycleConfiguration, LifecycleRule,
-    ObjectLockConfiguration, PartRecord, RetentionMode, UploadRecord, VersionRecord,
-    VersioningState,
+    BucketRecord, ContentHeaders, CorsConfiguration, CorsRule, DefaultRetention,
+    LifecycleConfiguration, LifecycleRule, ObjectLockConfiguration, PartRecord, RetentionMode,
+    UploadRecord, VersionRecord, VersioningState,
 };
 pub use store::{
     ByteRangeRequest, CompleteMultipartUploadRequest, CompletedPart, CreateMultipartUploadRequest,

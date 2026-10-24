@@ -10,6 +10,7 @@
 
 mod buckets;
 mod conditions;
+mod cors;
 mod delete_objects;
 mod durability;
 mod http;

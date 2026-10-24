@@ -20,7 +20,8 @@ use super::{
 use crate::error::StoreError;
 use crate::key_codec::{encode_bucket_prefix, prefix_successor};
 use crate::record::{
-    BucketRecord, LifecycleConfiguration, ObjectLockConfiguration, VersioningState,
+    BucketRecord, CorsConfiguration, LifecycleConfiguration, ObjectLockConfiguration,
+    VersioningState,
 };
 
 impl Store {
@@ -44,6 +45,7 @@ impl Store {
             },
             object_lock: is_object_lock_enabled.then(ObjectLockConfiguration::default),
             lifecycle: None,
+            cors: None,
         };
         let transaction = self.begin_write()?;
         {
@@ -202,6 +204,30 @@ impl Store {
         self.bucket(bucket)?
             .lifecycle
             .ok_or_else(|| StoreError::NoSuchLifecycleConfiguration(bucket.to_owned()))
+    }
+
+    /// Replaces the bucket CORS configuration; `None` deletes it.
+    pub fn put_cors_configuration(
+        &self,
+        bucket: &str,
+        configuration: Option<CorsConfiguration>,
+    ) -> Result<(), StoreError> {
+        let transaction = self.begin_write()?;
+        {
+            let mut buckets = transaction.open_table(BUCKETS)?;
+            let mut record = require_bucket(&buckets, bucket)?;
+            record.cors = configuration;
+            buckets.insert(bucket, encode_json(&record)?.as_slice())?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Returns the bucket CORS configuration, or `NoSuchCORSConfiguration`.
+    pub fn cors_configuration(&self, bucket: &str) -> Result<CorsConfiguration, StoreError> {
+        self.bucket(bucket)?
+            .cors
+            .ok_or_else(|| StoreError::NoSuchCorsConfiguration(bucket.to_owned()))
     }
 }
 

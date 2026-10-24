@@ -93,6 +93,15 @@ pub(crate) enum S3Operation {
     DeleteBucketLifecycle {
         bucket: String,
     },
+    PutBucketCors {
+        bucket: String,
+    },
+    GetBucketCors {
+        bucket: String,
+    },
+    DeleteBucketCors {
+        bucket: String,
+    },
     GetObjectLockConfiguration {
         bucket: String,
     },
@@ -232,6 +241,18 @@ fn route_bucket(
     query: QueryParameters,
 ) -> Result<S3Operation, S3Error> {
     match *method {
+        Method::PUT if query.contains("cors") => {
+            query.require_only(&["cors"], "PutBucketCors")?;
+            Ok(S3Operation::PutBucketCors { bucket })
+        }
+        Method::GET if query.contains("cors") => {
+            query.require_only(&["cors"], "GetBucketCors")?;
+            Ok(S3Operation::GetBucketCors { bucket })
+        }
+        Method::DELETE if query.contains("cors") => {
+            query.require_only(&["cors"], "DeleteBucketCors")?;
+            Ok(S3Operation::DeleteBucketCors { bucket })
+        }
         Method::PUT if query.contains("lifecycle") => {
             query.require_only(&["lifecycle"], "PutBucketLifecycleConfiguration")?;
             Ok(S3Operation::PutBucketLifecycleConfiguration { bucket })

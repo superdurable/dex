@@ -135,6 +135,15 @@ impl RequestObservation {
             Ok(S3Operation::DeleteBucketLifecycle { bucket }) => {
                 (S3OperationName::DeleteBucketLifecycle, bucket.as_str(), "")
             }
+            Ok(S3Operation::PutBucketCors { bucket }) => {
+                (S3OperationName::PutBucketCors, bucket.as_str(), "")
+            }
+            Ok(S3Operation::GetBucketCors { bucket }) => {
+                (S3OperationName::GetBucketCors, bucket.as_str(), "")
+            }
+            Ok(S3Operation::DeleteBucketCors { bucket }) => {
+                (S3OperationName::DeleteBucketCors, bucket.as_str(), "")
+            }
             Err(_) => (S3OperationName::Unsupported, "", ""),
         };
         Self {

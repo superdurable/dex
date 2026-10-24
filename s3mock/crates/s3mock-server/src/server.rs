@@ -189,10 +189,26 @@ async fn handle_request(
             Err(error) => crate::controls::admin_error(error.status, error.code),
         });
     }
+    let request_id = ulid::Ulid::new().to_string();
+    if request.method() == Method::OPTIONS {
+        let result = crate::cors::preflight(&store, request.uri(), request.headers()).await;
+        let mut response = match result {
+            Ok(response) => response,
+            Err(error) => render_error(error, &request_id, false),
+        };
+        add_response_identity(response.headers_mut(), &request_id);
+        return Ok(response);
+    }
+    let cors_result =
+        crate::cors::actual_headers(&store, request.method(), request.uri(), request.headers())
+            .await;
+    let (cors_headers, cors_error) = match cors_result {
+        Ok(headers) => (headers, None),
+        Err(error) => (None, Some(error)),
+    };
     let started = Instant::now();
     let mut observation =
         RequestObservation::new(request.method(), request.uri(), request.headers());
-    let request_id = ulid::Ulid::new().to_string();
     let is_head = request.method() == Method::HEAD;
     let received = Arc::new(AtomicU64::new(0));
     let counter = Arc::clone(&received);
@@ -205,20 +221,24 @@ async fn handle_request(
         })
         .boxed()
     });
-    let verified = crate::signature::verify_request(
-        request,
-        &controls.config,
-        &store,
-        store.temporary_directory(),
-    )
-    .await
-    .and_then(|(request, identity)| {
-        if let Some(policy) = identity.policy() {
-            let operation = routing::route(request.method(), request.uri())?;
-            policy::authorize_operation(policy, &operation, request.headers())?;
-        }
-        Ok((request, identity))
-    });
+    let verified = if let Some(error) = cors_error {
+        Err(error)
+    } else {
+        crate::signature::verify_request(
+            request,
+            &controls.config,
+            &store,
+            store.temporary_directory(),
+        )
+        .await
+        .and_then(|(request, identity)| {
+            if let Some(policy) = identity.policy() {
+                let operation = routing::route(request.method(), request.uri())?;
+                policy::authorize_operation(policy, &operation, request.headers())?;
+            }
+            Ok((request, identity))
+        })
+    };
     let mut fault_reset = controls.fault_reset.subscribe();
     observation.has_existing_bucket = match run_store_operation(&store, {
         let bucket = observation.bucket.clone();
@@ -286,12 +306,10 @@ async fn handle_request(
         Err(error) => render_error(error, &request_id, is_head),
     };
     let headers = response.headers_mut();
-    headers.insert("x-amz-request-id", header_value(&request_id));
-    headers.insert(
-        "x-amz-id-2",
-        header_value(&BASE64.encode(request_id.as_bytes())),
-    );
-    headers.insert("server", HeaderValue::from_static("s3mock"));
+    if let Some(cors_headers) = cors_headers {
+        headers.extend(cors_headers);
+    }
+    add_response_identity(headers, &request_id);
     observation.status = response.status().as_u16();
     let (parts, body) = response.into_parts();
     let body = ObservedBody::new(
@@ -304,6 +322,15 @@ async fn handle_request(
     )
     .boxed();
     Ok(Response::from_parts(parts, body))
+}
+
+fn add_response_identity(headers: &mut http::HeaderMap, request_id: &str) {
+    headers.insert("x-amz-request-id", header_value(request_id));
+    headers.insert(
+        "x-amz-id-2",
+        header_value(&BASE64.encode(request_id.as_bytes())),
+    );
+    headers.insert("server", HeaderValue::from_static("s3mock"));
 }
 
 async fn dispatch(
@@ -325,6 +352,13 @@ async fn dispatch(
         S3Operation::ListBuckets => handlers::list_buckets(store).await,
         S3Operation::CreateBucket { bucket } => {
             handlers::create_bucket(store, bucket, &parts.headers).await
+        }
+        S3Operation::PutBucketCors { bucket } => {
+            handlers::put_bucket_cors(store, bucket, &parts.headers, body).await
+        }
+        S3Operation::GetBucketCors { bucket } => handlers::get_bucket_cors(store, bucket).await,
+        S3Operation::DeleteBucketCors { bucket } => {
+            handlers::delete_bucket_cors(store, bucket).await
         }
         S3Operation::GetBucketLifecycleConfiguration { bucket } => {
             handlers::get_bucket_lifecycle_configuration(store, bucket).await

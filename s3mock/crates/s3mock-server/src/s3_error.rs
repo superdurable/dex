@@ -77,6 +77,9 @@ impl From<StoreError> for S3Error {
             StoreError::NoSuchCredential => {
                 S3Error::new(StatusCode::NOT_FOUND, "NoSuchCredential", message)
             }
+            StoreError::NoSuchCorsConfiguration(_) => {
+                S3Error::new(StatusCode::NOT_FOUND, "NoSuchCORSConfiguration", message)
+            }
             StoreError::NoSuchBucket(_) => {
                 S3Error::new(StatusCode::NOT_FOUND, "NoSuchBucket", message)
             }
