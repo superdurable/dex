@@ -9,7 +9,9 @@
 //! Random values, Step options, and identifiers for generated commands.
 
 use dexzd_keyspace::{RunId, ValueId, ValueReference};
-use dexzd_protocol::dex::{EncodedObject, RetryPolicy, StepOptions, Value, value};
+use dexzd_protocol::dex::{
+    AttributeSyncConfig, EncodedObject, RetryPolicy, StepOptions, Value, value,
+};
 use dexzd_protocol::dexzd::v1::{StoredValue, stored_value};
 use prost::Message;
 use rand::RngExt;
@@ -29,6 +31,10 @@ pub(crate) const ATTRIBUTE_KEYS: &[&str] = &[
     "orders/2",
     "users/alice",
 ];
+/// Attribute keys whose plain writes request Attribute Store synchronization.
+pub(crate) const SYNCED_ATTRIBUTE_KEYS: &[&str] = &["status", "orders/1", "orders/2"];
+/// Attribute Stores that runs of `order-1` target; other Flows target none.
+pub(crate) const ATTRIBUTE_STORE_NAMES: &[&str] = &["primary", "replica"];
 /// Keys a method may lock.
 pub(crate) const LOCK_KEYS: &[&str] = &["counter", "status", "orders/1"];
 pub(crate) const CHANNEL_NAMES: &[&str] = &["inbox", "events", "queue/a", "queue/b"];
@@ -217,4 +223,11 @@ fn text(rng: &mut ChaCha8Rng, minimum: usize, maximum: usize) -> String {
     (0..length)
         .map(|_| char::from(b'a' + rng.random_range(0..26_u8)))
         .collect()
+}
+
+/// The sync config of a plain write of `key`, chosen by key so the seeded choices stay unchanged.
+pub(crate) fn sync_config_for(key: &str) -> Option<AttributeSyncConfig> {
+    SYNCED_ATTRIBUTE_KEYS
+        .contains(&key)
+        .then_some(AttributeSyncConfig { enabled: true })
 }
