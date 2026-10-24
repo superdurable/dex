@@ -372,7 +372,7 @@ fn recovery_error(
             "FLOW_ERROR_TYPE_INTERNAL"
         }
         dexzd_protocol::dexzd::v1::StepAttemptFailureKind::InvalidResponse => {
-            "FLOW_ERROR_TYPE_WORKER_API_FAIL"
+            "FLOW_ERROR_TYPE_INTERNAL"
         }
         dexzd_protocol::dexzd::v1::StepAttemptFailureKind::UnsupportedFeature => {
             "UnsupportedFeature"
@@ -383,10 +383,41 @@ fn recovery_error(
         }
         dexzd_protocol::dexzd::v1::StepAttemptFailureKind::Unspecified => "UnknownStepFailure",
     };
+    let detail = if kind == dexzd_protocol::dexzd::v1::StepAttemptFailureKind::WorkerError
+        && failure.backend_error.is_empty()
+    {
+        go_worker_status_error(worker_error.grpc_status)
+    } else {
+        failure.backend_error.clone()
+    };
     RecoveryErrorInfo {
-        detail: failure.backend_error.clone(),
+        detail,
         error_type: error_type.to_owned(),
     }
+}
+
+/// Returns the Go Server's text for a Worker gRPC status without a message, which it uses
+/// as the detail of a Worker error that has none.
+fn go_worker_status_error(grpc_status: i32) -> String {
+    let code_name = match grpc_status {
+        1 => "Canceled",
+        3 => "InvalidArgument",
+        4 => "DeadlineExceeded",
+        5 => "NotFound",
+        6 => "AlreadyExists",
+        7 => "PermissionDenied",
+        8 => "ResourceExhausted",
+        9 => "FailedPrecondition",
+        10 => "Aborted",
+        11 => "OutOfRange",
+        12 => "Unimplemented",
+        13 => "Internal",
+        14 => "Unavailable",
+        15 => "DataLoss",
+        16 => "Unauthenticated",
+        _ => "Unknown",
+    };
+    format!("rpc error: code = {code_name} desc = ")
 }
 
 fn arm_retry_timer(
