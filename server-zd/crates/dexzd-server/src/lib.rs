@@ -27,6 +27,7 @@ pub use server_node::RunningServer;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use clap::Parser;
 use dexzd_engine::{EngineStartError, NodeStopReason};
@@ -34,6 +35,10 @@ use tokio::sync::watch;
 
 use crate::embedded_s3::EmbeddedS3;
 use crate::server_logging::TerminationSignals;
+use crate::server_node::LeaseExpiryResponse;
+
+/// Wait for blocking tasks at exit; one stuck in object storage must not keep the process alive.
+const RUNTIME_SHUTDOWN_BUDGET: Duration = Duration::from_secs(1);
 
 /// Why the server could not start or stopped abnormally. Every variant exits with a failure status.
 #[derive(Debug, thiserror::Error)]
@@ -159,6 +164,13 @@ pub enum ServerError {
         #[source]
         source: std::io::Error,
     },
+    /// The thread that enforces the lease validity deadline could not start.
+    #[error("starting the lease validity watchdog thread: {source}")]
+    LeaseWatchdog {
+        /// Thread creation error.
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 /// Parses the command line, runs the selected command until SIGINT or SIGTERM, and returns how it ended.
@@ -171,14 +183,25 @@ pub fn run_from_command_line() -> Result<(), ServerError> {
             serve_until_terminated(
                 log_directory.as_deref(),
                 move |mut cancellation| async move {
-                    start_dev_server_with_config(configuration, &mut cancellation).await
+                    start_dev_server_with_config(
+                        configuration,
+                        &mut cancellation,
+                        LeaseExpiryResponse::ExitProcess,
+                    )
+                    .await
                 },
             )
         }
         ServerCommand::Serve(options) => {
             let configuration = config::Config::load_file(&options.config)?;
             serve_until_terminated(None, move |mut cancellation| async move {
-                server_node::start_server(&configuration, None, &mut cancellation).await
+                server_node::start_server(
+                    &configuration,
+                    None,
+                    &mut cancellation,
+                    LeaseExpiryResponse::ExitProcess,
+                )
+                .await
             })
         }
     }
@@ -197,30 +220,33 @@ where
         .enable_all()
         .build()
         .map_err(|source| ServerError::AsyncRuntime { source })?;
-    runtime.block_on(async {
+    let (result, lease_watchdog) = runtime.block_on(async {
         let mut termination = TerminationSignals::register();
         let (cancellation_sender, cancellation) = watch::channel(false);
         let mut start = std::pin::pin!(start(cancellation));
-        let server = tokio::select! {
-            started = &mut start => match started? {
-                Some(server) => server,
-                None => return Ok(()),
+        let mut server = tokio::select! {
+            started = &mut start => match started {
+                Ok(Some(server)) => server,
+                Ok(None) => return (Ok(()), None),
+                Err(error) => return (Err(error), None),
             },
             () = termination.received() => {
                 cancellation_sender.send_replace(true);
-                match start.await? {
-                    Some(server) => {
+                match start.await {
+                    Ok(Some(server)) => {
                         // Dropping a leased startup delays release until its cleanup task runs.
                         tracing::info!("termination signal during startup; stopping once startup finishes");
-                        return server.shutdown().await;
+                        return (server.shutdown().await, None);
                     }
-                    None => {
+                    Ok(None) => {
                         tracing::info!("termination signal while waiting for the node lease; startup cancelled");
-                        return Ok(());
+                        return (Ok(()), None);
                     }
+                    Err(error) => return (Err(error), None),
                 }
             }
         };
+        let lease_watchdog = server.take_lease_watchdog();
         let shutdown = server.shutdown_token();
         let signals = tokio::spawn(async move {
             termination.received().await;
@@ -228,8 +254,14 @@ where
         });
         let result = server.wait().await;
         signals.abort();
-        result
-    })
+        (result, lease_watchdog)
+    });
+    // The watchdog stays armed here, since a blocking task stuck in object storage delays this.
+    runtime.shutdown_timeout(RUNTIME_SHUTDOWN_BUDGET);
+    if let Some(lease_watchdog) = lease_watchdog {
+        lease_watchdog.shutdown();
+    }
+    result
 }
 
 /// Starts the single-node dev server with an embedded S3 emulator, serving on `--listen`.
@@ -237,17 +269,28 @@ where
 /// The caller installs logging.
 pub async fn start_dev_server(options: &DevCommandOptions) -> Result<RunningServer, ServerError> {
     let (_cancellation_sender, mut cancellation) = watch::channel(false);
-    let started =
-        start_dev_server_with_config(config::Config::load_dev(options)?, &mut cancellation).await?;
+    let started = start_dev_server_with_config(
+        config::Config::load_dev(options)?,
+        &mut cancellation,
+        LeaseExpiryResponse::StopNodeOnly,
+    )
+    .await?;
     Ok(started.expect("dev startup without cancellation must return a server"))
 }
 
 async fn start_dev_server_with_config(
     mut configuration: config::Config,
     cancellation: &mut watch::Receiver<bool>,
+    lease_expiry_response: LeaseExpiryResponse,
 ) -> Result<Option<RunningServer>, ServerError> {
     let embedded_s3 =
         EmbeddedS3::start(&configuration.dev, &configuration.object_store.bucket).await?;
     configuration.object_store.endpoint = embedded_s3.endpoint();
-    server_node::start_server(&configuration, Some(embedded_s3), cancellation).await
+    server_node::start_server(
+        &configuration,
+        Some(embedded_s3),
+        cancellation,
+        lease_expiry_response,
+    )
+    .await
 }

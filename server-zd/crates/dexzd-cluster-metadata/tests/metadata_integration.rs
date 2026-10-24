@@ -39,7 +39,9 @@ struct MemoryStore {
     unknown_next_manifest_write: AtomicBool,
     unknown_next_create_key: Mutex<Option<&'static str>>,
     block_next_lease_renewal: AtomicBool,
+    block_lease_renewals: AtomicBool,
     fail_next_lease_renewal: AtomicBool,
+    fail_lease_renewals: AtomicBool,
     pause_next_lease_release: AtomicBool,
     release_started: Notify,
     continue_release: Notify,
@@ -130,13 +132,15 @@ impl ObjectStore for MemoryStore {
         }
         if key.starts_with("lease/")
             && matches!(&condition, WriteCondition::ReplaceIfEtagMatches { .. })
-            && self.block_next_lease_renewal.swap(false, Ordering::SeqCst)
+            && (self.block_next_lease_renewal.swap(false, Ordering::SeqCst)
+                || self.block_lease_renewals.load(Ordering::SeqCst))
         {
             return std::future::pending().await;
         }
         if key.starts_with("lease/")
             && matches!(condition, WriteCondition::ReplaceIfEtagMatches { .. })
-            && self.fail_next_lease_renewal.swap(false, Ordering::SeqCst)
+            && (self.fail_next_lease_renewal.swap(false, Ordering::SeqCst)
+                || self.fail_lease_renewals.load(Ordering::SeqCst))
         {
             return Err(ObjectStoreError::new(
                 ObjectStoreOperation::Put,
@@ -1112,14 +1116,14 @@ async fn old_holder_reports_loss_after_takeover() {
     tokio::time::advance(Duration::from_secs(4)).await;
     old_status.changed().await.unwrap();
     assert!(
-        matches!(&*old_status.borrow(), LeaseStatus::Lost(detail) if detail.contains("precondition failed"))
+        matches!(&*old_status.borrow(), LeaseStatus::Lost(detail) if detail.contains("precondition failed") && !detail.contains("retries"))
     );
     old_holder.shutdown().await.unwrap();
     new_holder.shutdown().await.unwrap();
 }
 
 #[tokio::test(start_paused = true)]
-async fn hung_renewal_reports_loss_at_the_local_deadline() {
+async fn hung_renewal_attempts_time_out_retry_and_report_loss_before_the_local_deadline() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
     create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
@@ -1129,17 +1133,33 @@ async fn hung_renewal_reports_loss_at_the_local_deadline() {
         .await
         .unwrap();
     let mut status = holder.subscribe();
-    store.block_next_lease_renewal.store(true, Ordering::SeqCst);
-    tokio::time::advance(Duration::from_secs(9)).await;
+    let validity_deadline = holder.validity_deadline();
+    let armed_deadline = validity_deadline
+        .armed_deadline()
+        .expect("an acquired lease arms its deadline");
+    store.block_lease_renewals.store(true, Ordering::SeqCst);
+    tokio::time::advance(Duration::from_secs(4)).await;
     assert!(matches!(*status.borrow(), LeaseStatus::ValidUntil(_)));
-    tokio::time::advance(Duration::from_secs(2)).await;
-    status.changed().await.unwrap();
-    assert!(matches!(&*status.borrow(), LeaseStatus::Lost(detail) if detail.contains("deadline")));
+    // Auto-advance steps through each attempt timeout; a single large advance would skip them.
+    tokio::time::timeout(Duration::from_secs(6), status.changed())
+        .await
+        .expect("the loss is reported before the local deadline")
+        .unwrap();
+    assert!(tokio::time::Instant::now().into_std() < armed_deadline);
+    assert!(matches!(
+        &*status.borrow(),
+        LeaseStatus::Lost(detail)
+            if detail.contains("retries ran out before the local lease deadline")
+                && detail.contains("timeout")
+    ));
+    assert_eq!(validity_deadline.armed_deadline(), Some(armed_deadline));
+    store.block_lease_renewals.store(false, Ordering::SeqCst);
     holder.shutdown().await.unwrap();
+    assert_eq!(validity_deadline.armed_deadline(), None);
 }
 
 #[tokio::test(start_paused = true)]
-async fn renewal_failure_reports_lease_loss() {
+async fn one_transient_renewal_failure_is_retried_without_losing_the_lease() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
     create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
@@ -1149,12 +1169,50 @@ async fn renewal_failure_reports_lease_loss() {
         .await
         .unwrap();
     let mut status = handle.subscribe();
+    let first_deadline = handle
+        .validity_deadline()
+        .armed_deadline()
+        .expect("an acquired lease arms its deadline");
     store.fail_next_lease_renewal.store(true, Ordering::SeqCst);
     tokio::time::advance(Duration::from_secs(4)).await;
     status.changed().await.unwrap();
-    assert!(
-        matches!(&*status.borrow(), LeaseStatus::Lost(detail) if detail.contains("injected lease renewal failure"))
-    );
+    assert!(matches!(*status.borrow(), LeaseStatus::ValidUntil(_)));
+    let renewed_deadline = handle
+        .validity_deadline()
+        .armed_deadline()
+        .expect("a renewed lease stays armed");
+    assert!(renewed_deadline > first_deadline);
+    handle.shutdown().await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn persistent_renewal_failures_report_loss_before_the_local_deadline() {
+    let store = Arc::new(MemoryStore::default());
+    let clock = Arc::new(TestClock::default());
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+        .await
+        .unwrap();
+    let handle = acquire_lease(store.clone(), clock, &node(), &LeaseConfig::default())
+        .await
+        .unwrap();
+    let mut status = handle.subscribe();
+    let armed_deadline = handle
+        .validity_deadline()
+        .armed_deadline()
+        .expect("an acquired lease arms its deadline");
+    store.fail_lease_renewals.store(true, Ordering::SeqCst);
+    tokio::time::timeout(Duration::from_secs(10), status.changed())
+        .await
+        .expect("the loss is reported before the local deadline")
+        .unwrap();
+    assert!(tokio::time::Instant::now().into_std() < armed_deadline);
+    assert!(matches!(
+        &*status.borrow(),
+        LeaseStatus::Lost(detail)
+            if detail.contains("retries ran out")
+                && detail.contains("injected lease renewal failure")
+    ));
+    store.fail_lease_renewals.store(false, Ordering::SeqCst);
     handle.shutdown().await.unwrap();
 }
 

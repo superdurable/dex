@@ -563,7 +563,10 @@ mod tests {
             )
             .await
             .expect("store test lease");
-        let state = Arc::new(CommitState::new(1));
+        let state = Arc::new(CommitState::new(
+            1,
+            dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
+        ));
         assert!(state.start_serving());
         OwnershipFence {
             object_store,

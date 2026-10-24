@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,12 +22,18 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use uuid::Uuid;
 
-use crate::{MetadataError, NodeConfig, bump_node_epoch};
+use crate::{LeaseValidityDeadline, MetadataError, NodeConfig, bump_node_epoch};
 
 const RELEASED_LEASE_EXPIRY_UNIX_MICROS: i64 = i64::MIN;
 const RELEASE_RETRY_DELAY: Duration = Duration::from_millis(10);
 /// Longest wait between reads of a lease another process holds.
 const HELD_LEASE_POLL_LIMIT: Duration = Duration::from_secs(1);
+/// First wait before retrying a failed renewal attempt; later waits double.
+const RENEWAL_RETRY_INITIAL_BACKOFF: Duration = Duration::from_millis(200);
+/// Longest wait between renewal attempts.
+const RENEWAL_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(2);
+/// Cap of one renewal attempt, which otherwise gets one sixth of the lease duration.
+const RENEWAL_ATTEMPT_TIMEOUT_LIMIT: Duration = Duration::from_secs(5);
 
 /// Timing and contention policy for a node lease.
 #[derive(Debug, Clone)]
@@ -85,20 +92,20 @@ impl LeaseConfig {
             self,
             Some(cancellation),
             holder_process_id,
-            None,
+            LeaseObservers::default(),
         )
         .await
     }
 
-    /// Acquires a process-specific lease and records its renewal outcomes.
-    pub async fn acquire_until_cancelled_with_metrics(
+    /// Acquires a process-specific lease that reports to `observers`.
+    pub async fn acquire_until_cancelled_with_observers(
         &self,
         store: Arc<dyn ObjectStore>,
         clock: Arc<dyn WallClock>,
         node: &NodeConfig,
         cancellation: &mut watch::Receiver<bool>,
         holder_process_id: String,
-        metrics: NodeMetrics,
+        observers: LeaseObservers,
     ) -> Result<Option<LeaseHandle>, MetadataError> {
         acquire_lease_inner(
             store,
@@ -107,10 +114,19 @@ impl LeaseConfig {
             self,
             Some(cancellation),
             holder_process_id,
-            Some(metrics),
+            observers,
         )
         .await
     }
+}
+
+/// Process-local observers of one lease.
+#[derive(Clone, Debug, Default)]
+pub struct LeaseObservers {
+    /// Records renewal outcomes when set.
+    pub metrics: Option<NodeMetrics>,
+    /// Armed with the local validity of every successful acquisition and renewal.
+    pub validity_deadline: LeaseValidityDeadline,
 }
 
 /// Local monotonic lease validity observed by the engine.
@@ -159,6 +175,7 @@ pub struct LeaseHandle {
     node_id: String,
     epoch: u64,
     status: watch::Receiver<LeaseStatus>,
+    validity_deadline: LeaseValidityDeadline,
     renewal_task: Option<JoinHandle<LeaseOwner>>,
     shutdown_sender: Option<oneshot::Sender<()>>,
 }
@@ -175,6 +192,11 @@ impl LeaseHandle {
     /// Subscribes to local monotonic lease validity.
     pub fn subscribe(&self) -> watch::Receiver<LeaseStatus> {
         self.status.clone()
+    }
+
+    /// Returns the lock-free deadline that renewals extend and a confirmed release disarms.
+    pub fn validity_deadline(&self) -> LeaseValidityDeadline {
+        self.validity_deadline.clone()
     }
 
     /// Stops renewal and releases the lease after the node stops serving.
@@ -243,6 +265,7 @@ struct LeaseOwner {
     last_request_sent: Instant,
     current_valid_until: Instant,
     status: watch::Sender<LeaseStatus>,
+    validity_deadline: LeaseValidityDeadline,
 }
 
 /// Acquires a process-specific node lease, raises its epoch, and starts renewal.
@@ -267,8 +290,16 @@ pub async fn acquire_lease_with_holder_process_id(
     config: &LeaseConfig,
     holder_process_id: String,
 ) -> Result<LeaseHandle, MetadataError> {
-    let acquired =
-        acquire_lease_inner(store, clock, node, config, None, holder_process_id, None).await?;
+    let acquired = acquire_lease_inner(
+        store,
+        clock,
+        node,
+        config,
+        None,
+        holder_process_id,
+        LeaseObservers::default(),
+    )
+    .await?;
     Ok(acquired.expect("a lease acquisition without cancellation must complete"))
 }
 
@@ -279,8 +310,12 @@ async fn acquire_lease_inner(
     config: &LeaseConfig,
     mut cancellation: Option<&mut watch::Receiver<bool>>,
     process_id: String,
-    metrics: Option<NodeMetrics>,
+    observers: LeaseObservers,
 ) -> Result<Option<LeaseHandle>, MetadataError> {
+    let LeaseObservers {
+        metrics,
+        validity_deadline,
+    } = observers;
     let duration_micros =
         i64::try_from(config.duration.as_micros()).map_err(|_| MetadataError::InvalidConfig {
             field: "lease duration",
@@ -420,6 +455,7 @@ async fn acquire_lease_inner(
             Err(error) => return Err(error.into()),
         };
         let valid_until = sent_at + config.duration;
+        validity_deadline.arm_until(valid_until.into_std());
         let (status, mut receiver) = watch::channel(LeaseStatus::ValidUntil(valid_until));
         let mut pending = PendingLease {
             owner: Some(LeaseOwner {
@@ -433,6 +469,7 @@ async fn acquire_lease_inner(
                 last_request_sent: sent_at,
                 current_valid_until: valid_until,
                 status,
+                validity_deadline: validity_deadline.clone(),
             }),
         };
         let epoch = match pending.owner_mut().finish_acquisition(node).await {
@@ -447,6 +484,7 @@ async fn acquire_lease_inner(
             node_id: node.node_id.clone(),
             epoch,
             status: receiver,
+            validity_deadline,
             renewal_task: Some(renewal_task),
             shutdown_sender: Some(shutdown_sender),
         }));
@@ -565,11 +603,19 @@ impl LeaseOwner {
         Ok(epoch)
     }
 
-    /// Writes an expired copy of the lease.
+    /// Writes an expired copy of the lease and disarms the validity deadline once that is confirmed.
     ///
     /// Returns `Ok` once this process no longer holds the lease, including when another process
     /// already took it over, and the storage or decode error otherwise.
     async fn release(&self) -> Result<(), MetadataError> {
+        let released = self.write_release().await;
+        if released.is_ok() {
+            self.validity_deadline.disarm();
+        }
+        released
+    }
+
+    async fn write_release(&self) -> Result<(), MetadataError> {
         let mut current_lease = self.lease.clone();
         let mut current_etag = self.etag.clone();
         loop {
@@ -622,37 +668,71 @@ impl LeaseOwner {
         }
     }
 
+    /// Renews the lease, retrying transient failures while an attempt still fits before the deadline.
+    ///
+    /// Returns `Ok` after a confirmed renewal, and [`MetadataError::LeaseLost`] or the storage
+    /// error that lost the lease otherwise.
     async fn renew_before_deadline(&mut self) -> Result<(), MetadataError> {
-        let result = match tokio::time::timeout_at(self.current_valid_until, self.renew()).await {
-            Ok(result) => result,
-            Err(_) => Err(self.lost("renewal exceeded local lease deadline")),
-        };
-        if let Some(metrics) = &self.metrics {
-            metrics.record_lease_renewal(if result.is_ok() {
-                Outcome::Ok
-            } else {
-                Outcome::Error
-            });
+        let attempt_timeout = (self.duration / 6).min(RENEWAL_ATTEMPT_TIMEOUT_LIMIT);
+        let mut retry_backoff = RENEWAL_RETRY_INITIAL_BACKOFF;
+        let mut attempt_number: u32 = 0;
+        loop {
+            attempt_number = attempt_number.saturating_add(1);
+            let attempt_deadline = (Instant::now() + attempt_timeout).min(self.current_valid_until);
+            let attempt = match tokio::time::timeout_at(attempt_deadline, self.renew()).await {
+                Ok(attempt) => attempt,
+                Err(_) if Instant::now() >= self.current_valid_until => Err(
+                    RenewalAttemptFailure::Lost(self.lost("renewal exceeded local lease deadline")),
+                ),
+                Err(_) => Err(RenewalAttemptFailure::Retryable(format!(
+                    "renewal attempt exceeded its {attempt_timeout:?} timeout"
+                ))),
+            };
+            if let Some(metrics) = &self.metrics {
+                metrics.record_lease_renewal(if attempt.is_ok() {
+                    Outcome::Ok
+                } else {
+                    Outcome::Error
+                });
+            }
+            let failure = match attempt {
+                Ok(()) => return Ok(()),
+                Err(RenewalAttemptFailure::Lost(error)) => return Err(error),
+                Err(RenewalAttemptFailure::Retryable(failure)) => failure,
+            };
+            let retry_delay = self.renewal_retry_delay(retry_backoff, attempt_number);
+            if Instant::now() + retry_delay + attempt_timeout > self.current_valid_until {
+                return Err(self.lost(&format!(
+                    "renewal retries ran out before the local lease deadline; last failure: {failure}"
+                )));
+            }
+            tracing::warn!(
+                node_id = %self.lease.node_id,
+                %failure,
+                retry_in_milliseconds = retry_delay.as_millis(),
+                "node lease renewal attempt failed; retrying"
+            );
+            tokio::time::sleep(retry_delay).await;
+            retry_backoff = (retry_backoff * 2).min(RENEWAL_RETRY_MAX_BACKOFF);
         }
-        result
     }
 
-    async fn renew(&mut self) -> Result<(), MetadataError> {
+    async fn renew(&mut self) -> Result<(), RenewalAttemptFailure> {
         let mut proposed = self.lease.clone();
         proposed.version = proposed
             .version
             .checked_add(1)
-            .ok_or(MetadataError::Overflow {
+            .ok_or(RenewalAttemptFailure::Lost(MetadataError::Overflow {
                 field: "node lease version",
-            })?;
+            }))?;
         let sent_at = Instant::now();
         proposed.expires_at_unix_micros = self
             .clock
             .now_unix_micros()
             .checked_add(proposed.duration_micros)
-            .ok_or(MetadataError::Overflow {
+            .ok_or(RenewalAttemptFailure::Lost(MetadataError::Overflow {
                 field: "lease expiry",
-            })?;
+            }))?;
         let condition = WriteCondition::ReplaceIfEtagMatches {
             etag: self.etag.clone(),
         };
@@ -663,42 +743,110 @@ impl LeaseOwner {
         let etag = match result {
             Ok(WriteOutcome::Written { etag }) => etag,
             Ok(WriteOutcome::PreconditionFailed) => {
-                return Err(self.lost("renewal precondition failed"));
+                let reconciled = self
+                    .reconcile_unconfirmed_renewal(&proposed, "renewal precondition failed")
+                    .await;
+                return Err(match reconciled {
+                    Ok(_) => RenewalAttemptFailure::Retryable(
+                        "renewal precondition failed after an earlier renewal of this process landed"
+                            .to_owned(),
+                    ),
+                    Err(failure) => failure,
+                });
             }
-            Err(error) if error.kind == ObjectStoreErrorKind::OutcomeUnknown => {
-                let current = self.store.get(&self.key).await?;
-                match current {
-                    Some(content)
-                        if NodeLease::decode(content.bytes.clone()).map_err(|source| {
-                            MetadataError::Decode {
-                                key: "lease",
-                                source,
-                            }
-                        })? == proposed =>
-                    {
-                        content.etag
-                    }
-                    _ => return Err(self.lost("renewal outcome could not be confirmed")),
-                }
+            Err(error) if error.kind == ObjectStoreErrorKind::OutcomeUnknown => self
+                .reconcile_unconfirmed_renewal(&proposed, "renewal outcome could not be confirmed")
+                .await?
+                .ok_or_else(|| {
+                    RenewalAttemptFailure::Retryable(format!(
+                        "renewal outcome was unknown and the write did not take effect: {error}"
+                    ))
+                })?,
+            Err(error) if error.kind == ObjectStoreErrorKind::Transient => {
+                return Err(RenewalAttemptFailure::Retryable(error.to_string()));
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(RenewalAttemptFailure::Lost(error.into())),
         };
         let valid_until = sent_at + self.duration;
         if Instant::now() >= self.current_valid_until {
-            return Err(self.lost("renewal completed after previous lease deadline"));
+            return Err(RenewalAttemptFailure::Lost(
+                self.lost("renewal completed after previous lease deadline"),
+            ));
         }
         if Instant::now() >= valid_until {
-            return Err(self.lost("renewal completed after local lease deadline"));
+            return Err(RenewalAttemptFailure::Lost(
+                self.lost("renewal completed after local lease deadline"),
+            ));
         }
         self.lease = proposed;
         self.etag = etag;
         self.last_request_sent = sent_at;
         self.current_valid_until = valid_until;
+        self.validity_deadline.arm_until(valid_until.into_std());
         drop(
             self.status
                 .send_replace(LeaseStatus::ValidUntil(valid_until)),
         );
         Ok(())
+    }
+
+    /// Reads the lease after a renewal write that failed its condition or had an unknown outcome.
+    ///
+    /// Returns the ETag when `proposed` is stored, and `None` when this process still holds an
+    /// unextended lease, which it then renews from. Returns [`RenewalAttemptFailure::Lost`] when
+    /// another process holds the lease, and [`RenewalAttemptFailure::Retryable`] when the read failed
+    /// transiently.
+    async fn reconcile_unconfirmed_renewal(
+        &mut self,
+        proposed: &NodeLease,
+        lost_detail: &str,
+    ) -> Result<Option<String>, RenewalAttemptFailure> {
+        let current = match self.store.get(&self.key).await {
+            Ok(current) => current,
+            Err(error)
+                if matches!(
+                    error.kind,
+                    ObjectStoreErrorKind::Transient | ObjectStoreErrorKind::OutcomeUnknown
+                ) =>
+            {
+                return Err(RenewalAttemptFailure::Retryable(error.to_string()));
+            }
+            Err(error) => return Err(RenewalAttemptFailure::Lost(error.into())),
+        };
+        let Some(content) = current else {
+            return Err(RenewalAttemptFailure::Lost(self.lost(lost_detail)));
+        };
+        let stored = NodeLease::decode(content.bytes).map_err(|source| {
+            RenewalAttemptFailure::Lost(MetadataError::Decode {
+                key: "lease",
+                source,
+            })
+        })?;
+        if stored == *proposed {
+            return Ok(Some(content.etag));
+        }
+        let is_held_by_this_process = stored.holder_process_id == self.lease.holder_process_id
+            && stored.version >= self.lease.version;
+        if !is_held_by_this_process {
+            return Err(RenewalAttemptFailure::Lost(self.lost(lost_detail)));
+        }
+        // Only the version and ETag move on; a just-raised epoch must not revert.
+        self.lease.version = stored.version;
+        self.etag = content.etag;
+        Ok(None)
+    }
+
+    /// Returns a delay between half of `backoff` and all of it.
+    ///
+    /// Hashing the holder keeps simulations repeatable while processes still spread their retries.
+    fn renewal_retry_delay(&self, backoff: Duration, attempt_number: u32) -> Duration {
+        let mut hasher = std::hash::DefaultHasher::new();
+        self.lease.holder_process_id.hash(&mut hasher);
+        self.lease.version.hash(&mut hasher);
+        attempt_number.hash(&mut hasher);
+        let half_nanos = u64::try_from((backoff / 2).as_nanos()).unwrap_or(u64::MAX);
+        let reduction_nanos = hasher.finish() % half_nanos.saturating_add(1);
+        backoff - Duration::from_nanos(reduction_nanos)
     }
 
     fn lost(&self, detail: &str) -> MetadataError {
@@ -707,6 +855,14 @@ impl LeaseOwner {
             detail: detail.to_owned(),
         }
     }
+}
+
+/// Why one renewal attempt failed.
+enum RenewalAttemptFailure {
+    /// The lease may still be this process's, so another attempt can succeed.
+    Retryable(String),
+    /// Another process holds the lease, or retrying cannot help.
+    Lost(MetadataError),
 }
 
 /// Returns a random delay between half of `interval` and all of it.

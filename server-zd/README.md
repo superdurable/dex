@@ -222,7 +222,21 @@ the release does not finish within 2 seconds, the process exits 1 and the lease 
 expires.
 
 A lost lease, a stopped commit pipeline, or a halted Flow runtime stops the node, and the process
-exits 1. Restart it. A signal before the node acquires its lease cancels startup and exits 0. If
+exits 1. Restart it.
+
+The node serves only within its local lease validity. The deadline is `lease.duration` after the
+last successful renewal was sent, on the local monotonic clock. Renewal starts one third of
+`lease.duration` after the last success. Each attempt has its own timeout of one sixth of
+`lease.duration`, at most 5 seconds. A transient failure, such as a 5xx response, a throttling
+response, a lost connection, or a timed-out attempt, is retried after a jittered backoff of 200 ms,
+doubling up to 2 seconds. Retries continue while another attempt still fits before the deadline.
+Then the lease is lost. A lost conditional write or another holder of the lease stops the node at
+once, without a retry. After the deadline passes without a renewal, the node accepts no new
+commands and acknowledges no commits. A watchdog thread that does not depend on the async runtime
+enforces the deadline. It reports NOT_SERVING for every health name and exits the process with
+status 1 within 2 seconds, even when every object storage call hangs or the runtime stalls. A
+successor can take the lease over only 1 second after its recorded expiry, and its conditional
+writes fence the command log. A signal before the node acquires its lease cancels startup and exits 0. If
 the node already holds its lease, startup finishes before graceful shutdown begins. That shutdown
 has the same 14.5-second total and exit status as a signal received while serving. A failed startup
 releases its lease and exits 1.
@@ -327,6 +341,8 @@ for example by setting Kubernetes `fsGroup: 10001` or changing the directory own
 
 Port 8801 serves the API and `grpc.health.v1` on `api.listen`. Kubernetes gRPC probes can call
 that service directly. Health is NOT_SERVING during startup and SERVING after recovery completes.
+Health turns NOT_SERVING when the lease validity deadline passes without a renewal, and the process
+exits 1 within 2 more seconds, so a probe never sees a stalled node as SERVING for long.
 If the object store startup check fails, the container exits with an error. Docker and Kubernetes
 send SIGTERM directly to the process; it stops accepting work, releases its lease, and normally
 exits 0 within 14.5 seconds.

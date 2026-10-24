@@ -35,7 +35,8 @@ use tokio_util::sync::CancellationToken;
 use crate::blocking_work::{BlockingWorkFailure, BlockingWorkPlacement};
 use crate::command_applier::CommandApplier;
 use crate::commit::commit_state::{
-    CommitState, NodeStopReason, PendingCommand, partition_stopped_error,
+    CommitState, LEASE_VALIDITY_EXPIRED_DETAIL, NodeStopReason, PendingCommand,
+    lease_validity_expired_error, partition_stopped_error,
 };
 use crate::commit::replay_checks::{compare_repeated_apply, compare_semantic_point_hash};
 use crate::commit::staged_state_reader::StagedStateReader;
@@ -759,6 +760,21 @@ impl FrameApplier {
         }
         self.committed_commands
             .finish_frame(frame.partition, &frame.position);
+        if resolved.is_empty() {
+            return;
+        }
+        // Durable either way, but an acknowledgement must not outlive the lease.
+        if !self.state.is_lease_valid_now() {
+            for (pending, _) in resolved {
+                pending
+                    .responder
+                    .resolve(Err(lease_validity_expired_error()));
+            }
+            self.state.stop(NodeStopReason::LeaseLost {
+                detail: LEASE_VALIDITY_EXPIRED_DETAIL.to_owned(),
+            });
+            return;
+        }
         for (pending, committed) in resolved {
             pending.responder.resolve(Ok(committed));
         }

@@ -8,6 +8,7 @@
 
 mod bounded_teardown;
 mod client_deadline;
+mod lease_validity_watchdog;
 mod public_api_authentication;
 mod search_projection;
 
@@ -23,6 +24,7 @@ use dexzd_api::{
 };
 use dexzd_apply::FlowStateReader;
 use dexzd_clock::{SystemWallClock, WallClock};
+use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
     CommandApplier, CommandCommitter, DeterministicCommandApplier, EffectDependencies,
     EffectRunner, EffectTasksHandle, EngineNode, EngineNodeDependencies, EngineRuntimeHooks,
@@ -57,6 +59,7 @@ use crate::worker_rpc_invoker::PullWorkerRpcInvoker;
 pub(crate) use search_projection::CommittedSearchFrames;
 
 use bounded_teardown::BoundedTeardown;
+pub(crate) use lease_validity_watchdog::LeaseValidityWatchdog;
 use search_projection::{ParadeDbSearch, SearchProjection};
 
 /// Part of the budget for open calls, so the engine still stops cleanly after a stuck call.
@@ -75,12 +78,22 @@ const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Tenant that serves pull Workers until authentication assigns tenants.
 const DEFAULT_TENANT_ID: u64 = 0;
 
+/// How the process reacts when the lease validity deadline passes without a renewal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LeaseExpiryResponse {
+    /// A watchdog thread also exits the process with status 1, even when the async runtime stalls.
+    ExitProcess,
+    /// Only the node stops, so an embedding process such as a test keeps running.
+    StopNodeOnly,
+}
+
 /// A started server. Dropping it without [`RunningServer::shutdown`] aborts it.
 pub struct RunningServer {
     local_address: SocketAddr,
     metrics_address: Option<SocketAddr>,
     shutdown_request: CancellationToken,
     serving: JoinHandle<Result<(), ServerError>>,
+    lease_watchdog: Option<LeaseValidityWatchdog>,
 }
 
 impl RunningServer {
@@ -118,6 +131,11 @@ impl RunningServer {
     pub fn shutdown_token(&self) -> CancellationToken {
         self.shutdown_request.clone()
     }
+
+    /// Moves the lease watchdog out, so it keeps running while the async runtime shuts down.
+    pub(crate) fn take_lease_watchdog(&mut self) -> Option<LeaseValidityWatchdog> {
+        self.lease_watchdog.take()
+    }
 }
 
 impl Drop for RunningServer {
@@ -133,6 +151,7 @@ pub(crate) async fn start_server(
     config: &Config,
     embedded_s3: Option<EmbeddedS3>,
     cancellation: &mut watch::Receiver<bool>,
+    lease_expiry_response: LeaseExpiryResponse,
 ) -> Result<Option<RunningServer>, ServerError> {
     let components = ComponentConfigs::from_config(config)?;
     let authenticator =
@@ -174,7 +193,34 @@ pub(crate) async fn start_server(
         authenticator.as_ref(),
     )
     .await;
-    let started = ServerNode::start(config, &components, metrics.clone(), cancellation).await;
+    let lease_validity_deadline = LeaseValidityDeadline::disarmed();
+    let lease_watchdog = match lease_expiry_response {
+        LeaseExpiryResponse::ExitProcess => {
+            match LeaseValidityWatchdog::start(lease_validity_deadline.clone(), grpc.health.clone())
+            {
+                Ok(lease_watchdog) => Some(lease_watchdog),
+                Err(source) => {
+                    grpc.abort().await;
+                    if let Some(metrics_server) = metrics_server {
+                        metrics_server.shutdown().await;
+                    }
+                    if let Some(embedded_s3) = embedded_s3 {
+                        embedded_s3.shutdown().await;
+                    }
+                    return Err(ServerError::LeaseWatchdog { source });
+                }
+            }
+        }
+        LeaseExpiryResponse::StopNodeOnly => None,
+    };
+    let started = ServerNode::start(
+        config,
+        &components,
+        metrics.clone(),
+        lease_validity_deadline,
+        cancellation,
+    )
+    .await;
     let node = match started {
         Ok(Some(node)) => node,
         Ok(None) => {
@@ -207,6 +253,7 @@ pub(crate) async fn start_server(
         metrics_address,
         shutdown_request,
         serving,
+        lease_watchdog,
     }))
 }
 
@@ -368,6 +415,7 @@ impl ServerNode {
         config: &Config,
         components: &ComponentConfigs,
         metrics: Arc<NodeMetrics>,
+        lease_validity_deadline: LeaseValidityDeadline,
         cancellation: &mut watch::Receiver<bool>,
     ) -> Result<Option<Self>, ServerError> {
         let object_stores = ObjectStores::connect(
@@ -404,6 +452,7 @@ impl ServerNode {
                 clock: clock.clone(),
                 applier: applier.clone(),
                 id_source: Arc::new(SystemEngineIdSource),
+                lease_validity_deadline,
             },
             |services: EngineServices| {
                 let partition_hasher = services.partition_hasher.clone();

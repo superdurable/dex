@@ -57,6 +57,7 @@ async fn start_deterministic_node(
             clock: cluster.clock.clone(),
             applier: Arc::new(DeterministicCommandApplier),
             id_source: Arc::new(dexzd_engine::SystemEngineIdSource),
+            lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
         },
         move |services: EngineServices| {
             *captured_for_factory.lock().expect("capture lock") =

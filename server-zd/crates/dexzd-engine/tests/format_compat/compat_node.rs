@@ -90,6 +90,7 @@ pub(crate) async fn start_engine_node(
             clock,
             applier: Arc::new(DeterministicCommandApplier),
             id_source,
+            lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
         },
         |_services| EngineRuntimeHooks {
             committed_commands: Arc::new(PassiveRuntime),

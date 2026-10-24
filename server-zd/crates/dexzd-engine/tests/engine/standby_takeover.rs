@@ -271,6 +271,7 @@ pub(crate) fn start_node(
                 clock,
                 applier: applier.clone(),
                 id_source: Arc::new(dexzd_engine::SystemEngineIdSource),
+                lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
             },
             move |_services: EngineServices| EngineRuntimeHooks {
                 committed_commands: factory_runtime.clone(),
