@@ -410,8 +410,8 @@ message AttributeSyncOutboxRecord {
   string attribute_key = 2;
   // Run seq of the latest command that marked this entry.
   uint64 written_seq = 3;
-  // Start of the current retry window: the first marking, or the latest ack that left the
-  // entry pending because a newer marking arrived.
+  // Start of the retry window: the first marking, or the last ack that left a newer marking
+  // pending.
   int64 retry_window_started_at_micros = 4;
 }
 

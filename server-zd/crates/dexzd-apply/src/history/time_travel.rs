@@ -295,8 +295,8 @@ fn replace_attempt_rows(
     Ok(())
 }
 
-/// Marks every synced Attribute of the abandoned and the restored state (D16 = A), so the
-/// Attribute Stores converge on the restored state.
+/// Marks synced Attributes of the abandoned and restored states, so stores converge on the
+/// restored one (D16).
 fn remark_synced_attributes(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
