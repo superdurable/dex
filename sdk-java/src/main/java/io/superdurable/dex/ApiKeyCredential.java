@@ -13,6 +13,9 @@ package io.superdurable.dex;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.grpc.Context;
+import io.grpc.Deadline;
+import io.grpc.Status;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -38,11 +41,13 @@ import java.util.function.LongSupplier;
  * its lifetime starts one background exchange while callers continue using the valid token. A failed
  * refresh is retried no more often than every five seconds while that token remains valid. An
  * expired token makes callers wait for the shared exchange, up to the configured timeout. Dex
- * rejection discards only the rejected token, and unary Client calls retry once with a fresh one.
+ * rejection discards only the rejected token, and unary service calls retry once with a fresh one.
  *
  * <p>The token endpoint must use HTTPS, except that HTTP is allowed for localhost, 127.0.0.0/8,
- * and ::1. This class is thread-safe. The application owns and closes it after all Clients and
- * Workers sharing it are closed. A supplied HTTP connection factory remains caller-owned.
+ * and ::1. Redirect responses fail without forwarding the API key. A gRPC call deadline or
+ * cancellation bounds a waiting token lookup. This class is thread-safe. The application owns and
+ * closes it after all Clients and Workers sharing it are closed. A supplied HTTP connection
+ * factory remains caller-owned.
  * Neither the API key nor an access token appears in this credential's description or
  * exchange errors.
  *
@@ -115,6 +120,10 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
      */
     @Override
     public String token() throws ExchangeException, InterruptedException {
+        return tokenForCall(null);
+    }
+
+    String tokenForCall(final Context context) throws ExchangeException, InterruptedException {
         final CompletableFuture<String> pending;
         synchronized (this) {
             if (isClosed) {
@@ -133,18 +142,42 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
             }
             pending = exchangeInFlight;
         }
-        try {
-            return pending.get(exchangeTimeout.toNanos(), TimeUnit.NANOSECONDS);
-        } catch (TimeoutException timeout) {
-            throw exchangeError(-1, "exchange timed out");
-        } catch (ExecutionException failure) {
-            final Throwable cause = failure.getCause();
-            if (cause instanceof ExchangeException) {
-                throw (ExchangeException) cause;
+        final Deadline exchangeDeadline = Deadline.after(exchangeTimeout.toNanos(), TimeUnit.NANOSECONDS);
+        while (true) {
+            if (context != null && context.isCancelled()) {
+                final Deadline callDeadline = context.getDeadline();
+                throw (callDeadline != null && callDeadline.isExpired()
+                        ? Status.DEADLINE_EXCEEDED : Status.CANCELLED).asRuntimeException();
             }
-            throw exchangeError(-1, "exchange failed");
-        } catch (CancellationException cancelled) {
-            throw exchangeError(-1, "exchange cancelled");
+            final long remainingExchangeNanos = exchangeDeadline.timeRemaining(TimeUnit.NANOSECONDS);
+            if (remainingExchangeNanos <= 0) {
+                throw exchangeError(-1, "exchange timed out");
+            }
+            long waitNanos = remainingExchangeNanos;
+            if (context != null) {
+                final Deadline callDeadline = context.getDeadline();
+                if (callDeadline != null) {
+                    final long remainingCallNanos = callDeadline.timeRemaining(TimeUnit.NANOSECONDS);
+                    if (remainingCallNanos <= 0) {
+                        throw Status.DEADLINE_EXCEEDED.asRuntimeException();
+                    }
+                    waitNanos = Math.min(waitNanos, remainingCallNanos);
+                }
+                waitNanos = Math.min(waitNanos, TimeUnit.MILLISECONDS.toNanos(10));
+            }
+            try {
+                return pending.get(waitNanos, TimeUnit.NANOSECONDS);
+            } catch (TimeoutException timeout) {
+                continue;
+            } catch (ExecutionException failure) {
+                final Throwable cause = failure.getCause();
+                if (cause instanceof ExchangeException) {
+                    throw (ExchangeException) cause;
+                }
+                throw exchangeError(-1, "exchange failed");
+            } catch (CancellationException cancelled) {
+                throw exchangeError(-1, "exchange cancelled");
+            }
         }
     }
 
@@ -206,11 +239,15 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
                 final ExchangeResult result = exchange();
                 synchronized (ApiKeyCredential.this) {
                     if (!isClosed) {
+                        final long lifetime = TimeUnit.SECONDS.toNanos(result.expiresIn);
+                        final long tokenExpiresAtNanos = saturatingAdd(startedAt, lifetime);
+                        if (clock.getAsLong() >= tokenExpiresAtNanos) {
+                            throw exchangeError(200, "access token expired before exchange completed");
+                        }
                         cachedToken = result.token;
                         lastAccessToken = result.token;
-                        final long lifetime = TimeUnit.SECONDS.toNanos(result.expiresIn);
                         refreshAtNanos = saturatingAdd(startedAt, lifetime - lifetime / 5);
-                        expiresAtNanos = saturatingAdd(startedAt, lifetime);
+                        expiresAtNanos = tokenExpiresAtNanos;
                         nextRefreshAttemptNanos = 0L;
                     }
                     exchangeInFlight = null;
@@ -258,6 +295,9 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
                     output.write(requestBody);
                 }
                 status = connection.getResponseCode();
+                if (status >= 300 && status < 400) {
+                    throw exchangeError(status, "redirect response");
+                }
                 try (InputStream input = status >= 400
                         ? connection.getErrorStream() : connection.getInputStream()) {
                     if (input == null) {
@@ -284,7 +324,8 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
                     || !"Bearer".equalsIgnoreCase(type.textValue())
                     || expiry == null || !expiry.isIntegralNumber()
                     || !expiry.canConvertToLong() || expiry.longValue() <= 0) {
-                final String responseError = responseError(body);
+                final String responseError = responseError(body,
+                        token != null && token.isTextual() ? token.textValue() : null);
                 throw exchangeError(200, "invalid access_token, token_type, or expires_in"
                         + ("unexpected response".equals(responseError) ? "" : ": " + responseError));
             }
@@ -300,20 +341,29 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
     }
 
     private String responseError(final JsonNode body) {
+        return responseError(body, null);
+    }
+
+    private String responseError(final JsonNode body, final String responseToken) {
         if (body == null || !body.isObject()) {
             return "unexpected response";
         }
-        final String error = responseField(body, "error");
-        final String description = responseField(body, "error_description");
+        final String error = responseField(body, "error", responseToken);
+        final String description = responseField(body, "error_description", responseToken);
         return error.isEmpty() && description.isEmpty()
                 ? "unexpected response" : error + (description.isEmpty() ? "" : ": " + description);
     }
 
-    private String responseField(final JsonNode body, final String name) {
+    private String responseField(final JsonNode body, final String name, final String responseToken) {
         final JsonNode value = body.get(name);
-        return value != null && value.isTextual()
-                ? redact(value.textValue().substring(0, Math.min(200, value.textValue().length())))
-                : "";
+        if (value == null || !value.isTextual()) {
+            return "";
+        }
+        String safe = redact(value.textValue());
+        if (responseToken != null && !responseToken.isEmpty()) {
+            safe = safe.replace(responseToken, "<redacted>");
+        }
+        return safe.substring(0, Math.min(200, safe.length()));
     }
 
     private ExchangeException exchangeError(final int status, final String detail) {
@@ -503,7 +553,7 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
         /**
          * Builds the thread-safe credential without contacting the token endpoint.
          *
-         * @return a credential owned and closed by its Client or Worker
+         * @return a credential owned by the application and shared with its Clients or Workers
          */
         public ApiKeyCredential build() {
             return new ApiKeyCredential(this);

@@ -480,12 +480,14 @@ lifetime starts one background refresh, and callers keep using the current token
 expires. Concurrent calls share an exchange. Failed refreshes are retried at
 most every five seconds while the token remains valid. An expired token waits
 for the exchange, bounded by the exchange timeout. When Dex rejects a token,
-the credential discards only that token; unary Client calls retry once, while
-pull streams reconnect once immediately with a new token, then use normal backoff
-if rejected again. The application closes the credential after every Client and
+the credential discards only that token; unary service calls retry once, while
+pull streams reconnect once immediately with a new token. A second rejection is a
+permanent stream error. The application closes the credential after every Client and
 Worker sharing it has closed. No timer runs between token calls. A custom
 `HttpConnectionFactory` can open connections through an application-selected
 proxy; the credential disconnects each connection after use.
+Redirect responses fail without forwarding the API key. A call deadline or
+cancellation bounds a token wait during a unary retry.
 The API key and access tokens are omitted from credential descriptions and
 exchange errors.
 

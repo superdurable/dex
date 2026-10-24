@@ -129,7 +129,7 @@ public final class Worker implements AutoCloseable {
         final WorkerDispatcher dispatcher = new WorkerDispatcher(
                 registry,
                 values,
-                new ValueHydrator(flowService, blobCache),
+                new ValueHydrator(flowService, blobCache, options.getCredential()),
                 bufferedStreamScheduler,
                 serverProtocol);
         this.workerService = new JavaWorkerService(
@@ -275,12 +275,12 @@ public final class Worker implements AutoCloseable {
                 throw new IllegalStateException("Worker cannot start from state " + state);
             }
             final ServerInfo serverInfo;
+            final FlowServiceGrpc.FlowServiceBlockingStub serverInfoService = flowService
+                    .withDeadlineAfter(options.getAttributeIndexSyncTimeout().toMillis(),
+                            TimeUnit.MILLISECONDS);
             try {
-                serverInfo = GrpcCredential.callUnaryWithRetry(options.getCredential(), () -> flowService
-                        .withDeadlineAfter(
-                                options.getAttributeIndexSyncTimeout().toMillis(),
-                                TimeUnit.MILLISECONDS)
-                        .getServerInfo(Empty.getDefaultInstance()));
+                serverInfo = GrpcCredential.callUnaryWithRetry(options.getCredential(),
+                        () -> serverInfoService.getServerInfo(Empty.getDefaultInstance()));
             } catch (RuntimeException failure) {
                 if (Status.fromThrowable(failure).getCode() == Status.Code.UNAUTHENTICATED) {
                     throw authenticationFailure(failure);
@@ -289,11 +289,11 @@ public final class Worker implements AutoCloseable {
             }
             serverProtocol.recordNegotiatedVersion(
                     ServerProtocolCompatibility.negotiate(serverInfo, sdkVersion));
+            final FlowServiceGrpc.FlowServiceBlockingStub attributeIndexService = flowService
+                    .withDeadlineAfter(options.getAttributeIndexSyncTimeout().toMillis(),
+                            TimeUnit.MILLISECONDS);
             try {
-                GrpcCredential.callUnaryWithRetry(options.getCredential(), () -> flowService
-                        .withDeadlineAfter(
-                                options.getAttributeIndexSyncTimeout().toMillis(),
-                                TimeUnit.MILLISECONDS)
+                GrpcCredential.callUnaryWithRetry(options.getCredential(), () -> attributeIndexService
                         .syncAttributeIndexes(SyncAttributeIndexRequest.newBuilder()
                                 .putAllAttributeIndexes(registry.getAttributeIndexes())
                                 .build()));

@@ -46,7 +46,8 @@ final class GrpcCredential extends CallCredentials {
                 }
                 final Metadata headers;
                 try {
-                    final String token = credential.token();
+                    final String token = credential instanceof ApiKeyCredential
+                            ? ((ApiKeyCredential) credential).tokenForCall(context) : credential.token();
                     if (token == null || token.isEmpty()) {
                         throw new IllegalStateException("credential token is empty");
                     }
@@ -65,6 +66,12 @@ final class GrpcCredential extends CallCredentials {
                     Thread.currentThread().interrupt();
                     applier.fail(Status.UNAUTHENTICATED
                             .withDescription(interruption.getMessage()).withCause(interruption));
+                    return;
+                } catch (StatusRuntimeException failure) {
+                    applier.fail(credential instanceof ApiKeyCredential
+                            ? failure.getStatus()
+                            : Status.UNAUTHENTICATED.withDescription(failure.getMessage())
+                                    .withCause(failure));
                     return;
                 } catch (Exception failure) {
                     applier.fail(Status.UNAUTHENTICATED

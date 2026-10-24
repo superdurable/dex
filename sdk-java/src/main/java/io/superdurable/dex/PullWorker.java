@@ -321,7 +321,7 @@ final class PullWorker {
             stream.isRegistered = false;
             registration.registeredStreams--;
         }
-        if (isPermanentStreamError(failure)) {
+        if (!stream.shouldRetryRejectedTokenImmediately && isPermanentStreamError(failure)) {
             registration.lastPermanentError = failure;
             final PullRegistrationError rejection = new PullRegistrationError(stream.queue, failure);
             if (registration.registeredStreams == 0) {
@@ -338,8 +338,7 @@ final class PullWorker {
 
     private boolean isPermanentStreamError(final Throwable failure) {
         final Status.Code code = failure == null ? Status.Code.OK : Status.fromThrowable(failure).getCode();
-        return (code == Status.Code.UNAUTHENTICATED
-                && !(credential instanceof RejectedTokenCredential))
+        return code == Status.Code.UNAUTHENTICATED
                 || code == Status.Code.PERMISSION_DENIED
                 || code == Status.Code.INVALID_ARGUMENT || code == Status.Code.UNIMPLEMENTED
                 || code == Status.Code.RESOURCE_EXHAUSTED;
@@ -856,8 +855,7 @@ final class PullWorker {
             }
             final Status.Code code = failure == null ? Status.Code.OK
                     : Status.fromThrowable(failure).getCode();
-            final boolean isPermanent = (code == Status.Code.UNAUTHENTICATED
-                    && !(credential instanceof RejectedTokenCredential))
+            final boolean isPermanent = code == Status.Code.UNAUTHENTICATED
                     || code == Status.Code.PERMISSION_DENIED
                     || code == Status.Code.INVALID_ARGUMENT
                     || code == Status.Code.UNIMPLEMENTED
