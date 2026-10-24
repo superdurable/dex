@@ -86,13 +86,18 @@ pub(crate) fn engine_step_options(rng: &mut ChaCha8Rng, step_type: &str) -> Step
 /// Channels a Step may load by name; `queue/a` and `queue/b` belong to the `queue/` map.
 const LOADABLE_CHANNEL_NAMES: &[&str] = &["inbox", "events"];
 
-fn retry_policy(rng: &mut ChaCha8Rng) -> Option<RetryPolicy> {
+/// A retry policy, sometimes with a total duration short enough to expire during a run.
+pub(crate) fn retry_policy(rng: &mut ChaCha8Rng) -> Option<RetryPolicy> {
     rng.random_bool(0.7).then(|| RetryPolicy {
         initial_interval_seconds: rng.random_range(1..3),
         backoff_coefficient: if rng.random_bool(0.5) { 2.0 } else { 0.0 },
         maximum_interval_seconds: if rng.random_bool(0.5) { 5 } else { 0 },
         maximum_attempts: rng.random_range(0..5),
-        total_duration_seconds: 0,
+        total_duration_seconds: if rng.random_bool(0.3) {
+            rng.random_range(1..6)
+        } else {
+            0
+        },
     })
 }
 

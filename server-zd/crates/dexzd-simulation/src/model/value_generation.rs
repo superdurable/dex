@@ -10,7 +10,8 @@
 
 use dexzd_keyspace::{RunId, ValueId, ValueReference};
 use dexzd_protocol::dex::{
-    AttributeSyncConfig, EncodedObject, RetryPolicy, StepOptions, Value, value,
+    AttributeSyncConfig, EncodedObject, ExecuteMethodFailurePolicy, RetryPolicy, StepOptions,
+    Value, WaitForMethodFailurePolicy, value,
 };
 use dexzd_protocol::dexzd::v1::{StoredValue, stored_value};
 use prost::Message;
@@ -151,7 +152,13 @@ pub(crate) fn step_options(rng: &mut ChaCha8Rng) -> Option<StepOptions> {
     if rng.random_bool(0.15) {
         return None;
     }
-    Some(StepOptions {
+    Some(step_options_with_recovery_depth(rng, 1))
+}
+
+/// Step options whose recovery target nests at most `recovery_depth` more Step options.
+fn step_options_with_recovery_depth(rng: &mut ChaCha8Rng, recovery_depth: u32) -> StepOptions {
+    let recovery = execute_failure_recovery(rng, recovery_depth);
+    StepOptions {
         skip_wait_for: rng.random_bool(0.4),
         wait_for_lock_attribute_keys: subset(rng, LOCK_KEYS, 0.2),
         execute_lock_attribute_keys: subset(rng, LOCK_KEYS, 0.35),
@@ -162,11 +169,53 @@ pub(crate) fn step_options(rng: &mut ChaCha8Rng) -> Option<StepOptions> {
         wait_for_load_channel_names: subset(rng, CHANNEL_NAMES, 0.25),
         execute_load_channel_names: subset(rng, CHANNEL_NAMES, 0.3),
         execute_load_channel_map_instances: subset(rng, &["queue/"], 0.3),
+        wait_for_failure_policy: if rng.random_bool(0.15) {
+            WaitForMethodFailurePolicy::ProceedOnFailure as i32
+        } else {
+            WaitForMethodFailurePolicy::Unspecified as i32
+        },
+        execute_failure_policy: recovery.policy as i32,
+        execute_failure_proceed_step_type: recovery.step_type,
+        execute_failure_proceed_step_options: recovery.step_options,
         ..StepOptions::default()
-    })
+    }
 }
 
-fn retry_policy(rng: &mut ChaCha8Rng) -> Option<RetryPolicy> {
+/// An Execute failure policy and its recovery target.
+struct ExecuteFailureRecovery {
+    policy: ExecuteMethodFailurePolicy,
+    step_type: String,
+    step_options: Option<Box<StepOptions>>,
+}
+
+/// Mostly no recovery or a usable one; sometimes a policy without a target or a target without
+/// the policy, which the Go Server accepts and ignores.
+fn execute_failure_recovery(rng: &mut ChaCha8Rng, recovery_depth: u32) -> ExecuteFailureRecovery {
+    let (policy, has_target) = match rng.random_range(0..10) {
+        0..=4 => (ExecuteMethodFailurePolicy::Unspecified, false),
+        5..=7 => (ExecuteMethodFailurePolicy::ProceedToConfiguredStep, true),
+        8 => (ExecuteMethodFailurePolicy::ProceedToConfiguredStep, false),
+        _ => (
+            ExecuteMethodFailurePolicy::FailFlowOnExecuteMethodFailure,
+            true,
+        ),
+    };
+    let step_type = if has_target {
+        pick(rng, STEP_TYPES).to_owned()
+    } else {
+        String::new()
+    };
+    let step_options = (recovery_depth > 0 && rng.random_bool(0.6))
+        .then(|| Box::new(step_options_with_recovery_depth(rng, recovery_depth - 1)));
+    ExecuteFailureRecovery {
+        policy,
+        step_type,
+        step_options,
+    }
+}
+
+/// A retry policy, sometimes with a total duration short enough to expire during a run.
+pub(crate) fn retry_policy(rng: &mut ChaCha8Rng) -> Option<RetryPolicy> {
     if rng.random_bool(0.3) {
         return None;
     }
@@ -175,7 +224,11 @@ fn retry_policy(rng: &mut ChaCha8Rng) -> Option<RetryPolicy> {
         backoff_coefficient: if rng.random_bool(0.5) { 2.0 } else { 0.0 },
         maximum_interval_seconds: if rng.random_bool(0.5) { 5 } else { 0 },
         maximum_attempts: rng.random_range(0..5),
-        total_duration_seconds: 0,
+        total_duration_seconds: if rng.random_bool(0.3) {
+            rng.random_range(1..6)
+        } else {
+            0
+        },
     })
 }
 

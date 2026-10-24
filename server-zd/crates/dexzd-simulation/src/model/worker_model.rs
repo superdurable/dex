@@ -15,10 +15,10 @@ use dexzd_protocol::dex::{
     StepMovement, TimerCondition, Value, WaitingCondition, WorkerErrorResponse, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    StepAttemptFailedCommand, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
-    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationRecord, StepMethod,
-    StepMethodCompletedCommand, TimerId, TimersFiredCommand, flow_command::Command,
-    step_attempt_heartbeat_command, step_method_completed_command,
+    StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
+    StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
+    StepInvocationRecord, StepMethod, StepMethodCompletedCommand, TimerId, TimersFiredCommand,
+    flow_command::Command, step_attempt_heartbeat_command, step_method_completed_command,
 };
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
@@ -299,10 +299,11 @@ fn step_decision(rng: &mut ChaCha8Rng, call: &Call<'_>, visible: &[Value]) -> St
 }
 
 pub(crate) fn fail(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
+    let kind = rng.random_range(1..10);
     Command::StepAttemptFailed(StepAttemptFailedCommand {
         invocation: Some(call.key()),
         attempt: call.invocation.attempt,
-        kind: rng.random_range(1..9),
+        kind,
         worker_error: Some(WorkerErrorResponse {
             detail: "simulated failure".to_owned(),
             retry_after_seconds: if rng.random_bool(0.2) {
@@ -313,7 +314,9 @@ pub(crate) fn fail(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
             ..WorkerErrorResponse::default()
         }),
         server_detail: String::new(),
-        is_non_retryable: rng.random_bool(0.03),
+        // The engine reports an expired retry deadline as non-retryable.
+        is_non_retryable: kind == StepAttemptFailureKind::RetryDeadline as i32
+            || rng.random_bool(0.03),
         pull_routing: None,
     })
 }

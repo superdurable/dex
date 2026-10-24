@@ -11,6 +11,7 @@
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeWrite, ChannelMessage, DeleteChannelMessageRequest,
+    ExecuteMethodFailurePolicy,
     FlowAlreadyStartedOptions, FlowConfig, FlowResetType, FlowStartOptions,
     FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy, InvokeRpcRequest,
     InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, SetAttributesRequest,
@@ -28,7 +29,7 @@ use rand_chacha::ChaCha8Rng;
 use crate::model::value_generation::{
     ATTRIBUTE_KEYS, ATTRIBUTE_STORE_NAMES, CHANNEL_NAMES, MAX_VALUE_BYTES, STEP_TYPES,
     WIRE_INLINE_THRESHOLD_BYTES, fingerprint, int_value, null_value, oversized_value, pick,
-    random_bytes, random_identifier, random_value, step_options, sync_config_for,
+    random_bytes, random_identifier, random_value, retry_policy, step_options, sync_config_for,
 };
 use crate::state_view::RunView;
 
@@ -117,16 +118,8 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str, is_synced: bool) -
             flow_already_started_options: Some(FlowAlreadyStartedOptions {
                 ignore_already_started_error: rng.random_bool(0.3),
             }),
-            timeout_handler_options: (policy == FlowTimeoutPolicy::Handler).then(|| {
-                FlowTimeoutHandlerOptions {
-                    lock_attribute_keys: if rng.random_bool(0.5) {
-                        vec!["status".to_owned()]
-                    } else {
-                        Vec::new()
-                    },
-                    ..FlowTimeoutHandlerOptions::default()
-                }
-            }),
+            timeout_handler_options: (policy == FlowTimeoutPolicy::Handler)
+                .then(|| timeout_handler_options(rng)),
             ..FlowStartOptions::default()
         }),
         request_id: format!("start-{}", rng.random_range(0..4)),
@@ -148,6 +141,37 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str, is_synced: bool) -
         hard_delete_objects: Vec::new(),
         ..FlowStartCommand::default()
     })
+}
+
+/// Timeout handler options; validation allows a failure target only with the proceed policy.
+fn timeout_handler_options(rng: &mut ChaCha8Rng) -> FlowTimeoutHandlerOptions {
+    let should_proceed_on_failure = rng.random_bool(0.4);
+    FlowTimeoutHandlerOptions {
+        lock_attribute_keys: if rng.random_bool(0.5) {
+            vec!["status".to_owned()]
+        } else {
+            Vec::new()
+        },
+        retry_policy: retry_policy(rng),
+        failure_policy: if should_proceed_on_failure {
+            ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
+        } else if rng.random_bool(0.5) {
+            ExecuteMethodFailurePolicy::FailFlowOnExecuteMethodFailure as i32
+        } else {
+            ExecuteMethodFailurePolicy::Unspecified as i32
+        },
+        failure_proceed_step_type: if should_proceed_on_failure {
+            pick(rng, STEP_TYPES).to_owned()
+        } else {
+            String::new()
+        },
+        failure_proceed_step_options: if should_proceed_on_failure {
+            step_options(rng)
+        } else {
+            None
+        },
+        ..FlowTimeoutHandlerOptions::default()
+    }
 }
 
 /// Hard-delete and plain writes share [`ATTRIBUTE_KEYS`], so each replaces the other.

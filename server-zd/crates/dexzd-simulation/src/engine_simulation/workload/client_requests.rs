@@ -10,15 +10,16 @@
 
 use dexzd_protocol::dex::{
     AttributeWrite, ChannelMessage, DeleteChannelMessageRequest, EncodedObject,
-    FlowAlreadyStartedOptions, FlowConfig, FlowStartOptions, FlowTimeoutHandlerOptions,
-    FlowTimeoutPolicy, IdReusePolicy, InvokeRpcRequest, PublishToChannelRequest,
-    SetAttributesRequest, StartFlowRequest, StopFlowRequest, Value, WorkerTarget, value,
+    ExecuteMethodFailurePolicy, FlowAlreadyStartedOptions, FlowConfig, FlowStartOptions,
+    FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy, InvokeRpcRequest,
+    PublishToChannelRequest, SetAttributesRequest, StartFlowRequest, StepOptions, StopFlowRequest,
+    Value, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{FlowCommand, flow_command::Command};
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
 
-use crate::engine_simulation::workload::worker_responses::engine_step_options;
+use crate::engine_simulation::workload::worker_responses::{engine_step_options, retry_policy};
 use crate::model::{
     ATTRIBUTE_KEYS, CHANNEL_NAMES, STEP_TYPES, int_value, null_value, pick, random_value,
 };
@@ -83,15 +84,35 @@ pub(crate) fn start_flow_request(
                 }),
                 ..FlowConfig::default()
             }),
-            timeout_handler_options: (policy == FlowTimeoutPolicy::Handler).then(|| {
-                FlowTimeoutHandlerOptions {
-                    lock_attribute_keys: vec!["status".to_owned()],
-                    ..FlowTimeoutHandlerOptions::default()
-                }
-            }),
+            timeout_handler_options: (policy == FlowTimeoutPolicy::Handler)
+                .then(|| timeout_handler_options(rng)),
             ..FlowStartOptions::default()
         }),
         request_id: marker.to_owned(),
+    }
+}
+
+/// Timeout handler options; validation allows a failure target only with the proceed policy.
+fn timeout_handler_options(rng: &mut ChaCha8Rng) -> FlowTimeoutHandlerOptions {
+    let should_proceed_on_failure = rng.random_bool(0.4);
+    FlowTimeoutHandlerOptions {
+        lock_attribute_keys: vec!["status".to_owned()],
+        retry_policy: retry_policy(rng),
+        failure_policy: if should_proceed_on_failure {
+            ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
+        } else {
+            ExecuteMethodFailurePolicy::Unspecified as i32
+        },
+        failure_proceed_step_type: if should_proceed_on_failure {
+            "RecoverStep".to_owned()
+        } else {
+            String::new()
+        },
+        failure_proceed_step_options: should_proceed_on_failure.then(|| StepOptions {
+            skip_wait_for: true,
+            ..StepOptions::default()
+        }),
+        ..FlowTimeoutHandlerOptions::default()
     }
 }
 
