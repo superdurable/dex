@@ -137,6 +137,7 @@ impl NodeMetaUploadLedger {
         &self,
         change: impl FnOnce(&mut Vec<PendingHardDeleteUpload>),
     ) -> Result<(), EffectError> {
+        // Runs on runtime workers; safe because no holder keeps this lock across uploads or block_on.
         let _guard = self.node_meta_lock.lock().expect("node meta lock poisoned");
         let mut meta = self
             .store

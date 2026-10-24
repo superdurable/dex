@@ -267,19 +267,23 @@ impl SnapshotService {
                 // Checkpoints and file hashing block, so the whole upload runs on the blocking pool.
                 tokio::task::spawn_blocking(move || {
                     // create_snapshot reads NodeMeta first and writes it back before it publishes the manifest.
-                    let _node_meta_guard = node_meta_lock
-                        .lock()
-                        .expect("node metadata lock is not poisoned");
-                    let snapshot_number = prepare_snapshot_number(
-                        &store,
-                        id_source.as_ref(),
-                        should_prepare_snapshot_lineage,
-                    )?;
+                    // Never held across block_on: request paths block on this lock while the upload awaits the runtime.
+                    let snapshot_number = {
+                        let _node_meta_guard = node_meta_lock
+                            .lock()
+                            .expect("node metadata lock is not poisoned");
+                        prepare_snapshot_number(
+                            &store,
+                            id_source.as_ref(),
+                            should_prepare_snapshot_lineage,
+                        )?
+                    };
                     runtime.block_on(create_store_snapshot(
                         &store,
                         &upload_store,
                         &identity,
                         snapshot_number,
+                        &node_meta_lock,
                     ))
                 })
                 .await
@@ -300,8 +304,14 @@ impl SnapshotService {
                 };
                 match snapshot_number {
                     Ok(snapshot_number) => {
-                        create_store_snapshot(&store, &upload_store, &identity, snapshot_number)
-                            .await
+                        create_store_snapshot(
+                            &store,
+                            &upload_store,
+                            &identity,
+                            snapshot_number,
+                            &node_meta_lock,
+                        )
+                        .await
                     }
                     Err(error) => Err(error),
                 }
@@ -377,13 +387,28 @@ async fn create_store_snapshot(
     upload_store: &SnapshotUploadStore,
     identity: &SnapshotIdentity,
     snapshot_number: u64,
+    node_meta_lock: &std::sync::Mutex<()>,
 ) -> Result<(String, SnapshotManifest), StorageError> {
     match store {
         RestoredLocalStore::RocksDb(rocks) => {
-            create_snapshot(rocks, upload_store, identity, snapshot_number).await
+            create_snapshot(
+                rocks,
+                upload_store,
+                identity,
+                snapshot_number,
+                node_meta_lock,
+            )
+            .await
         }
         RestoredLocalStore::Memory(memory) => {
-            create_snapshot(memory, upload_store, identity, snapshot_number).await
+            create_snapshot(
+                memory,
+                upload_store,
+                identity,
+                snapshot_number,
+                node_meta_lock,
+            )
+            .await
         }
     }
 }
