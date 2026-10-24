@@ -32,7 +32,10 @@ const HELD_LEASE_POLL_LIMIT: Duration = Duration::from_secs(1);
 const RENEWAL_RETRY_INITIAL_BACKOFF: Duration = Duration::from_millis(200);
 /// Longest wait between renewal attempts.
 const RENEWAL_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(2);
-/// Cap of one renewal attempt, which otherwise gets one sixth of the lease duration.
+/// Floor of one renewal attempt, which otherwise gets one sixth of the lease duration.
+/// It keeps a slow but successful write from being cut off and retried in a loop.
+const RENEWAL_ATTEMPT_TIMEOUT_FLOOR: Duration = Duration::from_secs(1);
+/// Cap of one renewal attempt.
 const RENEWAL_ATTEMPT_TIMEOUT_LIMIT: Duration = Duration::from_secs(5);
 
 /// Timing and contention policy for a node lease.
@@ -266,6 +269,8 @@ struct LeaseOwner {
     current_valid_until: Instant,
     status: watch::Sender<LeaseStatus>,
     validity_deadline: LeaseValidityDeadline,
+    /// Writes of the current renewal cycle; a timed-out one may still have landed.
+    unconfirmed_renewals: Vec<UnconfirmedRenewal>,
 }
 
 /// Acquires a process-specific node lease, raises its epoch, and starts renewal.
@@ -470,6 +475,7 @@ async fn acquire_lease_inner(
                 current_valid_until: valid_until,
                 status,
                 validity_deadline: validity_deadline.clone(),
+                unconfirmed_renewals: Vec::new(),
             }),
         };
         let epoch = match pending.owner_mut().finish_acquisition(node).await {
@@ -673,7 +679,8 @@ impl LeaseOwner {
     /// Returns `Ok` after a confirmed renewal, and [`MetadataError::LeaseLost`] or the storage
     /// error that lost the lease otherwise.
     async fn renew_before_deadline(&mut self) -> Result<(), MetadataError> {
-        let attempt_timeout = (self.duration / 6).min(RENEWAL_ATTEMPT_TIMEOUT_LIMIT);
+        let attempt_timeout =
+            (self.duration / 6).clamp(RENEWAL_ATTEMPT_TIMEOUT_FLOOR, RENEWAL_ATTEMPT_TIMEOUT_LIMIT);
         let mut retry_backoff = RENEWAL_RETRY_INITIAL_BACKOFF;
         let mut attempt_number: u32 = 0;
         loop {
@@ -733,6 +740,11 @@ impl LeaseOwner {
             .ok_or(RenewalAttemptFailure::Lost(MetadataError::Overflow {
                 field: "lease expiry",
             }))?;
+        // Recorded before the write, so a timed-out attempt that landed is recognized later.
+        self.unconfirmed_renewals.push(UnconfirmedRenewal {
+            proposed: proposed.clone(),
+            sent_at,
+        });
         let condition = WriteCondition::ReplaceIfEtagMatches {
             etag: self.etag.clone(),
         };
@@ -740,33 +752,55 @@ impl LeaseOwner {
             .store
             .put(&self.key, Bytes::from(proposed.encode_to_vec()), condition)
             .await;
-        let etag = match result {
-            Ok(WriteOutcome::Written { etag }) => etag,
+        match result {
+            Ok(WriteOutcome::Written { etag }) => self.complete_renewal(proposed, etag, sent_at),
             Ok(WriteOutcome::PreconditionFailed) => {
-                let reconciled = self
-                    .reconcile_unconfirmed_renewal(&proposed, "renewal precondition failed")
-                    .await;
-                return Err(match reconciled {
-                    Ok(_) => RenewalAttemptFailure::Retryable(
-                        "renewal precondition failed after an earlier renewal of this process landed"
+                match self
+                    .reconcile_unconfirmed_renewal("renewal precondition failed")
+                    .await?
+                {
+                    ReconciledRenewal::Landed {
+                        lease,
+                        etag,
+                        sent_at,
+                    } => self.complete_renewal(lease, etag, sent_at),
+                    ReconciledRenewal::NotExtended => Err(RenewalAttemptFailure::Retryable(
+                        "renewal precondition failed while this process still holds the lease"
                             .to_owned(),
-                    ),
-                    Err(failure) => failure,
-                });
+                    )),
+                }
             }
-            Err(error) if error.kind == ObjectStoreErrorKind::OutcomeUnknown => self
-                .reconcile_unconfirmed_renewal(&proposed, "renewal outcome could not be confirmed")
-                .await?
-                .ok_or_else(|| {
-                    RenewalAttemptFailure::Retryable(format!(
-                        "renewal outcome was unknown and the write did not take effect: {error}"
-                    ))
-                })?,
+            Err(error) if error.kind == ObjectStoreErrorKind::OutcomeUnknown => {
+                match self
+                    .reconcile_unconfirmed_renewal("renewal outcome could not be confirmed")
+                    .await?
+                {
+                    ReconciledRenewal::Landed {
+                        lease,
+                        etag,
+                        sent_at,
+                    } => self.complete_renewal(lease, etag, sent_at),
+                    ReconciledRenewal::NotExtended => {
+                        Err(RenewalAttemptFailure::Retryable(format!(
+                            "renewal outcome was unknown and the write did not take effect: {error}"
+                        )))
+                    }
+                }
+            }
             Err(error) if error.kind == ObjectStoreErrorKind::Transient => {
-                return Err(RenewalAttemptFailure::Retryable(error.to_string()));
+                Err(RenewalAttemptFailure::Retryable(error.to_string()))
             }
-            Err(error) => return Err(RenewalAttemptFailure::Lost(error.into())),
-        };
+            Err(error) => Err(RenewalAttemptFailure::Lost(error.into())),
+        }
+    }
+
+    /// Adopts a stored renewal whose write was sent at `sent_at` and publishes its validity.
+    fn complete_renewal(
+        &mut self,
+        lease: NodeLease,
+        etag: String,
+        sent_at: Instant,
+    ) -> Result<(), RenewalAttemptFailure> {
         let valid_until = sent_at + self.duration;
         if Instant::now() >= self.current_valid_until {
             return Err(RenewalAttemptFailure::Lost(
@@ -778,10 +812,11 @@ impl LeaseOwner {
                 self.lost("renewal completed after local lease deadline"),
             ));
         }
-        self.lease = proposed;
+        self.lease = lease;
         self.etag = etag;
         self.last_request_sent = sent_at;
         self.current_valid_until = valid_until;
+        self.unconfirmed_renewals.clear();
         self.validity_deadline.arm_until(valid_until.into_std());
         drop(
             self.status
@@ -792,15 +827,14 @@ impl LeaseOwner {
 
     /// Reads the lease after a renewal write that failed its condition or had an unknown outcome.
     ///
-    /// Returns the ETag when `proposed` is stored, and `None` when this process still holds an
-    /// unextended lease, which it then renews from. Returns [`RenewalAttemptFailure::Lost`] when
-    /// another process holds the lease, and [`RenewalAttemptFailure::Retryable`] when the read failed
-    /// transiently.
+    /// Returns [`ReconciledRenewal::Landed`] when one of this cycle's attempts is stored, and
+    /// [`ReconciledRenewal::NotExtended`] when this process still holds a lease no attempt extended.
+    /// Returns [`RenewalAttemptFailure::Lost`] when another process holds the lease, and
+    /// [`RenewalAttemptFailure::Retryable`] when the read failed transiently.
     async fn reconcile_unconfirmed_renewal(
         &mut self,
-        proposed: &NodeLease,
         lost_detail: &str,
-    ) -> Result<Option<String>, RenewalAttemptFailure> {
+    ) -> Result<ReconciledRenewal, RenewalAttemptFailure> {
         let current = match self.store.get(&self.key).await {
             Ok(current) => current,
             Err(error)
@@ -822,8 +856,16 @@ impl LeaseOwner {
                 source,
             })
         })?;
-        if stored == *proposed {
-            return Ok(Some(content.etag));
+        if let Some(landed) = self
+            .unconfirmed_renewals
+            .iter()
+            .find(|attempt| attempt.proposed == stored)
+        {
+            return Ok(ReconciledRenewal::Landed {
+                sent_at: landed.sent_at,
+                lease: stored,
+                etag: content.etag,
+            });
         }
         let is_held_by_this_process = stored.holder_process_id == self.lease.holder_process_id
             && stored.version >= self.lease.version;
@@ -833,7 +875,7 @@ impl LeaseOwner {
         // Only the version and ETag move on; a just-raised epoch must not revert.
         self.lease.version = stored.version;
         self.etag = content.etag;
-        Ok(None)
+        Ok(ReconciledRenewal::NotExtended)
     }
 
     /// Returns a delay between half of `backoff` and all of it.
@@ -855,6 +897,24 @@ impl LeaseOwner {
             detail: detail.to_owned(),
         }
     }
+}
+
+/// A renewal write sent since the last confirmed renewal.
+struct UnconfirmedRenewal {
+    proposed: NodeLease,
+    sent_at: Instant,
+}
+
+/// What a read of the lease shows after an unconfirmed renewal write.
+enum ReconciledRenewal {
+    /// One of this cycle's writes is stored; validity counts from when it was sent.
+    Landed {
+        lease: NodeLease,
+        etag: String,
+        sent_at: Instant,
+    },
+    /// This process still holds the lease, but no write of this cycle extended it.
+    NotExtended,
 }
 
 /// Why one renewal attempt failed.

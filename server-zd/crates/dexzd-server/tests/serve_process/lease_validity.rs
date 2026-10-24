@@ -28,10 +28,10 @@ const READINESS_POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// A lease PUT that never returns turns health NOT_SERVING by the deadline, and the process exits 1.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_hung_lease_renewal_stops_serving_by_the_deadline_and_exits_one() {
-    const LEASE_DURATION: Duration = Duration::from_secs(2);
+    const LEASE_DURATION: Duration = Duration::from_secs(4);
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     let directory = TempDir::new().expect("a temporary test directory can be created");
-    let mut process = spawn_serving_process(&primary, directory.path(), "2s").await;
+    let mut process = spawn_serving_process(&primary, directory.path(), "4s").await;
     primary
         .set_fault_rules(&format!(
             r#"[{{"operation":"PutObject","key_prefix":"{PRIMARY_PREFIX}/lease/","action":{{"type":"delay","milliseconds":{HUNG_REQUEST_MILLISECONDS}}}}}]"#

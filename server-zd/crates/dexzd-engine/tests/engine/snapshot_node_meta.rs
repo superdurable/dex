@@ -42,6 +42,7 @@ async fn start_node_with_node_meta_services(
             clock: cluster.clock.clone(),
             applier: applier.clone(),
             id_source: Arc::new(SystemEngineIdSource),
+            lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
         },
         move |services: EngineServices| {
             *factory_captured.lock().expect("capture lock") =

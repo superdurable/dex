@@ -42,6 +42,7 @@ struct MemoryStore {
     block_lease_renewals: AtomicBool,
     fail_next_lease_renewal: AtomicBool,
     fail_lease_renewals: AtomicBool,
+    hang_after_next_lease_renewal_write: AtomicBool,
     pause_next_lease_release: AtomicBool,
     release_started: Notify,
     continue_release: Notify,
@@ -72,6 +73,18 @@ impl ObjectStore for MemoryStore {
         let is_lease_release = key.starts_with("lease/")
             && NodeLease::decode(body.clone())
                 .is_ok_and(|lease| lease.expires_at_unix_micros == i64::MIN);
+        if key.starts_with("lease/")
+            && !is_lease_release
+            && matches!(condition, WriteCondition::ReplaceIfEtagMatches { .. })
+            && self
+                .hang_after_next_lease_renewal_write
+                .swap(false, Ordering::SeqCst)
+        {
+            // The write lands, but its response never arrives.
+            let landed = self.put(key, body, condition).await;
+            assert!(matches!(landed, Ok(WriteOutcome::Written { .. })));
+            return std::future::pending().await;
+        }
         if is_lease_release && self.pause_next_lease_release.swap(false, Ordering::SeqCst) {
             self.release_started.notify_one();
             self.continue_release.notified().await;
@@ -1182,6 +1195,39 @@ async fn one_transient_renewal_failure_is_retried_without_losing_the_lease() {
         .armed_deadline()
         .expect("a renewed lease stays armed");
     assert!(renewed_deadline > first_deadline);
+    handle.shutdown().await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timed_out_renewal_that_landed_is_adopted_on_the_retry() {
+    let store = Arc::new(MemoryStore::default());
+    let clock = Arc::new(TestClock::default());
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+        .await
+        .unwrap();
+    let handle = acquire_lease(store.clone(), clock, &node(), &LeaseConfig::default())
+        .await
+        .unwrap();
+    let mut status = handle.subscribe();
+    let first_deadline = match *status.borrow_and_update() {
+        LeaseStatus::ValidUntil(deadline) => deadline,
+        LeaseStatus::Lost(_) => panic!("expected a valid lease"),
+    };
+    store
+        .hang_after_next_lease_renewal_write
+        .store(true, Ordering::SeqCst);
+    tokio::time::timeout(Duration::from_secs(6), status.changed())
+        .await
+        .expect("the retry confirms the landed renewal before the deadline")
+        .unwrap();
+    let renewed_deadline = match *status.borrow() {
+        LeaseStatus::ValidUntil(deadline) => deadline,
+        LeaseStatus::Lost(ref detail) => panic!("the landed renewal was lost: {detail}"),
+    };
+    // Validity counts from the timed-out attempt sent at 3.3 s, not from the retry after 5 s.
+    let renewal_interval = LeaseConfig::default().duration / 3;
+    assert!(renewed_deadline >= first_deadline + renewal_interval);
+    assert!(renewed_deadline < first_deadline + renewal_interval + Duration::from_millis(100));
     handle.shutdown().await.unwrap();
 }
 
