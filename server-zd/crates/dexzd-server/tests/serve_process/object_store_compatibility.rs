@@ -16,14 +16,34 @@ use dexzd_protocol::dex::{
 use s3mock_server::SignatureVerification;
 use tempfile::TempDir;
 
-use super::harness::{S3Emulator, ServeConfig, ServeProcess, free_loopback_address};
+use super::harness::{
+    ACCESS_KEY_ID, S3Emulator, SECRET_ACCESS_KEY, ServeConfig, ServeProcess, free_loopback_address,
+};
 use super::{
     FLOW_TYPE, HELD_LEASE_DURATION, NODE_ID, PRIMARY_BUCKET, SHUTDOWN_BUDGET, string_value,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn object_store_serve_recovers_after_warm_and_cold_restart() {
-    let external_endpoint = std::env::var("DEX_ZD_S3_TEST_ENDPOINT").ok();
+    let external_endpoint = match std::env::var("DEX_ZD_S3_TEST_ENDPOINT") {
+        Ok(endpoint) => Some(endpoint),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(error) => panic!("DEX_ZD_S3_TEST_ENDPOINT is unreadable: {error}"),
+    };
+    let is_external_endpoint = external_endpoint.is_some();
+    let (primary_bucket, access_key_id, secret_access_key) = if is_external_endpoint {
+        (
+            std::env::var("DEX_ZD_S3_TEST_BUCKET").expect("the external bucket is configured"),
+            std::env::var("AWS_ACCESS_KEY_ID").expect("the external access key is configured"),
+            std::env::var("AWS_SECRET_ACCESS_KEY").expect("the external secret key is configured"),
+        )
+    } else {
+        (
+            PRIMARY_BUCKET.to_owned(),
+            ACCESS_KEY_ID.to_owned(),
+            SECRET_ACCESS_KEY.to_owned(),
+        )
+    };
     let emulator = if external_endpoint.is_some() {
         None
     } else {
@@ -59,12 +79,19 @@ async fn object_store_serve_recovers_after_warm_and_cold_restart() {
             fail_if_held: true,
             parade_db: None,
         }
-        .write(&config_path);
-        let mut process = ServeProcess::spawn(
-            &config_path,
-            address,
-            log_directory.join(format!("serve-{restart}.log")),
-        );
+        .write_with_primary_bucket(&config_path, &primary_bucket);
+        let process_log_path = log_directory.join(format!("serve-{restart}.log"));
+        let mut process = if is_external_endpoint {
+            ServeProcess::spawn_with_static_keys(
+                &config_path,
+                address,
+                process_log_path,
+                &access_key_id,
+                &secret_access_key,
+            )
+        } else {
+            ServeProcess::spawn(&config_path, address, process_log_path)
+        };
         let channel = process.wait_until_serving().await;
         let mut flow_client = FlowServiceClient::new(channel);
         if restart == 0 {

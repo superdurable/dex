@@ -1443,7 +1443,12 @@ async fn seeded_takeovers_recover_exactly_the_acknowledged_prefix() {
 #[tokio::test]
 async fn external_s3_commit_protocol() {
     let directory = TempDir::new().expect("the temporary test directory is created");
-    let external_endpoint = std::env::var("DEX_ZD_S3_TEST_ENDPOINT").ok();
+    let external_endpoint = match std::env::var("DEX_ZD_S3_TEST_ENDPOINT") {
+        Ok(endpoint) => Some(endpoint),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(error) => panic!("DEX_ZD_S3_TEST_ENDPOINT is unreadable: {error}"),
+    };
+    let is_external_endpoint = external_endpoint.is_some();
     let (server, endpoint, bucket, credentials) = if let Some(endpoint) = external_endpoint {
         (
             None,
@@ -1486,7 +1491,16 @@ async fn external_s3_commit_protocol() {
     };
     let mut config = S3ObjectStoreConfig::new("us-east-1", bucket);
     config.endpoint = Some(endpoint);
-    config.key_prefix = "commit-compatibility".to_owned();
+    config.key_prefix = if is_external_endpoint {
+        let run_directory_name = directory
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("the temporary directory has a UTF-8 name");
+        format!("commit-compatibility/{run_directory_name}")
+    } else {
+        "commit-compatibility".to_owned()
+    };
     config.force_path_style = true;
     config.credentials = credentials;
     let store: Arc<dyn ObjectStore> = Arc::new(

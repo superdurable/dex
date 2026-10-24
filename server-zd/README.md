@@ -230,14 +230,13 @@ The pinned MinIO release has shown these deviations from the suite's S3 expectat
 
 | S3 behavior | Observed MinIO behavior | server-zd use |
 | --- | --- | --- |
-| Recreating an owned bucket in `us-east-1` | Returns `BucketAlreadyOwnedByYou` instead of succeeding | No; the bucket is provisioned before server startup |
-| Lifecycle rule expiration | Omits the expected expiration day count when reading the rule | No lifecycle API use |
-| Versioned batch delete | Does not report the new delete marker as the latest version | No bucket versioning use |
-| Multipart upload listing with prefix and markers | Returns an empty page where one upload is expected | No multipart upload listing use |
-| Checksummed multipart part numbering | Accepts a SHA-256 upload completed from part 2 without part 1 | No; server-zd uploads CRC32 parts consecutively from part 1 |
-| Multipart full-object checksum validation | Accepts a wrong checksum header at completion | No full-object checksum header; server-zd uses CRC32 part checksums |
-| Object keys containing `//` | Rejects the key with `XMinioInvalidObjectName` | No; server-zd generates keys without doubled slashes |
-| Reading a delete marker version | Omits `Last-Modified` from the 405 response | No bucket versioning use |
+| Recreating an owned bucket in `us-east-1` | Returns `BucketAlreadyOwnedByYou`: "Your previous request to create the named bucket succeeded and you already own it." | No; the bucket is provisioned before server startup |
+| Lifecycle rule for aborting incomplete multipart uploads | Reads `DaysAfterInitiation` as "left: None" instead of "right: Some(2)"; expiration days round-trip | No lifecycle API use |
+| Versioned batch delete | No listed marker satisfies the run's assertion, "entry.is_latest() == Some(true)" | No bucket versioning use |
+| Multipart upload listing with prefix and markers | Returns "left: 0" where the test expects "right: 1" upload | No multipart upload listing use |
+| Checksummed multipart part numbering | A SHA-256 upload completed from part 2; the test logged "called `Result::unwrap_err()` on an `Ok` value" | No; server-zd uploads CRC32 parts consecutively from part 1 |
+| Multipart full-object checksum type | A COMPOSITE checksum-type header on a FULL_OBJECT upload was accepted; the test logged "called `Result::unwrap_err()` on an `Ok` value" after a wrong full-object CRC32 value was rejected | No checksum-type header; server-zd uses CRC32 part checksums |
+| Reading a delete marker version | Fails "S3 reports the delete marker's Last-Modified on 405" | No bucket versioning use |
 
 The encrypted multipart conformance fixtures need a test KMS. The workflow configures one for
 each run; an upload initiation failure without it does not measure multipart completion behavior.

@@ -234,6 +234,11 @@ impl ServeConfig<'_> {
         self.write_with_snapshot_schedule(path, "1h", "24h");
     }
 
+    /// Writes the YAML file with a selected primary bucket.
+    pub(crate) fn write_with_primary_bucket(&self, path: &Path, primary_bucket: &str) {
+        self.write_with_snapshot_schedule_and_primary_bucket(path, "1h", "24h", primary_bucket);
+    }
+
     /// Writes the YAML file with `retention.closedFlowDuration` set to `closed_flow_duration`.
     pub(crate) fn write_with_closed_flow_retention(&self, path: &Path, closed_flow_duration: &str) {
         self.write(path);
@@ -250,6 +255,21 @@ impl ServeConfig<'_> {
         path: &Path,
         snapshot_interval: &str,
         log_deletion_delay: &str,
+    ) {
+        self.write_with_snapshot_schedule_and_primary_bucket(
+            path,
+            snapshot_interval,
+            log_deletion_delay,
+            super::PRIMARY_BUCKET,
+        );
+    }
+
+    fn write_with_snapshot_schedule_and_primary_bucket(
+        &self,
+        path: &Path,
+        snapshot_interval: &str,
+        log_deletion_delay: &str,
+        primary_bucket: &str,
     ) {
         let hard_delete_store = match self.hard_delete_endpoint {
             Some(endpoint) => format!(
@@ -269,7 +289,7 @@ impl ServeConfig<'_> {
             "cluster:\n  nodeId: {node_id}\n  partitionCount: 16\nobjectStore:\n  endpoint: {endpoint}\n  region: us-east-1\n  bucket: {bucket}\n  prefix: {prefix}\n  forcePathStyle: true\n  credentialsSource: environment\n{hard_delete_store}localStorage:\n  directory: {directory}\n  blockCacheBytes: 16777216\nlease:\n  duration: {lease}\n  failIfHeld: {fail_if_held}\nsnapshot:\n  interval: {snapshot_interval}\n  logDeletionDelay: {log_deletion_delay}\n  retainedCount: 2\napi:\n  listen: \"{listen}\"\n{search}",
             node_id = super::NODE_ID,
             endpoint = self.primary_endpoint,
-            bucket = super::PRIMARY_BUCKET,
+            bucket = primary_bucket,
             prefix = super::PRIMARY_PREFIX,
             directory = self.local_directory.display(),
             lease = self.lease_duration,
@@ -290,23 +310,62 @@ pub(crate) struct ServeProcess {
 impl ServeProcess {
     /// Starts `serve --config` with environment credentials for the primary store.
     pub(crate) fn spawn(config_path: &Path, address: SocketAddr, log_path: PathBuf) -> Self {
+        Self::spawn_with_credentials(
+            config_path,
+            address,
+            log_path,
+            ACCESS_KEY_ID,
+            SECRET_ACCESS_KEY,
+            Some(SESSION_TOKEN),
+        )
+    }
+
+    /// Starts `serve --config` with static credentials and no session token.
+    pub(crate) fn spawn_with_static_keys(
+        config_path: &Path,
+        address: SocketAddr,
+        log_path: PathBuf,
+        access_key_id: &str,
+        secret_access_key: &str,
+    ) -> Self {
+        Self::spawn_with_credentials(
+            config_path,
+            address,
+            log_path,
+            access_key_id,
+            secret_access_key,
+            None,
+        )
+    }
+
+    fn spawn_with_credentials(
+        config_path: &Path,
+        address: SocketAddr,
+        log_path: PathBuf,
+        access_key_id: &str,
+        secret_access_key: &str,
+        session_token: Option<&str>,
+    ) -> Self {
         let log = fs::File::create(&log_path).expect("the process log file is created");
         let mut command = Command::new(env!("CARGO_BIN_EXE_dex-server-zd"));
         command
             .arg("serve")
             .arg("--config")
             .arg(config_path)
-            .env("DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID", ACCESS_KEY_ID)
-            .env("DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY", SECRET_ACCESS_KEY)
+            .env("DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID", access_key_id)
+            .env("DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY", secret_access_key)
             .env("RUST_LOG", "info")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(log)
             .kill_on_drop(true);
-        if std::env::var_os("DEX_ZD_S3_TEST_ENDPOINT").is_some() {
-            command.env_remove("DEX_ZD_OBJECT_STORE_SESSION_TOKEN");
-        } else {
-            command.env("DEX_ZD_OBJECT_STORE_SESSION_TOKEN", SESSION_TOKEN);
+        match session_token {
+            Some(session_token) => {
+                command.env("DEX_ZD_OBJECT_STORE_SESSION_TOKEN", session_token);
+            }
+            None => {
+                command.env_remove("DEX_ZD_OBJECT_STORE_SESSION_TOKEN");
+            }
         }
         let child = command.spawn().expect("dex-server-zd starts");
         Self {

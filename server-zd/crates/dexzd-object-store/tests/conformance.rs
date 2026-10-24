@@ -400,7 +400,12 @@ async fn in_memory_conformance() {
 
 async fn s3_conformance(durability: Durability) {
     let directory = TempDir::new().expect("the conformance operation succeeds");
-    let external_endpoint = std::env::var("DEX_ZD_S3_TEST_ENDPOINT").ok();
+    let external_endpoint = match std::env::var("DEX_ZD_S3_TEST_ENDPOINT") {
+        Ok(endpoint) => Some(endpoint),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(error) => panic!("DEX_ZD_S3_TEST_ENDPOINT is unreadable: {error}"),
+    };
+    let is_external_endpoint = external_endpoint.is_some();
     let (store, server, endpoint, bucket, credentials) = if let Some(endpoint) = external_endpoint {
         (
             None,
@@ -446,7 +451,16 @@ async fn s3_conformance(durability: Durability) {
     };
     let mut config = S3ObjectStoreConfig::new("us-east-1", bucket.clone());
     config.endpoint = Some(endpoint);
-    config.key_prefix = "dexzd/conformance".to_owned();
+    config.key_prefix = if is_external_endpoint {
+        let run_directory_name = directory
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("the temporary directory has a UTF-8 name");
+        format!("dexzd/conformance/{run_directory_name}")
+    } else {
+        "dexzd/conformance".to_owned()
+    };
     config.force_path_style = true;
     config.credentials = credentials;
     config.multipart_threshold = 5 * 1024 * 1024;
