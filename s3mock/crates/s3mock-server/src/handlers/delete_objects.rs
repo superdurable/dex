@@ -14,6 +14,7 @@ use http::HeaderMap;
 use s3mock::{DeleteObjectOutcome, DeleteObjectRequest, Store, StoreError};
 
 use super::request_body::read_small_body;
+use crate::policy::{CredentialPolicy, object_arn};
 use crate::s3_error::S3Error;
 use crate::server::{S3Response, run_store_operation, xml_response};
 use crate::xml::{XmlWriter, parse_document};
@@ -33,6 +34,7 @@ pub(crate) async fn delete_objects(
     bucket: String,
     headers: HeaderMap,
     body: crate::server::RequestBody,
+    policy: Option<CredentialPolicy>,
 ) -> Result<S3Response, S3Error> {
     {
         let bucket = bucket.clone();
@@ -71,10 +73,22 @@ pub(crate) async fn delete_objects(
             targets
                 .into_iter()
                 .map(|target| {
+                    let authorization = policy.as_ref().map_or(Ok(()), |policy| {
+                        let action = if target.version_id.is_some() {
+                            "s3:DeleteObjectVersion"
+                        } else {
+                            "s3:DeleteObject"
+                        };
+                        policy.authorize(action, &object_arn(&bucket, &target.key))
+                    });
                     let request = DeleteObjectRequest {
                         version_id: target.version_id.clone(),
                     };
-                    let result = store.delete_object(&bucket, &target.key, &request);
+                    let result = authorization.and_then(|()| {
+                        store
+                            .delete_object(&bucket, &target.key, &request)
+                            .map_err(S3Error::from)
+                    });
                     (target, result)
                 })
                 .collect::<Vec<_>>(),
@@ -90,7 +104,6 @@ pub(crate) async fn delete_objects(
                 }
             }
             Err(error) => {
-                let error = S3Error::from(error);
                 document
                     .open("Error")
                     .text_element("Key", &target.key)

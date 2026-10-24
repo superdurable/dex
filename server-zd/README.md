@@ -34,6 +34,26 @@ example, it supports only pull Workers).
 Crate layers are registered in `script/rust-crate-layers.json`; a crate may depend only on crates
 in the same or a lower layer.
 
+## Release binaries
+
+Each published `server-zd/vX.Y.Z` GitHub Release includes native `dex-server-zd` archives for
+Linux amd64, Linux arm64, and macOS arm64:
+
+| Platform | Archive |
+| --- | --- |
+| Linux amd64 | `dex-server-zd_vX.Y.Z_linux_amd64.tar.gz` |
+| Linux arm64 | `dex-server-zd_vX.Y.Z_linux_arm64.tar.gz` |
+| macOS arm64 | `dex-server-zd_vX.Y.Z_darwin_arm64.tar.gz` |
+
+Each archive contains `dex-server-zd`, `LICENSE.md`, `LEGACY_NOTICES.md`, and `LICENSES/`.
+The Release also includes `checksums.txt` with the SHA-256 hash of each archive. Verify the
+downloaded archive against that file before extracting it. Run
+`sha256sum --ignore-missing -c checksums.txt` on Linux or
+`shasum -a 256 --ignore-missing -c checksums.txt` on macOS from the download directory.
+
+Linux archives require glibc 2.28 or newer. They run on Debian 10+, Ubuntu 20.04+, and
+RHEL 8+ without a newer system libstdc++.
+
 ## Metrics
 
 Set `metrics.listen` to a bind address such as `127.0.0.1:9090` to serve plain HTTP `GET /metrics` on a listener separate from `api.listen`. The default empty string disables it. The endpoint is unauthenticated; never expose it publicly. Other paths return 404. The response uses OpenMetrics text with `application/openmetrics-text; version=1.0.0; charset=utf-8`. Metrics are available while a node is recovering or standing by.
@@ -109,12 +129,52 @@ to a separate destination with the same keys; without it they use the primary bu
 | `environment` | `DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID`, `DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY`, and the optional `DEX_ZD_OBJECT_STORE_SESSION_TOKEN`; the hard-delete store reads the `DEX_ZD_HARD_DELETE_STORE_*` variables with the same suffixes |
 | `anonymous` | Unsigned requests, for a local emulator or a bucket that allows anonymous access |
 
+For a shared AWS S3 bucket, set a nonempty `objectStore.prefix` and grant the Server role only
+these S3 actions. Replace `BUCKET` and `PREFIX/` with the bucket and configured prefix; include the
+trailing slash in the policy. Apply the same policy to `objectStore.hardDeleteStore` when configured.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": { "StringLike": { "s3:prefix": "PREFIX/*" } }
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+      "Resource": "arn:aws:s3:::BUCKET/PREFIX/*"
+    }
+  ]
+}
+```
+
+The Server lists only under its configured prefix, including when checking a missing object.
+The `s3:ListBucket` condition must use `StringLike` with `PREFIX/*`. An exact-prefix
+`StringEquals` grant or no `s3:ListBucket` grant is unsupported: a missing object may return
+403, and the Server cannot use a prefixed listing to distinguish it from a denied object.
+With the `StringLike` grant above, AWS S3 returns 404 for missing-object reads; narrower grants
+can return 403. The Server handles either response when the prefixed listing is allowed.
+The startup conditional-write probe also creates and deletes a key under that prefix. No
+unconditioned bucket access or bucket administration action is required. The bucket may be
+unversioned: create-only and replacement writes use `If-None-Match` and `If-Match` with opaque
+ETags, not object versions or MD5 digests. The S3 client sends no server-side encryption headers,
+so the bucket's default SSE-KMS configuration applies. For a customer-managed KMS key, grant the
+role `kms:GenerateDataKey` and `kms:Decrypt` on that key, and allow those actions in its key policy.
+Configure a bucket lifecycle rule to `AbortIncompleteMultipartUpload` after 1–7 days. A crash can
+leave an incomplete upload, and a prefix-confined role cannot list or clean up all abandoned
+multipart uploads.
+
 Startup proceeds in this order:
 
 1. The node binds `api.listen`. gRPC health Check and Watch report NOT_SERVING for `""`,
    `dex.FlowService`, and `dex.WorkerTaskService`; FlowService and WorkerTaskService calls return
    Unavailable while startup continues.
-2. Every destination must pass a conditional-write self-check.
+2. Every S3 destination verifies a prefixed child listing. Every destination then passes a
+   conditional-write self-check.
 3. The node acquires the lease of `cluster.nodeId` for `lease.duration`. A lease that another
    process still holds is awaited until it expires, or fails startup when `lease.failIfHeld` is
    true.
@@ -201,6 +261,22 @@ state under `<data-dir>/store`. `dexcli dev -engine zd` starts it with these fla
 node ID to `dev`, anonymous credentials, the embedded endpoint, and the `--listen` address, and it
 rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
 `<log-dir>/dex-server-zd.log`. A `search.backend: paradedb` override uses ParadeDB as `serve` does.
+
+## Stable command-line interface
+
+These commands and flags are part of the Beta compatibility interface. Applications can invoke
+them without depending on the implementation of the server:
+
+| Command | Flag | Meaning |
+| --- | --- | --- |
+| `serve` | `--config <file>` | Required YAML configuration file for a node using external object storage. |
+| `dev` | `--data-dir <dir>` | Required directory for embedded object storage and local state. |
+| `dev` | `--listen <address>` | Plaintext gRPC listen address as `IP:port`; host names are rejected; defaults to `127.0.0.1:8801`. |
+| `dev` | `--config <file>` | Optional YAML configuration overrides. |
+| `dev` | `--log-dir <dir>` | Optional directory that also receives `dex-server-zd.log`. |
+| Both | `--version` | Prints `dex-server-zd X.Y.Z`. |
+
+SIGTERM stops `dev` and exits with status 0.
 
 ## Development
 

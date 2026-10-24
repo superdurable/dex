@@ -182,6 +182,10 @@ impl S3Emulator {
         self.admin_request("GET", "/_s3mock/requests", "").await
     }
 
+    pub(crate) async fn counters(&self) -> String {
+        self.admin_request("GET", "/_s3mock/counters", "").await
+    }
+
     async fn admin_request(&self, method: &str, path: &str, body: &str) -> String {
         let address = self.server.local_address();
         let mut stream = tokio::net::TcpStream::connect(address)
@@ -434,6 +438,18 @@ impl ServeProcess {
         );
         self.wait_for_exit(deadline.saturating_duration_since(tokio::time::Instant::now()))
             .await
+    }
+
+    pub(crate) async fn kill(&mut self) -> ExitStatus {
+        let process_id = self.child.id().expect("the process is still running");
+        let signal_status = Command::new("kill")
+            .arg("-KILL")
+            .arg(process_id.to_string())
+            .status()
+            .await
+            .expect("kill runs");
+        assert!(signal_status.success(), "kill -KILL {process_id} failed");
+        self.wait_for_exit(Duration::from_secs(5)).await
     }
 
     /// Waits for the process to exit by itself within `budget`.
