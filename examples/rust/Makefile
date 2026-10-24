@@ -25,7 +25,7 @@ test: checkServerZdExclusions
 	cargo test --all-targets --locked
 
 integTests:
-	cargo test --locked --test dex_integration -- --ignored --test-threads=1 $(INTEG_ENGINE_FILTER_ARGS) $(TEST_RUNNER_ARGS)
+	cargo test --locked --test dex_integration -- --ignored --test-threads=1 $(TEST_RUNNER_ARGS)
 
 flowSmokeTests:
 	$(call print_server_zd_exclusions,$(SERVER_ZD_FLOW_SMOKE_ATTRIBUTE_STORE_SYNC_TESTS),Attribute Store sync)

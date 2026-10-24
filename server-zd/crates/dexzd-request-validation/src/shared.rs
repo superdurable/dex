@@ -22,8 +22,6 @@ pub enum ValidationCategory {
     InvalidArgument,
     /// A Worker supplied an invalid response; the attempt may be retried.
     RetryableWorkerResponse,
-    /// A Worker response cannot be retried.
-    NonRetryableWorkerResponse,
 }
 
 /// Carries a rejected field, its reason, and the caller's error category.
@@ -376,25 +374,6 @@ pub(crate) fn validate_step_options(
     let mut current = options;
     let mut current_path = path.to_owned();
     while let Some(options) = current {
-        if options.execute_failure_policy
-            == ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
-            && options.execute_failure_proceed_step_type.is_empty()
-        {
-            return Err(invalid(
-                format!("{current_path}.execute_failure_proceed_step_type"),
-                "Execute proceed policy requires a failure target",
-            ));
-        }
-        if options.execute_failure_policy
-            != ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
-            && (!options.execute_failure_proceed_step_type.is_empty()
-                || options.execute_failure_proceed_step_options.is_some())
-        {
-            return Err(invalid(
-                format!("{current_path}.execute_failure_proceed_step_type"),
-                "Execute failure target requires the proceed policy",
-            ));
-        }
         validate_identifier(
             &format!("{current_path}.execute_failure_proceed_step_type"),
             "step type",

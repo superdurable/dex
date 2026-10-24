@@ -211,34 +211,108 @@ fn start_flow_rejects_server_zd_unsupported_options() {
         ..FlowStartOptions::default()
     });
     cases.push(request);
-    let mut request = start_request();
-    request.step_options = Some(StepOptions {
-        execute_failure_policy: 2,
-        ..StepOptions::default()
-    });
-    cases.push(request);
-    let mut request = start_request();
-    request.step_options = Some(StepOptions {
-        execute_failure_proceed_step_type: "recovery".into(),
-        ..StepOptions::default()
-    });
-    cases.push(request);
-    let mut request = start_request();
-    request.flow_timeout_seconds = 10;
-    request.flow_timeout_policy = 3;
-    request.flow_start_options = Some(FlowStartOptions {
-        timeout_handler_options: Some(FlowTimeoutHandlerOptions {
-            failure_proceed_step_type: "recovery".into(),
-            ..FlowTimeoutHandlerOptions::default()
-        }),
-        ..FlowStartOptions::default()
-    });
-    cases.push(request);
     for request in cases {
         let error = validate_client_request(ClientRequest::StartFlow(&request), &config)
             .expect_err("unsupported option");
         assert_eq!(error.category, ValidationCategory::InvalidArgument);
-        assert!(!error.message.is_empty(), "{error:?}");
+        assert!(
+            error.message.starts_with("server-zd does not support"),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
+fn start_flow_rejects_inconsistent_timeout_handler_failure_target() {
+    let config = config();
+    let cases = [
+        (
+            FlowTimeoutHandlerOptions {
+                failure_proceed_step_type: "recovery".into(),
+                ..FlowTimeoutHandlerOptions::default()
+            },
+            "Flow timeout handler failure target requires the proceed policy",
+        ),
+        (
+            FlowTimeoutHandlerOptions {
+                failure_policy: dex::ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
+                ..FlowTimeoutHandlerOptions::default()
+            },
+            "Flow timeout handler proceed policy requires a failure target",
+        ),
+    ];
+    for (handler, expected) in cases {
+        let mut request = start_request();
+        request.flow_timeout_seconds = 10;
+        request.flow_timeout_policy = dex::FlowTimeoutPolicy::Handler as i32;
+        request.flow_start_options = Some(FlowStartOptions {
+            timeout_handler_options: Some(handler),
+            ..FlowStartOptions::default()
+        });
+        let error = validate_client_request(ClientRequest::StartFlow(&request), &config)
+            .expect_err("inconsistent timeout handler failure target");
+        assert_eq!(error.category, ValidationCategory::InvalidArgument);
+        assert_eq!(error.message, expected);
+        assert_eq!(
+            error.field_path,
+            "flow_start_options.timeout_handler_options.failure_proceed_step_type"
+        );
+    }
+}
+
+/// Step failure targets that the Go Server accepts without a consistency check.
+fn step_options_with_unchecked_failure_targets() -> Vec<StepOptions> {
+    vec![
+        StepOptions {
+            execute_failure_policy: dex::ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
+            ..StepOptions::default()
+        },
+        StepOptions {
+            execute_failure_proceed_step_type: "RecoveryStep".into(),
+            ..StepOptions::default()
+        },
+        StepOptions {
+            execute_failure_proceed_step_options: Some(Box::new(StepOptions::default())),
+            ..StepOptions::default()
+        },
+    ]
+}
+
+#[test]
+fn start_flow_accepts_step_failure_target_without_consistency_check() {
+    let config = config();
+    for step_options in step_options_with_unchecked_failure_targets() {
+        let mut request = start_request();
+        request.step_options = Some(step_options.clone());
+        validate_client_request(ClientRequest::StartFlow(&request), &config)
+            .unwrap_or_else(|error| panic!("{step_options:?} is accepted: {error:?}"));
+    }
+}
+
+#[test]
+fn worker_step_decision_accepts_step_failure_target_without_consistency_check() {
+    let config = config();
+    for step_options in step_options_with_unchecked_failure_targets() {
+        let decision = StepDecision {
+            next_steps: vec![StepMovement {
+                step_type: "NextStep".into(),
+                step_options: Some(step_options.clone()),
+                ..StepMovement::default()
+            }],
+            ..StepDecision::default()
+        };
+        let execute = InvokeExecuteMethodResponse {
+            step_decision: Some(decision.clone()),
+            ..InvokeExecuteMethodResponse::default()
+        };
+        validate_worker_response(WorkerResponse::Execute(Some(&execute)), &config)
+            .unwrap_or_else(|error| panic!("Execute accepts {step_options:?}: {error:?}"));
+        let rpc = InvokeWorkerRpcResponse {
+            step_decision: Some(decision),
+            ..InvokeWorkerRpcResponse::default()
+        };
+        validate_worker_response(WorkerResponse::Rpc(Some(&rpc)), &config)
+            .unwrap_or_else(|error| panic!("RPC accepts {step_options:?}: {error:?}"));
     }
 }
 

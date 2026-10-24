@@ -27,14 +27,14 @@ use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, 
 use dexzd_protocol::dex::{
     ActionPermissionMapping, ActionPermissionMappings, ActiveStepPhase, AttributeMatch,
     AttributeMatchOperator, AttributeWrite, ChannelMessage, CloseDecision, CloseDecisionType,
-    ConditionStatus, ExecuteMethodFailurePolicy, FlowConfig, FlowStartOptions, FlowStatus,
-    FlowTimeoutPolicy, IndexConfig, IndexType, InvokeExecuteMethodResponse,
-    InvokeWaitForMethodResponse, LoadBlobRequestEntry, PublishToChannelRequest, PullRouting,
-    PullRoutingSource, RetryPolicy, SetAttributesRequest, StartFlowRequest, StepDecision,
-    StepDurability, StepMethodEventContext, StepMethodOptions, StepMovement, StepOptions,
-    StopFlowRequest, StopType, TimerCondition, TimerResult, UpdateFlowConfigRequest, Value,
-    WaitingCondition, WaitingConditionType, WorkerErrorResponse, WorkerTarget, flow_history_event,
-    value,
+    ConditionStatus, ExecuteMethodFailurePolicy, FlowClosedHistoryEvent, FlowConfig, FlowErrorType,
+    FlowStartOptions, FlowStatus, FlowTimeoutPolicy, IndexConfig, IndexType,
+    InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, LoadBlobRequestEntry,
+    PublishToChannelRequest, PullRouting, PullRoutingSource, RetryPolicy, SetAttributesRequest,
+    StartFlowRequest, StepDecision, StepDurability, StepMethodEventContext, StepMethodOptions,
+    StepMovement, StepOptions, StopFlowRequest, StopType, TimerCondition, TimerResult,
+    UpdateFlowConfigRequest, Value, WaitingCondition, WaitingConditionType, WorkerErrorResponse,
+    WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, ChannelPublishCommand, ConditionResultsRecord, FlowCommand,
@@ -1905,6 +1905,89 @@ fn a_failed_step_ends_without_completion() {
         .unwrap(),
         StepCompletionState::EndedWithoutCompletion
     );
+}
+
+/// Fails ChargeStep's only Execute attempt and returns the Flow's closing event.
+fn close_after_final_execute_failure(step_options: StepOptions) -> FlowClosedHistoryEvent {
+    let mut harness = Harness::new();
+    harness.start(FlowStartOptions::default(), Some(step_options));
+    harness.start_attempt(StepMethod::Execute);
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(StepInvocationKey {
+            step_execution_id: "ChargeStep-1".to_owned(),
+            method: StepMethod::Execute as i32,
+        }),
+        attempt: 1,
+        kind: StepAttemptFailureKind::WorkerError as i32,
+        worker_error: Some(WorkerErrorResponse {
+            error_type: "UserError".to_owned(),
+            detail: "failed".to_owned(),
+            ..WorkerErrorResponse::default()
+        }),
+        is_non_retryable: true,
+        ..StepAttemptFailedCommand::default()
+    }));
+    let recovery_step_key = run_named_key(
+        harness.context.flow_hash,
+        harness.run_id,
+        RunTable::StepExecution,
+        "RecoverStep-1",
+    );
+    assert!(
+        harness
+            .state
+            .get(ColumnFamily::Flow, &recovery_step_key)
+            .expect("the Step row reads")
+            .is_none(),
+        "no recovery Step starts"
+    );
+    let summary = get_flow_summary(&harness.state, harness.context.flow_hash, harness.run_id)
+        .expect("the Flow summary reads");
+    assert_eq!(summary.flow_status, FlowStatus::Failed as i32);
+    let events = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run_id,
+        0,
+        0,
+        &[],
+        0,
+    )
+    .expect("the history reads")
+    .events;
+    match events.last().and_then(|event| event.payload.clone()) {
+        Some(flow_history_event::Payload::FlowClosed(closed)) => closed,
+        payload => panic!("the Flow closes after the final failure, got {payload:?}"),
+    }
+}
+
+#[test]
+fn execute_failure_without_a_usable_recovery_target_fails_the_flow_like_an_unset_policy() {
+    let unset_policy = close_after_final_execute_failure(StepOptions {
+        skip_wait_for: true,
+        ..StepOptions::default()
+    });
+    assert_eq!(unset_policy.error_type, FlowErrorType::WorkerApiFail as i32);
+    let unusable_targets = [
+        StepOptions {
+            skip_wait_for: true,
+            execute_failure_policy: ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
+            ..StepOptions::default()
+        },
+        StepOptions {
+            skip_wait_for: true,
+            execute_failure_proceed_step_type: "RecoverStep".to_owned(),
+            execute_failure_proceed_step_options: Some(Box::new(StepOptions::default())),
+            ..StepOptions::default()
+        },
+    ];
+    for step_options in unusable_targets {
+        assert_eq!(
+            close_after_final_execute_failure(step_options.clone()),
+            unset_policy,
+            "{step_options:?}"
+        );
+    }
 }
 
 #[test]

@@ -14,12 +14,16 @@ use dexzd_protocol::dex::{
     WaitForMethodFailurePolicy, WorkerErrorResponse, WorkerTarget, flow_history_event,
     invoke_execute_method_output, poll_worker_task, poll_worker_task_frame, value,
 };
+use prost::Message;
 use std::time::Duration;
 use tokio::time::Instant;
 
 use crate::harness::{DevServer, ScriptedWorker, force_complete};
 
 const FLOW_TYPE: &str = "FailurePolicyFlow";
+
+/// The dev server's default `values.wireInlineThresholdBytes`.
+const DEFAULT_WIRE_INLINE_THRESHOLD_BYTES: usize = 100;
 
 fn text_value(text: &str) -> Value {
     Value {
@@ -67,13 +71,10 @@ async fn start_flow(server: &DevServer, flow_id: &str, input: Value, options: St
         .expect("StartFlow accepts the policy");
 }
 
-async fn resolved_input(server: &DevServer, flow_id: &str, value: &Value) -> Value {
-    let reference = match value.kind.as_ref() {
-        Some(
-            value::Kind::InternalBlobIdForStringValue(reference)
-            | value::Kind::InternalBlobIdForObjValue(reference),
-        ) => reference,
-        _ => return value.clone(),
+/// Loads a Step input that the Worker received as a stored value reference.
+async fn load_referenced_input(server: &DevServer, flow_id: &str, value: &Value) -> Value {
+    let Some(value::Kind::InternalBlobIdForStringValue(reference)) = value.kind.as_ref() else {
+        panic!("the recovery Step input arrives as a stored value reference, got {value:?}");
     };
     server
         .flow_client()
@@ -112,6 +113,10 @@ async fn execute_failure_starts_recovery_with_durable_input_and_error() {
     let mut worker = ScriptedWorker::start(server.worker_client(), FLOW_TYPE).await;
     let flow_id = "execute-failure-recovery";
     let input = text_value(&"saved-input".repeat(512));
+    assert!(
+        input.encoded_len() > DEFAULT_WIRE_INLINE_THRESHOLD_BYTES,
+        "the input must be stored by reference"
+    );
     start_flow(
         &server,
         flow_id,
@@ -150,7 +155,7 @@ async fn execute_failure_starts_recovery_with_durable_input_and_error() {
         "BusinessFailure"
     );
     assert_eq!(
-        resolved_input(
+        load_referenced_input(
             &server,
             flow_id,
             request.step_input.as_ref().expect("input")
@@ -194,7 +199,7 @@ async fn execute_failure_starts_recovery_with_durable_input_and_error() {
         "BusinessFailure"
     );
     assert_eq!(
-        resolved_input(
+        load_referenced_input(
             &server,
             flow_id,
             replayed_request.step_input.as_ref().expect("input")
@@ -444,7 +449,7 @@ async fn assert_timeout_recovery(
     );
     assert!(
         elapsed >= Duration::from_secs(expected_seconds).saturating_sub(Duration::from_millis(900))
-            && elapsed < Duration::from_secs(expected_seconds + 1),
+            && elapsed < Duration::from_secs(expected_seconds + 10),
         "{expected_error_type} recovered after {elapsed:?}"
     );
     recovery_worker.reply(

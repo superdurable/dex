@@ -116,7 +116,7 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_matching_queued_tasks` | gauge | — | Worker tasks waiting for a poll across all Flow types |
 | `dexzd_matching_worker_streams` | gauge | — | Open Worker poll streams |
 | `dexzd_api_request_latency_seconds` | histogram, buckets 0.005, 0.025, 0.1, 0.5, 2.5 | `rpc_class`: flow_write, flow_read, search, worker_respond | Completed unary call latency; Worker poll streams are excluded |
-| `dexzd_step_attempt_failures_total` | counter | `durability`: sync, async; `failure_kind`: worker_error, method_timeout, heartbeat_timeout, dispatch_error, invalid_response, unsupported_feature, value_too_large, request_too_large | Failed Step method attempts |
+| `dexzd_step_attempt_failures_total` | counter | `durability`: sync, async; `failure_kind`: worker_error, method_timeout, heartbeat_timeout, dispatch_error, invalid_response, unsupported_feature, value_too_large, request_too_large, retry_deadline | Failed Step method attempts |
 | `dexzd_step_retries_exhausted_total` | counter | `durability`: sync, async | Step executions that failed after their last allowed attempt |
 | `dexzd_flow_closes_total` | counter | `close_status`: completed, failed, terminated, canceled | Closed Flow runs |
 | `dexzd_flow_end_to_end_latency_seconds` | histogram, buckets 1, 10, 60, 600, 3600, 21600, 86400 | — | Run start to close using committed timestamps |

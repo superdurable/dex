@@ -18,9 +18,7 @@ use dexzd_protocol::dexzd::v1::{
     HardDeleteObjectReference, StepAttemptFailureKind, StepInvocationKey, StepMethod,
     StepMethodCompletedCommand, step_method_completed_command,
 };
-use dexzd_request_validation::{
-    ValidationCategory, ValidationConfig, WorkerResponse, validate_worker_response,
-};
+use dexzd_request_validation::{ValidationConfig, WorkerResponse, validate_worker_response};
 
 use crate::engine_id_source::EngineIdSource;
 
@@ -123,15 +121,10 @@ pub(crate) fn check_worker_result(
         }
     };
     if let Err(error) = validation {
-        let is_non_retryable = error.category == ValidationCategory::NonRetryableWorkerResponse;
         return WorkerResultCheck::Invalid {
-            kind: if is_non_retryable {
-                StepAttemptFailureKind::UnsupportedFeature
-            } else {
-                StepAttemptFailureKind::InvalidResponse
-            },
+            kind: StepAttemptFailureKind::InvalidResponse,
             detail: format!("{}: {}", error.field_path, error.message),
-            is_non_retryable,
+            is_non_retryable: false,
         };
     }
     let largest_value_bytes = result_values(&result)
