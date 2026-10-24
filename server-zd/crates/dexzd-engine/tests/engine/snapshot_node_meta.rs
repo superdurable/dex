@@ -34,6 +34,7 @@ async fn start_node_with_node_meta_services(
     let applier = Arc::new(CountingApplier::default());
     let runtime = Arc::new(RecordingRuntime::default());
     let factory_runtime = runtime.clone();
+    let lease_validity_deadline = dexzd_cluster_metadata::LeaseValidityDeadline::disarmed();
     let node = EngineNode::start(
         config,
         EngineNodeDependencies {
@@ -42,7 +43,7 @@ async fn start_node_with_node_meta_services(
             clock: cluster.clock.clone(),
             applier: applier.clone(),
             id_source: Arc::new(SystemEngineIdSource),
-            lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
+            lease_validity_deadline: lease_validity_deadline.clone(),
         },
         move |services: EngineServices| {
             *factory_captured.lock().expect("capture lock") =
@@ -73,6 +74,7 @@ async fn start_node_with_node_meta_services(
         applier,
         runtime,
         hasher: cluster.hasher.clone(),
+        lease_validity_deadline,
     };
     (node, local_store, node_meta_lock)
 }

@@ -15,10 +15,8 @@ use std::time::{Duration, Instant};
 use dexzd_api::HealthStatus;
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 
-/// Time after the deadline for the graceful lease-lost path before the process exits.
-pub(crate) const LEASE_EXPIRY_EXIT_BUDGET: Duration = Duration::from_secs(2);
-/// Exit status of a lost lease, equal to that of [`crate::ServerError::NodeStopped`].
-const LEASE_EXPIRY_EXIT_CODE: i32 = 1;
+/// Time after the deadline for the graceful lease-lost path, which exits 1, before the abort.
+pub(crate) const LEASE_EXPIRY_ABORT_BUDGET: Duration = Duration::from_secs(2);
 /// Longest sleep between deadline reads, so arming and renewals are noticed promptly.
 const DEADLINE_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -33,8 +31,8 @@ pub(crate) struct LeaseValidityWatchdog {
 impl LeaseValidityWatchdog {
     /// Starts watching `deadline`.
     ///
-    /// When it passes, the thread reports NOT_SERVING through `health` without the async runtime,
-    /// then exits the process with status 1 after [`LEASE_EXPIRY_EXIT_BUDGET`].
+    /// When it passes, the thread reports NOT_SERVING through `health` without the async runtime.
+    /// If the process still runs [`LEASE_EXPIRY_ABORT_BUDGET`] later, it aborts with SIGABRT.
     pub(crate) fn start(
         deadline: LeaseValidityDeadline,
         health: HealthStatus,
@@ -77,39 +75,50 @@ fn watch_deadline(
     health: &HealthStatus,
     stop_receiver: &mpsc::Receiver<()>,
 ) {
-    let expired_deadline = loop {
-        let now = Instant::now();
-        let wait = match deadline.armed_deadline() {
-            Some(valid_until) if now >= valid_until => break valid_until,
-            Some(valid_until) => (valid_until - now).min(DEADLINE_POLL_INTERVAL),
-            None => DEADLINE_POLL_INTERVAL,
-        };
-        if !is_still_watching(stop_receiver, wait) {
-            return;
-        }
-    };
-    tracing::error!(
-        overdue_milliseconds = expired_deadline.elapsed().as_millis(),
-        exit_budget_milliseconds = LEASE_EXPIRY_EXIT_BUDGET.as_millis(),
-        "the node lease validity deadline passed without a renewal; reporting NOT_SERVING and \
-         exiting"
-    );
-    report_not_serving(health.clone());
-    let exit_at = expired_deadline + LEASE_EXPIRY_EXIT_BUDGET;
     loop {
-        let remaining = exit_at.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            break;
+        let expired_deadline = loop {
+            let now = Instant::now();
+            let wait = match deadline.armed_deadline() {
+                Some(valid_until) if now >= valid_until => break valid_until,
+                Some(valid_until) => (valid_until - now).min(DEADLINE_POLL_INTERVAL),
+                None => DEADLINE_POLL_INTERVAL,
+            };
+            if !is_still_watching(stop_receiver, wait) {
+                return;
+            }
+        };
+        tracing::error!(
+            overdue_milliseconds = expired_deadline.elapsed().as_millis(),
+            abort_budget_milliseconds = LEASE_EXPIRY_ABORT_BUDGET.as_millis(),
+            "the node lease validity deadline passed without a renewal; reporting NOT_SERVING"
+        );
+        report_not_serving(health.clone());
+        let abort_at = expired_deadline + LEASE_EXPIRY_ABORT_BUDGET;
+        loop {
+            let remaining = abort_at.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            if !is_still_watching(stop_receiver, remaining) {
+                return;
+            }
         }
-        if !is_still_watching(stop_receiver, remaining) {
-            return;
+        // A confirmed release disarms the deadline; the graceful path then owns the exit.
+        if !deadline
+            .armed_deadline()
+            .is_some_and(|valid_until| Instant::now() >= valid_until)
+        {
+            tracing::warn!(
+                "the node lease was released or renewed after its deadline; not aborting"
+            );
+            continue;
         }
+        tracing::error!(
+            "the node did not stop within the lease expiry budget; aborting the process with \
+             SIGABRT, because exit handlers wait for local storage background work"
+        );
+        std::process::abort();
     }
-    tracing::error!(
-        exit_code = LEASE_EXPIRY_EXIT_CODE,
-        "the node did not stop within the lease expiry exit budget; exiting now"
-    );
-    std::process::exit(LEASE_EXPIRY_EXIT_CODE);
 }
 
 /// Waits up to `wait`; returns `false` once the owner stopped the watchdog.
@@ -145,36 +154,49 @@ mod tests {
     use dexzd_api::HealthStatus;
     use dexzd_cluster_metadata::LeaseValidityDeadline;
 
-    use super::{LEASE_EXPIRY_EXIT_BUDGET, LeaseValidityWatchdog};
+    use super::{LEASE_EXPIRY_ABORT_BUDGET, LeaseValidityWatchdog};
 
     /// Set in a re-executed test binary, which then runs one child scenario.
     const CHILD_SCENARIO_VARIABLE: &str = "DEXZD_LEASE_WATCHDOG_CHILD_SCENARIO";
     const INITIAL_VALIDITY: Duration = Duration::from_millis(300);
+    /// Validity that the renewing child re-arms every third of it, like a lease.
+    const RENEWED_VALIDITY: Duration = Duration::from_millis(1500);
+    const SIGABRT: i32 = 6;
     /// Process start and log flushing on a loaded CI machine.
     const EXIT_SLACK: Duration = Duration::from_secs(3);
     const STALLED_WORKER_THREADS: usize = 2;
     const RENEWING_CHILD_RUN_TIME: Duration = Duration::from_secs(4);
 
     #[test]
-    fn a_stalled_runtime_exits_one_after_the_deadline_and_reports_not_serving() {
+    fn a_stalled_runtime_aborts_after_the_deadline_and_reports_not_serving() {
+        use std::os::unix::process::ExitStatusExt;
+
         let started = Instant::now();
         let output = run_child_scenario("child_stalls_every_runtime_worker_past_the_deadline");
         let elapsed = started.elapsed();
         let log = String::from_utf8_lossy(&output.stderr);
-        assert_eq!(output.status.code(), Some(1), "{log}");
+        assert_eq!(output.status.signal(), Some(SIGABRT), "{log}");
         assert!(
-            elapsed >= INITIAL_VALIDITY + LEASE_EXPIRY_EXIT_BUDGET,
-            "exited after {elapsed:?}, before the graceful budget ended:\n{log}"
+            elapsed >= INITIAL_VALIDITY + LEASE_EXPIRY_ABORT_BUDGET,
+            "aborted after {elapsed:?}, before the graceful budget ended:\n{log}"
         );
         assert!(
-            elapsed < INITIAL_VALIDITY + LEASE_EXPIRY_EXIT_BUDGET + EXIT_SLACK,
-            "exited after {elapsed:?}:\n{log}"
+            elapsed < INITIAL_VALIDITY + LEASE_EXPIRY_ABORT_BUDGET + EXIT_SLACK,
+            "aborted after {elapsed:?}:\n{log}"
         );
         assert!(
             log.contains("gRPC health reports NOT_SERVING after the lease validity deadline"),
             "{log}"
         );
-        assert!(log.contains("exiting now"), "{log}");
+        assert!(log.contains("aborting the process"), "{log}");
+    }
+
+    #[test]
+    fn a_release_after_the_deadline_prevents_the_abort() {
+        let output = run_child_scenario("child_releases_the_lease_after_the_deadline");
+        let log = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(0), "{log}");
+        assert!(log.contains("after its deadline; not aborting"), "{log}");
     }
 
     #[test]
@@ -194,9 +216,26 @@ mod tests {
         let deadline = LeaseValidityDeadline::disarmed();
         deadline.arm_until(Instant::now() + INITIAL_VALIDITY);
         let (runtime, _watchdog) = start_stalled_runtime(&deadline);
-        std::thread::sleep(INITIAL_VALIDITY + LEASE_EXPIRY_EXIT_BUDGET + EXIT_SLACK * 2);
+        std::thread::sleep(INITIAL_VALIDITY + LEASE_EXPIRY_ABORT_BUDGET + EXIT_SLACK * 2);
         drop(runtime);
-        panic!("the watchdog did not exit the process");
+        panic!("the watchdog did not abort the process");
+    }
+
+    #[test]
+    #[ignore = "a child scenario that the parent test runs in its own process"]
+    fn child_releases_the_lease_after_the_deadline() {
+        if !is_child_scenario() {
+            return;
+        }
+        let deadline = LeaseValidityDeadline::disarmed();
+        deadline.arm_until(Instant::now() + INITIAL_VALIDITY);
+        let (runtime, watchdog) = start_stalled_runtime(&deadline);
+        std::thread::sleep(INITIAL_VALIDITY + LEASE_EXPIRY_ABORT_BUDGET / 2);
+        deadline.disarm();
+        std::thread::sleep(LEASE_EXPIRY_ABORT_BUDGET);
+        watchdog.shutdown();
+        // Dropping the runtime would wait for the stalled workers forever.
+        std::mem::forget(runtime);
     }
 
     #[test]
@@ -206,12 +245,12 @@ mod tests {
             return;
         }
         let deadline = LeaseValidityDeadline::disarmed();
-        deadline.arm_until(Instant::now() + INITIAL_VALIDITY);
+        deadline.arm_until(Instant::now() + RENEWED_VALIDITY);
         let (runtime, watchdog) = start_stalled_runtime(&deadline);
         let renewing_until = Instant::now() + RENEWING_CHILD_RUN_TIME;
         while Instant::now() < renewing_until {
-            std::thread::sleep(INITIAL_VALIDITY / 3);
-            deadline.arm_until(Instant::now() + INITIAL_VALIDITY);
+            std::thread::sleep(RENEWED_VALIDITY / 3);
+            deadline.arm_until(Instant::now() + RENEWED_VALIDITY);
         }
         watchdog.shutdown();
         // Dropping the runtime would wait for the stalled workers forever.

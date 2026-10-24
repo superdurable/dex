@@ -6,7 +6,6 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -37,6 +36,8 @@ const RENEWAL_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(2);
 const RENEWAL_ATTEMPT_TIMEOUT_FLOOR: Duration = Duration::from_secs(1);
 /// Cap of one renewal attempt.
 const RENEWAL_ATTEMPT_TIMEOUT_LIMIT: Duration = Duration::from_secs(5);
+/// A renewal must complete this long before the deadline, so the watchdog never races its arming.
+const RENEWAL_COMPLETION_MARGIN: Duration = Duration::from_millis(100);
 
 /// Timing and contention policy for a node lease.
 #[derive(Debug, Clone)]
@@ -685,10 +686,10 @@ impl LeaseOwner {
         let mut attempt_number: u32 = 0;
         loop {
             attempt_number = attempt_number.saturating_add(1);
-            let attempt_deadline = (Instant::now() + attempt_timeout).min(self.current_valid_until);
+            let attempt_deadline = (Instant::now() + attempt_timeout).min(self.renewal_cutoff());
             let attempt = match tokio::time::timeout_at(attempt_deadline, self.renew()).await {
                 Ok(attempt) => attempt,
-                Err(_) if Instant::now() >= self.current_valid_until => Err(
+                Err(_) if Instant::now() >= self.renewal_cutoff() => Err(
                     RenewalAttemptFailure::Lost(self.lost("renewal exceeded local lease deadline")),
                 ),
                 Err(_) => Err(RenewalAttemptFailure::Retryable(format!(
@@ -708,7 +709,7 @@ impl LeaseOwner {
                 Err(RenewalAttemptFailure::Retryable(failure)) => failure,
             };
             let retry_delay = self.renewal_retry_delay(retry_backoff, attempt_number);
-            if Instant::now() + retry_delay + attempt_timeout > self.current_valid_until {
+            if Instant::now() + retry_delay + attempt_timeout > self.renewal_cutoff() {
                 return Err(self.lost(&format!(
                     "renewal retries ran out before the local lease deadline; last failure: {failure}"
                 )));
@@ -802,7 +803,7 @@ impl LeaseOwner {
         sent_at: Instant,
     ) -> Result<(), RenewalAttemptFailure> {
         let valid_until = sent_at + self.duration;
-        if Instant::now() >= self.current_valid_until {
+        if Instant::now() >= self.renewal_cutoff() {
             return Err(RenewalAttemptFailure::Lost(
                 self.lost("renewal completed after previous lease deadline"),
             ));
@@ -878,16 +879,29 @@ impl LeaseOwner {
         Ok(ReconciledRenewal::NotExtended)
     }
 
+    /// Returns the last instant a renewal may complete, [`RENEWAL_COMPLETION_MARGIN`] before the deadline.
+    fn renewal_cutoff(&self) -> Instant {
+        self.current_valid_until
+            .checked_sub(RENEWAL_COMPLETION_MARGIN)
+            .unwrap_or(self.current_valid_until)
+    }
+
     /// Returns a delay between half of `backoff` and all of it.
     ///
-    /// Hashing the holder keeps simulations repeatable while processes still spread their retries.
+    /// A fixed hash of the holder keeps simulations repeatable across toolchains and spreads processes.
     fn renewal_retry_delay(&self, backoff: Duration, attempt_number: u32) -> Duration {
-        let mut hasher = std::hash::DefaultHasher::new();
-        self.lease.holder_process_id.hash(&mut hasher);
-        self.lease.version.hash(&mut hasher);
-        attempt_number.hash(&mut hasher);
+        let holder_hash = self
+            .lease
+            .holder_process_id
+            .bytes()
+            .fold(FNV_OFFSET_BASIS, |hash, byte| {
+                (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME)
+            });
+        let mixed = splitmix64(
+            holder_hash ^ splitmix64(self.lease.version ^ splitmix64(u64::from(attempt_number))),
+        );
         let half_nanos = u64::try_from((backoff / 2).as_nanos()).unwrap_or(u64::MAX);
-        let reduction_nanos = hasher.finish() % half_nanos.saturating_add(1);
+        let reduction_nanos = mixed % half_nanos.saturating_add(1);
         backoff - Duration::from_nanos(reduction_nanos)
     }
 
@@ -923,6 +937,18 @@ enum RenewalAttemptFailure {
     Retryable(String),
     /// Another process holds the lease, or retrying cannot help.
     Lost(MetadataError),
+}
+
+/// FNV-1a parameters for hashing the holder process ID.
+const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+/// Mixes `value` with the SplitMix64 finalizer.
+fn splitmix64(value: u64) -> u64 {
+    let mut mixed = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    mixed ^ (mixed >> 31)
 }
 
 /// Returns a random delay between half of `interval` and all of it.

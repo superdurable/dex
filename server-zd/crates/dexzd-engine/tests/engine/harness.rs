@@ -532,6 +532,7 @@ impl TestCluster {
         runtime: Arc<RecordingRuntime>,
     ) -> Result<TestNode, EngineStartError> {
         let factory_runtime = runtime.clone();
+        let lease_validity_deadline = dexzd_cluster_metadata::LeaseValidityDeadline::disarmed();
         let node = EngineNode::start(
             config,
             EngineNodeDependencies {
@@ -540,7 +541,7 @@ impl TestCluster {
                 clock: self.clock.clone(),
                 applier: applier.clone(),
                 id_source: Arc::new(SystemEngineIdSource),
-                lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
+                lease_validity_deadline: lease_validity_deadline.clone(),
             },
             move |_services: EngineServices| EngineRuntimeHooks {
                 committed_commands: factory_runtime.clone(),
@@ -561,6 +562,7 @@ impl TestCluster {
             applier,
             runtime,
             hasher: self.hasher.clone(),
+            lease_validity_deadline,
         })
     }
 
@@ -618,6 +620,8 @@ pub(crate) struct TestNode {
     pub(crate) applier: Arc<CountingApplier>,
     pub(crate) runtime: Arc<RecordingRuntime>,
     pub(crate) hasher: PartitionHasher,
+    /// The deadline the node's lease arms; a test moves it to stand in for a late lease timer.
+    pub(crate) lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline,
 }
 
 impl TestNode {

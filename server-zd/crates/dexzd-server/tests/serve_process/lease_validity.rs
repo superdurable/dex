@@ -8,6 +8,7 @@
 
 //! A node serves only within its local lease validity, and renewal retries transient failures.
 
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -19,13 +20,16 @@ use super::{PRIMARY_BUCKET, PRIMARY_PREFIX, SHUTDOWN_BUDGET};
 
 /// The longest delay s3mock accepts, which outlasts every test here.
 const HUNG_REQUEST_MILLISECONDS: u64 = 600_000;
-/// The watchdog's graceful budget after the deadline, then the exit.
-const LEASE_EXPIRY_EXIT_BUDGET: Duration = Duration::from_secs(2);
+/// The watchdog's graceful budget after the deadline, then the abort.
+const LEASE_EXPIRY_ABORT_BUDGET: Duration = Duration::from_secs(2);
+const SIGABRT: i32 = 6;
 /// Process scheduling and probe intervals on a loaded CI machine.
 const TIMING_SLACK: Duration = Duration::from_secs(3);
 const READINESS_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-/// A lease PUT that never returns turns health NOT_SERVING by the deadline, and the process exits 1.
+/// A lease PUT that never returns turns health NOT_SERVING by the deadline, and the process ends.
+///
+/// The graceful path exits 1; the watchdog aborts with SIGABRT if that path is still running.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_hung_lease_renewal_stops_serving_by_the_deadline_and_exits_one() {
     const LEASE_DURATION: Duration = Duration::from_secs(4);
@@ -50,12 +54,15 @@ async fn a_hung_lease_renewal_stops_serving_by_the_deadline_and_exits_one() {
         );
         tokio::time::sleep(READINESS_POLL_INTERVAL).await;
     }
-    let exit_budget = LEASE_DURATION + LEASE_EXPIRY_EXIT_BUDGET + TIMING_SLACK;
+    let exit_budget = LEASE_DURATION + LEASE_EXPIRY_ABORT_BUDGET + TIMING_SLACK;
     let status = process
         .wait_for_exit(exit_budget.saturating_sub(hung_at.elapsed()))
         .await;
     let log = process.log();
-    assert_eq!(status.code(), Some(1), "{log}");
+    assert!(
+        status.code() == Some(1) || status.signal() == Some(SIGABRT),
+        "{status:?}:\n{log}"
+    );
     assert!(log.contains("node lease lost"), "{log}");
     assert!(
         log.contains("node lease renewal attempt failed; retrying"),

@@ -68,9 +68,10 @@ pub struct LeaseConfig {
     /// Validity ends this long after the last successful renewal was sent, on the local monotonic
     /// clock. Each renewal attempt times out after one sixth of this interval, from 1 s to 5 s.
     /// Transient failures are retried with a jittered backoff from 200 ms doubling to 2 s, while
-    /// another attempt still fits before validity ends. A failed conditional write stops the node
-    /// at once. Once validity ends, the node acknowledges no commits, reports NOT_SERVING, and exits
-    /// with status 1 within 2 s, even when the async runtime is stalled.
+    /// another attempt still fits before validity ends. A conditional write lost to another holder
+    /// stops the node at once. Once validity ends, the node acknowledges no commits and reports
+    /// NOT_SERVING. A process still running 2 s later aborts with SIGABRT, even when the async
+    /// runtime is stalled.
     #[serde(with = "humantime_serde")]
     pub duration: Duration,
     /// Defaults to false; when true, startup fails if another unexpired owner holds the lease.
