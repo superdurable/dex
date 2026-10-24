@@ -68,14 +68,8 @@ type RecoveryErrorInfo struct {
 // RecoveryErrorInfo example.
 //
 // If the call to the Worker fails before Dex records the method timeout, Dex reports a Worker API
-// failure instead. ErrorType is then "FLOW_ERROR_TYPE_WORKER_API_FAIL", and this method returns
-// false. To handle both outcomes the same way, also compare ErrorType with that value:
-//
-//	failure := ctx.RecoveryError()
-//	if failure.IsMethodTimeout() ||
-//		(failure != nil && failure.ErrorType == "FLOW_ERROR_TYPE_WORKER_API_FAIL") {
-//		return dex.ForceFail("the charge did not finish in time"), nil
-//	}
+// failure instead, and this method returns false. A Worker API failure has many other causes, such
+// as an unreachable Worker or an invalid response, so do not treat it as a timeout.
 //
 // A Worker error type that reuses the backend's method timeout name also matches. Give application
 // error types distinct names.
@@ -99,19 +93,26 @@ func (info *RecoveryErrorInfo) IsHeartbeatTimeout() bool {
 	return info.hasCanonicalErrorType("HEARTBEAT")
 }
 
-// IsRetryTotalDurationExceeded reports whether RetryPolicy.TotalDuration ended a running attempt.
+// IsRetryTotalDurationExceeded reports whether the overall deadline of the Step method call ended
+// the final attempt while it was still running.
 //
-// Use it in a recovery path to handle a Step method whose retry policy ran out of total duration
-// while its final attempt was still running. See the RecoveryErrorInfo example.
+// Use it in a recovery path to tell this case apart from a method timeout or a heartbeat timeout.
+// See the RecoveryErrorInfo example.
+//
+// Where the overall deadline comes from depends on the Dex Server:
+//   - server-zd and the Go Server with Temporal set it from RetryPolicy.TotalDuration, which
+//     defaults to 4 hours.
+//   - On the Go Server, the local phase of an ASYNC Step can also end an attempt this way.
+//   - The Go Server with Cadence does not end a running attempt at RetryPolicy.TotalDuration, so
+//     this method returns false for that case there.
 //
 // When the total duration ends between attempts, Dex starts no further attempt. It reports the
 // error type of the final attempt instead, so this method returns false. Check the other methods
-// and ErrorType to handle that case. A Worker error type that reuses the backend's retry deadline
-// name also matches. Give application error types distinct names.
+// and ErrorType to handle that case. A Worker error type that reuses the backend's deadline name
+// also matches. Give application error types distinct names.
 //
-// IsRetryTotalDurationExceeded returns true when ErrorType names the retry total duration limit,
-// ignoring letter case and underscores. It returns false for every other ErrorType and for a nil
-// receiver.
+// IsRetryTotalDurationExceeded returns true when ErrorType names the overall deadline, ignoring
+// letter case and underscores. It returns false for every other ErrorType and for a nil receiver.
 func (info *RecoveryErrorInfo) IsRetryTotalDurationExceeded() bool {
 	return info.hasCanonicalErrorType("SCHEDULETOCLOSE")
 }

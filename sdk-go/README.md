@@ -156,7 +156,9 @@ Recognize Dex time limits with `RecoveryErrorInfo.IsMethodTimeout`,
 `ErrorType` with a fixed string, because each Dex backend spells these error
 types differently. The methods return false for a nil `RecoveryErrorInfo`. When
 the call to the Worker fails before Dex records a method timeout, the failure is
-a Worker API failure instead. When the retry total duration ends between
+a Worker API failure instead. `IsRetryTotalDurationExceeded` means the overall
+deadline of the method call ended a running attempt; its API documentation lists
+which Dex Servers set that deadline. When the retry total duration ends between
 attempts, the final attempt's error type is reported instead.
 
 ```go
