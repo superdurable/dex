@@ -159,8 +159,7 @@ impl FlowRuntimeRegistry {
 
     /// Returns the values behind value references, keyed by reference text.
     ///
-    /// Every reference for a live Flow must belong to one of its runs. Values that no longer
-    /// exist are omitted.
+    /// References outside the named Flow and values that no longer exist are omitted.
     ///
     /// Reads only committed state, so no client sees a value that may never commit. Dispatch
     /// inlines uncommitted values instead.
@@ -198,6 +197,7 @@ impl FlowRuntimeRegistry {
             let context = self.flow_context(&flow);
             let directory = read_directory(committed.as_ref(), context, &flow)?;
             let Some(directory) = directory else {
+                // A purged and an unknown Flow have no directory; the Go Server omits both.
                 continue;
             };
             let is_run_of_flow = directory
@@ -205,10 +205,7 @@ impl FlowRuntimeRegistry {
                 .iter()
                 .any(|run| run.run_id.as_slice() == reference.run_id.as_bytes());
             if !is_run_of_flow {
-                return Err(RuntimeError::invalid_argument(format!(
-                    "blob ID {reference_text:?} does not belong to Flow {}",
-                    flow.flow_id
-                )));
+                continue;
             }
             let run_record: Option<RunRecord> = decode_row(
                 committed.as_ref(),
@@ -221,19 +218,18 @@ impl FlowRuntimeRegistry {
                 ),
                 "run",
             )?;
-            if run_record.is_some_and(|record| {
-                record.flow_id == flow.flow_id
-                    && record.tenant_id == flow.tenant_id.0
-                    && record.is_purging
-            }) {
-                continue;
+            match run_record {
+                Some(record)
+                    if record.flow_id == flow.flow_id
+                        && record.tenant_id == flow.tenant_id.0
+                        && record.is_purging =>
+                {
+                    continue;
+                }
+                Some(record)
+                    if record.flow_id == flow.flow_id && record.tenant_id == flow.tenant_id.0 => {}
+                _ => return Err(RuntimeError::flow_not_found(&flow.flow_id)),
             }
-            read_run(
-                committed.as_ref(),
-                context,
-                &flow,
-                &reference.run_id.to_string(),
-            )?;
             if let Some(value) = read_table_value(
                 committed.as_ref(),
                 context.flow_hash,

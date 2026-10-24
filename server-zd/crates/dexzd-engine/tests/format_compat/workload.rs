@@ -1286,7 +1286,6 @@ pub(crate) async fn put_new_object(store: &InMemoryObjectStore, key: &str, body:
     );
 }
 
-#[cfg(test)]
 mod load_blobs_purge_tests {
     use std::sync::Arc;
 
@@ -1298,7 +1297,7 @@ mod load_blobs_purge_tests {
         RuntimeEffectSink, RuntimeHardDeleteUploads, WorkerRpcInvocation, WorkerRpcResult,
     };
     use dexzd_keyspace::{ValueId, ValueReference, flow_directory_key, run_table_prefix};
-    use dexzd_protocol::dex::{LoadBlobRequestEntry, LoadBlobsRequest, value};
+    use dexzd_protocol::dex::{IdReusePolicy, LoadBlobRequestEntry, LoadBlobsRequest, value};
     use dexzd_protocol::dexzd::v1::HardDeleteObjectReference;
     use futures::future::BoxFuture;
 
@@ -1353,7 +1352,7 @@ mod load_blobs_purge_tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn load_blobs_returns_values_before_purge_and_omits_them_during_and_after() {
+    async fn load_blobs_omits_purged_references_after_flow_id_reuse() {
         let clock = Arc::new(ScriptedClock::starting_at(1_800_000_000_000_000));
         let ids = Arc::new(SeededIdSource::new(WORKLOAD_SEED, clock.clone()));
         let object_store = Arc::new(InMemoryObjectStore::new());
@@ -1406,39 +1405,8 @@ mod load_blobs_purge_tests {
             )
             .await;
         let flow_hash = hasher.flow_hash(TenantId::DEFAULT, &flow.flow_id);
-        let prefix = run_table_prefix(flow_hash, flow.run_id, RunTable::Value);
-        let (start, end) = prefix_range(&prefix);
-        let rows = node
-            .committer()
-            .committed_view()
-            .expect("open committed view")
-            .scan(ColumnFamily::Value, &start, &end, usize::MAX)
-            .expect("scan committed values");
-        assert_eq!(rows.len(), 2);
-        let entries: Vec<_> = rows
-            .iter()
-            .map(|(key, _)| {
-                let suffix = &key[prefix.len()..];
-                let run_seq = u64::from_be_bytes(suffix[..8].try_into().expect("run seq"));
-                let index_in_command =
-                    u32::from_be_bytes(suffix[8..12].try_into().expect("value index"));
-                let reference = ValueReference {
-                    run_id: flow.run_id,
-                    value_id: ValueId {
-                        run_seq,
-                        index_in_command,
-                    },
-                };
-                LoadBlobRequestEntry {
-                    flow_id: flow.flow_id.clone(),
-                    blob_value: Some(Value {
-                        kind: Some(value::Kind::InternalBlobIdForStringValue(
-                            reference.to_string(),
-                        )),
-                    }),
-                }
-            })
-            .collect();
+        let entries = load_blob_entries_for_run(&node, &hasher, &flow);
+        assert_eq!(entries.len(), 2);
         let request = LoadBlobsRequest { entries };
         let before = registry
             .load_blobs(TenantId::DEFAULT, request.clone())
@@ -1495,10 +1463,157 @@ mod load_blobs_purge_tests {
                 .is_none()
         );
         let after = registry
-            .load_blobs(TenantId::DEFAULT, request)
+            .load_blobs(TenantId::DEFAULT, request.clone())
             .await
             .expect("LoadBlobs succeeds after retention");
         assert!(after.values.is_empty());
+
+        let newer = workload
+            .start_flow(
+                StartFlowRequest {
+                    flow_id: flow.flow_id.clone(),
+                    flow_type: "PurgeFlow".to_owned(),
+                    start_step_type: "OnlyStep".to_owned(),
+                    step_input: Some(string_value(&input)),
+                    step_options: Some(skip_wait_for()),
+                    request_id: "restart-load-blobs-purged".to_owned(),
+                    ..StartFlowRequest::default()
+                },
+                RunSettings {
+                    retention_after_close_micros: 60 * SECOND_MICROS,
+                    ..default_run_settings()
+                },
+            )
+            .await;
+        let older_references_after_reuse = registry
+            .load_blobs(TenantId::DEFAULT, request)
+            .await
+            .expect("LoadBlobs omits pre-purge references after Flow ID reuse");
+        assert!(older_references_after_reuse.values.is_empty());
+        let newer_entries = load_blob_entries_for_run(&node, &hasher, &newer);
+        assert_eq!(newer_entries.len(), 1);
+        let newer_request = LoadBlobsRequest {
+            entries: newer_entries,
+        };
+        assert_eq!(
+            registry
+                .load_blobs(TenantId::DEFAULT, newer_request.clone())
+                .await
+                .expect("the newer run's value is available")
+                .values
+                .len(),
+            1
+        );
+
+        workload
+            .start_attempt(&newer, "OnlyStep-1", StepMethod::Execute, 1)
+            .await;
+        workload
+            .complete_execute(
+                &newer,
+                "OnlyStep-1",
+                1,
+                close_response(CloseDecisionType::ForceComplete, "done"),
+            )
+            .await;
+        let retained = workload
+            .start_flow(
+                StartFlowRequest {
+                    flow_id: flow.flow_id.clone(),
+                    flow_type: "PurgeFlow".to_owned(),
+                    start_step_type: "OnlyStep".to_owned(),
+                    step_input: Some(string_value(&input)),
+                    step_options: Some(skip_wait_for()),
+                    flow_start_options: Some(FlowStartOptions {
+                        id_reuse_policy: IdReusePolicy::AllowIfNoRunning as i32,
+                        ..FlowStartOptions::default()
+                    }),
+                    request_id: "retain-newer-load-blobs-run".to_owned(),
+                    ..StartFlowRequest::default()
+                },
+                default_run_settings(),
+            )
+            .await;
+        let retained_request = LoadBlobsRequest {
+            entries: load_blob_entries_for_run(&node, &hasher, &retained),
+        };
+        assert_eq!(retained_request.entries.len(), 1);
+        let retained_reference = match retained_request.entries[0]
+            .blob_value
+            .as_ref()
+            .and_then(|blob_value| blob_value.kind.as_ref())
+        {
+            Some(value::Kind::InternalBlobIdForStringValue(reference)) => reference.clone(),
+            _ => panic!("the retained run has a string value reference"),
+        };
+        workload.fire_due_timers(&newer, 61 * SECOND_MICROS).await;
+        workload
+            .commit(&newer, Command::RunPurge(RunPurgeCommand {}))
+            .await;
+        assert!(
+            node.committer()
+                .committed_view()
+                .expect("open committed view")
+                .get(ColumnFamily::Flow, &directory_key)
+                .expect("read Flow directory")
+                .is_some()
+        );
+        let mixed = registry
+            .load_blobs(
+                TenantId::DEFAULT,
+                LoadBlobsRequest {
+                    entries: newer_request
+                        .entries
+                        .into_iter()
+                        .chain(retained_request.entries)
+                        .collect(),
+                },
+            )
+            .await
+            .expect("LoadBlobs omits the older purged run while retaining the newer run");
+        assert_eq!(mixed.values.len(), 1);
+        assert_eq!(
+            mixed.values.get(&retained_reference),
+            Some(&string_value(&input))
+        );
         node.shutdown().await.expect("the node releases its lease");
+    }
+
+    fn load_blob_entries_for_run(
+        node: &EngineNode,
+        hasher: &PartitionHasher,
+        flow: &FlowRun,
+    ) -> Vec<LoadBlobRequestEntry> {
+        let flow_hash = hasher.flow_hash(TenantId::DEFAULT, &flow.flow_id);
+        let prefix = run_table_prefix(flow_hash, flow.run_id, RunTable::Value);
+        let (start, end) = prefix_range(&prefix);
+        node.committer()
+            .committed_view()
+            .expect("open committed view")
+            .scan(ColumnFamily::Value, &start, &end, usize::MAX)
+            .expect("scan committed values")
+            .iter()
+            .map(|(key, _)| {
+                let suffix = &key[prefix.len()..];
+                let run_seq = u64::from_be_bytes(suffix[..8].try_into().expect("run seq"));
+                let index_in_command =
+                    u32::from_be_bytes(suffix[8..12].try_into().expect("value index"));
+                let reference = ValueReference {
+                    run_id: flow.run_id,
+                    value_id: ValueId {
+                        run_seq,
+                        index_in_command,
+                    },
+                };
+                LoadBlobRequestEntry {
+                    flow_id: flow.flow_id.clone(),
+                    blob_value: Some(Value {
+                        kind: Some(value::Kind::InternalBlobIdForStringValue(
+                            reference.to_string(),
+                        )),
+                    }),
+                }
+            })
+            .collect()
     }
 }
