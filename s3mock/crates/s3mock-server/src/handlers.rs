@@ -9,6 +9,7 @@
 //! One handler per S3 operation.
 
 mod bucket;
+mod cors;
 mod delete_objects;
 mod lifecycle;
 mod listing;
@@ -21,6 +22,7 @@ pub(crate) use bucket::{
     get_object_lock_configuration, head_bucket, list_buckets, put_bucket_versioning,
     put_object_lock_configuration,
 };
+pub(crate) use cors::{delete_bucket_cors, get_bucket_cors, put_bucket_cors};
 pub(crate) use delete_objects::delete_objects;
 pub(crate) use lifecycle::{
     delete_bucket_lifecycle, get_bucket_lifecycle_configuration, put_bucket_lifecycle_configuration,

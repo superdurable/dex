@@ -14,7 +14,15 @@ use percent_encoding::percent_decode_str;
 use crate::s3_error::S3Error;
 
 /// Query parameters that only route or tune a request and never select another operation.
-const PASSIVE_PARAMETERS: [&str; 1] = ["x-id"];
+const PASSIVE_PARAMETERS: [&str; 7] = [
+    "x-id",
+    "X-Amz-Algorithm",
+    "X-Amz-Credential",
+    "X-Amz-Date",
+    "X-Amz-Expires",
+    "X-Amz-SignedHeaders",
+    "X-Amz-Signature",
+];
 const LIST_OBJECTS_PARAMETERS: [&str; 7] = [
     "list-type",
     "prefix",
@@ -83,6 +91,15 @@ pub(crate) enum S3Operation {
         bucket: String,
     },
     DeleteBucketLifecycle {
+        bucket: String,
+    },
+    PutBucketCors {
+        bucket: String,
+    },
+    GetBucketCors {
+        bucket: String,
+    },
+    DeleteBucketCors {
         bucket: String,
     },
     GetObjectLockConfiguration {
@@ -224,6 +241,18 @@ fn route_bucket(
     query: QueryParameters,
 ) -> Result<S3Operation, S3Error> {
     match *method {
+        Method::PUT if query.contains("cors") => {
+            query.require_only(&["cors"], "PutBucketCors")?;
+            Ok(S3Operation::PutBucketCors { bucket })
+        }
+        Method::GET if query.contains("cors") => {
+            query.require_only(&["cors"], "GetBucketCors")?;
+            Ok(S3Operation::GetBucketCors { bucket })
+        }
+        Method::DELETE if query.contains("cors") => {
+            query.require_only(&["cors"], "DeleteBucketCors")?;
+            Ok(S3Operation::DeleteBucketCors { bucket })
+        }
         Method::PUT if query.contains("lifecycle") => {
             query.require_only(&["lifecycle"], "PutBucketLifecycleConfiguration")?;
             Ok(S3Operation::PutBucketLifecycleConfiguration { bucket })

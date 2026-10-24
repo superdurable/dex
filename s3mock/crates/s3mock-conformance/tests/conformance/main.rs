@@ -10,13 +10,16 @@
 
 mod buckets;
 mod conditions;
+mod cors;
 mod delete_objects;
 mod durability;
+mod http;
 mod lifecycle;
 mod listing;
 mod multipart;
 mod multipart_validation;
 mod object_lock;
 mod objects;
+mod presigned;
 mod support;
 mod versioning;

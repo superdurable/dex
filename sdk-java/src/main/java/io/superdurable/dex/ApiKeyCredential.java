@@ -23,6 +23,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
@@ -31,6 +32,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.LongSupplier;
+import java.util.regex.Pattern;
 
 /**
  * Exchanges a long-lived API key for short-lived Dex bearer tokens.
@@ -48,8 +50,12 @@ import java.util.function.LongSupplier;
  * cancellation bounds a waiting token lookup. This class is thread-safe. The application owns and
  * closes it after all Clients and Workers sharing it are closed. A supplied HTTP connection
  * factory remains caller-owned.
- * Neither the API key nor an access token appears in this credential's description or
- * exchange errors.
+ * The credential description contains no secrets. Exchange errors redact the API key,
+ * cached and two most recently issued access tokens, the failed response's access token,
+ * and JWT-shaped substrings before truncating each endpoint error field to 200 characters.
+ * A JWT-shaped substring has three or more base64url segments of at least 10 characters each.
+ * The rule also applies to the token URL and can redact other text of that shape, such as a
+ * long dotted host name. Raw transport causes are omitted.
  *
  * <pre>{@code
  * ApiKeyCredential credential = ApiKeyCredential.builder(
@@ -65,6 +71,8 @@ import java.util.function.LongSupplier;
 public final class ApiKeyCredential implements RejectedTokenCredential, AutoCloseable {
     private static final long RETRY_NANOS = TimeUnit.SECONDS.toNanos(5);
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final Pattern JWT_SHAPED_SUBSTRING = Pattern.compile(
+            "(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{10,}(?:\\.[A-Za-z0-9_-]{10,}){2,}+(?![A-Za-z0-9_-])");
 
     private final URI tokenUrl;
     private final String serverId;
@@ -75,6 +83,7 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
     private Thread exchangeThread;
     private String cachedToken;
     private String lastAccessToken;
+    private String previousAccessToken;
     private long refreshAtNanos;
     private long expiresAtNanos;
     private long nextRefreshAttemptNanos;
@@ -245,6 +254,7 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
                             throw exchangeError(200, "access token expired before exchange completed");
                         }
                         cachedToken = result.token;
+                        previousAccessToken = lastAccessToken;
                         lastAccessToken = result.token;
                         refreshAtNanos = saturatingAdd(startedAt, lifetime - lifetime / 5);
                         expiresAtNanos = tokenExpiresAtNanos;
@@ -324,8 +334,7 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
                     || !"Bearer".equalsIgnoreCase(type.textValue())
                     || expiry == null || !expiry.isIntegralNumber()
                     || !expiry.canConvertToLong() || expiry.longValue() <= 0) {
-                final String responseError = responseError(body,
-                        token != null && token.isTextual() ? token.textValue() : null);
+                final String responseError = responseError(body);
                 throw exchangeError(200, "invalid access_token, token_type, or expires_in"
                         + ("unexpected response".equals(responseError) ? "" : ": " + responseError));
             }
@@ -341,13 +350,11 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
     }
 
     private String responseError(final JsonNode body) {
-        return responseError(body, null);
-    }
-
-    private String responseError(final JsonNode body, final String responseToken) {
         if (body == null || !body.isObject()) {
             return "unexpected response";
         }
+        final JsonNode token = body.get("access_token");
+        final String responseToken = token != null && token.isTextual() ? token.textValue() : null;
         final String error = responseField(body, "error", responseToken);
         final String description = responseField(body, "error_description", responseToken);
         return error.isEmpty() && description.isEmpty()
@@ -359,10 +366,7 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
         if (value == null || !value.isTextual()) {
             return "";
         }
-        String safe = redact(value.textValue());
-        if (responseToken != null && !responseToken.isEmpty()) {
-            safe = safe.replace(responseToken, "<redacted>");
-        }
+        final String safe = redact(value.textValue(), responseToken);
         return safe.substring(0, Math.min(200, safe.length()));
     }
 
@@ -373,16 +377,23 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
     }
 
     private String redact(final String value) {
-        String safe = value.replace(apiKey, "<redacted>");
+        return redact(value, null);
+    }
+
+    private String redact(final String value, final String responseToken) {
+        final String[] secrets;
         synchronized (this) {
-            if (cachedToken != null && !cachedToken.isEmpty()) {
-                safe = safe.replace(cachedToken, "<redacted>");
-            }
-            if (lastAccessToken != null && !lastAccessToken.isEmpty()) {
-                safe = safe.replace(lastAccessToken, "<redacted>");
+            secrets = new String[] {apiKey, cachedToken, lastAccessToken, previousAccessToken, responseToken};
+        }
+        Arrays.sort(secrets, (first, second) -> Integer.compare(
+                second == null ? 0 : second.length(), first == null ? 0 : first.length()));
+        String safe = value;
+        for (String secret : secrets) {
+            if (secret != null && !secret.isEmpty()) {
+                safe = safe.replace(secret, "<redacted>");
             }
         }
-        return safe;
+        return JWT_SHAPED_SUBSTRING.matcher(safe).replaceAll("<redacted>");
     }
 
     private static long saturatingAdd(final long start, final long duration) {
@@ -444,8 +455,12 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
      * Reports a token endpoint, response, transport, or timeout failure.
      *
      * <p>The message identifies the token URL and HTTP status when available. It includes at most
-     * 200 characters from each response error field and never includes a raw response, API key, or
-     * access token. A status of -1 means the exchange did not receive an HTTP response.
+     * 200 characters from each response error field after redacting the API key, cached and
+     * two most recently issued access tokens, the failed response's access token, and
+     * JWT-shaped substrings. A JWT-shaped substring has three or more base64url segments
+     * of at least 10 characters each. The rule also applies to the token URL and can redact
+     * other text of that shape, such as a long dotted host name. It omits raw responses and
+     * transport causes. A status of -1 means the exchange did not receive an HTTP response.
      */
     public static final class ExchangeException extends IOException {
         private final int httpStatus;

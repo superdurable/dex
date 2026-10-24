@@ -26,13 +26,33 @@ example, it supports only pull Workers).
 | `dexzd-worker-dispatch` | Pull Worker protocol server |
 | `dexzd-search` | SearchFlows backends |
 | `dexzd-engine` | Commit pipeline, Flow runtime, effects, recovery |
-| `dexzd-api` | FlowService gRPC handlers |
+| `dexzd-api` | FlowService gRPC handlers and public API authentication |
 | `dexzd-server` | The `dex-server-zd` executable |
 | `dexzd-simulation` | Deterministic simulation tests |
 | `dexzd-e2e-tests` | End-to-end tests over the real gRPC protocol |
 
 Crate layers are registered in `script/rust-crate-layers.json`; a crate may depend only on crates
 in the same or a lower layer.
+
+## Release binaries
+
+Each published `server-zd/vX.Y.Z` GitHub Release includes native `dex-server-zd` archives for
+Linux amd64, Linux arm64, and macOS arm64:
+
+| Platform | Archive |
+| --- | --- |
+| Linux amd64 | `dex-server-zd_vX.Y.Z_linux_amd64.tar.gz` |
+| Linux arm64 | `dex-server-zd_vX.Y.Z_linux_arm64.tar.gz` |
+| macOS arm64 | `dex-server-zd_vX.Y.Z_darwin_arm64.tar.gz` |
+
+Each archive contains `dex-server-zd`, `LICENSE.md`, `LEGACY_NOTICES.md`, and `LICENSES/`.
+The Release also includes `checksums.txt` with the SHA-256 hash of each archive. Verify the
+downloaded archive against that file before extracting it. Run
+`sha256sum --ignore-missing -c checksums.txt` on Linux or
+`shasum -a 256 --ignore-missing -c checksums.txt` on macOS from the download directory.
+
+Linux archives require glibc 2.28 or newer. They run on Debian 10+, Ubuntu 20.04+, and
+RHEL 8+ without a newer system libstdc++.
 
 ## Metrics
 
@@ -109,12 +129,52 @@ to a separate destination with the same keys; without it they use the primary bu
 | `environment` | `DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID`, `DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY`, and the optional `DEX_ZD_OBJECT_STORE_SESSION_TOKEN`; the hard-delete store reads the `DEX_ZD_HARD_DELETE_STORE_*` variables with the same suffixes |
 | `anonymous` | Unsigned requests, for a local emulator or a bucket that allows anonymous access |
 
+For a shared AWS S3 bucket, set a nonempty `objectStore.prefix` and grant the Server role only
+these S3 actions. Replace `BUCKET` and `PREFIX/` with the bucket and configured prefix; include the
+trailing slash in the policy. Apply the same policy to `objectStore.hardDeleteStore` when configured.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": { "StringLike": { "s3:prefix": "PREFIX/*" } }
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+      "Resource": "arn:aws:s3:::BUCKET/PREFIX/*"
+    }
+  ]
+}
+```
+
+The Server lists only under its configured prefix, including when checking a missing object.
+The `s3:ListBucket` condition must use `StringLike` with `PREFIX/*`. An exact-prefix
+`StringEquals` grant or no `s3:ListBucket` grant is unsupported: a missing object may return
+403, and the Server cannot use a prefixed listing to distinguish it from a denied object.
+With the `StringLike` grant above, AWS S3 returns 404 for missing-object reads; narrower grants
+can return 403. The Server handles either response when the prefixed listing is allowed.
+The startup conditional-write probe also creates and deletes a key under that prefix. No
+unconditioned bucket access or bucket administration action is required. The bucket may be
+unversioned: create-only and replacement writes use `If-None-Match` and `If-Match` with opaque
+ETags, not object versions or MD5 digests. The S3 client sends no server-side encryption headers,
+so the bucket's default SSE-KMS configuration applies. For a customer-managed KMS key, grant the
+role `kms:GenerateDataKey` and `kms:Decrypt` on that key, and allow those actions in its key policy.
+Configure a bucket lifecycle rule to `AbortIncompleteMultipartUpload` after 1–7 days. A crash can
+leave an incomplete upload, and a prefix-confined role cannot list or clean up all abandoned
+multipart uploads.
+
 Startup proceeds in this order:
 
 1. The node binds `api.listen`. gRPC health Check and Watch report NOT_SERVING for `""`,
    `dex.FlowService`, and `dex.WorkerTaskService`; FlowService and WorkerTaskService calls return
    Unavailable while startup continues.
-2. Every destination must pass a conditional-write self-check.
+2. Every S3 destination verifies a prefixed child listing. Every destination then passes a
+   conditional-write self-check.
 3. The node acquires the lease of `cluster.nodeId` for `lease.duration`. A lease that another
    process still holds is awaited until it expires, or fails startup when `lease.failIfHeld` is
    true.
@@ -169,6 +229,91 @@ releases its lease and exits 1.
 
 Logs go to standard error. `RUST_LOG` filters them; the default level is `info`.
 
+### Authentication
+
+`auth.authenticators` turns on public API authentication. It is empty by default, which leaves
+the API open. The section uses the Go Server's `auth` keys, so an existing Go Server section
+loads unchanged:
+
+```yaml
+auth:
+  authenticators:          # tried in order
+    - kind: jwt
+      issuer: https://issuer.example.com     # exact iss claim
+      audiences: ["dex"]                     # aud must name at least one
+      jwksURL: ""                            # empty uses OIDC discovery from the issuer
+      allowInsecureJWKSURL: false            # server-zd only
+      caFile: ""                             # PEM bundle added to the system roots
+    - kind: staticTokens
+      file: /etc/dex-server-zd/tokens.yaml
+```
+
+As in the Go Server, a Go Server key that belongs to the other kind is ignored, such as `file` on a
+`jwt` entry. `allowInsecureJWKSURL` applies only to `jwt`. An unknown key fails startup.
+
+Every FlowService and WorkerTaskService call needs an `authorization: Bearer <credential>`
+header. gRPC health needs no credential. A call to a service that server-zd does not serve answers
+UNIMPLEMENTED, as in the Go Server. A rejected call ends with UNAUTHENTICATED. Its
+`ServiceErrorResponse` detail has sub-status `UNCATEGORIZED` and one of two details: "a bearer
+credential is required" or "the credential is not valid". These match the Go Server. Credentials
+are never logged; rejection reasons are logged at debug level.
+
+Authenticators are tried in order:
+
+- A `staticTokens` entry accepts a credential whose SHA-256 hash its file lists.
+- The first `jwt` entry whose `issuer` equals the token's unverified `iss` claim decides alone. If
+  its checks fail, later entries are not tried.
+
+A JWT is accepted when all of these hold:
+
+- Its `alg` is RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512, or EdDSA (Ed25519).
+- Its `kid` names exactly one public signing key. If the key has an `alg`, it must match the
+  token's.
+- The signature verifies. RSA keys need 2048 to 8192 bits.
+- `iss` matches `issuer` exactly, and `aud` names an entry of `audiences`.
+- `exp` is present, and `exp`, `nbf`, and `iat` hold with a 30-second clock skew leeway.
+
+The issuer must be an HTTPS URL, or plain HTTP on `localhost` or a loopback IP. Keys come from
+`jwksURL`, or from the `jwks_uri` of `<issuer>/.well-known/openid-configuration`. A discovered
+document must name the same issuer, and its `jwks_uri` follows the same HTTPS rule. `jwksURL`
+follows it too, unless `allowInsecureJWKSURL` is true. That flag permits a plain `http://` key
+server on a trusted network, such as one inside the cluster. It needs `jwksURL` and relaxes
+nothing else. HTTPS requests trust the system roots plus `caFile`, so a container image needs CA
+certificates. Redirects are not followed, and proxy environment variables are ignored.
+
+The key set follows the Go Server's limits:
+
+- Startup fetches nothing, so an unreachable issuer does not fail startup. The first JWT fetches
+  the keys.
+- Keys refresh at most once a minute. Every request that arrives while that refresh is due or
+  running waits for it. A removed or replaced key therefore stops verifying with that refresh.
+- A token with an unknown `kid` triggers a refresh at most every ten seconds. Only requests for
+  unknown keys wait for that refresh.
+- A request waits at most five seconds, which also bounds each refresh. Then the current keys
+  decide.
+- A failed refresh keeps the previous keys.
+- Errors and logs show key set and discovery URLs without their userinfo, query, or fragment.
+  The same applies to the issuer that a discovery document names.
+
+A static token file lists hashes, never plaintext tokens:
+
+```yaml
+tokens:
+  - sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+```
+
+Compute a hash with `printf %s "$TOKEN" | sha256sum`. The file must exist and be valid at
+startup, or startup fails. Changes take effect within a second. A malformed update keeps the last
+valid content, while an empty or missing file revokes every token.
+
+A credential is checked once, when a call starts. This matches the Go Server. A pull Worker stream
+that opened with a valid credential stays open after its JWT expires or its static token is
+revoked. The Worker needs a currently valid credential when it reconnects, for example after the
+server asks it to.
+
+`api.listen` serves plaintext gRPC, so bearer credentials cross the network in clear text.
+Terminate TLS in front of the server, or restrict the network to trusted callers.
+
 ### Container image
 
 The `dex-server-zd` image is published for `linux/amd64` and `linux/arm64`. Its entrypoint is
@@ -201,6 +346,22 @@ state under `<data-dir>/store`. `dexcli dev -engine zd` starts it with these fla
 node ID to `dev`, anonymous credentials, the embedded endpoint, and the `--listen` address, and it
 rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
 `<log-dir>/dex-server-zd.log`. A `search.backend: paradedb` override uses ParadeDB as `serve` does.
+
+## Stable command-line interface
+
+These commands and flags are part of the Beta compatibility interface. Applications can invoke
+them without depending on the implementation of the server:
+
+| Command | Flag | Meaning |
+| --- | --- | --- |
+| `serve` | `--config <file>` | Required YAML configuration file for a node using external object storage. |
+| `dev` | `--data-dir <dir>` | Required directory for embedded object storage and local state. |
+| `dev` | `--listen <address>` | Plaintext gRPC listen address as `IP:port`; host names are rejected; defaults to `127.0.0.1:8801`. |
+| `dev` | `--config <file>` | Optional YAML configuration overrides. |
+| `dev` | `--log-dir <dir>` | Optional directory that also receives `dex-server-zd.log`. |
+| Both | `--version` | Prints `dex-server-zd X.Y.Z`. |
+
+SIGTERM stops `dev` and exits with status 0.
 
 ## Development
 

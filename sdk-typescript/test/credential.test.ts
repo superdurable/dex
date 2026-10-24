@@ -142,6 +142,98 @@ test("ApiKeyCredential validates each response field and redacts every exchange 
   }
 });
 
+test("ApiKeyCredential redacts an older JWT from endpoint fields and transport failures", async () => {
+  const tokens = [
+    "headersegmentA.payloadsegmentA.signaturesegmentA",
+    "middle-access-token-B",
+    "newest-access-token-C",
+  ];
+  class TokenEchoingFetch {
+    private exchangeCount = 0;
+    private shouldFailTransport = false;
+
+    public constructor(private readonly issuedTokens: readonly string[]) {}
+
+    public failTransport(): void { this.shouldFailTransport = true; }
+
+    public async fetchTokenEndpoint(): Promise<Response> {
+      if (this.shouldFailTransport) throw new Error(`transport cause echoed ${this.issuedTokens[0]}`);
+      const token = this.issuedTokens[this.exchangeCount++];
+      if (token !== undefined) return new Response(JSON.stringify({ access_token: token, token_type: "Bearer", expires_in: 60 }));
+      return new Response(JSON.stringify({ error: `revoked ${this.issuedTokens[0]}`,
+        error_description: `expired ${this.issuedTokens[0]}, ${this.issuedTokens[1]}, and ${this.issuedTokens[2]}` }), { status: 503 });
+    }
+  }
+  class TokenRejectionPolicy {
+    private shouldRejectNewest = false;
+
+    public constructor(private readonly newestToken: string) {}
+
+    public rejectNewestToken(): void { this.shouldRejectNewest = true; }
+
+    public shouldReject(authorization: string | undefined): boolean {
+      return authorization !== `Bearer ${this.newestToken}` || this.shouldRejectNewest;
+    }
+  }
+  const endpointFetch = new TokenEchoingFetch(tokens);
+  const rejectionPolicy = new TokenRejectionPolicy(tokens[2]!);
+  const credential = new ApiKeyCredential({ tokenUrl: "http://localhost/token", serverId: "dex-server", apiKey,
+    fetch: endpointFetch.fetchTokenEndpoint.bind(endpointFetch) });
+  const server = await startServer({ rejectFlow: rejectionPolicy.shouldReject.bind(rejectionPolicy) });
+  const client = new Client(new Registry([]), {} as BlobCache, { serverAddress: server.address, credential });
+  try {
+    await assert.rejects(client.searchFlows("", 1), (failure: unknown) => (failure as { code?: number }).code === status.UNAUTHENTICATED);
+    await client.searchFlows("", 1);
+    assert.equal(await credential.token(), tokens[2]);
+    rejectionPolicy.rejectNewestToken();
+    await assert.rejects(client.searchFlows("", 1), (failure: unknown) => {
+      for (const formatted of [String(failure), inspect(failure), (failure as Error).stack ?? ""]) {
+        for (const secret of [apiKey, ...tokens]) assert.equal(formatted.includes(secret), false);
+      }
+      return true;
+    });
+
+    await assert.rejects(credential.token(), (failure: unknown) => {
+      assert.match(String(failure), /HTTP status 503: revoked/);
+      assert.match(String(failure), /\[REDACTED\]/);
+      for (const formatted of [String(failure), inspect(failure), (failure as Error).stack ?? ""]) {
+        assert.equal(formatted.includes(apiKey), false);
+        assert.equal(formatted.includes(tokens[0]!), false);
+        assert.equal(formatted.includes(tokens[1]!), false);
+        assert.equal(formatted.includes(tokens[2]!), false);
+      }
+      return true;
+    });
+    endpointFetch.failTransport();
+    await assert.rejects(credential.token(), (failure: unknown) => {
+      assert.match(String(failure), /transport failure/);
+      for (const formatted of [String(failure), inspect(failure), (failure as Error).stack ?? ""]) {
+        assert.equal(formatted.includes(apiKey), false);
+        assert.equal(formatted.includes(tokens[0]!), false);
+        assert.equal(formatted.includes(tokens[1]!), false);
+        assert.equal(formatted.includes(tokens[2]!), false);
+      }
+      return true;
+    });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("ApiKeyCredential redacts long dotted runs without slowing on dot-free input", () => {
+  const credential = new ApiKeyCredential({ tokenUrl: "http://localhost/token", serverId: "dex-server", apiKey });
+  const redact = (credential as unknown as { redact: (value: string) => string }).redact.bind(credential);
+  const dotFree = "a".repeat(50_000);
+  const dotted = Array(4_545).fill("abcdefghij").join(".");
+  const startedAt = performance.now();
+  assert.equal(redact(dotFree), dotFree);
+  assert.equal(redact(dotted), "[REDACTED]");
+  assert.equal(redact("prefixvalue.headersegment.payloadsegment.signaturesegment"), "[REDACTED]");
+  assert.equal(redact("headersegment.payloadsegment.signaturesegment.fourthsegment.fifthsegment"), "[REDACTED]");
+  assert.ok(performance.now() - startedAt < 50);
+});
+
 test("ApiKeyCredential shares the first exchange among concurrent callers", async () => {
   let releaseExchange!: () => void;
   const gate = new Promise<void>((resolve) => { releaseExchange = resolve; });

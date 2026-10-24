@@ -34,6 +34,25 @@ pub struct BucketRecord {
     pub object_lock: Option<ObjectLockConfiguration>,
     #[serde(default)]
     pub lifecycle: Option<LifecycleConfiguration>,
+    #[serde(default)]
+    pub cors: Option<CorsConfiguration>,
+}
+
+/// Cross-origin access rules persisted with a bucket.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorsConfiguration {
+    pub rules: Vec<CorsRule>,
+}
+
+/// One ordered bucket CORS rule.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorsRule {
+    pub id: Option<String>,
+    pub allowed_origins: Vec<String>,
+    pub allowed_methods: Vec<String>,
+    pub allowed_headers: Vec<String>,
+    pub expose_headers: Vec<String>,
+    pub max_age_seconds: Option<u32>,
 }
 
 /// The lifecycle rules of a bucket, applied by [`crate::Store::run_lifecycle`].

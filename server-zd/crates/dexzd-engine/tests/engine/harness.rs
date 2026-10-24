@@ -314,7 +314,7 @@ impl PartitionRuntimeRebuilder for RecordingRuntime {
     fn rebuild_partition(
         &self,
         partition: PartitionId,
-    ) -> BoxFuture<'_, Result<(), RuntimeRebuildError>> {
+    ) -> BoxFuture<'_, Result<usize, RuntimeRebuildError>> {
         Box::pin(async move {
             if self.failing_partition == Some(partition) {
                 return Err(RuntimeRebuildError {
@@ -323,7 +323,7 @@ impl PartitionRuntimeRebuilder for RecordingRuntime {
                 });
             }
             self.rebuilt.lock().expect("rebuilt lock").push(partition);
-            Ok(())
+            Ok(0)
         })
     }
 }

@@ -2,4 +2,4 @@
 
 ## Purpose
 
-FlowService gRPC handlers for server-zd: request validation, routing to the engine, long polling, and error mapping.
+FlowService gRPC handlers for server-zd: request validation, routing to the engine, long polling, error mapping, and public API authentication.

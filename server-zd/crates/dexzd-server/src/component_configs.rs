@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use dexzd_api::FlowServiceConfig;
+use dexzd_api::{CredentialAuthenticatorConfig, FlowServiceConfig};
 use dexzd_cluster_metadata::NodeConfig;
 use dexzd_engine::{
     BlockingWorkPlacement, CommitConfig, EffectsConfig, EngineNodeConfig, LocalStoreConfig,
@@ -35,6 +35,8 @@ pub(crate) struct ComponentConfigs {
     pub(crate) stream_store: StreamStoreConfig,
     pub(crate) flow_service: FlowServiceConfig,
     pub(crate) grpc_max_message_bytes: usize,
+    /// Empty when public API authentication is disabled.
+    pub(crate) authenticators: Vec<CredentialAuthenticatorConfig>,
 }
 
 impl ComponentConfigs {
@@ -224,6 +226,7 @@ impl ComponentConfigs {
             stream_store,
             flow_service,
             grpc_max_message_bytes,
+            authenticators: config.auth.credential_authenticators(),
         })
     }
 

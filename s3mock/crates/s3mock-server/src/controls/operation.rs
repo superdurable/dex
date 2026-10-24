@@ -38,6 +38,9 @@ pub(crate) enum S3OperationName {
     GetBucketLifecycleConfiguration,
     PutBucketLifecycleConfiguration,
     DeleteBucketLifecycle,
+    PutBucketCors,
+    GetBucketCors,
+    DeleteBucketCors,
 }
 
 impl std::fmt::Display for S3OperationName {

@@ -1,0 +1,319 @@
+name: S3mock release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: S3mock semantic version without the v prefix
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s3mock-release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Verify release version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify main and unused tag
+        id: version
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_REF}" == refs/heads/main ]] || {
+            echo 'S3mock releases run only from main' >&2
+            exit 1
+          }
+          [[ "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]] || {
+            echo "Invalid S3mock version: ${VERSION}" >&2
+            exit 1
+          }
+          crate_version="$(python3 -c 'import tomllib; print(tomllib.load(open("s3mock/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          [[ "${VERSION}" == "${crate_version}" ]] || {
+            echo "Release version ${VERSION} does not match s3mock crate version ${crate_version}" >&2
+            exit 1
+          }
+          tag="s3mock/v${VERSION}"
+          [[ -z "$(git ls-remote --tags --refs origin "refs/tags/${tag}")" ]] || {
+            echo "Release tag already exists: ${tag}" >&2
+            exit 1
+          }
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "Release already exists: ${tag}" >&2
+            exit 1
+          fi
+          repository_status="$(curl --silent --show-error \
+            --output "${RUNNER_TEMP}/s3mock-repository.json" \
+            --write-out '%{http_code}' \
+            https://hub.docker.com/v2/repositories/superdurable/s3mock/)"
+          case "${repository_status}" in
+            200)
+              jq -e '.is_private == false' "${RUNNER_TEMP}/s3mock-repository.json" >/dev/null || {
+                echo 'Docker Hub repository superdurable/s3mock must be public' >&2
+                exit 1
+              }
+              ;;
+            404) ;;
+            *)
+              echo "Docker Hub repository check returned ${repository_status}" >&2
+              exit 1
+              ;;
+          esac
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build and smoke Linux ${{ matrix.arch }}
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify native architecture
+        shell: bash
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          case "${TARGET_ARCH}" in
+            amd64) [[ "${RUNNER_ARCH}" == X64 ]] ;;
+            arm64) [[ "${RUNNER_ARCH}" == ARM64 ]] ;;
+          esac
+      - uses: docker/setup-buildx-action@v4
+      - name: Build native release binary
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          TARGET_ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --platform "${PLATFORM}" --target binary \
+            --file s3mock/Dockerfile \
+            --output "type=local,dest=${RUNNER_TEMP}/binary" \
+            --cache-from "type=gha,scope=s3mock-${TARGET_ARCH}" \
+            .
+          "${RUNNER_TEMP}/binary/s3mock" --help >/dev/null
+          mkdir -p "${RUNNER_TEMP}/package" "${RUNNER_TEMP}/dist"
+          cp "${RUNNER_TEMP}/binary/s3mock" LICENSE "${RUNNER_TEMP}/package/"
+          tar --owner=0 --group=0 --numeric-owner \
+            -C "${RUNNER_TEMP}/package" \
+            -czf "${RUNNER_TEMP}/dist/s3mock_v${VERSION}_linux_${TARGET_ARCH}.tar.gz" \
+            s3mock LICENSE
+      - uses: actions/upload-artifact@v7
+        with:
+          name: s3mock-binary-${{ matrix.arch }}
+          path: ${{ runner.temp }}/dist/*.tar.gz
+          if-no-files-found: error
+      - name: Build native image for smoke test
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: s3mock/Dockerfile
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: s3mock:smoke
+          cache-from: type=gha,scope=s3mock-${{ matrix.arch }}
+          cache-to: type=gha,scope=s3mock-${{ matrix.arch }},mode=min
+      - name: Smoke non-root image and persistent volume
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(docker run --rm --entrypoint /usr/bin/id s3mock:smoke -u)" == 10001 ]]
+          volume="s3mock-release-${GITHUB_RUN_ID}-${{ matrix.arch }}"
+          cleanup() {
+            docker rm -f s3mock-release-smoke >/dev/null 2>&1 || true
+            docker volume rm -f "${volume}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker volume create "${volume}" >/dev/null
+          start_server() {
+            docker run -d --name s3mock-release-smoke \
+              -p 127.0.0.1::9000 -v "${volume}:/var/lib/s3mock" \
+              s3mock:smoke >/dev/null
+            port="$(docker port s3mock-release-smoke 9000/tcp | sed -n 's/.*://p')"
+            deadline=$((SECONDS + 60))
+            until curl -fsS "http://127.0.0.1:${port}/" >/dev/null; do
+              if (( SECONDS >= deadline )); then
+                docker logs s3mock-release-smoke >&2
+                return 1
+              fi
+              sleep 1
+            done
+          }
+          start_server
+          curl -fsS -X PUT "http://127.0.0.1:${port}/release-smoke" >/dev/null
+          curl -fsS -X PUT --data 'persisted' \
+            "http://127.0.0.1:${port}/release-smoke/object" >/dev/null
+          docker rm -f s3mock-release-smoke >/dev/null
+          start_server
+          [[ "$(curl -fsS "http://127.0.0.1:${port}/release-smoke/object")" == persisted ]]
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Push native image by digest
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: s3mock/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=docker.io/superdurable/s3mock,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=s3mock-${{ matrix.arch }}
+      - name: Record native digest
+        shell: bash
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: s3mock-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    name: Publish multi-architecture image
+    needs: [preflight, build]
+    runs-on: ubuntu-24.04
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: s3mock-digest-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Create or verify version tag
+        id: manifest
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+          image=docker.io/superdurable/s3mock
+          mapfile -t digests < <(find "${RUNNER_TEMP}/digests" -type f -printf '%f\n' | sort)
+          [[ "${#digests[@]}" -eq 2 ]] || {
+            echo "Expected two native image digests, found ${#digests[@]}" >&2
+            exit 1
+          }
+          sources=()
+          for digest in "${digests[@]}"; do
+            [[ "${digest}" =~ ^[0-9a-f]{64}$ ]]
+            sources+=("${image}@sha256:${digest}")
+          done
+          inspect_error="${RUNNER_TEMP}/s3mock-inspect-error.txt"
+          if existing_manifest="$(docker buildx imagetools inspect "${image}:${VERSION}" --raw 2>"${inspect_error}")"; then
+            existing_revision="$(jq -r '.annotations["org.opencontainers.image.revision"] // empty' <<< "${existing_manifest}")"
+            [[ "${existing_revision}" == "${GITHUB_SHA}" ]] || {
+              echo "Image tag ${image}:${VERSION} belongs to a different release commit" >&2
+              exit 1
+            }
+          else
+            if ! grep -Eq 'not found|manifest unknown' "${inspect_error}"; then
+              cat "${inspect_error}" >&2
+              exit 1
+            fi
+            docker buildx imagetools create \
+              --annotation "index:org.opencontainers.image.revision=${GITHUB_SHA}" \
+              -t "${image}:${VERSION}" "${sources[@]}"
+          fi
+          docker buildx imagetools inspect "${image}:${VERSION}"
+          digest="$(docker buildx imagetools inspect "${image}:${VERSION}" --format '{{.Manifest.Digest}}')"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          token_response="$(curl --fail --silent --show-error \
+            'https://auth.docker.io/token?service=registry.docker.io&scope=repository%3Asuperdurable%2Fs3mock%3Apull')"
+          anonymous_token="$(jq -r '.token // empty' <<< "${token_response}")"
+          [[ -n "${anonymous_token}" ]]
+          anonymous_status="$(curl --silent --show-error \
+            --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${anonymous_token}" \
+            --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+            "https://registry-1.docker.io/v2/superdurable/s3mock/manifests/${digest}")"
+          [[ "${anonymous_status}" == 200 ]] || {
+            echo "Image digest ${digest} is not publicly readable (${anonymous_status}); make the Docker Hub repository public and rerun this workflow" >&2
+            exit 1
+          }
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+  release:
+    name: Publish GitHub release
+    needs: [preflight, build, manifest]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: s3mock-binary-*
+          path: dist
+          merge-multiple: true
+      - name: Check archives and write SHA-256 sums
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ -s "dist/s3mock_v${VERSION}_linux_amd64.tar.gz" ]]
+          [[ -s "dist/s3mock_v${VERSION}_linux_arm64.tar.gz" ]]
+          (cd dist && sha256sum ./*.tar.gz > checksums.txt && sha256sum -c checksums.txt)
+      - name: Create versioned release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          IMAGE_DIGEST: ${{ needs.manifest.outputs.digest }}
+        run: |
+          set -euo pipefail
+          tag="s3mock/v${VERSION}"
+          [[ -z "$(git ls-remote --tags --refs origin "refs/tags/${tag}")" ]] || {
+            echo "Release tag already exists: ${tag}" >&2
+            exit 1
+          }
+          cat > "${RUNNER_TEMP}/release-notes.md" <<EOF
+          ## s3mock ${VERSION}
+
+          Linux amd64 and arm64 binary archives and SHA-256 checksums are attached.
+
+          Image: \`docker.io/superdurable/s3mock:${VERSION}\`
+
+          Digest: \`docker.io/superdurable/s3mock@${IMAGE_DIGEST}\`
+
+          Strict mode supports scoped credentials, presigned URLs, and bucket CORS. An unknown
+          access key now returns \`403 InvalidAccessKeyId\` rather than \`403 AccessDenied\`.
+          EOF
+          gh release create "${tag}" dist/*.tar.gz dist/checksums.txt \
+            --target "${GITHUB_SHA}" --title "s3mock v${VERSION}" \
+            --latest=false \
+            --notes-file "${RUNNER_TEMP}/release-notes.md"

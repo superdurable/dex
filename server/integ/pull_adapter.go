@@ -24,6 +24,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -39,6 +40,7 @@ type pullWorkerFlowClient struct {
 	dexpb.FlowServiceClient
 	test          *testing.T
 	serverAddress string
+	credential    string
 }
 
 type pullAdapterStream struct {
@@ -48,6 +50,7 @@ type pullAdapterStream struct {
 	adapter       *pullWorkerAdapter
 	test          *testing.T
 	serverAddress string
+	credential    string
 	queue         string
 	flowType      string
 	streamCancel  context.CancelFunc
@@ -72,9 +75,15 @@ func registerPullWorkerAdapter(t *testing.T, pushAddress string) *dexpb.WorkerTa
 
 func configurePullWorkerClient(t *testing.T, runtime *integRuntime) *integRuntime {
 	t.Helper()
+	return configurePullWorkerClientWithCredential(t, runtime, "")
+}
+
+// configurePullWorkerClientWithCredential sends a non-empty credential as a bearer token on pull Worker streams.
+func configurePullWorkerClientWithCredential(t *testing.T, runtime *integRuntime, credential string) *integRuntime {
+	t.Helper()
 	if *integWorkerMode == "pull" {
 		runtime.FlowClient = &pullWorkerFlowClient{
-			FlowServiceClient: runtime.FlowClient, test: t, serverAddress: runtime.PublicAddress,
+			FlowServiceClient: runtime.FlowClient, test: t, serverAddress: runtime.PublicAddress, credential: credential,
 		}
 	}
 	return runtime
@@ -97,7 +106,7 @@ func (client *pullWorkerFlowClient) StartFlow(
 				return nil, fmt.Errorf("pull Worker target for Flow type %s was not registered by startWorker", request.GetFlowType())
 			}
 			adapter := loaded.(*pullWorkerAdapter)
-			if err := adapter.registerFlowType(client.test, client.serverAddress, request.GetFlowType()); err != nil {
+			if err := adapter.registerFlowType(client.test, client.serverAddress, client.credential, request.GetFlowType()); err != nil {
 				return nil, err
 			}
 		}
@@ -118,14 +127,30 @@ func (client *pullWorkerFlowClient) UpdateFlowConfig(
 		if err != nil {
 			return nil, err
 		}
-		if err := loaded.(*pullWorkerAdapter).registerFlowType(client.test, client.serverAddress, summary.GetFlowType()); err != nil {
+		if err := loaded.(*pullWorkerAdapter).registerFlowType(client.test, client.serverAddress, client.credential, summary.GetFlowType()); err != nil {
 			return nil, err
 		}
 	}
 	return client.FlowServiceClient.UpdateFlowConfig(ctx, request, options...)
 }
 
-func (adapter *pullWorkerAdapter) registerFlowType(t *testing.T, serverAddress string, flowType string) error {
+// newPullServerConnection dials the Dex Server for pull Worker streams; a non-empty credential is sent as a bearer token.
+func newPullServerConnection(address string, credential string) (*grpc.ClientConn, error) {
+	if credential == "" {
+		return newDexClientConnection(address, config.DefaultGrpcMaxMessageBytes)
+	}
+	return grpc.NewClient(
+		address,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(config.DefaultGrpcMaxMessageBytes),
+			grpc.MaxCallSendMsgSize(config.DefaultGrpcMaxMessageBytes),
+		),
+		grpc.WithPerRPCCredentials(bearerCredential(credential)),
+	)
+}
+
+func (adapter *pullWorkerAdapter) registerFlowType(t *testing.T, serverAddress string, credential string, flowType string) error {
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
 	registrationKey := serverAddress + "/" + flowType
@@ -146,7 +171,7 @@ func (adapter *pullWorkerAdapter) registerFlowType(t *testing.T, serverAddress s
 	if err != nil {
 		return err
 	}
-	pullConnection, err := newDexClientConnection(serverAddress, config.DefaultGrpcMaxMessageBytes)
+	pullConnection, err := newPullServerConnection(serverAddress, credential)
 	if err != nil {
 		return errors.Join(err, pushConnection.Close())
 	}
@@ -177,7 +202,7 @@ func (adapter *pullWorkerAdapter) registerFlowType(t *testing.T, serverAddress s
 			}
 			go (&pullAdapterStream{
 				stream: stream, pullClient: pullClient, worker: worker, adapter: adapter,
-				test: t, serverAddress: serverAddress, queue: queue, flowType: flowType, streamCancel: streamCancel,
+				test: t, serverAddress: serverAddress, credential: credential, queue: queue, flowType: flowType, streamCancel: streamCancel,
 			}).serve(streamCtx)
 		}
 	}
@@ -371,7 +396,7 @@ func (adapter *pullAdapterStream) relayWaitFor(ctx context.Context, taskID strin
 			return err
 		}
 		for _, condition := range output.GetResult().GetWaitingCondition().GetSubFlowConditions() {
-			if err := adapter.adapter.registerFlowType(adapter.test, adapter.serverAddress, condition.GetSubFlowType()); err != nil {
+			if err := adapter.adapter.registerFlowType(adapter.test, adapter.serverAddress, adapter.credential, condition.GetSubFlowType()); err != nil {
 				return err
 			}
 		}

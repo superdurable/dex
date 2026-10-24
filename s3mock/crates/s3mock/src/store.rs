@@ -9,6 +9,7 @@
 //! The object store: redb metadata plus one self-describing data file per object version.
 
 mod bucket;
+mod credential;
 mod lifecycle;
 mod maintenance;
 mod multipart;
@@ -33,6 +34,7 @@ use crate::error::StoreError;
 use crate::key_codec::{encode_object_key, prefix_successor};
 use crate::record::{BucketRecord, VersionRecord};
 
+pub use credential::{CredentialRecord, CredentialStatus};
 pub use lifecycle::LifecycleRun;
 pub use maintenance::OrphanCollection;
 pub use multipart::{
@@ -52,6 +54,7 @@ pub use object_read::{
 pub use object_write::{PutObjectOutcome, PutObjectRequest, WriteCondition};
 
 const BUCKETS: TableDefinition<&str, &[u8]> = TableDefinition::new("buckets");
+const CREDENTIALS: TableDefinition<&str, &[u8]> = TableDefinition::new("credentials");
 /// Every version and delete marker, keyed by `encode_version_key`, newest first per key.
 const VERSIONS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("versions");
 /// The current version of every key whose newest version is not a delete marker.
@@ -159,6 +162,7 @@ impl Store {
     fn create_tables(&self) -> Result<(), StoreError> {
         let transaction = self.begin_write()?;
         transaction.open_table(BUCKETS)?;
+        transaction.open_table(CREDENTIALS)?;
         transaction.open_table(VERSIONS)?;
         transaction.open_table(LATEST)?;
         transaction.open_table(UPLOADS)?;

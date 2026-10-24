@@ -26,6 +26,7 @@ import (
 	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/ptr"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"gopkg.in/yaml.v3"
 )
@@ -91,9 +92,14 @@ func startBinaryDexService(t *testing.T, testConfig DexServiceTestConfig) *integ
 		}
 		require.NoError(t, readinessErr)
 	}
-	connection, err := newDexClientConnection(address, config.DefaultGrpcMaxMessageBytes)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+	var connection *grpc.ClientConn
+	if testConfig.Credential != "" {
+		connection = newDexClientConnectionWithCredential(t, address, testConfig.Credential, config.DefaultGrpcMaxMessageBytes)
+	} else {
+		connection, err = newDexClientConnection(address, config.DefaultGrpcMaxMessageBytes)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, connection.Close()) })
+	}
 	flowServiceClient := dexpb.NewFlowServiceClient(connection)
 	// Each process starts empty; the Temporal dev server predefines these search attributes.
 	registrationCtx, cancelRegistration := context.WithTimeout(context.Background(), 10*time.Second)
@@ -115,7 +121,7 @@ func startBinaryDexService(t *testing.T, testConfig DexServiceTestConfig) *integ
 	if testConfig.MaxWaitSeconds > 0 {
 		runtime.FlowClient.(*externalDexFlowClient).maxWaitSeconds = int32(testConfig.MaxWaitSeconds)
 	}
-	return configurePullWorkerClient(t, runtime)
+	return configurePullWorkerClientWithCredential(t, runtime, testConfig.Credential)
 }
 
 func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
@@ -158,17 +164,11 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 		streamStoreBackend != config.StreamStoreBackendDisabled {
 		return nil, "external Stream Store"
 	}
-	if testConfig.Auth != nil {
-		return nil, "API authentication"
-	}
 	if testConfig.Internal != nil {
 		return nil, "internal listener"
 	}
 	if testConfig.Wake != nil {
 		return nil, "Worker wake hook"
-	}
-	if testConfig.Credential != "" {
-		return nil, "API credential"
 	}
 	if testConfig.UseBuiltInDefaultWorkflowConfig {
 		return nil, "built-in default Flow configuration"
@@ -205,7 +205,31 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 		}
 	}
 	configuration["streamStore"] = binaryStreamStoreConfig(testConfig.StreamStore)
+	if testConfig.Auth != nil {
+		configuration["auth"] = binaryAuthConfig(testConfig.Auth)
+	}
 	return configuration, ""
+}
+
+// binaryAuthConfig writes the Go Server's auth section with its own YAML keys, which server-zd reads unchanged.
+func binaryAuthConfig(settings *config.AuthConfig) map[string]any {
+	authenticators := make([]map[string]any, 0, len(settings.Authenticators))
+	for _, authenticator := range settings.Authenticators {
+		entry := map[string]any{"kind": string(authenticator.Kind)}
+		for name, value := range map[string]string{
+			"issuer": authenticator.Issuer, "jwksURL": authenticator.JWKSURL,
+			"caFile": authenticator.CAFile, "file": authenticator.File,
+		} {
+			if value != "" {
+				entry[name] = value
+			}
+		}
+		if len(authenticator.Audiences) > 0 {
+			entry["audiences"] = authenticator.Audiences
+		}
+		authenticators = append(authenticators, entry)
+	}
+	return map[string]any{"authenticators": authenticators}
 }
 
 func binaryMatchingConfig(settings *config.MatchingConfig) map[string]any {

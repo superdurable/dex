@@ -11,7 +11,7 @@
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{
@@ -324,14 +324,25 @@ impl EngineNode {
                     reason: state.stop_reason().unwrap_or(NodeStopReason::Shutdown),
                 });
             }
+            let rebuild_started = Instant::now();
+            let mut rebuilt_partition_count = 0;
+            let mut total_effects = 0;
             for partition in 0..partition_count {
                 let partition = PartitionId(
                     u16::try_from(partition).expect("the manifest limits partitions to u16"),
                 );
                 if !state.is_partition_halted(partition) {
-                    runtime.rebuilder.rebuild_partition(partition).await?;
+                    total_effects += runtime.rebuilder.rebuild_partition(partition).await?;
+                    rebuilt_partition_count += 1;
                 }
             }
+            tracing::info!(
+                rebuilt_partition_count,
+                total_effects,
+                duration_ms =
+                    u64::try_from(rebuild_started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "rebuilt partition effects"
+            );
             if let Some(reason) = state.stop_reason() {
                 return Err(EngineStartError::Stopped { reason });
             }

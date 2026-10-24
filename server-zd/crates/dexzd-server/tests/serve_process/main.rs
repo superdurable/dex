@@ -207,6 +207,190 @@ async fn sigterm_releases_the_lease_and_a_second_process_takes_over() {
     hard_delete.shutdown().await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prefix_confined_missing_key_denials_allow_new_and_existing_cluster_startup() {
+    let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
+    primary
+        .set_fault_rules(&format!(
+            r#"[{{"operation":"GetObject","bucket":"{PRIMARY_BUCKET}","key_prefix":"{PRIMARY_PREFIX}/","action":{{"type":"missing_key_access_denied"}}}},{{"operation":"HeadObject","bucket":"{PRIMARY_BUCKET}","key_prefix":"{PRIMARY_PREFIX}/","action":{{"type":"missing_key_access_denied"}}}}]"#
+        ))
+        .await;
+    let endpoint = primary.endpoint();
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    for index in 0..2 {
+        let address = free_loopback_address();
+        let config = directory.path().join(format!("{index}.yaml"));
+        ServeConfig {
+            primary_endpoint: &endpoint,
+            hard_delete_endpoint: None,
+            listen: address,
+            local_directory: &directory.path().join(format!("store-{index}")),
+            lease_duration: "2s",
+            fail_if_held: true,
+            parade_db: None,
+        }
+        .write(&config);
+        let mut process = ServeProcess::spawn(
+            &config,
+            address,
+            directory.path().join(format!("{index}.log")),
+        );
+        let _serving_channel = process.wait_until_serving().await;
+        let status = process.terminate(SHUTDOWN_BUDGET).await;
+        assert_eq!(status.code(), Some(0), "{}", process.log());
+    }
+    let requests = primary.request_log().await;
+    assert!(requests.contains("\"status\":403"), "{requests}");
+    let counters = primary.counters().await;
+    for operation in ["HeadBucket", "GetBucketLocation", "ListBuckets"] {
+        assert!(
+            !counters.contains(&format!("\"{operation}\"")),
+            "{counters}"
+        );
+    }
+    primary.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prefix_confined_missing_key_denials_allow_log_tail_recovery() {
+    let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
+    primary
+        .set_fault_rules(&format!(
+            r#"[{{"operation":"GetObject","bucket":"{PRIMARY_BUCKET}","key_prefix":"{PRIMARY_PREFIX}/","action":{{"type":"missing_key_access_denied"}}}},{{"operation":"HeadObject","bucket":"{PRIMARY_BUCKET}","key_prefix":"{PRIMARY_PREFIX}/","action":{{"type":"missing_key_access_denied"}}}}]"#
+        ))
+        .await;
+    let endpoint = primary.endpoint();
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    let first_address = free_loopback_address();
+    let first_config = directory.path().join("first.yaml");
+    ServeConfig {
+        primary_endpoint: &endpoint,
+        hard_delete_endpoint: None,
+        listen: first_address,
+        local_directory: &directory.path().join("first-store"),
+        lease_duration: "2s",
+        fail_if_held: false,
+        parade_db: None,
+    }
+    .write(&first_config);
+    let mut first = ServeProcess::spawn(
+        &first_config,
+        first_address,
+        directory.path().join("first.log"),
+    );
+    let channel = first.wait_until_serving().await;
+    let worker = PullWorker::start(
+        WorkerTaskServiceClient::new(channel.clone()),
+        FLOW_TYPE,
+        Box::new(|_request| InvokeExecuteMethodResponse {
+            step_decision: Some(StepDecision {
+                close_decision: Some(CloseDecision {
+                    close_decision_type: CloseDecisionType::ForceComplete.into(),
+                    close_input: Some(string_value("recovered")),
+                    ..CloseDecision::default()
+                }),
+                ..StepDecision::default()
+            }),
+            ..InvokeExecuteMethodResponse::default()
+        }),
+    )
+    .await;
+    let mut flow_client = FlowServiceClient::new(channel);
+    let started = flow_client
+        .start_flow(StartFlowRequest {
+            flow_id: "confined-recovery-flow".to_owned(),
+            flow_type: FLOW_TYPE.to_owned(),
+            start_step_type: "GreetStep".to_owned(),
+            step_input: Some(string_value("hello")),
+            step_options: Some(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            }),
+            flow_start_options: Some(FlowStartOptions {
+                flow_config_override: Some(FlowConfig {
+                    worker_target: Some(WorkerTarget {
+                        is_pull_mode: true,
+                        ..WorkerTarget::default()
+                    }),
+                    ..FlowConfig::default()
+                }),
+                ..FlowStartOptions::default()
+            }),
+            request_id: "confined-recovery-request".to_owned(),
+            ..StartFlowRequest::default()
+        })
+        .await
+        .expect("StartFlow succeeds under missing-key denials")
+        .into_inner();
+    let completed = flow_client
+        .wait_for_flow(WaitForFlowRequest {
+            flow_id: "confined-recovery-flow".to_owned(),
+            needs_results: true,
+            wait_time_seconds: 30,
+            ..WaitForFlowRequest::default()
+        })
+        .await
+        .expect("the Flow completes")
+        .into_inner();
+    assert_eq!(completed.flow_status, FlowStatus::Completed as i32);
+    worker.stop().await;
+    assert!(primary.has_object_under(PRIMARY_BUCKET, &format!("{PRIMARY_PREFIX}/log/")));
+    let first_requests = primary.request_log().await;
+    assert!(
+        first_requests.contains("\"status\":403"),
+        "{first_requests}"
+    );
+    let killed = first.kill().await;
+    assert!(!killed.success(), "SIGKILL stops the first process");
+
+    let second_address = free_loopback_address();
+    let second_config = directory.path().join("second.yaml");
+    ServeConfig {
+        primary_endpoint: &endpoint,
+        hard_delete_endpoint: None,
+        listen: second_address,
+        local_directory: &directory.path().join("second-store"),
+        lease_duration: "2s",
+        fail_if_held: false,
+        parade_db: None,
+    }
+    .write_with_snapshot_schedule(&second_config, "1s", "24h");
+    let mut second = ServeProcess::spawn(
+        &second_config,
+        second_address,
+        directory.path().join("second.log"),
+    );
+    let channel = second.wait_until_serving().await;
+    let summary = FlowServiceClient::new(channel)
+        .get_flow_summary(GetFlowSummaryRequest {
+            flow_id: "confined-recovery-flow".to_owned(),
+            ..GetFlowSummaryRequest::default()
+        })
+        .await
+        .expect("the Flow is recovered from the log tail")
+        .into_inner();
+    assert_eq!(summary.flow_status, FlowStatus::Completed as i32);
+    assert_eq!(summary.first_run_id, started.run_id);
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let mut interval = tokio::time::interval(Duration::from_millis(50));
+        while !primary.has_object_under(PRIMARY_BUCKET, &format!("{PRIMARY_PREFIX}/snapshot/")) {
+            interval.tick().await;
+        }
+    })
+    .await
+    .expect("a snapshot uploads after recovery");
+    let counters = primary.counters().await;
+    for operation in ["HeadBucket", "GetBucketLocation", "ListBuckets"] {
+        assert!(
+            !counters.contains(&format!("\"{operation}\"")),
+            "{counters}"
+        );
+    }
+    let status = second.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", second.log());
+    primary.shutdown().await;
+}
+
 /// A node whose lease is taken stops serving and exits non-zero.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn losing_the_lease_exits_non_zero() {

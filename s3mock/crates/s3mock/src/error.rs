@@ -11,6 +11,10 @@ use std::io;
 /// Error returned by [`crate::Store`] operations, mapped by the server to S3 error codes.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[error("credential already exists")]
+    CredentialAlreadyExists,
+    #[error("credential does not exist")]
+    NoSuchCredential,
     #[error("bucket {0:?} does not exist")]
     NoSuchBucket(String),
     #[error("bucket {0:?} already exists")]
@@ -52,6 +56,8 @@ pub enum StoreError {
     ObjectLockConfigurationNotFound(String),
     #[error("bucket {0:?} has no lifecycle configuration")]
     NoSuchLifecycleConfiguration(String),
+    #[error("bucket {0:?} has no CORS configuration")]
+    NoSuchCorsConfiguration(String),
     #[error("multipart upload {upload_id:?} does not exist")]
     NoSuchUpload { upload_id: String },
     #[error("one or more of the specified parts could not be found or did not match: {0}")]

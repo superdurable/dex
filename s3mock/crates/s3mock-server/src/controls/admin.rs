@@ -16,6 +16,7 @@ use s3mock::Store;
 use serde::Serialize;
 use serde_json::json;
 
+use super::credential_admin::dispatch_credentials;
 use super::{Controls, Counters, FaultAction, FaultRule, S3OperationName};
 use crate::server::{RequestBody, S3Response, full_body, run_store_operation};
 
@@ -37,6 +38,9 @@ impl Controls {
         request: Request<RequestBody>,
     ) -> Result<serde_json::Value, (StatusCode, String)> {
         let path = request.uri().path();
+        if path == "/_s3mock/credentials" || path.starts_with("/_s3mock/credentials/") {
+            return dispatch_credentials(store, request, &self.config.access_key_id).await;
+        }
         match (request.method(), path) {
             (&Method::GET, "/_s3mock/faults") => {
                 let state = self.state.lock().expect("control operations cannot panic");
@@ -62,11 +66,11 @@ impl Controls {
                             "probability must be between zero and one".into(),
                         ));
                     }
-                    if matches!(rule.action, FaultAction::Error { status } if ![409, 500, 503].contains(&status))
+                    if matches!(rule.action, FaultAction::Error { status } if ![403, 409, 500, 503].contains(&status))
                     {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            "error status must be 409, 500, or 503".into(),
+                            "error status must be 403, 409, 500, or 503".into(),
                         ));
                     }
                     if matches!(rule.action, FaultAction::CorruptBody {})
@@ -75,6 +79,17 @@ impl Controls {
                         return Err((
                             StatusCode::BAD_REQUEST,
                             "corrupt_body requires operation GetObject".into(),
+                        ));
+                    }
+                    if matches!(rule.action, FaultAction::MissingKeyAccessDenied {})
+                        && !matches!(
+                            rule.operation,
+                            Some(S3OperationName::GetObject | S3OperationName::HeadObject)
+                        )
+                    {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "missing_key_access_denied requires GetObject or HeadObject".into(),
                         ));
                     }
                     if matches!(rule.action, FaultAction::CommitThenDrop {})
@@ -217,4 +232,8 @@ fn json_response(status: StatusCode, value: &impl Serialize) -> S3Response {
         .header("content-type", "application/json")
         .body(full_body(bytes))
         .expect("admin response headers are static")
+}
+
+pub(crate) fn admin_error(status: StatusCode, code: &str) -> S3Response {
+    json_response(status, &json!({"error": code}))
 }

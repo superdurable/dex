@@ -208,7 +208,7 @@ pub(crate) enum RouterMessage {
     },
     RebuildPartition {
         partition: PartitionId,
-        reply: oneshot::Sender<Result<(), EffectError>>,
+        reply: oneshot::Sender<Result<usize, EffectError>>,
     },
     InvocationStartFinished {
         flow: FlowAddress,
@@ -393,6 +393,15 @@ impl EffectRunner {
     /// running invocations, timers, outbox messages, hard-delete deletions, retention purges,
     /// and hard-delete uploads that never committed.
     pub async fn rebuild_partition(&self, partition: PartitionId) -> Result<(), EffectError> {
+        self.rebuild_partition_effect_count(partition)
+            .await
+            .map(|_| ())
+    }
+
+    async fn rebuild_partition_effect_count(
+        &self,
+        partition: PartitionId,
+    ) -> Result<usize, EffectError> {
         let (reply, response) = oneshot::channel();
         self.router
             .send(RouterMessage::RebuildPartition { partition, reply })
@@ -424,9 +433,9 @@ impl PartitionRuntimeRebuilder for EffectRunner {
     fn rebuild_partition(
         &self,
         partition: PartitionId,
-    ) -> BoxFuture<'_, Result<(), RuntimeRebuildError>> {
+    ) -> BoxFuture<'_, Result<usize, RuntimeRebuildError>> {
         Box::pin(async move {
-            EffectRunner::rebuild_partition(self, partition)
+            self.rebuild_partition_effect_count(partition)
                 .await
                 .map_err(|error| RuntimeRebuildError {
                     partition,

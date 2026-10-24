@@ -11,7 +11,9 @@
 mod aws_chunked;
 mod config;
 mod controls;
+mod cors;
 mod handlers;
+mod policy;
 mod request_headers;
 mod routing;
 mod s3_error;
@@ -19,5 +21,7 @@ mod server;
 mod signature;
 mod xml;
 
-pub use config::{DurabilityFlag, EtagModeFlag, ServerConfig, SignatureVerification};
+pub use config::{
+    ControlAuthentication, DurabilityFlag, EtagModeFlag, ServerConfig, SignatureVerification,
+};
 pub use server::{ServerHandle, start, start_with_config};

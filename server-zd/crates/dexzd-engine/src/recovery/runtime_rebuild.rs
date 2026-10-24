@@ -51,11 +51,11 @@ pub trait CommittedCommandSink: Send + Sync + 'static {
 
 /// Rebuilds a partition's runtime work from committed state; the node already accepts commands.
 pub trait PartitionRuntimeRebuilder: Send + Sync + 'static {
-    /// Rebuilds the runtime work of `partition`.
+    /// Rebuilds the runtime work of `partition` and returns its effect count.
     fn rebuild_partition(
         &self,
         partition: PartitionId,
-    ) -> BoxFuture<'_, Result<(), RuntimeRebuildError>>;
+    ) -> BoxFuture<'_, Result<usize, RuntimeRebuildError>>;
 }
 
 /// A partition's runtime could not be rebuilt; the node does not start.

@@ -33,8 +33,10 @@ use tokio::task::{JoinHandle, JoinSet};
 use crate::config::ServerConfig;
 use crate::controls::{Controls, FaultAction, ObservedBody, RequestObservation};
 use crate::handlers;
+use crate::policy;
 use crate::routing::{self, S3Operation};
 use crate::s3_error::S3Error;
+use crate::signature::Identity;
 use crate::xml::XmlWriter;
 
 /// How long shutdown waits for in-flight requests before dropping their connections.
@@ -156,12 +158,57 @@ async fn handle_request(
 ) -> Result<S3Response, io::Error> {
     let request = request.map(|body| body.map_err(io::Error::other).boxed());
     if request.uri().path().starts_with("/_s3mock/") {
-        return Ok(controls.admin(store, request).await);
+        let path = request.uri().path();
+        let is_credential_request =
+            path == "/_s3mock/credentials" || path.starts_with("/_s3mock/credentials/");
+        if controls.config.signature_verification == crate::config::SignatureVerification::Off
+            && path.starts_with("/_s3mock/credentials")
+        {
+            return Ok(crate::controls::admin_error(
+                StatusCode::FORBIDDEN,
+                "AccessDenied",
+            ));
+        }
+        let needs_root = is_credential_request
+            || controls.config.control_authentication == crate::config::ControlAuthentication::Root
+                && controls.config.signature_verification
+                    == crate::config::SignatureVerification::Strict;
+        if !needs_root {
+            return Ok(controls.admin(store, request).await);
+        }
+        let verified = crate::signature::verify_request(
+            request,
+            &controls.config,
+            &store,
+            store.temporary_directory(),
+        )
+        .await;
+        return Ok(match verified {
+            Ok((request, identity)) if identity.is_root() => controls.admin(store, request).await,
+            Ok(_) => crate::controls::admin_error(StatusCode::FORBIDDEN, "AccessDenied"),
+            Err(error) => crate::controls::admin_error(error.status, error.code),
+        });
     }
+    let request_id = ulid::Ulid::new().to_string();
+    if request.method() == Method::OPTIONS {
+        let result = crate::cors::preflight(&store, request.uri(), request.headers()).await;
+        let mut response = match result {
+            Ok(response) => response,
+            Err(error) => render_error(error, &request_id, false),
+        };
+        add_response_identity(response.headers_mut(), &request_id);
+        return Ok(response);
+    }
+    let cors_result =
+        crate::cors::actual_headers(&store, request.method(), request.uri(), request.headers())
+            .await;
+    let (cors_headers, cors_error) = match cors_result {
+        Ok(headers) => (headers, None),
+        Err(error) => (None, Some(error)),
+    };
     let started = Instant::now();
     let mut observation =
         RequestObservation::new(request.method(), request.uri(), request.headers());
-    let request_id = ulid::Ulid::new().to_string();
     let is_head = request.method() == Method::HEAD;
     let received = Arc::new(AtomicU64::new(0));
     let counter = Arc::clone(&received);
@@ -174,9 +221,24 @@ async fn handle_request(
         })
         .boxed()
     });
-    let verified =
-        crate::signature::verify_request(request, &controls.config, store.temporary_directory())
-            .await;
+    let verified = if let Some(error) = cors_error {
+        Err(error)
+    } else {
+        crate::signature::verify_request(
+            request,
+            &controls.config,
+            &store,
+            store.temporary_directory(),
+        )
+        .await
+        .and_then(|(request, identity)| {
+            if let Some(policy) = identity.policy() {
+                let operation = routing::route(request.method(), request.uri())?;
+                policy::authorize_operation(policy, &operation, request.headers())?;
+            }
+            Ok((request, identity))
+        })
+    };
     let mut fault_reset = controls.fault_reset.subscribe();
     observation.has_existing_bucket = match run_store_operation(&store, {
         let bucket = observation.bucket.clone();
@@ -205,10 +267,26 @@ async fn handle_request(
     }
     let result = match verified {
         Err(error) => Err(error),
-        Ok(request) => match fault.as_ref().and_then(FaultAction::error) {
+        Ok((request, identity)) => match fault.as_ref().and_then(FaultAction::error) {
             Some(error) => Err(error),
-            None => dispatch(store, request).await,
+            None => match routing::route(request.method(), request.uri()) {
+                Ok(operation) => dispatch(store, request, operation, identity).await,
+                Err(error) => Err(error),
+            },
         },
+    };
+    let result = match result {
+        Err(error)
+            if matches!(fault, Some(FaultAction::MissingKeyAccessDenied {}))
+                && error.code == "NoSuchKey" =>
+        {
+            Err(S3Error::new(
+                StatusCode::FORBIDDEN,
+                "AccessDenied",
+                "injected missing-key access denial",
+            ))
+        }
+        other => other,
     };
     if matches!(fault, Some(FaultAction::CommitThenDrop {}))
         && result
@@ -228,12 +306,10 @@ async fn handle_request(
         Err(error) => render_error(error, &request_id, is_head),
     };
     let headers = response.headers_mut();
-    headers.insert("x-amz-request-id", header_value(&request_id));
-    headers.insert(
-        "x-amz-id-2",
-        header_value(&BASE64.encode(request_id.as_bytes())),
-    );
-    headers.insert("server", HeaderValue::from_static("s3mock"));
+    if let Some(cors_headers) = cors_headers {
+        headers.extend(cors_headers);
+    }
+    add_response_identity(headers, &request_id);
     observation.status = response.status().as_u16();
     let (parts, body) = response.into_parts();
     let body = ObservedBody::new(
@@ -248,13 +324,41 @@ async fn handle_request(
     Ok(Response::from_parts(parts, body))
 }
 
-async fn dispatch(store: Arc<Store>, request: Request<RequestBody>) -> Result<S3Response, S3Error> {
-    let operation = routing::route(request.method(), request.uri())?;
+fn add_response_identity(headers: &mut http::HeaderMap, request_id: &str) {
+    headers.insert("x-amz-request-id", header_value(request_id));
+    headers.insert(
+        "x-amz-id-2",
+        header_value(&BASE64.encode(request_id.as_bytes())),
+    );
+    headers.insert("server", HeaderValue::from_static("s3mock"));
+}
+
+async fn dispatch(
+    store: Arc<Store>,
+    request: Request<RequestBody>,
+    operation: S3Operation,
+    identity: Identity,
+) -> Result<S3Response, S3Error> {
+    let should_hide_missing_key = match (&operation, identity.policy()) {
+        (
+            S3Operation::GetObject { bucket, key, .. }
+            | S3Operation::HeadObject { bucket, key, .. },
+            Some(policy),
+        ) => !policy.can_list_key_prefix(bucket, key),
+        _ => false,
+    };
     let (parts, body) = request.into_parts();
-    match operation {
+    let result = match operation {
         S3Operation::ListBuckets => handlers::list_buckets(store).await,
         S3Operation::CreateBucket { bucket } => {
             handlers::create_bucket(store, bucket, &parts.headers).await
+        }
+        S3Operation::PutBucketCors { bucket } => {
+            handlers::put_bucket_cors(store, bucket, &parts.headers, body).await
+        }
+        S3Operation::GetBucketCors { bucket } => handlers::get_bucket_cors(store, bucket).await,
+        S3Operation::DeleteBucketCors { bucket } => {
+            handlers::delete_bucket_cors(store, bucket).await
         }
         S3Operation::GetBucketLifecycleConfiguration { bucket } => {
             handlers::get_bucket_lifecycle_configuration(store, bucket).await
@@ -275,7 +379,14 @@ async fn dispatch(store: Arc<Store>, request: Request<RequestBody>) -> Result<S3
             handlers::list_multipart_uploads(store, bucket, query).await
         }
         S3Operation::DeleteObjects { bucket } => {
-            handlers::delete_objects(store, bucket, parts.headers, body).await
+            handlers::delete_objects(
+                store,
+                bucket,
+                parts.headers,
+                body,
+                identity.policy().cloned(),
+            )
+            .await
         }
         S3Operation::CreateMultipartUpload { bucket, key } => {
             handlers::create_multipart_upload(store, bucket, key, &parts.headers).await
@@ -322,7 +433,18 @@ async fn dispatch(store: Arc<Store>, request: Request<RequestBody>) -> Result<S3
         S3Operation::DeleteObject { bucket, key, query } => {
             handlers::delete_object(store, bucket, key, query).await
         }
-    }
+    };
+    result.map_err(|error| {
+        if should_hide_missing_key && error.code == "NoSuchKey" {
+            S3Error::new(
+                StatusCode::FORBIDDEN,
+                "AccessDenied",
+                "the credential cannot discover whether this key exists",
+            )
+        } else {
+            error
+        }
+    })
 }
 
 fn render_error(error: S3Error, request_id: &str, is_head: bool) -> S3Response {
