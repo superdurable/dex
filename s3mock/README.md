@@ -168,8 +168,10 @@ origin, method, and every requested header controls the response.
 
 OPTIONS preflights need no signature. A matching preflight or actual request with `Origin` receives
 the S3 `Access-Control-Allow-*`, `Access-Control-Expose-Headers`, `Access-Control-Max-Age`, and
-`Vary` headers supplied by its rule. An unmatched origin, method, or requested header, or a bucket
-without CORS configuration, returns 403. Requests without `Origin` keep their existing behavior.
+`Vary` headers supplied by its rule. A preflight with an unmatched origin, method, or requested
+header, or a bucket without CORS configuration, returns 403. An actual request with no matching
+rule runs normally without CORS headers; the browser then blocks access to its response. Requests
+without `Origin` keep their existing behavior.
 For browser presigned PUT, GET, and HEAD, one rule can allow a single origin, the methods `PUT`,
 `GET`, and `HEAD`, headers `content-type`, `if-none-match`, `x-amz-checksum-sha256`, and
 `x-amz-meta-sha256`, expose `ETag`, and set MaxAgeSeconds to 600.

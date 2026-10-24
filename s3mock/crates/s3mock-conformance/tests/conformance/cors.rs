@@ -135,6 +135,8 @@ async fn browser_preflight_and_presigned_put_get_head_use_bucket_cors() {
     .await;
     assert_eq!(put.status, 200);
     assert_eq!(put.header("access-control-allow-origin"), Some(ORIGIN));
+    assert_eq!(put.header("access-control-expose-headers"), Some("ETag"));
+    assert_eq!(put.header("access-control-allow-credentials"), Some("true"));
     let get_request = target
         .client
         .get_object()
@@ -188,6 +190,19 @@ async fn cors_preflight_rejects_missing_configuration_and_unmatched_rules() {
             .status,
         403
     );
+    let unconfigured_actual = send_presigned_with_headers(
+        &request,
+        request.uri(),
+        Some(b"unconfigured"),
+        &[("Origin", ORIGIN)],
+    )
+    .await;
+    assert_eq!(unconfigured_actual.status, 200);
+    assert!(
+        unconfigured_actual
+            .header("access-control-allow-origin")
+            .is_none()
+    );
     put_browser_cors(&target, &bucket).await;
     for rejected in [
         vec![
@@ -215,7 +230,12 @@ async fn cors_preflight_rejects_missing_configuration_and_unmatched_rules() {
         &[("Origin", "https://elsewhere.example.test")],
     )
     .await;
-    assert_eq!(rejected_actual.status, 403);
+    assert_eq!(rejected_actual.status, 200);
+    assert!(
+        rejected_actual
+            .header("access-control-allow-origin")
+            .is_none()
+    );
     target.cleanup().await;
 }
 

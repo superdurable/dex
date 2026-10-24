@@ -67,9 +67,11 @@ pub(crate) async fn actual_headers(
     if !request_headers.contains_key("origin") {
         return Ok(None);
     }
-    evaluate(store, uri, request_headers, method.as_str(), &[], false)
-        .await
-        .map(Some)
+    match evaluate(store, uri, request_headers, method.as_str(), &[], false).await {
+        Ok(headers) => Ok(Some(headers)),
+        Err(error) if error.code == "AccessForbidden" => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 async fn evaluate(
