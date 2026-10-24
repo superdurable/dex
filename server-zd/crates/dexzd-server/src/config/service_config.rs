@@ -158,6 +158,10 @@ pub struct SearchConfig {
     /// Defaults to builtin; production deployments may select paradedb for indexed queries.
     pub backend: SearchBackend,
     /// Defaults to 100000 documents; maximum builtin documents inspected by one SearchFlows query.
+    /// A query without ORDER BY reads runs in default order and stops once its page is full, so
+    /// only the runs it reads before that point count. A query with ORDER BY inspects every run
+    /// of the tenant, or of its Flow type when the query pins one with `FlowType = X`. A query
+    /// that would exceed the budget fails with ResourceExhausted.
     pub builtin_scan_budget_documents: u32,
     /// Defaults to empty; required when backend is paradedb and identifies the PostgreSQL-compatible endpoint.
     /// When empty, loading may read DEX_ZD_PARADEDB_CONNECTION_STRING; serialization redacts non-empty values.
