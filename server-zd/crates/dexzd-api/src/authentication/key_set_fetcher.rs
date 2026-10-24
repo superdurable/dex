@@ -170,7 +170,7 @@ impl KeySetFetcher {
             })?;
         if discovery.issuer != self.issuer {
             return Err(KeySetFetchError::DiscoveryIssuerMismatch {
-                discovered: discovery.issuer,
+                redacted_discovered_issuer: redact_url_credentials(&discovery.issuer),
             });
         }
         check_endpoint_url(&discovery.jwks_uri, false)

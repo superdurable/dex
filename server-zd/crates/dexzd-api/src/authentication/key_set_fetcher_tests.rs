@@ -18,7 +18,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
-use super::json_web_key_set::{KeySetRefreshPolicy, KeySetSource};
+use super::json_web_key_set::{KeySetFetchError, KeySetRefreshPolicy, KeySetSource};
 use super::json_web_token::JwsAlgorithm;
 use super::key_set_fetcher::{KeySetFetcher, redact_url_credentials};
 use super::token_signing_tests::{
@@ -433,6 +433,13 @@ async fn fetch_errors_and_their_logs_redact_url_credentials() {
     let server = TestKeyServer::start(key_set_document(&[key.public_jwk("key")])).await;
     server.update(|state| state.status = 500);
     let not_json = TestKeyServer::start(json!("not a key set")).await;
+    let mismatched_discovery =
+        TestKeyServer::start(key_set_document(&[key.public_jwk("key")])).await;
+    mismatched_discovery.update(|state| {
+        state.discovery_issuer = Some(format!(
+            "https://user:{URL_SECRET}@other.example/?access_token={URL_SECRET}"
+        ));
+    });
     let closed_address = {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -470,6 +477,7 @@ async fn fetch_errors_and_their_logs_redact_url_credentials() {
         ),
         (format!("{}/?tenant={URL_SECRET}", server.url), None),
         (format!("http://user:{URL_SECRET}@{server_address}"), None),
+        (mismatched_discovery.url.clone(), None),
     ];
     for (issuer, jwks_url) in cases {
         let config = JwtAuthenticatorConfig {
@@ -484,6 +492,12 @@ async fn fetch_errors_and_their_logs_redact_url_credentials() {
             .fetch_key_set()
             .await
             .expect_err("the key set fetch fails");
+        if issuer == mismatched_discovery.url {
+            assert!(
+                matches!(error, KeySetFetchError::DiscoveryIssuerMismatch { .. }),
+                "{error}"
+            );
+        }
         for shown in [error.to_string(), format!("{error:?}")] {
             assert!(!shown.contains(URL_SECRET), "{shown}");
             assert!(shown.contains("REDACTED"), "{shown}");
@@ -503,7 +517,7 @@ async fn fetch_errors_and_their_logs_redact_url_credentials() {
             line.contains("refreshing a JWT key set failed") && line.contains("REDACTED")
         })
         .count();
-    assert_eq!(redacted_refresh_failures, 6, "{logs}");
+    assert_eq!(redacted_refresh_failures, 7, "{logs}");
     assert!(!logs.contains(URL_SECRET), "{logs}");
 }
 

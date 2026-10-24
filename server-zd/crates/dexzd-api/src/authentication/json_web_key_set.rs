@@ -70,8 +70,8 @@ pub(crate) enum KeySetFetchError {
         #[source]
         source: serde_json::Error,
     },
-    #[error("the OIDC discovery document names issuer {discovered:?}")]
-    DiscoveryIssuerMismatch { discovered: String },
+    #[error("the OIDC discovery document names issuer {redacted_discovered_issuer:?}")]
+    DiscoveryIssuerMismatch { redacted_discovered_issuer: String },
     #[error("the OIDC discovery document's jwks_uri {error}")]
     DiscoveredJwksUrl {
         #[source]

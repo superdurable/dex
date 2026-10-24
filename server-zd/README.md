@@ -188,6 +188,7 @@ The key set follows the Go Server's limits:
   decide.
 - A failed refresh keeps the previous keys.
 - Errors and logs show key set and discovery URLs without their userinfo, query, or fragment.
+  The same applies to the issuer that a discovery document names.
 
 A static token file lists hashes, never plaintext tokens:
 
