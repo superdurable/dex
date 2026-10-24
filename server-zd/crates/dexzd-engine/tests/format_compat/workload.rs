@@ -37,6 +37,7 @@ use dexzd_protocol::dexzd::v1::{
     inbox_message_command, outbox_record, step_attempt_heartbeat_command,
     step_method_completed_command, timer_id,
 };
+use dexzd_request_validation::{ValidationConfig, validate_start_flow_request};
 use prost::Message;
 use xxhash_rust::xxh3::xxh3_128;
 
@@ -816,6 +817,14 @@ impl Workload<'_> {
     async fn start_flow(&self, request: StartFlowRequest, settings: RunSettings) -> FlowRun {
         let flow_id = request.flow_id.clone();
         let run_id = self.next_run_id();
+        let pull_target = WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        };
+        let mut validation_config = ValidationConfig::default();
+        validation_config.default_flow_config.worker_target = Some(pull_target.clone());
+        let effective_flow_config = validate_start_flow_request(&request, &validation_config)
+            .expect("recorded Flow start must be valid");
         let resolved_timeout_policy =
             if request.flow_timeout_seconds > 0 && request.flow_timeout_policy == 0 {
                 FlowTimeoutPolicy::Fail as i32
@@ -832,10 +841,8 @@ impl Workload<'_> {
                     request: Some(request),
                     settings: Some(settings),
                     resolved_timeout_policy,
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(pull_target),
+                    effective_flow_config: Some(effective_flow_config),
                     hard_delete_objects: Vec::new(),
                 }),
             )
