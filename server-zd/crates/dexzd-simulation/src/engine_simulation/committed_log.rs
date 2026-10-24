@@ -16,7 +16,7 @@ use dexzd_engine::{
     CommittedCommandSink, CommittedFlowCommand, EngineLocalStore, FlowRuntimeRegistry,
     HardDeleteObjectOwner,
 };
-use dexzd_keyspace::row_keys::HARD_DELETE_PENDING_OBJECT;
+use dexzd_keyspace::row_keys::{HARD_DELETE_PENDING_OBJECT, SEARCH_ORDER_INDEX_VERSION};
 use dexzd_keyspace::{ColumnFamily, PartitionId, RunId, RunTable, TenantId, parse_run_key};
 use dexzd_protocol::dex::{ChannelMessage, Kv};
 use dexzd_protocol::dexzd::v1::{
@@ -320,6 +320,7 @@ impl CommittedLog {
                 .cloned()
                 .unwrap_or_else(|| PartitionMeta {
                     partition,
+                    search_order_index_version: SEARCH_ORDER_INDEX_VERSION,
                     ..PartitionMeta::default()
                 });
             batch
@@ -587,6 +588,7 @@ impl CommittedLogState {
                 .entry(key.0)
                 .or_insert_with(|| PartitionMeta {
                     partition: u32::from(key.0),
+                    search_order_index_version: SEARCH_ORDER_INDEX_VERSION,
                     ..PartitionMeta::default()
                 });
             meta.last_command_timestamp_micros = meta

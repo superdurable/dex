@@ -10,6 +10,7 @@ use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use dexzd_keyspace::{ColumnFamily, validate_node_identifier};
@@ -138,11 +139,13 @@ impl LocalStore for RestoredLocalStore {
     }
 }
 
+/// Uploads a snapshot of `store`; `node_meta_lock` guards every NodeMeta read-modify-write.
 pub async fn create_snapshot<S: SnapshotSource>(
     store: &S,
     object_store: &dyn ObjectStore,
     identity: &SnapshotIdentity,
     snapshot_number: u64,
+    node_meta_lock: &Mutex<()>,
 ) -> StorageResult<(String, SnapshotManifest)> {
     validate_node_identifier(&identity.node_id)?;
     let node_meta = store
@@ -243,18 +246,24 @@ pub async fn create_snapshot<S: SnapshotSource>(
     let manifest_key = format!("{lineage_prefix}/manifest/{snapshot_number:020}");
     let bytes = manifest.encode_to_vec();
     // Reserved before publishing, so a retry after a crash never reuses a published number.
-    let mut updated_meta = store
-        .node_meta()?
-        .ok_or_else(|| StorageError::Invalid("store has no node metadata".into()))?;
-    if updated_meta.lineage_id != node_meta.lineage_id
-        || snapshot_number <= updated_meta.last_snapshot_number
     {
-        return Err(StorageError::Invalid(
-            "store lineage or snapshot number changed during upload".into(),
-        ));
+        // Held only for this local read-modify-write; request paths block on it, so never across uploads.
+        let _node_meta_guard = node_meta_lock
+            .lock()
+            .expect("node metadata lock is not poisoned");
+        let mut updated_meta = store
+            .node_meta()?
+            .ok_or_else(|| StorageError::Invalid("store has no node metadata".into()))?;
+        if updated_meta.lineage_id != node_meta.lineage_id
+            || snapshot_number <= updated_meta.last_snapshot_number
+        {
+            return Err(StorageError::Invalid(
+                "store lineage or snapshot number changed during upload".into(),
+            ));
+        }
+        updated_meta.last_snapshot_number = snapshot_number;
+        store.put_node_meta(&updated_meta)?;
     }
-    updated_meta.last_snapshot_number = snapshot_number;
-    store.put_node_meta(&updated_meta)?;
     match object_store
         .put(
             &manifest_key,

@@ -56,6 +56,35 @@ waiting days; dates, tag and size filters, and transitions return `501 NotImplem
 crash. `--durability relaxed` skips fsync. It is much faster, but a crash may lose acknowledged
 writes, so do not use it for crash-recovery tests.
 
+## Store format
+
+The `store_format` table in `metadata.redb` records the store format version of a data directory.
+This release reads and writes version 1. A directory created before the version was recorded is
+treated as version 1 and stamped when it opens. A directory with any other version fails to open,
+and its records stay unchanged. The error names the found version, the supported version, and the
+directory. To recover, run an s3mock release that supports that version, or delete the data
+directory to start empty. Deleting it removes every stored object and credential.
+
+Compatibility covers upgrades only. Keep metadata records additive: give every new field a serde
+default, and never rename, remove, or reinterpret a field. Never change the name, key, or value
+types of the `store_format` table, because older releases read it to refuse newer directories.
+Any incompatible change, including a redb major upgrade that changes its file format, must
+increment `CURRENT_STORE_FORMAT_VERSION`. The same change must either migrate or refuse the
+previous version, and must add recorded testdata for the new version.
+
+`crates/s3mock/tests/testdata/store_format_v1/` holds a store that s3mock 0.1.0 wrote. Its
+`manifest.json` records the writer, and `expected_contents.json` records what the store must read
+back. The `store_format` test opens a copy and compares every bucket, version, delete marker,
+upload, part, credential, CORS rule, lifecycle rule, and Object Lock setting. It also opens a copy
+without the `store_format` table, as written before the version existed. Never edit or regenerate a
+recorded directory. To record a new version, run the ignored generator with a new output
+directory:
+
+```bash
+S3MOCK_STORE_FORMAT_OUTPUT="$PWD/crates/s3mock/tests/testdata/store_format_v2" \
+  cargo test -p s3mock --test store_format -- --ignored --exact generator::generate_recorded_store
+```
+
 ## Supported S3 API
 
 | Area | Operations |

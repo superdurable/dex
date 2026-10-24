@@ -76,6 +76,9 @@ message PartitionMeta {
   // Epoch of the last applied batch: the effective writer epoch at `applied`. Log recovery
   // needs it to recognize void batches without rereading earlier EpochStart batches.
   uint64 applied_epoch = 5;
+  // Version of the SearchOrder index rows in this partition. Startup rebuilds the index from
+  // search documents when it is lower than the version this binary maintains.
+  uint32 search_order_index_version = 6;
 }
 
 // Local store record for the node (column family node_meta).

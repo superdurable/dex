@@ -6,10 +6,13 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use dexzd_keyspace::row_keys::{length_prefixed_name, prefix_range};
+use dexzd_keyspace::row_keys::{
+    SearchOrderPosition, length_prefixed_name, prefix_range, search_order_index_keys,
+};
 use dexzd_keyspace::{
     ColumnFamily, FlowHash, IndexKind, PartitionId, RunId, TenantId, partition_index_prefix,
 };
+use dexzd_protocol::dex::FlowStatus;
 use dexzd_protocol::dexzd::v1::SearchDocumentRecord;
 
 use crate::read_model::ReadModelError;
@@ -102,6 +105,33 @@ pub fn list_search_documents(
         documents.push(document);
     }
     Ok(documents)
+}
+
+/// Returns a search document's place in the SearchFlows default order.
+pub fn search_order_position(document: &SearchDocumentRecord) -> SearchOrderPosition {
+    SearchOrderPosition {
+        is_running: document.status == FlowStatus::Running as i32,
+        close_time_micros: (document.closed_at_micros != 0).then_some(document.closed_at_micros),
+        start_time_micros: document.started_at_micros,
+    }
+}
+
+/// Returns both SearchOrder index keys of a run's search document: over every Flow type, then
+/// of its Flow type. Apply, purge, and the startup rebuild all derive the keys here.
+pub fn search_order_index_keys_of_document(
+    partition: PartitionId,
+    flow_hash: FlowHash,
+    run_id: RunId,
+    document: &SearchDocumentRecord,
+) -> [Vec<u8>; 2] {
+    search_order_index_keys(
+        partition,
+        TenantId(document.tenant_id),
+        &document.flow_type,
+        &search_order_position(document),
+        run_id,
+        flow_hash,
+    )
 }
 
 fn corrupt_index(key: &[u8]) -> ReadModelError {

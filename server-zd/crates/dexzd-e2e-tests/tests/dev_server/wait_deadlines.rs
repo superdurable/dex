@@ -14,31 +14,19 @@ use std::time::Duration;
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::{
     AttributeMatch, AttributeMatchOperator, ErrorSubStatus, FlowConfig, FlowStartOptions,
-    ReadStreamRequest, ServiceErrorResponse, StartFlowRequest, WaitForAttributeRequest,
-    WaitForFlowRequest, WaitForHistoryEventRequest, WaitForStepCompletionRequest, WorkerTarget,
+    ReadStreamRequest, StartFlowRequest, WaitForAttributeRequest, WaitForFlowRequest,
+    WaitForHistoryEventRequest, WaitForStepCompletionRequest, WorkerTarget,
 };
-use prost::Message;
 use tokio::time::Instant;
 use tonic::transport::Channel;
 
-use crate::harness::DevServer;
+use crate::harness::{DevServer, service_error};
 use crate::string_value;
 
 /// No Worker serves this Flow type, so its Step never runs and every wait stays pending.
 const IDLE_FLOW_TYPE: &str = "IdleFlow";
 const IDLE_FLOW_ID: &str = "idle-flow-1";
 const ONE_SECOND: Duration = Duration::from_secs(1);
-
-/// The `google.rpc.Status` that carries the `ServiceErrorResponse` in `grpc-status-details-bin`.
-#[derive(Clone, PartialEq, prost::Message)]
-struct GoogleRpcStatus {
-    #[prost(int32, tag = "1")]
-    code: i32,
-    #[prost(string, tag = "2")]
-    message: String,
-    #[prost(message, repeated, tag = "3")]
-    details: Vec<prost_types::Any>,
-}
 
 /// How one wait call ended, as an SDK sees it.
 #[derive(Debug)]
@@ -51,15 +39,7 @@ struct WaitTimeout {
 
 impl WaitTimeout {
     fn from_status(status: &tonic::Status, elapsed: Duration) -> Self {
-        let details = GoogleRpcStatus::decode(status.details())
-            .unwrap_or_else(|error| panic!("{status:?} has no google.rpc.Status details: {error}"));
-        let response = details
-            .details
-            .iter()
-            .find(|detail| detail.type_url == "type.googleapis.com/dex.ServiceErrorResponse")
-            .map(|detail| ServiceErrorResponse::decode(detail.value.as_slice()))
-            .unwrap_or_else(|| panic!("{status:?} has no ServiceErrorResponse"))
-            .expect("the ServiceErrorResponse decodes");
+        let response = service_error(status);
         assert_eq!(response.detail, status.message());
         Self {
             code: status.code(),

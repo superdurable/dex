@@ -23,6 +23,7 @@ pub struct EngineServices {
     /// Computes Flow hashes and partitions with the cluster's key.
     pub partition_hasher: PartitionHasher,
     /// Hold it around every read-modify-write of the local store's NodeMeta.
+    /// Never hold it across an await or `block_on`; async request paths block on it.
     pub node_meta_lock: Arc<Mutex<()>>,
     /// The local store, for runtime state kept in NodeMeta such as pending hard-delete uploads.
     pub local_store: Arc<EngineLocalStore>,

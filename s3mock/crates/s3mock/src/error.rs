@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use std::io;
+use std::path::PathBuf;
 
 /// Error returned by [`crate::Store`] operations, mapped by the server to S3 error codes.
 #[derive(Debug, thiserror::Error)]
@@ -68,6 +69,17 @@ pub enum StoreError {
     EntityTooSmall { part_number: u32 },
     #[error("data file {path:?} is corrupt: {reason}")]
     CorruptDataFile { path: String, reason: String },
+    #[error(
+        "{} holds store format version {found}, but this s3mock supports only version {supported}; \
+         run an s3mock release that supports version {found}, or remove {} to start empty",
+        root_directory.display(),
+        root_directory.display()
+    )]
+    UnsupportedStoreFormatVersion {
+        root_directory: PathBuf,
+        found: u64,
+        supported: u64,
+    },
     #[error("metadata store error: {0}")]
     Metadata(#[from] redb::Error),
     #[error("metadata record is corrupt: {0}")]

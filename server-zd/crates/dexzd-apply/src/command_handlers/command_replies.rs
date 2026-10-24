@@ -19,6 +19,9 @@ pub(crate) mod grpc_code {
     pub(crate) const ABORTED: i32 = 10;
 }
 
+/// The Go Server's StopFlow message, with `NOT_FOUND` + `FLOW_NOT_EXISTS`, for a closed run.
+pub const CLOSED_RUN_STOP_MESSAGE: &str = "workflow execution already completed";
+
 pub(crate) fn ok_reply() -> CommandReply {
     CommandReply {
         reply: Some(command_reply::Reply::Ok(EmptyReply {})),

@@ -23,7 +23,10 @@ pub use predicates::{
     StepCompletionState, is_flow_closed, is_history_event_available, match_attribute,
     step_completion_state,
 };
-pub use search::{get_search_document, list_search_documents};
+pub use search::{
+    get_search_document, list_search_documents, search_order_index_keys_of_document,
+    search_order_position,
+};
 
 use dexzd_keyspace::{FlowHash, PartitionId, RunId};
 use dexzd_protocol::dexzd::v1::RunRecord;

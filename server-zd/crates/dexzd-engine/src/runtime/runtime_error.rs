@@ -109,6 +109,18 @@ impl RuntimeError {
         )
     }
 
+    /// Whether this is the StopFlow rejection of a closed run, which keeps the Go Server's text.
+    pub fn is_closed_run_stop_rejection(&self) -> bool {
+        matches!(
+            self,
+            Self::Rejected {
+                grpc_code: grpc_code::NOT_FOUND,
+                sub_status: ErrorSubStatus::FlowNotExists,
+                message,
+            } if message == dexzd_apply::CLOSED_RUN_STOP_MESSAGE
+        )
+    }
+
     /// Returns the gRPC status code of the error.
     pub fn grpc_code(&self) -> i32 {
         match self {

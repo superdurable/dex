@@ -16,7 +16,7 @@ use dexzd_keyspace::{RunId, TenantId};
 use dexzd_protocol::dex::{
     DeleteChannelMessageRequest, PublishToChannelRequest, ResetFlowRequest, ResetFlowResponse,
     SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StartFlowResponse, StopFlowRequest,
-    UpdateFlowConfigRequest, WorkerTarget,
+    StopType, UpdateFlowConfigRequest, WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, ChannelMessageDeleteCommand, ChannelPublishCommand, FlowCommand,
@@ -104,6 +104,9 @@ impl FlowRuntimeRegistry {
     ) -> Result<(), RuntimeError> {
         if request.flow_id.is_empty() {
             return Err(RuntimeError::invalid_argument("flow ID is required"));
+        }
+        if StopType::try_from(request.stop_type).is_err() {
+            return Err(RuntimeError::invalid_argument("stop type is required"));
         }
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
         self.propose_targeted(&flow, &request.run_id.clone(), |_| {

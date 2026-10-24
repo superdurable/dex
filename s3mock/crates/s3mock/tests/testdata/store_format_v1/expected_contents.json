@@ -1,0 +1,647 @@
+{
+  "store": {
+    "buckets": [
+      {
+        "name": "compat-object-lock",
+        "incarnation": "01M5QY6J9BQXEP6A5ZDA9JDP37",
+        "created_unix_ms": 1792878528811,
+        "versioning": "Enabled",
+        "object_lock": {
+          "default_retention_mode": "GOVERNANCE",
+          "default_retention_days": 1,
+          "default_retention_years": null
+        },
+        "lifecycle_rules": null,
+        "cors_rules": null,
+        "versions": [
+          {
+            "key": "locked.txt",
+            "version_id": "01M5QY6JG02Q38AVJRJC3FB50N",
+            "internal_version": "01M5QY6JG02Q38AVJRJC3FB50N",
+            "is_latest": true,
+            "is_null_version": false,
+            "is_delete_marker": false,
+            "size": 8,
+            "etag": "59fcc6f95cc4c7f5ab1ff33f516582d2",
+            "checksum": {
+              "algorithm": "CRC32",
+              "base64_value": "MApf7A==",
+              "checksum_type": "FULL_OBJECT"
+            },
+            "content_headers": {
+              "content_type": null,
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {},
+            "last_modified_unix_ms": 1792878529024,
+            "data_file": "76/01M5QY6JCGCBT0FMEHF3B83376",
+            "parts_count": null,
+            "body": "retained"
+          }
+        ],
+        "current_objects": [
+          {
+            "key": "locked.txt",
+            "version_id": "01M5QY6JG02Q38AVJRJC3FB50N"
+          }
+        ],
+        "uploads": []
+      },
+      {
+        "name": "compat-suspended",
+        "incarnation": "01M5QY6J0Q0HCP7DESCMD4WBXA",
+        "created_unix_ms": 1792878528535,
+        "versioning": "Suspended",
+        "object_lock": null,
+        "lifecycle_rules": null,
+        "cors_rules": null,
+        "versions": [
+          {
+            "key": "mixed.txt",
+            "version_id": "null",
+            "internal_version": "01M5QY6J5M1KGSBRYG3EBBSHGX",
+            "is_latest": true,
+            "is_null_version": true,
+            "is_delete_marker": false,
+            "size": 21,
+            "etag": "77e2e91096d65df570edb694863cd378",
+            "checksum": {
+              "algorithm": "CRC32",
+              "base64_value": "c0QGEA==",
+              "checksum_type": "FULL_OBJECT"
+            },
+            "content_headers": {
+              "content_type": null,
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {},
+            "last_modified_unix_ms": 1792878528692,
+            "data_file": "SJ/01M5QY6J3960GQZE0QMNGG01SJ",
+            "parts_count": null,
+            "body": "null after suspension"
+          },
+          {
+            "key": "mixed.txt",
+            "version_id": "01M5QY6J2KT669ZSMX9XCVB5MQ",
+            "internal_version": "01M5QY6J2KT669ZSMX9XCVB5MQ",
+            "is_latest": false,
+            "is_null_version": false,
+            "is_delete_marker": false,
+            "size": 27,
+            "etag": "05387cb885166ebca17daccb5ba6a2dc",
+            "checksum": {
+              "algorithm": "CRC32",
+              "base64_value": "5l7LAg==",
+              "checksum_type": "FULL_OBJECT"
+            },
+            "content_headers": {
+              "content_type": null,
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {},
+            "last_modified_unix_ms": 1792878528595,
+            "data_file": "KE/01M5QY6J18ZD7Z16NT2QPT0DKE",
+            "parts_count": null,
+            "body": "versioned before suspension"
+          }
+        ],
+        "current_objects": [
+          {
+            "key": "mixed.txt",
+            "version_id": "null"
+          }
+        ],
+        "uploads": []
+      },
+      {
+        "name": "compat-unversioned",
+        "incarnation": "01M5QY6H3PW9BCC17XQD7XFP56",
+        "created_unix_ms": 1792878527606,
+        "versioning": "Unversioned",
+        "object_lock": null,
+        "lifecycle_rules": [
+          {
+            "id": "expire-temporary",
+            "is_enabled": true,
+            "prefix": "temporary/",
+            "expiration_days": 30,
+            "expired_object_delete_marker": null,
+            "noncurrent_expiration_days": null,
+            "newer_noncurrent_versions": null,
+            "abort_incomplete_upload_days": 7
+          }
+        ],
+        "cors_rules": [
+          {
+            "id": "browser-uploads",
+            "allowed_origins": [
+              "https://app.example.com"
+            ],
+            "allowed_methods": [
+              "PUT",
+              "GET",
+              "HEAD"
+            ],
+            "allowed_headers": [
+              "content-type",
+              "x-amz-meta-*"
+            ],
+            "expose_headers": [
+              "ETag"
+            ],
+            "max_age_seconds": 600
+          },
+          {
+            "id": null,
+            "allowed_origins": [
+              "*"
+            ],
+            "allowed_methods": [
+              "GET"
+            ],
+            "allowed_headers": [],
+            "expose_headers": [],
+            "max_age_seconds": null
+          }
+        ],
+        "versions": [
+          {
+            "key": "documents/overwritten.txt",
+            "version_id": "null",
+            "internal_version": "01M5QY6H70M53CA7FFKH99TTRN",
+            "is_latest": true,
+            "is_null_version": true,
+            "is_delete_marker": false,
+            "size": 11,
+            "etag": "e63aeafc8ca710bbbd371f7d1730c9cc",
+            "checksum": {
+              "algorithm": "SHA1",
+              "base64_value": "5fSUsHglbgH+G+2WnPYqs9h21Es=",
+              "checksum_type": "FULL_OBJECT"
+            },
+            "content_headers": {
+              "content_type": null,
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {},
+            "last_modified_unix_ms": 1792878527712,
+            "data_file": "6M/01M5QY6H6KJ26K42A7PX330Z6M",
+            "parts_count": null,
+            "body": "second body"
+          },
+          {
+            "key": "documents/readme.txt",
+            "version_id": "null",
+            "internal_version": "01M5QY6H5MCV74G8670MVWV2CM",
+            "is_latest": true,
+            "is_null_version": true,
+            "is_delete_marker": false,
+            "size": 22,
+            "etag": "be22dd7f09a8c4a28a376fba2ced12a0",
+            "checksum": {
+              "algorithm": "CRC32",
+              "base64_value": "bDV2zw==",
+              "checksum_type": "FULL_OBJECT"
+            },
+            "content_headers": {
+              "content_type": "text/plain; charset=utf-8",
+              "content_encoding": "identity",
+              "content_disposition": "attachment; filename=\"readme.txt\"",
+              "content_language": "en-US",
+              "cache_control": "max-age=60",
+              "expires": "Wed, 21 Oct 2026 07:28:00 GMT"
+            },
+            "user_metadata": {
+              "owner": "compat",
+              "purpose": "store-format"
+            },
+            "last_modified_unix_ms": 1792878527668,
+            "data_file": "2Z/01M5QY6H3VWMQFKRWMQ4MD882Z",
+            "parts_count": null,
+            "body": "s3mock store format 1\n"
+          },
+          {
+            "key": "multipart/assembled.txt",
+            "version_id": "null",
+            "internal_version": "01M5QY6HA59SDRPSDCW117NWH1",
+            "is_latest": true,
+            "is_null_version": true,
+            "is_delete_marker": false,
+            "size": 23,
+            "etag": "c52eb791031564950acc72050e7bc99c-1",
+            "checksum": {
+              "algorithm": "CRC32C",
+              "base64_value": "DuLgFQ==-1",
+              "checksum_type": "COMPOSITE"
+            },
+            "content_headers": {
+              "content_type": "text/plain",
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {
+              "assembled": "true"
+            },
+            "last_modified_unix_ms": 1792878527813,
+            "data_file": "DK/01M5QY6H902MQX78RPNKQDD2DK",
+            "parts_count": 1,
+            "body": "assembled from one part"
+          }
+        ],
+        "current_objects": [
+          {
+            "key": "documents/overwritten.txt",
+            "version_id": "null"
+          },
+          {
+            "key": "documents/readme.txt",
+            "version_id": "null"
+          },
+          {
+            "key": "multipart/assembled.txt",
+            "version_id": "null"
+          }
+        ],
+        "uploads": [
+          {
+            "upload_id": "01M5QY6HG46VSEVZ9GZW63X40E",
+            "key": "multipart/pending-plain.txt",
+            "bucket_incarnation": "01M5QY6H3PW9BCC17XQD7XFP56",
+            "initiated_unix_ms": 1792878528004,
+            "content_headers": {
+              "content_type": null,
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {},
+            "checksum_algorithm": null,
+            "checksum_type": "FULL_OBJECT",
+            "parts": [
+              {
+                "part_number": 1,
+                "size": 14,
+                "etag": "ef5f8dbd520e6611f76fef77579b75fb",
+                "checksum": {
+                  "algorithm": "CRC32",
+                  "base64_value": "lBpbRA==",
+                  "checksum_type": "FULL_OBJECT"
+                },
+                "last_modified_unix_ms": 1792878528009,
+                "data_file": "uploads/01M5QY6HG46VSEVZ9GZW63X40E/01M5QY6HG9PP6K71Z6NJ1ACA67"
+              },
+              {
+                "part_number": 2,
+                "size": 14,
+                "etag": "c3c9468f83e1b8c032c4501a923f2d89",
+                "checksum": {
+                  "algorithm": "CRC64NVME",
+                  "base64_value": "sYRAQ+B9yTA=",
+                  "checksum_type": "FULL_OBJECT"
+                },
+                "last_modified_unix_ms": 1792878528113,
+                "data_file": "uploads/01M5QY6HG46VSEVZ9GZW63X40E/01M5QY6HKHK7GANKD3J3WAEWVS"
+              }
+            ]
+          },
+          {
+            "upload_id": "01M5QY6HADJB2TGB5ZH8842HDW",
+            "key": "multipart/pending-sha256.txt",
+            "bucket_incarnation": "01M5QY6H3PW9BCC17XQD7XFP56",
+            "initiated_unix_ms": 1792878527821,
+            "content_headers": {
+              "content_type": "text/plain",
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {
+              "stage": "pending"
+            },
+            "checksum_algorithm": "SHA256",
+            "checksum_type": "COMPOSITE",
+            "parts": [
+              {
+                "part_number": 1,
+                "size": 23,
+                "etag": "15ddd8770e774629d8e00f4b0b5b3c31",
+                "checksum": {
+                  "algorithm": "SHA256",
+                  "base64_value": "FFeQUY2Jalkv0lF0aex6TspLqEG0py77kWU2GsCvXG8=",
+                  "checksum_type": "FULL_OBJECT"
+                },
+                "last_modified_unix_ms": 1792878527834,
+                "data_file": "uploads/01M5QY6HADJB2TGB5ZH8842HDW/01M5QY6HATS7TCGQJW33S4PJQM"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "compat-versioned",
+        "incarnation": "01M5QY6HR7WB6Y9GCCT9QQ6QZ7",
+        "created_unix_ms": 1792878528263,
+        "versioning": "Enabled",
+        "object_lock": null,
+        "lifecycle_rules": [
+          {
+            "id": "noncurrent",
+            "is_enabled": true,
+            "prefix": "",
+            "expiration_days": null,
+            "expired_object_delete_marker": null,
+            "noncurrent_expiration_days": 90,
+            "newer_noncurrent_versions": 2,
+            "abort_incomplete_upload_days": null
+          },
+          {
+            "id": null,
+            "is_enabled": false,
+            "prefix": "markers/",
+            "expiration_days": null,
+            "expired_object_delete_marker": true,
+            "noncurrent_expiration_days": null,
+            "newer_noncurrent_versions": null,
+            "abort_incomplete_upload_days": null
+          }
+        ],
+        "cors_rules": null,
+        "versions": [
+          {
+            "key": "history.txt",
+            "version_id": "01M5QY6HYH9H24RSN43YPN57GD",
+            "internal_version": "01M5QY6HYH9H24RSN43YPN57GD",
+            "is_latest": true,
+            "is_null_version": false,
+            "is_delete_marker": true,
+            "size": 0,
+            "etag": "",
+            "checksum": null,
+            "content_headers": {
+              "content_type": null,
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {},
+            "last_modified_unix_ms": 1792878528465,
+            "data_file": null,
+            "parts_count": null,
+            "body": null
+          },
+          {
+            "key": "history.txt",
+            "version_id": "01M5QY6HY8ME2TRQ9VZ2XV4XST",
+            "internal_version": "01M5QY6HY8ME2TRQ9VZ2XV4XST",
+            "is_latest": false,
+            "is_null_version": false,
+            "is_delete_marker": false,
+            "size": 9,
+            "etag": "f404a90ea4d2991ea541b10507d50169",
+            "checksum": {
+              "algorithm": "CRC64NVME",
+              "base64_value": "rp8At4krVm4=",
+              "checksum_type": "FULL_OBJECT"
+            },
+            "content_headers": {
+              "content_type": null,
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {
+              "revision": "3"
+            },
+            "last_modified_unix_ms": 1792878528456,
+            "data_file": "WR/01M5QY6HX70273XFBQ62XWYHWR",
+            "parts_count": null,
+            "body": "history 3"
+          },
+          {
+            "key": "history.txt",
+            "version_id": "01M5QY6HWT4EA6H60PJQ1VZFQR",
+            "internal_version": "01M5QY6HWT4EA6H60PJQ1VZFQR",
+            "is_latest": false,
+            "is_null_version": false,
+            "is_delete_marker": false,
+            "size": 9,
+            "etag": "68d423a4851c17db395142e72501f181",
+            "checksum": {
+              "algorithm": "CRC64NVME",
+              "base64_value": "0fHwf7ke3xc=",
+              "checksum_type": "FULL_OBJECT"
+            },
+            "content_headers": {
+              "content_type": null,
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {
+              "revision": "2"
+            },
+            "last_modified_unix_ms": 1792878528410,
+            "data_file": "BG/01M5QY6HTWWT524C5JDZ6XKKBG",
+            "parts_count": null,
+            "body": "history 2"
+          },
+          {
+            "key": "history.txt",
+            "version_id": "01M5QY6HTFQM3XZQVZMS2TBYAZ",
+            "internal_version": "01M5QY6HTFQM3XZQVZMS2TBYAZ",
+            "is_latest": false,
+            "is_null_version": false,
+            "is_delete_marker": false,
+            "size": 9,
+            "etag": "0196e1d1768d58f6c44b14269b3024b5",
+            "checksum": {
+              "algorithm": "CRC64NVME",
+              "base64_value": "UELhJ+lARJw=",
+              "checksum_type": "FULL_OBJECT"
+            },
+            "content_headers": {
+              "content_type": null,
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {
+              "revision": "1"
+            },
+            "last_modified_unix_ms": 1792878528335,
+            "data_file": "JW/01M5QY6HS801SPGKSN4S11PKJW",
+            "parts_count": null,
+            "body": "history 1"
+          },
+          {
+            "key": "kept.txt",
+            "version_id": "01M5QY6J07QFH7BZRDYCZQSHAM",
+            "internal_version": "01M5QY6J07QFH7BZRDYCZQSHAM",
+            "is_latest": true,
+            "is_null_version": false,
+            "is_delete_marker": false,
+            "size": 6,
+            "etag": "aad8d25dff8963261a5186951b4f71dc",
+            "checksum": {
+              "algorithm": "SHA256",
+              "base64_value": "T8A+KKcHxS0/lb/2x1t5neLw+t5lHlphhReruETX+2c=",
+              "checksum_type": "FULL_OBJECT"
+            },
+            "content_headers": {
+              "content_type": null,
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {},
+            "last_modified_unix_ms": 1792878528519,
+            "data_file": "WB/01M5QY6HZKDDHHZAA5WH4ZZ1WB",
+            "parts_count": null,
+            "body": "kept 2"
+          },
+          {
+            "key": "kept.txt",
+            "version_id": "01M5QY6HZATFP71KJY08TZAVJT",
+            "internal_version": "01M5QY6HZATFP71KJY08TZAVJT",
+            "is_latest": false,
+            "is_null_version": false,
+            "is_delete_marker": false,
+            "size": 6,
+            "etag": "00ebeec0deb725fa89b139c29803c711",
+            "checksum": {
+              "algorithm": "SHA256",
+              "base64_value": "3+KG734AyLuPnvfyqMGMxzpRMaIvnWuaxU8mZiizaas=",
+              "checksum_type": "FULL_OBJECT"
+            },
+            "content_headers": {
+              "content_type": null,
+              "content_encoding": null,
+              "content_disposition": null,
+              "content_language": null,
+              "cache_control": null,
+              "expires": null
+            },
+            "user_metadata": {},
+            "last_modified_unix_ms": 1792878528490,
+            "data_file": "1B/01M5QY6HYV6AW7K33ACZFSP81B",
+            "parts_count": null,
+            "body": "kept 1"
+          }
+        ],
+        "current_objects": [
+          {
+            "key": "kept.txt",
+            "version_id": "01M5QY6J07QFH7BZRDYCZQSHAM"
+          }
+        ],
+        "uploads": []
+      }
+    ],
+    "credentials": [
+      {
+        "access_key_id": "compat-reader",
+        "secret_access_key": "compat reader secret",
+        "parent": "compat-owner",
+        "description": "reads documents",
+        "policy": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:GetObject"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:s3:::compat-unversioned/documents/*"
+              ],
+              "Sid": "ReadDocuments"
+            },
+            {
+              "Action": "s3:ListBucket",
+              "Condition": {
+                "StringLike": {
+                  "s3:prefix": "documents/*"
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "arn:aws:s3:::compat-unversioned"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "status": "enabled"
+      },
+      {
+        "access_key_id": "compat-retired",
+        "secret_access_key": "compat retired secret",
+        "parent": "compat-owner",
+        "description": "a disabled key",
+        "policy": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:GetObject"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:s3:::compat-unversioned/documents/*"
+              ],
+              "Sid": "ReadDocuments"
+            },
+            {
+              "Action": "s3:ListBucket",
+              "Condition": {
+                "StringLike": {
+                  "s3:prefix": "documents/*"
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "arn:aws:s3:::compat-unversioned"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "status": "disabled"
+      }
+    ]
+  },
+  "aborted_uploads": [
+    {
+      "bucket": "compat-unversioned",
+      "key": "multipart/aborted.txt",
+      "upload_id": "01M5QY6HMX2G1GDT9AB338S50R"
+    }
+  ]
+}

@@ -1,0 +1,499 @@
+---
+title: server-zd 运维
+sidebar_label: server-zd operation
+---
+
+# server-zd 运维
+
+server-zd 是一种 Dex Server，运行时只依赖对象存储，例如 Amazon S3 或兼容 S3 的存储。
+它把 Flow 状态保存在本地存储中，每次写入都先提交到对象存储，再向调用方确认。本地磁盘
+只是缓存。节点会用对象存储中最新的快照和命令日志重建它。
+
+server-zd 提供与 Go Dex Server 相同的 **FlowService** 和 **WorkerTaskService** API，
+SDK 不需要任何修改。它和 Go Dex Server 有少数差异，例如只支持
+[拉取模式 Worker](/production/pull-workers)。本页介绍 server-zd 0.1。Go Dex Server
+请参阅[服务器运维](/production/server-operations)。
+
+## 安装和启动
+
+每个 **server-zd/vX.Y.Z** GitHub Release 都发布 Linux amd64、Linux arm64 和
+macOS arm64 的 **dex-server-zd** 压缩包，并附带 **checksums.txt**。解压前先用它校验
+压缩包。Linux 压缩包需要 glibc 2.28 或更新版本。
+
+**dex-server-zd** 容器镜像支持 linux/amd64 和 linux/arm64。镜像使用配置文件
+**/etc/dex-server-zd/config.yaml** 运行 **serve**。进程以 UID 10001 和 GID 10001 运行。
+
+~~~bash
+dex-server-zd serve --config /etc/dex-server-zd/config.yaml
+~~~
+
+**serve** 从一个 YAML 文件读取全部配置。
+[示例配置](https://github.com/superdurable/dex/blob/server-zd/v0.1.1/server-zd/config/dex-server-zd.example.yaml)
+列出了每个键及其默认值。未知的键会导致启动失败。无效的值也会导致启动失败，错误信息会
+给出被拒绝字段的 YAML 路径。镜像在 **/etc/dex-server-zd/dex-server-zd.example.yaml**
+附带这份示例，仅供参考。
+
+## 最小生产配置
+
+~~~yaml
+cluster:
+  nodeId: dex-zd
+objectStore:
+  region: us-east-1
+  bucket: BUCKET
+  prefix: PREFIX
+localStorage:
+  directory: /var/lib/dex-server-zd/store
+lease:
+  duration: 60s
+retention:
+  closedFlowDuration: 7days
+metrics:
+  listen: 0.0.0.0:9090
+~~~
+
+**cluster.nodeId**、**objectStore.bucket** 和 **localStorage.directory** 是必填项。
+把 **BUCKET** 和 **PREFIX** 换成你的 bucket 和 key 前缀。**objectStore.endpoint**
+留空时使用 AWS 的 endpoint 解析。使用兼容 S3 的存储时，把它设为 HTTP 或 HTTPS URL。
+如果该存储要求 path-style 寻址，设置 **objectStore.forcePathStyle**。
+
+节点 ID 长 1 到 63 个字符，只能包含小写字母、数字和连字符，并以字母或数字开头。
+
+一个对象存储前缀存放一个 Dex 集群，一个集群只运行一个节点。第一次启动会记录
+**cluster.nodeId** 和 **cluster.partitionCount**，之后两者都不能修改。用不同的节点 ID
+启动会失败，错误信息会给出已记录的节点 ID。不要让两个部署指向同一个前缀。
+
+## Kubernetes 部署
+
+### StatefulSet 单副本
+
+用副本数恰好为 1 的 StatefulSet 运行 server-zd。StatefulSet 只在旧 pod 消失后才创建
+替代 pod。Deployment 可能在旧 pod 仍在运行时启动新 pod。
+
+不要强制删除 server pod。强制删除会在 Kubernetes 确认进程停止之前，把 pod 从 API 中
+移除。如果节点失联，旧进程可能与替代进程同时运行。
+
+下面的示例用 PersistentVolumeClaim 存放本地存储，并使用名为 **dex-server-zd**、
+包含 **config.yaml** 的 ConfigMap。镜像是已发布的多架构 release 镜像，支持 amd64 和 arm64。
+
+~~~yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: dex-server-zd
+spec:
+  selector:
+    app: dex-server-zd
+  ports:
+    - name: grpc
+      port: 8801
+      targetPort: grpc
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dex-server-zd
+spec:
+  serviceName: dex-server-zd
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dex-server-zd
+  template:
+    metadata:
+      labels:
+        app: dex-server-zd
+    spec:
+      serviceAccountName: dex-server-zd
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: dex-server-zd
+          image: docker.io/superdurable/dex-server-zd:0.1.1
+          ports:
+            - name: grpc
+              containerPort: 8801
+            - name: metrics
+              containerPort: 9090
+          startupProbe:
+            grpc:
+              port: 8801
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            grpc:
+              port: 8801
+            periodSeconds: 5
+          livenessProbe:
+            grpc:
+              port: 8801
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dex-server-zd/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/dex-server-zd
+      volumes:
+        - name: config
+          configMap:
+            name: dex-server-zd
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+~~~
+
+### 优雅关闭 {#graceful-shutdown}
+
+把 **terminationGracePeriodSeconds** 设为至少 30 秒。收到 SIGTERM 后，节点在大约 14 秒内
+按以下顺序停止：
+
+1. gRPC health 报告 **NOT_SERVING**。
+2. 通知 Worker 重新连接，关闭 long poll。
+3. 正在进行的调用最多有 4 秒完成。
+4. 后台工作和引擎停止。
+5. 停止续约 lease，并用条件写释放 lease。
+6. 关闭 metrics 监听器和 Stream Store。
+7. 进程退出。
+
+每一步都完成时，进程以 0 退出，使用相同 **cluster.nodeId** 的替代进程会立即获得 lease。
+如果某一步没有按时完成或者失败，例如对象存储拒绝释放 lease，进程以 1 退出。替代进程这时
+最多要等 **lease.duration** 再加约 1 秒。
+
+节点拿到 lease 之后，SIGTERM 可能在启动过程中到达。这时节点会先完成启动，再开始
+优雅关闭。因此，很长的日志重放可能超过宽限期。Kubernetes 随后会杀掉进程，下一次启动要
+等旧 lease 过期。
+
+### 本地存储卷
+
+本地存储是缓存，因为每次已确认的写入都已经在对象存储中。卷的类型只影响重启耗时。
+
+使用 emptyDir 时，新 pod 会恢复最新的快照，再重放快照之后写入的日志。emptyDir 在同一个
+pod 内的容器重启后仍然保留，但不会带到新 pod。使用 PersistentVolumeClaim 时，新 pod
+会复用本地存储，只重放停止之后写入的日志。无论哪种方式，重启后的第一个快照都会把完整的
+本地 checkpoint 上传到对象存储。
+
+把卷挂载到一个父目录，例如 **/var/lib/dex-server-zd**，再把 **localStorage.directory**
+设为其子目录，例如 **/var/lib/dex-server-zd/store**。节点无法复用现有本地存储时，
+会把该目录重命名为带 **.discarded-** 后缀的同级目录，然后重建。如果该目录就是挂载点，
+重命名会失败。被移到一旁的目录会一直留在持久卷上，直到你删除它们。
+
+卷的容量应能容纳当前状态，加上 **localStorage.maxWalBytes** 的 write-ahead log
+（默认 256 MiB），再加上大批量重放后尚未压缩的文件。重放后节点会压缩存储，目录会回到
+接近当前状态的大小。
+
+如果想用 emptyDir 替代 claim 模板，把 **volumeClaimTemplates** 换成下面的卷：
+
+~~~yaml
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 20Gi
+~~~
+
+### 健康检查
+
+8801 端口在 **api.listen** 上提供标准的 gRPC health 服务。启动期间，节点等待 lease 和
+重放日志时，health 报告 **NOT_SERVING**。恢复完成后报告 **SERVING**。
+
+三种 probe 都使用 gRPC health：
+
+- **startupProbe** 在第一次 **SERVING** 之前挡住 liveness probe。**failureThreshold**
+  × **periodSeconds** 至少要等于 **lease.duration** + 1 s + 最坏情况下的恢复时间。lease
+  这一部分用于应对上一个 owner 没有释放 lease 的情况。恢复时间随当前状态和日志尾部增长。
+  空存储的冷恢复用时约 4 s，有真实数据时要预留更多。示例允许 5 分钟。
+- **readinessProbe** 在节点不提供服务时挡住流量。
+- **livenessProbe** 重启不再响应的节点。不要用 TCP probe 做 liveness：卡住的进程仍可能通过
+  内核的连接队列接受 TCP 连接，却不提供任何服务。
+
+正在服务的节点不会在不退出的情况下回到 **NOT_SERVING**，因为丢失 lease 会结束进程。所以在
+gRPC health 上做 liveness 不会造成反复重启。
+
+这组 probe 适用于单副本，这是目前支持的拓扑。standby 副本在接管之前一直是
+**NOT_SERVING**，永远过不了这个 startup probe。standby 需要改用 TCP 或 exec 的 startup
+probe 和 liveness probe。
+
+发生致命错误后，例如 lease 丢失或提交失败，进程会自行退出。启动时如果对象存储不可达，
+进程也会以 1 退出。这两种情况下，Kubernetes 都会按退避策略重启容器。
+
+## Lease {#lease}
+
+节点在对象存储中持有一个 lease 对象。**lease.duration** 默认是 10 秒。节点在时长的
+三分之一处续约。
+
+数据安全不依赖这个时长。每次获得 lease 都会提升节点 epoch，每次日志写入都是条件写。
+两者一起把丢失 lease 的进程隔离在外。
+
+时长影响崩溃后的接管时间。优雅关闭会释放 lease，替代进程可以立即启动。崩溃、SIGKILL
+或 Kubernetes 节点丢失之后，替代进程要等旧 lease 过期，再多等 1 秒。这段等待最多是
+**lease.duration** 加 1 秒，之后才开始恢复。
+
+时长对对象存储故障只有部分影响：
+
+- 对象存储拒绝续约时，节点立即停止。
+- 续约请求卡住时，会在当前 lease 期限结束时被中断，节点随后停止。
+- 对象存储在 10 秒内没有接受一次日志写入时，节点也会停止。这个限制是固定的，与 lease
+  时长无关。
+
+因此，较长的 lease 只能让空闲节点撑过更长时间的对象存储停滞，不能让节点容忍失败的请求。
+以上任一情况停止后，进程都以 1 退出。
+
+单副本部署建议把 **lease.duration** 设为 60 秒。这时续约每小时大约发出 180 次 PUT
+请求，10 秒时约为 1,080 次。时长最好不超过约 120 秒。更长的 lease 省下的请求很少，
+崩溃后的不可用时间却会继续增长。
+
+默认情况下，如果另一个进程持有 lease，启动中的节点会等待。把 **lease.failIfHeld**
+设为 true 可以改为直接启动失败。
+
+## 对象存储
+
+### 凭证
+
+**objectStore.credentialsSource** 选择凭证：
+
+| 值 | 凭证 |
+| --- | --- |
+| **defaultChain**（默认） | AWS SDK 默认的凭证提供链 |
+| **environment** | **DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID**、**DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY**，以及可选的 **DEX_ZD_OBJECT_STORE_SESSION_TOKEN** |
+| **anonymous** | 不签名的请求，用于本地模拟器或允许匿名访问的 bucket |
+
+在 Amazon EKS 上，保持 **defaultChain**，并给 pod 的 service account 一个 IAM role，
+例如通过 IAM Roles for Service Accounts 或 EKS Pod Identity。
+
+### 只限前缀的 IAM 策略 {#iam-policy}
+
+共享 bucket 时，设置非空的 **objectStore.prefix**，然后只给 server 的 role 授予下面的
+操作。把 **BUCKET** 和 **PREFIX/** 换成 bucket 和配置的前缀，并保留末尾的斜杠。
+
+~~~json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": { "StringLike": { "s3:prefix": "PREFIX/*" } }
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+      "Resource": "arn:aws:s3:::BUCKET/PREFIX/*"
+    }
+  ]
+}
+~~~
+
+server 只在自己的前缀下列举对象，检查对象是否存在时也是如此。有了这个授权，AWS S3 对
+不存在的对象返回 404。更窄的授权可能返回 403。只要允许带前缀的列举，server 能处理这
+两种响应。
+
+**s3:ListBucket** 的条件必须使用 **StringLike**，并带上上面示例中末尾的通配符。不支持
+精确匹配前缀的 **StringEquals** 授权，也不支持没有 **s3:ListBucket** 的策略。前缀非空时，
+启动会先在前缀下列举。列举被拒绝时，启动失败，错误信息以下面的文字开头：
+
+~~~text
+startup requires s3:ListBucket with StringLike s3:prefix "PREFIX/*"
+~~~
+
+启动时还会在前缀下写入并删除一个探测对象，用来确认条件写可用。不需要整个 bucket 的
+访问权限，也不需要任何 bucket 管理操作。
+
+硬删除 Attribute 的值默认使用主 bucket 和前缀。如果要把它们放在别处，为
+**objectStore.hardDeleteStore** 单独配置 **endpoint**、**region**、**bucket**、
+**prefix** 和 **credentialsSource**。它的 **environment** 凭证使用后缀相同的
+**DEX_ZD_HARD_DELETE_STORE_** 变量。对那个 bucket 和前缀授予同样的策略。
+
+### 加密
+
+server-zd 不发送服务端加密的请求头，因此使用 bucket 的默认加密。默认的 SSE-KMS 可以
+正常工作。条件写使用 **If-None-Match** 和 **If-Match**，server 把 ETag 当作不透明的值，
+不要求 ETag 是 MD5 摘要。
+
+使用客户管理的 KMS key 时，给 role 授予该 key 的 **kms:GenerateDataKey** 和
+**kms:Decrypt**，并在 key policy 中也允许这两个操作。
+
+### 版本控制和生命周期规则
+
+不开版本控制的 bucket 可以正常使用。server-zd 不使用对象版本。
+
+如果 bucket 开启了版本控制，server 删除的每个对象都会留下一个非当前版本，包括旧的日志
+对象和快照，存储只增不减。添加一条让非当前版本过期的生命周期规则。硬删除 Attribute 值
+的非当前版本也会保留已删除的值，直到该版本过期。
+
+无论是否开启版本控制，都要添加一条在 1 到 7 天后中止未完成 multipart upload 的规则。
+崩溃可能留下未完成的上传，而只限前缀的 role 无法列举或清理它们。
+
+下面的生命周期配置包含这两条规则。不开版本控制的 bucket 去掉第二条。
+
+~~~json
+{
+  "Rules": [
+    {
+      "ID": "dex-server-zd-abort-incomplete-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "PREFIX/" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 2 }
+    },
+    {
+      "ID": "dex-server-zd-expire-noncurrent-versions",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "PREFIX/" },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 7 },
+      "Expiration": { "ExpiredObjectDeleteMarker": true }
+    }
+  ]
+}
+~~~
+
+## 保留期
+
+**retention.closedFlowDuration** 设置已关闭的 Flow run 保留多久，默认 7 天。超过这段
+时间后，run 及其保留的数据可以被删除。值写成时长，例如 **72h** 或 **30days**。
+
+每个 run 在启动时记录这个值。新值只对节点用它重启之后启动的 run 生效。已经启动的 run
+保留自己记录的时长。
+
+## 指标 {#metrics}
+
+设置 **metrics.listen** 后，节点会在独立于 **api.listen** 的监听器上提供明文 HTTP
+**GET /metrics**。默认值为空，表示关闭。这个 endpoint 没有身份验证，不要公开暴露。
+在 Kubernetes 中，把它绑定到 **0.0.0.0:9090**，并用 NetworkPolicy 限制访问。
+
+响应使用 OpenMetrics 文本格式。节点恢复期间或等待 lease 时，指标同样可用。每个 label
+的取值都来自一个封闭集合。没有任何 series 带 Flow、Flow type、partition、tenant 或
+key label。
+
+| 关注点 | Metric family 和 label |
+| --- | --- |
+| API 请求和错误 | **dexzd_api_requests_total**，带 **rpc_class** 和 **code** |
+| API 延迟 | **dexzd_api_request_latency_seconds**，带 **rpc_class**；只统计 unary 调用 |
+| Step 失败 | **dexzd_step_attempt_failures_total**，带 **durability** 和 **failure_kind**；**dexzd_step_retries_exhausted_total**，带 **durability** |
+| Flow 关闭 | **dexzd_flow_closes_total**，带 **close_status**；**dexzd_flow_end_to_end_latency_seconds** |
+| 派发延迟 | **dexzd_step_schedule_to_start_latency_seconds** |
+| Worker | **dexzd_worker_stream_events_total**，带 **event**；**dexzd_matching_worker_streams**；**dexzd_matching_queued_tasks** |
+| 提交延迟 | **dexzd_commit_latency_seconds** |
+| 对象存储 | **dexzd_object_store_requests_total**，带 **operation** 和 **object_kind**；**dexzd_object_store_request_errors_total**，带 **operation** |
+| Lease 和节点状态 | **dexzd_node_role**，带 **role**；**dexzd_lease_epoch**；**dexzd_lease_renewals_total**，带 **outcome** |
+| 恢复 | **dexzd_recovery_last_duration_seconds**；**dexzd_recovery_last_replayed_bytes** |
+| Timer | **dexzd_timer_lag_seconds** |
+| 快照 | **dexzd_snapshots_total**，带 **outcome**；**dexzd_snapshot_last_duration_seconds** |
+| 本地磁盘 | **dexzd_local_storage_bytes** |
+
+**rpc_class** 取 **flow_write**、**flow_read**、**search**、**worker_poll** 或
+**worker_respond**。**code** 是 snake case 形式的 gRPC 状态码，例如 **ok** 或
+**unavailable**。**role** 取 **starting**、**standby**、**recovering**、**serving**
+或 **draining**。
+
+Worker 通过一个持久的 stream 轮询，因此没有空轮询计数。
+**dexzd_worker_stream_events_total** 统计每次任务投递和每次 stream 关闭。long poll 的
+等待时间计入 **flow_read** 延迟。
+
+~~~text
+# Failed API calls by class and code
+sum by (rpc_class, code) (rate(dexzd_api_requests_total{code!="ok"}[5m]))
+
+# A node that is not serving
+dexzd_node_role{role="serving"} == 0
+
+# Failed lease renewals
+increase(dexzd_lease_renewals_total{outcome="error"}[10m]) > 0
+~~~
+
+完整目录，包括类型、histogram bucket 和 Linux 进程指标，见
+[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.1/server-zd/README.md#metrics)。
+
+## 身份验证
+
+公共 API 身份验证默认关闭。配置 **auth.authenticators** 后，每个 **FlowService** 和
+**WorkerTaskService** 调用都需要 bearer 凭证。gRPC health 不需要凭证。authenticator
+按顺序尝试。
+
+~~~yaml
+auth:
+  authenticators:
+    - kind: jwt
+      issuer: https://issuer.example.com
+      audiences: ["dex"]
+      jwksURL: ""
+      allowInsecureJWKSURL: false
+      caFile: ""
+    - kind: staticTokens
+      file: /etc/dex-server-zd/tokens.yaml
+~~~
+
+这一节使用 Go Dex Server 的 **auth** 键，现有的 Go Server 配置段可以原样加载。
+**allowInsecureJWKSURL** 只存在于 server-zd，它允许在可信网络上使用明文 HTTP 的
+**jwksURL**。**jwksURL** 为空时，通过 issuer 的 OpenID 配置发现 key set。**caFile**
+把一个 PEM bundle 加到系统根证书中。
+
+静态 token 文件只列出 SHA-256 哈希，绝不保存明文 token：
+
+~~~yaml
+tokens:
+  - sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+~~~
+
+启动时文件必须有效。修改会在一秒内生效。格式错误的更新会保留上一次有效的内容。文件
+为空或缺失时，所有 token 都会失效。
+
+server 只在调用开始时检查一次凭证。已经打开的 pull Worker stream 在 token 过期或被
+吊销后仍保持打开。Worker 重新连接时需要有效的凭证。
+
+**api.listen** 提供明文 gRPC，bearer 凭证会以明文在网络上传输。在 server 前面终止
+TLS，或者只允许可信的调用方访问网络。
+
+## 备份和恢复
+
+对象存储前缀是唯一的数据源。本地存储从它重建。ParadeDB 搜索投影在启动后从本地存储
+重建。配置了 **objectStore.hardDeleteStore** 时，它的前缀存放硬删除 Attribute 的值，
+也要用同样的方式保护。
+
+用 bucket 版本控制或复制到另一个 bucket 来保护前缀。使用版本控制时，非当前版本的过期
+时间决定了能恢复到多久以前。复制是异步的，副本可能落后于源。
+
+恢复步骤：
+
+1. 停止 server-zd。例如，把 StatefulSet 缩到 0 个副本，并等待 pod 终止。
+2. 把前缀下的所有对象恢复到同一个时间点，并删除该时间点之后写入的对象。
+3. 清空本地存储目录。使用 PersistentVolumeClaim 时，删除目录内容或删除该 claim。
+   使用 emptyDir 时，pod 终止后它就已经不存在了。
+4. 启动 server-zd。它会用恢复后的前缀中最新的快照和日志进行恢复。
+
+恢复时间点之后确认的写入会丢失。
+
+## 从 Go Dex Server 映射配置 {#configuration-mapping}
+
+server-zd 会拒绝未知的键，因此 Go Server 的配置文件不能原样加载。只复制下表中的键。
+**auth** 一节是例外，可以原样加载。
+
+| Go Dex Server | server-zd | 说明 |
+| --- | --- | --- |
+| **api.port** | **api.listen** | 完整的绑定地址，默认 **0.0.0.0:8801**。 |
+| **api.maxWaitSeconds** 和 **api.grpcMaxMessageBytes** | 相同的键 | 含义和默认值相同：60 秒和 32 MiB。server-zd 拒绝为零的 **maxWaitSeconds**，Go Server 则把零当作默认值。 |
+| Temporal 专用的 **api** 键，例如 **api.useTemporalSynchronousUpdateForAllRPCs** | 无 | 删除。 |
+| **auth.authenticators** | 相同的键 | 原样加载。**allowInsecureJWKSURL** 只存在于 server-zd。 |
+| **matching.dispatchWait**、**stickyWait**、**maxConcurrentTasksCap**、**maxStreams**、**maxQueueLength**、**maxFlowTypes**、**maxFlowTypeLength** 和 **pingInterval** | 相同的键 | 默认值相同。 |
+| **matching.localDispatchWait**、**localStickyWait** 和 **localExecutionReserve** | 无 | 删除。 |
+| **streamStore** | **streamStore** | **backend** 为 **disabled**（默认）或 **memory**，没有 **redis** backend。删除 **redisURL**、**trimLeaseTTL** 和 **trimLeaseRetry**。memory Stream 保存在进程中，重启后为空。 |
+| Temporal 或 Cadence 的 namespace 保留期，以及 **blobStore.historyRetentionInDays** | **retention.closedFlowDuration** | 用时长表示，例如 **7days**，而不是整天数。只对修改后启动的 run 生效。 |
+| **interpreter.temporal.prometheus.listenAddress** | **metrics.listen** | 指标名称不同，见[指标](#metrics)。 |
+| **log** | **RUST_LOG** 环境变量 | 日志输出到标准错误，默认级别为 **info**。 |
+| 没有对应的键；**SearchFlows** 使用 Temporal 或 Cadence 的 visibility | **search.backend** | **builtin**（默认）或 **paradedb**。 |
+| **blobStore** | 无 | server-zd 把所有值保存在自己的对象存储前缀下。硬删除的值可以使用 **objectStore.hardDeleteStore**。 |
+| **attributeStore** | 无 | server-zd 0.1 不提供。 |
+| **interpreter** | 无 | server-zd 不使用 Temporal 或 Cadence backend。 |
+| **membership** 和 **internal** | 无 | 一个集群只运行一个节点，没有内部监听器。 |
+| **web** | 无 | server-zd 不提供 Dex Web。 |
+| **worker** | 无 | server-zd 只支持拉取模式 Worker。 |
