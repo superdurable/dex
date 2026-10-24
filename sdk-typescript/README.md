@@ -616,9 +616,11 @@ when it is still current. Unary Client and Worker calls then retry once with a
 fresh token. Rejected pull streams reconnect immediately once with a fresh token;
 a second rejection uses the Worker's 60–90 second backoff. Credential inspection
 contains no secrets. Exchange errors redact the API key, cached and two most
-recently issued access tokens, and JWT-shaped substrings before truncating each endpoint
-error field to 200 characters. A JWT-shaped substring has three base64url
-segments of at least 10 characters each. Raw transport causes are omitted. A single
+recently issued access tokens, the failed response's access token, and JWT-shaped
+substrings before truncating each endpoint error field to 200 characters. A
+JWT-shaped substring has three or more base64url segments of at least 10 characters
+each. The rule also applies to the token URL and can redact other text of that shape,
+such as a long dotted host name. Raw transport causes are omitted. A single
 credential is safe to share among concurrent Clients and Workers. The application
 owns it; closing a Client or Worker does not close the credential. It holds no
 persistent HTTP client or idle background task; an active exchange ends within

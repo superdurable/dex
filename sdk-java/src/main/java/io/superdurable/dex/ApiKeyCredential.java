@@ -51,9 +51,11 @@ import java.util.regex.Pattern;
  * closes it after all Clients and Workers sharing it are closed. A supplied HTTP connection
  * factory remains caller-owned.
  * The credential description contains no secrets. Exchange errors redact the API key,
- * cached and two most recently issued access tokens, and JWT-shaped substrings before
- * truncating each endpoint error field to 200 characters. A JWT-shaped substring has
- * three base64url segments of at least 10 characters each. Raw transport causes are omitted.
+ * cached and two most recently issued access tokens, the failed response's access token,
+ * and JWT-shaped substrings before truncating each endpoint error field to 200 characters.
+ * A JWT-shaped substring has three or more base64url segments of at least 10 characters each.
+ * The rule also applies to the token URL and can redact other text of that shape, such as a
+ * long dotted host name. Raw transport causes are omitted.
  *
  * <pre>{@code
  * ApiKeyCredential credential = ApiKeyCredential.builder(
@@ -70,7 +72,7 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
     private static final long RETRY_NANOS = TimeUnit.SECONDS.toNanos(5);
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Pattern JWT_SHAPED_SUBSTRING = Pattern.compile(
-            "[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}");
+            "(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{10,}(?:\\.[A-Za-z0-9_-]{10,}){2,}+(?![A-Za-z0-9_-])");
 
     private final URI tokenUrl;
     private final String serverId;
@@ -454,9 +456,11 @@ public final class ApiKeyCredential implements RejectedTokenCredential, AutoClos
      *
      * <p>The message identifies the token URL and HTTP status when available. It includes at most
      * 200 characters from each response error field after redacting the API key, cached and
-     * two most recently issued access tokens, and JWT-shaped substrings. A JWT-shaped substring
-     * has three base64url segments of at least 10 characters each. It omits raw responses
-     * and transport causes. A status of -1 means the exchange did not receive an HTTP response.
+     * two most recently issued access tokens, the failed response's access token, and
+     * JWT-shaped substrings. A JWT-shaped substring has three or more base64url segments
+     * of at least 10 characters each. The rule also applies to the token URL and can redact
+     * other text of that shape, such as a long dotted host name. It omits raw responses and
+     * transport causes. A status of -1 means the exchange did not receive an HTTP response.
      */
     public static final class ExchangeException extends IOException {
         private final int httpStatus;

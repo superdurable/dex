@@ -156,9 +156,11 @@ const apiKeyCredentialStates = new WeakMap<ApiKeyCredential, ApiKeyCredentialSta
  * The token URL must use HTTPS, except loopback HTTP is accepted for local endpoints.
  * Token endpoint redirects are never followed.
  * Credential inspection contains no secrets. Exchange errors redact the API key,
- * cached and two most recently issued access tokens, and JWT-shaped substrings before
- * truncating each endpoint error field to 200 characters. A JWT-shaped substring has
- * three base64url segments of at least 10 characters each. Raw transport causes are omitted.
+ * cached and two most recently issued access tokens, the failed response's access token,
+ * and JWT-shaped substrings before truncating each endpoint error field to 200 characters.
+ * A JWT-shaped substring has three or more base64url segments of at least 10 characters each.
+ * The rule also applies to the token URL and can redact other text of that shape, such as a
+ * long dotted host name. Raw transport causes are omitted.
  * Concurrent calls are safe. The credential owns no persistent HTTP client or timer;
  * an in-flight exchange ends within the configured timeout. An injected fetch is owned
  * by the application. The application owns this credential when sharing it among
@@ -355,7 +357,7 @@ export class ApiKeyCredential implements Credential {
       .sort((first, second) => second.length - first.length);
     let redacted = value;
     for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]");
-    return redacted.replace(/[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, "[REDACTED]");
+    return redacted.replace(/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]{10,}){2,}(?![A-Za-z0-9_-])/g, "[REDACTED]");
   }
 
   private exchangeError(statusCode: number | undefined, detail: string): ApiKeyExchangeError {

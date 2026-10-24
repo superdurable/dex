@@ -39,7 +39,7 @@ concurrency:
 
 jobs:
   contracts:
-    name: User contracts (Java ${{ matrix.java-version }})
+    name: Unit tests and user contracts (Java ${{ matrix.java-version }})
     runs-on: ubuntu-latest
     env:
       RUSTUP_TOOLCHAIN: "1.97.1"
@@ -63,8 +63,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
       - name: Compile IWF integration ports
         run: ./gradlew compileTestJava --no-daemon
-      - name: Test contracts
-        run: ./gradlew test --tests io.superdurable.dex.contracts.UserContractsTest "-PtestJavaVersion=${{ matrix.java-version }}" --no-daemon
+      - name: Test credentials and user contracts
+        run: ./gradlew test --tests io.superdurable.dex.CredentialTest --tests io.superdurable.dex.ApiKeyCredentialTest --tests io.superdurable.dex.contracts.UserContractsTest "-PtestJavaVersion=${{ matrix.java-version }}" --no-daemon
 
   publication:
     name: Maven publication

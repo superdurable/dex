@@ -206,6 +206,7 @@ test("ApiKeyCredential redacts an older JWT from endpoint fields and transport f
     });
     endpointFetch.failTransport();
     await assert.rejects(credential.token(), (failure: unknown) => {
+      assert.match(String(failure), /transport failure/);
       for (const formatted of [String(failure), inspect(failure), (failure as Error).stack ?? ""]) {
         assert.equal(formatted.includes(apiKey), false);
         assert.equal(formatted.includes(tokens[0]!), false);
@@ -218,6 +219,19 @@ test("ApiKeyCredential redacts an older JWT from endpoint fields and transport f
     await client.close();
     await server.close();
   }
+});
+
+test("ApiKeyCredential redacts long dotted runs without slowing on dot-free input", () => {
+  const credential = new ApiKeyCredential({ tokenUrl: "http://localhost/token", serverId: "dex-server", apiKey });
+  const redact = (credential as unknown as { redact: (value: string) => string }).redact.bind(credential);
+  const dotFree = "a".repeat(50_000);
+  const dotted = Array(4_545).fill("abcdefghij").join(".");
+  const startedAt = performance.now();
+  assert.equal(redact(dotFree), dotFree);
+  assert.equal(redact(dotted), "[REDACTED]");
+  assert.equal(redact("prefixvalue.headersegment.payloadsegment.signaturesegment"), "[REDACTED]");
+  assert.equal(redact("headersegment.payloadsegment.signaturesegment.fourthsegment.fifthsegment"), "[REDACTED]");
+  assert.ok(performance.now() - startedAt < 50);
 });
 
 test("ApiKeyCredential shares the first exchange among concurrent callers", async () => {
