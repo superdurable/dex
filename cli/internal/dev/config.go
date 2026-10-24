@@ -94,6 +94,7 @@ type Config struct {
 	// BlobStoreDirectory defaults to $HOME/.dex/blobs unless SQLiteDBFilename selects its adjacent dex.blobs store.
 	BlobStoreDirectory string
 	// AttributeStoreConfigPath defaults empty and loads Attribute Store settings from standard Dex YAML when set.
+	// With --engine zd, dexcli passes the file to dex-server-zd dev as --attribute-store-config.
 	AttributeStoreConfigPath string
 	// FlowRenderingDirectory defaults empty and supplies Flow Definition Graph JSON files to Dex Web.
 	FlowRenderingDirectory string
@@ -261,7 +262,7 @@ func (c *Config) validate() error {
 		return fmt.Errorf("engine must be temporal or zd: %q", c.Engine)
 	}
 	if c.Engine == "zd" {
-		for _, name := range []string{"external-temporal-address", "external-temporal-namespace", "sqlite-db-filename", "verbose-engine-log", "attribute-store-config", "blob-store-dir"} {
+		for _, name := range []string{"external-temporal-address", "external-temporal-namespace", "sqlite-db-filename", "verbose-engine-log", "blob-store-dir"} {
 			if c.isExplicit(name) {
 				return fmt.Errorf("--%s cannot be used with --engine zd", name)
 			}
@@ -291,6 +292,13 @@ func (c *Config) validate() error {
 				return err
 			}
 			c.ZDConfigPath = configPath
+		}
+		if c.isExplicit("attribute-store-config") {
+			configPath, err := resolveRegularFilePath(c.AttributeStoreConfigPath, "Attribute Store config file")
+			if err != nil {
+				return err
+			}
+			c.AttributeStoreConfigPath = configPath
 		}
 	} else {
 		for _, name := range []string{"zd-binary", "zd-data-dir", "zd-config"} {
@@ -454,20 +462,26 @@ func (c *Config) autoSQLiteDBFilename() string {
 // resolveZDConfigPath returns the absolute path of an existing regular zd configuration file, or an error naming
 // the empty, unresolvable, unreadable, or non-regular path.
 func resolveZDConfigPath(path string) (string, error) {
+	return resolveRegularFilePath(path, "zd config file")
+}
+
+// resolveRegularFilePath returns the absolute path of an existing regular file, or an error that starts with
+// description and names the empty, unresolvable, unreadable, or non-regular path.
+func resolveRegularFilePath(path string, description string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "", fmt.Errorf("zd config file is required")
+		return "", fmt.Errorf("%s is required", description)
 	}
 	absolutePath, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("resolve zd config file: %w", err)
+		return "", fmt.Errorf("resolve %s: %w", description, err)
 	}
 	info, err := os.Stat(absolutePath)
 	if err != nil {
-		return "", fmt.Errorf("read zd config file: %w", err)
+		return "", fmt.Errorf("read %s: %w", description, err)
 	}
 	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("zd config file %q is not a regular file", absolutePath)
+		return "", fmt.Errorf("%s %q is not a regular file", description, absolutePath)
 	}
 	return absolutePath, nil
 }

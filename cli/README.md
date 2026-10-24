@@ -68,10 +68,15 @@ The CLI stores zd state in `$HOME/.dex/zd/<dex-port>` by default. Pass
 retention, Streams, or the search backend. The CLI passes the file to
 `dex-server-zd dev --config`. It waits for the zd gRPC health services before
 opening Dex Web. zd supports pull Workers only.
+`--attribute-store-config` also works with `--engine zd`. The CLI passes the
+file to `dex-server-zd dev --attribute-store-config`, which reads only its
+`attributeStore` section. zd supports only `type: postgres`, and each database
+needs the fencing table described in `server-zd/README.md`. Do not also set
+`attributeStore` in the `--zd-config` file.
 Options for Temporal or the in-process Go Server, including
 `--sqlite-db-filename`, `--external-temporal-address`,
-`--verbose-engine-log`, `--attribute-store-config`, and `--blob-store-dir`,
-cannot be combined with `--engine zd`.
+`--verbose-engine-log`, and `--blob-store-dir`, cannot be combined with
+`--engine zd`.
 
 If a `dexcli dev` port is already in use, it binds the next free port and prints
 the Dex addresses it selected. Running several `dexcli dev` processes on the

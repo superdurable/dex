@@ -87,7 +87,7 @@ func TestZDEngineFlags(t *testing.T) {
 	}
 	for _, flagName := range []string{
 		"external-temporal-address", "external-temporal-namespace", "sqlite-db-filename",
-		"verbose-engine-log", "attribute-store-config", "blob-store-dir",
+		"verbose-engine-log", "blob-store-dir",
 	} {
 		value := "value"
 		if flagName == "external-temporal-address" {
@@ -106,6 +106,8 @@ func TestZDEngineFlags(t *testing.T) {
 		{"--engine", "unknown"}, {"--zd-binary", binary}, {"--zd-data-dir", overrideDirectory}, {"--engine", "zd", "--zd-data-dir", ""},
 		{"--zd-config", zdConfig}, {"--engine", "zd", "--zd-config", ""},
 		{"--engine", "zd", "--zd-config", filepath.Join(t.TempDir(), "missing.yaml")}, {"--engine", "zd", "--zd-config", t.TempDir()},
+		{"--engine", "zd", "--attribute-store-config", ""}, {"--engine", "zd", "--attribute-store-config", t.TempDir()},
+		{"--engine", "zd", "--attribute-store-config", filepath.Join(t.TempDir(), "missing.yaml")},
 	} {
 		if _, err := parseConfig(arguments, &bytes.Buffer{}); err == nil {
 			t.Fatalf("accepted invalid arguments %v", arguments)
@@ -127,10 +129,12 @@ func TestZDSupervisorStartsWebAndStopsChild(t *testing.T) {
 	dexPort, webPort := freeZDTestPorts(t)
 	dataDirectory := filepath.Join(testDirectory, "isolated-zd")
 	zdConfig := writeZDTestConfig(t)
+	attributeStoreConfig := writeZDAttributeStoreTestConfig(t)
 	config, err := parseConfig([]string{
 		"--engine", "zd", "--zd-binary", binary,
 		"--zd-data-dir", dataDirectory,
 		"--zd-config", zdConfig,
+		"--attribute-store-config", attributeStoreConfig,
 		"--dex-port", strconv.Itoa(dexPort),
 		"--web-port", strconv.Itoa(webPort),
 		"--open=false", "--server-log-folder", filepath.Join(testDirectory, "logs"),
@@ -145,7 +149,7 @@ func TestZDSupervisorStartsWebAndStopsChild(t *testing.T) {
 	finished := make(chan error, 1)
 	go func() { finished <- newSupervisor(config, output, output).Run(runCtx) }()
 	waitForZDTestReady(t, output, finished)
-	expected := []string{"dev", "--data-dir", dataDirectory, "--listen", net.JoinHostPort(config.BindAddress, strconv.Itoa(config.DexPort)), "--log-dir", config.LogDirectory, "--config", zdConfig}
+	expected := []string{"dev", "--data-dir", dataDirectory, "--listen", net.JoinHostPort(config.BindAddress, strconv.Itoa(config.DexPort)), "--log-dir", config.LogDirectory, "--config", zdConfig, "--attribute-store-config", attributeStoreConfig}
 	arguments, err := os.ReadFile(argumentsFile)
 	if err != nil {
 		t.Fatal(err)
@@ -290,6 +294,16 @@ func writeZDTestConfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "zd.yaml")
 	if err := os.WriteFile(path, []byte("retention:\n  closedFlowDuration: 30days\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeZDAttributeStoreTestConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "attribute-store.yaml")
+	contents := "attributeStore:\n  stores:\n    orders:\n      type: postgres\n      dsn: postgres://localhost/app\n      tableName: public.orders\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
