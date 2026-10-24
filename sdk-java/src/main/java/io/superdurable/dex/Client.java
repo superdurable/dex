@@ -156,7 +156,7 @@ public final class Client implements AutoCloseable {
         final FlowServiceGrpc.FlowServiceBlockingStub serviceStub = FlowServiceGrpc.newBlockingStub(channel);
         this.service = options.getCredential() == null ? serviceStub
                 : serviceStub.withCallCredentials(new GrpcCredential(options.getCredential()));
-        this.hydrator = new ValueHydrator(service, blobCache);
+        this.hydrator = new ValueHydrator(service, blobCache, options.getCredential());
         this.mappings = new WorkerDispatcher(registry, values, hydrator, serverProtocol);
     }
 
@@ -292,16 +292,17 @@ public final class Client implements AutoCloseable {
         }
     }
 
-    private synchronized void negotiateServerProtocol() {
+    synchronized void negotiateServerProtocol() {
         if (serverProtocol.isNegotiated()) {
             return;
         }
         final String sdkVersion = ServerProtocolCompatibility.sdkVersion();
         final ServerInfo serverInfo;
+        final FlowServiceGrpc.FlowServiceBlockingStub serverInfoService =
+                service.withDeadlineAfter(SERVER_INFO_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         try {
-            serverInfo = service
-                    .withDeadlineAfter(SERVER_INFO_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                    .getServerInfo(Empty.getDefaultInstance());
+            serverInfo = GrpcCredential.callUnaryWithRetry(options.getCredential(),
+                    () -> serverInfoService.getServerInfo(Empty.getDefaultInstance()));
         } catch (StatusRuntimeException failure) {
             if (failure.getStatus().getCode() == io.grpc.Status.Code.UNAUTHENTICATED) {
                 throw GrpcExceptionTranslator.translate(
@@ -1184,8 +1185,9 @@ public final class Client implements AutoCloseable {
     }
 
     boolean healthCheck() {
-        call(() -> service.withDeadlineAfter(5, TimeUnit.SECONDS)
-                .healthCheck(Empty.getDefaultInstance()));
+        final FlowServiceGrpc.FlowServiceBlockingStub healthCheckService =
+                service.withDeadlineAfter(5, TimeUnit.SECONDS);
+        call(() -> healthCheckService.healthCheck(Empty.getDefaultInstance()));
         return true;
     }
 
@@ -1193,7 +1195,8 @@ public final class Client implements AutoCloseable {
      * Shuts down the client's gRPC channel.
      *
      * <p>The method waits up to five seconds for channel termination and preserves interruption
-     * status. It does not close the borrowed {@link BlobCache}.
+     * status. The application owns any supplied {@link Credential} and the borrowed
+     * {@link BlobCache}.
      */
     @Override
     public void close() {
@@ -1590,16 +1593,16 @@ public final class Client implements AutoCloseable {
         }
     }
 
-    private static <T> T call(final RpcCall<T> rpc) {
+    private <T> T call(final RpcCall<T> rpc) {
         return call(rpc, FlowTargetRequirement.NONE, null);
     }
 
-    private static <T> T call(
+    private <T> T call(
             final RpcCall<T> rpc,
             final FlowTargetRequirement requirement,
             final String flowId) {
         try {
-            return rpc.invoke();
+            return GrpcCredential.callUnaryWithRetry(options.getCredential(), rpc::invoke);
         } catch (StatusRuntimeException exception) {
             throw GrpcExceptionTranslator.translate(exception, requirement, flowId);
         }
