@@ -291,20 +291,24 @@ impl ServeProcess {
     /// Starts `serve --config` with environment credentials for the primary store.
     pub(crate) fn spawn(config_path: &Path, address: SocketAddr, log_path: PathBuf) -> Self {
         let log = fs::File::create(&log_path).expect("the process log file is created");
-        let child = Command::new(env!("CARGO_BIN_EXE_dex-server-zd"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dex-server-zd"));
+        command
             .arg("serve")
             .arg("--config")
             .arg(config_path)
             .env("DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID", ACCESS_KEY_ID)
             .env("DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY", SECRET_ACCESS_KEY)
-            .env("DEX_ZD_OBJECT_STORE_SESSION_TOKEN", SESSION_TOKEN)
             .env("RUST_LOG", "info")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(log)
-            .kill_on_drop(true)
-            .spawn()
-            .expect("dex-server-zd starts");
+            .kill_on_drop(true);
+        if std::env::var_os("DEX_ZD_S3_TEST_ENDPOINT").is_some() {
+            command.env_remove("DEX_ZD_OBJECT_STORE_SESSION_TOKEN");
+        } else {
+            command.env("DEX_ZD_OBJECT_STORE_SESSION_TOKEN", SESSION_TOKEN);
+        }
+        let child = command.spawn().expect("dex-server-zd starts");
         Self {
             child,
             address,

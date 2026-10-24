@@ -169,6 +169,16 @@ make build-server            # builds target/release/dex-server-zd
 Local tests use only the in-process s3mock (`../s3mock`) or the in-memory object store. They need
 no docker, MinIO, or Temporal.
 
+### Object storage compatibility
+
+The [MinIO nightly](../.github/workflows/server-zd-minio-nightly.yml) checks the coollabsio
+`RELEASE.2025-10-15T17-29-55Z` build (image digest
+`sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9`). It runs the
+S3 conformance suite, the server-zd object-store and commit-protocol tests, and a `serve` process
+test that writes a Flow, restarts with its local directory, then rebuilds after that directory is
+deleted. This is the MinIO release tracked for compatibility; each additional release needs its
+own matrix entry and passing run. The workflow also supports manual runs.
+
 ### Persistent format testdata
 
 `testdata/v<N>` holds a recorded log, snapshot, cluster metadata, and committed state.

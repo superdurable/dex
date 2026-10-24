@@ -22,10 +22,13 @@ use dexzd_log::{
 };
 use dexzd_object_store::{
     ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
-    ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
+    ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, S3Credentials, S3ObjectStore,
+    S3ObjectStoreConfig, WriteCondition, WriteOutcome,
 };
 use dexzd_protocol::dexzd::v1::LogBatchHeader;
 use prost::Message;
+use s3mock::{Durability, EtagMode, Store as S3MockStore, StoreConfig};
+use tempfile::TempDir;
 use tokio::sync::{Mutex, Notify};
 
 struct FixedClock;
@@ -1435,4 +1438,144 @@ async fn seeded_takeovers_recover_exactly_the_acknowledged_prefix() {
         .flat_map(|batch| batch.records.iter().map(|record| record.bytes.clone()))
         .collect();
     assert_eq!(replayed, acknowledged);
+}
+
+#[tokio::test]
+async fn external_s3_commit_protocol() {
+    let directory = TempDir::new().expect("the temporary test directory is created");
+    let external_endpoint = std::env::var("DEX_ZD_S3_TEST_ENDPOINT").ok();
+    let (server, endpoint, bucket, credentials) = if let Some(endpoint) = external_endpoint {
+        (
+            None,
+            endpoint,
+            std::env::var("DEX_ZD_S3_TEST_BUCKET").expect("the external bucket is configured"),
+            S3Credentials::Static {
+                access_key_id: std::env::var("AWS_ACCESS_KEY_ID")
+                    .expect("the external access key is configured"),
+                secret_access_key: std::env::var("AWS_SECRET_ACCESS_KEY")
+                    .expect("the external secret key is configured"),
+                session_token: None,
+            },
+        )
+    } else {
+        let mock_store = S3MockStore::open(&StoreConfig {
+            root_directory: directory.path().to_path_buf(),
+            durability: Durability::Strict,
+            etag_mode: EtagMode::Opaque,
+        })
+        .expect("the s3mock store opens");
+        mock_store
+            .create_bucket("commit-protocol-conformance", false)
+            .expect("the s3mock bucket is created");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("the s3mock listener binds");
+        let server =
+            s3mock_server::start(Arc::new(mock_store), listener).expect("the s3mock server starts");
+        let endpoint = format!("http://{}", server.local_address());
+        (
+            Some(server),
+            endpoint,
+            "commit-protocol-conformance".to_owned(),
+            S3Credentials::Static {
+                access_key_id: "s3mock".to_owned(),
+                secret_access_key: "s3mock".to_owned(),
+                session_token: None,
+            },
+        )
+    };
+    let mut config = S3ObjectStoreConfig::new("us-east-1", bucket);
+    config.endpoint = Some(endpoint);
+    config.key_prefix = "commit-compatibility".to_owned();
+    config.force_path_style = true;
+    config.credentials = credentials;
+    let store: Arc<dyn ObjectStore> = Arc::new(
+        S3ObjectStore::new(config)
+            .await
+            .expect("the S3 client is configured"),
+    );
+    for seq in [1, 3] {
+        assert!(matches!(
+            store
+                .put(
+                    &stream().batch_key(seq),
+                    batch(1, seq, b"old writer"),
+                    WriteCondition::CreateOnly,
+                )
+                .await
+                .expect("the log batch is written"),
+            WriteOutcome::Written { .. }
+        ));
+    }
+    let recovered = recover_stream(
+        store.as_ref(),
+        &FixedClock,
+        &stream(),
+        0,
+        0,
+        2,
+        "replacement-writer",
+    )
+    .await
+    .expect("the replacement writer recovers the log");
+    assert_eq!(recovered.epoch_start_seq, 2);
+    assert_eq!(recovered.void_sequences, vec![3]);
+    assert_eq!(recovered.next_seq, 4);
+
+    let (pipeline, mut committed) = CommitPipeline::start(
+        Arc::clone(&store),
+        Arc::new(FixedClock),
+        stream(),
+        2,
+        recovered.next_seq,
+        CommitPipelineConfig {
+            max_batch_records: 1,
+            ..CommitPipelineConfig::default()
+        },
+    )
+    .expect("the commit pipeline starts");
+    let first = pipeline
+        .propose(2, Bytes::from_static(b"first"), true)
+        .await
+        .expect("the first proposal is admitted");
+    let second = pipeline
+        .propose(2, Bytes::from_static(b"second"), true)
+        .await
+        .expect("the second proposal is admitted");
+    assert_eq!(first.committed.await.unwrap().unwrap(), 4);
+    assert_eq!(second.committed.await.unwrap().unwrap(), 5);
+    assert_eq!(committed.recv().await.unwrap().seq, 4);
+    assert_eq!(committed.recv().await.unwrap().seq, 5);
+    drop(pipeline);
+
+    let recovered_again = recover_stream(store.as_ref(), &FixedClock, &stream(), 0, 0, 3, "third")
+        .await
+        .expect("the third writer recovers the log");
+    assert_eq!(recovered_again.void_sequences, vec![3]);
+    assert_eq!(
+        recovered_again
+            .batches_to_apply
+            .iter()
+            .map(|batch| batch.header.seq)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 4, 5]
+    );
+
+    let (stale_pipeline, _) = CommitPipeline::start(
+        Arc::clone(&store),
+        Arc::new(FixedClock),
+        stream(),
+        1,
+        2,
+        CommitPipelineConfig::default(),
+    )
+    .expect("the stale pipeline starts");
+    let stale = stale_pipeline
+        .propose(2, Bytes::from_static(b"stale"), true)
+        .await
+        .expect("the stale proposal is admitted");
+    assert_eq!(stale.committed.await.unwrap(), Err(ProposalFailure::Fenced));
+    if let Some(server) = server {
+        server.shutdown().await;
+    }
 }
