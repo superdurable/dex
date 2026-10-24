@@ -602,10 +602,11 @@ try {
 ```
 
 The token URL must use HTTPS; HTTP is accepted only on localhost, 127.0.0.0/8,
-or ::1. The constructor validates settings without making a request. The first
-call exchanges the key. After 80% of the token lifetime, the next call starts
-one shared refresh and immediately returns the still-valid token. Failed
-refreshes wait at least five seconds before another attempt. Calls after expiry
+or ::1. Token endpoint redirects are never followed. The constructor validates
+settings without making a request. The first call exchanges the key. After 80%
+of the token lifetime, the next call starts one shared refresh and immediately
+returns the still-valid token. Failed refreshes wait at least five seconds
+before another attempt while the cached token remains valid. Calls after expiry
 wait for the shared exchange, which defaults to a 10-second timeout covering
 connection and response. Set `exchangeTimeoutMs` to change it, or supply `fetch`
 for a proxy or a test endpoint. The application owns an injected fetch client.

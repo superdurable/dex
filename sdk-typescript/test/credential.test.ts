@@ -50,12 +50,32 @@ test("ApiKeyCredential validates required values, URL security, and timeout with
   for (const field of ["tokenUrl", "serverId", "apiKey"] as const) {
     assert.throws(() => new ApiKeyCredential({ ...valid, [field]: "" }), TypeError);
   }
-  for (const tokenUrl of ["not a URL", "ftp://localhost/token", "http://example.com/token", "http://[::2]/token"]) {
+  for (const tokenUrl of ["not a URL", "ftp://localhost/token", "http://example.com/token", "http://[::2]/token",
+    "http://localhost.example.com/token", "http://127.0.0.1.nip.io/token"]) {
     assert.throws(() => new ApiKeyCredential({ ...valid, tokenUrl }), TypeError);
   }
   assert.throws(() => new ApiKeyCredential({ ...valid, exchangeTimeoutMs: 0 }), TypeError);
+  assert.throws(() => new ApiKeyCredential({ ...valid, exchangeTimeoutMs: 2_147_483_648 }), TypeError);
   for (const tokenUrl of ["https://example.com/token", "http://localhost/token", "http://127.255.0.1/token", "http://[::1]/token"]) {
     assert.doesNotThrow(() => new ApiKeyCredential({ ...valid, tokenUrl }));
+  }
+});
+
+test("ApiKeyCredential refuses a redirect without sending the API key to its destination", async () => {
+  const destination = await startTokenEndpoint(() => tokenResponse("unexpected-token", 60));
+  const endpoint = await startTokenEndpoint(() => ({
+    statusCode: 307,
+    headers: { location: destination.url },
+    body: "",
+  }));
+  try {
+    const credential = new ApiKeyCredential({ tokenUrl: endpoint.url, serverId: "dex-server", apiKey });
+    await assert.rejects(credential.token(), /HTTP status 307: redirect refused/);
+    assert.equal(endpoint.requests.length, 1);
+    assert.deepEqual(destination.requests, []);
+  } finally {
+    await endpoint.close();
+    await destination.close();
   }
 });
 
@@ -139,6 +159,21 @@ test("ApiKeyCredential shares the first exchange among concurrent callers", asyn
     assert.deepEqual(await Promise.all(calls), Array(20).fill(firstAccessToken));
   } finally {
     releaseExchange();
+    await endpoint.close();
+  }
+});
+
+test("ApiKeyCredential rejects a token that expires during its exchange", async () => {
+  const endpoint = await startTokenEndpoint(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    return tokenResponse(firstAccessToken, 1);
+  });
+  try {
+    const credential = new ApiKeyCredential({ tokenUrl: endpoint.url, serverId: "dex-server", apiKey });
+    await assert.rejects(credential.token(), /access token expired before exchange completed/);
+    await assert.rejects(credential.token(), /access token expired before exchange completed/);
+    assert.equal(endpoint.requests.length, 2);
+  } finally {
     await endpoint.close();
   }
 });
@@ -485,6 +520,77 @@ test("ApiKeyCredential stops after a second unary UNAUTHENTICATED", async () => 
   }
 });
 
+test("a unary retry deadline settles while its fresh token exchange is pending", async () => {
+  let releaseExchange!: () => void;
+  const exchangeGate = new Promise<void>((resolve) => { releaseExchange = resolve; });
+  const endpoint = await startTokenEndpoint(async (index) => {
+    if (index === 1) return tokenResponse(firstAccessToken, 60);
+    await exchangeGate;
+    return tokenResponse("fresh-token", 60);
+  });
+  const server = await startServer({ rejectFlow: () => true });
+  const credential = new ApiKeyCredential({ tokenUrl: endpoint.url, serverId: "dex-server", apiKey, exchangeTimeoutMs: 2_000 });
+  const client = new FlowServiceClient(server.address, credentials.createInsecure(), {
+    interceptors: credentialInterceptors(credential),
+  });
+  try {
+    const startedAtMs = Date.now();
+    const result = new Promise<ServiceError>((resolve, reject) => {
+      client.searchFlows({ query: "", pageSize: 1, nextPageToken: "", includeContinuedAsNew: false },
+        new Metadata(), { deadline: startedAtMs + 200 }, (failure) => {
+          if (failure === null) reject(new Error("expected deadline failure"));
+          else resolve(failure);
+        });
+    });
+    await until(() => endpoint.requests.length === 2);
+    const failure = await within(result);
+    assert.equal(failure.code, status.DEADLINE_EXCEEDED);
+    assert.ok(Date.now() - startedAtMs < 1_000);
+    assert.deepEqual(server.flowHeaders, [`Bearer ${firstAccessToken}`]);
+  } finally {
+    releaseExchange();
+    client.close();
+    await server.close();
+    await endpoint.close();
+  }
+});
+
+test("cancelling a unary retry settles while its fresh token exchange is pending", async () => {
+  let releaseExchange!: () => void;
+  const exchangeGate = new Promise<void>((resolve) => { releaseExchange = resolve; });
+  const endpoint = await startTokenEndpoint(async (index) => {
+    if (index === 1) return tokenResponse(firstAccessToken, 60);
+    await exchangeGate;
+    return tokenResponse("fresh-token", 60);
+  });
+  const server = await startServer({ rejectFlow: () => true });
+  const credential = new ApiKeyCredential({ tokenUrl: endpoint.url, serverId: "dex-server", apiKey });
+  const client = new FlowServiceClient(server.address, credentials.createInsecure(), {
+    interceptors: credentialInterceptors(credential),
+  });
+  try {
+    let cancelCall!: () => void;
+    const result = new Promise<ServiceError>((resolve, reject) => {
+      const call = client.searchFlows({ query: "", pageSize: 1, nextPageToken: "", includeContinuedAsNew: false },
+        new Metadata(), (failure) => {
+          if (failure === null) reject(new Error("expected cancellation"));
+          else resolve(failure);
+        });
+      cancelCall = () => call.cancel();
+    });
+    await until(() => endpoint.requests.length === 2);
+    cancelCall();
+    const failure = await within(result);
+    assert.equal(failure.code, status.CANCELLED);
+    assert.deepEqual(server.flowHeaders, [`Bearer ${firstAccessToken}`]);
+  } finally {
+    releaseExchange();
+    client.close();
+    await server.close();
+    await endpoint.close();
+  }
+});
+
 test("a stale unary rejection leaves a newer cached token intact", async () => {
   let releaseOldRejection!: () => void;
   const oldRejectionGate = new Promise<void>((resolve) => { releaseOldRejection = resolve; });
@@ -556,6 +662,8 @@ test("ApiKeyCredential backs off after a second Worker poll token rejection", as
     await until(() => [...pullWorker.streams].some((poll) => poll.retryTimer !== undefined));
     assert.deepEqual(server.taskHeaders, [`Bearer ${firstAccessToken}`, "Bearer rejected-token-b"]);
     assert.equal(endpoint.requests.length, 2);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal(server.taskHeaders.length, 2);
   } finally {
     await worker.close();
     console.error = previousConsoleError;
@@ -564,7 +672,7 @@ test("ApiKeyCredential backs off after a second Worker poll token rejection", as
   }
 });
 
-type TokenReply = { statusCode: number; body: string };
+type TokenReply = { statusCode: number; body: string; headers?: Record<string, string> };
 type TokenRequest = { method: string | undefined; path: string | undefined; body: string; contentType: string | undefined; accept: string | undefined };
 
 function tokenResponse(accessToken: string, expiresIn: number): TokenReply {
@@ -585,7 +693,7 @@ async function startTokenEndpoint(respond: (index: number) => TokenReply | Promi
       accept: headers.accept,
     });
     const reply = await respond(requests.length);
-    response.writeHead(reply.statusCode, { "content-type": "application/json" });
+    response.writeHead(reply.statusCode, { "content-type": "application/json", ...reply.headers });
     response.end(reply.body);
   });
   await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));

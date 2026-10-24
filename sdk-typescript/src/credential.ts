@@ -117,7 +117,7 @@ export interface ApiKeyCredentialOptions {
   readonly serverId: string;
   /** Long-lived API key sent only to the token endpoint. */
   readonly apiKey: string;
-  /** Maximum exchange duration, including connection and response, in milliseconds. Defaults to 10,000. */
+  /** Maximum exchange duration, including connection and response, in milliseconds. Defaults to 10,000; at most 2,147,483,647. */
   readonly exchangeTimeoutMs?: number;
   /** Fetch implementation for proxies and tests. Defaults to global fetch. The credential does not own it. */
   readonly fetch?: typeof globalThis.fetch;
@@ -152,6 +152,7 @@ const apiKeyCredentialStates = new WeakMap<ApiKeyCredential, ApiKeyCredentialSta
  * reconnect immediately once before using the Worker's backoff.
  *
  * The token URL must use HTTPS, except loopback HTTP is accepted for local endpoints.
+ * Token endpoint redirects are never followed.
  * Neither the API key nor access token appears in formatted credentials or errors.
  * Concurrent calls are safe. The credential owns no persistent HTTP client or timer;
  * an in-flight exchange ends within the configured timeout. An injected fetch is owned
@@ -167,13 +168,11 @@ const apiKeyCredentialStates = new WeakMap<ApiKeyCredential, ApiKeyCredentialSta
  * });
  * const client = new Client(registry, cache, { credential });
  * const worker = new Worker(registry, cache, { credential, pull: {} });
- * try { await client.searchFlows("", 10); }
+ * try { await worker.start(); await client.searchFlows("", 10); }
  * finally { await client.close(); await worker.close(); }
  * ```
  */
 export class ApiKeyCredential implements Credential {
-
-
   /**
    * Validates the exchange settings without contacting the token endpoint.
    * @param options - Token URL, server ID, API key, optional timeout and fetch implementation.
@@ -197,8 +196,8 @@ export class ApiKeyCredential implements Credential {
       throw new TypeError("dex: tokenUrl must not contain user information");
     }
     const exchangeTimeoutMs = options.exchangeTimeoutMs ?? 10_000;
-    if (!Number.isFinite(exchangeTimeoutMs) || exchangeTimeoutMs <= 0) {
-      throw new TypeError("dex: exchangeTimeoutMs must be a positive finite number");
+    if (!Number.isFinite(exchangeTimeoutMs) || exchangeTimeoutMs <= 0 || exchangeTimeoutMs > 2_147_483_647) {
+      throw new TypeError("dex: exchangeTimeoutMs must be positive and at most 2,147,483,647");
     }
     if (options.fetch !== undefined && typeof options.fetch !== "function") {
       throw new TypeError("dex: fetch must be a function");
@@ -260,9 +259,6 @@ export class ApiKeyCredential implements Credential {
 
   private startExchange(): Promise<string> {
     const exchange = this.exchange().then(({ token, startedAtMs, lifetimeMs }) => {
-      if (performance.now() >= startedAtMs + lifetimeMs) {
-        throw this.exchangeError(200, "access token expired before exchange completed");
-      }
       this.apiKeyState.cachedToken = token;
       this.apiKeyState.expiresAtMs = startedAtMs + lifetimeMs;
       this.apiKeyState.refreshAtMs = startedAtMs + lifetimeMs * 0.8;
@@ -288,13 +284,18 @@ export class ApiKeyCredential implements Credential {
       (statusCode) => this.exchangeError(statusCode, "exchange timed out"),
     );
     try {
-      const response = await Promise.race([this.apiKeyState.fetch(this.apiKeyState.tokenUrl, {
+      const fetchExchange = this.apiKeyState.fetch;
+      const response = await Promise.race([fetchExchange(this.apiKeyState.tokenUrl, {
         method: "POST",
+        redirect: "manual",
         headers: { "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({ server_id: this.apiKeyState.serverId, api_key: this.apiKeyState.apiKey }),
         signal: deadline.signal,
       }), deadline.timeout]);
       deadline.statusCode = response.status;
+      if (response.status >= 300 && response.status < 400) {
+        throw this.exchangeError(response.status, "redirect refused");
+      }
       const body = await Promise.race([response.text(), deadline.timeout]);
       let payload: unknown;
       try { payload = JSON.parse(body); }
@@ -315,7 +316,11 @@ export class ApiKeyCredential implements Credential {
       if (typeof fields.expires_in !== "number" || !Number.isSafeInteger(fields.expires_in) || fields.expires_in <= 0) {
         throw this.exchangeError(deadline.statusCode, "invalid expires_in");
       }
-      return { token: fields.access_token, startedAtMs, lifetimeMs: fields.expires_in * 1_000 };
+      const lifetimeMs = fields.expires_in * 1_000;
+      if (performance.now() >= startedAtMs + lifetimeMs) {
+        throw this.exchangeError(200, "access token expired before exchange completed");
+      }
+      return { token: fields.access_token, startedAtMs, lifetimeMs };
     } catch (failure) {
       if (failure instanceof ApiKeyExchangeError) throw failure;
       throw this.exchangeError(deadline.statusCode, deadline.didTimeout ? "exchange timed out" : "transport failure");
@@ -418,6 +423,7 @@ class CredentialRequester {
   private hasHalfClosed = false;
   private hasRetried = false;
   private isCancelled = false;
+  private isRetryPending = false;
   private retryCall: ReturnType<NextCall> | undefined;
 
   public constructor(
@@ -445,6 +451,10 @@ class CredentialRequester {
 
   public cancel(next: () => void): void {
     this.isCancelled = true;
+    if (this.isRetryPending) {
+      this.finishPendingRetry(status.CANCELLED, "Cancelled on client");
+      return;
+    }
     if (this.retryCall !== undefined) {
       this.retryCall.cancelWithStatus(status.CANCELLED, "Cancelled on client");
       return;
@@ -533,20 +543,26 @@ class CredentialRequester {
       return;
     }
     this.hasRetried = true;
+    this.isRetryPending = true;
+    this.checkDeadline();
+    if (!this.isRetryPending) return;
     void Promise.resolve().then(this.readToken.bind(this)).then(
       (token) => this.retryWithToken(token),
       (failure: unknown) => {
-        this.listener?.onReceiveStatus({
-          code: status.UNAUTHENTICATED,
-          details: failure instanceof Error ? failure.message : String(failure),
-          metadata: new Metadata(),
-        });
+        this.finishPendingRetry(status.UNAUTHENTICATED,
+          failure instanceof Error ? failure.message : String(failure), failure);
       },
     );
   }
 
   private retryWithToken(token: string): void {
-    if (this.isCancelled) return;
+    if (!this.isRetryPending) return;
+    if (this.deadlineAtMs !== undefined && Date.now() >= this.deadlineAtMs) {
+      this.finishPendingRetry(status.DEADLINE_EXCEEDED, "Deadline exceeded");
+      return;
+    }
+    this.isRetryPending = false;
+    this.clearDeadline();
     try {
       this.tokenUsed = token;
       const retryMetadata = this.metadata!.clone();
@@ -578,10 +594,11 @@ class CredentialRequester {
   }
 
   private checkDeadline(): void {
-    if (this.isSettled || this.deadlineAtMs === undefined) return;
+    if ((this.isSettled && !this.isRetryPending) || this.deadlineAtMs === undefined) return;
     const remainingMs = this.deadlineAtMs - Date.now();
     if (remainingMs <= 0) {
-      this.fail(status.DEADLINE_EXCEEDED, "Deadline exceeded");
+      if (this.isRetryPending) this.finishPendingRetry(status.DEADLINE_EXCEEDED, "Deadline exceeded");
+      else this.fail(status.DEADLINE_EXCEEDED, "Deadline exceeded");
       return;
     }
     this.deadlineTimer = setTimeout(this.checkDeadline.bind(this), Math.min(remainingMs, 2_147_483_647));
@@ -592,6 +609,17 @@ class CredentialRequester {
     this.isSettled = true;
     this.clearDeadline();
     this.downstream.cancelWithStatus(code, details);
+    this.listener?.onReceiveStatus(Object.assign({
+      code,
+      details,
+      metadata: new Metadata(),
+    }, cause === undefined ? {} : { cause }));
+  }
+
+  private finishPendingRetry(code: status, details: string, cause?: unknown): void {
+    if (!this.isRetryPending) return;
+    this.isRetryPending = false;
+    this.clearDeadline();
     this.listener?.onReceiveStatus(Object.assign({
       code,
       details,
