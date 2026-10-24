@@ -39,7 +39,7 @@ use dexzd_clock::WallClock;
 
 use json_web_key_set::{JsonWebKeySetCache, KeySetRefreshPolicy};
 use json_web_token::{JwtRejection, JwtVerifier, UnverifiedJsonWebToken};
-use key_set_fetcher::KeySetFetcher;
+use key_set_fetcher::{KeySetFetcher, redact_url_credentials};
 use static_token_file::{SHA256_LENGTH, StaticTokenHashes};
 use watched_file::WatchedFile;
 
@@ -82,12 +82,12 @@ pub enum AuthenticationSetupError {
         detail: String,
     },
     /// A JWT issuer or key set URL is not acceptable.
-    #[error("{field} {url:?} {error}")]
+    #[error("{field} {redacted_url:?} {error}")]
     EndpointUrl {
         /// `issuer` or `jwksURL`.
         field: &'static str,
-        /// Rejected URL.
-        url: String,
+        /// Rejected URL without userinfo, query, or fragment, which may carry credentials.
+        redacted_url: String,
         /// Violated rule.
         #[source]
         error: EndpointUrlError,
@@ -161,8 +161,11 @@ impl PublicApiAuthenticator {
                 CredentialAuthenticatorConfig::Jwt(jwt) => {
                     check_jwt_urls(jwt)?;
                     let fetcher = KeySetFetcher::new(jwt)?;
-                    let key_set =
-                        JsonWebKeySetCache::new(jwt.issuer.clone(), Arc::new(fetcher), policy);
+                    let key_set = JsonWebKeySetCache::new(
+                        redact_url_credentials(&jwt.issuer),
+                        Arc::new(fetcher),
+                        policy,
+                    );
                     CredentialAuthenticator::Jwt(JwtVerifier::new(
                         jwt.clone(),
                         key_set,
@@ -207,7 +210,7 @@ fn check_jwt_urls(config: &JwtAuthenticatorConfig) -> Result<(), AuthenticationS
     check_endpoint_url(&config.issuer, false).map_err(|error| {
         AuthenticationSetupError::EndpointUrl {
             field: "issuer",
-            url: config.issuer.clone(),
+            redacted_url: redact_url_credentials(&config.issuer),
             error,
         }
     })?;
@@ -215,7 +218,7 @@ fn check_jwt_urls(config: &JwtAuthenticatorConfig) -> Result<(), AuthenticationS
         check_endpoint_url(jwks_url, config.allow_insecure_jwks_url).map_err(|error| {
             AuthenticationSetupError::EndpointUrl {
                 field: "jwksURL",
-                url: jwks_url.clone(),
+                redacted_url: redact_url_credentials(jwks_url),
                 error,
             }
         })?;

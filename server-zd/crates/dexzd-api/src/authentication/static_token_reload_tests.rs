@@ -115,3 +115,37 @@ async fn an_empty_or_missing_file_revokes_every_token_until_it_returns() {
     next_check().await;
     assert!(accepts(&authenticator, FIRST_TOKEN).await);
 }
+
+#[tokio::test(start_paused = true)]
+async fn an_in_place_repair_with_unchanged_metadata_applies_after_a_malformed_update() {
+    let directory = tempfile::TempDir::new().expect("a temporary directory");
+    let path = directory.path().join("tokens.yaml");
+    write_version(&path, &token_file_for(&[FIRST_TOKEN]), 1);
+    let authenticator = PublicApiAuthenticator {
+        authenticators: vec![CredentialAuthenticator::StaticTokens(
+            WatchedFile::<StaticTokenHashes>::open(&path).expect("the token file loads"),
+        )],
+    };
+    assert!(accepts(&authenticator, FIRST_TOKEN).await);
+
+    let repaired = token_file_for(&[SECOND_TOKEN]);
+    let hash_start = repaired.find("sha256: ").expect("the file names a hash") + "sha256: ".len();
+    let mut malformed = repaired.clone();
+    malformed.replace_range(hash_start..hash_start + 64, &"z".repeat(64));
+    write_version(&path, &malformed, 2);
+    let malformed_metadata = std::fs::metadata(&path).expect("the token file has metadata");
+    next_check().await;
+    assert!(accepts(&authenticator, FIRST_TOKEN).await);
+    assert!(!accepts(&authenticator, SECOND_TOKEN).await);
+
+    write_version(&path, &repaired, 2);
+    let repaired_metadata = std::fs::metadata(&path).expect("the token file has metadata");
+    assert_eq!(repaired_metadata.len(), malformed_metadata.len());
+    assert_eq!(
+        repaired_metadata.modified().expect("a modification time"),
+        malformed_metadata.modified().expect("a modification time")
+    );
+    next_check().await;
+    assert!(!accepts(&authenticator, FIRST_TOKEN).await);
+    assert!(accepts(&authenticator, SECOND_TOKEN).await);
+}

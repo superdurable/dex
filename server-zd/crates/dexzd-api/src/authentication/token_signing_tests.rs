@@ -284,7 +284,7 @@ impl KeySetSource for ScriptedKeySetSource {
         tokio::time::sleep(delay).await;
         if self.is_failing.load(Ordering::SeqCst) {
             return Err(KeySetFetchError::UnexpectedStatus {
-                url: "https://issuer.example.com/keys".to_owned(),
+                redacted_url: "https://issuer.example.com/keys".to_owned(),
                 status: 503,
             });
         }

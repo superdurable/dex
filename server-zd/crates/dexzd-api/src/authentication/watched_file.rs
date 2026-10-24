@@ -72,7 +72,7 @@ pub(crate) struct WatchedFile<T> {
 
 struct WatchedFileState<T> {
     content: Arc<T>,
-    /// Fingerprint of the last version read, valid or not; `None` while the file is missing.
+    /// Fingerprint of the last version loaded; `None` while the file is missing.
     fingerprint: Option<FileFingerprint>,
     checked_at: Instant,
 }
@@ -150,11 +150,12 @@ impl<T: WatchedFileContent> WatchedFile<T> {
         if state.fingerprint == Some(fingerprint) {
             return Arc::clone(&state.content);
         }
-        state.fingerprint = Some(fingerprint);
+        // A failed load keeps the old fingerprint, so an in-place repair with unchanged metadata still loads.
         match read_content::<T>(&self.path) {
             Ok(content) => {
                 tracing::info!(path = %self.path.display(), "reloaded a watched credential file");
                 state.content = Arc::new(content);
+                state.fingerprint = Some(fingerprint);
             }
             Err(error) => tracing::error!(
                 %error,

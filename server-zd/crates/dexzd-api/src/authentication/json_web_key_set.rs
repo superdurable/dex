@@ -51,17 +51,22 @@ pub(crate) trait KeySetSource: Send + Sync + 'static {
 }
 
 /// Why a key set refresh failed; the previous keys stay in use.
+///
+/// Every URL is redacted by `redact_url_credentials`.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum KeySetFetchError {
-    #[error("{url} is not a valid request URL")]
-    InvalidUrl { url: String },
-    #[error("GET {url}: {detail}")]
-    Request { url: String, detail: String },
-    #[error("GET {url}: HTTP {status}")]
-    UnexpectedStatus { url: String, status: u16 },
-    #[error("GET {url}: the response is not valid JSON: {source}")]
+    #[error("{redacted_url} is not a valid request URL")]
+    InvalidUrl { redacted_url: String },
+    #[error("GET {redacted_url}: {detail}")]
+    Request {
+        redacted_url: String,
+        detail: String,
+    },
+    #[error("GET {redacted_url}: HTTP {status}")]
+    UnexpectedStatus { redacted_url: String, status: u16 },
+    #[error("GET {redacted_url}: the response is not valid JSON: {source}")]
     InvalidJson {
-        url: String,
+        redacted_url: String,
         #[source]
         source: serde_json::Error,
     },
@@ -337,13 +342,14 @@ fn big_endian_integer(text: &str) -> Option<Vec<u8>> {
     Some(bytes[first_significant..].to_vec())
 }
 
-/// Caches one issuer's keys; only a lookup of an unknown `kid` waits for a refresh.
+/// Caches one issuer's keys; lookups wait for periodic refreshes, and lookups of absent keys for any refresh.
 pub(crate) struct JsonWebKeySetCache {
     shared: Arc<KeySetCacheShared>,
 }
 
 struct KeySetCacheShared {
-    issuer: String,
+    /// The issuer without URL credentials, for logs.
+    redacted_issuer: String,
     source: Arc<dyn KeySetSource>,
     policy: KeySetRefreshPolicy,
     state: Mutex<KeySetCacheState>,
@@ -354,27 +360,36 @@ struct KeySetCacheShared {
 struct KeySetCacheState {
     keys: Arc<KeySet>,
     last_refresh_attempt: Option<Instant>,
-    is_refreshing: bool,
+    in_flight_refresh: Option<KeySetRefreshTrigger>,
     refresh: Option<JoinHandle<()>>,
+}
+
+/// Why a refresh started, which decides the lookups that wait for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum KeySetRefreshTrigger {
+    /// The first fetch or the once-a-minute refresh; every lookup waits for it.
+    Periodic,
+    /// A token named an unknown `kid`; only lookups of absent keys wait for it.
+    UnknownKeyId,
 }
 
 impl JsonWebKeySetCache {
     /// Creates an empty cache; the first lookup fetches the keys.
     pub(crate) fn new(
-        issuer: String,
+        redacted_issuer: String,
         source: Arc<dyn KeySetSource>,
         policy: KeySetRefreshPolicy,
     ) -> Self {
         let (refresh_completions, _initial_receiver) = watch::channel(0);
         Self {
             shared: Arc::new(KeySetCacheShared {
-                issuer,
+                redacted_issuer,
                 source,
                 policy,
                 state: Mutex::new(KeySetCacheState {
                     keys: Arc::new(KeySet::default()),
                     last_refresh_attempt: None,
-                    is_refreshing: false,
+                    in_flight_refresh: None,
                     refresh: None,
                 }),
                 refresh_completions,
@@ -382,7 +397,10 @@ impl JsonWebKeySetCache {
         }
     }
 
-    /// Returns the usable key named `key_id`, refreshing the key set when a refresh is due.
+    /// Returns the usable key named `key_id`, first waiting for a due refresh.
+    ///
+    /// A lookup waits for a periodic refresh, and a lookup of an absent key also waits for an
+    /// unknown-key refresh. Each wait lasts at most the fetch timeout; then the current keys answer.
     pub(crate) async fn verification_key(
         &self,
         key_id: &str,
@@ -391,36 +409,53 @@ impl JsonWebKeySetCache {
             let mut state = self.shared.lock_state();
             let lookup = state.keys.lookup(key_id);
             let is_absent = matches!(lookup, KeyLookup::Absent);
-            if !state.is_refreshing && self.shared.is_refresh_due(&state, is_absent) {
-                self.start_refresh(&mut state);
+            if state.in_flight_refresh.is_none()
+                && let Some(trigger) = self.shared.due_refresh_trigger(&state, is_absent)
+            {
+                self.start_refresh(&mut state, trigger);
             }
-            match lookup {
-                KeyLookup::Usable(key) => return Ok(key),
-                KeyLookup::Unusable => return Err(JwtRejection::UnusableKey),
-                KeyLookup::Absent if !state.is_refreshing => {
-                    return Err(JwtRejection::UnknownKeyId);
-                }
-                KeyLookup::Absent => self.shared.refresh_completions.subscribe(),
+            let must_wait = match state.in_flight_refresh {
+                Some(KeySetRefreshTrigger::Periodic) => true,
+                Some(KeySetRefreshTrigger::UnknownKeyId) => is_absent,
+                None => false,
+            };
+            if !must_wait {
+                return lookup.into_verification_key();
             }
+            self.shared.refresh_completions.subscribe()
         };
-        match tokio::time::timeout(self.shared.policy.fetch_timeout, completions.changed()).await {
-            Ok(Ok(())) => {}
-            // The sender lives as long as the cache; a timeout leaves the key unknown.
-            Ok(Err(_)) | Err(_) => return Err(JwtRejection::UnknownKeyId),
+        let waited =
+            tokio::time::timeout(self.shared.policy.fetch_timeout, completions.changed()).await;
+        // The sender lives as long as the cache, so only a timeout ends the wait early.
+        if !matches!(waited, Ok(Ok(()))) {
+            tracing::debug!(
+                issuer = %self.shared.redacted_issuer,
+                "a JWT key set refresh outlasted the fetch timeout; using the current keys"
+            );
         }
-        match self.shared.lock_state().keys.lookup(key_id) {
-            KeyLookup::Usable(key) => Ok(key),
-            KeyLookup::Unusable => Err(JwtRejection::UnusableKey),
-            KeyLookup::Absent => Err(JwtRejection::UnknownKeyId),
-        }
+        self.shared
+            .lock_state()
+            .keys
+            .lookup(key_id)
+            .into_verification_key()
     }
 
-    fn start_refresh(&self, state: &mut KeySetCacheState) {
+    fn start_refresh(&self, state: &mut KeySetCacheState, trigger: KeySetRefreshTrigger) {
         state.last_refresh_attempt = Some(Instant::now());
-        state.is_refreshing = true;
+        state.in_flight_refresh = Some(trigger);
         let shared = Arc::clone(&self.shared);
         let refresh = tokio::spawn(async move { shared.refresh().await });
         state.refresh = Some(refresh);
+    }
+}
+
+impl KeyLookup {
+    fn into_verification_key(self) -> Result<Arc<VerificationKey>, JwtRejection> {
+        match self {
+            Self::Usable(key) => Ok(key),
+            Self::Unusable => Err(JwtRejection::UnusableKey),
+            Self::Absent => Err(JwtRejection::UnknownKeyId),
+        }
     }
 }
 
@@ -443,35 +478,44 @@ impl KeySetCacheShared {
             .expect("key set cache lock is poisoned only if a holder panicked")
     }
 
-    fn is_refresh_due(&self, state: &KeySetCacheState, is_key_absent: bool) -> bool {
+    /// Returns why a refresh is due now, or `None` while the rate limits hold.
+    fn due_refresh_trigger(
+        &self,
+        state: &KeySetCacheState,
+        is_key_absent: bool,
+    ) -> Option<KeySetRefreshTrigger> {
         let Some(last_attempt) = state.last_refresh_attempt else {
-            return true;
+            return Some(KeySetRefreshTrigger::Periodic);
         };
         let since_last_attempt = Instant::now().saturating_duration_since(last_attempt);
-        since_last_attempt >= self.policy.refresh_interval
-            || (is_key_absent && since_last_attempt >= self.policy.unknown_key_refresh_interval)
+        if since_last_attempt >= self.policy.refresh_interval {
+            Some(KeySetRefreshTrigger::Periodic)
+        } else if is_key_absent && since_last_attempt >= self.policy.unknown_key_refresh_interval {
+            Some(KeySetRefreshTrigger::UnknownKeyId)
+        } else {
+            None
+        }
     }
 
     async fn refresh(&self) {
         let fetched =
             tokio::time::timeout(self.policy.fetch_timeout, self.source.fetch_key_set()).await;
-        {
-            let mut state = self.lock_state();
-            match fetched {
-                Ok(Ok(keys)) => state.keys = Arc::new(keys),
-                Ok(Err(error)) => tracing::error!(
-                    issuer = %self.issuer,
-                    %error,
-                    "refreshing a JWT key set failed; keeping the previous keys"
-                ),
-                Err(_elapsed) => tracing::error!(
-                    issuer = %self.issuer,
-                    timeout_ms = self.policy.fetch_timeout.as_millis(),
-                    "refreshing a JWT key set timed out; keeping the previous keys"
-                ),
-            }
-            state.is_refreshing = false;
+        let mut state = self.lock_state();
+        match fetched {
+            Ok(Ok(keys)) => state.keys = Arc::new(keys),
+            Ok(Err(error)) => tracing::error!(
+                issuer = %self.redacted_issuer,
+                %error,
+                "refreshing a JWT key set failed; keeping the previous keys"
+            ),
+            Err(_elapsed) => tracing::error!(
+                issuer = %self.redacted_issuer,
+                timeout_ms = self.policy.fetch_timeout.as_millis(),
+                "refreshing a JWT key set timed out; keeping the previous keys"
+            ),
         }
+        state.in_flight_refresh = None;
+        // Signaling under the lock keeps a stale completion from waking a later refresh's waiters.
         self.refresh_completions
             .send_modify(|completions| *completions = completions.wrapping_add(1));
     }

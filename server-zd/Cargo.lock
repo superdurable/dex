@@ -1005,6 +1005,7 @@ dependencies = [
  "tonic",
  "tonic-health",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

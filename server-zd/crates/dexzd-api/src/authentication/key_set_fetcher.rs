@@ -68,6 +68,43 @@ pub fn check_endpoint_url(url: &str, allows_plain_http: bool) -> Result<(), Endp
     }
 }
 
+/// Marks the parts of a URL that [`redact_url_credentials`] removed.
+const REDACTED: &str = "REDACTED";
+
+/// Returns `url` without userinfo, query, or fragment, which may carry credentials, for errors and logs.
+///
+/// It works on text, so malformed URLs are redacted too. Everything before the last `@` that
+/// precedes the query counts as userinfo. When the query also holds an `@`, only the scheme remains.
+pub(crate) fn redact_url_credentials(url: &str) -> String {
+    let scheme_length = url
+        .find("://")
+        .filter(|&end| {
+            url[..end]
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"+-.".contains(&byte))
+        })
+        .map_or(0, |end| end + "://".len());
+    let (scheme, rest) = url.split_at(scheme_length);
+    let (location, suffix) = rest.split_at(rest.find(['?', '#']).unwrap_or(rest.len()));
+    let mut redacted = scheme.to_owned();
+    if suffix.contains('@') {
+        redacted.push_str(REDACTED);
+        return redacted;
+    }
+    match location.rfind('@') {
+        Some(userinfo_end) => {
+            redacted.push_str(REDACTED);
+            redacted.push_str(&location[userinfo_end..]);
+        }
+        None => redacted.push_str(location),
+    }
+    if let Some(delimiter) = suffix.chars().next() {
+        redacted.push(delimiter);
+        redacted.push_str(REDACTED);
+    }
+    redacted
+}
+
 fn is_loopback_host(host: &str) -> bool {
     if host == "localhost" {
         return true;
@@ -126,8 +163,11 @@ impl KeySetFetcher {
             self.issuer.strip_suffix('/').unwrap_or(&self.issuer)
         );
         let body = self.get(&url).await?;
-        let discovery: OpenIdConfiguration = serde_json::from_slice(&body)
-            .map_err(|source| KeySetFetchError::InvalidJson { url, source })?;
+        let discovery: OpenIdConfiguration =
+            serde_json::from_slice(&body).map_err(|source| KeySetFetchError::InvalidJson {
+                redacted_url: redact_url_credentials(&url),
+                source,
+            })?;
         if discovery.issuer != self.issuer {
             return Err(KeySetFetchError::DiscoveryIssuerMismatch {
                 discovered: discovery.issuer,
@@ -139,26 +179,25 @@ impl KeySetFetcher {
     }
 
     async fn get(&self, url: &str) -> Result<Bytes, KeySetFetchError> {
-        let uri: Uri = url.parse().map_err(|_| KeySetFetchError::InvalidUrl {
-            url: url.to_owned(),
-        })?;
+        let invalid_url = || KeySetFetchError::InvalidUrl {
+            redacted_url: redact_url_credentials(url),
+        };
+        let uri: Uri = url.parse().map_err(|_| invalid_url())?;
         let request = hyper::Request::get(uri)
             .header(ACCEPT, "application/json")
             .body(Empty::new())
-            .map_err(|_| KeySetFetchError::InvalidUrl {
-                url: url.to_owned(),
-            })?;
+            .map_err(|_| invalid_url())?;
         let response =
             self.http_client
                 .request(request)
                 .await
                 .map_err(|error| KeySetFetchError::Request {
-                    url: url.to_owned(),
+                    redacted_url: redact_url_credentials(url),
                     detail: error.to_string(),
                 })?;
         if response.status() != hyper::StatusCode::OK {
             return Err(KeySetFetchError::UnexpectedStatus {
-                url: url.to_owned(),
+                redacted_url: redact_url_credentials(url),
                 status: response.status().as_u16(),
             });
         }
@@ -166,7 +205,7 @@ impl KeySetFetcher {
             .collect()
             .await
             .map_err(|error| KeySetFetchError::Request {
-                url: url.to_owned(),
+                redacted_url: redact_url_credentials(url),
                 detail: error.to_string(),
             })?;
         Ok(body.to_bytes())
@@ -182,7 +221,7 @@ impl KeySetSource for KeySetFetcher {
         };
         let body = self.get(&jwks_url).await?;
         KeySet::parse(&body).map_err(|source| KeySetFetchError::InvalidJson {
-            url: jwks_url,
+            redacted_url: redact_url_credentials(&jwks_url),
             source,
         })
     }

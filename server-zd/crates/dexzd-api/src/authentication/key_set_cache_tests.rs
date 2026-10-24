@@ -14,10 +14,12 @@ use std::time::Duration;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
+use super::JwtAuthenticatorConfig;
 use super::json_web_key_set::{JsonWebKeySetCache, KeySetRefreshPolicy};
-use super::json_web_token::{JwsAlgorithm, JwtRejection};
+use super::json_web_token::{JwsAlgorithm, JwtRejection, JwtVerifier, UnverifiedJsonWebToken};
 use super::token_signing_tests::{
-    ScriptedKeySetSource, TEST_ISSUER, TestSigningKey, key_set_document,
+    ManualWallClock, ScriptedKeySetSource, TEST_AUDIENCE, TEST_ISSUER, TestSigningKey,
+    key_set_document, valid_claims,
 };
 
 const FIRST_KEY: &str = "first-key";
@@ -83,9 +85,9 @@ async fn unknown_key_refreshes_wait_ten_seconds_after_the_last_attempt() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn known_keys_refresh_once_a_minute_without_waiting() {
+async fn a_due_refresh_holds_every_lookup_so_a_removed_key_is_never_accepted() {
     let source = ScriptedKeySetSource::serving(single_key_document(FIRST_KEY));
-    let cache = cache(&source);
+    let cache = Arc::new(cache(&source));
     assert!(cache.verification_key(FIRST_KEY).await.is_ok());
     tokio::time::advance(Duration::from_secs(59)).await;
     assert!(cache.verification_key(FIRST_KEY).await.is_ok());
@@ -94,21 +96,93 @@ async fn known_keys_refresh_once_a_minute_without_waiting() {
     source.replace_document(single_key_document(SECOND_KEY));
     source.set_delay(Duration::from_secs(3));
     tokio::time::advance(Duration::from_secs(1)).await;
-    let started = Instant::now();
-    assert!(cache.verification_key(FIRST_KEY).await.is_ok());
-    assert_eq!(started.elapsed(), Duration::ZERO);
-    settle().await;
+    let boundary_lookup = tokio::spawn(timed_lookup(Arc::clone(&cache), FIRST_KEY));
+    tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(source.fetch_count(), 2);
-    assert!(cache.verification_key(FIRST_KEY).await.is_ok());
-
-    tokio::time::advance(Duration::from_secs(3)).await;
-    settle().await;
+    let in_flight_lookup = tokio::spawn(timed_lookup(Arc::clone(&cache), FIRST_KEY));
     assert_eq!(
-        cache.verification_key(FIRST_KEY).await.err(),
-        Some(JwtRejection::UnknownKeyId)
+        boundary_lookup.await.expect("the lookup task finishes"),
+        (Some(JwtRejection::UnknownKeyId), Duration::from_secs(3))
+    );
+    assert_eq!(
+        in_flight_lookup.await.expect("the lookup task finishes"),
+        (Some(JwtRejection::UnknownKeyId), Duration::from_secs(2))
     );
     assert!(cache.verification_key(SECOND_KEY).await.is_ok());
     assert_eq!(source.fetch_count(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unknown_key_refresh_holds_only_lookups_of_absent_keys() {
+    let source = ScriptedKeySetSource::serving(single_key_document(FIRST_KEY));
+    let cache = Arc::new(cache(&source));
+    assert!(cache.verification_key(FIRST_KEY).await.is_ok());
+    source.replace_document(key_set_document(&[
+        TestSigningKey::generate(JwsAlgorithm::EdDsa).public_jwk(FIRST_KEY),
+        TestSigningKey::generate(JwsAlgorithm::EdDsa).public_jwk(SECOND_KEY),
+    ]));
+    source.set_delay(Duration::from_secs(3));
+    tokio::time::advance(Duration::from_secs(10)).await;
+    let unknown_key_lookup = tokio::spawn(timed_lookup(Arc::clone(&cache), SECOND_KEY));
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(source.fetch_count(), 2);
+    let started = Instant::now();
+    assert!(cache.verification_key(FIRST_KEY).await.is_ok());
+    assert_eq!(started.elapsed(), Duration::ZERO);
+    assert_eq!(
+        unknown_key_lookup.await.expect("the lookup task finishes"),
+        (None, Duration::from_secs(3))
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_key_rotated_under_the_same_kid_applies_at_the_refresh_boundary() {
+    let retired = TestSigningKey::generate(JwsAlgorithm::Es256);
+    let replacement = TestSigningKey::generate(JwsAlgorithm::Es256);
+    let source = ScriptedKeySetSource::serving(key_set_document(&[retired.public_jwk(FIRST_KEY)]));
+    let verifier = JwtVerifier::new(
+        JwtAuthenticatorConfig {
+            issuer: TEST_ISSUER.to_owned(),
+            audiences: vec![TEST_AUDIENCE.to_owned()],
+            jwks_url: None,
+            allow_insecure_jwks_url: false,
+            ca_file: None,
+        },
+        cache(&source),
+        ManualWallClock::starting_at_test_start(),
+    );
+    let verify = |key: &TestSigningKey| {
+        let token = key.token(FIRST_KEY, &valid_claims());
+        let verifier = &verifier;
+        async move {
+            let parsed =
+                UnverifiedJsonWebToken::parse(&token).expect("the test token is a compact JWS");
+            verifier.verify(&parsed).await
+        }
+    };
+    assert_eq!(verify(&retired).await, Ok(()));
+    source.replace_document(key_set_document(&[replacement.public_jwk(FIRST_KEY)]));
+    tokio::time::advance(Duration::from_secs(59)).await;
+    assert_eq!(verify(&retired).await, Ok(()));
+    assert_eq!(
+        verify(&replacement).await,
+        Err(JwtRejection::InvalidSignature)
+    );
+
+    tokio::time::advance(Duration::from_secs(1)).await;
+    assert_eq!(verify(&replacement).await, Ok(()));
+    assert_eq!(verify(&retired).await, Err(JwtRejection::InvalidSignature));
+    assert_eq!(source.fetch_count(), 2);
+}
+
+/// Looks `key_id` up, returning the rejection and how long the lookup took.
+async fn timed_lookup(
+    cache: Arc<JsonWebKeySetCache>,
+    key_id: &'static str,
+) -> (Option<JwtRejection>, Duration) {
+    let started = Instant::now();
+    let rejection = cache.verification_key(key_id).await.err();
+    (rejection, started.elapsed())
 }
 
 #[tokio::test(start_paused = true)]

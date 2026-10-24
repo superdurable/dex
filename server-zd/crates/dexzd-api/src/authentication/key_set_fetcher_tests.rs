@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -18,8 +18,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
-use super::json_web_key_set::KeySetRefreshPolicy;
+use super::json_web_key_set::{KeySetRefreshPolicy, KeySetSource};
 use super::json_web_token::JwsAlgorithm;
+use super::key_set_fetcher::{KeySetFetcher, redact_url_credentials};
 use super::token_signing_tests::{
     ManualWallClock, TEST_AUDIENCE, TEST_START_UNIX_SECONDS, TestSigningKey, key_set_document,
 };
@@ -43,6 +44,9 @@ bPo0pgYBD/GvqWjT84ktCa6nsQkwcQ==
 -----END CERTIFICATE-----
 ";
 
+/// Appears only in URL credentials, so no error or log may contain it.
+const URL_SECRET: &str = "url-secret-sentinel";
+
 /// Refreshes fast enough for real-time tests while keeping the Go Server's structure.
 const FAST_REFRESH: KeySetRefreshPolicy = KeySetRefreshPolicy {
     refresh_interval: Duration::from_millis(400),
@@ -62,6 +66,57 @@ struct TestKeyServer {
     url: String,
     state: Arc<Mutex<KeyServerState>>,
     serving: JoinHandle<()>,
+}
+
+/// Collects formatted log lines in memory.
+#[derive(Clone, Default)]
+struct CapturedLogs(Arc<Mutex<Vec<u8>>>);
+
+impl CapturedLogs {
+    /// Captures every test's logs; a thread-scoped subscriber misses callsites first hit elsewhere.
+    fn installed_globally() -> Self {
+        static GLOBAL_LOGS: OnceLock<CapturedLogs> = OnceLock::new();
+        GLOBAL_LOGS
+            .get_or_init(|| {
+                let logs = Self::default();
+                tracing::subscriber::set_global_default(
+                    tracing_subscriber::fmt()
+                        .with_ansi(false)
+                        .with_max_level(tracing::Level::DEBUG)
+                        .with_writer(logs.clone())
+                        .finish(),
+                )
+                .expect("no other test installs a global subscriber");
+                logs
+            })
+            .clone()
+    }
+
+    fn contents(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().expect("the captured log lock")).into_owned()
+    }
+}
+
+impl std::io::Write for CapturedLogs {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0
+            .lock()
+            .expect("the captured log lock")
+            .extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'writer> tracing_subscriber::fmt::MakeWriter<'writer> for CapturedLogs {
+    type Writer = Self;
+
+    fn make_writer(&'writer self) -> Self::Writer {
+        self.clone()
+    }
 }
 
 impl TestKeyServer {
@@ -224,19 +279,12 @@ async fn discovered_keys_rotate_through_unknown_key_and_periodic_refreshes() {
     server.update(|state| state.key_set = key_set_document(&[second.public_jwk("second")]));
     tokio::time::sleep(FAST_REFRESH.refresh_interval).await;
     let retired = token(&first, "first", &issuer);
-    assert!(authenticator.authenticate(&retired).await.is_ok());
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while authenticator.authenticate(&retired).await.is_ok() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the periodic refresh retires the removed key");
-    assert!(server.requests(KEY_SET_PATH) >= 3);
-    assert_eq!(
-        server.requests(DISCOVERY_PATH),
-        server.requests(KEY_SET_PATH)
+    assert!(
+        authenticator.authenticate(&retired).await.is_err(),
+        "the first request after the refresh is due waits for it"
     );
+    assert_eq!(server.requests(KEY_SET_PATH), 3);
+    assert_eq!(server.requests(DISCOVERY_PATH), 3);
 }
 
 #[tokio::test]
@@ -376,6 +424,162 @@ async fn startup_checks_token_files_ca_bundles_and_urls() {
         ManualWallClock::starting_at_test_start(),
     )
     .expect("the opt-in permits a plain HTTP key set URL");
+}
+
+#[tokio::test]
+async fn fetch_errors_and_their_logs_redact_url_credentials() {
+    let logs = CapturedLogs::installed_globally();
+    let key = TestSigningKey::generate(JwsAlgorithm::EdDsa);
+    let server = TestKeyServer::start(key_set_document(&[key.public_jwk("key")])).await;
+    server.update(|state| state.status = 500);
+    let not_json = TestKeyServer::start(json!("not a key set")).await;
+    let closed_address = {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a loopback port is available");
+        listener.local_addr().expect("the listener has an address")
+    };
+    let secret_issuer = format!("https://issuer.example.com/?tenant={URL_SECRET}");
+    let server_address = server.url.trim_start_matches("http://");
+    let cases = [
+        (
+            secret_issuer.clone(),
+            Some(format!(
+                "http://user:{URL_SECRET}@{server_address}{KEY_SET_PATH}"
+            )),
+        ),
+        (
+            secret_issuer.clone(),
+            Some(format!(
+                "{}{KEY_SET_PATH}?access_token={URL_SECRET}",
+                server.url
+            )),
+        ),
+        (
+            secret_issuer.clone(),
+            Some(format!(
+                "{}{KEY_SET_PATH}?access_token={URL_SECRET}",
+                not_json.url
+            )),
+        ),
+        (
+            secret_issuer,
+            Some(format!(
+                "http://user:{URL_SECRET}@{closed_address}{KEY_SET_PATH}?access_token={URL_SECRET}"
+            )),
+        ),
+        (format!("{}/?tenant={URL_SECRET}", server.url), None),
+        (format!("http://user:{URL_SECRET}@{server_address}"), None),
+    ];
+    for (issuer, jwks_url) in cases {
+        let config = JwtAuthenticatorConfig {
+            issuer: issuer.clone(),
+            audiences: vec![TEST_AUDIENCE.to_owned()],
+            jwks_url,
+            allow_insecure_jwks_url: false,
+            ca_file: None,
+        };
+        let error = KeySetFetcher::new(&config)
+            .expect("the fetcher is built")
+            .fetch_key_set()
+            .await
+            .expect_err("the key set fetch fails");
+        for shown in [error.to_string(), format!("{error:?}")] {
+            assert!(!shown.contains(URL_SECRET), "{shown}");
+            assert!(shown.contains("REDACTED"), "{shown}");
+        }
+        let authenticator = authenticator(CredentialAuthenticatorConfig::Jwt(config));
+        assert!(
+            authenticator
+                .authenticate(&token(&key, "key", &issuer))
+                .await
+                .is_err()
+        );
+    }
+    let logs = logs.contents();
+    let redacted_refresh_failures = logs
+        .lines()
+        .filter(|line| {
+            line.contains("refreshing a JWT key set failed") && line.contains("REDACTED")
+        })
+        .count();
+    assert_eq!(redacted_refresh_failures, 6, "{logs}");
+    assert!(!logs.contains(URL_SECRET), "{logs}");
+}
+
+#[tokio::test]
+async fn startup_url_errors_redact_url_credentials() {
+    let cases = [
+        (
+            jwt_with(|config| {
+                config.issuer =
+                    format!("http://user:{URL_SECRET}@issuer.example.com/?tenant={URL_SECRET}");
+            }),
+            "\"http://REDACTED@issuer.example.com/?REDACTED\"",
+        ),
+        (
+            jwt_with(|config| {
+                config.jwks_url = Some(format!(
+                    "http://user:{URL_SECRET}@keys.internal/jwks?access_token={URL_SECRET}"
+                ));
+            }),
+            "\"http://REDACTED@keys.internal/jwks?REDACTED\"",
+        ),
+        (
+            jwt_with(|config| {
+                config.jwks_url = Some(format!(
+                    "https://user:{URL_SECRET} unparsable@keys.example/jwks"
+                ));
+            }),
+            "\"https://REDACTED@keys.example/jwks\"",
+        ),
+    ];
+    for (config, expected_url) in cases {
+        let error = setup_error(config);
+        assert!(
+            matches!(error, AuthenticationSetupError::EndpointUrl { .. }),
+            "{error}"
+        );
+        for shown in [error.to_string(), format!("{error:?}")] {
+            assert!(!shown.contains(URL_SECRET), "{shown}");
+            assert!(shown.contains(expected_url), "{shown}");
+        }
+    }
+}
+
+#[test]
+fn url_credentials_are_redacted_even_from_malformed_urls() {
+    for (url, redacted) in [
+        ("https://keys.example/jwks", "https://keys.example/jwks"),
+        (
+            "https://keys.example/jwks?access_token=secret",
+            "https://keys.example/jwks?REDACTED",
+        ),
+        (
+            "https://keys.example/jwks#secret",
+            "https://keys.example/jwks#REDACTED",
+        ),
+        (
+            "https://user:secret@keys.example:8443/jwks",
+            "https://REDACTED@keys.example:8443/jwks",
+        ),
+        (
+            "https://user:sec/ret@keys.example/jwks",
+            "https://REDACTED@keys.example/jwks",
+        ),
+        ("https://user:sec?ret@keys.example/jwks", "https://REDACTED"),
+        (
+            "https://keys.example/jwks?user=a@b.example",
+            "https://REDACTED",
+        ),
+        (
+            "user:secret@keys.example/jwks",
+            "REDACTED@keys.example/jwks",
+        ),
+        ("", ""),
+    ] {
+        assert_eq!(redact_url_credentials(url), redacted, "{url}");
+    }
 }
 
 #[test]

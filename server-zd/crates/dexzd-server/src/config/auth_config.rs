@@ -43,7 +43,9 @@ pub enum AuthenticatorKind {
 
 /// One authenticator: a JWT issuer or a static token file.
 ///
-/// Fields that belong to the other kind must stay unset.
+/// As in the Go Server, the Go Server fields of the other kind are accepted and ignored, so a
+/// `jwt` entry may carry `file` and a `staticTokens` entry may carry `issuer`, `audiences`,
+/// `jwksURL`, or `caFile`. `allowInsecureJWKSURL` applies only to `jwt`. Unknown keys are rejected.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticatorConfig {
@@ -61,10 +63,12 @@ pub struct AuthenticatorConfig {
     pub audiences: Vec<String>,
     /// Defaults to empty, which discovers the key set through the issuer's OpenID configuration.
     /// HTTPS is required except on loopback unless `allowInsecureJWKSURL` is set. Keys refresh at
-    /// most once a minute; a token naming an unknown `kid` refreshes them at most every ten seconds,
-    /// and a request waits at most five seconds for such a refresh. A failed refresh keeps the previous
-    /// keys, and an unreachable key server never fails startup. Redirects are not followed and proxy
-    /// environment variables are ignored. Immutable after startup.
+    /// most once a minute, and every request waits for a due refresh; a token naming an unknown
+    /// `kid` refreshes them at most every ten seconds and waits for that refresh. A request waits at
+    /// most five seconds, which also bounds each refresh. A failed refresh keeps the previous keys,
+    /// and an unreachable key server never fails startup. Errors and logs redact the userinfo, query,
+    /// and fragment of every URL. Redirects are not followed and proxy environment variables are
+    /// ignored. Immutable after startup.
     #[serde(default, rename = "jwksURL", skip_serializing_if = "String::is_empty")]
     pub jwks_url: String,
     /// Defaults to false; true permits a plain `http://` `jwksURL` on any host, such as a key server
@@ -126,9 +130,6 @@ impl AuthenticatorConfig {
     ) -> Result<(), String> {
         match self.kind {
             AuthenticatorKind::Jwt => {
-                if !is_empty_path(&self.file) {
-                    return Err("file applies only to staticTokens".to_owned());
-                }
                 check_endpoint_url(&self.issuer, false)
                     .map_err(|error| format!("issuer {error}"))?;
                 if self.jwks_url.is_empty() {
@@ -147,16 +148,8 @@ impl AuthenticatorConfig {
                 }
             }
             AuthenticatorKind::StaticTokens => {
-                if !self.issuer.is_empty()
-                    || !self.audiences.is_empty()
-                    || !self.jwks_url.is_empty()
-                    || self.allow_insecure_jwks_url
-                    || !is_empty_path(&self.ca_file)
-                {
-                    return Err(
-                        "issuer, audiences, jwksURL, allowInsecureJWKSURL, and caFile apply only to jwt"
-                            .to_owned(),
-                    );
+                if self.allow_insecure_jwks_url {
+                    return Err("allowInsecureJWKSURL applies only to jwt".to_owned());
                 }
                 if is_empty_path(&self.file) {
                     return Err("file is required".to_owned());
@@ -253,6 +246,53 @@ auth:
     }
 
     #[test]
+    fn go_server_fields_of_the_other_kind_are_accepted_and_ignored() {
+        let auth = auth_section(
+            r#"
+auth:
+  authenticators:
+    - kind: jwt
+      issuer: https://issuer.example.com
+      audiences: ["dex"]
+      jwksURL: https://issuer.example.com/.well-known/jwks.json
+      caFile: /etc/ca.pem
+      file: /etc/unused-tokens.yaml
+    - kind: staticTokens
+      issuer: not a URL
+      audiences: []
+      jwksURL: http://keys.internal/jwks
+      caFile: /etc/unused-ca.pem
+      file: /etc/dex-server-zd/tokens.yaml
+    - kind: staticTokens
+      issuer: https://issuer.example.com
+      audiences:
+      caFile:
+      file: /etc/dex-server-zd/more-tokens.yaml
+"#,
+        );
+        auth.validate()
+            .expect("the Go Server ignores the other kind's fields");
+        assert_eq!(
+            auth.credential_authenticators(),
+            vec![
+                CredentialAuthenticatorConfig::Jwt(JwtAuthenticatorConfig {
+                    issuer: "https://issuer.example.com".to_owned(),
+                    audiences: vec!["dex".to_owned()],
+                    jwks_url: Some("https://issuer.example.com/.well-known/jwks.json".to_owned()),
+                    allow_insecure_jwks_url: false,
+                    ca_file: Some(PathBuf::from("/etc/ca.pem")),
+                }),
+                CredentialAuthenticatorConfig::StaticTokens {
+                    file: PathBuf::from("/etc/dex-server-zd/tokens.yaml"),
+                },
+                CredentialAuthenticatorConfig::StaticTokens {
+                    file: PathBuf::from("/etc/dex-server-zd/more-tokens.yaml"),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn plain_http_is_limited_to_loopback_unless_the_key_set_url_opts_in() {
         for issuer in [
             "http://127.0.0.1:8080",
@@ -313,20 +353,14 @@ auth:
                 "[1]: issuer is configured twice",
             ),
             (
-                single_authenticator(
-                    "{kind: jwt, issuer: \"https://issuer.example.com\", audiences: [dex], file: /tokens.yaml}",
-                ),
-                "[0]: file applies only to staticTokens",
-            ),
-            (
                 single_authenticator("{kind: staticTokens}"),
                 "[0]: file is required",
             ),
             (
                 single_authenticator(
-                    "{kind: staticTokens, file: /tokens.yaml, issuer: \"https://issuer.example.com\"}",
+                    "{kind: staticTokens, file: /tokens.yaml, allowInsecureJWKSURL: true}",
                 ),
-                "[0]: issuer, audiences, jwksURL, allowInsecureJWKSURL, and caFile apply only to jwt",
+                "[0]: allowInsecureJWKSURL applies only to jwt",
             ),
         ];
         for (yaml, expected) in cases {

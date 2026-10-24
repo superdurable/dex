@@ -143,6 +143,9 @@ auth:
       file: /etc/dex-server-zd/tokens.yaml
 ```
 
+As in the Go Server, a Go Server key that belongs to the other kind is ignored, such as `file` on a
+`jwt` entry. `allowInsecureJWKSURL` applies only to `jwt`. An unknown key fails startup.
+
 Every FlowService and WorkerTaskService call needs an `authorization: Bearer <credential>`
 header. gRPC health needs no credential. A call to a service that server-zd does not serve answers
 UNIMPLEMENTED, as in the Go Server. A rejected call ends with UNAUTHENTICATED. Its
@@ -177,11 +180,14 @@ The key set follows the Go Server's limits:
 
 - Startup fetches nothing, so an unreachable issuer does not fail startup. The first JWT fetches
   the keys.
-- Keys refresh at most once a minute. The refresh runs in the background, and requests whose key
-  is cached do not wait for it.
-- A token with an unknown `kid` triggers a refresh at most every ten seconds. Such a request waits
-  for that refresh for at most five seconds, which also bounds each refresh.
+- Keys refresh at most once a minute. Every request that arrives while that refresh is due or
+  running waits for it. A removed or replaced key therefore stops verifying with that refresh.
+- A token with an unknown `kid` triggers a refresh at most every ten seconds. Only requests for
+  unknown keys wait for that refresh.
+- A request waits at most five seconds, which also bounds each refresh. Then the current keys
+  decide.
 - A failed refresh keeps the previous keys.
+- Errors and logs show key set and discovery URLs without their userinfo, query, or fragment.
 
 A static token file lists hashes, never plaintext tokens:
 
