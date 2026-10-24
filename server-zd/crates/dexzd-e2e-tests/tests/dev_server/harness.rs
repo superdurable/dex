@@ -12,13 +12,16 @@ use std::time::Duration;
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::worker_task_service_client::WorkerTaskServiceClient;
 use dexzd_protocol::dex::{
-    InvokeExecuteMethodOutput, InvokeExecuteMethodRequest, InvokeExecuteMethodResponse,
-    InvokeWaitForMethodOutput, InvokeWaitForMethodResponse, PollWorkerTask, PollWorkerTaskFrame,
-    PollWorkerTaskRegister, PollWorkerTaskRequest, PollWorkerTaskResponse, StepDecision,
-    WaitingCondition, invoke_execute_method_output, invoke_wait_for_method_output,
-    poll_worker_task, poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
+    ActiveStepPhase, FlowConfig, FlowStartOptions, GetFlowStateRequest, InvokeExecuteMethodOutput,
+    InvokeExecuteMethodRequest, InvokeExecuteMethodResponse, InvokeWaitForMethodOutput,
+    InvokeWaitForMethodRequest, InvokeWaitForMethodResponse, PollWorkerTask, PollWorkerTaskFrame,
+    PollWorkerTaskRegister, PollWorkerTaskRequest, PollWorkerTaskResponse, ServiceErrorResponse,
+    StartFlowRequest, StartFlowResponse, StepDecision, StepOptions, Value, WaitingCondition,
+    WorkerTarget, invoke_execute_method_output, invoke_wait_for_method_output, poll_worker_task,
+    poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
 };
 use dexzd_server::{DevCommandOptions, RunningServer};
+use prost::Message;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -338,4 +341,131 @@ pub(crate) fn force_complete(output: dexzd_protocol::dex::Value) -> StepDecision
         }),
         ..StepDecision::default()
     }
+}
+
+/// Flow start options that route every Step of the run to connected pull Workers.
+pub(crate) fn pull_mode_start_options() -> FlowStartOptions {
+    FlowStartOptions {
+        flow_config_override: Some(FlowConfig {
+            worker_target: Some(WorkerTarget {
+                is_pull_mode: true,
+                ..WorkerTarget::default()
+            }),
+            ..FlowConfig::default()
+        }),
+        ..FlowStartOptions::default()
+    }
+}
+
+/// Starts a pull-mode Flow whose first Step is `start_step_type` with `step_input`.
+pub(crate) async fn start_pull_flow(
+    flow_client: &mut FlowServiceClient<Channel>,
+    flow_id: &str,
+    flow_type: &str,
+    start_step_type: &str,
+    step_input: Value,
+    step_options: StepOptions,
+) -> StartFlowResponse {
+    flow_client
+        .start_flow(StartFlowRequest {
+            flow_id: flow_id.to_owned(),
+            flow_type: flow_type.to_owned(),
+            start_step_type: start_step_type.to_owned(),
+            step_input: Some(step_input),
+            step_options: Some(step_options),
+            flow_start_options: Some(pull_mode_start_options()),
+            request_id: format!("{flow_id}-start"),
+            ..StartFlowRequest::default()
+        })
+        .await
+        .expect("StartFlow succeeds")
+        .into_inner()
+}
+
+/// Returns the Execute request of `task`, or panics when the task is another method.
+pub(crate) fn execute_request(task: &PollWorkerTask) -> &InvokeExecuteMethodRequest {
+    match &task.request {
+        Some(poll_worker_task::Request::Execute(request)) => request,
+        other => panic!("expected an Execute task, got {other:?}"),
+    }
+}
+
+/// Returns the WaitFor request of `task`, or panics when the task is another method.
+pub(crate) fn wait_for_request(task: &PollWorkerTask) -> &InvokeWaitForMethodRequest {
+    match &task.request {
+        Some(poll_worker_task::Request::WaitFor(request)) => request,
+        other => panic!("expected a WaitFor task, got {other:?}"),
+    }
+}
+
+/// The task frame output that ends an Execute call with `response`.
+pub(crate) fn execute_result(
+    response: InvokeExecuteMethodResponse,
+) -> poll_worker_task_frame::Output {
+    poll_worker_task_frame::Output::Execute(InvokeExecuteMethodOutput {
+        output: Some(invoke_execute_method_output::Output::Result(response)),
+    })
+}
+
+/// The task frame output that ends a WaitFor call with `response`.
+pub(crate) fn wait_for_result(
+    response: InvokeWaitForMethodResponse,
+) -> poll_worker_task_frame::Output {
+    poll_worker_task_frame::Output::WaitFor(InvokeWaitForMethodOutput {
+        output: Some(invoke_wait_for_method_output::Output::Result(response)),
+    })
+}
+
+/// The `google.rpc.Status` that carries the `ServiceErrorResponse` in `grpc-status-details-bin`.
+#[derive(Clone, PartialEq, prost::Message)]
+struct GoogleRpcStatus {
+    #[prost(int32, tag = "1")]
+    code: i32,
+    #[prost(string, tag = "2")]
+    message: String,
+    #[prost(message, repeated, tag = "3")]
+    details: Vec<prost_types::Any>,
+}
+
+/// Returns the `ServiceErrorResponse` that the server attaches to an API error.
+pub(crate) fn service_error(status: &tonic::Status) -> ServiceErrorResponse {
+    let details = GoogleRpcStatus::decode(status.details())
+        .unwrap_or_else(|error| panic!("{status:?} has no google.rpc.Status details: {error}"));
+    details
+        .details
+        .iter()
+        .find(|detail| detail.type_url == "type.googleapis.com/dex.ServiceErrorResponse")
+        .map(|detail| ServiceErrorResponse::decode(detail.value.as_slice()))
+        .unwrap_or_else(|| panic!("{status:?} has no ServiceErrorResponse"))
+        .expect("the ServiceErrorResponse decodes")
+}
+
+/// Polls GetFlowState until `step_execution_id` registers its wait.
+pub(crate) async fn wait_until_step_waits(
+    flow_client: &mut FlowServiceClient<Channel>,
+    flow_id: &str,
+    step_execution_id: &str,
+) {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            let state = flow_client
+                .get_flow_state(GetFlowStateRequest {
+                    flow_id: flow_id.to_owned(),
+                    ..GetFlowStateRequest::default()
+                })
+                .await
+                .expect("GetFlowState succeeds")
+                .into_inner();
+            let is_waiting = state.active_step_executions.iter().any(|step| {
+                step.step_execution_id == step_execution_id
+                    && step.phase == ActiveStepPhase::Waiting as i32
+            });
+            if is_waiting {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{step_execution_id} waits within 30 seconds"));
 }

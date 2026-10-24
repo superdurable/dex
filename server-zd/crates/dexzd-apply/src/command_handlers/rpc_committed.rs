@@ -103,7 +103,7 @@ pub(crate) fn apply_rpc_committed(
             grpc_code::NOT_FOUND,
             ErrorSubStatus::ChannelMessageNotFound,
             format!(
-                "message {} is not pending in channel {}",
+                "Channel message {:?} was not found in channel {:?}",
                 deletion.message_id, deletion.channel_name
             ),
         )));
