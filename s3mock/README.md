@@ -91,13 +91,17 @@ Opaque ETags identify a committed version rather than its MD5. Repeated HEAD/GET
 server restarts return the same ETag for that version. Writing identical bytes creates a different
 opaque ETag. Use the returned ETag in `If-Match`; use checksum headers to compare content.
 
-Strict mode verifies SigV4 header authentication, SHA256 payload hashes, `UNSIGNED-PAYLOAD`,
+Strict mode verifies SigV4 header and presigned query authentication, SHA256 payload hashes, `UNSIGNED-PAYLOAD`,
 `STREAMING-UNSIGNED-PAYLOAD-TRAILER`, and chained signatures for
 `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` and `STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER`.
 The latter also requires a valid trailer signature covering the declared trailers. Invalid signatures
 return `403 SignatureDoesNotMatch`; absent or invalid header credentials return `403 AccessDenied`.
-Presigned URLs return `501 NotImplemented` in strict mode. Signature timestamps must match the
-credential date and use the YYYYMMDDTHHMMSSZ format. The region must be `us-east-1`.
+Presigned URLs must include `X-Amz-Algorithm`, `X-Amz-Credential`, `X-Amz-Date`,
+`X-Amz-Expires`, `X-Amz-SignedHeaders`, and `X-Amz-Signature`. Their signature uses
+`UNSIGNED-PAYLOAD`, and expiry must be between 1 and 604800 seconds. An expired URL returns
+`403 AccessDenied`. Presigned requests use the same credential status and policy checks as
+header-signed requests. Signature timestamps must match the credential date and use the
+YYYYMMDDTHHMMSSZ format. The region must be `us-east-1`.
 All `x-amz-*` headers must be signed except `x-amz-content-sha256`, which is already bound by the
 canonical payload hash. Malformed streaming framing returns `400 IncompleteBody`; clock freshness and session token issuance are not simulated. Only use test credentials.
 Strict mode spools the encoded body to an anonymous temporary file under the store’s `tmp/` directory
@@ -230,4 +234,4 @@ intentionally dropped a committed response or truncated a response before yieldi
 
 The integration suite exercises all fault actions through `aws-sdk-s3`, seeded replay, admin
 validation and resets, counters and bounded logs, opaque ETag conditions, SDK memory/file
-uploads in strict mode, and signed chunk/trailer tampering through raw HTTP.
+uploads in strict mode, presigned GET and PUT, and signed chunk/trailer tampering through raw HTTP.

@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::UNIX_EPOCH;
 
 use futures_util::{StreamExt, TryStreamExt};
 use hmac::{Hmac, Mac};
@@ -24,6 +25,7 @@ use hyper::body::Frame;
 use percent_encoding::percent_decode_str;
 use s3mock::{CredentialStatus, Store, StoreError};
 use sha2::{Digest, Sha256};
+use time::{Date, Month, PrimitiveDateTime, Time};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
@@ -68,16 +70,19 @@ pub(crate) async fn verify_request(
     if config.signature_verification == SignatureVerification::Off {
         return Ok((request, Identity::Root));
     }
-    if request
+    let is_presigned = request
         .uri()
         .query()
-        .is_some_and(|query| query.split('&').any(|pair| pair.starts_with("X-Amz-")))
-    {
-        return Err(S3Error::not_implemented(
-            "presigned URLs in strict signature mode",
-        ));
-    }
-    let access_key_id = access_key_id(&request)?;
+        .is_some_and(|query| query.split('&').any(|pair| pair.starts_with("X-Amz-")));
+    let access_key_id = if is_presigned {
+        query_field(&request, "X-Amz-Credential")?
+            .split('/')
+            .next()
+            .ok_or_else(access_denied)?
+            .to_owned()
+    } else {
+        access_key_id(&request)?
+    };
     let (secret_access_key, identity) = if access_key_id == config.access_key_id {
         (config.secret_access_key.clone(), Identity::Root)
     } else {
@@ -97,7 +102,11 @@ pub(crate) async fn verify_request(
             .map_err(|error| S3Error::internal(format!("stored credential policy: {error}")))?;
         (credential.secret_access_key, Identity::Scoped(policy))
     };
-    let context = verify_headers(&request, &access_key_id, &secret_access_key)?;
+    let context = if is_presigned {
+        verify_query(&request, &access_key_id, &secret_access_key)?
+    } else {
+        verify_headers(&request, &access_key_id, &secret_access_key)?
+    };
     if request.body().is_end_stream() {
         if !matches!(context.payload_hash.as_str(), "UNSIGNED-PAYLOAD")
             && context.payload_hash != hash(b"")
@@ -179,6 +188,144 @@ fn access_key_id(request: &Request<RequestBody>) -> Result<String, S3Error> {
         .to_owned())
 }
 
+fn verify_query(
+    request: &Request<RequestBody>,
+    access_key_id: &str,
+    secret_access_key: &str,
+) -> Result<SignatureContext, S3Error> {
+    if request.headers().contains_key("authorization")
+        || query_field(request, "X-Amz-Algorithm")? != "AWS4-HMAC-SHA256"
+        || request
+            .headers()
+            .get("x-amz-content-sha256")
+            .is_some_and(|value| value.as_bytes() != b"UNSIGNED-PAYLOAD")
+    {
+        return Err(access_denied());
+    }
+    let credential = query_field(request, "X-Amz-Credential")?;
+    let components = credential.split('/').collect::<Vec<_>>();
+    if components.len() != 5
+        || components[0] != access_key_id
+        || components[2] != "us-east-1"
+        || components[3] != "s3"
+        || components[4] != "aws4_request"
+    {
+        return Err(access_denied());
+    }
+    let timestamp = query_field(request, "X-Amz-Date")?;
+    if timestamp.get(..8) != Some(components[1]) {
+        return Err(access_denied());
+    }
+    let expires = query_field(request, "X-Amz-Expires")?
+        .parse::<u64>()
+        .map_err(|_| invalid_query_expiry())?;
+    if !(1..=604_800).contains(&expires) {
+        return Err(invalid_query_expiry());
+    }
+    verify_query_expiry(&timestamp, expires)?;
+    let signed_headers = query_field(request, "X-Amz-SignedHeaders")?;
+    let canonical_headers = canonical_headers(request, &signed_headers, false)?;
+    let signature = query_field(request, "X-Amz-Signature")?;
+    let canonical_query = canonical_query(request, true);
+    let path = canonical_path(request);
+    let payload_hash = "UNSIGNED-PAYLOAD";
+    let canonical = format!(
+        "{}\n{path}\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}",
+        request.method()
+    );
+    let scope = components[1..].join("/");
+    let key = signing_key(secret_access_key, components[1], components[2]);
+    verify_hmac(
+        &key,
+        &format!(
+            "AWS4-HMAC-SHA256\n{timestamp}\n{scope}\n{}",
+            hash(canonical.as_bytes())
+        ),
+        &signature,
+    )?;
+    Ok(SignatureContext {
+        key,
+        timestamp,
+        scope,
+        signature,
+        payload_hash: payload_hash.into(),
+        trailer_names: Vec::new(),
+    })
+}
+
+fn query_field(request: &Request<RequestBody>, expected: &str) -> Result<String, S3Error> {
+    let mut found = None;
+    for pair in request.uri().query().unwrap_or_default().split('&') {
+        let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if percent_decode_str(name)
+            .decode_utf8()
+            .map_err(|_| access_denied())?
+            == expected
+        {
+            if found.is_some() {
+                return Err(access_denied());
+            }
+            found = Some(
+                percent_decode_str(value)
+                    .decode_utf8()
+                    .map_err(|_| access_denied())?
+                    .into_owned(),
+            );
+        }
+    }
+    found.ok_or_else(access_denied)
+}
+
+fn verify_query_expiry(timestamp: &str, expires: u64) -> Result<(), S3Error> {
+    let bytes = timestamp.as_bytes();
+    if bytes.len() != 16
+        || bytes[8] != b'T'
+        || bytes[15] != b'Z'
+        || !bytes[..8]
+            .iter()
+            .chain(&bytes[9..15])
+            .all(u8::is_ascii_digit)
+    {
+        return Err(access_denied());
+    }
+    let year = timestamp[..4].parse().map_err(|_| access_denied())?;
+    let month = timestamp[4..6].parse::<u8>().map_err(|_| access_denied())?;
+    let day = timestamp[6..8].parse().map_err(|_| access_denied())?;
+    let hour = timestamp[9..11].parse().map_err(|_| access_denied())?;
+    let minute = timestamp[11..13].parse().map_err(|_| access_denied())?;
+    let second = timestamp[13..15].parse().map_err(|_| access_denied())?;
+    let date = Date::from_calendar_date(
+        year,
+        Month::try_from(month).map_err(|_| access_denied())?,
+        day,
+    )
+    .map_err(|_| access_denied())?;
+    let time = Time::from_hms(hour, minute, second).map_err(|_| access_denied())?;
+    let issued = PrimitiveDateTime::new(date, time)
+        .assume_utc()
+        .unix_timestamp();
+    let now = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| S3Error::internal("system clock is before the Unix epoch"))?
+        .as_secs();
+    if now >= u64::try_from(issued).map_err(|_| access_denied())? + expires {
+        return Err(S3Error::new(
+            StatusCode::FORBIDDEN,
+            "AccessDenied",
+            "Request has expired",
+        ));
+    }
+    Ok(())
+}
+
+fn invalid_query_expiry() -> S3Error {
+    S3Error::new(
+        StatusCode::BAD_REQUEST,
+        "AuthorizationQueryParametersError",
+        "X-Amz-Expires must be between 1 and 604800 seconds",
+    )
+}
+
 fn verify_headers(
     request: &Request<RequestBody>,
     access_key_id: &str,
@@ -233,78 +380,16 @@ fn verify_headers(
         return Err(access_denied());
     }
     let signed_headers = *fields.get("SignedHeaders").ok_or_else(access_denied)?;
-    let names: Vec<_> = signed_headers.split(';').collect();
-    if !names.contains(&"host")
-        || !names.contains(&"x-amz-date")
-        || names.windows(2).any(|pair| pair[0] >= pair[1])
-    {
-        return Err(access_denied());
-    }
-    if request.headers().keys().any(|name| {
-        name.as_str().starts_with("x-amz-")
-            && name.as_str() != "x-amz-content-sha256"
-            && !names.contains(&name.as_str())
-    }) {
-        return Err(access_denied());
-    }
-    let mut canonical_headers = String::new();
-    for name in names {
-        if name.is_empty() || name != name.to_ascii_lowercase() {
-            return Err(access_denied());
-        }
-        let values: Vec<_> = request
-            .headers()
-            .get_all(name)
-            .iter()
-            .map(|value| {
-                value
-                    .to_str()
-                    .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
-                    .map_err(|_| access_denied())
-            })
-            .collect::<Result<_, _>>()?;
-        if values.is_empty() {
-            return Err(access_denied());
-        }
-        canonical_headers.push_str(&format!("{name}:{}\n", values.join(",")));
-    }
+    let canonical_headers = canonical_headers(request, signed_headers, true)?;
     let payload_hash = header("x-amz-content-sha256")?;
-    let mut query = Vec::new();
-    for pair in request
-        .uri()
-        .query()
-        .unwrap_or_default()
-        .split('&')
-        .filter(|pair| !pair.is_empty())
-    {
-        let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
-        query.push((
-            encode(&percent_decode_str(name).collect::<Vec<_>>(), false),
-            encode(&percent_decode_str(value).collect::<Vec<_>>(), false),
-        ));
-    }
-    query.sort();
-    let canonical_query = query
-        .iter()
-        .map(|(name, value)| format!("{name}={value}"))
-        .collect::<Vec<_>>()
-        .join("&");
-    let path = encode(
-        &percent_decode_str(request.uri().path()).collect::<Vec<_>>(),
-        true,
-    );
+    let canonical_query = canonical_query(request, false);
+    let path = canonical_path(request);
     let canonical = format!(
         "{}\n{path}\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}",
         request.method()
     );
     let scope = components[1..].join("/");
-    let key = hmac(
-        format!("AWS4{secret_access_key}").as_bytes(),
-        components[1].as_bytes(),
-    );
-    let key = hmac(&key, components[2].as_bytes());
-    let key = hmac(&key, b"s3");
-    let key = hmac(&key, b"aws4_request");
+    let key = signing_key(secret_access_key, components[1], components[2]);
     let signature = fields
         .get("Signature")
         .ok_or_else(access_denied)?
@@ -335,6 +420,93 @@ fn verify_headers(
         payload_hash: payload_hash.into(),
         trailer_names,
     })
+}
+
+fn canonical_headers(
+    request: &Request<RequestBody>,
+    signed_headers: &str,
+    requires_signed_date: bool,
+) -> Result<String, S3Error> {
+    let names = signed_headers.split(';').collect::<Vec<_>>();
+    if !names.contains(&"host")
+        || (requires_signed_date && !names.contains(&"x-amz-date"))
+        || names.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(access_denied());
+    }
+    if request.headers().keys().any(|name| {
+        name.as_str().starts_with("x-amz-")
+            && name.as_str() != "x-amz-content-sha256"
+            && !names.contains(&name.as_str())
+    }) {
+        return Err(access_denied());
+    }
+    let mut canonical_headers = String::new();
+    for name in names {
+        if name.is_empty() || name != name.to_ascii_lowercase() {
+            return Err(access_denied());
+        }
+        let values = request
+            .headers()
+            .get_all(name)
+            .iter()
+            .map(|value| {
+                value
+                    .to_str()
+                    .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+                    .map_err(|_| access_denied())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if values.is_empty() {
+            return Err(access_denied());
+        }
+        canonical_headers.push_str(&format!("{name}:{}\n", values.join(",")));
+    }
+    Ok(canonical_headers)
+}
+
+fn canonical_query(request: &Request<RequestBody>, excludes_signature: bool) -> String {
+    let mut query = Vec::new();
+    for pair in request
+        .uri()
+        .query()
+        .unwrap_or_default()
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+    {
+        let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let decoded_name = percent_decode_str(name).collect::<Vec<_>>();
+        if excludes_signature && decoded_name == b"X-Amz-Signature" {
+            continue;
+        }
+        query.push((
+            encode(&decoded_name, false),
+            encode(&percent_decode_str(value).collect::<Vec<_>>(), false),
+        ));
+    }
+    query.sort();
+    query
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn canonical_path(request: &Request<RequestBody>) -> String {
+    encode(
+        &percent_decode_str(request.uri().path()).collect::<Vec<_>>(),
+        true,
+    )
+}
+
+fn signing_key(secret_access_key: &str, date: &str, region: &str) -> Vec<u8> {
+    let key = hmac(
+        format!("AWS4{secret_access_key}").as_bytes(),
+        date.as_bytes(),
+    );
+    let key = hmac(&key, region.as_bytes());
+    let key = hmac(&key, b"s3");
+    hmac(&key, b"aws4_request")
 }
 
 fn encode(bytes: &[u8], preserve_slash: bool) -> String {

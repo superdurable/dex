@@ -29,6 +29,7 @@ sha2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+time.workspace = true
 http-body-util.workspace = true
 httpdate.workspace = true
 hyper.workspace = true
