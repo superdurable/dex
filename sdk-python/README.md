@@ -9,6 +9,47 @@ checks its mtime and size at most once per second, and reloads it after rotation
 Whitespace around the token is removed. An unreadable or empty file fails calls
 until it is restored; the SDK does not send an old token.
 
+Use `ApiKeyCredential` when the application holds a long-lived API key and a
+token endpoint issues short-lived access tokens scoped to a server ID. Supply
+the token URL, server ID, and API key explicitly; the server ID is never derived
+from the endpoint host. The endpoint must use HTTPS, except loopback HTTP on
+`localhost`, `127.0.0.0/8`, or `::1` for local development.
+Loopback HTTP bypasses environment proxies so the API key stays on the host.
+HTTPS uses configured proxies with TLS through CONNECT. Token endpoint redirects
+are refused, including redirects that preserve the POST method.
+
+```python
+from dex import ApiKeyCredential, Client, ClientOptions
+
+credential = ApiKeyCredential(
+    "https://auth.example.com/token", "dex-server", "application-api-key"
+)
+client = Client(registry, cache, ClientOptions(credential=credential))
+try:
+    client.health_check()
+finally:
+    client.close()
+    credential.close()
+```
+
+The first call exchanges the key for a token. After 80% of its lifetime, a
+single background refresh begins while calls continue using the valid token.
+Callers waiting for an expired token share the exchange. Failed refreshes retry
+no more often than every five seconds while the previous token remains valid.
+Each exchange has a 10-second deadline by default, configurable through
+`exchange_timeout`. It covers connecting, sending, reading, and parsing. A Dex
+`UNAUTHENTICATED` response discards the rejected token
+and retries a unary call once with a fresh token. Pull Worker streams reconnect
+once immediately with a fresh token; a second rejection uses the normal backoff.
+The credential is thread-safe.
+It redacts the API key, issued access tokens, and JWT-shaped strings from
+exchange errors, including endpoint details and transport causes. Client
+calls raise `ApiKeyExchangeError` unchanged; pull Workers log it and retry.
+Closing the credential is optional. After all Clients and Workers sharing it
+are closed, `close()` prevents further token calls and waits at most until the
+current exchange deadline. An uninterruptible network operation may continue
+in its daemon thread after that deadline.
+
 ```python
 from dex import Client, ClientOptions, FileCredential, Worker, WorkerOptions
 
