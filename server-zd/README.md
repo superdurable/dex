@@ -46,7 +46,12 @@ Linux amd64, Linux arm64, and macOS arm64:
 
 Each archive contains `dex-server-zd`, `LICENSE.md`, `LEGACY_NOTICES.md`, and `LICENSES/`.
 The Release also includes `checksums.txt` with the SHA-256 hash of each archive. Verify the
-downloaded archive against that file before extracting it.
+downloaded archive against that file before extracting it. Run
+`sha256sum --ignore-missing -c checksums.txt` on Linux or
+`shasum -a 256 --ignore-missing -c checksums.txt` on macOS from the download directory.
+
+Linux archives require glibc 2.28 or newer. They run on Debian 10+, Ubuntu 20.04+, and
+RHEL 8+ without a newer system libstdc++.
 
 ## Running
 
@@ -181,9 +186,12 @@ them without depending on the implementation of the server:
 | --- | --- | --- |
 | `serve` | `--config <file>` | Required YAML configuration file for a node using external object storage. |
 | `dev` | `--data-dir <dir>` | Required directory for embedded object storage and local state. |
-| `dev` | `--listen <address>` | Plaintext gRPC listen address; defaults to `127.0.0.1:8801`. |
+| `dev` | `--listen <address>` | Plaintext gRPC listen address as `IP:port`; host names are rejected; defaults to `127.0.0.1:8801`. |
 | `dev` | `--config <file>` | Optional YAML configuration overrides. |
 | `dev` | `--log-dir <dir>` | Optional directory that also receives `dex-server-zd.log`. |
+| Both | `--version` | Prints `dex-server-zd X.Y.Z`. |
+
+SIGTERM stops `dev` and exits with status 0.
 
 ## Development
 
