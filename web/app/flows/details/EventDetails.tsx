@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { storedValueJSONReplacer } from '@/lib/blobs';
+import { positiveRunAttempt, runAttemptSearch } from '@/lib/timeTravel';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { flowErrorTypeLabel, flowStatusLabel } from '@/lib/semantic';
 import {
@@ -50,6 +51,7 @@ const eventTitles: Record<FlowHistoryEvent['type'], string> = {
   StepExecutePending: 'Execute pending',
   RpcExecutionCompleted: 'RPC completed',
   ChannelExternalPublish: 'Channel published',
+  ChannelExternalDelete: 'Channel message deleted',
   TimeTravelFork: 'Time Travel fork',
 };
 
@@ -135,7 +137,7 @@ function ContinuedStartDetails({
       {Object.keys(pendingChannels).length > 0 && (
         <DetailSection title="Pending channels">
           <ChannelMessages values={Object.entries(pendingChannels).flatMap(([channelName, entry]) => (
-            asDataArray(asData(entry).values).map((value) => ({ channelName, value }))
+            asDataArray(asData(entry).messages).map((message) => ({ channelName, value: message.value }))
           ))} />
         </DetailSection>
       )}
@@ -178,6 +180,24 @@ function FlowClosedDetails({ payload }: { payload: Data }) {
 
 function TimeTravelForkDetails({ payload, parentFlowId }: { payload: Data; parentFlowId: string }) {
   const previousRunId = typeof payload.previousRunId === 'string' ? payload.previousRunId : '';
+  const previousRunAttempt = positiveRunAttempt(payload.previousRunAttempt);
+  if (previousRunAttempt > 0) {
+    return (
+      <DetailSection title="Fork origin">
+        <Fields values={[
+          ['Previous run attempt', previousRunAttempt],
+          ['Target run attempt', payload.targetRunAttempt],
+          ['Target event ID', payload.targetEventId],
+        ]} />
+        <p className="semantic-run-link-row">
+          <span>Previous history</span>
+          <Link className="event-run-link" to={{ search: runAttemptSearch(previousRunAttempt) }}>
+            <code>Run attempt {previousRunAttempt}</code>
+          </Link>
+        </p>
+      </DetailSection>
+    );
+  }
   return (
     <DetailSection title="Fork origin">
       <p className="semantic-run-link-row">
@@ -192,6 +212,21 @@ function TimeTravelForkDetails({ payload, parentFlowId }: { payload: Data; paren
           </Link>
         ) : <span>—</span>}
       </p>
+    </DetailSection>
+  );
+}
+
+function ChannelDeletionDetails({ payload }: { payload: Data }) {
+  const deletions = asDataArray(payload.messages);
+  return (
+    <DetailSection title="Deleted messages">
+      <div className="semantic-records">
+        {deletions.map((deletion, index) => (
+          <div className="semantic-record channel-record" key={`${String(deletion.messageId)}-${index}`}>
+            <Fields values={[['Channel', deletion.channelName], ['Message ID', deletion.messageId]]} />
+          </div>
+        ))}
+      </div>
     </DetailSection>
   );
 }
@@ -245,6 +280,7 @@ export function SemanticEventDetails({
   if (event.type === 'TimeTravelFork') {
     return <TimeTravelForkDetails payload={event.payload} parentFlowId={parentFlowId} />;
   }
+  if (event.type === 'ChannelExternalDelete') return <ChannelDeletionDetails payload={event.payload} />;
   if (isSetAttributesEvent(event)) return <SetAttributesDetails payload={event.payload} />;
   if (event.type === 'RpcExecutionCompleted') return <RPCDetails payload={event.payload} isPull={Boolean(event.payload.servedByAppWorkerId) || asData(asData(history.find((candidate) => candidate.type === 'FlowStartedOrContinued')?.payload.flowConfig).workerTarget).isPullMode === true} />;
   return (

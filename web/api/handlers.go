@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -232,12 +233,18 @@ func (h *handler) getHistoryEvents(response http.ResponseWriter, request *http.R
 		WriteError(response, http.StatusBadRequest, "nextPageToken must be base64", nil)
 		return
 	}
+	runAttempt, err := parseNonNegativeInt32(request, "runAttempt")
+	if err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
 	result, err := h.client.GetHistoryEvents(request.Context(), &dexpb.GetHistoryEventsRequest{
 		FlowId:               flowID,
 		RunId:                runID,
 		StartInternalEventId: startEventID,
 		EstimatePageSize:     int32(pageSize),
 		NextPageToken:        pageToken,
+		RunAttempt:           runAttempt,
 	})
 	if err != nil {
 		writeGRPCError(response, err, "GetHistoryEvents")
@@ -357,6 +364,10 @@ func (h *handler) timeTravelFlow(response http.ResponseWriter, request *http.Req
 		)
 		return
 	}
+	if body.RunAttempt < 0 {
+		WriteError(response, http.StatusBadRequest, "runAttempt must be a non-negative integer", nil)
+		return
+	}
 	result, err := h.client.ResetFlow(request.Context(), &dexpb.ResetFlowRequest{
 		FlowId:           body.FlowID,
 		RunId:            body.RunID,
@@ -366,12 +377,16 @@ func (h *handler) timeTravelFlow(response http.ResponseWriter, request *http.Req
 		StepExecutionId:  body.StepExecutionID,
 		HistoryEventTime: body.HistoryEventTime,
 		StepMethod:       dexpb.FlowResetStepMethod(body.StepMethod),
+		RunAttempt:       body.RunAttempt,
 	})
 	if err != nil {
 		writeGRPCError(response, err, "TimeTravel")
 		return
 	}
-	writeJSON(response, http.StatusOK, timeTravelFlowResponse{RunID: result.GetRunId()})
+	writeJSON(response, http.StatusOK, timeTravelFlowResponse{
+		RunID:      result.GetRunId(),
+		RunAttempt: result.GetRunAttempt(),
+	})
 }
 
 func (h *handler) stopFlow(response http.ResponseWriter, request *http.Request) {
@@ -511,6 +526,18 @@ func parseNonNegativeInt64(request *http.Request, name string, fallback int64) (
 		return 0, fmt.Errorf("%s must be a non-negative integer", name)
 	}
 	return parsed, nil
+}
+
+// parseNonNegativeInt32 returns zero when the query parameter is absent.
+func parseNonNegativeInt32(request *http.Request, name string) (int32, error) {
+	value, err := parseNonNegativeInt64(request, name, 0)
+	if err != nil {
+		return 0, err
+	}
+	if value > math.MaxInt32 {
+		return 0, fmt.Errorf("%s is too large", name)
+	}
+	return int32(value), nil
 }
 
 func writeGRPCError(response http.ResponseWriter, err error, operation string) {

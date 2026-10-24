@@ -84,7 +84,7 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	workerTarget, err := h.validateStartWorkerTarget(body.WorkerTargetAddress, body.WorkerTargetPull)
+	workerTarget, err := h.validateStartWorkerTarget(request.Context(), body.WorkerTargetAddress, body.WorkerTargetPull)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -140,18 +140,28 @@ func (h *v2Handler) checkWorkerHealth(response http.ResponseWriter, request *htt
 	writeJSON(response, http.StatusOK, v2WorkerHealthResponse{Healthy: true})
 }
 
-func (h *v2Handler) validateStartWorkerTarget(address *string, isPull *bool) (*dexpb.WorkerTarget, error) {
+func (h *v2Handler) validateStartWorkerTarget(
+	ctx context.Context,
+	address *string,
+	isPull *bool,
+) (*dexpb.WorkerTarget, error) {
 	isPullTarget := isPull != nil && *isPull
 	if isPullTarget && address != nil {
 		return nil, fmt.Errorf("workerTargetPull and workerTargetAddress cannot both be set")
 	}
-	if isPullTarget || (address == nil && isPull == nil && h.isStartFlowWorkerTargetPull) {
+	if isPullTarget || (address == nil && isPull == nil && h.isPullDefaultStartWorkerTarget(ctx)) {
 		return grpctarget.NormalizeWorkerTarget(&dexpb.WorkerTarget{IsPullMode: true})
 	}
 	if address == nil {
 		return nil, fmt.Errorf("workerTargetAddress or workerTargetPull is required")
 	}
 	return h.validateWorkerTarget(*address)
+}
+
+// isPullDefaultStartWorkerTarget is true when configured, or when the Server supports only pull Workers.
+func (h *v2Handler) isPullDefaultStartWorkerTarget(ctx context.Context) bool {
+	return h.isStartFlowWorkerTargetPull ||
+		h.serverEngine.ResolveServerEngine(ctx) == dexpb.ServerEngine_SERVER_ENGINE_ZD
 }
 
 func (h *v2Handler) validateWorkerTarget(address string) (*dexpb.WorkerTarget, error) {

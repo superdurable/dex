@@ -115,6 +115,7 @@ pub(crate) fn apply_run_purge(
     remove_timer_indexes(transaction, rows)?;
     remove_outbox_indexes(transaction, rows)?;
     remove_hard_delete_indexes(transaction, rows)?;
+    crate::projections::attribute_sync::remove_attribute_sync_indexes(transaction, rows)?;
     transaction.delete(
         ColumnFamily::PartitionIndex,
         tenant_run_index_key(

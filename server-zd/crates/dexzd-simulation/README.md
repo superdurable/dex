@@ -12,6 +12,12 @@ state and once on a re-decoded twin, requires identical outcomes, and then check
 invariants: lock holders and FIFO waiter order (L1, L3, L4), lost updates on guarded keys (L2),
 fresh snapshots (S5), one result per attempt (S2), value holder sets and garbage rows (I1),
 history event order, the timer index, and agreement of the Flow directory and run records.
+Attribute Sync outbox checks cover unacknowledged changes keeping their entries (AS1), acks
+deleting only the entries they cover (AS2), and the pending index matching the entries (AS3).
+A second stream with its own seeded draws drives one Flow, `account-sync`, that syncs to two
+Attribute Stores and receives acks. It never changes the main stream, whose per-seed digests
+`regression_seeds_keep_their_main_command_trajectories` pins. SearchOrder rows must match the
+search documents (SO1).
 
 ```bash
 cargo test -p dexzd-simulation                                   # fixed seed set

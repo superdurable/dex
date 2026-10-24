@@ -114,6 +114,7 @@ pub(crate) fn apply_rpc_committed(
         &response.upsert_attributes,
         &command.hard_delete_objects,
         response.action_permission_mappings.as_ref(),
+        scope.now_micros,
     )? {
         return Ok(reject_value(rejection));
     }

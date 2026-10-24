@@ -306,6 +306,14 @@ fn effect_size_bytes(effect: &ApplyEffect) -> usize {
         ApplyEffect::HardDeleteObjectsPending { object_ids, .. } => {
             object_ids.iter().map(String::len).sum()
         }
+        ApplyEffect::AttributeSyncPending { store_names, .. } => {
+            store_names.iter().map(String::len).sum()
+        }
+        ApplyEffect::AttributeSyncDropped {
+            store_name,
+            attribute_keys,
+            ..
+        } => store_name.len() + attribute_keys.iter().map(String::len).sum::<usize>(),
         ApplyEffect::TimerArmed { .. }
         | ApplyEffect::RunPurgeRequested { .. }
         | ApplyEffect::WakeWaiters { .. } => 0,

@@ -33,11 +33,16 @@ Before the snapshot:
   replaced; the replaced object is deleted and the deletion committed.
 - `fulfillment-parent`: a WaitFor starts a SubFlow. The child start is delivered to the child
   Flow in another partition, and the parent's outbox message is acknowledged.
+- `account-sync`: a Flow that targets the `accounts` Attribute Store starts with two synced
+  Attributes and one unsynced Attribute, then a SetAttributes changes a synced one. Its
+  Attribute Sync entries and pending index are pending in the snapshot.
 
 Then the node took a snapshot. After the snapshot:
 
 - The child completes, its completion wakes the parent, and both outbox messages are
   acknowledged. The parent completes gracefully.
+- `account-sync`: an Attribute Sync ack up to the start command's seq deletes one entry and
+  leaves the newer change pending; a drop ack for that key clears the store's entries.
 - `order-sync`: a transactional RPC that locks an Attribute commits, then the locking Step
   runs and completes the Flow.
 - `order-async`: ASYNC Steps whose events wait for the batch window. They share a log batch

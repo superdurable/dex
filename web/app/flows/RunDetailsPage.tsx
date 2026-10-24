@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type {
   CSSProperties,
@@ -17,6 +17,7 @@ import { formatDate, formatDuration } from '@/lib/format';
 import { hydrateBlobs } from '@/lib/blobs';
 import { loadCompleteHistory } from '@/lib/history';
 import { isTransientGatewayResponse, readResponseJSON } from '@/lib/http';
+import { positiveRunAttempt, RUN_ATTEMPT_SEARCH_PARAM } from '@/lib/timeTravel';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
 import type {
   FlowHistoryEvent,
@@ -28,7 +29,7 @@ import { LoadingIndicator } from '../components/LoadingIndicator';
 import { usePreferences } from '../providers';
 import { FlowOverview } from './details/FlowOverview';
 import { FlowStatePanel } from './details/FlowStatePanel';
-import { TimeTravelDialog } from './details/TimeTravelDialog';
+import { TimeTravelDialog, type TimeTravelResult } from './details/TimeTravelDialog';
 import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialog';
 import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
@@ -114,6 +115,9 @@ export function RunDetailsPage({
   runPath: (chainRunID: string) => string;
 }) {
   const { timezone } = usePreferences();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedRunAttempt = positiveRunAttempt(searchParams.get(RUN_ATTEMPT_SEARCH_PARAM));
   const [summary, setSummary] = useState<FlowSummary | null>(null);
   const [history, setHistory] = useState<FlowHistoryEvent[]>([]);
   const [state, setState] = useState<FlowState | null>(null);
@@ -142,6 +146,7 @@ export function RunDetailsPage({
   const sidebarWidthRef = useRef(sidebarWidth);
   const sidebarResizeStart = useRef({ pointerX: 0, width: sidebarWidth });
   const runContent = useRef<HTMLDivElement>(null);
+  const followedRunAttempt = useRef(0);
 
   const summaryURL = `/api/flows/summary?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
   const stateURL = `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
@@ -244,6 +249,23 @@ export function RunDetailsPage({
     }
   }, [addDataWarning, flowId]);
 
+  /** Zero follows the current run attempt; a requested earlier attempt pins its history. */
+  const historyRunAttempt = useCallback((latestSummary: FlowSummary) => {
+    const currentRunAttempt = positiveRunAttempt(latestSummary.runAttempt);
+    return requestedRunAttempt > 0 && requestedRunAttempt < currentRunAttempt ? requestedRunAttempt : 0;
+  }, [requestedRunAttempt]);
+
+  const clearLoadedRun = useCallback(() => {
+    setHistory([]);
+    setNextInternalEventId(0);
+    setSelectedEvent(null);
+    setHydratedEvents({});
+    setDataWarnings([]);
+    blobCache.current.clear();
+    hydratingEventIDs.current.clear();
+    hydratedEventIDs.current.clear();
+  }, []);
+
   const loadSummary = useCallback(async () => {
     const value = await readResponseJSON<FlowSummary>(await fetch(summaryURL, { cache: 'no-store' }));
     setSummary(value);
@@ -254,6 +276,7 @@ export function RunDetailsPage({
     initialPageToken: string,
     initialInternalEventId: number,
     append: boolean,
+    runAttempt: number,
   ) => {
     setPendingRunRequestCount((current) => current + 1);
     try {
@@ -265,6 +288,7 @@ export function RunDetailsPage({
           estimatePageSize: '200',
         });
         if (nextPageToken) params.set('nextPageToken', nextPageToken);
+        if (runAttempt > 0) params.set(RUN_ATTEMPT_SEARCH_PARAM, String(runAttempt));
         return readResponseJSON(
           await fetch(`/api/flows/history?${params}`, { cache: 'no-store' }),
         );
@@ -286,8 +310,12 @@ export function RunDetailsPage({
     setError('');
     try {
       const latestSummary = await loadSummary();
+      const latestRunAttempt = positiveRunAttempt(latestSummary.runAttempt);
+      // Another client may have time traveled while Live was off.
+      if (latestRunAttempt !== followedRunAttempt.current) clearLoadedRun();
+      followedRunAttempt.current = latestRunAttempt;
       await Promise.all([
-        loadHistory('', 0, false),
+        loadHistory('', 0, false, historyRunAttempt(latestSummary)),
         loadState(latestSummary.flowStatusCode),
       ]);
     } catch (refreshError) {
@@ -295,20 +323,13 @@ export function RunDetailsPage({
     } finally {
       setPendingRunRequestCount((current) => current - 1);
     }
-  }, [loadHistory, loadState, loadSummary]);
+  }, [clearLoadedRun, historyRunAttempt, loadHistory, loadState, loadSummary]);
 
   useEffect(() => {
     let active = true;
     setSummary(null);
-    setHistory([]);
     setState(null);
-    setNextInternalEventId(0);
-    setSelectedEvent(null);
-    setHydratedEvents({});
-    setDataWarnings([]);
-    blobCache.current.clear();
-    hydratingEventIDs.current.clear();
-    hydratedEventIDs.current.clear();
+    clearLoadedRun();
     setError('');
     setLoading(true);
     void refresh().finally(() => {
@@ -318,7 +339,9 @@ export function RunDetailsPage({
       active = false;
       waitGeneration.current += 1;
     };
-  }, [refresh]);
+  }, [clearLoadedRun, refresh]);
+
+  const isViewingEarlierRunAttempt = summary !== null && historyRunAttempt(summary) > 0;
 
   useEffect(() => {
     if (
@@ -326,6 +349,7 @@ export function RunDetailsPage({
       || !summary
       || terminalStatuses.has(summary.flowStatusCode)
       || nextInternalEventId <= 0
+      || isViewingEarlierRunAttempt
     ) return;
 
     const generation = ++waitGeneration.current;
@@ -348,8 +372,19 @@ export function RunDetailsPage({
         }
         await readResponseJSON(response);
         const latestSummary = await loadSummary();
+        const latestRunAttempt = positiveRunAttempt(latestSummary.runAttempt);
+        if (latestRunAttempt !== followedRunAttempt.current) {
+          // Time travel replaced the run attempt, so loaded events after its fork point are stale.
+          followedRunAttempt.current = latestRunAttempt;
+          clearLoadedRun();
+          await Promise.all([
+            loadHistory('', 0, false, historyRunAttempt(latestSummary)),
+            loadState(latestSummary.flowStatusCode),
+          ]);
+          return;
+        }
         await Promise.all([
-          loadHistory('', nextInternalEventId, true),
+          loadHistory('', nextInternalEventId, true, 0),
           loadState(latestSummary.flowStatusCode),
         ]);
       })
@@ -361,7 +396,10 @@ export function RunDetailsPage({
     return () => controller.abort();
   }, [
     autoRefresh,
+    clearLoadedRun,
     flowId,
+    historyRunAttempt,
+    isViewingEarlierRunAttempt,
     loadHistory,
     loadState,
     loadSummary,
@@ -468,6 +506,30 @@ export function RunDetailsPage({
     setTimeTravelEvent(null);
   }, []);
 
+  const showRunAttempt = useCallback((runAttempt: number) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (runAttempt > 0) next.set(RUN_ATTEMPT_SEARCH_PARAM, String(runAttempt));
+      else next.delete(RUN_ATTEMPT_SEARCH_PARAM);
+      return next;
+    });
+  }, [setSearchParams]);
+
+  const handleTimeTraveled = useCallback((result: TimeTravelResult) => {
+    if (result.runId !== runId) {
+      navigate(runPath(result.runId));
+      return;
+    }
+    if (requestedRunAttempt > 0) {
+      showRunAttempt(0);
+      return;
+    }
+    void refresh();
+  }, [navigate, refresh, requestedRunAttempt, runId, runPath, showRunAttempt]);
+
+  const currentRunAttempt = positiveRunAttempt(summary?.runAttempt);
+  const displayedRunAttempt = summary && isViewingEarlierRunAttempt ? historyRunAttempt(summary) : currentRunAttempt;
+
   if (loading && !summary) return <LoadingIndicator label="Loading flow run…" />;
   const isWaitingForHistory = history.length === 0 && (loading || pendingRunRequestCount > 0);
 
@@ -519,12 +581,32 @@ export function RunDetailsPage({
             <div><span>Started</span><b>{formatDate(summary.startTime, timezone)}</b></div>
             <div><span>Closed</span><b>{formatDate(summary.closeTime, timezone)}</b></div>
             <div><span>Duration</span><b>{formatDuration(summary.startTime, summary.closeTime)}</b></div>
-            <div><span>Run chain</span><b>{runChain.length}</b></div>
+            {currentRunAttempt > 0 ? (
+              <div>
+                <span>Run attempt</span>
+                <RunAttemptSelect
+                  currentRunAttempt={currentRunAttempt}
+                  displayedRunAttempt={displayedRunAttempt}
+                  onSelect={(runAttempt) => showRunAttempt(runAttempt === currentRunAttempt ? 0 : runAttempt)}
+                />
+              </div>
+            ) : (
+              <div><span>Run chain</span><b>{runChain.length}</b></div>
+            )}
             <div><span>Semantic events</span><b>{history.length}</b></div>
           </div>
         )}
       </section>
 
+      {isViewingEarlierRunAttempt && (
+        <div className="warning-banner run-error">
+          Showing the history of run attempt {displayedRunAttempt}. Time travel replaced it with run
+          attempt {currentRunAttempt}. Live state and controls belong to the current attempt.{' '}
+          <button className="button ghost" type="button" onClick={() => showRunAttempt(0)}>
+            View current attempt
+          </button>
+        </div>
+      )}
       {error && <div className="error-banner run-error">{error}</div>}
       {dataWarnings.map((warning) => (
         <div className="warning-banner run-error" key={warning}>{warning}</div>
@@ -632,7 +714,10 @@ export function RunDetailsPage({
           summary={summary}
           events={history}
           initialEvent={timeTravelEvent}
+          runAttempt={isViewingEarlierRunAttempt ? displayedRunAttempt : 0}
+          timezone={timezone}
           onClose={closeTimeTravel}
+          onTimeTraveled={handleTimeTraveled}
         />
       )}
       {summary && (
@@ -653,5 +738,31 @@ export function RunDetailsPage({
         />
       )}
     </div>
+  );
+}
+
+/** Lists every run attempt of a run, newest first. Run attempts are numbered from 1 without gaps. */
+function RunAttemptSelect({
+  currentRunAttempt,
+  displayedRunAttempt,
+  onSelect,
+}: {
+  currentRunAttempt: number;
+  displayedRunAttempt: number;
+  onSelect: (runAttempt: number) => void;
+}) {
+  const attempts = Array.from({ length: currentRunAttempt }, (_, index) => currentRunAttempt - index);
+  return (
+    <select
+      aria-label="Run attempt"
+      value={displayedRunAttempt}
+      onChange={(event) => onSelect(Number(event.target.value))}
+    >
+      {attempts.map((attempt) => (
+        <option key={attempt} value={attempt}>
+          {attempt === currentRunAttempt ? `${attempt} (current)` : String(attempt)}
+        </option>
+      ))}
+    </select>
   );
 }

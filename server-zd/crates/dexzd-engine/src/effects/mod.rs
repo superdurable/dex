@@ -629,6 +629,20 @@ impl EffectRouter {
                     self.spawn_tracked(flow, work);
                 }
             }
+            // The Attribute Sync projector reads the pending index itself.
+            ApplyEffect::AttributeSyncPending { .. } => {}
+            ApplyEffect::AttributeSyncDropped {
+                run_id,
+                store_name,
+                attribute_keys,
+            } => {
+                tracing::warn!(
+                    %run_id,
+                    store_name,
+                    dropped_attribute_count = attribute_keys.len(),
+                    "Attribute Store sync retries were exhausted; dropped the pending entries"
+                );
+            }
             ApplyEffect::HardDeleteObjectsPending { run_id, .. } => {
                 self.spawn_tracked(flow, TrackedWork::HardDeleteObjects { run_id });
             }

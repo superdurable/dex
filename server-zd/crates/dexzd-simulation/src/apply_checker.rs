@@ -22,7 +22,7 @@ use prost::Message;
 use crate::invalid_client_inputs::{check_invalid_client_input_rejected, invalid_client_input};
 use crate::invariants::{
     CheckerMemory, InvariantViolation, WindowPointState, check_flow, check_fresh_snapshot,
-    check_window_value_content, remember_window_points,
+    check_outbox_writes, check_window_value_content, remember_ack, remember_window_points,
 };
 use crate::memory_state::MemoryFlowState;
 use crate::state_view::{FlowView, RunSelection};
@@ -146,6 +146,7 @@ impl ApplyChecker {
         if is_applied {
             self.record_applied_result(command)?;
         }
+        check_outbox_writes(command, &outcome.writes, &self.state)?;
         self.state.commit(&outcome.writes);
         self.applied_commands += 1;
         self.redecoded_state
@@ -173,6 +174,11 @@ impl ApplyChecker {
             context.flow_hash,
         )?;
         Ok(outcome)
+    }
+
+    /// Returns every applied Attribute Sync ack, by run, store, and key.
+    pub(crate) fn attribute_sync_acks(&self) -> &crate::invariants::AttributeSyncAcks {
+        &self.memory.attribute_sync_acks
     }
 
     /// Returns how many commands the checker has applied.
@@ -311,6 +317,11 @@ impl ApplyChecker {
                     .is_ok_and(|run_id| view.runs.contains_key(&run_id)) =>
             {
                 self.remember_genesis_values(&inbox.new_run_id, view)?;
+            }
+            Some(Command::AttributeSyncAck(ack)) => {
+                let run_id = RunId::from_slice(&command.run_id)
+                    .map_err(|error| InvariantViolation::new("apply-error", error.to_string()))?;
+                remember_ack(&mut self.memory.attribute_sync_acks, run_id, ack);
             }
             Some(Command::StepAttemptStarted(started)) => {
                 let run_id = RunId::from_slice(&command.run_id)

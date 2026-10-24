@@ -72,7 +72,7 @@ export function RunSearch({
           onChange={(event) => set({ status: event.target.value })}
         >
           <option value="">{SEARCH_COPY.anyStatus}</option>
-          {statusOptions().map((status) => <option key={status} value={status}>{status}</option>)}
+          {statusOptions().map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
         </select>
         <select
           aria-label={SEARCH_COPY.sinceLabel}

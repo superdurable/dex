@@ -212,14 +212,14 @@ function KeyValueListStructured({ value }: { value: unknown }) {
 }
 
 function ChannelValues({ value }: { value: unknown }) {
-  const values = asDataArray(asData(value).values);
-  if (values.length === 0) return <ValueChip value={value} />;
+  const messages = asDataArray(asData(value).messages);
+  if (messages.length === 0) return <ValueChip value={value} />;
   return (
     <div className="semantic-records semantic-channel-values">
-      {values.map((message, index) => (
+      {messages.map((message, index) => (
         <div className="semantic-record" key={index}>
           <strong>Message {index + 1}</strong>
-          <div className="semantic-value"><ValueChip value={message} /></div>
+          <div className="semantic-value"><ValueChip value={message.value} /></div>
         </div>
       ))}
     </div>

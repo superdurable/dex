@@ -386,9 +386,9 @@ interface PendingChannelEntry {
 function pendingChannelEntries(channels: Record<string, unknown>): PendingChannelEntry[] {
   return Object.entries(channels).flatMap(([channelName, entry]) => {
     if (typeof entry !== 'object' || entry === null) return [];
-    const values = 'values' in entry ? (entry as { values?: unknown }).values : undefined;
-    if (!Array.isArray(values)) return [];
-    return values.flatMap((message) => {
+    const messages = 'messages' in entry ? (entry as { messages?: unknown }).messages : undefined;
+    if (!Array.isArray(messages)) return [];
+    return messages.flatMap((message) => {
       if (typeof message !== 'object' || message === null) return [];
       const envelope = message as { messageId?: unknown; value?: unknown };
       if (typeof envelope.messageId !== 'string' || envelope.messageId.length === 0) return [];

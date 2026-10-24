@@ -60,6 +60,7 @@ message FlowCommand {
     TimeTravelCommand time_travel = 60;
     InboxMessageCommand inbox_message = 70;
     OutboxAckCommand outbox_ack = 71;
+    AttributeSyncAckCommand attribute_sync_ack = 72;
     HardDeleteObjectsDeletedCommand hard_delete_objects_deleted = 80;
     RunPurgeCommand run_purge = 81;
   }
@@ -340,6 +341,17 @@ message InboxMessageCommand {
 // The receiver committed these outbox messages; the sender stops redelivering them.
 message OutboxAckCommand {
   repeated bytes message_ids = 1;
+}
+
+// The projector wrote, or dropped, a run's Attribute Sync entries of one store.
+message AttributeSyncAckCommand {
+  string store_name = 1;
+  // Entries whose written_seq is at most this are deleted; later markings stay pending.
+  uint64 acked_seq = 2;
+  // Restricts the ack to these Attribute keys; empty means every entry of the store.
+  repeated string attribute_keys = 3;
+  // True when retries were exhausted and the entries were dropped without being written.
+  bool is_dropped = 4;
 }
 
 // The owner deleted these hard-delete objects from object storage.

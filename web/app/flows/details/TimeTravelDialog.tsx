@@ -7,14 +7,22 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import type { TimezonePreference } from '@/lib/format';
 import { readResponseJSON } from '@/lib/http';
 import {
   eventTimeTravelTarget,
+  historyEventTimeFromLocalInput,
+  positiveRunAttempt,
   TIME_TRAVEL_STEP_METHOD,
   TIME_TRAVEL_TYPE,
 } from '@/lib/timeTravel';
 import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
+
+/** The run a time travel created. Servers with run attempts keep the run ID and return a new attempt. */
+export interface TimeTravelResult {
+  runId: string;
+  runAttempt: number;
+}
 
 const timeTravelTypes = [
   { value: TIME_TRAVEL_TYPE.BEGINNING, label: 'Beginning' },
@@ -28,15 +36,22 @@ export function TimeTravelDialog({
   summary,
   events,
   initialEvent,
+  runAttempt,
+  timezone,
   onClose,
+  onTimeTraveled,
 }: {
   open: boolean;
   summary: FlowSummary;
   events: FlowHistoryEvent[];
   initialEvent: FlowHistoryEvent | null;
+  /** The run attempt whose history is shown; 0 selects the current one. */
+  runAttempt: number;
+  timezone: TimezonePreference;
   onClose: () => void;
+  onTimeTraveled: (result: TimeTravelResult) => void;
 }) {
-  const navigate = useNavigate();
+  const hasRunAttempts = positiveRunAttempt(summary.runAttempt) > 0;
   const initialTarget = eventTimeTravelTarget(initialEvent);
   const [timeTravelType, setTimeTravelType] = useState<number>(() => (
     initialTarget ? TIME_TRAVEL_TYPE.STEP_EXECUTION_ID : TIME_TRAVEL_TYPE.BEGINNING
@@ -76,20 +91,23 @@ export function TimeTravelDialog({
       timeTravelType,
       reason,
     };
-    if (timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME) payload.historyEventTime = target;
+    if (timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME) {
+      payload.historyEventTime = historyEventTimeFromLocalInput(target, timezone);
+    }
     if (timeTravelType === TIME_TRAVEL_TYPE.STEP_TYPE) payload.stepType = target;
     if (timeTravelType === TIME_TRAVEL_TYPE.STEP_EXECUTION_ID) {
       payload.stepExecutionId = target;
       payload.stepMethod = stepMethod;
     }
+    if (runAttempt > 0) payload.runAttempt = runAttempt;
     try {
       const response = await fetch('/api/flows/time-travel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await readResponseJSON<{ runId?: string }>(response);
-      navigate(`/v1/flows/${encodeURIComponent(summary.flowId)}/${encodeURIComponent(data.runId || '')}`);
+      const data = await readResponseJSON<{ runId?: string; runAttempt?: number }>(response);
+      onTimeTraveled({ runId: data.runId || summary.runId, runAttempt: positiveRunAttempt(data.runAttempt) });
       onClose();
     } catch (timeTravelError) {
       setError(timeTravelError instanceof Error ? timeTravelError.message : 'Time travel failed');
@@ -102,12 +120,17 @@ export function TimeTravelDialog({
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <div className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
-          <div><p className="eyebrow">New Flow run</p><h2>Time travel</h2></div>
+          <div><p className="eyebrow">{hasRunAttempts ? 'New run attempt' : 'New Flow run'}</p><h2>Time travel</h2></div>
           <button className="icon-button" onClick={onClose}>×</button>
         </div>
         <p>
-          Time travel creates a new run from a selected Dex point. The current run remains available in history.
+          {hasRunAttempts
+            ? 'Time travel creates a new run attempt from a selected Dex point. Earlier run attempts remain available in history.'
+            : 'Time travel creates a new run from a selected Dex point. The current run remains available in history.'}
         </p>
+        {runAttempt > 0 && (
+          <p className="muted">Searching the history of run attempt {runAttempt}.</p>
+        )}
         <label>
           Time travel point
           <select value={timeTravelType} onChange={(event) => {
@@ -120,7 +143,9 @@ export function TimeTravelDialog({
         </label>
         {timeTravelType !== TIME_TRAVEL_TYPE.BEGINNING && (
           <label>
-            Target
+            {timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME
+              ? `Target (${timezone === 'UTC' ? 'UTC' : 'local time'})`
+              : 'Target'}
             {timeTravelType === TIME_TRAVEL_TYPE.STEP_TYPE ? (
               <>
                 <input list="time-travel-step-types" value={target} onChange={(event) => setTarget(event.target.value)} />
@@ -129,6 +154,7 @@ export function TimeTravelDialog({
             ) : (
               <input
                 type={timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME ? 'datetime-local' : 'text'}
+                step={timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME ? 1 : undefined}
                 value={target}
                 onChange={(event) => setTarget(event.target.value)}
               />
@@ -157,6 +183,8 @@ export function TimeTravelDialog({
             disabled={submitting
               || !reason.trim()
               || (timeTravelType !== TIME_TRAVEL_TYPE.BEGINNING && !target)
+              || (timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME
+                && !historyEventTimeFromLocalInput(target, timezone))
               || (timeTravelType === TIME_TRAVEL_TYPE.STEP_EXECUTION_ID && stepMethod === 0)}
             onClick={() => void submit()}
           >
