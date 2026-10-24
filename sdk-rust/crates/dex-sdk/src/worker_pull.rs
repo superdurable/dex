@@ -35,6 +35,8 @@ use crate::worker::worker_error_response;
 use crate::worker_dispatcher::WorkerDispatcher;
 use crate::{PullWorkerOptions, SdkError, SdkResult};
 
+mod reconnect;
+
 const DRAINING: u8 = 1;
 const FORCED: u8 = 2;
 
@@ -57,6 +59,7 @@ pub(crate) fn outbound_task_channel(
 pub(crate) struct PullWorker {
     dispatcher: WorkerDispatcher,
     client: WorkerTaskServiceClient<CredentialChannel>,
+    credential: Option<Arc<dyn Credential>>,
     app_worker_id: String,
     flow_types: Vec<String>,
     queues: Vec<String>,
@@ -177,6 +180,7 @@ impl PullWorker {
             .collect();
         Ok(Self {
             dispatcher: dispatcher.clone(),
+            credential: channel.credential(),
             client: WorkerTaskServiceClient::new(channel),
             app_worker_id,
             flow_types,
@@ -335,6 +339,7 @@ impl PullWorker {
                 );
                 let worker = PullStream {
                     client: self.client.clone(),
+                    credential: self.credential.clone(),
                     dispatcher: self.dispatcher.clone(),
                     app_worker_id: self.app_worker_id.clone(),
                     flow_types: self.flow_types.clone(),
@@ -355,6 +360,7 @@ impl PullWorker {
 
 struct PullStream {
     client: WorkerTaskServiceClient<CredentialChannel>,
+    credential: Option<Arc<dyn Credential>>,
     dispatcher: WorkerDispatcher,
     app_worker_id: String,
     flow_types: Vec<String>,
@@ -369,57 +375,6 @@ struct PullStream {
 }
 
 impl PullStream {
-    async fn run(mut self) {
-        let _registration = StreamRegistration {
-            shared: Arc::clone(&self.shared),
-            stream_id: self.stream_id,
-        };
-        let mut backoff = Duration::from_millis(100);
-        loop {
-            if self.stop.borrow().phase != 0 {
-                break;
-            }
-            let (was_registered, is_reconnecting, result) = self.poll().await;
-            if self.stop.borrow().phase != 0 || self.shared.is_retiring(self.stream_id) {
-                break;
-            }
-            if was_registered || is_reconnecting {
-                backoff = Duration::from_millis(100);
-            }
-            let has_permanent_error = result
-                .as_ref()
-                .is_err_and(|status| is_permanent(status.code()));
-            match &result {
-                Err(status) if status.code() == Code::Unimplemented => {
-                    let mut state = self.shared.state.lock().expect("pull state lock");
-                    if !state.logged_unsupported {
-                        state.logged_unsupported = true;
-                        tracing::error!(%status, "pull Worker polling is unsupported by this Dex server");
-                    }
-                    backoff = Duration::from_secs(60);
-                }
-                Err(status) if is_permanent(status.code()) => {
-                    tracing::error!(%status, queue = %self.queue, "Worker task stream rejected");
-                    backoff = Duration::from_secs(60);
-                }
-                Err(status) => {
-                    tracing::warn!(%status, queue = %self.queue, "Worker task stream disconnected");
-                }
-                Ok(()) => {}
-            }
-            let jitter = Duration::from_millis(
-                (uuid::Uuid::new_v4().as_u128() as u64) % (backoff.as_millis() as u64 / 2).max(1),
-            );
-            tokio::select! {
-                () = sleep(backoff + jitter) => {}
-                change = self.stop.changed() => { if change.is_err() || self.stop.borrow().phase != 0 { break; } }
-            }
-            if !has_permanent_error {
-                backoff = (backoff * 2).min(Duration::from_secs(5));
-            }
-        }
-    }
-
     async fn poll(&mut self) -> (bool, bool, Result<(), Status>) {
         self.is_registered = false;
         self.has_recorded_result = false;
@@ -2162,6 +2117,7 @@ mod tests {
             });
             let mut stream = PullStream {
                 client: WorkerTaskServiceClient::new(channel),
+                credential: None,
                 dispatcher,
                 app_worker_id: "worker-1".to_string(),
                 flow_types: Vec::new(),
@@ -2377,6 +2333,7 @@ mod tests {
         });
         let mut stream = PullStream {
             client: WorkerTaskServiceClient::new(channel),
+            credential: None,
             dispatcher,
             app_worker_id: "worker".to_string(),
             flow_types: Vec::new(),
