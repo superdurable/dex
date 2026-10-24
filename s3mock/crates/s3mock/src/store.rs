@@ -25,7 +25,10 @@ use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicI64;
 
-use redb::{Database, ReadableTable, Table, TableDefinition, WriteTransaction};
+use redb::{
+    Database, ReadOnlyDatabase, ReadableDatabase, ReadableTable, Table, TableDefinition,
+    TableError, WriteTransaction,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use ulid::Ulid;
@@ -53,6 +56,13 @@ pub use object_read::{
 };
 pub use object_write::{PutObjectOutcome, PutObjectRequest, WriteCondition};
 
+/// Holds the format version; never change its name or types, since older versions read it to
+/// refuse newer stores.
+const STORE_FORMAT: TableDefinition<&str, u64> = TableDefinition::new("store_format");
+const STORE_FORMAT_VERSION_KEY: &str = "version";
+/// The metadata layout version this s3mock reads and writes; stores predating the version marker
+/// are version 1.
+pub const CURRENT_STORE_FORMAT_VERSION: u64 = 1;
 const BUCKETS: TableDefinition<&str, &[u8]> = TableDefinition::new("buckets");
 const CREDENTIALS: TableDefinition<&str, &[u8]> = TableDefinition::new("credentials");
 /// Every version and delete marker, keyed by `encode_version_key`, newest first per key.
@@ -128,18 +138,30 @@ impl Store {
     }
 
     /// Opens or creates a store, removing temporary files left by an earlier process.
+    ///
+    /// Fails with [`StoreError::UnsupportedStoreFormatVersion`], leaving stored data unchanged,
+    /// when the directory holds a store format version other than
+    /// [`CURRENT_STORE_FORMAT_VERSION`].
     pub fn open(config: &StoreConfig) -> Result<Store, StoreError> {
         let data_directory = config.root_directory.join(DATA_DIRECTORY_NAME);
         let temporary_directory = config.root_directory.join(TEMPORARY_DIRECTORY_NAME);
         let is_durable = config.durability == Durability::Strict;
         create_directory_durably(&config.root_directory, is_durable)?;
-        create_directory_durably(&data_directory, is_durable)?;
-        create_directory_durably(&temporary_directory, is_durable)?;
-        let database = Database::create(config.root_directory.join(METADATA_FILE_NAME))?;
+        let metadata_path = config.root_directory.join(METADATA_FILE_NAME);
+        // A writable open rewrites the redb header, so refuse unsupported stores read-only first.
+        if metadata_path.try_exists()? {
+            check_store_format_version_read_only(&metadata_path, &config.root_directory)?;
+        }
+        let database = Database::create(&metadata_path)?;
         // redb flushes file contents, not the directory entry of a newly created database file.
         if is_durable {
             crate::data_file::sync_directory(&config.root_directory)?;
         }
+        // Checked before `Store` exists, because its drop commits in relaxed mode.
+        let is_format_version_stamped =
+            check_store_format_version(&database, &config.root_directory)?;
+        create_directory_durably(&data_directory, is_durable)?;
+        create_directory_durably(&temporary_directory, is_durable)?;
         let mut version_generator = ulid::Generator::new();
         let opened_at = version_generator
             .generate()
@@ -154,12 +176,13 @@ impl Store {
             opened_at_unix_ms: opened_at.timestamp_ms(),
             lifecycle_clock_offset_ms: AtomicI64::new(0),
         };
-        store.create_tables()?;
+        store.create_tables(is_format_version_stamped)?;
         store.remove_temporary_files()?;
         Ok(store)
     }
 
-    fn create_tables(&self) -> Result<(), StoreError> {
+    /// Creates missing tables and stamps the current format version on an unstamped store.
+    fn create_tables(&self, is_format_version_stamped: bool) -> Result<(), StoreError> {
         let transaction = self.begin_write()?;
         transaction.open_table(BUCKETS)?;
         transaction.open_table(CREDENTIALS)?;
@@ -168,6 +191,12 @@ impl Store {
         transaction.open_table(UPLOADS)?;
         transaction.open_table(PARTS)?;
         transaction.open_table(ABORTED_UPLOADS)?;
+        {
+            let mut store_format = transaction.open_table(STORE_FORMAT)?;
+            if !is_format_version_stamped {
+                store_format.insert(STORE_FORMAT_VERSION_KEY, CURRENT_STORE_FORMAT_VERSION)?;
+            }
+        }
         transaction.commit()?;
         Ok(())
     }
@@ -225,6 +254,49 @@ impl Drop for Store {
         if let Err(error) = flushed {
             tracing::warn!(%error, "failed to flush relaxed metadata commits on close");
         }
+    }
+}
+
+/// Checks the format version without writing, when redb can open the file read-only.
+///
+/// Returns [`StoreError::UnsupportedStoreFormatVersion`] for an unsupported recorded version, and
+/// `Ok(())` otherwise, including when only a writable open can read the file.
+fn check_store_format_version_read_only(
+    metadata_path: &Path,
+    root_directory: &Path,
+) -> Result<(), StoreError> {
+    match ReadOnlyDatabase::open(metadata_path) {
+        Ok(database) => check_store_format_version(&database, root_directory).map(|_| ()),
+        Err(error) => {
+            // Repair after a crash needs a writable open; the check after it still refuses.
+            tracing::debug!(%error, "deferring the store format check to the writable open");
+            Ok(())
+        }
+    }
+}
+
+/// Returns whether the store already records the current format version.
+///
+/// Returns `Ok(false)` for a new store or one written before format versions existed; both use
+/// version 1. Returns [`StoreError::UnsupportedStoreFormatVersion`] for any other recorded version.
+fn check_store_format_version(
+    database: &impl ReadableDatabase,
+    root_directory: &Path,
+) -> Result<bool, StoreError> {
+    let transaction = database.begin_read()?;
+    let store_format = match transaction.open_table(STORE_FORMAT) {
+        Ok(table) => table,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    match store_format.get(STORE_FORMAT_VERSION_KEY)? {
+        None => Ok(false),
+        Some(version) if version.value() == CURRENT_STORE_FORMAT_VERSION => Ok(true),
+        Some(version) => Err(StoreError::UnsupportedStoreFormatVersion {
+            root_directory: root_directory.to_path_buf(),
+            found: version.value(),
+            supported: CURRENT_STORE_FORMAT_VERSION,
+        }),
     }
 }
 

@@ -29,7 +29,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         durability: config.durability.into(),
         etag_mode: config.etag_mode.into(),
     };
-    let store = Arc::new(tokio::task::spawn_blocking(move || Store::open(&store_config)).await??);
+    let store = match tokio::task::spawn_blocking(move || Store::open(&store_config)).await? {
+        Ok(store) => Arc::new(store),
+        Err(error) => {
+            // The returned error prints in Debug form, which hides the remedy in the message.
+            tracing::error!(%error, "failed to open the store");
+            return Err(error.into());
+        }
+    };
     let listener = tokio::net::TcpListener::bind(config.listen_address).await?;
     let server = s3mock_server::start_with_config(Arc::clone(&store), listener, config.clone())?;
     tracing::info!(

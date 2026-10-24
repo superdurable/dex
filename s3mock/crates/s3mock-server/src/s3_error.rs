@@ -161,6 +161,7 @@ impl From<StoreError> for S3Error {
                 S3Error::new(StatusCode::BAD_REQUEST, "EntityTooSmall", message)
             }
             StoreError::CorruptDataFile { .. }
+            | StoreError::UnsupportedStoreFormatVersion { .. }
             | StoreError::Metadata(_)
             | StoreError::CorruptMetadata(_)
             | StoreError::Io(_) => {

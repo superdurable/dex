@@ -24,11 +24,12 @@ pub use record::{
     UploadRecord, VersionRecord, VersioningState,
 };
 pub use store::{
-    ByteRangeRequest, CompleteMultipartUploadRequest, CompletedPart, CreateMultipartUploadRequest,
-    CredentialRecord, CredentialStatus, DeleteObjectOutcome, DeleteObjectRequest, Durability,
-    EtagMode, LifecycleRun, ListMultipartUploadsRequest, ListObjectVersionsPage,
-    ListObjectVersionsRequest, ListObjectsPage, ListObjectsRequest, ListPartsRequest, ListedObject,
-    ListedVersion, MAX_KEYS_LIMIT, MAX_PART_NUMBER, MultipartUploadsPage, ObjectBody,
-    ObjectReadRequest, ObjectSelection, OrphanCollection, PartsPage, PutObjectOutcome,
-    PutObjectRequest, ReadConditions, ResolvedRange, Store, StoreConfig, WriteCondition,
+    ByteRangeRequest, CURRENT_STORE_FORMAT_VERSION, CompleteMultipartUploadRequest, CompletedPart,
+    CreateMultipartUploadRequest, CredentialRecord, CredentialStatus, DeleteObjectOutcome,
+    DeleteObjectRequest, Durability, EtagMode, LifecycleRun, ListMultipartUploadsRequest,
+    ListObjectVersionsPage, ListObjectVersionsRequest, ListObjectsPage, ListObjectsRequest,
+    ListPartsRequest, ListedObject, ListedVersion, MAX_KEYS_LIMIT, MAX_PART_NUMBER,
+    MultipartUploadsPage, ObjectBody, ObjectReadRequest, ObjectSelection, OrphanCollection,
+    PartsPage, PutObjectOutcome, PutObjectRequest, ReadConditions, ResolvedRange, Store,
+    StoreConfig, WriteCondition,
 };
