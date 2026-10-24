@@ -21,41 +21,55 @@ import (
 
 const serverEngineLookupTimeout = 2 * time.Second
 
-// serverEngineResolver reports the engine behind the FlowService and caches the first definitive answer.
-type serverEngineResolver struct {
+// ServerEngineResolver reports the engine behind the FlowService and caches the first definitive answer.
+type ServerEngineResolver struct {
 	client     dexpb.FlowServiceClient
 	mutex      sync.Mutex
 	engine     dexpb.ServerEngine
 	isResolved bool
 }
 
-func newServerEngineResolver(client dexpb.FlowServiceClient) *serverEngineResolver {
+// NewServerEngineResolver returns a resolver that looks up the engine on first use.
+func NewServerEngineResolver(client dexpb.FlowServiceClient) *ServerEngineResolver {
 	if client == nil {
 		panic("Dex FlowService client must not be nil")
 	}
-	return &serverEngineResolver{client: client}
+	return &ServerEngineResolver{client: client}
 }
 
-// resolveServerEngine returns SERVER_ENGINE_UNSPECIFIED while the FlowService cannot answer.
+// ResolveServerEngine returns SERVER_ENGINE_UNSPECIFIED while the FlowService cannot answer.
 // Servers released before GetServerInfo existed are Go Servers and also return SERVER_ENGINE_UNSPECIFIED.
-func (r *serverEngineResolver) resolveServerEngine(ctx context.Context) dexpb.ServerEngine {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	if r.isResolved {
-		return r.engine
+func (r *ServerEngineResolver) ResolveServerEngine(ctx context.Context) dexpb.ServerEngine {
+	if engine, isResolved := r.cachedServerEngine(); isResolved {
+		return engine
 	}
+	// The lookup runs unlocked so a slow FlowService does not serialize concurrent requests.
 	lookupContext, cancel := context.WithTimeout(ctx, serverEngineLookupTimeout)
 	defer cancel()
 	serverInfo, err := r.client.GetServerInfo(lookupContext, &emptypb.Empty{})
 	if status.Code(err) == codes.Unimplemented {
-		r.engine, r.isResolved = dexpb.ServerEngine_SERVER_ENGINE_UNSPECIFIED, true
-		return r.engine
+		return r.cacheServerEngine(dexpb.ServerEngine_SERVER_ENGINE_UNSPECIFIED)
 	}
 	if err != nil {
 		// Web-only Dex can start before the FlowService; definition pages must not fail, so retry next request.
 		return dexpb.ServerEngine_SERVER_ENGINE_UNSPECIFIED
 	}
-	r.engine, r.isResolved = serverInfo.GetServerEngine(), true
+	return r.cacheServerEngine(serverInfo.GetServerEngine())
+}
+
+func (r *ServerEngineResolver) cachedServerEngine() (dexpb.ServerEngine, bool) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	return r.engine, r.isResolved
+}
+
+// cacheServerEngine keeps the first cached answer when concurrent lookups race.
+func (r *ServerEngineResolver) cacheServerEngine(engine dexpb.ServerEngine) dexpb.ServerEngine {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if !r.isResolved {
+		r.engine, r.isResolved = engine, true
+	}
 	return r.engine
 }
 

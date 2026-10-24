@@ -182,7 +182,7 @@ type v2Handler struct {
 	isStartFlowWorkerTargetHeadless bool
 	isStartFlowWorkerTargetPull     bool
 	checkStartFlowWorkerHealth      V2WorkerHealthChecker
-	serverEngine                    *serverEngineResolver
+	serverEngine                    *ServerEngineResolver
 }
 
 // V2DefinitionSnapshot is one request's immutable catalog revision.
@@ -300,7 +300,7 @@ func RegisterDynamicV2Handlers(
 		isStartFlowWorkerTargetHeadless: config.IsStartFlowWorkerTargetHeadless,
 		isStartFlowWorkerTargetPull:     config.IsStartFlowWorkerTargetPull,
 		checkStartFlowWorkerHealth:      config.WorkerHealthChecker,
-		serverEngine:                    newServerEngineResolver(client),
+		serverEngine:                    NewServerEngineResolver(client),
 	}
 	if handler.checkStartFlowWorkerHealth == nil {
 		handler.checkStartFlowWorkerHealth = checkV2WorkerPortHealth
@@ -336,7 +336,7 @@ func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request)
 		"flows":                     entries,
 		"definitionRevision":        snapshot.Revision,
 		"startFlowWorkerTargetPull": h.isStartFlowWorkerTargetPull,
-		"serverEngine":              serverEngineName(h.serverEngine.resolveServerEngine(request.Context())),
+		"serverEngine":              serverEngineName(h.serverEngine.ResolveServerEngine(request.Context())),
 	})
 }
 

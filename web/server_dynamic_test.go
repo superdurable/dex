@@ -26,12 +26,20 @@ type readinessFlowServiceClient struct {
 	err error
 }
 
-func (c readinessFlowServiceClient) HealthCheck(
+func (c readinessFlowServiceClient) GetServerInfo(
 	context.Context,
 	*emptypb.Empty,
 	...grpc.CallOption,
-) (*dexpb.HealthInfo, error) {
-	return &dexpb.HealthInfo{Condition: "OK"}, c.err
+) (*dexpb.ServerInfo, error) {
+	return &dexpb.ServerInfo{}, c.err
+}
+
+func (c readinessFlowServiceClient) SearchFlows(
+	context.Context,
+	*dexpb.SearchFlowsRequest,
+	...grpc.CallOption,
+) (*dexpb.SearchFlowsResponse, error) {
+	return &dexpb.SearchFlowsResponse{}, c.err
 }
 
 type failingFlowDefinitionProvider struct{}

@@ -210,6 +210,10 @@ func serveFlowDefinitions(provider FlowDefinitionProvider) http.HandlerFunc {
 }
 
 func readinessHandler(client dexpb.FlowServiceClient, provider FlowDefinitionProvider) http.HandlerFunc {
+	var serverEngineResolver *api.ServerEngineResolver
+	if client != nil {
+		serverEngineResolver = api.NewServerEngineResolver(client)
+	}
 	return func(response http.ResponseWriter, request *http.Request) {
 		snapshot, err := provider.Load(request.Context())
 		if err != nil {
@@ -217,8 +221,7 @@ func readinessHandler(client dexpb.FlowServiceClient, provider FlowDefinitionPro
 			return
 		}
 		if client != nil {
-			// A search can exceed a builtin visibility scan budget, so readiness only checks reachability.
-			if _, err := client.HealthCheck(request.Context(), &emptypb.Empty{}); err != nil {
+			if err := checkFlowServiceReadiness(request.Context(), client, serverEngineResolver); err != nil {
 				api.WriteCodedError(response, http.StatusServiceUnavailable, "FLOW_SERVICE_UNAVAILABLE", "Dex FlowService is unavailable")
 				return
 			}
@@ -231,6 +234,21 @@ func readinessHandler(client dexpb.FlowServiceClient, provider FlowDefinitionPro
 			"definitionCount":    snapshot.DefinitionCount,
 		})
 	}
+}
+
+// checkFlowServiceReadiness searches on the Go Server because its HealthCheck does not reach Temporal or Cadence.
+func checkFlowServiceReadiness(
+	ctx context.Context,
+	client dexpb.FlowServiceClient,
+	serverEngineResolver *api.ServerEngineResolver,
+) error {
+	if serverEngineResolver.ResolveServerEngine(ctx) == dexpb.ServerEngine_SERVER_ENGINE_ZD {
+		// A server-zd search can exceed a builtin visibility scan budget.
+		_, err := client.HealthCheck(ctx, &emptypb.Empty{})
+		return err
+	}
+	_, err := client.SearchFlows(ctx, &dexpb.SearchFlowsRequest{PageSize: 1})
+	return err
 }
 
 func writeFlowDefinitionSourceError(response http.ResponseWriter, err error) {

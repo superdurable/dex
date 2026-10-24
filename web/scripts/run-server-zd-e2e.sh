@@ -8,13 +8,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-# Runs Dex Web end to end against server-zd: a web-only Go Dex Server whose FlowService target is
-# `dex-server-zd dev`, and the Go SDK pull Worker from sdk-go/integ.
-#
-# Requirements:
-#   DEX_SERVER_ZD_BINARY  path to a dex-server-zd binary, for example from
-#                         gh release download server-zd/v0.1.1 -R superdurable/dex -p '*darwin_arm64*'
-#   web/assets/dist       built Dex Web assets (cd web && npm ci && npm run build)
+# Runs Dex Web end to end against `dex-server-zd dev`. Needs DEX_SERVER_ZD_BINARY and built web/assets/dist.
 
 set -euo pipefail
 

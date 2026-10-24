@@ -727,6 +727,7 @@ func TestV2StartFlowRejectsBrowserRoutingOverrideAndInvalidInput(t *testing.T) {
 func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 	for _, testCase := range []struct {
 		name           string
+		serverEngine   dexpb.ServerEngine
 		workerTarget   string
 		isDefaultPull  bool
 		isHeadless     bool
@@ -742,6 +743,8 @@ func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 		{name: "both", workerTarget: `"workerTargetAddress":"worker:9000","workerTargetPull":true,`, wantStatus: http.StatusBadRequest},
 		{name: "both with empty address", workerTarget: `"workerTargetAddress":"","workerTargetPull":true,`, wantStatus: http.StatusBadRequest},
 		{name: "neither", wantStatus: http.StatusBadRequest, wantError: "workerTargetAddress or workerTargetPull is required"},
+		{name: "neither on Temporal", serverEngine: dexpb.ServerEngine_SERVER_ENGINE_TEMPORAL, wantStatus: http.StatusBadRequest, wantError: "workerTargetAddress or workerTargetPull is required"},
+		{name: "neither on Cadence", serverEngine: dexpb.ServerEngine_SERVER_ENGINE_CADENCE, wantStatus: http.StatusBadRequest, wantError: "workerTargetAddress or workerTargetPull is required"},
 		{name: "explicit false without address", workerTarget: `"workerTargetPull":false,`, wantStatus: http.StatusBadRequest, wantError: "workerTargetAddress or workerTargetPull is required"},
 		{name: "default pull", isDefaultPull: true, wantStatus: http.StatusOK, wantPull: true},
 		{name: "explicit empty address does not use pull default", workerTarget: `"workerTargetAddress":"",`, isDefaultPull: true, wantStatus: http.StatusBadRequest},
@@ -754,7 +757,7 @@ func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 		{name: "both with pull default", workerTarget: `"workerTargetAddress":"worker:9000","workerTargetPull":true,`, isDefaultPull: true, wantStatus: http.StatusBadRequest},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			client := &v2TestClient{}
+			client := &v2TestClient{serverEngine: testCase.serverEngine}
 			definition := testV2Definition()
 			definition.Start = testV2StartDefinition()
 			healthCalls := 0
@@ -770,7 +773,9 @@ func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 				},
 			})
 			catalog := performV2JSON(t, mux, http.MethodGet, "/api/v2/catalog", "")
-			if catalog.Code != http.StatusOK || !strings.Contains(catalog.Body.String(), fmt.Sprintf(`"startFlowWorkerTargetPull":%t`, testCase.isDefaultPull)) {
+			if catalog.Code != http.StatusOK ||
+				!strings.Contains(catalog.Body.String(), fmt.Sprintf(`"startFlowWorkerTargetPull":%t`, testCase.isDefaultPull)) ||
+				!strings.Contains(catalog.Body.String(), fmt.Sprintf(`"serverEngine":%q`, serverEngineName(testCase.serverEngine))) {
 				t.Fatalf("catalog = %d %q", catalog.Code, catalog.Body.String())
 			}
 			body := `{"flowType":"RefundFlow","flowId":"new",` + testCase.workerTarget + `"input":{"count":1,"labels":[]}}`
@@ -883,6 +888,48 @@ func TestV2CatalogServerEngineSurvivesUnavailableFlowService(t *testing.T) {
 	}
 	if legacyClient.serverInfoCalls != 1 {
 		t.Fatalf("legacy GetServerInfo calls = %d", legacyClient.serverInfoCalls)
+	}
+}
+
+type blockingServerInfoClient struct {
+	dexpb.FlowServiceClient
+	lookups chan struct{}
+	release chan struct{}
+}
+
+func (client *blockingServerInfoClient) GetServerInfo(
+	context.Context,
+	*emptypb.Empty,
+	...grpc.CallOption,
+) (*dexpb.ServerInfo, error) {
+	client.lookups <- struct{}{}
+	<-client.release
+	return &dexpb.ServerInfo{ServerEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}, nil
+}
+
+func TestServerEngineResolverDoesNotSerializeLookups(t *testing.T) {
+	client := &blockingServerInfoClient{lookups: make(chan struct{}, 2), release: make(chan struct{})}
+	releaseLookups := sync.OnceFunc(func() { close(client.release) })
+	defer releaseLookups()
+	resolver := NewServerEngineResolver(client)
+	engines := make(chan dexpb.ServerEngine, 2)
+	for range 2 {
+		go func() {
+			engines <- resolver.ResolveServerEngine(context.Background())
+		}()
+	}
+	for range 2 {
+		select {
+		case <-client.lookups:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a GetServerInfo lookup waited for another lookup to finish")
+		}
+	}
+	releaseLookups()
+	for range 2 {
+		if engine := <-engines; engine != dexpb.ServerEngine_SERVER_ENGINE_ZD {
+			t.Fatalf("server engine = %s", engine)
+		}
 	}
 }
 

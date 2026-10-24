@@ -14,16 +14,12 @@ import (
 	"testing"
 
 	"github.com/superdurable/dex/gen/dexpb"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type runAttemptFlowService struct {
 	dexpb.UnimplementedFlowServiceServer
 	historyRequests    chan *dexpb.GetHistoryEventsRequest
 	timeTravelRequests chan *dexpb.ResetFlowRequest
-	healthCheckErr     error
 }
 
 func (s *runAttemptFlowService) GetFlowSummary(
@@ -74,20 +70,6 @@ func (s *runAttemptFlowService) ResetFlow(
 ) (*dexpb.ResetFlowResponse, error) {
 	s.timeTravelRequests <- request
 	return &dexpb.ResetFlowResponse{RunId: request.GetRunId(), RunAttempt: 4}, nil
-}
-
-func (s *runAttemptFlowService) SearchFlows(
-	context.Context,
-	*dexpb.SearchFlowsRequest,
-) (*dexpb.SearchFlowsResponse, error) {
-	return nil, status.Error(codes.ResourceExhausted, "visibility scan budget exceeded")
-}
-
-func (s *runAttemptFlowService) HealthCheck(context.Context, *emptypb.Empty) (*dexpb.HealthInfo, error) {
-	if s.healthCheckErr != nil {
-		return nil, s.healthCheckErr
-	}
-	return &dexpb.HealthInfo{Condition: "OK"}, nil
 }
 
 func TestWebServerReadsRunAttemptHistory(t *testing.T) {
@@ -179,21 +161,5 @@ func TestWebServerReportsAndTargetsRunAttempts(t *testing.T) {
 	defer invalid.Body.Close()
 	if invalid.StatusCode != http.StatusBadRequest {
 		t.Fatalf("negative run attempt status = %d", invalid.StatusCode)
-	}
-}
-
-func TestWebServerReadinessUsesHealthCheck(t *testing.T) {
-	healthy := newHarness(t, &runAttemptFlowService{})
-	response := get(t, healthy.http.URL+"/readyz")
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("readiness with failing search = %d body=%q", response.StatusCode, readBody(t, response))
-	}
-
-	unhealthy := newHarness(t, &runAttemptFlowService{healthCheckErr: status.Error(codes.Unavailable, "starting")})
-	failed := get(t, unhealthy.http.URL+"/readyz")
-	defer failed.Body.Close()
-	if failed.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("readiness with failing health check = %d", failed.StatusCode)
 	}
 }

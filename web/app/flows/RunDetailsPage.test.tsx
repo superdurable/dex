@@ -9,7 +9,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreferencesProvider } from '@/app/providers';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
@@ -226,5 +226,53 @@ describe('run attempts on the run page', () => {
 
     await screen.findByText('Run chain');
     expect(screen.queryByRole('combobox', { name: 'Run attempt' })).toBeNull();
+  });
+});
+
+describe('time travel on the run page', () => {
+  it('navigates to the new run when the Go Server returns a new run ID', async () => {
+    const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
+    const timeTravelRequests: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, 'http://dex.test');
+      if (url.pathname === '/api/flows/summary') return json({ ...summary(0), runAttempt: undefined });
+      if (url.pathname === '/api/flows/state') return json(emptyState);
+      if (url.pathname === '/api/flows/history') {
+        return json({ events: firstAttemptLineage.map((event) => ({ ...event, runAttempt: 0 })), nextPageToken: '', nextInternalEventId: 4 });
+      }
+      if (url.pathname === '/api/flows/wait') {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        });
+      }
+      if (url.pathname === '/api/flows/time-travel') {
+        timeTravelRequests.push(JSON.parse(String(init?.body)));
+        return json({ runId: 'run-2' });
+      }
+      throw new Error(`unexpected request ${input}`);
+    }));
+    const runPath = vi.fn((runID: string) => `/v1/flows/order-1/${runID}`);
+    render(
+      <MemoryRouter initialEntries={['/v1/flows/order-1/run-1']}>
+        <PreferencesProvider>
+          <Routes>
+            <Route
+              path="/v1/flows/order-1/run-1"
+              element={<RunDetailsPage breadcrumb={null} flowId="order-1" runId="run-1" runPath={runPath} />}
+            />
+            <Route path="/v1/flows/order-1/run-2" element={<p>Run page for run-2</p>} />
+          </Routes>
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('Run chain');
+    fireEvent.click(screen.getByRole('button', { name: 'Time Travel' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Reason' }), { target: { value: 'replay' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Time travel' }));
+
+    await screen.findByText('Run page for run-2');
+    expect(runPath).toHaveBeenCalledWith('run-2');
+    expect(timeTravelRequests).toEqual([{ flowId: 'order-1', runId: 'run-1', timeTravelType: 1, reason: 'replay' }]);
   });
 });

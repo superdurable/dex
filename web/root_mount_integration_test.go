@@ -122,6 +122,6 @@ func TestRootMountIgnoresForwardedHeadersWithRealDex(t *testing.T) {
 		}
 	}
 	request("/api/flow-definitions")
-	// Readiness performs a real FlowService health check through this Web instance.
+	// Readiness performs a real FlowService search through this Web instance.
 	request("/readyz")
 }

@@ -8,8 +8,9 @@ on:
       - "packages/flow-definition-renderer/**"
       - "server/**"
       - "protos/**"
-      - "sdk-go/integ/web_debug_flow_test.go"
-      - "sdk-go/integ/web_server_zd_test.go"
+      - "sdk-go/integ/main_test.go"
+      - "sdk-go/integ/web*"
+      - "sdk-go/integ/webv2*/**"
       - ".github/workflows/web-ci.yml"
   pull_request:
     paths:
@@ -17,8 +18,9 @@ on:
       - "packages/flow-definition-renderer/**"
       - "server/**"
       - "protos/**"
-      - "sdk-go/integ/web_debug_flow_test.go"
-      - "sdk-go/integ/web_server_zd_test.go"
+      - "sdk-go/integ/main_test.go"
+      - "sdk-go/integ/web*"
+      - "sdk-go/integ/webv2*/**"
       - ".github/workflows/web-ci.yml"
   workflow_dispatch:
 
@@ -73,6 +75,8 @@ jobs:
     env:
       # A released server-zd binary keeps this job free of a Rust build.
       DEX_SERVER_ZD_RELEASE: server-zd/v0.1.1
+      # Update with DEX_SERVER_ZD_RELEASE; it is the linux_amd64 line of that release's checksums.txt.
+      DEX_SERVER_ZD_LINUX_AMD64_SHA256: c15897490889b70fb6c9e16e8221c1aabea6ffd7eebb4e47fbbad8123ab233de
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -98,10 +102,12 @@ jobs:
         run: |
           set -euo pipefail
           download_dir="$RUNNER_TEMP/server-zd"
+          archive="dex-server-zd_${DEX_SERVER_ZD_RELEASE#server-zd/}_linux_amd64.tar.gz"
           gh release download "$DEX_SERVER_ZD_RELEASE" --repo "$GITHUB_REPOSITORY" \
-            --pattern '*_linux_amd64.tar.gz' --pattern checksums.txt --dir "$download_dir"
+            --pattern "$archive" --pattern checksums.txt --dir "$download_dir"
           (cd "$download_dir" && sha256sum --check --ignore-missing checksums.txt)
-          tar -xzf "$download_dir"/dex-server-zd_*_linux_amd64.tar.gz -C "$download_dir"
+          echo "$DEX_SERVER_ZD_LINUX_AMD64_SHA256  $download_dir/$archive" | sha256sum --check -
+          tar -xzf "$download_dir/$archive" -C "$download_dir"
           echo "DEX_SERVER_ZD_BINARY=$download_dir/dex-server-zd" >> "$GITHUB_ENV"
       - name: Run Dex Web end-to-end tests against server-zd
         run: web/scripts/run-server-zd-e2e.sh

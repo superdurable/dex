@@ -161,7 +161,7 @@ func (h *v2Handler) validateStartWorkerTarget(
 // isPullDefaultStartWorkerTarget is true when configured, or when the Server supports only pull Workers.
 func (h *v2Handler) isPullDefaultStartWorkerTarget(ctx context.Context) bool {
 	return h.isStartFlowWorkerTargetPull ||
-		h.serverEngine.resolveServerEngine(ctx) == dexpb.ServerEngine_SERVER_ENGINE_ZD
+		h.serverEngine.ResolveServerEngine(ctx) == dexpb.ServerEngine_SERVER_ENGINE_ZD
 }
 
 func (h *v2Handler) validateWorkerTarget(address string) (*dexpb.WorkerTarget, error) {

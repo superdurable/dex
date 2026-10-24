@@ -62,8 +62,9 @@ jobs:
             web:
               - 'web/**'
               - 'protos/**'
-              - 'sdk-go/integ/web_debug_flow_test.go'
-              - 'sdk-go/integ/web_server_zd_test.go'
+              - 'sdk-go/integ/main_test.go'
+              - 'sdk-go/integ/web*'
+              - 'sdk-go/integ/webv2*/**'
               - '.github/workflows/web-ci.yml'
             examples_go:
               - 'examples/go/**'

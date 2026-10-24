@@ -502,11 +502,12 @@ docker run IMAGE --services web
 
 Set `web.flowServiceTarget` in the mounted server YAML to the API service
 address. Web starts even when that upstream is unavailable. `/healthz` reports
-process liveness. `/readyz` validates the current definition snapshot and calls
-FlowService `HealthCheck`, returning `definitionRevision`, source, and definition
+process liveness. `/readyz` validates the current definition snapshot and a
+FlowService search, returning `definitionRevision`, source, and definition
 count; `/api/*` returns an upstream error until FlowService is available.
-Readiness does not run a search, because a search can exceed the scan budget of
-a visibility backend.
+On server-zd, readiness calls FlowService `HealthCheck` instead of a search,
+because a search can exceed the builtin visibility scan budget. The Go Server
+keeps the search, because its `HealthCheck` does not reach Temporal or Cadence.
 
 ### Run against server-zd
 

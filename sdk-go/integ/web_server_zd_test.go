@@ -85,7 +85,7 @@ func TestDexWebOnServerZDStartsPullFlowsAndFiltersStatus(t *testing.T) {
 		permission: webv2approval.DecidePermission,
 	}
 	flowID := newFlowID(t, "web-zd-start")
-	// The Start dialog on server-zd sends no Worker target, so Dex Web must choose pull routing.
+	// The dialog sends workerTargetPull; this API request omits a target to test the server-zd pull default.
 	var started struct {
 		RunID string `json:"runId"`
 	}
