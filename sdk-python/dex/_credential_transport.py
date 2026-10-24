@@ -16,6 +16,7 @@ import asyncio
 import inspect
 import queue
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import Future
 from typing import Any, NamedTuple, cast
@@ -168,6 +169,38 @@ def credential_deadline_error() -> grpc.aio.AioRpcError:
     )
 
 
+class _SyncCredentialDeadlineError(grpc.RpcError):
+    def code(self) -> grpc.StatusCode:
+        return grpc.StatusCode.DEADLINE_EXCEEDED
+
+    def details(self) -> str:
+        return "credential lookup exceeded RPC deadline"
+
+    def trailing_metadata(self) -> tuple[Any, ...]:
+        return ()
+
+
+def _bounded_credential_metadata(
+    credential: Credential, metadata: Any, timeout: float | None
+) -> Any:
+    if timeout is not None and timeout <= 0:
+        raise _SyncCredentialDeadlineError()
+    bounded_token = getattr(credential, "_token_with_timeout", None)
+    if not callable(bounded_token) or timeout is None:
+        return credential_metadata(credential, metadata)
+    try:
+        token = bounded_token(timeout)
+    except TimeoutError:
+        raise _SyncCredentialDeadlineError() from None
+    return tuple(metadata or ()) + (("authorization", "Bearer " + token),)
+
+
+def _reject_credential_token(credential: Credential, metadata: Any) -> None:
+    reject_token = getattr(credential, "_reject_token", None)
+    if callable(reject_token):
+        reject_token(metadata[-1][1][7:])
+
+
 class _SyncCredentialInterceptor(grpc.UnaryUnaryClientInterceptor):
     def __init__(self, credential: Credential) -> None:
         self._credential = credential
@@ -178,15 +211,49 @@ class _SyncCredentialInterceptor(grpc.UnaryUnaryClientInterceptor):
         client_call_details: grpc.ClientCallDetails,
         request: Any,
     ) -> Any:
+        started_at = time.monotonic()
+        timeout = client_call_details.timeout
+        metadata = _bounded_credential_metadata(
+            self._credential, client_call_details.metadata, timeout
+        )
+        if timeout is not None:
+            timeout -= time.monotonic() - started_at
+            if timeout <= 0:
+                raise _SyncCredentialDeadlineError()
         details = _SyncCallDetails(
             client_call_details.method,
-            client_call_details.timeout,
-            credential_metadata(self._credential, client_call_details.metadata),
+            timeout,
+            metadata,
             client_call_details.credentials,
             client_call_details.wait_for_ready,
             client_call_details.compression,
         )
-        return continuation(details, request)
+        try:
+            response = continuation(details, request)
+        except grpc.RpcError as error:
+            if error.code() != grpc.StatusCode.UNAUTHENTICATED:
+                raise
+            if not callable(getattr(self._credential, "_reject_token", None)):
+                raise
+        else:
+            if response.code() != grpc.StatusCode.UNAUTHENTICATED:
+                return response
+            if not callable(getattr(self._credential, "_reject_token", None)):
+                return response
+        _reject_credential_token(self._credential, details.metadata)
+        if client_call_details.timeout is not None:
+            timeout = client_call_details.timeout - (time.monotonic() - started_at)
+        retry_details = details._replace(
+            metadata=_bounded_credential_metadata(
+                self._credential, client_call_details.metadata, timeout
+            )
+        )
+        if client_call_details.timeout is not None:
+            timeout = client_call_details.timeout - (time.monotonic() - started_at)
+            if timeout <= 0:
+                raise _SyncCredentialDeadlineError()
+            retry_details = retry_details._replace(timeout=timeout)
+        return continuation(retry_details, request)
 
 
 class _AsyncCredentialInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
@@ -216,7 +283,39 @@ class _AsyncCredentialInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
             client_call_details.credentials,
             client_call_details.wait_for_ready,
         )
-        return await continuation(details, request)
+        call = await continuation(details, request)
+        try:
+            await call
+        except grpc.aio.AioRpcError as error:
+            if error.code() != grpc.StatusCode.UNAUTHENTICATED:
+                raise
+            if not callable(getattr(self._runner._credential, "_reject_token", None)):
+                raise
+            _reject_credential_token(self._runner._credential, metadata)
+            if client_call_details.timeout is not None:
+                remaining_timeout = client_call_details.timeout - (
+                    loop.time() - started_at
+                )
+                if remaining_timeout <= 0:
+                    raise credential_deadline_error() from None
+            retry_metadata = await async_credential_metadata(
+                self._runner, client_call_details.metadata, remaining_timeout
+            )
+            if client_call_details.timeout is not None:
+                remaining_timeout = client_call_details.timeout - (
+                    loop.time() - started_at
+                )
+                if remaining_timeout <= 0:
+                    raise credential_deadline_error() from None
+            retry_details = grpc.aio.ClientCallDetails(
+                client_call_details.method,
+                remaining_timeout,
+                retry_metadata,
+                client_call_details.credentials,
+                client_call_details.wait_for_ready,
+            )
+            return await continuation(retry_details, request)
+        return call
 
 
 def sync_channel(server_address: str, credential: Credential | None) -> grpc.Channel:

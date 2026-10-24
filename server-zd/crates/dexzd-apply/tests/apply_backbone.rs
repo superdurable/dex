@@ -277,6 +277,7 @@ impl Harness {
             }),
             hard_delete_objects: Vec::new(),
             request_fingerprint: Vec::new(),
+            ..FlowStartCommand::default()
         }));
         if let Some(command_reply::Reply::StartFlow(reply)) = &outcome.reply.reply
             && !reply.is_existing_run

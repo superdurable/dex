@@ -191,6 +191,7 @@ impl Harness {
             }),
             hard_delete_objects: Vec::new(),
             request_fingerprint: Vec::new(),
+            ..FlowStartCommand::default()
         }));
         if let Some(command_reply::Reply::StartFlow(reply)) = &outcome.reply.reply {
             self.run_id = reply.run_id.clone();
@@ -1445,6 +1446,7 @@ fn only_the_latest_run_of_a_flow_id_can_time_travel() {
         worker_target: Some(WorkerTarget::default()),
         hard_delete_objects: Vec::new(),
         request_fingerprint: Vec::new(),
+        ..FlowStartCommand::default()
     }));
     assert!(matches!(
         outcome.reply.reply,

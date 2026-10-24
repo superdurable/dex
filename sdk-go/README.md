@@ -809,6 +809,59 @@ changes; an emptied or missing file fails calls instead of sending a stale
 token. The Worker sends its credential with startup index verification and
 blob hydration.
 
+Use `dex.APIKeyCredential(tokenURL, serverID, apiKey)` when the application
+holds a long-lived API key instead of an access token. The credential posts
+`{"server_id":"<server ID>","api_key":"<API key>"}` to the token URL and sends
+the returned bearer access token. The server ID is the identifier that the token
+endpoint scopes the access token to; supply it explicitly, because the SDK never
+derives it from a host name.
+
+```go
+credential, err := dex.APIKeyCredential(
+	"https://auth.example.com/oauth/token",
+	"orders-production",
+	os.Getenv("DEX_API_KEY"),
+	dex.WithAPIKeyExchangeTimeout(5*time.Second),
+)
+if err != nil {
+	return err
+}
+client, err := dex.NewClient(registry, cache, dex.ClientOptions{Credential: credential})
+```
+
+- Construction validates the arguments without contacting the token endpoint.
+  The token URL must use `https`; `http` is allowed only for `localhost`,
+  `127.0.0.0/8`, and `::1`.
+- The first call performs the exchange. The token is cached until 80% of its
+  `expires_in` lifetime has elapsed. The next call then starts one background
+  refresh and keeps using the cached token.
+- At most one exchange runs at a time, and concurrent callers share its result.
+  A failed refresh keeps serving the cached token and is retried at most once
+  every 5 seconds. After the token expires, a call waits for the exchange,
+  bounded by `WithAPIKeyExchangeTimeout` (default 10 seconds), and fails with
+  the exchange error if no token arrives.
+- The token's expiry counts from the start of the exchange request. If a slow
+  response arrives after that expiry, the exchange fails and the token is never
+  cached or sent.
+- When Dex rejects a call with `UNAUTHENTICATED`, the SDK discards that token if
+  it is still cached. A unary call is retried exactly once with a fresh token. A
+  rejected pull Worker poll stream discards its token and reconnects once
+  immediately with a fresh token. If that reconnection is rejected too, the
+  Worker falls back to its usual reconnection, which waits about a minute.
+- The credential never follows redirects and never includes the API key or an
+  access token in errors or formatted output. It replaces the API key and known
+  access tokens with `[REDACTED]` in the token endpoint's `error` and
+  `error_description` fields and in transport errors. It also redacts every
+  JWT-shaped substring there: three base64url segments separated by dots, each
+  at least 10 characters long. This covers an older token that the credential
+  no longer remembers. `WithAPIKeyHTTPClient`
+  supplies a proxy-aware or test HTTP client.
+- The application owns the credential and may share it between several Clients
+  and Workers, so closing a Client or Worker does not stop it. The credential
+  starts no long-lived goroutine and needs no `Close`. An exchange goroutine
+  ends within one exchange timeout when the HTTP transport honors request
+  context cancellation, as the default transport does.
+
 `ClientOptions.WorkerTarget` is the default advertised target for StartFlow.
 A per-call `ConfigOverride.WorkerTarget` takes precedence. UpdateFlowConfig does
 not inherit the Client default.
