@@ -41,8 +41,12 @@ const LIST_VERSIONS_PARAMETERS: [&str; 7] = [
     "version-id-marker",
     "encoding-type",
 ];
-const OBJECT_READ_PARAMETERS: [&str; 7] = [
+/// GetObject and HeadObject parameters. S3 accepts a presigned checksum mode but returns
+/// checksums only for the header.
+const OBJECT_READ_PARAMETERS: [&str; 9] = [
     "versionId",
+    "X-Amz-Checksum-Mode",
+    "x-amz-checksum-mode",
     "response-content-type",
     "response-content-disposition",
     "response-content-encoding",
