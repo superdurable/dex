@@ -8,19 +8,23 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
 use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_hash};
-use dexzd_apply::{ApplyContext, ApplyOutcome};
+use dexzd_apply::{ApplyContext, ApplyEffect, ApplyOutcome, StateWrite, WaitableChange};
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId, parse_run_key,
 };
+use dexzd_metrics::{
+    FlowCloseStatus, NodeMetrics, StepDurability as MetricStepDurability, StepFailureKind,
+};
+use dexzd_protocol::dex::{FlowStatus, StepDurability, flow_history_event};
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, HistoryRecord, LogPosition, LogRecord, PartitionMeta, command_reply,
-    flow_command::Command, log_record,
+    FlowCommand, HistoryRecord, LogPosition, LogRecord, PartitionMeta, StepAttemptFailedCommand,
+    StepAttemptFailureKind, StepExecutionRecord, command_reply, flow_command::Command, log_record,
 };
 use dexzd_storage::{LocalReadView, LocalStore, ScanDirection, StorageError};
 use prost::Message;
@@ -38,6 +42,9 @@ use crate::commit::staged_state_reader::StagedStateReader;
 use crate::commit::{CommitProgress, EngineLocalStore};
 use crate::recovery::CommittedCommandSink;
 use crate::runtime::{CommitError, CommittedCommand, CommittedFlowCommand};
+
+#[path = "partition_applier_metrics.rs"]
+mod metrics;
 
 /// The records of one partition in one committed log batch.
 pub(crate) struct PartitionFrame {
@@ -66,6 +73,8 @@ pub(crate) struct PartitionApplierPool {
 }
 
 pub(crate) struct FrameApplier {
+    pub(crate) metrics: Arc<NodeMetrics>,
+    pub(crate) metrics_enabled: AtomicBool,
     pub(crate) store: Arc<EngineLocalStore>,
     pub(crate) applier: Arc<dyn CommandApplier>,
     pub(crate) hasher: PartitionHasher,
@@ -110,6 +119,12 @@ impl PartitionApplierPool {
             tasks: Mutex::new(tasks),
             cancellation,
         }
+    }
+
+    pub(crate) fn enable_metrics(&self) {
+        self.frame_applier
+            .metrics_enabled
+            .store(true, Ordering::Release);
     }
 
     /// Queues a frame; frames of one partition are applied in queue order.
@@ -725,6 +740,9 @@ impl FrameApplier {
             pending,
         } in applied
         {
+            if self.metrics_enabled.load(Ordering::Acquire) {
+                self.record_committed_metrics(&command, &outcome);
+            }
             let committed = CommittedCommand {
                 outcome,
                 position: frame.position.clone(),

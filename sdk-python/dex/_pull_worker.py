@@ -22,7 +22,11 @@ from typing import Any
 
 import grpc
 
-from dex._credential_transport import AsyncCredentialRunner, async_credential_metadata
+from dex._credential_transport import (
+    AsyncCredentialRunner,
+    _reject_credential_token,
+    async_credential_metadata,
+)
 from dex._grpc_errors import _worker_error_status
 from dex._server_protocol import sdk_version
 from dex.dexpb import dex_pb2 as pb
@@ -314,6 +318,7 @@ class PullStream:
         self._call: Any = None
         self._send_lock = asyncio.Lock()
         self._is_reconnecting = False
+        self._stream_metadata: Any = None
         self._deadline_handle: asyncio.TimerHandle | None = None
         self._supports_unknown_name_rejection = False
 
@@ -322,6 +327,7 @@ class PullStream:
 
     async def run(self) -> None:
         backoff = 0.1
+        has_retried_unauthenticated = False
         while not self.runtime.is_stopping:
             self.is_draining = False
             was_registered = False
@@ -336,12 +342,35 @@ class PullStream:
                 )
             finally:
                 code = error.code() if error is not None else None
+                if self._is_registered:
+                    has_retried_unauthenticated = False
+                credential = (
+                    self.runtime._credential_runner._credential
+                    if self.runtime._credential_runner is not None
+                    else None
+                )
+                can_reject_token = (
+                    code is grpc.StatusCode.UNAUTHENTICATED
+                    and self._stream_metadata is not None
+                    and credential is not None
+                    and callable(getattr(credential, "_reject_token", None))
+                )
+                should_retry_unauthenticated = (
+                    can_reject_token and not has_retried_unauthenticated
+                )
+                if can_reject_token and credential is not None:
+                    _reject_credential_token(credential, self._stream_metadata)
                 rejection = self.runtime.registration.record_stream_result(
                     self.queue,
                     self._is_registered,
-                    error if code in _PERMANENT_CODES else None,
+                    (
+                        error
+                        if code in _PERMANENT_CODES and not should_retry_unauthenticated
+                        else None
+                    ),
                 )
                 self._is_registered = False
+                self._stream_metadata = None
                 if (
                     rejection is not None
                     and self.runtime._stop_on_permanent_stream_rejection
@@ -357,6 +386,11 @@ class PullStream:
                 or self._is_retiring
             ):
                 break
+            if should_retry_unauthenticated:
+                has_retried_unauthenticated = True
+                continue
+            if code is grpc.StatusCode.UNAUTHENTICATED:
+                has_retried_unauthenticated = False
             if self._is_reconnecting:
                 self._is_reconnecting = False
                 backoff = 0.1
@@ -390,6 +424,7 @@ class PullStream:
         if self.runtime.is_stopping:
             return False
         self._supports_unknown_name_rejection = False
+        self._stream_metadata = None
         if self.runtime._credential_runner is None:
             self._call = self.stub.PollWorkerTask()
         else:
@@ -398,6 +433,7 @@ class PullStream:
             )
             if self.runtime.is_stopping:
                 return False
+            self._stream_metadata = metadata
             self._call = self.stub.PollWorkerTask(metadata=metadata)
         await self._send(
             pb.PollWorkerTaskRequest(
