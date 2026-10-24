@@ -151,8 +151,18 @@ fn response_headers(
     is_preflight: bool,
 ) -> Result<HeaderMap, S3Error> {
     let mut headers = HeaderMap::new();
-    add_header(&mut headers, "access-control-allow-origin", origin)?;
-    add_header(&mut headers, "access-control-allow-credentials", "true")?;
+    let is_any_origin = rule
+        .allowed_origins
+        .iter()
+        .any(|allowed_origin| allowed_origin == "*");
+    add_header(
+        &mut headers,
+        "access-control-allow-origin",
+        if is_any_origin { "*" } else { origin },
+    )?;
+    if !is_any_origin {
+        add_header(&mut headers, "access-control-allow-credentials", "true")?;
+    }
     add_header(
         &mut headers,
         "access-control-allow-methods",

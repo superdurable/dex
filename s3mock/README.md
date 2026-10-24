@@ -18,9 +18,34 @@ An S3-compatible object store on local disk, so Dex development and tests need n
 make run ARGS="--data-directory /tmp/s3mock-data --listen-address 127.0.0.1:9000"
 ```
 
-Every flag also reads an environment variable: `S3MOCK_LISTEN_ADDRESS`, `S3MOCK_DATA_DIRECTORY`,
-and `S3MOCK_DURABILITY`. Point an S3 client at `http://127.0.0.1:9000` with path-style addressing
+Every flag also reads an `S3MOCK_*` environment variable; the control flags are listed below.
+Point an S3 client at `http://127.0.0.1:9000` with path-style addressing
 and any access key. Request signatures are not verified by default.
+
+## Releases
+
+The manual `S3mock release` workflow runs from `main` with a semantic `version` matching
+the workspace version in `s3mock/Cargo.toml`. It creates a
+new `s3mock/v<version>` tag and GitHub release only after native Linux amd64 and arm64 binaries
+and images pass smoke tests. The workflow rejects an existing versioned tag. The release contains binary
+archives and SHA-256 checksums; its notes give the digest of the multi-architecture
+`docker.io/superdurable/s3mock:<version>` image. The workflow has no automatic trigger.
+GitHub-enforced locking of published tags and assets requires a separate repository release
+immutability setting.
+Before publishing the GitHub release, the workflow checks that the image digest can be read
+without Docker Hub credentials. If Docker Hub creates the repository as private, make it public
+and rerun the workflow on the same commit and version. The existing image tag is reused only
+when its recorded source commit matches.
+
+The image runs as user 10001. It listens on `0.0.0.0:9000` and stores data in the
+`/var/lib/s3mock` volume. Every command-line flag can be set through its `S3MOCK_*` environment
+variable, including `S3MOCK_LIFECYCLE_SCAN_INTERVAL_SECONDS`. For example:
+
+```bash
+docker run --rm -p 9000:9000 -v s3mock-data:/var/lib/s3mock \
+  -e S3MOCK_SIGNATURE_VERIFICATION=strict \
+  docker.io/superdurable/s3mock:<version>
+```
 
 Lifecycle rules run every `--lifecycle-scan-interval-seconds` (default 60; `0` disables).
 A pass removes everything due at the lifecycle clock, so expiration happens within one interval
@@ -165,6 +190,8 @@ removes them. Rules survive restarts. A rule specifies AllowedOrigin and Allowed
 and may specify AllowedHeader, ExposeHeader, MaxAgeSeconds, and ID. S3 allows one `*` in an origin
 or allowed-header pattern. Requested headers match case-insensitively. The first rule matching the
 origin, method, and every requested header controls the response.
+An AllowedOrigin of `*` returns `Access-Control-Allow-Origin: *` without
+`Access-Control-Allow-Credentials`.
 
 OPTIONS preflights need no signature. A matching preflight or actual request with `Origin` receives
 the S3 `Access-Control-Allow-*`, `Access-Control-Expose-Headers`, `Access-Control-Max-Age`, and

@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::presigning::PresigningConfig;
+use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CorsConfiguration, CorsRule};
 
 use super::http::{send_presigned_with_headers, send_unsigned};
@@ -285,6 +286,67 @@ async fn cors_wildcards_match_origin_and_requested_headers() {
         response.header("access-control-allow-origin"),
         Some("https://app.example.test")
     );
+    target.cleanup().await;
+}
+
+#[tokio::test]
+async fn any_origin_rule_returns_star_without_credentials() {
+    let mut target = ConformanceTarget::connect_presigned().await;
+    let bucket = target.create_bucket().await;
+    let rule = CorsRule::builder()
+        .allowed_origins("*")
+        .allowed_methods("GET")
+        .build()
+        .expect("any-origin CORS rule is valid");
+    target
+        .client
+        .put_bucket_cors()
+        .bucket(&bucket)
+        .cors_configuration(
+            CorsConfiguration::builder()
+                .cors_rules(rule)
+                .build()
+                .expect("CORS configuration is valid"),
+        )
+        .send()
+        .await
+        .expect("any-origin CORS configuration is stored");
+    target
+        .client
+        .put_object()
+        .bucket(&bucket)
+        .key("any-origin")
+        .body(ByteStream::from_static(b"public"))
+        .send()
+        .await
+        .expect("object is stored");
+    let request = target
+        .client
+        .get_object()
+        .bucket(&bucket)
+        .key("any-origin")
+        .presigned(PresigningConfig::expires_in(Duration::from_secs(300)).expect("valid expiry"))
+        .await
+        .expect("GET is presigned");
+    let preflight = send_unsigned(
+        "OPTIONS",
+        request.uri(),
+        &[("Origin", ORIGIN), ("Access-Control-Request-Method", "GET")],
+    )
+    .await;
+    assert_eq!(preflight.status, 200);
+    assert_eq!(preflight.header("access-control-allow-origin"), Some("*"));
+    assert!(
+        preflight
+            .header("access-control-allow-credentials")
+            .is_none()
+    );
+    let actual =
+        send_presigned_with_headers(&request, request.uri(), None, &[("Origin", ORIGIN)]).await;
+    assert_eq!(actual.status, 200);
+    assert_eq!(actual.body, b"public");
+    assert_eq!(actual.header("access-control-allow-origin"), Some("*"));
+    assert!(actual.header("access-control-allow-credentials").is_none());
     target.cleanup().await;
 }
 
