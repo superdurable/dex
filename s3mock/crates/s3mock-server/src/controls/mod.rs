@@ -46,6 +46,7 @@ pub(crate) enum FaultAction {
     CommitThenDrop {},
     Delay { milliseconds: u64 },
     Error { status: u16 },
+    MissingKeyAccessDenied {},
     FailBeforeCommit {},
     CorruptBody {},
     TruncateResponse {},

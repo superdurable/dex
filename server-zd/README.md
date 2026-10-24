@@ -88,19 +88,28 @@ trailing slash in the policy. Apply the same policy to `objectStore.hardDeleteSt
 ```
 
 The Server lists only under its configured prefix, including when checking a missing object.
+The `s3:ListBucket` condition must use `StringLike` with `PREFIX/*`. An exact-prefix
+`StringEquals` grant or no `s3:ListBucket` grant is unsupported: a missing object may return
+403, and the Server cannot use a prefixed listing to distinguish it from a denied object.
+With the `StringLike` grant above, AWS S3 returns 404 for missing-object reads; narrower grants
+can return 403. The Server handles either response when the prefixed listing is allowed.
 The startup conditional-write probe also creates and deletes a key under that prefix. No
 unconditioned bucket access or bucket administration action is required. The bucket may be
 unversioned: create-only and replacement writes use `If-None-Match` and `If-Match` with opaque
 ETags, not object versions or MD5 digests. The S3 client sends no server-side encryption headers,
 so the bucket's default SSE-KMS configuration applies. For a customer-managed KMS key, grant the
 role `kms:GenerateDataKey` and `kms:Decrypt` on that key, and allow those actions in its key policy.
+Configure a bucket lifecycle rule to `AbortIncompleteMultipartUpload` after 1–7 days. A crash can
+leave an incomplete upload, and a prefix-confined role cannot list or clean up all abandoned
+multipart uploads.
 
 Startup proceeds in this order:
 
 1. The node binds `api.listen`. gRPC health Check and Watch report NOT_SERVING for `""`,
    `dex.FlowService`, and `dex.WorkerTaskService`; FlowService and WorkerTaskService calls return
    Unavailable while startup continues.
-2. Every destination must pass a conditional-write self-check.
+2. Every S3 destination verifies a prefixed child listing. Every destination then passes a
+   conditional-write self-check.
 3. The node acquires the lease of `cluster.nodeId` for `lease.duration`. A lease that another
    process still holds is awaited until it expires, or fails startup when `lease.failIfHeld` is
    true.

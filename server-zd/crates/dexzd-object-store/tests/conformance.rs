@@ -1175,6 +1175,7 @@ async fn s3_prefix_confined_reads_disambiguate_access_denied() {
         secret_access_key: "s3mock".to_owned(),
         session_token: None,
     };
+    let startup_config = config.clone();
     let object_store = S3ObjectStore::new(config)
         .await
         .expect("the S3 client opens");
@@ -1268,7 +1269,7 @@ async fn s3_prefix_confined_reads_disambiguate_access_denied() {
     );
     set_s3mock_fault(
         server.local_address(),
-        r#"{"operation":"HeadObject","key_prefix":"confined/missing","action":{"type":"error","status":403}},{"operation":"ListObjectsV2","bucket":"confined-bucket","action":{"type":"error","status":403}}"#,
+        r#"{"operation":"GetObject","key_prefix":"confined/missing","action":{"type":"error","status":403}},{"operation":"HeadObject","key_prefix":"confined/missing","action":{"type":"error","status":403}},{"operation":"ListObjectsV2","bucket":"confined-bucket","action":{"type":"error","status":403}}"#,
     )
     .await;
     assert!(
@@ -1279,6 +1280,102 @@ async fn s3_prefix_confined_reads_disambiguate_access_denied() {
             .detail
             .contains("AccessDenied")
     );
+    let denied_get = object_store
+        .get("missing")
+        .await
+        .expect_err("a denied listing also fails GET");
+    assert!(denied_get.detail.contains("disambiguating ListObjectsV2 failed"));
+    assert!(denied_get.detail.contains("original read"));
+    assert!(
+        object_store
+            .get("existing")
+            .await
+            .expect("object reads still work")
+            .is_some()
+    );
+    let startup_error = S3ObjectStore::new(startup_config)
+        .await
+        .err()
+        .expect("a denied child listing prevents startup");
+    assert!(
+        startup_error
+            .detail
+            .contains("s3:ListBucket with StringLike s3:prefix \"confined/*\""),
+        "{startup_error}"
+    );
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn s3_denied_read_retries_when_key_appears_before_listing() {
+    use s3mock_server::{ServerConfig, SignatureVerification};
+
+    let directory = TempDir::new().expect("the test directory opens");
+    let store = Store::open(&StoreConfig {
+        root_directory: directory.path().join("s3"),
+        durability: Durability::Relaxed,
+        etag_mode: EtagMode::Opaque,
+    })
+    .expect("the S3 store opens");
+    store
+        .create_bucket("race-bucket", false)
+        .expect("the bucket is created");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("the listener binds");
+    let server = s3mock_server::start_with_config(
+        Arc::new(store),
+        listener,
+        ServerConfig {
+            signature_verification: SignatureVerification::Strict,
+            ..ServerConfig::default()
+        },
+    )
+    .expect("the S3 server starts");
+    let mut config = S3ObjectStoreConfig::new("us-east-1", "race-bucket");
+    config.endpoint = Some(format!("http://{}", server.local_address()));
+    config.key_prefix = "confined".to_owned();
+    config.force_path_style = true;
+    config.credentials = S3Credentials::Static {
+        access_key_id: "s3mock".to_owned(),
+        secret_access_key: "s3mock".to_owned(),
+        session_token: None,
+    };
+    let object_store = Arc::new(S3ObjectStore::new(config).await.expect("the client opens"));
+    set_s3mock_fault(
+        server.local_address(),
+        r#"{"operation":"GetObject","key_prefix":"confined/race","action":{"type":"error","status":403}},{"operation":"ListObjectsV2","action":{"type":"delay","milliseconds":5000}}"#,
+    )
+    .await;
+    let reading_store = object_store.clone();
+    let read = tokio::spawn(async move { reading_store.get("race").await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let requests = s3mock_request_log(server.local_address()).await;
+            if requests.contains("\"key\":\"confined/race\"") && requests.contains("\"status\":403")
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the first GET is denied before the key is created");
+    object_store
+        .put(
+            "race",
+            Bytes::from_static(b"created"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("the key is created before the listing completes");
+    set_s3mock_fault(server.local_address(), "").await;
+    let content = read
+        .await
+        .expect("the read task completes")
+        .expect("the read succeeds")
+        .expect("the created key is found");
+    assert_eq!(content.bytes, Bytes::from_static(b"created"));
     server.shutdown().await;
 }
 

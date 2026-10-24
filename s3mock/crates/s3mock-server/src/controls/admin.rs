@@ -77,6 +77,17 @@ impl Controls {
                             "corrupt_body requires operation GetObject".into(),
                         ));
                     }
+                    if matches!(rule.action, FaultAction::MissingKeyAccessDenied {})
+                        && !matches!(
+                            rule.operation,
+                            Some(S3OperationName::GetObject | S3OperationName::HeadObject)
+                        )
+                    {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "missing_key_access_denied requires GetObject or HeadObject".into(),
+                        ));
+                    }
                     if matches!(rule.action, FaultAction::CommitThenDrop {})
                         && !matches!(
                             rule.operation,

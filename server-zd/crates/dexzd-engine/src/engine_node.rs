@@ -314,9 +314,10 @@ impl EngineNode {
                 }
             }
             tracing::info!(
-                partition_count = rebuilt_partition_count,
+                rebuilt_partition_count,
                 total_effects,
-                duration_ms = %rebuild_started.elapsed().as_millis(),
+                duration_ms =
+                    u64::try_from(rebuild_started.elapsed().as_millis()).unwrap_or(u64::MAX),
                 "rebuilt partition effects"
             );
             if let Some(reason) = state.stop_reason() {

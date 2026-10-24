@@ -117,6 +117,60 @@ async fn errors_and_fail_before_commit_leave_no_object() {
 }
 
 #[tokio::test]
+async fn missing_key_access_denied_preserves_existing_reads() {
+    let server = RunningServer::start(&[]).await;
+    server.put("existing", "body").await;
+    server
+        .rules(json!([
+            {"operation":"GetObject","action":{"type":"missing_key_access_denied"}},
+            {"operation":"HeadObject","action":{"type":"missing_key_access_denied"}}
+        ]))
+        .await;
+    let missing_get = server
+        .client
+        .get_object()
+        .bucket("testing")
+        .key("missing")
+        .send()
+        .await
+        .expect_err("GET of a missing key is denied");
+    assert_eq!(
+        missing_get
+            .raw_response()
+            .expect("S3 returns a response")
+            .status()
+            .as_u16(),
+        403
+    );
+    let missing_head = server
+        .client
+        .head_object()
+        .bucket("testing")
+        .key("missing")
+        .send()
+        .await
+        .expect_err("HEAD of a missing key is denied");
+    assert_eq!(
+        missing_head
+            .raw_response()
+            .expect("S3 returns a response")
+            .status()
+            .as_u16(),
+        403
+    );
+    assert_eq!(server.get("existing").await, b"body");
+    server
+        .client
+        .head_object()
+        .bucket("testing")
+        .key("existing")
+        .send()
+        .await
+        .expect("HEAD of an existing key succeeds");
+    server.server.shutdown().await;
+}
+
+#[tokio::test]
 async fn delay_corruption_and_truncation_affect_sdk_requests() {
     let server = RunningServer::start(&[]).await;
     server.put("object", "original object body").await;

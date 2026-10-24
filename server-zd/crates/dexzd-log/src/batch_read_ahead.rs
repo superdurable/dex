@@ -201,11 +201,10 @@ impl<'a> OrderedBatchReader<'a> {
             && self.reservations.len() < self.config.max_read_ahead_batches
             && let Some(listed_bytes) = self.listing.size_of(seq)
         {
-            // A seq missing from the listing has an unknown size, so it is read alone.
-            let reservation = listed_bytes.unwrap_or(self.config.max_buffered_bytes);
-            let fits = listed_bytes.is_some()
-                && self.reserved_bytes.saturating_add(reservation)
-                    <= self.config.max_buffered_bytes;
+            // A seq missing from the listing needs no GET or byte reservation.
+            let reservation = listed_bytes.unwrap_or(0);
+            let fits =
+                self.reserved_bytes.saturating_add(reservation) <= self.config.max_buffered_bytes;
             if self.reserved_bytes > 0 && !fits {
                 break;
             }
