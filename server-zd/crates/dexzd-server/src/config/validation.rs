@@ -20,6 +20,7 @@ impl Config {
         self.validate_values_and_api()?;
         self.validate_matching_and_streams()?;
         self.validate_search_and_limits()?;
+        self.auth.validate()?;
         Ok(())
     }
 

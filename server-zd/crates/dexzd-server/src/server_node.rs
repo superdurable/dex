@@ -8,6 +8,7 @@
 
 mod bounded_teardown;
 mod client_deadline;
+mod public_api_authentication;
 mod search_projection;
 
 use std::convert::Infallible;
@@ -17,7 +18,8 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use dexzd_api::{
-    AttributeIndexes, DexFlowService, FlowServiceDependencies, HealthStatus, StreamOperations,
+    AttributeIndexes, DexFlowService, FlowServiceDependencies, HealthStatus,
+    PublicApiAuthenticator, StreamOperations,
 };
 use dexzd_apply::FlowStateReader;
 use dexzd_clock::{SystemWallClock, WallClock};
@@ -125,6 +127,8 @@ pub(crate) async fn start_server(
     cancellation: &mut watch::Receiver<bool>,
 ) -> Result<Option<RunningServer>, ServerError> {
     let components = ComponentConfigs::from_config(config)?;
+    let authenticator =
+        public_api_authentication::public_api_authenticator(&components.authenticators)?;
     let listener = TcpListener::bind(config.api.listen)
         .await
         .map_err(|source| ServerError::Listen {
@@ -137,7 +141,12 @@ pub(crate) async fn start_server(
             address: config.api.listen,
             source,
         })?;
-    let grpc = GrpcServer::start(listener, components.grpc_max_message_bytes).await;
+    let grpc = GrpcServer::start(
+        listener,
+        components.grpc_max_message_bytes,
+        authenticator.as_ref(),
+    )
+    .await;
     let started = ServerNode::start(config, &components, cancellation).await;
     let node = match started {
         Ok(Some(node)) => node,
@@ -176,7 +185,11 @@ struct GrpcServer {
 }
 
 impl GrpcServer {
-    async fn start(listener: TcpListener, max_message_bytes: usize) -> Self {
+    async fn start(
+        listener: TcpListener,
+        max_message_bytes: usize,
+        authenticator: Option<&Arc<PublicApiAuthenticator>>,
+    ) -> Self {
         let (health, health_server) = HealthStatus::new().await;
         let flow_service_gate = StartupService::<FlowServiceServer<DexFlowService>>::new();
         let worker_task_service_gate =
@@ -191,8 +204,14 @@ impl GrpcServer {
                     client_deadline::client_deadline_layer,
                 ))
                 .add_service(health_server)
-                .add_service(flow_service_gate.clone())
-                .add_service(worker_task_service_gate.clone())
+                .add_service(public_api_authentication::authenticated(
+                    flow_service_gate.clone(),
+                    authenticator,
+                ))
+                .add_service(public_api_authentication::authenticated(
+                    worker_task_service_gate.clone(),
+                    authenticator,
+                ))
                 .serve_with_incoming_shutdown(
                     futures::stream::unfold(listener, |listener| async move {
                         let accepted = listener.accept().await.map(|(stream, _)| stream);

@@ -6,9 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! FlowService gRPC handlers for server-zd: request validation, routing to the engine, long polling, and error mapping.
+//! FlowService gRPC handlers for server-zd: request validation, routing to the engine, long polling, error mapping, and public API authentication.
 
 mod attribute_indexes;
+mod authentication;
 mod client_deadline;
 mod flow_operation_error;
 mod flow_operations;
@@ -19,6 +20,10 @@ mod runtime_flow_operations;
 mod stream_operations;
 
 pub use attribute_indexes::AttributeIndexes;
+pub use authentication::{
+    AuthenticatedService, AuthenticationSetupError, CredentialAuthenticatorConfig,
+    EndpointUrlError, JwtAuthenticatorConfig, PublicApiAuthenticator, check_endpoint_url,
+};
 pub use client_deadline::{CLIENT_DEADLINE_ANSWER_MARGIN, ClientDeadline};
 pub use flow_operation_error::FlowOperationError;
 pub use flow_operations::FlowOperations;

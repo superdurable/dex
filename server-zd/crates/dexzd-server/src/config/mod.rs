@@ -8,6 +8,7 @@
 
 //! Typed, validated configuration for the dex-server-zd executable.
 
+mod auth_config;
 mod engine_config;
 mod service_config;
 mod source_config;
@@ -17,6 +18,7 @@ mod validation;
 #[cfg(test)]
 mod tests;
 
+pub use auth_config::{AuthConfig, AuthenticatorConfig, AuthenticatorKind};
 pub use engine_config::{
     ClusterConfig, CommitConfig, HistoryConfig, LeaseConfig, LimitsConfig, RecoveryConfig,
     RetentionConfig, SnapshotConfig, ValuesConfig,
@@ -58,6 +60,8 @@ pub struct Config {
     pub retention: RetentionConfig,
     /// Public gRPC listener and request limits. Defaults to port 8801 and 32 MiB messages.
     pub api: ApiConfig,
+    /// Public API authentication. Defaults to no authenticators, which disables authentication.
+    pub auth: AuthConfig,
     /// Pull Worker matching budgets and capacities. Defaults to ten-second dispatch and five-second sticky waits.
     pub matching: MatchingConfig,
     /// Stream storage and trimming. Defaults to disabled storage.

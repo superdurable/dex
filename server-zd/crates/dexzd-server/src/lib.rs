@@ -101,6 +101,13 @@ pub enum ServerError {
         #[source]
         source: EngineStartError,
     },
+    /// Public API authentication could not be set up, for example because a token file is missing.
+    #[error("setting up public API authentication: {source}")]
+    Authentication {
+        /// Setup error, naming files and URLs but never a credential.
+        #[source]
+        source: dexzd_api::AuthenticationSetupError,
+    },
     /// The gRPC listener could not be bound.
     #[error("listening on {address}: {source}")]
     Listen {
