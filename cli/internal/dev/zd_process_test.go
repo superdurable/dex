@@ -63,6 +63,21 @@ func TestZDEngineFlags(t *testing.T) {
 	if config.ZDConfigPath != zdConfig {
 		t.Fatalf("zd config path = %q, want %q", config.ZDConfigPath, zdConfig)
 	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relativeZDConfig, err := filepath.Rel(workingDirectory, zdConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err = parseConfig([]string{"--engine", "zd", "--zd-config", "  " + relativeZDConfig + "  "}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ZDConfigPath != zdConfig {
+		t.Fatalf("trimmed relative zd config path = %q, want %q", config.ZDConfigPath, zdConfig)
+	}
 	config, err = parseConfig(nil, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
