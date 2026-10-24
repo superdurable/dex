@@ -80,6 +80,8 @@ const FAULT_PROBABILITIES: [f64; 5] = [0.0, 0.001, 0.005, 0.01, 0.02];
 const PIPELINED_WRITE_WAIT: Duration = Duration::from_secs(3);
 /// Starts see fewer faults: one transient read error fails a start, and the log grows.
 const START_FAULT_DIVISOR: f64 = 4.0;
+/// Redeploy-profile starts replay the whole log, so start faults scale down beyond this many batches.
+const FULL_RATE_START_REPLAY_BATCHES: f64 = 100.0;
 
 /// The shared store applies every call; faults come from each process's own layer.
 struct NoInjectedFaults;
@@ -793,7 +795,7 @@ impl Simulation {
                 &process_label,
                 start_kind,
                 self.rng.random(),
-                self.fault_probability / START_FAULT_DIVISOR,
+                self.start_fault_probability(),
             );
             let start = ProcessStart {
                 process_label: process_label.clone(),
@@ -870,6 +872,24 @@ impl Simulation {
             "node-cannot-recover",
             format!("{MAX_START_ATTEMPTS} starts failed; the last failed with: {last_error}"),
         ))
+    }
+
+    /// Returns the fault probability of a starting process's object store calls. A redeploy-profile
+    /// start keeps its expected faults bounded however long the log it replays.
+    fn start_fault_probability(&self) -> f64 {
+        let probability = self.fault_probability / START_FAULT_DIVISOR;
+        if !self.is_redeploy_profile() {
+            return probability;
+        }
+        let landed_batches = self
+            .environment
+            .storage
+            .observations
+            .lock()
+            .expect("storage observation lock is not poisoned")
+            .log_batches
+            .landed_batch_count();
+        probability * (FULL_RATE_START_REPLAY_BATCHES / landed_batches.max(1) as f64).min(1.0)
     }
 
     fn serve(&mut self, process: NodeProcess) {

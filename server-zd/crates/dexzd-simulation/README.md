@@ -167,6 +167,9 @@ as they are.
 - Nodes take no snapshots. A start with a lost store therefore replays every closed stream from
   its first batch, and a kept or rolled-back store replays closed streams after its applied
   position.
+- One injected fault fails a start, and a whole-log replay grows with the run. Once more than
+  100 log batches have landed, a start's fault probability shrinks in proportion to the batch
+  count. A start then expects about as many faults as a start that replays 100 batches.
 - Before about half the active-phase crashes, and at every takeover, the process's next log
   write stalls until the process dies and never lands. Before such a crash, the profile waits
   until a later log write lands. That batch then sits above a hole, which the successor's
