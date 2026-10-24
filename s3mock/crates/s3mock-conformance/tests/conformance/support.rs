@@ -13,7 +13,7 @@ use std::sync::Arc;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use s3mock::{Durability, Store, StoreConfig};
-use s3mock_server::ServerHandle;
+use s3mock_server::{ServerConfig, ServerHandle, SignatureVerification};
 use tempfile::TempDir;
 
 const TARGET_ENVIRONMENT_VARIABLE: &str = "S3MOCK_CONFORMANCE_TARGET";
@@ -33,11 +33,21 @@ struct S3mockInstance {
     server: ServerHandle,
     store: Arc<Store>,
     data_directory: TempDir,
+    is_strict: bool,
 }
 
 impl ConformanceTarget {
     /// Connects to the target selected by `S3MOCK_CONFORMANCE_TARGET` (`s3mock` by default).
     pub(crate) async fn connect() -> ConformanceTarget {
+        Self::connect_with_strict_mode(false).await
+    }
+
+    /// Uses strict mode locally while keeping the same AWS target selected by the environment.
+    pub(crate) async fn connect_presigned() -> ConformanceTarget {
+        Self::connect_with_strict_mode(true).await
+    }
+
+    async fn connect_with_strict_mode(is_strict: bool) -> ConformanceTarget {
         match std::env::var(TARGET_ENVIRONMENT_VARIABLE).as_deref() {
             Ok("aws") => {
                 let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
@@ -56,7 +66,7 @@ impl ConformanceTarget {
             Ok("s3mock") | Err(std::env::VarError::NotPresent) => {
                 let data_directory =
                     tempfile::tempdir().expect("the temporary directory is writable");
-                let (server, store) = start_s3mock(&data_directory).await;
+                let (server, store) = start_s3mock(&data_directory, is_strict).await;
                 let client = s3mock_client(&server);
                 ConformanceTarget {
                     client,
@@ -64,6 +74,7 @@ impl ConformanceTarget {
                         server,
                         store,
                         data_directory,
+                        is_strict,
                     }),
                     created_buckets: Vec::new(),
                 }
@@ -117,12 +128,13 @@ impl ConformanceTarget {
         tokio::task::spawn_blocking(move || drop(store))
             .await
             .expect("closing the store does not panic");
-        let (server, store) = start_s3mock(&instance.data_directory).await;
+        let (server, store) = start_s3mock(&instance.data_directory, instance.is_strict).await;
         self.client = s3mock_client(&server);
         self.s3mock = Some(S3mockInstance {
             server,
             store,
             data_directory: instance.data_directory,
+            is_strict: instance.is_strict,
         });
     }
 
@@ -143,7 +155,7 @@ impl ConformanceTarget {
     }
 }
 
-async fn start_s3mock(data_directory: &TempDir) -> (ServerHandle, Arc<Store>) {
+async fn start_s3mock(data_directory: &TempDir, is_strict: bool) -> (ServerHandle, Arc<Store>) {
     let config = StoreConfig {
         root_directory: data_directory.path().to_path_buf(),
         durability: Durability::Strict,
@@ -158,7 +170,11 @@ async fn start_s3mock(data_directory: &TempDir) -> (ServerHandle, Arc<Store>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("binding a free loopback port succeeds");
-    let server = s3mock_server::start(Arc::clone(&store), listener)
+    let mut server_config = ServerConfig::default();
+    if is_strict {
+        server_config.signature_verification = SignatureVerification::Strict;
+    }
+    let server = s3mock_server::start_with_config(Arc::clone(&store), listener, server_config)
         .expect("the listener has a local address");
     (server, store)
 }

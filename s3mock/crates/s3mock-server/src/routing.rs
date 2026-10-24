@@ -14,7 +14,15 @@ use percent_encoding::percent_decode_str;
 use crate::s3_error::S3Error;
 
 /// Query parameters that only route or tune a request and never select another operation.
-const PASSIVE_PARAMETERS: [&str; 1] = ["x-id"];
+const PASSIVE_PARAMETERS: [&str; 7] = [
+    "x-id",
+    "X-Amz-Algorithm",
+    "X-Amz-Credential",
+    "X-Amz-Date",
+    "X-Amz-Expires",
+    "X-Amz-SignedHeaders",
+    "X-Amz-Signature",
+];
 const LIST_OBJECTS_PARAMETERS: [&str; 7] = [
     "list-type",
     "prefix",
