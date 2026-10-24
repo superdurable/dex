@@ -14,6 +14,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use dexzd_clock::WallClock;
 use dexzd_keyspace::validate_node_identifier;
+use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{ObjectStore, ObjectStoreErrorKind, WriteCondition, WriteOutcome};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 use tokio::task::{JoinHandle, JoinSet};
@@ -92,6 +93,27 @@ impl CommitPipeline {
         next_seq: u64,
         config: CommitPipelineConfig,
     ) -> Result<(Self, mpsc::Receiver<CommittedBatch>), LogError> {
+        Self::start_with_metrics(
+            store,
+            clock,
+            stream,
+            epoch,
+            next_seq,
+            config,
+            NodeMetrics::unregistered(),
+        )
+    }
+
+    /// Starts a pipeline with the node's process-local metric handles.
+    pub fn start_with_metrics(
+        store: Arc<dyn ObjectStore>,
+        clock: Arc<dyn WallClock>,
+        stream: StreamIdentity,
+        epoch: u64,
+        next_seq: u64,
+        config: CommitPipelineConfig,
+        metrics: NodeMetrics,
+    ) -> Result<(Self, mpsc::Receiver<CommittedBatch>), LogError> {
         if epoch == 0
             || next_seq == 0
             || config.max_in_flight == 0
@@ -109,6 +131,7 @@ impl CommitPipeline {
         let (committed_sender, committed_receiver) = mpsc::channel(config.max_in_flight * 2);
         let admission = Arc::new(Semaphore::new(config.max_pending_bytes as usize));
         let runtime = PipelineRuntime {
+            metrics,
             store,
             clock,
             stream,
@@ -221,9 +244,12 @@ impl PendingBatch {
 struct InFlightBatch {
     batch: PendingBatch,
     outcome: Option<Result<(), LogError>>,
+    sealed_at: Instant,
+    encoded_bytes: u64,
 }
 
 struct PipelineRuntime {
+    metrics: NodeMetrics,
     store: Arc<dyn ObjectStore>,
     clock: Arc<dyn WallClock>,
     stream: StreamIdentity,
@@ -238,6 +264,7 @@ async fn run_pipeline(
     mut receiver: mpsc::Receiver<Proposal>,
 ) {
     let PipelineRuntime {
+        metrics,
         store,
         clock,
         stream,
@@ -275,6 +302,7 @@ async fn run_pipeline(
                 return;
             };
             next_seq = incremented;
+            let sealed_at = Instant::now();
             let content = BatchContent {
                 stream: stream.clone(),
                 epoch,
@@ -304,6 +332,7 @@ async fn run_pipeline(
                 }
             };
             let store = store.clone();
+            let encoded_bytes = body.len() as u64;
             let stream = stream.clone();
             let head_deadline = config.head_deadline;
             writes.spawn(async move {
@@ -317,6 +346,8 @@ async fn run_pipeline(
                 InFlightBatch {
                     batch,
                     outcome: None,
+                    sealed_at,
+                    encoded_bytes,
                 },
             );
         }
@@ -331,7 +362,9 @@ async fn run_pipeline(
             result = writes.join_next(), if !writes.is_empty() => {
                 match result {
                     Some(Ok((seq, outcome))) => {
-                        if let Some(batch) = in_flight.get_mut(&seq) { batch.outcome = Some(outcome); }
+                        if let Some(batch) = in_flight.get_mut(&seq) {
+                            batch.outcome = Some(outcome);
+                        }
                     }
                     _ => {
                         fail_all(&mut open, &mut ready, &mut in_flight, ProposalFailure::Unavailable);
@@ -403,6 +436,14 @@ async fn run_pipeline(
                         );
                         return;
                     }
+                    metrics.commit_batches.inc();
+                    metrics
+                        .commit_records
+                        .inc_by(finished.batch.proposals.len() as u64);
+                    metrics.commit_bytes.inc_by(finished.encoded_bytes);
+                    metrics
+                        .commit_latency
+                        .observe(finished.sealed_at.elapsed().as_secs_f64());
                     for proposal in finished.batch.proposals {
                         if proposal.sender.send(Ok(seq)).is_err() {
                             tracing::debug!(
@@ -526,5 +567,149 @@ async fn write_batch(
         }
         sleep(backoff.min(deadline.saturating_duration_since(Instant::now()))).await;
         backoff = (backoff * 2).min(Duration::from_millis(500));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use dexzd_clock::SystemWallClock;
+    use dexzd_metrics::encode_registry;
+    use dexzd_object_store::{
+        FaultAction, FaultInjector, InMemoryObjectStore, ObjectStoreOperation,
+    };
+
+    use super::*;
+
+    struct DelayedFirstBatch {
+        duration: Duration,
+    }
+
+    impl FaultInjector for DelayedFirstBatch {
+        fn action(&self, operation: ObjectStoreOperation, key: &str) -> FaultAction {
+            if operation == ObjectStoreOperation::Put && key.ends_with("00000000000000000001") {
+                FaultAction::Delay(self.duration)
+            } else {
+                FaultAction::Proceed
+            }
+        }
+    }
+
+    fn stream() -> StreamIdentity {
+        StreamIdentity {
+            cluster_id: [7; 16],
+            node_id: "metrics-test".to_owned(),
+            incarnation: 1,
+        }
+    }
+
+    fn sample(body: &str, name: &str) -> f64 {
+        body.lines()
+            .find_map(|line| line.strip_prefix(name)?.strip_prefix(' '))
+            .expect("metric sample exists")
+            .parse()
+            .expect("metric sample is numeric")
+    }
+
+    async fn wait_for_second_write(store: &InMemoryObjectStore, stream: &StreamIdentity) {
+        for _ in 0..1000 {
+            if store.get(&stream.batch_key(2)).await.unwrap().is_some() {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("second batch was not written");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn commit_metrics_exclude_batches_failed_by_in_order_acknowledgement() {
+        let stream = stream();
+        let store = Arc::new(InMemoryObjectStore::with_injector(Arc::new(
+            DelayedFirstBatch {
+                duration: Duration::from_secs(2),
+            },
+        )));
+        let (registry, metrics) = NodeMetrics::registered(PathBuf::from("/nonexistent"), 1);
+        let (pipeline, mut committed) = CommitPipeline::start_with_metrics(
+            store.clone(),
+            Arc::new(SystemWallClock),
+            stream.clone(),
+            1,
+            1,
+            CommitPipelineConfig {
+                max_batch_records: 1,
+                head_deadline: Duration::from_secs(1),
+                ..Default::default()
+            },
+            metrics.clone(),
+        )
+        .unwrap();
+        let first = pipeline
+            .propose(1, Bytes::from_static(b"first"), true)
+            .await
+            .unwrap();
+        let second = pipeline
+            .propose(1, Bytes::from_static(b"second"), true)
+            .await
+            .unwrap();
+        wait_for_second_write(&store, &stream).await;
+        tokio::task::yield_now().await;
+        assert_eq!(metrics.commit_batches.get(), 0);
+        assert_eq!(metrics.commit_records.get(), 0);
+        assert_eq!(metrics.commit_bytes.get(), 0);
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(first.committed.await.unwrap().is_err());
+        assert!(second.committed.await.unwrap().is_err());
+        assert!(committed.try_recv().is_err());
+        let body = encode_registry(&registry).unwrap();
+        assert_eq!(sample(&body, "dexzd_commit_latency_seconds_count"), 0.0);
+        assert_eq!(metrics.commit_batches.get(), 0);
+        drop(pipeline);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn commit_latency_includes_head_of_line_wait() {
+        let stream = stream();
+        let store = Arc::new(InMemoryObjectStore::with_injector(Arc::new(
+            DelayedFirstBatch {
+                duration: Duration::from_millis(200),
+            },
+        )));
+        let (registry, metrics) = NodeMetrics::registered(PathBuf::from("/nonexistent"), 1);
+        let (pipeline, mut committed) = CommitPipeline::start_with_metrics(
+            store.clone(),
+            Arc::new(SystemWallClock),
+            stream.clone(),
+            1,
+            1,
+            CommitPipelineConfig {
+                max_batch_records: 1,
+                ..Default::default()
+            },
+            metrics.clone(),
+        )
+        .unwrap();
+        let first = pipeline
+            .propose(1, Bytes::from_static(b"first"), true)
+            .await
+            .unwrap();
+        let second = pipeline
+            .propose(1, Bytes::from_static(b"second"), true)
+            .await
+            .unwrap();
+        wait_for_second_write(&store, &stream).await;
+        tokio::time::advance(Duration::from_millis(200)).await;
+        assert_eq!(first.committed.await.unwrap().unwrap(), 1);
+        assert_eq!(second.committed.await.unwrap().unwrap(), 2);
+        assert_eq!(committed.recv().await.unwrap().seq, 1);
+        assert_eq!(committed.recv().await.unwrap().seq, 2);
+        let body = encode_registry(&registry).unwrap();
+        assert_eq!(sample(&body, "dexzd_commit_latency_seconds_count"), 2.0);
+        assert!(sample(&body, "dexzd_commit_latency_seconds_sum") >= 0.4);
+        assert_eq!(metrics.commit_batches.get(), 2);
+        assert_eq!(metrics.commit_records.get(), 2);
+        assert!(metrics.commit_bytes.get() > 0);
+        drop(pipeline);
     }
 }

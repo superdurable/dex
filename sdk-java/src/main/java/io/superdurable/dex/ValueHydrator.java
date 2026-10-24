@@ -49,15 +49,24 @@ final class ValueHydrator {
 
     private final FlowServiceGrpc.FlowServiceBlockingStub service;
     private final BlobCache cache;
+    private final Credential credential;
 
     ValueHydrator(
             final FlowServiceGrpc.FlowServiceBlockingStub service,
             final BlobCache cache) {
+        this(service, cache, null);
+    }
+
+    ValueHydrator(
+            final FlowServiceGrpc.FlowServiceBlockingStub service,
+            final BlobCache cache,
+            final Credential credential) {
         if (service == null || cache == null) {
             throw new IllegalArgumentException("FlowService and BlobCache are required");
         }
         this.service = service;
         this.cache = cache;
+        this.credential = credential;
     }
 
     Value hydrate(final String flowId, final Value value) {
@@ -308,7 +317,8 @@ final class ValueHydrator {
                     .setFlowId(miss.flowId)
                     .setBlobValue(miss.request));
         }
-        final LoadBlobsResponse response = service.loadBlobs(request.build());
+        final LoadBlobsResponse response = GrpcCredential.callUnaryWithRetry(credential,
+                () -> service.loadBlobs(request.build()));
         for (PendingBlob miss : misses) {
             final Value concrete = response.getValuesMap().get(miss.key.id);
             if (concrete == null) {

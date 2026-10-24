@@ -12,6 +12,7 @@
 
 mod harness;
 mod lease_release;
+mod metrics;
 mod object_store_compatibility;
 mod purging_reads;
 mod robustness;

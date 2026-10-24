@@ -415,9 +415,21 @@ func (stream *pullStream) run() {
 	defer stream.worker.streamWG.Done()
 	defer stream.remove()
 	backoff := 100 * time.Millisecond
+	hasReconnectedWithFreshToken := false
 	for stream.ctx.Err() == nil {
-		wasRegistered, err := stream.poll()
-		stream.worker.recordStreamResult(stream, err)
+		observer := &rejectedTokenObserver{}
+		wasRegistered, err := stream.poll(observer)
+		if wasRegistered {
+			hasReconnectedWithFreshToken = false
+		}
+		// A discarded token lets the next stream use a fresh one, so the first rejection is not yet permanent.
+		shouldReconnectWithFreshToken := !hasReconnectedWithFreshToken && status.Code(err) == codes.Unauthenticated &&
+			observer.hasDiscardedRejectedToken.Load()
+		if shouldReconnectWithFreshToken {
+			stream.worker.recordStreamResult(stream, nil)
+		} else {
+			stream.worker.recordStreamResult(stream, err)
+		}
 		stream.waitForTaskFinished()
 		if wasRegistered {
 			backoff = 100 * time.Millisecond
@@ -433,6 +445,11 @@ func (stream *pullStream) run() {
 		stream.mu.Unlock()
 		if isStopping || isRetiring {
 			return
+		}
+		if shouldReconnectWithFreshToken {
+			stream.worker.service.logger.Warn("Worker task stream rejected its token; reconnecting with a fresh token", "queue", stream.queue, "error", err)
+			hasReconnectedWithFreshToken = true
+			continue
 		}
 		if stream.isReconnecting() {
 			backoff = 100 * time.Millisecond
@@ -478,12 +495,12 @@ func isPermanentPullStreamError(err error) bool {
 	}
 }
 
-func (stream *pullStream) poll() (bool, error) {
+func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 	stream.mu.Lock()
 	stream.supportsUnknownNameRejection = false
 	stream.mu.Unlock()
 	pollCtx, cancel := context.WithCancel(stream.ctx)
-	clientStream, err := stream.worker.client.PollWorkerTask(pollCtx)
+	clientStream, err := stream.worker.client.PollWorkerTask(withRejectedTokenObserver(pollCtx, observer))
 	if err != nil {
 		cancel()
 		return false, err
@@ -492,14 +509,6 @@ func (stream *pullStream) poll() (bool, error) {
 	stream.stream = clientStream
 	stream.isSendClosed = false
 	stream.sendMu.Unlock()
-	register := &dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Register{Register: &dexpb.PollWorkerTaskRegister{
-		Queue: stream.queue, AppWorkerId: stream.worker.appWorkerID, FlowTypes: stream.worker.flowTypes, SdkName: "go", SdkVersion: stream.worker.sdkVersion,
-	}}}
-	if err := stream.send(register); err != nil {
-		stream.closeSend()
-		cancel()
-		return false, err
-	}
 	responses := make(chan *dexpb.PollWorkerTaskResponse, 1)
 	receiveErrors := make(chan error, 1)
 	receiveDone := make(chan struct{})
@@ -509,6 +518,12 @@ func (stream *pullStream) poll() (bool, error) {
 		<-receiveDone
 		stream.closeSend()
 	}()
+	register := &dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Register{Register: &dexpb.PollWorkerTaskRegister{
+		Queue: stream.queue, AppWorkerId: stream.worker.appWorkerID, FlowTypes: stream.worker.flowTypes, SdkName: "go", SdkVersion: stream.worker.sdkVersion,
+	}}}
+	if err := stream.send(register); err != nil {
+		return false, awaitPullStreamStatus(pollCtx, responses, receiveErrors, err)
+	}
 	wasRegistered := false
 	for {
 		select {
@@ -541,7 +556,7 @@ func (stream *pullStream) poll() (bool, error) {
 			case *dexpb.PollWorkerTaskResponse_Ping:
 				if err := stream.send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Pong{Pong: &dexpb.PollWorkerTaskPong{}}}); err != nil {
 					stream.cancelTaskContext()
-					return wasRegistered, err
+					return wasRegistered, awaitPullStreamStatus(pollCtx, responses, receiveErrors, err)
 				}
 			case *dexpb.PollWorkerTaskResponse_Reconnect:
 				if !stream.markDraining() {
@@ -559,6 +574,28 @@ func (stream *pullStream) poll() (bool, error) {
 		case <-pollCtx.Done():
 			stream.cancelTaskContext()
 			return wasRegistered, pollCtx.Err()
+		}
+	}
+}
+
+// awaitPullStreamStatus returns the final stream status when sendErr is io.EOF, which gRPC returns in its place.
+func awaitPullStreamStatus(
+	ctx context.Context,
+	responses <-chan *dexpb.PollWorkerTaskResponse,
+	receiveErrors <-chan error,
+	sendErr error,
+) error {
+	if !errors.Is(sendErr, io.EOF) {
+		return sendErr
+	}
+	for {
+		select {
+		case <-responses:
+			// The server ended the stream, so frames it sent before the status are moot.
+		case receiveErr := <-receiveErrors:
+			return receiveErr
+		case <-ctx.Done():
+			return sendErr
 		}
 	}
 }

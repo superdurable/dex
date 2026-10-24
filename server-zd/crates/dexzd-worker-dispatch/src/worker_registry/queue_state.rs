@@ -9,6 +9,39 @@
 //! Queue lifetime and bounded same-Flow affinity.
 
 use super::*;
+use prometheus_client::metrics::gauge::Gauge;
+
+pub(super) struct QueuedTaskMetric {
+    gauge: Gauge,
+    is_waiting: bool,
+}
+
+impl QueuedTaskMetric {
+    pub(super) fn new(gauge: Gauge) -> Self {
+        gauge.inc();
+        Self {
+            gauge,
+            is_waiting: true,
+        }
+    }
+
+    pub(super) fn set_waiting(&mut self, should_wait: bool) {
+        if should_wait && !self.is_waiting {
+            self.gauge.inc();
+        } else if !should_wait && self.is_waiting {
+            self.gauge.dec();
+        }
+        self.is_waiting = should_wait;
+    }
+}
+
+impl Drop for QueuedTaskMetric {
+    fn drop(&mut self) {
+        if self.is_waiting {
+            self.gauge.dec();
+        }
+    }
+}
 
 impl Drop for QueueLease {
     fn drop(&mut self) {
@@ -83,6 +116,7 @@ impl QueueState {
 mod tests {
     use super::*;
     use dexzd_clock::SystemWallClock;
+    use dexzd_protocol::dex::InvokeWaitForMethodRequest;
 
     #[tokio::test]
     async fn empty_queue_leases_and_absent_sticky_queues_are_removed() {
