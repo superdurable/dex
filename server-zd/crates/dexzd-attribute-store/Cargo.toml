@@ -1,0 +1,32 @@
+[package]
+name = "dexzd-attribute-store"
+description = "Postgres Attribute Store writer for server-zd with the Go Server's table contract and a fencing table"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bytes.workspace = true
+dexzd-protocol.workspace = true
+rand.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true
+tokio-postgres-rustls.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+tempfile.workspace = true
+tokio-rustls.workspace = true
+
+[lints]
+workspace = true
