@@ -420,6 +420,108 @@ pub fn decode_attribute_sync_pending_index_key(
     })
 }
 
+/// SearchOrder scope byte of keys that cover every Flow type.
+pub const SEARCH_ORDER_ALL_FLOW_TYPES: u8 = 0x00;
+/// SearchOrder scope byte of keys narrowed to one Flow type.
+pub const SEARCH_ORDER_ONE_FLOW_TYPE: u8 = 0x01;
+/// Version of the SearchOrder rows that apply maintains, recorded in `PartitionMeta`.
+pub const SEARCH_ORDER_INDEX_VERSION: u32 = 1;
+/// Length of [`SearchOrderPosition::to_key_bytes`].
+pub const SEARCH_ORDER_POSITION_BYTES: usize = 18;
+/// Length of the run ID and Flow hash that end every SearchOrder key.
+pub const SEARCH_ORDER_IDENTITY_BYTES: usize = 24;
+
+/// A run's place in the SearchFlows default order: Running runs first, then CloseTime
+/// descending with absent close times last, then StartTime descending, then run ID ascending.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchOrderPosition {
+    /// Whether the run's status is Running.
+    pub is_running: bool,
+    /// Close time in microseconds since the Unix epoch, when the run has one.
+    pub close_time_micros: Option<i64>,
+    /// Start time in microseconds since the Unix epoch.
+    pub start_time_micros: i64,
+}
+
+impl SearchOrderPosition {
+    /// Encodes the position so that ascending byte order is the default order.
+    pub fn to_key_bytes(&self) -> [u8; SEARCH_ORDER_POSITION_BYTES] {
+        let mut bytes = [0; SEARCH_ORDER_POSITION_BYTES];
+        bytes[0] = u8::from(!self.is_running);
+        bytes[1] = u8::from(self.close_time_micros.is_none());
+        if let Some(close_time_micros) = self.close_time_micros {
+            bytes[2..10].copy_from_slice(&descending_timestamp_bytes(close_time_micros));
+        }
+        bytes[10..18].copy_from_slice(&descending_timestamp_bytes(self.start_time_micros));
+        bytes
+    }
+}
+
+fn descending_timestamp_bytes(micros: i64) -> [u8; 8] {
+    ordered_timestamp_bytes(micros).map(|byte| !byte)
+}
+
+/// SearchOrder prefix of one tenant: `scope(1)`, then the length-prefixed Flow type when
+/// `flow_type` narrows the scope.
+pub fn search_order_index_prefix(
+    partition: PartitionId,
+    tenant_id: TenantId,
+    flow_type: Option<&str>,
+) -> Vec<u8> {
+    let mut rest = tenant_id.to_be_bytes().to_vec();
+    match flow_type {
+        None => rest.push(SEARCH_ORDER_ALL_FLOW_TYPES),
+        Some(flow_type) => {
+            rest.push(SEARCH_ORDER_ONE_FLOW_TYPE);
+            rest.extend_from_slice(&length_prefixed_name(flow_type));
+        }
+    }
+    partition_index_key(partition, IndexKind::SearchOrder, &rest)
+}
+
+/// SearchOrder key: the scope prefix, the encoded position, the run ID, then the Flow hash.
+/// The run ID precedes the Flow hash because the default order breaks ties by run ID.
+pub fn search_order_index_key(
+    partition: PartitionId,
+    tenant_id: TenantId,
+    flow_type: Option<&str>,
+    position: &SearchOrderPosition,
+    run_id: RunId,
+    flow_hash: FlowHash,
+) -> Vec<u8> {
+    let mut key = search_order_index_prefix(partition, tenant_id, flow_type);
+    key.extend_from_slice(&position.to_key_bytes());
+    key.extend_from_slice(run_id.as_bytes());
+    key.extend_from_slice(&flow_hash.to_be_bytes());
+    key
+}
+
+/// Returns both SearchOrder keys of a run: over every Flow type, then of its own Flow type.
+pub fn search_order_index_keys(
+    partition: PartitionId,
+    tenant_id: TenantId,
+    flow_type: &str,
+    position: &SearchOrderPosition,
+    run_id: RunId,
+    flow_hash: FlowHash,
+) -> [Vec<u8>; 2] {
+    [None, Some(flow_type)].map(|flow_type| {
+        search_order_index_key(partition, tenant_id, flow_type, position, run_id, flow_hash)
+    })
+}
+
+/// Decodes the run ID and Flow hash of a SearchOrder key whose scope prefix is
+/// `prefix_length` bytes; returns `None` when the key has another length.
+pub fn decode_search_order_identity(key: &[u8], prefix_length: usize) -> Option<(RunId, FlowHash)> {
+    if key.len() != prefix_length + SEARCH_ORDER_POSITION_BYTES + SEARCH_ORDER_IDENTITY_BYTES {
+        return None;
+    }
+    let identity = &key[prefix_length + SEARCH_ORDER_POSITION_BYTES..];
+    let run_id = RunId(identity[..16].try_into().ok()?);
+    let flow_hash = FlowHash(u64::from_be_bytes(identity[16..].try_into().ok()?));
+    Some((run_id, flow_hash))
+}
+
 /// Decodes the Flow hash and run ID that follow the kind byte of a partition index key.
 pub fn decode_flow_run_after_prefix(key: &[u8], prefix_length: usize) -> Option<(FlowHash, RunId)> {
     let rest = key.get(prefix_length..)?;
@@ -454,12 +556,53 @@ pub fn prefix_range(prefix: &[u8]) -> (Vec<u8>, Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        attribute_sync_outbox_key, attribute_sync_outbox_store_prefix,
+        SearchOrderPosition, attribute_sync_outbox_key, attribute_sync_outbox_store_prefix,
         attribute_sync_pending_index_key, attribute_sync_pending_store_prefix, channel_name_prefix,
-        decode_attribute_sync_pending_index_key, decode_timer_index_key, ordered_timestamp_bytes,
-        prefix_range, timer_index_key, timestamp_from_ordered_bytes,
+        decode_attribute_sync_pending_index_key, decode_search_order_identity,
+        decode_timer_index_key, ordered_timestamp_bytes, prefix_range, search_order_index_key,
+        search_order_index_prefix, timer_index_key, timestamp_from_ordered_bytes,
     };
-    use crate::{FlowHash, PartitionId, RunId};
+    use crate::{FlowHash, PartitionId, RunId, TenantId};
+
+    #[test]
+    fn search_order_keys_sort_in_default_order() {
+        let position = |is_running, close_time_micros, start_time_micros| SearchOrderPosition {
+            is_running,
+            close_time_micros,
+            start_time_micros,
+        };
+        let ordered = [
+            (position(true, None, 50), RunId([1; 16])),
+            (position(true, None, 50), RunId([2; 16])),
+            (position(true, None, -3), RunId([0; 16])),
+            (position(false, Some(90), 10), RunId([0; 16])),
+            (position(false, Some(90), 5), RunId([0; 16])),
+            (position(false, Some(-1), 80), RunId([0; 16])),
+            (position(false, None, 99), RunId([0; 16])),
+        ];
+        let keys: Vec<Vec<u8>> = ordered
+            .iter()
+            .map(|(position, run_id)| {
+                search_order_index_key(
+                    PartitionId(1),
+                    TenantId(7),
+                    Some("Checkout"),
+                    position,
+                    *run_id,
+                    FlowHash(u64::MAX - u64::from(run_id.0[0])),
+                )
+            })
+            .collect();
+        assert!(keys.windows(2).all(|pair| pair[0] < pair[1]));
+        let prefix_length =
+            search_order_index_prefix(PartitionId(1), TenantId(7), Some("Checkout")).len();
+        assert_eq!(
+            decode_search_order_identity(&keys[1], prefix_length),
+            Some((RunId([2; 16]), FlowHash(u64::MAX - 2)))
+        );
+        let all_types = search_order_index_prefix(PartitionId(1), TenantId(7), None);
+        assert!(!keys[0].starts_with(&all_types));
+    }
 
     #[test]
     fn ordered_timestamps_sort_numerically() {

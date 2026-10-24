@@ -25,6 +25,7 @@ use crate::ApplyError;
 use crate::command_handlers::CommandScope;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::projections::work_queue_permissions;
+use crate::read_model::search_order_index_keys_of_document;
 use crate::state_access::FlowTransaction;
 use crate::values::load_stored_value;
 
@@ -172,7 +173,7 @@ pub(crate) fn refresh_search_document(
     let tenant_id = TenantId(record.tenant_id);
     let flow_hash = cursor.rows.flow_hash;
     let run_id = cursor.run_id();
-    if let Some(previous) = old_document
+    if let Some(previous) = old_document.as_ref()
         && (previous.status != document.status || previous.flow_type != document.flow_type)
     {
         transaction.delete(
@@ -186,6 +187,20 @@ pub(crate) fn refresh_search_document(
                 run_id,
             ),
         );
+    }
+    let search_order_keys =
+        search_order_index_keys_of_document(partition, flow_hash, run_id, &document);
+    if let Some(previous) = old_document.as_ref() {
+        for previous_key in
+            search_order_index_keys_of_document(partition, flow_hash, run_id, previous)
+        {
+            if !search_order_keys.contains(&previous_key) {
+                transaction.delete(ColumnFamily::PartitionIndex, previous_key);
+            }
+        }
+    }
+    for search_order_key in search_order_keys {
+        transaction.put(ColumnFamily::PartitionIndex, search_order_key, Vec::new());
     }
     // RunPurge must delete both SearchDocument and FlowList index keys.
     cursor.rows.put_search_document(transaction, &document);

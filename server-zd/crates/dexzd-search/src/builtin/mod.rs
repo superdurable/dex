@@ -8,6 +8,7 @@
 
 //! Tenant-scoped SearchFlows over committed local run documents.
 
+mod default_order_scan;
 pub(crate) mod document;
 
 use std::cmp::Ordering;
@@ -19,7 +20,8 @@ use dexzd_keyspace::row_keys::{
     decode_flow_run_after_prefix, length_prefixed_name, prefix_range, run_singleton_key,
 };
 use dexzd_keyspace::{
-    ColumnFamily, IndexKind, PartitionId, RunTable, TenantId, partition_index_prefix,
+    ColumnFamily, FlowHash, IndexKind, PartitionId, RunId, RunTable, TenantId,
+    partition_index_prefix,
 };
 use dexzd_protocol::dexzd::v1::RunRecord;
 use dexzd_visibility_query::{
@@ -28,6 +30,7 @@ use dexzd_visibility_query::{
 };
 use prost::Message;
 
+use self::default_order_scan::DefaultOrderScan;
 use self::document::IndexedDocument;
 use crate::page_token::PagePosition;
 use crate::search_backend::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE};
@@ -91,25 +94,27 @@ impl BuiltinSearchBackend {
             .transpose()?;
         let flow_type = pinned_flow_type(query.expression());
         let committed_view = self.view_provider.committed_view()?;
-        let mut partition_matches = Vec::new();
-        let mut scan_state = ScanState {
-            committed_view: committed_view.as_ref(),
-            scanned: 0,
-        };
-        for partition_number in 0..self.partition_count {
-            let partition_number = u16::try_from(partition_number)
-                .expect("with_scan_budget limits the partition count to 65536");
-            let mut matches = self.scan_partition(
-                PartitionId(partition_number),
+        let partition_matches = if query.order_by().is_none() {
+            let page = DefaultOrderScan {
+                committed_view: committed_view.as_ref(),
+                tenant_id: request.tenant_id,
+                flow_type,
+                query: &query,
+                cursor: cursor.as_ref(),
+                page_size: request.page_size,
+                scan_budget: self.scan_budget,
+            }
+            .collect_page(self.partition_count)?;
+            vec![page]
+        } else {
+            self.scan_all_partitions(
+                committed_view.as_ref(),
                 request.tenant_id,
                 flow_type,
                 &query,
                 cursor.as_ref(),
-                &mut scan_state,
-            )?;
-            matches.sort_by(|left, right| compare_documents(&query, left, right));
-            partition_matches.push(matches);
-        }
+            )?
+        };
         Ok(merge_pages(
             partition_matches,
             &query,
@@ -117,6 +122,37 @@ impl BuiltinSearchBackend {
             &request.query,
             request.page_size,
         ))
+    }
+
+    /// Reads every matching document of every partition, each partition sorted by the query.
+    fn scan_all_partitions(
+        &self,
+        committed_view: &(dyn FlowStateReader + Send + Sync),
+        tenant_id: TenantId,
+        flow_type: Option<&str>,
+        query: &Query,
+        cursor: Option<&PagePosition>,
+    ) -> Result<Vec<Vec<IndexedDocument>>, SearchError> {
+        let mut partition_matches = Vec::new();
+        let mut scan_state = ScanState {
+            committed_view,
+            scanned: 0,
+        };
+        for partition_number in 0..self.partition_count {
+            let partition_number = u16::try_from(partition_number)
+                .expect("with_scan_budget limits the partition count to 65536");
+            let mut matches = self.scan_partition(
+                PartitionId(partition_number),
+                tenant_id,
+                flow_type,
+                query,
+                cursor,
+                &mut scan_state,
+            )?;
+            matches.sort_by(|left, right| compare_documents(query, left, right));
+            partition_matches.push(matches);
+        }
+        Ok(partition_matches)
     }
 
     fn scan_partition(
@@ -174,30 +210,11 @@ impl BuiltinSearchBackend {
                 }
                 let (flow_hash, run_id) = decode_flow_run_after_prefix(&index_key, identity_offset)
                     .ok_or_else(|| SearchError::Internal("malformed search index key".into()))?;
-                let run_record_key = run_singleton_key(flow_hash, run_id, RunTable::RunRecord);
-                let encoded_run_record = scan_state
-                    .committed_view
-                    .get(ColumnFamily::Flow, &run_record_key)
-                    .map_err(|error| SearchError::Unavailable(error.to_string()))?
-                    .ok_or_else(|| {
-                        SearchError::Internal("search index has no run record".into())
-                    })?;
-                let run_record =
-                    RunRecord::decode(encoded_run_record.as_slice()).map_err(|error| {
-                        SearchError::Internal(format!("decode search run record: {error}"))
-                    })?;
-                if run_record.is_purging {
+                let Some(document) =
+                    load_indexed_document(scan_state.committed_view, flow_hash, run_id, tenant_id)?
+                else {
                     continue;
-                }
-                let document_key = run_singleton_key(flow_hash, run_id, RunTable::SearchDocument);
-                let encoded = scan_state
-                    .committed_view
-                    .get(ColumnFamily::Flow, &document_key)
-                    .map_err(|error| SearchError::Unavailable(error.to_string()))?
-                    .ok_or_else(|| {
-                        SearchError::Internal("search index has no run document".into())
-                    })?;
-                let document = IndexedDocument::decode(&encoded, tenant_id, run_id)?;
+                };
                 if evaluate(query, &document)
                     && cursor.is_none_or(|cursor| {
                         compare_documents(query, &document, cursor) == Ordering::Greater
@@ -246,6 +263,31 @@ struct OwnedSearchRequest {
 struct ScanState<'a> {
     committed_view: &'a (dyn FlowStateReader + Send + Sync),
     scanned: usize,
+}
+
+/// Loads an indexed run's search document; returns `None` while the run is being purged.
+fn load_indexed_document(
+    committed_view: &(dyn FlowStateReader + Send + Sync),
+    flow_hash: FlowHash,
+    run_id: RunId,
+    tenant_id: TenantId,
+) -> Result<Option<IndexedDocument>, SearchError> {
+    let run_record_key = run_singleton_key(flow_hash, run_id, RunTable::RunRecord);
+    let encoded_run_record = committed_view
+        .get(ColumnFamily::Flow, &run_record_key)
+        .map_err(|error| SearchError::Unavailable(error.to_string()))?
+        .ok_or_else(|| SearchError::Internal("search index has no run record".into()))?;
+    let run_record = RunRecord::decode(encoded_run_record.as_slice())
+        .map_err(|error| SearchError::Internal(format!("decode search run record: {error}")))?;
+    if run_record.is_purging {
+        return Ok(None);
+    }
+    let document_key = run_singleton_key(flow_hash, run_id, RunTable::SearchDocument);
+    let encoded = committed_view
+        .get(ColumnFamily::Flow, &document_key)
+        .map_err(|error| SearchError::Unavailable(error.to_string()))?
+        .ok_or_else(|| SearchError::Internal("search index has no run document".into()))?;
+    IndexedDocument::decode(&encoded, tenant_id, run_id).map(Some)
 }
 
 fn pinned_flow_type(expression: &Expression) -> Option<&str> {
@@ -313,5 +355,7 @@ fn merge_pages(
     }
 }
 
+#[cfg(test)]
+mod default_order_tests;
 #[cfg(test)]
 mod tests;

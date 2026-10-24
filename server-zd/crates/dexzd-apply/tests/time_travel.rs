@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 
 use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_hash};
-use dexzd_apply::read_model::get_search_document;
+use dexzd_apply::read_model::{get_search_document, search_order_index_keys_of_document};
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyError, ApplyOutcome, FlowStateReader, StateReadError, StateRow,
     StateWrite, apply_flow_command,
@@ -246,6 +246,34 @@ impl Harness {
             .get(ColumnFamily::Flow, &key)
             .expect("the directory exists");
         directory.runs.last().expect("one run").status
+    }
+
+    /// Asserts that the SearchOrder rows are exactly the current search document's keys.
+    fn assert_search_order_matches_document(&self) {
+        let document = get_search_document(&self.state, self.context.flow_hash, self.run())
+            .expect("the search document reads")
+            .expect("the run has a search document");
+        let expected: Vec<Vec<u8>> = search_order_index_keys_of_document(
+            self.context.partition,
+            self.context.flow_hash,
+            self.run(),
+            &document,
+        )
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+        let actual: Vec<Vec<u8>> = self
+            .state
+            .rows
+            .keys()
+            .filter(|(column_family, key)| {
+                *column_family == ColumnFamily::PartitionIndex
+                    && key.get(2) == Some(&(IndexKind::SearchOrder as u8))
+            })
+            .map(|(_, key)| key.clone())
+            .collect();
+        assert_eq!(actual, expected);
     }
 
     fn has_index_entry(&self, kind: IndexKind) -> bool {
@@ -693,8 +721,10 @@ fn beginning_reopens_a_completed_flow_with_the_start_state() {
     harness.complete_execute("ChargeStep-1", 1, force_complete());
     assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
     assert!(!harness.has_index_entry(IndexKind::ActiveWork));
+    harness.assert_search_order_matches_document();
     let (attempt, outcome) = harness.travel_to(reset(FlowResetType::Beginning));
     assert_eq!(attempt, 2);
+    harness.assert_search_order_matches_document();
     let record = harness.run_record();
     assert_eq!(record.current_attempt, 2);
     assert_eq!(record.status, FlowStatus::Running as i32);

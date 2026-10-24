@@ -22,6 +22,7 @@ use prost::Message;
 use crate::command_handlers::command_replies::{error_reply, grpc_code, ok_reply};
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerOutput, HandlerResult};
+use crate::read_model::search_order_index_keys_of_document;
 use crate::state_access::{FlowTransaction, RunRows, read_flow_directory, write_flow_directory};
 use crate::steps::arm_timer;
 use crate::{ApplyEffect, ApplyError};
@@ -146,6 +147,13 @@ pub(crate) fn apply_run_purge(
             run_id,
         ),
     );
+    if let Some(document) = rows.search_document(transaction)? {
+        for search_order_key in
+            search_order_index_keys_of_document(partition, flow_hash, run_id, &document)
+        {
+            transaction.delete(ColumnFamily::PartitionIndex, search_order_key);
+        }
+    }
     transaction.delete(
         ColumnFamily::PartitionIndex,
         active_work_index_key(partition, flow_hash, run_id),

@@ -36,7 +36,7 @@ use crate::commit::{
 use crate::engine_id_source::EngineIdSource;
 use crate::recovery::{
     ClusterMetadata, EngineRuntimeHooks, EngineServices, EngineStartError, LocalStoreConfig,
-    LocalStoreRequirements, LogReplay, open_local_store,
+    LocalStoreRequirements, LogReplay, open_local_store, rebuild_search_order_indexes,
 };
 use crate::snapshots::{
     LogCleanup, OwnershipFence, SnapshotCatalog, SnapshotConfig, SnapshotError, SnapshotRetention,
@@ -213,6 +213,13 @@ impl EngineNode {
                 },
             )
             .await?;
+            let rebuilt_search_order_partitions = rebuild_search_order_indexes(&store)?;
+            if rebuilt_search_order_partitions > 0 {
+                tracing::info!(
+                    partition_count = rebuilt_search_order_partitions,
+                    "rebuilt search order indexes"
+                );
+            }
             let node_meta_lock = Arc::new(std::sync::Mutex::new(()));
             let (proposal_sender, proposal_receiver) = mpsc::unbounded_channel();
             let committer = CommandCommitter::new(CommandCommitterParts {

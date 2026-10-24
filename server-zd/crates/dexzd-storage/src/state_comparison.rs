@@ -324,6 +324,7 @@ mod tests {
             last_command_timestamp_micros: 42,
             last_behavior_version: 3,
             applied_epoch: 4,
+            search_order_index_version: 1,
         };
         let mut recovered = baseline.clone();
         recovered.applied = Some(LogPosition {

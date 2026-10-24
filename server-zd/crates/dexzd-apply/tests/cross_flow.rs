@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use dexzd_apply::read_model::{get_search_document, search_order_index_keys_of_document};
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
     apply_flow_command,
@@ -1147,13 +1148,38 @@ fn pending_outbox_defers_purge_and_purging_child_start_retries() {
             .rows
             .contains_key(&(ColumnFamily::PartitionIndex, flow_list_index.clone()))
     );
+    let child_document = get_search_document(&harness.state, child_hash, RunId(FIRST_CHILD_RUN))
+        .unwrap()
+        .expect("the purging child has a search document");
+    let search_order_indexes = search_order_index_keys_of_document(
+        partition,
+        child_hash,
+        RunId(FIRST_CHILD_RUN),
+        &child_document,
+    );
+    for key in &search_order_indexes {
+        assert!(
+            harness
+                .state
+                .rows
+                .contains_key(&(ColumnFamily::PartitionIndex, key.clone()))
+        );
+    }
     assert_ok(&harness.apply(
         CHILD_ID,
         &FIRST_CHILD_RUN,
         Command::RunPurge(RunPurgeCommand {}),
     ));
     let directory_key = flow_directory_key(child_hash, TenantId::DEFAULT, CHILD_ID);
-    for key in [pending_index, object_index, search_index, flow_list_index] {
+    let [all_types_index, flow_type_index] = search_order_indexes;
+    for key in [
+        pending_index,
+        object_index,
+        search_index,
+        flow_list_index,
+        all_types_index,
+        flow_type_index,
+    ] {
         assert!(
             !harness
                 .state

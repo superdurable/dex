@@ -229,11 +229,14 @@ pub enum IndexKind {
     /// `store_name_length(2) ‖ store_name ‖ flow_hash(8) ‖ run_id(16)`: runs with Attribute
     /// Sync entries pending for that store.
     AttributeSyncPending = 0x09,
+    /// `tenant_id(8) ‖ scope(1) ‖ [type_length(2) ‖ flow_type] ‖ default order(18) ‖ run_id(16) ‖
+    /// flow_hash(8)`, in SearchFlows default order; see `row_keys::search_order_index_key`.
+    SearchOrder = 0x0a,
 }
 
 impl IndexKind {
     /// Every index kind, in byte order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Timer,
         Self::FlowList,
         Self::SearchDocument,
@@ -243,6 +246,7 @@ impl IndexKind {
         Self::Retention,
         Self::ActiveWork,
         Self::AttributeSyncPending,
+        Self::SearchOrder,
     ];
 }
 
@@ -405,7 +409,7 @@ mod tests {
         let bytes: Vec<u8> = RunTable::ALL.iter().map(|table| *table as u8).collect();
         assert_eq!(bytes, (1..=26).collect::<Vec<u8>>());
         let kinds: Vec<u8> = IndexKind::ALL.iter().map(|kind| *kind as u8).collect();
-        assert_eq!(kinds, (1..=9).collect::<Vec<u8>>());
+        assert_eq!(kinds, (1..=10).collect::<Vec<u8>>());
         assert_eq!(RunTable::Value.column_family(), ColumnFamily::Value);
         assert_eq!(RunTable::Checkpoint.column_family(), ColumnFamily::History);
     }

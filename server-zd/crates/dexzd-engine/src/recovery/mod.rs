@@ -13,6 +13,7 @@ mod local_store_opening;
 mod log_replay;
 mod node_streams;
 mod runtime_rebuild;
+mod search_order_rebuild;
 
 pub use local_store_opening::LocalStoreConfig;
 pub use log_replay::RecoveryConfig;
@@ -25,6 +26,7 @@ pub(crate) use cluster_metadata::ClusterMetadata;
 pub(crate) use local_store_opening::{LocalStoreRequirements, open_local_store};
 pub(crate) use log_replay::LogReplay;
 pub(crate) use node_streams::describe_lost_ownership;
+pub(crate) use search_order_rebuild::rebuild_search_order_indexes;
 
 use crate::commit::NodeStopReason;
 
