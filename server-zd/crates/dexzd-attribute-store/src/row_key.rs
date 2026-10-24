@@ -8,6 +8,9 @@
 
 use std::collections::BTreeSet;
 
+use unicode_properties::GeneralCategory;
+use unicode_properties::general_category::UnicodeGeneralCategory;
+
 use crate::settings::ColumnNaming;
 
 const ROW_KEY_WILDCARD: &str = "*";
@@ -132,13 +135,13 @@ pub(crate) fn snake_case(name: &str) -> String {
     let characters = name.chars().collect::<Vec<_>>();
     let mut result = String::with_capacity(name.len() + 4);
     for (index, &character) in characters.iter().enumerate() {
-        if index > 0 && character.is_uppercase() {
+        if index > 0 && is_go_upper(character) {
             let previous = characters[index - 1];
-            let ends_acronym = previous.is_uppercase()
+            let ends_acronym = is_go_upper(previous)
                 && characters
                     .get(index + 1)
-                    .is_some_and(|next| next.is_lowercase());
-            if previous.is_lowercase() || is_go_digit(previous) || ends_acronym {
+                    .is_some_and(|next| is_go_lower(*next));
+            if is_go_lower(previous) || is_go_digit(previous) || ends_acronym {
                 result.push('_');
             }
         }
@@ -147,12 +150,19 @@ pub(crate) fn snake_case(name: &str) -> String {
     result
 }
 
+/// Go's `unicode.IsUpper`: General_Category Lu, unlike Rust's broader Uppercase property.
+fn is_go_upper(character: char) -> bool {
+    character.general_category() == GeneralCategory::UppercaseLetter
+}
+
+/// Go's `unicode.IsLower`: General_Category Ll, unlike Rust's broader Lowercase property.
+fn is_go_lower(character: char) -> bool {
+    character.general_category() == GeneralCategory::LowercaseLetter
+}
+
 /// Go's `unicode.IsDigit`: ASCII digits in Latin-1, otherwise any decimal digit.
 fn is_go_digit(character: char) -> bool {
-    if u32::from(character) <= 0xFF {
-        return character.is_ascii_digit();
-    }
-    character.is_numeric()
+    character.general_category() == GeneralCategory::DecimalNumber
 }
 
 /// Go's `unicode.ToLower` uses the simple mapping, which is the first character of the full mapping.

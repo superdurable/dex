@@ -101,6 +101,40 @@ fn snake_case_matches_go() {
     );
 }
 
+/// Expected values are the output of Go's `snakeCase` with Go 1.26 (Unicode 15.0.0).
+#[test]
+fn snake_case_uses_go_general_categories_for_non_ascii_names() {
+    for (name, expected) in [
+        ("a٣B", "a٣_b"),
+        ("ªA", "ªa"),
+        ("ºA", "ºa"),
+        ("①A", "①a"),
+        ("ⅰA", "ⅰa"),
+        ("ⅠA", "ⅰa"),
+        ("aⅠ", "aⅰ"),
+        ("ⒶBc", "ⓐbc"),
+        ("AⒷc", "aⓑc"),
+        ("aⒶ", "aⓐ"),
+        ("ⓐA", "ⓐa"),
+        ("ʰA", "ʰa"),
+        ("aǅ", "aǆ"),
+        ("ǅA", "ǆa"),
+        ("a²B", "a²b"),
+        ("a໒B", "a໒_b"),
+        ("ÀÉtat", "à_état"),
+        ("ÉtéÀ", "été_à"),
+        ("ßA", "ß_a"),
+        ("ĸA", "ĸ_a"),
+        ("ΣΑΣ", "σασ"),
+        ("ÅngströmΩ", "ångström_ω"),
+        ("𝐀𝐁c", "𝐀_𝐁c"),
+        ("a𝟘B", "a𝟘_b"),
+        ("Ⅻb", "ⅻb"),
+    ] {
+        assert_eq!(snake_case(name), expected, "{name}");
+    }
+}
+
 #[test]
 fn column_naming_parses_go_config_values() {
     assert_eq!(

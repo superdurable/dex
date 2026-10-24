@@ -22,6 +22,7 @@ tokio-postgres.workspace = true
 tokio-postgres-rustls.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+unicode-properties.workspace = true
 
 [dev-dependencies]
 rcgen.workspace = true

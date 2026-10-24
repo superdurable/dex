@@ -370,6 +370,36 @@ async fn postgres_startup_rejects_invalid_store_tables() {
         error.to_string().contains("unterminated placeholder"),
         "{error}"
     );
+    let mut settings = database.settings("invalid", "valid_table");
+    settings.row_key = Some(String::new());
+    let store = connect(settings).await;
+    assert_eq!(
+        store.current_schema().key_values("o1"),
+        Some(vec!["o1".to_owned()])
+    );
+    drop(store);
+
+    let separator = if database.url.contains('?') { '&' } else { '?' };
+    let mut settings = database.settings("invalid", "valid_table");
+    settings.dsn = format!("{}{separator}options=-c%20search_path%3D", database.url);
+    settings.attribute_maps = BTreeMap::from([(
+        "Members".to_owned(),
+        AttributeMapTableSettings {
+            table_name: "members".to_owned(),
+            instance_key_column: "account_id".to_owned(),
+        },
+    )]);
+    let error = connect_error(settings).await;
+    assert!(
+        matches!(error, AttributeStoreError::InvalidTable { .. }),
+        "{error}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains(r#"AttributeMap "Members": database has no active namespace"#),
+        "{error}"
+    );
     database.drop_schema().await;
 }
 

@@ -301,12 +301,10 @@ pub(crate) fn parse_datetime(value: &str) -> Result<i128, String> {
 
 fn parse_rfc3339(value: &str) -> Option<i128> {
     let bytes = value.as_bytes();
-    if bytes.len() < "2006-01-02T15:04:05".len()
+    if bytes.len() < "2006-01-02T".len()
         || bytes[4] != b'-'
         || bytes[7] != b'-'
         || bytes[10] != b'T'
-        || bytes[13] != b':'
-        || bytes[16] != b':'
     {
         return None;
     }
@@ -314,10 +312,28 @@ fn parse_rfc3339(value: &str) -> Option<i128> {
     let month = Month::try_from(u8::try_from(parse_digits(&bytes[5..7])?).ok()?).ok()?;
     let day = u8::try_from(parse_digits(&bytes[8..10])?).ok()?;
     let date = Date::from_calendar_date(i32::try_from(year).ok()?, month, day).ok()?;
-    let hour = bounded(parse_digits(&bytes[11..13])?, 23)?;
-    let minute = bounded(parse_digits(&bytes[14..16])?, 59)?;
-    let second = bounded(parse_digits(&bytes[17..19])?, 59)?;
-    let mut rest = &bytes[19..];
+    // Go's layout parser reads the hour with one or two digits; the other fields are fixed width.
+    let hour_digits = bytes[11..]
+        .iter()
+        .take(2)
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    let hour = bounded(parse_digits(&bytes[11..11 + hour_digits])?, 23)?;
+    let [
+        b':',
+        minute_tens,
+        minute_ones,
+        b':',
+        second_tens,
+        second_ones,
+        rest @ ..,
+    ] = &bytes[11 + hour_digits..]
+    else {
+        return None;
+    };
+    let minute = bounded(parse_digits(&[*minute_tens, *minute_ones])?, 59)?;
+    let second = bounded(parse_digits(&[*second_tens, *second_ones])?, 59)?;
+    let mut rest = rest;
     let mut nanoseconds = 0;
     if rest.len() >= 2 && matches!(rest[0], b'.' | b',') && rest[1].is_ascii_digit() {
         let digit_count = rest[1..]

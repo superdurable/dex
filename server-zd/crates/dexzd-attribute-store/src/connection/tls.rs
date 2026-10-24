@@ -84,16 +84,14 @@ pub(crate) fn load_root_certificates(ssl_root_cert: &str) -> Result<RootCertStor
         loaded.certs
     } else {
         CertificateDer::pem_file_iter(ssl_root_cert)
-            .map_err(|error| format!("read sslrootcert {ssl_root_cert:?}: {error}"))?
+            .map_err(|error| format!("read the sslrootcert file: {error}"))?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| format!("parse sslrootcert {ssl_root_cert:?}: {error}"))?
+            .map_err(|_| "the sslrootcert file is not a valid PEM bundle".to_owned())?
     };
     let mut roots = RootCertStore::empty();
     let (added, _) = roots.add_parsable_certificates(certificates);
     if added == 0 {
-        return Err(format!(
-            "sslrootcert {ssl_root_cert:?} contains no usable CA certificate"
-        ));
+        return Err("the sslrootcert file contains no usable CA certificate".to_owned());
     }
     Ok(roots)
 }

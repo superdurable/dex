@@ -147,17 +147,14 @@ fn ssl_modes_follow_pgx() {
         assert_eq!(settings.tls.is_some(), has_tls, "{dsn}");
     }
     for (dsn, message) in [
-        (
-            "host=localhost sslmode=bogus",
-            "sslmode \"bogus\" is invalid",
-        ),
+        ("host=localhost sslmode=bogus", "sslmode is invalid"),
         (
             "host=localhost sslmode=verify-full sslrootcert=/nonexistent/ca.pem",
-            "read sslrootcert",
+            "read the sslrootcert file",
         ),
         (
             "host=localhost port=notanumber password=secret",
-            "parse connection string",
+            "connection string keyword port has an invalid value",
         ),
     ] {
         let error = ConnectionSettings::parse(dsn).err().expect(dsn);
@@ -271,6 +268,127 @@ async fn unreachable_database_fails_startup_with_a_redacted_retryable_error() {
     let message = error.to_string();
     assert!(message.contains("connect to Postgres"), "{message}");
     assert!(!message.contains("secret-password"), "{message}");
+}
+
+#[tokio::test]
+async fn dsn_errors_never_reveal_dsn_content() {
+    let s3cr3t_directory = tempfile::Builder::new()
+        .prefix("s3cr3t")
+        .tempdir()
+        .expect("create a directory with a secret name");
+    let s3cr3t_ca_path = s3cr3t_directory.path().join("missing-ca.pem");
+    let invalid = [
+        (
+            "host=localhost password=s3cr3t-a s3cr3t-b".to_owned(),
+            "connection string has a keyword without '='",
+        ),
+        (
+            "host=localhost password=s3cr3t-a s3cr3t-b=c".to_owned(),
+            "connection string has an unsupported keyword or is malformed",
+        ),
+        (
+            "host=localhost password='s3cr3t-a".to_owned(),
+            "connection string has an unterminated quoted value",
+        ),
+        (
+            r"host=localhost password=s3cr3t\".to_owned(),
+            "connection string ends with an unfinished escape",
+        ),
+        (
+            "host=localhost password=s3cr3t s3cr3t-key=".to_owned(),
+            "connection string has a keyword without a value",
+        ),
+        (
+            "host=localhost password=s3cr3t =s3cr3t".to_owned(),
+            "connection string has a parameter without a keyword",
+        ),
+        (
+            "host=localhost password=s3cr3t port=s3cr3t".to_owned(),
+            "connection string keyword port has an invalid value",
+        ),
+        (
+            "host=localhost password=s3cr3t sslmode=s3cr3t".to_owned(),
+            "sslmode is invalid",
+        ),
+        (
+            format!(
+                "host=localhost password=s3cr3t sslmode=verify-full sslrootcert={}",
+                s3cr3t_ca_path.display()
+            ),
+            "read the sslrootcert file",
+        ),
+        (
+            "postgres://dex:s3cr3t@localhost/dex?s3cr3t-key=s3cr3t".to_owned(),
+            "connection string has an unsupported keyword or is malformed",
+        ),
+        (
+            "postgres://dex:s3cr3t@localhost/dex?sslmode".to_owned(),
+            "connection URL has an unterminated parameter",
+        ),
+        (
+            "postgres://dex:s3cr3t@localhost:s3cr3t/dex".to_owned(),
+            "connection string keyword port has an invalid value",
+        ),
+        (
+            "postgres://dex:s3cr3t@localhost/dex?application_name=%FFs3cr3t".to_owned(),
+            "connection URL parameter is not UTF-8",
+        ),
+    ];
+    for (dsn, expected) in invalid {
+        let error =
+            connect_and_validate_error(AttributeStoreSettings::new("tls", &dsn, "orders")).await;
+        let AttributeStoreError::InvalidConnectionSettings { reason, .. } = &error else {
+            panic!("{dsn}: {error:?}");
+        };
+        assert!(reason.starts_with(expected), "{dsn}: {reason}");
+        assert_reveals_no_secret(&error);
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a free port");
+    let port = listener.local_addr().expect("listener address").port();
+    drop(listener);
+    let error = connect_and_validate_error(AttributeStoreSettings::new(
+        "tls",
+        format!("host=127.0.0.1 port={port} user=s3cr3t-user password='s3cr3t a' sslmode=disable"),
+        "orders",
+    ))
+    .await;
+    assert!(
+        matches!(error, AttributeStoreError::Database { .. }),
+        "{error:?}"
+    );
+    assert_reveals_no_secret(&error);
+}
+
+#[tokio::test]
+async fn empty_row_key_is_unset_like_go() {
+    let mut settings = AttributeStoreSettings::new(
+        "orders",
+        "host=localhost sslmode=disable unsupported_keyword=1",
+        "orders",
+    );
+    settings.row_key = Some(String::new());
+    let error = connect_and_validate_error(settings).await;
+    assert!(
+        matches!(error, AttributeStoreError::InvalidConnectionSettings { .. }),
+        "{error:?}"
+    );
+}
+
+async fn connect_and_validate_error(settings: AttributeStoreSettings) -> AttributeStoreError {
+    match AttributeStore::connect_and_validate(settings).await {
+        Ok(_) => panic!("startup must fail"),
+        Err(error) => error,
+    }
+}
+
+fn assert_reveals_no_secret(error: &AttributeStoreError) {
+    let display = error.to_string();
+    let debug = format!("{error:?}");
+    assert!(!display.contains("s3cr3t"), "{display}");
+    assert!(!debug.contains("s3cr3t"), "{debug}");
 }
 
 struct TestCertificates {

@@ -28,6 +28,24 @@ pub(crate) use tls::{CertificateVerification, client_config, load_root_certifica
 /// Applies when the DSN has no `connect_timeout`; it also bounds the TLS handshake and authentication.
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// The keywords tokio-postgres names when their value is invalid; errors name only these constants.
+const VALUE_CHECKED_KEYWORDS: [&str; 14] = [
+    "host",
+    "hostaddr",
+    "port",
+    "sslmode",
+    "sslnegotiation",
+    "connect_timeout",
+    "tcp_user_timeout",
+    "keepalives",
+    "keepalives_idle",
+    "keepalives_interval",
+    "keepalives_retries",
+    "target_session_attrs",
+    "channel_binding",
+    "load_balance_hosts",
+];
+
 /// A parsed DSN: the tokio-postgres configuration and the TLS connector its `sslmode` requires.
 pub(crate) struct ConnectionSettings {
     config: Config,
@@ -46,7 +64,7 @@ impl ConnectionSettings {
         let (remaining, parameters) = split_tls_parameters(dsn)?;
         let mut config = remaining
             .parse::<Config>()
-            .map_err(|error| format!("parse connection string: {error}"))?;
+            .map_err(|error| describe_config_parse_error(&error))?;
         let (ssl_mode, verification) = resolve_tls(&parameters)?;
         config.ssl_mode(ssl_mode);
         let tls = match verification {
@@ -156,6 +174,7 @@ fn resolve_tls(
     let system_roots = || load_root_certificates("system");
     match ssl_mode.as_str() {
         "disable" => Ok((SslMode::Disable, None)),
+        // Unlike pgx, `allow` tries TLS first, like `prefer`.
         "allow" | "prefer" => Ok((SslMode::Prefer, Some(CertificateVerification::None))),
         "require" => match roots {
             Some(roots) => Ok((
@@ -175,6 +194,21 @@ fn resolve_tls(
             let roots = roots.map_or_else(system_roots, Ok)?;
             Ok((SslMode::Require, Some(CertificateVerification::Full(roots))))
         }
-        other => Err(format!("sslmode {other:?} is invalid")),
+        _ => Err(
+            "sslmode is invalid; use disable, allow, prefer, require, verify-ca, or verify-full"
+                .to_owned(),
+        ),
     }
+}
+
+/// Describes a tokio-postgres parse failure with fixed text, because its detail can quote the DSN.
+fn describe_config_parse_error(error: &tokio_postgres::Error) -> String {
+    let cause = std::error::Error::source(error).map(ToString::to_string);
+    VALUE_CHECKED_KEYWORDS
+        .iter()
+        .find(|keyword| cause.as_deref() == Some(&format!("invalid value for option `{keyword}`")))
+        .map_or_else(
+            || "connection string has an unsupported keyword or is malformed".to_owned(),
+            |keyword| format!("connection string keyword {keyword} has an invalid value"),
+        )
 }

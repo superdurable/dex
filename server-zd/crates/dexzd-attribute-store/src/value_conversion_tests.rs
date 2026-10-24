@@ -301,6 +301,32 @@ fn datetime_parsing_matches_go_rfc3339() {
     }
 }
 
+/// Expected values are the output of Go 1.26's `time.Parse(time.RFC3339Nano, text).UnixNano()`.
+#[test]
+fn datetime_parsing_accepts_go_single_digit_hours() {
+    for (text, expected) in [
+        ("2006-01-02T5:04:05Z", Some(1_136_178_245_000_000_000)),
+        (
+            "2006-01-02T5:04:05.123+05:30",
+            Some(1_136_158_445_123_000_000),
+        ),
+        ("2006-01-02T05:04:05Z", Some(1_136_178_245_000_000_000)),
+        ("2006-01-02T9:04:05,5Z", Some(1_136_192_645_500_000_000)),
+        ("2006-01-02T0:00:00-00:30", Some(1_136_161_800_000_000_000)),
+        ("2006-01-02T15:4:05Z", None),
+        ("2006-1-02T15:04:05Z", None),
+        ("2006-01-02T:04:05Z", None),
+        ("2006-01-02T123:04:05Z", None),
+        ("2006-01-02T24:04:05Z", None),
+        ("2006-01-02T5:04:0", None),
+        ("2006-01-02T5", None),
+        ("2006-01-02T", None),
+        ("2006-01-02", None),
+    ] {
+        assert_eq!(parse_datetime(text).ok(), expected, "{text}");
+    }
+}
+
 #[test]
 fn epoch_seconds_match_go() {
     let timestamp = column("logged_at", "timestamp with time zone");

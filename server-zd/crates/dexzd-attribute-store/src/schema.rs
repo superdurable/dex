@@ -107,15 +107,18 @@ impl SchemaDescriber<'_> {
     /// Resolves the store, AttributeMap, and fencing tables against the connection's current schema.
     pub(crate) async fn resolve_tables(&self) -> Result<ResolvedTables, AttributeStoreError> {
         let table = self
-            .resolve_table_reference(&self.settings.table_name)
+            .resolve_table_reference(&self.settings.table_name, "")
             .await?;
         let mut map_tables = BTreeMap::new();
         for (map_name, map_table) in &self.settings.attribute_maps {
-            let reference = self.resolve_table_reference(&map_table.table_name).await?;
+            let context = format!("AttributeMap {map_name:?}: ");
+            let reference = self
+                .resolve_table_reference(&map_table.table_name, &context)
+                .await?;
             map_tables.insert(map_name.clone(), reference);
         }
         let fencing_table = self
-            .resolve_table_reference(&self.settings.fencing_table_name)
+            .resolve_table_reference(&self.settings.fencing_table_name, "")
             .await?;
         Ok(ResolvedTables {
             table,
@@ -127,6 +130,7 @@ impl SchemaDescriber<'_> {
     async fn resolve_table_reference(
         &self,
         table_name: &str,
+        context: &str,
     ) -> Result<TableReference, AttributeStoreError> {
         if let Some((namespace, table)) = table_name.split_once('.') {
             return Ok(TableReference {
@@ -134,20 +138,21 @@ impl SchemaDescriber<'_> {
                 table: table.to_owned(),
             });
         }
+        let operation = || format!("resolve table namespace of {context}table {table_name}");
         let row = self
             .client
             .query_typed_one("SELECT current_schema()::text", &[])
             .await
-            .map_err(|error| self.database_error("resolve table namespace", &error))?;
+            .map_err(|error| self.database_error(operation(), &error))?;
         let namespace = row
             .try_get::<_, Option<String>>(0)
-            .map_err(|error| self.database_error("resolve table namespace", &error))?
+            .map_err(|error| self.database_error(operation(), &error))?
             .unwrap_or_default();
         if namespace.is_empty() {
             return Err(AttributeStoreError::InvalidTable {
                 store: self.settings.name.clone(),
                 table: table_name.to_owned(),
-                reason: "database has no active namespace".to_owned(),
+                reason: format!("{context}database has no active namespace"),
             });
         }
         Ok(TableReference {
