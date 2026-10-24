@@ -1,0 +1,531 @@
+---
+title: server-zd operation
+sidebar_label: server-zd operation
+---
+
+# server-zd operation
+
+server-zd is a Dex Server whose only runtime dependency is object storage, such
+as Amazon S3 or an S3-compatible store. It keeps Flow state in a local store and
+commits every write to object storage before it acknowledges the write. The
+local disk is only a cache. A node rebuilds it from the latest snapshot and the
+command log in object storage.
+
+server-zd serves the same **FlowService** and **WorkerTaskService** API as the
+Go Dex Server, so the SDKs work without changes. It differs from the Go Dex
+Server in a few ways. For example, it supports only
+[pull Workers](/production/pull-workers). This page covers server-zd 0.1. For
+the Go Dex Server, see [Server operation](/production/server-operations).
+
+## Install and start
+
+Each **server-zd/vX.Y.Z** GitHub Release publishes **dex-server-zd** archives
+for Linux amd64, Linux arm64, and macOS arm64. The release also includes a
+**checksums.txt** file. Verify each archive against it before you extract it.
+Linux archives require glibc 2.28 or newer.
+
+The **dex-server-zd** container image is published for linux/amd64 and
+linux/arm64. It runs **serve** with the configuration file
+**/etc/dex-server-zd/config.yaml**. The process runs as UID 10001 and GID 10001.
+
+~~~bash
+dex-server-zd serve --config /etc/dex-server-zd/config.yaml
+~~~
+
+**serve** reads every setting from one YAML file. The
+[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.1/server-zd/config/dex-server-zd.example.yaml)
+lists every key with its default. An unknown key fails startup. An invalid
+value also fails startup, and the error names the YAML path of the rejected
+field. The image includes the example at
+**/etc/dex-server-zd/dex-server-zd.example.yaml** for reference only.
+
+## Minimal production configuration
+
+~~~yaml
+cluster:
+  nodeId: dex-zd
+objectStore:
+  region: us-east-1
+  bucket: BUCKET
+  prefix: PREFIX
+localStorage:
+  directory: /var/lib/dex-server-zd/store
+lease:
+  duration: 60s
+retention:
+  closedFlowDuration: 7days
+metrics:
+  listen: 0.0.0.0:9090
+~~~
+
+**cluster.nodeId**, **objectStore.bucket**, and **localStorage.directory** are
+required. Replace **BUCKET** and **PREFIX** with your bucket and key prefix.
+Leave **objectStore.endpoint** empty to use AWS endpoint resolution. For an
+S3-compatible store, set it to an HTTP or HTTPS URL. Set
+**objectStore.forcePathStyle** when that store needs path-style addressing.
+
+A node ID has 1 to 63 characters. It uses lowercase letters, digits, and
+hyphens, and it starts with a letter or a digit.
+
+One object storage prefix holds one Dex cluster, and a cluster runs one node.
+The first start records **cluster.nodeId** and **cluster.partitionCount**.
+Neither can change later. A start with a different node ID fails and names the
+recorded one. Never point two deployments at the same prefix.
+
+## Kubernetes deployment
+
+### One replica in a StatefulSet
+
+Run server-zd as a StatefulSet with exactly one replica. A StatefulSet creates
+the replacement pod only after the old pod is gone. A Deployment can start a new
+pod while the old one still runs.
+
+Never force-delete the server pod. A force delete removes the pod from the API
+before Kubernetes confirms that its process stopped. On an unreachable node, the
+old process can keep running next to its replacement.
+
+This example uses a PersistentVolumeClaim for the local store and a ConfigMap
+named **dex-server-zd** that holds **config.yaml**. Replace **REGISTRY** with
+the registry that hosts the image.
+
+~~~yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: dex-server-zd
+spec:
+  selector:
+    app: dex-server-zd
+  ports:
+    - name: grpc
+      port: 8801
+      targetPort: grpc
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dex-server-zd
+spec:
+  serviceName: dex-server-zd
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dex-server-zd
+  template:
+    metadata:
+      labels:
+        app: dex-server-zd
+    spec:
+      serviceAccountName: dex-server-zd
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: dex-server-zd
+          image: REGISTRY/dex-server-zd:0.1.1
+          ports:
+            - name: grpc
+              containerPort: 8801
+            - name: metrics
+              containerPort: 9090
+          readinessProbe:
+            grpc:
+              port: 8801
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dex-server-zd/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/dex-server-zd
+      volumes:
+        - name: config
+          configMap:
+            name: dex-server-zd
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+~~~
+
+### Graceful shutdown {#graceful-shutdown}
+
+Set **terminationGracePeriodSeconds** to at least 30 seconds. On SIGTERM, the
+node stops within 14.5 seconds, in this order:
+
+1. gRPC health reports **NOT_SERVING**.
+2. Workers are told to reconnect, and long polls close.
+3. Open calls get up to 4 seconds to finish.
+4. Background work and the engine stop.
+5. Lease renewal stops, and the node releases its lease with a conditional write.
+6. The process exits 0.
+
+A replacement process with the same **cluster.nodeId** then acquires the lease
+at once. If object storage rejects the release, or the release takes more than
+2 seconds, the process exits 1. The lease then stays held until it expires.
+
+A SIGTERM can arrive during startup after the node holds its lease. Startup then
+finishes before the graceful shutdown begins. A long log replay can therefore
+outlast the grace period. Kubernetes then kills the process, and the next start
+waits for the old lease to expire.
+
+### Local store volume
+
+The local store is a cache, because every acknowledged write is already in
+object storage. The volume type only changes restart time.
+
+With an emptyDir volume, a new pod restores the newest snapshot and replays the
+log written after it. An emptyDir survives a container restart in the same pod,
+but not a new pod. With a PersistentVolumeClaim, a new pod reuses the local store
+and replays only the log written since it stopped. Either way, the first snapshot
+after a restart uploads the full local checkpoint to object storage.
+
+Mount the volume at a parent directory, such as **/var/lib/dex-server-zd**. Set
+**localStorage.directory** to a subdirectory, such as
+**/var/lib/dex-server-zd/store**. When the node cannot reuse an existing local
+store, it renames the directory to a sibling with a **.discarded-** suffix and
+rebuilds it. That rename fails when the directory is the mount point itself.
+Set-aside directories stay on a persistent volume until you delete them.
+
+Size the volume for the live state, plus **localStorage.maxWalBytes** of
+write-ahead log (256 MiB by default), plus room for uncompacted files after a
+bulk replay. The node compacts the store after such a replay, which returns the
+directory to about the live state size.
+
+To use an emptyDir instead of the claim template, replace **volumeClaimTemplates**
+with a volume like this:
+
+~~~yaml
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 20Gi
+~~~
+
+### Health checks
+
+Port 8801 serves the standard gRPC health service on **api.listen**. Health
+reports **NOT_SERVING** during startup, while the node waits for its lease and
+replays the log. It reports **SERVING** after recovery completes.
+
+Use gRPC health for readiness only. A gRPC liveness probe would fail during a
+long recovery and restart the pod in a loop. If you need a liveness probe, use a
+TCP probe on port 8801. The listener binds before recovery starts.
+
+The process exits on its own after a fatal error, such as a lost lease or a
+failed commit. If object storage is unreachable at startup, the process also
+exits 1. Kubernetes restarts the container with backoff in both cases.
+
+## Lease {#lease}
+
+The node holds a lease object in object storage. **lease.duration** defaults to
+10 seconds. The node renews the lease after one third of the duration.
+
+Data safety does not depend on the duration. Each lease acquisition raises the
+node epoch, and every log write is conditional. Together they fence a process
+that lost its lease.
+
+The duration affects takeover time after a crash. A graceful shutdown releases
+the lease, so the replacement starts at once. After a crash, a SIGKILL, or the
+loss of a Kubernetes node, the replacement waits until the old lease expires,
+plus 1 second. That wait is at most **lease.duration** plus 1 second. Recovery
+starts after it.
+
+The duration only partly affects object storage outages:
+
+- A renewal that object storage rejects stops the node at once.
+- A renewal request that hangs is cut off when the current lease period ends.
+  The node then stops.
+- A log write that object storage does not accept within 10 seconds also stops
+  the node. This limit is fixed and does not depend on the lease duration.
+
+A longer lease therefore lets an idle node ride out a stalled object store for
+longer. It does not make the node tolerate failed requests. After any of these
+stops, the process exits 1.
+
+For a single-replica deployment, set **lease.duration** to 60 seconds. Lease
+renewals then make about 180 PUT requests per hour, compared with about 1,080 at
+10 seconds. Keep the duration at or below about 120 seconds. A longer lease
+saves few requests, but the unavailable time after a crash keeps growing.
+
+By default, a starting node waits while another process holds the lease. Set
+**lease.failIfHeld** to true to fail startup instead.
+
+## Object storage
+
+### Credentials
+
+**objectStore.credentialsSource** selects the credentials:
+
+| Value | Credentials |
+| --- | --- |
+| **defaultChain** (default) | The AWS SDK default credential provider chain |
+| **environment** | **DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID**, **DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY**, and the optional **DEX_ZD_OBJECT_STORE_SESSION_TOKEN** |
+| **anonymous** | Unsigned requests, for a local emulator or a bucket that allows anonymous access |
+
+On Amazon EKS, keep **defaultChain** and give the pod's service account an IAM
+role, for example through IAM Roles for Service Accounts or EKS Pod Identity.
+
+### Prefix-confined IAM policy {#iam-policy}
+
+For a shared bucket, set a non-empty **objectStore.prefix**. Then grant the
+server role only these actions. Replace **BUCKET** and **PREFIX/** with the
+bucket and the configured prefix, and keep the trailing slash.
+
+~~~json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": { "StringLike": { "s3:prefix": "PREFIX/*" } }
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+      "Resource": "arn:aws:s3:::BUCKET/PREFIX/*"
+    }
+  ]
+}
+~~~
+
+The server lists only under its prefix, including when it checks for a missing
+object. With this grant, AWS S3 returns 404 for a missing object. Narrower grants
+can return 403. The server handles either response when the prefixed listing is
+allowed.
+
+The **s3:ListBucket** condition must use **StringLike** with the trailing
+wildcard shown above. An exact-prefix **StringEquals** grant is not supported. Neither is a policy without
+**s3:ListBucket**. With a non-empty prefix, startup lists under it first. A
+denied listing fails startup with this message:
+
+~~~text
+startup requires s3:ListBucket with StringLike s3:prefix "PREFIX/*"
+~~~
+
+Startup also writes and deletes a probe object under the prefix. It uses this to
+check that conditional writes work. No bucket-wide access or bucket
+administration action is needed.
+
+Hard-delete Attribute values use the primary bucket and prefix by default. To
+keep them in a separate place, configure **objectStore.hardDeleteStore** with its
+own **endpoint**, **region**, **bucket**, **prefix**, and **credentialsSource**. Its **environment**
+credentials use the **DEX_ZD_HARD_DELETE_STORE_** variables with the same
+suffixes. Grant the same policy for that bucket and prefix.
+
+### Encryption
+
+server-zd sends no server-side encryption headers, so the bucket's default
+encryption applies. Default SSE-KMS works. Conditional writes use **If-None-Match**
+and **If-Match**, and the server treats ETags as opaque values. It does not rely on
+ETags being MD5 digests.
+
+For a customer-managed KMS key, grant the role **kms:GenerateDataKey** and
+**kms:Decrypt** on that key. Allow both actions in the key policy too.
+
+### Versioning and lifecycle rules
+
+An unversioned bucket works. server-zd does not use object versions.
+
+If bucket versioning is on, every object the server deletes stays as a
+noncurrent version. This includes old log objects and snapshots, so storage only
+grows. Add a lifecycle rule that expires noncurrent versions. A noncurrent
+version of a hard-delete Attribute value also keeps the deleted value until the
+version expires.
+
+Add a rule that aborts incomplete multipart uploads after 1 to 7 days, whether or
+not versioning is on. A crash can leave an incomplete upload behind. A
+prefix-confined role cannot list or clean up those uploads.
+
+This lifecycle configuration covers both rules. Drop the second rule for an
+unversioned bucket.
+
+~~~json
+{
+  "Rules": [
+    {
+      "ID": "dex-server-zd-abort-incomplete-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "PREFIX/" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 2 }
+    },
+    {
+      "ID": "dex-server-zd-expire-noncurrent-versions",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "PREFIX/" },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 7 },
+      "Expiration": { "ExpiredObjectDeleteMarker": true }
+    }
+  ]
+}
+~~~
+
+## Retention
+
+**retention.closedFlowDuration** sets how long a closed Flow run stays
+available. It defaults to 7 days. After that time, the run and its retained data
+become eligible for deletion. Write the value as a duration, such as **72h** or
+**30days**.
+
+Each run records the value when it starts. A new value applies only to runs that
+start after the node restarts with it. Runs that already started keep their
+recorded duration.
+
+## Metrics {#metrics}
+
+Set **metrics.listen** to serve plain HTTP **GET /metrics** on its own listener,
+separate from **api.listen**. The default empty value disables it. The endpoint
+has no authentication, so never expose it publicly. In Kubernetes, bind it to
+**0.0.0.0:9090** and restrict access with a NetworkPolicy.
+
+The response uses the OpenMetrics text format. Metrics are available while the
+node recovers or waits for its lease. Every label value comes from a closed set.
+No series has a Flow, Flow type, partition, tenant, or key label.
+
+| What to watch | Metric family and labels |
+| --- | --- |
+| API requests and errors | **dexzd_api_requests_total** with **rpc_class** and **code** |
+| API latency | **dexzd_api_request_latency_seconds** with **rpc_class**; unary calls only |
+| Step failures | **dexzd_step_attempt_failures_total** with **durability** and **failure_kind**; **dexzd_step_retries_exhausted_total** with **durability** |
+| Flow closes | **dexzd_flow_closes_total** with **close_status**; **dexzd_flow_end_to_end_latency_seconds** |
+| Dispatch delay | **dexzd_step_schedule_to_start_latency_seconds** |
+| Workers | **dexzd_worker_stream_events_total** with **event**; **dexzd_matching_worker_streams**; **dexzd_matching_queued_tasks** |
+| Commit latency | **dexzd_commit_latency_seconds** |
+| Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation** |
+| Lease and node state | **dexzd_node_role** with **role**; **dexzd_lease_epoch**; **dexzd_lease_renewals_total** with **outcome** |
+| Recovery | **dexzd_recovery_last_duration_seconds**; **dexzd_recovery_last_replayed_bytes** |
+| Timers | **dexzd_timer_lag_seconds** |
+| Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
+| Local disk | **dexzd_local_storage_bytes** |
+
+**rpc_class** is one of **flow_write**, **flow_read**, **search**,
+**worker_poll**, and **worker_respond**. **code** is the gRPC status code in
+snake case, such as **ok** or **unavailable**. **role** is one of **starting**,
+**standby**, **recovering**, **serving**, and **draining**.
+
+Worker polls use one persistent stream, so there is no empty-poll count.
+**dexzd_worker_stream_events_total** counts each task delivery and each stream
+close. Long-poll waits count toward **flow_read** latency.
+
+~~~text
+# Failed API calls by class and code
+sum by (rpc_class, code) (rate(dexzd_api_requests_total{code!="ok"}[5m]))
+
+# A node that is not serving
+dexzd_node_role{role="serving"} == 0
+
+# Failed lease renewals
+increase(dexzd_lease_renewals_total{outcome="error"}[10m]) > 0
+~~~
+
+The full catalog, with types, histogram buckets, and Linux process metrics, is
+in the
+[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.1/server-zd/README.md#metrics).
+
+## Authentication
+
+Public API authentication is off by default. Configure **auth.authenticators**
+to require a bearer credential on every **FlowService** and **WorkerTaskService** call.
+gRPC health needs no credential. Authenticators are tried in order.
+
+~~~yaml
+auth:
+  authenticators:
+    - kind: jwt
+      issuer: https://issuer.example.com
+      audiences: ["dex"]
+      jwksURL: ""
+      allowInsecureJWKSURL: false
+      caFile: ""
+    - kind: staticTokens
+      file: /etc/dex-server-zd/tokens.yaml
+~~~
+
+The section uses the Go Dex Server's **auth** keys, so an existing Go Server
+section loads unchanged. **allowInsecureJWKSURL** exists only in server-zd. It
+allows a plain HTTP **jwksURL** on a trusted network. An empty **jwksURL**
+discovers the key set through the issuer's OpenID configuration. **caFile** adds
+a PEM bundle to the system roots.
+
+The static token file lists SHA-256 hashes, never plaintext tokens:
+
+~~~yaml
+tokens:
+  - sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+~~~
+
+The file must be valid at startup. Changes take effect within a second. A
+malformed update keeps the last valid content. An empty or missing file revokes
+every token.
+
+The server checks a credential once, when a call starts. An open pull Worker
+stream stays open after its token expires or is revoked. The Worker needs a valid
+credential when it reconnects.
+
+**api.listen** serves plaintext gRPC, so bearer credentials cross the network in
+clear text. Terminate TLS in front of the server, or restrict the network to
+trusted callers.
+
+## Backup and restore
+
+The object storage prefix is the only source of truth. The local store is
+rebuilt from it. A ParadeDB search projection is rebuilt from the local store
+after startup. When **objectStore.hardDeleteStore** is configured, its prefix
+holds hard-delete Attribute values. Protect it the same way.
+
+Protect the prefix with bucket versioning or with replication to another bucket.
+With versioning, the noncurrent-version expiry sets how far back you can
+restore. Replication is asynchronous, so a replica can lag the source.
+
+To restore:
+
+1. Stop server-zd. For example, scale the StatefulSet to 0 replicas and wait for
+   the pod to terminate.
+2. Restore every object under the prefix to the same point in time. Remove
+   objects written after that point.
+3. Empty the local store directory. With a PersistentVolumeClaim, delete the
+   directory contents or the claim. An emptyDir is already gone once the pod
+   terminates.
+4. Start server-zd. It recovers from the newest snapshot and the log in the
+   restored prefix.
+
+Writes acknowledged after the restore point are lost.
+
+## Configuration mapping from the Go Dex Server {#configuration-mapping}
+
+server-zd rejects unknown keys, so a Go Server configuration file does not load
+as is. Copy only the keys in this table. The **auth** section is the exception:
+it loads unchanged.
+
+| Go Dex Server | server-zd | Notes |
+| --- | --- | --- |
+| **api.port** | **api.listen** | A full bind address. The default is **0.0.0.0:8801**. |
+| **api.maxWaitSeconds** and **api.grpcMaxMessageBytes** | Same keys | Same meaning and defaults: 60 seconds and 32 MiB. server-zd rejects a zero **maxWaitSeconds**, which the Go Server treats as the default. |
+| Temporal-specific **api** keys, such as **api.useTemporalSynchronousUpdateForAllRPCs** | None | Remove them. |
+| **auth.authenticators** | Same keys | Loads unchanged. **allowInsecureJWKSURL** exists only in server-zd. |
+| **matching.dispatchWait**, **stickyWait**, **maxConcurrentTasksCap**, **maxStreams**, **maxQueueLength**, **maxFlowTypes**, **maxFlowTypeLength**, and **pingInterval** | Same keys | Same defaults. |
+| **matching.localDispatchWait**, **localStickyWait**, and **localExecutionReserve** | None | Remove them. |
+| **streamStore** | **streamStore** | **backend** is **disabled** (default) or **memory**. There is no **redis** backend. Remove **redisURL**, **trimLeaseTTL**, and **trimLeaseRetry**. Memory Streams live in the process and start empty after a restart. |
+| Temporal or Cadence namespace retention and **blobStore.historyRetentionInDays** | **retention.closedFlowDuration** | A duration, such as **7days**, instead of whole days. It applies to runs that start after the change. |
+| **interpreter.temporal.prometheus.listenAddress** | **metrics.listen** | Metric names differ. See [Metrics](#metrics). |
+| **log** | **RUST_LOG** environment variable | Logs go to standard error. The default level is **info**. |
+| No key; **SearchFlows** uses Temporal or Cadence visibility | **search.backend** | **builtin** (default) or **paradedb**. |
+| **blobStore** | None | server-zd keeps every value under its object storage prefix. Hard-delete values can use **objectStore.hardDeleteStore**. |
+| **attributeStore** | None | Not available in server-zd 0.1. |
+| **interpreter** | None | server-zd uses no Temporal or Cadence backend. |
+| **membership** and **internal** | None | A cluster runs one node and has no internal listener. |
+| **web** | None | server-zd does not serve Dex Web. |
+| **worker** | None | server-zd supports only pull Workers. |
