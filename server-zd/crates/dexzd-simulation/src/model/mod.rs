@@ -35,6 +35,12 @@ use crate::state_view::{FlowView, RunSelection, RunView};
 
 /// Flow IDs the simulated clients use.
 pub const FLOW_IDS: &[&str] = &["order-1", "order-2"];
+/// The only Flow of the Attribute Sync stream; it targets Attribute Stores and writes synced keys.
+pub const ATTRIBUTE_SYNC_FLOW_ID: &str = "account-sync";
+/// Mixed into the seed so the Attribute Sync stream never shares draws with the main stream.
+const ATTRIBUTE_SYNC_STREAM_SEED: u64 = 0xa77e_5c00_0000_0000;
+/// Chance that the Attribute Sync stream proposes a command after each main command.
+const ATTRIBUTE_SYNC_COMMAND_PROBABILITY: f64 = 0.3;
 /// Proposal time of the first command: 2027-01-15 in microseconds.
 const START_MICROS: i64 = 1_800_000_000_000_000;
 /// Result commands remembered for redelivery.
@@ -45,6 +51,8 @@ pub struct CommandGenerator {
     rng: ChaCha8Rng,
     now_micros: i64,
     sent_results: Vec<FlowCommand>,
+    flow_ids: &'static [&'static str],
+    is_attribute_sync_stream: bool,
 }
 
 /// One possible next command and its weight.
@@ -71,6 +79,10 @@ enum Proposal<'view> {
         run_id: RunId,
         timestamp_micros: i64,
     },
+    AttributeSyncAck {
+        run_id: RunId,
+        run: &'view RunView,
+    },
 }
 
 impl CommandGenerator {
@@ -80,7 +92,30 @@ impl CommandGenerator {
             rng: ChaCha8Rng::seed_from_u64(seed),
             now_micros: START_MICROS,
             sent_results: Vec::new(),
+            flow_ids: FLOW_IDS,
+            is_attribute_sync_stream: false,
         }
+    }
+
+    /// Creates `seed`'s Attribute Sync stream, whose own draws drive one synced Flow and leave
+    /// the main stream unchanged.
+    pub fn attribute_sync_stream(seed: u64) -> Self {
+        Self {
+            rng: ChaCha8Rng::seed_from_u64(seed ^ ATTRIBUTE_SYNC_STREAM_SEED),
+            flow_ids: &[ATTRIBUTE_SYNC_FLOW_ID],
+            is_attribute_sync_stream: true,
+            ..Self::new(seed)
+        }
+    }
+
+    /// Draws whether this stream proposes a command now.
+    pub fn should_propose(&mut self) -> bool {
+        self.rng.random_bool(ATTRIBUTE_SYNC_COMMAND_PROBABILITY)
+    }
+
+    /// Moves this stream's clock up to `other`'s without changing `other`.
+    pub fn follow_clock(&mut self, other: &Self) {
+        self.now_micros = self.now_micros.max(other.now_micros);
     }
 
     /// Proposes the next command for the checker's committed state.
@@ -90,7 +125,7 @@ impl CommandGenerator {
         &mut self,
         checker: &ApplyChecker,
     ) -> Result<FlowCommand, InvariantViolation> {
-        let flow_id = FLOW_IDS[self.rng.random_range(0..FLOW_IDS.len())];
+        let flow_id = self.flow_ids[self.rng.random_range(0..self.flow_ids.len())];
         let directory_view = checker.view(flow_id, RunSelection::Only(&BTreeSet::new()))?;
         let run_ids: Vec<RunId> = directory_view
             .directory
@@ -162,6 +197,15 @@ impl CommandGenerator {
                     },
                 ));
             }
+            if self.is_attribute_sync_stream && !run.attribute_sync_entries.is_empty() {
+                proposals.push((
+                    3,
+                    Proposal::AttributeSyncAck {
+                        run_id: *run_id,
+                        run,
+                    },
+                ));
+            }
             if is_latest {
                 proposals.push((
                     1,
@@ -212,20 +256,21 @@ impl CommandGenerator {
     }
 
     fn realize(&mut self, flow_id: &str, proposal: Proposal<'_>) -> FlowCommand {
+        let is_synced = self.is_attribute_sync_stream;
         let rng = &mut self.rng;
         match proposal {
             Proposal::StartFlow => {
-                let body = client_model::start_flow(rng, flow_id);
+                let body = client_model::start_flow(rng, flow_id, is_synced);
                 self.envelope(flow_id, Vec::new(), body)
             }
             Proposal::ClientWrite { run_id, run } => {
                 let body = match rng.random_range(0..40) {
-                    0..=13 => client_model::set_attributes(rng),
+                    0..=13 => client_model::set_attributes(rng, is_synced),
                     14..=27 => client_model::publish(rng),
                     28..=33 => client_model::delete_message(rng, run),
                     34..=35 => client_model::stop(rng),
                     36 => client_model::config_update(),
-                    _ => client_model::start_flow(rng, flow_id),
+                    _ => client_model::start_flow(rng, flow_id, is_synced),
                 };
                 let run_id = match body {
                     Command::FlowStart(_) => Vec::new(),
@@ -244,13 +289,17 @@ impl CommandGenerator {
                 let body = client_model::time_travel_to_window_point(flow_id, timestamp_micros);
                 self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
             }
+            Proposal::AttributeSyncAck { run_id, run } => {
+                let body = client_model::attribute_sync_ack(rng, run);
+                self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
+            }
             Proposal::StartAttempt(call) => {
                 let body = worker_model::start_attempt(rng, &call);
                 self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body)
             }
             Proposal::WorkerOutcome(call) => {
                 let body = match rng.random_range(0..10) {
-                    0..=5 => worker_model::complete(rng, &call),
+                    0..=5 => worker_model::complete(rng, &call, is_synced),
                     6..=7 => worker_model::fail(rng, &call),
                     _ => worker_model::heartbeat(rng, &call),
                 };

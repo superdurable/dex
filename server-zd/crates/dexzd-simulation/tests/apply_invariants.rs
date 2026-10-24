@@ -115,6 +115,7 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         "StepAttemptFailed",
         "StepMethodCompleted",
         "TimersFired",
+        "AttributeSyncAck",
     ] {
         assert!(
             total.applied(kind) > 0,
@@ -165,6 +166,43 @@ fn regression_seed_cases() -> Vec<(u64, usize)> {
             (seed, command_count)
         })
         .collect()
+}
+
+/// Main-stream digests of every regression seed line, recorded when each line was added.
+///
+/// A model change that moves these trajectories would silently drop the regressions they
+/// reproduce; keep new commands in a separate stream instead.
+const REGRESSION_MAIN_COMMAND_DIGESTS: &[(u64, usize, u128)] = &[
+    (1592590336, 1000, 0xe9cb6eef0a8b7772f86dcfc7af4cb693),
+    (476371529, 488, 0xb16f8f1acba62cbb5fd5e41703d3b7ed),
+];
+
+#[test]
+fn regression_seeds_keep_their_main_command_trajectories() {
+    let cases = regression_seed_cases();
+    assert_eq!(
+        cases.len(),
+        REGRESSION_MAIN_COMMAND_DIGESTS.len(),
+        "pin the main-stream digest of every regression seed line"
+    );
+    for (seed, command_count) in cases {
+        let Some((_, _, expected)) =
+            REGRESSION_MAIN_COMMAND_DIGESTS
+                .iter()
+                .find(|(pinned_seed, pinned_count, _)| {
+                    (*pinned_seed, *pinned_count) == (seed, command_count)
+                })
+        else {
+            panic!("regression seed {seed} {command_count} has no pinned digest");
+        };
+        let summary = run_seed(seed, command_count, |failure| panic!("{failure}"))
+            .unwrap_or_else(|failure| panic!("{failure}"));
+        assert_eq!(
+            summary.main_command_digest, *expected,
+            "regression seed {seed} changed its main-stream commands, so it no longer \
+             reproduces its regression"
+        );
+    }
 }
 
 #[test]

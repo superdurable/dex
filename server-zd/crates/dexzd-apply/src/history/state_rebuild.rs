@@ -149,6 +149,7 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
         }
         Command::FlowConfigUpdate(_)
         | Command::OutboxAck(_)
+        | Command::AttributeSyncAck(_)
         | Command::HardDeleteObjectsDeleted(_)
         | Command::RunPurge(_) => return Ok(None),
         // Attempts start at a checkpoint after these, and only the latest run travels.

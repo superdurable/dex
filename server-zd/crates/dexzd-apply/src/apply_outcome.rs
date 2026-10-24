@@ -124,6 +124,22 @@ pub enum ApplyEffect {
         /// Message IDs, in write order.
         message_ids: Vec<Vec<u8>>,
     },
+    /// Attribute Sync entries of these stores wait for the projector.
+    AttributeSyncPending {
+        /// Run that owns the entries.
+        run_id: RunId,
+        /// Attribute Store names, sorted and deduplicated.
+        store_names: Vec<String>,
+    },
+    /// An Attribute Sync ack dropped entries whose retries were exhausted.
+    AttributeSyncDropped {
+        /// Run that owned the entries.
+        run_id: RunId,
+        /// Attribute Store the entries were not written to.
+        store_name: String,
+        /// Dropped Attribute keys, sorted.
+        attribute_keys: Vec<String>,
+    },
     /// Hard-delete objects wait for deletion from object storage.
     HardDeleteObjectsPending {
         /// Run that owned the objects.

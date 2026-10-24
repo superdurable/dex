@@ -150,11 +150,13 @@ pub enum RunTable {
     RequestDedupOrder = 0x18,
     /// History row sizes and semantic metadata, ordered by seq for bounded window pruning.
     HistoryRowMetadata = 0x19,
+    /// Attribute Sync entries waiting to be written to an Attribute Store, keyed by store and key.
+    AttributeSyncOutbox = 0x1a,
 }
 
 impl RunTable {
     /// Every table, in byte order.
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::RunRecord,
         Self::AttemptRecord,
         Self::Attribute,
@@ -180,6 +182,7 @@ impl RunTable {
         Self::SearchDocument,
         Self::RequestDedupOrder,
         Self::HistoryRowMetadata,
+        Self::AttributeSyncOutbox,
     ];
 
     /// Returns the column family that stores this table.
@@ -223,6 +226,9 @@ pub enum IndexKind {
     Retention = 0x07,
     /// `flow_hash(8) ‖ run_id(16)`: runs with pending or running method calls, for recovery.
     ActiveWork = 0x08,
+    /// `store_name_length(2) ‖ store_name ‖ flow_hash(8) ‖ run_id(16)`: runs with Attribute
+    /// Sync entries pending for that store.
+    AttributeSyncPending = 0x09,
     /// `tenant_id(8) ‖ scope(1) ‖ [type_length(2) ‖ flow_type] ‖ default order(18) ‖ run_id(16) ‖
     /// flow_hash(8)`, in SearchFlows default order; see `row_keys::search_order_index_key`.
     SearchOrder = 0x0a,
@@ -230,7 +236,7 @@ pub enum IndexKind {
 
 impl IndexKind {
     /// Every index kind, in byte order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Timer,
         Self::FlowList,
         Self::SearchDocument,
@@ -239,6 +245,7 @@ impl IndexKind {
         Self::HardDeletePending,
         Self::Retention,
         Self::ActiveWork,
+        Self::AttributeSyncPending,
         Self::SearchOrder,
     ];
 }
@@ -400,9 +407,9 @@ mod tests {
     #[test]
     fn table_bytes_are_unique_and_permanent() {
         let bytes: Vec<u8> = RunTable::ALL.iter().map(|table| *table as u8).collect();
-        assert_eq!(bytes, (1..=25).collect::<Vec<u8>>());
+        assert_eq!(bytes, (1..=26).collect::<Vec<u8>>());
         let kinds: Vec<u8> = IndexKind::ALL.iter().map(|kind| *kind as u8).collect();
-        assert_eq!(kinds, [1, 2, 3, 4, 5, 6, 7, 8, 0x0a]);
+        assert_eq!(kinds, (1..=10).collect::<Vec<u8>>());
         assert_eq!(RunTable::Value.column_family(), ColumnFamily::Value);
         assert_eq!(RunTable::Checkpoint.column_family(), ColumnFamily::History);
     }

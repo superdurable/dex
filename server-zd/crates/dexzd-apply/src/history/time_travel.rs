@@ -16,8 +16,8 @@ use dexzd_protocol::dex::{
     ErrorSubStatus, FlowStatus, TimeTravelForkHistoryEvent, flow_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttemptRecord, CommandErrorReply, CommandReply, FlowCommand, RetentionTimerId, RunRecord,
-    StepExecutionRecord, StepInvocationKey, StepInvocationPhase, TimeTravelCommand,
+    AttemptRecord, AttributeRecord, CommandErrorReply, CommandReply, FlowCommand, RetentionTimerId,
+    RunRecord, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, TimeTravelCommand,
     TimeTravelReply, TimerId, TimerRecord, command_reply, flow_command::Command, timer_id,
 };
 use prost::Message;
@@ -33,6 +33,7 @@ use crate::history::lineage::{Lineage, history_records};
 use crate::history::replay_state::{TransactionReader, absorb_writes};
 use crate::history::reset_target::resolve_target;
 use crate::history::state_rebuild::rebuild_attempt_state;
+use crate::projections::attribute_sync::mark_attribute_sync_entries;
 use crate::state_access::{FlowTransaction, read_flow_directory};
 use crate::steps::{arm_timer, configured_method_timeout_seconds, disarm_timer};
 use crate::values::ValueIdAllocator;
@@ -140,6 +141,7 @@ pub(crate) fn apply_time_travel(
         reapply_external_inputs(transaction, &mut cursor, scope, &reapplied_inputs)?;
     apply_received_child_results(transaction, &mut cursor, scope)?;
     let final_rows = read_attempt_rows(transaction, cursor.rows)?;
+    remark_synced_attributes(transaction, &mut cursor, scope, &previous_rows, &final_rows)?;
     dispatch_restored_invocations(&mut cursor, &final_rows)?;
     cursor.add_event(flow_history_event::Payload::TimeTravelFork(
         TimeTravelForkHistoryEvent {
@@ -291,6 +293,45 @@ fn replace_attempt_rows(
         }
     }
     Ok(())
+}
+
+/// Marks synced Attributes of the abandoned and restored states, so stores converge on the
+/// restored one (D16).
+fn remark_synced_attributes(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
+    previous_rows: &[AttemptRow],
+    final_rows: &[AttemptRow],
+) -> Result<(), ApplyError> {
+    let mut keys = synced_row_keys(previous_rows)?;
+    keys.extend(synced_row_keys(final_rows)?);
+    mark_attribute_sync_entries(transaction, cursor, &keys, scope.now_micros)
+}
+
+/// Returns the keys of the Attribute rows whose last write requested synchronization.
+pub(crate) fn synced_row_keys(rows: &[AttemptRow]) -> Result<BTreeSet<String>, ApplyError> {
+    let mut keys = BTreeSet::new();
+    for row in rows {
+        if row.table != RunTable::Attribute {
+            continue;
+        }
+        let record = AttributeRecord::decode(row.value.as_slice()).map_err(|error| {
+            ApplyError::InvariantViolation {
+                detail: format!("Attribute row is corrupt: {error}"),
+            }
+        })?;
+        if !record.sync_config.is_some_and(|sync| sync.enabled) {
+            continue;
+        }
+        let key = String::from_utf8(row.key_suffix.clone()).map_err(|error| {
+            ApplyError::InvariantViolation {
+                detail: format!("Attribute key is invalid UTF-8: {error}"),
+            }
+        })?;
+        keys.insert(key);
+    }
+    Ok(keys)
 }
 
 /// A dispatch ID derived from the TimeTravel command ID and the restored attempt's index.

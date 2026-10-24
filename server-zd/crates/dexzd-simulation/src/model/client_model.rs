@@ -10,24 +10,25 @@
 
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dex::{
-    AttributeWrite, ChannelMessage, DeleteChannelMessageRequest, FlowAlreadyStartedOptions,
-    FlowConfig, FlowResetType, FlowStartOptions, FlowTimeoutHandlerOptions, FlowTimeoutPolicy,
-    IdReusePolicy, InvokeRpcRequest, InvokeWorkerRpcResponse, PublishToChannelRequest,
-    ResetFlowRequest, SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StopFlowRequest,
-    UpdateFlowConfigRequest, WorkerTarget,
+    AttributeStoreNames, AttributeWrite, ChannelMessage, DeleteChannelMessageRequest,
+    FlowAlreadyStartedOptions, FlowConfig, FlowResetType, FlowStartOptions,
+    FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy, InvokeRpcRequest,
+    InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, SetAttributesRequest,
+    SkipTimerRequest, StartFlowRequest, StopFlowRequest, UpdateFlowConfigRequest, WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributesSetCommand, ChannelMessageDeleteCommand, ChannelPublishCommand,
-    FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand, HardDeleteObjectReference,
-    RpcCommittedCommand, RunSettings, TimeTravelCommand, TimerSkipCommand, flow_command::Command,
+    AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
+    ChannelPublishCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
+    HardDeleteObjectReference, RpcCommittedCommand, RunSettings, TimeTravelCommand,
+    TimerSkipCommand, flow_command::Command,
 };
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
 
 use crate::model::value_generation::{
-    ATTRIBUTE_KEYS, CHANNEL_NAMES, MAX_VALUE_BYTES, STEP_TYPES, WIRE_INLINE_THRESHOLD_BYTES,
-    fingerprint, int_value, null_value, oversized_value, pick, random_bytes, random_identifier,
-    random_value, step_options,
+    ATTRIBUTE_KEYS, ATTRIBUTE_STORE_NAMES, CHANNEL_NAMES, MAX_VALUE_BYTES, STEP_TYPES,
+    WIRE_INLINE_THRESHOLD_BYTES, fingerprint, int_value, null_value, oversized_value, pick,
+    random_bytes, random_identifier, random_value, step_options, sync_config_for,
 };
 use crate::state_view::RunView;
 
@@ -58,7 +59,7 @@ pub(crate) fn run_settings() -> RunSettings {
     }
 }
 
-pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str) -> Command {
+pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str, is_synced: bool) -> Command {
     let policy = match rng.random_range(0..5) {
         0 => FlowTimeoutPolicy::Fail,
         1 => FlowTimeoutPolicy::Cancel,
@@ -81,9 +82,11 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str) -> Command {
         });
     }
     for _ in 0..rng.random_range(0..3) {
+        let key = pick(rng, ATTRIBUTE_KEYS);
         initial_attributes.push(AttributeWrite {
-            key: pick(rng, ATTRIBUTE_KEYS).to_owned(),
+            key: key.to_owned(),
             value: Some(random_value(rng)),
+            sync_config: sync_config_for(key, is_synced),
             ..AttributeWrite::default()
         });
     }
@@ -102,6 +105,15 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str) -> Command {
         flow_start_options: Some(FlowStartOptions {
             id_reuse_policy: id_reuse_policy as i32,
             attributes: initial_attributes,
+            flow_config_override: is_synced.then(|| FlowConfig {
+                attribute_store_names: Some(AttributeStoreNames {
+                    names: ATTRIBUTE_STORE_NAMES
+                        .iter()
+                        .map(|name| (*name).to_owned())
+                        .collect(),
+                }),
+                ..FlowConfig::default()
+            }),
             flow_already_started_options: Some(FlowAlreadyStartedOptions {
                 ignore_already_started_error: rng.random_bool(0.3),
             }),
@@ -139,7 +151,7 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str) -> Command {
 }
 
 /// Hard-delete and plain writes share [`ATTRIBUTE_KEYS`], so each replaces the other.
-pub(crate) fn set_attributes(rng: &mut ChaCha8Rng) -> Command {
+pub(crate) fn set_attributes(rng: &mut ChaCha8Rng, is_synced: bool) -> Command {
     let mut attributes = Vec::new();
     let mut hard_delete_objects = Vec::new();
     for write_index in 0..rng.random_range(1..4_u32) {
@@ -168,6 +180,7 @@ pub(crate) fn set_attributes(rng: &mut ChaCha8Rng) -> Command {
             _ => random_value(rng),
         };
         attributes.push(AttributeWrite {
+            sync_config: sync_config_for(&key, is_synced),
             key,
             value: Some(value),
             ..AttributeWrite::default()
@@ -243,6 +256,33 @@ pub(crate) fn config_update() -> Command {
             }),
             ..UpdateFlowConfigRequest::default()
         }),
+    })
+}
+
+/// A projector ack of one store's entries, sometimes partial, stale, or a drop.
+pub(crate) fn attribute_sync_ack(rng: &mut ChaCha8Rng, run: &RunView) -> Command {
+    let entries: Vec<_> = run.attribute_sync_entries.values().collect();
+    let chosen = entries[rng.random_range(0..entries.len())];
+    let store_seqs: Vec<u64> = entries
+        .iter()
+        .filter(|entry| entry.store_name == chosen.store_name)
+        .map(|entry| entry.written_seq)
+        .collect();
+    let acked_seq = match rng.random_range(0..4) {
+        0 => chosen.written_seq.saturating_sub(1),
+        1 => chosen.written_seq,
+        _ => store_seqs.iter().copied().max().unwrap_or_default(),
+    };
+    let attribute_keys = if rng.random_bool(0.3) {
+        vec![chosen.attribute_key.clone()]
+    } else {
+        Vec::new()
+    };
+    Command::AttributeSyncAck(AttributeSyncAckCommand {
+        store_name: chosen.store_name.clone(),
+        acked_seq,
+        attribute_keys,
+        is_dropped: rng.random_bool(0.2),
     })
 }
 

@@ -11,6 +11,8 @@ use std::fmt;
 use std::time::{Duration, Instant};
 
 use dexzd_protocol::dexzd::v1::{FlowCommand, command_reply, flow_command::Command};
+use prost::Message;
+use xxhash_rust::xxh3::xxh3_128;
 
 use crate::apply_checker::ApplyChecker;
 use crate::invariants::InvariantViolation;
@@ -33,6 +35,8 @@ pub struct SimulationSummary {
     pub size_rejections: BTreeMap<&'static str, usize>,
     /// Rows in the final state.
     pub final_row_count: usize,
+    /// Chained xxh3-128 digest of one seed's main-stream commands; `merge` leaves it unchanged.
+    pub main_command_digest: u128,
 }
 
 impl SimulationSummary {
@@ -110,6 +114,7 @@ pub fn run_seed(
 ) -> Result<SimulationSummary, Box<SimulationFailure>> {
     let mut checker = ApplyChecker::new();
     let mut generator = CommandGenerator::new(seed);
+    let mut attribute_sync_stream = CommandGenerator::attribute_sync_stream(seed);
     let mut summary = SimulationSummary::default();
     let mut history = Vec::with_capacity(command_count);
     for command_index in 0..command_count {
@@ -122,8 +127,9 @@ pub fn run_seed(
                 &mut report_failure,
             )
         })?;
+        summary.main_command_digest = chain_digest(summary.main_command_digest, &command);
         history.push(command.clone());
-        let outcome = checker.apply_and_check(&command).map_err(|violation| {
+        apply_and_count(&mut checker, &command, &mut summary).map_err(|violation| {
             failure(
                 seed,
                 command_index,
@@ -132,19 +138,60 @@ pub fn run_seed(
                 &mut report_failure,
             )
         })?;
-        let kind = command_kind(&command);
-        let is_error_reply = matches!(outcome.reply.reply, Some(command_reply::Reply::Error(_)));
-        let counts = if outcome.writes.is_empty() || is_error_reply {
-            &mut summary.rejected_by_kind
-        } else {
-            &mut summary.applied_by_kind
-        };
-        *counts.entry(kind).or_default() += 1;
-        summary.commands += 1;
+        // Attribute Sync commands do not count as main commands, so regression counts stay valid.
+        if attribute_sync_stream.should_propose() {
+            attribute_sync_stream.follow_clock(&generator);
+            let command = attribute_sync_stream
+                .next_command(&checker)
+                .map_err(|violation| {
+                    failure(
+                        seed,
+                        command_index,
+                        violation,
+                        history.clone(),
+                        &mut report_failure,
+                    )
+                })?;
+            history.push(command.clone());
+            apply_and_count(&mut checker, &command, &mut summary).map_err(|violation| {
+                failure(
+                    seed,
+                    command_index,
+                    violation,
+                    history.clone(),
+                    &mut report_failure,
+                )
+            })?;
+        }
     }
     summary.size_rejections = checker.size_rejections().clone();
     summary.final_row_count = checker.state().row_count();
     Ok(summary)
+}
+
+fn apply_and_count(
+    checker: &mut ApplyChecker,
+    command: &FlowCommand,
+    summary: &mut SimulationSummary,
+) -> Result<(), InvariantViolation> {
+    let outcome = checker.apply_and_check(command)?;
+    let kind = command_kind(command);
+    let is_error_reply = matches!(outcome.reply.reply, Some(command_reply::Reply::Error(_)));
+    let counts = if outcome.writes.is_empty() || is_error_reply {
+        &mut summary.rejected_by_kind
+    } else {
+        &mut summary.applied_by_kind
+    };
+    *counts.entry(kind).or_default() += 1;
+    summary.commands += 1;
+    Ok(())
+}
+
+/// Chains `command`'s encoding onto `previous`, so the digest pins a whole command sequence.
+pub(crate) fn chain_digest(previous: u128, command: &FlowCommand) -> u128 {
+    let mut bytes = previous.to_be_bytes().to_vec();
+    bytes.extend_from_slice(&command.encode_to_vec());
+    xxh3_128(&bytes)
 }
 
 /// Applies `commands` in order to an empty state with every check.
@@ -229,6 +276,7 @@ pub fn command_kind(command: &FlowCommand) -> &'static str {
         Some(Command::TimeTravel(_)) => "TimeTravel",
         Some(Command::InboxMessage(_)) => "InboxMessage",
         Some(Command::OutboxAck(_)) => "OutboxAck",
+        Some(Command::AttributeSyncAck(_)) => "AttributeSyncAck",
         Some(Command::HardDeleteObjectsDeleted(_)) => "HardDeleteObjectsDeleted",
         Some(Command::RunPurge(_)) => "RunPurge",
     }

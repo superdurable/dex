@@ -9,16 +9,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_keyspace::row_keys::{
-    HARD_DELETE_CURRENT_OBJECT, TimerIndexEntry, decode_timer_index_key, partition_index_range,
+    AttributeSyncPendingIndexEntry, HARD_DELETE_CURRENT_OBJECT, TimerIndexEntry,
+    decode_attribute_sync_pending_index_key, decode_timer_index_key, partition_index_range,
 };
 use dexzd_keyspace::{
     ColumnFamily, FLOW_DIRECTORY_KEY_TAG, FlowHash, IndexKind, PartitionId, RunId, RunTable,
     ValueId, parse_run_key,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttemptRecord, AttributeRecord, ChannelMessageRecord, ChannelMetaRecord, FlowDirectoryRecord,
-    HardDeleteObjectRecord, HistoryRecord, LockRecord, RequestDedupRecord, RunRecord,
-    StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord, ValueGarbageRecord,
+    AttemptRecord, AttributeRecord, AttributeSyncOutboxRecord, ChannelMessageRecord,
+    ChannelMetaRecord, FlowDirectoryRecord, HardDeleteObjectRecord, HistoryRecord, LockRecord,
+    RequestDedupRecord, RunRecord, SearchDocumentRecord, StepExecutionRecord, SubFlowResultRecord,
+    TimerRecord, ValueBirthRecord, ValueGarbageRecord,
 };
 use prost::Message;
 
@@ -34,6 +36,12 @@ pub struct FlowView {
     pub runs: BTreeMap<RunId, RunView>,
     /// Timer index entries of this Flow in its partition.
     pub timer_index: Vec<TimerIndexEntry>,
+    /// Attribute Sync pending index entries of this Flow in its partition.
+    pub attribute_sync_pending_index: Vec<AttributeSyncPendingIndexEntry>,
+    /// SearchOrder index keys of this Flow's runs, by run.
+    pub search_order_keys: BTreeMap<RunId, BTreeSet<Vec<u8>>>,
+    /// The partition and Flow hash the view was read for.
+    pub location: Option<(PartitionId, FlowHash)>,
 }
 
 /// Which runs a [`FlowView`] decodes completely; other runs get only their run record.
@@ -91,6 +99,10 @@ pub struct RunView {
     pub history: Vec<(u64, HistoryRecord)>,
     /// Current hard-delete objects by Attribute key.
     pub hard_delete_current: BTreeMap<String, HardDeleteObjectRecord>,
+    /// Attribute Sync outbox entries by store name and Attribute key.
+    pub attribute_sync_entries: BTreeMap<(String, String), AttributeSyncOutboxRecord>,
+    /// The run's search document, when it has one.
+    pub search_document: Option<SearchDocumentRecord>,
 }
 
 /// A row the view could not decode; redecoding normally rejects these first.
@@ -165,6 +177,33 @@ impl FlowView {
             .filter_map(|(key, _)| decode_timer_index_key(key))
             .filter(|entry| entry.flow_hash == flow_hash)
             .collect();
+        let (start, end) = partition_index_range(partition, IndexKind::AttributeSyncPending);
+        let pending_rows = dexzd_apply::FlowStateReader::scan(
+            state,
+            ColumnFamily::PartitionIndex,
+            &start,
+            &end,
+            usize::MAX,
+        )
+        .map_err(|error| StateViewError {
+            what: "Attribute Sync pending index",
+            key_hex: hex(&start),
+            detail: error.to_string(),
+        })?;
+        view.attribute_sync_pending_index = pending_rows
+            .iter()
+            .map(|(key, _)| {
+                decode_attribute_sync_pending_index_key(key)
+                    .ok_or_else(|| view_error(key, "Attribute Sync pending index", "malformed key"))
+            })
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .map_or(true, |entry| entry.flow_hash == flow_hash)
+            })
+            .collect::<Result<_, _>>()?;
+        view.search_order_keys = search_order_keys(state, partition, flow_hash)?;
+        view.location = Some((partition, flow_hash));
         Ok(view)
     }
 
@@ -264,6 +303,17 @@ impl FlowView {
                     );
                 }
             }
+            RunTable::SearchDocument => {
+                run.search_document = Some(decode(key, value, "search document")?);
+            }
+            RunTable::AttributeSyncOutbox => {
+                let record: AttributeSyncOutboxRecord =
+                    decode(key, value, "Attribute Sync outbox")?;
+                run.attribute_sync_entries.insert(
+                    (record.store_name.clone(), record.attribute_key.clone()),
+                    record,
+                );
+            }
             RunTable::StepCounter
             | RunTable::Waiter
             | RunTable::Outbox
@@ -273,11 +323,46 @@ impl FlowView {
             | RunTable::HistoryRecord
             | RunTable::HistoryRowMetadata
             | RunTable::Checkpoint
-            | RunTable::SearchDocument
             | RunTable::RequestDedupOrder => {}
         }
         Ok(())
     }
+}
+
+/// Reads the partition's SearchOrder keys that end with `flow_hash`; each key ends with the run
+/// ID and the Flow hash.
+fn search_order_keys(
+    state: &MemoryFlowState,
+    partition: PartitionId,
+    flow_hash: FlowHash,
+) -> Result<BTreeMap<RunId, BTreeSet<Vec<u8>>>, StateViewError> {
+    let (start, end) = partition_index_range(partition, IndexKind::SearchOrder);
+    let rows = dexzd_apply::FlowStateReader::scan(
+        state,
+        ColumnFamily::PartitionIndex,
+        &start,
+        &end,
+        usize::MAX,
+    )
+    .map_err(|error| StateViewError {
+        what: "SearchOrder index",
+        key_hex: hex(&start),
+        detail: error.to_string(),
+    })?;
+    let mut keys: BTreeMap<RunId, BTreeSet<Vec<u8>>> = BTreeMap::new();
+    for (key, _) in rows {
+        let Some(identity) = key.len().checked_sub(24).map(|start| &key[start..]) else {
+            return Err(view_error(&key, "SearchOrder index", "short key"));
+        };
+        let run_id = RunId(identity[..16].try_into().expect("16 bytes"));
+        let key_flow_hash = FlowHash(u64::from_be_bytes(
+            identity[16..].try_into().expect("8 bytes"),
+        ));
+        if key_flow_hash == flow_hash {
+            keys.entry(run_id).or_default().insert(key);
+        }
+    }
+    Ok(keys)
 }
 
 fn parse_key(key: &[u8]) -> Result<dexzd_keyspace::ParsedRunKey<'_>, StateViewError> {
