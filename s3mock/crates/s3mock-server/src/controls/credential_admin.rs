@@ -15,7 +15,7 @@ use http_body_util::{BodyExt, Limited};
 use percent_encoding::percent_decode_str;
 use s3mock::{CredentialRecord, CredentialStatus, Store};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::policy::CredentialPolicy;
 use crate::server::{RequestBody, run_store_operation};
@@ -74,8 +74,41 @@ async fn create_credential(
     root_access_key_id: &str,
 ) -> AdminResult {
     let body = read_json_body(request).await?;
-    let credential: CredentialRecord = serde_json::from_slice(&body)
-        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    let fields: Value = serde_json::from_slice(&body)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid credential JSON".into()))?;
+    let fields = fields
+        .as_object()
+        .ok_or((StatusCode::BAD_REQUEST, "invalid credential".into()))?;
+    if fields.keys().any(|field| {
+        ![
+            "access_key_id",
+            "secret",
+            "parent",
+            "description",
+            "policy",
+            "status",
+        ]
+        .contains(&field.as_str())
+    }) {
+        return Err((StatusCode::BAD_REQUEST, "invalid credential field".into()));
+    }
+    let policy = fields
+        .get("policy")
+        .ok_or((StatusCode::BAD_REQUEST, "invalid policy".into()))?
+        .clone();
+    let status = match fields.get("status").and_then(Value::as_str) {
+        Some("enabled") => CredentialStatus::Enabled,
+        Some("disabled") => CredentialStatus::Disabled,
+        _ => return Err((StatusCode::BAD_REQUEST, "invalid status".into())),
+    };
+    let credential = CredentialRecord {
+        access_key_id: required_string(fields, "access_key_id")?,
+        secret_access_key: required_string(fields, "secret")?,
+        parent: required_string(fields, "parent")?,
+        description: required_string(fields, "description")?,
+        policy,
+        status,
+    };
     if credential.access_key_id.is_empty()
         || credential.access_key_id.contains('/')
         || credential.secret_access_key.is_empty()
@@ -90,7 +123,7 @@ async fn create_credential(
         return Err((StatusCode::CONFLICT, "CredentialAlreadyExists".into()));
     }
     CredentialPolicy::parse(credential.policy.clone())
-        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid policy".into()))?;
     let public = public_record(&credential);
     run_store_operation(&store, move |store| store.create_credential(&credential))
         .await
@@ -135,7 +168,7 @@ async fn update_status(
     }
     let body = read_json_body(request).await?;
     let update: StatusUpdate = serde_json::from_slice(&body)
-        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid status".into()))?;
     let credential = run_store_operation(&store, move |store| {
         store.update_credential_status(&access_key_id, update.status)
     })
@@ -149,7 +182,18 @@ async fn read_json_body(request: Request<RequestBody>) -> Result<Vec<u8>, (Statu
         .collect()
         .await
         .map(|body| body.to_bytes().to_vec())
-        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid credential body".into()))
+}
+
+fn required_string(
+    fields: &Map<String, Value>,
+    name: &str,
+) -> Result<String, (StatusCode, String)> {
+    fields
+        .get(name)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, format!("invalid {name}")))
 }
 
 fn public_record(credential: &CredentialRecord) -> Value {

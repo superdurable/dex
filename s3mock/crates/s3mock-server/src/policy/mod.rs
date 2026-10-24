@@ -81,20 +81,20 @@ impl CredentialPolicy {
         for statement in policy.statements.values() {
             if let Some(condition) = &statement.condition {
                 parse_prefix_condition(condition)?;
-                if statement
-                    .actions
-                    .values()
-                    .iter()
-                    .any(|action| action != "s3:ListBucket" && action != "s3:ListBucketVersions")
-                {
+                if statement.actions.values().iter().any(|action| {
+                    !action.eq_ignore_ascii_case("s3:ListBucket")
+                        && !action.eq_ignore_ascii_case("s3:ListBucketVersions")
+                }) {
                     return Err("s3:prefix conditions require bucket listing actions".into());
                 }
             }
             if statement.actions.values().is_empty()
                 || statement.actions.values().iter().any(|action| {
-                    !action.starts_with("s3:")
+                    !action
+                        .get(..3)
+                        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("s3:"))
                         || action.len() <= 3
-                        || (action != "s3:*"
+                        || (!action.eq_ignore_ascii_case("s3:*")
                             && !action[3..]
                                 .chars()
                                 .all(|character| character.is_ascii_alphanumeric()))
@@ -132,16 +132,13 @@ impl CredentialPolicy {
     ) -> Result<(), S3Error> {
         let mut has_allow = false;
         for statement in self.statements.values() {
-            if !statement
-                .actions
+            if !statement.actions.values().iter().any(|candidate| {
+                candidate.eq_ignore_ascii_case(action) || candidate.eq_ignore_ascii_case("s3:*")
+            }) || !statement
+                .resources
                 .values()
                 .iter()
-                .any(|candidate| candidate == action || candidate == "s3:*")
-                || !statement
-                    .resources
-                    .values()
-                    .iter()
-                    .any(|pattern| wildcard_match(pattern, resource))
+                .any(|pattern| wildcard_match(pattern, resource))
             {
                 continue;
             }
@@ -190,8 +187,7 @@ pub(crate) fn authorize_operation(
     let (action, resource) = operation_permission(operation);
     let prefix = match operation {
         S3Operation::ListObjectsV2 { query, .. }
-        | S3Operation::ListObjectVersions { query, .. } => Some(query.get("prefix").unwrap_or("")),
-        S3Operation::HeadBucket { .. } => Some(""),
+        | S3Operation::ListObjectVersions { query, .. } => query.get("prefix"),
         _ => None,
     };
     policy.authorize_with_prefix(action, &resource, prefix)?;

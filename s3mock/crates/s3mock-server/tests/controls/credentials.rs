@@ -41,6 +41,22 @@ async fn credentials_are_root_managed_durable_and_never_return_secrets() {
     duplicate["secret"] = json!("replacement-secret");
     duplicate["description"] = json!("replacement");
     assert_eq!(server.admin("POST", "credentials", duplicate).await.0, 409);
+    let malformed = server
+        .admin(
+            "POST",
+            "credentials",
+            json!({
+                "access_key_id": "malformed",
+                "secret": {"private": "DO_NOT_ECHO_SECRET"},
+                "parent": "owner",
+                "description": "invalid",
+                "policy": allow(&["s3:GetObject"], &["arn:aws:s3:::testing/*"]),
+                "status": "enabled"
+            }),
+        )
+        .await;
+    assert_eq!(malformed.0, 400);
+    assert_eq!(malformed.1, json!({"error":"invalid secret"}));
     let (read_status, read) = server
         .admin("GET", "credentials/owned-key", Value::Null)
         .await;
@@ -448,6 +464,16 @@ async fn prefix_conditions_limit_listing_and_do_not_reveal_missing_keys() {
         denied.as_service_error().expect("S3 error").code(),
         Some("AccessDenied")
     );
+    let absent = confined
+        .list_objects_v2()
+        .bucket("testing")
+        .send()
+        .await
+        .expect_err("an absent prefix does not satisfy the condition");
+    assert_eq!(
+        absent.as_service_error().expect("S3 error").code(),
+        Some("AccessDenied")
+    );
     let missing = confined
         .get_object()
         .bucket("testing")
@@ -503,6 +529,71 @@ async fn prefix_conditions_limit_listing_and_do_not_reveal_missing_keys() {
     assert_eq!(
         denied.as_service_error().expect("S3 error").code(),
         Some("AccessDenied")
+    );
+    create(
+        &server,
+        "empty-prefix",
+        json!({
+            "Version":"2012-10-17","Statement":{
+                "Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::testing",
+                "Condition":{"StringEquals":{"s3:prefix":""}}
+            }
+        }),
+    )
+    .await;
+    let empty_prefix = client(&server.server, "empty-prefix", "secret");
+    empty_prefix
+        .list_objects_v2()
+        .bucket("testing")
+        .prefix("")
+        .send()
+        .await
+        .expect("an explicitly empty prefix satisfies the condition");
+    let absent = empty_prefix
+        .list_objects_v2()
+        .bucket("testing")
+        .send()
+        .await
+        .expect_err("an absent prefix differs from an empty prefix");
+    assert_eq!(
+        absent.as_service_error().expect("S3 error").code(),
+        Some("AccessDenied")
+    );
+    let head = empty_prefix
+        .head_bucket()
+        .bucket("testing")
+        .send()
+        .await
+        .expect_err("HeadBucket has no prefix for a conditioned grant");
+    assert_eq!(
+        head.raw_response()
+            .expect("HTTP response")
+            .status()
+            .as_u16(),
+        403
+    );
+    create(
+        &server,
+        "lowercase-action",
+        allow(&["s3:getobject"], &["arn:aws:s3:::testing/p/existing"]),
+    )
+    .await;
+    let lowercase = client(&server.server, "lowercase-action", "secret")
+        .get_object()
+        .bucket("testing")
+        .key("p/existing")
+        .send()
+        .await
+        .expect("IAM action names are case-insensitive");
+    assert_eq!(
+        lowercase
+            .body
+            .collect()
+            .await
+            .expect("object body")
+            .into_bytes()
+            .as_ref(),
+        b"stored"
     );
     server.server.shutdown().await;
 }

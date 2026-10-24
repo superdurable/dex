@@ -106,14 +106,15 @@ local disk space and I/O. Encoded request bodies are limited to 6 GiB. Bodiless 
 Off mode keeps the original streaming upload path and accepts any access key.
 
 Strict mode recognizes the root key and durable scoped credentials. The root key has full S3 access.
-Each scoped credential has an IAM policy and can be enabled or disabled. A disabled key returns
+Each scoped credential has an IAM policy and can be enabled or disabled. An unknown or disabled key returns
 `403 InvalidAccessKeyId`. An unmatched action or resource returns `403 AccessDenied`; an explicit
 `Deny` overrides every `Allow`. Policies support `Version: "2012-10-17"`, one `Statement` or an array,
-`Allow` and `Deny`, exact `s3:<Action>` or `s3:*`, bucket and object ARNs, and `*` and `?` in object
+`Allow` and `Deny`, case-insensitive exact `s3:<Action>` or `s3:*`, bucket and object ARNs, and `*` and `?` in object
 key patterns. `arn:aws:s3:::*` matches all buckets and objects. A `Condition` is supported only for
 `s3:ListBucket` or `s3:ListBucketVersions`: `StringEquals` or `StringLike` on `s3:prefix`.
 Every other condition key or operator, principals, negated actions or resources, and unknown
-fields are rejected when the credential is created. A prefix-conditioned `s3:ListBucket` grant
+fields are rejected when the credential is created. An absent prefix does not satisfy a prefix
+condition, even one that matches an empty prefix. HeadBucket has no prefix. A prefix-conditioned `s3:ListBucket` grant
 does not reveal whether an unlisted key exists. GET and HEAD for a missing key return 404 only
 with an unconditioned `s3:ListBucket` grant; otherwise they return `403 AccessDenied`.
 

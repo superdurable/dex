@@ -87,15 +87,11 @@ pub(crate) async fn verify_request(
             .await
             .map_err(|error| S3Error::internal(format!("credential task failed: {error}")))?
             .map_err(|error| match error {
-                StoreError::NoSuchCredential => access_denied(),
+                StoreError::NoSuchCredential => invalid_access_key_id(),
                 other => S3Error::from(other),
             })?;
         if credential.status == CredentialStatus::Disabled {
-            return Err(S3Error::new(
-                StatusCode::FORBIDDEN,
-                "InvalidAccessKeyId",
-                "the access key ID is disabled",
-            ));
+            return Err(invalid_access_key_id());
         }
         let policy = CredentialPolicy::parse(credential.policy)
             .map_err(|error| S3Error::internal(format!("stored credential policy: {error}")))?;
@@ -386,5 +382,13 @@ fn access_denied() -> S3Error {
         StatusCode::FORBIDDEN,
         "AccessDenied",
         "valid SigV4 header credentials are required",
+    )
+}
+
+fn invalid_access_key_id() -> S3Error {
+    S3Error::new(
+        StatusCode::FORBIDDEN,
+        "InvalidAccessKeyId",
+        "the access key ID is not valid",
     )
 }
