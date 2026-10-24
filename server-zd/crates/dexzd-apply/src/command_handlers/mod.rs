@@ -262,6 +262,14 @@ pub(crate) fn apply_run_command(
         Command::OutboxAck(ack) => {
             crate::cross_flow::apply_outbox_ack(transaction, cursor, scope, ack)
         }
+        Command::AttributeSyncAck(ack) => {
+            crate::projections::attribute_sync::apply_attribute_sync_ack(
+                transaction,
+                cursor,
+                scope,
+                ack,
+            )
+        }
         Command::HardDeleteObjectsDeleted(deleted) => {
             crate::cross_flow::apply_hard_delete_objects_deleted(
                 transaction,

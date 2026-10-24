@@ -98,6 +98,32 @@ pub fn outbox_key(flow_hash: FlowHash, run_id: RunId, message_id: &[u8]) -> Vec<
     run_key(flow_hash, run_id, RunTable::Outbox, message_id)
 }
 
+/// Key of an Attribute Sync outbox row: length-prefixed store name, then the Attribute key.
+pub fn attribute_sync_outbox_key(
+    flow_hash: FlowHash,
+    run_id: RunId,
+    store_name: &str,
+    attribute_key: &str,
+) -> Vec<u8> {
+    let mut key = attribute_sync_outbox_store_prefix(flow_hash, run_id, store_name);
+    key.extend_from_slice(attribute_key.as_bytes());
+    key
+}
+
+/// Prefix of every Attribute Sync outbox row of one run and one store.
+pub fn attribute_sync_outbox_store_prefix(
+    flow_hash: FlowHash,
+    run_id: RunId,
+    store_name: &str,
+) -> Vec<u8> {
+    run_key(
+        flow_hash,
+        run_id,
+        RunTable::AttributeSyncOutbox,
+        &length_prefixed_name(store_name),
+    )
+}
+
 /// Key of an inbox deduplication row.
 pub fn inbox_dedup_key(
     flow_hash: FlowHash,
@@ -341,6 +367,59 @@ pub fn active_work_index_key(
     )
 }
 
+/// Attribute Sync pending index key: length-prefixed store name, Flow hash, run ID.
+pub fn attribute_sync_pending_index_key(
+    partition: PartitionId,
+    store_name: &str,
+    flow_hash: FlowHash,
+    run_id: RunId,
+) -> Vec<u8> {
+    let mut key = attribute_sync_pending_store_prefix(partition, store_name);
+    key.extend_from_slice(&flow_run_suffix(flow_hash, run_id));
+    key
+}
+
+/// Prefix of the Attribute Sync pending index keys of one store in one partition.
+pub fn attribute_sync_pending_store_prefix(partition: PartitionId, store_name: &str) -> Vec<u8> {
+    partition_index_key(
+        partition,
+        IndexKind::AttributeSyncPending,
+        &length_prefixed_name(store_name),
+    )
+}
+
+/// A decoded [`attribute_sync_pending_index_key`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttributeSyncPendingIndexEntry {
+    /// Attribute Store the run has pending entries for.
+    pub store_name: String,
+    /// Hash of the run's Flow.
+    pub flow_hash: FlowHash,
+    /// The run.
+    pub run_id: RunId,
+}
+
+/// Decodes an Attribute Sync pending index key; returns `None` for any other or malformed key.
+pub fn decode_attribute_sync_pending_index_key(
+    key: &[u8],
+) -> Option<AttributeSyncPendingIndexEntry> {
+    if *key.get(2)? != IndexKind::AttributeSyncPending as u8 {
+        return None;
+    }
+    let name_length = usize::from(u16::from_be_bytes(key.get(3..5)?.try_into().ok()?));
+    let name_end = 5 + name_length;
+    let store_name = String::from_utf8(key.get(5..name_end)?.to_vec()).ok()?;
+    let (flow_hash, run_id) = decode_flow_run_after_prefix(key, name_end)?;
+    if key.len() != name_end + 24 {
+        return None;
+    }
+    Some(AttributeSyncPendingIndexEntry {
+        store_name,
+        flow_hash,
+        run_id,
+    })
+}
+
 /// Decodes the Flow hash and run ID that follow the kind byte of a partition index key.
 pub fn decode_flow_run_after_prefix(key: &[u8], prefix_length: usize) -> Option<(FlowHash, RunId)> {
     let rest = key.get(prefix_length..)?;
@@ -375,8 +454,10 @@ pub fn prefix_range(prefix: &[u8]) -> (Vec<u8>, Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        channel_name_prefix, decode_timer_index_key, ordered_timestamp_bytes, prefix_range,
-        timer_index_key, timestamp_from_ordered_bytes,
+        attribute_sync_outbox_key, attribute_sync_outbox_store_prefix,
+        attribute_sync_pending_index_key, attribute_sync_pending_store_prefix, channel_name_prefix,
+        decode_attribute_sync_pending_index_key, decode_timer_index_key, ordered_timestamp_bytes,
+        prefix_range, timer_index_key, timestamp_from_ordered_bytes,
     };
     use crate::{FlowHash, PartitionId, RunId};
 
@@ -415,6 +496,35 @@ mod tests {
         let short = channel_name_prefix("a");
         let longer = channel_name_prefix("a\u{0}b");
         assert!(!longer.starts_with(&short));
+    }
+
+    #[test]
+    fn attribute_sync_keys_group_by_store() {
+        let run_id = RunId([6; 16]);
+        let key = attribute_sync_outbox_key(FlowHash(2), run_id, "orders", "map/a");
+        assert!(key.starts_with(&attribute_sync_outbox_store_prefix(
+            FlowHash(2),
+            run_id,
+            "orders"
+        )));
+        assert!(!key.starts_with(&attribute_sync_outbox_store_prefix(
+            FlowHash(2),
+            run_id,
+            "order"
+        )));
+        let index_key =
+            attribute_sync_pending_index_key(PartitionId(7), "orders", FlowHash(2), run_id);
+        assert!(index_key.starts_with(&attribute_sync_pending_store_prefix(
+            PartitionId(7),
+            "orders"
+        )));
+        let entry = decode_attribute_sync_pending_index_key(&index_key).unwrap();
+        assert_eq!(entry.store_name, "orders");
+        assert_eq!(entry.flow_hash, FlowHash(2));
+        assert_eq!(entry.run_id, run_id);
+        assert!(
+            decode_attribute_sync_pending_index_key(&index_key[..index_key.len() - 1]).is_none()
+        );
     }
 
     #[test]

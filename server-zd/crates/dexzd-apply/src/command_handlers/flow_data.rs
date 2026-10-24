@@ -25,7 +25,7 @@ use dexzd_protocol::dexzd::v1::{
 };
 
 use crate::command_handlers::run_cursor::RunCursor;
-use crate::projections::work_queue_permissions;
+use crate::projections::{attribute_sync, work_queue_permissions};
 use crate::state_access::FlowTransaction;
 use crate::values::{
     ValueHolder, ValueRejection, is_null_value, load_stored_value, release_stored_value,
@@ -36,7 +36,8 @@ use crate::{ApplyEffect, ApplyError, WaitableChange};
 /// Upper bound of messages one command may publish; keeps enqueue seqs unique per command.
 const MAX_MESSAGES_PER_COMMAND: u64 = 1_000_000;
 
-/// Applies Attribute writes in order (later writes win) and the permission projection.
+/// Applies Attribute writes in order (later writes win) and the permission projection, then
+/// marks the synced keys in the Attribute Sync outbox.
 ///
 /// Returns the changed keys, or the first value the caller must reject.
 pub(crate) fn apply_attribute_writes(
@@ -45,6 +46,7 @@ pub(crate) fn apply_attribute_writes(
     writes: &[AttributeWrite],
     hard_delete_objects: &[HardDeleteObjectReference],
     permission_mappings: Option<&ActionPermissionMappings>,
+    now_micros: i64,
 ) -> Result<Result<Vec<String>, ValueRejection>, ApplyError> {
     let projected_write = permission_mappings
         .map(|mappings| apply_permission_mappings(transaction, cursor, writes, mappings))
@@ -75,13 +77,16 @@ pub(crate) fn apply_attribute_writes(
         }
         changed_keys.push(write.key.clone());
     }
+    let mut synced_keys = attribute_sync::synced_write_keys(writes);
     if let Some(write) = projected_write {
         if let Err(rejection) = apply_plain_write(transaction, cursor, &write)? {
             return Ok(Err(rejection));
         }
+        synced_keys.extend(attribute_sync::synced_write_keys([&write]));
         cursor.indexed_attribute_writes.push(write.clone());
         changed_keys.push(write.key);
     }
+    attribute_sync::mark_attribute_sync_entries(transaction, cursor, &synced_keys, now_micros)?;
     if !changed_keys.is_empty() {
         let mut keys = changed_keys.clone();
         keys.sort();
@@ -471,6 +476,7 @@ pub(crate) fn apply_method_effects(
         effects.writes,
         effects.hard_delete_objects,
         effects.permission_mappings,
+        now_micros,
     )? {
         return Ok(Err(rejection));
     }
