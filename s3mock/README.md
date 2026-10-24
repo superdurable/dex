@@ -30,8 +30,8 @@ new `s3mock/v<version>` tag and GitHub release only after native Linux amd64 and
 and images pass smoke tests. The workflow rejects an existing versioned tag. The release contains binary
 archives and SHA-256 checksums; its notes give the digest of the multi-architecture
 `docker.io/superdurable/s3mock:<version>` image. The workflow has no automatic trigger.
-Enable GitHub release immutability for the repository before dispatching to lock the published
-tag and assets.
+GitHub-enforced locking of published tags and assets requires a separate repository release
+immutability setting.
 
 The image runs as user 10001. It listens on `0.0.0.0:9000` and stores data in the
 `/var/lib/s3mock` volume. Every command-line flag can be set through its `S3MOCK_*` environment
