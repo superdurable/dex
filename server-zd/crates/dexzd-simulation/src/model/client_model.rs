@@ -134,6 +134,7 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str) -> Command {
             ..WorkerTarget::default()
         }),
         hard_delete_objects: Vec::new(),
+        ..FlowStartCommand::default()
     })
 }
 

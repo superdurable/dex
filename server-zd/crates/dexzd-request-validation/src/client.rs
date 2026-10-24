@@ -7,10 +7,10 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use dexzd_protocol::dex::{
-    AttributeMatch, AttributeMatchOperator, DeleteChannelMessageRequest, FlowResetStepMethod,
-    FlowResetType, IdReusePolicy, InvokeRpcRequest, PublishToChannelRequest, ResetFlowRequest,
-    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, UpdateFlowConfigRequest,
-    WaitForAttributeRequest, WaitForStepCompletionRequest, value,
+    AttributeMatch, AttributeMatchOperator, DeleteChannelMessageRequest, FlowConfig,
+    FlowResetStepMethod, FlowResetType, IdReusePolicy, InvokeRpcRequest, PublishToChannelRequest,
+    ResetFlowRequest, SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
+    UpdateFlowConfigRequest, WaitForAttributeRequest, WaitForStepCompletionRequest, value,
 };
 
 use crate::shared::{
@@ -51,7 +51,7 @@ pub fn validate_client_request(
     config: &ValidationConfig,
 ) -> Result<(), ValidationError> {
     let result = match request {
-        ClientRequest::StartFlow(request) => validate_start_flow(request, config),
+        ClientRequest::StartFlow(request) => validate_start_flow(request, config).map(|_| ()),
         ClientRequest::SetAttributes(request) => validate_set_attributes(request, config),
         ClientRequest::PublishToChannel(request) => validate_publish_to_channel(request),
         ClientRequest::DeleteChannelMessage(request) => validate_delete_channel_message(request),
@@ -62,16 +62,26 @@ pub fn validate_client_request(
         ClientRequest::WaitForAttribute(request) => validate_wait_for_attribute(request),
         ClientRequest::WaitForStepCompletion(request) => validate_wait_for_step_completion(request),
     };
-    result.map_err(|mut error| {
-        error.category = ValidationCategory::InvalidArgument;
-        error
-    })
+    result.map_err(as_invalid_argument)
+}
+
+/// Validates StartFlow and returns the effective Flow configuration.
+pub fn validate_start_flow_request(
+    request: &StartFlowRequest,
+    config: &ValidationConfig,
+) -> Result<FlowConfig, ValidationError> {
+    validate_start_flow(request, config).map_err(as_invalid_argument)
+}
+
+fn as_invalid_argument(mut error: ValidationError) -> ValidationError {
+    error.category = ValidationCategory::InvalidArgument;
+    error
 }
 
 fn validate_start_flow(
     request: &StartFlowRequest,
     config: &ValidationConfig,
-) -> Result<(), ValidationError> {
+) -> Result<FlowConfig, ValidationError> {
     if request.flow_id.is_empty() || request.flow_type.is_empty() {
         return Err(invalid("flow_id", "flow ID and flow type are required"));
     }
@@ -137,7 +147,7 @@ fn validate_start_flow(
             options.retry_policy.is_some(),
         )?;
     }
-    Ok(())
+    Ok(effective)
 }
 
 fn validate_set_attributes(
