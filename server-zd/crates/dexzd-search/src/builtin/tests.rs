@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
+use dexzd_apply::read_model::search_order_index_keys_of_document;
 use dexzd_apply::{FlowStateReader, StateReadError, StateRow};
 use dexzd_keyspace::row_keys::{flow_list_index_key, run_singleton_key, tenant_run_index_key};
 use dexzd_keyspace::{ColumnFamily, FlowHash, IndexKind, PartitionId, RunId, RunTable, TenantId};
@@ -24,20 +25,21 @@ use super::{BuiltinSearchBackend, CommittedSearchViewProvider, IndexedDocument};
 use crate::{SearchBackend, SearchError, SearchRequest};
 
 #[derive(Default)]
-struct MemoryState {
+pub(super) struct MemoryState {
     rows: BTreeMap<(ColumnFamily, Vec<u8>), Vec<u8>>,
+    pub(super) document_reads: AtomicUsize,
     scanned_kinds: Mutex<Vec<u8>>,
     scan_batch_limit: AtomicUsize,
     scan_hook: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
-struct MemoryViewProvider {
+pub(super) struct MemoryViewProvider {
     view: RwLock<Arc<MemoryState>>,
     openings: AtomicUsize,
 }
 
 impl MemoryViewProvider {
-    fn new(view: Arc<MemoryState>) -> Arc<Self> {
+    pub(super) fn new(view: Arc<MemoryState>) -> Arc<Self> {
         Arc::new(Self {
             view: RwLock::new(view),
             openings: AtomicUsize::new(0),
@@ -58,17 +60,47 @@ impl CommittedSearchViewProvider for MemoryViewProvider {
 }
 
 impl MemoryState {
-    fn insert(
+    pub(super) fn insert(
         &mut self,
         partition: u16,
         tenant_id: u64,
         ordinal: u8,
         record: SearchDocumentRecord,
     ) {
+        let flow_hash = FlowHash((u64::from(partition) << 48) | u64::from(ordinal));
+        self.insert_run(PartitionId(partition), flow_hash, &record);
+        self.rows.insert(
+            (
+                ColumnFamily::PartitionIndex,
+                flow_list_index_key(
+                    PartitionId(partition),
+                    TenantId(tenant_id),
+                    &record.flow_type,
+                    u8::try_from(record.status).expect("fixture status"),
+                    flow_hash,
+                    RunId::from_slice(&record.run_id).expect("fixture run ID"),
+                ),
+            ),
+            Vec::new(),
+        );
+    }
+
+    /// Writes the rows apply writes for a run except its FlowList key.
+    pub(super) fn insert_run(
+        &mut self,
+        partition: PartitionId,
+        flow_hash: FlowHash,
+        record: &SearchDocumentRecord,
+    ) {
+        let tenant_id = record.tenant_id;
         let tenant = TenantId(tenant_id);
-        let partition = PartitionId(partition);
-        let flow_hash = FlowHash((u64::from(partition.0) << 48) | u64::from(ordinal));
         let run_id = RunId::from_slice(&record.run_id).expect("fixture run ID");
+        for search_order_key in
+            search_order_index_keys_of_document(partition, flow_hash, run_id, record)
+        {
+            self.rows
+                .insert((ColumnFamily::PartitionIndex, search_order_key), Vec::new());
+        }
         self.rows.insert(
             (
                 ColumnFamily::Flow,
@@ -104,20 +136,6 @@ impl MemoryState {
             ),
             record.version.to_be_bytes().to_vec(),
         );
-        self.rows.insert(
-            (
-                ColumnFamily::PartitionIndex,
-                flow_list_index_key(
-                    partition,
-                    tenant,
-                    &record.flow_type,
-                    u8::try_from(record.status).expect("fixture status"),
-                    flow_hash,
-                    run_id,
-                ),
-            ),
-            Vec::new(),
-        );
     }
 }
 
@@ -127,6 +145,11 @@ impl FlowStateReader for MemoryState {
         column_family: ColumnFamily,
         key: &[u8],
     ) -> Result<Option<Vec<u8>>, StateReadError> {
+        if column_family == ColumnFamily::Flow
+            && key.get(25) == Some(&(RunTable::SearchDocument as u8))
+        {
+            self.document_reads.fetch_add(1, Ordering::Relaxed);
+        }
         Ok(self.rows.get(&(column_family, key.to_vec())).cloned())
     }
 
@@ -162,7 +185,7 @@ impl FlowStateReader for MemoryState {
     }
 }
 
-fn record(
+pub(super) fn record(
     tenant_id: u64,
     ordinal: u8,
     flow_type: &str,
@@ -185,7 +208,7 @@ fn record(
     }
 }
 
-fn fields() -> FieldRegistry {
+pub(super) fn fields() -> FieldRegistry {
     let mut fields = FieldRegistry::new();
     fields.insert("Color", IndexType::Keyword);
     fields.insert("Tags", IndexType::KeywordArray);
@@ -193,7 +216,7 @@ fn fields() -> FieldRegistry {
     fields
 }
 
-fn request<'a>(
+pub(super) fn request<'a>(
     query: &'a str,
     token: Option<&'a str>,
     page_size: usize,
@@ -282,7 +305,7 @@ async fn searches_all_partitions_and_pages_in_default_order() {
             .scanned_kinds
             .lock()
             .expect("scan kinds")
-            .contains(&(IndexKind::FlowList as u8))
+            .contains(&(IndexKind::SearchOrder as u8))
     );
     let ordered = backend
         .search(request("ORDER BY StartTime DESC", None, 10, &fields))
@@ -835,7 +858,7 @@ async fn random_documents_with_sort_ties_match_the_shared_evaluator() {
     }
 }
 
-fn next_pseudorandom(state: &mut u64) -> u64 {
+pub(super) fn next_pseudorandom(state: &mut u64) -> u64 {
     *state = state
         .wrapping_mul(6_364_136_223_846_793_005)
         .wrapping_add(1_442_695_040_888_963_407);

@@ -15,6 +15,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_hash};
 use dexzd_apply::{ApplyContext, ApplyEffect, ApplyOutcome, StateWrite, WaitableChange};
+use dexzd_keyspace::row_keys::SEARCH_ORDER_INDEX_VERSION;
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId, parse_run_key,
 };
@@ -441,6 +442,7 @@ impl FrameApplier {
             .map_err(|error| FrameFailure::StoreFailed(error.to_string()))?
             .unwrap_or_else(|| PartitionMeta {
                 partition: u32::from(frame.partition.0),
+                search_order_index_version: SEARCH_ORDER_INDEX_VERSION,
                 ..PartitionMeta::default()
             });
         if meta
@@ -491,6 +493,7 @@ impl FrameApplier {
                 last_command_timestamp_micros,
                 last_behavior_version,
                 applied_epoch: frame.epoch,
+                search_order_index_version: meta.search_order_index_version,
             })
             .map_err(|error| FrameFailure::StoreFailed(error.to_string()))?;
         // Recovery replays a frame skipped after the stop.
@@ -530,6 +533,7 @@ impl FrameApplier {
             };
             let mut meta = meta.unwrap_or_else(|| PartitionMeta {
                 partition: u32::from(partition.0),
+                search_order_index_version: SEARCH_ORDER_INDEX_VERSION,
                 ..PartitionMeta::default()
             });
             if meta

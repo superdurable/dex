@@ -14,7 +14,7 @@ use dexzd_apply::read_model::{
     ReadModelError, StepCompletionState, get_attributes, get_channel_messages, get_flow_state,
     get_flow_summary, get_history_events, get_search_document, is_flow_closed,
     is_history_event_available, list_search_documents, load_blobs, match_attribute, resolve_run_id,
-    step_completion_state,
+    search_order_index_keys_of_document, step_completion_state,
 };
 use dexzd_apply::{
     ApplyContext, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
@@ -327,6 +327,18 @@ impl Harness {
         run.is_purging = true;
         *bytes = run.encode_to_vec();
     }
+}
+
+fn search_order_rows(state: &MemoryState) -> Vec<Vec<u8>> {
+    state
+        .rows
+        .keys()
+        .filter(|(column_family, key)| {
+            *column_family == ColumnFamily::PartitionIndex
+                && key.get(2) == Some(&(IndexKind::SearchOrder as u8))
+        })
+        .map(|(_, key)| key.clone())
+        .collect()
 }
 
 fn string_value(text: &str) -> Value {
@@ -716,6 +728,16 @@ fn search_document_tracks_attributes_permissions_active_steps_and_status() {
     assert_eq!(document.active_step_types, ["ChargeStep"]);
     assert_eq!(document.attributes[0].index_key, "ReviewState");
     assert_eq!(document.attributes[0].index_type, IndexType::Keyword as i32);
+    let running_search_order_keys = search_order_index_keys_of_document(
+        harness.context.partition,
+        harness.context.flow_hash,
+        harness.run_id,
+        &document,
+    );
+    assert_eq!(
+        search_order_rows(&harness.state),
+        running_search_order_keys.to_vec()
+    );
     let search_key = tenant_run_index_key(
         harness.context.partition,
         IndexKind::SearchDocument,
@@ -807,6 +829,17 @@ fn search_document_tracks_attributes_permissions_active_steps_and_status() {
     assert_eq!(document.status, FlowStatus::Canceled as i32);
     assert!(document.active_step_types.is_empty());
     assert!(document.closed_at_micros > 0);
+    let closed_search_order_keys = search_order_index_keys_of_document(
+        harness.context.partition,
+        harness.context.flow_hash,
+        harness.run_id,
+        &document,
+    );
+    assert_ne!(closed_search_order_keys, running_search_order_keys);
+    assert_eq!(
+        search_order_rows(&harness.state),
+        closed_search_order_keys.to_vec()
+    );
     let old_list_key = flow_list_index_key(
         harness.context.partition,
         TenantId::DEFAULT,

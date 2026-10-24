@@ -485,6 +485,7 @@ fn set_partition_meta(store: &impl LocalStore) {
             last_command_timestamp_micros: 20,
             last_behavior_version: 1,
             applied_epoch: 3,
+            search_order_index_version: 1,
         })
         .expect("partition metadata writes");
     assert_eq!(
