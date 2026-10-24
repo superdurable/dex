@@ -20,8 +20,8 @@ use dexzd_protocol::dexzd::v1::{StepAttemptFailureKind, flow_command};
 use tokio::time::Instant;
 
 use super::{
-    DurableState, EffectHarness, FakeDispatch, is_error_reply, is_method_completed, settings,
-    start_request,
+    DurableState, EffectHarness, FakeDispatch, is_attempt_failed, is_error_reply,
+    is_method_completed, settings, start_request,
 };
 use crate::effects::EffectsConfig;
 
@@ -157,11 +157,18 @@ async fn retry_total_duration_cuts_the_running_attempt_before_method_timeout() {
     harness.start_flow(request, settings());
     let dispatch = harness.dispatcher.next_dispatch().await;
     let started_at = Instant::now();
-    tokio::time::sleep_until(started_at + Duration::from_secs(3)).await;
+    // The total duration counts from the start of attempt 1.
+    tokio::time::sleep_until(started_at + Duration::from_millis(2_900)).await;
     harness.settle().await;
-    let failures = harness.runtime.commands_matching(|command| {
-        matches!(command, flow_command::Command::StepAttemptFailed(_))
-    });
+    assert!(
+        harness
+            .runtime
+            .commands_matching(is_attempt_failed)
+            .is_empty()
+    );
+    tokio::time::sleep_until(started_at + Duration::from_millis(3_100)).await;
+    harness.settle().await;
+    let failures = harness.runtime.commands_matching(is_attempt_failed);
     assert_eq!(failures.len(), 1);
     assert!(failures.iter().all(|recorded| matches!(
         &recorded.command.command,
