@@ -14,9 +14,9 @@ use dexzd_keyspace::{
 };
 use dexzd_log::decode_batch;
 use dexzd_protocol::dexzd::v1::{
-    AttemptRecord, AttributeIndexRegistry, AttributeRecord, ChannelMessageRecord,
-    ChannelMetaRecord, ChannelWaiterRecord, CheckpointRecord, ClusterObject, FlowCommand,
-    FlowDirectoryRecord, HardDeleteObjectRecord, HistoryRecord, HistoryRowMetadata,
+    AttemptRecord, AttributeIndexRegistry, AttributeRecord, AttributeSyncOutboxRecord,
+    ChannelMessageRecord, ChannelMetaRecord, ChannelWaiterRecord, CheckpointRecord, ClusterObject,
+    FlowCommand, FlowDirectoryRecord, HardDeleteObjectRecord, HistoryRecord, HistoryRowMetadata,
     InboxDedupRecord, LocalStoreKind, LockRecord, LogRecord, Manifest, NodeMeta, OutboxRecord,
     PartitionMeta, PermissionSetRecord, RequestDedupRecord, RunRecord, SearchDocumentRecord,
     SnapshotManifest, StepCounterRecord, StepExecutionRecord, SubFlowResultRecord, TimerRecord,
@@ -243,6 +243,7 @@ fn decode_run_row(table: RunTable, value: &[u8], describe: &dyn Fn() -> String) 
         RunTable::Waiter => decode_as::<ChannelWaiterRecord>(value, describe),
         RunTable::Timer => decode_as::<TimerRecord>(value, describe),
         RunTable::Outbox => decode_as::<OutboxRecord>(value, describe),
+        RunTable::AttributeSyncOutbox => decode_as::<AttributeSyncOutboxRecord>(value, describe),
         RunTable::InboxDedup => decode_as::<InboxDedupRecord>(value, describe),
         RunTable::RequestDedup => decode_as::<RequestDedupRecord>(value, describe),
         RunTable::SubFlowResult => decode_as::<SubFlowResultRecord>(value, describe),
