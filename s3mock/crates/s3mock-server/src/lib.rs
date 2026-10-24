@@ -11,6 +11,7 @@
 mod aws_chunked;
 mod config;
 mod controls;
+mod cors;
 mod handlers;
 mod policy;
 mod request_headers;

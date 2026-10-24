@@ -14,6 +14,8 @@ mode, the root key signs admin requests and scoped keys are checked against thei
 Credential endpoints require the root signature in strict mode. Other test controls remain
 unauthenticated unless `--control-authentication root` is selected.
 Both header-signed requests and presigned URLs use the same policy checks.
+Bucket CORS rules are persisted in the store and evaluated for unsigned OPTIONS preflights and
+requests carrying Origin.
 See the [workspace README](../../README.md#testing-controls) for flags, IAM actions, and the JSON
 admin endpoint contract.
 The admin dispatcher lives in `controls/admin.rs`, separately from the S3 router, for additional controls.

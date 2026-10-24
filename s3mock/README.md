@@ -46,6 +46,7 @@ writes, so do not use it for crash-recovery tests.
 | Batch delete | DeleteObjects with Quiet mode and per-key results |
 | Object Lock | Get/PutObjectLockConfiguration and CreateBucket with Object Lock; retention is stored, never enforced |
 | Lifecycle | Put/Get/DeleteBucketLifecycle with prefix filters: `Expiration` `Days` and `ExpiredObjectDeleteMarker`, `NoncurrentVersionExpiration` (with `NewerNoncurrentVersions`), and `AbortIncompleteMultipartUpload` |
+| CORS | PutBucketCors, GetBucketCors, DeleteBucketCors, preflight OPTIONS, and cross-origin object requests |
 
 Other operations and subresources return `501 NotImplemented`.
 
@@ -136,6 +137,8 @@ no prefix. GET and HEAD for a missing key return 404 when `s3:ListBucket` permit
 | GetBucketLocation | `s3:GetBucketLocation` | Bucket |
 | GetBucketVersioning | `s3:GetBucketVersioning` | Bucket |
 | PutBucketVersioning | `s3:PutBucketVersioning` | Bucket |
+| GetBucketCors | `s3:GetBucketCORS` | Bucket |
+| PutBucketCors, DeleteBucketCors | `s3:PutBucketCORS` | Bucket |
 | GetBucketLifecycleConfiguration | `s3:GetLifecycleConfiguration` | Bucket |
 | PutBucketLifecycleConfiguration, DeleteBucketLifecycle | `s3:PutLifecycleConfiguration` | Bucket |
 | GetObjectLockConfiguration | `s3:GetBucketObjectLockConfiguration` | Bucket |
@@ -154,6 +157,22 @@ For a CreateBucket request that enables Object Lock, the bucket policy must also
 form `arn:aws:s3:::<bucket>`; object resources have the form `arn:aws:s3:::<bucket>/<key>`.
 The [AWS S3 permissions reference](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-policy-actions.html)
 defines these action names.
+
+### Bucket CORS
+
+PutBucketCors stores S3 XML rules per bucket; GetBucketCors returns them, and DeleteBucketCors
+removes them. Rules survive restarts. A rule specifies AllowedOrigin and AllowedMethod entries,
+and may specify AllowedHeader, ExposeHeader, MaxAgeSeconds, and ID. S3 allows one `*` in an origin
+or allowed-header pattern. Requested headers match case-insensitively. The first rule matching the
+origin, method, and every requested header controls the response.
+
+OPTIONS preflights need no signature. A matching preflight or actual request with `Origin` receives
+the S3 `Access-Control-Allow-*`, `Access-Control-Expose-Headers`, `Access-Control-Max-Age`, and
+`Vary` headers supplied by its rule. An unmatched origin, method, or requested header, or a bucket
+without CORS configuration, returns 403. Requests without `Origin` keep their existing behavior.
+For browser presigned PUT, GET, and HEAD, one rule can allow a single origin, the methods `PUT`,
+`GET`, and `HEAD`, headers `content-type`, `if-none-match`, `x-amz-checksum-sha256`, and
+`x-amz-meta-sha256`, expose `ETag`, and set MaxAgeSeconds to 600.
 
 ### Admin HTTP API
 

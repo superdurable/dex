@@ -927,6 +927,27 @@ async fn every_supported_s3_operation_uses_its_documented_action() {
             "arn:aws:s3:::testing",
         ),
         (
+            "PUT",
+            "/testing?cors",
+            b"bad",
+            "s3:PutBucketCORS",
+            "arn:aws:s3:::testing",
+        ),
+        (
+            "GET",
+            "/testing?cors",
+            b"",
+            "s3:GetBucketCORS",
+            "arn:aws:s3:::testing",
+        ),
+        (
+            "DELETE",
+            "/testing?cors",
+            b"",
+            "s3:PutBucketCORS",
+            "arn:aws:s3:::testing",
+        ),
+        (
             "GET",
             "/testing?lifecycle",
             b"",
