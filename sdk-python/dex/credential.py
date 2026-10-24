@@ -16,6 +16,7 @@ import ipaddress
 import json
 import math
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -23,6 +24,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Awaitable, Protocol
+
+
+_JWT_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?![A-Za-z0-9_-])"
+)
 
 
 class Credential(Protocol):
@@ -158,7 +164,8 @@ class ApiKeyExchangeError(Exception):
 
     The message identifies the token URL and HTTP status when available. It
     includes the endpoint's error and error_description fields, each limited to
-    200 characters. It never includes the response body, API key, or access token.
+    200 characters. It never includes the response body, API key, issued access
+    tokens, or JWT-shaped strings.
     Client calls raise this error unchanged. Pull Workers log it and retry.
     """
 
@@ -289,6 +296,7 @@ class ApiKeyCredential:
         self._clock = time.monotonic
         self._lock = threading.Lock()
         self._token = ""
+        self._remembered_tokens: frozenset[str] = frozenset()
         self._refresh_at = 0.0
         self._expires_at = 0.0
         self._retry_at = 0.0
@@ -430,6 +438,7 @@ class ApiKeyCredential:
                 if self._in_flight is exchange:
                     if not self._closed and failure is None:
                         self._token = token
+                        self._remembered_tokens = self._remembered_tokens | {token}
                         try:
                             self._refresh_at = started_at + lifetime * 0.8
                             self._expires_at = started_at + lifetime
@@ -518,20 +527,21 @@ class ApiKeyCredential:
     ) -> ApiKeyExchangeError:
         status_text = str(status) if status is not None else "unavailable"
         message = f"token exchange at {self._token_url} failed (HTTP status {status_text}): {reason}"
-        secrets = [self._api_key, self._token]
+        secrets = {self._api_key, self._token, *self._remembered_tokens}
         if payload is not None:
             response_token = payload.get("access_token")
             if isinstance(response_token, str):
-                secrets.append(response_token)
+                secrets.add(response_token)
             for name in ("error", "error_description"):
                 detail = payload.get(name)
                 if isinstance(detail, str):
-                    safe_detail = detail
-                    for secret in secrets:
-                        if secret:
-                            safe_detail = safe_detail.replace(secret, "[REDACTED]")
-                    message += f"; {name}={safe_detail[:200]}"
-        for secret in secrets:
-            if secret:
-                message = message.replace(secret, "[REDACTED]")
+                    message += f"; {name}={self._redact(detail, secrets)[:200]}"
+        message = self._redact(message, secrets)
         return ApiKeyExchangeError(message)
+
+    @staticmethod
+    def _redact(value: str, secrets: set[str]) -> str:
+        for secret in sorted(secrets, key=len, reverse=True):
+            if secret:
+                value = value.replace(secret, "[REDACTED]")
+        return _JWT_PATTERN.sub("[REDACTED]", value)

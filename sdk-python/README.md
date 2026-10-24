@@ -42,7 +42,8 @@ Each exchange has a 10-second deadline by default, configurable through
 and retries a unary call once with a fresh token. Pull Worker streams reconnect
 once immediately with a fresh token; a second rejection uses the normal backoff.
 The credential is thread-safe.
-It does not print the API key or access token in errors or formatting. Client
+It redacts the API key, issued access tokens, and JWT-shaped strings from
+exchange errors, including endpoint details and transport causes. Client
 calls raise `ApiKeyExchangeError` unchanged; pull Workers log it and retry.
 Closing the credential is optional. After all Clients and Workers sharing it
 are closed, `close()` prevents further token calls and waits at most until the

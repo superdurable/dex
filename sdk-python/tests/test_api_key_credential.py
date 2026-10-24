@@ -48,6 +48,8 @@ from dex.worker_options import PullWorkerOptions
 API_KEY = "never-print-api-key"
 TOKEN_A = "never-print-token-a"
 TOKEN_B = "never-print-token-b"
+TOKEN_C = "never-print-token-c"
+JWT_TOKEN = "headersegment.payloadsegment.signaturesegment"
 
 
 def token_response(token: str, lifetime: int = 60) -> dict[str, object]:
@@ -231,6 +233,32 @@ def test_api_key_endpoint_error_redacts_secrets(token_endpoint: TokenEndpoint) -
             assert value not in message
             assert value not in repr(failure.value)
             assert value not in repr(credential)
+    finally:
+        credential.close()
+
+
+def test_api_key_error_redacts_previous_tokens_and_jwt(
+    token_endpoint: TokenEndpoint,
+) -> None:
+    for token in (TOKEN_A, TOKEN_B, TOKEN_C):
+        token_endpoint.responses.put((200, token_response(token)))
+    token_endpoint.responses.put(
+        (401, {"error": "rejected", "error_description": f"{TOKEN_A} {JWT_TOKEN}"})
+    )
+    url = f"{token_endpoint.url}?key={API_KEY}&assertion={JWT_TOKEN}"
+    credential = ApiKeyCredential(url, "server-id", API_KEY)
+    try:
+        for token in (TOKEN_A, TOKEN_B, TOKEN_C):
+            assert credential.token() == token
+            credential._reject_token(token)
+        with pytest.raises(ApiKeyExchangeError) as failure:
+            credential.token()
+        for secret in (API_KEY, TOKEN_A, TOKEN_B, TOKEN_C, JWT_TOKEN):
+            assert secret not in str(failure.value)
+            assert secret not in str(
+                credential._error(None, f"transport cause: {secret}")
+            )
+        assert "error_description=" in str(failure.value)
     finally:
         credential.close()
 
@@ -427,6 +455,24 @@ def test_api_key_slow_response_has_one_deadline(token_endpoint: TokenEndpoint) -
         credential.close()
 
 
+def test_api_key_close_during_slow_response_honors_exchange_deadline(
+    token_endpoint: TokenEndpoint,
+) -> None:
+    token_endpoint.drip_interval = 0.2
+    token_endpoint.responses.put((200, token_response(TOKEN_A)))
+    credential = ApiKeyCredential(
+        token_endpoint.url, "server-id", API_KEY, exchange_timeout=0.5
+    )
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        lookup = executor.submit(credential.token)
+        assert token_endpoint.request_received.wait(2)
+        started_at = time.monotonic()
+        credential.close()
+        assert time.monotonic() - started_at < 0.8
+        with pytest.raises((ApiKeyExchangeError, RuntimeError)):
+            lookup.result(timeout=2)
+
+
 def test_api_key_delayed_response_cannot_publish_expired_token(
     token_endpoint: TokenEndpoint,
 ) -> None:
@@ -497,6 +543,7 @@ class RejectingFlowService(dex_pb2_grpc.FlowServiceServicer):
     def __init__(self, reject_all: bool = False) -> None:
         self.attempts: list[str | bytes | None] = []
         self.reject_all = reject_all
+        self.rejection_delay = 0.0
 
     def HealthCheck(  # noqa: N802
         self, request: empty_pb2.Empty, context: grpc.ServicerContext
@@ -504,6 +551,8 @@ class RejectingFlowService(dex_pb2_grpc.FlowServiceServicer):
         authorization = dict(context.invocation_metadata()).get("authorization")
         self.attempts.append(authorization)
         if authorization != f"Bearer {TOKEN_B}" or self.reject_all:
+            if self.rejection_delay:
+                time.sleep(self.rejection_delay)
             context.abort(grpc.StatusCode.UNAUTHENTICATED, "rejected")
         return pb.HealthInfo()
 
@@ -622,7 +671,10 @@ def test_api_key_async_retry_lookup_honors_rpc_deadline(
     async def run() -> None:
         runner = AsyncCredentialRunner(credential)
         channel = grpc.aio.insecure_channel(
-            address, interceptors=[_AsyncCredentialInterceptor(runner)]
+            address,
+            interceptors=[
+                cast(grpc.aio.ClientInterceptor, _AsyncCredentialInterceptor(runner))
+            ],
         )
         stub = dex_pb2_grpc.FlowServiceStub(channel)  # type: ignore[no-untyped-call]
         try:
@@ -634,7 +686,48 @@ def test_api_key_async_retry_lookup_honors_rpc_deadline(
             assert service.attempts == [f"Bearer {TOKEN_A}"]
 
         finally:
-            await channel.close()
+            await channel.close(None)
+            runner.close()
+
+    try:
+        asyncio.run(run())
+    finally:
+        token_endpoint.response_allowed.set()
+        credential.close()
+
+
+def test_api_key_async_retry_after_slow_rejection_honors_rpc_deadline(
+    token_endpoint: TokenEndpoint,
+    rejecting_service: tuple[str, RejectingFlowService],
+) -> None:
+    token_endpoint.responses.put((200, token_response(TOKEN_A)))
+    token_endpoint.responses.put((200, token_response(TOKEN_B)))
+    credential = ApiKeyCredential(
+        token_endpoint.url, "server-id", API_KEY, exchange_timeout=2
+    )
+    assert credential.token() == TOKEN_A
+    token_endpoint.response_allowed.clear()
+    address, service = rejecting_service
+    service.rejection_delay = 0.5
+
+    async def run() -> None:
+        runner = AsyncCredentialRunner(credential)
+        channel = grpc.aio.insecure_channel(
+            address,
+            interceptors=[
+                cast(grpc.aio.ClientInterceptor, _AsyncCredentialInterceptor(runner))
+            ],
+        )
+        stub = dex_pb2_grpc.FlowServiceStub(channel)  # type: ignore[no-untyped-call]
+        try:
+            started_at = time.monotonic()
+            with pytest.raises(grpc.aio.AioRpcError) as failure:
+                await stub.HealthCheck(empty_pb2.Empty(), timeout=1.0)
+            assert failure.value.code() == grpc.StatusCode.DEADLINE_EXCEEDED
+            assert time.monotonic() - started_at < 1.3
+            assert service.attempts == [f"Bearer {TOKEN_A}"]
+        finally:
+            await channel.close(None)
             runner.close()
 
     try:
@@ -661,7 +754,10 @@ def test_api_key_async_retry_lookup_can_be_cancelled(
     async def run() -> None:
         runner = AsyncCredentialRunner(credential)
         channel = grpc.aio.insecure_channel(
-            address, interceptors=[_AsyncCredentialInterceptor(runner)]
+            address,
+            interceptors=[
+                cast(grpc.aio.ClientInterceptor, _AsyncCredentialInterceptor(runner))
+            ],
         )
         stub = dex_pb2_grpc.FlowServiceStub(channel)  # type: ignore[no-untyped-call]
 
@@ -678,7 +774,7 @@ def test_api_key_async_retry_lookup_can_be_cancelled(
             assert time.monotonic() - started_at < 0.3
             assert service.attempts == [f"Bearer {TOKEN_A}"]
         finally:
-            await channel.close()
+            await channel.close(None)
             runner.close()
 
     try:
