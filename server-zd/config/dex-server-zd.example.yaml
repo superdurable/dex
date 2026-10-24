@@ -66,6 +66,9 @@ auth:
   #   - kind: staticTokens
   #     file: /etc/dex-server-zd/tokens.yaml  # tokens: [{sha256: <64 hex>}]; reloaded on change
   authenticators: []
+metrics:
+  # Empty disables the unauthenticated HTTP GET /metrics endpoint. Never expose it publicly.
+  listen: ""
 matching:
   dispatchWait: 10s
   stickyWait: 5s

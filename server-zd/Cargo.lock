@@ -981,12 +981,14 @@ dependencies = [
  "dexzd-cluster-metadata",
  "dexzd-engine",
  "dexzd-keyspace",
+ "dexzd-metrics",
  "dexzd-object-store",
  "dexzd-protocol",
  "dexzd-search",
  "dexzd-stream-store",
  "dexzd-visibility-query",
  "futures",
+ "http-body",
  "http-body-util",
  "hyper",
  "hyper-rustls",
@@ -1004,6 +1006,7 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tonic-health",
+ "tower-layer",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1034,6 +1037,7 @@ dependencies = [
  "bytes",
  "dexzd-clock",
  "dexzd-keyspace",
+ "dexzd-metrics",
  "dexzd-object-store",
  "dexzd-protocol",
  "prost",
@@ -1071,6 +1075,7 @@ dependencies = [
  "dexzd-cluster-metadata",
  "dexzd-keyspace",
  "dexzd-log",
+ "dexzd-metrics",
  "dexzd-object-store",
  "dexzd-protocol",
  "dexzd-request-validation",
@@ -1108,6 +1113,7 @@ dependencies = [
  "bytes",
  "dexzd-clock",
  "dexzd-keyspace",
+ "dexzd-metrics",
  "dexzd-object-store",
  "dexzd-protocol",
  "dhat",
@@ -1121,6 +1127,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dexzd-metrics"
+version = "0.1.0"
+dependencies = [
+ "prometheus-client",
+ "rustix",
+ "tracing",
+]
+
+[[package]]
 name = "dexzd-object-store"
 version = "0.1.0"
 dependencies = [
@@ -1129,6 +1144,7 @@ dependencies = [
  "aws-sdk-s3",
  "bytes",
  "dexzd-clock",
+ "dexzd-metrics",
  "s3mock",
  "s3mock-server",
  "tempfile",
@@ -1193,6 +1209,7 @@ dependencies = [
  "dexzd-engine",
  "dexzd-keyspace",
  "dexzd-log",
+ "dexzd-metrics",
  "dexzd-object-store",
  "dexzd-protocol",
  "dexzd-request-validation",
@@ -1202,6 +1219,7 @@ dependencies = [
  "dexzd-worker-dispatch",
  "futures",
  "humantime-serde",
+ "prometheus-client",
  "prost",
  "prost-types",
  "s3mock",
@@ -1235,6 +1253,7 @@ dependencies = [
  "dexzd-engine",
  "dexzd-keyspace",
  "dexzd-log",
+ "dexzd-metrics",
  "dexzd-object-store",
  "dexzd-protocol",
  "dexzd-request-validation",
@@ -1297,8 +1316,10 @@ name = "dexzd-worker-dispatch"
 version = "0.1.0"
 dependencies = [
  "dexzd-clock",
+ "dexzd-metrics",
  "dexzd-protocol",
  "futures",
+ "prometheus-client",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -1356,6 +1377,12 @@ dependencies = [
  "quote",
  "syn 3.0.9",
 ]
+
+[[package]]
+name = "dtoa"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c3cf4824e2d5f025c7b531afcb2325364084a16806f6d47fbc1f5fbd9960590"
 
 [[package]]
 name = "dunce"
@@ -2414,6 +2441,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "prometheus-client"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1784dc11a05f5a8f57c4a62915686be140f24f70301290b997e317241fa9ffc2"
+dependencies = [
+ "dtoa",
+ "itoa",
+ "parking_lot",
+ "prometheus-client-derive-encode",
+]
+
+[[package]]
+name = "prometheus-client-derive-encode"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01e34894696ff94f64a20c2c373a6440903e9c2789a303d68ec6e6f953f890e4"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]

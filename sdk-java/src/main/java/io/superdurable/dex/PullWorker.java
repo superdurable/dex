@@ -46,6 +46,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.function.Supplier;
@@ -54,6 +55,7 @@ final class PullWorker {
     private static final Logger LOGGER = Logger.getLogger(PullWorker.class.getName());
     private static final char[] BASE32 = "abcdefghijklmnopqrstuvwxyz234567".toCharArray();
     private final WorkerTaskServiceGrpc.WorkerTaskServiceStub taskService;
+    private final Credential credential;
     private final JavaWorkerService workerService;
     private final WorkerDispatcher dispatcher;
     private final ExecutorService handlers;
@@ -95,6 +97,7 @@ final class PullWorker {
             final Credential credential,
             final String sdkVersion) {
         this.workerService = workerService;
+        this.credential = credential;
         this.dispatcher = dispatcher;
         this.handlers = handlers;
         final WorkerTaskServiceGrpc.WorkerTaskServiceStub serviceStub =
@@ -318,7 +321,7 @@ final class PullWorker {
             stream.isRegistered = false;
             registration.registeredStreams--;
         }
-        if (isPermanentStreamError(failure)) {
+        if (!stream.shouldRetryRejectedTokenImmediately && isPermanentStreamError(failure)) {
             registration.lastPermanentError = failure;
             final PullRegistrationError rejection = new PullRegistrationError(stream.queue, failure);
             if (registration.registeredStreams == 0) {
@@ -333,9 +336,10 @@ final class PullWorker {
         notifyAll();
     }
 
-    private static boolean isPermanentStreamError(final Throwable failure) {
+    private boolean isPermanentStreamError(final Throwable failure) {
         final Status.Code code = failure == null ? Status.Code.OK : Status.fromThrowable(failure).getCode();
-        return code == Status.Code.UNAUTHENTICATED || code == Status.Code.PERMISSION_DENIED
+        return code == Status.Code.UNAUTHENTICATED
+                || code == Status.Code.PERMISSION_DENIED
                 || code == Status.Code.INVALID_ARGUMENT || code == Status.Code.UNIMPLEMENTED
                 || code == Status.Code.RESOURCE_EXHAUSTED;
     }
@@ -431,6 +435,8 @@ final class PullWorker {
 
     private final class PullStream implements StreamObserver<PollWorkerTaskResponse> {
         private final String queue;
+        private volatile AtomicReference<String> callToken;
+        private volatile int openGeneration;
         private StreamObserver<PollWorkerTaskRequest> requests;
         private Context.CancellableContext taskContext;
         private ScheduledFuture<?> deadlineTimer;
@@ -446,6 +452,8 @@ final class PullWorker {
         private boolean isHalfClosed;
         private boolean isClosed;
         private boolean isRegistered;
+        private boolean hasRetriedRejectedToken;
+        private boolean shouldRetryRejectedTokenImmediately;
         private boolean supportsUnknownNameRejection;
 
         private PullStream(final String queue) {
@@ -453,13 +461,38 @@ final class PullWorker {
         }
 
         private void open() {
+            final int generation = ++openGeneration;
+            final AtomicReference<String> openedToken = new AtomicReference<String>();
+            callToken = openedToken;
             isClosed = false;
             isHalfClosed = false;
             isRegistered = false;
             supportsUnknownNameRejection = false;
             closeFailure = null;
             try {
-                requests = taskService.pollWorkerTask(this);
+                final StreamObserver<PollWorkerTaskResponse> observer =
+                        new StreamObserver<PollWorkerTaskResponse>() {
+                            @Override
+                            public void onNext(final PollWorkerTaskResponse response) {
+                                synchronized (PullWorker.this) {
+                                    if (generation == openGeneration) {
+                                        PullStream.this.onNext(response);
+                                    }
+                                }
+                            }
+
+                            @Override
+                            public void onError(final Throwable failure) {
+                                close(failure, openedToken.get(), generation);
+                            }
+
+                            @Override
+                            public void onCompleted() {
+                                close(null, null, generation);
+                            }
+                        };
+                GrpcCredential.withTokenCapture(openedToken).run(() ->
+                        requests = taskService.pollWorkerTask(observer));
                 send(PollWorkerTaskRequest.newBuilder()
                         .setRegister(PollWorkerTaskRegister.newBuilder()
                                 .setQueue(queue)
@@ -489,6 +522,7 @@ final class PullWorker {
                         recordRegisteredStream(this);
                         supportsUnknownNameRejection = response.getRegistered().getSupportsUnknownNameRejection();
                         backoffMillis = 100L;
+                        hasRetriedRejectedToken = false;
                         reconcile();
                     } else {
                         requests.onError(Status.INTERNAL
@@ -777,9 +811,22 @@ final class PullWorker {
         }
 
         private void close(final Throwable failure) {
+            close(failure, callToken == null ? null : callToken.get(), openGeneration);
+        }
+
+        private void close(final Throwable failure, final String rejectedToken,
+                final int generation) {
             synchronized (PullWorker.this) {
-                if (isClosed) {
+                if (isClosed || generation != openGeneration) {
                     return;
+                }
+                shouldRetryRejectedTokenImmediately = failure != null
+                        && Status.fromThrowable(failure).getCode() == Status.Code.UNAUTHENTICATED
+                        && credential instanceof RejectedTokenCredential && rejectedToken != null
+                        && !hasRetriedRejectedToken;
+                if (failure != null
+                        && Status.fromThrowable(failure).getCode() == Status.Code.UNAUTHENTICATED) {
+                    GrpcCredential.rejectToken(credential, rejectedToken);
                 }
                 isClosed = true;
                 recordStreamResult(this, failure);
@@ -824,7 +871,11 @@ final class PullWorker {
             if (isDraining) {
                 backoffMillis = 100L;
             }
-            final long delay = retryDelay(isPermanent ? 60_000L : backoffMillis);
+            final long delay = shouldRetryRejectedTokenImmediately
+                    ? 0L : retryDelay(isPermanent ? 60_000L : backoffMillis);
+            if (shouldRetryRejectedTokenImmediately) {
+                hasRetriedRejectedToken = true;
+            }
             if (isDraining) {
                 isDraining = false;
             } else if (!isPermanent) {

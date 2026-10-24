@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use dexzd_api::{
     AttributeIndexes, DexFlowService, FlowServiceDependencies, HealthStatus,
-    PublicApiAuthenticator, StreamOperations,
+    PublicApiAuthenticator, RequestMetricsLayer, StreamOperations,
 };
 use dexzd_apply::FlowStateReader;
 use dexzd_clock::{SystemWallClock, WallClock};
@@ -29,6 +29,7 @@ use dexzd_engine::{
     EngineServices, FlowRuntimeDependencies, FlowRuntimeRegistry, HardDeleteObjects,
     NodeMetaUploadLedger, NodeStopReason, SystemEngineIdSource,
 };
+use dexzd_metrics::NodeMetrics;
 use dexzd_protocol::dex::flow_service_server::FlowServiceServer;
 use dexzd_protocol::dex::worker_task_service_server::WorkerTaskServiceServer;
 use dexzd_search::builtin::{BuiltinSearchBackend, CommittedSearchViewProvider};
@@ -48,6 +49,7 @@ use crate::ServerError;
 use crate::component_configs::ComponentConfigs;
 use crate::config::{Config, SearchBackend as SearchBackendKind};
 use crate::embedded_s3::EmbeddedS3;
+use crate::metrics_server::MetricsServer;
 use crate::object_stores::ObjectStores;
 use crate::runtime_hooks::RegistryCommittedCommandSink;
 use crate::worker_rpc_invoker::PullWorkerRpcInvoker;
@@ -76,6 +78,7 @@ const DEFAULT_TENANT_ID: u64 = 0;
 /// A started server. Dropping it without [`RunningServer::shutdown`] aborts it.
 pub struct RunningServer {
     local_address: SocketAddr,
+    metrics_address: Option<SocketAddr>,
     shutdown_request: CancellationToken,
     serving: JoinHandle<Result<(), ServerError>>,
 }
@@ -84,6 +87,11 @@ impl RunningServer {
     /// Returns the address that serves FlowService, WorkerTaskService, and gRPC health.
     pub fn local_address(&self) -> SocketAddr {
         self.local_address
+    }
+
+    /// Returns the separate metrics address when metrics are enabled.
+    pub fn metrics_address(&self) -> Option<SocketAddr> {
+        self.metrics_address
     }
 
     /// Stops gracefully within 14.5 seconds and returns how serving ended.
@@ -141,17 +149,39 @@ pub(crate) async fn start_server(
             address: config.api.listen,
             source,
         })?;
+    let (registry, metrics) = NodeMetrics::registered(
+        config.local_storage.directory.clone(),
+        config.cluster.partition_count as usize,
+    );
+    let metrics = Arc::new(metrics);
+    metrics.set_role(dexzd_metrics::NodeRole::Starting);
+    let metrics_server =
+        match MetricsServer::start(&config.metrics.listen, Arc::new(registry)).await {
+            Ok(server) => server,
+            Err(error) => {
+                if let Some(embedded_s3) = embedded_s3 {
+                    embedded_s3.shutdown().await;
+                }
+                return Err(error);
+            }
+        };
+    let metrics_address = metrics_server.as_ref().map(MetricsServer::address);
     let grpc = GrpcServer::start(
         listener,
         components.grpc_max_message_bytes,
+        metrics.api_requests.clone(),
+        metrics.api_latency.clone(),
         authenticator.as_ref(),
     )
     .await;
-    let started = ServerNode::start(config, &components, cancellation).await;
+    let started = ServerNode::start(config, &components, metrics.clone(), cancellation).await;
     let node = match started {
         Ok(Some(node)) => node,
         Ok(None) => {
             grpc.abort().await;
+            if let Some(metrics_server) = metrics_server {
+                metrics_server.shutdown().await;
+            }
             if let Some(embedded_s3) = embedded_s3 {
                 embedded_s3.shutdown().await;
             }
@@ -159,6 +189,9 @@ pub(crate) async fn start_server(
         }
         Err(error) => {
             grpc.abort().await;
+            if let Some(metrics_server) = metrics_server {
+                metrics_server.shutdown().await;
+            }
             if let Some(embedded_s3) = embedded_s3 {
                 embedded_s3.shutdown().await;
             }
@@ -166,10 +199,12 @@ pub(crate) async fn start_server(
         }
     };
     let shutdown_request = CancellationToken::new();
-    let serving = tokio::spawn(node.serve(grpc, shutdown_request.clone(), embedded_s3));
+    let serving =
+        tokio::spawn(node.serve(grpc, metrics_server, shutdown_request.clone(), embedded_s3));
     tracing::info!(address = %local_address, "dex-server-zd serving");
     Ok(Some(RunningServer {
         local_address,
+        metrics_address,
         shutdown_request,
         serving,
     }))
@@ -188,6 +223,8 @@ impl GrpcServer {
     async fn start(
         listener: TcpListener,
         max_message_bytes: usize,
+        api_requests: dexzd_metrics::ApiRequests,
+        api_latency: dexzd_metrics::ApiLatency,
         authenticator: Option<&Arc<PublicApiAuthenticator>>,
     ) -> Self {
         let (health, health_server) = HealthStatus::new().await;
@@ -200,6 +237,7 @@ impl GrpcServer {
             tonic::transport::Server::builder()
                 .http2_keepalive_interval(Some(KEEPALIVE_INTERVAL))
                 .http2_keepalive_timeout(Some(KEEPALIVE_TIMEOUT))
+                .layer(RequestMetricsLayer::new(api_requests, api_latency))
                 .layer(tower_layer::layer_fn(
                     client_deadline::client_deadline_layer,
                 ))
@@ -309,6 +347,7 @@ where
 
 /// Every component of one node, in start order.
 struct ServerNode {
+    metrics: Arc<NodeMetrics>,
     engine: EngineNode,
     registry: FlowRuntimeRegistry,
     effect_tasks: EffectTasksHandle,
@@ -328,16 +367,22 @@ impl ServerNode {
     async fn start(
         config: &Config,
         components: &ComponentConfigs,
+        metrics: Arc<NodeMetrics>,
         cancellation: &mut watch::Receiver<bool>,
     ) -> Result<Option<Self>, ServerError> {
         let object_stores = ObjectStores::connect(
             &config.object_store,
             config.commit.multipart_threshold_bytes,
+            metrics.as_ref(),
         )
         .await?;
         let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock);
         let applier: Arc<dyn CommandApplier> = Arc::new(DeterministicCommandApplier);
-        let dispatch = WorkerDispatch::new(components.matching.clone(), clock.clone());
+        let dispatch = WorkerDispatch::new_with_metrics(
+            components.matching.clone(),
+            clock.clone(),
+            metrics.as_ref().clone(),
+        );
         let stream_store = Arc::new(
             StreamStore::new(&components.stream_store)
                 .map_err(|source| ServerError::StreamStore { source })?,
@@ -354,6 +399,7 @@ impl ServerNode {
         let started = EngineNode::start_until_cancelled(
             &components.engine_node,
             EngineNodeDependencies {
+                metrics: metrics.clone(),
                 object_store: object_stores.primary.clone(),
                 clock: clock.clone(),
                 applier: applier.clone(),
@@ -374,6 +420,7 @@ impl ServerNode {
                 let (effect_runner, effect_tasks) = EffectRunner::new(
                     &components.effects,
                     EffectDependencies {
+                        metrics: metrics.clone(),
                         dispatcher: Arc::new(dispatch.clone()),
                         hard_delete_objects: hard_delete_objects.clone(),
                         partition_hasher: partition_hasher.clone(),
@@ -480,6 +527,7 @@ impl ServerNode {
             },
         );
         Ok(Some(Self {
+            metrics,
             engine,
             registry,
             effect_tasks,
@@ -494,10 +542,12 @@ impl ServerNode {
     async fn serve(
         self,
         mut grpc: GrpcServer,
+        metrics_server: Option<MetricsServer>,
         shutdown_request: CancellationToken,
         embedded_s3: Option<EmbeddedS3>,
     ) -> Result<(), ServerError> {
         let Self {
+            metrics,
             engine,
             registry,
             effect_tasks,
@@ -536,6 +586,7 @@ impl ServerNode {
             Ok(()) => tracing::info!("dex-server-zd shutting down"),
             Err(error) => tracing::error!(%error, "dex-server-zd stopping after a failure"),
         }
+        metrics.set_role(dexzd_metrics::NodeRole::Draining);
         let mut teardown = BoundedTeardown::default();
         grpc.health.set_not_serving().await;
         dispatch.shutdown();
@@ -571,6 +622,9 @@ impl ServerNode {
         teardown
             .run_fallible("engine", ENGINE_STOP_BUDGET, engine.shutdown())
             .await;
+        if let Some(metrics_server) = metrics_server {
+            metrics_server.shutdown().await;
+        }
         teardown
             .run(
                 "Stream Store",

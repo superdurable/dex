@@ -8,6 +8,7 @@ members = [
     "crates/dexzd-engine",
     "crates/dexzd-keyspace",
     "crates/dexzd-log",
+    "crates/dexzd-metrics",
     "crates/dexzd-object-store",
     "crates/dexzd-protocol",
     "crates/dexzd-request-validation",
@@ -44,6 +45,7 @@ dexzd-cluster-metadata = { path = "crates/dexzd-cluster-metadata" }
 dexzd-engine = { path = "crates/dexzd-engine" }
 dexzd-keyspace = { path = "crates/dexzd-keyspace" }
 dexzd-log = { path = "crates/dexzd-log" }
+dexzd-metrics = { path = "crates/dexzd-metrics" }
 dexzd-object-store = { path = "crates/dexzd-object-store" }
 dexzd-protocol = { path = "crates/dexzd-protocol" }
 dexzd-request-validation = { path = "crates/dexzd-request-validation" }
@@ -62,10 +64,12 @@ hyper-rustls = { version = "0.27", default-features = false, features = ["http1"
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
 prost = "0.14"
 prost-types = "0.14"
+prometheus-client = "0.25.1"
 protoc-bin-vendored = "3.2"
 rand = "0.10"
 rand_chacha = "0.10"
 rocksdb = { version = "0.25", default-features = false, features = ["lz4", "zstd", "bindgen-runtime"] }
+rustix = { version = "1.1", features = ["param"] }
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 rustls-native-certs = "0.8"
 s3mock = { path = "../s3mock/crates/s3mock" }

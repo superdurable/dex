@@ -24,7 +24,8 @@ pub use engine_config::{
     RetentionConfig, SnapshotConfig, ValuesConfig,
 };
 pub use service_config::{
-    ApiConfig, MatchingConfig, SearchBackend, SearchConfig, StreamStoreBackend, StreamStoreConfig,
+    ApiConfig, MatchingConfig, MetricsConfig, SearchBackend, SearchConfig, StreamStoreBackend,
+    StreamStoreConfig,
 };
 pub use source_config::ConfigError;
 pub use storage_config::{
@@ -62,6 +63,8 @@ pub struct Config {
     pub api: ApiConfig,
     /// Public API authentication. Defaults to no authenticators, which disables authentication.
     pub auth: AuthConfig,
+    /// Separate unauthenticated OpenMetrics HTTP listener. Defaults to disabled.
+    pub metrics: MetricsConfig,
     /// Pull Worker matching budgets and capacities. Defaults to ten-second dispatch and five-second sticky waits.
     pub matching: MatchingConfig,
     /// Stream storage and trimming. Defaults to disabled storage.
