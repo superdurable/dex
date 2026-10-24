@@ -135,14 +135,14 @@ jobs:
   seeded-bug-acceptance:
     name: Seeded bug acceptance
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
-      - name: Detect seeded apply bugs
+      - name: Detect seeded apply and engine bugs
         run: script/server-zd-seeded-bugs.sh
 
   engine-simulation:
