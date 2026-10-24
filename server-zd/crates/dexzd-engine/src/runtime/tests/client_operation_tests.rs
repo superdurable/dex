@@ -8,20 +8,21 @@
 
 use std::sync::atomic::Ordering;
 
-use dexzd_apply::ApplyOutcome;
+use dexzd_apply::{ApplyOutcome, read_model::get_search_document};
 use dexzd_protocol::dex::{
-    AttributeWrite, ChannelMessage, ChannelMessageDeletion, ErrorSubStatus, GetAttributesRequest,
-    InvokeRpcRequest, InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest,
+    ActiveStepSearchMode, AttributeWrite, ChannelMessage, ChannelMessageDeletion, ErrorSubStatus,
+    FlowConfig, GetAttributesRequest, GetFlowStateRequest, InvokeRpcRequest,
+    InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, StepDurability,
     StopFlowRequest, WorkerErrorResponse, WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::flow_command;
 
 use crate::runtime::tests::fixtures::{
-    TENANT, set_attribute_request, start_flow, start_request, string_value,
+    TENANT, flow, set_attribute_request, start_flow, start_request, string_value,
 };
 use crate::runtime::tests::model_applier::not_found_reply;
 use crate::runtime::tests::test_support::RuntimeHarness;
-use crate::runtime::{RpcInvokeError, RuntimeError, WorkerRpcResult, grpc_code};
+use crate::runtime::{RpcInvokeError, RuntimeConfig, RuntimeError, WorkerRpcResult, grpc_code};
 
 #[tokio::test(start_paused = true)]
 async fn start_flow_proposes_a_complete_start_command_and_returns_the_run_id() {
@@ -63,6 +64,117 @@ async fn start_flow_proposes_a_complete_start_command_and_returns_the_run_id() {
         10_000
     );
     assert_eq!(start.request.unwrap(), request);
+}
+
+#[tokio::test(start_paused = true)]
+async fn start_flow_persists_default_config_and_respects_explicit_overrides() {
+    let mut config = RuntimeConfig::default();
+    let pull_target = WorkerTarget {
+        is_pull_mode: true,
+        ..WorkerTarget::default()
+    };
+    config.validation.default_flow_config.worker_target = Some(pull_target.clone());
+    let expected_default = FlowConfig {
+        active_step_search_mode: Some(ActiveStepSearchMode::Disabled as i32),
+        continue_as_new_threshold: Some(100),
+        step_durability: Some(StepDurability::Sync as i32),
+        worker_target: Some(pull_target.clone()),
+        ..FlowConfig::default()
+    };
+    let harness = RuntimeHarness::with_config(&config);
+    harness
+        .applier
+        .uses_real_apply
+        .store(true, Ordering::SeqCst);
+    let mut request = start_request("default-config");
+    request.flow_start_options = None;
+    harness
+        .drive(harness.registry.start_flow(TENANT, request))
+        .await
+        .unwrap();
+    let default_state = harness
+        .registry
+        .get_flow_state(
+            TENANT,
+            GetFlowStateRequest {
+                flow_id: "default-config".to_owned(),
+                ..GetFlowStateRequest::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(default_state.flow_config, Some(expected_default.clone()));
+    assert_eq!(default_state.active_step_executions.len(), 1);
+    let submitted = harness.submitted();
+    let Some(flow_command::Command::FlowStart(default_start)) = submitted[0].command.as_ref()
+    else {
+        panic!("expected FlowStart");
+    };
+    let default_run_id = dexzd_keyspace::RunId::from_slice(&default_start.new_run_id).unwrap();
+    assert_eq!(default_start.effective_flow_config, Some(expected_default));
+    let default_context = harness.registry.flow_context(&flow("default-config"));
+    let default_document = get_search_document(
+        &harness.store.view(),
+        default_context.flow_hash,
+        default_run_id,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(default_document.active_step_types.is_empty());
+
+    let mut overridden = start_request("overridden-config");
+    overridden
+        .flow_start_options
+        .as_mut()
+        .unwrap()
+        .flow_config_override = Some(FlowConfig {
+        active_step_search_mode: Some(ActiveStepSearchMode::EnabledForAll as i32),
+        continue_as_new_threshold: Some(25),
+        step_durability: Some(StepDurability::Async as i32),
+        worker_target: Some(pull_target.clone()),
+        ..FlowConfig::default()
+    });
+    harness
+        .drive(harness.registry.start_flow(TENANT, overridden))
+        .await
+        .unwrap();
+    let overridden_state = harness
+        .registry
+        .get_flow_state(
+            TENANT,
+            GetFlowStateRequest {
+                flow_id: "overridden-config".to_owned(),
+                ..GetFlowStateRequest::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        overridden_state.flow_config,
+        Some(FlowConfig {
+            active_step_search_mode: Some(ActiveStepSearchMode::EnabledForAll as i32),
+            continue_as_new_threshold: Some(25),
+            step_durability: Some(StepDurability::Async as i32),
+            worker_target: Some(pull_target),
+            ..FlowConfig::default()
+        })
+    );
+    let submitted = harness.submitted();
+    let Some(flow_command::Command::FlowStart(overridden_start)) = submitted[1].command.as_ref()
+    else {
+        panic!("expected FlowStart");
+    };
+    let overridden_run_id =
+        dexzd_keyspace::RunId::from_slice(&overridden_start.new_run_id).unwrap();
+    let overridden_context = harness.registry.flow_context(&flow("overridden-config"));
+    let overridden_document = get_search_document(
+        &harness.store.view(),
+        overridden_context.flow_hash,
+        overridden_run_id,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(overridden_document.active_step_types, ["InitStep"]);
 }
 
 #[tokio::test(start_paused = true)]
