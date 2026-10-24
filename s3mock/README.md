@@ -60,10 +60,10 @@ writes, so do not use it for crash-recovery tests.
 
 The `store_format` table in `metadata.redb` records the store format version of a data directory.
 This release reads and writes version 1. A directory created before the version was recorded is
-treated as version 1 and stamped when it opens. A directory with any other version fails to open
-and stays unchanged. The error names the found version, the supported version, and the directory.
-To recover, run an s3mock release that supports that version, or delete the data directory to
-start empty. Deleting it removes every stored object and credential.
+treated as version 1 and stamped when it opens. A directory with any other version fails to open,
+and its records stay unchanged. The error names the found version, the supported version, and the
+directory. To recover, run an s3mock release that supports that version, or delete the data
+directory to start empty. Deleting it removes every stored object and credential.
 
 Compatibility covers upgrades only. Keep metadata records additive: give every new field a serde
 default, and never rename, remove, or reinterpret a field. Never change the name, key, or value
