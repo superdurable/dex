@@ -195,7 +195,8 @@ concurrent scheduling can change that order. An SDK retry is a separate request 
 | --- | --- |
 | `{"type":"commit_then_drop"}` | Requires `operation` to be `PutObject`, `UploadPart`, or `CompleteMultipartUpload`. A successful store commit closes the connection without a response; an unsuccessful condition still returns its normal error. |
 | `{"type":"delay","milliseconds":100}` | Waits before invoking the S3 handler. Maximum 600000 milliseconds (ten minutes); deleting faults releases sleeping requests. |
-| `{"type":"error","status":500}` | Returns `InternalError` without invoking the store. Status 503 returns `SlowDown`; 409 returns `ConditionalRequestConflict`. Other statuses are rejected. |
+| `{"type":"error","status":500}` | Returns `InternalError` without invoking the store. Status 403 returns `AccessDenied`; 503 returns `SlowDown`; 409 returns `ConditionalRequestConflict`. Other statuses are rejected. |
+| `{"type":"missing_key_access_denied"}` | Requires `GetObject` or `HeadObject`. Changes only a missing key's `NoSuchKey` response to 403 `AccessDenied`; existing keys and missing buckets retain their normal responses. |
 | `{"type":"fail_before_commit"}` | Returns `500 InternalError` without invoking the store. |
 | `{"type":"corrupt_body"}` | Requires `operation: "GetObject"`. For successful 200 or 206 responses, flips the first returned byte and preserves the original headers, including checksums and ETag. Empty bodies have no byte to flip. |
 | `{"type":"truncate_response"}` | Requires `GetObject`, `ListBuckets`, `ListObjectsV2`, `ListObjectVersions`, `ListParts`, or `ListMultipartUploads`. Sends part of a successful response body, then terminates the stream with an error. |

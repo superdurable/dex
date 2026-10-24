@@ -66,11 +66,11 @@ impl Controls {
                             "probability must be between zero and one".into(),
                         ));
                     }
-                    if matches!(rule.action, FaultAction::Error { status } if ![409, 500, 503].contains(&status))
+                    if matches!(rule.action, FaultAction::Error { status } if ![403, 409, 500, 503].contains(&status))
                     {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            "error status must be 409, 500, or 503".into(),
+                            "error status must be 403, 409, 500, or 503".into(),
                         ));
                     }
                     if matches!(rule.action, FaultAction::CorruptBody {})
@@ -79,6 +79,17 @@ impl Controls {
                         return Err((
                             StatusCode::BAD_REQUEST,
                             "corrupt_body requires operation GetObject".into(),
+                        ));
+                    }
+                    if matches!(rule.action, FaultAction::MissingKeyAccessDenied {})
+                        && !matches!(
+                            rule.operation,
+                            Some(S3OperationName::GetObject | S3OperationName::HeadObject)
+                        )
+                    {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "missing_key_access_denied requires GetObject or HeadObject".into(),
                         ));
                     }
                     if matches!(rule.action, FaultAction::CommitThenDrop {})

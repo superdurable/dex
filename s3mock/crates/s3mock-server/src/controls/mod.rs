@@ -48,6 +48,7 @@ pub(crate) enum FaultAction {
     CommitThenDrop {},
     Delay { milliseconds: u64 },
     Error { status: u16 },
+    MissingKeyAccessDenied {},
     FailBeforeCommit {},
     CorruptBody {},
     TruncateResponse {},
@@ -61,6 +62,7 @@ impl FaultAction {
             _ => return None,
         };
         let (status, code) = match status {
+            403 => (http::StatusCode::FORBIDDEN, "AccessDenied"),
             409 => (http::StatusCode::CONFLICT, "ConditionalRequestConflict"),
             503 => (http::StatusCode::SERVICE_UNAVAILABLE, "SlowDown"),
             _ => (http::StatusCode::INTERNAL_SERVER_ERROR, "InternalError"),

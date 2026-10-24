@@ -15,7 +15,6 @@ use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{
     BehaviorVersion, Credentials, Region, retry::RetryConfig, timeout::TimeoutConfig,
 };
-use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{
     ChecksumAlgorithm, CompletedMultipartUpload, CompletedPart, Delete, ObjectIdentifier,
@@ -30,8 +29,10 @@ use crate::{
 };
 
 mod file_read;
+mod optional_read;
 
 use file_read::read_single_put_file;
+use optional_read::OptionalReadError;
 
 const DEFAULT_PART_SIZE: usize = 8 * 1024 * 1024;
 const MAX_SINGLE_PUT_FILE_BYTES: usize = 16 * 1024 * 1024;
@@ -186,7 +187,7 @@ impl S3ObjectStore {
             .to_builder()
             .retry_config(RetryConfig::standard().with_max_attempts(3))
             .build();
-        Ok(Self {
+        let store = Self {
             client: Client::from_conf(write_config),
             read_client: Client::from_conf(read_config),
             bucket: config.bucket,
@@ -198,7 +199,37 @@ impl S3ObjectStore {
             multipart_threshold: config.multipart_threshold,
             multipart_part_size: config.multipart_part_size,
             request_timeout: config.request_timeout,
-        })
+        };
+        if !store.key_prefix.is_empty() {
+            store
+                .read_client
+                .list_objects_v2()
+                .bucket(&store.bucket)
+                .prefix(store.full_key("cluster"))
+                .max_keys(1)
+                .send()
+                .await
+                .map_err(|error| {
+                    let is_denied = error
+                        .raw_response()
+                        .is_some_and(|response| response.status().as_u16() == 403);
+                    let mapped = map_sdk_error(ObjectStoreOperation::List, "cluster", false, error);
+                    if is_denied {
+                        ObjectStoreError::new(
+                            ObjectStoreOperation::List,
+                            "cluster",
+                            mapped.kind,
+                            format!(
+                                "startup requires s3:ListBucket with StringLike s3:prefix \"{}*\": {mapped}",
+                                store.key_prefix
+                            ),
+                        )
+                    } else {
+                        mapped
+                    }
+                })?;
+        }
+        Ok(store)
     }
 
     fn full_key(&self, key: &str) -> String {
@@ -537,136 +568,6 @@ impl S3ObjectStore {
             etag: required(response.e_tag(), ObjectStoreOperation::Put, key, "ETag")?.to_owned(),
         })
     }
-
-    async fn read_body_chunk(
-        &self,
-        body: &mut ByteStream,
-        key: &str,
-    ) -> ObjectStoreResult<Option<Bytes>> {
-        tokio::time::timeout(self.request_timeout, body.try_next())
-            .await
-            .map_err(|error| {
-                ObjectStoreError::new(
-                    ObjectStoreOperation::Get,
-                    key,
-                    ObjectStoreErrorKind::Transient,
-                    format!("body read timed out: {error}"),
-                )
-            })?
-            .map_err(|error| {
-                ObjectStoreError::new(
-                    ObjectStoreOperation::Get,
-                    key,
-                    ObjectStoreErrorKind::Transient,
-                    error.to_string(),
-                )
-            })
-    }
-
-    async fn get_inner(
-        &self,
-        key: &str,
-        range: Option<ByteRange>,
-    ) -> ObjectStoreResult<Option<ObjectContent>> {
-        let mut request = self
-            .read_client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(self.full_key(key));
-        if let Some(range) = range {
-            if range.start > range.end_inclusive {
-                return Err(ObjectStoreError::new(
-                    ObjectStoreOperation::Get,
-                    key,
-                    ObjectStoreErrorKind::Permanent,
-                    "range start exceeds end",
-                ));
-            }
-            request = request.range(format!("bytes={}-{}", range.start, range.end_inclusive));
-        }
-        let response = match request.send().await {
-            Ok(response) => response,
-            Err(error) => {
-                let status = error
-                    .raw_response()
-                    .map(|response| response.status().as_u16());
-                if status == Some(416) && range.is_some() {
-                    return Ok(self.head(key).await?.map(|metadata| ObjectContent {
-                        bytes: Bytes::new(),
-                        etag: metadata.etag,
-                        object_size: metadata.size,
-                    }));
-                }
-                let is_missing_key = status == Some(404)
-                    && error
-                        .as_service_error()
-                        .and_then(ProvideErrorMetadata::code)
-                        != Some("NoSuchBucket");
-                let mapped = map_sdk_error(ObjectStoreOperation::Get, key, false, error);
-                return if is_missing_key {
-                    Ok(None)
-                } else {
-                    Err(mapped)
-                };
-            }
-        };
-        let etag = required(response.e_tag(), ObjectStoreOperation::Get, key, "ETag")?.to_owned();
-        let object_size = if range.is_some() {
-            parse_content_range_size(
-                required(
-                    response.content_range(),
-                    ObjectStoreOperation::Get,
-                    key,
-                    "Content-Range",
-                )?,
-                key,
-            )?
-        } else {
-            u64::try_from(response.content_length().unwrap_or(-1)).map_err(|error| {
-                ObjectStoreError::new(
-                    ObjectStoreOperation::Get,
-                    key,
-                    ObjectStoreErrorKind::Permanent,
-                    format!("invalid object size: {error}"),
-                )
-            })?
-        };
-        let mut body = response.body;
-        let mut buffer = Vec::new();
-        while let Some(chunk) = self.read_body_chunk(&mut body, key).await? {
-            buffer.extend_from_slice(&chunk);
-        }
-        let bytes = Bytes::from(buffer);
-        Ok(Some(ObjectContent {
-            bytes,
-            etag,
-            object_size,
-        }))
-    }
-}
-
-fn parse_content_range_size(value: &str, key: &str) -> ObjectStoreResult<u64> {
-    let invalid = || {
-        ObjectStoreError::new(
-            ObjectStoreOperation::Get,
-            key,
-            ObjectStoreErrorKind::Permanent,
-            format!("invalid Content-Range: {value}"),
-        )
-    };
-    let (bounds, total) = value
-        .strip_prefix("bytes ")
-        .and_then(|value| value.split_once('/'))
-        .ok_or_else(invalid)?;
-    let (start, end) = bounds.split_once('-').ok_or_else(invalid)?;
-    let start = start.parse::<u64>().map_err(|_| invalid())?;
-    let end = end.parse::<u64>().map_err(|_| invalid())?;
-    let total = total.parse::<u64>().map_err(|_| invalid())?;
-    if start <= end && end < total {
-        Ok(total)
-    } else {
-        Err(invalid())
-    }
 }
 
 #[async_trait]
@@ -731,30 +632,30 @@ impl ObjectStore for S3ObjectStore {
     }
 
     async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
-        let response = match self
-            .read_client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(self.full_key(key))
-            .send()
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => {
-                let status = error
-                    .raw_response()
-                    .map(|response| response.status().as_u16());
-                let is_missing_key = status == Some(404)
-                    && error
-                        .as_service_error()
-                        .and_then(ProvideErrorMetadata::code)
-                        != Some("NoSuchBucket");
-                let mapped = map_sdk_error(ObjectStoreOperation::Get, key, false, error);
-                return if is_missing_key {
-                    Ok(None)
-                } else {
-                    Err(mapped)
-                };
+        let mut retried_after_listing = false;
+        let response = loop {
+            match self
+                .read_client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(self.full_key(key))
+                .send()
+                .await
+            {
+                Ok(response) => break response,
+                Err(error) => match self
+                    .classify_optional_read_error(
+                        key,
+                        ObjectStoreOperation::Get,
+                        error,
+                        retried_after_listing,
+                    )
+                    .await?
+                {
+                    OptionalReadError::Absent => return Ok(None),
+                    OptionalReadError::Retry => retried_after_listing = true,
+                    OptionalReadError::Failed(mapped) => return Err(mapped),
+                },
             }
         };
         let size = u64::try_from(response.content_length().unwrap_or(-1)).map_err(|error| {
@@ -775,52 +676,50 @@ impl ObjectStore for S3ObjectStore {
     }
 
     async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
-        match self
-            .read_client
-            .head_object()
-            .bucket(&self.bucket)
-            .key(self.full_key(key))
-            .send()
-            .await
-        {
-            Ok(response) => Ok(Some(ObjectMetadata {
-                key: key.to_owned(),
-                size: u64::try_from(response.content_length().unwrap_or(-1)).map_err(|error| {
-                    ObjectStoreError::new(
-                        ObjectStoreOperation::Head,
+        let mut retried_after_listing = false;
+        let response = loop {
+            match self
+                .read_client
+                .head_object()
+                .bucket(&self.bucket)
+                .key(self.full_key(key))
+                .send()
+                .await
+            {
+                Ok(response) => break response,
+                Err(error) => match self
+                    .classify_optional_read_error(
                         key,
-                        ObjectStoreErrorKind::Permanent,
-                        error.to_string(),
+                        ObjectStoreOperation::Head,
+                        error,
+                        retried_after_listing,
                     )
-                })?,
-                etag: required(response.e_tag(), ObjectStoreOperation::Head, key, "ETag")?
-                    .to_owned(),
-                last_modified_unix_micros: response.last_modified().map(|modified| {
-                    modified
-                        .secs()
-                        .saturating_mul(1_000_000)
-                        .saturating_add(i64::from(modified.subsec_nanos() / 1_000))
-                }),
-            })),
-            Err(error) => {
-                let status = error
-                    .raw_response()
-                    .map(|response| response.status().as_u16());
-                let mapped = map_sdk_error(ObjectStoreOperation::Head, key, false, error);
-                if status != Some(404) {
-                    return Err(mapped);
-                }
-                self.read_client
-                    .head_bucket()
-                    .bucket(&self.bucket)
-                    .send()
-                    .await
-                    .map_err(|bucket_error| {
-                        map_sdk_error(ObjectStoreOperation::Head, key, false, bucket_error)
-                    })?;
-                Ok(None)
+                    .await?
+                {
+                    OptionalReadError::Absent => return Ok(None),
+                    OptionalReadError::Retry => retried_after_listing = true,
+                    OptionalReadError::Failed(mapped) => return Err(mapped),
+                },
             }
-        }
+        };
+        Ok(Some(ObjectMetadata {
+            key: key.to_owned(),
+            size: u64::try_from(response.content_length().unwrap_or(-1)).map_err(|error| {
+                ObjectStoreError::new(
+                    ObjectStoreOperation::Head,
+                    key,
+                    ObjectStoreErrorKind::Permanent,
+                    error.to_string(),
+                )
+            })?,
+            etag: required(response.e_tag(), ObjectStoreOperation::Head, key, "ETag")?.to_owned(),
+            last_modified_unix_micros: response.last_modified().map(|modified| {
+                modified
+                    .secs()
+                    .saturating_mul(1_000_000)
+                    .saturating_add(i64::from(modified.subsec_nanos() / 1_000))
+            }),
+        }))
     }
 
     async fn delete(&self, key: &str) -> ObjectStoreResult<()> {

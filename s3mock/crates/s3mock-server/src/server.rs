@@ -255,6 +255,19 @@ async fn handle_request(
             },
         },
     };
+    let result = match result {
+        Err(error)
+            if matches!(fault, Some(FaultAction::MissingKeyAccessDenied {}))
+                && error.code == "NoSuchKey" =>
+        {
+            Err(S3Error::new(
+                StatusCode::FORBIDDEN,
+                "AccessDenied",
+                "injected missing-key access denial",
+            ))
+        }
+        other => other,
+    };
     if matches!(fault, Some(FaultAction::CommitThenDrop {}))
         && result
             .as_ref()
