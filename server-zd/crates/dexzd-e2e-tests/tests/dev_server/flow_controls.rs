@@ -45,7 +45,10 @@ struct StopCase {
     stop_type: StopType,
     reason: &'static str,
     flow_status: FlowStatus,
-    /// The FlowClosed history message; only a termination keeps a reason.
+    error_type: FlowErrorType,
+    /// The Flow result message; only a failure keeps a reason.
+    error_message: &'static str,
+    /// The FlowClosed history message; only a termination or a failure keeps a reason.
     history_message: &'static str,
 }
 
@@ -59,6 +62,8 @@ async fn stop_flow_closes_a_waiting_run_and_wakes_wait_for_flow() {
             stop_type: StopType::Terminate,
             reason: "",
             flow_status: FlowStatus::Terminated,
+            error_type: FlowErrorType::Unspecified,
+            error_message: "",
             // The Go Server's default termination reason, spelling included.
             history_message: "Force termiantion from user",
         },
@@ -67,6 +72,8 @@ async fn stop_flow_closes_a_waiting_run_and_wakes_wait_for_flow() {
             stop_type: StopType::Terminate,
             reason: "operator terminated",
             flow_status: FlowStatus::Terminated,
+            error_type: FlowErrorType::Unspecified,
+            error_message: "",
             history_message: "operator terminated",
         },
         StopCase {
@@ -74,6 +81,8 @@ async fn stop_flow_closes_a_waiting_run_and_wakes_wait_for_flow() {
             stop_type: StopType::Cancel,
             reason: "operator canceled",
             flow_status: FlowStatus::Canceled,
+            error_type: FlowErrorType::Unspecified,
+            error_message: "",
             history_message: "",
         },
         StopCase {
@@ -81,7 +90,28 @@ async fn stop_flow_closes_a_waiting_run_and_wakes_wait_for_flow() {
             stop_type: StopType::Unspecified,
             reason: "",
             flow_status: FlowStatus::Canceled,
+            error_type: FlowErrorType::Unspecified,
+            error_message: "",
             history_message: "",
+        },
+        StopCase {
+            flow_id: "fail-with-reason",
+            stop_type: StopType::Fail,
+            reason: "operator failed",
+            flow_status: FlowStatus::Failed,
+            error_type: FlowErrorType::ClientApiFailingFlow,
+            error_message: "operator failed",
+            history_message: "operator failed",
+        },
+        StopCase {
+            flow_id: "fail-without-reason",
+            stop_type: StopType::Fail,
+            reason: "",
+            flow_status: FlowStatus::Failed,
+            error_type: FlowErrorType::ClientApiFailingFlow,
+            // The Go Server's default failure reason.
+            error_message: "fail by client",
+            history_message: "fail by client",
         },
     ];
     for case in &cases {
@@ -140,6 +170,8 @@ async fn check_stop(server: &DevServer, case: &StopCase) {
         result,
         FlowResult {
             flow_status: case.flow_status.into(),
+            error_type: case.error_type.into(),
+            error_message: case.error_message.to_owned(),
             ..FlowResult::default()
         },
         "{}",
@@ -166,7 +198,8 @@ async fn assert_summary_status(
     assert!(summary.close_time.is_some(), "{flow_id} has a close time");
 }
 
-/// The history ends with the close and reports the unresolved WaitFor as pending.
+/// The history ends with the close and reports the unresolved WaitFor as pending, unless the
+/// run failed.
 async fn assert_stop_history(
     flow_client: &mut FlowServiceClient<Channel>,
     case: &StopCase,
@@ -183,19 +216,27 @@ async fn assert_stop_history(
         .expect("GetHistoryEvents succeeds")
         .into_inner()
         .events;
-    let pending = events
-        .iter()
-        .find_map(|event| match &event.payload {
-            Some(flow_history_event::Payload::StepWaitForPending(pending)) => Some(pending),
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("{}: no pending WaitFor in {events:?}", case.flow_id));
-    let context = pending
-        .context
-        .as_ref()
-        .expect("the pending event has a context");
-    assert_eq!(context.step_execution_id, format!("{IDLE_STEP_TYPE}-1"));
-    assert_eq!(context.step_type, IDLE_STEP_TYPE);
+    let pending = events.iter().find_map(|event| match &event.payload {
+        Some(flow_history_event::Payload::StepWaitForPending(pending)) => Some(pending),
+        _ => None,
+    });
+    if case.flow_status == FlowStatus::Failed {
+        // As in the Go Server, a failed close drops pending Step methods.
+        assert!(
+            pending.is_none(),
+            "{}: a failed run reports a pending WaitFor in {events:?}",
+            case.flow_id
+        );
+    } else {
+        let pending =
+            pending.unwrap_or_else(|| panic!("{}: no pending WaitFor in {events:?}", case.flow_id));
+        let context = pending
+            .context
+            .as_ref()
+            .expect("the pending event has a context");
+        assert_eq!(context.step_execution_id, format!("{IDLE_STEP_TYPE}-1"));
+        assert_eq!(context.step_type, IDLE_STEP_TYPE);
+    }
     let Some(flow_history_event::Payload::FlowClosed(closed)) =
         events.last().and_then(|event| event.payload.as_ref())
     else {
@@ -209,7 +250,11 @@ async fn assert_stop_history(
         "{}",
         case.flow_id
     );
-    assert_eq!(closed.error_type, FlowErrorType::Unspecified as i32);
+    assert_eq!(
+        closed.error_type, case.error_type as i32,
+        "{}",
+        case.flow_id
+    );
     assert_eq!(
         closed.error_message, case.history_message,
         "{}",
@@ -324,6 +369,59 @@ async fn assert_closed_run_stop_is_not_found(
         ErrorSubStatus::FlowNotExists as i32,
         "{stop_type:?}"
     );
+}
+
+/// Like the Go Server, an unknown stop type is InvalidArgument before the Flow is looked up.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stop_flow_with_an_unknown_stop_type_is_invalid_argument() {
+    let server = DevServer::start().await;
+    let mut flow_client = server.flow_client();
+    let flow_id = "stop-with-unknown-type";
+    start_pull_flow(
+        &mut flow_client,
+        flow_id,
+        IDLE_FLOW_TYPE,
+        IDLE_STEP_TYPE,
+        string_value("idle"),
+        StepOptions::default(),
+    )
+    .await;
+    for (target_flow_id, stop_type) in [
+        (flow_id, 4),
+        (flow_id, -1),
+        ("missing-flow-with-unknown-stop-type", 4),
+    ] {
+        let rejection = flow_client
+            .stop_flow(StopFlowRequest {
+                flow_id: target_flow_id.to_owned(),
+                stop_type,
+                reason: "unknown stop type".to_owned(),
+                ..StopFlowRequest::default()
+            })
+            .await
+            .expect_err("an unknown stop type is rejected");
+        assert_eq!(
+            rejection.code(),
+            tonic::Code::InvalidArgument,
+            "{target_flow_id} {stop_type}: {rejection:?}"
+        );
+        assert_eq!(rejection.message(), "stop type is required");
+        assert_eq!(
+            service_error(&rejection).sub_status,
+            ErrorSubStatus::Uncategorized as i32,
+            "{target_flow_id} {stop_type}"
+        );
+    }
+    let summary = flow_client
+        .get_flow_summary(GetFlowSummaryRequest {
+            flow_id: flow_id.to_owned(),
+            run_id: String::new(),
+        })
+        .await
+        .expect("GetFlowSummary succeeds")
+        .into_inner();
+    assert_eq!(summary.flow_status, FlowStatus::Running as i32);
+    server.shutdown().await;
 }
 
 /// SkipTimer selects a pending timer by condition ID or index; the Step proceeds once both fire.
