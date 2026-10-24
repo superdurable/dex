@@ -17,24 +17,24 @@ use dexzd_keyspace::row_keys::prefix_range;
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix};
 use dexzd_object_store::{InMemoryObjectStore, ObjectStore, WriteCondition, WriteOutcome};
 use dexzd_protocol::dex::{
-    AttributeWrite, ChannelCondition, ChannelMessage, CloseDecision, CloseDecisionType,
-    DeleteChannelMessageRequest, FlowConfig, FlowResetStepMethod, FlowResetType, FlowStartOptions,
-    FlowTimeoutPolicy, InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWaitForMethodResponse,
-    InvokeWorkerRpcResponse, Kv, PublishToChannelRequest, ResetFlowRequest, RetryPolicy,
-    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StepDecision, StepDurability,
-    StepMovement, StepOptions, StopFlowRequest, StopType, SubFlowCondition, TimerCondition,
-    UpdateFlowConfigRequest, Value, WaitingCondition, WaitingConditionType, WorkerErrorResponse,
-    WorkerTarget, value,
+    AttributeStoreNames, AttributeSyncConfig, AttributeWrite, ChannelCondition, ChannelMessage,
+    CloseDecision, CloseDecisionType, DeleteChannelMessageRequest, FlowConfig, FlowResetStepMethod,
+    FlowResetType, FlowStartOptions, FlowTimeoutPolicy, InvokeExecuteMethodResponse,
+    InvokeRpcRequest, InvokeWaitForMethodResponse, InvokeWorkerRpcResponse, Kv,
+    PublishToChannelRequest, ResetFlowRequest, RetryPolicy, SetAttributesRequest, SkipTimerRequest,
+    StartFlowRequest, StepDecision, StepDurability, StepMovement, StepOptions, StopFlowRequest,
+    StopType, SubFlowCondition, TimerCondition, UpdateFlowConfigRequest, Value, WaitingCondition,
+    WaitingConditionType, WorkerErrorResponse, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributesSetCommand, ChannelMessageDeleteCommand, ChannelPublishCommand, FlowCommand,
-    FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand, HardDeleteObjectReference,
-    HardDeleteObjectsDeletedCommand, InboxMessageCommand, OutboxAckCommand, OutboxRecord,
-    RpcCommittedCommand, RunPurgeCommand, RunSettings, StepAttemptFailedCommand,
-    StepAttemptFailureKind, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
-    StepInvocationKey, StepMethod, StepMethodCompletedCommand, TimeTravelCommand, TimerRecord,
-    TimerSkipCommand, TimersFiredCommand, command_reply, flow_command::Command,
-    inbox_message_command, outbox_record, step_attempt_heartbeat_command,
+    AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
+    ChannelPublishCommand, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
+    HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, InboxMessageCommand,
+    OutboxAckCommand, OutboxRecord, RpcCommittedCommand, RunPurgeCommand, RunSettings,
+    StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
+    StepAttemptStartedCommand, StepInvocationKey, StepMethod, StepMethodCompletedCommand,
+    TimeTravelCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand, command_reply,
+    flow_command::Command, inbox_message_command, outbox_record, step_attempt_heartbeat_command,
     step_method_completed_command, timer_id,
 };
 use dexzd_request_validation::{ValidationConfig, validate_start_flow_request};
@@ -50,6 +50,7 @@ pub(crate) const WORKLOAD_SEED: u64 = 0x5eed_2026_1024;
 const COMMAND_SPACING_MICROS: i64 = 250_000;
 const SECOND_MICROS: i64 = 1_000_000;
 const WORKER_ID: &str = "worker-a";
+const ATTRIBUTE_STORE_NAME: &str = "accounts";
 const SUB_FLOW_PARENT: &str = "fulfillment-parent";
 /// Longer than the 100-byte inline threshold, so it lives in the Value column family.
 const LONG_PROFILE_TEXT: &str = "Preferred carrier: ground. Deliver to the side entrance. \
@@ -78,6 +79,7 @@ pub(crate) struct OpenRuns {
     profile_secret_object: String,
     parent: FlowRun,
     child: FlowRun,
+    account: FlowRun,
 }
 
 impl Workload<'_> {
@@ -86,12 +88,14 @@ impl Workload<'_> {
         let order = self.order_waits_for_timer_and_channel_then_retries().await;
         let (profile, profile_secret_object) = self.profile_rewrites_hard_delete_values().await;
         let (parent, child) = self.parent_starts_sub_flow().await;
+        let account = self.account_marks_synced_attributes().await;
         OpenRuns {
             order,
             profile,
             profile_secret_object,
             parent,
             child,
+            account,
         }
     }
 
@@ -104,6 +108,8 @@ impl Workload<'_> {
         self.async_steps_share_batches_with_another_partition(&open.profile)
             .await;
         self.profile_clears_hard_delete_value(&open.profile, &open.profile_secret_object)
+            .await;
+        self.account_acknowledges_synced_attributes(&open.account)
             .await;
         self.travel_back_to_second_step().await;
         self.skip_timer_update_config_and_stop().await;
@@ -328,6 +334,79 @@ impl Workload<'_> {
             .next()
             .expect("the second write uploads one object");
         (profile, current)
+    }
+
+    /// Synced start and SetAttributes writes leave Attribute Sync entries for one store.
+    async fn account_marks_synced_attributes(&self) -> FlowRun {
+        let account = self
+            .start_flow(
+                StartFlowRequest {
+                    flow_id: "account-sync".to_owned(),
+                    flow_type: "AccountFlow".to_owned(),
+                    flow_start_options: Some(FlowStartOptions {
+                        attributes: vec![
+                            synced_attribute("status", string_value("opened")),
+                            synced_attribute("plans/basic", string_value("trial")),
+                            attribute("notes", string_value("not synced")),
+                        ],
+                        flow_config_override: Some(FlowConfig {
+                            attribute_store_names: Some(AttributeStoreNames {
+                                names: vec![ATTRIBUTE_STORE_NAME.to_owned()],
+                            }),
+                            ..FlowConfig::default()
+                        }),
+                        ..FlowStartOptions::default()
+                    }),
+                    request_id: "start-account-sync".to_owned(),
+                    ..StartFlowRequest::default()
+                },
+                default_run_settings(),
+            )
+            .await;
+        self.set_attributes(
+            &account,
+            vec![synced_attribute("status", string_value("active"))],
+            "set-account-status",
+        )
+        .await;
+        account
+    }
+
+    /// The first ack leaves the newer status change pending; the drop ack clears the store.
+    async fn account_acknowledges_synced_attributes(&self, account: &FlowRun) {
+        let partial = self
+            .commit(
+                account,
+                Command::AttributeSyncAck(AttributeSyncAckCommand {
+                    store_name: ATTRIBUTE_STORE_NAME.to_owned(),
+                    acked_seq: 1,
+                    attribute_keys: Vec::new(),
+                    is_dropped: false,
+                }),
+            )
+            .await;
+        assert!(
+            !partial.writes.is_empty(),
+            "the first ack deletes the plan entry"
+        );
+        let dropped = self
+            .commit(
+                account,
+                Command::AttributeSyncAck(AttributeSyncAckCommand {
+                    store_name: ATTRIBUTE_STORE_NAME.to_owned(),
+                    acked_seq: 2,
+                    attribute_keys: vec!["status".to_owned()],
+                    is_dropped: true,
+                }),
+            )
+            .await;
+        assert!(
+            dropped
+                .effects
+                .iter()
+                .any(|effect| matches!(effect, ApplyEffect::AttributeSyncDropped { .. })),
+            "the drop ack reports the dropped entry"
+        );
     }
 
     /// A parent WaitFor starts a child Flow in another partition.
@@ -823,6 +902,9 @@ impl Workload<'_> {
         };
         let mut validation_config = ValidationConfig::default();
         validation_config.default_flow_config.worker_target = Some(pull_target.clone());
+        validation_config
+            .attribute_store_names
+            .insert(ATTRIBUTE_STORE_NAME.to_owned());
         let effective_flow_config = validate_start_flow_request(&request, &validation_config)
             .expect("recorded Flow start must be valid");
         let resolved_timeout_policy =
@@ -1251,6 +1333,13 @@ fn attribute(key: &str, value: Value) -> AttributeWrite {
         key: key.to_owned(),
         value: Some(value),
         ..AttributeWrite::default()
+    }
+}
+
+fn synced_attribute(key: &str, value: Value) -> AttributeWrite {
+    AttributeWrite {
+        sync_config: Some(AttributeSyncConfig { enabled: true }),
+        ..attribute(key, value)
     }
 }
 
