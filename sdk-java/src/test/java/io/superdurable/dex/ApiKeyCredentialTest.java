@@ -41,6 +41,7 @@ import io.superdurable.gen.WorkerTaskServiceGrpc;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -213,6 +214,72 @@ final class ApiKeyCredentialTest {
                         ApiKeyCredential.ExchangeException.class, credential::token);
                 assertFalse(error.getMessage().contains(TOKEN_A));
             }
+        }
+    }
+
+    @Test
+    void redactsAnOlderJwtFromEndpointFieldsAndTransportFailures() throws Exception {
+        final String oldestToken = "headersegmentA.payloadsegmentA.signaturesegmentA";
+        final String middleToken = "middle-access-token-B";
+        final String newestToken = "newest-access-token-C";
+        final String responseToken = "response-access-token-D";
+        final AtomicLong clock = new AtomicLong(TimeUnit.SECONDS.toNanos(10));
+        final TokenEchoingHttpConnectionFactory connectionFactory =
+                new TokenEchoingHttpConnectionFactory(oldestToken);
+        try (TokenEndpoint endpoint = new TokenEndpoint();
+                ApiKeyCredential credential = ApiKeyCredential.builder(endpoint.url(), "server", API_KEY)
+                        .clock(clock::get)
+                        .httpConnectionFactory(connectionFactory).build()) {
+            for (String token : new String[] {oldestToken, middleToken, newestToken}) {
+                endpoint.reply(200, success(token, 1));
+                assertEquals(token, credential.token());
+                clock.addAndGet(TimeUnit.SECONDS.toNanos(1));
+            }
+            credential.rejectToken(newestToken);
+            endpoint.reply(503, "{\"access_token\":\"" + responseToken
+                    + "\",\"error\":\"revoked " + oldestToken
+                    + "\",\"error_description\":\"expired " + oldestToken
+                    + ", " + middleToken + ", " + newestToken + ", and " + responseToken + "\"}");
+            final ApiKeyCredential.ExchangeException endpointFailure = assertThrows(
+                    ApiKeyCredential.ExchangeException.class, credential::token);
+            assertTrue(endpointFailure.getMessage().contains("revoked <redacted>"), endpointFailure.getMessage());
+            assertTrue(endpointFailure.getMessage().contains("expired <redacted>"));
+            assertFalse(endpointFailure.getMessage().contains(oldestToken));
+            assertFalse(endpointFailure.getMessage().contains(middleToken));
+            assertFalse(endpointFailure.getMessage().contains(newestToken));
+            assertFalse(endpointFailure.getMessage().contains(responseToken));
+            assertFalse(endpointFailure.toString().contains(oldestToken));
+
+            connectionFactory.shouldFailTransport = true;
+            final ApiKeyCredential.ExchangeException transportFailure = assertThrows(
+                    ApiKeyCredential.ExchangeException.class, credential::token);
+            assertTrue(transportFailure.getMessage().contains("transport failure"));
+            assertFalse(transportFailure.getMessage().contains(oldestToken));
+            assertFalse(transportFailure.toString().contains(oldestToken));
+        }
+    }
+
+    @Test
+    void redactsLongDottedRunsWithoutSlowingOnDotFreeInput() throws Exception {
+        try (ApiKeyCredential credential = ApiKeyCredential.builder(
+                URI.create("https://auth.example.com/token"), "server", API_KEY).build()) {
+            final Method redact = ApiKeyCredential.class.getDeclaredMethod("redact", String.class);
+            redact.setAccessible(true);
+            final String dotFree = String.join("", Collections.nCopies(50_000, "a"));
+            final String dotted = String.join(".", Collections.nCopies(4_545, "abcdefghij"));
+            final long startedAt = System.nanoTime();
+            final String dotFreeResult = (String) redact.invoke(credential, dotFree);
+            final String dottedResult = (String) redact.invoke(credential, dotted);
+            final long elapsedNanos = System.nanoTime() - startedAt;
+            assertEquals(dotFree, dotFreeResult);
+            assertEquals("<redacted>", dottedResult);
+            assertEquals("<redacted>", redact.invoke(credential,
+                    "prefixvalue.headersegment.payloadsegment.signaturesegment"));
+            assertEquals("<redacted>", redact.invoke(credential,
+                    "headersegment.payloadsegment.signaturesegment.fourthsegment.fifthsegment"));
+            assertTrue(elapsedNanos < TimeUnit.MILLISECONDS.toNanos(50),
+                    "Redacting 50 KB dot-free and dotted values took "
+                            + TimeUnit.NANOSECONDS.toMillis(elapsedNanos) + " ms");
         }
     }
 
@@ -634,6 +701,24 @@ final class ApiKeyCredentialTest {
             result.append(value);
         }
         return result.toString();
+    }
+
+    private static final class TokenEchoingHttpConnectionFactory
+            implements ApiKeyCredential.HttpConnectionFactory {
+        private final String echoedToken;
+        private volatile boolean shouldFailTransport;
+
+        private TokenEchoingHttpConnectionFactory(final String echoedToken) {
+            this.echoedToken = echoedToken;
+        }
+
+        @Override
+        public HttpURLConnection openConnection(final URI tokenUrl) throws IOException {
+            if (shouldFailTransport) {
+                throw new IOException("transport cause echoed " + echoedToken);
+            }
+            return (HttpURLConnection) tokenUrl.toURL().openConnection();
+        }
     }
 
     private static void awaitToken(final ApiKeyCredential credential, final String expected)
