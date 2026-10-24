@@ -1,0 +1,120 @@
+name: Server ZD released Go SDK compatibility
+
+# Runs a released sdk-go tag's integration suite, unchanged, against a released dex-server-zd binary.
+on:
+  workflow_run:
+    workflows: ["Server ZD binary release"]
+    types: [completed]
+  pull_request:
+    paths:
+      - ".github/workflows/server-zd-sdk-go-compatibility.yml"
+  workflow_dispatch:
+    inputs:
+      server_zd_tag:
+        description: server-zd release tag, such as server-zd/v0.1.1; empty selects the newest release
+        required: false
+        type: string
+      sdk_go_tag:
+        description: sdk-go release tag, such as sdk-go/v1.16.0; empty selects the newest release
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-zd-sdk-go-compatibility-${{ github.event.workflow_run.head_branch || inputs.server_zd_tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  sdk-go:
+    name: Released Go SDK integration suite (pull)
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'release' &&
+       startsWith(github.event.workflow_run.head_branch, 'server-zd/v'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Resolve release tags
+        id: tags
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_RUN_TAG: ${{ github.event.workflow_run.head_branch }}
+          INPUT_SERVER_ZD_TAG: ${{ inputs.server_zd_tag }}
+          INPUT_SDK_GO_TAG: ${{ inputs.sdk_go_tag }}
+        run: |
+          set -euo pipefail
+          newest_release() {
+            gh release list --exclude-drafts --exclude-pre-releases --limit 500 --json tagName -q '.[].tagName' \
+              | grep -E "^$1/v[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1
+          }
+          server_zd_tag="${INPUT_SERVER_ZD_TAG:-${RELEASE_RUN_TAG}}"
+          if [[ -z "${server_zd_tag}" ]]; then
+            server_zd_tag="$(newest_release server-zd)"
+          fi
+          sdk_go_tag="${INPUT_SDK_GO_TAG:-$(newest_release sdk-go)}"
+          [[ "${server_zd_tag}" =~ ^server-zd/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Invalid server-zd tag: ${server_zd_tag}" >&2
+            exit 1
+          }
+          [[ "${sdk_go_tag}" =~ ^sdk-go/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Invalid sdk-go tag: ${sdk_go_tag}" >&2
+            exit 1
+          }
+          echo "Testing ${sdk_go_tag} against ${server_zd_tag}"
+          echo "server_zd_tag=${server_zd_tag}" >> "${GITHUB_OUTPUT}"
+          echo "sdk_go_tag=${sdk_go_tag}" >> "${GITHUB_OUTPUT}"
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.tags.outputs.sdk_go_tag }}
+      - name: Require server-zd support in the suite
+        env:
+          SDK_GO_TAG: ${{ steps.tags.outputs.sdk_go_tag }}
+        run: |
+          grep -q 'DEX_INTEG_ENGINE' sdk-go/run-e2e-tests.sh || {
+            echo "${SDK_GO_TAG} predates DEX_INTEG_ENGINE=zd; choose sdk-go/v1.16.0 or newer" >&2
+            exit 1
+          }
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: |
+            sdk-go/go.sum
+            cli/go.sum
+            go.work.sum
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Download the server-zd release binary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SERVER_ZD_TAG: ${{ steps.tags.outputs.server_zd_tag }}
+        run: |
+          set -euo pipefail
+          download_dir="${RUNNER_TEMP}/server-zd"
+          gh release download "${SERVER_ZD_TAG}" -p '*_linux_amd64.tar.gz' -p checksums.txt -D "${download_dir}"
+          cd "${download_dir}"
+          sha256sum --ignore-missing -c checksums.txt
+          tar -xzf ./*_linux_amd64.tar.gz
+          ./dex-server-zd --version
+      - name: Run the integration suite against server-zd
+        working-directory: sdk-go
+        env:
+          DEX_INTEG_ENGINE: zd
+          DEX_SERVER_ZD_BINARY: ${{ runner.temp }}/server-zd/dex-server-zd
+        run: ./run-e2e-tests.sh
+      - name: Upload service logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-zd-sdk-go-compatibility-services
+          path: /tmp/test-go-sdk-phase5-e2e-services.log
+          if-no-files-found: ignore
