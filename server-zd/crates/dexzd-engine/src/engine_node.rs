@@ -26,12 +26,14 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::blocking_work::BlockingWorkPlacement;
 use crate::command_applier::CommandApplier;
 use crate::commit::{
     AppliedPositionAdvancer, CommandCommitter, CommandCommitterParts, CommitConfig, CommitProgress,
     CommitState, CommittedBatchRouter, EngineLocalStore, FrameApplier, NodeStopReason,
     PartitionApplierPool, run_log_proposer,
 };
+use crate::engine_id_source::EngineIdSource;
 use crate::recovery::{
     ClusterMetadata, EngineRuntimeHooks, EngineServices, EngineStartError, LocalStoreConfig,
     LocalStoreRequirements, LogReplay, open_local_store,
@@ -65,6 +67,9 @@ pub struct EngineNodeConfig {
     pub snapshots: SnapshotConfig,
     /// Log replay read-ahead and compaction after a bulk replay.
     pub recovery: crate::recovery::RecoveryConfig,
+    /// Where frame applies, applied-position writes, and snapshot uploads run.
+    /// [`BlockingWorkPlacement::BlockingThreadPool`] in production.
+    pub blocking_work: BlockingWorkPlacement,
 }
 
 /// Shared services the node runs on.
@@ -75,6 +80,8 @@ pub struct EngineNodeDependencies {
     pub clock: Arc<dyn WallClock>,
     /// Applies committed commands.
     pub applier: Arc<dyn CommandApplier>,
+    /// Creates the command, lineage, and EpochStart writer IDs.
+    pub id_source: Arc<dyn EngineIdSource>,
 }
 
 /// A node serving its log stream. After a fatal failure it stops serving; then exit non-zero.
@@ -124,6 +131,7 @@ impl EngineNode {
             object_store,
             clock,
             applier,
+            id_source,
         } = dependencies;
         // Fails fast on a contradicting manifest; the predecessor may still change it until the lease.
         let unleased_metadata = ClusterMetadata::bootstrap_or_validate(
@@ -191,6 +199,7 @@ impl EngineNode {
                 state: state.clone(),
                 store: store.clone(),
                 clock: clock.clone(),
+                id_source: id_source.clone(),
                 epoch,
                 behavior_version: metadata.behavior_version,
                 max_unapplied_bytes: config.commit.max_unapplied_bytes,
@@ -202,6 +211,7 @@ impl EngineNode {
                 partition_hasher: metadata.cluster.partition_hasher.clone(),
                 node_meta_lock: node_meta_lock.clone(),
                 local_store: store.clone(),
+                id_source: id_source.clone(),
             });
             let appliers = Arc::new(PartitionApplierPool::start(
                 FrameApplier {
@@ -211,6 +221,7 @@ impl EngineNode {
                     state: state.clone(),
                     committed_commands: runtime.committed_commands.clone(),
                     is_checking_replay: config.commit.debug_replay_checks,
+                    blocking_work: config.blocking_work,
                 },
                 config.commit.applier_lanes,
                 config.commit.applier_queue_frames,
@@ -220,6 +231,7 @@ impl EngineNode {
                 config: &config.recovery,
                 object_store: object_store.as_ref(),
                 clock: clock.as_ref(),
+                id_source: id_source.as_ref(),
                 cluster_id,
                 streams: &metadata.streams,
                 store: &store,
@@ -313,10 +325,12 @@ impl EngineNode {
                 },
                 cluster_id,
                 epoch,
+                id_source,
                 node_meta_lock,
                 config: config.snapshots.clone(),
                 catalog: tokio::sync::Mutex::new(SnapshotCatalog::default()),
                 last_snapshot_routed_seq: AtomicU64::new(0),
+                blocking_work: config.blocking_work,
             });
             tasks.spawn(snapshots.clone().run(tasks.cancellation.clone()));
             tracing::info!(epoch, next_seq = replayed.next_seq, "engine node serving");

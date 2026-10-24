@@ -17,10 +17,11 @@ use dexzd_apply::{
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{ClusterConfig, LeaseConfig, NodeConfig};
 use dexzd_engine::{
-    CommandApplier, CommitConfig, CommitError, CommitTicket, CommitUrgency, CommittedCommandSink,
-    CommittedFlowCommand, CommittedStateView, EngineNode, EngineNodeConfig, EngineNodeDependencies,
-    EngineRuntimeHooks, EngineServices, EngineStartError, LocalStoreConfig,
+    BlockingWorkPlacement, CommandApplier, CommitConfig, CommitError, CommitTicket, CommitUrgency,
+    CommittedCommandSink, CommittedFlowCommand, CommittedStateView, EngineNode, EngineNodeConfig,
+    EngineNodeDependencies, EngineRuntimeHooks, EngineServices, EngineStartError, LocalStoreConfig,
     PartitionRuntimeRebuilder, RecoveryConfig, RuntimeRebuildError, SnapshotConfig,
+    SystemEngineIdSource,
 };
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, PartitionId, TenantId, flow_directory_key, flow_directory_prefix,
@@ -523,6 +524,7 @@ impl TestCluster {
             },
             snapshots: SnapshotConfig::default(),
             recovery: RecoveryConfig::default(),
+            blocking_work: BlockingWorkPlacement::BlockingThreadPool,
         }
     }
 
@@ -539,6 +541,7 @@ impl TestCluster {
                 object_store: self.object_store.clone(),
                 clock: self.clock.clone(),
                 applier: applier.clone(),
+                id_source: Arc::new(SystemEngineIdSource),
             },
             move |_services: EngineServices| EngineRuntimeHooks {
                 committed_commands: factory_runtime.clone(),
