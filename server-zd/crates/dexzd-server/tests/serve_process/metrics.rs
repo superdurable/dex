@@ -228,6 +228,17 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
             > sample_sum(before_body, "dexzd_commit_records_total")
     );
     assert!(
+        sample_sum(body, "dexzd_commit_bytes_total")
+            > sample_sum(before_body, "dexzd_commit_bytes_total")
+    );
+    assert!(
+        sample_sum(body, "dexzd_object_store_requests_total{operation=\"put\"")
+            > sample_sum(
+                before_body,
+                "dexzd_object_store_requests_total{operation=\"put\""
+            )
+    );
+    assert!(
         sample_sum(body, "dexzd_object_store_put_bytes_total")
             > sample_sum(before_body, "dexzd_object_store_put_bytes_total")
     );
@@ -330,6 +341,7 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         .split_once("\r\n\r\n")
         .expect("recovery scrape has a body")
         .1;
+    assert!(sample_sum(replay_body, "dexzd_recovery_last_replayed_bytes") > 0.0);
     for name in [
         "dexzd_flow_closes_total",
         "dexzd_flow_end_to_end_latency_seconds_count",

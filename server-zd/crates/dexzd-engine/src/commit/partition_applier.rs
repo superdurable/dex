@@ -23,7 +23,7 @@ use dexzd_metrics::{
 };
 use dexzd_protocol::dex::{FlowStatus, StepDurability, flow_history_event};
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, HistoryRecord, LogPosition, LogRecord, PartitionMeta, RunRecord,
+    FlowCommand, HistoryRecord, LogPosition, LogRecord, PartitionMeta, StepAttemptFailedCommand,
     StepAttemptFailureKind, StepExecutionRecord, command_reply, flow_command::Command, log_record,
 };
 use dexzd_storage::{LocalReadView, LocalStore, ScanDirection, StorageError};
@@ -42,6 +42,9 @@ use crate::commit::staged_state_reader::StagedStateReader;
 use crate::commit::{CommitProgress, EngineLocalStore};
 use crate::recovery::CommittedCommandSink;
 use crate::runtime::{CommitError, CommittedCommand, CommittedFlowCommand};
+
+#[path = "partition_applier_metrics.rs"]
+mod metrics;
 
 /// The records of one partition in one committed log batch.
 pub(crate) struct PartitionFrame {
@@ -759,156 +762,6 @@ impl FrameApplier {
         for (pending, committed) in resolved {
             pending.responder.resolve(Ok(committed));
         }
-    }
-
-    fn record_committed_metrics(&self, command: &FlowCommand, outcome: &ApplyOutcome) {
-        self.record_closed_flow(outcome);
-        if matches!(
-            command.command,
-            Some(
-                Command::StepAttemptFailed(_)
-                    | Command::StepAttemptHeartbeat(_)
-                    | Command::StepMethodCompleted(_)
-            )
-        ) {
-            self.record_step_failure(outcome);
-        }
-    }
-
-    fn record_closed_flow(&self, outcome: &ApplyOutcome) {
-        for effect in &outcome.effects {
-            let ApplyEffect::WakeWaiters {
-                run_id,
-                change: WaitableChange::FlowClosed,
-            } = effect
-            else {
-                continue;
-            };
-            let run = outcome.writes.iter().find_map(|write| {
-                let StateWrite::Put {
-                    column_family: ColumnFamily::Flow,
-                    key,
-                    value,
-                } = write
-                else {
-                    return None;
-                };
-                (parse_run_key(key).is_ok_and(|parsed| {
-                    parsed.table == RunTable::RunRecord && parsed.run_id == *run_id
-                }))
-                .then(|| RunRecord::decode(value.as_slice()).expect("apply writes a valid run"))
-            });
-            let run = run.expect("Flow close writes its run record");
-            let status = match FlowStatus::try_from(run.status).expect("Flow close status is valid")
-            {
-                FlowStatus::Completed => FlowCloseStatus::Completed,
-                FlowStatus::Failed => FlowCloseStatus::Failed,
-                FlowStatus::Terminated => FlowCloseStatus::Terminated,
-                FlowStatus::Canceled => FlowCloseStatus::Canceled,
-                _ => panic!("Flow close has an open status"),
-            };
-            self.metrics.flow_closes.record(status);
-            self.metrics.flow_end_to_end_latency.observe(
-                run.closed_at_micros
-                    .saturating_sub(run.started_at_micros)
-                    .max(0) as f64
-                    / 1_000_000.0,
-            );
-        }
-    }
-
-    fn record_step_failure(&self, outcome: &ApplyOutcome) {
-        let history = outcome.writes.iter().find_map(|write| {
-            let StateWrite::Put {
-                column_family: ColumnFamily::History,
-                key,
-                value,
-            } = write
-            else {
-                return None;
-            };
-            (parse_run_key(key).is_ok_and(|parsed| parsed.table == RunTable::HistoryRecord)).then(
-                || HistoryRecord::decode(value.as_slice()).expect("apply writes valid history"),
-            )
-        });
-        let Some(history) = history else {
-            return;
-        };
-        let Some(Command::StepAttemptFailed(failure)) = history
-            .command
-            .as_ref()
-            .and_then(|command| command.command.as_ref())
-        else {
-            return;
-        };
-        let final_durability = history
-            .events
-            .iter()
-            .find_map(|event| match &event.payload {
-                Some(flow_history_event::Payload::StepWaitForFailed(failed)) => {
-                    failed.context.as_ref().map(|context| context.durability)
-                }
-                Some(flow_history_event::Payload::StepExecuteFailed(failed)) => {
-                    failed.context.as_ref().map(|context| context.durability)
-                }
-                _ => None,
-            });
-        let durability = final_durability
-            .or_else(|| self.failed_step_durability(outcome, failure))
-            .expect("applied Step failure has effective durability");
-        let durability = match StepDurability::try_from(durability)
-            .expect("effective Step durability is valid")
-        {
-            StepDurability::Sync => MetricStepDurability::Sync,
-            StepDurability::Async => MetricStepDurability::Async,
-            StepDurability::Unspecified => panic!("effective Step durability is unspecified"),
-        };
-        let failure_kind =
-            match StepAttemptFailureKind::try_from(failure.kind).expect("failure kind is valid") {
-                StepAttemptFailureKind::WorkerError => StepFailureKind::WorkerError,
-                StepAttemptFailureKind::MethodTimeout => StepFailureKind::MethodTimeout,
-                StepAttemptFailureKind::HeartbeatTimeout => StepFailureKind::HeartbeatTimeout,
-                StepAttemptFailureKind::DispatchError => StepFailureKind::DispatchError,
-                StepAttemptFailureKind::InvalidResponse => StepFailureKind::InvalidResponse,
-                StepAttemptFailureKind::UnsupportedFeature => StepFailureKind::UnsupportedFeature,
-                StepAttemptFailureKind::ValueTooLarge => StepFailureKind::ValueTooLarge,
-                StepAttemptFailureKind::RequestTooLarge => StepFailureKind::RequestTooLarge,
-                StepAttemptFailureKind::Unspecified => panic!("failure kind is unspecified"),
-            };
-        self.metrics
-            .step_attempt_failures
-            .record(durability, failure_kind);
-        if final_durability.is_some() {
-            self.metrics.step_retries_exhausted.record(durability);
-        }
-    }
-
-    fn failed_step_durability(
-        &self,
-        outcome: &ApplyOutcome,
-        failure: &dexzd_protocol::dexzd::v1::StepAttemptFailedCommand,
-    ) -> Option<i32> {
-        let step_execution_id = &failure.invocation.as_ref()?.step_execution_id;
-        outcome.writes.iter().find_map(|write| {
-            let StateWrite::Put {
-                column_family: ColumnFamily::Flow,
-                key,
-                value,
-            } = write
-            else {
-                return None;
-            };
-            let parsed = parse_run_key(key).ok()?;
-            if parsed.table != RunTable::StepExecution
-                || parsed.suffix != step_execution_id.as_bytes()
-            {
-                return None;
-            }
-            StepExecutionRecord::decode(value.as_slice())
-                .expect("apply writes a valid Step execution")
-                .invocation
-                .map(|invocation| invocation.effective_durability)
-        })
     }
 
     fn reject_frame(&self, frame: &PartitionFrame, detail: Option<&str>) {

@@ -42,7 +42,9 @@ impl Default for ApiConfig {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct MetricsConfig {
-    /// Defaults to empty, disabling metrics. Set a bind address such as 127.0.0.1:9090; never expose this unauthenticated endpoint publicly.
+    /// Defaults to empty, disabling metrics. Set a bind address such as 127.0.0.1:9090, separate from api.listen.
+    /// A Prometheus-compatible scraper connects to plain HTTP GET /metrics for OpenMetrics text; other paths return 404.
+    /// This listener starts before recovery and has no authentication, so do not expose it publicly.
     pub listen: String,
 }
 

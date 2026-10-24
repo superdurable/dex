@@ -69,10 +69,12 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_step_retries_exhausted_total` | counter | `durability`: sync, async | Step executions that failed after their last allowed attempt |
 | `dexzd_flow_closes_total` | counter | `close_status`: completed, failed, terminated, canceled | Closed Flow runs |
 | `dexzd_flow_end_to_end_latency_seconds` | histogram, buckets 1, 10, 60, 600, 3600, 21600, 86400 | — | Run start to close using committed timestamps |
-| `dexzd_step_schedule_to_start_latency_seconds` | histogram, buckets 0.005, 0.025, 0.1, 0.5, 2.5, 10 | — | Committed Step task becoming dispatchable to Worker delivery |
+| `dexzd_step_schedule_to_start_latency_seconds` | histogram, buckets 0.005, 0.025, 0.1, 0.5, 2.5, 10 | — | Committed SYNC Step task becoming dispatchable to Worker delivery; ASYNC speculative dispatches have no committed schedule time |
 | `dexzd_worker_stream_events_total` | counter | `event`: delivered, closed | Task deliveries and persistent Worker stream closes |
 
 Worker polling uses a persistent stream, so there is no empty poll outcome. The stream event metric counts each task delivery and each stream close.
+Worker results return on that same stream. There is no separate Worker response RPC, so `worker_respond` remains a zero latency series.
+Long-poll waits are included in `flow_read` latency, which can exceed the highest finite bucket.
 
 On Linux, the scrape also includes `process_resident_memory_bytes`, `process_cpu_seconds_total`, `process_open_fds`, and `process_start_time_seconds`. These process metrics are absent on other platforms.
 
