@@ -112,14 +112,14 @@ async fn strict_accepts_sdk_memory_file_and_encoded_keys_and_rejects_wrong_crede
 }
 
 #[tokio::test]
-async fn strict_rejects_unsigned_and_presigned_requests_and_changed_plain_payload() {
+async fn strict_rejects_unsigned_and_incomplete_presigned_requests_and_changed_plain_payload() {
     let server = RunningServer::start(&["--signature-verification", "strict"]).await;
     assert_status(&server.raw("GET", "/", "", b"").await, 403);
     assert_status(
         &server
             .raw("GET", "/?X-Amz-Algorithm=AWS4-HMAC-SHA256", "", b"")
             .await,
-        501,
+        403,
     );
     let headers = signed_headers(
         &server,

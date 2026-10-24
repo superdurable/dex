@@ -9,8 +9,10 @@
 //! Credential persistence, root-only management, and S3 policy enforcement over HTTP.
 
 use aws_sdk_s3::error::ProvideErrorMetadata;
+use aws_sdk_s3::presigning::{PresignedRequest, PresigningConfig};
 use s3mock::{Durability, Store, StoreConfig};
 use serde_json::{Value, json};
+use std::time::Duration;
 
 use super::support::{RunningServer, client};
 
@@ -816,6 +818,67 @@ async fn missing_key_disclosure_matches_list_permission_for_the_key_prefix() {
 }
 
 #[tokio::test]
+async fn presigned_requests_obey_scoped_policies_and_disabled_status() {
+    let server = RunningServer::start(&["--signature-verification", "strict"]).await;
+    server.put("readable", "stored").await;
+    server.put("private", "hidden").await;
+    create(
+        &server,
+        "presigned-scoped",
+        allow(
+            &["s3:GetObject", "s3:PutObject"],
+            &["arn:aws:s3:::testing/readable"],
+        ),
+    )
+    .await;
+    let scoped = client(&server.server, "presigned-scoped", "secret");
+    let valid = scoped
+        .get_object()
+        .bucket("testing")
+        .key("readable")
+        .presigned(PresigningConfig::expires_in(Duration::from_secs(300)).expect("valid expiry"))
+        .await
+        .expect("GET is presigned");
+    let response = send_local_presigned(&server, &valid, b"").await;
+    assert_eq!(status(&response), 200);
+    let denied = scoped
+        .get_object()
+        .bucket("testing")
+        .key("private")
+        .presigned(PresigningConfig::expires_in(Duration::from_secs(300)).expect("valid expiry"))
+        .await
+        .expect("GET is presigned");
+    let response = send_local_presigned(&server, &denied, b"").await;
+    assert_eq!(status(&response), 403);
+    assert!(String::from_utf8_lossy(&response).contains("AccessDenied"));
+    let put = scoped
+        .put_object()
+        .bucket("testing")
+        .key("readable")
+        .presigned(PresigningConfig::expires_in(Duration::from_secs(300)).expect("valid expiry"))
+        .await
+        .expect("PUT is presigned");
+    let response = send_local_presigned(&server, &put, b"replaced").await;
+    assert_eq!(status(&response), 200);
+    assert_eq!(server.get("readable").await, b"replaced");
+    assert_eq!(
+        server
+            .admin(
+                "PATCH",
+                "credentials/presigned-scoped",
+                json!({"status":"disabled"})
+            )
+            .await
+            .0,
+        200
+    );
+    let response = send_local_presigned(&server, &valid, b"").await;
+    assert_eq!(status(&response), 403);
+    assert!(String::from_utf8_lossy(&response).contains("InvalidAccessKeyId"));
+    server.server.shutdown().await;
+}
+
+#[tokio::test]
 async fn every_supported_s3_operation_uses_its_documented_action() {
     let server = RunningServer::start(&["--signature-verification", "strict"]).await;
     server.put("fixture", "keep bucket nonempty").await;
@@ -1076,6 +1139,22 @@ fn status(response: &[u8]) -> u16 {
         .expect("HTTP status")
         .parse()
         .expect("numeric HTTP status")
+}
+
+async fn send_local_presigned(
+    server: &RunningServer,
+    request: &PresignedRequest,
+    body: &[u8],
+) -> Vec<u8> {
+    let uri: http::Uri = request.uri().parse().expect("presigned URI is valid");
+    let path = uri.path_and_query().expect("presigned URI has a path");
+    let headers = request
+        .headers()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect::<String>();
+    server
+        .raw(request.method(), path.as_str(), &headers, body)
+        .await
 }
 
 fn assert_no_secret(value: &Value) {

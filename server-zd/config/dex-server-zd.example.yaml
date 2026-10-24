@@ -55,6 +55,17 @@ api:
   grpcMaxMessageBytes: 33554432
   maxWaitSeconds: 60
   defaultRpcTimeout: 60s
+auth:
+  # Empty disables public API authentication. Authenticators are tried in order, for example:
+  #   - kind: jwt
+  #     issuer: https://issuer.example.com  # exact iss claim; https unless loopback
+  #     audiences: ["dex"]                  # aud must name at least one
+  #     jwksURL: ""                         # empty discovers keys through the issuer's OpenID configuration
+  #     allowInsecureJWKSURL: false         # true permits an http:// jwksURL on a trusted network
+  #     caFile: ""                          # PEM bundle added to the system roots
+  #   - kind: staticTokens
+  #     file: /etc/dex-server-zd/tokens.yaml  # tokens: [{sha256: <64 hex>}]; reloaded on change
+  authenticators: []
 metrics:
   # Empty disables the unauthenticated HTTP GET /metrics endpoint. Never expose it publicly.
   listen: ""

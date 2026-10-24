@@ -974,6 +974,8 @@ name = "dexzd-api"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-lc-rs",
+ "base64 0.22.1",
  "bytes",
  "dexzd-clock",
  "dexzd-cluster-metadata",
@@ -987,8 +989,18 @@ dependencies = [
  "dexzd-visibility-query",
  "futures",
  "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
  "prost",
  "prost-types",
+ "rustls",
+ "rustls-native-certs",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "tempfile",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -996,6 +1008,7 @@ dependencies = [
  "tonic-health",
  "tower-layer",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1185,6 +1198,8 @@ name = "dexzd-server"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-lc-rs",
+ "base64 0.22.1",
  "bytes",
  "clap",
  "dexzd-api",
@@ -1206,9 +1221,11 @@ dependencies = [
  "humantime-serde",
  "prometheus-client",
  "prost",
+ "prost-types",
  "s3mock",
  "s3mock-server",
  "serde",
+ "serde_json",
  "serde_yaml_ng",
  "tempfile",
  "thiserror",
@@ -2897,6 +2914,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "time",
  "tokio",
  "tokio-util",
  "tracing",

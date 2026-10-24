@@ -33,7 +33,9 @@ publish = false
 [workspace.dependencies]
 async-trait = "0.1"
 aws-config = { version = "1.13", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client", "credentials-process", "sso"] }
+aws-lc-rs = { version = "1.18", default-features = false, features = ["aws-lc-sys", "prebuilt-nasm"] }
 aws-sdk-s3 = { version = "1.155", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client"] }
+base64 = "0.22"
 bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
 dexzd-api = { path = "crates/dexzd-api" }
@@ -55,7 +57,11 @@ dexzd-visibility-query = { path = "crates/dexzd-visibility-query" }
 dexzd-worker-dispatch = { path = "crates/dexzd-worker-dispatch" }
 dhat = "0.3"
 futures = "0.3"
+http-body-util = "0.1"
 humantime-serde = "1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "tls12"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
 prost = "0.14"
 prost-types = "0.14"
 prometheus-client = "0.25.1"
@@ -64,6 +70,8 @@ rand = "0.10"
 rand_chacha = "0.10"
 rocksdb = { version = "0.25", default-features = false, features = ["lz4", "zstd", "bindgen-runtime"] }
 rustix = { version = "1.1", features = ["param"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
+rustls-native-certs = "0.8"
 s3mock = { path = "../s3mock/crates/s3mock" }
 s3mock-server = { path = "../s3mock/crates/s3mock-server" }
 self_cell = "1"
