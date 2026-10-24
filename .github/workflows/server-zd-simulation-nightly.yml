@@ -60,20 +60,24 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      # Each job runs on the workflow's commit (main when scheduled) and the latest server-zd release.
+      # Each job runs on the workflow's commit (main when scheduled) and the latest stable server-zd release.
       - name: Find the latest server-zd release tag
         id: targets
         shell: bash
         run: |
-          main_target=$(jq -cn --arg ref "$GITHUB_SHA" '{label: "main", ref: $ref}')
-          release_tag=$(git -c versionsort.suffix=- tag --list 'server-zd/v*' --sort=-v:refname | head -n 1)
+          # Artifact names reject slashes, and the label names each job's artifacts.
+          head_target=$(jq -cn --arg label "${GITHUB_REF_NAME//\//-}" --arg ref "$GITHUB_SHA" \
+            '{label: $label, ref: $ref}')
+          # Pre-release tags never count, as with the image release's latest tag.
+          release_tag=$(git tag --list 'server-zd/v*' --sort=v:refname |
+            sed -nE '/^server-zd\/v[0-9]+\.[0-9]+\.[0-9]+$/p' | tail -n 1)
           if [[ -z "$release_tag" ]]; then
-            echo "No server-zd/v* release tag exists yet; skipping the latest-release runs."
-            targets="[$main_target]"
+            echo "No stable server-zd/vX.Y.Z release tag exists yet; skipping the latest-release runs."
+            targets="[$head_target]"
           else
-            echo "Latest server-zd release tag: $release_tag"
-            targets=$(jq -cn --argjson main "$main_target" --arg ref "$release_tag" \
-              '[$main, {label: "latest-release", ref: $ref}]')
+            echo "Latest stable server-zd release tag: $release_tag"
+            targets=$(jq -cn --argjson head "$head_target" --arg ref "$release_tag" \
+              '[$head, {label: "latest-release", ref: $ref}]')
           fi
           echo "targets=$targets" >> "$GITHUB_OUTPUT"
 
@@ -96,7 +100,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ matrix.target.ref }}
-          fetch-depth: ${{ matrix.target.label == 'main' && 1 || 0 }}
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
@@ -175,11 +178,13 @@ jobs:
         target: ${{ fromJSON(needs.simulation-refs.outputs.targets) }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # A tag's own runner may predate its color override and greps cargo's status lines.
+    env:
+      CARGO_TERM_COLOR: never
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ matrix.target.ref }}
-          fetch-depth: ${{ matrix.target.label == 'main' && 1 || 0 }}
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
@@ -206,7 +211,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ matrix.target.ref }}
-          fetch-depth: ${{ matrix.target.label == 'main' && 1 || 0 }}
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
@@ -297,7 +301,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ matrix.target.ref }}
-          fetch-depth: ${{ matrix.target.label == 'main' && 1 || 0 }}
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings

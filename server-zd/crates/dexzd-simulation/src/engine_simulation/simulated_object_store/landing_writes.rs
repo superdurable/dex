@@ -107,7 +107,7 @@ pub(super) struct UnlandedLogWrites {
     is_stalling_next: bool,
     /// Writes held until their process dies; they never land.
     stalled: BTreeSet<String>,
-    /// Log writes that landed while a stalled write was held.
+    /// Log writes that landed above a stalled write while it was held.
     landed_above_stalled: u64,
 }
 
@@ -198,7 +198,12 @@ impl WriteLanding {
         if let Some(unlanded) = &self.unlanded_log_writes {
             let mut unlanded = lock_unlanded(unlanded);
             unlanded.keys.remove(&self.key);
-            if !unlanded.stalled.is_empty() && is_written(&outcome) {
+            // Log keys zero-pad the seq, so a key above the lowest stalled one sits above a hole.
+            let is_above_stalled = unlanded
+                .stalled
+                .first()
+                .is_some_and(|lowest_stalled| self.key > *lowest_stalled);
+            if is_above_stalled && is_written(&outcome) {
                 unlanded.landed_above_stalled += 1;
             }
         }

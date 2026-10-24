@@ -185,8 +185,10 @@ environment variables as the fixed set, without the regression seeds.
 ```bash
 cargo test -p dexzd-simulation --test engine_simulation         # 64 seeds of 120 s, 1-2 minutes
 DEXZD_SIMULATION_SEEDS=1000 DEXZD_SIMULATION_SECONDS=600 \
-  cargo test -p dexzd-simulation --test engine_simulation          # longer budget
-DEXZD_SIMULATION_SEED=7 cargo test -p dexzd-simulation --test engine_simulation -- --nocapture
+  cargo test -p dexzd-simulation --test engine_simulation \
+  the_engine_keeps_every_invariant_through_faults_and_crashes -- --exact     # longer budget
+DEXZD_SIMULATION_SEED=7 cargo test -p dexzd-simulation --test engine_simulation \
+  the_engine_keeps_every_invariant_through_faults_and_crashes -- --exact --nocapture
 DEXZD_SIMULATION_SEED=1323171844 cargo test -p dexzd-simulation --test engine_simulation \
   redeploys_with_a_short_history_window_keep_every_invariant -- --exact --nocapture
 ```
@@ -223,8 +225,9 @@ seconds per seed, with at most 20,000 simulated seconds in total. The job has th
 
 Every nightly simulation job, including the apply simulation and seeded-bug acceptance, runs on
 two refs. One is the workflow's commit, which is main for scheduled runs. The other is the
-latest server-zd release: the newest `server-zd/v*` tag in version order, checked out with full
-history. A resolver job finds that tag at run time. Until a release tag exists, it logs that
-and runs only main. Failures on the released line therefore show up apart from changes on main.
+latest stable server-zd release: the newest `server-zd/vX.Y.Z` tag in version order.
+Pre-release tags such as `server-zd/v1.0.0-rc1` never count, as with the release image's
+`latest` tag. A resolver job finds that tag at run time. Until a stable release tag exists, it
+logs that and runs only the workflow's commit. Failures on the released line therefore show up apart from changes on main.
 A release that predates the redeploy profile skips that job with a log line. Each job's summary
 and failure artifact name the ref they ran on.

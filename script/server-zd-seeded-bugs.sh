@@ -39,6 +39,7 @@ trap cleanup EXIT
 
 # Runs a command in a new process group, killing the group when it exceeds its limit.
 cat >"$bounded_runner" <<'PY'
+import contextlib
 import os
 from pathlib import Path
 import signal
@@ -59,6 +60,10 @@ for name in (
 ):
     environment.pop(name, None)
 environment.update(assignment.split("=", 1) for assignment in assignments)
+# The runner greps cargo's status lines, which color codes would split.
+environment["CARGO_TERM_COLOR"] = "never"
+# Turns SIGTERM into SystemExit so the handler below kills cargo's separate session.
+signal.signal(signal.SIGTERM, lambda signal_number, frame: sys.exit(128 + signal_number))
 with Path(log_path).open("w") as output:
     started = time.monotonic()
     process = subprocess.Popen(
@@ -76,6 +81,12 @@ with Path(log_path).open("w") as output:
         process.wait()
         print(f"Timed out after {time.monotonic() - started:.1f}s")
         sys.exit(124)
+    except BaseException:
+        # An interrupted runner must not leave cargo writing into the scratch tree.
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+        raise
 print(f"Completed in {time.monotonic() - started:.1f}s with exit status {status}")
 sys.exit(status)
 PY
@@ -96,11 +107,25 @@ require_fresh_compile() {
   local source_directory="$1"
   local crate="$2"
   local log_path="$3"
-  local physical_path
+  local plain_log_path="$log_path.plain"
+  local physical_path compile_lines
   physical_path="$(cd "$source_directory" && pwd -P)/server-zd/crates/$crate"
-  if ! grep -F "Compiling $crate " "$log_path" | grep -Fq "$physical_path" &&
-    ! grep -F "Compiling $crate " "$log_path" | grep -Fq "$source_directory/server-zd/crates/$crate"; then
-    echo "The build did not freshly compile $crate from $source_directory" >&2
+  # Removes ANSI escape sequences in case cargo colors its status lines anyway.
+  if ! sed $'s/\033\\[[0-9;]*[A-Za-z]//g' "$log_path" >"$plain_log_path"; then
+    echo "Runner error: could not read the build log $log_path" >&2
+    exit 1
+  fi
+  if ! grep -Eq '^ *Compiling [^ ]+ v[0-9]' "$plain_log_path"; then
+    echo "Runner error: the build log $log_path has no cargo Compiling lines, so fresh compiles cannot be verified." >&2
+    echo "Check that cargo's status output is neither colored nor quiet. The log starts with:" >&2
+    head -n 20 "$plain_log_path" >&2
+    exit 1
+  fi
+  compile_lines="$(grep -F "Compiling $crate " "$plain_log_path" || true)"
+  if [[ "$compile_lines" != *"$physical_path"* &&
+    "$compile_lines" != *"$source_directory/server-zd/crates/$crate"* ]]; then
+    echo "The build did not freshly compile $crate from $source_directory. Its Compiling lines:" >&2
+    echo "${compile_lines:-(none)}" >&2
     return 1
   fi
 }
@@ -158,7 +183,10 @@ if ! build_simulation "$baseline_worktree" "$baseline_target_directory" "$scratc
   tail -n 35 "$scratch_root/baseline-build.log" >&2
   exit 1
 fi
-require_fresh_compile "$baseline_worktree" dexzd-simulation "$scratch_root/baseline-build.log"
+if ! require_fresh_compile "$baseline_worktree" dexzd-simulation "$scratch_root/baseline-build.log"; then
+  echo "The unpatched build did not compile dexzd-simulation from the baseline worktree" >&2
+  exit 1
+fi
 for suite in apply engine redeploy; do
   baseline_log="$scratch_root/baseline-$suite.log"
   echo "Checking unpatched simulation: $(describe_budget "$suite")"
@@ -195,9 +223,10 @@ for name in wall-clock hash-map-iteration immediate-reclaim retry-stale-snapshot
   build_log="$scratch_root/$name-build.log"
   log_path="$scratch_root/$name.log"
   mutant_target_directory="$scratch_root/targets/$name"
-  # Third-party crates are reused; every workspace crate compiles again from the mutant's path.
-  # Cargo compares modification times, so the copy keeps them.
+  # Reuses third-party builds; workspace crates recompile from the mutant's path.
+  # The copy keeps modification times, which cargo compares.
   cp -Rp "$baseline_target_directory" "$mutant_target_directory"
+  echo "Scratch disk after copying the baseline target: $(df -h "$scratch_root" | tail -n 1)"
   echo "Checking $name: $(describe_budget "$suite")"
   if ! build_simulation "$mutant_worktree" "$mutant_target_directory" "$build_log"; then
     echo "The $name mutant failed to build:" >&2

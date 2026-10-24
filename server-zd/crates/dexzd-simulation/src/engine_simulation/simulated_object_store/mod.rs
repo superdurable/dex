@@ -147,7 +147,7 @@ impl NodeObjectStore {
         lock_unlanded(&self.unlanded_log_writes).stall_next();
     }
 
-    /// Whether a log write landed while the stalled one was held, leaving a hole below it.
+    /// Whether a log write landed above the stalled one while it was held, leaving a hole below it.
     pub(crate) fn has_landed_log_write_above_stalled_one(&self) -> bool {
         lock_unlanded(&self.unlanded_log_writes).has_landed_above_stalled()
     }

@@ -339,8 +339,7 @@ impl Simulation {
         }
     }
 
-    /// Stalls the serving process's next log write and waits briefly until a later one lands, so
-    /// the successor's EpochStart fills the hole and voids the later batch.
+    /// Leaves a batch above a hole: stalls the next log write, then briefly waits for a later one.
     async fn wait_for_log_write_above_stalled_one(&self) {
         let Some(serving) = &self.serving else {
             return;
