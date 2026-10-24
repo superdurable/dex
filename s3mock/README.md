@@ -83,8 +83,8 @@ binary; `start` uses explicit defaults and ignores `S3MOCK_*` environment variab
 | `--request-log-capacity` | `S3MOCK_REQUEST_LOG_CAPACITY` | `1024` | Recent completed requests retained; `0` disables retention. |
 | `--etag-mode` | `S3MOCK_ETAG_MODE` | `md5` | `md5` or `opaque`. |
 | `--signature-verification` | `S3MOCK_SIGNATURE_VERIFICATION` | `off` | `off` or `strict`. |
-| `--access-key-id` | `S3MOCK_ACCESS_KEY_ID` | `s3mock` | Accepted strict-mode access key. |
-| `--secret-access-key` | `S3MOCK_SECRET_ACCESS_KEY` | `s3mock` | Strict-mode signing secret. |
+| `--access-key-id` | `S3MOCK_ACCESS_KEY_ID` | `s3mock` | Root access key; the only identity that can manage credentials. |
+| `--secret-access-key` | `S3MOCK_SECRET_ACCESS_KEY` | `s3mock` | Root signing secret. |
 
 Opaque ETags identify a committed version rather than its MD5. Repeated HEAD/GET requests and
 server restarts return the same ETag for that version. Writing identical bytes creates a different
@@ -103,12 +103,55 @@ Strict mode spools the encoded body to an anonymous temporary file under the sto
 and verifies it before any S3
 handler runs, then streams it to the handler. Memory use stays bounded, but uploads require extra
 local disk space and I/O. Encoded request bodies are limited to 6 GiB. Bodiless requests avoid spooling.
-Off mode keeps the original streaming upload path.
+Off mode keeps the original streaming upload path and accepts any access key.
+
+Strict mode recognizes the root key and durable scoped credentials. The root key has full S3 access.
+Each scoped credential has an IAM policy and can be enabled or disabled. A disabled key returns
+`403 InvalidAccessKeyId`. An unmatched action or resource returns `403 AccessDenied`; an explicit
+`Deny` overrides every `Allow`. Policies support `Version: "2012-10-17"`, one `Statement` or an array,
+`Allow` and `Deny`, exact `s3:<Action>` or `s3:*`, bucket and object ARNs, and `*` and `?` in object
+key patterns. `arn:aws:s3:::*` matches all buckets and objects. A `Condition` is supported only for
+`s3:ListBucket` or `s3:ListBucketVersions`: `StringEquals` or `StringLike` on `s3:prefix`.
+Every other condition key or operator, principals, negated actions or resources, and unknown
+fields are rejected when the credential is created. A prefix-conditioned `s3:ListBucket` grant
+does not reveal whether an unlisted key exists. GET and HEAD for a missing key return 404 only
+with an unconditioned `s3:ListBucket` grant; otherwise they return `403 AccessDenied`.
+
+### Strict-mode IAM actions
+
+| S3 operation | Required action | Resource |
+| --- | --- | --- |
+| ListBuckets | `s3:ListAllMyBuckets` | `arn:aws:s3:::*` |
+| CreateBucket | `s3:CreateBucket` | Bucket |
+| HeadBucket, ListObjectsV2 | `s3:ListBucket` | Bucket |
+| DeleteBucket | `s3:DeleteBucket` | Bucket |
+| GetBucketLocation | `s3:GetBucketLocation` | Bucket |
+| GetBucketVersioning | `s3:GetBucketVersioning` | Bucket |
+| PutBucketVersioning | `s3:PutBucketVersioning` | Bucket |
+| GetBucketLifecycleConfiguration | `s3:GetLifecycleConfiguration` | Bucket |
+| PutBucketLifecycleConfiguration, DeleteBucketLifecycle | `s3:PutLifecycleConfiguration` | Bucket |
+| GetObjectLockConfiguration | `s3:GetBucketObjectLockConfiguration` | Bucket |
+| PutObjectLockConfiguration | `s3:PutBucketObjectLockConfiguration` | Bucket |
+| ListMultipartUploads | `s3:ListBucketMultipartUploads` | Bucket |
+| ListObjectVersions | `s3:ListBucketVersions` | Bucket |
+| PutObject, CreateMultipartUpload, UploadPart, CompleteMultipartUpload | `s3:PutObject` | Object |
+| GetObject, HeadObject | `s3:GetObject`; with `versionId`, `s3:GetObjectVersion` | Object |
+| DeleteObject | `s3:DeleteObject`; with `versionId`, `s3:DeleteObjectVersion` | Object |
+| DeleteObjects | `s3:DeleteObject` per key; with `VersionId`, `s3:DeleteObjectVersion` per key | Object |
+| AbortMultipartUpload | `s3:AbortMultipartUpload` | Object |
+| ListParts | `s3:ListMultipartUploadParts` | Object |
+
+For a CreateBucket request that enables Object Lock, the bucket policy must also allow
+`s3:PutBucketObjectLockConfiguration` and `s3:PutBucketVersioning`. Bucket resources have the
+form `arn:aws:s3:::<bucket>`; object resources have the form `arn:aws:s3:::<bucket>/<key>`.
+The [AWS S3 permissions reference](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-policy-actions.html)
+defines these action names.
 
 ### Admin HTTP API
 
 The same listener serves JSON endpoints under `/_s3mock/`. Bucket names cannot start with `_`.
-Admin endpoints are not authenticated, even with `--signature-verification strict`. Admin requests
+Admin requests must carry a root-key SigV4 header signature in strict mode. Scoped keys cannot call
+them. Off mode keeps unauthenticated admin requests. Admin requests
 bypass fault injection and do not affect S3 counters or logs.
 Keep the listener on loopback when using these test controls. Successful calls return HTTP 200;
 invalid rule documents return HTTP 400 with `{"error":"..."}` and preserve existing rules.
@@ -126,6 +169,11 @@ Unknown admin paths or methods return HTTP 404 JSON.
 | `GET /_s3mock/lifecycle/clock` | None | Returns the lifecycle time and its offset from wall-clock time; `{"now_unix_ms":0,"offset_ms":0}`. |
 | `POST /_s3mock/lifecycle/advance` | `{"milliseconds":86400000}` | Moves the lifecycle clock forward (never backward) and returns the clock. |
 | `POST /_s3mock/lifecycle/run` | None | Applies lifecycle rules once at the lifecycle time; returns `expired_current_versions`, `removed_delete_markers`, `expired_noncurrent_versions`, and `aborted_uploads`. |
+| `POST /_s3mock/credentials` | `{"access_key_id":"key","secret":"write-only","parent":"owner","description":"reader","policy":{...},"status":"enabled"}` | Creates a credential; `409 CredentialAlreadyExists` never overwrites an existing key. Returns the record without `secret`. |
+| `GET /_s3mock/credentials/{accessKeyId}` | None | Returns the record without `secret`, or `404 NoSuchCredential`. |
+| `PATCH /_s3mock/credentials/{accessKeyId}` | `{"status":"enabled"}` or `{"status":"disabled"}` | Changes only the status and returns the record without `secret`. |
+| `GET /_s3mock/credentials?parent=<parent>` | None | Returns `{"credentials":[...]}` for that opaque owner, without secrets. |
+| `DELETE /_s3mock/credentials/{accessKeyId}` | None | Deletes a credential, or returns `404 NoSuchCredential`. |
 
 GC uses the store's safety boundary: it examines data files older than the store's open time, so
 an upload in flight cannot lose its data file. It does not advance a clock or expire live objects.
@@ -147,7 +195,7 @@ concurrent scheduling can change that order. An SDK retry is a separate request 
 | `{"type":"corrupt_body"}` | Requires `operation: "GetObject"`. For successful 200 or 206 responses, flips the first returned byte and preserves the original headers, including checksums and ETag. Empty bodies have no byte to flip. |
 | `{"type":"truncate_response"}` | Requires `GetObject`, `ListBuckets`, `ListObjectsV2`, `ListObjectVersions`, `ListParts`, or `ListMultipartUploads`. Sends part of a successful response body, then terminates the stream with an error. |
 
-For example, test an ambiguous conditional write with automatic SDK retries disabled:
+For example, in off mode test an ambiguous conditional write with automatic SDK retries disabled:
 
 ```bash
 curl -X PUT http://127.0.0.1:9000/_s3mock/faults \

@@ -11,3 +11,6 @@ Metadata lives in `metadata.redb`. Each object version is one data file under
 A PutObject streams into `tmp/`, appends the footer, renames the file into place, and then
 commits metadata in one redb write transaction. Startup removes leftover temporary files, and
 `Store::collect_orphan_data_files` removes data files that no committed metadata references.
+Credential records share the redb database and survive server restarts. Only the server exposes
+credential management; store reads include signing secrets so callers must not serialize them in
+responses or logs.

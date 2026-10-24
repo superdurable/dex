@@ -37,11 +37,15 @@ async fn credentials_are_root_managed_durable_and_never_return_secrets() {
     assert_eq!(created_status, 200);
     assert_eq!(created["access_key_id"], "owned-key");
     assert_no_secret(&created);
-    assert_eq!(server.admin("POST", "credentials", credential).await.0, 409);
+    let mut duplicate = credential;
+    duplicate["secret"] = json!("replacement-secret");
+    duplicate["description"] = json!("replacement");
+    assert_eq!(server.admin("POST", "credentials", duplicate).await.0, 409);
     let (read_status, read) = server
         .admin("GET", "credentials/owned-key", Value::Null)
         .await;
     assert_eq!(read_status, 200);
+    assert_eq!(read["description"], "reader");
     assert_no_secret(&read);
     let (list_status, list) = server
         .admin("GET", "credentials?parent=owner", Value::Null)
@@ -58,6 +62,25 @@ async fn credentials_are_root_managed_durable_and_never_return_secrets() {
     assert_eq!(
         server
             .admin("GET", "credentials/missing", Value::Null)
+            .await,
+        (404, json!({"error":"NoSuchCredential"}))
+    );
+    create(
+        &server,
+        "deletable",
+        allow(&["s3:GetObject"], &["arn:aws:s3:::testing/*"]),
+    )
+    .await;
+    assert_eq!(
+        server
+            .admin("DELETE", "credentials/deletable", Value::Null)
+            .await
+            .0,
+        200
+    );
+    assert_eq!(
+        server
+            .admin("DELETE", "credentials/deletable", Value::Null)
             .await,
         (404, json!({"error":"NoSuchCredential"}))
     );
@@ -81,7 +104,7 @@ async fn credentials_are_root_managed_durable_and_never_return_secrets() {
         .expect_err("allowed read reaches storage");
     assert_eq!(
         missing.as_service_error().expect("S3 error").code(),
-        Some("NoSuchKey")
+        Some("AccessDenied")
     );
     let denied = scoped
         .get_object()
@@ -94,6 +117,10 @@ async fn credentials_are_root_managed_durable_and_never_return_secrets() {
         denied.as_service_error().expect("S3 error").code(),
         Some("AccessDenied")
     );
+    let request_log = server.admin("GET", "requests", Value::Null).await.1;
+    assert_no_secret(&request_log);
+    let counters = server.admin("GET", "counters", Value::Null).await.1;
+    assert_no_secret(&counters);
     let (updated_status, updated) = server
         .admin(
             "PATCH",
@@ -283,12 +310,52 @@ async fn policy_examples_and_rejection_rules_match_the_contract() {
         denied_key.as_service_error().expect("S3 error").code(),
         Some("AccessDenied")
     );
+    create(
+        &server,
+        "bucket-creator",
+        allow(&["s3:CreateBucket"], &["arn:aws:s3:::locked-bucket"]),
+    )
+    .await;
+    let denied = client(&server.server, "bucket-creator", "secret")
+        .create_bucket()
+        .bucket("locked-bucket")
+        .object_lock_enabled_for_bucket(true)
+        .send()
+        .await
+        .expect_err("Object Lock needs two additional bucket actions");
+    assert_eq!(
+        denied.as_service_error().expect("S3 error").code(),
+        Some("AccessDenied")
+    );
+    create(
+        &server,
+        "locked-creator",
+        allow(
+            &[
+                "s3:CreateBucket",
+                "s3:PutBucketObjectLockConfiguration",
+                "s3:PutBucketVersioning",
+            ],
+            &["arn:aws:s3:::locked-bucket"],
+        ),
+    )
+    .await;
+    client(&server.server, "locked-creator", "secret")
+        .create_bucket()
+        .bucket("locked-bucket")
+        .object_lock_enabled_for_bucket(true)
+        .send()
+        .await
+        .expect("all required Object Lock permissions");
     for invalid in [
         json!({"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::bucket-example/*","Condition":{}}}),
         json!({"Version":"2012-10-17","Statement":{"Effect":"Allow","NotAction":"s3:GetObject","Resource":"arn:aws:s3:::bucket-example/*"}}),
         json!({"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"s3:GetObject","NotResource":"arn:aws:s3:::bucket-example/*"}}),
         json!({"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::bucket-example/*","Principal":"*"}}),
         json!({"Version":"wrong","Statement":{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::bucket-example/*"}}),
+        json!({"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::bucket-example","Condition":{"NumericEquals":{"s3:prefix":"p/"}}}}),
+        json!({"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::bucket-example","Condition":{"StringLike":{"s3:other":"p/*"}}}}),
+        json!({"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::bucket-example/*","Condition":{"StringLike":{"s3:prefix":"p/*"}}}}),
     ] {
         assert_eq!(
             server
@@ -305,6 +372,138 @@ async fn policy_examples_and_rejection_rules_match_the_contract() {
             400
         );
     }
+    server.server.shutdown().await;
+}
+
+#[tokio::test]
+async fn prefix_conditions_limit_listing_and_do_not_reveal_missing_keys() {
+    let server = RunningServer::start(&["--signature-verification", "strict"]).await;
+    server.put("p/existing", "stored").await;
+    create(
+        &server,
+        "unconditioned-list",
+        json!({
+            "Version":"2012-10-17","Statement":[
+                {"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::testing/p/*"},
+                {"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::testing"}
+            ]
+        }),
+    )
+    .await;
+    let unconditioned = client(&server.server, "unconditioned-list", "secret");
+    let missing = unconditioned
+        .get_object()
+        .bucket("testing")
+        .key("p/missing")
+        .send()
+        .await
+        .expect_err("missing key is disclosed with ListBucket");
+    assert_eq!(
+        missing.as_service_error().expect("S3 error").code(),
+        Some("NoSuchKey")
+    );
+    let missing_head = unconditioned
+        .head_object()
+        .bucket("testing")
+        .key("p/missing")
+        .send()
+        .await
+        .expect_err("missing HEAD is disclosed with ListBucket");
+    assert_eq!(
+        missing_head
+            .raw_response()
+            .expect("HTTP response")
+            .status()
+            .as_u16(),
+        404
+    );
+    create(
+        &server,
+        "prefix-list",
+        json!({
+            "Version":"2012-10-17","Statement":[
+                {"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::testing/p/*"},
+                {"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::testing",
+                    "Condition":{"StringLike":{"s3:prefix":"p/*"}}}
+            ]
+        }),
+    )
+    .await;
+    let confined = client(&server.server, "prefix-list", "secret");
+    confined
+        .list_objects_v2()
+        .bucket("testing")
+        .prefix("p/")
+        .send()
+        .await
+        .expect("matching prefix is listable");
+    let denied = confined
+        .list_objects_v2()
+        .bucket("testing")
+        .prefix("q/")
+        .send()
+        .await
+        .expect_err("nonmatching prefix is denied");
+    assert_eq!(
+        denied.as_service_error().expect("S3 error").code(),
+        Some("AccessDenied")
+    );
+    let missing = confined
+        .get_object()
+        .bucket("testing")
+        .key("p/missing")
+        .send()
+        .await
+        .expect_err("conditioned listing does not disclose missing keys");
+    assert_eq!(
+        missing.as_service_error().expect("S3 error").code(),
+        Some("AccessDenied")
+    );
+    let missing_head = confined
+        .head_object()
+        .bucket("testing")
+        .key("p/missing")
+        .send()
+        .await
+        .expect_err("conditioned listing does not disclose missing HEAD");
+    assert_eq!(
+        missing_head
+            .raw_response()
+            .expect("HTTP response")
+            .status()
+            .as_u16(),
+        403
+    );
+    create(
+        &server,
+        "exact-prefix",
+        json!({
+            "Version":"2012-10-17","Statement":{
+                "Effect":"Allow","Action":"s3:ListBucketVersions","Resource":"arn:aws:s3:::testing",
+                "Condition":{"StringEquals":{"s3:prefix":"p/"}}
+            }
+        }),
+    )
+    .await;
+    let exact = client(&server.server, "exact-prefix", "secret");
+    exact
+        .list_object_versions()
+        .bucket("testing")
+        .prefix("p/")
+        .send()
+        .await
+        .expect("StringEquals accepts the exact version prefix");
+    let denied = exact
+        .list_object_versions()
+        .bucket("testing")
+        .prefix("p/x")
+        .send()
+        .await
+        .expect_err("StringEquals rejects another prefix");
+    assert_eq!(
+        denied.as_service_error().expect("S3 error").code(),
+        Some("AccessDenied")
+    );
     server.server.shutdown().await;
 }
 

@@ -9,12 +9,12 @@
 //! The supported identity-policy subset and S3 operation permissions.
 
 use http::{HeaderMap, StatusCode};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::routing::S3Operation;
 use crate::s3_error::S3Error;
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CredentialPolicy {
     #[serde(rename = "Version")]
@@ -23,7 +23,7 @@ pub(crate) struct CredentialPolicy {
     statements: OneOrMany<PolicyStatement>,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize)]
 #[serde(untagged)]
 enum OneOrMany<T> {
     One(T),
@@ -39,13 +39,13 @@ impl<T> OneOrMany<T> {
     }
 }
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Deserialize)]
 enum PolicyEffect {
     Allow,
     Deny,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PolicyStatement {
     #[serde(rename = "Effect")]
@@ -54,6 +54,19 @@ struct PolicyStatement {
     actions: OneOrMany<String>,
     #[serde(rename = "Resource")]
     resources: OneOrMany<String>,
+    #[serde(rename = "Condition")]
+    condition: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Copy)]
+enum PrefixOperator {
+    StringEquals,
+    StringLike,
+}
+
+struct PrefixCondition {
+    operator: PrefixOperator,
+    values: Vec<String>,
 }
 
 impl CredentialPolicy {
@@ -66,11 +79,25 @@ impl CredentialPolicy {
             return Err("Statement must not be empty".into());
         }
         for statement in policy.statements.values() {
+            if let Some(condition) = &statement.condition {
+                parse_prefix_condition(condition)?;
+                if statement
+                    .actions
+                    .values()
+                    .iter()
+                    .any(|action| action != "s3:ListBucket" && action != "s3:ListBucketVersions")
+                {
+                    return Err("s3:prefix conditions require bucket listing actions".into());
+                }
+            }
             if statement.actions.values().is_empty()
                 || statement.actions.values().iter().any(|action| {
                     !action.starts_with("s3:")
                         || action.len() <= 3
-                        || (action != "s3:*" && !action[3..].chars().all(char::is_alphanumeric))
+                        || (action != "s3:*"
+                            && !action[3..]
+                                .chars()
+                                .all(|character| character.is_ascii_alphanumeric()))
                 })
             {
                 return Err("Action must contain exact s3 actions or s3:*".into());
@@ -94,6 +121,15 @@ impl CredentialPolicy {
     }
 
     pub(crate) fn authorize(&self, action: &str, resource: &str) -> Result<(), S3Error> {
+        self.authorize_with_prefix(action, resource, None)
+    }
+
+    fn authorize_with_prefix(
+        &self,
+        action: &str,
+        resource: &str,
+        prefix: Option<&str>,
+    ) -> Result<(), S3Error> {
         let mut has_allow = false;
         for statement in self.statements.values() {
             if !statement
@@ -109,6 +145,23 @@ impl CredentialPolicy {
             {
                 continue;
             }
+            if let Some(condition) = &statement.condition {
+                let Some(prefix) = prefix else {
+                    continue;
+                };
+                let condition = parse_prefix_condition(condition)
+                    .expect("stored policies were validated at creation");
+                if !condition
+                    .values
+                    .iter()
+                    .any(|value| match condition.operator {
+                        PrefixOperator::StringEquals => value == prefix,
+                        PrefixOperator::StringLike => wildcard_match(value, prefix),
+                    })
+                {
+                    continue;
+                }
+            }
             match statement.effect {
                 PolicyEffect::Deny => return Err(access_denied()),
                 PolicyEffect::Allow => has_allow = true,
@@ -119,6 +172,10 @@ impl CredentialPolicy {
         } else {
             Err(access_denied())
         }
+    }
+
+    pub(crate) fn can_list_bucket_unconditionally(&self, bucket: &str) -> bool {
+        self.authorize("s3:ListBucket", &bucket_arn(bucket)).is_ok()
     }
 }
 
@@ -131,7 +188,13 @@ pub(crate) fn authorize_operation(
         return Ok(());
     }
     let (action, resource) = operation_permission(operation);
-    policy.authorize(action, &resource)?;
+    let prefix = match operation {
+        S3Operation::ListObjectsV2 { query, .. }
+        | S3Operation::ListObjectVersions { query, .. } => Some(query.get("prefix").unwrap_or("")),
+        S3Operation::HeadBucket { .. } => Some(""),
+        _ => None,
+    };
+    policy.authorize_with_prefix(action, &resource, prefix)?;
     if matches!(operation, S3Operation::CreateBucket { .. })
         && headers
             .get("x-amz-bucket-object-lock-enabled")
@@ -141,6 +204,35 @@ pub(crate) fn authorize_operation(
         policy.authorize("s3:PutBucketVersioning", &resource)?;
     }
     Ok(())
+}
+
+fn parse_prefix_condition(value: &serde_json::Value) -> Result<PrefixCondition, String> {
+    let operators = value
+        .as_object()
+        .filter(|operators| operators.len() == 1)
+        .ok_or("Condition must contain one prefix operator")?;
+    let (name, operand) = operators.iter().next().expect("one operator was checked");
+    let operator = match name.as_str() {
+        "StringEquals" => PrefixOperator::StringEquals,
+        "StringLike" => PrefixOperator::StringLike,
+        _ => return Err("Condition supports only StringEquals or StringLike".into()),
+    };
+    let operands = operand
+        .as_object()
+        .filter(|operands| operands.len() == 1)
+        .ok_or("Condition must contain only s3:prefix")?;
+    let values = operands
+        .get("s3:prefix")
+        .ok_or("Condition must contain only s3:prefix")?;
+    let values: OneOrMany<String> = serde_json::from_value(values.clone())
+        .map_err(|_| "s3:prefix must be a string or string list".to_owned())?;
+    if values.values().is_empty() {
+        return Err("s3:prefix must not be empty".into());
+    }
+    Ok(PrefixCondition {
+        operator,
+        values: values.values().to_vec(),
+    })
 }
 
 fn operation_permission(operation: &S3Operation) -> (&'static str, String) {
@@ -208,20 +300,20 @@ fn bucket_arn(bucket: &str) -> String {
 }
 
 fn wildcard_match(pattern: &str, value: &str) -> bool {
-    let pattern = pattern.as_bytes();
-    let value = value.as_bytes();
+    let pattern = pattern.chars().collect::<Vec<_>>();
+    let value = value.chars().collect::<Vec<_>>();
     let mut previous = vec![false; value.len() + 1];
     previous[0] = true;
     for symbol in pattern {
         let mut current = vec![false; value.len() + 1];
-        if *symbol == b'*' {
+        if symbol == '*' {
             current[0] = previous[0];
         }
         for index in 1..=value.len() {
             current[index] = match symbol {
-                b'*' => previous[index] || current[index - 1],
-                b'?' => previous[index - 1],
-                _ => previous[index - 1] && *symbol == value[index - 1],
+                '*' => previous[index] || current[index - 1],
+                '?' => previous[index - 1],
+                _ => previous[index - 1] && symbol == value[index - 1],
             };
         }
         previous = current;

@@ -278,8 +278,15 @@ async fn dispatch(
     operation: S3Operation,
     identity: Identity,
 ) -> Result<S3Response, S3Error> {
+    let should_hide_missing_key = match (&operation, identity.policy()) {
+        (
+            S3Operation::GetObject { bucket, .. } | S3Operation::HeadObject { bucket, .. },
+            Some(policy),
+        ) => !policy.can_list_bucket_unconditionally(bucket),
+        _ => false,
+    };
     let (parts, body) = request.into_parts();
-    match operation {
+    let result = match operation {
         S3Operation::ListBuckets => handlers::list_buckets(store).await,
         S3Operation::CreateBucket { bucket } => {
             handlers::create_bucket(store, bucket, &parts.headers).await
@@ -357,7 +364,18 @@ async fn dispatch(
         S3Operation::DeleteObject { bucket, key, query } => {
             handlers::delete_object(store, bucket, key, query).await
         }
-    }
+    };
+    result.map_err(|error| {
+        if should_hide_missing_key && error.code == "NoSuchKey" {
+            S3Error::new(
+                StatusCode::FORBIDDEN,
+                "AccessDenied",
+                "the credential cannot discover whether this key exists",
+            )
+        } else {
+            error
+        }
+    })
 }
 
 fn render_error(error: S3Error, request_id: &str, is_head: bool) -> S3Response {
