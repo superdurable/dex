@@ -25,7 +25,7 @@ dexcli flow history <flow-id> --page-size 80 --timeout 30s --no-hydrate
 
 With Server and CLI v1.15.0, Flow detail shows the Worker target and, for pull Flows, the Flow type queue and sticky app Worker ID. Active Steps and Step history show serving app Worker IDs for WaitFor and Execute, the dispatch sticky app Worker ID, and the queue source. **Sticky queue** means the serving ID matches the sticky ID captured for that dispatch; otherwise a completed dispatch shows **Flow type queue**. Compare against that captured ID, not just the Flow's current sticky ID.
 
-Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Address targets retain address-only routing. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage. [Released routing UI](https://github.com/superdurable/dex/blob/server/v1.15.0/web/app/flows/details/PullRouting.tsx)
+Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Address targets retain address-only routing. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage. [Released routing UI](https://github.com/superdurable/dex/blob/server/v1.16.0/web/app/flows/details/PullRouting.tsx)
 
 Correlate reserve-decline counters with total handler occupancy and **M − R** Step admission before increasing capacity; follow [reserved RPC capacity](pull-workers.md#reserved-rpc-capacity).
 
@@ -61,7 +61,7 @@ cross-origin credential forwarding disabled.
 The codec converts known Dex binary protobuf payloads to ProtoJSON. Unknown
 message types and other encodings pass through unchanged. The same tooling
 applies to all five SDK languages. See the released
-[CLI codec server usage](https://github.com/superdurable/dex/blob/cli-v1.15.0/cli/README.md#view-temporal-protobuf-payloads).
+[CLI codec server usage](https://github.com/superdurable/dex/blob/cli-v1.16.0/cli/README.md#view-temporal-protobuf-payloads).
 
 ## Indexed Attribute capacity
 
@@ -181,15 +181,49 @@ The `dex-server` image starts Web, API, Interpreter, and Matching in one OS proc
 
 ### Public API authentication
 
-Public FlowService authentication is off by default. Configure `auth.authenticators` to require a bearer credential on public calls and streams. Static token authenticators read SHA-256 hashes from a YAML token file; JWT authenticators verify issuer, audience, signature, and validity against a cached key set. Health checks remain open. Protect the plaintext gRPC network path, and keep token values out of source, logs, Flow state, and rendered definitions. [Released authentication configuration](https://github.com/superdurable/dex/blob/server/v1.15.0/server/config/config_template.yaml)
+Public FlowService authentication is off by default. Configure `auth.authenticators` to require a bearer credential on public calls and streams. Static token authenticators read SHA-256 hashes from a YAML token file; JWT authenticators verify issuer, audience, signature, and validity against a cached key set. Health checks remain open. Protect the plaintext gRPC network path, and keep token values out of source, logs, Flow state, and rendered definitions. [Released authentication configuration](https://github.com/superdurable/dex/blob/server/v1.16.0/server/config/config_template.yaml)
 
 Clients and Workers have separate credential options in all five SDKs. Supply a rotating file credential where available, or a current-token provider that can be called for every FlowService call and each pull stream opening. With auth enabled, a missing credential is rejected and a failed credential prevents the call; a rotated token is picked up on a later call or stream reconnect. See the language handbook for exact names.
-
-For `dexcli`, `--credential-file` takes precedence over `DEX_CREDENTIAL_FILE`, which takes precedence over `DEX_CREDENTIAL`. The CLI has no raw-token flag. Store a token in a protected file when possible; avoid putting one into shell history or process arguments. [Released CLI options](https://github.com/superdurable/dex/blob/cli-v1.15.0/cli/internal/command/options.go)
 
 When auth is enabled and Dex Web runs, set `web.flowServiceCredentialFile` to a bearer-token file. This authenticates Web's calls to FlowService; it does not authenticate Web users. Anyone who reaches the Web port can act with Web's credential, so protect that port with network controls or an authenticating proxy. This file is distinct from the local Connector development credential store.
 
 Auth requires `internal.listen` and `internal.tokenFile`. The separate listener serves private InternalService and MatchingService calls; Interpreter Workers use the first internal token, and the listener accepts all valid lines for rotation. Use a token of at least 32 characters per line, restrict the listener to Dex replicas, and protect its plaintext network path. A separate Interpreter deployment must target the private listener. With auth off, existing public InternalService targets remain supported unless a private listener is configured.
+
+#### API key Credential
+
+SDK v1.16.0 in all five languages adds an API key Credential. It exchanges a long-lived API key for short-lived access tokens and sends each access token as the bearer credential. Use it when a token endpoint issues access tokens that the Server's JWT authenticator accepts, and the application holds an API key. Use the file credential instead when another process writes and rotates the access token in a file.
+
+The application supplies three values: the token URL, the server ID, and the API key. The server ID names the Dex Server that the endpoint scopes the token to. The SDK never derives it from a host name. Each exchange POSTs the JSON body **{"server_id": ..., "api_key": ...}** to the token URL. A successful response is HTTP 200 with a non-empty **access_token**, a **token_type** of Bearer, and a positive **expires_in** in seconds.
+
+- **Caching and refresh:** the credential caches the token. After 80% of its lifetime, one refresh runs while calls keep using the valid token. Concurrent callers share a single in-flight exchange. A failed refresh keeps the valid token and retries at most every five seconds. Each exchange times out after 10 seconds by default. Expiry counts from the start of the exchange request, so a token that expired before its response arrived is never used.
+- **Rejected tokens:** when Dex rejects a call with UNAUTHENTICATED, the SDK discards that token, but only while it is still the cached one. A unary call is retried exactly once with a fresh token. The retry is safe because Dex rejects an unauthenticated call before executing it. A rejected pull Worker poll stream reconnects once immediately with a fresh token. A second rejection follows the ordinary [permanent rejection path](pull-workers.md#startup-registration-and-readiness) and its retry delay. File and custom credentials get neither the unary retry nor the immediate reconnect.
+- **Transport security:** the token URL must use HTTPS. Plain HTTP is accepted only for localhost, 127.0.0.0/8, and ::1. The credential never follows a redirect, so the API key reaches only the configured URL. The Dex connection itself stays plaintext gRPC; protect that network path separately.
+- **Redaction:** the credential's formatted value and its exchange errors never contain the API key or an access token. Errors redact the key, recently issued tokens, and every JWT-shaped substring: dot-separated base64url segments of at least 10 characters each. This rule can also hide other text of that shape, such as a long dotted host name. Endpoint **error** and **error_description** fields are truncated to 200 characters.
+- **Ownership:** the application owns the credential and may share one instance among Clients and Workers. Closing a Client or Worker never closes or stops it. Lifecycle differs by language: Rust exchanges during construction and fails calls with an expired token until a refresh succeeds, while Java requires closing the credential after its last Client and Worker. Follow the language handbook for construction, options, errors, and close semantics.
+
+Keep the API key in deployment secret management. Never put it in source, Flow state, logs, or rendered definitions. Dex Web still authenticates to FlowService only through **web.flowServiceCredentialFile**.
+
+#### dexcli credentials
+
+Configure `dexcli` with either a bearer token or an API key, not both. For a bearer token, `--credential-file` takes precedence over `DEX_CREDENTIAL_FILE`, which takes precedence over `DEX_CREDENTIAL`. The CLI has no raw-token flag. Store a token in a protected file when possible; avoid putting one into shell history or process arguments. [Released CLI options](https://github.com/superdurable/dex/blob/cli-v1.16.0/cli/internal/command/options.go)
+
+With CLI v1.16.0, an API key uses three settings:
+
+- `--api-key-file` reads the key from a file and takes precedence over `DEX_API_KEY`. There is no flag for the key value itself, and surrounding whitespace is ignored.
+- `--token-url` or `DEX_TOKEN_URL` names the token endpoint, with the same HTTPS and loopback rule as the SDKs.
+- `--server-id` or `DEX_SERVER_ID` names the server that the endpoint scopes the token to. `dexcli` never derives it from `--server`.
+
+Combining API key settings with any bearer token setting is a usage error that exits with status 2. So is setting `--token-url` or `--server-id` without an API key. Each command exchanges the key for a new token before its first call. A failed exchange fails the command before any FlowService call. A long command refreshes the token in the background after 80% of its lifetime. Unlike the SDKs, `dexcli` does not retry a call that Dex rejects with UNAUTHENTICATED; rerun the command to obtain a fresh token. Errors redact the key and tokens as the SDK credentials do. [Released CLI authentication guide](https://github.com/superdurable/dex/blob/cli-v1.16.0/cli/README.md)
+
+```bash
+export DEX_API_KEY="$(cat ~/.dex/api-key)"
+export DEX_TOKEN_URL=https://auth.example.com/oauth/token
+export DEX_SERVER_ID=orders-production
+dexcli flow search --query 'ExecutionStatus = "Running"'
+
+dexcli health --api-key-file ~/.dex/api-key \
+  --token-url https://auth.example.com/oauth/token --server-id orders-production
+```
 
 ### Worker readiness and capacity diagnosis
 
@@ -199,19 +233,19 @@ With Server v1.13.0, Client API **ResourceExhausted** can identify capacity or r
 
 ### Pull Worker server setup
 
-The `matching` role owns pull Worker queues. Keep at least one Matching instance running. API instances accept outbound Worker streams on FlowService and forward them to the queue owner. Preserve bidirectional HTTP/2 streaming and make load-balancer idle timeouts longer than `matching.pingInterval` (20 seconds by default). A single Server process uses local membership. For multiple instances, configure `membership` with reachable seeds and a private `internal.listen` plus `internal.tokenFile` on every process. All instances must share the intended backend namespace and membership cluster; route public traffic only to API instances. [Released routing configuration](https://github.com/superdurable/dex/blob/server/v1.15.0/server/config/config_template.yaml)
+The `matching` role owns pull Worker queues. Keep at least one Matching instance running. API instances accept outbound Worker streams on FlowService and forward them to the queue owner. Preserve bidirectional HTTP/2 streaming and make load-balancer idle timeouts longer than `matching.pingInterval` (20 seconds by default). A single Server process uses local membership. For multiple instances, configure `membership` with reachable seeds and a private `internal.listen` plus `internal.tokenFile` on every process. All instances must share the intended backend namespace and membership cluster; route public traffic only to API instances. [Released routing configuration](https://github.com/superdurable/dex/blob/server/v1.16.0/server/config/config_template.yaml)
 
-A matching-only process (`dex-server start --services matching`) requires both `internal.listen` and `internal.tokenFile`, even when public auth is off. Its MatchingService is never public. [Released bootstrap check](https://github.com/superdurable/dex/blob/server/v1.15.0/server/service/bootstrap/bootstrap.go)
+A matching-only process (`dex-server start --services matching`) requires both `internal.listen` and `internal.tokenFile`, even when public auth is off. Its MatchingService is never public. [Released bootstrap check](https://github.com/superdurable/dex/blob/server/v1.16.0/server/service/bootstrap/bootstrap.go)
 
 `matching.dispatchWait` defaults to 10 seconds, including up to five seconds of `matching.stickyWait`. `matching.localDispatchWait` defaults to 3 seconds; `localStickyWait` and `localExecutionReserve` preserve time for local Step execution. A Worker that rejects an unregistered Step type or RPC name is excluded from that dispatch, so another capable pull Worker can accept within the applicable wait. Capacity defaults are `maxConcurrentTasksCap: 256` streams per app Worker ID per matching owner, `maxStreams: 100000` per Matching instance, and `maxQueueLength`, `maxFlowTypes`, and `maxFlowTypeLength` of 256 each. With SDK v1.14.1 in all five languages, surplus idle streams close gracefully after load drops without clearing readiness. The steady-state stream bound per Worker is **M + (F + 1) × I**, where **M** is maximum concurrent tasks, **F** is registered Flow types, and **I** is idle streams per queue. Burst peaks remain bounded by **matching.maxConcurrentTasksCap** and **matching.maxStreams**. Check the [pull Worker stream bound](pull-workers.md#heartbeats-capacity-and-shutdown) before raising Worker concurrency or Flow type count, and budget rolling overlap within both caps.
 
 ### Worker wake hook
 
-Configure `worker.wake.url` and optional `worker.wake.budget` (120 seconds by default) when an unavailable Worker can be started on demand. Dex posts a best-effort `kind: wake` notification with the target, and a rate-limited `kind: active` notification after a successful dispatch. For pull routing, the wake target is the Flow type queue; Dex sends it after the sticky wait and keeps the same dispatch attempt open. For listening routing, the budget holds connection retries without consuming new attempts. An internal token is sent when `internal.tokenFile` is configured. Size the dispatch wait and Step retry policy to cover actual startup time. [Released wake settings](https://github.com/superdurable/dex/blob/server/v1.15.0/server/config/auth.go)
+Configure `worker.wake.url` and optional `worker.wake.budget` (120 seconds by default) when an unavailable Worker can be started on demand. Dex posts a best-effort `kind: wake` notification with the target, and a rate-limited `kind: active` notification after a successful dispatch. For pull routing, the wake target is the Flow type queue; Dex sends it after the sticky wait and keeps the same dispatch attempt open. For listening routing, the budget holds connection retries without consuming new attempts. An internal token is sent when `internal.tokenFile` is configured. Size the dispatch wait and Step retry policy to cover actual startup time. [Released wake settings](https://github.com/superdurable/dex/blob/server/v1.16.0/server/config/auth.go)
 
 ### Removed multi-tenant configuration
 
-Multi-tenant mode has been removed since Server v1.10.0. Single-tenant Flow data is preserved, but a configuration containing the removed `tenancy` section fails startup. Move `tenancy.authenticators` to `auth.authenticators`, `tenancy.internal` to `internal`, and `tenancy.wake` to `worker.wake`; drop `subjectPattern` and `claims`, and use only SHA-256 entries in static token files. Also remove `blobStore.tenantCleanupConfirmationDelay` and each `attributeStore.stores.<name>.tenantColumn`: both are rejected at startup. If a destination table still requires a tenant column, migrate that table separately so single-tenant writes satisfy its schema. Inspect the deployed YAML and destination schema before upgrading. [Released migration error](https://github.com/superdurable/dex/blob/server/v1.15.0/server/config/removed_tenancy_config.go)
+Multi-tenant mode has been removed since Server v1.10.0. Single-tenant Flow data is preserved, but a configuration containing the removed `tenancy` section fails startup. Move `tenancy.authenticators` to `auth.authenticators`, `tenancy.internal` to `internal`, and `tenancy.wake` to `worker.wake`; drop `subjectPattern` and `claims`, and use only SHA-256 entries in static token files. Also remove `blobStore.tenantCleanupConfirmationDelay` and each `attributeStore.stores.<name>.tenantColumn`: both are rejected at startup. If a destination table still requires a tenant column, migrate that table separately so single-tenant writes satisfy its schema. Inspect the deployed YAML and destination schema before upgrading. [Released migration error](https://github.com/superdurable/dex/blob/server/v1.16.0/server/config/removed_tenancy_config.go)
 
 Before deploying a Worker, run `dexcli version check` against its target Server. Each Server and SDK release declares an inclusive protocol interval. Worker startup selects the highest common protocol before synchronizing Attribute indexes and binding WorkerService. Artifact versions are diagnostic only.
 

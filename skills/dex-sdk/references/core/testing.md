@@ -35,6 +35,8 @@ With SDK v1.15.0, use a real Server with a long-running Step occupying **M − R
 
 With public authentication enabled, verify Client and Worker calls and pull streams carry credentials, an absent or failed credential is rejected, and a rotated file token takes effect on the next call or reconnect. Use a protected Web port when validating Dex Web; its FlowService credential is not user authentication. See [pull Worker behavior](pull-workers.md) and [public API authentication](operations.md#public-api-authentication).
 
+For an [API key Credential](operations.md#api-key-credential) with SDK v1.16.0, run a loopback HTTP token endpoint fixture in the test process. Verify the exchange request carries the expected server ID, concurrent first calls share one exchange, and a refresh keeps calls on the valid token. Reject one unary call with UNAUTHENTICATED and assert exactly one retry with a fresh token. Reject a pull stream and assert one immediate reconnect, then the ordinary permanent-rejection path on a second rejection. Verify that a redirect, a non-loopback HTTP URL, a malformed response, and an exchange timeout each fail. Assert that errors and logs never contain the API key or an access token. For **dexcli**, assert that mixing API key and bearer token settings exits with status 2.
+
 For Client API capacity handling on Server v1.13.0, inject a **ResourceExhausted** response at the service boundary when real rate limits cannot be induced deterministically. Verify named-status classification, available retry hints, bounded backoff, deadline exhaustion, and mutation reconciliation without duplicate effects. Keep real-Server tests for the underlying start, RPC, and search operations.
 
 ### StartFlow ordering and retry identity

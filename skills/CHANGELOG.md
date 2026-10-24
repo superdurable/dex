@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.46.0 - 2026-10-24
+
+- Advance all five SDK, Server, and CLI baselines to their published Dex 1.16.0 tags and refresh pinned source links and excerpts. Record that every language example now selects SDK v1.15.0. Synchronize the three plugin manifests and marketplace metadata at version 0.46.0.
+- Document the API key Credential in Core operations and all five language handbooks: when to use it instead of the file credential, the token endpoint exchange, cached refresh at 80% of the token lifetime, single-flight exchanges, the single unary retry and immediate pull stream reconnect after UNAUTHENTICATED, the HTTPS and no-redirect rules, secret redaction, application ownership, and each language's construction, timeout, transport, error, and close semantics.
+- Document the dexcli API key settings (`--api-key-file` or `DEX_API_KEY`, `--token-url` or `DEX_TOKEN_URL`, `--server-id` or `DEX_SERVER_ID`), their exclusivity with bearer token settings, and that dexcli does not retry a rejected token. Add API key Credential test guidance and App Builder deployment guidance.
+- Document Rust Worker diagnostics through the tracing crate and the need for an application subscriber, and the `DEX_EXAMPLES_WORKER_MODE` pull switch in every language's examples.
+
 ## 0.45.0 - 2026-10-22
 
 - Advance all five SDK, Server, and CLI baselines to their published Dex 1.15.0 tags and refresh pinned source links. Synchronize the three plugin manifests and marketplace metadata at version 0.45.0.

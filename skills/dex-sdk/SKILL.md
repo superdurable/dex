@@ -66,7 +66,7 @@ Then load only the references required by the task:
 | Production inspection or mutation | [Operations](references/core/operations.md) | selected language's **observability.md** |
 | Server deployment or component topology | [Operations](references/core/operations.md) | language entry for Client and Worker targets |
 | Pull Worker routing, capacity, shutdown, or retry | [Pull Workers](references/core/pull-workers.md) and [Operations](references/core/operations.md) | selected language's entry and **observability.md** |
-| Public API authentication or bearer credentials | [Operations](references/core/operations.md#public-api-authentication) | selected language's entry |
+| Public API authentication, bearer credentials, or API key exchange | [Operations](references/core/operations.md#public-api-authentication) | selected language's entry |
 | Connector selection, local credentials, or named connections | [Operations](references/core/operations.md) | language entry for runtime support |
 | Large state, maps, or projections | [Data handling](references/core/data-handling.md) | selected language's **data-handling.md** |
 | Short-lived secrets or hard-delete Attributes | [Hard-delete Attributes](references/core/data-handling.md#hard-delete-attributes-for-short-lived-secrets) | selected language's **data-handling.md** |

@@ -46,6 +46,10 @@ An Attribute lock serializes a protected invariant and implies transactional RPC
 
 Assert that a timer eventually fires within a generous deadline. Do not assert exact elapsed milliseconds. Use condition IDs or Context timer results when a Wait combines several timers.
 
+## Worker diagnostics need a subscriber
+
+From Rust SDK v1.16.0, Worker errors and warnings go to the **tracing** crate, not standard error. Without an installed subscriber, a rejected task stream or failed handler leaves no output. See [Worker diagnostics](observability.md#worker-diagnostics).
+
 ## No unverified API invention
 
 If a desired Rust feature is absent from the pinned examples and matching SDK source, say so and link the closest supported primitive. In particular, do not translate a Python coroutine shape or Java annotation literally into Rust.
