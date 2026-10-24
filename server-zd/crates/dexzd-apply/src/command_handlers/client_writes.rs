@@ -20,7 +20,9 @@ use dexzd_protocol::dexzd::v1::{
 };
 
 use crate::ApplyError;
-use crate::command_handlers::command_replies::{error_reply, grpc_code, ok_reply};
+use crate::command_handlers::command_replies::{
+    CLOSED_RUN_STOP_MESSAGE, error_reply, grpc_code, ok_reply,
+};
 use crate::command_handlers::flow_close::{FlowClosing, close_flow};
 use crate::command_handlers::flow_data::{
     apply_attribute_writes, apply_channel_deletions, apply_channel_publications,
@@ -220,7 +222,7 @@ pub(crate) fn apply_channel_message_delete(
             grpc_code::NOT_FOUND,
             ErrorSubStatus::ChannelMessageNotFound,
             format!(
-                "message {} is not pending in channel {}",
+                "Channel message {:?} was not found in channel {:?}",
                 request.message_id, request.channel_name
             ),
         )));
@@ -261,8 +263,12 @@ pub(crate) fn apply_flow_stop(
 ) -> Result<HandlerResult, ApplyError> {
     let request = command.request.clone().unwrap_or_default();
     if !is_running(&cursor) {
-        // Stopping a closed run succeeds without changes, like the first Stop winning.
-        return Ok(HandlerResult::Rejected(ok_reply()));
+        // As in the Go Server, a closed run cannot be stopped, even when a newer run exists.
+        return Ok(HandlerResult::Rejected(error_reply(
+            grpc_code::NOT_FOUND,
+            ErrorSubStatus::FlowNotExists,
+            CLOSED_RUN_STOP_MESSAGE,
+        )));
     }
     let stop_type = StopType::try_from(request.stop_type).unwrap_or(StopType::Unspecified);
     let closing = match stop_type {

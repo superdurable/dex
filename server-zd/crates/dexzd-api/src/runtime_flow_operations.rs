@@ -254,9 +254,11 @@ fn flow_operation_error(flow_id: &str, error: RuntimeError) -> FlowOperationErro
             grpc_code: grpc_code::NOT_FOUND,
             sub_status: ErrorSubStatus::FlowNotExists,
             ..
-        } if !flow_id.is_empty() => FlowOperationError::FlowNotFound {
-            flow_id: flow_id.to_owned(),
-        },
+        } if !flow_id.is_empty() && !error.is_closed_run_stop_rejection() => {
+            FlowOperationError::FlowNotFound {
+                flow_id: flow_id.to_owned(),
+            }
+        }
         RuntimeError::Rejected {
             grpc_code,
             sub_status,

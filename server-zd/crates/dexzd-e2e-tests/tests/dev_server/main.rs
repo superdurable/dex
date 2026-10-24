@@ -8,7 +8,11 @@
 
 //! End-to-end tests of `dex-server-zd dev` through the public gRPC protocol.
 
+mod channel_message_delete;
+mod flow_controls;
 mod harness;
+mod streams;
+mod time_travel;
 mod value_hydration;
 mod value_reference_dispatch;
 mod wait_deadlines;
