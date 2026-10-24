@@ -552,6 +552,52 @@ func TestAPIKeyCredentialRedactsSecretsFromEndpointErrorsAndCauses(t *testing.T)
 	}
 }
 
+func TestAPIKeyCredentialRedactsJWTShapedTokensItNoLongerRemembers(t *testing.T) {
+	issuedTokens := []string{
+		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0b2tlbi1hIn0.c2lnbmF0dXJlLW9mLXRva2VuLWE",
+		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0b2tlbi1iIn0.c2lnbmF0dXJlLW9mLXRva2VuLWI",
+		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0b2tlbi1jIn0.c2lnbmF0dXJlLW9mLXRva2VuLWM",
+	}
+	oldestToken := issuedTokens[0]
+	endpoint := startAPIKeyTokenEndpoint(t, func(requestNumber int, writer http.ResponseWriter, _ *http.Request) {
+		if requestNumber <= len(issuedTokens) {
+			writeAPIKeyAccessToken(writer, issuedTokens[requestNumber-1], 3600)
+			return
+		}
+		writeAPIKeyExchangeResponse(writer, http.StatusUnauthorized, fmt.Sprintf(
+			`{"error":"token %s revoked","error_description":"session of token %s ended"}`, oldestToken, oldestToken))
+	})
+	roundTripper := &secretEchoingRoundTripper{failure: fmt.Errorf("proxy refused request after token %s", oldestToken)}
+	credential := newTestAPIKeyCredential(t, endpoint.tokenURL(), nil, WithAPIKeyHTTPClient(&http.Client{Transport: roundTripper}))
+	for _, issuedToken := range issuedTokens {
+		token, err := credential.Token(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, issuedToken, token)
+		credential.discardRejectedToken(issuedToken)
+	}
+
+	_, endpointFieldsErr := credential.Token(context.Background())
+	require.EqualError(t, endpointFieldsErr, "dex: API key exchange with "+endpoint.tokenURL()+
+		` failed with HTTP 401; error "token [REDACTED] revoked"; error_description "session of token [REDACTED] ended"`)
+	roundTripper.shouldFail.Store(true)
+	_, transportErr := credential.Token(context.Background())
+	require.EqualError(t, transportErr, "dex: API key exchange with "+endpoint.tokenURL()+
+		` failed: request failed: Post "`+endpoint.tokenURL()+`": proxy refused request after token [REDACTED]`)
+
+	for _, value := range []any{endpointFieldsErr, transportErr, errors.Unwrap(transportErr)} {
+		for _, verb := range []string{"%v", "%+v", "%#v"} {
+			formatted := fmt.Sprintf(verb, value)
+			require.Contains(t, formatted, "token [REDACTED]", verb)
+			for _, issuedToken := range issuedTokens {
+				require.NotContains(t, formatted, issuedToken, verb)
+			}
+			for _, segment := range strings.Split(oldestToken, ".")[1:] {
+				require.NotContains(t, formatted, segment, verb)
+			}
+		}
+	}
+}
+
 func TestAPIKeyCredentialNeverReturnsTokenThatExpiredBeforeResponse(t *testing.T) {
 	clock := newAPIKeyTestClock()
 	endpoint := startAPIKeyTokenEndpoint(t, func(requestNumber int, writer http.ResponseWriter, _ *http.Request) {

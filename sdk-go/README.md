@@ -851,7 +851,10 @@ client, err := dex.NewClient(registry, cache, dex.ClientOptions{Credential: cred
 - The credential never follows redirects and never includes the API key or an
   access token in errors or formatted output. It replaces the API key and known
   access tokens with `[REDACTED]` in the token endpoint's `error` and
-  `error_description` fields and in transport errors. `WithAPIKeyHTTPClient`
+  `error_description` fields and in transport errors. It also redacts every
+  JWT-shaped substring there: three base64url segments separated by dots, each
+  at least 10 characters long. This covers an older token that the credential
+  no longer remembers. `WithAPIKeyHTTPClient`
   supplies a proxy-aware or test HTTP client.
 - The application owns the credential and may share it between several Clients
   and Workers, so closing a Client or Worker does not stop it. The credential

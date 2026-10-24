@@ -556,6 +556,53 @@ func TestAPIKeyCredentialRedactsSecretsFromEndpointErrorsAndCauses(t *testing.T)
 	}
 }
 
+func TestAPIKeyCredentialRedactsJWTShapedTokensItNoLongerRemembers(t *testing.T) {
+	issuedTokens := []string{
+		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjbGktdG9rZW4tYSJ9.c2lnbmF0dXJlLW9mLWNsaS10b2tlbi1h",
+		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjbGktdG9rZW4tYiJ9.c2lnbmF0dXJlLW9mLWNsaS10b2tlbi1i",
+		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjbGktdG9rZW4tYyJ9.c2lnbmF0dXJlLW9mLWNsaS10b2tlbi1j",
+	}
+	oldestToken := issuedTokens[0]
+	endpoint := startCLITokenEndpoint(t, func(requestNumber int, writer http.ResponseWriter) {
+		if requestNumber <= len(issuedTokens) {
+			writeCLIAccessToken(writer, issuedTokens[requestNumber-1], 3600)
+			return
+		}
+		writeCLITokenResponse(writer, http.StatusUnauthorized, fmt.Sprintf(
+			`{"error":"token %s revoked","error_description":"session of token %s ended"}`, oldestToken, oldestToken))
+	})
+	roundTripper := &failingCLIRoundTripper{failure: fmt.Errorf("proxy refused request after token %s", oldestToken)}
+	credential := newTestCLIAPIKeyCredential(t, endpoint.tokenURL(), nil)
+	credential.httpClient.Transport = roundTripper
+	for _, issuedToken := range issuedTokens {
+		requireCLIAuthorization(t, credential, "Bearer "+issuedToken)
+		credential.mu.Lock()
+		credential.token = ""
+		credential.mu.Unlock()
+	}
+
+	_, endpointFieldsErr := credential.GetRequestMetadata(context.Background())
+	require.EqualError(t, endpointFieldsErr, "API key exchange with "+endpoint.tokenURL()+
+		` failed with HTTP 401; error "token [REDACTED] revoked"; error_description "session of token [REDACTED] ended"`)
+	roundTripper.shouldFail.Store(true)
+	_, transportErr := credential.GetRequestMetadata(context.Background())
+	require.EqualError(t, transportErr, "API key exchange with "+endpoint.tokenURL()+
+		` failed: request failed: Post "`+endpoint.tokenURL()+`": proxy refused request after token [REDACTED]`)
+
+	for _, value := range []any{endpointFieldsErr, transportErr, errors.Unwrap(transportErr)} {
+		for _, verb := range []string{"%v", "%+v", "%#v"} {
+			formatted := fmt.Sprintf(verb, value)
+			require.Contains(t, formatted, "token [REDACTED]", verb)
+			for _, issuedToken := range issuedTokens {
+				require.NotContains(t, formatted, issuedToken, verb)
+			}
+			for _, segment := range strings.Split(oldestToken, ".")[1:] {
+				require.NotContains(t, formatted, segment, verb)
+			}
+		}
+	}
+}
+
 func TestAPIKeyCredentialFailsEveryRedirectWithoutContactingItsTarget(t *testing.T) {
 	for _, statusCode := range []int{
 		http.StatusMultipleChoices, http.StatusMovedPermanently, http.StatusFound,

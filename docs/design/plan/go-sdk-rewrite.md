@@ -664,7 +664,10 @@ still-valid token while a failed refresh is retried at most every 5 seconds.
 An exchange whose token expired before its response arrived fails, so the
 credential never caches or returns an expired token. Construction does not
 contact the network. Errors redact the API key and known access tokens from the
-endpoint's error fields and from transport errors. The SDK attaches its token
+endpoint's error fields and from transport errors. They also redact every
+JWT-shaped substring, three base64url segments of at least 10 characters
+separated by dots, so an older token the credential no longer remembers stays
+hidden. The SDK attaches its token
 in client interceptors instead of per-RPC credentials, so an `UNAUTHENTICATED`
 rejection discards exactly the token that the call used. The stream interceptor
 observes rejections from opening, sending, receiving, and closing the send

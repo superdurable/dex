@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,6 +36,9 @@ const (
 	// Capping the lifetime keeps expiry arithmetic far from time.Duration overflow.
 	maxAPIKeyTokenLifetimeSeconds = math.MaxInt32
 )
+
+// jwtShapedSubstringPattern matches three dot-separated base64url segments of at least 10 characters each.
+var jwtShapedSubstringPattern = regexp.MustCompile(`[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]{10,}){2}`)
 
 // apiKeyCredential follows the SDK API key contract: one shared exchange at a time, run outside the mutex.
 type apiKeyCredential struct {
@@ -362,7 +366,8 @@ func (secrets apiKeySecrets) redact(text string) string {
 	for _, secret := range secrets {
 		text = strings.ReplaceAll(text, secret, redactedAPIKeySecret)
 	}
-	return text
+	// Older access tokens are not remembered, so every JWT-shaped substring is redacted too.
+	return jwtShapedSubstringPattern.ReplaceAllLiteralString(text, redactedAPIKeySecret)
 }
 
 func (secrets apiKeySecrets) redactError(err error) error {

@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,6 +36,9 @@ const (
 	// Capping the lifetime keeps expiry arithmetic far from time.Duration overflow.
 	maxAPIKeyTokenLifetimeSeconds = math.MaxInt32
 )
+
+// jwtShapedSubstringPattern matches three dot-separated base64url segments of at least 10 characters each.
+var jwtShapedSubstringPattern = regexp.MustCompile(`[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]{10,}){2}`)
 
 // APIKeyCredentialOption configures an APIKeyCredential.
 //
@@ -156,6 +160,11 @@ func WithAPIKeyHTTPClient(httpClient *http.Client) APIKeyCredentialOption {
 // transport error, the credential replaces each known secret with [REDACTED].
 // Known secrets are the API key, the two most recently issued access tokens even
 // after they are discarded, and an access_token string in the failed response.
+// The credential then replaces every JWT-shaped substring with [REDACTED] as well.
+// A JWT-shaped substring is three base64url segments separated by dots, each at
+// least 10 characters long. This rule redacts an older access token that a
+// long-running call still uses but the credential no longer remembers. It can
+// also redact other text of that shape, such as a long dotted host name.
 // The Dex connection itself is plaintext gRPC, so protect the network path
 // between the application and Dex.
 //
@@ -586,7 +595,8 @@ func (secrets apiKeySecrets) redact(text string) string {
 	for _, secret := range secrets {
 		text = strings.ReplaceAll(text, secret, redactedAPIKeySecret)
 	}
-	return text
+	// Older access tokens are not remembered, so every JWT-shaped substring is redacted too.
+	return jwtShapedSubstringPattern.ReplaceAllLiteralString(text, redactedAPIKeySecret)
 }
 
 func (secrets apiKeySecrets) redactError(err error) error {

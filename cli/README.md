@@ -284,7 +284,9 @@ response arrived is never used. A failed exchange fails the command before any F
 call, with the token URL, the HTTP status, and the endpoint's `error` and
 `error_description` fields. Errors never include the API key or an access token;
 `dexcli` replaces them with `[REDACTED]` in the endpoint's fields and in
-transport errors.
+transport errors. It also redacts every JWT-shaped substring there: three
+base64url segments separated by dots, each at least 10 characters long. This
+covers an older token that `dexcli` no longer remembers.
 
 `dexcli` does not retry a call that Dex rejects with `UNAUTHENTICATED`, and it
 keeps the rejected access token for later calls of the same command. Each
