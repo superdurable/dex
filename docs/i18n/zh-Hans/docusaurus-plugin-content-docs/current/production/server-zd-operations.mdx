@@ -156,7 +156,7 @@ spec:
 
 ### 优雅关闭 {#graceful-shutdown}
 
-把 **terminationGracePeriodSeconds** 设为至少 30 秒。收到 SIGTERM 后，节点在 14.5 秒内
+把 **terminationGracePeriodSeconds** 设为至少 30 秒。收到 SIGTERM 后，节点在大约 14 秒内
 按以下顺序停止：
 
 1. gRPC health 报告 **NOT_SERVING**。
@@ -164,10 +164,12 @@ spec:
 3. 正在进行的调用最多有 4 秒完成。
 4. 后台工作和引擎停止。
 5. 停止续约 lease，并用条件写释放 lease。
-6. 进程以 0 退出。
+6. 关闭 metrics 监听器和 Stream Store。
+7. 进程退出。
 
-之后，使用相同 **cluster.nodeId** 的替代进程会立即获得 lease。如果对象存储拒绝释放，
-或者释放超过 2 秒，进程以 1 退出，lease 会一直保持到过期。
+每一步都完成时，进程以 0 退出，使用相同 **cluster.nodeId** 的替代进程会立即获得 lease。
+如果某一步没有按时完成或者失败，例如对象存储拒绝释放 lease，进程以 1 退出。替代进程这时
+最多要等 **lease.duration** 再加约 1 秒。
 
 节点拿到 lease 之后，SIGTERM 可能在启动过程中到达。这时节点会先完成启动，再开始
 优雅关闭。因此，很长的日志重放可能超过宽限期。Kubernetes 随后会杀掉进程，下一次启动要
@@ -299,7 +301,7 @@ server 只在自己的前缀下列举对象，检查对象是否存在时也是�
 
 **s3:ListBucket** 的条件必须使用 **StringLike**，并带上上面示例中末尾的通配符。不支持
 精确匹配前缀的 **StringEquals** 授权，也不支持没有 **s3:ListBucket** 的策略。前缀非空时，
-启动会先在前缀下列举。列举被拒绝时，启动失败并给出以下信息：
+启动会先在前缀下列举。列举被拒绝时，启动失败，错误信息以下面的文字开头：
 
 ~~~text
 startup requires s3:ListBucket with StringLike s3:prefix "PREFIX/*"

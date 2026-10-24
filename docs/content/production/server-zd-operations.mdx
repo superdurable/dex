@@ -169,18 +169,21 @@ spec:
 ### Graceful shutdown {#graceful-shutdown}
 
 Set **terminationGracePeriodSeconds** to at least 30 seconds. On SIGTERM, the
-node stops within 14.5 seconds, in this order:
+node stops within about 14 seconds, in this order:
 
 1. gRPC health reports **NOT_SERVING**.
 2. Workers are told to reconnect, and long polls close.
 3. Open calls get up to 4 seconds to finish.
 4. Background work and the engine stop.
 5. Lease renewal stops, and the node releases its lease with a conditional write.
-6. The process exits 0.
+6. The metrics listener and the Stream Store close.
+7. The process exits.
 
-A replacement process with the same **cluster.nodeId** then acquires the lease
-at once. If object storage rejects the release, or the release takes more than
-2 seconds, the process exits 1. The lease then stays held until it expires.
+The process exits 0 when every step completes. A replacement process with the
+same **cluster.nodeId** then acquires the lease at once. The process exits 1
+when some shutdown step does not complete in time or fails, for example when
+object storage rejects the lease release. A replacement may then wait up to
+**lease.duration** plus about 1 second.
 
 A SIGTERM can arrive during startup after the node holds its lease. Startup then
 finishes before the graceful shutdown begins. A long log replay can therefore
@@ -335,7 +338,7 @@ allowed.
 The **s3:ListBucket** condition must use **StringLike** with the trailing
 wildcard shown above. An exact-prefix **StringEquals** grant is not supported. Neither is a policy without
 **s3:ListBucket**. With a non-empty prefix, startup lists under it first. A
-denied listing fails startup with this message:
+denied listing fails startup with a message that starts with this text:
 
 ~~~text
 startup requires s3:ListBucket with StringLike s3:prefix "PREFIX/*"
