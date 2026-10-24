@@ -196,6 +196,8 @@ fn recovered_memory(
     CheckerMemory {
         genesis_values,
         window_points,
+        // Later acks only make AS1 skip more keys, so the shadow's acks never misreport.
+        attribute_sync_acks: shadow.attribute_sync_acks().clone(),
     }
 }
 

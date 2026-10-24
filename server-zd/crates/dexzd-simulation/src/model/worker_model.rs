@@ -26,7 +26,7 @@ use rand_chacha::ChaCha8Rng;
 use crate::invariants::GUARDED_ATTRIBUTE_KEYS;
 use crate::model::value_generation::{
     ATTRIBUTE_KEYS, CHANNEL_NAMES, LOCAL_KEYS, STEP_TYPES, int_value, null_value, pick,
-    random_bytes, random_identifier, step_options, wire_value, worker_value,
+    random_bytes, random_identifier, step_options, sync_config_for, wire_value, worker_value,
 };
 use crate::state_view::RunView;
 
@@ -111,9 +111,11 @@ pub(crate) fn complete(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
         } else {
             worker_value(rng, call.run_id, &visible, INVALID_VALUE_PROBABILITY)
         };
+        let key = pick(rng, ATTRIBUTE_KEYS);
         writes.push(AttributeWrite {
-            key: pick(rng, ATTRIBUTE_KEYS).to_owned(),
+            key: key.to_owned(),
             value: Some(value),
+            sync_config: sync_config_for(key),
             ..AttributeWrite::default()
         });
     }

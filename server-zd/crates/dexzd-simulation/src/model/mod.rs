@@ -71,6 +71,10 @@ enum Proposal<'view> {
         run_id: RunId,
         timestamp_micros: i64,
     },
+    AttributeSyncAck {
+        run_id: RunId,
+        run: &'view RunView,
+    },
 }
 
 impl CommandGenerator {
@@ -162,6 +166,15 @@ impl CommandGenerator {
                     },
                 ));
             }
+            if !run.attribute_sync_entries.is_empty() {
+                proposals.push((
+                    3,
+                    Proposal::AttributeSyncAck {
+                        run_id: *run_id,
+                        run,
+                    },
+                ));
+            }
             if is_latest {
                 proposals.push((
                     1,
@@ -242,6 +255,10 @@ impl CommandGenerator {
                 timestamp_micros,
             } => {
                 let body = client_model::time_travel_to_window_point(flow_id, timestamp_micros);
+                self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
+            }
+            Proposal::AttributeSyncAck { run_id, run } => {
+                let body = client_model::attribute_sync_ack(rng, run);
                 self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
             }
             Proposal::StartAttempt(call) => {

@@ -8,6 +8,7 @@
 
 //! State invariants checked after every applied command (plan sections 8 and 10).
 
+mod attribute_sync_invariants;
 mod directory_invariants;
 mod lock_invariants;
 mod value_invariants;
@@ -20,6 +21,7 @@ use dexzd_keyspace::{FlowHash, RunId, ValueId};
 use crate::memory_state::MemoryFlowState;
 use crate::state_view::FlowView;
 
+pub(crate) use attribute_sync_invariants::{AttributeSyncAcks, check_outbox_writes, remember_ack};
 pub use lock_invariants::check_fresh_snapshot;
 pub(crate) use value_invariants::remember_window_points;
 
@@ -75,6 +77,8 @@ pub struct CheckerMemory {
     pub genesis_values: BTreeMap<RunId, BTreeSet<ValueId>>,
     /// Value references observed when each semantic point was current, retained through its window.
     pub(crate) window_points: BTreeMap<RunId, BTreeMap<u64, WindowPointState>>,
+    /// Applied Attribute Sync acks, which may delete entries up to their seqs.
+    pub(crate) attribute_sync_acks: attribute_sync_invariants::AttributeSyncAcks,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +106,7 @@ pub fn check_flow(
     memory: &CheckerMemory,
 ) -> Result<(), InvariantViolation> {
     directory_invariants::check_directory(flow_id, view)?;
+    attribute_sync_invariants::check_index_runs_exist(flow_id, view)?;
     for (run_id, run) in view.runs.iter().filter(|(_, run)| run.is_complete) {
         let context = RunContext { flow_id, run_id };
         directory_invariants::check_run_record(&context, run)?;
@@ -112,6 +117,12 @@ pub fn check_flow(
         lock_invariants::check_guarded_attributes(&context, run)?;
         let genesis = memory.genesis_values.get(run_id);
         value_invariants::check_values(&context, run, genesis, memory.window_points.get(run_id))?;
+        attribute_sync_invariants::check_run_entries(
+            &context,
+            run,
+            view,
+            &memory.attribute_sync_acks,
+        )?;
     }
     Ok(())
 }

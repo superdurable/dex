@@ -115,6 +115,7 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         "StepAttemptFailed",
         "StepMethodCompleted",
         "TimersFired",
+        "AttributeSyncAck",
     ] {
         assert!(
             total.applied(kind) > 0,
@@ -350,7 +351,7 @@ fn table_value_id(stored: &StoredValue) -> Option<ValueId> {
 #[test]
 fn pinned_snapshot_value_survives_window_advance_and_final_holder_release() {
     let mut checker = ApplyChecker::new();
-    let mut generator = CommandGenerator::new(FIRST_SEED + 3);
+    let mut generator = CommandGenerator::new(FIRST_SEED + 5);
     let mut pinned_value: Option<(RunId, ValueId, Vec<u8>)> = None;
     for _ in 0..DEFAULT_COMMANDS_PER_SEED {
         let command = generator.next_command(&checker).expect("state decodes");
