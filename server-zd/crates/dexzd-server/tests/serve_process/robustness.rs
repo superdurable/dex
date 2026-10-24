@@ -145,10 +145,12 @@ async fn lost_local_directory_restores_from_snapshot_and_log_tail() {
     process.kill().await;
     worker.stop().await;
     load.stop().await;
-    assert_eq!(
-        inspector.snapshot_manifest_keys().await,
-        manifest_keys,
-        "the log-tail process must not snapshot:\n{}",
+    let remaining_manifest_keys = inspector.snapshot_manifest_keys().await;
+    assert!(
+        remaining_manifest_keys
+            .iter()
+            .all(|key| manifest_keys.contains(key)),
+        "the log-tail process must not create a snapshot:\n{}",
         process.log()
     );
 

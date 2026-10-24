@@ -1,0 +1,183 @@
+name: Server ZD MinIO Nightly
+
+on:
+  schedule:
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/server-zd-minio-nightly.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-zd-minio-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_BUILD_JOBS: "4"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  RUSTUP_TOOLCHAIN: "1.97.1"
+  AWS_ACCESS_KEY_ID: serve-test-access-key
+  AWS_SECRET_ACCESS_KEY: serve-test-secret-key
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_ENDPOINT_URL_S3: http://127.0.0.1:9000
+  DEX_ZD_S3_TEST_ENDPOINT: http://127.0.0.1:9000
+  DEX_ZD_S3_TEST_BUCKET: dex-serve
+  S3MOCK_REQUIRED_TESTS: >-
+    conditions::if_none_match_creates_only_once
+    conditions::concurrent_if_none_match_has_exactly_one_winner
+    conditions::if_match_compares_the_current_etag
+    multipart::three_parts_become_visible_only_after_completion_and_ranges_cross_boundaries
+    multipart::aborted_and_unknown_upload_ids_return_no_such_upload
+    multipart::conditional_completion_cannot_overwrite_an_existing_key
+    multipart::crc32_parts_echo_checksums_and_get_returns_a_composite_checksum
+    multipart_validation::composite_completion_requires_each_part_checksum
+    listing::pagination_visits_every_entry_once
+    listing::start_after_skips_earlier_keys
+    objects::in_memory_put_round_trips_body_metadata_and_etag
+    objects::streamed_file_put_uses_aws_chunked_with_trailing_checksum
+    objects::mismatched_digests_reject_the_upload
+    objects::ranges_return_partial_content
+    objects::deleting_a_missing_key_succeeds
+    delete_objects::batch_delete_reports_existing_and_missing_keys_as_deleted
+    delete_objects::quiet_batch_delete_omits_successes
+    buckets::missing_bucket_reports_no_such_bucket
+
+jobs:
+  minio:
+    name: MinIO ${{ matrix.minio.tag }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        minio:
+          # ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z@sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9 is the published multi-arch image.
+          - tag: RELEASE.2025-10-15T17-29-55Z
+            digest: sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for RocksDB
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            s3mock
+            server-zd
+          shared-key: server-zd-minio
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Start MinIO service container
+        run: |
+          set -euo pipefail
+          MINIO_KMS_SECRET_KEY="minio-nightly:$(openssl rand -base64 32)"
+          export MINIO_KMS_SECRET_KEY
+          # The published image needs explicit server arguments, which GitHub's services syntax cannot pass.
+          docker run --detach --name dex-minio --publish 9000:9000 \
+            --env MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" \
+            --env MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" \
+            --env MINIO_KMS_SECRET_KEY \
+            "ghcr.io/coollabsio/minio:${{ matrix.minio.tag }}@${{ matrix.minio.digest }}" \
+            server /data
+          for ((attempt = 1; attempt <= 60; attempt++)); do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs dex-minio
+          exit 1
+      - name: Create server bucket
+        run: aws --endpoint-url "$DEX_ZD_S3_TEST_ENDPOINT" s3api create-bucket --bucket "$DEX_ZD_S3_TEST_BUCKET"
+      - name: Run required S3 conformance against MinIO
+        timeout-minutes: 30
+        working-directory: s3mock
+        env:
+          S3MOCK_CONFORMANCE_TARGET: aws
+        run: |
+          set -uo pipefail
+          read -r -a required_tests <<< "$S3MOCK_REQUIRED_TESTS"
+          required_failed=0
+          for test_name in "${required_tests[@]}"; do
+            if cargo test --locked -p s3mock-conformance --test conformance "$test_name" -- --exact 2>&1 \
+              | tee "$RUNNER_TEMP/s3mock-required-case.log" \
+              | tee -a "$RUNNER_TEMP/s3mock-required.log"; then
+              if grep -Fq 'test result: ok. 1 passed;' "$RUNNER_TEMP/s3mock-required-case.log"; then
+                continue
+              fi
+              printf 'Required test did not run exactly once: %s\n' "$test_name" >&2
+            fi
+            required_failed=1
+          done
+          exit "$required_failed"
+      - name: Run server-zd object-store conformance
+        if: ${{ !cancelled() }}
+        timeout-minutes: 30
+        working-directory: server-zd
+        run: |
+          set -o pipefail
+          cargo test --locked -p dexzd-object-store --test conformance strict_s3_conformance -- --exact 2>&1 \
+            | tee "$RUNNER_TEMP/dexzd-object-store.log"
+      - name: Run server-zd commit protocol
+        if: ${{ !cancelled() }}
+        timeout-minutes: 30
+        working-directory: server-zd
+        run: |
+          set -o pipefail
+          cargo test --locked -p dexzd-log --test log_protocol external_s3_commit_protocol -- --exact 2>&1 \
+            | tee "$RUNNER_TEMP/dexzd-log.log"
+      - name: Run process recovery smoke test
+        if: ${{ !cancelled() }}
+        timeout-minutes: 30
+        working-directory: server-zd
+        env:
+          DEX_ZD_TEST_LOG_DIRECTORY: ${{ runner.temp }}/dexzd-logs
+        run: |
+          set -o pipefail
+          cargo test --locked -p dexzd-server --test serve_process object_store_compatibility::object_store_serve_recovers_after_warm_and_cold_restart -- --exact 2>&1 \
+            | tee "$RUNNER_TEMP/dexzd-serve.log"
+      - name: Run informational S3 conformance against MinIO
+        if: ${{ !cancelled() }}
+        timeout-minutes: 30
+        continue-on-error: true
+        working-directory: s3mock
+        env:
+          S3MOCK_CONFORMANCE_TARGET: aws
+        run: |
+          set -uo pipefail
+          read -r -a required_tests <<< "$S3MOCK_REQUIRED_TESTS"
+          skip_arguments=()
+          for test_name in "${required_tests[@]}"; do
+            skip_arguments+=(--skip "$test_name")
+          done
+          test_status=0
+          cargo test --locked -p s3mock-conformance --test conformance -- "${skip_arguments[@]}" --test-threads=4 2>&1 \
+            | tee "$RUNNER_TEMP/s3mock-conformance.log" || test_status=${PIPESTATUS[0]}
+          {
+            printf 'Full S3 conformance exit code: %s\n' "$test_status"
+            awk '/^test .* \.\.\. FAILED$/ || /^test result:/' "$RUNNER_TEMP/s3mock-conformance.log"
+          } > "$RUNNER_TEMP/s3mock-conformance-summary.txt"
+          exit "$test_status"
+      - name: Upload informational conformance summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-zd-minio-${{ matrix.minio.tag }}-conformance-summary
+          path: ${{ runner.temp }}/s3mock-conformance-summary.txt
+          if-no-files-found: warn
+      - name: Capture MinIO logs
+        if: ${{ failure() || cancelled() }}
+        run: docker logs dex-minio > "$RUNNER_TEMP/minio.log" 2>&1 || true
+      - name: Upload failure logs
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-zd-minio-${{ matrix.minio.tag }}-logs
+          path: |
+            ${{ runner.temp }}/*.log
+            ${{ runner.temp }}/dexzd-logs/*.log
+          if-no-files-found: warn

@@ -375,6 +375,33 @@ make build-server            # builds target/release/dex-server-zd
 Local tests use only the in-process s3mock (`../s3mock`) or the in-memory object store. They need
 no docker, MinIO, or Temporal.
 
+### Object storage compatibility
+
+The [MinIO nightly](../.github/workflows/server-zd-minio-nightly.yml) checks the coollabsio
+`RELEASE.2025-10-15T17-29-55Z` build (image digest
+`sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9`). The
+server-zd object-store and commit-protocol tests, the `serve` warm and cold restart test, and
+S3 conformance tests for server-zd's object storage contract are required. The remaining S3
+conformance tests are informational; the workflow uploads their result summary. This is the
+MinIO release tracked for compatibility; each additional release needs its own matrix entry and
+passing required tests. The workflow also supports manual runs.
+
+The full S3 conformance suite exercises features beyond server-zd's object storage contract.
+The pinned MinIO release has shown these deviations from the suite's S3 expectations:
+
+| S3 behavior | Observed MinIO behavior | server-zd use |
+| --- | --- | --- |
+| Recreating an owned bucket in `us-east-1` | Returns `BucketAlreadyOwnedByYou`: "Your previous request to create the named bucket succeeded and you already own it." | No; the bucket is provisioned before server startup |
+| Lifecycle rule for aborting incomplete multipart uploads | Reads `DaysAfterInitiation` as "left: None" instead of "right: Some(2)"; expiration days round-trip | No lifecycle API use |
+| Versioned batch delete | No listed marker satisfies the run's assertion, "entry.is_latest() == Some(true)" | No bucket versioning use |
+| Multipart upload listing with prefix and markers | Returns "left: 0" where the test expects "right: 1" upload | No multipart upload listing use |
+| Checksummed multipart part numbering | A SHA-256 upload completed from part 2; the test logged "called `Result::unwrap_err()` on an `Ok` value" | No; server-zd uploads CRC32 parts consecutively from part 1 |
+| Multipart full-object checksum type | A COMPOSITE checksum-type header on a FULL_OBJECT upload was accepted; the test logged "called `Result::unwrap_err()` on an `Ok` value" after a wrong full-object CRC32 value was rejected | No checksum-type header; server-zd uses CRC32 part checksums |
+| Reading a delete marker version | Fails "S3 reports the delete marker's Last-Modified on 405" | No bucket versioning use |
+
+The encrypted multipart conformance fixtures need a test KMS. The workflow configures one for
+each run; an upload initiation failure without it does not measure multipart completion behavior.
+
 ### Persistent format testdata
 
 `testdata/v<N>` holds a recorded log, snapshot, cluster metadata, and committed state.

@@ -26,6 +26,9 @@ zstd.workspace = true
 [dev-dependencies]
 async-trait.workspace = true
 dhat.workspace = true
+s3mock.workspace = true
+s3mock-server.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

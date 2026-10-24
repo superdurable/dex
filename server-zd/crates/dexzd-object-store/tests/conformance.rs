@@ -400,66 +400,111 @@ async fn in_memory_conformance() {
 
 async fn s3_conformance(durability: Durability) {
     let directory = TempDir::new().expect("the conformance operation succeeds");
-    let store = Store::open(&StoreConfig {
-        root_directory: directory.path().to_path_buf(),
-        durability,
-        etag_mode: EtagMode::Opaque,
-    })
-    .expect("the conformance operation succeeds");
-    store
-        .create_bucket("object-store-conformance", false)
-        .expect("the conformance operation succeeds");
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("the conformance operation succeeds");
-    let store = Arc::new(store);
-    let server = s3mock_server::start(Arc::clone(&store), listener)
-        .expect("the conformance operation succeeds");
-    let mut config = S3ObjectStoreConfig::new("us-east-1", "object-store-conformance");
-    config.endpoint = Some(format!("http://{}", server.local_address()));
-    config.key_prefix = "dexzd/conformance".to_owned();
-    config.force_path_style = true;
-    config.credentials = S3Credentials::Static {
-        access_key_id: "s3mock".to_owned(),
-        secret_access_key: "s3mock".to_owned(),
-        session_token: None,
+    let external_endpoint = match std::env::var("DEX_ZD_S3_TEST_ENDPOINT") {
+        Ok(endpoint) => Some(endpoint),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(error) => panic!("DEX_ZD_S3_TEST_ENDPOINT is unreadable: {error}"),
     };
+    let is_external_endpoint = external_endpoint.is_some();
+    let (store, server, endpoint, bucket, credentials) = if let Some(endpoint) = external_endpoint {
+        (
+            None,
+            None,
+            endpoint,
+            std::env::var("DEX_ZD_S3_TEST_BUCKET").expect("the external bucket is configured"),
+            S3Credentials::Static {
+                access_key_id: std::env::var("AWS_ACCESS_KEY_ID")
+                    .expect("the external access key is configured"),
+                secret_access_key: std::env::var("AWS_SECRET_ACCESS_KEY")
+                    .expect("the external secret key is configured"),
+                session_token: None,
+            },
+        )
+    } else {
+        let store = Store::open(&StoreConfig {
+            root_directory: directory.path().to_path_buf(),
+            durability,
+            etag_mode: EtagMode::Opaque,
+        })
+        .expect("the conformance operation succeeds");
+        store
+            .create_bucket("object-store-conformance", false)
+            .expect("the conformance operation succeeds");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("the conformance operation succeeds");
+        let store = Arc::new(store);
+        let server = s3mock_server::start(Arc::clone(&store), listener)
+            .expect("the conformance operation succeeds");
+        let endpoint = format!("http://{}", server.local_address());
+        (
+            Some(store),
+            Some(server),
+            endpoint,
+            "object-store-conformance".to_owned(),
+            S3Credentials::Static {
+                access_key_id: "s3mock".to_owned(),
+                secret_access_key: "s3mock".to_owned(),
+                session_token: None,
+            },
+        )
+    };
+    let mut config = S3ObjectStoreConfig::new("us-east-1", bucket.clone());
+    config.endpoint = Some(endpoint);
+    config.key_prefix = if is_external_endpoint {
+        let run_directory_name = directory
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("the temporary directory has a UTF-8 name");
+        format!("dexzd/conformance/{run_directory_name}")
+    } else {
+        "dexzd/conformance".to_owned()
+    };
+    config.force_path_style = true;
+    config.credentials = credentials;
     config.multipart_threshold = 5 * 1024 * 1024;
     config.multipart_part_size = 5 * 1024 * 1024;
     let object_store = S3ObjectStore::new(config)
         .await
         .expect("the conformance operation succeeds");
     check_store(&object_store).await;
-    let request_log = s3mock_request_log(server.local_address()).await;
-    assert!(
-        request_log.contains("\"operation\":\"ListObjectsV2\""),
-        "{request_log}"
-    );
-    assert!(
-        !request_log.contains("\"operation\":\"HeadBucket\""),
-        "{request_log}"
-    );
-    assert!(
-        request_log.contains("\"key\":\"dexzd/conformance/probe/"),
-        "{request_log}"
-    );
-    let uploads = store
-        .list_multipart_uploads(
-            "object-store-conformance",
-            &s3mock::ListMultipartUploadsRequest {
-                prefix: "dexzd/conformance/".to_owned(),
-                delimiter: String::new(),
-                key_marker: None,
-                upload_id_marker: None,
-                max_uploads: 1000,
-            },
-        )
-        .expect("multipart uploads can be inspected after failed conditions");
-    assert!(
-        uploads.uploads.is_empty(),
-        "failed conditional uploads must be aborted"
-    );
-    server.shutdown().await;
+    if let Some(server) = &server {
+        let request_log = s3mock_request_log(server.local_address()).await;
+        assert!(
+            request_log.contains("\"operation\":\"ListObjectsV2\""),
+            "{request_log}"
+        );
+        assert!(
+            !request_log.contains("\"operation\":\"HeadBucket\""),
+            "{request_log}"
+        );
+        assert!(
+            request_log.contains("\"key\":\"dexzd/conformance/probe/"),
+            "{request_log}"
+        );
+    }
+    if let Some(store) = store {
+        let uploads = store
+            .list_multipart_uploads(
+                &bucket,
+                &s3mock::ListMultipartUploadsRequest {
+                    prefix: "dexzd/conformance/".to_owned(),
+                    delimiter: String::new(),
+                    key_marker: None,
+                    upload_id_marker: None,
+                    max_uploads: 1000,
+                },
+            )
+            .expect("multipart uploads can be inspected after failed conditions");
+        assert!(
+            uploads.uploads.is_empty(),
+            "failed conditional uploads must be aborted"
+        );
+    }
+    if let Some(server) = server {
+        server.shutdown().await;
+    }
 }
 
 #[tokio::test]
