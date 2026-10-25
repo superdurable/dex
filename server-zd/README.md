@@ -9,12 +9,13 @@ so the Dex SDKs work without changes. It differs from the Go Server in a few doc
 example, it supports only pull Workers).
 
 StopFlow closes the run as soon as it commits. A later write to that run, such as SetAttributes,
-returns NOT_FOUND. The Go Server accepts such writes while its run winds down after a cancel.
-Write what a Flow needs before stopping it. Since v0.1.5, SetAttributes has one exception on a
-closed run that is not yet purged: it is accepted when every write sets a currently stored
-hard-delete Attribute to null and the request has no Action permission mapping. The erase deletes
-the stored values and leaves the run closed. Value writes, ordinary erases, and mixed requests
-still return NOT_FOUND. StopFlow and Terminate never wait for Attribute Store synchronization.
+returns NOT_FOUND. Since v0.1.5, SetAttributes has one exception on a closed run that is not yet
+purged: it is accepted when the request has at least one write and every write sets a currently
+stored hard-delete Attribute to null, and the request omits the Action permission mappings field.
+The erase deletes the stored values and leaves the run closed. Value writes, ordinary erases, and
+mixed requests still return NOT_FOUND. The Go Server accepts writes while a canceled or failed run
+winds down, and rejects every write after the run closes. Write what a Flow needs before stopping
+it. StopFlow and Terminate never wait for Attribute Store synchronization.
 
 ## Layout
 

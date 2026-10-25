@@ -258,8 +258,9 @@ server-zd v0.1.3 或更高版本也能同步 Attribute。它使用相同的 **at
 - **syncRetryPolicy.totalDuration** 限制的是每个待写入值的重试时长，而不是整个关闭。PostgreSQL
   故障期间，关闭会一直等到待写入的值被丢弃。关闭等待期间接受的同步写入，包括在关闭之前已被接纳的
   事务性 RPC 的写入，都会延长等待。
-- StopFlow 和 Terminate 从不等待。StopFlow 一提交，run 就会关闭。之后对该 run 的 **SetAttributes**
-  通常返回 NOT_FOUND；只有请求中的每项写入都是把当前存储的 hard-delete Attribute 设为 null 时才会被接受。
+- **StopFlow** 和 **Terminate** 从不等待。**StopFlow** 一提交，run 就会关闭。之后对该 run 的
+  **SetAttributes** 返回 NOT_FOUND。从 server-zd v0.1.5 起，只有请求中的每项写入都是把当前存储的
+  [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) 设为 null 时，才会被接受。
   Flow 需要的数据请在停止之前写入。
 
 详见 server-zd 运维指南中的
