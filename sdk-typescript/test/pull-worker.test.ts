@@ -550,7 +550,7 @@ test("reopened stream answers Ping after a task ends on a closed stream", async 
     // Leave the replacement unregistered so the reopened stream is not retired.
     await harness.nextStream();
     first.call.emit("error", { code: status.UNAVAILABLE, details: "proxy reset" });
-    await until(() => worker.pullRegistrationState().queues.every((queue) => !queue.hasRegisteredStream));
+    await until(() => worker.registration.snapshot().queues.every((queue) => !queue.hasRegisteredStream));
     finishTask();
     const reopened = await harness.nextStream();
     reopened.call.write(registered(false));
