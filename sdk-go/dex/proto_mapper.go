@@ -1073,23 +1073,24 @@ func mapFlowResult(
 	}, nil
 }
 
-func mapFlowInfo(response *dexpb.GetFlowSummaryResponse) (FlowInfo, error) {
-	if response == nil || response.FlowExecutionId == nil ||
-		response.FlowExecutionId.FlowId == "" || response.FlowExecutionId.RunId == "" ||
-		response.FlowType == "" || response.StartTime == nil {
-		return FlowInfo{}, fmt.Errorf("dex: Flow summary is incomplete")
+func mapFlowInfo(flowID string, response *dexpb.GetFlowSummaryResponse) (FlowInfo, error) {
+	if response.GetFlowExecutionId() == nil {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing FlowExecutionId", flowID)
+	}
+	if response.StartTime == nil {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing StartTime", flowID)
 	}
 	status, err := mapFlowStatus(response.FlowStatus)
 	if err != nil {
 		return FlowInfo{}, err
 	}
 	if err := response.StartTime.CheckValid(); err != nil {
-		return FlowInfo{}, fmt.Errorf("dex: invalid Flow summary start time: %w", err)
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q has an invalid StartTime: %w", flowID, err)
 	}
 	closedAt := time.Time{}
 	if response.CloseTime != nil {
 		if err := response.CloseTime.CheckValid(); err != nil {
-			return FlowInfo{}, fmt.Errorf("dex: invalid Flow summary close time: %w", err)
+			return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q has an invalid CloseTime: %w", flowID, err)
 		}
 		closedAt = response.CloseTime.AsTime()
 	}

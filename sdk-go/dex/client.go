@@ -343,6 +343,7 @@ type FlowInfo struct {
 	// RunID is the server-assigned run ID.
 	RunID string
 	// FlowType is the registered Flow type.
+	// It is empty when the server did not record a Flow type for this run.
 	FlowType string
 	// Status is the current or terminal Flow status.
 	Status FlowStatus
@@ -766,7 +767,7 @@ func (client *Client) DescribeFlow(ctx context.Context, flowID string) (FlowInfo
 	if err != nil {
 		return FlowInfo{}, translateRPCError(err, "DescribeFlow", flowID, flowTargetExisting)
 	}
-	return mapFlowInfo(response)
+	return mapFlowInfo(flowID, response)
 }
 
 // SearchFlows returns one server-ordered page of Flow executions matching query.

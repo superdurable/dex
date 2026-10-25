@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type mapperStep struct {
@@ -338,6 +339,84 @@ func TestResultMappingRejectsUnknownEnumsAndBlobValues(t *testing.T) {
 		}},
 	})
 	require.ErrorContains(t, err, "not hydrated")
+}
+
+func TestFlowInfoMappingRejectsIncompleteSummaries(t *testing.T) {
+	executionID := &dexpb.FlowExecutionID{FlowId: "order-123", RunId: "run-1"}
+	startTime := timestamppb.New(time.Unix(100, 0))
+	invalidTime := &timestamppb.Timestamp{Nanos: -1}
+	testCases := []struct {
+		name          string
+		response      *dexpb.GetFlowSummaryResponse
+		expectedError string
+	}{
+		{
+			name:          "nil response",
+			expectedError: "is missing FlowExecutionId",
+		},
+		{
+			name: "nil execution ID",
+			response: &dexpb.GetFlowSummaryResponse{
+				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+				StartTime:  startTime,
+			},
+			expectedError: "is missing FlowExecutionId",
+		},
+		{
+			name: "nil start time",
+			response: &dexpb.GetFlowSummaryResponse{
+				FlowExecutionId: executionID,
+				FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+			},
+			expectedError: "is missing StartTime",
+		},
+		{
+			name: "invalid start time",
+			response: &dexpb.GetFlowSummaryResponse{
+				FlowExecutionId: executionID,
+				FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+				StartTime:       invalidTime,
+			},
+			expectedError: "has an invalid StartTime",
+		},
+		{
+			name: "invalid close time",
+			response: &dexpb.GetFlowSummaryResponse{
+				FlowExecutionId: executionID,
+				FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
+				StartTime:       startTime,
+				CloseTime:       invalidTime,
+			},
+			expectedError: "has an invalid CloseTime",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := mapFlowInfo("order-123", testCase.response)
+			require.ErrorContains(t, err, `DescribeFlow response for Flow "order-123"`)
+			require.ErrorContains(t, err, testCase.expectedError)
+		})
+	}
+}
+
+func TestFlowInfoMappingAcceptsEmptyFlowType(t *testing.T) {
+	startedAt := time.Unix(100, 0).UTC()
+	closedAt := startedAt.Add(time.Minute)
+	info, err := mapFlowInfo("order-123", &dexpb.GetFlowSummaryResponse{
+		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: "order-123", RunId: "run-1"},
+		FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
+		StartTime:       timestamppb.New(startedAt),
+		CloseTime:       timestamppb.New(closedAt),
+	})
+	require.NoError(t, err)
+	require.Equal(t, FlowInfo{
+		FlowID:    "order-123",
+		RunID:     "run-1",
+		FlowType:  "",
+		Status:    FlowCompleted,
+		StartedAt: startedAt,
+		ClosedAt:  closedAt,
+	}, info)
 }
 
 func TestFlowConfigRejectsUnknownEnums(t *testing.T) {
