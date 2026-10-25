@@ -227,7 +227,7 @@ dexcli health --api-key-file ~/.dex/api-key \
 
 #### dexcli TLS transport
 
-CLI v1.18.0 or later can reach a Dex endpoint whose server, or a gateway in front of it, terminates TLS. Commands still use plaintext gRPC by default. The TLS settings apply to every command that connects to FlowService, including `dexcli health` and `dexcli version check`.
+CLI v1.18.0 or later can reach a Dex endpoint behind a TLS-terminating gateway or load balancer. Commands still use plaintext gRPC by default. The TLS settings apply to every command that connects to FlowService, including `dexcli health` and `dexcli version check`.
 
 - `--tls` or `DEX_TLS=true` dials with TLS 1.2 or later and verifies the server certificate against the system root CAs. `DEX_TLS` accepts boolean values such as `true`, `false`, `1`, and `0`; any other value is a usage error. `--tls=false` overrides `DEX_TLS=true`.
 - The certificate must match the `--server` host, which `dexcli` also sends as the TLS server name (SNI). Set `--tls-server-name` or `DEX_TLS_SERVER_NAME` when the certificate names another host, for example when `--server` is an IP address.
@@ -364,8 +364,10 @@ Attribute Store synchronization is available from server-zd v0.1.3. Its `attribu
 
 - Only `type: postgres` is supported. Any other store type fails startup, so keep MySQL, Databricks, Snowflake, and MongoDB stores on the Go Server.
 - Synchronization is asynchronous. Step, RPC, and SetAttributes commits do not wait for the table write, so treat the table as eventually consistent. Rows normally appear within about a second of the commit.
-- While a store is unavailable, Flows keep running and the backlog is written later with the latest values. Entries still pending after `syncRetryPolicy.totalDuration` are dropped.
+- While a store is unavailable, Flows keep running and the backlog is written later with the latest values. Entries still pending `syncRetryPolicy.totalDuration` after they were first marked are dropped; the Go Server measures it per batch instead. Later writes of the same Attributes sync normally.
 - After time travel, server-zd rewrites every row the run synced with the state after the time travel.
+- In server-zd v0.1.3, a Flow closes without waiting for its synced Attributes, so rows can land after the Flow completes. Do not treat Flow completion as proof that the table is current on that release. The Go Server closes a Flow only after its pending writes are written or dropped.
+- StopFlow closes the run as soon as it commits, and a later SetAttributes on that run returns NOT_FOUND. Write what the Flow needs before stopping it. Its pending rows still sync after the close.
 - Each database needs a Dex fencing table, named by `fencingTableName` (default `dexzd_attribute_sync_fencing`). Create it as the table owner and grant `SELECT`, `INSERT`, and `UPDATE` on it to the Dex role. `dex-server-zd` never creates or alters tables, and startup fails when the fencing table is missing.
 
 The [server-zd Attribute Store guide](https://docs.superdurable.io/production/server-zd-operations#attribute-store) has the fencing table statement, retry behavior, and sync metrics. [server-zd v0.1.3 release](https://github.com/superdurable/dex/releases/tag/server-zd/v0.1.3)
@@ -376,7 +378,7 @@ For local development, CLI v1.16.0 or later runs `dexcli dev --engine zd`, which
 - State persists in `$HOME/.dex/zd/<dex-port>` unless `--zd-data-dir` names another directory.
 - `--zd-config FILE` passes a `dex-server-zd` YAML file with configuration overrides, such as closed Flow retention, Streams, or the search backend.
 - Logs go to standard error; `--server-log-folder` also writes `dex-server-zd.log`.
-- From CLI v1.19.0, `--attribute-store-config FILE` works with `--engine zd` and needs `dex-server-zd` v0.1.3 or later, because the CLI does not check the binary version. The CLI passes the file to `dex-server-zd`, which reads only its `attributeStore` section. The file must define at least one store, and the `--zd-config` file must not also set `attributeStore`. Through CLI v1.18.x, `--attribute-store-config` cannot be combined with `--engine zd`.
+- From CLI v1.19.0, `--attribute-store-config FILE` works with `--engine zd`. The CLI does not check the binary version, so use `dex-server-zd` v0.1.3 or later. The CLI passes the file to `dex-server-zd`, which reads only its `attributeStore` section. The file must define at least one store, and the `--zd-config` file must not also set `attributeStore`. The default engine and the Go Server reject `fencingTableName`, so a file they also load must use the default fencing table name. The database still needs the destination tables and the fencing table. Through CLI v1.18.x, `--attribute-store-config` cannot be combined with `--engine zd`.
 - Temporal and Go Server options, such as `--sqlite-db-filename`, `--external-temporal-address`, `--verbose-engine-log`, and `--blob-store-dir`, cannot be combined with `--engine zd`.
 
 [Released CLI engine options](https://github.com/superdurable/dex/blob/cli-v1.19.0/cli/README.md)

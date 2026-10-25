@@ -70,7 +70,7 @@ project-local `dexcli` and put its directory first on `PATH` for this project.
 Before connecting a Worker to a non-local Dex Server, run
 `dexcli version check --server ADDRESS` against that Server. It reports the
 highest common protocol and exits non-zero for a nonoverlapping interval.
-When the Server or a gateway in front of it terminates TLS, add `--tls`
+When a gateway or load balancer in front of the Server terminates TLS, add `--tls`
 with CLI v1.18.0 or later; see
 [dexcli TLS transport](../../dex-sdk/references/core/operations.md#dexcli-tls-transport).
 

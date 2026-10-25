@@ -143,7 +143,7 @@ def main() -> None:
     require_text(
         arguments.dex_root / "cli" / "README.md",
         "`--attribute-store-config` also works with `--engine zd`",
-        "Do not also set\n`attributeStore` in the `--zd-config` file.",
+        "`attributeStore` in the `--zd-config` file.",
         "### Connect over TLS",
         "TLS never falls back to plaintext.",
         "ALPN `h2`",
@@ -173,6 +173,7 @@ def main() -> None:
         "dex-server-zd never creates or alters tables",
         "`--attribute-store-config` reads only the `attributeStore` section",
         "which must define at least one store",
+        "StopFlow closes the run as soon as it commits.",
     )
     require_text(
         arguments.dex_root / "web" / "api" / "v2.go",
