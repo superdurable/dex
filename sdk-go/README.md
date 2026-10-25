@@ -725,6 +725,8 @@ idle streams per queue. After load drops, the steady-state bound is
 `MaxConcurrentTasks + (1 + number of Flow types) * IdleStreamsPerQueue` streams.
 Allow up to one more stream per queue for 30 seconds after reserve declines,
 or up to `1 + number of Flow types` additional streams.
+The SDK sends an upstream Pong every 20 seconds while a task runs and stops
+before its final frame. This interval is internal and needs no Worker option.
 The transient peak during a burst remains bounded by the matching caps. Size both
 options for `matching.maxConcurrentTasksCap` per app Worker ID per matching owner
 (default 256) and `matching.maxStreams` per Matching instance (default 100,000).

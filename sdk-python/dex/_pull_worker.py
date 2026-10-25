@@ -38,6 +38,7 @@ from dex.worker_options import PullWorkerOptions
 
 _LOGGER = logging.getLogger(__name__)
 _GRPC_AIO_EOF = getattr(grpc.aio, "EOF")
+_BUSY_PULL_STREAM_KEEPALIVE_SECONDS = 20
 _PERMANENT_CODES = {
     grpc.StatusCode.UNAUTHENTICATED,
     grpc.StatusCode.PERMISSION_DENIED,
@@ -368,6 +369,8 @@ class PullStream:
         self._active = threading.Event()
         self._call: Any = None
         self._send_lock = asyncio.Lock()
+        self._keepalive_task: asyncio.Task[None] | None = None
+        self._is_final_frame_sent = False
         self._is_reconnecting = False
         self._stream_metadata: Any = None
         self._deadline_handle: asyncio.TimerHandle | None = None
@@ -475,6 +478,7 @@ class PullStream:
         if self.runtime.is_stopping:
             return False
         self._supports_unknown_name_rejection = False
+        self._is_final_frame_sent = False
         self._stream_metadata = None
         if self.runtime._credential_runner is None:
             self._call = self.stub.PollWorkerTask()
@@ -522,9 +526,11 @@ class PullStream:
                             and frame.WhichOneof("frame") == "task"
                         ):
                             await self._reject_task(frame.task)
-                    self.is_half_closing = True
-                    self.runtime.signal()
-                    await self._call.done_writing()
+                    async with self._send_lock:
+                        self._stop_keepalive()
+                        self.is_half_closing = True
+                        self.runtime.signal()
+                        await self._call.done_writing()
                     await self._await_stream_eof(reader)
                     reader = None
                     self._is_reconnecting = not self._is_retiring
@@ -566,6 +572,8 @@ class PullStream:
                         self._is_reconnecting = True
                         return was_registered
         finally:
+            async with self._send_lock:
+                self._stop_keepalive()
             retirement.cancel()
             await asyncio.gather(retirement, return_exceptions=True)
             self.is_half_closing = False
@@ -647,6 +655,8 @@ class PullStream:
         self.is_busy = True
         self.task_id = task.task_id
         self._active.set()
+        self._is_final_frame_sent = False
+        self._keepalive_task = asyncio.create_task(self._send_busy_keepalives())
         self.handler_task = asyncio.create_task(self._execute(task))
         if task.HasField("deadline"):
             deadline = task.deadline.ToDatetime(tzinfo=timezone.utc)
@@ -771,14 +781,53 @@ class PullStream:
     async def _send_frame(self, frame: pb.PollWorkerTaskFrame) -> None:
         await self._send(pb.PollWorkerTaskRequest(task_frame=frame))
 
+    async def _send_busy_keepalives(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(_BUSY_PULL_STREAM_KEEPALIVE_SECONDS)
+                async with self._send_lock:
+                    if self._is_final_frame_sent or self.is_half_closing:
+                        return
+                    await self._call.write(
+                        pb.PollWorkerTaskRequest(pong=pb.PollWorkerTaskPong())
+                    )
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            _LOGGER.exception("send Worker keepalive Pong failed")
+
+    def _stop_keepalive(self) -> None:
+        if self._keepalive_task is not None:
+            self._keepalive_task.cancel()
+            self._keepalive_task = None
+
     async def _send(self, request: pb.PollWorkerTaskRequest) -> None:
         async with self._send_lock:
+            if request.HasField("task_frame"):
+                frame = request.task_frame
+                if (
+                    frame.HasField("rpc")
+                    or frame.HasField("worker_error")
+                    or frame.HasField("wait_for")
+                    and frame.wait_for.WhichOneof("output") == "result"
+                    or frame.HasField("execute")
+                    and frame.execute.WhichOneof("output") == "result"
+                ):
+                    self._stop_keepalive()
+                    self._is_final_frame_sent = True
+            if request.HasField("pong") and (
+                self._is_final_frame_sent or self.is_half_closing
+            ):
+                return
             await self._call.write(request)
 
     async def _finish_handler(self) -> None:
         if self.handler_task is None:
             return
         await asyncio.gather(self.handler_task, return_exceptions=True)
+        async with self._send_lock:
+            self._stop_keepalive()
+            self._is_final_frame_sent = False
         if self._deadline_handle is not None:
             self._deadline_handle.cancel()
             self._deadline_handle = None

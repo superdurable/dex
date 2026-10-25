@@ -52,6 +52,7 @@ import java.util.function.Supplier;
 
 final class PullWorker {
     private static final Logger LOGGER = Logger.getLogger(PullWorker.class.getName());
+    private static final long BUSY_PULL_STREAM_KEEPALIVE_SECONDS = 20L;
     private static final char[] BASE32 = "abcdefghijklmnopqrstuvwxyz234567".toCharArray();
     private final WorkerTaskServiceGrpc.WorkerTaskServiceStub taskService;
     private final Credential credential;
@@ -453,6 +454,7 @@ final class PullWorker {
         private StreamObserver<PollWorkerTaskRequest> requests;
         private Context.CancellableContext taskContext;
         private ScheduledFuture<?> deadlineTimer;
+        private ScheduledFuture<?> keepaliveTimer;
         private ScheduledFuture<?> closeTimer;
         private Thread handlerThread;
         private Throwable closeFailure;
@@ -460,6 +462,7 @@ final class PullWorker {
         private volatile Status.Code cancellationStatus;
         private long backoffMillis = 100L;
         private boolean isBusy;
+        private boolean isFinalFrameSent;
         private boolean isDraining;
         private boolean isRetiring;
         private boolean isHalfClosed;
@@ -480,6 +483,7 @@ final class PullWorker {
             isClosed = false;
             isHalfClosed = false;
             isRegistered = false;
+            isFinalFrameSent = false;
             supportsUnknownNameRejection = false;
             closeFailure = null;
             try {
@@ -599,10 +603,19 @@ final class PullWorker {
                 return;
             }
             isBusy = true;
+            isFinalFrameSent = false;
             busyTasks++;
             taskID = task.getTaskId();
             taskContext = Context.current().withCancellation();
             cancellationStatus = null;
+            keepaliveTimer = scheduler.scheduleAtFixedRate(() -> {
+                synchronized (PullWorker.this) {
+                    if (isBusy && !isFinalFrameSent && !isHalfClosed && !isClosed) {
+                        send(PollWorkerTaskRequest.newBuilder()
+                                .setPong(PollWorkerTaskPong.getDefaultInstance()).build());
+                    }
+                }
+            }, BUSY_PULL_STREAM_KEEPALIVE_SECONDS, BUSY_PULL_STREAM_KEEPALIVE_SECONDS, TimeUnit.SECONDS);
             if (task.hasDeadline()) {
                 final Instant deadline = Instant.ofEpochSecond(
                         task.getDeadline().getSeconds(), task.getDeadline().getNanos());
@@ -721,16 +734,32 @@ final class PullWorker {
         }
 
         private void sendFrame(final PollWorkerTaskFrame frame) {
-            if (!frame.hasWorkerError() && cancellationStatus != null) {
-                throw Status.fromCode(cancellationStatus).asRuntimeException();
+            synchronized (PullWorker.this) {
+                if (!frame.hasWorkerError() && cancellationStatus != null) {
+                    throw Status.fromCode(cancellationStatus).asRuntimeException();
+                }
+                if (frame.hasRpc() || frame.hasWorkerError()
+                        || frame.hasWaitFor() && frame.getWaitFor().hasResult()
+                        || frame.hasExecute() && frame.getExecute().hasResult()) {
+                    stopKeepalive();
+                    isFinalFrameSent = true;
+                }
+                send(PollWorkerTaskRequest.newBuilder()
+                        .setTaskFrame(frame.toBuilder().setTaskId(taskID)).build());
             }
-            send(PollWorkerTaskRequest.newBuilder()
-                    .setTaskFrame(frame.toBuilder().setTaskId(taskID)).build());
+        }
+
+        private void stopKeepalive() {
+            if (keepaliveTimer != null) {
+                keepaliveTimer.cancel(false);
+                keepaliveTimer = null;
+            }
         }
 
         private void send(final PollWorkerTaskRequest request) {
             synchronized (PullWorker.this) {
-                if (!isHalfClosed && !isClosed && requests != null) {
+                if (!isHalfClosed && !isClosed && requests != null
+                        && (!request.hasPong() || !isFinalFrameSent)) {
                     requests.onNext(request);
                 }
             }
@@ -749,6 +778,7 @@ final class PullWorker {
         }
 
         private void finishTask() {
+            stopKeepalive();
             if (deadlineTimer != null) {
                 deadlineTimer.cancel(false);
                 deadlineTimer = null;
@@ -760,6 +790,7 @@ final class PullWorker {
             handlerThread = null;
             taskID = null;
             isBusy = false;
+            isFinalFrameSent = false;
             busyTasks--;
             if (!isClosed && !isDraining && hasIdleReplacement(true)) {
                 isDraining = true;
@@ -776,6 +807,7 @@ final class PullWorker {
         }
 
         private void halfClose() {
+            stopKeepalive();
             if (isClosed) {
                 if (!isBusy && isStopping) {
                     streams.remove(this);

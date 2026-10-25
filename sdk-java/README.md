@@ -357,6 +357,8 @@ remains bounded by the matching caps:
 Each stream runs one task at a time. The Worker rejects a task with no capacity
 so Dex can assign it elsewhere. The default task capacity is the available CPU
 count. Zero task and idle counts and a zero drain timeout select their defaults.
+The SDK sends an upstream Pong every 20 seconds while a task runs and stops
+before its final frame. This interval is internal and needs no Worker option.
 
 The Worker rejects an unregistered Step or RPC by name. Dex retries that task
 on another pull Worker without consuming a Step attempt, including when the

@@ -856,6 +856,62 @@ async def _busy_reconnect_drains_before_closing_stream() -> None:
     ]
 
 
+def test_busy_keepalive_pong_stops_before_rpc_result() -> None:
+    asyncio.run(_busy_keepalive_pong_stops_before_rpc_result())
+
+
+async def _busy_keepalive_pong_stops_before_rpc_result() -> None:
+    dispatcher = BlockingDispatcher()
+    call = QueueCall(
+        [
+            pb.PollWorkerTaskResponse(registered=pb.PollWorkerTaskRegistered()),
+            pb.PollWorkerTaskResponse(
+                task=pb.PollWorkerTask(
+                    task_id="busy-ping", rpc=pb.InvokeWorkerRPCRequest()
+                )
+            ),
+        ]
+    )
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        dispatcher,
+        PullWorkerOptions(app_worker_id="busy-ping-worker"),
+        "localhost:8801",
+        None,
+    )
+    runtime._stopping = asyncio.Event()
+    stream = PullStream(runtime, FakeStub(cast(FakeCall, call)), "busy-ping-worker")
+    pong_written = asyncio.Event()
+
+    async def record_request(request: pb.PollWorkerTaskRequest) -> None:
+        await QueueCall.write(call, request)
+        if request.WhichOneof("frame") == "pong":
+            pong_written.set()
+
+    with patch(
+        "dex._pull_worker._BUSY_PULL_STREAM_KEEPALIVE_SECONDS", 0.05
+    ), patch.object(call, "write", new=record_request):
+        polling = asyncio.create_task(stream._poll())
+        await asyncio.wait_for(dispatcher.started.wait(), timeout=1)
+        await asyncio.wait_for(pong_written.wait(), timeout=1)
+        dispatcher.gate.set()
+        call.frames.put_nowait(
+            pb.PollWorkerTaskResponse(
+                reconnect=pb.PollWorkerTaskReconnect(reason="done")
+            )
+        )
+        assert await asyncio.wait_for(polling, timeout=1)
+    kinds = [request.WhichOneof("frame") for request in call.requests]
+    assert kinds[0] == "register"
+    assert kinds[-1] == "task_frame"
+    assert kinds.count("task_frame") == 1
+    assert "pong" in kinds[1:-1]
+    assert set(kinds[1:-1]) == {"pong"}
+    result = call.requests[-1].task_frame
+    assert result.task_id == "busy-ping"
+    assert result.WhichOneof("output") == "rpc"
+
+
 class UnknownTaskCall(QueueCall):
     def __init__(self, supports_unknown_name_rejection: bool) -> None:
         super().__init__(
@@ -876,11 +932,21 @@ class UnknownTaskCall(QueueCall):
             ]
         )
         self._completed_tasks = 0
+        self.stream: PullStream | None = None
+        self._ping_task: asyncio.Task[None] | None = None
+
+    async def _ping_after_task_release(self) -> None:
+        assert self.stream is not None
+        while self.stream.is_busy:
+            await asyncio.sleep(0)
+        self.frames.put_nowait(pb.PollWorkerTaskResponse(ping=pb.PollWorkerTaskPing()))
 
     async def write(self, request: pb.PollWorkerTaskRequest) -> None:
         await super().write(request)
         kind = request.WhichOneof("frame")
-        if kind in ("task_frame", "reject"):
+        if kind == "pong":
+            self.frames.put_nowait(getattr(grpc.aio, "EOF"))
+        elif kind in ("task_frame", "reject"):
             self._completed_tasks += 1
             if self._completed_tasks == 1:
                 self.frames.put_nowait(
@@ -894,11 +960,7 @@ class UnknownTaskCall(QueueCall):
                     )
                 )
             else:
-                self.frames.put_nowait(
-                    pb.PollWorkerTaskResponse(ping=pb.PollWorkerTaskPing())
-                )
-        elif kind == "pong":
-            self.frames.put_nowait(getattr(grpc.aio, "EOF"))
+                self._ping_task = asyncio.create_task(self._ping_after_task_release())
 
 
 class UnknownTaskDispatcher:
@@ -939,6 +1001,7 @@ async def _unknown_task_rejection_follows_registered_capability_on_reconnect() -
     stream = PullStream(
         runtime, FakeStub(cast(FakeCall, legacy_call)), "unknown-name-worker"
     )
+    legacy_call.stream = stream
     assert await asyncio.wait_for(stream._poll(), timeout=1)
     legacy_frames = [
         request
@@ -961,6 +1024,7 @@ async def _unknown_task_rejection_follows_registered_capability_on_reconnect() -
     )
 
     capable_call = UnknownTaskCall(True)
+    capable_call.stream = stream
     stream.stub = FakeStub(cast(FakeCall, capable_call))
     assert await asyncio.wait_for(stream._poll(), timeout=1)
     rejections = [
@@ -972,8 +1036,12 @@ async def _unknown_task_rejection_follows_registered_capability_on_reconnect() -
         ("unknown-step", pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP),
         ("unknown-rpc", pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC),
     ]
+    assert any(
+        request.WhichOneof("frame") == "pong" for request in capable_call.requests
+    )
 
     reconnected_call = UnknownTaskCall(False)
+    reconnected_call.stream = stream
     stream.stub = FakeStub(cast(FakeCall, reconnected_call))
     assert await asyncio.wait_for(stream._poll(), timeout=1)
     reconnected_frames = [
@@ -987,6 +1055,9 @@ async def _unknown_task_rejection_follows_registered_capability_on_reconnect() -
     ]
     assert not any(
         request.WhichOneof("frame") == "reject" for request in reconnected_call.requests
+    )
+    assert any(
+        request.WhichOneof("frame") == "pong" for request in reconnected_call.requests
     )
 
 

@@ -35,6 +35,7 @@ type pullTestServer struct {
 	reconnectFirst               bool
 	firstReconnectQueue          chan string
 	streams                      []*pullTestStream
+	holdAfterEOFQueue            string
 }
 
 type pullTestStream struct {
@@ -43,6 +44,9 @@ type pullTestStream struct {
 	frames       chan *dexpb.PollWorkerTaskRequest
 	abort        chan struct{}
 	sendMu       sync.Mutex
+	eofReceived  chan struct{}
+	allowReturn  chan struct{}
+	ended        chan error
 }
 
 func (server *pullTestServer) PollWorkerTask(stream dexpb.WorkerTaskService_PollWorkerTaskServer) error {
@@ -55,6 +59,11 @@ func (server *pullTestServer) PollWorkerTask(stream dexpb.WorkerTaskService_Poll
 	server.streams = append(server.streams, registered)
 	shouldReconnect := server.reconnectFirst
 	server.reconnectFirst = false
+	if registered.registration != nil && registered.registration.Queue == server.holdAfterEOFQueue {
+		registered.eofReceived = make(chan struct{})
+		registered.allowReturn = make(chan struct{})
+		registered.ended = make(chan error, 1)
+	}
 	server.mu.Unlock()
 	if shouldReconnect {
 		server.firstReconnectQueue <- registered.registration.Queue
@@ -94,6 +103,16 @@ func (server *pullTestServer) PollWorkerTask(stream dexpb.WorkerTaskService_Poll
 			}
 		case err := <-receiveError:
 			if errors.Is(err, io.EOF) {
+				if registered.eofReceived != nil {
+					close(registered.eofReceived)
+					select {
+					case <-registered.allowReturn:
+						registered.ended <- nil
+					case <-stream.Context().Done():
+						registered.ended <- stream.Context().Err()
+						return stream.Context().Err()
+					}
+				}
 				return nil
 			}
 			return err
@@ -399,6 +418,117 @@ func TestWorkerPullCancelCapacityAndStopDrain(t *testing.T) {
 	close(flow.release)
 	require.NotNil(t, awaitPullFrame(t, queueStream).GetTaskFrame().GetRpc())
 	require.NoError(t, <-stopResult)
+	require.NoError(t, <-started)
+}
+
+func TestWorkerPullKeepaliveDuringRunningRPCPreservesResult(t *testing.T) {
+	address, server := startPullTestServer(t)
+	flow := &workerBlockingFlow{entered: make(chan struct{}), release: make(chan struct{})}
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: "busy-ping-worker-12345678"}})
+	require.NoError(t, err)
+	started := make(chan error, 1)
+	go func() { started <- worker.Start() }()
+	var queueStream *pullTestStream
+	for queueStream == nil {
+		candidate := awaitPullRegistration(t, server)
+		if candidate.registration.Queue == GetFinalFlowType(flow) {
+			queueStream = candidate
+		}
+	}
+	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Task{Task: &dexpb.PollWorkerTask{
+		TaskId: "busy-ping-rpc", Request: &dexpb.PollWorkerTask_Rpc{Rpc: &dexpb.InvokeWorkerRPCRequest{
+			Context: workerRPCContext(), FlowType: GetFinalFlowType(flow), RpcName: "Block", Input: mustEncodeWorkerTestValue(t, struct{}{}),
+		}},
+	}}}))
+	select {
+	case <-flow.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("RPC did not start")
+	}
+	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Ping{Ping: &dexpb.PollWorkerTaskPing{}}}))
+	require.NotNil(t, awaitPullFrame(t, queueStream).GetPong())
+	select {
+	case frame := <-queueStream.frames:
+		require.NotNil(t, frame.GetPong())
+	case <-time.After(25 * time.Second):
+		t.Fatal("busy pull stream did not send a keepalive Pong")
+	}
+	close(flow.release)
+	result := awaitPullFrame(t, queueStream).GetTaskFrame()
+	require.Equal(t, "busy-ping-rpc", result.GetTaskId())
+	require.NotNil(t, result.GetRpc())
+	require.Equal(t, mustEncodeWorkerTestValue(t, true), result.GetRpc().GetOutput())
+	require.Nil(t, result.GetWorkerError())
+	stopContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, worker.Stop(stopContext))
+	require.NoError(t, <-started)
+}
+
+func TestWorkerPullPingAfterFinalFramePreservesResult(t *testing.T) {
+	address, server := startPullTestServer(t)
+	flow := &workerBlockingFlow{entered: make(chan struct{}), release: make(chan struct{})}
+	flowType := GetFinalFlowType(flow)
+	server.mu.Lock()
+	server.holdAfterEOFQueue = flowType
+	server.mu.Unlock()
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: "post-final-ping-worker"}})
+	require.NoError(t, err)
+	started := make(chan error, 1)
+	go func() { started <- worker.Start() }()
+	var queueStream *pullTestStream
+	for queueStream == nil {
+		candidate := awaitPullRegistration(t, server)
+		if candidate.registration.Queue == flowType {
+			queueStream = candidate
+		}
+	}
+	request := &dexpb.InvokeWorkerRPCRequest{Context: workerRPCContext(), FlowType: flowType, RpcName: "Block", Input: mustEncodeWorkerTestValue(t, struct{}{})}
+	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Task{Task: &dexpb.PollWorkerTask{TaskId: "post-final-ping", Request: &dexpb.PollWorkerTask_Rpc{Rpc: request}}}}))
+	select {
+	case <-flow.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("RPC did not start")
+	}
+	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Reconnect{Reconnect: &dexpb.PollWorkerTaskReconnect{Reason: "drain after task"}}}))
+	require.Eventually(t, func() bool {
+		worker.pull.mu.Lock()
+		defer worker.pull.mu.Unlock()
+		for stream := range worker.pull.streams {
+			stream.mu.Lock()
+			isDraining := stream.queue == flowType && stream.isBusy && stream.isDraining
+			stream.mu.Unlock()
+			if isDraining {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond)
+	close(flow.release)
+	result := awaitPullFrame(t, queueStream).GetTaskFrame()
+	require.Equal(t, "post-final-ping", result.GetTaskId())
+	require.Equal(t, mustEncodeWorkerTestValue(t, true), result.GetRpc().GetOutput())
+	select {
+	case <-queueStream.eofReceived:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Worker did not close its send side")
+	}
+	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Ping{Ping: &dexpb.PollWorkerTaskPing{}}}))
+	select {
+	case err := <-queueStream.ended:
+		t.Fatalf("server stream ended before final result completed: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(queueStream.allowReturn)
+	require.NoError(t, <-queueStream.ended)
+	select {
+	case frame := <-queueStream.frames:
+		t.Fatalf("result was sent more than once: %v", frame)
+	default:
+	}
+	stopContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, worker.Stop(stopContext))
 	require.NoError(t, <-started)
 }
 
