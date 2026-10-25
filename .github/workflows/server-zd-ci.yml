@@ -164,6 +164,55 @@ jobs:
           set -euo pipefail
           : "${DEX_ZD_TLS_POSTGRES_URL:?the TLS Postgres URL is required}"
           cargo test -p dexzd-attribute-store postgres_verify_full
+      - name: Start TLS-only ParadeDB 17 for direct negotiation
+        run: |
+          set -euo pipefail
+          image=paradedb/paradedb:0.26.1-pg17
+          docker run --rm --entrypoint postgres "$image" --version | grep -E 'PostgreSQL\) 17\.'
+          tls_directory="$RUNNER_TEMP/dexzd-paradedb-direct-tls"
+          mkdir -p "$tls_directory"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=Dex search test CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" -keyout "$tls_directory/ca.key" -out "$tls_directory/ca.crt"
+          openssl req -newkey rsa:2048 -nodes -subj "/CN=localhost" -keyout "$tls_directory/server.key" -out "$tls_directory/server.csr"
+          cat > "$tls_directory/server.ext" <<'EOF'
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature,keyEncipherment
+          subjectAltName=DNS:localhost,IP:127.0.0.1
+          extendedKeyUsage=serverAuth
+          EOF
+          openssl x509 -req -days 1 -in "$tls_directory/server.csr" -CA "$tls_directory/ca.crt" -CAkey "$tls_directory/ca.key" -CAcreateserial -extfile "$tls_directory/server.ext" -out "$tls_directory/server.crt"
+          openssl verify -CAfile "$tls_directory/ca.crt" "$tls_directory/server.crt"
+          cat > "$tls_directory/pg_hba.conf" <<'EOF'
+          local all all trust
+          hostssl all all 0.0.0.0/0 scram-sha-256
+          hostssl all all ::/0 scram-sha-256
+          hostnossl all all 0.0.0.0/0 reject
+          hostnossl all all ::/0 reject
+          EOF
+          postgres_uid="$(docker run --rm --entrypoint id "$image" -u postgres)"
+          chmod 600 "$tls_directory/server.key"
+          sudo chown "$postgres_uid" "$tls_directory/server.key"
+          chmod 644 "$tls_directory/ca.crt" "$tls_directory/server.crt" "$tls_directory/pg_hba.conf"
+          docker run -d --rm --name dexzd-paradedb-direct-tls -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=dexzd -p 5434:5432 -v "$tls_directory:/certs:ro" "$image" -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/certs/server.key -c ssl_ca_file=/certs/ca.crt -c hba_file=/certs/pg_hba.conf
+          for attempt in $(seq 1 30); do
+            if docker exec dexzd-paradedb-direct-tls pg_isready -h 127.0.0.1 -p 5432 -U postgres -d dexzd; then
+              exit 0
+            fi
+            echo "Waiting for TLS ParadeDB startup (attempt $attempt)"
+            sleep 1
+          done
+          docker logs dexzd-paradedb-direct-tls
+          exit 1
+      - name: Project and search over direct TLS
+        env:
+          DEX_ZD_PARADEDB_TLS_URL: postgres://postgres:postgres@localhost:5434/dexzd
+          DEX_ZD_PARADEDB_TLS_CA_CERT: ${{ runner.temp }}/dexzd-paradedb-direct-tls/ca.crt
+          DEX_ZD_REQUIRE_PARADEDB_TLS: '1'
+        run: |
+          set -euo pipefail
+          : "${DEX_ZD_PARADEDB_TLS_URL:?the TLS ParadeDB URL is required}"
+          : "${DEX_ZD_PARADEDB_TLS_CA_CERT:?the TLS ParadeDB CA certificate is required}"
+          cargo test -p dexzd-search paradedb::integration::paradedb_projection_and_search_use_direct_tls -- --exact 2>&1 | tee "$RUNNER_TEMP/paradedb-direct-tls-test.log"
+          grep -Eq 'test result: ok\. 1 passed; 0 failed;' "$RUNNER_TEMP/paradedb-direct-tls-test.log"
       - name: Serve with ParadeDB search
         run: cargo test -p dexzd-server --test serve_process paradedb_search_projects_commits_and_rebuilds_on_startup -- --exact
       - name: Recover ParadeDB search after an outage

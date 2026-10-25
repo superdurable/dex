@@ -93,6 +93,8 @@ streamStore:
 search:
   backend: builtin
   builtinScanBudgetDocuments: 100000
+  # PostgreSQL DSN; TLS: sslmode, sslrootcert, sslsni, sslnegotiation, connect_timeout.
+  # Example: postgres://role:pw@host:5432/db?sslmode=require&sslnegotiation=direct
   paradeDbConnectionString: ""
   paradeDbConnectionPoolSize: 10
   paradeDbSchema: public
