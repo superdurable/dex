@@ -84,7 +84,7 @@ pub(crate) fn load_root_certificates(ssl_root_cert: &str) -> Result<RootCertStor
         loaded.certs
     } else {
         CertificateDer::pem_file_iter(ssl_root_cert)
-            .map_err(|error| format!("read the sslrootcert file: {error}"))?
+            .map_err(|_| "read the sslrootcert file".to_owned())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| "the sslrootcert file is not a valid PEM bundle".to_owned())?
     };

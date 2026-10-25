@@ -725,6 +725,7 @@ server-zd 会拒绝未知的键，因此 Go Server 的配置文件不能原样�
 | **interpreter.temporal.prometheus.listenAddress** | **metrics.listen** | 指标名称不同，见[指标](#metrics)。 |
 | **log** | **RUST_LOG** 环境变量 | 日志输出到标准错误，默认级别为 **info**。 |
 | 没有对应的键；**SearchFlows** 使用 Temporal 或 Cadence 的 visibility | **search.backend** | **builtin**（默认）或 **paradedb**。 |
+| 没有对应的键 | **search.paradeDbConnectionString** | ParadeDB 搜索使用的 PostgreSQL URL 或键值连接字符串。支持 **sslmode**（disable、allow、prefer、require、verify-ca、verify-full）、**sslrootcert**（PEM 文件或系统根证书）、**sslsni**（0 或 1）、**sslnegotiation**（postgres 或 direct），以及以秒为单位的 **connect_timeout**。直接 TLS 协商需要 PostgreSQL 17 或更高版本。不指定 TLS 参数时，连接保持明文，以兼容现有部署。 |
 | **blobStore** | 无 | server-zd 把所有值保存在自己的对象存储前缀下。硬删除的值可以使用 **objectStore.hardDeleteStore**。 |
 | **attributeStore** | **attributeStore** | 相同的键，需要 server-zd v0.1.3 或更高版本。只支持 **type: postgres**。**flowIdColumn**、**databaseName** 和 **collectionName** 必须留空。**fencingTableName** 只存在于 server-zd，每个数据库都需要一张 fencing 表。见 [Attribute Store 同步](#attribute-store)。 |
 | **interpreter** | 无 | server-zd 不使用 Temporal 或 Cadence backend。 |

@@ -336,6 +336,15 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   `search.paradeDbConnectionString` and creates or upgrades the search schema. It tries three
   times, then fails startup. The first startup needs a role that may create the `pg_search`
   extension, unless the extension is already installed.
+- The connection string accepts `sslmode` (`disable`, `allow`, `prefer`, `require`, `verify-ca`,
+  `verify-full`), `sslrootcert` (a PEM CA file or `system`), `sslsni` (`0` or `1`),
+  `sslnegotiation` (`postgres` or `direct`), and `connect_timeout` in seconds. Direct negotiation
+  requires PostgreSQL 17 or later. For example,
+  `postgres://role:pw@host:5432/db?sslmode=require&sslnegotiation=direct` opens TLS before the
+  startup message. `sslmode=require` with `sslrootcert` verifies the certificate chain;
+  `sslmode=verify-full` also verifies the host name. Without TLS parameters, the connection
+  remains plaintext for compatibility with existing deployments. The connect timeout covers the
+  TLS handshake and authentication, including reconnects.
 - A `search.paradeDbSchema` other than `public` is applied as the `search_path` connection option.
   A transaction pooler must pass that startup option through; otherwise keep the tables in `public`.
 - A background task copies each committed partition frame's search documents to ParadeDB. Commits

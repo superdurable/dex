@@ -11,15 +11,14 @@ publish.workspace = true
 [dependencies]
 bytes.workspace = true
 dexzd-protocol.workspace = true
+dexzd-postgres-connection.workspace = true
 rand.workspace = true
 rustls.workspace = true
-rustls-native-certs.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
-tokio-postgres-rustls.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 unicode-properties.workspace = true

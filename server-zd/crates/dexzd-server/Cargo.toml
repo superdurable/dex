@@ -29,6 +29,7 @@ dexzd-log.workspace = true
 dexzd-metrics.workspace = true
 dexzd-object-store.workspace = true
 dexzd-protocol.workspace = true
+dexzd-postgres-connection.workspace = true
 dexzd-request-validation.workspace = true
 dexzd-search.workspace = true
 dexzd-storage.workspace = true

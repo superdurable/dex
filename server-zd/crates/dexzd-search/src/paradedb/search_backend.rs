@@ -14,10 +14,11 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use dexzd_keyspace::{RunId, TenantId};
+use dexzd_postgres_connection::{ConnectionError, ConnectionSettings, OpenConnection};
 use dexzd_visibility_query::parse_and_check;
 use tokio::sync::{Mutex, MutexGuard, Semaphore, SemaphorePermit};
 use tokio::task::JoinHandle;
-use tokio_postgres::{Client, Config, NoTls, Row};
+use tokio_postgres::{Client, Config, Row};
 
 use super::{
     PageCursor, SchemaError, SqlStatement, SqlTranslationError, ensure_schema, tenant_column_value,
@@ -30,7 +31,6 @@ use crate::{SearchBackend, SearchError, SearchPage, SearchRequest};
 use super::search_result::response_entry;
 
 pub(super) const DATABASE_OPERATION_TIMEOUT: Duration = Duration::from_secs(15);
-const DATABASE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const SCHEMA_SETUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Waits for an application-defined projection watermark before reading search results.
@@ -42,7 +42,7 @@ pub trait ProjectionVisibilityWait: Send + Sync {
 
 /// Searches tenant runs through a bounded pool of PgBouncer-compatible connections.
 pub struct ParadeDbSearchBackend {
-    configuration: Config,
+    configuration: ConnectionSettings,
     slots: Vec<Mutex<ConnectionSlot>>,
     free_slots: StandardMutex<VecDeque<usize>>,
     available_slots: Semaphore,
@@ -54,6 +54,22 @@ impl ParadeDbSearchBackend {
     /// Opens `pool_size` connections, ensures the schema, and bounds projection visibility waits.
     pub async fn connect(
         configuration: &Config,
+        pool_size: usize,
+        visibility_wait: Option<Arc<dyn ProjectionVisibilityWait>>,
+        visibility_wait_timeout: Duration,
+    ) -> Result<Self, SearchError> {
+        Self::connect_with_settings(
+            &ConnectionSettings::from_config(configuration.clone()),
+            pool_size,
+            visibility_wait,
+            visibility_wait_timeout,
+        )
+        .await
+    }
+
+    /// Opens connections using parsed PostgreSQL TLS settings.
+    pub async fn connect_with_settings(
+        configuration: &ConnectionSettings,
         pool_size: usize,
         visibility_wait: Option<Arc<dyn ProjectionVisibilityWait>>,
         visibility_wait_timeout: Duration,
@@ -143,7 +159,7 @@ impl ParadeDbSearchBackend {
         }
     }
 
-    pub(super) fn configuration(&self) -> &Config {
+    pub(super) fn configuration(&self) -> &ConnectionSettings {
         &self.configuration
     }
 }
@@ -186,22 +202,26 @@ pub(super) struct ConnectionSlot {
 }
 
 impl ConnectionSlot {
-    pub(super) async fn open(configuration: &Config) -> Result<Self, SearchError> {
-        let connect_timeout = configuration
-            .get_connect_timeout()
-            .copied()
-            .unwrap_or(DATABASE_CONNECT_TIMEOUT);
-        let (client, connection) =
-            tokio::time::timeout(connect_timeout, configuration.connect(NoTls))
-                .await
-                .map_err(|_| {
-                    SearchError::Unavailable(format!(
-                        "connect to ParadeDB timed out after {connect_timeout:?}"
-                    ))
-                })?
-                .map_err(|error| classify_database_error("connect to ParadeDB", error))?;
+    pub(super) async fn open(configuration: &ConnectionSettings) -> Result<Self, SearchError> {
+        let OpenConnection { client, driver } =
+            configuration.connect().await.map_err(|error| match error {
+                ConnectionError::Timeout(timeout) => SearchError::Unavailable(format!(
+                    "connect to ParadeDB timed out after {timeout:?}"
+                )),
+                ConnectionError::Database(source) => {
+                    let sqlstate = source
+                        .as_db_error()
+                        .map_or("none", |error| error.code().code());
+                    let message = format!("connect to ParadeDB: SQLSTATE {sqlstate}");
+                    if is_transient_database_error(&source) {
+                        SearchError::Unavailable(message)
+                    } else {
+                        SearchError::Internal(message)
+                    }
+                }
+            })?;
         let connection_task = tokio::spawn(async move {
-            if let Err(error) = connection.await {
+            if let Err(error) = driver.await {
                 tracing::error!(%error, "ParadeDB search connection closed");
             }
         });
@@ -224,7 +244,10 @@ impl ConnectionSlot {
         }
     }
 
-    pub(super) async fn reconnect(&mut self, configuration: &Config) -> Result<(), SearchError> {
+    pub(super) async fn reconnect(
+        &mut self,
+        configuration: &ConnectionSettings,
+    ) -> Result<(), SearchError> {
         let replacement = Self::open(configuration).await?;
         *self = replacement;
         Ok(())
@@ -397,6 +420,7 @@ mod tests {
     use std::future::pending;
     use std::time::Duration;
 
+    use dexzd_postgres_connection::ConnectionSettings;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio_postgres::{Config, NoTls};
@@ -514,7 +538,8 @@ mod tests {
         });
         let mut configuration = Config::new();
         configuration.host("127.0.0.1").port(port).user("test");
-        let mut slot = ConnectionSlot::open(&configuration)
+        let connection_settings = ConnectionSettings::from_config(configuration);
+        let mut slot = ConnectionSlot::open(&connection_settings)
             .await
             .expect("fake server accepts startup");
         let result = tokio::time::timeout(
@@ -606,13 +631,14 @@ mod tests {
             .dbname("test")
             .connect_timeout(Duration::from_secs(1));
 
-        let mut slot = ConnectionSlot::open(&configuration)
+        let connection_settings = ConnectionSettings::from_config(configuration);
+        let mut slot = ConnectionSlot::open(&connection_settings)
             .await
             .expect("initial connection opens");
         slot.invalidate();
-        assert!(slot.reconnect(&configuration).await.is_err());
+        assert!(slot.reconnect(&connection_settings).await.is_err());
         assert!(slot.is_disconnected());
-        slot.reconnect(&configuration)
+        slot.reconnect(&connection_settings)
             .await
             .expect("a fresh connection replaces the failed slot");
         assert!(!slot.is_disconnected());
