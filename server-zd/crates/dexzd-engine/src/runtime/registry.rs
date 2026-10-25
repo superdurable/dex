@@ -16,7 +16,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dexzd_apply::{
-    ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateWrite, WaitableChange,
+    ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateWrite, TransactionalRpcHold,
+    WaitableChange, transactional_rpc_hold,
 };
 use dexzd_keyspace::row_keys::run_singleton_key;
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, parse_run_key};
@@ -512,7 +513,8 @@ impl FlowRuntimeRegistry {
         let other_transactional_rpcs = runtime
             .transactional_rpc_count()
             .saturating_sub(u32::from(is_admitted_rpc_commit));
-        let is_close_held = other_transactional_rpcs > 0 && may_close_flow(&command);
+        let is_close_held = other_transactional_rpcs > 0
+            && transactional_rpc_hold(&command) == TransactionalRpcHold::MayClose;
         self.check_running()?;
         // Reserve before submit, which cannot be undone; the outcome's size is added after apply.
         let reserved_bytes = command.encoded_len();
@@ -560,6 +562,12 @@ impl FlowRuntimeRegistry {
                 return Err(error);
             }
         };
+        debug_assert!(
+            !is_close_held || !wakes_flow_closed(&speculative),
+            "command {:?} closed Flow {} while a transactional RPC was in flight",
+            stamped.command,
+            stamped.flow_id
+        );
         let entry = OverlayEntry::new(&stamped, speculative.clone());
         self.inner
             .settle_reservation(reserved_bytes, entry.size_bytes);
@@ -731,24 +739,6 @@ fn wakes_flow_closed(outcome: &ApplyOutcome) -> bool {
             }
         )
     })
-}
-
-/// Whether apply may record or defer a natural close in `command`, which then checks for
-/// admitted transactional RPCs.
-fn may_close_flow(command: &FlowCommand) -> bool {
-    matches!(
-        command.command,
-        Some(
-            flow_command::Command::StepAttemptHeartbeat(_)
-                | flow_command::Command::StepAttemptFailed(_)
-                | flow_command::Command::StepMethodCompleted(_)
-                | flow_command::Command::TimersFired(_)
-                | flow_command::Command::AttributeSyncAck(_)
-                | flow_command::Command::RpcCommitted(_)
-                | flow_command::Command::PendingCloseCheck(_)
-                | flow_command::Command::TimeTravel(_)
-        )
-    )
 }
 
 /// RPC locks held for one RPC; released on drop.

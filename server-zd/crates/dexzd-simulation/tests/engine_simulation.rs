@@ -208,6 +208,13 @@ fn step_failure_policies_keep_every_invariant() {
     if is_single_seed {
         return;
     }
+    assert!(
+        total
+            .close_hold_dry_runs
+            .get("TimerSkip")
+            .is_some_and(|count| *count > 0),
+        "the Step failure profile never dry-ran a Flow timeout skip for an admitted RPC: {total:#?}"
+    );
     for outcome in [
         "wait-for-proceed",
         "execute-recovery",
@@ -416,6 +423,10 @@ fn assert_covered(total: &EngineSimulationSummary) {
             total.recovered_checks_during_old_epoch_overlap,
         ),
         ("old-epoch store checks", total.old_epoch_store_checks),
+        (
+            "child results dry-run for an admitted RPC of their parent",
+            count(&total.close_hold_dry_runs, "InboxMessage"),
+        ),
     ];
     for (name, value) in checks {
         assert!(value > 0, "the seed set had no {name}: {total:#?}");

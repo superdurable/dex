@@ -127,6 +127,10 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         "the seed set never held and released a close for a transactional RPC: {total:#?}"
     );
     assert!(
+        total.close_barrier.held_by_timer_skips > 0,
+        "the seed set never held a skipped Flow timeout for a transactional RPC: {total:#?}"
+    );
+    assert!(
         total.close_barrier.deferred > 0 && total.close_barrier.finalized > 0,
         "the seed set never deferred and finalized a close for the Attribute Sync outbox: \
          {total:#?}"

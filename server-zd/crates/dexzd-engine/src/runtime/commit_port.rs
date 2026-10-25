@@ -217,8 +217,9 @@ pub trait FlowCommandCommitter: Send + Sync + 'static {
     }
 
     /// Like [`Self::submit`], but calls `finish_stamp` with the stamped command before it is
-    /// enqueued, so owner stamps can depend on the final stamp. `finish_stamp` may apply the
-    /// command to the caller's overlay but must not wait or take the Flow's lock.
+    /// enqueued, so owner stamps can depend on the final stamp. `finish_stamp` blocks stamping
+    /// only for the command's partition. It may apply the command to the caller's overlay but
+    /// must not wait or take the Flow's lock.
     ///
     /// Returns what [`Self::submit`] returns.
     fn submit_with_final_stamp(

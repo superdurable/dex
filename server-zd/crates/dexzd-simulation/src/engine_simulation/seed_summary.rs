@@ -103,6 +103,7 @@ pub(crate) fn finish_summary(
     summary.close_barrier = environment
         .committed_log
         .with_shadow(|shadow| shadow.close_barrier_counts());
+    summary.close_hold_dry_runs = name_counts(&environment.close_hold_dry_runs.counts());
     summary.final_pruned_semantic_events = environment
         .committed_log
         .with_shadow(pruned_semantic_events);

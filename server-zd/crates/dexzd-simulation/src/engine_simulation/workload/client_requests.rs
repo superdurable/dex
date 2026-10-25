@@ -12,8 +12,8 @@ use dexzd_protocol::dex::{
     AttributeWrite, ChannelMessage, DeleteChannelMessageRequest, EncodedObject,
     ExecuteMethodFailurePolicy, FlowAlreadyStartedOptions, FlowConfig, FlowStartOptions,
     FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy, InvokeRpcRequest,
-    PublishToChannelRequest, RetryPolicy, SetAttributesRequest, StartFlowRequest, StopFlowRequest,
-    Value, WorkerTarget, value,
+    PublishToChannelRequest, RetryPolicy, SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
+    StopFlowRequest, Value, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{FlowCommand, flow_command::Command};
 use rand::RngExt;
@@ -220,6 +220,16 @@ pub(crate) fn stop_request(rng: &mut ChaCha8Rng, flow_id: &str, marker: &str) ->
         reason: marker.to_owned(),
         stop_type: rng.random_range(0..3),
         ..StopFlowRequest::default()
+    }
+}
+
+/// The Flow timeout is the timeout handler's only timer: index 0, no condition ID.
+pub(crate) fn flow_timeout_skip_request(flow_id: &str) -> SkipTimerRequest {
+    SkipTimerRequest {
+        flow_id: flow_id.to_owned(),
+        step_execution_id: "sys:timeout_handler-1".to_owned(),
+        timer_condition_index: Some(0),
+        ..SkipTimerRequest::default()
     }
 }
 

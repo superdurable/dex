@@ -10,7 +10,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use dexzd_apply::StateWrite;
+use dexzd_apply::{StateWrite, TransactionalRpcHold, transactional_rpc_hold};
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, parse_run_key};
 use dexzd_protocol::dex::FlowStatus;
 use dexzd_protocol::dexzd::v1::{
@@ -259,6 +259,8 @@ pub struct CloseBarrierCounts {
     pub held_by_rpcs: usize,
     /// Held pending closes that a later command finalized.
     pub finalized_after_rpcs: usize,
+    /// Of the held pending closes, those that a skipped Flow timeout recorded.
+    pub held_by_timer_skips: usize,
 }
 
 impl CloseBarrierCounts {
@@ -268,6 +270,7 @@ impl CloseBarrierCounts {
         self.finalized += other.finalized;
         self.held_by_rpcs += other.held_by_rpcs;
         self.finalized_after_rpcs += other.finalized_after_rpcs;
+        self.held_by_timer_skips += other.held_by_timer_skips;
     }
 }
 
@@ -284,10 +287,7 @@ pub(crate) fn check_close_barrier(
     view: &FlowView,
     rpc_held_runs: &mut BTreeSet<RunId>,
 ) -> Result<CloseBarrierCounts, InvariantViolation> {
-    let may_close_at_once = matches!(
-        command.command,
-        Some(Command::FlowStop(_) | Command::FlowStart(_) | Command::TimeTravel(_))
-    );
+    let may_close_at_once = transactional_rpc_hold(command) != TransactionalRpcHold::MayClose;
     let consults_barrier = match command.command {
         Some(Command::PendingCloseCheck(_)) => true,
         Some(Command::AttributeSyncAck(_) | Command::RpcCommitted(_) | Command::TimeTravel(_)) => {
@@ -312,6 +312,9 @@ pub(crate) fn check_close_barrier(
         if is_unblocked_pending_close && command.is_transactional_rpc_in_flight {
             if rpc_held_runs.insert(*run_id) {
                 counts.held_by_rpcs += 1;
+                if matches!(command.command, Some(Command::TimerSkip(_))) {
+                    counts.held_by_timer_skips += 1;
+                }
             }
         } else if is_unblocked_pending_close && consults_barrier {
             return Err(InvariantViolation::new(

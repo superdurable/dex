@@ -14,7 +14,8 @@ use dexzd_keyspace::ColumnFamily;
 use dexzd_keyspace::row_keys::{active_work_index_key, retention_index_key};
 use dexzd_protocol::dex::{FlowErrorType, FlowStatus, StepCompletionOutput};
 use dexzd_protocol::dexzd::v1::{
-    FlowTimeoutTimerId, PendingFlowClose, RetentionTimerId, StepExecutionPhase, TimerId, timer_id,
+    FlowCommand, FlowTimeoutTimerId, PendingFlowClose, RetentionTimerId, StepExecutionPhase,
+    TimerId, flow_command::Command, inbox_message_command, timer_id,
 };
 
 use crate::command_handlers::command_replies::ok_reply;
@@ -26,6 +27,63 @@ use crate::state_access::{FlowTransaction, read_flow_directory, write_flow_direc
 use crate::steps::{arm_timer, disarm_timer, finish_step, is_active};
 use crate::values::wire_value;
 use crate::{ApplyEffect, ApplyError, WaitableChange};
+
+/// Whether a command's natural close must wait for transactional RPCs that the owner admitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransactionalRpcHold {
+    /// May record a natural or pending close, so the owner checks it while such RPCs run.
+    MayClose,
+    /// StopFlow, StartFlow, and child starts terminate at once, whatever is in flight.
+    ClosesAtOnce,
+    /// Time travel bumps the attempt, which fails admitted RPCs, as a Go reset fails updates.
+    ReplacesAttempt,
+}
+
+/// Classifies `command` for the hold. A new command kind must be classified here.
+pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
+    let Some(body) = &command.command else {
+        return TransactionalRpcHold::MayClose;
+    };
+    match body {
+        Command::FlowStop(_) | Command::FlowStart(_) => TransactionalRpcHold::ClosesAtOnce,
+        Command::InboxMessage(inbox) => match inbox.payload {
+            // A child start only closes a run through ID reuse termination.
+            Some(inbox_message_command::Payload::ChildStart(_)) => {
+                TransactionalRpcHold::ClosesAtOnce
+            }
+            Some(inbox_message_command::Payload::ChildCompleted(_)) | None => {
+                TransactionalRpcHold::MayClose
+            }
+        },
+        Command::TimeTravel(_) => TransactionalRpcHold::ReplacesAttempt,
+        Command::FlowConfigUpdate(_)
+        | Command::AttributesSet(_)
+        | Command::ChannelPublish(_)
+        | Command::ChannelMessageDelete(_)
+        | Command::StepAttemptStarted(_)
+        | Command::StepAttemptHeartbeat(_)
+        | Command::StepAttemptFailed(_)
+        | Command::StepMethodCompleted(_)
+        | Command::RpcCommitted(_)
+        | Command::TimersFired(_)
+        | Command::TimerSkip(_)
+        | Command::OutboxAck(_)
+        | Command::AttributeSyncAck(_)
+        | Command::PendingCloseCheck(_)
+        | Command::HardDeleteObjectsDeleted(_)
+        | Command::RunPurge(_) => TransactionalRpcHold::MayClose,
+    }
+}
+
+/// Fails loudly in debug builds when a command classified as closing at once closes naturally.
+fn debug_assert_close_is_classified(scope: &CommandScope<'_>) {
+    debug_assert_ne!(
+        transactional_rpc_hold(scope.command),
+        TransactionalRpcHold::ClosesAtOnce,
+        "a natural close in {:?} escapes the transactional RPC hold",
+        scope.command.command
+    );
+}
 
 /// How the attempt closes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,6 +174,7 @@ pub(crate) fn close_flow(
     if cursor.record.status != FlowStatus::Running as i32 || cursor.record.pending_close.is_some() {
         return Ok(());
     }
+    debug_assert_close_is_classified(scope);
     cancel_attempt_work(transaction, cursor, scope, &closing)?;
     if should_defer_close(transaction, cursor, scope)? {
         cursor.record.is_graceful_completion_requested = false;
@@ -182,6 +241,7 @@ pub(crate) fn finalize_pending_close_if_ready(
         hold_for_transactional_rpcs(cursor, scope);
         return Ok(false);
     }
+    debug_assert_close_is_classified(scope);
     finalize_pending_close(transaction, cursor, scope)
 }
 

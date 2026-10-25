@@ -16,22 +16,32 @@ use dexzd_keyspace::row_keys::{prefix_range, run_singleton_key};
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, run_table_prefix};
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeSyncConfig, AttributeWrite, CloseDecision, CloseDecisionType,
-    FlowConfig, FlowStatus, InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWorkerRpcResponse,
-    StepDecision, StepOptions, WorkerTarget,
+    FlowConfig, FlowResult, FlowStatus, InvokeExecuteMethodResponse, InvokeRpcRequest,
+    InvokeRpcResponse, InvokeWaitForMethodResponse, InvokeWorkerRpcResponse, SkipTimerRequest,
+    StartFlowRequest, StepDecision, StepOptions, SubFlowCondition, Value, WaitingCondition,
+    WaitingConditionType, WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributeSyncAckCommand, FlowCommand, RunRecord, StepAttemptStartedCommand, StepInvocationKey,
-    StepMethod, StepMethodCompletedCommand, flow_command, step_method_completed_command,
+    AttributeSyncAckCommand, AttributesSetCommand, ChildFlowCompletedMessage,
+    ChildFlowStartMessage, CrossFlowEndpoint, FlowCommand, InboxMessageCommand, OutboxRecord,
+    RunRecord, StepAttemptStartedCommand, StepInvocationKey, StepMethod,
+    StepMethodCompletedCommand, flow_command, inbox_message_command, outbox_record,
+    step_method_completed_command,
 };
 use prost::Message;
 use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 
-use crate::runtime::tests::fixtures::{TENANT, flow, start_request, string_value};
+use crate::runtime::tests::fixtures::{
+    TENANT, flow, set_attribute_request, start_request, string_value,
+};
 use crate::runtime::tests::test_support::RuntimeHarness;
-use crate::runtime::{CommitUrgency, RuntimeConfig, WorkerRpcResult};
+use crate::runtime::{CommitUrgency, RuntimeConfig, RuntimeError, WorkerRpcResult};
 
 const STORE: &str = "primary";
 const FLOW_ID: &str = "held-close";
+/// The Flow timeout is the only timer of the timeout handler's Step execution.
+const FLOW_TIMEOUT_STEP_EXECUTION_ID: &str = "sys:timeout_handler-1";
 
 fn synced(attribute_key: &str, text: &str) -> AttributeWrite {
     AttributeWrite {
@@ -313,4 +323,276 @@ async fn the_rpc_count_drains_when_an_admitted_rpc_fails() {
         .expect("the RPC task completes")
         .expect_err("the Worker failed the RPC");
     drained.await.expect("the count drains");
+}
+
+/// Starts `request` with real apply and no Attribute Store, so no close waits for an outbox.
+async fn start_unsynced_run(request: StartFlowRequest) -> (RuntimeHarness, RunId) {
+    let harness = RuntimeHarness::new();
+    harness
+        .applier
+        .uses_real_apply
+        .store(true, Ordering::SeqCst);
+    let started = harness
+        .drive(harness.registry.start_flow(TENANT, request))
+        .await
+        .unwrap();
+    let run_id = started.run_id.parse().unwrap();
+    (harness, run_id)
+}
+
+fn execute_only_request() -> StartFlowRequest {
+    let mut request = start_request(FLOW_ID);
+    request.step_options = Some(StepOptions {
+        skip_wait_for: true,
+        ..StepOptions::default()
+    });
+    request
+}
+
+/// Admits a transactional RPC whose Worker holds it until the returned gate is notified.
+async fn admit_held_rpc(
+    harness: &RuntimeHarness,
+) -> (
+    Arc<Notify>,
+    JoinHandle<Result<InvokeRpcResponse, RuntimeError>>,
+) {
+    let gate = hold_worker_rpcs(harness);
+    harness
+        .rpc_invoker
+        .results
+        .lock()
+        .unwrap()
+        .push_back(Ok(WorkerRpcResult {
+            response: InvokeWorkerRpcResponse {
+                output: Some(string_value("approved")),
+                ..InvokeWorkerRpcResponse::default()
+            },
+            app_worker_id: "worker-1".to_owned(),
+            pull_routing: None,
+        }));
+    let entered = harness.rpc_invoker.entered.notified();
+    let registry = harness.registry.clone();
+    let rpc = tokio::spawn(async move { registry.invoke_rpc(TENANT, transactional_rpc()).await });
+    entered.await;
+    (gate, rpc)
+}
+
+/// Releases the held RPC; returns the output of its committed response.
+async fn release_rpc(
+    harness: &RuntimeHarness,
+    gate: &Notify,
+    rpc: JoinHandle<Result<InvokeRpcResponse, RuntimeError>>,
+) -> Option<Value> {
+    gate.notify_one();
+    harness
+        .drive(async { rpc.await.expect("the RPC task completes") })
+        .await
+        .expect("the admitted RPC commits")
+        .output
+}
+
+fn apply_count(harness: &RuntimeHarness) -> usize {
+    harness.applier.applied.lock().unwrap().len()
+}
+
+fn set_attribute(attribute_key: &str) -> flow_command::Command {
+    flow_command::Command::AttributesSet(AttributesSetCommand {
+        request: Some(set_attribute_request(
+            FLOW_ID,
+            attribute_key,
+            string_value("set"),
+        )),
+        ..AttributesSetCommand::default()
+    })
+}
+
+fn start_wait_for() -> flow_command::Command {
+    flow_command::Command::StepAttemptStarted(StepAttemptStartedCommand {
+        invocation: Some(StepInvocationKey {
+            step_execution_id: "InitStep-1".to_owned(),
+            method: StepMethod::WaitFor as i32,
+        }),
+        attempt: 1,
+        task_id: vec![2; 16],
+        pull_routing: None,
+    })
+}
+
+/// InitStep's WaitFor result: wait until one child Flow completes.
+fn wait_for_child() -> flow_command::Command {
+    flow_command::Command::StepMethodCompleted(StepMethodCompletedCommand {
+        invocation: Some(StepInvocationKey {
+            step_execution_id: "InitStep-1".to_owned(),
+            method: StepMethod::WaitFor as i32,
+        }),
+        attempt: 1,
+        response: Some(step_method_completed_command::Response::WaitFor(
+            InvokeWaitForMethodResponse {
+                waiting_condition: Some(WaitingCondition {
+                    waiting_condition_type: WaitingConditionType::AllCompleted as i32,
+                    sub_flow_conditions: vec![SubFlowCondition {
+                        condition_id: "child".to_owned(),
+                        sub_flow_type: "ChildFlow".to_owned(),
+                        start_step_type: "ChildStep".to_owned(),
+                        step_options: Some(StepOptions {
+                            skip_wait_for: true,
+                            ..StepOptions::default()
+                        }),
+                        ..SubFlowCondition::default()
+                    }],
+                    ..WaitingCondition::default()
+                }),
+                ..InvokeWaitForMethodResponse::default()
+            },
+        )),
+        app_worker_id: "worker-1".to_owned(),
+        ..StepMethodCompletedCommand::default()
+    })
+}
+
+fn outbox_child_start(harness: &RuntimeHarness, run_id: RunId) -> ChildFlowStartMessage {
+    let context = harness.registry.flow_context(&flow(FLOW_ID));
+    let prefix = run_table_prefix(context.flow_hash, run_id, RunTable::Outbox);
+    let (start, end) = prefix_range(&prefix);
+    let rows = harness
+        .store
+        .view()
+        .scan(ColumnFamily::Flow, &start, &end, usize::MAX)
+        .unwrap();
+    let [(_, bytes)] = rows.as_slice() else {
+        panic!("the parent outbox holds one message: {rows:?}");
+    };
+    let record = OutboxRecord::decode(bytes.as_slice()).unwrap();
+    let Some(outbox_record::Payload::ChildStart(child_start)) = record.payload else {
+        panic!("the parent outbox holds a child start");
+    };
+    child_start
+}
+
+/// The child's completion as the child's owner delivers it to the parent.
+fn child_completed(child_start: ChildFlowStartMessage) -> flow_command::Command {
+    let child_run_id = vec![5; 16];
+    flow_command::Command::InboxMessage(InboxMessageCommand {
+        message_id: vec![6; 16],
+        source: Some(CrossFlowEndpoint {
+            tenant_id: TENANT.0,
+            flow_id: child_start.child_flow_id.clone(),
+            run_id: child_run_id.clone(),
+            run_attempt: 1,
+        }),
+        payload: Some(inbox_message_command::Payload::ChildCompleted(
+            ChildFlowCompletedMessage {
+                child_flow_id: child_start.child_flow_id,
+                child_run_id,
+                child_run_attempt: 1,
+                result: Some(FlowResult {
+                    flow_status: FlowStatus::Completed as i32,
+                    ..FlowResult::default()
+                }),
+                parent: child_start.parent,
+            },
+        )),
+        ..InboxMessageCommand::default()
+    })
+}
+
+#[tokio::test(start_paused = true)]
+async fn only_a_flow_with_an_admitted_rpc_dry_runs_its_commands() {
+    let (harness, run_id) = start_unsynced_run(execute_only_request()).await;
+    let before = apply_count(&harness);
+    propose(&harness, run_id, set_attribute("first")).await;
+    assert_eq!(
+        apply_count(&harness) - before,
+        2,
+        "a speculative apply and the committed apply"
+    );
+
+    let (gate, rpc) = admit_held_rpc(&harness).await;
+    let before = apply_count(&harness);
+    propose(&harness, run_id, set_attribute("second")).await;
+    assert_eq!(
+        apply_count(&harness) - before,
+        3,
+        "the stamp's dry run adds one apply"
+    );
+    assert!(!last_submitted_stamp(&harness));
+    assert_eq!(
+        release_rpc(&harness, &gate, rpc).await,
+        Some(string_value("approved"))
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_skipped_flow_timeout_closes_only_after_an_admitted_rpc_commits() {
+    let mut request = execute_only_request();
+    request.flow_timeout_seconds = 60;
+    let (harness, run_id) = start_unsynced_run(request).await;
+    let (gate, rpc) = admit_held_rpc(&harness).await;
+
+    harness
+        .drive(harness.registry.skip_timer(
+            TENANT,
+            SkipTimerRequest {
+                flow_id: FLOW_ID.to_owned(),
+                step_execution_id: FLOW_TIMEOUT_STEP_EXECUTION_ID.to_owned(),
+                timer_condition_index: Some(0),
+                ..SkipTimerRequest::default()
+            },
+        ))
+        .await
+        .expect("the Flow timeout is skipped");
+    assert!(
+        last_submitted_stamp(&harness),
+        "the skip would time the run out"
+    );
+    let held = run_record(&harness, run_id);
+    assert_eq!(held.status, FlowStatus::Running as i32);
+    assert!(held.pending_close.is_some());
+
+    assert_eq!(
+        release_rpc(&harness, &gate, rpc).await,
+        Some(string_value("approved"))
+    );
+    let closed = run_record(&harness, run_id);
+    assert_eq!(closed.status, FlowStatus::Failed as i32);
+    assert_eq!(closed.pending_close, None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_child_result_wakes_the_last_step_whose_close_then_waits_for_an_admitted_rpc() {
+    let (harness, run_id) = start_unsynced_run(start_request(FLOW_ID)).await;
+    propose(&harness, run_id, start_wait_for()).await;
+    propose(&harness, run_id, wait_for_child()).await;
+    let child_start = outbox_child_start(&harness, run_id);
+    let (gate, rpc) = admit_held_rpc(&harness).await;
+
+    let before = apply_count(&harness);
+    propose(&harness, run_id, child_completed(child_start)).await;
+    assert_eq!(
+        apply_count(&harness) - before,
+        3,
+        "the owner dry-runs the child result"
+    );
+    assert!(
+        !last_submitted_stamp(&harness),
+        "the child result moves the Step to Execute, which keeps the run open"
+    );
+    let woken = run_record(&harness, run_id);
+    assert_eq!(woken.status, FlowStatus::Running as i32);
+    assert_eq!(woken.pending_close, None);
+
+    propose(&harness, run_id, start_execute()).await;
+    propose(&harness, run_id, force_complete()).await;
+    assert!(last_submitted_stamp(&harness));
+    let held = run_record(&harness, run_id);
+    assert_eq!(held.status, FlowStatus::Running as i32);
+    assert!(held.pending_close.is_some());
+
+    assert_eq!(
+        release_rpc(&harness, &gate, rpc).await,
+        Some(string_value("approved"))
+    );
+    let closed = run_record(&harness, run_id);
+    assert_eq!(closed.status, FlowStatus::Completed as i32);
+    assert_eq!(closed.pending_close, None);
 }

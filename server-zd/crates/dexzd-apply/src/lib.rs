@@ -28,6 +28,7 @@ pub mod values;
 pub use apply_context::{ApplyContext, BehaviorVersion};
 pub use apply_outcome::{ApplyEffect, ApplyError, ApplyOutcome, StateWrite, WaitableChange};
 pub use command_handlers::command_replies::{CLOSED_RUN_STOP_MESSAGE, TERMINAL_CLEANUP_MESSAGE};
+pub use command_handlers::flow_close::{TransactionalRpcHold, transactional_rpc_hold};
 pub use history::diagnostics;
 pub use state_access::{FlowStateReader, StateReadError, StateRow};
 pub use steps::invocation_retry_deadline_micros;

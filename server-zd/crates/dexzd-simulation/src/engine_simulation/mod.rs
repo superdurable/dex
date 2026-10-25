@@ -61,7 +61,7 @@ pub enum EngineSimulationProfile {
     /// snapshots.
     RedeploysWithShortHistoryWindow,
     /// The fixed set's environment with Step failure policies, short Flow timeouts, and timeout
-    /// handlers.
+    /// handlers. Clients also skip Flow timeouts.
     StepFailurePolicies,
 }
 
@@ -148,6 +148,8 @@ pub struct EngineSimulationSummary {
     pub client_calls: BTreeMap<String, u64>,
     /// Natural closes that waited, including closes that admitted transactional RPCs held.
     pub close_barrier: crate::CloseBarrierCounts,
+    /// Commands dry-run because their Flow had an admitted transactional RPC, by command kind.
+    pub close_hold_dry_runs: BTreeMap<String, u64>,
     /// Client writes acknowledged and then found in the committed log.
     pub acknowledged_writes: u64,
     /// Client reads whose whole response matched the committed state at a generation their node
@@ -229,6 +231,7 @@ impl EngineSimulationSummary {
         );
         self.epoch_starts_below_landed_batches += other.epoch_starts_below_landed_batches;
         self.close_barrier.merge(&other.close_barrier);
+        merge_counts(&mut self.close_hold_dry_runs, &other.close_hold_dry_runs);
         merge_counts(&mut self.start_failures, &other.start_failures);
         self.clock_jumps += other.clock_jumps;
         merge_counts(&mut self.injected_faults, &other.injected_faults);

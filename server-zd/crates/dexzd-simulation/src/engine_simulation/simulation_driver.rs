@@ -218,6 +218,7 @@ impl Simulation {
                 retention_after_close,
                 profile: config.profile,
                 origin,
+                close_hold_dry_runs: Arc::default(),
             },
             rng,
             serving: None,
