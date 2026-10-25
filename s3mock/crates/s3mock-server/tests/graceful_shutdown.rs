@@ -19,7 +19,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 /// Far below the ten-second grace period for in-flight requests.
-const PROMPT_SHUTDOWN_DEADLINE: Duration = Duration::from_secs(2);
+const PROMPT_CLOSE_DEADLINE: Duration = Duration::from_secs(2);
+/// Exceeds the grace period plus a slow fsyncing store close on a loaded host.
+const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(60);
 
 #[tokio::test]
 async fn shutdown_closes_a_connection_that_never_sent_a_request_at_once() {
@@ -37,8 +39,7 @@ async fn shutdown_closes_a_connection_that_never_sent_a_request_at_once() {
     .await;
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
 
-    stop_promptly(server).await;
-    assert_closed(&mut unused).await;
+    stop_while_closing_promptly(server, &mut unused).await;
 }
 
 #[tokio::test]
@@ -59,8 +60,7 @@ async fn shutdown_closes_an_idle_keep_alive_connection_at_once() {
     let response = String::from_utf8_lossy(&response[..length]);
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
 
-    stop_promptly(server).await;
-    assert_closed(&mut idle).await;
+    stop_while_closing_promptly(server, &mut idle).await;
 }
 
 #[tokio::test]
@@ -79,7 +79,7 @@ async fn shutdown_returns_after_the_relaxed_store_persists_its_commits() {
     )
     .await;
     assert!(stored.starts_with("HTTP/1.1 200"), "{stored}");
-    stop_promptly(server).await;
+    stop(server).await;
 
     let restarted = start_server(directory.path()).await;
     let read = send_request(
@@ -89,7 +89,7 @@ async fn shutdown_returns_after_the_relaxed_store_persists_its_commits() {
     .await;
     assert!(read.starts_with("HTTP/1.1 200"), "{read}");
     assert!(read.ends_with("\r\n\r\nhello"), "{read}");
-    stop_promptly(restarted).await;
+    stop(restarted).await;
 }
 
 /// Serves a relaxed store, whose commits reach disk only when the store closes.
@@ -123,21 +123,27 @@ async fn send_request(address: SocketAddr, request: &str) -> String {
     response
 }
 
-async fn stop_promptly(server: ServerHandle) {
-    tokio::time::timeout(PROMPT_SHUTDOWN_DEADLINE, server.shutdown())
-        .await
-        .expect("shutdown does not wait for connections without a request in flight");
-}
-
-async fn assert_closed(stream: &mut TcpStream) {
+/// Shuts `server` down and requires `stream` to close promptly while the shutdown still runs.
+async fn stop_while_closing_promptly(server: ServerHandle, stream: &mut TcpStream) {
+    let shutdown = tokio::spawn(server.shutdown());
     let mut remainder = Vec::new();
-    tokio::time::timeout(PROMPT_SHUTDOWN_DEADLINE, stream.read_to_end(&mut remainder))
+    tokio::time::timeout(PROMPT_CLOSE_DEADLINE, stream.read_to_end(&mut remainder))
         .await
-        .expect("the server closes the connection")
+        .expect("shutdown closes a connection without a request in flight at once")
         .expect("the connection closes without an error");
     assert!(
         remainder.is_empty(),
         "{}",
         String::from_utf8_lossy(&remainder)
     );
+    tokio::time::timeout(SHUTDOWN_DEADLINE, shutdown)
+        .await
+        .expect("shutdown finishes")
+        .expect("the shutdown task does not panic");
+}
+
+async fn stop(server: ServerHandle) {
+    tokio::time::timeout(SHUTDOWN_DEADLINE, server.shutdown())
+        .await
+        .expect("shutdown finishes");
 }

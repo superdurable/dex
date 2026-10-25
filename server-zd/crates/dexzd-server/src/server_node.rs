@@ -831,12 +831,13 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_stalled_embedded_s3_still_ends_within_the_shutdown_budget() {
+    async fn a_stalled_embedded_s3_ends_at_the_shutdown_budget_or_after_its_minimum() {
         let slowest_earlier_steps = SHUTDOWN_BUDGET.saturating_sub(EMBEDDED_S3_MINIMUM_STOP_BUDGET);
         for earlier_steps in [
             Duration::ZERO,
             Duration::from_secs(5),
             slowest_earlier_steps,
+            Duration::from_secs(14),
         ] {
             let started = tokio::time::Instant::now();
             let mut teardown = BoundedTeardown::start();
@@ -847,7 +848,7 @@ mod tests {
                 .await;
             assert_eq!(
                 started.elapsed(),
-                SHUTDOWN_BUDGET,
+                SHUTDOWN_BUDGET.max(earlier_steps + EMBEDDED_S3_MINIMUM_STOP_BUDGET),
                 "after {earlier_steps:?}"
             );
             let expected = format!("embedded S3 exceeded its {} ms budget", budget.as_millis());
