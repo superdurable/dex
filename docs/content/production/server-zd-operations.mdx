@@ -443,6 +443,9 @@ in server-zd.
   Server does not rewrite them.
 - Each database needs a [fencing table](#attribute-store-fencing-table). The Go
   Server needs none.
+- StopFlow closes the run as soon as it commits. A later SetAttributes on that
+  run returns NOT_FOUND. The Go Server accepts such writes while its run winds
+  down. Write what a Flow needs before stopping it.
 
 ### Configuration {#attribute-store-configuration}
 

@@ -387,6 +387,8 @@ server-zd 不同的地方。
 - [Time travel](/primitives/client/advanced#time-travel) 之后，server-zd 会用 time travel
   之后的状态重写该 run 同步过的每一行。Go Server 不会重写这些行。
 - 每个数据库都需要一张 [fencing 表](#attribute-store-fencing-table)。Go Server 不需要。
+- StopFlow 一提交，run 就会关闭。之后对该 run 的 SetAttributes 返回 NOT_FOUND。Go Server
+  在 run 收尾期间仍接受这类写入。Flow 需要的数据请在停止之前写入。
 
 ### 配置 {#attribute-store-configuration}
 
