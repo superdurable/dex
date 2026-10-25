@@ -126,6 +126,7 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_snapshot_last_duration_seconds` | gauge | — | Duration of the last successful snapshot |
 | `dexzd_snapshot_last_bytes` | gauge | — | Size of the last successful snapshot |
 | `dexzd_recovery_last_duration_seconds` | gauge | — | Duration of the last completed recovery or takeover replay |
+| `dexzd_startup_read_retries_total` | counter | — | Transient object storage reads retried during startup |
 | `dexzd_recovery_last_replayed_bytes` | gauge | — | Uncompressed command record bytes replayed by the last recovery |
 | `dexzd_local_storage_bytes` | gauge | — | Local SST and WAL bytes, sampled at scrape time |
 | `dexzd_timer_lag_seconds` | gauge | — | Age of the oldest due timer not yet fired, 0 when none |
@@ -221,9 +222,10 @@ The `s3:ListBucket` condition must use `StringLike` with `PREFIX/*`. An exact-pr
 403, and the Server cannot use a prefixed listing to distinguish it from a denied object.
 With the `StringLike` grant above, AWS S3 returns 404 for missing-object reads; narrower grants
 can return 403. The Server handles either response when the prefixed listing is allowed.
-The startup conditional-write probe also creates and deletes a key under that prefix. No
-unconditioned bucket access or bucket administration action is required. The bucket may be
-unversioned: create-only and replacement writes use `If-None-Match` and `If-Match` with opaque
+The startup conditional-write probe also creates and deletes a key under that prefix. A signal
+during the probe may leave that key behind. No unconditioned bucket access or bucket
+administration action is required. The bucket may be unversioned: create-only and replacement
+writes use `If-None-Match` and `If-Match` with opaque
 ETags, not object versions or MD5 digests. The S3 client sends no server-side encryption headers,
 so the bucket's default SSE-KMS configuration applies. For a customer-managed KMS key, grant the
 role `kms:GenerateDataKey` and `kms:Decrypt` on that key, and allow those actions in its key policy.
@@ -237,16 +239,27 @@ Startup proceeds in this order:
    `dex.FlowService`, and `dex.WorkerTaskService`; FlowService and WorkerTaskService calls return
    Unavailable while startup continues.
 2. Every S3 destination verifies a prefixed child listing. Every destination then passes a
-   conditional-write self-check.
+   conditional-write self-check. The self-check does not use startup read retries.
 3. The node acquires the lease of `cluster.nodeId` for `lease.duration`. A lease that another
    process still holds is awaited until it expires, or fails startup when `lease.failIfHeld` is
-   true. `dev` takes a held lease over at once instead; see [dev](#dev).
+   true. `dev` takes a held lease over at once instead; see [dev](#dev). Transient or
+   unknown-outcome reads of the cluster, manifest, and lease objects are retried during bootstrap
+   and acquisition.
 4. The node restores `localStorage.directory` from the latest snapshot and the command log. The
    directory is a cache; an empty one is rebuilt from object storage. Replay keeps up to
    `recovery.readAheadBatches` log reads in flight, holding at most `recovery.readAheadBytes` of
    log objects or one larger batch, and applies batches in log order as they arrive. After a
    replay of at least `localStorage.compactAfterReplayBytes`, the local store is compacted in the
    background while the node serves.
+   Transient or unknown-outcome object-storage reads are retried with jittered exponential backoff.
+   Each read gets its own `recovery.startupReadRetryBudget` wall-clock window (default 30 seconds),
+   starting at its first transient or unknown-outcome failure. Backoff and later read calls count
+   toward that window. Concurrent reads do not share a budget, and a later read gets a new window.
+   Permanent errors fail startup immediately. Lease loss or shutdown can stop retries sooner;
+   lease renewal continues during recovery. The window bounds each read, not the whole startup, so
+   startup after lease acquisition has no overall time limit. That is acceptable because a
+   persistent outage still fails startup within one read's window, and renewal keeps the lease
+   while slow reads make progress.
 5. After recovery and rebuild finish, health switches to SERVING and the API serves requests.
    Startup failure closes the listener.
 
@@ -386,9 +399,12 @@ expires.
 
 A lost lease, a stopped commit pipeline, or a halted Flow runtime stops the node, and the process
 exits 1. Restart it. A signal before the node acquires its lease cancels startup and exits 0. If
-the node already holds its lease, startup finishes before graceful shutdown begins. That shutdown
-has the same 14.5-second total and exit status as a signal received while serving. A failed startup
-releases its lease and exits 1.
+the outcome of the node's lease write is still unknown, that write is not released, and a
+replacement may wait for it to expire. If the node already holds its lease, a signal stops startup
+at once and releases the lease. The process then exits 0, or exits 1 when the release fails. If
+startup finishes before it observes the signal, the node runs graceful shutdown, with the same
+14.5-second total and exit status as a signal received while serving. A failed startup releases its
+lease and exits 1.
 
 The node serves only within its local lease validity. The deadline is `lease.duration` after the
 last successful renewal was sent, on the local monotonic clock. Renewal starts one third of

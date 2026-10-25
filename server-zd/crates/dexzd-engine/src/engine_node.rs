@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{
-    ClusterConfig, LeaseConfig, LeaseHandle, LeaseObservers, LeaseReleaseError, LeaseStatus,
-    LeaseValidityDeadline, NodeConfig,
+    ClusterConfig, LeaseConfig, LeaseHandle, LeaseObjectStores, LeaseObservers, LeaseReleaseError,
+    LeaseStatus, LeaseValidityDeadline, NodeConfig,
 };
 use dexzd_keyspace::PartitionId;
 use dexzd_log::{CommitPipeline, StreamIdentity};
@@ -37,8 +37,8 @@ use crate::commit::{
 use crate::engine_id_source::EngineIdSource;
 use crate::recovery::{
     ClusterMetadata, EngineRuntimeHooks, EngineServices, EngineStartError, LocalStoreConfig,
-    LocalStoreRequirements, LogReplay, OpenedLocalStore, delete_older_set_aside_stores,
-    open_local_store, rebuild_search_order_indexes,
+    LocalStoreRequirements, LogReplay, OpenedLocalStore, StartupReadRetryStore,
+    delete_older_set_aside_stores, open_local_store, rebuild_search_order_indexes,
 };
 use crate::snapshots::{
     LogCleanup, OwnershipFence, SnapshotCatalog, SnapshotConfig, SnapshotError, SnapshotRetention,
@@ -124,7 +124,14 @@ impl EngineNode {
         Ok(started.expect("startup without cancellation must return an engine node"))
     }
 
-    /// Starts the node, or returns `None` when cancellation arrives while waiting for its lease.
+    /// Starts the node like [`EngineNode::start`], and stops early when cancellation arrives.
+    ///
+    /// Returns the serving node, or `None` when cancellation arrives before the node holds its
+    /// lease, including while it waits for the lease. Returns [`EngineStartError::Stopped`] with
+    /// [`NodeStopReason::Shutdown`] when cancellation arrives after acquisition, once the lease is
+    /// released. Returns the start error when startup fails for another reason. Returns
+    /// [`EngineStartError::FailedStartLeaseRelease`] when the lease release after a cancelled or
+    /// failed start fails.
     pub async fn start_until_cancelled<F>(
         config: &EngineNodeConfig,
         dependencies: EngineNodeDependencies,
@@ -143,24 +150,31 @@ impl EngineNode {
             id_source,
             lease_validity_deadline,
         } = dependencies;
+        let acquisition_store = Arc::new(StartupReadRetryStore::new(
+            object_store.clone(),
+            config.recovery.startup_read_retry_budget,
+            config.node.node_id.clone(),
+            metrics.clone(),
+            Some(lease_validity_deadline.clone()),
+        ));
+        let startup_store: Arc<dyn ObjectStore> = acquisition_store.clone();
         // Fails fast on a contradicting manifest; the predecessor may still change it until the lease.
-        let unleased_metadata = ClusterMetadata::bootstrap_or_validate(
-            object_store.as_ref(),
-            clock.as_ref(),
-            config.cluster,
-            &config.node,
-        )
-        .await?;
+        let unleased_metadata = tokio::select! {
+            metadata = ClusterMetadata::bootstrap_or_validate(
+                startup_store.as_ref(), clock.as_ref(), config.cluster, &config.node,
+            ) => metadata?,
+            () = wait_for_cancellation(cancellation) => return Ok(None),
+        };
         let partition_count = unleased_metadata.partition_count();
         metrics
             .behavior_version
             .set(i64::from(unleased_metadata.behavior_version));
         metrics.set_role(dexzd_metrics::NodeRole::Standby);
         let cluster_id = unleased_metadata.cluster_id()?;
-        let Some(lease) = config
+        let acquired = config
             .lease
-            .acquire_until_cancelled_with_observers(
-                object_store.clone(),
+            .acquire_until_cancelled_with_observers_and_stores(
+                LeaseObjectStores::new(startup_store, object_store.clone()),
                 clock.clone(),
                 &config.node,
                 cancellation,
@@ -170,10 +184,19 @@ impl EngineNode {
                     validity_deadline: lease_validity_deadline.clone(),
                 },
             )
-            .await?
-        else {
+            .await;
+        acquisition_store.finish_startup();
+        let Some(lease) = acquired? else {
             return Ok(None);
         };
+        let retrying_store = Arc::new(StartupReadRetryStore::new(
+            object_store.clone(),
+            config.recovery.startup_read_retry_budget,
+            config.node.node_id.clone(),
+            metrics.clone(),
+            None,
+        ));
+        let startup_store: Arc<dyn ObjectStore> = retrying_store.clone();
         let epoch = lease.epoch();
         metrics
             .lease_epoch
@@ -198,10 +221,10 @@ impl EngineNode {
                 lease,
             }),
         };
-        let serving = async {
+        let mut serving_future = Box::pin(async {
             let parts = starting.parts_mut();
             let metadata = unleased_metadata
-                .read_under_lease(object_store.as_ref(), &config.node, epoch)
+                .read_under_lease(startup_store.as_ref(), &config.node, epoch)
                 .await?;
             metrics
                 .behavior_version
@@ -216,7 +239,7 @@ impl EngineNode {
                 set_aside_id,
             } = open_local_store(
                 &config.local_store,
-                object_store.as_ref(),
+                startup_store.as_ref(),
                 &LocalStoreRequirements {
                     snapshot: metadata.node_snapshot(&config.node.node_id),
                     streams: &metadata.streams,
@@ -283,7 +306,7 @@ impl EngineNode {
             parts.appliers = Some(appliers.clone());
             let replayed = LogReplay {
                 config: &config.recovery,
-                object_store: object_store.as_ref(),
+                object_store: startup_store.as_ref(),
                 clock: clock.as_ref(),
                 id_source: id_source.as_ref(),
                 cluster_id,
@@ -418,9 +441,18 @@ impl EngineNode {
             tracing::info!(epoch, next_seq = replayed.next_seq, "engine node serving");
             metrics.set_role(dexzd_metrics::NodeRole::Serving);
             Ok((committer, applied_positions, snapshots))
-        }
-        .await;
-        match serving {
+        });
+        let serving_result = tokio::select! {
+            biased;
+            reason = state.wait_stopped() => Err(EngineStartError::Stopped { reason }),
+            () = wait_for_cancellation(cancellation) => Err(EngineStartError::Stopped {
+                reason: NodeStopReason::Shutdown,
+            }),
+            result = &mut serving_future => result,
+        };
+        drop(serving_future);
+        retrying_store.finish_startup();
+        match serving_result {
             Ok((committer, applied_positions, snapshots)) => {
                 let LeasedParts {
                     state,
@@ -441,10 +473,18 @@ impl EngineNode {
                 }))
             }
             Err(error) => {
-                starting.release_after_failure().await;
-                metrics.lease_epoch.set(0);
+                let release_result = starting.release_after_failure().await;
+                if release_result.is_ok() {
+                    metrics.lease_epoch.set(0);
+                }
                 metrics.set_role(dexzd_metrics::NodeRole::Standby);
-                Err(error)
+                match release_result {
+                    Ok(()) => Err(error),
+                    Err(detail) => Err(EngineStartError::FailedStartLeaseRelease {
+                        start: Box::new(error),
+                        detail,
+                    }),
+                }
             }
         }
     }
@@ -619,10 +659,14 @@ impl StartingNode {
     }
 
     /// Stops the parts and releases the lease; the release continues if the caller is cancelled.
-    async fn release_after_failure(mut self) {
+    async fn release_after_failure(mut self) -> Result<(), String> {
         let release_task = tokio::spawn(release_after_unfinished_start(self.take_parts()));
-        if let Err(error) = release_task.await {
-            tracing::error!(%error, "the lease release task failed after an unfinished start");
+        match release_task.await {
+            Ok(result) => result.map_err(|error| error.to_string()),
+            Err(error) => {
+                tracing::error!(%error, "the lease release task failed after an unfinished start");
+                Err(error.to_string())
+            }
         }
     }
 }
@@ -647,13 +691,15 @@ impl Drop for StartingNode {
 }
 
 /// Stops the parts of a failed or cancelled start, releases the lease, and logs the outcome.
-async fn release_after_unfinished_start(parts: LeasedParts) {
-    match parts.stop_and_release_lease(None).await {
+async fn release_after_unfinished_start(parts: LeasedParts) -> Result<(), LeaseReleaseError> {
+    let result = parts.stop_and_release_lease(None).await;
+    match &result {
         Ok(()) => tracing::info!("released the node lease after an unfinished start"),
         Err(error) => {
             tracing::error!(%error, "the node lease stays held after an unfinished start")
         }
     }
+    result
 }
 
 fn validate_config(config: &EngineNodeConfig) -> Result<(), EngineStartError> {
@@ -673,6 +719,8 @@ fn validate_config(config: &EngineNodeConfig) -> Result<(), EngineStartError> {
         Some("recovery.log_read_ahead.max_read_ahead_batches must be positive")
     } else if config.recovery.log_read_ahead.max_buffered_bytes == 0 {
         Some("recovery.log_read_ahead.max_buffered_bytes must be positive")
+    } else if config.recovery.startup_read_retry_budget.is_zero() {
+        Some("recovery.startup_read_retry_budget must be positive")
     } else {
         None
     };
@@ -681,6 +729,17 @@ fn validate_config(config: &EngineNodeConfig) -> Result<(), EngineStartError> {
             detail: detail.to_owned(),
         }),
         None => Ok(()),
+    }
+}
+
+async fn wait_for_cancellation(cancellation: &mut watch::Receiver<bool>) {
+    loop {
+        if *cancellation.borrow_and_update() {
+            return;
+        }
+        if cancellation.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
     }
 }
 

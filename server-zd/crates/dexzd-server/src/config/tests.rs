@@ -164,6 +164,7 @@ fn replay_and_local_store_disk_settings_reach_the_engine_node() {
     let components =
         ComponentConfigs::from_config(&configuration, false).expect("component config");
     let recovery = components.engine_node.recovery;
+    assert_eq!(recovery.startup_read_retry_budget, Duration::from_secs(30));
     assert_eq!(recovery.log_read_ahead.max_read_ahead_batches, 8);
     assert_eq!(recovery.log_read_ahead.max_buffered_bytes, 1024 * 1024);
     assert_eq!(recovery.compact_after_replay_bytes, 0);
@@ -498,6 +499,9 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }),
         ("recovery.readAheadBytes", |config| {
             config.recovery.read_ahead_bytes = 0
+        }),
+        ("recovery.startupReadRetryBudget", |config| {
+            config.recovery.startup_read_retry_budget = Duration::ZERO
         }),
         ("history.windowSemanticEvents", |config| {
             config.history.window_semantic_events = 0
