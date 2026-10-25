@@ -129,6 +129,8 @@ type rawPullWorker struct {
 	cancellations           []context.CancelFunc
 	queueCancels            map[string]context.CancelFunc
 	rpcError                *dexpb.WorkerErrorResponse
+	rpcAttributeKey         string
+	rpcAsyncStep            bool
 	disconnectOnWaitFor     bool
 	spawnSubFlow            bool
 	hasInvalidSubFlowTarget bool
@@ -152,10 +154,16 @@ type rawPullWorkerConfig struct {
 	unknownStepType        string
 	unknownExecuteStepType string
 	unknownRPCName         string
+	rpcAttributeKey        string
+	rpcAsyncStep           bool
 }
 
 func startUnknownRejectingPullWorker(t *testing.T, address string, flowType string, workerID string, configuration rawPullWorkerConfig) *rawPullWorker {
 	return newRawPullWorkerWithExecuteBehavior(t, address, flowType, workerID, nil, false, false, false, false, false, false, false, pullExecuteDefault, configuration)
+}
+
+func startStateWritingPullWorker(t *testing.T, address string, flowType string, workerID string, attributeKey string) *rawPullWorker {
+	return newRawPullWorkerWithExecuteBehavior(t, address, flowType, workerID, nil, false, false, false, false, false, false, false, pullExecuteDefault, rawPullWorkerConfig{rpcAttributeKey: attributeKey})
 }
 
 func startHeartbeatPullWorker(t *testing.T, address string, flowType string, behavior pullExecuteBehavior) *rawPullWorker {
@@ -210,7 +218,9 @@ func newRawPullWorkerWithExecuteBehavior(t *testing.T, address string, flowType 
 		rejectNextStickyTask: make(chan struct{}, 1), rejectedStickyTasks: make(chan pullTaskObservation, 1),
 		restoredHeartbeats: make(chan string, 2), executeBehavior: executeBehavior,
 		rpcError: rpcError, disconnectOnWaitFor: disconnectOnWaitFor, spawnSubFlow: spawnSubFlow,
-		spawnParallel: spawnParallel, blockParallel: blockParallel, sendProgress: sendProgress, holdWaitFor: holdWaitFor,
+		rpcAttributeKey: configuration.rpcAttributeKey,
+		rpcAsyncStep:    configuration.rpcAsyncStep,
+		spawnParallel:   spawnParallel, blockParallel: blockParallel, sendProgress: sendProgress, holdWaitFor: holdWaitFor,
 		hasInvalidSubFlowTarget: hasInvalidSubFlowTarget,
 		unknownStepType:         configuration.unknownStepType, unknownExecuteStepType: configuration.unknownExecuteStepType,
 		unknownRPCName:    configuration.unknownRPCName,
@@ -391,8 +401,17 @@ func (w *rawPullWorker) serve(queue string, stream dexpb.WorkerTaskService_PollW
 			if w.rpcError != nil {
 				output = &dexpb.PollWorkerTaskFrame{TaskId: task.GetTaskId(), Output: &dexpb.PollWorkerTaskFrame_WorkerError{WorkerError: w.rpcError}}
 			} else {
+				rpcResponse := &dexpb.InvokeWorkerRPCResponse{Output: stringValue("pull-rpc-ok")}
+				if w.rpcAttributeKey != "" {
+					rpcResponse.UpsertAttributes = []*dexpb.AttributeWrite{{Key: w.rpcAttributeKey, Value: stringValue("written")}}
+					stepOptions := &dexpb.StepOptions{SkipWaitFor: true}
+					if w.rpcAsyncStep {
+						stepOptions.ExecuteDurabilityOverride = dexpb.StepDurability_STEP_DURABILITY_ASYNC
+					}
+					rpcResponse.StepDecision = &dexpb.StepDecision{NextSteps: []*dexpb.StepMovement{{StepType: dispatchProbeStep, StepOptions: stepOptions}}}
+				}
 				output = &dexpb.PollWorkerTaskFrame{TaskId: task.GetTaskId(), Output: &dexpb.PollWorkerTaskFrame_Rpc{
-					Rpc: &dexpb.InvokeWorkerRPCResponse{Output: stringValue("pull-rpc-ok")},
+					Rpc: rpcResponse,
 				}}
 			}
 			observation = pullTaskObservation{queue: queue, method: method, flowID: request.Rpc.GetContext().GetFlowId(), attempt: request.Rpc.GetContext().GetAttempt()}
@@ -1783,6 +1802,7 @@ func testPullWorkerUnavailable(t *testing.T, backend service.BackendType) {
 	require.NotNil(t, failedMethod.GetContext().GetPullRouting())
 	require.Empty(t, failedMethod.GetContext().GetPullRouting().GetServedByAppWorkerId())
 	require.Contains(t, failedMethod.GetOutput().GetFailure().GetDetails().GetDetail(), "no Worker available")
+	require.Equal(t, dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE, failedMethod.GetOutput().GetFailure().GetDetails().GetDispatchTaskErrorReason())
 }
 
 func testPullWorkerDispatch(t *testing.T, backend service.BackendType) {

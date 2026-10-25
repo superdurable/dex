@@ -723,6 +723,8 @@ so excess assignments can be rejected for reassignment. It gracefully closes
 surplus idle streams after tasks finish, retaining `IdleStreamsPerQueue` registered
 idle streams per queue. After load drops, the steady-state bound is
 `MaxConcurrentTasks + (1 + number of Flow types) * IdleStreamsPerQueue` streams.
+Allow up to one more stream per queue for 30 seconds after reserve declines,
+or up to `1 + number of Flow types` additional streams.
 The transient peak during a burst remains bounded by the matching caps. Size both
 options for `matching.maxConcurrentTasksCap` per app Worker ID per matching owner
 (default 256) and `matching.maxStreams` per Matching instance (default 100,000).
@@ -781,11 +783,11 @@ is at least two, otherwise zero. With the CPU-count default, Steps get one fewer
 slot than before. Set it explicitly to zero to opt out. With one slot and no
 explicit reserve, Worker start logs one warning: RPCs may wait behind
 long-running Steps; use a limit of at least two or set the reserve explicitly.
-Flows must stay responsive; Dex cannot prioritize synchronous RPCs like workflow
-engines prioritize reads. The value must be nonnegative and less than
-`MaxConcurrentTasks` after its CPU-count default is resolved; invalid values
-fail construction. RPC and Step handlers count together: WaitFor and Execute
-tasks, including local attempts, are declined with `NO_CAPACITY` when the busy
+Flows must stay responsive because RPCs share Worker task capacity with Steps.
+The value must be nonnegative and less than `MaxConcurrentTasks` after its
+CPU-count default is resolved; invalid values fail construction. RPC and Step
+handlers count together. WaitFor and Execute tasks, including local attempts,
+are declined with `NO_CAPACITY` when the busy
 count reaches the task limit minus the reserve. API-direct and transactional
 InvokeWorkerRPC tasks can use the full limit.
 
@@ -797,15 +799,73 @@ A decline lets Dex try another Worker without consuming an attempt. If all
 Workers remain at their Step limit, a Step can wait until the dispatch wait
 expires, then receive `NO_WORKER_AVAILABLE`, consume an attempt, and follow its
 retry policy, as when all Workers are full. Local attempts wait the local
-dispatch wait, then fall back according to their policy. Each queue still keeps
-its configured idle streams; a reserve decline does not close a stream or change
-registration readiness.
+dispatch wait, then fall back according to their policy. A queue that declines
+a Step for reserved RPC capacity keeps one additional idle stream until 30
+seconds after its last decline. Other queues retain their configured count.
+The Worker does not open the extra stream while all task slots are busy. Set
+`IdleStreamsPerQueue` to at least two for heavy Step backlogs. A reserve decline
+does not close a stream or change registration readiness.
 
 Each reserve decline records the Flow type through the configured Go logger at
 debug level. Export the cumulative `PullReservedRPCDeclines()` Worker value to
 distinguish reserve pressure from full-capacity rejections. The count excludes
-full-capacity rejections and unknown names, never resets, and remains available
-after shutdown. Listening Workers return zero.
+full-capacity rejections and unknown names. It counts decline events, including
+repeated declines of the same Step dispatch while Dex retries it. Read its rate
+to assess reserve pressure. It never resets and remains available after shutdown.
+Listening Workers return zero.
+
+## FlowService TLS
+
+`FlowServiceAddress` uses plaintext gRPC by default for both the Client and
+Worker, including pull mode. For a TLS-terminating Dex endpoint, use its
+`host:443`, `dns:///host:443`, or `dns://authority/host:443` address and set
+`FlowServiceTLS` on both the Client and Worker. TLS requires version 1.2 or
+newer and negotiates ALPN `h2`.
+The certificate name defaults to the address host. Extra PEM root CAs extend
+the system roots; they do not replace them. A non-nil empty option uses only
+the system roots. TLS never falls back to plaintext. Existing bearer, file,
+and API key credentials work over either transport. The API key token endpoint
+has its own HTTPS trust configuration.
+
+```go
+rootPEM, err := os.ReadFile("/etc/dex/root-ca.pem")
+if err != nil {
+	return err
+}
+tlsOptions := &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: rootPEM}
+worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+	FlowServiceAddress: "dex.example.com:443",
+	FlowServiceTLS: tlsOptions,
+	Pull: &dex.PullWorkerOptions{},
+})
+if err != nil {
+	return err
+}
+client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+	FlowServiceAddress: "dex.example.com:443",
+	FlowServiceTLS: tlsOptions,
+	WorkerTarget: worker.WorkerTarget(),
+})
+if err != nil {
+	return err
+}
+defer client.Close()
+defer worker.Stop(context.Background())
+if err := worker.Start(); err != nil {
+	return err
+}
+```
+
+Without `ServerName`, the HTTP/2 `:authority` is the address host and port, as
+with plaintext, and an IPv6 address keeps its brackets. The DNS server in a
+`dns://authority/host:port` address never becomes the certificate name or
+`:authority`. Set `ServerName` only when the certificate name differs from the
+address host. It is then also sent as `:authority`, without a port. An IPv6
+`ServerName` produces an unbracketed `:authority` that strict HTTP/2 servers
+reject, so leave it empty for an IPv6 address or use a DNS name. An IP address
+sends no SNI and requires a matching IP SAN. An `AdditionalRootCAsPEM` with no
+parseable certificate fails `NewClient` or `NewWorker`. The other SDKs will gain
+the FlowService TLS option in a later release.
 
 ## Calling FlowService
 
@@ -915,6 +975,14 @@ unless exactly one completion exists. For multiple outputs, match
 order, but parallel branch order is not deterministic. No-output Flows return
 an empty slice.
 
+`DescribeFlow(ctx, flowID)` reads one known Flow's current or latest run without
+waiting. Use it for a one-off status check, for example when a read-only RPC
+returns a non-terminal business state and the caller needs to know whether the
+Flow has failed. Its `FlowInfo` contains `FlowID`, `RunID`, `FlowType`, `Status`,
+`StartedAt`, and `ClosedAt`. `ClosedAt` is zero while the run is open or when
+the close time is unavailable. Use `WaitForFlow` when the caller needs to wait
+for a terminal result, and `SearchFlows` to find Flow IDs by query.
+
 Remote FlowService failures use concrete Go error types. Match expected
 conditions with `errors.As` instead of comparing gRPC codes or sub-statuses:
 
@@ -925,9 +993,10 @@ if errors.As(err, &inactive) {
 }
 ```
 
-`FlowNotFoundError` is returned by reads requiring an existing Flow, including
-WaitForFlow and TimeTravel. RPCs, timer operations, and step or attribute waits return
-`FlowNotActiveOrNotFoundError` when no active Flow is available.
+`FlowNotFoundError` is returned by operations requiring an existing Flow,
+including DescribeFlow, WaitForFlow, and TimeTravel. RPCs, timer operations,
+and step or attribute waits return `FlowNotActiveOrNotFoundError` when no active
+Flow is available.
 
 RPCs also use this error when the target Flow cannot be found, including query-only
 reads. A query-only RPC without locks, transactional execution, durable effects, or

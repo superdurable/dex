@@ -40,6 +40,7 @@ type pullWorker struct {
 	shouldWarnRPCCapacity          bool
 	reservedRPCDeclines            uint64
 	idleStreamsPerQueue            int
+	reservePressureLinger          time.Duration
 	stopDrainTimeout               time.Duration
 	stopOnPermanentStreamRejection bool
 	sdkVersion                     string
@@ -64,9 +65,11 @@ type pullWorker struct {
 }
 
 type pullQueueRegistration struct {
-	registeredStreams  int
-	hasRegistered      bool
-	lastPermanentError error
+	registeredStreams    int
+	hasRegistered        bool
+	lastPermanentError   error
+	lastReserveDecline   time.Time
+	reservePressureTimer *time.Timer
 }
 
 type pullStream struct {
@@ -154,7 +157,8 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 		stopOnPermanentStreamRejection: options.StopOnPermanentStreamRejection,
 		maxConcurrentTasks:             maxConcurrentTasks, reservedRPCTasks: reservedRPCTasks,
 		shouldWarnRPCCapacity: options.ReservedRPCTasks == nil && maxConcurrentTasks == 1,
-		idleStreamsPerQueue:   idleStreamsPerQueue, stopDrainTimeout: stopDrainTimeout, sdkVersion: sdkVersion,
+		idleStreamsPerQueue:   idleStreamsPerQueue, reservePressureLinger: 30 * time.Second,
+		stopDrainTimeout: stopDrainTimeout, sdkVersion: sdkVersion,
 		ctx: ctx, cancel: cancel, streams: make(map[*pullStream]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{}),
 	}, nil
 }
@@ -246,6 +250,11 @@ func (worker *pullWorker) run() error {
 func (worker *pullWorker) stop() {
 	worker.mu.Lock()
 	worker.isStopping = true
+	for _, registration := range worker.queueRegistrations {
+		if registration.reservePressureTimer != nil {
+			registration.reservePressureTimer.Stop()
+		}
+	}
 	worker.notifyRegistrationChanged()
 	for stream := range worker.streams {
 		stream.mu.Lock()
@@ -296,7 +305,10 @@ func (worker *pullWorker) reconcile() {
 				idle++
 			}
 		}
-		desired := worker.idleStreamsPerQueue
+		desired := worker.desiredIdleStreamsPerQueue(queue)
+		if worker.busyTasks == worker.maxConcurrentTasks && desired > worker.idleStreamsPerQueue {
+			desired = worker.idleStreamsPerQueue
+		}
 		for idle < desired {
 			streamCtx, cancel := context.WithCancel(worker.ctx)
 			stream := &pullStream{worker: worker, queue: queue, ctx: streamCtx, cancel: cancel}
@@ -306,6 +318,15 @@ func (worker *pullWorker) reconcile() {
 			go stream.run()
 		}
 	}
+}
+
+func (worker *pullWorker) desiredIdleStreamsPerQueue(queue string) int {
+	desired := worker.idleStreamsPerQueue
+	lastDecline := worker.queueRegistrations[queue].lastReserveDecline
+	if worker.reservedRPCTasks > 0 && !lastDecline.IsZero() && time.Since(lastDecline) < worker.reservePressureLinger {
+		desired++
+	}
+	return desired
 }
 
 func (worker *pullWorker) waitRegistered(ctx context.Context) error {
@@ -636,8 +657,16 @@ func (stream *pullStream) startTask(task *dexpb.PollWorkerTask) {
 	isStepTask := task.GetWaitFor() != nil || task.GetExecute() != nil
 	if isStepTask && stream.worker.reservedRPCTasks > 0 && stream.worker.busyTasks >= stream.worker.maxConcurrentTasks-stream.worker.reservedRPCTasks && reason == dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED {
 		stream.worker.reservedRPCDeclines++
+		registration := stream.worker.queueRegistrations[stream.queue]
+		registration.lastReserveDecline = time.Now()
+		if registration.reservePressureTimer == nil {
+			registration.reservePressureTimer = time.AfterFunc(stream.worker.reservePressureLinger, stream.worker.signal)
+		} else {
+			registration.reservePressureTimer.Reset(stream.worker.reservePressureLinger)
+		}
 		stream.mu.Unlock()
 		stream.worker.mu.Unlock()
+		stream.worker.signal()
 		flowType := task.GetWaitFor().GetFlowType()
 		if task.GetExecute() != nil {
 			flowType = task.GetExecute().GetFlowType()
@@ -817,7 +846,7 @@ func (stream *pullStream) hasIdleReplacements() bool {
 			idleStreams++
 		}
 	}
-	return idleStreams >= stream.worker.idleStreamsPerQueue
+	return idleStreams >= stream.worker.desiredIdleStreamsPerQueue(stream.queue)
 }
 
 func (stream *pullStream) cancelTaskContext() {

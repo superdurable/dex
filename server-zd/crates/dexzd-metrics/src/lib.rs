@@ -90,6 +90,8 @@ pub struct NodeMetrics {
     pub snapshot_last_bytes: Gauge,
     /// Duration of the last completed recovery or replay.
     pub recovery_last_duration: Gauge<f64, std::sync::atomic::AtomicU64>,
+    /// Transient object storage reads retried during startup.
+    pub startup_read_retries: Counter,
     /// Uncompressed command record bytes replayed during the last completed recovery.
     pub recovery_last_replayed_bytes: Gauge,
     /// Local SST and WAL bytes, updated before encoding.
@@ -287,6 +289,11 @@ impl NodeMetrics {
             metrics.recovery_last_duration.clone(),
         );
         registry.register(
+            "dexzd_startup_read_retries",
+            "Transient object storage reads retried during startup.",
+            metrics.startup_read_retries.clone(),
+        );
+        registry.register(
             "dexzd_recovery_last_replayed_bytes",
             "Uncompressed command record bytes replayed by the last recovery.",
             metrics.recovery_last_replayed_bytes.clone(),
@@ -394,6 +401,7 @@ impl NodeMetrics {
             snapshot_last_duration: Gauge::default(),
             snapshot_last_bytes: Gauge::default(),
             recovery_last_duration: Gauge::default(),
+            startup_read_retries: Counter::default(),
             recovery_last_replayed_bytes: Gauge::default(),
             local_storage_bytes: Gauge::default(),
             timer_lag: TimerLag::new(partition_count),

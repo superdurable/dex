@@ -92,9 +92,9 @@ server-zd 只把任务分发给 pull Worker。在 server-zd 上，弹窗默认�
 
 Flow 详情显示 **Worker target**：监听地址、无头服务地址或 **Pull**。拉取模式的 Flow 还显示以 Flow 类型命名的 **Flow type queue**，以及 **Sticky app Worker ID**，即最后被记录为处理该 Flow 的应用 Worker。
 
-对于拉取模式的 Flow，活跃 Step 和 Step 历史记录显示 **WaitFor** 和 **Execute** 的路由信息。**Serving app Worker ID** 标识处理该方法的 Worker。如果该 Worker 与此次分发记录的 **Dispatch sticky app Worker ID** 相同，**Queue source** 显示 **Sticky queue**；否则，已完成的分发显示 **Flow type queue**。尚未确定处理 Worker 的待处理或失败分发，其 Worker 和队列来源显示 **—**。
+对于拉取模式的 Flow，活跃 Step 和 Step 历史记录显示 **WaitFor** 和 **Execute** 的路由信息。**Serving app Worker ID** 标识处理该方法的 Worker。**Queue source** 显示实际处理任务的队列：**Sticky queue** 或 **Flow type queue**。即使 Worker ID 与 **Dispatch sticky app Worker ID** 相同，该 Worker 也可能通过 Flow 类型队列处理任务。对于缺少队列元数据的旧记录，Dex 根据这些 ID 推断来源。待处理的分发在队列尚未确定时显示 **—**。失败的分发即使没有已知的处理 Worker，也可能显示队列来源。
 
-分发失败会区分没有可用 Worker、未知 Step 类型或 RPC 名称耗尽分发等待时间，以及 Worker 断开连接。RPC 历史记录显示已记录调用的处理应用 Worker ID。地址目标仅显示地址，不显示拉取路由字段。缺少路由元数据的旧运行显示 **—**。
+分发失败会区分没有可用 Worker、未知 Step 类型或 RPC 名称耗尽分发等待时间，以及 Worker 断开连接。新 Step 失败记录中的未知注册显示为 **Unknown Step type: dispatch timed out**。RPC 历史记录显示已记录调用的处理应用 Worker ID。地址目标仅显示地址，不显示拉取路由字段。缺少路由元数据的旧运行显示 **—**。
 
 ## 搜索与 Summary
 

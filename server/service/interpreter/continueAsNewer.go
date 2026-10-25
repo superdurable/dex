@@ -311,6 +311,7 @@ func (c *ContinueAsNewer) AddPotentialStepExecutionToResume(
 		panic("step resume info requires an execution ID")
 	}
 	if resumeInfo.GetWaitForPullRouting() == nil {
+		// Pre-v6 runs never populate this map, so this assignment preserves their resume state.
 		resumeInfo.WaitForPullRouting = c.waitForPullRouting[resumeInfo.GetStepExecutionId()]
 	}
 	c.StepExecutionToResumeMap[resumeInfo.GetStepExecutionId()] = resumeInfo

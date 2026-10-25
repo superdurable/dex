@@ -518,7 +518,7 @@ Hard-delete Attribute 适合保存短期使用的 secret，例如 Flow 只用几
 
 无论 value 大小，Dex 都只把 hard-delete Attribute 的 value 存在 Blob Store 中，Flow history 里只保留一个 reference。删除这个 Attribute，或把它设为 null，会永久删除存储的 value。之后，无论是 Dex API 还是 Flow history，都无法再恢复它。
 
-在 server-zd 上，Flow run 关闭后、清除前，Client 仍可擦除 hard-delete Attribute。调用 **SetAttributes**，并将请求中每个 Attribute 都设为 null。每个 Attribute 必须仍存有 hard-delete value。擦除会永久删除存储的对象，run 仍保持关闭。对已关闭 run 的其他写入会返回 NOT_FOUND。
+从 server-zd v0.1.5 起，Flow run 关闭后、清除前，可以直接调用 FlowService 的 **SetAttributes** API 擦除 hard-delete Attribute。SDK Client 不提供这个 API，请用 **dexcli api call SetAttributes** 或其他 FlowService client 发送。将请求中每个 Attribute 都设为 null。每个 Attribute 必须仍存有 hard-delete value。擦除会永久删除存储的对象，run 仍保持关闭。对已关闭 run 的其他写入会返回 NOT_FOUND。
 
 Step 和 RPC handler 会直接收到 value。SDK 不会把它写入本地 blob cache，Dex Server 也不会把它写入自己的 blob cache。
 

@@ -86,6 +86,16 @@ jobs:
               - 's3mock/**'
               - 'protos/**'
               - '.github/workflows/server-zd-ci.yml'
+            server_zd_sdk_go:
+              - 'server-zd/**'
+              - 's3mock/**'
+              - 'sdk-go/**'
+              - 'cli/**'
+              - 'web/**'
+              - 'protos/**'
+              - 'go.work'
+              - 'go.work.sum'
+              - '.github/workflows/server-zd-sdk-go-ci.yml'
             server_zd_image:
               - 'server-zd/Dockerfile'
               - '.dockerignore'
@@ -161,6 +171,7 @@ jobs:
           FILTER_EXAMPLES_RUST: ${{ steps.filter.outputs.examples_rust }}
           FILTER_S3MOCK: ${{ steps.filter.outputs.s3mock }}
           FILTER_SERVER_ZD: ${{ steps.filter.outputs.server_zd }}
+          FILTER_SERVER_ZD_SDK_GO: ${{ steps.filter.outputs.server_zd_sdk_go }}
           FILTER_SERVER_ZD_IMAGE: ${{ steps.filter.outputs.server_zd_image }}
           FILTER_SERVER_ZD_BINARY: ${{ steps.filter.outputs.server_zd_binary }}
           FILTER_SERVER_ZD_MINIO: ${{ steps.filter.outputs.server_zd_minio }}
@@ -195,6 +206,7 @@ jobs:
               "S3mock CI"
               "Server CI"
               "Server ZD CI"
+              "Server ZD Go SDK CI"
               "Server All-in-One CI"
               "Web CI"
             )
@@ -212,6 +224,7 @@ jobs:
             [[ "$FILTER_EXAMPLES_RUST" == "true" ]] && expected+=("Rust examples CI")
             [[ "$FILTER_S3MOCK" == "true" ]] && expected+=("S3mock CI")
             [[ "$FILTER_SERVER_ZD" == "true" ]] && expected+=("Server ZD CI")
+            [[ "$FILTER_SERVER_ZD_SDK_GO" == "true" ]] && expected+=("Server ZD Go SDK CI")
             [[ "$FILTER_SERVER_ZD_IMAGE" == "true" ]] && expected+=("Server ZD image release")
             [[ "$FILTER_SERVER_ZD_BINARY" == "true" ]] && expected+=("Server ZD binary release")
             [[ "$FILTER_SERVER_ZD_MINIO" == "true" ]] && expected+=("Server ZD MinIO Nightly")
@@ -229,6 +242,7 @@ jobs:
               "Blob Cache Go CI"
               "Dex CLI CI"
               "Go SDK CI"
+              "Server ZD Go SDK CI"
               "Java SDK CI"
               "Python SDK CI"
               "Rust SDK CI"

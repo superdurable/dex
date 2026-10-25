@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 type cancellationScenario string
@@ -56,6 +57,7 @@ type cancellationState struct {
 	selectorOnce            sync.Once
 	selectorWaitCount       atomic.Int32
 	handlerCanceled         atomic.Bool
+	lateWriteStaged         atomic.Bool
 	recoveryRan             atomic.Bool
 	firstSelectorExecuted   atomic.Bool
 	secondSelectorExecuted  atomic.Bool
@@ -160,6 +162,11 @@ func (cancellationBlockingExecuteStep) Execute(
 	if err != nil {
 		return nil, err
 	}
+	serverEngine, err := integrationServerEngine()
+	if err != nil {
+		return nil, err
+	}
+	isServerZD := serverEngine == dexpb.ServerEngine_SERVER_ENGINE_ZD
 	state.blockingInvocations.Add(1)
 	state.startedOnce.Do(func() { close(state.blockingStarted) })
 	defer state.returnedOnce.Do(func() { close(state.lateHandlerReturned) })
@@ -167,16 +174,22 @@ func (cancellationBlockingExecuteStep) Execute(
 	if scenario == cancelNoHeartbeat {
 		duration = 7 * time.Second
 	}
+	// C2: server-zd has no ASYNC local phase, so its handler deadline needs more cancellation margin.
+	if scenario == cancelLocalFallback && isServerZD {
+		duration = 13 * time.Second
+	}
 	shouldHeartbeat := scenario == cancelHeartbeatExecute || scenario == cancelLocalFallback
 	if err := waitForHandlerCancellation(ctx, state, duration, shouldHeartbeat); err != nil {
 		return nil, err
 	}
-	if ctx.Err() != nil {
+	// server-zd cancels pull handlers without recording a heartbeat; return a late write and decision after cancellation.
+	if ctx.Err() != nil && !(scenario == cancelNoHeartbeat && isServerZD) {
 		return nil, ctx.Err()
 	}
 	if err := cancellationLateWrite.Set(ctx, "late"); err != nil {
 		return nil, err
 	}
+	state.lateWriteStaged.Store(true)
 	return dex.GoTo(cancellationRecoveryStep{}, scenario), nil
 }
 
@@ -341,9 +354,26 @@ type cancellationFinalStep struct {
 }
 
 func (cancellationFinalStep) WaitFor(
-	_ dex.Context,
-	_ cancellationScenario,
+	ctx dex.Context,
+	scenario cancellationScenario,
 ) (*dex.Wait, error) {
+	if scenario == cancelNoHeartbeat {
+		serverEngine, err := integrationServerEngine()
+		if err != nil {
+			return nil, err
+		}
+		if serverEngine == dexpb.ServerEngine_SERVER_ENGINE_ZD {
+			state, err := cancellationStateFor(ctx)
+			if err != nil {
+				return nil, err
+			}
+			select {
+			case <-state.lateHandlerReturned:
+			case <-time.After(10 * time.Second):
+				return nil, fmt.Errorf("canceled handler did not return before final Step wait")
+			}
+		}
+	}
 	return dex.Until(dex.Timer(time.Second)), nil
 }
 
@@ -456,6 +486,9 @@ func (cancellationSelectorWaitingStep) Execute(
 }
 
 func TestStepCancellation(t *testing.T) {
+	serverEngine, err := integrationServerEngine()
+	require.NoError(t, err)
+	isServerZD := serverEngine == dexpb.ServerEngine_SERVER_ENGINE_ZD
 	scenarios := []cancellationScenario{
 		cancelHeartbeatExecute,
 		cancelHeartbeatWaitFor,
@@ -467,12 +500,12 @@ func TestStepCancellation(t *testing.T) {
 	}
 	for _, scenario := range scenarios {
 		t.Run(string(scenario), func(t *testing.T) {
-			runCancellationScenario(t, scenario)
+			runCancellationScenario(t, scenario, isServerZD)
 		})
 	}
 }
 
-func runCancellationScenario(t *testing.T, scenario cancellationScenario) {
+func runCancellationScenario(t *testing.T, scenario cancellationScenario, isServerZD bool) {
 	t.Helper()
 	flowID := newFlowID(t, "go-cancellation-"+string(scenario))
 	state := newCancellationState(scenario)
@@ -516,20 +549,37 @@ func runCancellationScenario(t *testing.T, scenario cancellationScenario) {
 		require.False(t, state.firstSelectorExecuted.Load())
 		require.True(t, state.secondSelectorExecuted.Load())
 	case cancelNoHeartbeat:
-		require.False(t, state.handlerCanceled.Load())
-		select {
-		case <-state.lateHandlerReturned:
-			t.Fatal("handler returned before Flow completed")
-		default:
+		if isServerZD {
+			// server-zd delivers cancellation to pull handlers without recording a heartbeat.
+			requireChannel(t, state.cancellationObserved, 8*time.Second)
+			require.True(t, state.handlerCanceled.Load())
+		} else {
+			require.False(t, state.handlerCanceled.Load())
+			select {
+			case <-state.lateHandlerReturned:
+				t.Fatal("handler returned before Flow completed")
+			default:
+			}
 		}
 		requireChannel(t, state.lateHandlerReturned, 8*time.Second)
+		if isServerZD {
+			require.True(t, state.lateWriteStaged.Load())
+			t.Log("canceled handler staged its late Attribute write and returned a Step decision")
+		}
+	case cancelLocalExecute:
+		requireChannel(t, state.lateHandlerReturned, 15*time.Second)
+		if isServerZD {
+			requireChannel(t, state.cancellationObserved, 8*time.Second)
+			require.True(t, state.handlerCanceled.Load())
+		}
 	default:
 		requireChannel(t, state.lateHandlerReturned, 15*time.Second)
 	}
 	if scenario != cancelGlobalSelector && scenario != cancelSiblingSelector {
 		require.False(t, state.recoveryRan.Load())
 		expectedInvocations := int32(1)
-		if scenario == cancelLocalExecute || scenario == cancelLocalFallback {
+		// C2: server-zd has no ASYNC local phase.
+		if !isServerZD && (scenario == cancelLocalExecute || scenario == cancelLocalFallback) {
 			expectedInvocations = 2
 		}
 		require.Equal(t, expectedInvocations, state.blockingInvocations.Load())

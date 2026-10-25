@@ -36,6 +36,8 @@ snapshot:
   retainedCount: 3
   logDeletionDelay: 24h
 recovery:
+  # Wall-clock retry window per startup read, starting at its first transient or unknown-outcome failure.
+  startupReadRetryBudget: 30s
   # Log batches read ahead while startup replays the log.
   readAheadBatches: 64
   readAheadBytes: 67108864
@@ -93,6 +95,8 @@ streamStore:
 search:
   backend: builtin
   builtinScanBudgetDocuments: 100000
+  # PostgreSQL DSN; TLS: sslmode, sslrootcert, sslsni, sslnegotiation, connect_timeout.
+  # Example: postgres://role:pw@host:5432/db?sslmode=require&sslnegotiation=direct
   paradeDbConnectionString: ""
   paradeDbConnectionPoolSize: 10
   paradeDbSchema: public

@@ -15,6 +15,24 @@ wrapper often injects `Co-authored-by: Cursor <cursoragent@cursor.com>`; strip
 it before pushing. After every commit run `git log -1 --format=%B`. Do not use
 `--no-verify`. See `.cursor/rules/git-commit.mdc`.
 
+## Pull Request Descriptions
+
+Start every pull request description with these sections, in order:
+
+1. `## Summary`: what the PR changes.
+2. `## Why`: the background. State the problem or request behind the change.
+   Give its evidence, such as an issue, a failing test, a review finding, or
+   a report. Explain why this change is the right response. Link the relevant
+   Dex issue or earlier PR when one exists. Write for a reviewer with no other
+   context.
+
+Add the sections the change needs after them, such as compatibility, design
+decisions, and `## Testing`. Testing says what ran locally and what CI covers.
+End with a closing keyword, such as `Fixes #123`, only when the PR fully
+resolves that issue. The whole description follows the No Downstream Product
+Information rule. See
+`.cursor/rules/pull-requests.mdc` and `.github/pull_request_template.md`.
+
 ## Agent Rule Synchronization
 
 Keep the Cursor (`.cursor/rules/`), Codex (`AGENTS.md`), and Claude

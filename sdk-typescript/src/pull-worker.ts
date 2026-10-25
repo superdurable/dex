@@ -79,6 +79,8 @@ export class PullWorker {
   private readonly maxConcurrentTasks: number;
   private readonly reservedRpcTasks: number;
   private reservedRpcDeclineCount = 0;
+  private readonly lastReserveDeclineMs = new Map<string, number>();
+  private readonly reservePressureTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private hasWarnedRpcCapacity = false;
   private readonly idleStreamsPerQueue: number;
   private readonly stopDrainTimeoutMs: number;
@@ -96,6 +98,7 @@ export class PullWorker {
     private readonly options: PullWorkerOptions,
     credential?: Credential,
     private readonly onPermanentRejection: () => void = () => {},
+    private readonly reservePressureLingerMs = 30_000,
   ) {
     this.maxConcurrentTasks = positiveOption(options.maxConcurrentTasks, availableParallelism(), "maxConcurrentTasks");
     this.reservedRpcTasks = options.reservedRpcTasks ?? (this.maxConcurrentTasks >= 2 ? 1 : 0);
@@ -141,6 +144,8 @@ export class PullWorker {
   public async close(): Promise<void> {
     const stopDeadlineMs = this.stopDeadlineMs ??= Date.now() + this.stopDrainTimeoutMs;
     this.isStopping = true;
+    for (const timer of this.reservePressureTimers.values()) clearTimeout(timer);
+    this.reservePressureTimers.clear();
     this.registration.stopped();
     for (const poll of this.streams) {
       poll.isDraining = true;
@@ -196,7 +201,9 @@ export class PullWorker {
       for (const poll of this.streams) {
         if (poll.queue === queue && poll.task === undefined && !poll.isDraining) idleCount++;
       }
-      while (idleCount < this.idleStreamsPerQueue) {
+      const desiredIdle = this.desiredIdleStreamsPerQueue(queue);
+      const creationTarget = this.busyTaskCount === this.maxConcurrentTasks ? this.idleStreamsPerQueue : desiredIdle;
+      while (idleCount < creationTarget) {
         const poll: PollStream = {
           queue, stream: undefined, task: undefined, retryTimer: undefined,
           halfCloseTimer: undefined, halfClosePromise: undefined, resolveHalfClose: undefined,
@@ -209,6 +216,12 @@ export class PullWorker {
         idleCount++;
       }
     }
+  }
+
+  private desiredIdleStreamsPerQueue(queue: string): number {
+    const lastDeclineMs = this.lastReserveDeclineMs.get(queue);
+    return this.idleStreamsPerQueue + Number(this.reservedRpcTasks > 0 && lastDeclineMs !== undefined
+      && performance.now() - lastDeclineMs < this.reservePressureLingerMs);
   }
 
   private openStream(poll: PollStream): void {
@@ -311,8 +324,13 @@ export class PullWorker {
     const isStepTask = task.request?.$case === "waitFor" || task.request?.$case === "execute";
     if (isStepTask && this.reservedRpcTasks > 0 && this.busyTaskCount >= this.maxConcurrentTasks - this.reservedRpcTasks && unknownReason === undefined) {
       this.reservedRpcDeclineCount++;
+      this.lastReserveDeclineMs.set(poll.queue, performance.now());
+      const existingTimer = this.reservePressureTimers.get(poll.queue);
+      if (existingTimer !== undefined) clearTimeout(existingTimer);
+      this.scheduleReservePressureExpiry(poll.queue, this.reservePressureLingerMs);
       debug("decline Step task for reserved RPC capacity: %s", task.request?.value.flowType);
       this.rejectTask(poll, task.taskId, PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY);
+      this.reconcile();
       return;
     }
     const controller = new AbortController();
@@ -324,6 +342,25 @@ export class PullWorker {
     poll.task = { id: task.taskId, controller, completion, deadlineCancellation };
     this.activeTasks.add(completion);
     this.busyTaskCount++;
+    this.reconcile();
+  }
+
+  private scheduleReservePressureExpiry(queue: string, delayMs: number): void {
+    const timer = setTimeout(() => this.expireReservePressure(queue), delayMs);
+    timer.unref();
+    this.reservePressureTimers.set(queue, timer);
+  }
+
+  private expireReservePressure(queue: string): void {
+    const lastDeclineMs = this.lastReserveDeclineMs.get(queue);
+    if (lastDeclineMs === undefined) return;
+    const remainingMs = this.reservePressureLingerMs - (performance.now() - lastDeclineMs);
+    if (remainingMs > 0) {
+      this.scheduleReservePressureExpiry(queue, remainingMs);
+      return;
+    }
+    this.lastReserveDeclineMs.delete(queue);
+    this.reservePressureTimers.delete(queue);
     this.reconcile();
   }
 
@@ -426,7 +463,7 @@ export class PullWorker {
     return [...this.streams].filter((candidate) =>
       candidate !== poll && candidate.queue === poll.queue && candidate.isRegistered
       && candidate.task === undefined && !candidate.isDraining && !candidate.isDisconnected
-    ).length >= this.idleStreamsPerQueue;
+    ).length >= this.desiredIdleStreamsPerQueue(poll.queue);
   }
 
   private sendTaskFrame(poll: PollStream, frame: PollWorkerTaskFrame): void {
@@ -501,7 +538,7 @@ export class PullWorker {
       const idleStreamCount = [...this.streams].filter((candidate) =>
         candidate !== poll && candidate.queue === poll.queue && candidate.task === undefined && !candidate.isDraining
       ).length;
-      if (poll.isRetiring || poll.isReconnectRequested && idleStreamCount >= this.idleStreamsPerQueue) {
+      if (poll.isRetiring || poll.isReconnectRequested && idleStreamCount >= this.desiredIdleStreamsPerQueue(poll.queue)) {
         this.streams.delete(poll);
       } else {
         this.scheduleReconnect(poll);

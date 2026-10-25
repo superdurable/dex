@@ -16,15 +16,15 @@ At shutdown, stop the Worker, join its thread, and close BlobCache. A panic in t
 
 ## Worker diagnostics
 
-With Rust SDK v1.16.0, Workers report errors and warnings through the **tracing** crate instead of printing to standard error. Examples are a disconnected or rejected task stream, a failed handler, and a failed RPC result. The SDK installs no subscriber. Install one at application startup, such as **tracing_subscriber::fmt().init()**, or these events are discarded. Retry behavior does not depend on the subscriber. [Released Worker diagnostics](https://github.com/superdurable/dex/blob/sdk-rust/v1.17.0/sdk-rust/README.md)
+With Rust SDK v1.16.0, Workers report errors and warnings through the **tracing** crate instead of printing to standard error. Examples are a disconnected or rejected task stream, a failed handler, and a failed RPC result. The SDK installs no subscriber. Install one at application startup, such as **tracing_subscriber::fmt().init()**, or these events are discarded. Retry behavior does not depend on the subscriber. [Released Worker diagnostics](https://github.com/superdurable/dex/blob/sdk-rust/v1.20.0/sdk-rust/README.md)
 
 ## Heartbeat progress
 
 Heartbeat long-running Execute work at bounded intervals. On retry, resume from the last heartbeat value. Check cancellation during the same loop.
 
-Server v1.10.1 enforces the Step HeartbeatTimeout for pull Workers; Server v1.10.0 does not. Cancellation reaches a Step handler through heartbeats, so record one within the timeout when a long-running handler must observe cancellation. For a pull target, later attempts after the one-attempt ASYNC local phase receive the last recorded heartbeat. See [pull Worker routing](../core/pull-workers.md).
+Server v1.10.1 enforces the Step HeartbeatTimeout for pull Workers; Server v1.10.0 does not. On the Go Server, cancellation reaches a regular Step handler through heartbeats or Stream frames; server-zd also sends cancellation directly to the pull Worker. Record heartbeats within the timeout when a long-running handler must observe cancellation on every Dex Server. For a pull target, later attempts after the one-attempt ASYNC local phase receive the last recorded heartbeat. See [pull Worker routing](../core/pull-workers.md).
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.17.0/examples/rust/src/primitives/heartbeat/flow.rs)
+[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.20.0/examples/rust/src/primitives/heartbeat/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/heartbeat/flow.rs -->
 ```rust
 let completed_batches = context.last_heartbeat_value::<i32>()?.unwrap_or_default();

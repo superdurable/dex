@@ -495,7 +495,7 @@ class DispatchTaskRequest(_message.Message):
     def __init__(self, queue: _Optional[str] = ..., fallback_queue: _Optional[str] = ..., flow_id: _Optional[str] = ..., sticky_wait: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., dispatch_wait: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., deadline: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., task_id: _Optional[str] = ..., wait_for: _Optional[_Union[InvokeWaitForMethodRequest, _Mapping]] = ..., execute: _Optional[_Union[InvokeExecuteMethodRequest, _Mapping]] = ..., rpc: _Optional[_Union[InvokeWorkerRPCRequest, _Mapping]] = ..., supports_assignment_state: _Optional[bool] = ..., excluded_app_worker_ids: _Optional[_Iterable[str]] = ..., stop_after_unknown_name: _Optional[bool] = ..., stop_when_queue_has_no_streams: _Optional[bool] = ..., supports_unknown_name_error: _Optional[bool] = ...) -> None: ...
 
 class DispatchTaskResponse(_message.Message):
-    __slots__ = ("wait_for", "execute", "rpc", "worker_error", "dispatch_error", "assigned", "unassigned", "served_by_app_worker_id", "rejected_by_app_worker_id")
+    __slots__ = ("wait_for", "execute", "rpc", "worker_error", "dispatch_error", "assigned", "unassigned", "served_by_app_worker_id", "rejected_by_app_worker_id", "queue_source")
     WAIT_FOR_FIELD_NUMBER: _ClassVar[int]
     EXECUTE_FIELD_NUMBER: _ClassVar[int]
     RPC_FIELD_NUMBER: _ClassVar[int]
@@ -505,6 +505,7 @@ class DispatchTaskResponse(_message.Message):
     UNASSIGNED_FIELD_NUMBER: _ClassVar[int]
     SERVED_BY_APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
     REJECTED_BY_APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
+    QUEUE_SOURCE_FIELD_NUMBER: _ClassVar[int]
     wait_for: InvokeWaitForMethodOutput
     execute: InvokeExecuteMethodOutput
     rpc: InvokeWorkerRPCResponse
@@ -514,7 +515,8 @@ class DispatchTaskResponse(_message.Message):
     unassigned: _empty_pb2.Empty
     served_by_app_worker_id: str
     rejected_by_app_worker_id: str
-    def __init__(self, wait_for: _Optional[_Union[InvokeWaitForMethodOutput, _Mapping]] = ..., execute: _Optional[_Union[InvokeExecuteMethodOutput, _Mapping]] = ..., rpc: _Optional[_Union[InvokeWorkerRPCResponse, _Mapping]] = ..., worker_error: _Optional[_Union[WorkerErrorResponse, _Mapping]] = ..., dispatch_error: _Optional[_Union[DispatchTaskError, _Mapping]] = ..., assigned: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., unassigned: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., served_by_app_worker_id: _Optional[str] = ..., rejected_by_app_worker_id: _Optional[str] = ...) -> None: ...
+    queue_source: PullRoutingSource
+    def __init__(self, wait_for: _Optional[_Union[InvokeWaitForMethodOutput, _Mapping]] = ..., execute: _Optional[_Union[InvokeExecuteMethodOutput, _Mapping]] = ..., rpc: _Optional[_Union[InvokeWorkerRPCResponse, _Mapping]] = ..., worker_error: _Optional[_Union[WorkerErrorResponse, _Mapping]] = ..., dispatch_error: _Optional[_Union[DispatchTaskError, _Mapping]] = ..., assigned: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., unassigned: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., served_by_app_worker_id: _Optional[str] = ..., rejected_by_app_worker_id: _Optional[str] = ..., queue_source: _Optional[_Union[PullRoutingSource, str]] = ...) -> None: ...
 
 class DispatchTaskError(_message.Message):
     __slots__ = ("reason", "detail")
@@ -1737,20 +1739,22 @@ class HealthInfo(_message.Message):
     def __init__(self, condition: _Optional[str] = ..., hostname: _Optional[str] = ..., duration: _Optional[int] = ...) -> None: ...
 
 class ServiceErrorResponse(_message.Message):
-    __slots__ = ("detail", "sub_status", "original_worker_error_detail", "original_worker_error_type", "original_worker_error_status", "original_worker_error_stack_trace")
+    __slots__ = ("detail", "sub_status", "original_worker_error_detail", "original_worker_error_type", "original_worker_error_status", "original_worker_error_stack_trace", "dispatch_task_error_reason")
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     SUB_STATUS_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_DETAIL_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_STATUS_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_STACK_TRACE_FIELD_NUMBER: _ClassVar[int]
+    DISPATCH_TASK_ERROR_REASON_FIELD_NUMBER: _ClassVar[int]
     detail: str
     sub_status: ErrorSubStatus
     original_worker_error_detail: str
     original_worker_error_type: str
     original_worker_error_status: int
     original_worker_error_stack_trace: str
-    def __init__(self, detail: _Optional[str] = ..., sub_status: _Optional[_Union[ErrorSubStatus, str]] = ..., original_worker_error_detail: _Optional[str] = ..., original_worker_error_type: _Optional[str] = ..., original_worker_error_status: _Optional[int] = ..., original_worker_error_stack_trace: _Optional[str] = ...) -> None: ...
+    dispatch_task_error_reason: DispatchTaskErrorReason
+    def __init__(self, detail: _Optional[str] = ..., sub_status: _Optional[_Union[ErrorSubStatus, str]] = ..., original_worker_error_detail: _Optional[str] = ..., original_worker_error_type: _Optional[str] = ..., original_worker_error_status: _Optional[int] = ..., original_worker_error_stack_trace: _Optional[str] = ..., dispatch_task_error_reason: _Optional[_Union[DispatchTaskErrorReason, str]] = ...) -> None: ...
 
 class WorkerErrorResponse(_message.Message):
     __slots__ = ("detail", "error_type", "stack_trace", "retry_after_seconds", "grpc_status")
@@ -1767,16 +1771,18 @@ class WorkerErrorResponse(_message.Message):
     def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ..., retry_after_seconds: _Optional[int] = ..., grpc_status: _Optional[int] = ...) -> None: ...
 
 class InternalActivityError(_message.Message):
-    __slots__ = ("server_detail", "worker_grpc_status", "worker_error", "pull_routing")
+    __slots__ = ("server_detail", "worker_grpc_status", "worker_error", "pull_routing", "dispatch_task_error_reason")
     SERVER_DETAIL_FIELD_NUMBER: _ClassVar[int]
     WORKER_GRPC_STATUS_FIELD_NUMBER: _ClassVar[int]
     WORKER_ERROR_FIELD_NUMBER: _ClassVar[int]
     PULL_ROUTING_FIELD_NUMBER: _ClassVar[int]
+    DISPATCH_TASK_ERROR_REASON_FIELD_NUMBER: _ClassVar[int]
     server_detail: str
     worker_grpc_status: int
     worker_error: InternalWorkerError
     pull_routing: PullRouting
-    def __init__(self, server_detail: _Optional[str] = ..., worker_grpc_status: _Optional[int] = ..., worker_error: _Optional[_Union[InternalWorkerError, _Mapping]] = ..., pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ...) -> None: ...
+    dispatch_task_error_reason: DispatchTaskErrorReason
+    def __init__(self, server_detail: _Optional[str] = ..., worker_grpc_status: _Optional[int] = ..., worker_error: _Optional[_Union[InternalWorkerError, _Mapping]] = ..., pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ..., dispatch_task_error_reason: _Optional[_Union[DispatchTaskErrorReason, str]] = ...) -> None: ...
 
 class InternalWorkerError(_message.Message):
     __slots__ = ("detail", "error_type", "stack_trace")

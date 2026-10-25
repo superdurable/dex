@@ -48,9 +48,13 @@ type WorkerOptions struct {
 	BindAddress string
 	// WorkerTarget is advertised to Dex and may differ from BindAddress. Default Address derives from BindAddress; Headless defaults false.
 	WorkerTarget WorkerTarget
-	// FlowServiceAddress is the plaintext Dex endpoint used for startup synchronization and blob hydration. Default: "localhost:8801".
+	// FlowServiceAddress is the Dex gRPC endpoint used for startup synchronization and blob hydration. Default: "localhost:8801".
+	// With FlowServiceTLS, use host:port, dns:///host:port, or dns://authority/host:port, such as "dex.example.com:443".
 	// Startup synchronization registers Attribute indexes.
 	FlowServiceAddress string
+	// FlowServiceTLS enables TLS for this Worker's FlowService connection. Nil uses plaintext.
+	// See FlowServiceTLSOptions for trust roots, server name, and a complete example.
+	FlowServiceTLS *FlowServiceTLSOptions
 	// AttributeIndexSyncTimeout bounds index registration at startup. Default: two minutes.
 	// Negative durations are invalid.
 	AttributeIndexSyncTimeout time.Duration
@@ -97,7 +101,7 @@ type PullWorkerOptions struct {
 	// Nil reserves one slot when resolved MaxConcurrentTasks is at least two, otherwise zero.
 	// With the CPU-count default, Steps therefore get one fewer slot than before. Set ptr.Any(0) to opt out.
 	// With one slot and nil reserve, Start warns once that RPCs may wait behind Steps.
-	// Flows must stay responsive: Dex cannot prioritize synchronous RPCs like workflow engines prioritize reads.
+	// Flows must stay responsive because RPCs share Worker task capacity with Steps.
 	// WaitFor and Execute tasks, including local attempts, are declined when total busy handlers reach
 	// MaxConcurrentTasks minus the reserve. API-direct and transactional RPC tasks may use the full limit.
 	// NewWorker returns an error unless 0 <= reserve < resolved MaxConcurrentTasks.
@@ -105,9 +109,12 @@ type PullWorkerOptions struct {
 	// dispatch wait expires, NO_WORKER_AVAILABLE consumes an attempt and follows the Step retry policy.
 	// Local attempts wait the local dispatch wait, then fall back according to their policy.
 	// Declines emit a Flow-type debug log, increment PullReservedRPCDeclines, and preserve readiness.
+	// A queue keeps one extra idle stream for 30 seconds after its last reserve decline.
+	// The Worker does not open that stream while all task slots are busy.
 	// For example: PullWorkerOptions{MaxConcurrentTasks: 8, ReservedRPCTasks: ptr.Any(2)}.
 	ReservedRPCTasks *int
 	// IdleStreamsPerQueue sets waiting streams for each Flow type and the sticky queue. Zero uses one.
+	// A queue keeps one more after a recent reserve decline. Use at least two for heavy Step backlogs.
 	IdleStreamsPerQueue int
 	// AppWorkerID overrides the generated process identity. Empty generates identity plus eight base32 characters.
 	// Set a new value after each process restart. It must not equal a registered Flow type.
@@ -224,7 +231,7 @@ const (
 //
 // registry supplies definitions and cache hydrates large values. It panics when
 // registry or cache is nil. It validates listener, advertised target,
-// FlowService address, synchronization timeout, and GrpcMaxMessageBytes, then creates the private gRPC
+// FlowService address, FlowServiceTLS, synchronization timeout, and GrpcMaxMessageBytes, then creates the private gRPC
 // server and FlowService connection without starting a listener. The returned
 // Worker owns that connection; Start or Stop closes it.
 func NewWorker(
@@ -246,7 +253,10 @@ func NewWorker(
 	if err != nil {
 		return nil, err
 	}
-	dialOptions := messageLimits.flowServiceDialOptions(options.Credential)
+	dialOptions, err := messageLimits.flowServiceDialOptions(flowServiceAddress, options.Credential, options.FlowServiceTLS)
+	if err != nil {
+		return nil, err
+	}
 	if options.Pull != nil {
 		dialOptions = append(dialOptions, grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time: 30 * time.Second, Timeout: 10 * time.Second, PermitWithoutStream: false,
@@ -332,11 +342,13 @@ func resolveWorkerOptions(
 	if flowServiceAddress == "" {
 		flowServiceAddress = defaultFlowServiceTarget
 	}
-	if err := validatePlaintextTarget(flowServiceAddress, false); err != nil {
-		return "", WorkerTarget{}, "", 0, fmt.Errorf(
-			"dex: invalid FlowService address: %w",
-			err,
-		)
+	if options.FlowServiceTLS == nil {
+		if err := validatePlaintextTarget(flowServiceAddress, false); err != nil {
+			return "", WorkerTarget{}, "", 0, fmt.Errorf(
+				"dex: invalid FlowService address: %w",
+				err,
+			)
+		}
 	}
 	syncTimeout := options.AttributeIndexSyncTimeout
 	if syncTimeout < 0 {
@@ -553,7 +565,9 @@ func (worker *Worker) WaitPullRegistered(ctx context.Context) error {
 }
 
 // PullReservedRPCDeclines returns the cumulative number of Step tasks declined for reserved RPC capacity.
-// It excludes full-capacity rejections and unknown names. It never resets during this Worker's lifetime.
+// It counts decline events; Dex may decline the same Step dispatch repeatedly while retrying it.
+// Read its rate to assess reserve pressure. It excludes full-capacity rejections and unknown names.
+// It never resets during this Worker's lifetime.
 // Calls are safe alongside Start, Stop, and handlers. Listening Workers return zero.
 // Export the value to a monitoring counter to distinguish reserve pressure from full capacity:
 //

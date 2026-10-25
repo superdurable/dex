@@ -38,8 +38,9 @@ const credentialFileCheckInterval = time.Second
 //	}
 //	client, err := dex.NewClient(registry, cache, dex.ClientOptions{Credential: credential})
 //
-// The credential is sent over the same plaintext connection as every other call. Protect the
-// network path between the application and Dex accordingly.
+// The credential is sent over the same connection as every other call. Dex may be served over
+// plaintext gRPC. Set ClientOptions.FlowServiceTLS or WorkerOptions.FlowServiceTLS
+// to encrypt the FlowService connection that carries the credential.
 type Credential interface {
 	// Token returns the current bearer credential. It is called before every FlowService call,
 	// may be called concurrently, and must return quickly.
@@ -251,7 +252,7 @@ func (c perRPCCredential) GetRequestMetadata(ctx context.Context, _ ...string) (
 	return map[string]string{"authorization": "Bearer " + token}, nil
 }
 
-// RequireTransportSecurity is false because Dex serves plaintext gRPC.
+// RequireTransportSecurity is false because Dex may be served over plaintext gRPC.
 func (perRPCCredential) RequireTransportSecurity() bool {
 	return false
 }

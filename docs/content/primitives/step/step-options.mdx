@@ -14,6 +14,8 @@ Use **RetryAfter** if you want to deeply customize the retry behavior. It overri
 
 Retries recover from failed attempts. Do not use **RetryAfter** to wait for an external system; use the [Polling](/design-patterns/polling) pattern.
 
+A retry of one **Execute** call reuses the [state snapshot](#selective-state-loading) loaded for its first attempt, so it does not see Attribute writes made after that load. To wait for an external write, have the writer also publish a [Channel](/primitives/channel) message, directly or from an RPC handler, and wait on that message in the **WaitFor** of the next Step. Alternatively, the next Step can wait on a [Timer](/primitives/timer) and read fresh state when it runs.
+
 <SdkTabs
   examples={{
     go: 'examples/go/primitives/custom-retry/workflow.go',

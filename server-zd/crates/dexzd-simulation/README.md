@@ -216,7 +216,7 @@ environment variables as the fixed set, without the regression seeds.
 `engine-regression-seeds.txt`, the first three fixed-set seeds, and the first redeploy-profile
 seed. Each seed's `canonical_command_digest` must equal its pinned value. The digest chains
 xxh3-128 over every committed command, in the order the shadow accepted them. The pinned values
-come from main before Step failure policies were added.
+record the expected trajectories for the current startup fault model.
 
 Any change that moves a regression seed's trajectory can make the seed stop reproducing its
 failure. An engine change can do that as well as a workload change. Without the pins, no test
@@ -238,6 +238,9 @@ DEXZD_SIMULATION_SEEDS=1000 DEXZD_SIMULATION_SECONDS=600 \
   the_engine_keeps_every_invariant_through_faults_and_crashes -- --exact     # longer budget
 DEXZD_SIMULATION_SEED=7 cargo test -p dexzd-simulation --test engine_simulation \
   the_engine_keeps_every_invariant_through_faults_and_crashes -- --exact --nocapture
+DEXZD_SIMULATION_SEED=3856990214 DEXZD_SIMULATION_FAULT_PERCENT=5 \
+  cargo test -p dexzd-simulation --test engine_simulation \
+  the_engine_keeps_every_invariant_through_faults_and_crashes -- --exact --nocapture
 DEXZD_SIMULATION_SEED=1323171844 cargo test -p dexzd-simulation --test engine_simulation \
   redeploys_with_a_short_history_window_keep_every_invariant -- --exact --nocapture
 DEXZD_SIMULATION_SEED=1604386820 cargo test -p dexzd-simulation --test engine_simulation \
@@ -246,6 +249,8 @@ DEXZD_SIMULATION_SEED=1604386820 cargo test -p dexzd-simulation --test engine_si
 
 `DEXZD_SIMULATION_SEEDS` and `DEXZD_SIMULATION_SEED` also select the apply simulation's seeds
 when both tests run. A failing seed prints its reproduction command and the last 400 trace events.
+`DEXZD_SIMULATION_FAULT_PERCENT` overrides the engine simulation's sampled object-storage fault
+rate for a targeted run; omit it for the fixed and nightly seed sets.
 `DEXZD_SIMULATION_PRINT_EVENTS=1` prints the trace tail of a passing seed. A self-test runs seeds,
 including one seed of each other profile, twice and requires identical raw traces, final local
 stores, and stored objects, leases included. It compares the two final local stores with `compare_store_views` and no canonicalized

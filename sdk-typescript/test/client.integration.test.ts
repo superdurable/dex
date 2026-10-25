@@ -538,6 +538,7 @@ function serviceError(code: status, subStatus: ErrorSubStatus): ServiceError {
     originalWorkerErrorType: "",
     originalWorkerErrorStatus: 0,
     originalWorkerErrorStackTrace: "",
+    dispatchTaskErrorReason: 0,
   }).finish();
   const writer = new BinaryWriter();
   writer.uint32(26).fork();
