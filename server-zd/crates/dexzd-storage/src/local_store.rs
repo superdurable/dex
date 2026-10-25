@@ -43,6 +43,26 @@ pub enum StorageError {
     Invalid(String),
 }
 
+impl StorageError {
+    /// Returns whether opening a store failed on its contents: corruption, an incompatible
+    /// format, or missing or undecodable node metadata.
+    ///
+    /// Returns `false` for I/O failures, such as another process holding the RocksDB lock or a
+    /// permission error, and for every other error.
+    pub fn is_unusable_store_content(&self) -> bool {
+        match self {
+            Self::RocksDb(error) => matches!(
+                error.kind(),
+                rocksdb::ErrorKind::Corruption
+                    | rocksdb::ErrorKind::NotSupported
+                    | rocksdb::ErrorKind::InvalidArgument
+            ),
+            Self::MissingNodeMetadata { .. } | Self::Decode(_) | Self::Invalid(_) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanDirection {
     Forward,

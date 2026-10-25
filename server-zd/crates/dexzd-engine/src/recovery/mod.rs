@@ -24,7 +24,7 @@ pub use runtime_rebuild::{
 
 pub(crate) use cluster_metadata::ClusterMetadata;
 pub(crate) use local_store_opening::{
-    LocalStoreRequirements, delete_older_set_aside_stores, open_local_store,
+    LocalStoreRequirements, OpenedLocalStore, delete_older_set_aside_stores, open_local_store,
 };
 pub(crate) use log_replay::LogReplay;
 pub(crate) use node_streams::describe_lost_ownership;
@@ -85,6 +85,18 @@ pub enum EngineStartError {
     /// Local file handling failed.
     #[error("local store directory: {0}")]
     Io(#[from] std::io::Error),
+    /// The local store failed to open for a reason other than its contents; it stays in place.
+    #[error(
+        "local store {directory} cannot be opened and was left in place: {source}; check that no \
+         other process has it open and that this process can write it",
+        directory = .directory.display()
+    )]
+    LocalStoreUnavailable {
+        /// The configured store directory.
+        directory: std::path::PathBuf,
+        /// Why opening it failed.
+        source: dexzd_storage::StorageError,
+    },
     /// The log stream could not be recovered.
     #[error("log stream recovery: {0}")]
     Log(#[from] dexzd_log::LogError),
