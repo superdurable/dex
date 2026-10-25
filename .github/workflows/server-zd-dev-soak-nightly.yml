@@ -29,7 +29,7 @@ jobs:
   dev-soak:
     name: Dev soak
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 255
     defaults:
       run:
         working-directory: server-zd
@@ -54,7 +54,31 @@ jobs:
             echo 'Use 1-12600 seconds; the job timeout leaves time to build.' >&2
             exit 1
           fi
+      - name: Build the dev soak
+        run: cargo test --locked -p dexzd-server --test serve_process --no-run
       - name: Run the dev soak
-        run: >-
-          cargo test --locked -p dexzd-server --test serve_process --
-          --ignored --exact dev_soak::dev_serves_for_the_soak_with_bounded_disk_usage --nocapture
+        shell: bash
+        env:
+          DEX_ZD_DEV_SOAK_LOG_DIR: ${{ runner.temp }}/dev-soak-logs
+        run: |
+          set -o pipefail
+          mkdir -p "$DEX_ZD_DEV_SOAK_LOG_DIR"
+          test_log="$DEX_ZD_DEV_SOAK_LOG_DIR/dev-soak-test.log"
+          # Stop well before the job timeout so the failure step can still upload the logs.
+          timeout --signal=TERM --kill-after=1m "$(( DEX_ZD_DEV_SOAK_SECONDS + 900 ))s" \
+            cargo test --locked -p dexzd-server --test serve_process -- \
+            --ignored --exact dev_soak::dev_serves_for_the_soak_with_bounded_disk_usage --nocapture \
+            2>&1 | tee "$test_log"
+          # After a rename, --exact matches no test and cargo still succeeds.
+          if ! grep -q ' 1 passed;' "$test_log"; then
+            echo 'The dev soak did not run exactly one passing test.' >&2
+            exit 1
+          fi
+      - name: Upload dev soak logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dexzd-dev-soak-logs
+          path: ${{ runner.temp }}/dev-soak-logs/
+          if-no-files-found: warn
+          retention-days: 30
