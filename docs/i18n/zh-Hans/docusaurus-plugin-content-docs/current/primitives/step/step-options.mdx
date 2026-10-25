@@ -14,7 +14,7 @@ slug: /primitives/step/step-options
 
 Retry 用于从失败的 attempt 中恢复。不要用 **RetryAfter** 等待外部系统；请使用 [Polling](/design-patterns/polling) 模式。
 
-同一次 **Execute** 调用的 retry 会复用首次 attempt 加载的 [state snapshot](#selective-state-loading)，因此看不到加载之后写入的 Attribute。如果要等待外部写入，请结束当前 Step，在下一个 Step 的 **WaitFor** 中等待，例如等待一条 [Channel](/primitives/channel) 消息。
+同一次 **Execute** 调用的 retry 会复用首次 attempt 加载的 [state snapshot](#selective-state-loading)，因此看不到加载之后写入的 Attribute。如果要等待外部写入，写入方还需要直接或通过 RPC handler 发布一条 [Channel](/primitives/channel) 消息，下一个 Step 在 **WaitFor** 中等待这条消息。也可以让下一个 Step 等待一个 [Timer](/primitives/timer)，在运行时读取最新的 state。
 
 <SdkTabs
   examples={{
