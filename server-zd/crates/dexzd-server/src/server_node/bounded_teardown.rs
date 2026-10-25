@@ -12,15 +12,30 @@ use std::fmt::Display;
 use std::future::Future;
 use std::time::Duration;
 
+use tokio::time::Instant;
+
 use crate::ServerError;
 
 /// Runs shutdown steps with separate budgets, so a stalled step never skips the engine's lease release.
-#[derive(Default)]
 pub(super) struct BoundedTeardown {
+    started: Instant,
     incomplete_steps: Vec<String>,
 }
 
 impl BoundedTeardown {
+    /// Starts a teardown now; [`BoundedTeardown::remaining_budget`] counts from this moment.
+    pub(super) fn start() -> Self {
+        Self {
+            started: Instant::now(),
+            incomplete_steps: Vec::new(),
+        }
+    }
+
+    /// Returns what is left of `total` since the teardown started, and never less than `minimum`.
+    pub(super) fn remaining_budget(&self, total: Duration, minimum: Duration) -> Duration {
+        total.saturating_sub(self.started.elapsed()).max(minimum)
+    }
+
     /// Runs `step` and abandons it after `budget`.
     pub(super) async fn run(
         &mut self,
@@ -87,7 +102,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_stalled_step_is_abandoned_and_later_steps_still_run() {
-        let mut teardown = BoundedTeardown::default();
+        let mut teardown = BoundedTeardown::start();
         teardown
             .run(
                 "effect tasks",
@@ -114,12 +129,12 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn finished_steps_keep_the_serving_outcome() {
-        let mut teardown = BoundedTeardown::default();
+        let mut teardown = BoundedTeardown::start();
         teardown
             .run("engine", Duration::from_secs(1), async {})
             .await;
         assert!(teardown.finish(Ok(())).is_ok());
-        let mut stalled = BoundedTeardown::default();
+        let mut stalled = BoundedTeardown::start();
         stalled.record_overrun("engine", Duration::from_secs(1));
         assert!(matches!(
             stalled.finish(Err(ServerError::ServingTaskFailed {

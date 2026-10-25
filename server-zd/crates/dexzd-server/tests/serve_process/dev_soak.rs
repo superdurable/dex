@@ -186,7 +186,7 @@ impl DevServer {
         let status = self.process.terminate(STOP_BUDGET).await;
         let stop_duration = stopping_at.elapsed();
         let log = self.process.log();
-        // Issue #873 tracks the embedded object store missing its shutdown budget.
+        // Issue #873 tracked the embedded object store missing its shutdown budget; its close now uses the unused total.
         assert!(
             status.code() == Some(0) && !log.contains(SHUTDOWN_INCOMPLETE_TEXT),
             "dev did not stop cleanly with {status} after {stop_duration:?}; log tail:\n{}",

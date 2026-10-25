@@ -228,7 +228,7 @@ Startup proceeds in this order:
    conditional-write self-check.
 3. The node acquires the lease of `cluster.nodeId` for `lease.duration`. A lease that another
    process still holds is awaited until it expires, or fails startup when `lease.failIfHeld` is
-   true.
+   true. `dev` takes a held lease over at once instead; see [dev](#dev).
 4. The node restores `localStorage.directory` from the latest snapshot and the command log. The
    directory is a cache; an empty one is rebuilt from object storage. Replay keeps up to
    `recovery.readAheadBatches` log reads in flight, holding at most `recovery.readAheadBytes` of
@@ -248,6 +248,8 @@ store's PostgreSQL tables. These differences from the Go Server apply:
   those stores on the Go Server.
 - Synchronization is asynchronous. Step, RPC, and SetAttributes commits do not wait for the table,
   and there is no 7-second synchronous phase. Rows normally appear within a second of the commit.
+  A Flow also closes without waiting for its synced Attributes, so rows can land after it
+  completes. The Go Server closes a Flow only after its pending writes are written or dropped.
   While a store is unavailable, Flows keep running and the backlog is written with the latest
   values once it recovers. Entries still pending `syncRetryPolicy.totalDuration` after they were
   first marked are dropped and counted in `dexzd_attribute_sync_dropped_entries_total`.
@@ -501,6 +503,18 @@ Upgrading a data directory from an earlier release follows these rules:
   every earlier run of the directory used `strict`.
 
 After the first start of a release with this rule, the directory is stamped, and any mode works.
+
+`dev` defaults `lease.duration` to 30 seconds, unless the `--config` file sets it; `serve` defaults
+it to 10 seconds. A `dev` node has no standby, so the longer lease costs no failover time and lets
+the node ride out longer host stalls.
+
+`dev` holds an exclusive lock on `<data-dir>/dev.lock` for its whole run, so a second `dev` process
+on the same data directory fails to start. While `dev` holds the lock, no other process can write
+its embedded object store. A lease that the store still shows as held therefore belongs to a
+stopped process, so `dev` takes it over at once, ignoring `lease.failIfHeld`. A restart never waits
+for the lease, even after a crash. The takeover raises the node epoch, as any takeover does. On a
+filesystem that cannot lock files, `dev` logs a warning and waits for a held lease to expire, up to
+31 seconds.
 
 ## Stable command-line interface
 

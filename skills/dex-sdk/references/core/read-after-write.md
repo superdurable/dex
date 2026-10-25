@@ -38,6 +38,8 @@ The strong rows above hold on Temporal-backed Dex deployments. On a Cadence-back
 
 A delayed-start Flow can accept a write before it starts processing. A subsequent read waits for that processing instead of returning stale state. Set a read deadline that allows the configured start delay; a timeout proves only that confirmation was not obtained. Interpreter unavailability can similarly block or fail the read. Do not weaken a strong path into polling to hide that failure.
 
+On server-zd, StopFlow closes the run as soon as it commits, and a later write to that run returns NOT_FOUND. A server-zd v0.1.3 Flow also closes without waiting for its Attribute Store writes, so a table row can land after `WaitForFlow` returns. See [server-zd](operations.md#server-zd).
+
 A Worker-target update changes future routing; dispatched calls may still use the previous Worker. Validate configuration readback separately from the new Worker's registration, reachability and typed RPC response. A stale Pod IP or unavailable Worker is a routing or availability failure, not evidence of eventual Attribute consistency. Prefer a stable reachable Worker target when the deployment supports one.
 
 Address a Flow by its FlowID; the RunID is diagnostic and must not become a business revision or fence. A query-only RPC can read retained terminal state; locks, transactions, returned effects, and a Server policy that runs every RPC transactionally require an active Flow. Retention expiry must remain an explicit missing or unavailable result.
@@ -62,9 +64,9 @@ Use a controlled gate on a subsequent business Step or projection writer to prov
 
 The following links explain the existing semantics at the bundle's immutable baselines. Preserve installed project versions and inspect version-matched source before writing exact API calls. This reference introduces no new API.
 
-- [Server RPC routing](https://github.com/superdurable/dex/blob/server/v1.17.0/server/service/api/service.go)
-- [Attribute writes](https://github.com/superdurable/dex/blob/server/v1.17.0/server/service/interpreter/persistence.go)
-- [Attribute Store scheduling](https://github.com/superdurable/dex/blob/server/v1.17.0/server/service/interpreter/attributeSynchronizer.go)
+- [Server RPC routing](https://github.com/superdurable/dex/blob/server/v1.19.0/server/service/api/service.go)
+- [Attribute writes](https://github.com/superdurable/dex/blob/server/v1.19.0/server/service/interpreter/persistence.go)
+- [Attribute Store scheduling](https://github.com/superdurable/dex/blob/server/v1.19.0/server/service/interpreter/attributeSynchronizer.go)
 - [Go Client](https://github.com/superdurable/dex/blob/sdk-go/v1.17.0/sdk-go/dex/client.go), [Python Client](https://github.com/superdurable/dex/blob/sdk-python/v1.17.0/sdk-python/dex/client.py), [Python AsyncClient](https://github.com/superdurable/dex/blob/sdk-python/v1.17.0/sdk-python/dex/async_client.py), [Java Client](https://github.com/superdurable/dex/blob/sdk-java/v1.17.0/sdk-java/src/main/java/io/superdurable/dex/Client.java), [TypeScript Client](https://github.com/superdurable/dex/blob/sdk-typescript/v1.17.0/sdk-typescript/src/client.ts), [Rust Client](https://github.com/superdurable/dex/blob/sdk-rust/v1.17.0/sdk-rust/crates/dex-sdk/src/client.rs)
-- [CLI operations and success fields](https://github.com/superdurable/dex/blob/cli-v1.17.0/cli/internal/command/flow_client_operations.go)
-- [Web action RPC routing](https://github.com/superdurable/dex/blob/server/v1.17.0/web/api/v2.go)
+- [CLI operations and success fields](https://github.com/superdurable/dex/blob/cli-v1.19.0/cli/internal/command/flow_client_operations.go)
+- [Web action RPC routing](https://github.com/superdurable/dex/blob/server/v1.19.0/web/api/v2.go)

@@ -48,6 +48,8 @@ pub struct LeaseConfig {
     pub takeover_grace: Duration,
     /// Return immediately when another live process holds the lease.
     pub fail_fast: bool,
+    /// Defaults to false; when true, takes over a held lease at once. Set only when its holder provably stopped.
+    pub should_take_over_held_lease: bool,
 }
 
 impl Default for LeaseConfig {
@@ -56,6 +58,7 @@ impl Default for LeaseConfig {
             duration: Duration::from_secs(10),
             takeover_grace: Duration::from_secs(1),
             fail_fast: false,
+            should_take_over_held_lease: false,
         }
     }
 }
@@ -370,7 +373,15 @@ async fn acquire_lease_inner(
                 });
             }
             let available_at = previous.expires_at_unix_micros.saturating_add(grace_micros);
-            if now < available_at {
+            if now < available_at && config.should_take_over_held_lease {
+                // The conditional write and epoch raise below still fence the previous holder.
+                tracing::info!(
+                    node_id = %node.node_id,
+                    holder_process_id = %previous.holder_process_id,
+                    expires_at_unix_micros = previous.expires_at_unix_micros,
+                    "taking over the node lease of a stopped process without waiting for its expiry"
+                );
+            } else if now < available_at {
                 if config.fail_fast {
                     return Err(MetadataError::LeaseHeld {
                         node_id: node.node_id.clone(),

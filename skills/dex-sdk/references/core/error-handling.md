@@ -20,7 +20,7 @@ The public error shape is language-specific. Python, Java, and TypeScript expose
 
 Server v1.13.0 preserves **ResourceExhausted** for backend capacity and rate-limit failures instead of reporting **Internal**. The response retains the message and available status details, including a retry-delay hint when supplied. Use the selected SDK's named status representation and inspect available details; do not parse error text or assume every SDK exposes every detail. Apply bounded retries with backoff and jitter within the caller's deadline, honoring a retry hint when available. A failed mutation can still have an uncertain outcome: reconcile using its stable identity and authoritative state before repeating effects. SDK-managed retries may already exhaust the deadline, so avoid stacking unbounded retry loops.
 
-This Client API status is distinct from a pull stream's permanent registration rejection: **ResourceExhausted** there follows the [queue readiness and stream capacity rules](pull-workers.md#startup-registration-and-readiness). [Released API error mapping](https://github.com/superdurable/dex/blob/server/v1.17.0/server/service/api/service.go)
+This Client API status is distinct from a pull stream's permanent registration rejection: **ResourceExhausted** there follows the [queue readiness and stream capacity rules](pull-workers.md#startup-registration-and-readiness). [Released API error mapping](https://github.com/superdurable/dex/blob/server/v1.19.0/server/service/api/service.go)
 
 ## Missing or inactive target errors
 

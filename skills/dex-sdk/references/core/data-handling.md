@@ -93,7 +93,7 @@ Configure a target as headless only when its **host:port** resolves to individua
 
 Sticky routing is a performance hint, not a placement guarantee. Dex may select another Worker after a transport failure, endpoint removal, routing-entry eviction, or server restart. The replacement Worker loads each missing blob once and warms its own cache. Never keep Flow correctness state only in Worker memory or its cache.
 
-With Server v1.15.0, a headless Worker handler error is returned without trying another endpoint, regardless of its status code or whether it arrives before the first streamed result. Step handler errors follow the configured Step failure and retry policy; genuine transport failures still use endpoint failover. This prevents hidden repeated handler calls within one Step attempt. Keep effects idempotent because later Step attempts can still repeat them. [Released failover behavior](https://github.com/superdurable/dex/blob/server/v1.17.0/server/service/common/workerclient/routed_worker_client.go)
+With Server v1.15.0, a headless Worker handler error is returned without trying another endpoint, regardless of its status code or whether it arrives before the first streamed result. Step handler errors follow the configured Step failure and retry policy; genuine transport failures still use endpoint failover. This prevents hidden repeated handler calls within one Step attempt. Keep effects idempotent because later Step attempts can still repeat them. [Released failover behavior](https://github.com/superdurable/dex/blob/server/v1.19.0/server/service/common/workerclient/routed_worker_client.go)
 
 For API/MCP agents that do not need a code sandbox, this combination is often sufficient:
 
@@ -150,7 +150,7 @@ When data needs relational queries, independent pagination, cross-Flow access, a
 
 Attribute Store synchronization is opt-in for each Attribute or AttributeMap, and a Flow selects one or more Server-configured stores. Dex asynchronously projects latest-state writes and retries transient failures. A projection failure does not roll back the Flow Attribute, and retry exhaustion does not automatically replay or backfill the missed batch. Keep Dex authoritative unless the documented storage decision assigns a fact to an external system of record, and make important projections reconcilable.
 
-The built-in Attribute Store targets are PostgreSQL, MySQL, Databricks, Snowflake, and MongoDB. A SQL target projects into the columns of an existing table and MongoDB into the fields of one document per Flow; Dex never creates, migrates, or backfills the destination. They are not direct Elasticsearch or vector-store connectors, and synchronization does not generate embeddings or transform documents.
+The built-in Attribute Store targets are PostgreSQL, MySQL, Databricks, Snowflake, and MongoDB. A SQL target projects into the columns of an existing table and MongoDB into the fields of one document per Flow; Dex never creates, migrates, or backfills the destination. They are not direct Elasticsearch or vector-store connectors, and synchronization does not generate embeddings or transform documents. server-zd v0.1.3 or later syncs only to PostgreSQL. A server-zd v0.1.3 Flow closes without waiting for synced Attributes, so rows can land after the Flow completes; see [server-zd operations](operations.md#server-zd).
 
 For Elasticsearch or a vector database, choose among:
 

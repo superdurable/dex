@@ -671,6 +671,46 @@ async fn lease_acquires_renews_and_rejects_second_process_with_same_node_id() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_proven_stopped_holder_is_taken_over_at_once_with_a_raised_epoch() {
+    let store = Arc::new(MemoryStore::default());
+    let clock = Arc::new(TestClock::default());
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+        .await
+        .unwrap();
+    let crashed_holder = acquire_lease(
+        store.clone(),
+        clock.clone(),
+        &node(),
+        &LeaseConfig::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(crashed_holder.epoch(), 1);
+    // Dropping the handle leaves the lease held until expiry, like a crash.
+    drop(crashed_holder);
+    let config = LeaseConfig {
+        fail_fast: true,
+        should_take_over_held_lease: true,
+        ..LeaseConfig::default()
+    };
+    let started = Instant::now();
+    let successor = acquire_lease(store.clone(), clock, &node(), &config)
+        .await
+        .unwrap();
+    assert_eq!(Instant::now(), started, "the takeover waits for no expiry");
+    assert_eq!(successor.epoch(), 2);
+    assert_eq!(
+        read_manifest(store.as_ref()).await.unwrap().unwrap().nodes["node-a"].epoch,
+        2
+    );
+    assert!(matches!(
+        *successor.subscribe().borrow(),
+        LeaseStatus::ValidUntil(_)
+    ));
+    successor.shutdown().await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
 async fn lease_takeover_after_expiry_and_grace() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
@@ -818,6 +858,7 @@ async fn lease_waiter_polling_a_short_lease_still_waits_out_the_grace() {
         duration: Duration::from_millis(900),
         takeover_grace: Duration::from_millis(600),
         fail_fast: false,
+        should_take_over_held_lease: false,
     };
     let crashed = acquire_lease(store.clone(), clock.clone(), &node(), &config)
         .await

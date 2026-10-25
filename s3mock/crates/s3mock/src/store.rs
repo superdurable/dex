@@ -251,6 +251,10 @@ impl Store {
 
     /// Opens like [`Store::open`], but refuses a store that may have rolled back.
     ///
+    /// Only a durable close removes a relaxed session marker. A crash or kill leaves it behind.
+    ///
+    /// A strict configuration is trusted for an unstamped store. Strict fsynced every earlier commit.
+    ///
     /// Returns [`StoreError::UncleanRelaxedSession`] in any mode while a relaxed session marker remains.
     ///
     /// Returns [`StoreError::UncleanSessionWithoutRelaxedSessionMarkers`] for an unstamped unclean store, unless configured strict.
