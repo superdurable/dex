@@ -426,9 +426,20 @@ server-zd 不同的地方。
 - [Time travel](/primitives/client/advanced#time-travel) 之后，server-zd 会用 time travel
   之后的状态重写该 run 同步过的每一行。Go Server 不会重写这些行。
 - 每个数据库都需要一张 [fencing 表](#attribute-store-fencing-table)。Go Server 不需要。
-- Flow 关闭时不等待同步的 Attribute，行可能在 Flow 完成之后才写入。Go Server 要等待写入的值都写完或被丢弃后才关闭 Flow。
-- StopFlow 一提交，run 就会关闭。之后对该 run 的 SetAttributes 返回 NOT_FOUND。Go Server
+- server-zd v0.1.3 关闭 Flow 时不等待同步的 Attribute，行可能在 Flow 完成之后才写入。
+- server-zd v0.1.4 或更高版本与 Go Server 一样会等待。Step 决策使 Flow 完成或失败、Step
+  重试耗尽或 Flow 超时时，Step 立即停止，但 run 保持 RUNNING，直到所有待写入的值都写完或被丢弃。
+  WaitForFlow 到那时才返回，因此返回时行已经在表中。
+- 关闭等待期间，SetAttributes、PublishToChannel 以及既非事务性也不带锁的 RPC 照常接受。它们同步的写入会延长等待，
+  且不会启动新的 Step。等待期间发起的事务性或带锁的 RPC、WaitForStepCompletion、WaitForAttribute
+  和 DeleteChannelMessage 调用返回 FAILED_PRECONDITION。
+- 关闭最多等待 **syncRetryPolicy.totalDuration**，因为届时待写入的值会被丢弃。PostgreSQL
+  故障最多会使这类关闭推迟这么久。
+- StopFlow 和 Terminate 从不等待。StopFlow 一提交，run 就会关闭，即使关闭正在等待也是如此；
+  待写入的值在关闭后继续同步。之后对该 run 的 SetAttributes 返回 NOT_FOUND。Go Server
   在已取消或失败的 run 收尾期间仍接受这类写入。Flow 需要的数据请在停止之前写入。
+- 已不在配置中的 store 的待写入值会被立即丢弃，并计入
+  **dexzd_attribute_sync_dropped_entries_total**。
 
 ### 配置 {#attribute-store-configuration}
 

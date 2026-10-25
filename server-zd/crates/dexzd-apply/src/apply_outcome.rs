@@ -63,6 +63,8 @@ pub enum WaitableChange {
     },
     /// The run attempt changed through time travel.
     RunAttemptChanged,
+    /// A natural close started waiting for the Attribute Sync outbox.
+    FlowCleanupStarted,
 }
 
 /// Work for the runtime that follows from a committed command.

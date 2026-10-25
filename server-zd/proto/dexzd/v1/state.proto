@@ -141,6 +141,18 @@ message RunRecord {
   repeated ParentFlowReference attached_parents = 40;
   // Largest timestamp of a pruned semantic point; earlier reset times target a pruned point.
   int64 last_pruned_semantic_timestamp_micros = 55;
+  // Set while a natural close waits for the Attribute Sync outbox; the status stays RUNNING.
+  PendingFlowClose pending_close = 56;
+}
+
+// A natural close waiting for the run's Attribute Sync outbox; its Steps are canceled already.
+message PendingFlowClose {
+  dex.FlowStatus status = 1;
+  dex.FlowErrorType error_type = 2;
+  // Message of the Flow result.
+  string error_message = 3;
+  // Message of the FlowClosed history event.
+  string history_message = 4;
 }
 
 // Close details of a closed attempt.
@@ -531,12 +543,15 @@ message CheckpointRecord {
   CheckpointRunStatus run_status = 4;
 }
 
-// The attempt-scoped part of a RunRecord: status, close details, and graceful completion.
+// The attempt-scoped part of a RunRecord: status, close details, graceful completion, and a
+// pending close.
 message CheckpointRunStatus {
   dex.FlowStatus status = 1;
   int64 closed_at_micros = 2;
   FlowCloseRecord close = 3;
   bool is_graceful_completion_requested = 4;
+  // The natural close that waits for the Attribute Sync outbox at this point.
+  PendingFlowClose pending_close = 5;
 }
 
 // One attempt-scoped state row: its table byte, key suffix, and encoded value.

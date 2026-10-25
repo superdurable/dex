@@ -293,11 +293,17 @@ server-zd v0.1.3 or later also syncs Attributes. It uses the same
 - After time travel, the run's synced rows are rewritten with the state after
   the time travel.
 - Each database needs a fencing table.
-- A Flow closes without waiting for its synced Attributes. Rows can land after
-  the Flow completes. The Go Server closes a Flow only after its pending writes
-  are written or dropped.
-- StopFlow closes the run as soon as it commits. A later SetAttributes on that
-  run returns NOT_FOUND. Write what a Flow needs before stopping it.
+- server-zd v0.1.3 closes a Flow without waiting for its synced Attributes.
+  Rows can land after the Flow completes.
+- server-zd v0.1.4 or later waits, like the Go Server. A Flow that a Step
+  decision, exhausted retries, or its timeout closes stays RUNNING until its
+  pending writes are written or dropped. WaitForFlow returns after the rows are
+  in the table.
+- A close waits at most **syncRetryPolicy.totalDuration**. A PostgreSQL outage
+  holds these closes up to that long.
+- StopFlow and Terminate never wait. StopFlow closes the run as soon as it
+  commits. A later SetAttributes on that run returns NOT_FOUND. Write what a
+  Flow needs before stopping it.
 
 See [Attribute Store sync](/production/server-zd-operations#attribute-store) in
 the server-zd operation guide.

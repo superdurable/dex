@@ -22,7 +22,10 @@ use dexzd_keyspace::{FlowHash, RunId, ValueId};
 use crate::memory_state::MemoryFlowState;
 use crate::state_view::FlowView;
 
-pub(crate) use attribute_sync_invariants::{AttributeSyncAcks, check_outbox_writes, remember_ack};
+pub use attribute_sync_invariants::CloseBarrierCounts;
+pub(crate) use attribute_sync_invariants::{
+    AttributeSyncAcks, check_close_barrier, check_outbox_writes, remember_ack,
+};
 pub use lock_invariants::check_fresh_snapshot;
 pub(crate) use value_invariants::remember_window_points;
 
@@ -125,6 +128,7 @@ pub fn check_flow(
             view,
             &memory.attribute_sync_acks,
         )?;
+        attribute_sync_invariants::check_pending_close(&context, run)?;
     }
     Ok(())
 }

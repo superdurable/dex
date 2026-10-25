@@ -20,8 +20,9 @@ use dexzd_keyspace::row_keys::attribute_sync_outbox_key;
 use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId, RunId};
 use dexzd_metrics::{AttributeSyncFailureKind, NodeMetrics};
 use dexzd_protocol::dex::{
-    AttributeStoreNames, AttributeSyncConfig as WriteSyncConfig, AttributeWrite, FlowConfig,
-    FlowStartOptions, IdReusePolicy, SetAttributesRequest, Value,
+    AttributeStoreNames, AttributeSyncConfig as WriteSyncConfig, AttributeWrite, CloseDecision,
+    CloseDecisionType, FlowConfig, FlowStartOptions, FlowStatus, IdReusePolicy,
+    InvokeExecuteMethodResponse, SetAttributesRequest, StepDecision, StepOptions, Value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributeSyncOutboxRecord, AttributesSetCommand, FlowCommand,
@@ -1796,4 +1797,129 @@ async fn the_retry_after_a_store_backoff_starts_with_other_runs_than_the_failed_
     );
     assert!(fixture.acks_of_flow(&failing).is_empty());
     fixture.shutdown().await;
+}
+
+/// Starts a Flow whose first Step skips WaitFor, so its Execute closes the Flow.
+fn start_closing_flow(
+    harness: &EffectHarness,
+    flow_id: &str,
+    store_names: &[&str],
+    writes: Vec<AttributeWrite>,
+) -> RunId {
+    let mut request = start_request(flow_id);
+    request.step_options = Some(StepOptions {
+        skip_wait_for: true,
+        ..StepOptions::default()
+    });
+    request.flow_start_options = Some(FlowStartOptions {
+        attributes: writes,
+        flow_config_override: Some(FlowConfig {
+            attribute_store_names: Some(AttributeStoreNames {
+                names: store_names.iter().map(|name| (*name).to_owned()).collect(),
+            }),
+            ..FlowConfig::default()
+        }),
+        ..FlowStartOptions::default()
+    });
+    harness.start_flow(request, settings())
+}
+
+/// Completes the next dispatched Execute with a ForceComplete decision.
+async fn force_complete_next_execute(harness: &EffectHarness) {
+    let execute = harness.dispatcher.next_dispatch().await;
+    execute.complete_execute(InvokeExecuteMethodResponse {
+        step_decision: Some(StepDecision {
+            close_decision: Some(CloseDecision {
+                close_decision_type: CloseDecisionType::ForceComplete as i32,
+                ..CloseDecision::default()
+            }),
+            ..StepDecision::default()
+        }),
+        ..InvokeExecuteMethodResponse::default()
+    });
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_completed_flow_stays_running_until_the_projector_acknowledges_then_closes() {
+    let fixture = ProjectorFixture::start(sync_config());
+    fixture
+        .store
+        .is_holding_writes
+        .store(true, Ordering::SeqCst);
+    let run_id = start_closing_flow(
+        &fixture.harness,
+        "order-close",
+        &[STORE],
+        vec![synced("Status", Some(string_value("new")))],
+    );
+    force_complete_next_execute(&fixture.harness).await;
+    fixture
+        .wait_until("the completed Flow waits for the outbox", |fixture| {
+            fixture
+                .harness
+                .run_record("order-close", run_id)
+                .pending_close
+                .is_some()
+        })
+        .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    fixture.harness.settle().await;
+    let record = fixture.harness.run_record("order-close", run_id);
+    assert_eq!(record.status, FlowStatus::Running as i32);
+    assert!(fixture.acks().is_empty(), "the write is still open");
+
+    fixture.store.release_writes();
+    fixture
+        .wait_until("the ack finalizes the close", |fixture| {
+            fixture.harness.run_record("order-close", run_id).status == FlowStatus::Completed as i32
+        })
+        .await;
+    assert_eq!(
+        fixture.store.committed_writes_of_flow("order-close").len(),
+        1
+    );
+    assert_eq!(fixture.acks_of_flow("order-close").len(), 1);
+    assert_eq!(
+        fixture
+            .harness
+            .run_record("order-close", run_id)
+            .pending_close,
+        None
+    );
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn entries_of_an_unconfigured_store_are_dropped_so_the_close_finalizes() {
+    for configured_store_names in [vec![STORE.to_owned()], Vec::new()] {
+        let fixture = ProjectorFixture::start(AttributeSyncConfig {
+            store_names: configured_store_names.clone(),
+            ..sync_config()
+        });
+        let run_id = start_closing_flow(
+            &fixture.harness,
+            "order-retired",
+            &["retired"],
+            vec![synced("Status", Some(string_value("new")))],
+        );
+        force_complete_next_execute(&fixture.harness).await;
+        fixture
+            .wait_until("the dropped entries finalize the close", |fixture| {
+                fixture.harness.run_record("order-retired", run_id).status
+                    == FlowStatus::Completed as i32
+            })
+            .await;
+        let acks = fixture.acks_of_flow("order-retired");
+        assert_eq!(acks.len(), 1, "{configured_store_names:?}");
+        assert_eq!(acks[0].store_name, "retired");
+        assert!(acks[0].is_dropped);
+        assert_eq!(fixture.dropped_effect_count(), 1);
+        assert_eq!(fixture.pending_run_count(), 0);
+        assert_eq!(
+            fixture.store.attempt_count(),
+            0,
+            "nothing is written to a store the configuration does not name"
+        );
+        fixture.shutdown().await;
+    }
 }

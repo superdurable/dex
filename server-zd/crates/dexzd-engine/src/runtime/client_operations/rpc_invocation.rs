@@ -49,7 +49,8 @@ impl FlowRuntimeRegistry {
     /// Invokes an RPC handler on a Worker against a committed snapshot and commits its effects.
     ///
     /// A read-only RPC (no locks, not transactional, no effects) is never logged. Lock keys are
-    /// taken for the whole call; any held key fails with `ABORTED`.
+    /// taken for the whole call; any held key fails with `ABORTED`. A transactional RPC fails
+    /// with `FAILED_PRECONDITION` while a natural close waits for the Attribute Sync outbox.
     pub async fn invoke_rpc(
         &self,
         tenant_id: TenantId,
@@ -69,7 +70,12 @@ impl FlowRuntimeRegistry {
         lock_keys.dedup();
         let run_id = {
             let committed = self.inner.dependencies.committer.committed_view()?;
-            read_run(committed.as_ref(), context, &flow, &request.run_id)?.run_id
+            let run = read_run(committed.as_ref(), context, &flow, &request.run_id)?;
+            // The Go Server rejects these workflow updates before it calls the Worker.
+            if is_transactional && run.record.pending_close.is_some() {
+                return Err(RuntimeError::terminal_cleanup_in_progress());
+            }
+            run.run_id
         };
         let lock_guard = if lock_keys.is_empty() {
             None

@@ -109,6 +109,15 @@ impl RuntimeError {
         )
     }
 
+    /// Returns the Go Server's `FAILED_PRECONDITION` for an update-class request during terminal cleanup.
+    pub fn terminal_cleanup_in_progress() -> Self {
+        Self::rejected(
+            grpc_code::FAILED_PRECONDITION,
+            ErrorSubStatus::Uncategorized,
+            dexzd_apply::TERMINAL_CLEANUP_MESSAGE,
+        )
+    }
+
     /// Whether this is the StopFlow rejection of a closed run, which keeps the Go Server's text.
     pub fn is_closed_run_stop_rejection(&self) -> bool {
         matches!(

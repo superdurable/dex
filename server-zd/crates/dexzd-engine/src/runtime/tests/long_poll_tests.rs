@@ -8,19 +8,20 @@
 
 use std::time::Duration;
 
-use dexzd_apply::{ApplyOutcome, FlowStateReader, StateWrite};
+use dexzd_apply::{ApplyEffect, ApplyOutcome, FlowStateReader, StateWrite, WaitableChange};
 use dexzd_keyspace::row_keys::history_record_key;
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, ValueId, ValueReference, run_key};
 use dexzd_protocol::dex::{
     AttributeMatch, AttributeMatchOperator, ErrorSubStatus, FlowClosedHistoryEvent,
-    FlowHistoryEvent, FlowStatus, StopFlowRequest, StopType, Value, WaitForAttributeRequest,
-    WaitForFlowRequest, WaitForHistoryEventRequest, WaitForStepCompletionRequest,
-    flow_history_event, value,
+    FlowHistoryEvent, FlowStatus, InvokeRpcRequest, StopFlowRequest, StopType, Value,
+    WaitForAttributeRequest, WaitForFlowRequest, WaitForHistoryEventRequest,
+    WaitForStepCompletionRequest, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributeRecord, FlowCloseRecord, FlowCommand, FlowStopCommand, HistoryRecord, RunRecord,
-    StepCounterRecord, StepExecutionPhase, StepExecutionRecord, StoredStepCompletionOutput,
-    StoredValue, StoredValueId, StoredValueReference, flow_command, stored_value,
+    AttributeRecord, FlowCloseRecord, FlowCommand, FlowStopCommand, HistoryRecord,
+    PendingFlowClose, RunRecord, StepCounterRecord, StepExecutionPhase, StepExecutionRecord,
+    StoredStepCompletionOutput, StoredValue, StoredValueId, StoredValueReference, flow_command,
+    stored_value,
 };
 use prost::Message;
 
@@ -477,6 +478,151 @@ async fn wait_for_step_completion_distinguishes_request_and_call_timeouts() {
         .unwrap_err();
     assert_eq!(error.sub_status(), ErrorSubStatus::LongPollTimeOut);
     assert_eq!(error.to_string(), crate::WAIT_CALL_DEADLINE_MESSAGE);
+}
+
+#[tokio::test(start_paused = true)]
+async fn update_class_requests_fail_during_terminal_cleanup_while_wait_for_flow_waits() {
+    let harness = RuntimeHarness::new();
+    let run_id = start_flow(&harness, "order-1").await.unwrap();
+    let mut flow_wait = Box::pin(
+        harness
+            .registry
+            .wait_for_flow(TENANT, wait_for_flow_request("order-1", 30)),
+    );
+    let mut unmatched_wait = Box::pin(harness.registry.wait_for_attribute(
+        TENANT,
+        attribute_wait("order-1", AttributeMatchOperator::Equal, 1),
+    ));
+    let mut matched_attribute_wait = Box::pin(harness.registry.wait_for_attribute(
+        TENANT,
+        attribute_wait("order-1", AttributeMatchOperator::Equal, 7),
+    ));
+    let mut step_wait = Box::pin(
+        harness
+            .registry
+            .wait_for_step_completion(TENANT, approve_step_request()),
+    );
+    assert_pending(flow_wait.as_mut()).await;
+    assert_pending(unmatched_wait.as_mut()).await;
+    assert_pending(matched_attribute_wait.as_mut()).await;
+    assert_pending(step_wait.as_mut()).await;
+
+    let context = harness.registry.flow_context(&flow("order-1"));
+    // The deciding command wrote the Attribute that one admitted wait expects.
+    let attribute_key = run_key(context.flow_hash, run_id, RunTable::Attribute, b"count");
+    let encoded_attribute = AttributeRecord {
+        value: Some(StoredValue {
+            kind: Some(stored_value::Kind::InlineValue(int_value(7))),
+        }),
+        ..AttributeRecord::default()
+    }
+    .encode_to_vec();
+    harness.store.put(
+        ColumnFamily::Flow,
+        attribute_key.clone(),
+        encoded_attribute.clone(),
+    );
+    let record_key = run_key(context.flow_hash, run_id, RunTable::RunRecord, &[]);
+    let stored_record = harness
+        .store
+        .view()
+        .get(ColumnFamily::Flow, &record_key)
+        .unwrap()
+        .unwrap();
+    let mut record = RunRecord::decode(stored_record.as_slice()).unwrap();
+    record.pending_close = Some(PendingFlowClose {
+        status: FlowStatus::Completed as i32,
+        ..PendingFlowClose::default()
+    });
+    let encoded_record = record.encode_to_vec();
+    harness.store.put(
+        ColumnFamily::Flow,
+        record_key.clone(),
+        encoded_record.clone(),
+    );
+    harness.registry.apply_committed(CommittedFlowCommand {
+        command: FlowCommand {
+            tenant_id: TENANT.0,
+            flow_id: "order-1".to_owned(),
+            run_id: run_id.as_bytes().to_vec(),
+            ..FlowCommand::default()
+        },
+        context,
+        committed: CommittedCommand {
+            outcome: ApplyOutcome {
+                writes: vec![
+                    StateWrite::Put {
+                        column_family: ColumnFamily::Flow,
+                        key: record_key,
+                        value: encoded_record,
+                    },
+                    StateWrite::Put {
+                        column_family: ColumnFamily::Flow,
+                        key: attribute_key,
+                        value: encoded_attribute,
+                    },
+                ],
+                effects: vec![ApplyEffect::WakeWaiters {
+                    run_id,
+                    change: WaitableChange::FlowCleanupStarted,
+                }],
+                reply: Default::default(),
+                run_id: Some(run_id),
+            },
+            position: Default::default(),
+        },
+    });
+    let (attribute_result, matched_result, step_result) =
+        tokio::time::timeout(Duration::from_millis(100), async {
+            tokio::join!(unmatched_wait, matched_attribute_wait, step_wait)
+        })
+        .await
+        .expect("waiting update-class polls wake when terminal cleanup starts");
+    assert_eq!(
+        matched_result
+            .expect("an admitted wait still returns its match")
+            .matched_value,
+        Some(int_value(7))
+    );
+    let errors = [
+        attribute_result.unwrap_err(),
+        step_result.map(drop).unwrap_err(),
+    ];
+    for error in errors {
+        assert_eq!(error.grpc_code(), grpc_code::FAILED_PRECONDITION);
+        assert_eq!(error.sub_status(), ErrorSubStatus::Uncategorized);
+        assert_eq!(error.to_string(), dexzd_apply::TERMINAL_CLEANUP_MESSAGE);
+    }
+    assert_pending(flow_wait.as_mut()).await;
+    let new_wait = harness
+        .registry
+        .wait_for_attribute(
+            TENANT,
+            attribute_wait("order-1", AttributeMatchOperator::Equal, 7),
+        )
+        .await
+        .expect_err("a new wait is rejected during terminal cleanup, even when it matches");
+    assert_eq!(new_wait.grpc_code(), grpc_code::FAILED_PRECONDITION);
+
+    let rpc_error = harness
+        .registry
+        .invoke_rpc(
+            TENANT,
+            InvokeRpcRequest {
+                flow_id: "order-1".to_owned(),
+                rpc_name: "approveOrder".to_owned(),
+                request_id: "rpc-1".to_owned(),
+                is_transactional: true,
+                ..InvokeRpcRequest::default()
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(rpc_error.grpc_code(), grpc_code::FAILED_PRECONDITION);
+    assert!(
+        harness.rpc_invoker.invocations.lock().unwrap().is_empty(),
+        "the Worker is not called"
+    );
 }
 
 fn put_approve_step(

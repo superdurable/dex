@@ -21,6 +21,7 @@ use dexzd_protocol::dexzd::v1::{
 
 use crate::ApplyError;
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
+use crate::command_handlers::flow_close::is_terminal_cleanup_in_progress;
 use crate::command_handlers::flow_data::{
     apply_attribute_writes, apply_channel_deletions, apply_channel_publications,
 };
@@ -113,7 +114,11 @@ pub(crate) fn apply_rpc_committed(
         scope.now_micros,
         &changed_channels,
     )?;
-    if let Some(decision) = response.step_decision.as_ref() {
+    // InvokeRPC admits no transactional call during cleanup; earlier ones commit, as in Go.
+    // As in the Go Server, an RPC result starts no Step during terminal cleanup.
+    if let Some(decision) = response.step_decision.as_ref()
+        && !is_terminal_cleanup_in_progress(&cursor)
+    {
         if !decision.cancel_step_types.is_empty() {
             cancel_steps_by_type(
                 transaction,

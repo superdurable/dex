@@ -21,9 +21,11 @@ use dexzd_protocol::dexzd::v1::{
 
 use crate::ApplyError;
 use crate::command_handlers::command_replies::{
-    CLOSED_RUN_STOP_MESSAGE, error_reply, grpc_code, ok_reply,
+    CLOSED_RUN_STOP_MESSAGE, error_reply, grpc_code, ok_reply, terminal_cleanup_reply,
 };
-use crate::command_handlers::flow_close::{FlowClosing, close_flow};
+use crate::command_handlers::flow_close::{
+    FlowClosing, close_flow_immediately, is_terminal_cleanup_in_progress,
+};
 use crate::command_handlers::flow_data::{
     apply_attribute_writes, apply_channel_deletions, apply_channel_publications,
     find_pending_message,
@@ -211,6 +213,10 @@ pub(crate) fn apply_channel_message_delete(
     if !is_running(&cursor) {
         return Ok(HandlerResult::Rejected(closed_flow_reply(scope.flow_id())));
     }
+    // The Go Server deletes through a workflow update, which terminal cleanup rejects.
+    if is_terminal_cleanup_in_progress(&cursor) {
+        return Ok(HandlerResult::Rejected(terminal_cleanup_reply()));
+    }
     if find_pending_message(
         transaction,
         &cursor,
@@ -289,7 +295,7 @@ pub(crate) fn apply_flow_stop(
             FlowClosing::failed(FlowErrorType::ClientApiFailingFlow, reason)
         }
     };
-    close_flow(transaction, &mut cursor, scope, closing)?;
+    close_flow_immediately(transaction, &mut cursor, scope, closing)?;
     Ok(HandlerResult::Applied(cursor.finish(
         transaction,
         scope,

@@ -21,8 +21,9 @@ use prost::Message;
 
 use crate::invalid_client_inputs::{check_invalid_client_input_rejected, invalid_client_input};
 use crate::invariants::{
-    CheckerMemory, InvariantViolation, WindowPointState, check_flow, check_fresh_snapshot,
-    check_outbox_writes, check_window_value_content, remember_ack, remember_window_points,
+    CheckerMemory, CloseBarrierCounts, InvariantViolation, WindowPointState, check_close_barrier,
+    check_flow, check_fresh_snapshot, check_outbox_writes, check_window_value_content,
+    remember_ack, remember_window_points,
 };
 use crate::memory_state::MemoryFlowState;
 use crate::state_view::{FlowView, RunSelection};
@@ -44,6 +45,7 @@ pub struct ApplyChecker {
     /// Commands applied so far; stamps when window points were recorded and pruned.
     applied_commands: u64,
     window_point_spans: BTreeMap<RunId, BTreeMap<u64, WindowPointSpan>>,
+    close_barrier_counts: CloseBarrierCounts,
 }
 
 /// When the checker retained one window point, in applied command counts.
@@ -83,6 +85,7 @@ impl ApplyChecker {
             size_rejections: BTreeMap::new(),
             applied_commands: 0,
             window_point_spans: BTreeMap::new(),
+            close_barrier_counts: CloseBarrierCounts::default(),
         }
     }
 
@@ -147,13 +150,16 @@ impl ApplyChecker {
             self.record_applied_result(command)?;
         }
         check_outbox_writes(command, &outcome.writes, &self.state)?;
+        let touched_runs = touched_runs(&outcome);
+        let previous_records = self.run_records(&command.flow_id, &touched_runs)?;
         self.state.commit(&outcome.writes);
         self.applied_commands += 1;
         self.redecoded_state
             .commit_redecoded(&outcome.writes)
             .map_err(|error| InvariantViolation::new("row-decoding", error.to_string()))?;
-        let touched_runs = touched_runs(&outcome);
         let view = self.view(&command.flow_id, RunSelection::Only(&touched_runs))?;
+        let close_barrier_counts = check_close_barrier(command, &previous_records, &view)?;
+        self.close_barrier_counts.merge(&close_barrier_counts);
         let pruned_points = remember_window_points(
             &command.flow_id,
             &view,
@@ -184,6 +190,11 @@ impl ApplyChecker {
     /// Returns how many commands the checker has applied.
     pub(crate) fn applied_commands(&self) -> u64 {
         self.applied_commands
+    }
+
+    /// Natural closes deferred for the Attribute Sync outbox, and pending closes finalized.
+    pub fn close_barrier_counts(&self) -> CloseBarrierCounts {
+        self.close_barrier_counts
     }
 
     /// Returns the window points `run_id` retained right after the checker applied its first
@@ -441,6 +452,26 @@ impl ApplyChecker {
             .collect();
         self.memory.genesis_values.insert(run_id, genesis);
         Ok(())
+    }
+
+    /// Returns the committed records of `run_ids` that exist.
+    fn run_records(
+        &self,
+        flow_id: &str,
+        run_ids: &BTreeSet<RunId>,
+    ) -> Result<BTreeMap<RunId, RunRecord>, InvariantViolation> {
+        let flow_hash = self.context(flow_id).flow_hash;
+        let mut records = BTreeMap::new();
+        for run_id in run_ids {
+            let key = run_singleton_key(flow_hash, *run_id, RunTable::RunRecord);
+            let Some(bytes) = self.state.row(ColumnFamily::Flow, &key) else {
+                continue;
+            };
+            let record = RunRecord::decode(bytes)
+                .map_err(|error| InvariantViolation::new("row-decoding", error.to_string()))?;
+            records.insert(*run_id, record);
+        }
+        Ok(records)
     }
 
     fn run_record(&self, flow_id: &str, run_id: RunId) -> Result<RunRecord, InvariantViolation> {

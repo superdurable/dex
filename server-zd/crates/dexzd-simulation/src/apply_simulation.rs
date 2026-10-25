@@ -15,7 +15,7 @@ use prost::Message;
 use xxhash_rust::xxh3::xxh3_128;
 
 use crate::apply_checker::ApplyChecker;
-use crate::invariants::InvariantViolation;
+use crate::invariants::{CloseBarrierCounts, InvariantViolation};
 use crate::model::CommandGenerator;
 
 /// Replays allowed while shrinking one failure.
@@ -37,6 +37,8 @@ pub struct SimulationSummary {
     pub final_row_count: usize,
     /// Chained xxh3-128 digest of one seed's main-stream commands; `merge` leaves it unchanged.
     pub main_command_digest: u128,
+    /// Natural closes deferred for the Attribute Sync outbox, and pending closes finalized.
+    pub close_barrier: CloseBarrierCounts,
 }
 
 impl SimulationSummary {
@@ -58,6 +60,7 @@ impl SimulationSummary {
         for (class, count) in &other.size_rejections {
             *self.size_rejections.entry(class).or_default() += count;
         }
+        self.close_barrier.merge(&other.close_barrier);
     }
 }
 
@@ -169,6 +172,7 @@ pub fn run_seed(
         }
     }
     summary.size_rejections = checker.size_rejections().clone();
+    summary.close_barrier = checker.close_barrier_counts();
     summary.final_row_count = checker.state().row_count();
     Ok(summary)
 }

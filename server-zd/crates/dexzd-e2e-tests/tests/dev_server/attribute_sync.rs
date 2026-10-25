@@ -15,9 +15,10 @@ use std::time::Duration;
 
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::{
-    AttributeStoreNames, AttributeSyncConfig, AttributeWrite, FlowConfig, FlowResetType,
-    FlowStartOptions, ResetFlowRequest, SetAttributesRequest, StartFlowRequest, Value,
-    WorkerTarget, value,
+    AttributeMatch, AttributeMatchOperator, AttributeStoreNames, AttributeSyncConfig,
+    AttributeWrite, FlowConfig, FlowErrorType, FlowResetType, FlowStartOptions, FlowStatus,
+    GetFlowSummaryRequest, ResetFlowRequest, SetAttributesRequest, StartFlowRequest, Value,
+    WaitForAttributeRequest, WaitForFlowRequest, WorkerTarget, value,
 };
 use dexzd_server::DevCommandOptions;
 use tokio::io::copy_bidirectional;
@@ -178,6 +179,150 @@ async fn synced_attributes_reach_postgres_through_outages_and_time_travel() {
         )
         .await;
 
+    server.shutdown().await;
+    proxy.shutdown().await;
+    database.drop_schema().await;
+}
+
+/// When WaitForFlow returns, the table holds the last SetAttributes the run accepted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wait_for_flow_returns_after_every_accepted_synced_write_is_in_the_table() {
+    let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
+        return;
+    };
+    let database = AttributeStoreDatabase::create(&database_url, true).await;
+    let server =
+        DevServer::start_with_config_overrides(Some(&database.store_config_yaml(&database_url)))
+            .await;
+    let flow_id = "attribute-sync-close-after-rows";
+    let mut flow_client = server.flow_client();
+    flow_client
+        .start_flow(closing_start_request(
+            flow_id,
+            vec![synced("Status", Some(string_value(&counter_text(0))))],
+        ))
+        .await
+        .expect("StartFlow succeeds");
+    // Writes land before and after the one-second timeout; each one can hold the close.
+    let writer = tokio::spawn(write_until_closed(
+        server.flow_client(),
+        flow_id.to_owned(),
+        Instant::now() + Duration::from_secs(2),
+    ));
+    let result = flow_client
+        .wait_for_flow(WaitForFlowRequest {
+            flow_id: flow_id.to_owned(),
+            wait_time_seconds: 30,
+            ..WaitForFlowRequest::default()
+        })
+        .await
+        .expect("WaitForFlow returns the close")
+        .into_inner();
+    let status_at_close = database.status_of(flow_id).await;
+    let last_accepted = writer.await.expect("the writer completes");
+    assert_eq!(result.flow_status, FlowStatus::Failed as i32);
+    assert_eq!(result.error_type, FlowErrorType::FlowTimeout as i32);
+    assert!(
+        last_accepted > 0,
+        "some writes were accepted before the close"
+    );
+    assert_eq!(
+        status_at_close,
+        Some(counter_text(last_accepted)),
+        "the close waited for the last accepted write"
+    );
+    server.shutdown().await;
+    database.drop_schema().await;
+}
+
+/// A store outage holds a natural close: the run stays RUNNING, update-class requests fail, and
+/// writes are still accepted until the store recovers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_store_outage_delays_a_natural_close_until_the_store_recovers() {
+    let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
+        return;
+    };
+    let database = AttributeStoreDatabase::create(&database_url, true).await;
+    let mut proxy = PostgresTcpProxy::start(&database_url).await;
+    let server = DevServer::start_with_config_overrides(Some(
+        &database.store_config_yaml(&proxy.connection_string(&database_url)),
+    ))
+    .await;
+    let flow_id = "attribute-sync-close-after-outage";
+    let mut flow_client = server.flow_client();
+    proxy.cut().await;
+    flow_client
+        .start_flow(closing_start_request(
+            flow_id,
+            vec![synced("Status", Some(string_value("started")))],
+        ))
+        .await
+        .expect("StartFlow succeeds");
+    // The one-second Flow timeout has fired; its close waits for the unreachable store.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let summary = flow_client
+        .get_flow_summary(GetFlowSummaryRequest {
+            flow_id: flow_id.to_owned(),
+            ..GetFlowSummaryRequest::default()
+        })
+        .await
+        .expect("GetFlowSummary succeeds")
+        .into_inner();
+    assert_eq!(summary.flow_status, FlowStatus::Running as i32);
+    let still_running = flow_client
+        .wait_for_flow(WaitForFlowRequest {
+            flow_id: flow_id.to_owned(),
+            wait_time_seconds: 1,
+            ..WaitForFlowRequest::default()
+        })
+        .await
+        .expect_err("WaitForFlow keeps waiting during the outage");
+    assert_eq!(still_running.code(), tonic::Code::DeadlineExceeded);
+    let attribute_wait = flow_client
+        .wait_for_attribute(WaitForAttributeRequest {
+            flow_id: flow_id.to_owned(),
+            r#match: Some(AttributeMatch {
+                key: "Status".to_owned(),
+                operator: AttributeMatchOperator::Equal as i32,
+                operand: Some(string_value("never")),
+            }),
+            ..WaitForAttributeRequest::default()
+        })
+        .await
+        .expect_err("WaitForAttribute fails during terminal cleanup");
+    assert_eq!(attribute_wait.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(
+        attribute_wait.message(),
+        "flow terminal cleanup is in progress"
+    );
+    flow_client
+        .set_attributes(SetAttributesRequest {
+            flow_id: flow_id.to_owned(),
+            attributes: vec![synced("Status", Some(string_value("written-in-cleanup")))],
+            request_id: "request-in-cleanup".to_owned(),
+            ..SetAttributesRequest::default()
+        })
+        .await
+        .expect("SetAttributes is accepted during terminal cleanup");
+    assert_eq!(database.status_of(flow_id).await, None);
+
+    proxy.restore();
+    let result = flow_client
+        .wait_for_flow(WaitForFlowRequest {
+            flow_id: flow_id.to_owned(),
+            wait_time_seconds: 30,
+            ..WaitForFlowRequest::default()
+        })
+        .await
+        .expect("the close finalizes once the store recovers")
+        .into_inner();
+    assert_eq!(result.flow_status, FlowStatus::Failed as i32);
+    assert_eq!(result.error_type, FlowErrorType::FlowTimeout as i32);
+    assert_eq!(
+        database.status_of(flow_id).await.as_deref(),
+        Some("written-in-cleanup"),
+        "the row is in the table when WaitForFlow returns"
+    );
     server.shutdown().await;
     proxy.shutdown().await;
     database.drop_schema().await;
@@ -419,6 +564,45 @@ fn start_request(flow_id: &str, store_name: &str, writes: Vec<AttributeWrite>) -
     }
 }
 
+/// A run whose first Step never runs, so its one-second Flow timeout closes it naturally.
+fn closing_start_request(flow_id: &str, writes: Vec<AttributeWrite>) -> StartFlowRequest {
+    StartFlowRequest {
+        flow_timeout_seconds: 1,
+        ..start_request(flow_id, STORE, writes)
+    }
+}
+
+/// Writes an increasing synced counter until the run rejects writes or `stop_at` passes.
+///
+/// Returns the last counter the run accepted.
+async fn write_until_closed(
+    mut flow_client: FlowServiceClient<Channel>,
+    flow_id: String,
+    stop_at: Instant,
+) -> u32 {
+    let mut last_accepted = 0;
+    for counter in 1.. {
+        if Instant::now() >= stop_at {
+            return last_accepted;
+        }
+        let written = flow_client
+            .set_attributes(SetAttributesRequest {
+                flow_id: flow_id.clone(),
+                attributes: vec![synced("Status", Some(string_value(&counter_text(counter))))],
+                request_id: format!("request-{counter}"),
+                ..SetAttributesRequest::default()
+            })
+            .await;
+        match written {
+            Ok(_) => last_accepted = counter,
+            Err(status) if status.code() == tonic::Code::NotFound => return last_accepted,
+            Err(status) => panic!("SetAttributes failed: {status}"),
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    unreachable!("the counter loop ends when the run closes")
+}
+
 async fn set_attributes(
     flow_client: &mut dexzd_protocol::dex::flow_service_client::FlowServiceClient<
         tonic::transport::Channel,
@@ -499,13 +683,17 @@ impl AttributeStoreDatabase {
     }
 
     async fn status(&self) -> Option<String> {
+        self.status_of(FLOW_ID).await
+    }
+
+    async fn status_of(&self, flow_id: &str) -> Option<String> {
         self.client
             .query_opt(
                 &format!(
                     "SELECT status FROM {}.orders WHERE flow_id = $1",
                     self.schema
                 ),
-                &[&FLOW_ID],
+                &[&flow_id],
             )
             .await
             .expect("the main row can be read")

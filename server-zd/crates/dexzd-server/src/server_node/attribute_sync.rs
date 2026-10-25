@@ -59,14 +59,11 @@ struct PostgresAttributeStores {
 impl AttributeStores {
     /// Connects to every store and validates its tables and fencing table; any failure fails startup.
     ///
-    /// Returns `None` when no store is configured.
+    /// Without configured stores, the projector still runs to drop entries of removed stores.
     pub(crate) async fn connect(
         attribute_store: &AttributeStoreConfig,
-        sync_config: Option<&AttributeSyncConfig>,
-    ) -> Result<Option<Self>, ServerError> {
-        let Some(sync_config) = sync_config else {
-            return Ok(None);
-        };
+        sync_config: &AttributeSyncConfig,
+    ) -> Result<Self, ServerError> {
         let mut by_name = BTreeMap::new();
         for (store_name, store) in &attribute_store.stores {
             let settings = AttributeStoreSettings {
@@ -104,10 +101,10 @@ impl AttributeStores {
             );
             by_name.insert(store_name.clone(), Arc::new(connected));
         }
-        Ok(Some(Self {
+        Ok(Self {
             config: sync_config.clone(),
             stores: Arc::new(PostgresAttributeStores { by_name }),
-        }))
+        })
     }
 
     /// Starts the schema refreshers and the projector under the engine's lease and fence.

@@ -23,8 +23,8 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
-use crate::command_handlers::command_replies::{error_reply, grpc_code};
-use crate::command_handlers::flow_close::update_directory_status;
+use crate::command_handlers::command_replies::{TERMINAL_CLEANUP_MESSAGE, error_reply, grpc_code};
+use crate::command_handlers::flow_close::{finalize_pending_close, update_directory_status};
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult, ReplayedCommandCounters};
 use crate::history::attempt_scope::{
@@ -34,7 +34,7 @@ use crate::history::lineage::{Lineage, history_records};
 use crate::history::replay_state::{TransactionReader, absorb_writes};
 use crate::history::reset_target::resolve_target;
 use crate::history::state_rebuild::rebuild_attempt_state;
-use crate::projections::attribute_sync::mark_attribute_sync_entries;
+use crate::projections::attribute_sync::{has_attribute_sync_entries, mark_attribute_sync_entries};
 use crate::state_access::{FlowTransaction, read_flow_directory};
 use crate::steps::{
     arm_timer, configured_method_timeout_seconds, disarm_timer, invocation_retry_deadline_micros,
@@ -156,6 +156,12 @@ pub(crate) fn apply_time_travel(
     ));
     for event in reapplied_events {
         cursor.add_event(event);
+    }
+    // A restored pending close finalizes now when no outbox entry would ever ack it.
+    if cursor.record.pending_close.is_some()
+        && !has_attribute_sync_entries(transaction, cursor.rows)?
+    {
+        finalize_pending_close(transaction, &mut cursor, scope)?;
     }
     cursor.wake(WaitableChange::RunAttemptChanged);
     let reply = CommandReply {
@@ -555,11 +561,18 @@ fn is_skippable_rejection(body: &Command, reply: &CommandReply) -> bool {
     };
     match body {
         Command::TimerSkip(_) => error.grpc_code == grpc_code::INVALID_ARGUMENT,
-        Command::ChannelMessageDelete(_) => is_missing_channel_message(error),
+        Command::ChannelMessageDelete(_) => {
+            is_missing_channel_message(error) || is_terminal_cleanup_rejection(error)
+        }
         // A transactional RPC whose deletions no longer hold is skipped as a whole.
         Command::RpcCommitted(rpc) => rpc.is_transactional && is_missing_channel_message(error),
         _ => false,
     }
+}
+
+/// A restored pending close rejects update-class input, as it would live.
+fn is_terminal_cleanup_rejection(error: &CommandErrorReply) -> bool {
+    error.grpc_code == grpc_code::FAILED_PRECONDITION && error.message == TERMINAL_CLEANUP_MESSAGE
 }
 
 fn is_missing_channel_message(error: &CommandErrorReply) -> bool {
