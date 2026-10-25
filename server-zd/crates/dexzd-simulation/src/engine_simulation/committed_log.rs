@@ -8,6 +8,8 @@
 
 //! The canonical committed log from every process's applied frames, checked against a shadow.
 
+mod step_failure_recoveries;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
@@ -20,13 +22,14 @@ use dexzd_keyspace::row_keys::{HARD_DELETE_PENDING_OBJECT, SEARCH_ORDER_INDEX_VE
 use dexzd_keyspace::{ColumnFamily, PartitionId, RunId, RunTable, TenantId, parse_run_key};
 use dexzd_protocol::dex::{ChannelMessage, Kv};
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, LogPosition, NodeMeta, OutboxRecord, PartitionMeta, stored_value,
+    FlowCommand, LogPosition, NodeMeta, OutboxRecord, PartitionMeta, flow_command::Command,
+    stored_value,
 };
 use dexzd_storage::{InMemoryLocalStore, LocalReadView, LocalStore, WriteBatch};
 use prost::Message;
 
 use crate::apply_checker::ApplyChecker;
-use crate::apply_simulation::command_kind;
+use crate::apply_simulation::{chain_digest, command_kind};
 use crate::engine_simulation::event_trace::EventTrace;
 use crate::engine_simulation::simulated_clients::ENGINE_FLOW_IDS;
 use crate::engine_simulation::simulated_object_store::StorageObservations;
@@ -35,6 +38,7 @@ use crate::invariants::InvariantViolation;
 use crate::model::wire_value;
 use crate::row_decoding::hex;
 use crate::state_view::RunSelection;
+use step_failure_recoveries::count_step_failure_recoveries;
 
 /// Orders frames of one partition: node, incarnation, then seq.
 type FrameKey = (u16, String, u32, u64);
@@ -101,6 +105,10 @@ struct CommittedLogState {
     /// Commands committed without writes, such as a second result of one attempt.
     rejected_by_kind: BTreeMap<&'static str, u64>,
     replayed_frames: u64,
+    /// Chained digest of canonical commands in the order the shadow accepted them.
+    canonical_command_digest: u128,
+    /// What Step failure policies did, by outcome name.
+    step_failure_recoveries: BTreeMap<&'static str, u64>,
 }
 
 /// Collects applied frames from every node process and checks them against the shadow.
@@ -132,6 +140,8 @@ impl CommittedLog {
                 applied_by_kind: BTreeMap::new(),
                 rejected_by_kind: BTreeMap::new(),
                 replayed_frames: 0,
+                canonical_command_digest: 0,
+                step_failure_recoveries: BTreeMap::new(),
             }),
             trace,
             storage_observations,
@@ -349,6 +359,14 @@ impl CommittedLog {
 
     pub(crate) fn rejected_by_kind(&self) -> BTreeMap<&'static str, u64> {
         self.lock().rejected_by_kind.clone()
+    }
+
+    pub(crate) fn canonical_command_digest(&self) -> u128 {
+        self.lock().canonical_command_digest
+    }
+
+    pub(crate) fn step_failure_recoveries(&self) -> BTreeMap<&'static str, u64> {
+        self.lock().step_failure_recoveries.clone()
     }
 
     /// Returns a sink that records `process_label`'s frames and then passes them to `registry`.
@@ -583,6 +601,8 @@ impl CommittedLogState {
                 ));
             }
             self.remember_committed(&committed.command, &shadow_outcome);
+            self.canonical_command_digest =
+                chain_digest(self.canonical_command_digest, &committed.command);
             let meta = self
                 .partition_metas
                 .entry(key.0)
@@ -637,6 +657,15 @@ impl CommittedLogState {
         }
         for write in &outcome.writes {
             self.track_cross_flow_work(write);
+        }
+        if let Some(Command::StepAttemptFailed(failed)) = &command.command
+            && !outcome.writes.is_empty()
+        {
+            count_step_failure_recoveries(
+                failed,
+                &outcome.writes,
+                &mut self.step_failure_recoveries,
+            );
         }
     }
 

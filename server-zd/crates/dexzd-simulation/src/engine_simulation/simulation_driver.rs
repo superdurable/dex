@@ -188,7 +188,11 @@ impl Simulation {
             Arc::new(NoInjectedFaults),
             storage_clock,
         ));
-        let workers = Arc::new(SimulatedWorkers::new(rng.random(), Arc::clone(&trace)));
+        let workers = Arc::new(SimulatedWorkers::new(
+            rng.random(),
+            config.profile.has_step_failure_policies(),
+            Arc::clone(&trace),
+        ));
         let fault_probability = FAULT_PROBABILITIES[rng.random_range(0..FAULT_PROBABILITIES.len())];
         let retention_after_close = if rng.random_bool(0.5) {
             LONG_RETENTION
@@ -266,6 +270,7 @@ impl Simulation {
             let client = SimulatedClient::new(
                 format!("c{index}"),
                 self.rng.random(),
+                self.config.profile.has_step_failure_policies(),
                 self.serving_node.clone(),
                 Arc::clone(&self.environment.committed_log),
                 Arc::clone(&self.client_records),
@@ -426,7 +431,12 @@ impl Simulation {
         let registry = serving.registry.clone();
         for flow_id in ENGINE_FLOW_IDS {
             let marker = format!("{OPERATION_MARKER_PREFIX}tail-{flow_id}");
-            let mut request = start_flow_request(&mut self.rng, flow_id, &marker);
+            let mut request = start_flow_request(
+                &mut self.rng,
+                flow_id,
+                &marker,
+                self.config.profile.has_step_failure_policies(),
+            );
             if let Some(options) = request.flow_start_options.as_mut() {
                 options.flow_already_started_options = Some(FlowAlreadyStartedOptions {
                     ignore_already_started_error: true,

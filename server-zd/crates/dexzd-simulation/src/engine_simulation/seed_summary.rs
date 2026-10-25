@@ -96,6 +96,9 @@ pub(crate) fn finish_summary(
         .map(|(kind, count)| (kind.to_owned(), count))
         .collect();
     summary.replayed_frames = environment.committed_log.replayed_frames();
+    summary.canonical_command_digest = environment.committed_log.canonical_command_digest();
+    summary.step_failure_recoveries =
+        name_counts(&environment.committed_log.step_failure_recoveries());
     summary.final_runs = environment.committed_log.with_shadow(run_count);
     summary.final_pruned_semantic_events = environment
         .committed_log

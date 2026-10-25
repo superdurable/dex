@@ -192,6 +192,43 @@ old-epoch store checks, and checks that used older window points. The summary fi
 `old_epoch_store_checks`, and `recovered_checks_with_older_window_points`. It reads the same
 environment variables as the fixed set, without the regression seeds.
 
+### Step failure profile
+
+The fixed set and the redeploy profile draw no Step failure policies. A third test,
+`step_failure_policies_keep_every_invariant`, runs the `StepFailurePolicies` profile on its own
+seed group: 32 seeds from `1604386816` (`0x5fa10000`). It uses the fixed set's environment.
+
+- Some Steps let a failed WaitFor proceed to Execute. Others send a failed Execute to a
+  `RecoverStep` recovery Step.
+- Some retry policies have a total duration of 1 to 5 seconds. The engine ends such a method
+  with a `RETRY_DEADLINE` failure once the duration expires.
+- Flow timeouts last 5 to 30 seconds, so they expire before most runs close. Every timeout runs
+  a timeout handler, which makes at most two attempts. In 60% of the Flows, a failed handler
+  proceeds to `RecoverStep`.
+
+The test requires each outcome that `step_failure_recoveries` counts: `wait-for-proceed`,
+`execute-recovery`, `timeout-handler-recovery`, and `retry-deadline`. It reads the same
+environment variables as the fixed set, without the regression seeds.
+
+### Pinned trajectories
+
+`pinned_seeds_keep_their_canonical_command_trajectories` runs each line of
+`engine-regression-seeds.txt`, the first three fixed-set seeds, and the first redeploy-profile
+seed. Each seed's `canonical_command_digest` must equal its pinned value. The digest chains
+xxh3-128 over every committed command, in the order the shadow accepted them. The pinned values
+come from main before Step failure policies were added.
+
+Any change that moves a regression seed's trajectory can make the seed stop reproducing its
+failure. An engine change can do that as well as a workload change. Without the pins, no test
+would fail. Draw new choices only in a profile with its own seed group, as the redeploy and Step
+failure profiles do. When a pinned digest changes, revert each regression's fix and check that
+its seed still fails, or find a new seed. Then update the pinned value.
+
+`3856990458` and `3856990875` reproduce the failure of reads of a purging run, which omitted a
+hard-delete Attribute right after the purge deleted its object. Each fails within 120 seconds
+when the fix is reverted. `3856990760` found that failure first, but a later change to object
+storage reads moved its trajectory, so it no longer reproduces it.
+
 ### Running
 
 ```bash
@@ -203,12 +240,14 @@ DEXZD_SIMULATION_SEED=7 cargo test -p dexzd-simulation --test engine_simulation 
   the_engine_keeps_every_invariant_through_faults_and_crashes -- --exact --nocapture
 DEXZD_SIMULATION_SEED=1323171844 cargo test -p dexzd-simulation --test engine_simulation \
   redeploys_with_a_short_history_window_keep_every_invariant -- --exact --nocapture
+DEXZD_SIMULATION_SEED=1604386820 cargo test -p dexzd-simulation --test engine_simulation \
+  step_failure_policies_keep_every_invariant -- --exact --nocapture
 ```
 
 `DEXZD_SIMULATION_SEEDS` and `DEXZD_SIMULATION_SEED` also select the apply simulation's seeds
 when both tests run. A failing seed prints its reproduction command and the last 400 trace events.
 `DEXZD_SIMULATION_PRINT_EVENTS=1` prints the trace tail of a passing seed. A self-test runs seeds,
-including one redeploy-profile seed, twice and requires identical raw traces, final local
+including one seed of each other profile, twice and requires identical raw traces, final local
 stores, and stored objects, leases included. It compares the two final local stores with `compare_store_views` and no canonicalized
 fields.
 
@@ -234,6 +273,9 @@ simulated seconds, about 12 minutes on a recent laptop. Its seeds cost more than
 because lost-store starts replay the whole log. Manual runs accept 16–1,000 seeds and 60–600
 seconds per seed, with at most 20,000 simulated seconds in total. The job has the same
 55-minute command limit, failure reports, and summary as the fixed set's job.
+
+Another nightly job runs the Step failure profile the same way, with its own random base seed,
+48 seeds of 300 simulated seconds, and the redeploy job's limits.
 
 Every nightly simulation job, including the apply simulation and seeded-bug acceptance, runs on
 two refs. One is the workflow's commit, which is main for scheduled runs. The other is the
