@@ -12,17 +12,20 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use dexzd_keyspace::TenantId;
-use dexzd_protocol::dex::{self, IndexType};
-use dexzd_protocol::dexzd::v1::SearchAttributeValue;
+use dexzd_keyspace::{PartitionId, RunId, TenantId};
+use dexzd_postgres_connection::ConnectionSettings;
+use dexzd_protocol::dex::{self, FlowStatus, IndexType};
+use dexzd_protocol::dexzd::v1::{LogPosition, SearchAttributeValue, SearchDocumentRecord};
 use dexzd_visibility_query::{
     FieldRegistry, SearchDocument, SearchValue, compare_documents, evaluate, parse_and_check,
 };
+use prost::Message;
 use tokio_postgres::NoTls;
 
 use super::{
-    MIGRATION_SQL, PageCursor, ParadeDbSearchBackend, ProjectionVisibilityWait, SearchRow,
-    ensure_schema, tenant_column_value, translate_query, upsert_statement,
+    MIGRATION_SQL, PageCursor, ParadeDbProjector, ParadeDbSearchBackend, ProjectionVisibilityWait,
+    SearchDocumentChange, SearchRow, ensure_schema, tenant_column_value, translate_query,
+    upsert_statement,
 };
 use crate::{SearchBackend, SearchError, SearchRequest};
 
@@ -58,6 +61,105 @@ impl Document {
 impl SearchDocument for Document {
     fn field_value(&self, field: &str) -> Option<SearchValue> {
         self.0.get(field).cloned()
+    }
+}
+
+#[tokio::test]
+async fn paradedb_projection_and_search_use_direct_tls() {
+    let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_TLS_URL") else {
+        assert!(
+            !matches!(
+                std::env::var("DEX_ZD_REQUIRE_PARADEDB_TLS").as_deref(),
+                Ok("1")
+            ),
+            "the direct TLS test requires DEX_ZD_PARADEDB_TLS_URL"
+        );
+        return;
+    };
+    let certificate_path = std::env::var("DEX_ZD_PARADEDB_TLS_CA_CERT")
+        .expect("TLS ParadeDB test requires its CA certificate");
+    let plaintext_configuration: tokio_postgres::Config =
+        database_url.parse().expect("parse CI TLS ParadeDB URL");
+    let plaintext_error = plaintext_configuration
+        .connect(NoTls)
+        .await
+        .err()
+        .expect("TLS-only ParadeDB must reject a plaintext startup");
+    let database_error = plaintext_error
+        .as_db_error()
+        .expect("plaintext startup must receive a PostgreSQL rejection");
+    assert_eq!(database_error.code().code(), "28000");
+    assert!(database_error.message().contains("no encryption"));
+
+    for (ssl_mode, partition_id, run_id) in [
+        ("require", PartitionId(1), RunId([1; 16])),
+        ("verify-full", PartitionId(2), RunId([2; 16])),
+    ] {
+        let root_certificate = if ssl_mode == "verify-full" {
+            format!("&sslrootcert={certificate_path}")
+        } else {
+            String::new()
+        };
+        let dsn = format!(
+            "{database_url}?sslmode={ssl_mode}&sslnegotiation=direct&connect_timeout=5{root_certificate}"
+        );
+        let settings =
+            ConnectionSettings::parse_for_search(&dsn).expect("parse direct TLS ParadeDB DSN");
+        let backend = Arc::new(
+            ParadeDbSearchBackend::connect_with_settings(
+                &settings,
+                1,
+                None,
+                Duration::from_secs(2),
+            )
+            .await
+            .expect("connect ParadeDB through direct TLS"),
+        );
+        let projector = ParadeDbProjector::new(backend.clone());
+        let tenant_id = TenantId(17);
+        let document = SearchDocumentRecord {
+            version: 1,
+            tenant_id: tenant_id.0,
+            flow_id: format!("tls-flow-{run_id}"),
+            run_id: run_id.as_bytes().to_vec(),
+            flow_type: "TlsFlow".into(),
+            status: FlowStatus::Running as i32,
+            started_at_micros: 1_000_000,
+            ..Default::default()
+        };
+        projector
+            .apply_batch(
+                partition_id,
+                None,
+                &LogPosition {
+                    node_id: "tls-node".into(),
+                    incarnation: 1,
+                    seq: 1,
+                },
+                &[SearchDocumentChange::Upsert {
+                    tenant_id,
+                    run_id,
+                    encoded_document: document.encode_to_vec(),
+                }],
+            )
+            .await
+            .expect("project a committed run over TLS");
+        backend.lock_next_slot().await.invalidate();
+        let page = backend
+            .search(SearchRequest {
+                tenant_id,
+                query: "FlowType = 'TlsFlow'",
+                page_size: 10,
+                page_token: None,
+                field_registry: &FieldRegistry::new(),
+            })
+            .await
+            .expect("SearchFlows reconnects through direct TLS");
+        assert!(
+            page.entries
+                .iter()
+                .any(|entry| entry.run_id == run_id.to_string())
+        );
     }
 }
 

@@ -807,6 +807,59 @@ distinguish reserve pressure from full-capacity rejections. The count excludes
 full-capacity rejections and unknown names, never resets, and remains available
 after shutdown. Listening Workers return zero.
 
+## FlowService TLS
+
+`FlowServiceAddress` uses plaintext gRPC by default for both the Client and
+Worker, including pull mode. For a TLS-terminating Dex endpoint, use its
+`host:443`, `dns:///host:443`, or `dns://authority/host:443` address and set
+`FlowServiceTLS` on both the Client and Worker. TLS requires version 1.2 or
+newer and negotiates ALPN `h2`.
+The certificate name defaults to the address host. Extra PEM root CAs extend
+the system roots; they do not replace them. A non-nil empty option uses only
+the system roots. TLS never falls back to plaintext. Existing bearer, file,
+and API key credentials work over either transport. The API key token endpoint
+has its own HTTPS trust configuration.
+
+```go
+rootPEM, err := os.ReadFile("/etc/dex/root-ca.pem")
+if err != nil {
+	return err
+}
+tlsOptions := &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: rootPEM}
+worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+	FlowServiceAddress: "dex.example.com:443",
+	FlowServiceTLS: tlsOptions,
+	Pull: &dex.PullWorkerOptions{},
+})
+if err != nil {
+	return err
+}
+client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+	FlowServiceAddress: "dex.example.com:443",
+	FlowServiceTLS: tlsOptions,
+	WorkerTarget: worker.WorkerTarget(),
+})
+if err != nil {
+	return err
+}
+defer client.Close()
+defer worker.Stop(context.Background())
+if err := worker.Start(); err != nil {
+	return err
+}
+```
+
+Without `ServerName`, the HTTP/2 `:authority` is the address host and port, as
+with plaintext, and an IPv6 address keeps its brackets. The DNS server in a
+`dns://authority/host:port` address never becomes the certificate name or
+`:authority`. Set `ServerName` only when the certificate name differs from the
+address host. It is then also sent as `:authority`, without a port. An IPv6
+`ServerName` produces an unbracketed `:authority` that strict HTTP/2 servers
+reject, so leave it empty for an IPv6 address or use a DNS name. An IP address
+sends no SNI and requires a matching IP SAN. An `AdditionalRootCAsPEM` with no
+parseable certificate fails `NewClient` or `NewWorker`. The other SDKs will gain
+the FlowService TLS option in a later release.
+
 ## Calling FlowService
 
 Client methods target the current run by sending an empty run ID. This follows
@@ -915,6 +968,14 @@ unless exactly one completion exists. For multiple outputs, match
 order, but parallel branch order is not deterministic. No-output Flows return
 an empty slice.
 
+`DescribeFlow(ctx, flowID)` reads one known Flow's current or latest run without
+waiting. Use it for a one-off status check, for example when a read-only RPC
+returns a non-terminal business state and the caller needs to know whether the
+Flow has failed. Its `FlowInfo` contains `FlowID`, `RunID`, `FlowType`, `Status`,
+`StartedAt`, and `ClosedAt`. `ClosedAt` is zero while the run is open or when
+the close time is unavailable. Use `WaitForFlow` when the caller needs to wait
+for a terminal result, and `SearchFlows` to find Flow IDs by query.
+
 Remote FlowService failures use concrete Go error types. Match expected
 conditions with `errors.As` instead of comparing gRPC codes or sub-statuses:
 
@@ -925,9 +986,10 @@ if errors.As(err, &inactive) {
 }
 ```
 
-`FlowNotFoundError` is returned by reads requiring an existing Flow, including
-WaitForFlow and TimeTravel. RPCs, timer operations, and step or attribute waits return
-`FlowNotActiveOrNotFoundError` when no active Flow is available.
+`FlowNotFoundError` is returned by operations requiring an existing Flow,
+including DescribeFlow, WaitForFlow, and TimeTravel. RPCs, timer operations,
+and step or attribute waits return `FlowNotActiveOrNotFoundError` when no active
+Flow is available.
 
 RPCs also use this error when the target Flow cannot be found, including query-only
 reads. A query-only RPC without locks, transactional execution, durable effects, or

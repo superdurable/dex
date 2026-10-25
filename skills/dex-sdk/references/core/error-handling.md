@@ -16,11 +16,15 @@ Normal application logic catches only concrete SDK errors whose outcomes it can 
 
 The public error shape is language-specific. Python, Java, and TypeScript expose a remote-only service-error base; Go concrete remote errors unwrap to `*ServiceError`; Rust uses one `SdkError` enum for both service-backed and local failures. Never copy a catch pattern between SDKs without checking the selected language page and installed version.
 
+## Flow close cleanup rejection
+
+With Server v1.20.0 or later on Temporal, or server-zd v0.1.5 or later, a new transactional or locking RPC, WaitForStepCompletion, WaitForAttributeMatch, WaitForAttributeMapInstanceMatch, or Server DeleteChannelMessage rejected during Flow close cleanup returns FAILED_PRECONDITION with sub-status FLOW_CLOSING. On the Go Server, this also applies while a stopped run winds down. SDK v1.20.0 or later in every language maps this to a typed error. Match that type rather than the error detail. Wait for or read the retained terminal Flow state before deciding whether another action is needed; the rejected request was not accepted. See [server-zd operations](operations.md#server-zd) for backend and version boundaries.
+
 ## Capacity and rate-limit failures
 
 Server v1.13.0 preserves **ResourceExhausted** for backend capacity and rate-limit failures instead of reporting **Internal**. The response retains the message and available status details, including a retry-delay hint when supplied. Use the selected SDK's named status representation and inspect available details; do not parse error text or assume every SDK exposes every detail. Apply bounded retries with backoff and jitter within the caller's deadline, honoring a retry hint when available. A failed mutation can still have an uncertain outcome: reconcile using its stable identity and authoritative state before repeating effects. SDK-managed retries may already exhaust the deadline, so avoid stacking unbounded retry loops.
 
-This Client API status is distinct from a pull stream's permanent registration rejection: **ResourceExhausted** there follows the [queue readiness and stream capacity rules](pull-workers.md#startup-registration-and-readiness). [Released API error mapping](https://github.com/superdurable/dex/blob/server/v1.19.0/server/service/api/service.go)
+This Client API status is distinct from a pull stream's permanent registration rejection: **ResourceExhausted** there follows the [queue readiness and stream capacity rules](pull-workers.md#startup-registration-and-readiness). [Released API error mapping](https://github.com/superdurable/dex/blob/server/v1.20.0/server/service/api/service.go)
 
 ## Missing or inactive target errors
 
@@ -28,11 +32,11 @@ At the released SDK API baseline, use the exact public names:
 
 | SDK | Combined missing/inactive target error | Source |
 | --- | --- | --- |
-| Go | `*dex.FlowNotActiveOrNotFoundError` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.17.0/sdk-go/dex/errors.go) |
-| Python | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-python/v1.17.0/sdk-python/dex/runtime_errors.py) |
-| TypeScript | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-typescript/v1.17.0/sdk-typescript/src/errors.ts) |
-| Java | `FlowNotActiveOrNotFoundException` | [Definition](https://github.com/superdurable/dex/blob/sdk-java/v1.17.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowNotActiveOrNotFoundException.java) |
-| Rust | `SdkError::FlowNotActiveOrNotFound` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-rust/v1.17.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs) |
+| Go | `*dex.FlowNotActiveOrNotFoundError` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.21.0/sdk-go/dex/errors.go) |
+| Python | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-python/v1.20.0/sdk-python/dex/runtime_errors.py) |
+| TypeScript | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-typescript/v1.20.0/sdk-typescript/src/errors.ts) |
+| Java | `FlowNotActiveOrNotFoundException` | [Definition](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowNotActiveOrNotFoundException.java) |
+| Rust | `SdkError::FlowNotActiveOrNotFound` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-rust/v1.20.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs) |
 
 These names replace the old not-active-only names without compatibility aliases. The rename preserves Server routing, protocol sub-statuses, service metadata, and cause chains. The separate Flow-not-found error remains available for operations mapped to it. Inspect an existing application's installed SDK before changing a catch or import; do not assume older packages export the new names.
 
@@ -94,6 +98,8 @@ When **WaitFor** starts a SubFlow and Dex rejects that start before the child be
 
 For an operation that requires an active target, a typed terminal or not-active error proves that the attempted interaction had no active target. It does not prove that the requested work succeeded. First reconcile from already loaded authoritative domain state and operation invariants. Re-inspect the Flow only when the outcome depends on distinguishing running, successfully completed, other terminal, and missing states and that distinction is not otherwise available. Do not spend a status call when every possible state has the same idempotent outcome. Interpret query-only RPC errors under the [missing query target rule](#missing-query-targets) instead.
 
+For that status read, or another one-off status check of a known Flow ID, call the SDK's DescribeFlow API: Go **Client.DescribeFlow** (from Go SDK v1.21.0), Java **Client.describeFlow**, Python **Client.describe_flow** or **AsyncClient.describe_flow**, TypeScript **Client.describeFlow**, or Rust **Client::describe_flow**. Java, Python, TypeScript, and Rust already have it at their v1.20.0 baselines. Each reads the current or latest run without waiting. It returns the Flow ID, run ID, Flow type, status, and start time. Only the Go result also carries the close time, when available. A missing Flow returns the SDK's typed Flow-not-found error. Use a typed read-only RPC for business state, **WaitForFlow** for terminal completion and output, and **SearchFlows** to find Flow IDs by query. Both the Go Server and server-zd serve the underlying **GetFlowSummary** RPC. Do not call it after a missing-target error at a query-only Get boundary. Language details: [Go](../go/error-handling.md#closed-flow-races), [Java](../java/error-handling.md#closed-flow-races), [Python](../python/error-handling.md#closed-flow-races), [TypeScript](../typescript/error-handling.md#closed-flow-races), and [Rust](../rust/error-handling.md#closed-flow-races).
+
 Do not assume every RPC targets only an active Flow. A query-only RPC without locks or transactional execution can read a retained terminal execution. It may succeed after closure, so use a lifecycle API when active versus terminal changes the result. If a non-transactional handler returns durable effects, it may run before Dex rejects those effects with a not-active error. Transactional and locked RPCs, and every RPC under a Server policy that runs RPCs transactionally, require an active execution before the Worker handler runs.
 
 A completed child may satisfy an idempotent cleanup only when successful completion guarantees the requested condition. An unsuccessful terminal or missing child should become an explicit domain failure or unknown outcome; do not retry a terminal fact indefinitely. A bounded wait that returns a running snapshot is still nonterminal.
@@ -153,7 +159,7 @@ With Go SDK v1.17.0, **RecoveryErrorInfo** offers **IsMethodTimeout**, **IsHeart
 - server-zd and the Go Server with Temporal end a running attempt at the retry total duration. On the Go Server, the local phase of an ASYNC Step can also end an attempt this way. The Go Server with Cadence does not end a running attempt at the retry total duration, so **IsRetryTotalDurationExceeded** returns false for that case there.
 - An application error type that reuses a backend time-limit name also matches. Give application error types distinct names.
 
-Java, Python, TypeScript, and Rust offer no such predicates at their v1.17.0 baselines. There, record the detail and error type for operators, and branch only on error types the application defines. Treat any other error type as an infrastructure failure rather than matching backend spellings. See the [Go recovery guidance](../go/error-handling.md#commit-and-recovery).
+Java, Python, TypeScript, and Rust offer no such predicates at their v1.20.0 baselines. There, record the detail and error type for operators, and branch only on error types the application defines. Treat any other error type as an infrastructure failure rather than matching backend spellings. See the [Go recovery guidance](../go/error-handling.md#commit-and-recovery).
 
 ## Design review
 

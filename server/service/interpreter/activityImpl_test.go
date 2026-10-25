@@ -732,7 +732,7 @@ func TestNewWorkerActivityFailureUsesInternalForNonGRPCError(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeTemporal, inputError, nil),
+		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeTemporal, inputError, nil, nil),
 		expectedError,
 	)
 	require.Equal(t, "dial failed", internalActivityError.GetServerDetail())
@@ -771,7 +771,7 @@ func TestNewWorkerActivityFailurePreservesWorkerDetails(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeTemporal, grpcStatus.Err(), nil),
+		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeTemporal, grpcStatus.Err(), nil, nil),
 		expectedError,
 	)
 	require.Empty(t, internalActivityError.GetServerDetail())
@@ -808,7 +808,7 @@ func TestNewWorkerActivityFailureRejectsRetryAfterOnCadence(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeCadence, grpcStatus.Err(), nil),
+		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeCadence, grpcStatus.Err(), nil, nil),
 		expectedError,
 	)
 	require.Equal(
@@ -840,7 +840,7 @@ func TestNewWorkerActivityFailureFallsBackWhenMessageEmpty(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeTemporal, inputError, nil),
+		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeTemporal, inputError, nil, nil),
 		expectedError,
 	)
 	require.Equal(t, inputError.Error(), internalActivityError.GetServerDetail())

@@ -12,7 +12,6 @@ import (
 	"fmt"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // DefaultGrpcMaxMessageBytes is the gRPC receive limit that a Client or Worker uses
@@ -53,18 +52,22 @@ func resolveGrpcMessageLimits(configured int) (grpcMessageLimits, error) {
 	return grpcMessageLimits{receiveBytes: configured, sendBytes: configured}, nil
 }
 
-func (limits grpcMessageLimits) flowServiceDialOptions(credential Credential) []grpc.DialOption {
+func (limits grpcMessageLimits) flowServiceDialOptions(address string, credential Credential, tlsOptions *FlowServiceTLSOptions) ([]grpc.DialOption, error) {
+	transportCredentials, err := flowServiceTransportCredentials(address, tlsOptions)
+	if err != nil {
+		return nil, err
+	}
 	callOptions := []grpc.CallOption{grpc.MaxCallRecvMsgSize(limits.receiveBytes)}
 	if limits.sendBytes > 0 {
 		callOptions = append(callOptions, grpc.MaxCallSendMsgSize(limits.sendBytes))
 	}
 	return append(
 		[]grpc.DialOption{
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithTransportCredentials(transportCredentials),
 			grpc.WithDefaultCallOptions(callOptions...),
 		},
 		credentialDialOptions(credential)...,
-	)
+	), nil
 }
 
 func (limits grpcMessageLimits) workerServiceServerOptions() []grpc.ServerOption {

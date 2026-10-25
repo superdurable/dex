@@ -1134,18 +1134,17 @@ name = "dexzd-attribute-store"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "dexzd-postgres-connection",
  "dexzd-protocol",
  "rand 0.10.3",
  "rcgen",
  "rustls",
- "rustls-native-certs",
  "serde_json",
  "tempfile",
  "thiserror",
  "time",
  "tokio",
  "tokio-postgres",
- "tokio-postgres-rustls",
  "tokio-rustls",
  "tokio-util",
  "tracing",
@@ -1286,6 +1285,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "dexzd-postgres-connection"
+version = "0.1.0"
+dependencies = [
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
+ "tokio-rustls",
+]
+
+[[package]]
 name = "dexzd-protocol"
 version = "0.1.0"
 dependencies = [
@@ -1312,16 +1326,21 @@ dependencies = [
  "async-trait",
  "dexzd-apply",
  "dexzd-keyspace",
+ "dexzd-postgres-connection",
  "dexzd-protocol",
  "dexzd-storage",
  "dexzd-visibility-query",
  "prost",
  "prost-types",
+ "rcgen",
+ "rustls",
  "serde_json",
+ "tempfile",
  "thiserror",
  "time",
  "tokio",
  "tokio-postgres",
+ "tokio-rustls",
  "tracing",
 ]
 
@@ -1344,6 +1363,7 @@ dependencies = [
  "dexzd-log",
  "dexzd-metrics",
  "dexzd-object-store",
+ "dexzd-postgres-connection",
  "dexzd-protocol",
  "dexzd-request-validation",
  "dexzd-search",

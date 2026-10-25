@@ -556,6 +556,7 @@ type WorkerOptions struct {
 	BindAddress        string
 	WorkerTarget       WorkerTarget
 	FlowServiceAddress string
+	FlowServiceTLS     *FlowServiceTLSOptions
 	AttributeIndexSyncTimeout time.Duration
 	Logger             Logger
 	Credential         Credential
@@ -1288,6 +1289,7 @@ internal response hydrator:
 ```go
 type ClientOptions struct {
 	FlowServiceAddress  string
+	FlowServiceTLS      *FlowServiceTLSOptions
 	WorkerTarget        *WorkerTarget
 	Logger              Logger
 	Credential          Credential
@@ -1302,9 +1304,20 @@ func NewClient(
 func (client *Client) Close() error
 ```
 
-An empty `FlowServiceAddress` uses `localhost:8801`. It is a plaintext gRPC dial
-target. Phase 5 does not expose generated clients, `grpc.ClientConn`, dial
-options, TLS credentials, or an HTTP URL.
+An empty `FlowServiceAddress` uses `localhost:8801`. Nil `FlowServiceTLS` keeps
+the plaintext gRPC dial target. A non-nil option dials the FlowService target
+over TLS 1.2 or newer with ALPN h2. The address uses `host:443`,
+`dns:///host:443`, or `dns://authority/host:443` for TLS. Other gRPC resolver
+schemes and HTTP URLs are rejected.
+`FlowServiceTLSOptions.AdditionalRootCAsPEM` extends the system root
+pool; `ServerName` defaults to the address host. An empty `ServerName` keeps the
+target's `host:port` as the HTTP/2 `:authority`; a nonempty one is sent as the
+`:authority` without a port. Invalid PEM fails construction.
+The same option applies to the Worker's FlowService connection, including pull
+task streams and blob hydration. The listening WorkerService stays plaintext.
+Existing Credentials work with either transport. The other SDKs will gain the
+option in a later release. The SDK does not expose generated clients,
+`grpc.ClientConn`, or arbitrary dial options.
 
 `GrpcMaxMessageBytes` limits received messages on the Client connection. Zero
 uses `DefaultGrpcMaxMessageBytes` (32 MiB) and keeps gRPC's unlimited send
@@ -2598,6 +2611,7 @@ The remaining FlowService operations use non-generic public types:
 |---|---|
 | `StopFlow` | `Client.StopFlow(ctx, flowID, StopOptions)` |
 | `WaitForFlow` | `Client.WaitForFlow(ctx, flowID, WaitForFlowOptions)` |
+| `GetFlowSummary` | `Client.DescribeFlow(ctx, flowID)` returns `FlowInfo` for the current or latest run without waiting |
 | `SearchFlows` | `Client.SearchFlows(ctx, query, pageSize, nextPageToken)` |
 | `TimeTravel` | `Client.TimeTravel(ctx, flowID, TimeTravelOptions)` |
 | `SkipTimer` | `Client.SkipTimer(ctx, flowID, StepExecutionID, TimerID)` |
@@ -2964,7 +2978,7 @@ metadata.
 `WaitForFlow` returns `FlowResult` for every terminal status. Transport,
 long-poll, hydration, and invalid-input failures remain errors.
 
-WaitForFlow and TimeTravel require an existing Flow. Stop, timer, config, and
+DescribeFlow, WaitForFlow, and TimeTravel require an existing Flow. Stop, timer, config, and
 Step or Attribute wait operations require an active Flow. RPCs use
 `FlowNotActiveOrNotFoundError` for a missing target or a closed target that the
 operation cannot use. The error alone cannot distinguish those cases. A retained

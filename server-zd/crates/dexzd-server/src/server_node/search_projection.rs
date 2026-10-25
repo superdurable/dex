@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dexzd_engine::{CommandCommitter, NodeStopReason};
+use dexzd_postgres_connection::ConnectionSettings;
 use dexzd_search::SearchBackend;
 use dexzd_search::paradedb::{ParadeDbProjector, ParadeDbSearchBackend, ProjectionVisibilityWait};
 use tokio::sync::mpsc;
@@ -59,7 +60,7 @@ impl ParadeDbSearch {
         let visibility_wait: Arc<dyn ProjectionVisibilityWait> = frames.clone();
         let mut attempt = 1;
         let backend = loop {
-            match ParadeDbSearchBackend::connect(
+            match ParadeDbSearchBackend::connect_with_settings(
                 &configuration,
                 pool_size,
                 Some(visibility_wait.clone()),
@@ -152,23 +153,23 @@ impl SearchProjection {
 }
 
 /// Applies `search.paradeDbSchema` through the search path, as transaction poolers keep no session state.
-fn postgres_configuration(search: &SearchConfig) -> Result<tokio_postgres::Config, ServerError> {
-    let mut configuration = search
-        .parade_db_connection_string
-        .parse::<tokio_postgres::Config>()
-        .map_err(|_| {
-            ServerError::Config(ConfigError::Invalid {
-                field: "search.paradeDbConnectionString",
-                message: "is not a valid PostgreSQL connection string".to_owned(),
-            })
-        })?;
+fn postgres_configuration(search: &SearchConfig) -> Result<ConnectionSettings, ServerError> {
+    let mut configuration = ConnectionSettings::parse_for_search(
+        &search.parade_db_connection_string,
+    )
+    .map_err(|reason| {
+        ServerError::Config(ConfigError::Invalid {
+            field: "search.paradeDbConnectionString",
+            message: reason.to_string(),
+        })
+    })?;
     if search.parade_db_schema != DEFAULT_SCHEMA {
         let search_path = format!("-c search_path={},public,pdb", search.parade_db_schema);
-        let options = match configuration.get_options() {
+        let options = match configuration.configuration().get_options() {
             Some(options) => format!("{options} {search_path}"),
             None => search_path,
         };
-        configuration.options(options);
+        configuration.configuration_mut().options(options);
     }
     Ok(configuration)
 }

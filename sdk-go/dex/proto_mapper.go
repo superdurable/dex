@@ -1073,6 +1073,36 @@ func mapFlowResult(
 	}, nil
 }
 
+func mapFlowInfo(response *dexpb.GetFlowSummaryResponse) (FlowInfo, error) {
+	if response == nil || response.FlowExecutionId == nil ||
+		response.FlowExecutionId.FlowId == "" || response.FlowExecutionId.RunId == "" ||
+		response.FlowType == "" || response.StartTime == nil {
+		return FlowInfo{}, fmt.Errorf("dex: Flow summary is incomplete")
+	}
+	status, err := mapFlowStatus(response.FlowStatus)
+	if err != nil {
+		return FlowInfo{}, err
+	}
+	if err := response.StartTime.CheckValid(); err != nil {
+		return FlowInfo{}, fmt.Errorf("dex: invalid Flow summary start time: %w", err)
+	}
+	closedAt := time.Time{}
+	if response.CloseTime != nil {
+		if err := response.CloseTime.CheckValid(); err != nil {
+			return FlowInfo{}, fmt.Errorf("dex: invalid Flow summary close time: %w", err)
+		}
+		closedAt = response.CloseTime.AsTime()
+	}
+	return FlowInfo{
+		FlowID:    response.FlowExecutionId.FlowId,
+		RunID:     response.FlowExecutionId.RunId,
+		FlowType:  response.FlowType,
+		Status:    status,
+		StartedAt: response.StartTime.AsTime(),
+		ClosedAt:  closedAt,
+	}, nil
+}
+
 func mapSearchFlowsPage(
 	response *dexpb.SearchFlowsResponse,
 ) (SearchFlowsPage, error) {

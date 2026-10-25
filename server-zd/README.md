@@ -9,9 +9,13 @@ so the Dex SDKs work without changes. It differs from the Go Server in a few doc
 example, it supports only pull Workers).
 
 StopFlow closes the run as soon as it commits. A later write to that run, such as SetAttributes,
-returns NOT_FOUND. The Go Server accepts such writes while its run winds down after a cancel.
-Write what a Flow needs before stopping it. StopFlow and Terminate never wait for Attribute Store
-synchronization.
+returns NOT_FOUND. Since v0.1.5, SetAttributes has one exception on a closed run that is not yet
+purged: it is accepted when the request has at least one write and every write sets a currently
+stored hard-delete Attribute to null, and the request omits the Action permission mappings field.
+The erase deletes the stored values and leaves the run closed. Value writes, ordinary erases, and
+mixed requests still return NOT_FOUND. The Go Server accepts writes while a canceled or failed run
+winds down, and rejects every write after the run closes. Write what a Flow needs before stopping
+it. StopFlow and Terminate never wait for Attribute Store synchronization.
 
 ## Layout
 
@@ -29,6 +33,7 @@ synchronization.
 | `dexzd-stream-store` | In-memory Stream store |
 | `dexzd-storage` | Local RocksDB state store and snapshots |
 | `dexzd-worker-dispatch` | Pull Worker protocol server |
+| `dexzd-postgres-connection` | PostgreSQL connection string parsing and TLS connections for Attribute Store and search |
 | `dexzd-search` | SearchFlows backends |
 | `dexzd-engine` | Commit pipeline, Flow runtime, effects, recovery |
 | `dexzd-api` | FlowService gRPC handlers and public API authentication |
@@ -75,20 +80,26 @@ that the suite skips with pull Workers. Both versions also passed the two pull W
 run against a real server.
 
 The `sdk-go/v1.15.0` suite predates server-zd, so it expects Go Server behavior in these areas.
-From `sdk-go/v1.16.0` on, the suite skips these tests on server-zd or asserts server-zd behavior:
+The `sdk-go/v1.16.0` suite skips unsupported cases or asserts server-zd behavior. The released
+`sdk-go/v1.17.0`, `sdk-go/v1.20.0`, and `sdk-go/v1.21.0` suites run the cancellation cases with
+Go Server expectations and fail against server-zd versions that support Step failure policies. The
+server-zd cancellation expectations below apply from the next Go SDK release containing this change.
 
 | Area | server-zd behavior | Affected tests |
 | --- | --- | --- |
-| Step failure policies | Through `server-zd/v0.1.1`, proceed-on-failure and proceed-to-configured-Step policies are rejected with `InvalidArgument`. A Worker Step decision that sets one fails the attempt. Later versions run them like the Go Server. | `TestProceedOnWaitForFailureFlow`, `TestStepRecovery`, and five `TestStepCancellation` scenarios |
+| Step failure policies | Through `server-zd/v0.1.1`, proceed-on-failure and proceed-to-configured-Step policies are rejected with `InvalidArgument`. A Worker Step decision that sets one fails the attempt. Later versions run them like the Go Server. See ASYNC Step cancellation and Canceled Step handlers below for related engine differences. | `TestProceedOnWaitForFailureFlow`, `TestStepRecovery`, and five `TestStepCancellation` scenarios |
 | Flow retry policies | StartFlow with a Flow retry policy returns `InvalidArgument`. | `TestBasicFlow` |
 | TriggerContinueAsNew | Returns `Unimplemented`. | `TestActionPermissionProjectionContinueAsNew`, `TestSubFlowPartialResultsSurviveContinueAsNewWithoutRestart` |
 | ASYNC Step heartbeats | Heartbeat checkpoints are kept from the first attempt. | `TestAsyncLocalHeartbeatIsIgnoredAndStreamsAreRetained` |
+| ASYNC Step cancellation | An ASYNC Step has no local phase. Its handler runs once on server-zd; the Go Server runs a local invocation and then a remote one. | `TestStepCancellation` (`local-execute`, `local-timeout-fallback`) |
+| Canceled Step handlers | server-zd sends `cancel_task`, so a pull Worker cancels a running handler context even if the handler records no heartbeat. On the Go Server, a running handler observes cancellation when it records a heartbeat or writes a Stream frame. This also applies to the ASYNC `local-execute` case on server-zd. | `TestStepCancellation` (`no-heartbeat`, `local-execute`) |
 | Push Workers | Not supported. | `TestMessageSizeHydrationSplitsBlobBatchesAboveLimit` (push-only) |
 
 The [released Go SDK compatibility workflow](../.github/workflows/server-zd-sdk-go-compatibility.yml)
 repeats this check after each server-zd release. It runs the newest `sdk-go` release's suite
 against the Linux amd64 binary. A manual run can choose any server-zd tag and any `sdk-go` tag
-from `sdk-go/v1.16.0` on.
+from `sdk-go/v1.16.0` on. The newest-release check remains red until a Go SDK release includes
+the cancellation expectations above.
 
 ## Metrics
 
@@ -349,6 +360,26 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   `search.paradeDbConnectionString` and creates or upgrades the search schema. It tries three
   times, then fails startup. The first startup needs a role that may create the `pg_search`
   extension, unless the extension is already installed.
+- The connection string accepts `sslmode` (`disable`, `allow`, `prefer`, `require`, `verify-ca`,
+  `verify-full`), `sslrootcert` (a PEM CA file or `system`), `sslsni` (`0` or `1`),
+  `sslnegotiation` (`postgres` or `direct`), and `connect_timeout` in seconds. Direct negotiation
+  requires PostgreSQL 17 or later. For example,
+  `postgres://role:pw@host:5432/db?sslmode=require&sslnegotiation=direct` opens TLS before the
+  startup message. `sslmode=require` without `sslrootcert` encrypts the connection but does not
+  verify the server certificate. With a PEM file in `sslrootcert`, `require` verifies the
+  certificate chain against that file, but not the host name. `sslmode=verify-ca` verifies the
+  chain against the PEM file in `sslrootcert`, or against the system roots when `sslrootcert` is
+  absent. It never verifies the host name. `sslmode=verify-full` verifies the chain and the host
+  name, against the PEM file in `sslrootcert` or against the system roots when `sslrootcert` is
+  absent. `sslrootcert=system` uses the system roots and forces `verify-full`, whatever `sslmode`
+  says. Without `sslnegotiation=direct`, `prefer` and `allow` do not verify the certificate, even
+  with a PEM file in `sslrootcert`. `sslmode=allow` with `sslnegotiation=direct` is invalid.
+  Without TLS parameters, the connection remains plaintext for compatibility with existing
+  deployments. Explicit `sslmode=prefer` first attempts TLS without certificate verification;
+  previously it remained plaintext. With `sslnegotiation=direct`, `sslmode=prefer` or a missing
+  `sslmode` becomes `require`, and the `require` rules above apply, so TLS is mandatory and there
+  is no plaintext fallback.
+  The connect timeout covers the TLS handshake and authentication, including reconnects.
 - A `search.paradeDbSchema` other than `public` is applied as the `search_path` connection option.
   A transaction pooler must pass that startup option through; otherwise keep the tables in `public`.
 - A background task copies each committed partition frame's search documents to ParadeDB. Commits

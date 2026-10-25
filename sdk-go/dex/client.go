@@ -37,8 +37,12 @@ const serverCappedLongPollSeconds = int32(math.MaxInt32)
 
 // ClientOptions configures the FlowService client.
 type ClientOptions struct {
-	// FlowServiceAddress is Dex's plaintext gRPC target. Default: "localhost:8801".
+	// FlowServiceAddress is Dex's gRPC target. Default: "localhost:8801".
+	// With FlowServiceTLS, use host:port, dns:///host:port, or dns://authority/host:port, such as "dex.example.com:443".
 	FlowServiceAddress string
+	// FlowServiceTLS enables TLS for this Client's FlowService connection. Nil uses plaintext.
+	// See FlowServiceTLSOptions for trust roots, server name, and a complete example.
+	FlowServiceTLS *FlowServiceTLSOptions
 	// WorkerTarget is advertised by StartFlow unless overridden. Default: nil.
 	WorkerTarget *WorkerTarget
 	// Logger defaults to the shared BlobCache logger.
@@ -88,7 +92,7 @@ type Client struct {
 // registry supplies the validated definitions and cache hydrates large values. The
 // Client connects lazily to ClientOptions.FlowServiceAddress, which defaults to
 // localhost:8801. It panics when registry or cache is nil. It returns an error when
-// an address, worker target, or GrpcMaxMessageBytes is invalid, or the gRPC client
+// an address, worker target, FlowServiceTLS, or GrpcMaxMessageBytes is invalid, or the gRPC client
 // cannot be created.
 // The caller owns the returned Client and must call Close.
 func NewClient(
@@ -110,9 +114,13 @@ func NewClient(
 	if err != nil {
 		return nil, err
 	}
+	dialOptions, err := messageLimits.flowServiceDialOptions(flowServiceAddress, options.Credential, options.FlowServiceTLS)
+	if err != nil {
+		return nil, err
+	}
 	connection, err := grpc.NewClient(
 		flowServiceAddress,
-		messageLimits.flowServiceDialOptions(options.Credential)...,
+		dialOptions...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dex: create FlowService client: %w", err)
@@ -151,8 +159,10 @@ func resolveClientOptions(options ClientOptions) (string, *WorkerTarget, error) 
 	if flowServiceAddress == "" {
 		flowServiceAddress = defaultFlowServiceTarget
 	}
-	if err := validatePlaintextTarget(flowServiceAddress, false); err != nil {
-		return "", nil, fmt.Errorf("dex: invalid FlowService address: %w", err)
+	if options.FlowServiceTLS == nil {
+		if err := validatePlaintextTarget(flowServiceAddress, false); err != nil {
+			return "", nil, fmt.Errorf("dex: invalid FlowService address: %w", err)
+		}
 	}
 	if options.WorkerTarget == nil {
 		return flowServiceAddress, nil, nil
@@ -331,6 +341,25 @@ func (result FlowResult) DecodeSingleOutput(target any) error {
 		)
 	}
 	return result.Completions[0].Output.Decode(target)
+}
+
+// FlowInfo describes the current or latest run for one Flow ID.
+//
+// Client.DescribeFlow returns this snapshot without waiting for a terminal status.
+// A zero ClosedAt means the run is open or its close time is unavailable.
+type FlowInfo struct {
+	// FlowID is the application-assigned Flow ID.
+	FlowID string
+	// RunID is the server-assigned run ID.
+	RunID string
+	// FlowType is the registered Flow type.
+	FlowType string
+	// Status is the current or terminal Flow status.
+	Status FlowStatus
+	// StartedAt is the run start time.
+	StartedAt time.Time
+	// ClosedAt is the run close time, if available.
+	ClosedAt time.Time
 }
 
 // SearchFlowEntry contains one Flow row returned by SearchFlows.
@@ -728,6 +757,26 @@ func waitForFlowValuePointers(response *dexpb.FlowResult) []**dexpb.Value {
 		}
 	}
 	return pointers
+}
+
+// DescribeFlow reads the current or latest run of an existing Flow without waiting.
+//
+// Use it for a one-off status read, such as after a read-only RPC returns a
+// non-terminal business state. ctx controls cancellation and flowID must be
+// non-empty. The result includes the run identity, Flow type, status, start time,
+// and close time when available. A missing Flow returns FlowNotFoundError;
+// validation, context, transport, and server failures are also returned.
+//
+//	info, err := client.DescribeFlow(ctx, "order-123")
+func (client *Client) DescribeFlow(ctx context.Context, flowID string) (FlowInfo, error) {
+	if err := client.validateFlowCall(ctx, flowID); err != nil {
+		return FlowInfo{}, err
+	}
+	response, err := client.service.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+	if err != nil {
+		return FlowInfo{}, translateRPCError(err, "DescribeFlow", flowID, flowTargetExisting)
+	}
+	return mapFlowInfo(response)
 }
 
 // SearchFlows returns one server-ordered page of Flow executions matching query.
