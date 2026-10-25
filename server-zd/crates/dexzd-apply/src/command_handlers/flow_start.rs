@@ -183,6 +183,7 @@ pub(crate) fn start_run(
         start.hard_delete_objects,
         None,
         scope.now_micros,
+        true,
     )? {
         return Ok(HandlerResult::Rejected(error_reply(
             grpc_code::INVALID_ARGUMENT,

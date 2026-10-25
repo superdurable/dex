@@ -510,9 +510,12 @@ in server-zd.
 - A Flow closes without waiting for its synced Attributes. Rows can land after
   the Flow completes. The Go Server closes a Flow only after its pending writes
   are written or dropped.
-- StopFlow closes the run as soon as it commits. A later SetAttributes on that
-  run returns NOT_FOUND. The Go Server accepts such writes while a canceled or
-  failed run winds down. Write what a Flow needs before stopping it.
+- StopFlow closes the run as soon as it commits. A later **SetAttributes** returns
+  NOT_FOUND unless every write erases a currently stored hard-delete Attribute
+  with null. This exception applies only before the run is purged. It deletes
+  the stored objects without reopening the run. The Go Server accepts other
+  writes while a canceled or failed run winds down. Write what a Flow needs
+  before stopping it.
 
 ### Configuration {#attribute-store-configuration}
 

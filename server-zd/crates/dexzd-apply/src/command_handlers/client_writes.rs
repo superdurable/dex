@@ -32,6 +32,7 @@ use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::state_access::FlowTransaction;
 use crate::steps::wait_conditions;
+use crate::values::is_null_value;
 
 /// Returns the recorded reply for a repeated request ID, or a rejection for a reused ID with
 /// different content (plan C7).
@@ -98,6 +99,31 @@ fn is_running(cursor: &RunCursor) -> bool {
     cursor.record.status == dexzd_protocol::dex::FlowStatus::Running as i32
 }
 
+fn is_closed_hard_delete_erase(
+    transaction: &FlowTransaction<'_>,
+    cursor: &RunCursor,
+    request: &dexzd_protocol::dex::SetAttributesRequest,
+    hard_delete_objects: &[dexzd_protocol::dexzd::v1::HardDeleteObjectReference],
+) -> Result<bool, ApplyError> {
+    if request.attributes.is_empty()
+        || request.action_permission_mappings.is_some()
+        || !hard_delete_objects.is_empty()
+    {
+        return Ok(false);
+    }
+    for write in &request.attributes {
+        if !is_null_value(write.value.as_ref())
+            || !cursor
+                .rows
+                .attribute(transaction, &write.key)?
+                .is_some_and(|record| record.is_hard_delete_on_null)
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 pub(crate) fn apply_attributes_set(
     transaction: &mut FlowTransaction<'_>,
     mut cursor: RunCursor,
@@ -115,7 +141,15 @@ pub(crate) fn apply_attributes_set(
     )? {
         return Ok(HandlerResult::Rejected(reply));
     }
-    if !is_running(&cursor) {
+    let is_closed_erase = !is_running(&cursor);
+    if is_closed_erase
+        && !is_closed_hard_delete_erase(
+            transaction,
+            &cursor,
+            &request,
+            &command.hard_delete_objects,
+        )?
+    {
         return Ok(HandlerResult::Rejected(closed_flow_reply(scope.flow_id())));
     }
     if let Err(rejection) = apply_attribute_writes(
@@ -125,6 +159,7 @@ pub(crate) fn apply_attributes_set(
         &command.hard_delete_objects,
         request.action_permission_mappings.as_ref(),
         scope.now_micros,
+        !is_closed_erase,
     )? {
         return Ok(HandlerResult::Rejected(error_reply(
             grpc_code::INVALID_ARGUMENT,

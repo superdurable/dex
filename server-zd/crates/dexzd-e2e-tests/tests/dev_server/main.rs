@@ -12,6 +12,7 @@ mod attribute_sync;
 mod channel_message_delete;
 mod failure_policies;
 mod flow_controls;
+mod hard_delete_closed;
 mod harness;
 mod streams;
 mod time_travel;

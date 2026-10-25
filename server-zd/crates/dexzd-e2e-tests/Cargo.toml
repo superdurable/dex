@@ -16,6 +16,7 @@ dexzd-server.workspace = true
 futures.workspace = true
 prost.workspace = true
 prost-types.workspace = true
+s3mock.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 tokio-postgres.workspace = true

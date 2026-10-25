@@ -39,7 +39,7 @@ const READINESS_SERVICE_NAMES: [&str; 3] = ["", "dex.FlowService", "dex.WorkerTa
 pub(crate) struct DevServer {
     server: Option<RunningServer>,
     channel: Channel,
-    _data_directory: TempDir,
+    data_directory: TempDir,
 }
 
 impl DevServer {
@@ -74,7 +74,7 @@ impl DevServer {
         Self {
             server: Some(server),
             channel,
-            _data_directory: data_directory,
+            data_directory,
         }
     }
 
@@ -97,6 +97,12 @@ impl DevServer {
         let started = tokio::time::Instant::now();
         server.shutdown().await.expect("the server stops cleanly");
         started.elapsed()
+    }
+
+    pub(crate) async fn shutdown_retaining_data_directory(mut self) -> TempDir {
+        let server = self.server.take().expect("the server is shut down once");
+        server.shutdown().await.expect("the server stops cleanly");
+        self.data_directory
     }
 }
 

@@ -47,6 +47,7 @@ pub(crate) fn apply_attribute_writes(
     hard_delete_objects: &[HardDeleteObjectReference],
     permission_mappings: Option<&ActionPermissionMappings>,
     now_micros: i64,
+    should_wake_waiters: bool,
 ) -> Result<Result<Vec<String>, ValueRejection>, ApplyError> {
     let projected_write = permission_mappings
         .map(|mappings| apply_permission_mappings(transaction, cursor, writes, mappings))
@@ -87,7 +88,7 @@ pub(crate) fn apply_attribute_writes(
         changed_keys.push(write.key);
     }
     attribute_sync::mark_attribute_sync_entries(transaction, cursor, &synced_keys, now_micros)?;
-    if !changed_keys.is_empty() {
+    if should_wake_waiters && !changed_keys.is_empty() {
         let mut keys = changed_keys.clone();
         keys.sort();
         keys.dedup();
@@ -477,6 +478,7 @@ pub(crate) fn apply_method_effects(
         effects.hard_delete_objects,
         effects.permission_mappings,
         now_micros,
+        true,
     )? {
         return Ok(Err(rejection));
     }
