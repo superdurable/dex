@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use dexzd_keyspace::ColumnFamily;
 
+use crate::rocksdb_store::INFO_LOG_FILES_KEPT;
 use crate::{LocalReadView, LocalStore, RocksDbLocalStore, RocksDbStoreOptions, WriteBatch};
 
 const FLOWS: u64 = 2_000;
@@ -202,5 +203,29 @@ fn dropping_a_store_stops_a_running_compaction_and_releases_the_directory() {
     assert!(
         drop_duration * 4 < full_compaction,
         "drop took {drop_duration:?}; a full compaction takes {full_compaction:?}"
+    );
+}
+
+#[test]
+fn restarts_keep_a_bounded_number_of_old_info_logs() {
+    let directory = tempfile::tempdir().expect("temporary directory exists");
+    let path = directory.path().join("db");
+    for _ in 0..INFO_LOG_FILES_KEPT + 3 {
+        drop(RocksDbLocalStore::open(&path, RocksDbStoreOptions::default()).expect("opens"));
+    }
+    let old_info_logs: Vec<String> = std::fs::read_dir(&path)
+        .expect("store directory lists")
+        .map(|entry| {
+            entry
+                .expect("store directory entry reads")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name.starts_with("LOG.old."))
+        .collect();
+    assert!(
+        old_info_logs.len() <= INFO_LOG_FILES_KEPT,
+        "{old_info_logs:?}"
     );
 }

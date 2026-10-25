@@ -25,6 +25,11 @@ use crate::local_store::{
     WriteOperation, new_node_meta,
 };
 
+/// Old RocksDB info logs kept; every open and every full info log starts a new one.
+pub(crate) const INFO_LOG_FILES_KEPT: usize = 3;
+/// Size at which RocksDB starts a new info log.
+const INFO_LOG_FILE_MAX_BYTES: usize = 8 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy)]
 pub struct RocksDbStoreOptions {
     /// Shared LRU block-cache capacity across all column families; defaults to 128 MiB.
@@ -75,6 +80,9 @@ impl RocksDbLocalStore {
         db_options.create_if_missing(true);
         db_options.create_missing_column_families(true);
         db_options.set_max_total_wal_size(options.max_total_wal_bytes);
+        // Snapshot checkpoints log every file they link, so unbounded info logs outgrow the data.
+        db_options.set_max_log_file_size(INFO_LOG_FILE_MAX_BYTES);
+        db_options.set_keep_log_file_num(INFO_LOG_FILES_KEPT);
         let db = DB::open_cf_descriptors(
             &db_options,
             path.as_ref(),

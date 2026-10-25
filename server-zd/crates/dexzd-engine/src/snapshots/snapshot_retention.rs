@@ -67,7 +67,8 @@ impl SnapshotRetention {
     /// the snapshot that displaced each one is older than the deletion delay.
     ///
     /// Snapshots in `referenced_keys` are always kept, and so is every file a kept snapshot
-    /// references. Returns the kept snapshots, oldest first.
+    /// references. A deleted snapshot's files go in the same pass, independent of process
+    /// lifetime. Returns the kept snapshots, oldest first.
     pub(crate) async fn run_once<'catalog>(
         &self,
         catalog: &'catalog mut SnapshotCatalog,
@@ -78,10 +79,11 @@ impl SnapshotRetention {
         if !self.refresh(catalog).await? {
             return Ok(Self::kept(catalog));
         }
-        let orphan_files = self.find_orphan_files(catalog, now_unix_micros).await?;
-        let orphan_files = self
-            .exclude_newly_referenced_files(catalog, orphan_files)
-            .await?;
+        let mut unreferenced_files: BTreeSet<String> = self
+            .find_orphan_files(catalog, now_unix_micros)
+            .await?
+            .into_iter()
+            .collect();
         let obsolete_manifests: Vec<String> = self
             .find_obsolete(catalog, referenced_keys, now_unix_micros)
             .into_iter()
@@ -89,19 +91,25 @@ impl SnapshotRetention {
             .collect();
         catalog.listed_files.clear();
         if !obsolete_manifests.is_empty() {
-            // Files follow in a later sweep, so retries find them through the listing after partial manifest deletion.
+            // Files follow the manifests, so retries find them through the listing after partial manifest deletion.
             for chunk in obsolete_manifests.chunks(LISTING_PAGE_SIZE as usize) {
                 fence.ensure_current_lease().await?;
                 self.object_store.delete_many(chunk).await?;
             }
             for key in &obsolete_manifests {
-                catalog.manifests.remove(key);
+                if let Some(manifest) = catalog.manifests.remove(key) {
+                    unreferenced_files
+                        .extend(manifest.files.into_iter().map(|file| file.object_key));
+                }
             }
             tracing::info!(
                 manifests = obsolete_manifests.len(),
                 "deleted snapshots beyond the retained count"
             );
         }
+        let orphan_files = self
+            .exclude_newly_referenced_files(catalog, unreferenced_files.into_iter().collect())
+            .await?;
         for chunk in orphan_files.chunks(LISTING_PAGE_SIZE as usize) {
             fence.ensure_current_lease().await?;
             // An issued delete can finish after lease loss; successors upload into fresh lineages.
@@ -257,7 +265,7 @@ impl SnapshotRetention {
         Ok(orphan_files)
     }
 
-    /// Returns manifest keys to delete; files that only they reference enter a later sweep.
+    /// Returns manifest keys to delete; files that only they reference are deleted after them.
     fn find_obsolete(
         &self,
         catalog: &SnapshotCatalog,
