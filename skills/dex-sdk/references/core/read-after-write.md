@@ -38,7 +38,7 @@ The strong rows above hold on Temporal-backed Dex deployments. On a Cadence-back
 
 A delayed-start Flow can accept a write before it starts processing. A subsequent read waits for that processing instead of returning stale state. Set a read deadline that allows the configured start delay; a timeout proves only that confirmation was not obtained. Interpreter unavailability can similarly block or fail the read. Do not weaken a strong path into polling to hide that failure.
 
-On server-zd, StopFlow closes the run as soon as it commits, and a later write to that run returns NOT_FOUND. A server-zd v0.1.3 Flow also closes without waiting for its Attribute Store writes, so a table row can land after `WaitForFlow` returns. See [server-zd](operations.md#server-zd).
+On server-zd, StopFlow closes the run as soon as it commits, and a later write to that run returns NOT_FOUND. For natural closes, server-zd v0.1.4 or later keeps the run RUNNING and `WaitForFlow` waiting until pending Attribute Store writes are written or dropped and previously admitted transactional or locking RPCs finish. A dropped write still needs reconciliation. v0.1.3 closed without waiting, so a table row could land after `WaitForFlow` returned. See [server-zd](operations.md#server-zd).
 
 A Worker-target update changes future routing; dispatched calls may still use the previous Worker. Validate configuration readback separately from the new Worker's registration, reachability and typed RPC response. A stale Pod IP or unavailable Worker is a routing or availability failure, not evidence of eventual Attribute consistency. Prefer a stable reachable Worker target when the deployment supports one.
 

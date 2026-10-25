@@ -6,8 +6,8 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-# The server-zd release whose Attribute Store guidance core/operations.md cites.
-SERVER_ZD_RELEASE = "server-zd/v0.1.3"
+# The server-zd release whose close-barrier guidance core/operations.md cites.
+SERVER_ZD_RELEASE = "server-zd/v0.1.4"
 
 
 def fail(message: str) -> None:
@@ -67,7 +67,7 @@ def main() -> None:
     cli_baseline = (ROOT / "DEX_CLI_BASELINE").read_text().strip()
     require_revision(arguments.dex_root, cli_baseline, "Dex CLI")
     require_ancestor(arguments.dex_root, server_baseline, cli_baseline, "Dex Server baseline")
-    require_ancestor(arguments.dex_root, SERVER_ZD_RELEASE, cli_baseline, "server-zd release")
+    require_ancestor(arguments.dex_root, cli_baseline, SERVER_ZD_RELEASE, "Dex CLI baseline")
 
     require_text(
         arguments.dex_root / "cli" / "internal" / "flowviz" / "v2_directives.go",
@@ -174,6 +174,27 @@ def main() -> None:
         "`--attribute-store-config` reads only the `attributeStore` section",
         "which must define at least one store",
         "StopFlow closes the run as soon as it commits.",
+        "server-zd v0.1.4 or later waits, like the Go Server.",
+        "GetFlowSummary and SearchFlows",
+        "for every\n  transactional or locking RPC",
+        "SetAttributes, PublishToChannel, and non-transactional RPC results are",
+        "flow terminal cleanup is in progress",
+        "`syncRetryPolicy.totalDuration` bounds each pending entry's retry window",
+        "Entries of a store that is no longer configured",
+        "StopFlow (CANCEL or FAIL), Terminate",
+        "`processCrashSafe` (default)",
+        "Delete the whole data directory to start",
+        "takes it over at once",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        SERVER_ZD_RELEASE,
+        "docs/content/production/server-zd-operations.mdx",
+        "server-zd v0.1.4 or later waits, like the Go Server.",
+        "Transactional or locking RPCs, WaitForStepCompletion, WaitForAttribute, and",
+        "**syncRetryPolicy.totalDuration** limits how long each pending write is",
+        "Pending writes for a store that is no longer configured are dropped at once",
+        "**processCrashSafe**",
     )
     require_text(
         arguments.dex_root / "web" / "api" / "v2.go",

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.49.0 - 2026-10-25
+
+- Document the server-zd v0.1.4 natural close barrier in Core operations, read-after-write, and data handling: pending Attribute Sync writes and admitted transactional or locking RPCs delay completion, while cleanup accepts writes and rejects new update-style requests. Preserve the v0.1.3 behavior note and the immediate StopFlow and Terminate contract.
+- Document per-entry Attribute Sync retry windows, dropped entries for unconfigured stores, and the server-zd dev server's process-crash-safe default, refusal of unclean relaxed data directories, and immediate lease takeover.
+- Validate the guidance against the server-zd v0.1.4 README and operations guide. Synchronize the three plugin manifests and marketplace metadata at version 0.49.0 without changing SDK, Server, or CLI baselines.
+
 ## 0.48.0 - 2026-10-24
 
 - Advance the Server baseline to server/v1.19.0 and the CLI baseline to cli-v1.19.0, and refresh their pinned source links. No SDK changed in CLI v1.18.0, CLI v1.19.0, or Server v1.19.0, so the five SDK baselines stay at v1.17.0. Server v1.19.0 changes only integration tests. Synchronize the three plugin manifests and marketplace metadata at version 0.48.0.
