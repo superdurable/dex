@@ -33,7 +33,7 @@ dex-server-zd serve --config /etc/dex-server-zd/config.yaml
 ~~~
 
 **serve** reads every setting from one YAML file. The
-[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.2/server-zd/config/dex-server-zd.example.yaml)
+[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
 lists every key with its default. An unknown key fails startup. An invalid
 value also fails startup, and the error names the YAML path of the rejected
 field. The image includes the example at
@@ -124,7 +124,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: dex-server-zd
-          image: docker.io/superdurable/dex-server-zd:0.1.2
+          image: docker.io/superdurable/dex-server-zd:0.1.3
           ports:
             - name: grpc
               containerPort: 8801
@@ -477,7 +477,7 @@ attributeStore:
 The keys and defaults match the Go Server. As in the Go Server, an explicit zero
 for a duration, **syncBatchSize**, or a retry policy field means its default.
 The
-[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.2/server-zd/config/dex-server-zd.example.yaml)
+[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
 shows the section with comments.
 
 | Key | Default | Notes |
@@ -610,7 +610,7 @@ dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-stor
 
 The database still needs its tables and the fencing table.
 **dexcli dev --engine zd --attribute-store-config** passes the file to this
-flag. It needs a dexcli release after 1.17.0.
+flag. It needs dexcli v1.19.0 or later.
 
 ## Metrics {#metrics}
 
@@ -661,7 +661,7 @@ increase(dexzd_lease_renewals_total{outcome="error"}[10m]) > 0
 
 The full catalog, with types, histogram buckets, and Linux process metrics, is
 in the
-[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.2/server-zd/README.md#metrics).
+[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/README.md#metrics).
 
 ## Authentication
 

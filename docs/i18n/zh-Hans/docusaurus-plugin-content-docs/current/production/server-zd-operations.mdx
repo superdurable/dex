@@ -28,7 +28,7 @@ dex-server-zd serve --config /etc/dex-server-zd/config.yaml
 ~~~
 
 **serve** 从一个 YAML 文件读取全部配置。
-[示例配置](https://github.com/superdurable/dex/blob/server-zd/v0.1.2/server-zd/config/dex-server-zd.example.yaml)
+[示例配置](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
 列出了每个键及其默认值。未知的键会导致启动失败。无效的值也会导致启动失败，错误信息会
 给出被拒绝字段的 YAML 路径。镜像在 **/etc/dex-server-zd/dex-server-zd.example.yaml**
 附带这份示例，仅供参考。
@@ -112,7 +112,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: dex-server-zd
-          image: docker.io/superdurable/dex-server-zd:0.1.2
+          image: docker.io/superdurable/dex-server-zd:0.1.3
           ports:
             - name: grpc
               containerPort: 8801
@@ -419,7 +419,7 @@ attributeStore:
 
 键和默认值与 Go Server 相同。与 Go Server 一样，时长、**syncBatchSize** 或重试策略字段
 显式设为零时，表示使用默认值。
-[示例配置](https://github.com/superdurable/dex/blob/server-zd/v0.1.2/server-zd/config/dex-server-zd.example.yaml)
+[示例配置](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
 带注释地列出了这一节。
 
 | 键 | 默认值 | 说明 |
@@ -535,7 +535,7 @@ dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-stor
 ~~~
 
 数据库仍然需要这些表和 fencing 表。**dexcli dev --engine zd --attribute-store-config**
-会把文件传给这个参数，需要 1.17.0 之后的 dexcli release。
+会把文件传给这个参数，需要 dexcli v1.19.0 或更高版本。
 
 ## 指标 {#metrics}
 
@@ -584,7 +584,7 @@ increase(dexzd_lease_renewals_total{outcome="error"}[10m]) > 0
 ~~~
 
 完整目录，包括类型、histogram bucket 和 Linux 进程指标，见
-[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.2/server-zd/README.md#metrics)。
+[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/README.md#metrics)。
 
 ## 身份验证
 
