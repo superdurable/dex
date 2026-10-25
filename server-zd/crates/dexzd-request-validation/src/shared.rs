@@ -68,6 +68,14 @@ impl Default for ValidationConfig {
     }
 }
 
+impl ValidationError {
+    /// Prefixes the message with the context the Go Server adds, keeping the field path.
+    pub(crate) fn with_message_context(mut self, context: &str) -> Self {
+        self.message = format!("{context}: {}", self.message);
+        self
+    }
+}
+
 pub(crate) fn invalid(path: impl Into<String>, message: impl Into<String>) -> ValidationError {
     ValidationError {
         field_path: path.into(),
@@ -89,7 +97,7 @@ pub(crate) fn validate_identifier(
         if value.contains(character) {
             return Err(invalid(
                 path,
-                format!("{name} contains reserved character {character:?}"),
+                format!("{name} contains reserved character \"{character}\""),
             ));
         }
     }
@@ -339,7 +347,8 @@ pub(crate) fn validate_timeout_handler(
         execute_load_channel_map_instances: options.load_channel_map_instances.clone(),
         ..StepOptions::default()
     };
-    validate_step_options(path, Some(&mapped), config)?;
+    validate_step_options(path, Some(&mapped), config)
+        .map_err(|error| error.with_message_context("Flow timeout handler options"))?;
     // The same order as the Go Server: an unknown policy fails before its failure target.
     match ExecuteMethodFailurePolicy::try_from(options.failure_policy) {
         Ok(
@@ -391,7 +400,7 @@ pub(crate) fn validate_step_options(
                 format!("{current_path}.heartbeat_timeout_seconds"),
                 format!(
                     "heartbeat timeout must be zero or at least {}",
-                    format_duration(config.minimum_step_heartbeat_timeout)
+                    format_go_duration(config.minimum_step_heartbeat_timeout)
                 ),
             ));
         }
@@ -415,11 +424,28 @@ pub(crate) fn validate_step_options(
     Ok(())
 }
 
-fn format_duration(duration: Duration) -> String {
+/// Formats `duration` like Go's `time.Duration.String`, for example `10s` or `1m30s`.
+fn format_go_duration(duration: Duration) -> String {
     if duration.is_zero() {
-        "0s".to_owned()
-    } else {
-        format!("{duration:?}")
+        return "0s".to_owned();
+    }
+    if duration < Duration::from_secs(1) {
+        // Below one second, Rust's Debug units and digits match Go's.
+        return format!("{duration:?}");
+    }
+    let fraction = match duration.subsec_nanos() {
+        0 => String::new(),
+        nanos => format!(".{}", format!("{nanos:09}").trim_end_matches('0')),
+    };
+    let total_seconds = duration.as_secs();
+    match (
+        total_seconds / 3600,
+        total_seconds / 60 % 60,
+        total_seconds % 60,
+    ) {
+        (0, 0, seconds) => format!("{seconds}{fraction}s"),
+        (0, minutes, seconds) => format!("{minutes}m{seconds}{fraction}s"),
+        (hours, minutes, seconds) => format!("{hours}h{minutes}m{seconds}{fraction}s"),
     }
 }
 

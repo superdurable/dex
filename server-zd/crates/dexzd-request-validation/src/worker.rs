@@ -225,16 +225,19 @@ fn validate_next_steps(
                 format!("next step at index {index} is invalid"),
             ));
         }
+        let context = format!("next step at index {index}");
         validate_identifier(
             &format!("{path}.step_type"),
             "step type",
             &movement.step_type,
-        )?;
+        )
+        .map_err(|error| error.with_message_context(&context))?;
         validate_step_options(
             &format!("{path}.step_options"),
             movement.step_options.as_ref(),
             config,
-        )?;
+        )
+        .map_err(|error| error.with_message_context(&context))?;
     }
     Ok(())
 }
@@ -248,7 +251,8 @@ fn validate_cancel_types(types: &[String], path: &str, name: &str) -> Result<(),
                 format!("{name} at index {index} is invalid"),
             ));
         }
-        validate_identifier(&item_path, "step type", step_type)?;
+        validate_identifier(&item_path, "step type", step_type)
+            .map_err(|error| error.with_message_context(&format!("{name} at index {index}")))?;
     }
     Ok(())
 }

@@ -27,14 +27,14 @@ const DEFAULT_STEP_FAILURE_SEED_COUNT: u64 = 32;
 /// Step failure policies change every trajectory, so their seeds form their own group.
 const FIRST_STEP_FAILURE_SEED: u64 = 0x5fa1_0000;
 const REGRESSION_SEEDS: &str = include_str!("../engine-regression-seeds.txt");
-/// Canonical command digests, originally from main before Step failure policies; a moved regression
-/// seed stops reproducing.
+/// Canonical command digests, originally from main before Step failure policies (the README lists
+/// refreshed pins); a moved regression seed stops reproducing.
 const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u128)] = &[
     (
         EngineSimulationProfile::Standard,
         3856990760,
         120,
-        0xc18f4d7110dd8c3f02e9f8444e153d37,
+        0x8e304369b4b1f4fc0232c79fa935dc07,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -52,7 +52,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         FIRST_SEED,
         120,
-        0x74dac9f5c84e9eb949e7ea8408bbfdfc,
+        0x8d3715078a243990c0a4fa8f61ef4e5e,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -64,7 +64,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         FIRST_SEED + 2,
         120,
-        0x91cef8f1002d01ffd3730d1836442f5e,
+        0xa7e5330709eee89c7e989786b3f2c67a,
     ),
     (
         EngineSimulationProfile::RedeploysWithShortHistoryWindow,
@@ -245,8 +245,7 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
             "pin the canonical command digest of regression seed {seed} {active_seconds}"
         );
     }
-    let mut actual_digests = Vec::new();
-    let mut expected_digests = Vec::new();
+    let mut moved_pins = Vec::new();
     for &(profile, seed, active_seconds, expected) in PINNED_CANONICAL_COMMAND_DIGESTS {
         let config = EngineSimulationConfig {
             active_seconds,
@@ -254,12 +253,18 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
             ..EngineSimulationConfig::default()
         };
         let summary = run_engine_seed(seed, &config).unwrap_or_else(|failure| panic!("{failure}"));
-        actual_digests.push((profile, seed, summary.canonical_command_digest));
-        expected_digests.push((profile, seed, expected));
+        let actual = summary.canonical_command_digest;
+        if actual != expected {
+            moved_pins.push(format!(
+                "{profile:?} seed {seed}: 0x{actual:032x} (pinned 0x{expected:032x})"
+            ));
+        }
     }
-    assert_eq!(
-        actual_digests, expected_digests,
-        "pinned committed command trajectories changed"
+    assert!(
+        moved_pins.is_empty(),
+        "pinned seeds changed their committed commands, so a regression seed may no longer replay \
+         its trajectory; follow \"Pinned trajectories\" in the dexzd-simulation README:\n{}",
+        moved_pins.join("\n")
     );
 }
 

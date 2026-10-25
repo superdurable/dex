@@ -11,8 +11,9 @@
 use dexzd_keyspace::ColumnFamily;
 use dexzd_keyspace::row_keys::{timer_index_key, timer_key};
 use dexzd_protocol::dex::{
-    ErrorSubStatus, ExecuteMethodFailurePolicy, FlowErrorType, RecoveryErrorInfo,
-    ServiceErrorResponse, StepMethodFailure, Value, WaitForMethodFailurePolicy, value,
+    DispatchTaskErrorReason, ErrorSubStatus, ExecuteMethodFailurePolicy, FlowErrorType,
+    RecoveryErrorInfo, ServiceErrorResponse, StepMethodFailure, Value, WaitForMethodFailurePolicy,
+    WorkerErrorResponse, value,
 };
 use dexzd_protocol::dexzd::v1::{
     RetryBackoffTimerId, StepAttemptFailedCommand, StepAttemptFailureKind,
@@ -266,12 +267,18 @@ pub(crate) fn apply_attempt_failed(
                     &mut invocation,
                 )?;
             }
-            let recovery_error = recovery_error(command, &worker_error, &failure);
+            let application_text = application_failure_text(
+                command,
+                &worker_error,
+                &failure.backend_error,
+                &cursor.record.flow_type,
+            );
             if method == StepMethod::WaitFor
                 && options.wait_for_failure_policy
                     == WaitForMethodFailurePolicy::ProceedOnFailure as i32
             {
-                step.recovery_error = Some(recovery_error);
+                step.recovery_error =
+                    Some(recovery_error(command, &worker_error, application_text));
                 step.condition_results = Some(dexzd_protocol::dexzd::v1::ConditionResultsRecord {
                     wait_for_failed: true,
                     ..Default::default()
@@ -327,15 +334,11 @@ pub(crate) fn apply_attempt_failed(
                     )?;
                 }
                 recovery_step.input = input;
-                recovery_step.recovery_error = Some(recovery_error);
+                recovery_step.recovery_error =
+                    Some(recovery_error(command, &worker_error, application_text));
                 cursor.rows.put_step_execution(transaction, &recovery_step);
                 finish_step(transaction, cursor, &mut step, StepExecutionPhase::Failed)?;
             } else {
-                let message = final_flow_failure_message(
-                    command,
-                    &recovery_error.detail,
-                    &cursor.record.flow_type,
-                );
                 finish_step(transaction, cursor, &mut step, StepExecutionPhase::Failed)?;
                 crate::command_handlers::flow_close::close_flow(
                     transaction,
@@ -343,7 +346,7 @@ pub(crate) fn apply_attempt_failed(
                     scope,
                     crate::command_handlers::flow_close::FlowClosing::failed(
                         FlowErrorType::WorkerApiFail,
-                        message,
+                        application_text,
                     ),
                 )?;
             }
@@ -352,52 +355,90 @@ pub(crate) fn apply_attempt_failed(
     Ok(StepCommandOutcome::Applied(ok_reply()))
 }
 
-fn final_flow_failure_message(
+/// Engine detail of a WaitFor final frame without a result; defensive, Workers cannot send one.
+const ENGINE_WAIT_FOR_FRAME_WITHOUT_RESULT: &str = "WaitFor frame carries no result";
+/// Engine detail of an Execute final frame without a result; defensive, Workers cannot send one.
+const ENGINE_EXECUTE_FRAME_WITHOUT_RESULT: &str = "Execute frame carries no result";
+/// Engine detail of a final frame for another method, such as an RPC frame.
+const ENGINE_WRONG_METHOD_FRAME: &str = "final frame does not match the dispatched method";
+/// Go Server text from `receiveWaitForMethodResponse` in `activityImpl.go`.
+const GO_EMPTY_WAIT_FOR_OUTPUT: &str = "InvokeWaitForMethod emitted an empty output";
+/// Go Server text from `receiveExecuteMethodResponse` in `activityImpl.go`.
+const GO_EMPTY_EXECUTE_OUTPUT: &str = "InvokeExecuteMethod emitted an empty output";
+/// Go Server text from `pullFrameError` wrapped by `matchingDispatchError` in `pullDispatch.go`.
+const GO_UNEXPECTED_PULL_DISPATCH_FRAME: &str =
+    "matching dispatch: rpc error: code = Internal desc = unexpected pull dispatch frame";
+/// Go Server prefix from `pullFrameError` in `pullDispatch.go` for WORKER_DISCONNECTED.
+const GO_WORKER_DISCONNECTED_PREFIX: &str = "Worker disconnected during pull dispatch";
+
+/// Returns the text applications see for an exhausted attempt failure, in both the Flow close
+/// message and `RecoveryErrorInfo.detail`: the Go Server's text for the same failure, or
+/// `raw_detail` when the Go Server has no equivalent. Step history keeps `raw_detail`.
+fn application_failure_text(
     command: &StepAttemptFailedCommand,
-    recovery_detail: &str,
+    worker_error: &WorkerErrorResponse,
+    raw_detail: &str,
     flow_type: &str,
 ) -> String {
     let kind = StepAttemptFailureKind::try_from(command.kind)
         .unwrap_or(StepAttemptFailureKind::Unspecified);
+    let server_detail = command.server_detail.as_str();
     match kind {
-        StepAttemptFailureKind::DispatchError => {
-            if let Some(detail) = command
-                .server_detail
-                .strip_prefix("DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE: ")
-            {
-                return format!("no Worker available for queue {flow_type}: {detail}");
-            }
-            if let Some(detail) = command
-                .server_detail
-                .strip_prefix("DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED: ")
-            {
-                return format!("Worker disconnected during pull dispatch: {detail}");
-            }
-            if let Some(detail) = command
-                .server_detail
-                .strip_prefix("DISPATCH_TASK_ERROR_REASON_UNKNOWN_NAME: ")
-            {
-                return detail.to_owned();
-            }
-            if command.server_detail.starts_with("DISPATCH_TASK_ERROR_REASON_UNSPECIFIED: ") {
-                return format!("matching dispatch: rpc error: code = Internal desc = unknown dispatch failure for queue {flow_type}");
-            }
-            recovery_detail.to_owned()
+        StepAttemptFailureKind::WorkerError if raw_detail.is_empty() => {
+            go_worker_status_error(worker_error.grpc_status)
         }
-        StepAttemptFailureKind::InvalidResponse => match command.server_detail.as_str() {
-            "WaitFor frame carries no result" => "InvokeWaitForMethod emitted an empty output".to_owned(),
-            "Execute frame carries no result" => "InvokeExecuteMethod emitted an empty output".to_owned(),
-            "final frame does not match the dispatched method" => "matching dispatch: rpc error: code = Internal desc = unexpected pull dispatch frame".to_owned(),
-            _ => recovery_detail.to_owned(),
+        StepAttemptFailureKind::DispatchError => go_dispatch_failure_text(server_detail, flow_type)
+            .unwrap_or_else(|| raw_detail.to_owned()),
+        StepAttemptFailureKind::InvalidResponse => match server_detail {
+            ENGINE_WAIT_FOR_FRAME_WITHOUT_RESULT => GO_EMPTY_WAIT_FOR_OUTPUT.to_owned(),
+            ENGINE_EXECUTE_FRAME_WITHOUT_RESULT => GO_EMPTY_EXECUTE_OUTPUT.to_owned(),
+            ENGINE_WRONG_METHOD_FRAME => GO_UNEXPECTED_PULL_DISPATCH_FRAME.to_owned(),
+            _ => validation_message(server_detail)
+                .unwrap_or(raw_detail)
+                .to_owned(),
         },
-        _ => recovery_detail.to_owned(),
+        _ => raw_detail.to_owned(),
     }
+}
+
+/// Returns the Go Server's text for an engine dispatch failure, `<reason name>: <detail>`, or
+/// `None` for a reason the Go Server reports differently.
+fn go_dispatch_failure_text(server_detail: &str, flow_type: &str) -> Option<String> {
+    let reason_detail = |reason: DispatchTaskErrorReason| {
+        server_detail
+            .strip_prefix(reason.as_str_name())
+            .and_then(|rest| rest.strip_prefix(": "))
+    };
+    if let Some(detail) = reason_detail(DispatchTaskErrorReason::NoWorkerAvailable) {
+        // pullDispatch.go names the fallback queue, which is the Flow type.
+        return Some(format!(
+            "no Worker available for queue {flow_type}: {detail}"
+        ));
+    }
+    if let Some(detail) = reason_detail(DispatchTaskErrorReason::WorkerDisconnected) {
+        return Some(format!("{GO_WORKER_DISCONNECTED_PREFIX}: {detail}"));
+    }
+    // The Go Server reports UNKNOWN_NAME as a NotFound status carrying only the detail.
+    reason_detail(DispatchTaskErrorReason::UnknownName).map(str::to_owned)
+}
+
+/// Returns the message of an engine validation detail, `<field path>: <message>`, or `None` when
+/// `server_detail` does not start with a field path.
+///
+/// The validation message already matches the Go Server's text; the field path is server-zd's.
+fn validation_message(server_detail: &str) -> Option<&str> {
+    let (field_path, message) = server_detail.split_once(": ")?;
+    let is_field_path = !field_path.is_empty()
+        && field_path
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'[' | b']'));
+    is_field_path.then_some(message)
 }
 
 fn recovery_error(
     command: &StepAttemptFailedCommand,
-    worker_error: &dexzd_protocol::dex::WorkerErrorResponse,
-    failure: &StepMethodFailure,
+    worker_error: &WorkerErrorResponse,
+    detail: String,
 ) -> RecoveryErrorInfo {
     let kind = dexzd_protocol::dexzd::v1::StepAttemptFailureKind::try_from(command.kind)
         .unwrap_or(dexzd_protocol::dexzd::v1::StepAttemptFailureKind::Unspecified);
@@ -426,13 +467,6 @@ fn recovery_error(
             "FLOW_ERROR_TYPE_WORKER_API_FAIL"
         }
         dexzd_protocol::dexzd::v1::StepAttemptFailureKind::Unspecified => "UnknownStepFailure",
-    };
-    let detail = if kind == dexzd_protocol::dexzd::v1::StepAttemptFailureKind::WorkerError
-        && failure.backend_error.is_empty()
-    {
-        go_worker_status_error(worker_error.grpc_status)
-    } else {
-        failure.backend_error.clone()
     };
     RecoveryErrorInfo {
         detail,

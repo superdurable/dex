@@ -136,16 +136,19 @@ fn do_validate_waiting_condition(
                 format!("SubFlow condition at index {index} requires Flow and starting Step types"),
             ));
         }
+        let context = format!("SubFlow condition at index {index}");
         validate_identifier(
             &format!("{path}.start_step_type"),
             "step type",
             &subflow.start_step_type,
-        )?;
+        )
+        .map_err(|error| error.with_message_context(&context))?;
         validate_step_options(
             &format!("{path}.step_options"),
             subflow.step_options.as_ref(),
             config,
-        )?;
+        )
+        .map_err(|error| error.with_message_context(&context))?;
         if subflow.sub_flow_index != index as i32 {
             return Err(invalid(
                 format!("{path}.sub_flow_index"),
@@ -161,14 +164,16 @@ fn do_validate_waiting_condition(
                 &format!("{options_path}.flow_timeout_policy"),
                 options.flow_timeout_seconds,
                 options.flow_timeout_policy,
-            )?;
+            )
+            .map_err(|error| error.with_message_context(&context))?;
             validate_timeout_handler(
                 &format!("{options_path}.timeout_handler_options"),
                 options.flow_timeout_seconds,
                 timeout_policy,
                 options.timeout_handler_options.as_ref(),
                 config,
-            )?;
+            )
+            .map_err(|error| error.with_message_context(&context))?;
             if options.flow_start_delay_seconds < 0 {
                 return Err(invalid(
                     format!("{options_path}.flow_start_delay_seconds"),
