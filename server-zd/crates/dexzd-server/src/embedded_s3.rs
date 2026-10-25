@@ -28,6 +28,8 @@ const DATA_DIRECTORY_LOCK_FILE_NAME: &str = "dev.lock";
 pub(crate) struct EmbeddedS3 {
     server: ServerHandle,
     data_directory_lock: DataDirectoryLock,
+    #[cfg(feature = "test-util")]
+    store_for_test: Arc<Store>,
 }
 
 /// Whether this process proved that it alone serves the dev data directory.
@@ -103,7 +105,8 @@ impl EmbeddedS3 {
             },
             ..ServerConfig::default()
         };
-        let server = s3mock_server::start_with_config(Arc::new(store), listener, server_config)
+        let store = Arc::new(store);
+        let server = s3mock_server::start_with_config(store.clone(), listener, server_config)
             .map_err(|source| ServerError::EmbeddedS3 {
                 directory: directory.clone(),
                 detail: source.to_string(),
@@ -112,6 +115,8 @@ impl EmbeddedS3 {
         Ok(Self {
             server,
             data_directory_lock,
+            #[cfg(feature = "test-util")]
+            store_for_test: store,
         })
     }
 
@@ -126,6 +131,11 @@ impl EmbeddedS3 {
     /// Returns the HTTP endpoint of the emulator.
     pub(crate) fn endpoint(&self) -> String {
         format!("http://{}", self.server.local_address())
+    }
+
+    #[cfg(feature = "test-util")]
+    pub(crate) fn store_for_test(&self) -> Arc<Store> {
+        self.store_for_test.clone()
     }
 
     /// Stops accepting requests and waits for in-flight requests.

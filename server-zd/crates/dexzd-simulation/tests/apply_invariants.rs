@@ -103,6 +103,14 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         "simulation failed for seeds: {failing_seeds:?}"
     );
     println!("simulation coverage: {total:#?}");
+    assert!(
+        total.closed_run_erases > 0,
+        "no closed-run erase applied: {total:#?}"
+    );
+    assert!(
+        total.closed_run_erase_replays > 0,
+        "no closed-run erase replayed: {total:#?}"
+    );
     for kind in [
         "FlowStart",
         "FlowStop",

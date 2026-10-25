@@ -513,9 +513,9 @@ in server-zd.
 - StopFlow closes the run as soon as it commits. A later **SetAttributes** returns
   NOT_FOUND unless every write erases a currently stored hard-delete Attribute
   with null. This exception applies only before the run is purged. It deletes
-  the stored objects without reopening the run. The Go Server accepts other
-  writes while a canceled or failed run winds down. Write what a Flow needs
-  before stopping it.
+  the stored objects without reopening the run. The Go Server accepts writes
+  while a canceled or failed run winds down. It rejects every write after the
+  run closes. Write what a Flow needs before stopping it.
 
 ### Configuration {#attribute-store-configuration}
 

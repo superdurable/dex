@@ -141,8 +141,8 @@ pub(crate) fn apply_attributes_set(
     )? {
         return Ok(HandlerResult::Rejected(reply));
     }
-    let is_closed_erase = !is_running(&cursor);
-    if is_closed_erase
+    let is_closed = !is_running(&cursor);
+    if is_closed
         && !is_closed_hard_delete_erase(
             transaction,
             &cursor,
@@ -159,7 +159,7 @@ pub(crate) fn apply_attributes_set(
         &command.hard_delete_objects,
         request.action_permission_mappings.as_ref(),
         scope.now_micros,
-        !is_closed_erase,
+        !is_closed,
     )? {
         return Ok(HandlerResult::Rejected(error_reply(
             grpc_code::INVALID_ARGUMENT,

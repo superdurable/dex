@@ -6,12 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::time::Duration;
+
 use dexzd_protocol::dex::{
     AttributeWrite, ErrorSubStatus, GetAttributesRequest, GetFlowStateRequest,
     GetFlowSummaryRequest, SetAttributesRequest, StepOptions, StopFlowRequest, StopType, Value,
     value,
 };
-use s3mock::{Durability, EtagMode, ListObjectsRequest, Store, StoreConfig};
+use s3mock::ListObjectsRequest;
 
 use crate::harness::{DevServer, service_error, start_pull_flow};
 use crate::string_value;
@@ -75,6 +77,23 @@ async fn a_closed_run_erases_only_hard_delete_attributes_and_deletes_the_object(
         .expect("GetAttributes loads the hard-delete object")
         .into_inner();
     assert_eq!(before.attributes.len(), 2);
+    let store = server.dev_object_store_for_test();
+    let object_listing = ListObjectsRequest {
+        prefix: "hard-delete/".to_owned(),
+        delimiter: String::new(),
+        max_keys: 100,
+        continuation_token: None,
+        start_after: None,
+    };
+    let before_objects = store
+        .list_objects("dex-dev", &object_listing)
+        .expect("the hard-delete objects can be listed");
+    assert_eq!(
+        before_objects.objects.len(),
+        1,
+        "the secret object existed before erasure"
+    );
+    let erased_object_key = before_objects.objects[0].key.clone();
 
     flow_client
         .stop_flow(StopFlowRequest {
@@ -170,25 +189,25 @@ async fn a_closed_run_erases_only_hard_delete_attributes_and_deletes_the_object(
         .into_inner();
     assert_eq!(summary_after.flow_status, summary_before.flow_status);
     assert_eq!(summary_after.close_time, summary_before.close_time);
+    assert_eq!(summary_after.run_attempt, summary_before.run_attempt);
 
-    let data_directory = server.shutdown_retaining_data_directory().await;
-    let store = Store::open(&StoreConfig {
-        root_directory: data_directory.path().join("s3"),
-        durability: Durability::ProcessCrashSafe,
-        etag_mode: EtagMode::Md5,
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut retry = tokio::time::interval(Duration::from_millis(25));
+        loop {
+            retry.tick().await;
+            let objects = store
+                .list_objects("dex-dev", &object_listing)
+                .expect("the hard-delete objects can be listed");
+            if objects
+                .objects
+                .iter()
+                .all(|object| object.key != erased_object_key)
+            {
+                break;
+            }
+        }
     })
-    .expect("the embedded object store reopens");
-    let objects = store
-        .list_objects(
-            "dex-dev",
-            &ListObjectsRequest {
-                prefix: "hard-delete/".to_owned(),
-                delimiter: String::new(),
-                max_keys: 100,
-                continuation_token: None,
-                start_after: None,
-            },
-        )
-        .expect("the hard-delete objects can be listed");
-    assert!(objects.objects.is_empty(), "the secret object was deleted");
+    .await
+    .expect("the secret object is deleted before shutdown");
+    server.shutdown().await;
 }

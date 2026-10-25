@@ -492,7 +492,7 @@ fn reapply_external_inputs(
     for input in inputs {
         cursor.reapplied_inputs.push(input.clone());
         let record = required_run_record(transaction, cursor)?;
-        // Client writes to a closed Flow are rejected, so a closed state skips the input.
+        // Client writes other than hard-delete erases are rejected on a closed Flow, so a closed state skips the input.
         if record.status != FlowStatus::Running as i32 {
             continue;
         }

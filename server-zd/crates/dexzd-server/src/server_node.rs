@@ -108,12 +108,20 @@ pub struct RunningServer {
     shutdown_request: CancellationToken,
     serving: JoinHandle<Result<(), ServerError>>,
     lease_watchdog: Option<LeaseValidityWatchdog>,
+    #[cfg(feature = "test-util")]
+    dev_object_store_for_test: Option<Arc<s3mock::Store>>,
 }
 
 impl RunningServer {
     /// Returns the address that serves FlowService, WorkerTaskService, and gRPC health.
     pub fn local_address(&self) -> SocketAddr {
         self.local_address
+    }
+
+    /// Returns the embedded dev object store for assertions while the server is running.
+    #[cfg(feature = "test-util")]
+    pub fn dev_object_store_for_test(&self) -> Option<Arc<s3mock::Store>> {
+        self.dev_object_store_for_test.clone()
     }
 
     /// Returns the separate metrics address when metrics are enabled.
@@ -262,6 +270,8 @@ pub(crate) async fn start_server(
             return Err(error);
         }
     };
+    #[cfg(feature = "test-util")]
+    let dev_object_store_for_test = embedded_s3.as_ref().map(EmbeddedS3::store_for_test);
     let shutdown_request = CancellationToken::new();
     let serving =
         tokio::spawn(node.serve(grpc, metrics_server, shutdown_request.clone(), embedded_s3));
@@ -272,6 +282,8 @@ pub(crate) async fn start_server(
         shutdown_request,
         serving,
         lease_watchdog,
+        #[cfg(feature = "test-util")]
+        dev_object_store_for_test,
     }))
 }
 

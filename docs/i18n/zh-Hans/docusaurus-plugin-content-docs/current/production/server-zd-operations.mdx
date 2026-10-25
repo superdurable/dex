@@ -432,7 +432,7 @@ server-zd 不同的地方。
 - Flow 关闭时不等待同步的 Attribute，行可能在 Flow 完成之后才写入。Go Server 要等待写入的值都写完或被丢弃后才关闭 Flow。
 - StopFlow 一提交，run 就会关闭。之后的 **SetAttributes** 通常返回 NOT_FOUND；只有请求中的每项写入
   都是把当前存储的 hard-delete Attribute 设为 null 时才会被接受。此例外仅适用于尚未清除的 run。
-  该操作会删除存储的对象，但不会重新打开 run。Go Server 在已取消或失败的 run 收尾期间仍接受其他写入。
+  该操作会删除存储的对象，但不会重新打开 run。Go Server 在已取消或失败的 run 收尾期间接受写入，关闭后则拒绝写入。
   Flow 需要的数据请在停止之前写入。
 
 ### 配置 {#attribute-store-configuration}
