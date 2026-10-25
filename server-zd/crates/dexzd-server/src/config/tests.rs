@@ -142,15 +142,21 @@ fn replay_and_local_store_disk_settings_reach_the_engine_node() {
         defaults.engine_node.recovery.compact_after_replay_bytes,
         16 * 1024 * 1024
     );
+    assert_eq!(
+        defaults.engine_node.recovery.retained_set_aside_store_count,
+        1
+    );
 
     let parsed = Config::parse_yaml(
-        "localStorage:\n  maxWalBytes: 134217728\n  compactAfterReplayBytes: 0\nrecovery:\n  readAheadBatches: 8\n  readAheadBytes: 1048576\n",
+        "localStorage:\n  maxWalBytes: 134217728\n  compactAfterReplayBytes: 0\n  retainedSetAsideStoreCount: 0\nrecovery:\n  readAheadBatches: 8\n  readAheadBytes: 1048576\n",
     )
     .expect("parse replay settings");
     let mut configuration = valid_config();
     configuration.local_storage.max_wal_bytes = parsed.local_storage.max_wal_bytes;
     configuration.local_storage.compact_after_replay_bytes =
         parsed.local_storage.compact_after_replay_bytes;
+    configuration.local_storage.retained_set_aside_store_count =
+        parsed.local_storage.retained_set_aside_store_count;
     configuration.recovery = parsed.recovery;
     configuration.validate().expect("valid replay settings");
     let components = ComponentConfigs::from_config(&configuration).expect("component config");
@@ -158,6 +164,7 @@ fn replay_and_local_store_disk_settings_reach_the_engine_node() {
     assert_eq!(recovery.log_read_ahead.max_read_ahead_batches, 8);
     assert_eq!(recovery.log_read_ahead.max_buffered_bytes, 1024 * 1024);
     assert_eq!(recovery.compact_after_replay_bytes, 0);
+    assert_eq!(recovery.retained_set_aside_store_count, 0);
     let LocalStoreConfig::RocksDb { options, .. } = components.engine_node.local_store else {
         panic!("serve uses a RocksDB local store");
     };

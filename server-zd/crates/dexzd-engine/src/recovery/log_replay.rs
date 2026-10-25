@@ -33,6 +33,9 @@ pub struct RecoveryConfig {
     /// Defaults to 16 MiB; replayed record bytes that start a background compaction.
     /// `u64::MAX` disables it.
     pub compact_after_replay_bytes: u64,
+    /// Defaults to 1; set-aside RocksDB stores kept after a successful recovery, newest first.
+    /// 0 deletes them all.
+    pub retained_set_aside_store_count: usize,
 }
 
 impl Default for RecoveryConfig {
@@ -40,6 +43,7 @@ impl Default for RecoveryConfig {
         Self {
             log_read_ahead: LogReadAheadConfig::default(),
             compact_after_replay_bytes: 16 * 1024 * 1024,
+            retained_set_aside_store_count: 1,
         }
     }
 }

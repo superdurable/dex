@@ -149,6 +149,13 @@ An invalid value fails startup with the YAML path of the rejected field.
 write-ahead log and up to four uncompacted 64 MiB level-0 files per column family. A compaction
 after a bulk replay returns the directory to about the live state size.
 
+When the node cannot reuse the local store, it renames the directory to the sibling
+`<directory>.discarded-<uuidv7>` and rebuilds it. After every successful recovery, it deletes all
+but the newest `localStorage.retainedSetAsideStoreCount` set-aside stores (default 1; 0 keeps none)
+and logs each deleted path; a failed deletion only logs a warning. The parent volume therefore
+holds at most that many old copies, plus one more while a start that sets the store aside
+recovers.
+
 Object storage uses `objectStore.endpoint` (empty for AWS endpoint resolution), `region`, `bucket`,
 `prefix`, and `forcePathStyle`. `objectStore.hardDeleteStore` optionally sends hard-delete values
 to a separate destination with the same keys; without it they use the primary bucket and prefix.

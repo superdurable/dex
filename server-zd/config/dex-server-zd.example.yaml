@@ -18,6 +18,8 @@ localStorage:
   maxWalBytes: 268435456
   # Compacts the store in the background after startup replays this many log record bytes.
   compactAfterReplayBytes: 16777216
+  # Keeps this many local stores set aside as <directory>.discarded-<uuidv7>; recovery deletes older ones.
+  retainedSetAsideStoreCount: 1
 commit:
   # null enables the build default: true in debug builds, false in release builds.
   debugReplayChecks: null

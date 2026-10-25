@@ -156,6 +156,95 @@ async fn an_unreadable_rocksdb_store_is_set_aside_and_rebuilt() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn repeated_set_asides_keep_only_the_newest_configured_count() {
+    for retained_count in [1, 2] {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let store_directory = directory.path().join("store");
+        let decoys = [
+            "store.discarded-not-a-uuid".to_owned(),
+            format!("store.discarded-{}", uuid::Uuid::new_v4()),
+            format!("store.discarded-{}", uuid::Uuid::now_v7().simple()),
+            format!("other.discarded-{}", uuid::Uuid::now_v7()),
+        ];
+        for decoy in &decoys {
+            std::fs::create_dir(directory.path().join(decoy)).expect("create decoy directory");
+        }
+        let decoy_file = format!("store.discarded-{}", uuid::Uuid::now_v7());
+        std::fs::write(directory.path().join(&decoy_file), b"not a store").expect("decoy file");
+        let mut cluster = TestCluster::new();
+        let mut config = cluster.config(LocalStoreConfig::RocksDb {
+            directory: store_directory.clone(),
+            options: RocksDbStoreOptions::default(),
+        });
+        config.recovery.retained_set_aside_store_count = retained_count;
+        let first = cluster
+            .start(
+                &config,
+                Arc::new(CountingApplier::default()),
+                Arc::new(RecordingRuntime::default()),
+            )
+            .await
+            .expect("node starts");
+        first.commit_prompt("set-aside-flow", 1).await;
+        first.node.shutdown().await.expect("lease released");
+
+        let mut set_aside_order = Vec::new();
+        for restart in 1..=4_u64 {
+            std::fs::write(store_directory.join("CURRENT"), b"not a manifest name\n")
+                .expect("corrupt the store");
+            let before = set_aside_store_names(directory.path());
+            let node = cluster
+                .start(
+                    &config,
+                    Arc::new(CountingApplier::default()),
+                    Arc::new(RecordingRuntime::default()),
+                )
+                .await
+                .expect("node restarts");
+            let after = set_aside_store_names(directory.path());
+            let created: Vec<_> = after.difference(&before).cloned().collect();
+            assert_eq!(created.len(), 1, "one store set aside per start: {after:?}");
+            set_aside_order.push(created[0].clone());
+            let expected: std::collections::BTreeSet<_> = set_aside_order
+                [set_aside_order.len().saturating_sub(retained_count)..]
+                .iter()
+                .cloned()
+                .collect();
+            assert_eq!(
+                after, expected,
+                "retained {retained_count} after restart {restart}"
+            );
+            assert_eq!(node.committed_count("set-aside-flow").await, restart);
+            node.commit_prompt("set-aside-flow", 1).await;
+            assert_eq!(node.committed_count("set-aside-flow").await, restart + 1);
+            node.node.shutdown().await.expect("lease released");
+        }
+        for decoy in decoys.iter().chain([&decoy_file]) {
+            assert!(
+                directory.path().join(decoy).exists(),
+                "{decoy} must survive cleanup"
+            );
+        }
+    }
+}
+
+/// Returns the names in `parent` that `set_aside` gives the `store` directory.
+fn set_aside_store_names(parent: &std::path::Path) -> std::collections::BTreeSet<String> {
+    std::fs::read_dir(parent)
+        .expect("list directory")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter_map(|name| {
+            let suffix = name.strip_prefix("store.discarded-")?;
+            let id = uuid::Uuid::try_parse(suffix).ok()?;
+            (id.get_version() == Some(uuid::Version::SortRand) && id.to_string() == suffix)
+                .then_some(name)
+        })
+        .collect()
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_halted_partition_stays_halted_after_restart() {
     let mut cluster = TestCluster::new();
     let first = cluster.start_in_memory().await;

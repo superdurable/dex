@@ -16,11 +16,15 @@ use dexzd_storage::{
     InMemoryLocalStore, LocalReadView, RestoredLocalStore, RocksDbLocalStore, RocksDbStoreOptions,
     restore_snapshot_with_lineage_id,
 };
-use uuid::Uuid;
+use uuid::{Uuid, Version};
 
+use crate::blocking_work::BlockingWorkPlacement;
 use crate::commit::EngineLocalStore;
 use crate::recovery::EngineStartError;
 use crate::recovery::node_streams::NodeStreams;
+
+/// Separates the store directory name from the UUIDv7 of a set-aside copy.
+const SET_ASIDE_INFIX: &str = ".discarded-";
 
 /// Where the node keeps its local state.
 #[derive(Clone)]
@@ -284,8 +288,97 @@ fn is_nonempty_directory(directory: &Path) -> Result<bool, EngineStartError> {
 
 fn set_aside(directory: &Path) -> Result<(), EngineStartError> {
     let mut discarded = directory.as_os_str().to_owned();
-    discarded.push(format!(".discarded-{}", Uuid::now_v7()));
+    discarded.push(format!("{SET_ASIDE_INFIX}{}", Uuid::now_v7()));
     std::fs::rename(directory, &discarded)?;
     tracing::warn!(path = %PathBuf::from(&discarded).display(), "set aside the previous local store");
     Ok(())
+}
+
+/// Deletes set-aside stores of a RocksDB `config` except the newest `retained_count`; failures
+/// only log.
+pub(crate) async fn delete_older_set_aside_stores(
+    config: &LocalStoreConfig,
+    retained_count: usize,
+    blocking_work: BlockingWorkPlacement,
+) {
+    let LocalStoreConfig::RocksDb { directory, .. } = config else {
+        return;
+    };
+    let directory = directory.clone();
+    let deleted = blocking_work
+        .run(move || delete_set_aside_stores_except_newest(&directory, retained_count))
+        .await;
+    if let Err(failure) = deleted {
+        tracing::warn!(error = %failure, "failed to delete older set-aside local stores");
+    }
+}
+
+/// Deletes `<store>.discarded-<uuidv7>` siblings of `directory` except the newest `retained_count`.
+/// The active store never matches: its name lacks the suffix.
+fn delete_set_aside_stores_except_newest(directory: &Path, retained_count: usize) {
+    let Some(store_name) = directory.file_name().and_then(|name| name.to_str()) else {
+        tracing::warn!(path = %directory.display(), "cannot match set-aside stores of a local store without a UTF-8 name");
+        return;
+    };
+    let parent = match directory.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    let mut set_aside_stores = match list_set_aside_stores(parent, store_name) {
+        Ok(stores) => stores,
+        Err(error) => {
+            tracing::warn!(path = %parent.display(), error = %error, "failed to list set-aside local stores");
+            return;
+        }
+    };
+    // UUIDv7 bytes start with the creation time, so this sorts oldest first.
+    set_aside_stores.sort_unstable_by_key(|(id, _)| *id);
+    let deleted_count = set_aside_stores.len().saturating_sub(retained_count);
+    for (_, path) in set_aside_stores.into_iter().take(deleted_count) {
+        match std::fs::remove_dir_all(&path) {
+            Ok(()) => tracing::info!(path = %path.display(), "deleted a set-aside local store"),
+            Err(error) => {
+                tracing::warn!(path = %path.display(), error = %error, "failed to delete a set-aside local store");
+            }
+        }
+    }
+}
+
+/// Returns the UUIDv7 and path of every directory in `parent` named
+/// `<store_name>.discarded-<uuidv7>`, in directory order.
+fn list_set_aside_stores(
+    parent: &Path,
+    store_name: &str,
+) -> Result<Vec<(Uuid, PathBuf)>, std::io::Error> {
+    let prefix = format!("{store_name}{SET_ASIDE_INFIX}");
+    let mut stores = Vec::new();
+    for entry in std::fs::read_dir(parent)? {
+        let entry = entry?;
+        // set_aside renames a directory, so files and symbolic links are someone else's.
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let Some(suffix) = file_name
+            .to_str()
+            .and_then(|name| name.strip_prefix(&prefix))
+        else {
+            continue;
+        };
+        if let Some(id) = parse_set_aside_id(suffix) {
+            stores.push((id, entry.path()));
+        }
+    }
+    Ok(stores)
+}
+
+/// Returns the UUIDv7 that `set_aside` wrote as `suffix`, or `None` for any other text.
+fn parse_set_aside_id(suffix: &str) -> Option<Uuid> {
+    let Ok(id) = Uuid::try_parse(suffix) else {
+        return None;
+    };
+    // try_parse also accepts simple, braced, and URN forms that set_aside never writes.
+    let is_set_aside_form =
+        id.get_version() == Some(Version::SortRand) && id.hyphenated().to_string() == suffix;
+    is_set_aside_form.then_some(id)
 }

@@ -206,12 +206,23 @@ Mount the volume at a parent directory, such as **/var/lib/dex-server-zd**. Set
 **/var/lib/dex-server-zd/store**. When the node cannot reuse an existing local
 store, it renames the directory to a sibling with a **.discarded-** suffix and
 rebuilds it. That rename fails when the directory is the mount point itself.
-Set-aside directories stay on a persistent volume until you delete them.
+
+After each successful recovery, the node deletes older set-aside directories.
+It keeps the newest **localStorage.retainedSetAsideStoreCount** of them for
+diagnosis, 1 by default. Set it to 0 to keep none. The node logs each path it
+deletes. A failed deletion logs a warning and does not stop startup. The node
+deletes only directories that it set aside for this store. It never deletes the
+active store.
 
 Size the volume for the live state, plus **localStorage.maxWalBytes** of
 write-ahead log (256 MiB by default), plus room for uncompacted files after a
 bulk replay. The node compacts the store after such a replay, which returns the
 directory to about the live state size.
+
+Also leave room for the retained set-aside copies. Each copy can be as large as
+the store was when the node set it aside. A start that sets the store aside
+holds one extra copy until its recovery finishes. With the default of 1, plan
+for up to two old copies next to the rebuilt store during that start.
 
 To use an emptyDir instead of the claim template, replace **volumeClaimTemplates**
 with a volume like this:
