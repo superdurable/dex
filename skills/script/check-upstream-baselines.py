@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# The server-zd release whose Attribute Store guidance core/operations.md cites.
+SERVER_ZD_RELEASE = "server-zd/v0.1.3"
 
 
 def fail(message: str) -> None:
@@ -39,6 +41,13 @@ def require_text(path: Path, *needles: str) -> None:
             fail(f"{path} is missing required text: {needle}")
 
 
+def require_tagged_text(checkout: Path, tag: str, path: str, *needles: str) -> None:
+    content = git(checkout, "show", f"refs/tags/{tag}:{path}")
+    for needle in needles:
+        if needle not in content:
+            fail(f"{tag}:{path} is missing required text: {needle}")
+
+
 def require_ancestor(checkout: Path, ancestor: str, descendant: str, label: str) -> None:
     result = subprocess.run(
         ["git", "merge-base", "--is-ancestor", ancestor, descendant],
@@ -58,6 +67,7 @@ def main() -> None:
     cli_baseline = (ROOT / "DEX_CLI_BASELINE").read_text().strip()
     require_revision(arguments.dex_root, cli_baseline, "Dex CLI")
     require_ancestor(arguments.dex_root, server_baseline, cli_baseline, "Dex Server baseline")
+    require_ancestor(arguments.dex_root, SERVER_ZD_RELEASE, cli_baseline, "server-zd release")
 
     require_text(
         arguments.dex_root / "cli" / "internal" / "flowviz" / "v2_directives.go",
@@ -125,6 +135,45 @@ def main() -> None:
         '"zd-binary"',
         '"zd-config"',
         '"zd-data-dir"',
+    )
+    require_text(
+        arguments.dex_root / "cli" / "internal" / "dev" / "zd_process.go",
+        '"--attribute-store-config", cfg.AttributeStoreConfigPath',
+    )
+    require_text(
+        arguments.dex_root / "cli" / "README.md",
+        "`--attribute-store-config` also works with `--engine zd`",
+        "`attributeStore` in the `--zd-config` file.",
+        "### Connect over TLS",
+        "TLS never falls back to plaintext.",
+        "ALPN `h2`",
+    )
+    require_text(
+        arguments.dex_root / "cli" / "internal" / "command" / "options.go",
+        'lookupEnv("DEX_TLS")',
+        'lookupEnv("DEX_TLS_CA_FILE")',
+        'lookupEnv("DEX_TLS_SERVER_NAME")',
+        '"tls-ca-file"',
+        '"tls-server-name"',
+        "require --tls or DEX_TLS=true",
+    )
+    require_text(
+        arguments.dex_root / "cli" / "internal" / "command" / "client.go",
+        "MinVersion: tls.VersionTLS12",
+        "x509.SystemCertPool()",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        SERVER_ZD_RELEASE,
+        "server-zd/README.md",
+        "Only `type: postgres` is supported.",
+        "Synchronization is asynchronous.",
+        "Rows normally appear within a second of the commit.",
+        "(default `dexzd_attribute_sync_fencing`)",
+        "dex-server-zd never creates or alters tables",
+        "`--attribute-store-config` reads only the `attributeStore` section",
+        "which must define at least one store",
+        "StopFlow closes the run as soon as it commits.",
     )
     require_text(
         arguments.dex_root / "web" / "api" / "v2.go",

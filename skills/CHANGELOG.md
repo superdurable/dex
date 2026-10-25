@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.48.0 - 2026-10-24
+
+- Advance the Server baseline to server/v1.19.0 and the CLI baseline to cli-v1.19.0, and refresh their pinned source links. No SDK changed in CLI v1.18.0, CLI v1.19.0, or Server v1.19.0, so the five SDK baselines stay at v1.17.0. Server v1.19.0 changes only integration tests. Synchronize the three plugin manifests and marketplace metadata at version 0.48.0.
+- Document server-zd Attribute Store synchronization from server-zd v0.1.3 in Core operations: PostgreSQL stores only, asynchronous and eventually consistent tables whose rows normally appear within about a second, the backlog and dropped-entry behavior, row rewrites after time travel, and the required Dex fencing table in each database. Link the server-zd operation guide's Attribute Store section and the server-zd v0.1.3 release, and note the PostgreSQL-only limit in Core data handling.
+- Document that `dexcli dev --engine zd --attribute-store-config FILE` passes the file to `dex-server-zd` from CLI v1.19.0, which needs a `dex-server-zd` v0.1.3 or later binary. CLI v1.18.x and earlier reject that combination.
+- Document the CLI v1.18.0 TLS transport for `dexcli`: `--tls` and `DEX_TLS`, `--tls-ca-file`, `--tls-server-name`, the ALPN `h2` gateway requirement, the usage error without TLS, no plaintext fallback, and that the settings cover only the `dexcli` FlowService connection. Point App Builder's remote `dexcli version check` step at it, and route both topics from the dex-sdk task table.
+- Record server-zd lifecycle differences for synced tables in Core operations, read-after-write, and data handling: a server-zd v0.1.3 Flow closes without waiting for its synced Attributes, StopFlow closes the run at once and rejects later writes, and dropped entries are timed from when they were first marked. Note that the default engine and the Go Server reject `fencingTableName` in a shared `--attribute-store-config` file.
+- Validate the new server-zd Attribute Store, `dexcli dev` engine, and `dexcli` TLS guidance in `check-upstream-baselines.py`, reading the server-zd README at its server-zd/v0.1.3 tag.
+
 ## 0.47.0 - 2026-10-24
 
 - Advance all five SDK, Server, and CLI baselines to their published Dex 1.17.0 tags and refresh pinned source links. The language examples still select SDK v1.15.0. Synchronize the three plugin manifests and marketplace metadata at version 0.47.0.
