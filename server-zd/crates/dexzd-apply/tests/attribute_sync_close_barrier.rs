@@ -556,6 +556,15 @@ fn synced(attribute_key: &str, text: &str) -> AttributeWrite {
     }
 }
 
+fn unsynced(attribute_key: &str, text: &str) -> AttributeWrite {
+    AttributeWrite {
+        key: attribute_key.to_owned(),
+        value: Some(string_value(text)),
+        sync_config: Some(AttributeSyncConfig { enabled: false }),
+        ..AttributeWrite::default()
+    }
+}
+
 fn force_complete() -> StepDecision {
     StepDecision {
         close_decision: Some(CloseDecision {
@@ -1360,6 +1369,60 @@ fn a_reapplied_flow_timeout_skip_waits_for_remarked_attributes() {
             .expect("the point exists");
         assert_eq!(rebuilt.state_hash, *expected, "point at {timestamp}");
     }
+}
+
+#[test]
+fn a_reapplied_flow_timeout_skip_closes_when_reapplied_writes_leave_nothing_to_sync() {
+    let mut harness = Harness::with_settings(RunSettings {
+        checkpoint_max_commands: 2,
+        ..settings()
+    });
+    harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+    harness.ack(PRIMARY, harness.last_seq());
+    let quiet = harness.set(vec![unsynced("status", "quiet")], "set-quiet");
+    assert!(is_ok(&quiet.reply), "{:?}", quiet.reply);
+    assert_eq!(attribute_sync_pending_count(&quiet), 0);
+    let skipped = harness.apply(skip_flow_timeout());
+    assert!(is_ok(&skipped.reply), "{:?}", skipped.reply);
+    assert_eq!(harness.run_record().status, FlowStatus::Failed as i32);
+    assert_eq!(harness.outbox_entry_count(), 0);
+
+    let travel = harness.travel_to(ResetFlowRequest {
+        skip_writes_reapply: false,
+        ..reset(FlowResetType::Beginning)
+    });
+    let travel_time = harness.now_micros;
+    let record = harness.run_record();
+    assert_eq!(
+        record.status,
+        FlowStatus::Failed as i32,
+        "the reset re-marks nothing, so the reapplied Flow timeout closes the run"
+    );
+    assert!(record.pending_close.is_none());
+    assert_eq!(close_origin(&record), Some(false));
+    assert_eq!(
+        harness.outbox_entry_count(),
+        0,
+        "the store never receives the unsynced status"
+    );
+    assert_eq!(attribute_sync_pending_count(&travel), 0);
+    assert_eq!(harness.directory_status(), FlowStatus::Failed as i32);
+    assert!(wakes(&travel).contains(&WaitableChange::FlowClosed));
+    assert!(has_flow_closed_event(
+        &harness.history_record(harness.last_seq())
+    ));
+
+    let expected = harness.semantic_point_hash();
+    let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        request: Some(ResetFlowRequest {
+            run_attempt: 2,
+            ..reset_to_time(travel_time)
+        }),
+    }));
+    let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
+        .expect("rebuild the point")
+        .expect("the point exists");
+    assert_eq!(rebuilt.state_hash, expected);
 }
 
 #[test]

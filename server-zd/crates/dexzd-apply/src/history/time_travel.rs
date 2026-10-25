@@ -37,7 +37,7 @@ use crate::history::lineage::{Lineage, history_records};
 use crate::history::replay_state::{TransactionReader, absorb_writes};
 use crate::history::reset_target::{TravelTarget, resolve_target};
 use crate::history::state_rebuild::rebuild_attempt_state;
-use crate::projections::attribute_sync::mark_attribute_sync_entries;
+use crate::projections::attribute_sync::{has_attribute_store_names, mark_attribute_sync_entries};
 use crate::state_access::{FlowTransaction, read_flow_directory};
 use crate::steps::{
     arm_timer, configured_method_timeout_seconds, disarm_timer, invocation_retry_deadline_micros,
@@ -144,18 +144,20 @@ pub(crate) fn apply_time_travel(
         &holder_rows(&restored_rows, &run_status_of(&cursor.record)),
         cursor.seq,
     )?;
-    // Marked before reapply, so a reapplied natural close waits; reapplied writes mark themselves.
-    remark_synced_attributes(
+    // Remarks follow reapplied input, so a reapplied natural close waits; the reset's end
+    // re-checks it.
+    let has_pending_remarks =
+        has_synced_attributes_to_remark(&cursor.record, &previous_rows, &restored_rows)?;
+    let reapplied_events = reapply_external_inputs(
         transaction,
         &mut cursor,
         scope,
-        &previous_rows,
-        &restored_rows,
+        &reapplied_inputs,
+        has_pending_remarks,
     )?;
-    let reapplied_events =
-        reapply_external_inputs(transaction, &mut cursor, scope, &reapplied_inputs)?;
     apply_received_child_results(transaction, &mut cursor, scope)?;
     let final_rows = read_attempt_rows(transaction, cursor.rows)?;
+    remark_synced_attributes(transaction, &mut cursor, scope, &previous_rows, &final_rows)?;
     dispatch_restored_invocations(&mut cursor, &final_rows)?;
     cursor.add_event(flow_history_event::Payload::TimeTravelFork(
         TimeTravelForkHistoryEvent {
@@ -171,7 +173,7 @@ pub(crate) fn apply_time_travel(
     if let Some((closing, is_closed_at_once)) = restored_closing {
         close_restored_attempt(transaction, &mut cursor, scope, closing, is_closed_at_once)?;
     } else {
-        // A restored pending close finalizes now when nothing it waits for remains.
+        // A restored or reapplied pending close finalizes now when nothing it waits for remains.
         finalize_pending_close_if_ready(transaction, &mut cursor, scope)?;
     }
     cursor.wake(WaitableChange::RunAttemptChanged);
@@ -317,6 +319,21 @@ fn replace_attempt_rows(
     Ok(())
 }
 
+/// Whether the reset may re-mark synced Attributes of the abandoned or restored state after
+/// reapplied input.
+///
+/// Returns false when the run names no Attribute Store, because marking then creates no entry.
+fn has_synced_attributes_to_remark(
+    record: &RunRecord,
+    previous_rows: &[AttemptRow],
+    restored_rows: &[AttemptRow],
+) -> Result<bool, ApplyError> {
+    if !has_attribute_store_names(record) {
+        return Ok(false);
+    }
+    Ok(!synced_row_keys(previous_rows)?.is_empty() || !synced_row_keys(restored_rows)?.is_empty())
+}
+
 /// Marks synced Attributes of the abandoned and restored states, so stores converge on the
 /// restored one (D16).
 fn remark_synced_attributes(
@@ -324,10 +341,10 @@ fn remark_synced_attributes(
     cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
     previous_rows: &[AttemptRow],
-    restored_rows: &[AttemptRow],
+    final_rows: &[AttemptRow],
 ) -> Result<(), ApplyError> {
     let mut keys = synced_row_keys(previous_rows)?;
-    keys.extend(synced_row_keys(restored_rows)?);
+    keys.extend(synced_row_keys(final_rows)?);
     mark_attribute_sync_entries(transaction, cursor, &keys, scope.now_micros)
 }
 
@@ -574,6 +591,7 @@ fn reapply_external_inputs(
     cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
     inputs: &[FlowCommand],
+    has_pending_remarks: bool,
 ) -> Result<Vec<flow_history_event::Payload>, ApplyError> {
     let mut events = Vec::new();
     if inputs.is_empty() {
@@ -609,6 +627,7 @@ fn reapply_external_inputs(
         }
         let mut input_scope = CommandScope::new(&command, behavior_version);
         input_scope.is_replay = true;
+        input_scope.has_pending_time_travel_remarks = has_pending_remarks;
         let (writes, output) = {
             let reader = TransactionReader::new(transaction);
             let mut input_transaction = FlowTransaction::new(&reader, transaction.context());

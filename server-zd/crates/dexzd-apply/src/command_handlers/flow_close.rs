@@ -275,6 +275,7 @@ fn should_defer_close(
 ) -> Result<bool, ApplyError> {
     match scope.close_barrier_source {
         CloseBarrierSource::Outbox => Ok(scope.command.is_transactional_rpc_in_flight
+            || scope.has_pending_time_travel_remarks
             || has_attribute_sync_entries(transaction, cursor.rows)?),
         CloseBarrierSource::RecordedHistory { has_flow_closed } => Ok(!has_flow_closed),
     }
