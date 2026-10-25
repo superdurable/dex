@@ -766,6 +766,6 @@ describe('routing context and dispatch failures', () => {
     const event = executeEvent(1);
     event.type = 'StepExecuteFailed';
     event.payload.output = { failure: { details: { detail: 'registration missing', dispatchTaskErrorReason: 3 } } };
-    expect(renderDetails(event)).toContain('Unknown Step type or RPC name: dispatch timed out');
+    expect(renderDetails(event)).toContain('Unknown Step type: dispatch timed out');
   });
 });

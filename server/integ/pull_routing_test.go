@@ -49,6 +49,52 @@ func TestPullRoutingCadence(t *testing.T) {
 	testPullRouting(t, service.BackendTypeCadence)
 }
 
+func TestPullSameWorkerFallbackTemporal(t *testing.T) {
+	if !*temporalIntegTest || *dexServerAddress != "" {
+		t.Skip()
+	}
+	testPullSameWorkerFallback(t, service.BackendTypeTemporal)
+}
+
+func TestPullSameWorkerFallbackCadence(t *testing.T) {
+	if !*cadenceIntegTest || *dexServerAddress != "" {
+		t.Skip()
+	}
+	testPullSameWorkerFallback(t, service.BackendTypeCadence)
+}
+
+func testPullSameWorkerFallback(t *testing.T, backend service.BackendType) {
+	for _, durability := range []dexpb.StepDurability{dexpb.StepDurability_STEP_DURABILITY_SYNC, dexpb.StepDurability_STEP_DURABILITY_ASYNC} {
+		t.Run(durability.String(), func(t *testing.T) {
+			runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: 5 * time.Second, StickyWait: 100 * time.Millisecond}})
+			workerID := "routing-same-worker-" + uuid.NewString()
+			worker := startRawPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, workerID, nil)
+			ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+			defer cancel()
+			flowID := "pull-same-worker-fallback-" + uuid.NewString()
+			_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+				RequestId: newRequestID(), FlowId: flowID, FlowType: dispatchProbeFlowType, StartStepType: dispatchProbeStep,
+				FlowTimeoutSeconds: 120, FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+					WorkerTarget: &dexpb.WorkerTarget{IsPullMode: true}, StepDurability: ptr.Any(durability),
+				}},
+			})
+			require.NoError(t, err)
+			require.Equal(t, dispatchProbeFlowType, waitForPullTask(t, worker, flowID).queue)
+			requirePullActiveRouting(t, ctx, runtime.FlowClient, flowID, workerID)
+			worker.stopQueue(workerID)
+			_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{FlowId: flowID, Messages: []*dexpb.ChannelMessage{{ChannelName: dispatchProbeChannel}}})
+			require.NoError(t, err)
+			served := waitForPullTask(t, worker, flowID)
+			require.Equal(t, "execute", served.method)
+			require.Equal(t, dispatchProbeFlowType, served.queue)
+			completed, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 25})
+			require.NoError(t, err)
+			require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, completed.GetFlowStatus(), completed.GetErrorMessage())
+			requirePullHistoryRouting(t, ctx, runtime.FlowClient, flowID, workerID, workerID, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_FLOW_TYPE_QUEUE)
+		})
+	}
+}
+
 func TestPullRPCRoutingTemporal(t *testing.T) {
 	if !*temporalIntegTest || *dexServerAddress != "" {
 		t.Skip()

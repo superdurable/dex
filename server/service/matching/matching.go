@@ -852,7 +852,7 @@ func (e *Engine) dispatchQueue(ctx context.Context, request *dexpb.DispatchTaskR
 		for workerID := range excludedWorkerIDs {
 			remoteRequest.ExcludedAppWorkerIds = append(remoteRequest.ExcludedAppWorkerIds, workerID)
 		}
-		relay := &forwardDispatchRelay{request: request, send: send, dispatchEnd: dispatchEnd, isSticky: queueName != request.FallbackQueue && request.FallbackQueue != "", queueSource: dispatchQueueSource(request, queueName), excludedWorkerIDs: excludedWorkerIDs}
+		relay := &forwardDispatchRelay{request: request, send: send, dispatchEnd: dispatchEnd, isSticky: queueName != request.FallbackQueue && request.FallbackQueue != "", queueSource: dispatchQueueSource(ctx, request, queueName), excludedWorkerIDs: excludedWorkerIDs}
 		err := e.forwardDispatch(ctx, remoteRequest, owner.RPCAddress, relay.relay)
 		return relay.isMatched, err
 	}
@@ -903,7 +903,7 @@ func (e *Engine) dispatchQueue(ctx context.Context, request *dexpb.DispatchTaskR
 			timer.Stop()
 			continue
 		}
-		outcome, attemptErr := worker.dispatchTaskAssignment(ctx, request, dispatchEnd, deadlineTimer.C, dispatchQueueSource(request, queueName), send)
+		outcome, attemptErr := worker.dispatchTaskAssignment(ctx, request, dispatchEnd, deadlineTimer.C, dispatchQueueSource(ctx, request, queueName), send)
 		if attemptErr != nil {
 			return false, attemptErr
 		}
@@ -1146,7 +1146,10 @@ func dispatchError(reason dexpb.DispatchTaskErrorReason, detail string) *dexpb.D
 	return &dexpb.DispatchTaskResponse{Output: &dexpb.DispatchTaskResponse_DispatchError{DispatchError: &dexpb.DispatchTaskError{Reason: reason, Detail: detail}}}
 }
 
-func dispatchQueueSource(request *dexpb.DispatchTaskRequest, queueName string) dexpb.PullRoutingSource {
+func dispatchQueueSource(ctx context.Context, request *dexpb.DispatchTaskRequest, queueName string) dexpb.PullRoutingSource {
+	if isForwarded(ctx) {
+		return dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED
+	}
 	if request.GetFallbackQueue() != "" && queueName != request.GetFallbackQueue() {
 		return dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE
 	}

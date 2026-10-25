@@ -150,7 +150,7 @@ func (PollWorkerTaskRejectReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // Distinguishes no available Worker, a disconnected Worker, and a missing Step or RPC registration.
-// Go Server internals; server-zd does not serve or persist them.
+// Go persists; server-zd does not.
 type DispatchTaskErrorReason int32
 
 const (

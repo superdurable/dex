@@ -1073,7 +1073,7 @@ export function pendingPhaseLabel(value: unknown): string {
 function pullDispatchFailureLabel(reason: unknown, value: unknown): string | undefined {
   if (reason === 1) return 'No Worker available';
   if (reason === 2) return 'Worker disconnected';
-  if (reason === 3) return 'Unknown Step type or RPC name: dispatch timed out';
+  if (reason === 3) return 'Unknown Step type: dispatch timed out';
   if (typeof value !== 'string') return undefined;
   if (value.includes('no Worker available for queue')) return 'No Worker available';
   if (value.includes('Worker disconnected during pull dispatch')) return 'Worker disconnected';

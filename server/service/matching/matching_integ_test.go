@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -1051,6 +1052,24 @@ func TestMatchingForwardedStickyQueueSourceIntegration(t *testing.T) {
 	result, err := dispatch.Recv()
 	require.NoError(t, err)
 	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE, result.GetQueueSource())
+}
+
+func TestMatchingForwardedOwnerOmitsQueueSourceIntegration(t *testing.T) {
+	owner := startTestServer(t, config.MatchingConfig{}, newTestMembership())
+	worker := registerWorker(t, owner, "worker-sticky", "worker-sticky")
+	ctx := metadata.AppendToOutgoingContext(testStreamContext(t), forwardedHeader, "1")
+	dispatch, err := dexpb.NewMatchingServiceClient(owner.connection).DispatchTask(ctx, dispatchRequest("worker-sticky", "", 0, time.Second))
+	require.NoError(t, err)
+	assignment, err := worker.Recv()
+	require.NoError(t, err)
+	assigned, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, assigned.GetAssigned())
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED, assigned.GetQueueSource())
+	require.NoError(t, worker.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: &dexpb.PollWorkerTaskFrame{TaskId: assignment.GetTask().GetTaskId(), Output: &dexpb.PollWorkerTaskFrame_Rpc{Rpc: &dexpb.InvokeWorkerRPCResponse{}}}}}))
+	result, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED, result.GetQueueSource())
 }
 
 func TestMatchingStickyEmptyQueueFallsBackImmediatelyIntegration(t *testing.T) {
