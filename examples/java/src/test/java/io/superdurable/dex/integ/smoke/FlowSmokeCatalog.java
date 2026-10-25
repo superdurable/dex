@@ -38,13 +38,11 @@ final class FlowSmokeCatalog {
                                 "amount", "100",
                                 "fromAccount", "from-smoke",
                                 "toAccount", "to-smoke",
-                                "notes", "smoke"))
-                        .withServerZDUnsupportedFeature("failure policies"),
+                                "notes", "smoke")),
                 FlowSmokeEntry.get(
                         "products/order-processing",
                         "/products/order-processing/start",
-                        Map.of())
-                        .withServerZDUnsupportedFeature("failure policies"),
+                        Map.of()),
                 FlowSmokeEntry.get("products/subscription", "/products/subscription/start", Map.of()),
                 FlowSmokeEntry.get(
                         "products/signup",
@@ -60,8 +58,7 @@ final class FlowSmokeCatalog {
                 FlowSmokeEntry.get(
                         "patterns/polling",
                         "/patterns/polling/start",
-                        Map.of("workflowId", environment.newFlowId("pattern-polling")))
-                        .withServerZDUnsupportedFeature("failure policies"),
+                        Map.of("workflowId", environment.newFlowId("pattern-polling"))),
                 FlowSmokeEntry.get(
                         "patterns/interruptible",
                         "/patterns/interruptible/start",
@@ -81,8 +78,7 @@ final class FlowSmokeCatalog {
                 FlowSmokeEntry.get(
                         "patterns/manual-recovery",
                         "/patterns/manual-recovery/start",
-                        Map.of("workflowId", environment.newFlowId("manual-recovery")))
-                        .withServerZDUnsupportedFeature("failure policies"),
+                        Map.of("workflowId", environment.newFlowId("manual-recovery"))),
                 FlowSmokeEntry.get(
                         "patterns/inactiveness-tracker-timer",
                         "/patterns/inactiveness-tracker-timer/start",
@@ -110,8 +106,7 @@ final class FlowSmokeCatalog {
                                 "workflowId", environment.newFlowId("recovery"),
                                 "itemName", "smoke-item",
                                 "quantity", "2"),
-                        FlowSmokeFlags.stepStartMayFail())
-                        .withServerZDUnsupportedFeature("failure policies"),
+                        FlowSmokeFlags.stepStartMayFail()),
                 parallelSubFlows(environment, "basic"),
                 parallelSubFlows(environment, "wait-for-half"),
                 parallelSubFlows(environment, "long-lived-parent"),
@@ -169,8 +164,7 @@ final class FlowSmokeCatalog {
                         "/primitives/step/options-override/start",
                         Map.of(
                                 "workflowId", environment.newFlowId("primitive-step-options-override"),
-                                "input", "smoke"))
-                        .withServerZDUnsupportedFeature("failure policies"),
+                                "input", "smoke")),
                 FlowSmokeEntry.get(
                         "primitives/step/step-decision",
                         "/primitives/step/step-decision/start",

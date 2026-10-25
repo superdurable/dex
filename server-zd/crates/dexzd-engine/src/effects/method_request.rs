@@ -469,7 +469,7 @@ pub(crate) fn build_method_request(
         attempt: i32::try_from(invocation.attempt)
             .map_err(|_| corrupt_step(step_execution, "attempt exceeds i32"))?,
         from_step_execution_id: step_execution.from_step_execution_id.clone(),
-        recovery_error: None,
+        recovery_error: step_execution.recovery_error.clone(),
         last_heartbeat_value: values.optional(invocation.heartbeat_checkpoint.as_ref())?,
         run_attempt: i32::try_from(run_record.current_attempt)
             .map_err(|_| corrupt_step(step_execution, "run attempt exceeds i32"))?,

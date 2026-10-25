@@ -821,6 +821,7 @@ async fn speculative_and_committed_copies_of_a_start_dispatch_once() {
         attempt: 1,
         task_id: invocation.task_id,
         method_timeout_seconds: 0,
+        retry_deadline_micros: START_MICROS + 4 * 60 * 60 * SECOND_MICROS,
     };
     let flow = EffectHarness::flow("order-1");
     harness
@@ -841,7 +842,7 @@ async fn speculative_and_committed_copies_of_a_start_dispatch_once() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn unsupported_failure_policies_in_decisions_fail_without_retry() {
+async fn recovery_policy_in_step_decision_starts_next_step() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
     let mut request = start_request("order-1");
@@ -869,16 +870,16 @@ async fn unsupported_failure_policies_in_decisions_fail_without_retry() {
         ..InvokeExecuteMethodResponse::default()
     });
     harness.settle().await;
-    let failures = failures(&harness);
-    assert_eq!(
-        failures[0].0,
-        StepAttemptFailureKind::UnsupportedFeature as i32
-    );
-    assert!(failures[0].1, "C21 failures are not retried");
+    assert!(failures(&harness).is_empty());
     assert_eq!(
         harness.run_record("order-1", run_id).status,
-        FlowStatus::Failed as i32
+        FlowStatus::Running as i32
     );
+    let next = harness.dispatcher.next_dispatch().await;
+    let MethodRequest::WaitFor(next_request) = next.method_request() else {
+        panic!("expected the next Step's WaitFor request");
+    };
+    assert_eq!(next_request.step_type, "ShipStep");
     harness.shutdown().await;
 }
 
@@ -954,6 +955,7 @@ async fn a_restored_running_attempt_is_redispatched_after_its_original_dispatch_
             attempt: 1,
             task_id,
             method_timeout_seconds: 0,
+            retry_deadline_micros: START_MICROS + 4 * 60 * 60 * SECOND_MICROS,
         }],
         true,
     );

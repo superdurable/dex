@@ -10,10 +10,10 @@
 
 use dexzd_protocol::dex::{
     AttributeWrite, ChannelCondition, ChannelMessage, ChannelMessageDeletion, ChannelValues,
-    CloseDecision, CloseDecisionType, InvokeExecuteMethodResponse, InvokeWaitForMethodResponse,
-    InvokeWorkerRpcResponse, Kv, RetryPolicy, StepDecision, StepDurability, StepMovement,
-    StepOptions, SubFlowCondition, TimerCondition, Value, WaitingCondition, WaitingConditionType,
-    WorkerErrorResponse, value,
+    CloseDecision, CloseDecisionType, ExecuteMethodFailurePolicy, InvokeExecuteMethodResponse,
+    InvokeWaitForMethodResponse, InvokeWorkerRpcResponse, Kv, RetryPolicy, StepDecision,
+    StepDurability, StepMovement, StepOptions, SubFlowCondition, TimerCondition, Value,
+    WaitForMethodFailurePolicy, WaitingCondition, WaitingConditionType, WorkerErrorResponse, value,
 };
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
@@ -30,6 +30,7 @@ pub(crate) const COUNTER_STEP_TYPE: &str = "ChargeStep";
 
 /// Random valid Step options, except locks fixed by Step type so a Worker knows its locks.
 pub(crate) fn engine_step_options(rng: &mut ChaCha8Rng, step_type: &str) -> StepOptions {
+    let should_proceed_on_execute_failure = rng.random_bool(0.1);
     StepOptions {
         skip_wait_for: rng.random_bool(0.4),
         wait_for_lock_attribute_keys: match step_type {
@@ -57,6 +58,27 @@ pub(crate) fn engine_step_options(rng: &mut ChaCha8Rng, step_type: &str) -> Step
         } else {
             0
         },
+        wait_for_failure_policy: if rng.random_bool(0.1) {
+            WaitForMethodFailurePolicy::ProceedOnFailure as i32
+        } else {
+            WaitForMethodFailurePolicy::Unspecified as i32
+        },
+        execute_failure_policy: if should_proceed_on_execute_failure {
+            ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
+        } else {
+            ExecuteMethodFailurePolicy::Unspecified as i32
+        },
+        execute_failure_proceed_step_type: if should_proceed_on_execute_failure {
+            "RecoverStep".to_owned()
+        } else {
+            String::new()
+        },
+        execute_failure_proceed_step_options: should_proceed_on_execute_failure.then(|| {
+            Box::new(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            })
+        }),
         ..StepOptions::default()
     }
 }
@@ -64,13 +86,18 @@ pub(crate) fn engine_step_options(rng: &mut ChaCha8Rng, step_type: &str) -> Step
 /// Channels a Step may load by name; `queue/a` and `queue/b` belong to the `queue/` map.
 const LOADABLE_CHANNEL_NAMES: &[&str] = &["inbox", "events"];
 
-fn retry_policy(rng: &mut ChaCha8Rng) -> Option<RetryPolicy> {
+/// A retry policy, sometimes with a total duration short enough to expire during a run.
+pub(crate) fn retry_policy(rng: &mut ChaCha8Rng) -> Option<RetryPolicy> {
     rng.random_bool(0.7).then(|| RetryPolicy {
         initial_interval_seconds: rng.random_range(1..3),
         backoff_coefficient: if rng.random_bool(0.5) { 2.0 } else { 0.0 },
         maximum_interval_seconds: if rng.random_bool(0.5) { 5 } else { 0 },
         maximum_attempts: rng.random_range(0..5),
-        total_duration_seconds: 0,
+        total_duration_seconds: if rng.random_bool(0.3) {
+            rng.random_range(1..6)
+        } else {
+            0
+        },
     })
 }
 

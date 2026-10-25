@@ -30,7 +30,6 @@ import (
 )
 
 func TestMoneyTransferStart(t *testing.T) {
-	skipWhenServerZD(t, "failure policies")
 	ctx := integrationContext(t)
 	flowID := newFlowID(t, "money-transfer")
 	input := moneytransfer.TransferRequest{

@@ -72,7 +72,6 @@ func TestDeterministicCustomerRefundOutcomes(t *testing.T) {
 }
 
 func TestAgenticCustomerRefundAutomaticAndUnknownOutcomes(t *testing.T) {
-	skipWhenServerZD(t, "failure policies")
 	tests := []struct {
 		name               string
 		caseID             string
@@ -110,7 +109,6 @@ func TestAgenticCustomerRefundAutomaticAndUnknownOutcomes(t *testing.T) {
 }
 
 func TestAgenticCustomerRefundApproveAndRejectActions(t *testing.T) {
-	skipWhenServerZD(t, "failure policies")
 	t.Run("approve without input", func(t *testing.T) {
 		ctx := integrationContext(t)
 		flowID := newFlowID(t, "agentic-approve")
@@ -144,7 +142,6 @@ func TestAgenticCustomerRefundApproveAndRejectActions(t *testing.T) {
 }
 
 func TestAgenticCustomerRefundEscalatesUnavailableEvidence(t *testing.T) {
-	skipWhenServerZD(t, "failure policies")
 	ctx := integrationContext(t)
 	flowID := newFlowID(t, "agentic-evidence")
 	startAgenticEscalation(t, ctx, flowID, "agent-uncertain", 4200)
@@ -157,7 +154,6 @@ func TestAgenticCustomerRefundEscalatesUnavailableEvidence(t *testing.T) {
 }
 
 func TestAgenticCustomerRefundSearchAttributes(t *testing.T) {
-	skipWhenServerZD(t, "failure policies")
 	ctx := integrationContext(t)
 	flowID := newFlowID(t, "agentic-refund-search")
 	_, err := integClient.StartFlow(ctx, registry.AgenticRefund, flowID, refundmodel.RefundCase{

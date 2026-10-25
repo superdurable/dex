@@ -25,7 +25,7 @@ import {
 import { AbnormalExitFlow } from "./abnormal_exit_flow.js";
 import { BasicFlow } from "./basic_flow.js";
 import { EmptyInputFlow } from "./empty_input_flow.js";
-import { expectError, flowId, skipIfServerZD, withEnvironment } from "./environment.js";
+import { expectError, flowId, withEnvironment } from "./environment.js";
 import { ImmutableStepOptionsFlow } from "./immutable_step_options_flow.js";
 import { MixedWaitFlow } from "./mixed_wait_flow.js";
 import { ModelInputFlow } from "./model_input_flow.js";
@@ -155,9 +155,7 @@ test("waitForStepCompletion observes the requested Step", async () => {
   });
 });
 
-test("waitFor failure can proceed to execute", async (context) => {
-  // C21: server-zd rejects Step failure policies.
-  if (await skipIfServerZD(context, "Step failure policies")) return;
+test("waitFor failure can proceed to execute", async () => {
   const flow = new ProceedOnWaitFailureFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("proceed-on-wait-failure");
@@ -175,9 +173,7 @@ test("Steps with and without waitFor compose", async () => {
   });
 });
 
-test("movement options do not mutate Step defaults", async (context) => {
-  // C21: server-zd rejects Step failure policies.
-  if (await skipIfServerZD(context, "Step failure policies")) return;
+test("movement options do not mutate Step defaults", async () => {
   const flow = new ImmutableStepOptionsFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("immutable-options");

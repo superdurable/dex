@@ -27,13 +27,14 @@ use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, 
 use dexzd_protocol::dex::{
     ActionPermissionMapping, ActionPermissionMappings, ActiveStepPhase, AttributeMatch,
     AttributeMatchOperator, AttributeWrite, ChannelMessage, CloseDecision, CloseDecisionType,
-    ConditionStatus, FlowConfig, FlowStartOptions, FlowStatus, FlowTimeoutPolicy, IndexConfig,
-    IndexType, InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, LoadBlobRequestEntry,
-    PublishToChannelRequest, PullRouting, PullRoutingSource, RetryPolicy, SetAttributesRequest,
-    StartFlowRequest, StepDecision, StepDurability, StepMethodEventContext, StepMethodOptions,
-    StepMovement, StepOptions, StopFlowRequest, StopType, TimerCondition, TimerResult,
-    UpdateFlowConfigRequest, Value, WaitingCondition, WaitingConditionType, WorkerErrorResponse,
-    WorkerTarget, flow_history_event, value,
+    ConditionStatus, ExecuteMethodFailurePolicy, FlowClosedHistoryEvent, FlowConfig, FlowErrorType,
+    FlowStartOptions, FlowStatus, FlowTimeoutPolicy, IndexConfig, IndexType,
+    InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, LoadBlobRequestEntry,
+    PublishToChannelRequest, PullRouting, PullRoutingSource, RecoveryErrorInfo, RetryPolicy,
+    SetAttributesRequest, StartFlowRequest, StepDecision, StepDurability, StepMethodEventContext,
+    StepMethodOptions, StepMovement, StepOptions, StopFlowRequest, StopType, TimerCondition,
+    TimerResult, UpdateFlowConfigRequest, Value, WaitForMethodFailurePolicy, WaitingCondition,
+    WaitingConditionType, WorkerErrorResponse, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, ChannelPublishCommand, ConditionResultsRecord, FlowCommand,
@@ -1904,6 +1905,273 @@ fn a_failed_step_ends_without_completion() {
         .unwrap(),
         StepCompletionState::EndedWithoutCompletion
     );
+}
+
+/// Fails ChargeStep's only Execute attempt and returns the Flow's closing event.
+fn close_after_final_execute_failure(step_options: StepOptions) -> FlowClosedHistoryEvent {
+    let mut harness = Harness::new();
+    harness.start(FlowStartOptions::default(), Some(step_options));
+    harness.start_attempt(StepMethod::Execute);
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(StepInvocationKey {
+            step_execution_id: "ChargeStep-1".to_owned(),
+            method: StepMethod::Execute as i32,
+        }),
+        attempt: 1,
+        kind: StepAttemptFailureKind::WorkerError as i32,
+        worker_error: Some(WorkerErrorResponse {
+            error_type: "UserError".to_owned(),
+            detail: "failed".to_owned(),
+            ..WorkerErrorResponse::default()
+        }),
+        is_non_retryable: true,
+        ..StepAttemptFailedCommand::default()
+    }));
+    let recovery_step_key = run_named_key(
+        harness.context.flow_hash,
+        harness.run_id,
+        RunTable::StepExecution,
+        "RecoverStep-1",
+    );
+    assert!(
+        harness
+            .state
+            .get(ColumnFamily::Flow, &recovery_step_key)
+            .expect("the Step row reads")
+            .is_none(),
+        "no recovery Step starts"
+    );
+    let summary = get_flow_summary(&harness.state, harness.context.flow_hash, harness.run_id)
+        .expect("the Flow summary reads");
+    assert_eq!(summary.flow_status, FlowStatus::Failed as i32);
+    let events = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run_id,
+        0,
+        0,
+        &[],
+        0,
+    )
+    .expect("the history reads")
+    .events;
+    match events.last().and_then(|event| event.payload.clone()) {
+        Some(flow_history_event::Payload::FlowClosed(closed)) => closed,
+        payload => panic!("the Flow closes after the final failure, got {payload:?}"),
+    }
+}
+
+#[test]
+fn execute_failure_without_a_usable_recovery_target_fails_the_flow_like_an_unset_policy() {
+    let unset_policy = close_after_final_execute_failure(StepOptions {
+        skip_wait_for: true,
+        ..StepOptions::default()
+    });
+    assert_eq!(unset_policy.error_type, FlowErrorType::WorkerApiFail as i32);
+    let unusable_targets = [
+        StepOptions {
+            skip_wait_for: true,
+            execute_failure_policy: ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
+            ..StepOptions::default()
+        },
+        StepOptions {
+            skip_wait_for: true,
+            execute_failure_proceed_step_type: "RecoverStep".to_owned(),
+            execute_failure_proceed_step_options: Some(Box::new(StepOptions::default())),
+            ..StepOptions::default()
+        },
+    ];
+    for step_options in unusable_targets {
+        assert_eq!(
+            close_after_final_execute_failure(step_options.clone()),
+            unset_policy,
+            "{step_options:?}"
+        );
+    }
+}
+
+#[test]
+fn exhausted_attempt_recovery_error_type_matches_failure_kind() {
+    let cases = [
+        (
+            StepAttemptFailureKind::WorkerError,
+            "UserError",
+            "UserError",
+        ),
+        (
+            StepAttemptFailureKind::WorkerError,
+            "",
+            "FLOW_ERROR_TYPE_WORKER_API_FAIL",
+        ),
+        (StepAttemptFailureKind::MethodTimeout, "", "StartToClose"),
+        (StepAttemptFailureKind::HeartbeatTimeout, "", "Heartbeat"),
+        (StepAttemptFailureKind::RetryDeadline, "", "ScheduleToClose"),
+        (
+            StepAttemptFailureKind::DispatchError,
+            "",
+            "FLOW_ERROR_TYPE_INTERNAL",
+        ),
+        (
+            StepAttemptFailureKind::InvalidResponse,
+            "",
+            "FLOW_ERROR_TYPE_INTERNAL",
+        ),
+        (
+            StepAttemptFailureKind::UnsupportedFeature,
+            "",
+            "UnsupportedFeature",
+        ),
+        (StepAttemptFailureKind::ValueTooLarge, "", "ValueTooLarge"),
+        (
+            StepAttemptFailureKind::RequestTooLarge,
+            "",
+            "FLOW_ERROR_TYPE_WORKER_API_FAIL",
+        ),
+    ];
+    for (kind, worker_error_type, expected_error_type) in cases {
+        let worker_error = WorkerErrorResponse {
+            error_type: worker_error_type.to_owned(),
+            detail: "failed".to_owned(),
+            ..WorkerErrorResponse::default()
+        };
+        assert_eq!(
+            recovery_error_after_final_failure(kind, worker_error).error_type,
+            expected_error_type,
+            "{kind:?}"
+        );
+    }
+}
+
+#[test]
+fn flow_state_movement_carries_the_recovery_error_of_a_recovery_step_only() {
+    let mut harness = Harness::new();
+    harness.start(
+        FlowStartOptions::default(),
+        Some(StepOptions {
+            wait_for_retry_policy: Some(RetryPolicy {
+                maximum_attempts: 1,
+                ..RetryPolicy::default()
+            }),
+            wait_for_failure_policy: WaitForMethodFailurePolicy::ProceedOnFailure as i32,
+            execute_retry_policy: Some(RetryPolicy {
+                maximum_attempts: 1,
+                ..RetryPolicy::default()
+            }),
+            execute_failure_policy: ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
+            execute_failure_proceed_step_type: "RecoverStep".to_owned(),
+            execute_failure_proceed_step_options: Some(Box::new(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            })),
+            ..StepOptions::default()
+        }),
+    );
+    let fail = |harness: &mut Harness, method: StepMethod, error_type: &str| {
+        harness.start_attempt(method);
+        harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+            invocation: Some(StepInvocationKey {
+                step_execution_id: "ChargeStep-1".to_owned(),
+                method: method as i32,
+            }),
+            attempt: 1,
+            kind: StepAttemptFailureKind::WorkerError as i32,
+            worker_error: Some(WorkerErrorResponse {
+                error_type: error_type.to_owned(),
+                detail: "failed".to_owned(),
+                ..WorkerErrorResponse::default()
+            }),
+            ..StepAttemptFailedCommand::default()
+        }));
+    };
+    let active_movement = |harness: &Harness, step_execution_id: &str| {
+        get_flow_state(&harness.state, harness.context.flow_hash, harness.run_id)
+            .unwrap()
+            .active_step_executions
+            .into_iter()
+            .find(|step| step.step_execution_id == step_execution_id)
+            .and_then(|step| step.movement)
+            .expect("the Step is active")
+    };
+    fail(&mut harness, StepMethod::WaitFor, "WaitFailure");
+    assert_eq!(
+        active_movement(&harness, "ChargeStep-1").recovery_error_internal_only,
+        None,
+        "a WaitFor failure reaches only Execute"
+    );
+    fail(&mut harness, StepMethod::Execute, "ExecuteFailure");
+    let recovery_error = active_movement(&harness, "RecoverStep-1")
+        .recovery_error_internal_only
+        .expect("the recovery Step movement carries the error");
+    assert_eq!(recovery_error.error_type, "ExecuteFailure");
+    assert_eq!(recovery_error.detail, "failed");
+}
+
+#[test]
+fn worker_error_without_detail_recovers_with_the_go_status_text() {
+    let cases = [
+        (0, "rpc error: code = Unknown desc = "),
+        (13, "rpc error: code = Internal desc = "),
+        (99, "rpc error: code = Unknown desc = "),
+    ];
+    for (grpc_status, expected_detail) in cases {
+        let worker_error = WorkerErrorResponse {
+            error_type: "UserError".to_owned(),
+            grpc_status,
+            ..WorkerErrorResponse::default()
+        };
+        let recovery_error =
+            recovery_error_after_final_failure(StepAttemptFailureKind::WorkerError, worker_error);
+        assert_eq!(recovery_error.detail, expected_detail, "{grpc_status}");
+        assert_eq!(recovery_error.error_type, "UserError");
+    }
+}
+
+/// Fails ChargeStep's only Execute attempt and returns its recovery Step's error.
+fn recovery_error_after_final_failure(
+    kind: StepAttemptFailureKind,
+    worker_error: WorkerErrorResponse,
+) -> RecoveryErrorInfo {
+    let mut harness = Harness::new();
+    harness.start(
+        FlowStartOptions::default(),
+        Some(StepOptions {
+            skip_wait_for: true,
+            execute_failure_policy: ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
+            execute_failure_proceed_step_type: "RecoverStep".to_owned(),
+            execute_failure_proceed_step_options: Some(Box::new(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            })),
+            ..StepOptions::default()
+        }),
+    );
+    harness.start_attempt(StepMethod::Execute);
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(StepInvocationKey {
+            step_execution_id: "ChargeStep-1".to_owned(),
+            method: StepMethod::Execute as i32,
+        }),
+        attempt: 1,
+        kind: kind as i32,
+        worker_error: Some(worker_error),
+        is_non_retryable: true,
+        ..StepAttemptFailedCommand::default()
+    }));
+    let step_key = run_named_key(
+        harness.context.flow_hash,
+        harness.run_id,
+        RunTable::StepExecution,
+        "RecoverStep-1",
+    );
+    let step_row = harness
+        .state
+        .get(ColumnFamily::Flow, &step_key)
+        .expect("the Step row reads")
+        .expect("recovery Step row exists");
+    StepExecutionRecord::decode(step_row.as_slice())
+        .expect("the Step row decodes")
+        .recovery_error
+        .expect("the recovery Step carries the error")
 }
 
 #[test]

@@ -10,7 +10,10 @@
 
 use dexzd_keyspace::ColumnFamily;
 use dexzd_keyspace::row_keys::{timer_index_key, timer_key};
-use dexzd_protocol::dex::{ErrorSubStatus, FlowErrorType, ServiceErrorResponse, StepMethodFailure};
+use dexzd_protocol::dex::{
+    ErrorSubStatus, ExecuteMethodFailurePolicy, FlowErrorType, RecoveryErrorInfo,
+    ServiceErrorResponse, StepMethodFailure, Value, WaitForMethodFailurePolicy, value,
+};
 use dexzd_protocol::dexzd::v1::{
     RetryBackoffTimerId, StepAttemptFailedCommand, StepAttemptHeartbeatCommand,
     StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
@@ -28,10 +31,13 @@ use crate::state_access::FlowTransaction;
 use crate::steps::attempt_snapshot::compute_attempt_snapshot;
 use crate::steps::invocations::{can_take_locks, release_heartbeat_checkpoint};
 use crate::steps::{
-    InvocationEnd, RetryDecision, apply_step_decision, decide_retry, end_running_attempt,
-    finish_step, make_invocation_pending, start_attempt, wait_conditions,
+    InvocationEnd, NewStepExecution, RetryDecision, apply_step_decision, create_step_execution,
+    decide_retry, end_running_attempt, finish_step, make_invocation_pending, method_retry_policy,
+    retry_started_at_micros, start_attempt, wait_conditions,
 };
-use crate::values::{ValueHolder, ValueRejection, release_stored_value, store_value};
+use crate::values::{
+    ValueHolder, ValueRejection, hold_stored_value, release_stored_value, store_value,
+};
 use crate::{ApplyEffect, ApplyError};
 use dexzd_protocol::dexzd::v1::CommandReply;
 
@@ -211,20 +217,15 @@ pub(crate) fn apply_attempt_failed(
     let key = command.invocation.clone().unwrap_or_default();
     let method = StepMethod::try_from(key.method).unwrap_or(StepMethod::Execute);
     let options = step.options.clone().unwrap_or_default();
-    let policy = match method {
-        StepMethod::WaitFor => options.wait_for_retry_policy.as_ref(),
-        StepMethod::Execute | StepMethod::Unspecified => options.execute_retry_policy.as_ref(),
-    };
-    let first_attempt_at = step
+    let policy = method_retry_policy(Some(&options), key.method);
+    let retry_started_at = step
         .invocation
         .as_ref()
-        .map_or(scope.now_micros, |invocation| {
-            invocation.first_attempt_at_micros
-        });
+        .map_or(scope.now_micros, retry_started_at_micros);
     let decision = decide_retry(
         policy,
         command.attempt,
-        first_attempt_at,
+        retry_started_at,
         scope.now_micros,
         worker_error.retry_after_seconds,
         command.is_non_retryable,
@@ -264,23 +265,159 @@ pub(crate) fn apply_attempt_failed(
                     &mut invocation,
                 )?;
             }
-            finish_step(transaction, cursor, &mut step, StepExecutionPhase::Failed)?;
-            let message = format!(
-                "Step execution {} failed after {} attempts: {}",
-                step.step_execution_id, command.attempt, failure.backend_error
-            );
-            crate::command_handlers::flow_close::close_flow(
-                transaction,
-                cursor,
-                scope,
-                crate::command_handlers::flow_close::FlowClosing::failed(
-                    FlowErrorType::WorkerApiFail,
-                    message,
-                ),
-            )?;
+            let recovery_error = recovery_error(command, &worker_error, &failure);
+            if method == StepMethod::WaitFor
+                && options.wait_for_failure_policy
+                    == WaitForMethodFailurePolicy::ProceedOnFailure as i32
+            {
+                step.recovery_error = Some(recovery_error);
+                step.condition_results = Some(dexzd_protocol::dexzd::v1::ConditionResultsRecord {
+                    wait_for_failed: true,
+                    ..Default::default()
+                });
+                step.phase = StepExecutionPhase::Execute as i32;
+                make_invocation_pending(
+                    transaction,
+                    cursor,
+                    &mut step,
+                    StepMethod::Execute,
+                    1,
+                    scope.now_micros,
+                )?;
+                cursor.rows.put_step_execution(transaction, &step);
+            } else if method == StepMethod::Execute
+                && options.execute_failure_policy
+                    == ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
+                && !options.execute_failure_proceed_step_type.is_empty()
+            {
+                let new_step = NewStepExecution {
+                    step_type: &options.execute_failure_proceed_step_type,
+                    input: None,
+                    options: options.execute_failure_proceed_step_options.as_deref(),
+                    from_step_execution_id: &step.step_execution_id,
+                    is_timeout_handler: false,
+                };
+                let step_execution_id =
+                    create_step_execution(transaction, cursor, scope.now_micros, &new_step)?
+                        .expect("recovery Step has no untrusted input");
+                let mut recovery_step = cursor
+                    .rows
+                    .step_execution(transaction, &step_execution_id)?
+                    .expect("created recovery Step exists");
+                let input = if step.is_timeout_handler {
+                    Some(dexzd_protocol::dexzd::v1::StoredValue {
+                        kind: Some(dexzd_protocol::dexzd::v1::stored_value::Kind::InlineValue(
+                            Value {
+                                kind: Some(value::Kind::NullValue(0)),
+                            },
+                        )),
+                    })
+                } else {
+                    step.input.clone()
+                };
+                if let Some(input) = input.as_ref() {
+                    hold_stored_value(
+                        transaction,
+                        cursor.rows,
+                        input,
+                        &ValueHolder::StepInput {
+                            step_execution_id: step_execution_id.clone(),
+                        },
+                    )?;
+                }
+                recovery_step.input = input;
+                recovery_step.recovery_error = Some(recovery_error);
+                cursor.rows.put_step_execution(transaction, &recovery_step);
+                finish_step(transaction, cursor, &mut step, StepExecutionPhase::Failed)?;
+            } else {
+                finish_step(transaction, cursor, &mut step, StepExecutionPhase::Failed)?;
+                let message = format!(
+                    "Step execution {} failed after {} attempts: {}",
+                    step.step_execution_id, command.attempt, failure.backend_error
+                );
+                crate::command_handlers::flow_close::close_flow(
+                    transaction,
+                    cursor,
+                    scope,
+                    crate::command_handlers::flow_close::FlowClosing::failed(
+                        FlowErrorType::WorkerApiFail,
+                        message,
+                    ),
+                )?;
+            }
         }
     }
     Ok(StepCommandOutcome::Applied(ok_reply()))
+}
+
+fn recovery_error(
+    command: &StepAttemptFailedCommand,
+    worker_error: &dexzd_protocol::dex::WorkerErrorResponse,
+    failure: &StepMethodFailure,
+) -> RecoveryErrorInfo {
+    let kind = dexzd_protocol::dexzd::v1::StepAttemptFailureKind::try_from(command.kind)
+        .unwrap_or(dexzd_protocol::dexzd::v1::StepAttemptFailureKind::Unspecified);
+    let error_type = match kind {
+        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::WorkerError => {
+            if worker_error.error_type.is_empty() {
+                "FLOW_ERROR_TYPE_WORKER_API_FAIL"
+            } else {
+                &worker_error.error_type
+            }
+        }
+        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::MethodTimeout => "StartToClose",
+        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::HeartbeatTimeout => "Heartbeat",
+        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::RetryDeadline => "ScheduleToClose",
+        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::DispatchError => {
+            "FLOW_ERROR_TYPE_INTERNAL"
+        }
+        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::InvalidResponse => {
+            "FLOW_ERROR_TYPE_INTERNAL"
+        }
+        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::UnsupportedFeature => {
+            "UnsupportedFeature"
+        }
+        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::ValueTooLarge => "ValueTooLarge",
+        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::RequestTooLarge => {
+            "FLOW_ERROR_TYPE_WORKER_API_FAIL"
+        }
+        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::Unspecified => "UnknownStepFailure",
+    };
+    let detail = if kind == dexzd_protocol::dexzd::v1::StepAttemptFailureKind::WorkerError
+        && failure.backend_error.is_empty()
+    {
+        go_worker_status_error(worker_error.grpc_status)
+    } else {
+        failure.backend_error.clone()
+    };
+    RecoveryErrorInfo {
+        detail,
+        error_type: error_type.to_owned(),
+    }
+}
+
+/// Returns the Go Server's text for a Worker gRPC status without a message, which it uses
+/// as the detail of a Worker error that has none.
+fn go_worker_status_error(grpc_status: i32) -> String {
+    let code_name = match grpc_status {
+        1 => "Canceled",
+        3 => "InvalidArgument",
+        4 => "DeadlineExceeded",
+        5 => "NotFound",
+        6 => "AlreadyExists",
+        7 => "PermissionDenied",
+        8 => "ResourceExhausted",
+        9 => "FailedPrecondition",
+        10 => "Aborted",
+        11 => "OutOfRange",
+        12 => "Unimplemented",
+        13 => "Internal",
+        14 => "Unavailable",
+        15 => "DataLoss",
+        16 => "Unauthenticated",
+        _ => "Unknown",
+    };
+    format!("rpc error: code = {code_name} desc = ")
 }
 
 fn arm_retry_timer(

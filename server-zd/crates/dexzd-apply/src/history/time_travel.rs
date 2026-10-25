@@ -17,8 +17,9 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, CommandErrorReply, CommandReply, FlowCommand, RetentionTimerId,
-    RunRecord, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, TimeTravelCommand,
-    TimeTravelReply, TimerId, TimerRecord, command_reply, flow_command::Command, timer_id,
+    RunRecord, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepInvocationRecord,
+    TimeTravelCommand, TimeTravelReply, TimerId, TimerRecord, command_reply, flow_command::Command,
+    timer_id,
 };
 use prost::Message;
 
@@ -35,7 +36,9 @@ use crate::history::reset_target::resolve_target;
 use crate::history::state_rebuild::rebuild_attempt_state;
 use crate::projections::attribute_sync::mark_attribute_sync_entries;
 use crate::state_access::{FlowTransaction, read_flow_directory};
-use crate::steps::{arm_timer, configured_method_timeout_seconds, disarm_timer};
+use crate::steps::{
+    arm_timer, configured_method_timeout_seconds, disarm_timer, invocation_retry_deadline_micros,
+};
 use crate::values::ValueIdAllocator;
 use crate::{ApplyEffect, ApplyError, BehaviorVersion, WaitableChange};
 
@@ -229,7 +232,8 @@ fn cancel_running_invocations(
 
 /// Replaces attempt rows; hard-delete Attributes stay current.
 ///
-/// Restored running attempts get new dispatch IDs, so old cancellations miss them.
+/// Restored running attempts get new dispatch IDs, so old cancellations miss them. Restored
+/// calls restart their retry total duration, as a Go reset schedules a fresh activity.
 fn replace_attempt_rows(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -280,12 +284,13 @@ fn replace_attempt_rows(
             }
             RunTable::StepExecution => {
                 let mut step = decode_step_execution(&row)?;
-                if let Some(invocation) = step.invocation.as_mut()
-                    && invocation.phase == StepInvocationPhase::Running as i32
-                {
-                    invocation.task_id =
-                        restored_task_id(&scope.command.command_id, restored_running_count);
-                    restored_running_count += 1;
+                if let Some(invocation) = step.invocation.as_mut() {
+                    if invocation.phase == StepInvocationPhase::Running as i32 {
+                        invocation.task_id =
+                            restored_task_id(&scope.command.command_id, restored_running_count);
+                        restored_running_count += 1;
+                    }
+                    restart_retry_total_duration(invocation, scope.now_micros);
                 }
                 cursor.rows.put_step_execution(transaction, &step);
             }
@@ -332,6 +337,18 @@ pub(crate) fn synced_row_keys(rows: &[AttemptRow]) -> Result<BTreeSet<String>, A
         keys.insert(key);
     }
     Ok(keys)
+}
+
+/// Restarts the retry total duration at `now_micros`. A call pending attempt 1 starts it when
+/// that attempt starts.
+fn restart_retry_total_duration(invocation: &mut StepInvocationRecord, now_micros: i64) {
+    let is_pending_first_attempt =
+        invocation.phase == StepInvocationPhase::Pending as i32 && invocation.attempt == 1;
+    invocation.retry_started_at_micros = if is_pending_first_attempt {
+        0
+    } else {
+        now_micros
+    };
 }
 
 /// A dispatch ID derived from the TimeTravel command ID and the restored attempt's index.
@@ -441,6 +458,10 @@ fn dispatch_restored_invocations(
                 method_timeout_seconds: configured_method_timeout_seconds(
                     step.options.as_ref(),
                     invocation.method,
+                ),
+                retry_deadline_micros: invocation_retry_deadline_micros(
+                    step.options.as_ref(),
+                    invocation,
                 ),
             }),
             StepInvocationPhase::Backoff | StepInvocationPhase::Unspecified => {}

@@ -475,16 +475,14 @@ message FlowRetryPolicy {
 enum WaitForMethodFailurePolicy {
   WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED = 0;
   WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE = 1;
-  // server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-  // A Step decision that uses it fails the attempt without retry.
+  // Execute runs after the final WaitFor failure.
   WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE = 2;
 }
 
 enum ExecuteMethodFailurePolicy {
   EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED = 0;
   EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE = 1;
-  // server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-  // A Step decision that uses it fails the attempt without retry.
+  // The configured recovery Step starts after the final Execute failure.
   EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2;
 }
 
@@ -495,11 +493,9 @@ message StepOptions {
   RetryPolicy execute_retry_policy = 4;
   WaitForMethodFailurePolicy wait_for_failure_policy = 5;
   ExecuteMethodFailurePolicy execute_failure_policy = 6;
-  // server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-  // A Step decision that uses it fails the attempt without retry.
+  // Step type started after the final Execute failure.
   string execute_failure_proceed_step_type = 7;
-  // server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-  // A Step decision that uses it fails the attempt without retry.
+  // Options of the recovery Step.
   StepOptions execute_failure_proceed_step_options = 8;
   bool skip_wait_for = 9;
   StepDurability wait_for_durability_override = 10;
@@ -520,11 +516,9 @@ message FlowTimeoutHandlerOptions {
   int32 heartbeat_timeout_seconds = 2;
   RetryPolicy retry_policy = 3;
   ExecuteMethodFailurePolicy failure_policy = 4;
-  // server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-  // A Step decision that uses it fails the attempt without retry.
+  // Step type started after the final timeout handler failure.
   string failure_proceed_step_type = 5;
-  // server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-  // A Step decision that uses it fails the attempt without retry.
+  // Options of the recovery Step.
   StepOptions failure_proceed_step_options = 6;
   StepDurability durability_override = 7;
   repeated string lock_attribute_keys = 8;

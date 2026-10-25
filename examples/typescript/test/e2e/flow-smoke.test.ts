@@ -67,7 +67,6 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     },
     {
       name: "products/money-transfer",
-      serverZdUnsupportedFeature: "failure policies",
       trigger: () =>
         triggerGet(context, "/products/money-transfer/start", {
           amount: 100,
@@ -79,7 +78,6 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     },
     {
       name: "products/order-processing",
-      serverZdUnsupportedFeature: "failure policies",
       trigger: () => triggerGet(context, "/products/order-processing/start"),
       flags: defaultFlags(),
     },
@@ -114,7 +112,6 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     },
     {
       name: "patterns/polling",
-      serverZdUnsupportedFeature: "failure policies",
       trigger: () =>
         triggerGet(context, "/patterns/polling/start", {
           workflowId: newFlowId("pattern-polling"),
@@ -175,7 +172,6 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     },
     {
       name: "patterns/manual-recovery",
-      serverZdUnsupportedFeature: "failure policies",
       trigger: () =>
         triggerGet(context, "/patterns/manual-recovery/start", {
           workflowId: newFlowId("manual-recovery"),
@@ -224,7 +220,6 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     },
     {
       name: "patterns/recovery",
-      serverZdUnsupportedFeature: "failure policies",
       trigger: () =>
         triggerGet(context, "/patterns/recovery/start", {
           workflowId: newFlowId("recovery"),
@@ -317,7 +312,6 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     },
     {
       name: "primitives/step/options-override",
-      serverZdUnsupportedFeature: "failure policies",
       trigger: () =>
         triggerGet(context, "/primitives/step/options-override/start", {
           workflowId: newFlowId("primitive-step-options-override"),

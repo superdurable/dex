@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use dexzd_apply::{ApplyEffect, FlowStateReader};
+use dexzd_apply::{ApplyEffect, FlowStateReader, invocation_retry_deadline_micros};
 use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId, TenantId, partition_index_prefix};
 use dexzd_protocol::dexzd::v1::{StepInvocationKey, StepInvocationPhase};
 
@@ -87,6 +87,8 @@ fn rebuild_invocations(
                     attempt: invocation.attempt,
                 });
             } else if invocation.phase == StepInvocationPhase::Running as i32 {
+                let retry_deadline_micros =
+                    invocation_retry_deadline_micros(step_execution.options.as_ref(), &invocation);
                 effects.push(ApplyEffect::InvocationStarted {
                     run_id: run.run_id,
                     run_attempt,
@@ -97,6 +99,7 @@ fn rebuild_invocations(
                         step_execution.options.as_ref(),
                         invocation.method,
                     ),
+                    retry_deadline_micros,
                 });
             }
         }

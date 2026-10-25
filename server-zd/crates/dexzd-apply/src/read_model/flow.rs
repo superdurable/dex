@@ -183,6 +183,11 @@ pub fn get_flow_state(
 }
 
 fn active_step_state(view: &RunView<'_>, step: &StepExecutionRecord) -> ActiveStepExecutionState {
+    // Go passes a WaitFor failure only to Execute; a recovery Step's movement carries its error.
+    let has_wait_for_failed = step
+        .condition_results
+        .as_ref()
+        .is_some_and(|results| results.wait_for_failed);
     let movement = StepMovement {
         step_type: step.step_type.clone(),
         step_input: step
@@ -191,7 +196,7 @@ fn active_step_state(view: &RunView<'_>, step: &StepExecutionRecord) -> ActiveSt
             .map(|stored| wire_value(view.rows, stored)),
         step_options: step.options.clone(),
         from_step_execution_id_internal_only: step.from_step_execution_id.clone(),
-        ..StepMovement::default()
+        recovery_error_internal_only: step.recovery_error.clone().filter(|_| !has_wait_for_failed),
     };
     let phase = if step.phase == StepExecutionPhase::Waiting as i32 {
         ActiveStepPhase::Waiting

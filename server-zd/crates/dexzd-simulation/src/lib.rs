@@ -41,6 +41,6 @@ pub use invariants::{
     CheckerMemory, GUARDED_ATTRIBUTE_KEYS, InvariantViolation, check_flow, check_fresh_snapshot,
 };
 pub use memory_state::MemoryFlowState;
-pub use model::{ATTRIBUTE_SYNC_FLOW_ID, CommandGenerator, FLOW_IDS};
+pub use model::{ATTRIBUTE_SYNC_FLOW_ID, CommandGenerator, FLOW_IDS, STEP_FAILURE_FLOW_IDS};
 pub use row_decoding::{RowDecodeError, reencode_row};
 pub use state_view::{FlowView, RunSelection, RunView, StateViewError};

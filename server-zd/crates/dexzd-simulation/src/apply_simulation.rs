@@ -114,7 +114,10 @@ pub fn run_seed(
 ) -> Result<SimulationSummary, Box<SimulationFailure>> {
     let mut checker = ApplyChecker::new();
     let mut generator = CommandGenerator::new(seed);
-    let mut attribute_sync_stream = CommandGenerator::attribute_sync_stream(seed);
+    let mut side_streams = [
+        CommandGenerator::attribute_sync_stream(seed),
+        CommandGenerator::step_failure_stream(seed),
+    ];
     let mut summary = SimulationSummary::default();
     let mut history = Vec::with_capacity(command_count);
     for command_index in 0..command_count {
@@ -138,20 +141,21 @@ pub fn run_seed(
                 &mut report_failure,
             )
         })?;
-        // Attribute Sync commands do not count as main commands, so regression counts stay valid.
-        if attribute_sync_stream.should_propose() {
-            attribute_sync_stream.follow_clock(&generator);
-            let command = attribute_sync_stream
-                .next_command(&checker)
-                .map_err(|violation| {
-                    failure(
-                        seed,
-                        command_index,
-                        violation,
-                        history.clone(),
-                        &mut report_failure,
-                    )
-                })?;
+        // Side-stream commands do not count as main commands, so regression counts stay valid.
+        for side_stream in &mut side_streams {
+            if !side_stream.should_propose() {
+                continue;
+            }
+            side_stream.follow_clock(&generator);
+            let command = side_stream.next_command(&checker).map_err(|violation| {
+                failure(
+                    seed,
+                    command_index,
+                    violation,
+                    history.clone(),
+                    &mut report_failure,
+                )
+            })?;
             history.push(command.clone());
             apply_and_count(&mut checker, &command, &mut summary).map_err(|violation| {
                 failure(

@@ -12,7 +12,7 @@ use std::time::Duration;
 use dexzd_protocol::dex::{
     self, ActionPermissionMappings, ActiveStepSearchMode, AttributeWrite,
     ExecuteMethodFailurePolicy, FlowConfig, FlowTimeoutHandlerOptions, FlowTimeoutPolicy,
-    StepDurability, StepOptions, Value, WaitForMethodFailurePolicy, WorkerTarget, value,
+    StepDurability, StepOptions, Value, WorkerTarget, value,
 };
 
 /// Identifies how the caller handles a validation failure.
@@ -22,8 +22,6 @@ pub enum ValidationCategory {
     InvalidArgument,
     /// A Worker supplied an invalid response; the attempt may be retried.
     RetryableWorkerResponse,
-    /// A Worker used an unsupported failure policy; the attempt must not be retried.
-    NonRetryableWorkerResponse,
 }
 
 /// Carries a rejected field, its reason, and the caller's error category.
@@ -80,14 +78,6 @@ pub(crate) fn invalid(path: impl Into<String>, message: impl Into<String>) -> Va
 
 fn unsupported(path: impl Into<String>, feature: &str) -> ValidationError {
     invalid(path, format!("server-zd does not support {feature}"))
-}
-
-fn unsupported_step_policy(path: impl Into<String>, feature: &str) -> ValidationError {
-    ValidationError {
-        field_path: path.into(),
-        message: format!("server-zd does not support {feature}"),
-        category: ValidationCategory::NonRetryableWorkerResponse,
-    }
 }
 
 pub(crate) fn validate_identifier(
@@ -332,33 +322,10 @@ pub(crate) fn validate_timeout_handler(
             "Flow timeout handler method timeout must be non-negative",
         ));
     }
-    if options.failure_policy == ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32 {
-        return Err(unsupported_step_policy(
-            format!("{path}.failure_policy"),
-            "Flow timeout handler proceed failure policy",
-        ));
-    }
-    if !options.failure_proceed_step_type.is_empty() {
-        return Err(unsupported_step_policy(
-            format!("{path}.failure_proceed_step_type"),
-            "Flow timeout handler failure_proceed_step_type",
-        ));
-    }
-    if options.failure_proceed_step_options.is_some()
-        && matches!(
-            ExecuteMethodFailurePolicy::try_from(options.failure_policy),
-            Ok(ExecuteMethodFailurePolicy::Unspecified
-                | ExecuteMethodFailurePolicy::FailFlowOnExecuteMethodFailure)
-        )
-    {
-        return Err(invalid(
-            format!("{path}.failure_proceed_step_options"),
-            "Flow timeout handler failure target requires the proceed policy",
-        ));
-    }
     let mapped = StepOptions {
         execute_timeout_seconds: options.method_timeout_seconds,
         execute_retry_policy: options.retry_policy,
+        execute_failure_proceed_step_type: options.failure_proceed_step_type.clone(),
         execute_failure_proceed_step_options: options
             .failure_proceed_step_options
             .clone()
@@ -373,13 +340,33 @@ pub(crate) fn validate_timeout_handler(
         ..StepOptions::default()
     };
     validate_step_options(path, Some(&mapped), config)?;
-    if ExecuteMethodFailurePolicy::try_from(options.failure_policy).is_err() {
-        return Err(invalid(
+    // The same order as the Go Server: an unknown policy fails before its failure target.
+    match ExecuteMethodFailurePolicy::try_from(options.failure_policy) {
+        Ok(
+            ExecuteMethodFailurePolicy::Unspecified
+            | ExecuteMethodFailurePolicy::FailFlowOnExecuteMethodFailure,
+        ) if !options.failure_proceed_step_type.is_empty()
+            || options.failure_proceed_step_options.is_some() =>
+        {
+            Err(invalid(
+                format!("{path}.failure_proceed_step_type"),
+                "Flow timeout handler failure target requires the proceed policy",
+            ))
+        }
+        Ok(ExecuteMethodFailurePolicy::ProceedToConfiguredStep)
+            if options.failure_proceed_step_type.is_empty() =>
+        {
+            Err(invalid(
+                format!("{path}.failure_proceed_step_type"),
+                "Flow timeout handler proceed policy requires a failure target",
+            ))
+        }
+        Ok(_) => Ok(()),
+        Err(_) => Err(invalid(
             format!("{path}.failure_policy"),
             "unknown Flow timeout handler failure policy",
-        ));
+        )),
     }
-    Ok(())
 }
 
 pub(crate) fn validate_step_options(
@@ -390,26 +377,6 @@ pub(crate) fn validate_step_options(
     let mut current = options;
     let mut current_path = path.to_owned();
     while let Some(options) = current {
-        if options.wait_for_failure_policy == WaitForMethodFailurePolicy::ProceedOnFailure as i32 {
-            return Err(unsupported_step_policy(
-                format!("{current_path}.wait_for_failure_policy"),
-                "WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE",
-            ));
-        }
-        if options.execute_failure_policy
-            == ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
-        {
-            return Err(unsupported_step_policy(
-                format!("{current_path}.execute_failure_policy"),
-                "EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP",
-            ));
-        }
-        if !options.execute_failure_proceed_step_type.is_empty() {
-            return Err(unsupported_step_policy(
-                format!("{current_path}.execute_failure_proceed_step_type"),
-                "execute_failure_proceed_step_type",
-            ));
-        }
         validate_identifier(
             &format!("{current_path}.execute_failure_proceed_step_type"),
             "step type",

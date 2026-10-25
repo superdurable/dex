@@ -819,7 +819,7 @@ fn zero_dedup_capacity_keeps_rpc_output_live() {
 }
 
 #[test]
-fn rpc_rejects_unsupported_step_failure_policy() {
+fn rpc_accepts_step_failure_policy() {
     let mut harness = Harness::new(1000, 16 << 20);
     let outcome = harness.rpc(
         request("rpc-1"),
@@ -840,8 +840,11 @@ fn rpc_rejects_unsupported_step_failure_policy() {
         },
         &[1],
     );
-    assert_error(&outcome.reply, 3, ErrorSubStatus::Uncategorized);
-    assert!(outcome.writes.is_empty());
+    assert!(matches!(
+        outcome.reply.reply,
+        Some(command_reply::Reply::Rpc(_))
+    ));
+    assert!(!outcome.writes.is_empty());
 }
 
 #[test]

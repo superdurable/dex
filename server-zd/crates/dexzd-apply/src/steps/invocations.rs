@@ -19,6 +19,7 @@ use dexzd_protocol::dexzd::v1::{
 
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::state_access::FlowTransaction;
+use crate::steps::invocation_retry_deadline_micros;
 use crate::values::{ValueHolder, release_stored_value};
 use crate::{ApplyEffect, ApplyError};
 
@@ -83,6 +84,12 @@ pub(crate) fn make_invocation_pending(
         .map(|invocation| invocation.effective_durability)
         .filter(|durability| *durability != StepDurability::Unspecified as i32)
         .unwrap_or_else(|| effective_method_durability(cursor, step, method));
+    // A retry waits for its locks again, unlike Go, which holds them across retries; that
+    // wait counts.
+    let retry_started_at_micros = previous
+        .as_ref()
+        .filter(|_| attempt > 1)
+        .map_or(0, |invocation| invocation.retry_started_at_micros);
     step.invocation = Some(StepInvocationRecord {
         method: method as i32,
         phase: StepInvocationPhase::Pending as i32,
@@ -91,6 +98,7 @@ pub(crate) fn make_invocation_pending(
         pending_since_seq: cursor.seq,
         lock_keys,
         effective_durability,
+        retry_started_at_micros,
         last_failure: previous
             .as_ref()
             .and_then(|invocation| invocation.last_failure.clone()),
@@ -200,11 +208,16 @@ pub(crate) fn start_attempt(
     invocation.phase = StepInvocationPhase::Running as i32;
     invocation.task_id = task_id.to_vec();
     invocation.attempt_started_at_micros = now_micros;
+    // Go schedules the activity after its locks, so lock wait never consumes ScheduleToClose.
+    if invocation.attempt == 1 {
+        invocation.retry_started_at_micros = now_micros;
+    }
     let run_id = cursor.run_id();
     let run_attempt = cursor.attempt();
     let attempt = invocation.attempt;
     let method_timeout_seconds =
         configured_method_timeout_seconds(step.options.as_ref(), invocation.method);
+    let retry_deadline_micros = invocation_retry_deadline_micros(step.options.as_ref(), invocation);
     cursor.add_effect(ApplyEffect::InvocationStarted {
         run_id,
         run_attempt,
@@ -212,6 +225,7 @@ pub(crate) fn start_attempt(
         attempt,
         task_id: task_id.to_vec(),
         method_timeout_seconds,
+        retry_deadline_micros,
     });
     Ok(())
 }

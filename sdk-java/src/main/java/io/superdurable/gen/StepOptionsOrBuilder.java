@@ -76,8 +76,7 @@ public interface StepOptionsOrBuilder extends
 
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Step type started after the final Execute failure.
    * </pre>
    *
    * <code>string execute_failure_proceed_step_type = 7;</code>
@@ -86,8 +85,7 @@ public interface StepOptionsOrBuilder extends
   java.lang.String getExecuteFailureProceedStepType();
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Step type started after the final Execute failure.
    * </pre>
    *
    * <code>string execute_failure_proceed_step_type = 7;</code>
@@ -98,8 +96,7 @@ public interface StepOptionsOrBuilder extends
 
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions execute_failure_proceed_step_options = 8;</code>
@@ -108,8 +105,7 @@ public interface StepOptionsOrBuilder extends
   boolean hasExecuteFailureProceedStepOptions();
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions execute_failure_proceed_step_options = 8;</code>
@@ -118,8 +114,7 @@ public interface StepOptionsOrBuilder extends
   io.superdurable.gen.StepOptions getExecuteFailureProceedStepOptions();
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions execute_failure_proceed_step_options = 8;</code>

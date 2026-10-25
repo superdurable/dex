@@ -31,7 +31,6 @@ from sync_examples.wait import (
     flow_status_or_none,
     wait_until,
 )
-from sync_tests.integ.conftest import skip_when_server_zd
 
 from dex import (
     AttributeMatch,
@@ -61,7 +60,6 @@ def test_money_transfer_completes_the_saga(
     client: Client,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    skip_when_server_zd("failure policies")
     flow_id = new_flow_id("sync-money")
     request = TransferRequest("from-account", "to-account", 100, "test-notes")
     client.start_flow(app.money_transfer, flow_id, request, start_options())

@@ -50,8 +50,7 @@ public interface FlowTimeoutHandlerOptionsOrBuilder extends
 
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Step type started after the final timeout handler failure.
    * </pre>
    *
    * <code>string failure_proceed_step_type = 5;</code>
@@ -60,8 +59,7 @@ public interface FlowTimeoutHandlerOptionsOrBuilder extends
   java.lang.String getFailureProceedStepType();
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Step type started after the final timeout handler failure.
    * </pre>
    *
    * <code>string failure_proceed_step_type = 5;</code>
@@ -72,8 +70,7 @@ public interface FlowTimeoutHandlerOptionsOrBuilder extends
 
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -82,8 +79,7 @@ public interface FlowTimeoutHandlerOptionsOrBuilder extends
   boolean hasFailureProceedStepOptions();
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>
@@ -92,8 +88,7 @@ public interface FlowTimeoutHandlerOptionsOrBuilder extends
   io.superdurable.gen.StepOptions getFailureProceedStepOptions();
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Options of the recovery Step.
    * </pre>
    *
    * <code>.dex.StepOptions failure_proceed_step_options = 6;</code>

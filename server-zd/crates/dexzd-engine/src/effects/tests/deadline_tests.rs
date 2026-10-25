@@ -15,13 +15,13 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use dexzd_apply::ApplyEffect;
-use dexzd_protocol::dex::{InvokeWaitForMethodResponse, StepOptions};
+use dexzd_protocol::dex::{InvokeWaitForMethodResponse, RetryPolicy, StepOptions};
 use dexzd_protocol::dexzd::v1::{StepAttemptFailureKind, flow_command};
 use tokio::time::Instant;
 
 use super::{
-    DurableState, EffectHarness, FakeDispatch, is_error_reply, is_method_completed, settings,
-    start_request,
+    DurableState, EffectHarness, FakeDispatch, is_attempt_failed, is_error_reply,
+    is_method_completed, settings, start_request,
 };
 use crate::effects::EffectsConfig;
 
@@ -137,6 +137,46 @@ async fn a_worker_result_ready_with_the_fired_method_timer_fails_with_method_tim
 #[tokio::test(start_paused = true)]
 async fn a_worker_result_after_the_method_deadline_fails_before_the_timer_fires() {
     assert_a_result_at_the_method_deadline_times_out(Readiness::EventBeforeTimerFires).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn retry_total_duration_cuts_the_running_attempt_before_method_timeout() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    let options = StepOptions {
+        wait_for_timeout_seconds: 5,
+        wait_for_retry_policy: Some(RetryPolicy {
+            total_duration_seconds: 3,
+            ..RetryPolicy::default()
+        }),
+        heartbeat_timeout_seconds: 600,
+        ..StepOptions::default()
+    };
+    let mut request = start_request("retry-deadline");
+    request.step_options = Some(options);
+    harness.start_flow(request, settings());
+    let dispatch = harness.dispatcher.next_dispatch().await;
+    let started_at = Instant::now();
+    // The total duration counts from the start of attempt 1.
+    tokio::time::sleep_until(started_at + Duration::from_millis(2_900)).await;
+    harness.settle().await;
+    assert!(
+        harness
+            .runtime
+            .commands_matching(is_attempt_failed)
+            .is_empty()
+    );
+    tokio::time::sleep_until(started_at + Duration::from_millis(3_100)).await;
+    harness.settle().await;
+    let failures = harness.runtime.commands_matching(is_attempt_failed);
+    assert_eq!(failures.len(), 1);
+    assert!(failures.iter().all(|recorded| matches!(
+        &recorded.command.command,
+        Some(flow_command::Command::StepAttemptFailed(failure))
+            if failure.kind == StepAttemptFailureKind::RetryDeadline as i32 && failure.is_non_retryable
+    )));
+    assert!(dispatch.is_cancelled.load(Ordering::SeqCst));
+    harness.shutdown().await;
 }
 
 async fn assert_a_frame_at_the_heartbeat_deadline_times_out(readiness: Readiness) {

@@ -53,12 +53,14 @@ pub enum StepFailureKind {
     ValueTooLarge,
     /// Attempt request exceeded the message limit.
     RequestTooLarge,
+    /// Retry policy total duration expired during the attempt.
+    RetryDeadline,
 }
 
-label_value!(StepFailureKind { WorkerError => "worker_error", MethodTimeout => "method_timeout", HeartbeatTimeout => "heartbeat_timeout", DispatchError => "dispatch_error", InvalidResponse => "invalid_response", UnsupportedFeature => "unsupported_feature", ValueTooLarge => "value_too_large", RequestTooLarge => "request_too_large" });
+label_value!(StepFailureKind { WorkerError => "worker_error", MethodTimeout => "method_timeout", HeartbeatTimeout => "heartbeat_timeout", DispatchError => "dispatch_error", InvalidResponse => "invalid_response", UnsupportedFeature => "unsupported_feature", ValueTooLarge => "value_too_large", RequestTooLarge => "request_too_large", RetryDeadline => "retry_deadline" });
 
 impl StepFailureKind {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::WorkerError,
         Self::MethodTimeout,
         Self::HeartbeatTimeout,
@@ -67,6 +69,7 @@ impl StepFailureKind {
         Self::UnsupportedFeature,
         Self::ValueTooLarge,
         Self::RequestTooLarge,
+        Self::RetryDeadline,
     ];
 
     const fn index(self) -> usize {
@@ -79,6 +82,7 @@ impl StepFailureKind {
             Self::UnsupportedFeature => 5,
             Self::ValueTooLarge => 6,
             Self::RequestTooLarge => 7,
+            Self::RetryDeadline => 8,
         }
     }
 }
@@ -135,7 +139,7 @@ struct FlowCloseLabel {
 /// Failed Step method attempts by effective durability and failure class.
 #[derive(Clone, Debug)]
 pub struct StepAttemptFailures {
-    counts: Arc<[[Counter; 8]; 2]>,
+    counts: Arc<[[Counter; 9]; 2]>,
 }
 
 impl Default for StepAttemptFailures {

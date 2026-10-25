@@ -14,15 +14,11 @@ use dex_sdk::{Client, Registry, SdkResult};
 
 use crate::state_recovery_no_wait_workflow::StateRecoveryNoWaitWorkflow;
 use crate::state_recovery_workflow::StateRecoveryWorkflow;
-use crate::support::{DexDevTestEnvironment, flow_id, skip_if_server_zd};
+use crate::support::{DexDevTestEnvironment, flow_id};
 
 #[test]
 #[ignore = "requires dexcli dev"]
 fn test_state_api_fail_and_recovery_workflow() {
-    // C21: server-zd rejects Step failure policies.
-    if skip_if_server_zd("Step failure policies") {
-        return;
-    }
     let environment =
         DexDevTestEnvironment::start(Registry::new().register(StateRecoveryWorkflow::new()));
     let workflow = StateRecoveryWorkflow::new();
@@ -44,10 +40,6 @@ fn test_state_api_fail_and_recovery_workflow() {
 #[test]
 #[ignore = "requires dexcli dev"]
 fn test_state_api_fail_and_recovery_no_wait_until_workflow() {
-    // C21: server-zd rejects Step failure policies.
-    if skip_if_server_zd("Step failure policies") {
-        return;
-    }
     let environment =
         DexDevTestEnvironment::start(Registry::new().register(StateRecoveryNoWaitWorkflow::new()));
     let workflow = StateRecoveryNoWaitWorkflow::new();

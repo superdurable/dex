@@ -36,7 +36,7 @@ pub enum WorkerResponse<'a> {
     Rpc(Option<&'a InvokeWorkerRpcResponse>),
 }
 
-/// Validates a Worker result and marks unsupported failure policies as non-retryable.
+/// Validates a Worker result and reports each rejection as a retryable Worker response.
 pub fn validate_worker_response(
     response: WorkerResponse<'_>,
     config: &ValidationConfig,

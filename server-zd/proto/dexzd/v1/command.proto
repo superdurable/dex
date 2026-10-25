@@ -202,6 +202,8 @@ enum StepAttemptFailureKind {
   STEP_ATTEMPT_FAILURE_KIND_VALUE_TOO_LARGE = 7;
   // The snapshot of the attempt is larger than the gRPC message limit.
   STEP_ATTEMPT_FAILURE_KIND_REQUEST_TOO_LARGE = 8;
+  // The retry policy's total duration expired during an attempt.
+  STEP_ATTEMPT_FAILURE_KIND_RETRY_DEADLINE = 9;
 }
 
 message StepAttemptFailedCommand {

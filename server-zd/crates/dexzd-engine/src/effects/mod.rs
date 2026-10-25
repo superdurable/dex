@@ -595,6 +595,7 @@ impl EffectRouter {
                 attempt,
                 task_id,
                 method_timeout_seconds,
+                retry_deadline_micros,
             } => {
                 let key = MethodAttemptKey::new(run_id, run_attempt, &invocation, attempt);
                 self.dispatch.run_started_attempt(
@@ -603,6 +604,7 @@ impl EffectRouter {
                     task_id,
                     method_timeout_seconds,
                     scheduled_at,
+                    retry_deadline_micros,
                 );
             }
             ApplyEffect::InvocationCanceled { task_id, .. } => {

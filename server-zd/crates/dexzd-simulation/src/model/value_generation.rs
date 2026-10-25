@@ -10,7 +10,8 @@
 
 use dexzd_keyspace::{RunId, ValueId, ValueReference};
 use dexzd_protocol::dex::{
-    AttributeSyncConfig, EncodedObject, RetryPolicy, StepOptions, Value, value,
+    AttributeSyncConfig, EncodedObject, ExecuteMethodFailurePolicy, RetryPolicy, StepOptions,
+    Value, WaitForMethodFailurePolicy, value,
 };
 use dexzd_protocol::dexzd::v1::{StoredValue, stored_value};
 use prost::Message;
@@ -147,26 +148,95 @@ pub(crate) fn worker_value(
     random_value(rng)
 }
 
-pub(crate) fn step_options(rng: &mut ChaCha8Rng) -> Option<StepOptions> {
+/// Step options; only the Step failure stream adds failure policies and total durations.
+pub(crate) fn step_options(
+    rng: &mut ChaCha8Rng,
+    is_step_failure_stream: bool,
+) -> Option<StepOptions> {
     if rng.random_bool(0.15) {
         return None;
     }
-    Some(StepOptions {
+    Some(step_options_with_recovery_depth(
+        rng,
+        is_step_failure_stream.then_some(1),
+    ))
+}
+
+/// Step options; `Some(depth)` adds failure policies with recovery options at most `depth` deep.
+fn step_options_with_recovery_depth(
+    rng: &mut ChaCha8Rng,
+    recovery_depth: Option<u32>,
+) -> StepOptions {
+    let recovery = recovery_depth.map(|depth| execute_failure_recovery(rng, depth));
+    let is_step_failure_stream = recovery.is_some();
+    let mut options = StepOptions {
         skip_wait_for: rng.random_bool(0.4),
         wait_for_lock_attribute_keys: subset(rng, LOCK_KEYS, 0.2),
         execute_lock_attribute_keys: subset(rng, LOCK_KEYS, 0.35),
-        wait_for_retry_policy: retry_policy(rng),
-        execute_retry_policy: retry_policy(rng),
+        wait_for_retry_policy: retry_policy(rng, is_step_failure_stream),
+        execute_retry_policy: retry_policy(rng, is_step_failure_stream),
         wait_for_load_attribute_map_instances: subset(rng, &["orders/", "users/alice"], 0.3),
         execute_load_attribute_map_instances: subset(rng, &["orders/", "orders/2"], 0.3),
         wait_for_load_channel_names: subset(rng, CHANNEL_NAMES, 0.25),
         execute_load_channel_names: subset(rng, CHANNEL_NAMES, 0.3),
         execute_load_channel_map_instances: subset(rng, &["queue/"], 0.3),
         ..StepOptions::default()
-    })
+    };
+    if let Some(recovery) = recovery {
+        options.wait_for_failure_policy = if rng.random_bool(0.15) {
+            WaitForMethodFailurePolicy::ProceedOnFailure as i32
+        } else {
+            WaitForMethodFailurePolicy::Unspecified as i32
+        };
+        options.execute_failure_policy = recovery.policy as i32;
+        options.execute_failure_proceed_step_type = recovery.step_type;
+        options.execute_failure_proceed_step_options = recovery.step_options;
+    }
+    options
 }
 
-fn retry_policy(rng: &mut ChaCha8Rng) -> Option<RetryPolicy> {
+/// An Execute failure policy and its recovery target.
+struct ExecuteFailureRecovery {
+    policy: ExecuteMethodFailurePolicy,
+    step_type: String,
+    step_options: Option<Box<StepOptions>>,
+}
+
+/// Mostly no recovery or a usable one; sometimes a policy without a target or a target without
+/// the policy, which the Go Server accepts and ignores.
+fn execute_failure_recovery(rng: &mut ChaCha8Rng, recovery_depth: u32) -> ExecuteFailureRecovery {
+    let (policy, has_target) = match rng.random_range(0..10) {
+        0..=4 => (ExecuteMethodFailurePolicy::Unspecified, false),
+        5..=7 => (ExecuteMethodFailurePolicy::ProceedToConfiguredStep, true),
+        8 => (ExecuteMethodFailurePolicy::ProceedToConfiguredStep, false),
+        _ => (
+            ExecuteMethodFailurePolicy::FailFlowOnExecuteMethodFailure,
+            true,
+        ),
+    };
+    let step_type = if has_target {
+        pick(rng, STEP_TYPES).to_owned()
+    } else {
+        String::new()
+    };
+    let step_options = (recovery_depth > 0 && rng.random_bool(0.6)).then(|| {
+        Box::new(step_options_with_recovery_depth(
+            rng,
+            Some(recovery_depth - 1),
+        ))
+    });
+    ExecuteFailureRecovery {
+        policy,
+        step_type,
+        step_options,
+    }
+}
+
+/// A retry policy; the Step failure stream sometimes sets a total duration that expires in a run.
+pub(crate) fn retry_policy(
+    rng: &mut ChaCha8Rng,
+    is_step_failure_stream: bool,
+) -> Option<RetryPolicy> {
     if rng.random_bool(0.3) {
         return None;
     }
@@ -175,7 +245,11 @@ fn retry_policy(rng: &mut ChaCha8Rng) -> Option<RetryPolicy> {
         backoff_coefficient: if rng.random_bool(0.5) { 2.0 } else { 0.0 },
         maximum_interval_seconds: if rng.random_bool(0.5) { 5 } else { 0 },
         maximum_attempts: rng.random_range(0..5),
-        total_duration_seconds: 0,
+        total_duration_seconds: if is_step_failure_stream && rng.random_bool(0.3) {
+            rng.random_range(1..6)
+        } else {
+            0
+        },
     })
 }
 

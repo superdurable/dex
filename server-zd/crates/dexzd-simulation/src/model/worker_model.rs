@@ -15,10 +15,10 @@ use dexzd_protocol::dex::{
     StepMovement, TimerCondition, Value, WaitingCondition, WorkerErrorResponse, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    StepAttemptFailedCommand, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
-    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationRecord, StepMethod,
-    StepMethodCompletedCommand, TimerId, TimersFiredCommand, flow_command::Command,
-    step_attempt_heartbeat_command, step_method_completed_command,
+    StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
+    StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
+    StepInvocationRecord, StepMethod, StepMethodCompletedCommand, TimerId, TimersFiredCommand,
+    flow_command::Command, step_attempt_heartbeat_command, step_method_completed_command,
 };
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
@@ -102,7 +102,12 @@ pub(crate) fn start_attempt(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
     })
 }
 
-pub(crate) fn complete(rng: &mut ChaCha8Rng, call: &Call<'_>, is_synced: bool) -> Command {
+pub(crate) fn complete(
+    rng: &mut ChaCha8Rng,
+    call: &Call<'_>,
+    is_synced: bool,
+    is_step_failure_stream: bool,
+) -> Command {
     let visible = call.visible_values();
     let mut writes = guarded_writes(rng, call);
     for _ in 0..rng.random_range(0..3) {
@@ -154,7 +159,7 @@ pub(crate) fn complete(rng: &mut ChaCha8Rng, call: &Call<'_>, is_synced: bool) -
         })
     } else {
         step_method_completed_command::Response::Execute(InvokeExecuteMethodResponse {
-            step_decision: Some(step_decision(rng, call, &visible)),
+            step_decision: Some(step_decision(rng, call, &visible, is_step_failure_stream)),
             upsert_attributes: writes,
             upsert_step_exe_locals: locals,
             publish_to_channel: publications,
@@ -243,7 +248,12 @@ fn waiting_condition(rng: &mut ChaCha8Rng) -> Option<WaitingCondition> {
     }
 }
 
-fn step_decision(rng: &mut ChaCha8Rng, call: &Call<'_>, visible: &[Value]) -> StepDecision {
+fn step_decision(
+    rng: &mut ChaCha8Rng,
+    call: &Call<'_>,
+    visible: &[Value],
+    is_step_failure_stream: bool,
+) -> StepDecision {
     let active_count = call
         .run
         .step_executions
@@ -264,7 +274,7 @@ fn step_decision(rng: &mut ChaCha8Rng, call: &Call<'_>, visible: &[Value]) -> St
                 step_input: rng
                     .random_bool(0.8)
                     .then(|| worker_value(rng, call.run_id, visible, INVALID_VALUE_PROBABILITY)),
-                step_options: step_options(rng),
+                step_options: step_options(rng, is_step_failure_stream),
                 ..StepMovement::default()
             })
             .collect()
@@ -298,11 +308,17 @@ fn step_decision(rng: &mut ChaCha8Rng, call: &Call<'_>, visible: &[Value]) -> St
     }
 }
 
-pub(crate) fn fail(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
+/// Only the Step failure stream reports `RETRY_DEADLINE`, the engine's total duration failure.
+pub(crate) fn fail(rng: &mut ChaCha8Rng, call: &Call<'_>, is_step_failure_stream: bool) -> Command {
+    let kind = if is_step_failure_stream {
+        rng.random_range(1..10)
+    } else {
+        rng.random_range(1..9)
+    };
     Command::StepAttemptFailed(StepAttemptFailedCommand {
         invocation: Some(call.key()),
         attempt: call.invocation.attempt,
-        kind: rng.random_range(1..9),
+        kind,
         worker_error: Some(WorkerErrorResponse {
             detail: "simulated failure".to_owned(),
             retry_after_seconds: if rng.random_bool(0.2) {
@@ -313,7 +329,9 @@ pub(crate) fn fail(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
             ..WorkerErrorResponse::default()
         }),
         server_detail: String::new(),
-        is_non_retryable: rng.random_bool(0.03),
+        // The engine reports an expired retry deadline as non-retryable.
+        is_non_retryable: kind == StepAttemptFailureKind::RetryDeadline as i32
+            || rng.random_bool(0.03),
         pull_routing: None,
     })
 }
@@ -338,15 +356,19 @@ pub(crate) fn heartbeat(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
 }
 
 /// A result, failure, or heartbeat for an attempt that is not the running one.
-pub(crate) fn stale_attempt_command(rng: &mut ChaCha8Rng, call: &Call<'_>) -> Command {
+pub(crate) fn stale_attempt_command(
+    rng: &mut ChaCha8Rng,
+    call: &Call<'_>,
+    is_step_failure_stream: bool,
+) -> Command {
     let attempt = if call.invocation.attempt > 1 && rng.random_bool(0.6) {
         call.invocation.attempt - 1
     } else {
         call.invocation.attempt + 1
     };
     let mut command = match rng.random_range(0..3) {
-        0 => complete(rng, call, false),
-        1 => fail(rng, call),
+        0 => complete(rng, call, false, is_step_failure_stream),
+        1 => fail(rng, call, is_step_failure_stream),
         _ => heartbeat(rng, call),
     };
     match &mut command {

@@ -26,8 +26,6 @@ func TestStateApiFailAndProceedTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	// C21: server-zd rejects Step failure policies.
-	requireGoServerSetting(t, "Step failure policies")
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestStateApiFailAndProceed(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
@@ -126,10 +124,6 @@ func TestStateApiRetryAfterTemporal(t *testing.T) {
 			MaximumAttempts:        2,
 		},
 		WaitForFailurePolicy: dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
-	}
-	if isServerZDBinaryMode() {
-		// C21: server-zd rejects Step failure policies; the retried attempt succeeds without one.
-		stepOptions.WaitForFailurePolicy = dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED
 	}
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),

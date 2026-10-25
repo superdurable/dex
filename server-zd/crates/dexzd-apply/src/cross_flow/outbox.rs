@@ -11,7 +11,6 @@ use dexzd_keyspace::{ColumnFamily, IndexKind};
 use dexzd_protocol::dex::{
     ActiveStepSearchMode, ExecuteMethodFailurePolicy, FlowConfig, FlowResult, FlowTimeoutPolicy,
     StepCompletionOutput, StepDurability, SubFlowCondition, SubFlowReusePolicy,
-    WaitForMethodFailurePolicy,
 };
 use dexzd_protocol::dexzd::v1::{
     ChildFlowCompletedMessage, ChildFlowStartMessage, CrossFlowEndpoint, OutboxAckCommand,
@@ -207,16 +206,6 @@ pub(crate) fn validate_child_start_parameters(
     {
         return Err("starting Step type contains a reserved character".to_owned());
     }
-    if let Some(step_options) = condition.step_options.as_ref()
-        && (step_options.wait_for_failure_policy
-            == WaitForMethodFailurePolicy::ProceedOnFailure as i32
-            || step_options.execute_failure_policy
-                == ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
-            || !step_options.execute_failure_proceed_step_type.is_empty()
-            || step_options.execute_failure_proceed_step_options.is_some())
-    {
-        return Err("SubFlow Step failure proceed policy is unsupported".to_owned());
-    }
     let options = condition.options.as_ref().cloned().unwrap_or_default();
     if options.flow_start_delay_seconds < 0 {
         return Err("SubFlow start delay must be non-negative".to_owned());
@@ -245,14 +234,17 @@ pub(crate) fn validate_child_start_parameters(
         if handler.heartbeat_timeout_seconds < 0 {
             return Err("Flow timeout handler heartbeat timeout must be non-negative".to_owned());
         }
-        if handler.failure_policy == ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32 {
-            return Err("Flow timeout handler failure proceed policy is unsupported".to_owned());
-        }
         if ExecuteMethodFailurePolicy::try_from(handler.failure_policy).is_err() {
             return Err("unknown Flow timeout handler failure policy".to_owned());
         }
-        if !handler.failure_proceed_step_type.is_empty()
-            || handler.failure_proceed_step_options.is_some()
+        if handler.failure_policy == ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
+            && handler.failure_proceed_step_type.is_empty()
+        {
+            return Err("Flow timeout handler proceed policy requires a failure target".to_owned());
+        }
+        if handler.failure_policy != ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
+            && (!handler.failure_proceed_step_type.is_empty()
+                || handler.failure_proceed_step_options.is_some())
         {
             return Err(
                 "Flow timeout handler failure target requires the proceed policy".to_owned(),
