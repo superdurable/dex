@@ -430,6 +430,36 @@ test("Reconnect backs off idle streams and drains a busy stream", async () => {
   }
 });
 
+test("busy stream answers Ping without changing RPC result", async () => {
+  const harness = await startHarness();
+  let finishTask!: () => void;
+  const gate = new Promise<void>((resolve) => { finishTask = resolve; });
+  const worker = harness.worker(async () => {
+    await gate;
+    return InvokeWorkerRPCResponse.create({});
+  });
+  try {
+    worker.start();
+    const stream = await harness.nextStream();
+    stream.call.write(registered(true));
+    stream.call.write(rpcTask("busy-ping-rpc"));
+    await until(() => harness.invocationCount === 1);
+    stream.call.write({ frame: { $case: "ping", value: {} } });
+    await stream.frame("pong");
+    finishTask();
+    const result = await stream.frame("taskFrame");
+    assert.equal(result.frame?.$case, "taskFrame");
+    if (result.frame?.$case === "taskFrame") {
+      assert.equal(result.frame.value.taskId, "busy-ping-rpc");
+      assert.equal(result.frame.value.output?.$case, "rpc");
+    }
+  } finally {
+    finishTask();
+    await worker.close();
+    await harness.close();
+  }
+});
+
 test("busy Reconnect retains only the replacement idle stream", async () => {
   const harness = await startHarness();
   let finishTask!: () => void;

@@ -384,9 +384,9 @@ func (e *Engine) servePoll(transport pollTransport) error {
 		case result = <-received:
 		case <-pingTicker.C:
 			worker.mu.Lock()
-			isIdle := !worker.isBusy && !worker.isClosing
+			shouldPing := worker.current != nil || !worker.isClosing
 			worker.mu.Unlock()
-			if isIdle {
+			if shouldPing {
 				if err := worker.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Ping{Ping: &dexpb.PollWorkerTaskPing{}}}); err != nil {
 					return err
 				}

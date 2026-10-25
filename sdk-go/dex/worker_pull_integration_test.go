@@ -402,6 +402,44 @@ func TestWorkerPullCancelCapacityAndStopDrain(t *testing.T) {
 	require.NoError(t, <-started)
 }
 
+func TestWorkerPullPongDuringRunningRPCPreservesResult(t *testing.T) {
+	address, server := startPullTestServer(t)
+	flow := &workerBlockingFlow{entered: make(chan struct{}), release: make(chan struct{})}
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: "busy-ping-worker-12345678"}})
+	require.NoError(t, err)
+	started := make(chan error, 1)
+	go func() { started <- worker.Start() }()
+	var queueStream *pullTestStream
+	for queueStream == nil {
+		candidate := awaitPullRegistration(t, server)
+		if candidate.registration.Queue == GetFinalFlowType(flow) {
+			queueStream = candidate
+		}
+	}
+	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Task{Task: &dexpb.PollWorkerTask{
+		TaskId: "busy-ping-rpc", Request: &dexpb.PollWorkerTask_Rpc{Rpc: &dexpb.InvokeWorkerRPCRequest{
+			Context: workerRPCContext(), FlowType: GetFinalFlowType(flow), RpcName: "Block", Input: mustEncodeWorkerTestValue(t, struct{}{}),
+		}},
+	}}}))
+	select {
+	case <-flow.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("RPC did not start")
+	}
+	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Ping{Ping: &dexpb.PollWorkerTaskPing{}}}))
+	require.NotNil(t, awaitPullFrame(t, queueStream).GetPong())
+	close(flow.release)
+	result := awaitPullFrame(t, queueStream).GetTaskFrame()
+	require.Equal(t, "busy-ping-rpc", result.GetTaskId())
+	require.NotNil(t, result.GetRpc())
+	require.Equal(t, mustEncodeWorkerTestValue(t, true), result.GetRpc().GetOutput())
+	require.Nil(t, result.GetWorkerError())
+	stopContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, worker.Stop(stopContext))
+	require.NoError(t, <-started)
+}
+
 func TestWorkerPullForcedStopWaitsForHandler(t *testing.T) {
 	address, server := startPullTestServer(t)
 	flow := &workerBlockingFlow{entered: make(chan struct{}), release: make(chan struct{})}

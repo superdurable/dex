@@ -831,6 +831,54 @@ async def _busy_reconnect_drains_before_closing_stream() -> None:
     ]
 
 
+def test_busy_ping_returns_pong_without_changing_rpc_result() -> None:
+    asyncio.run(_busy_ping_returns_pong_without_changing_rpc_result())
+
+
+async def _busy_ping_returns_pong_without_changing_rpc_result() -> None:
+    dispatcher = BlockingDispatcher()
+    call = QueueCall(
+        [
+            pb.PollWorkerTaskResponse(registered=pb.PollWorkerTaskRegistered()),
+            pb.PollWorkerTaskResponse(
+                task=pb.PollWorkerTask(task_id="busy-ping", rpc=pb.InvokeWorkerRPCRequest())
+            ),
+        ]
+    )
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        dispatcher,
+        PullWorkerOptions(app_worker_id="busy-ping-worker"),
+        "localhost:8801",
+        None,
+    )
+    runtime._stopping = asyncio.Event()
+    stream = PullStream(runtime, FakeStub(cast(FakeCall, call)), "busy-ping-worker")
+    polling = asyncio.create_task(stream._poll())
+    await asyncio.wait_for(dispatcher.started.wait(), timeout=1)
+    call.frames.put_nowait(pb.PollWorkerTaskResponse(ping=pb.PollWorkerTaskPing()))
+
+    async def wait_for_pong() -> None:
+        while not any(request.WhichOneof("frame") == "pong" for request in call.requests):
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(wait_for_pong(), timeout=1)
+    assert [request.WhichOneof("frame") for request in call.requests] == ["register", "pong"]
+    dispatcher.gate.set()
+    call.frames.put_nowait(
+        pb.PollWorkerTaskResponse(reconnect=pb.PollWorkerTaskReconnect(reason="done"))
+    )
+    assert await asyncio.wait_for(polling, timeout=1)
+    assert [request.WhichOneof("frame") for request in call.requests] == [
+        "register",
+        "pong",
+        "task_frame",
+    ]
+    result = call.requests[-1].task_frame
+    assert result.task_id == "busy-ping"
+    assert result.WhichOneof("output") == "rpc"
+
+
 class UnknownTaskCall(QueueCall):
     def __init__(self, supports_unknown_name_rejection: bool) -> None:
         super().__init__(

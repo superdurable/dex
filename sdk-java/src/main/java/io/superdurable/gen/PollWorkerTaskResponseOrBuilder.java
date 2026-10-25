@@ -120,7 +120,7 @@ public interface PollWorkerTaskResponseOrBuilder extends
 
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether a registered stream remains responsive, including during a task.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -129,7 +129,7 @@ public interface PollWorkerTaskResponseOrBuilder extends
   boolean hasPing();
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether a registered stream remains responsive, including during a task.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -138,7 +138,7 @@ public interface PollWorkerTaskResponseOrBuilder extends
   io.superdurable.gen.PollWorkerTaskPing getPing();
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether a registered stream remains responsive, including during a task.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>

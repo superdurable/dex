@@ -275,7 +275,7 @@ private static final long serialVersionUID = 0L;
   public static final int PING_FIELD_NUMBER = 5;
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether a registered stream remains responsive, including during a task.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -287,7 +287,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether a registered stream remains responsive, including during a task.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -302,7 +302,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Checks whether an idle stream remains responsive.
+   * Checks whether a registered stream remains responsive, including during a task.
    * </pre>
    *
    * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1511,7 +1511,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.PollWorkerTaskPing, io.superdurable.gen.PollWorkerTaskPing.Builder, io.superdurable.gen.PollWorkerTaskPingOrBuilder> pingBuilder_;
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether a registered stream remains responsive, including during a task.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1523,7 +1523,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether a registered stream remains responsive, including during a task.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1545,7 +1545,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether a registered stream remains responsive, including during a task.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1565,7 +1565,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether a registered stream remains responsive, including during a task.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1583,7 +1583,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether a registered stream remains responsive, including during a task.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1610,7 +1610,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether a registered stream remains responsive, including during a task.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1633,7 +1633,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether a registered stream remains responsive, including during a task.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1643,7 +1643,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether a registered stream remains responsive, including during a task.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>
@@ -1661,7 +1661,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Checks whether an idle stream remains responsive.
+     * Checks whether a registered stream remains responsive, including during a task.
      * </pre>
      *
      * <code>.dex.PollWorkerTaskPing ping = 5;</code>

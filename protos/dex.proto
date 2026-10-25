@@ -232,7 +232,7 @@ message PollWorkerTaskResponse {
     PollWorkerTaskCancelTask cancel_task = 3;
     // Requests a reconnect after the current task finishes.
     PollWorkerTaskReconnect reconnect = 4;
-    // Checks whether an idle stream remains responsive.
+    // Checks whether a registered stream remains responsive, including during a task.
     PollWorkerTaskPing ping = 5;
   }
 }
@@ -271,7 +271,7 @@ message PollWorkerTaskReconnect {
   string reason = 1;
 }
 
-// Checks that an idle pull stream remains responsive.
+// Checks that a registered pull stream remains responsive, including during a task.
 message PollWorkerTaskPing {}
 
 // Describes one task dispatched to a Dex task queue.

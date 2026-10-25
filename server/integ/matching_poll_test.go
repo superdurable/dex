@@ -130,6 +130,34 @@ func testPullWorkerRouting(t *testing.T, backend service.BackendType) {
 		dispatchPullTask(t, dexpb.NewMatchingServiceClient(internalConnection), worker, "pull-flow")
 	})
 
+	t.Run("busy stream receives ping until task result", func(t *testing.T) {
+		cfg := createTestConfig(t, DexServiceTestConfig{BackendType: backend})
+		cfg.Matching = &config.MatchingConfig{PingInterval: 50 * time.Millisecond}
+		runtime := startPullRuntime(t, &cfg, bootstrap.Services{API: true, Matching: true})
+		publicConnection := newDexClientConnectionWithCredential(t, runtime.publicAddress, "", config.DefaultGrpcMaxMessageBytes)
+		internalConnection := newDexClientConnectionWithCredential(t, runtime.internalAddress, "", config.DefaultGrpcMaxMessageBytes)
+		queue := "busy-ping-" + uuid.NewString()
+		worker := registerPullWorker(t, publicConnection, queue)
+		dispatch, err := dexpb.NewMatchingServiceClient(internalConnection).DispatchTask(pullContext(t), pullDispatchRequest(queue))
+		require.NoError(t, err)
+		var task *dexpb.PollWorkerTask
+		for task == nil {
+			frame, receiveErr := worker.Recv()
+			require.NoError(t, receiveErr)
+			task = frame.GetTask()
+		}
+		for range 3 {
+			ping, receiveErr := worker.Recv()
+			require.NoError(t, receiveErr)
+			require.NotNil(t, ping.GetPing())
+			require.NoError(t, worker.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Pong{Pong: &dexpb.PollWorkerTaskPong{}}}))
+		}
+		require.NoError(t, worker.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: &dexpb.PollWorkerTaskFrame{TaskId: task.TaskId, Output: &dexpb.PollWorkerTaskFrame_Rpc{Rpc: &dexpb.InvokeWorkerRPCResponse{}}}}}))
+		require.NotNil(t, receivePullDispatchOutput(t, dispatch).GetRpc())
+		_, err = dispatch.Recv()
+		require.ErrorIs(t, err, io.EOF)
+	})
+
 	t.Run("auth-off InternalService compatibility", func(t *testing.T) {
 		cfg := createTestConfig(t, DexServiceTestConfig{BackendType: backend})
 		cfg.Internal.Listen = "127.0.0.1:0"

@@ -482,6 +482,27 @@ final class PullWorkerTest {
     }
 
     @Test
+    void answersPingDuringRunningRpcWithoutChangingResult() throws Exception {
+        final TestFlow flow = new TestFlow();
+        final PollServer pollServer = new PollServer();
+        try (RunningWorker running = new RunningWorker(pollServer, flow, 1)) {
+            final PollStream stream = pollServer.awaitQueue("PullTestFlow");
+            stream.assign(reservedRpcTask("busy-ping-rpc"));
+            assertTrue(flow.entered.await(5, TimeUnit.SECONDS));
+            stream.respond(PollWorkerTaskResponse.newBuilder()
+                    .setPing(io.superdurable.gen.PollWorkerTaskPing.getDefaultInstance()).build());
+            assertTrue(stream.awaitFrame().hasPong());
+            flow.release.countDown();
+            final PollWorkerTaskRequest result = stream.awaitFrame();
+            assertEquals("busy-ping-rpc", result.getTaskFrame().getTaskId());
+            assertTrue(result.getTaskFrame().getRpc().hasOutput());
+            assertEquals(new ValueMapper(new com.fasterxml.jackson.databind.ObjectMapper()).encode("block"),
+                    result.getTaskFrame().getRpc().getOutput());
+            assertFalse(result.getTaskFrame().hasWorkerError());
+        }
+    }
+
+    @Test
     void rejectsAtCapacityAndDrainsLargeFinalFrameOnReconnectAndStop() throws Exception {
         final TestFlow flow = new TestFlow();
         final PollServer pollServer = new PollServer();

@@ -2959,22 +2959,28 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn stop_drain_delivers_large_result_after_delayed_read() {
-        delayed_read_delivers_large_result(false, false).await;
+        delayed_read_delivers_large_result(false, false, Duration::from_millis(6_100)).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn busy_ping_returns_pong_without_changing_rpc_result() {
+        delayed_read_delivers_large_result(false, false, Duration::from_millis(10)).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn busy_reconnect_delivers_large_result_after_delayed_read() {
-        delayed_read_delivers_large_result(true, false).await;
+        delayed_read_delivers_large_result(true, false, Duration::from_millis(6_100)).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn stop_rebounds_busy_reconnect_half_close() {
-        delayed_read_delivers_large_result(true, true).await;
+        delayed_read_delivers_large_result(true, true, Duration::from_secs(8)).await;
     }
 
     async fn delayed_read_delivers_large_result(
         is_reconnecting: bool,
         should_stop_during_reconnect: bool,
+        read_delay: Duration,
     ) {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -2989,11 +2995,7 @@ mod tests {
                     events,
                     assigned: Arc::new(AtomicBool::new(false)),
                     cancel_kind: None,
-                    read_delay: if should_stop_during_reconnect {
-                        Duration::from_secs(8)
-                    } else {
-                        Duration::from_millis(6_100)
-                    },
+                    read_delay,
                     is_reconnecting,
                     ready: Some(ready),
                 }))

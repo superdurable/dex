@@ -143,10 +143,10 @@ loopback 端口。关闭 **auth** 时，公开 listener 仍提供 **InternalServ
 **matching.maxStreams** 限制每个 Matching 实例上的已注册 stream 数。
 **maxConcurrentTasksCap** 限制该 owner 上单个 **appWorkerID** 的 stream 数。
 **maxQueueLength** 限制队列名长度，**maxFlowTypes** 和 **maxFlowTypeLength**
-限制每个 Worker 的注册内容。等待预算默认使用上述值。Dex 每隔 **pingInterval** 向空闲 poll stream
-发送 **Ping** frame。负载均衡器必须支持长时间运行的 HTTP/2 stream，且 idle timeout
-大于该间隔。忙碌的 stream 不会收到这些 Ping；Worker 应足够频繁地发送任务心跳
-frame，以保持负载均衡器连接活跃。公开 endpoint 必须保留双向 streaming。
+限制每个 Worker 的注册内容。等待预算默认使用上述值。Dex 每隔
+**matching.pingInterval** 向空闲和忙碌的 poll stream 发送 **Ping** frame，默认间隔
+为 20 秒。负载均衡器和代理必须支持长时间运行的 HTTP/2 stream。每个代理的 idle timeout
+和 stream idle timeout 都应长于该间隔，并为网络延迟留出余量。公开 endpoint 必须保留双向 streaming。
 
 ## 配置
 

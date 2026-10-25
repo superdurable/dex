@@ -1180,7 +1180,7 @@ async fn per_worker_stream_limits_are_tenant_scoped() {
 }
 
 #[tokio::test]
-async fn busy_workers_receive_no_idle_ping() {
+async fn busy_workers_receive_pings_until_their_result() {
     let config = MatchingConfig {
         ping_interval: Duration::from_millis(20),
         ..Default::default()
@@ -1189,7 +1189,7 @@ async fn busy_workers_receive_no_idle_ping() {
     let server = start_server(dispatch.clone(), 0).await;
     let mut worker = register_worker(&server.channel, registration("Flow", "worker")).await;
     let mut handle = dispatch
-        .dispatch(request(0, "busy-no-ping"))
+        .dispatch(request(0, "busy-ping"))
         .expect("dispatch starts");
     let assigned = loop {
         match worker.next().await.frame.expect("frame exists") {
@@ -1198,12 +1198,55 @@ async fn busy_workers_receive_no_idle_ping() {
             other => panic!("expected task, got {other:?}"),
         }
     };
-    assert!(
-        tokio::time::timeout(Duration::from_millis(80), worker.stream.message())
-            .await
-            .is_err()
-    );
+    assert!(matches!(
+        worker.next().await.frame,
+        Some(poll_worker_task_response::Frame::Ping(_))
+    ));
+    worker.send(poll_worker_task_request::Frame::Pong(
+        dex::PollWorkerTaskPong {},
+    ));
     worker.sender.send(result(&assigned)).expect("result sends");
+    assert!(matches!(
+        completed(&mut handle).await,
+        DispatchOutcome::WorkerResult { .. }
+    ));
+}
+
+#[tokio::test]
+async fn shutdown_drain_pings_busy_worker_until_reconnect() {
+    let config = MatchingConfig {
+        ping_interval: Duration::from_millis(20),
+        ..Default::default()
+    };
+    let dispatch = dispatch_with_config(config);
+    let server = start_server(dispatch.clone(), 0).await;
+    let mut worker = register_worker(&server.channel, registration("Flow", "worker")).await;
+    let mut handle = dispatch
+        .dispatch(request(0, "shutdown-drain-ping"))
+        .expect("dispatch starts");
+    let assigned = loop {
+        match worker.next().await.frame.expect("frame exists") {
+            poll_worker_task_response::Frame::Task(task) => break task.task_id,
+            poll_worker_task_response::Frame::Ping(_) => {}
+            other => panic!("expected task, got {other:?}"),
+        }
+    };
+    dispatch.shutdown();
+    assert!(matches!(
+        worker.next().await.frame,
+        Some(poll_worker_task_response::Frame::Ping(_))
+    ));
+    worker.send(poll_worker_task_request::Frame::Pong(
+        dex::PollWorkerTaskPong {},
+    ));
+    worker.sender.send(result(&assigned)).expect("result sends");
+    loop {
+        match worker.next().await.frame.expect("frame exists") {
+            poll_worker_task_response::Frame::Reconnect(_) => break,
+            poll_worker_task_response::Frame::Ping(_) => {}
+            other => panic!("expected reconnect, got {other:?}"),
+        }
+    }
     assert!(matches!(
         completed(&mut handle).await,
         DispatchOutcome::WorkerResult { .. }

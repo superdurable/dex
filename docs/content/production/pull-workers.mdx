@@ -682,10 +682,9 @@ time; the wake notification does not guarantee that a Worker starts in time.
 The **matching** role owns pull Worker queues. Keep at least one Matching
 instance running. Workers connect to an API instance on the public FlowService
 port; the API forwards their streams to the queue owner. Preserve bidirectional
-HTTP/2 streaming and set the load balancer idle timeout above
-**matching.pingInterval**, which defaults to 20 seconds. Busy streams do not
-receive idle Pings, so handlers should send task heartbeats often enough to
-keep their connections active.
+HTTP/2 streaming. Dex sends **Ping** frames to idle and busy streams every
+**matching.pingInterval**, which defaults to 20 seconds. Set every proxy idle
+and stream idle timeout above that interval, with margin for network delays.
 
 For one Server process, Dex uses a local membership ring. For multiple Server
 instances, configure **membership** and a private **internal.listen** on each

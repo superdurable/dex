@@ -647,9 +647,9 @@ Worker 可能缩容到零时，配置 [Worker 唤醒 hook](/production/server-op
 
 **matching** 角色管理拉取模式 Worker 队列。至少保持一个 Matching 实例运行。Worker
 通过公开的 FlowService 端口连接 API 实例；API 会将 stream 转发给队列 owner。负载均衡器
-应支持双向 HTTP/2 streaming，idle timeout 要长于 **matching.pingInterval**，默认
-为 20 秒。忙碌的 stream 不会收到空闲 Ping，因此 handler 应足够频繁地发送任务心跳，
-以保持连接活跃。
+应支持双向 HTTP/2 streaming。Dex 每隔 **matching.pingInterval** 向空闲和忙碌的
+stream 发送 **Ping** frame，默认间隔为 20 秒。每个代理的 idle timeout 和 stream idle
+timeout 都应长于该间隔，并为网络延迟留出余量。
 
 单个 Server 进程使用本地 membership ring。多个 Server 实例需要在每个进程配置
 **membership** 和私有的 **internal.listen**。所有实例应使用相同的 backend namespace

@@ -165,11 +165,11 @@ private listener for it. Interpreter-only processes join membership only when
 **maxQueueLength** limits queue names, and **maxFlowTypes** and
 **maxFlowTypeLength** bound each Worker's registration. The wait budgets use
 the values shown above by default.
-Dex sends a **Ping** frame on idle poll streams every **pingInterval**. Configure
-load balancers for long-lived HTTP/2 streams and an idle timeout greater than
-that interval. Busy streams do not receive these Pings; Workers should send
-task heartbeat frames often enough to keep the load balancer connection active.
-Preserve bidirectional streaming through the public endpoint.
+Dex sends a **Ping** frame on idle and busy poll streams every
+**matching.pingInterval** (20 seconds by default). Configure load balancers and
+proxies for long-lived HTTP/2 streams. Set every proxy idle and stream idle
+timeout above that interval, with margin for network delays. Preserve
+bidirectional streaming through the public endpoint.
 
 ## Configuration
 
