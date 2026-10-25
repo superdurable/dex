@@ -170,10 +170,10 @@ impl Default for LocalStorageConfig {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum DevDurabilityMode {
-    /// Flush each acknowledged write to disk; required for crash-recovery tests.
-    Strict,
-    /// Default; skip fsync for faster local development, so a crash can lose acknowledged writes.
+    /// Default; flush each acknowledged write to disk, so a crash or SIGKILL loses nothing.
     #[default]
+    Strict,
+    /// Skips fsync for speed; after a crash or SIGKILL, later starts fail until the data directory is deleted.
     Relaxed,
 }
 
@@ -185,7 +185,7 @@ pub struct DevConfig {
     pub data_directory: PathBuf,
     /// Defaults to empty until --data-dir is supplied; embedded S3 files are placed under <data-dir>/s3.
     pub s3_data_directory: PathBuf,
-    /// Defaults to relaxed; strict flushes acknowledged embedded S3 writes before replying.
+    /// Defaults to strict, which fsyncs every acknowledged embedded S3 write; relaxed is faster but cannot survive an abrupt exit.
     pub durability_mode: DevDurabilityMode,
     /// Defaults to none; optional directory that also receives dex-server-zd.log.
     pub log_directory: Option<PathBuf>,
@@ -196,7 +196,7 @@ impl Default for DevConfig {
         Self {
             data_directory: PathBuf::new(),
             s3_data_directory: PathBuf::new(),
-            durability_mode: DevDurabilityMode::Relaxed,
+            durability_mode: DevDurabilityMode::Strict,
             log_directory: None,
         }
     }

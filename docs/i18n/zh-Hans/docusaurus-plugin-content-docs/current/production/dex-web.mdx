@@ -172,6 +172,11 @@ server-zd YAML 文件，可以覆盖已关闭 Flow 的保留时间、Stream 或�
 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md#start-locally)
 列出了全部 flag。
 
+server-zd 默认把每个已确认的写入刷到磁盘。因此崩溃或进程被 kill 不会丢失 Flow，
+下次启动会从同一个状态目录继续。**dev.durabilityMode: relaxed** 覆盖项会跳过这些刷盘，
+以换取更快的写入。在 relaxed 模式下崩溃或被 kill 之后，server-zd 会拒绝启动，
+直到你删除状态目录。
+
 ~~~bash
 dexcli dev --engine zd --flow-rendering-dir ./build
 ~~~

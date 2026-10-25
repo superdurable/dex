@@ -86,6 +86,13 @@ impl EmbeddedS3 {
 /// Returns the open failure as text; a newer store format names the dev remedy for the whole data directory.
 fn store_open_failure_detail(error: StoreError, data_directory: &Path) -> String {
     match error {
+        // The local store kept state that the rolled-back object store lost, so both must go.
+        StoreError::UncleanRelaxedSession { .. } => format!(
+            "the previous dev run in relaxed durability mode did not stop cleanly, so the embedded \
+             object store lost recent writes; delete the whole data directory {} to start empty, \
+             and use the default strict durability mode to survive abrupt exits",
+            data_directory.display()
+        ),
         StoreError::UnsupportedStoreFormatVersion {
             found, supported, ..
         } => format!(
@@ -99,7 +106,7 @@ fn store_open_failure_detail(error: StoreError, data_directory: &Path) -> String
 }
 
 fn open_store(config: &StoreConfig, bucket: &str) -> Result<Store, StoreError> {
-    let store = Store::open(config)?;
+    let store = Store::open_refusing_unclean_relaxed_session(config)?;
     match store.create_bucket(bucket, false) {
         Ok(_) | Err(StoreError::BucketAlreadyOwnedByYou(_)) => Ok(store),
         Err(error) => Err(error),
@@ -125,6 +132,19 @@ mod tests {
             Path::new("/data"),
         );
         assert!(detail.contains("upgrade dex-server-zd"), "{detail}");
+        assert!(detail.contains("whole data directory /data "), "{detail}");
+        assert!(!detail.contains("/data/s3"), "{detail}");
+    }
+
+    #[test]
+    fn unclean_relaxed_session_names_the_whole_data_directory() {
+        let detail = store_open_failure_detail(
+            StoreError::UncleanRelaxedSession {
+                root_directory: PathBuf::from("/data/s3"),
+            },
+            Path::new("/data"),
+        );
+        assert!(detail.contains("did not stop cleanly"), "{detail}");
         assert!(detail.contains("whole data directory /data "), "{detail}");
         assert!(!detail.contains("/data/s3"), "{detail}");
     }

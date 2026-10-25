@@ -22,8 +22,8 @@ mod object_write;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicI64;
+use std::sync::{Mutex, MutexGuard};
 
 use redb::{
     Database, ReadOnlyDatabase, ReadableDatabase, ReadableTable, Table, TableDefinition,
@@ -85,6 +85,10 @@ const METADATA_FILE_NAME: &str = "metadata.redb";
 const DATA_DIRECTORY_NAME: &str = "data";
 const TEMPORARY_DIRECTORY_NAME: &str = "tmp";
 const NULL_VERSION_ID: &str = "null";
+/// Exists while a guarded relaxed session is open; only its durable close removes it.
+const RELAXED_SESSION_MARKER_FILE_NAME: &str = "relaxed-session-open";
+/// Deferred removals that force a durable commit, bounding the disk that superseded files hold.
+const DEFERRED_REMOVAL_LIMIT: usize = 256;
 
 /// How much the store waits for stable storage before acknowledging a write.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -132,6 +136,39 @@ pub struct Store {
     opened_at_unix_ms: u64,
     /// Added to wall-clock time for lifecycle decisions only.
     lifecycle_clock_offset_ms: AtomicI64,
+    /// Relaxed mode keeps superseded files until a durable commit, so a rollback finds them.
+    deferred_removals: Mutex<DeferredRemovals>,
+    /// Set by [`Store::open_refusing_unclean_relaxed_session`] in relaxed mode.
+    relaxed_session_marker: Option<PathBuf>,
+}
+
+/// Data files that relaxed commits superseded, each waiting for a durable commit after its own.
+#[derive(Default)]
+struct DeferredRemovals {
+    next_sequence: u64,
+    /// In increasing sequence order.
+    files: Vec<(u64, PathBuf)>,
+}
+
+impl DeferredRemovals {
+    fn defer(&mut self, files: Vec<PathBuf>) {
+        for file in files {
+            self.files.push((self.next_sequence, file));
+            self.next_sequence += 1;
+        }
+    }
+
+    /// Returns and forgets the files deferred before `covered_sequence` was read.
+    fn take_covered(&mut self, covered_sequence: u64) -> Vec<PathBuf> {
+        let covered = self
+            .files
+            .partition_point(|(sequence, _)| *sequence < covered_sequence);
+        self.files.drain(..covered).map(|(_, file)| file).collect()
+    }
+
+    fn contains(&self, path: &Path) -> bool {
+        self.files.iter().any(|(_, file)| file == path)
+    }
 }
 
 impl Store {
@@ -178,9 +215,35 @@ impl Store {
             version_generator: Mutex::new(version_generator),
             opened_at_unix_ms: opened_at.timestamp_ms(),
             lifecycle_clock_offset_ms: AtomicI64::new(0),
+            deferred_removals: Mutex::new(DeferredRemovals::default()),
+            relaxed_session_marker: None,
         };
         store.create_tables(is_format_version_stamped)?;
         store.remove_temporary_files()?;
+        Ok(store)
+    }
+
+    /// Opens like [`Store::open`], but refuses a store whose last relaxed session ended abruptly.
+    ///
+    /// Returns [`StoreError::UncleanRelaxedSession`], in either durability mode, while the marker
+    /// of an earlier relaxed session opened this way remains. Only that session's durable close
+    /// removes its marker, so a crash or kill leaves it behind.
+    pub fn open_refusing_unclean_relaxed_session(
+        config: &StoreConfig,
+    ) -> Result<Store, StoreError> {
+        let marker_path = config.root_directory.join(RELAXED_SESSION_MARKER_FILE_NAME);
+        // Refused before any `Store` exists, because its drop would make the rollback durable.
+        if marker_path.try_exists()? {
+            return Err(StoreError::UncleanRelaxedSession {
+                root_directory: config.root_directory.clone(),
+            });
+        }
+        let mut store = Store::open(config)?;
+        if config.durability == Durability::Relaxed {
+            fs::File::create(&marker_path)?.sync_all()?;
+            crate::data_file::sync_directory(&config.root_directory)?;
+            store.relaxed_session_marker = Some(marker_path);
+        }
         Ok(store)
     }
 
@@ -217,6 +280,50 @@ impl Store {
         self.durability == Durability::Strict
     }
 
+    /// Commits `transaction`, then removes the data files whose metadata it dropped.
+    ///
+    /// Relaxed mode defers the removal until a durable commit covers this one.
+    fn commit_and_remove_superseded_files(
+        &self,
+        transaction: WriteTransaction,
+        superseded_files: Vec<PathBuf>,
+    ) -> Result<(), StoreError> {
+        if self.is_durable() || superseded_files.is_empty() {
+            transaction.commit()?;
+            remove_superseded_files(&superseded_files);
+            return Ok(());
+        }
+        let deferred_count = {
+            // Held across the commit, so orphan collection sees each file referenced or deferred.
+            let mut deferred_removals = self.lock_deferred_removals();
+            transaction.commit()?;
+            deferred_removals.defer(superseded_files);
+            deferred_removals.files.len()
+        };
+        if deferred_count >= DEFERRED_REMOVAL_LIMIT
+            && let Err(error) = self.make_relaxed_commits_durable()
+        {
+            tracing::warn!(%error, "failed to make relaxed commits durable; superseded data files stay until a later durable commit");
+        }
+        Ok(())
+    }
+
+    /// Makes every earlier relaxed commit durable, then removes the data files they superseded.
+    fn make_relaxed_commits_durable(&self) -> Result<(), StoreError> {
+        let covered_sequence = self.lock_deferred_removals().next_sequence;
+        // The default durability is immediate, which also persists every earlier relaxed commit.
+        self.database.begin_write()?.commit()?;
+        let removable = self.lock_deferred_removals().take_covered(covered_sequence);
+        remove_superseded_files(&removable);
+        Ok(())
+    }
+
+    fn lock_deferred_removals(&self) -> MutexGuard<'_, DeferredRemovals> {
+        self.deferred_removals
+            .lock()
+            .expect("no code panics while holding the deferred removal lock")
+    }
+
     fn next_internal_version(&self) -> Ulid {
         self.version_generator
             .lock()
@@ -249,13 +356,14 @@ impl Drop for Store {
         if self.durability == Durability::Strict {
             return;
         }
-        let flushed = self
-            .database
-            .begin_write()
-            .map_err(StoreError::from)
-            .and_then(|transaction| transaction.commit().map_err(StoreError::from));
-        if let Err(error) = flushed {
+        if let Err(error) = self.make_relaxed_commits_durable() {
             tracing::warn!(%error, "failed to flush relaxed metadata commits on close");
+            return;
+        }
+        if let Some(marker_path) = &self.relaxed_session_marker
+            && let Err(error) = fs::remove_file(marker_path)
+        {
+            tracing::warn!(path = %marker_path.display(), %error, "failed to remove the relaxed session marker after a durable close");
         }
     }
 }

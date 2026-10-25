@@ -134,5 +134,5 @@ attributeStore:
 dev:
   dataDirectory: ""
   s3DataDirectory: ""
-  durabilityMode: relaxed
+  durabilityMode: strict
   logDirectory: null

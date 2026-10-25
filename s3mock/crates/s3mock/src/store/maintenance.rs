@@ -113,7 +113,7 @@ impl Store {
                     continue;
                 }
                 collection.examined_files += 1;
-                if !self.is_referenced(bucket, &name, &path)? {
+                if self.is_orphan(bucket, &name, &path)? {
                     match fs::remove_file(&path) {
                         Ok(()) => collection.removed_files += 1,
                         Err(error) => {
@@ -197,6 +197,18 @@ impl Store {
             }
         }
         Ok(())
+    }
+
+    /// A data file is an orphan when no version references it and no relaxed commit deferred it.
+    fn is_orphan(
+        &self,
+        bucket: &BucketRecord,
+        file_name: &str,
+        path: &Path,
+    ) -> Result<bool, StoreError> {
+        // Superseding relaxed commits hold this lock, so both checks see the same state.
+        let deferred_removals = self.lock_deferred_removals();
+        Ok(!deferred_removals.contains(path) && !self.is_referenced(bucket, file_name, path)?)
     }
 
     /// A data file is live when a version of its header's key points back at this file.

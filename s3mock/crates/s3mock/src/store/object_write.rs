@@ -21,8 +21,8 @@ use super::multipart::{remove_upload, remove_upload_directory};
 use super::object_read::{ObjectReadRequest, ReadConditions};
 use super::{
     BUCKETS, LATEST, PARTS, Store, UPLOADS, VERSIONS, create_directory_durably, decode_json,
-    encode_json, load_versions, refresh_latest, relative_data_file, remove_superseded_files,
-    require_bucket, validate_object_key,
+    encode_json, load_versions, refresh_latest, relative_data_file, require_bucket,
+    validate_object_key,
 };
 use crate::checksum::{ChecksumAlgorithm, ObjectChecksum};
 use crate::data_file::{
@@ -368,8 +368,7 @@ impl Store {
                 record.last_modified_unix_ms,
             )
         };
-        transaction.commit()?;
-        remove_superseded_files(&superseded_files);
+        self.commit_and_remove_superseded_files(transaction, superseded_files)?;
         if let Some(directory) = upload_directory {
             remove_upload_directory(&directory);
         }

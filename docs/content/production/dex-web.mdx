@@ -175,6 +175,12 @@ Flow retention, Streams, or the search backend. The
 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md#start-locally)
 lists every flag.
 
+server-zd flushes every acknowledged write to disk by default. A crash or a
+killed process therefore loses no Flows, and the next start resumes from the
+same state directory. The **dev.durabilityMode: relaxed** override skips these
+flushes for faster writes. After a crash or kill in relaxed mode, server-zd
+refuses to start until you delete the state directory.
+
 ~~~bash
 dexcli dev --engine zd --flow-rendering-dir ./build
 ~~~

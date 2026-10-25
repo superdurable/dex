@@ -60,7 +60,15 @@ waiting days; dates, tag and size filters, and transitions return `501 NotImplem
 
 `--durability strict` (the default) flushes every acknowledged write with fsync, so it survives a
 crash. `--durability relaxed` skips fsync. It is much faster, but a crash may lose acknowledged
-writes, so do not use it for crash-recovery tests.
+writes, so do not use it for crash-recovery tests. After a crash, a relaxed store reopens at its
+last durable commit, and every object it lists is readable. Relaxed mode keeps the data files that
+a write supersedes until a later durable commit, which happens on close and after every 256
+deferred removals.
+
+`Store::open_refusing_unclean_relaxed_session` is for an embedding process that derives other state
+from the store. In relaxed mode it writes a `relaxed-session-open` marker that only a durable close
+removes. When the marker remains after a crash, every later call fails with
+`StoreError::UncleanRelaxedSession`. `Store::open` and the `s3mock` command never check the marker.
 
 ## Store format
 
