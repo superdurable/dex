@@ -256,17 +256,24 @@ store's PostgreSQL tables. These differences from the Go Server apply:
   after it completes. server-zd v0.1.4 or later waits, like the Go Server. A natural close (a
   Step decision that completes or fails the Flow, exhausted Step retries, or the Flow timeout)
   cancels the Steps and disarms the Flow timeout at once. The run then stays RUNNING with a
-  pending close until the ack that removes its last outbox entry, for every store, records the
-  close. GetFlowSummary and SearchFlows show RUNNING meanwhile, and WaitForFlow returns only after
-  the rows are written or dropped.
+  pending close until no outbox entry, for any store, remains. GetFlowSummary and SearchFlows
+  show RUNNING meanwhile, and WaitForFlow returns only after the rows are written or dropped.
+- A natural close in v0.1.4 or later also waits, with or without an Attribute Store, for every
+  transactional or locking RPC that was admitted before it, as the Go Server waits for its
+  in-flight updates. The owner stamps such a closing command, apply keeps the close pending, and
+  the owner records it with a PendingCloseCheck command once those RPCs commit, fail, or time
+  out. A new owner after a restart or takeover has no admitted RPC and records the close during
+  recovery. Waits and non-transactional RPCs do not hold a close.
 - During that cleanup, SetAttributes, PublishToChannel, and non-transactional RPC results are
   accepted, and their synced writes extend the wait. They start no Step. Transactional or locking
   RPCs, WaitForStepCompletion, WaitForAttribute, and DeleteChannelMessage calls made during
   cleanup fail with FAILED_PRECONDITION "flow terminal cleanup is in progress", as the Go Server
   rejects them. A wait admitted earlier still returns a match it sees, and a transactional RPC
-  admitted earlier still commits.
-- A natural close waits at most `syncRetryPolicy.totalDuration`, because pending entries are
-  dropped then. A PostgreSQL outage therefore holds natural closes up to that long.
+  admitted earlier still commits; its synced writes join the outbox before the close.
+- `syncRetryPolicy.totalDuration` bounds each pending entry's retry window, not the whole close.
+  During a PostgreSQL outage a natural close waits until its entries are dropped, up to that long
+  per entry, and each write accepted during cleanup adds an entry with its own window, which
+  extends the wait.
 - StopFlow (CANCEL or FAIL), Terminate, and ID reuse termination close the run at once, even
   during cleanup; the stop discards a pending close. The run's remaining entries keep syncing
   after the close. ResetFlow replaces a pending close with the state of the reset point.

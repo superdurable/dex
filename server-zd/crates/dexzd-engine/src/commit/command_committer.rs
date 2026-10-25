@@ -110,8 +110,22 @@ impl CommandCommitter {
     pub fn submit(
         &self,
         context: ApplyContext,
+        command: FlowCommand,
+        urgency: CommitUrgency,
+    ) -> Result<(FlowCommand, CommitTicket), CommitError> {
+        self.submit_with_final_stamp(context, command, urgency, &mut |_| {})
+    }
+
+    /// Like [`Self::submit`], but calls `finish_stamp` with the stamped command under the stamp
+    /// lock, before the command is encoded and enqueued.
+    ///
+    /// Returns what [`Self::submit`] returns.
+    pub fn submit_with_final_stamp(
+        &self,
+        context: ApplyContext,
         mut command: FlowCommand,
         urgency: CommitUrgency,
+        finish_stamp: &mut dyn FnMut(&mut FlowCommand),
     ) -> Result<(FlowCommand, CommitTicket), CommitError> {
         let inner = &*self.inner;
         inner.state.check_serving()?;
@@ -133,6 +147,7 @@ impl CommandCommitter {
             .clock
             .now_unix_micros()
             .max(watermark.saturating_add(1));
+        finish_stamp(&mut command);
         let record = Bytes::from(
             LogRecord {
                 partition: u32::from(partition.0),
@@ -222,13 +237,14 @@ impl CommandCommitter {
 }
 
 impl FlowCommandCommitter for CommandCommitter {
-    fn submit(
+    fn submit_with_final_stamp(
         &self,
         context: ApplyContext,
         command: FlowCommand,
         urgency: CommitUrgency,
+        finish_stamp: &mut dyn FnMut(&mut FlowCommand),
     ) -> Result<(FlowCommand, CommitTicket), CommitError> {
-        CommandCommitter::submit(self, context, command, urgency)
+        CommandCommitter::submit_with_final_stamp(self, context, command, urgency, finish_stamp)
     }
 
     fn committed_view(&self) -> Result<Box<dyn FlowStateReader + Send>, CommitError> {

@@ -181,6 +181,7 @@ impl Harness {
             proposed_at_micros: self.now_micros,
             command_id: vec![2; 16],
             tenant_id: 0,
+            is_transactional_rpc_in_flight: false,
             command: Some(body),
         }
     }

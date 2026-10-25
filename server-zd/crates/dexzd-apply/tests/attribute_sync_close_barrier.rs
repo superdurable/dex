@@ -33,8 +33,8 @@ use dexzd_protocol::dex::{
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
     ChannelPublishCommand, CommandReply, FlowCommand, FlowDirectoryRecord, FlowStartCommand,
-    FlowStopCommand, FlowTimeoutTimerId, HistoryRecord, PendingFlowClose, RetentionTimerId,
-    RpcCommittedCommand, RunRecord, RunSettings, StepAttemptFailedCommand,
+    FlowStopCommand, FlowTimeoutTimerId, HistoryRecord, PendingCloseCheckCommand, PendingFlowClose,
+    RetentionTimerId, RpcCommittedCommand, RunRecord, RunSettings, StepAttemptFailedCommand,
     StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
     StepMethod, StepMethodCompletedCommand, TimeTravelCommand, TimerId, TimersFiredCommand,
     command_reply, flow_command::Command, step_method_completed_command, timer_id,
@@ -113,6 +113,8 @@ impl MemoryState {
 struct Harness {
     state: MemoryState,
     context: ApplyContext,
+    /// Stamps the next commands as the owner does while a transactional RPC is in flight.
+    is_transactional_rpc_in_flight: bool,
     now_micros: i64,
     run_id: Vec<u8>,
     settings: RunSettings,
@@ -132,6 +134,7 @@ impl Harness {
                 partition: hasher.partition_of(flow_hash),
                 flow_hash,
             },
+            is_transactional_rpc_in_flight: false,
             now_micros: 1_800_000_000 * SECOND,
             run_id: Vec::new(),
             settings,
@@ -153,8 +156,47 @@ impl Harness {
             proposed_at_micros: self.now_micros,
             command_id: (self.now_micros as u128).to_be_bytes().to_vec(),
             tenant_id: 0,
+            is_transactional_rpc_in_flight: self.is_transactional_rpc_in_flight,
             command: Some(body),
         }
+    }
+
+    /// Applies `body` with the owner's stamp of an admitted transactional RPC still in flight.
+    fn apply_while_rpc_in_flight(&mut self, body: Command) -> ApplyOutcome {
+        self.is_transactional_rpc_in_flight = true;
+        let outcome = self.apply(body);
+        self.is_transactional_rpc_in_flight = false;
+        outcome
+    }
+
+    fn check_pending_close(&mut self) -> ApplyOutcome {
+        self.apply(Command::PendingCloseCheck(PendingCloseCheckCommand {}))
+    }
+
+    /// Commits an RPC result that writes `writes` and starts no Step.
+    fn rpc_with_writes(
+        &mut self,
+        request_id: &str,
+        is_transactional: bool,
+        writes: Vec<AttributeWrite>,
+    ) -> ApplyOutcome {
+        self.apply(Command::RpcCommitted(RpcCommittedCommand {
+            request: Some(InvokeRpcRequest {
+                flow_id: FLOW_ID.to_owned(),
+                rpc_name: "updateOrder".to_owned(),
+                request_id: request_id.to_owned(),
+                is_transactional,
+                ..InvokeRpcRequest::default()
+            }),
+            response: Some(InvokeWorkerRpcResponse {
+                upsert_attributes: writes,
+                ..InvokeWorkerRpcResponse::default()
+            }),
+            app_worker_id: "worker-rpc".to_owned(),
+            request_fingerprint: request_id.as_bytes().to_vec(),
+            is_transactional,
+            ..RpcCommittedCommand::default()
+        }))
     }
 
     fn apply(&mut self, body: Command) -> ApplyOutcome {
@@ -554,6 +596,13 @@ fn retention_timer() -> TimerId {
     }
 }
 
+fn is_held_by_rpcs(outcome: &ApplyOutcome) -> bool {
+    outcome
+        .effects
+        .iter()
+        .any(|effect| matches!(effect, ApplyEffect::PendingCloseHeldByRpcs { .. }))
+}
+
 fn wakes(outcome: &ApplyOutcome) -> Vec<WaitableChange> {
     outcome
         .effects
@@ -929,4 +978,144 @@ fn rebuilt_cleanup_points_equal_their_recorded_states() {
     assert_eq!(harness.directory_status(), FlowStatus::Running as i32);
     harness.ack(PRIMARY, harness.last_seq());
     assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+}
+
+#[test]
+fn an_admitted_transactional_rpc_holds_a_close_without_outbox_entries() {
+    let mut harness = Harness::new();
+    harness.start(&[], Vec::new(), 60);
+    harness.start_execute("ChargeStep-1");
+    let held = harness.apply_while_rpc_in_flight(Command::StepMethodCompleted(
+        StepMethodCompletedCommand {
+            invocation: Some(key("ChargeStep-1")),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::Execute(
+                InvokeExecuteMethodResponse {
+                    step_decision: Some(force_complete()),
+                    ..InvokeExecuteMethodResponse::default()
+                },
+            )),
+            app_worker_id: "worker-a".to_owned(),
+            ..StepMethodCompletedCommand::default()
+        },
+    ));
+    let record = harness.run_record();
+    assert_eq!(record.status, FlowStatus::Running as i32);
+    assert!(record.pending_close.is_some());
+    assert_eq!(harness.outbox_entry_count(), 0);
+    assert!(is_held_by_rpcs(&held));
+    assert!(!wakes(&held).contains(&WaitableChange::FlowClosed));
+
+    harness.is_transactional_rpc_in_flight = true;
+    let early_check = harness.check_pending_close();
+    harness.is_transactional_rpc_in_flight = false;
+    assert!(
+        early_check.writes.is_empty(),
+        "a check during the RPC changes nothing"
+    );
+
+    let checked = harness.check_pending_close();
+    assert!(is_ok(&checked.reply));
+    assert!(wakes(&checked).contains(&WaitableChange::FlowClosed));
+    assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+    let history = harness.history_record(harness.last_seq());
+    assert!(history.is_semantic);
+    assert!(has_flow_closed_event(&history));
+    let late_check = harness.check_pending_close();
+    assert!(
+        late_check.writes.is_empty(),
+        "a check after the close changes nothing"
+    );
+}
+
+#[test]
+fn the_last_ack_waits_for_an_admitted_transactional_rpc_whose_writes_join_the_outbox() {
+    let mut harness = Harness::new();
+    harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+    harness.force_complete(Vec::new());
+    let deferred_seq = harness.last_seq();
+    let held_ack =
+        harness.apply_while_rpc_in_flight(Command::AttributeSyncAck(AttributeSyncAckCommand {
+            store_name: PRIMARY.to_owned(),
+            acked_seq: deferred_seq,
+            attribute_keys: Vec::new(),
+            is_dropped: false,
+        }));
+    assert!(is_held_by_rpcs(&held_ack));
+    assert_eq!(harness.outbox_entry_count(), 0);
+    assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
+
+    let rpc = harness.rpc_with_writes("admitted-rpc", true, vec![synced("rpc", "written")]);
+    assert!(
+        matches!(rpc.reply.reply, Some(command_reply::Reply::Rpc(_))),
+        "the admitted RPC commits: {:?}",
+        rpc.reply
+    );
+    assert_eq!(
+        harness.outbox_entry_count(),
+        1,
+        "its synced write joins the outbox"
+    );
+    assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
+    harness.ack(PRIMARY, harness.last_seq());
+    assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+}
+
+#[test]
+fn the_commit_of_the_last_admitted_rpc_records_a_held_close() {
+    let mut harness = Harness::new();
+    harness.start(&[], Vec::new(), 60);
+    harness.start_execute("ChargeStep-1");
+    harness.is_transactional_rpc_in_flight = true;
+    harness.complete_execute("ChargeStep-1", force_complete(), Vec::new());
+    harness.is_transactional_rpc_in_flight = false;
+    assert!(harness.run_record().pending_close.is_some());
+    let rpc = harness.rpc_with_writes("admitted-rpc", true, Vec::new());
+    assert!(wakes(&rpc).contains(&WaitableChange::FlowClosed));
+    let record = harness.run_record();
+    assert_eq!(record.status, FlowStatus::Completed as i32);
+    assert_eq!(record.pending_close, None);
+    assert!(has_flow_closed_event(
+        &harness.history_record(harness.last_seq())
+    ));
+}
+
+#[test]
+fn rebuilt_rpc_held_cleanup_points_equal_their_recorded_states() {
+    for is_finalized_by_check in [true, false] {
+        let mut harness = Harness::with_settings(RunSettings {
+            checkpoint_max_commands: 2,
+            ..settings()
+        });
+        let mut points = Vec::new();
+        harness.start(&[], vec![synced("status", "opened")], 60);
+        points.push((harness.now_micros, harness.semantic_point_hash()));
+        harness.start_execute("ChargeStep-1");
+        harness.is_transactional_rpc_in_flight = true;
+        harness.complete_execute("ChargeStep-1", force_complete(), Vec::new());
+        harness.is_transactional_rpc_in_flight = false;
+        points.push((harness.now_micros, harness.semantic_point_hash()));
+        assert!(is_ok(&harness.publish("m1").reply));
+        points.push((harness.now_micros, harness.semantic_point_hash()));
+        if is_finalized_by_check {
+            harness.check_pending_close();
+        } else {
+            harness.rpc_with_writes("admitted-rpc", true, vec![synced("rpc", "written")]);
+        }
+        assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+        points.push((harness.now_micros, harness.semantic_point_hash()));
+
+        for (timestamp, expected) in &points {
+            let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+                request: Some(reset_to_time(*timestamp)),
+            }));
+            let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
+                .expect("rebuild the point")
+                .expect("the point exists");
+            assert_eq!(
+                rebuilt.state_hash, *expected,
+                "point at {timestamp}, finalized by check: {is_finalized_by_check}"
+            );
+        }
+    }
 }

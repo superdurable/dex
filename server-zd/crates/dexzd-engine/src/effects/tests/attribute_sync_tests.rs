@@ -26,7 +26,8 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributeSyncOutboxRecord, AttributesSetCommand, FlowCommand,
-    flow_command,
+    StepInvocationKey, StepMethod, StepMethodCompletedCommand, flow_command,
+    step_method_completed_command,
 };
 use futures::future::BoxFuture;
 use prost::Message;
@@ -1922,4 +1923,105 @@ async fn entries_of_an_unconfigured_store_are_dropped_so_the_close_finalizes() {
         );
         fixture.shutdown().await;
     }
+}
+
+/// Commits the Step's ForceComplete with the stamp of an admitted transactional RPC in flight.
+fn commit_held_close(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
+    let command = FlowCommand {
+        flow_id: flow_id.to_owned(),
+        run_id: run_id.as_bytes().to_vec(),
+        is_transactional_rpc_in_flight: true,
+        command: Some(flow_command::Command::StepMethodCompleted(
+            StepMethodCompletedCommand {
+                invocation: Some(StepInvocationKey {
+                    step_execution_id: "ChargeStep-1".to_owned(),
+                    method: StepMethod::Execute as i32,
+                }),
+                attempt: 1,
+                response: Some(step_method_completed_command::Response::Execute(
+                    InvokeExecuteMethodResponse {
+                        step_decision: Some(StepDecision {
+                            close_decision: Some(CloseDecision {
+                                close_decision_type: CloseDecisionType::ForceComplete as i32,
+                                ..CloseDecision::default()
+                            }),
+                            ..StepDecision::default()
+                        }),
+                        ..InvokeExecuteMethodResponse::default()
+                    },
+                )),
+                app_worker_id: "worker-a".to_owned(),
+                ..StepMethodCompletedCommand::default()
+            },
+        )),
+        ..FlowCommand::default()
+    };
+    let reply = harness
+        .runtime
+        .commit(
+            &EffectHarness::flow(flow_id),
+            command,
+            CommitUrgency::Prompt,
+        )
+        .expect("the held close commits");
+    assert!(!is_error_reply(&reply), "the held close applies: {reply:?}");
+}
+
+async fn wait_for_status(
+    harness: &EffectHarness,
+    flow_id: &str,
+    run_id: RunId,
+    status: FlowStatus,
+) {
+    for _ in 0..2_000 {
+        harness.settle().await;
+        if harness.run_record(flow_id, run_id).status == status as i32 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("timed out waiting for status {status:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_close_held_by_transactional_rpcs_finalizes_once_they_end() {
+    let harness = EffectHarness::new();
+    let run_id = start_closing_flow(&harness, "held-close", &[], Vec::new());
+    let execute = harness.dispatcher.next_dispatch().await;
+    harness.runtime.transactional_rpcs.send_replace(1);
+    commit_held_close(&harness, "held-close", run_id);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    harness.settle().await;
+    let held = harness.run_record("held-close", run_id);
+    assert_eq!(held.status, FlowStatus::Running as i32);
+    assert!(held.pending_close.is_some());
+
+    harness.runtime.transactional_rpcs.send_replace(0);
+    wait_for_status(&harness, "held-close", run_id, FlowStatus::Completed).await;
+    drop(execute);
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_new_owner_finalizes_a_close_that_rpcs_of_the_old_owner_held() {
+    let harness = EffectHarness::new();
+    let run_id = start_closing_flow(&harness, "held-close", &[], Vec::new());
+    let execute = harness.dispatcher.next_dispatch().await;
+    harness.runtime.transactional_rpcs.send_replace(1);
+    commit_held_close(&harness, "held-close", run_id);
+    harness.settle().await;
+    drop(execute);
+    let durable = harness.durable.clone();
+    harness.shutdown().await;
+
+    let restarted = EffectHarness::with_config(durable, EffectsConfig::default());
+    assert!(
+        restarted
+            .run_record("held-close", run_id)
+            .pending_close
+            .is_some()
+    );
+    restarted.rebuild_all_partitions().await;
+    wait_for_status(&restarted, "held-close", run_id, FlowStatus::Completed).await;
+    restarted.shutdown().await;
 }

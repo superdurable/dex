@@ -146,6 +146,8 @@ pub struct EngineSimulationSummary {
     pub step_failure_recoveries: BTreeMap<String, u64>,
     /// Client calls by operation and outcome.
     pub client_calls: BTreeMap<String, u64>,
+    /// Natural closes that waited, including closes that admitted transactional RPCs held.
+    pub close_barrier: crate::CloseBarrierCounts,
     /// Client writes acknowledged and then found in the committed log.
     pub acknowledged_writes: u64,
     /// Client reads whose whole response matched the committed state at a generation their node
@@ -226,6 +228,7 @@ impl EngineSimulationSummary {
             &other.writes_landed_after_crash,
         );
         self.epoch_starts_below_landed_batches += other.epoch_starts_below_landed_batches;
+        self.close_barrier.merge(&other.close_barrier);
         merge_counts(&mut self.start_failures, &other.start_failures);
         self.clock_jumps += other.clock_jumps;
         merge_counts(&mut self.injected_faults, &other.injected_faults);

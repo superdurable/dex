@@ -20,7 +20,7 @@ use dexzd_protocol::dex::AttributeWrite;
 use dexzd_protocol::dexzd::v1::{AttributeSyncAckCommand, AttributeSyncOutboxRecord, RunRecord};
 
 use crate::command_handlers::command_replies::ok_reply;
-use crate::command_handlers::flow_close::finalize_pending_close;
+use crate::command_handlers::flow_close::finalize_pending_close_if_ready;
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::state_access::{FlowTransaction, RunRows};
@@ -93,7 +93,7 @@ pub(crate) fn apply_attribute_sync_ack(
     command: &AttributeSyncAckCommand,
 ) -> Result<HandlerResult, ApplyError> {
     if scope.is_replay {
-        return replay_finalizing_ack(transaction, cursor, scope);
+        return replay_recorded_close(transaction, cursor, scope);
     }
     let flow_hash = cursor.rows.flow_hash;
     let run_id = cursor.run_id();
@@ -154,9 +154,8 @@ pub(crate) fn apply_attribute_sync_ack(
             attribute_keys: deleted_keys,
         });
     }
-    let is_finalized = !has_remaining_entry
-        && !has_attribute_sync_entries(transaction, cursor.rows)?
-        && finalize_pending_close(transaction, &mut cursor, scope)?;
+    let is_finalized =
+        !has_remaining_entry && finalize_pending_close_if_ready(transaction, &mut cursor, scope)?;
     let kind = if is_finalized {
         HistoryKind::SEMANTIC
     } else {
@@ -171,12 +170,12 @@ pub(crate) fn apply_attribute_sync_ack(
 }
 
 /// A rebuild replays only acks that finalized a pending close, and never reads the run-scoped outbox.
-fn replay_finalizing_ack(
+fn replay_recorded_close(
     transaction: &mut FlowTransaction<'_>,
     mut cursor: RunCursor,
     scope: &CommandScope<'_>,
 ) -> Result<HandlerResult, ApplyError> {
-    if !finalize_pending_close(transaction, &mut cursor, scope)? {
+    if !finalize_pending_close_if_ready(transaction, &mut cursor, scope)? {
         return Err(ApplyError::InvariantViolation {
             detail: "a replayed Attribute Sync ack recorded a close without a pending close"
                 .to_owned(),

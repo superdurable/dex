@@ -42,6 +42,8 @@ message FlowCommand {
   bytes command_id = 7;
   // Tenant of the Flow; 0 for the single tenant.
   uint64 tenant_id = 8;
+  // Owner stamp: an admitted transactional RPC is in flight, so a natural close waits for it.
+  bool is_transactional_rpc_in_flight = 9;
 
   oneof command {
     FlowStartCommand flow_start = 20;
@@ -61,6 +63,7 @@ message FlowCommand {
     InboxMessageCommand inbox_message = 70;
     OutboxAckCommand outbox_ack = 71;
     AttributeSyncAckCommand attribute_sync_ack = 72;
+    PendingCloseCheckCommand pending_close_check = 73;
     HardDeleteObjectsDeletedCommand hard_delete_objects_deleted = 80;
     RunPurgeCommand run_purge = 81;
   }
@@ -355,6 +358,10 @@ message AttributeSyncAckCommand {
   // True when retries were exhausted and the entries were dropped without being written.
   bool is_dropped = 4;
 }
+
+// The owner saw every transactional RPC of the run end; a pending close with no outbox entry
+// is recorded now.
+message PendingCloseCheckCommand {}
 
 // The owner deleted these hard-delete objects from object storage.
 message HardDeleteObjectsDeletedCommand {

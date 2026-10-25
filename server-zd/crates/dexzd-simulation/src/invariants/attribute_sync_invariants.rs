@@ -186,11 +186,12 @@ pub(crate) fn check_run_entries(
     Ok(())
 }
 
-/// AS4: a pending close keeps its run RUNNING without active Steps or a Flow timeout, and has
-/// outbox entries, so the ack that removes the last entry finalizes it.
+/// AS4: a pending close keeps its run RUNNING without active Steps or a Flow timeout. It has
+/// outbox entries, or an admitted transactional RPC holds it.
 pub(crate) fn check_pending_close(
     context: &RunContext<'_>,
     run: &RunView,
+    is_held_by_rpcs: bool,
 ) -> Result<(), InvariantViolation> {
     let Some(record) = &run.record else {
         return Ok(());
@@ -213,8 +214,10 @@ pub(crate) fn check_pending_close(
     if record.is_graceful_completion_requested {
         return violation("graceful completion is still requested".to_owned());
     }
-    if run.attribute_sync_entries.is_empty() {
-        return violation("no outbox entry is left to finalize the close".to_owned());
+    if run.attribute_sync_entries.is_empty() && !is_held_by_rpcs {
+        return violation(
+            "no outbox entry or transactional RPC is left to finalize the close".to_owned(),
+        );
     }
     let active_step = run.step_executions.values().find(|step| {
         matches!(
@@ -245,13 +248,17 @@ pub(crate) fn check_pending_close(
     Ok(())
 }
 
-/// Natural closes that started waiting for the outbox, and pending closes that finalized.
+/// Natural closes that started waiting, and pending closes that finalized.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CloseBarrierCounts {
     /// Natural closes that became pending closes.
     pub deferred: usize,
     /// Pending closes that a later command finalized.
     pub finalized: usize,
+    /// Pending closes without outbox entries that an admitted transactional RPC held.
+    pub held_by_rpcs: usize,
+    /// Held pending closes that a later command finalized.
+    pub finalized_after_rpcs: usize,
 }
 
 impl CloseBarrierCounts {
@@ -259,25 +266,39 @@ impl CloseBarrierCounts {
     pub fn merge(&mut self, other: &Self) {
         self.deferred += other.deferred;
         self.finalized += other.finalized;
+        self.held_by_rpcs += other.held_by_rpcs;
+        self.finalized_after_rpcs += other.finalized_after_rpcs;
     }
 }
 
-/// AS5: a run closes naturally only once it has no outbox entry. StopFlow, terminations, and
-/// time travel close at once.
+/// AS5: a run closes naturally only once it has no outbox entry and its command carries no
+/// in-flight transactional RPC. StopFlow, terminations, and time travel close at once. AS6: an
+/// unstamped command that consults the barrier records a pending close that nothing holds.
 ///
-/// Returns the natural closes this command deferred and finalized.
+/// Returns the natural closes this command deferred and finalized, updating which runs an
+/// admitted transactional RPC holds.
 pub(crate) fn check_close_barrier(
     command: &FlowCommand,
+    is_applied: bool,
     previous_records: &BTreeMap<RunId, RunRecord>,
     view: &FlowView,
+    rpc_held_runs: &mut BTreeSet<RunId>,
 ) -> Result<CloseBarrierCounts, InvariantViolation> {
     let may_close_at_once = matches!(
         command.command,
         Some(Command::FlowStop(_) | Command::FlowStart(_) | Command::TimeTravel(_))
     );
+    let consults_barrier = match command.command {
+        Some(Command::PendingCloseCheck(_)) => true,
+        Some(Command::AttributeSyncAck(_) | Command::RpcCommitted(_) | Command::TimeTravel(_)) => {
+            is_applied
+        }
+        _ => false,
+    };
     let mut counts = CloseBarrierCounts::default();
     for (run_id, previous) in previous_records {
         let Some(run) = view.runs.get(run_id) else {
+            rpc_held_runs.remove(run_id);
             continue;
         };
         let Some(record) = &run.record else {
@@ -286,10 +307,40 @@ pub(crate) fn check_close_barrier(
         if previous.pending_close.is_none() && record.pending_close.is_some() {
             counts.deferred += 1;
         }
+        let is_unblocked_pending_close =
+            record.pending_close.is_some() && run.attribute_sync_entries.is_empty();
+        if is_unblocked_pending_close && command.is_transactional_rpc_in_flight {
+            if rpc_held_runs.insert(*run_id) {
+                counts.held_by_rpcs += 1;
+            }
+        } else if is_unblocked_pending_close && consults_barrier {
+            return Err(InvariantViolation::new(
+                "AS6-unheld-pending-close",
+                format!(
+                    "Flow {} run {run_id} kept a pending close with no outbox entry after {:?}",
+                    command.flow_id, command.command
+                ),
+            ));
+        }
+        if record.pending_close.is_none() {
+            let was_held = rpc_held_runs.remove(run_id);
+            if was_held && record.status != FlowStatus::Running as i32 && !may_close_at_once {
+                counts.finalized_after_rpcs += 1;
+            }
+        }
         let is_newly_closed = previous.status == FlowStatus::Running as i32
             && record.status != FlowStatus::Running as i32;
         if !is_newly_closed || may_close_at_once {
             continue;
+        }
+        if command.is_transactional_rpc_in_flight {
+            return Err(InvariantViolation::new(
+                "AS5-natural-close-barrier",
+                format!(
+                    "Flow {} run {run_id} closed by {:?} while a transactional RPC was in flight",
+                    command.flow_id, command.command
+                ),
+            ));
         }
         if !run.attribute_sync_entries.is_empty() {
             return Err(InvariantViolation::new(

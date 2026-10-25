@@ -285,6 +285,7 @@ pub fn command_kind(command: &FlowCommand) -> &'static str {
         Some(Command::InboxMessage(_)) => "InboxMessage",
         Some(Command::OutboxAck(_)) => "OutboxAck",
         Some(Command::AttributeSyncAck(_)) => "AttributeSyncAck",
+        Some(Command::PendingCloseCheck(_)) => "PendingCloseCheck",
         Some(Command::HardDeleteObjectsDeleted(_)) => "HardDeleteObjectsDeleted",
         Some(Command::RunPurge(_)) => "RunPurge",
     }

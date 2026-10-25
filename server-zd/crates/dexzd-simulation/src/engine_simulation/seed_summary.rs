@@ -100,6 +100,9 @@ pub(crate) fn finish_summary(
     summary.step_failure_recoveries =
         name_counts(&environment.committed_log.step_failure_recoveries());
     summary.final_runs = environment.committed_log.with_shadow(run_count);
+    summary.close_barrier = environment
+        .committed_log
+        .with_shadow(|shadow| shadow.close_barrier_counts());
     summary.final_pruned_semantic_events = environment
         .committed_log
         .with_shadow(pruned_semantic_events);

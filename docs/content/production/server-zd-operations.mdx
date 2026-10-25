@@ -515,9 +515,14 @@ in server-zd.
   Transactional or locking RPCs, WaitForStepCompletion, WaitForAttribute, and
   DeleteChannelMessage calls made during the wait fail with
   FAILED_PRECONDITION.
-- A close waits at most **syncRetryPolicy.totalDuration**, because pending
-  writes are dropped then. A PostgreSQL outage holds these closes up to that
-  long.
+- In server-zd v0.1.4 or later, a natural close also waits for every
+  transactional or locking RPC admitted before it, even without an Attribute
+  Store. Such an RPC still commits, and its synced writes join the wait. The
+  close is recorded once those RPCs commit, fail, or time out.
+- **syncRetryPolicy.totalDuration** limits how long each pending write is
+  retried, not the whole close. During a PostgreSQL outage a close waits until
+  its pending writes are dropped. Every synced write accepted while the close
+  waits starts its own retry window and extends the wait.
 - StopFlow and Terminate never wait. StopFlow closes the run as soon as it
   commits, even while a close waits, and the pending writes keep syncing after
   the close. A later SetAttributes on that run returns NOT_FOUND. The Go Server

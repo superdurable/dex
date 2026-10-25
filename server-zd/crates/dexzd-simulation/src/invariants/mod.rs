@@ -83,6 +83,8 @@ pub struct CheckerMemory {
     pub(crate) window_points: BTreeMap<RunId, BTreeMap<u64, WindowPointState>>,
     /// Applied Attribute Sync acks, which may delete entries up to their seqs.
     pub(crate) attribute_sync_acks: attribute_sync_invariants::AttributeSyncAcks,
+    /// Runs whose pending close without outbox entries an admitted transactional RPC holds.
+    pub(crate) rpc_held_runs: BTreeSet<RunId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,7 +130,11 @@ pub fn check_flow(
             view,
             &memory.attribute_sync_acks,
         )?;
-        attribute_sync_invariants::check_pending_close(&context, run)?;
+        attribute_sync_invariants::check_pending_close(
+            &context,
+            run,
+            memory.rpc_held_runs.contains(run_id),
+        )?;
     }
     Ok(())
 }

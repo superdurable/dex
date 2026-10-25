@@ -255,7 +255,9 @@ server-zd v0.1.3 或更高版本也能同步 Attribute。它使用相同的 **at
 - server-zd v0.1.3 关闭 Flow 时不等待同步的 Attribute，行可能在 Flow 完成之后才写入。
 - server-zd v0.1.4 或更高版本与 Go Server 一样会等待。因 Step 决策、重试耗尽或超时而关闭的 Flow
   会保持 RUNNING，直到待写入的值都写完或被丢弃。WaitForFlow 在行写入表之后才返回。
-- 关闭最多等待 **syncRetryPolicy.totalDuration**。PostgreSQL 故障最多会使这类关闭推迟这么久。
+- **syncRetryPolicy.totalDuration** 限制的是每个待写入值的重试时长，而不是整个关闭。PostgreSQL
+  故障期间，关闭会一直等到待写入的值被丢弃。关闭等待期间接受的同步写入，包括在关闭之前已被接纳的
+  事务性 RPC 的写入，都会延长等待。
 - StopFlow 和 Terminate 从不等待。StopFlow 一提交，run 就会关闭。之后对该 run 的 SetAttributes
   返回 NOT_FOUND。Flow 需要的数据请在停止之前写入。
 

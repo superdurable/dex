@@ -146,6 +146,7 @@ impl Harness {
             proposed_at_micros: self.now_micros,
             command_id: [0; 16].to_vec(),
             tenant_id: 0,
+            is_transactional_rpc_in_flight: false,
             command: Some(body),
         };
         let outcome = apply_flow_command(&context, &self.state, &command).expect("apply succeeds");

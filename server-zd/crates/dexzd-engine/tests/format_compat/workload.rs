@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use bytes::Bytes;
-use dexzd_apply::{ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader};
+use dexzd_apply::{ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, WaitableChange};
 use dexzd_clock::WallClock;
 use dexzd_engine::{
     CommitTicket, CommitUrgency, CommittedCommand, EngineNode, HardDeleteObjectOwner,
@@ -30,8 +30,8 @@ use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
     ChannelPublishCommand, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
     HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, InboxMessageCommand,
-    OutboxAckCommand, OutboxRecord, RpcCommittedCommand, RunPurgeCommand, RunSettings,
-    StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
+    OutboxAckCommand, OutboxRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand,
+    RunSettings, StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
     StepAttemptStartedCommand, StepInvocationKey, StepMethod, StepMethodCompletedCommand,
     TimeTravelCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand, command_reply,
     flow_command::Command, inbox_message_command, outbox_record, step_attempt_heartbeat_command,
@@ -111,6 +111,7 @@ impl Workload<'_> {
             .await;
         self.account_acknowledges_synced_attributes(&open.account)
             .await;
+        self.held_close_finalizes_on_the_pending_close_check().await;
         self.travel_back_to_second_step().await;
         self.skip_timer_update_config_and_stop().await;
         self.purge_after_retention().await;
@@ -940,6 +941,58 @@ impl Workload<'_> {
         FlowRun { flow_id, run_id }
     }
 
+    /// A close that an admitted transactional RPC holds waits without outbox entries; the
+    /// owner's check records it.
+    async fn held_close_finalizes_on_the_pending_close_check(&self) {
+        let run = self
+            .start_flow(
+                StartFlowRequest {
+                    flow_id: "held-close".to_owned(),
+                    flow_type: "HeldCloseFlow".to_owned(),
+                    start_step_type: "OnlyStep".to_owned(),
+                    step_options: Some(skip_wait_for()),
+                    request_id: "start-held-close".to_owned(),
+                    ..StartFlowRequest::default()
+                },
+                default_run_settings(),
+            )
+            .await;
+        self.start_attempt(&run, "OnlyStep-1", StepMethod::Execute, 1)
+            .await;
+        let held = self
+            .commit_while_transactional_rpc_in_flight(
+                &run,
+                execute_completed(
+                    "OnlyStep-1",
+                    1,
+                    close_response(CloseDecisionType::ForceComplete, "held"),
+                ),
+            )
+            .await;
+        assert!(
+            held.effects
+                .iter()
+                .any(|effect| matches!(effect, ApplyEffect::PendingCloseHeldByRpcs { .. })),
+            "the in-flight RPC holds the close"
+        );
+        let checked = self
+            .commit(
+                &run,
+                Command::PendingCloseCheck(PendingCloseCheckCommand {}),
+            )
+            .await;
+        assert!(
+            checked.effects.iter().any(|effect| matches!(
+                effect,
+                ApplyEffect::WakeWaiters {
+                    change: WaitableChange::FlowClosed,
+                    ..
+                }
+            )),
+            "the check records the close"
+        );
+    }
+
     async fn start_attempt(
         &self,
         run: &FlowRun,
@@ -1181,6 +1234,28 @@ impl Workload<'_> {
         let ticket = self.submit_to(flow_id, run_id, body, CommitUrgency::Prompt);
         let mut outcomes = self.wait_applied(vec![ticket]).await;
         outcomes.remove(0)
+    }
+
+    /// Commits `body` with the stamp an owner adds while a transactional RPC it admitted is in flight.
+    async fn commit_while_transactional_rpc_in_flight(
+        &self,
+        run: &FlowRun,
+        body: Command,
+    ) -> ApplyOutcome {
+        self.clock.advance(COMMAND_SPACING_MICROS);
+        let command = FlowCommand {
+            flow_id: run.flow_id.clone(),
+            run_id: run.run_id.as_bytes().to_vec(),
+            is_transactional_rpc_in_flight: true,
+            command: Some(body),
+            ..FlowCommand::default()
+        };
+        let (_, ticket) = self
+            .node
+            .committer()
+            .submit(self.context(&run.flow_id), command, CommitUrgency::Prompt)
+            .expect("the node accepts the command");
+        self.wait_applied(vec![ticket]).await.remove(0)
     }
 
     fn submit(&self, run: &FlowRun, body: Command, urgency: CommitUrgency) -> CommitTicket {

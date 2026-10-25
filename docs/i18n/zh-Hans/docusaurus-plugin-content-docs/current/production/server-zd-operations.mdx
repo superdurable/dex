@@ -433,8 +433,11 @@ server-zd 不同的地方。
 - 关闭等待期间，SetAttributes、PublishToChannel 以及既非事务性也不带锁的 RPC 照常接受。它们同步的写入会延长等待，
   且不会启动新的 Step。等待期间发起的事务性或带锁的 RPC、WaitForStepCompletion、WaitForAttribute
   和 DeleteChannelMessage 调用返回 FAILED_PRECONDITION。
-- 关闭最多等待 **syncRetryPolicy.totalDuration**，因为届时待写入的值会被丢弃。PostgreSQL
-  故障最多会使这类关闭推迟这么久。
+- 在 server-zd v0.1.4 或更高版本中，自然关闭还会等待在它之前已被接纳的所有事务性或带锁的 RPC，
+  即使没有配置 Attribute Store 也是如此。这类 RPC 仍会提交，它同步的写入也会加入等待。
+  这些 RPC 提交、失败或超时之后，关闭才会被记录。
+- **syncRetryPolicy.totalDuration** 限制的是每个待写入值的重试时长，而不是整个关闭。PostgreSQL
+  故障期间，关闭会一直等到待写入的值被丢弃。关闭等待期间接受的每个同步写入都会开始自己的重试窗口，从而延长等待。
 - StopFlow 和 Terminate 从不等待。StopFlow 一提交，run 就会关闭，即使关闭正在等待也是如此；
   待写入的值在关闭后继续同步。之后对该 run 的 SetAttributes 返回 NOT_FOUND。Go Server
   在已取消或失败的 run 收尾期间仍接受这类写入。Flow 需要的数据请在停止之前写入。

@@ -24,7 +24,9 @@ use std::collections::BTreeSet;
 
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dex::FlowStatus;
-use dexzd_protocol::dexzd::v1::{FlowCommand, StepInvocationPhase, TimerId, flow_command::Command};
+use dexzd_protocol::dexzd::v1::{
+    FlowCommand, PendingCloseCheckCommand, StepInvocationPhase, TimerId, flow_command::Command,
+};
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
@@ -99,6 +101,9 @@ enum Proposal<'view> {
     AttributeSyncAck {
         run_id: RunId,
         run: &'view RunView,
+    },
+    PendingCloseCheck {
+        run_id: RunId,
     },
 }
 
@@ -186,7 +191,12 @@ impl CommandGenerator {
             ticket -= weight;
         }
         let proposal = chosen.expect("the ticket is below the total weight");
-        Ok(self.realize(flow_id, proposal))
+        let mut command = self.realize(flow_id, proposal);
+        // Only this stream models owner stamps, so the main stream's draws stay unchanged.
+        if self.stream == CommandStream::AttributeSync && may_close_flow(&command) {
+            command.is_transactional_rpc_in_flight = self.rng.random_bool(0.3);
+        }
+        Ok(command)
     }
 
     fn proposals<'view>(
@@ -239,6 +249,13 @@ impl CommandGenerator {
                         run,
                     },
                 ));
+            }
+            let has_pending_close = run
+                .record
+                .as_ref()
+                .is_some_and(|record| record.pending_close.is_some());
+            if self.stream == CommandStream::AttributeSync && has_pending_close {
+                proposals.push((3, Proposal::PendingCloseCheck { run_id: *run_id }));
             }
             if is_latest {
                 proposals.push((
@@ -329,6 +346,10 @@ impl CommandGenerator {
                 let body = client_model::attribute_sync_ack(rng, run);
                 self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
             }
+            Proposal::PendingCloseCheck { run_id } => {
+                let body = Command::PendingCloseCheck(PendingCloseCheckCommand {});
+                self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
+            }
             Proposal::StartAttempt(call) => {
                 let body = worker_model::start_attempt(rng, &call);
                 self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body)
@@ -386,6 +407,7 @@ impl CommandGenerator {
             proposed_at_micros: self.now_micros,
             command_id: value_generation::random_bytes(&mut self.rng).to_vec(),
             tenant_id: 0,
+            is_transactional_rpc_in_flight: false,
             command: Some(body),
         }
     }
@@ -396,4 +418,22 @@ impl CommandGenerator {
         }
         self.sent_results.push(command.clone());
     }
+}
+
+/// Whether the owner may stamp `command` with an in-flight transactional RPC, as it does for
+/// commands that could record a close.
+fn may_close_flow(command: &FlowCommand) -> bool {
+    matches!(
+        command.command,
+        Some(
+            Command::StepAttemptHeartbeat(_)
+                | Command::StepAttemptFailed(_)
+                | Command::StepMethodCompleted(_)
+                | Command::TimersFired(_)
+                | Command::AttributeSyncAck(_)
+                | Command::RpcCommitted(_)
+                | Command::PendingCloseCheck(_)
+                | Command::TimeTravel(_)
+        )
+    )
 }

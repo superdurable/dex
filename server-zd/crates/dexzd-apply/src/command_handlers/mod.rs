@@ -266,6 +266,9 @@ pub(crate) fn apply_run_command(
         Command::OutboxAck(ack) => {
             crate::cross_flow::apply_outbox_ack(transaction, cursor, scope, ack)
         }
+        Command::PendingCloseCheck(_) => {
+            flow_close::apply_pending_close_check(transaction, cursor, scope)
+        }
         Command::AttributeSyncAck(ack) => {
             crate::projections::attribute_sync::apply_attribute_sync_ack(
                 transaction,

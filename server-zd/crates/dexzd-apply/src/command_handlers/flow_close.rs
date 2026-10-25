@@ -17,14 +17,15 @@ use dexzd_protocol::dexzd::v1::{
     FlowTimeoutTimerId, PendingFlowClose, RetentionTimerId, StepExecutionPhase, TimerId, timer_id,
 };
 
-use crate::command_handlers::run_cursor::RunCursor;
-use crate::command_handlers::{CloseBarrierSource, CommandScope};
+use crate::command_handlers::command_replies::ok_reply;
+use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
+use crate::command_handlers::{CloseBarrierSource, CommandScope, HandlerResult};
 use crate::projections::attribute_sync::has_attribute_sync_entries;
 use crate::projections::history_events;
 use crate::state_access::{FlowTransaction, read_flow_directory, write_flow_directory};
 use crate::steps::{arm_timer, disarm_timer, finish_step, is_active};
 use crate::values::wire_value;
-use crate::{ApplyError, WaitableChange};
+use crate::{ApplyEffect, ApplyError, WaitableChange};
 
 /// How the attempt closes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,7 +105,8 @@ impl FlowClosing {
 /// messages discarded, child Flows keep running), records the close, arms retention, reports
 /// to the parent, and wakes waiters. Closing an already closed or closing attempt does nothing.
 ///
-/// While the run has Attribute Sync outbox entries, it records a pending close that the last ack finalizes.
+/// While the run has Attribute Sync outbox entries or an admitted transactional RPC, it records
+/// a pending close instead.
 pub(crate) fn close_flow(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -115,10 +117,11 @@ pub(crate) fn close_flow(
         return Ok(());
     }
     cancel_attempt_work(transaction, cursor, scope, &closing)?;
-    if should_wait_for_attribute_sync(transaction, cursor, scope)? {
+    if should_defer_close(transaction, cursor, scope)? {
         cursor.record.is_graceful_completion_requested = false;
         cursor.record.pending_close = Some(closing.to_pending_close());
         cursor.wake(WaitableChange::FlowCleanupStarted);
+        hold_for_transactional_rpcs(cursor, scope);
         return Ok(());
     }
     record_close(transaction, cursor, scope, closing)
@@ -155,21 +158,78 @@ pub(crate) fn finalize_pending_close(
     Ok(true)
 }
 
+/// Records the pending close when no outbox entry and no admitted transactional RPC remains.
+///
+/// Returns whether the close was recorded. A rebuild records it exactly when the recorded
+/// command did, and time travel's reapplied input never does.
+pub(crate) fn finalize_pending_close_if_ready(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
+) -> Result<bool, ApplyError> {
+    if cursor.record.pending_close.is_none() {
+        return Ok(false);
+    }
+    let is_ready = match scope.close_barrier_source {
+        CloseBarrierSource::RecordedHistory { has_flow_closed } => has_flow_closed,
+        CloseBarrierSource::Outbox if scope.is_replay => false,
+        CloseBarrierSource::Outbox => {
+            !has_attribute_sync_entries(transaction, cursor.rows)?
+                && !scope.command.is_transactional_rpc_in_flight
+        }
+    };
+    if !is_ready {
+        hold_for_transactional_rpcs(cursor, scope);
+        return Ok(false);
+    }
+    finalize_pending_close(transaction, cursor, scope)
+}
+
+/// Records a pending close for the owner once every transactional RPC of the run ended.
+pub(crate) fn apply_pending_close_check(
+    transaction: &mut FlowTransaction<'_>,
+    mut cursor: RunCursor,
+    scope: &CommandScope<'_>,
+) -> Result<HandlerResult, ApplyError> {
+    if !finalize_pending_close_if_ready(transaction, &mut cursor, scope)? {
+        return Ok(HandlerResult::Rejected(ok_reply()));
+    }
+    Ok(HandlerResult::Applied(cursor.finish(
+        transaction,
+        scope,
+        ok_reply(),
+        HistoryKind::SEMANTIC,
+    )?))
+}
+
 /// Whether a natural close waits for the Attribute Sync outbox.
 pub(crate) fn is_terminal_cleanup_in_progress(cursor: &RunCursor) -> bool {
     cursor.record.pending_close.is_some()
 }
 
 /// A rebuild repeats the recorded decision because the run-scoped outbox has moved on.
-fn should_wait_for_attribute_sync(
+fn should_defer_close(
     transaction: &FlowTransaction<'_>,
     cursor: &RunCursor,
     scope: &CommandScope<'_>,
 ) -> Result<bool, ApplyError> {
     match scope.close_barrier_source {
-        CloseBarrierSource::Outbox => has_attribute_sync_entries(transaction, cursor.rows),
+        CloseBarrierSource::Outbox => Ok(scope.command.is_transactional_rpc_in_flight
+            || has_attribute_sync_entries(transaction, cursor.rows)?),
         CloseBarrierSource::RecordedHistory { has_flow_closed } => Ok(!has_flow_closed),
     }
+}
+
+/// Asks the owner to check the pending close again once its transactional RPCs end.
+fn hold_for_transactional_rpcs(cursor: &mut RunCursor, scope: &CommandScope<'_>) {
+    if scope.is_replay
+        || !scope.command.is_transactional_rpc_in_flight
+        || cursor.record.pending_close.is_none()
+    {
+        return;
+    }
+    let run_id = cursor.run_id();
+    cursor.add_effect(ApplyEffect::PendingCloseHeldByRpcs { run_id });
 }
 
 /// Cancels every active Step and disarms the Flow timeout.

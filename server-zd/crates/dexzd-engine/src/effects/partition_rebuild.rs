@@ -12,7 +12,11 @@
 use std::collections::BTreeMap;
 
 use dexzd_apply::{ApplyEffect, FlowStateReader, invocation_retry_deadline_micros};
-use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId, TenantId, partition_index_prefix};
+use dexzd_keyspace::row_keys::prefix_range;
+use dexzd_keyspace::{
+    ColumnFamily, IndexKind, PartitionId, RunTable, TenantId, partition_index_prefix,
+    run_table_prefix,
+};
 use dexzd_protocol::dexzd::v1::{StepInvocationKey, StepInvocationPhase};
 
 use crate::effects::method_request::configured_method_timeout_seconds;
@@ -42,6 +46,7 @@ pub(crate) async fn rebuild_partition(
     let reader = context.runtime.committed_state_reader()?;
     let mut work: BTreeMap<RunLocation, (FlowAddress, Vec<ApplyEffect>)> = BTreeMap::new();
     rebuild_invocations(reader.as_ref(), partition, &mut work)?;
+    rebuild_pending_close_checks(reader.as_ref(), partition, &mut work)?;
     rebuild_outbox_messages(reader.as_ref(), partition, &mut work)?;
     rebuild_hard_delete_deletions(reader.as_ref(), partition, &mut work)?;
     rebuild_run_purges(reader.as_ref(), partition, &mut work)?;
@@ -104,6 +109,36 @@ fn rebuild_invocations(
             }
         }
         add_effects(work, run, flow, effects);
+    }
+    Ok(())
+}
+
+/// A pending close without outbox entries waited for RPCs of a previous owner; none remain.
+fn rebuild_pending_close_checks(
+    reader: &dyn FlowStateReader,
+    partition: PartitionId,
+    work: &mut BTreeMap<RunLocation, (FlowAddress, Vec<ApplyEffect>)>,
+) -> Result<(), EffectError> {
+    let prefix = partition_index_prefix(partition, IndexKind::ActiveWork);
+    for (key, _) in scan_all(reader, ColumnFamily::PartitionIndex, &prefix)? {
+        let (run, _) = parse_run_item_index_key(partition, IndexKind::ActiveWork, &key)?;
+        let Some(record) = read_run_record(reader, run)? else {
+            continue;
+        };
+        if record.pending_close.is_none() {
+            continue;
+        }
+        let outbox_prefix =
+            run_table_prefix(run.flow_hash, run.run_id, RunTable::AttributeSyncOutbox);
+        let (start, end) = prefix_range(&outbox_prefix);
+        if !reader.scan(ColumnFamily::Flow, &start, &end, 1)?.is_empty() {
+            continue;
+        }
+        let Some((flow, _)) = flow_of_run(reader, run)? else {
+            continue;
+        };
+        let effect = ApplyEffect::PendingCloseHeldByRpcs { run_id: run.run_id };
+        add_effects(work, run, flow, vec![effect]);
     }
     Ok(())
 }

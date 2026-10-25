@@ -46,6 +46,8 @@ pub struct ApplyChecker {
     applied_commands: u64,
     window_point_spans: BTreeMap<RunId, BTreeMap<u64, WindowPointSpan>>,
     close_barrier_counts: CloseBarrierCounts,
+    /// Every run an admitted transactional RPC ever held, for checks of recovered stores.
+    ever_rpc_held_runs: BTreeSet<RunId>,
 }
 
 /// When the checker retained one window point, in applied command counts.
@@ -86,6 +88,7 @@ impl ApplyChecker {
             applied_commands: 0,
             window_point_spans: BTreeMap::new(),
             close_barrier_counts: CloseBarrierCounts::default(),
+            ever_rpc_held_runs: BTreeSet::new(),
         }
     }
 
@@ -158,8 +161,16 @@ impl ApplyChecker {
             .commit_redecoded(&outcome.writes)
             .map_err(|error| InvariantViolation::new("row-decoding", error.to_string()))?;
         let view = self.view(&command.flow_id, RunSelection::Only(&touched_runs))?;
-        let close_barrier_counts = check_close_barrier(command, &previous_records, &view)?;
+        let close_barrier_counts = check_close_barrier(
+            command,
+            is_applied,
+            &previous_records,
+            &view,
+            &mut self.memory.rpc_held_runs,
+        )?;
         self.close_barrier_counts.merge(&close_barrier_counts);
+        self.ever_rpc_held_runs
+            .extend(self.memory.rpc_held_runs.iter().copied());
         let pruned_points = remember_window_points(
             &command.flow_id,
             &view,
@@ -195,6 +206,11 @@ impl ApplyChecker {
     /// Natural closes deferred for the Attribute Sync outbox, and pending closes finalized.
     pub fn close_barrier_counts(&self) -> CloseBarrierCounts {
         self.close_barrier_counts
+    }
+
+    /// Every run whose pending close an admitted transactional RPC held at some point.
+    pub(crate) fn ever_rpc_held_runs(&self) -> &BTreeSet<RunId> {
+        &self.ever_rpc_held_runs
     }
 
     /// Returns the window points `run_id` retained right after the checker applied its first

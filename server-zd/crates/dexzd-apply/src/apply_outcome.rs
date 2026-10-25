@@ -135,6 +135,11 @@ pub enum ApplyEffect {
         /// Attribute Store names, sorted and deduplicated.
         store_names: Vec<String>,
     },
+    /// A pending close waits for transactional RPCs that the owner admitted earlier.
+    PendingCloseHeldByRpcs {
+        /// Run whose close waits.
+        run_id: RunId,
+    },
     /// An Attribute Sync ack dropped entries whose retries were exhausted.
     AttributeSyncDropped {
         /// Run that owned the entries.

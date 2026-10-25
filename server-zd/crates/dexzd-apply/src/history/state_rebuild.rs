@@ -149,11 +149,16 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
             }
             Command::TimersFired(TimersFiredCommand { timers })
         }
-        // Only the ack that finalized a pending close changed attempt-scoped state.
-        Command::AttributeSyncAck(_) if has_flow_closed(history_record) => body.clone(),
+        // Only an ack or check that finalized a pending close changed attempt-scoped state.
+        Command::AttributeSyncAck(_) | Command::PendingCloseCheck(_)
+            if has_flow_closed(history_record) =>
+        {
+            body.clone()
+        }
         Command::FlowConfigUpdate(_)
         | Command::OutboxAck(_)
         | Command::AttributeSyncAck(_)
+        | Command::PendingCloseCheck(_)
         | Command::HardDeleteObjectsDeleted(_)
         | Command::RunPurge(_) => return Ok(None),
         // Attempts start at a checkpoint after these, and only the latest run travels.
