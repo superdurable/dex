@@ -119,3 +119,24 @@ func TestWorkflowProviderMapsSubFlowStartRejection(t *testing.T) {
 	require.Equal(t, detail, recoveryError.GetDetail())
 	require.Equal(t, interfaces.SubFlowStartRejectionErrorType, recoveryError.GetErrorType())
 }
+
+func TestCadenceRecoveryErrorDetailFallback(t *testing.T) {
+	for _, testCase := range []struct {
+		name           string
+		activityError  *dexpb.InternalActivityError
+		expectedDetail string
+		expectedType   string
+	}{
+		{"nil Worker error", &dexpb.InternalActivityError{WorkerGrpcStatus: 14, ServerDetail: "dispatch detail"}, "dispatch detail", "backend type"},
+		{"empty Worker detail", &dexpb.InternalActivityError{WorkerGrpcStatus: 14, ServerDetail: "dispatch detail", WorkerError: &dexpb.InternalWorkerError{ErrorType: "worker type"}}, "dispatch detail", "worker type"},
+		{"Worker detail wins", &dexpb.InternalActivityError{WorkerGrpcStatus: 14, ServerDetail: "dispatch detail", WorkerError: &dexpb.InternalWorkerError{Detail: "worker detail", ErrorType: "worker type"}}, "worker detail", "worker type"},
+		{"no Worker gRPC status", &dexpb.InternalActivityError{ServerDetail: "server detail"}, "server detail", "backend type"},
+		{"backend fallback", &dexpb.InternalActivityError{WorkerGrpcStatus: 14}, "backend detail", "backend type"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			recoveryError := cadenceRecoveryError(testCase.activityError, "backend detail", "backend type")
+			require.Equal(t, testCase.expectedDetail, recoveryError.GetDetail())
+			require.Equal(t, testCase.expectedType, recoveryError.GetErrorType())
+		})
+	}
+}

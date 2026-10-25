@@ -191,6 +191,9 @@ func cadenceRecoveryError(
 	if activityError.GetWorkerGrpcStatus() != 0 || workerError != nil {
 		detail := workerError.GetDetail()
 		if detail == "" {
+			detail = activityError.GetServerDetail()
+		}
+		if detail == "" {
 			detail = backendDetail
 		}
 		errorType := workerError.GetErrorType()
