@@ -10,8 +10,11 @@ package command
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/common/credential"
@@ -71,12 +74,16 @@ func withStreamingFlowService(
 }
 
 func newFlowService(options options) (*flowService, error) {
+	transportCredential, err := newTransportCredential(options)
+	if err != nil {
+		return nil, err
+	}
 	perRPCCredential, err := newPerRPCCredential(options)
 	if err != nil {
 		return nil, err
 	}
 	dialOptions := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(transportCredential),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(defaultMaxMessageBytes),
 			grpc.MaxCallSendMsgSize(defaultMaxMessageBytes),
@@ -96,6 +103,42 @@ func newFlowService(options options) (*flowService, error) {
 		connection: connection,
 		service:    dexpb.NewFlowServiceClient(connection),
 	}, nil
+}
+
+// newTransportCredential returns plaintext unless TLS is enabled; gRPC adds the h2 ALPN protocol and,
+// without --tls-server-name, verifies the --server host.
+func newTransportCredential(options options) (credentials.TransportCredentials, error) {
+	if err := options.validateTLSSettings(); err != nil {
+		return nil, newUsageError("dexcli", err)
+	}
+	if !options.isTLSEnabled {
+		return insecure.NewCredentials(), nil
+	}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: options.tlsServerName}
+	if options.tlsCAFile != "" {
+		rootCAs, err := loadTLSRootCAs(options.tlsCAFile)
+		if err != nil {
+			return nil, err
+		}
+		tlsConfig.RootCAs = rootCAs
+	}
+	return credentials.NewTLS(tlsConfig), nil
+}
+
+// loadTLSRootCAs returns the system roots plus every certificate in the PEM file.
+func loadTLSRootCAs(path string) (*x509.CertPool, error) {
+	pemData, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read TLS CA file: %w", err)
+	}
+	rootCAs, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("load system root CAs: %w", err)
+	}
+	if !rootCAs.AppendCertsFromPEM(pemData) {
+		return nil, fmt.Errorf("TLS CA file %s contains no PEM certificate", path)
+	}
+	return rootCAs, nil
 }
 
 func newPerRPCCredential(options options) (credentials.PerRPCCredentials, error) {

@@ -1,6 +1,7 @@
 .git
 .github
 cli/dexcli
+bin/dexcli-tls-darwin-arm64
 cli/internal/command/testfixtures/registered-type-names/mainpackage/mainpackage
 server/dex-server
 web/node_modules/

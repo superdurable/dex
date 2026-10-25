@@ -300,6 +300,39 @@ that failed because its token was revoked.
 Combining API key settings with a bearer token setting, or setting `--token-url`
 or `--server-id` without an API key, is a usage error that exits with status 2.
 
+### Connect over TLS
+
+Commands use plaintext gRPC by default. When the server, or a gateway in front
+of it, terminates TLS, pass `--tls` or set `DEX_TLS=true`:
+
+```bash
+dexcli --server orders.dex.example.com:443 --tls \
+  --api-key-file ~/.dex/api-key \
+  --token-url https://auth.example.com/oauth/token --server-id orders-production \
+  flow search --query 'ExecutionStatus = "Running"'
+```
+
+- `--tls` or `DEX_TLS` dials with TLS 1.2 or later and verifies the server
+  certificate against the system root CAs. `DEX_TLS` accepts the values of Go's
+  `strconv.ParseBool`, such as `true`, `false`, `1`, and `0`; any other value is
+  a usage error. `--tls=false` overrides `DEX_TLS=true`.
+- The certificate must match the `--server` host, which `dexcli` also sends as
+  the TLS server name (SNI). `--tls-server-name name` or `DEX_TLS_SERVER_NAME`
+  overrides that name, for example when `--server` is an IP address.
+- `--tls-ca-file path` or `DEX_TLS_CA_FILE` adds the PEM certificates in the
+  file to the system root CAs, for a server whose certificate a private or
+  self-signed CA issued. A file without a PEM certificate fails the command.
+- `dexcli` negotiates HTTP/2 with ALPN `h2`. A TLS-terminating load balancer or
+  gateway must accept `h2` and forward gRPC to Dex over HTTP/2.
+
+`--tls-ca-file` and `--tls-server-name` without TLS are a usage error that exits
+with status 2. TLS never falls back to plaintext. The bearer token or API key
+access token is sent on every call over either transport. Without `--tls`, it
+crosses the network unencrypted, so use plaintext only on loopback or a
+protected network. The TLS settings apply to the FlowService connection only;
+the API key exchange at `--token-url` always verifies the token endpoint
+against the system root CAs.
+
 ## Visualize Flow source
 
 Render a static possible-path graph from one Go or Python Flow source file in

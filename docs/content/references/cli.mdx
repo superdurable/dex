@@ -13,12 +13,42 @@ is designed for shell automation and AI agents as well as human operators.
 
 Commands connect to **127.0.0.1:8801** by default. Set
 **DEX_FLOW_SERVICE_ADDRESS** for a process-wide target or pass **--server** for one
-command. The server address is a plaintext gRPC **host:port**, not an HTTP URL.
+command. The server address is a gRPC **host:port**, not an HTTP URL. The
+connection is plaintext unless you enable TLS.
 
 ```bash
 DEX_FLOW_SERVICE_ADDRESS=dex.example.internal:8801 dexcli health
 dexcli --server 127.0.0.1:9901 flow search
 ```
+
+### Connect over TLS
+
+When Dex, or a load balancer in front of it, terminates TLS, pass **--tls** or
+set **DEX_TLS=true**. The CLI then uses TLS 1.2 or later and verifies the server
+certificate against the system root CAs. The certificate must match the
+**--server** host, which is also sent as the TLS server name. TLS never falls
+back to plaintext.
+
+```bash
+dexcli --server dex.example.com:443 --tls health
+DEX_TLS=true dexcli --server dex.example.com:443 flow search
+```
+
+Two optional settings require TLS:
+
+- **--tls-ca-file** or **DEX_TLS_CA_FILE** names a PEM file of root CAs that are
+  trusted in addition to the system roots. Use it when a private or self-signed
+  CA issued the server certificate.
+- **--tls-server-name** or **DEX_TLS_SERVER_NAME** sets the name that the server
+  certificate must match, for example when **--server** is an IP address.
+
+```bash
+dexcli --server 10.0.0.12:443 --tls \
+  --tls-ca-file /etc/dex/ca.pem --tls-server-name dex.example.internal health
+```
+
+The CLI negotiates HTTP/2 with the **h2** ALPN protocol. A load balancer that
+terminates TLS must accept **h2** and forward gRPC to Dex over HTTP/2.
 
 ## Authentication
 
@@ -35,8 +65,9 @@ DEX_CREDENTIAL_FILE=/run/secrets/dex/token dexcli flow watch order-123
 ```
 
 There is no flag for a raw token because command arguments can appear in shell
-history and process listings. The FlowService connection is plaintext gRPC, so
-protect its network path.
+history and process listings. Without **--tls**, the FlowService connection is
+plaintext gRPC and the token crosses the network unencrypted. Enable TLS or
+protect the network path.
 
 ## Friendly Flow operations
 
