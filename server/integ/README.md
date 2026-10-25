@@ -59,6 +59,22 @@ happy paths on both stores with Temporal and Cadence. In pull requests, the
 **Attribute Sync CI** workflow runs only when the **ci:attribute-sync** label is
 present. Regular **Server CI** does not start MySQL or PostgreSQL.
 
+The same suite runs in binary mode against server-zd with PostgreSQL only:
+
+```shell
+docker compose -f docker-compose/attribute-store-dependencies.yml up -d --wait attribute-postgres
+(cd ../server-zd && cargo build -p dexzd-server --bin dex-server-zd)
+make zdAttributeSyncIntegTests dexServerZDBinary=../server-zd/target/debug/dex-server-zd
+```
+
+The harness passes the Go Server's **attributeStore** section to server-zd
+unchanged. It creates the fencing table that server-zd requires in each store
+database. server-zd writes rows after the commit, so binary mode polls for
+rows that the Go Server has written when the Flow closes. MySQL and MongoDB
+stores skip because server-zd supports only PostgreSQL. With the
+**ci:attribute-sync** label, the **Attribute Sync CI** workflow runs this suite
+in its **Attribute Sync integration against server-zd** job.
+
 MongoDB Attribute Sync runs in a separate label-gated job because its container
 and workflow coverage are comparatively expensive:
 

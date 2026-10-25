@@ -68,10 +68,8 @@ PRIMARY KEY (group_id, account_id))`,
 		}
 	})
 
-	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType:        backendType,
-		S3TestThreshold:    1,
-		BlobCacheDirectory: t.TempDir(),
+	runtime := startDexService(t, withAttributeSyncBlobCache(t, DexServiceTestConfig{
+		BackendType: backendType,
 		AttributeStore: config.AttributeStoreConfig{
 			Stores: map[string]config.AttributeStoreConfigEntry{
 				"groups": {
@@ -83,7 +81,7 @@ PRIMARY KEY (group_id, account_id))`,
 				},
 			},
 		},
-	})
+	}))
 	workerTarget := startWorker(t, signal.NewHandler())
 	groupID := "g" + suffix
 	flowID := "group-" + groupID
@@ -135,17 +133,19 @@ PRIMARY KEY (group_id, account_id))`,
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
 
-	require.Equal(t, []string{"account-2=ADMIN", "account-3=MEMBER"},
-		groupMemberRoles(ctx, database, membersTable, groupID))
-	var replacedNote sql.NullString
-	require.NoError(t, database.QueryRowContext(ctx,
-		"SELECT note FROM public."+membersTable+" WHERE group_id = $1 AND account_id = $2", groupID, "account-2",
-	).Scan(&replacedNote))
-	require.False(t, replacedNote.Valid)
-	var displayName string
-	require.NoError(t, database.QueryRowContext(ctx,
-		"SELECT display_name FROM public."+groupsTable+" WHERE group_id = $1", groupID).Scan(&displayName))
-	require.Equal(t, "Core", displayName)
+	requireAttributeStoreRows(t, func(collect require.TestingT) {
+		require.Equal(collect, []string{"account-2=ADMIN", "account-3=MEMBER"},
+			groupMemberRoles(ctx, database, membersTable, groupID))
+		var replacedNote sql.NullString
+		require.NoError(collect, database.QueryRowContext(ctx,
+			"SELECT note FROM public."+membersTable+" WHERE group_id = $1 AND account_id = $2", groupID, "account-2",
+		).Scan(&replacedNote))
+		require.False(collect, replacedNote.Valid)
+		var displayName string
+		require.NoError(collect, database.QueryRowContext(ctx,
+			"SELECT display_name FROM public."+groupsTable+" WHERE group_id = $1", groupID).Scan(&displayName))
+		require.Equal(collect, "Core", displayName)
+	})
 }
 
 func groupMemberRoles(ctx context.Context, database *sql.DB, membersTable, groupID string) []string {

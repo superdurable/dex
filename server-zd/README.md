@@ -8,6 +8,10 @@ It serves the same `protos/dex.proto` FlowService and pull-mode WorkerTaskServic
 so the Dex SDKs work without changes. It differs from the Go Server in a few documented ways (for
 example, it supports only pull Workers).
 
+StopFlow closes the run as soon as it commits. A later write to that run, such as SetAttributes,
+returns NOT_FOUND. The Go Server accepts such writes while its run winds down after a cancel.
+Write what a Flow needs before stopping it.
+
 ## Layout
 
 | Crate | Role |

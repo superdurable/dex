@@ -69,10 +69,8 @@ onboarding_status TEXT)`,
 		}
 	})
 
-	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType:        backendType,
-		S3TestThreshold:    1,
-		BlobCacheDirectory: t.TempDir(),
+	runtime := startDexService(t, withAttributeSyncBlobCache(t, DexServiceTestConfig{
+		BackendType: backendType,
 		AttributeStore: config.AttributeStoreConfig{
 			Stores: map[string]config.AttributeStoreConfigEntry{
 				"orders": {
@@ -89,7 +87,7 @@ onboarding_status TEXT)`,
 				},
 			},
 		},
-	})
+	}))
 	workerTarget := startWorker(t, signal.NewHandler())
 	customerID := "c" + suffix
 	orderFlowID := "order-" + customerID + "-o-" + suffix
@@ -148,21 +146,23 @@ onboarding_status TEXT)`,
 		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
 	}
 
-	var orderStatus, shippingURL string
-	require.NoError(t, database.QueryRowContext(ctx,
-		"SELECT order_status, shipping_url FROM public."+ordersTable+" WHERE customer_id = $1 AND order_id = $2",
-		customerID, "o-"+suffix,
-	).Scan(&orderStatus, &shippingURL))
-	require.Equal(t, "SHIPPED", orderStatus)
-	require.Equal(t, "https://example.com/"+strings.Repeat("long-path/", 8), shippingURL)
+	requireAttributeStoreRows(t, func(collect require.TestingT) {
+		var orderStatus, shippingURL string
+		require.NoError(collect, database.QueryRowContext(ctx,
+			"SELECT order_status, shipping_url FROM public."+ordersTable+" WHERE customer_id = $1 AND order_id = $2",
+			customerID, "o-"+suffix,
+		).Scan(&orderStatus, &shippingURL))
+		require.Equal(collect, "SHIPPED", orderStatus)
+		require.Equal(collect, "https://example.com/"+strings.Repeat("long-path/", 8), shippingURL)
+		var displayName, onboardingStatus string
+		require.NoError(collect, database.QueryRowContext(ctx,
+			"SELECT display_name, onboarding_status FROM public."+customersTable+" WHERE customer_id = $1",
+			customerID,
+		).Scan(&displayName, &onboardingStatus))
+		require.Equal(collect, "Ada", displayName)
+		require.Equal(collect, "READY", onboardingStatus)
+	})
 	var orderCount int
 	require.NoError(t, database.QueryRowContext(ctx, "SELECT COUNT(*) FROM public."+ordersTable).Scan(&orderCount))
 	require.Equal(t, 1, orderCount)
-	var displayName, onboardingStatus string
-	require.NoError(t, database.QueryRowContext(ctx,
-		"SELECT display_name, onboarding_status FROM public."+customersTable+" WHERE customer_id = $1",
-		customerID,
-	).Scan(&displayName, &onboardingStatus))
-	require.Equal(t, "Ada", displayName)
-	require.Equal(t, "READY", onboardingStatus)
 }
