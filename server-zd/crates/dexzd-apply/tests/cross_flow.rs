@@ -2241,7 +2241,7 @@ impl Harness {
                 request: Some(ResetFlowRequest {
                     flow_id: "parent".to_owned(),
                     reset_type: FlowResetType::HistoryEventTime as i32,
-                    run_attempt,
+                    run_attempt: i32::try_from(run_attempt).expect("test run attempt fits i32"),
                     history_event_time: (i128::from(timestamp_micros) * 1000).to_string(),
                     ..ResetFlowRequest::default()
                 }),
