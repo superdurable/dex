@@ -60,6 +60,16 @@ Verify on the long-lived `dexcli dev` stack started during implementation:
 **Working as** filters work during local development; it does not
 authenticate a user or grant permission.
 
+The default `dexcli dev` engine is Temporal. When the application targets
+server-zd, verify on `dexcli dev --engine zd` instead, which needs a
+`dex-server-zd` binary from a server-zd release and accepts `--zd-config` for
+server-zd overrides. Follow the [server-zd flags](../../dex-sdk/references/core/operations.md#server-zd).
+server-zd dispatches only to pull Workers, so run the Worker in pull mode;
+**Start Flow** offers only **Pull Worker** there. Step failure policies need
+server-zd v0.1.2 or later. After an authorized time
+travel, record the run attempt with the Run ID, because the Run ID stays the
+same; see [Dex Web with server-zd](dex-web-v2.md#dex-web-with-server-zd).
+
 ## Package Flow definitions
 
 Dex Web reads Flow Definition Graph JSON, not Go source. Produce it with one
@@ -80,8 +90,8 @@ schema version, or a source read failure returns a 503 and fails `/readyz`, and
 two valid definitions for one Flow type make the source invalid. After
 publishing, confirm that `/readyz` reports the expected definition count and
 `GET /api/v2/catalog` lists every Flow type. See the [Dex Web
-definition directory](https://github.com/superdurable/dex/blob/server/v1.16.0/web/README.md#run-through-dexcli)
-and [Dex Server image](https://github.com/superdurable/dex/blob/server/v1.16.0/web/README.md#run-through-the-dex-server-image)
+definition directory](https://github.com/superdurable/dex/blob/server/v1.17.0/web/README.md#run-through-dexcli)
+and [Dex Server image](https://github.com/superdurable/dex/blob/server/v1.17.0/web/README.md#run-through-the-dex-server-image)
 contracts.
 
 ## Deployment, only when requested
@@ -97,7 +107,11 @@ deployed Connector configuration; a Go application reads it through the
 Connector SDK's `sdkgo/projectconfig`, as described in
 [Connector architecture](connector-architecture.md#deployed-configuration-and-credential-boundary).
 See the Dex SDK [operations reference](../../dex-sdk/references/core/operations.md)
-for Server components and the Worker protocol check.
+for Server components and the Worker protocol check. To serve Dex Web for
+server-zd, run a web-only `dex-server start --services web` with
+`web.flowServiceTarget` set to the server-zd address. Its `/readyz` calls the
+FlowService health check instead of a Flow search; see
+[server-zd](../../dex-sdk/references/core/operations.md#server-zd).
 
 Finish with:
 

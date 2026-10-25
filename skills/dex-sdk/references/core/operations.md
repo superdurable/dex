@@ -6,7 +6,7 @@ Use this guide for Dex Server deployment, production inspection, and authorized 
 
 ## Diagnostic order
 
-1. Capture the exact Flow ID, run ID, Flow type, SDK version, and Dex Server address.
+1. Capture the exact Flow ID, run ID, Flow type, SDK version, and Dex Server address. On server-zd, also capture the [run attempt](#server-zd).
 2. Check Worker application logs for handler and connectivity errors.
 3. Inspect the Flow in Dex Web.
 4. Run a bounded read-only inspection:
@@ -25,7 +25,7 @@ dexcli flow history <flow-id> --page-size 80 --timeout 30s --no-hydrate
 
 With Server and CLI v1.15.0, Flow detail shows the Worker target and, for pull Flows, the Flow type queue and sticky app Worker ID. Active Steps and Step history show serving app Worker IDs for WaitFor and Execute, the dispatch sticky app Worker ID, and the queue source. **Sticky queue** means the serving ID matches the sticky ID captured for that dispatch; otherwise a completed dispatch shows **Flow type queue**. Compare against that captured ID, not just the Flow's current sticky ID.
 
-Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Address targets retain address-only routing. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage. [Released routing UI](https://github.com/superdurable/dex/blob/server/v1.16.0/web/app/flows/details/PullRouting.tsx)
+Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Address targets retain address-only routing. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage. [Released routing UI](https://github.com/superdurable/dex/blob/server/v1.17.0/web/app/flows/details/PullRouting.tsx)
 
 Correlate reserve-decline counters with total handler occupancy and **M − R** Step admission before increasing capacity; follow [reserved RPC capacity](pull-workers.md#reserved-rpc-capacity).
 
@@ -61,7 +61,7 @@ cross-origin credential forwarding disabled.
 The codec converts known Dex binary protobuf payloads to ProtoJSON. Unknown
 message types and other encodings pass through unchanged. The same tooling
 applies to all five SDK languages. See the released
-[CLI codec server usage](https://github.com/superdurable/dex/blob/cli-v1.16.0/cli/README.md#view-temporal-protobuf-payloads).
+[CLI codec server usage](https://github.com/superdurable/dex/blob/cli-v1.17.0/cli/README.md#view-temporal-protobuf-payloads).
 
 ## Indexed Attribute capacity
 
@@ -181,7 +181,7 @@ The `dex-server` image starts Web, API, Interpreter, and Matching in one OS proc
 
 ### Public API authentication
 
-Public FlowService authentication is off by default. Configure `auth.authenticators` to require a bearer credential on public calls and streams. Static token authenticators read SHA-256 hashes from a YAML token file; JWT authenticators verify issuer, audience, signature, and validity against a cached key set. Health checks remain open. Protect the plaintext gRPC network path, and keep token values out of source, logs, Flow state, and rendered definitions. [Released authentication configuration](https://github.com/superdurable/dex/blob/server/v1.16.0/server/config/config_template.yaml)
+Public FlowService authentication is off by default. Configure `auth.authenticators` to require a bearer credential on public calls and streams. Static token authenticators read SHA-256 hashes from a YAML token file; JWT authenticators verify issuer, audience, signature, and validity against a cached key set. Health checks remain open. Protect the plaintext gRPC network path, and keep token values out of source, logs, Flow state, and rendered definitions. [Released authentication configuration](https://github.com/superdurable/dex/blob/server/v1.17.0/server/config/config_template.yaml)
 
 Clients and Workers have separate credential options in all five SDKs. Supply a rotating file credential where available, or a current-token provider that can be called for every FlowService call and each pull stream opening. With auth enabled, a missing credential is rejected and a failed credential prevents the call; a rotated token is picked up on a later call or stream reconnect. See the language handbook for exact names.
 
@@ -205,7 +205,7 @@ Keep the API key in deployment secret management. Never put it in source, Flow s
 
 #### dexcli credentials
 
-Configure `dexcli` with either a bearer token or an API key, not both. For a bearer token, `--credential-file` takes precedence over `DEX_CREDENTIAL_FILE`, which takes precedence over `DEX_CREDENTIAL`. The CLI has no raw-token flag. Store a token in a protected file when possible; avoid putting one into shell history or process arguments. [Released CLI options](https://github.com/superdurable/dex/blob/cli-v1.16.0/cli/internal/command/options.go)
+Configure `dexcli` with either a bearer token or an API key, not both. For a bearer token, `--credential-file` takes precedence over `DEX_CREDENTIAL_FILE`, which takes precedence over `DEX_CREDENTIAL`. The CLI has no raw-token flag. Store a token in a protected file when possible; avoid putting one into shell history or process arguments. [Released CLI options](https://github.com/superdurable/dex/blob/cli-v1.17.0/cli/internal/command/options.go)
 
 With CLI v1.16.0, an API key uses three settings:
 
@@ -213,7 +213,7 @@ With CLI v1.16.0, an API key uses three settings:
 - `--token-url` or `DEX_TOKEN_URL` names the token endpoint, with the same HTTPS and loopback rule as the SDKs.
 - `--server-id` or `DEX_SERVER_ID` names the server that the endpoint scopes the token to. `dexcli` never derives it from `--server`.
 
-Combining API key settings with any bearer token setting is a usage error that exits with status 2. So is setting `--token-url` or `--server-id` without an API key. Each command exchanges the key for a new token before its first call. A failed exchange fails the command before any FlowService call. A long command refreshes the token in the background after 80% of its lifetime. Unlike the SDKs, `dexcli` does not retry a call that Dex rejects with UNAUTHENTICATED; rerun the command to obtain a fresh token. Errors redact the key and tokens as the SDK credentials do. [Released CLI authentication guide](https://github.com/superdurable/dex/blob/cli-v1.16.0/cli/README.md)
+Combining API key settings with any bearer token setting is a usage error that exits with status 2. So is setting `--token-url` or `--server-id` without an API key. Each command exchanges the key for a new token before its first call. A failed exchange fails the command before any FlowService call. A long command refreshes the token in the background after 80% of its lifetime. Unlike the SDKs, `dexcli` does not retry a call that Dex rejects with UNAUTHENTICATED; rerun the command to obtain a fresh token. Errors redact the key and tokens as the SDK credentials do. [Released CLI authentication guide](https://github.com/superdurable/dex/blob/cli-v1.17.0/cli/README.md)
 
 ```bash
 export DEX_API_KEY="$(cat ~/.dex/api-key)"
@@ -233,19 +233,19 @@ With Server v1.13.0, Client API **ResourceExhausted** can identify capacity or r
 
 ### Pull Worker server setup
 
-The `matching` role owns pull Worker queues. Keep at least one Matching instance running. API instances accept outbound Worker streams on FlowService and forward them to the queue owner. Preserve bidirectional HTTP/2 streaming and make load-balancer idle timeouts longer than `matching.pingInterval` (20 seconds by default). A single Server process uses local membership. For multiple instances, configure `membership` with reachable seeds and a private `internal.listen` plus `internal.tokenFile` on every process. All instances must share the intended backend namespace and membership cluster; route public traffic only to API instances. [Released routing configuration](https://github.com/superdurable/dex/blob/server/v1.16.0/server/config/config_template.yaml)
+The `matching` role owns pull Worker queues. Keep at least one Matching instance running. API instances accept outbound Worker streams on FlowService and forward them to the queue owner. Preserve bidirectional HTTP/2 streaming and make load-balancer idle timeouts longer than `matching.pingInterval` (20 seconds by default). A single Server process uses local membership. For multiple instances, configure `membership` with reachable seeds and a private `internal.listen` plus `internal.tokenFile` on every process. All instances must share the intended backend namespace and membership cluster; route public traffic only to API instances. [Released routing configuration](https://github.com/superdurable/dex/blob/server/v1.17.0/server/config/config_template.yaml)
 
-A matching-only process (`dex-server start --services matching`) requires both `internal.listen` and `internal.tokenFile`, even when public auth is off. Its MatchingService is never public. [Released bootstrap check](https://github.com/superdurable/dex/blob/server/v1.16.0/server/service/bootstrap/bootstrap.go)
+A matching-only process (`dex-server start --services matching`) requires both `internal.listen` and `internal.tokenFile`, even when public auth is off. Its MatchingService is never public. [Released bootstrap check](https://github.com/superdurable/dex/blob/server/v1.17.0/server/service/bootstrap/bootstrap.go)
 
 `matching.dispatchWait` defaults to 10 seconds, including up to five seconds of `matching.stickyWait`. `matching.localDispatchWait` defaults to 3 seconds; `localStickyWait` and `localExecutionReserve` preserve time for local Step execution. A Worker that rejects an unregistered Step type or RPC name is excluded from that dispatch, so another capable pull Worker can accept within the applicable wait. Capacity defaults are `maxConcurrentTasksCap: 256` streams per app Worker ID per matching owner, `maxStreams: 100000` per Matching instance, and `maxQueueLength`, `maxFlowTypes`, and `maxFlowTypeLength` of 256 each. With SDK v1.14.1 in all five languages, surplus idle streams close gracefully after load drops without clearing readiness. The steady-state stream bound per Worker is **M + (F + 1) × I**, where **M** is maximum concurrent tasks, **F** is registered Flow types, and **I** is idle streams per queue. Burst peaks remain bounded by **matching.maxConcurrentTasksCap** and **matching.maxStreams**. Check the [pull Worker stream bound](pull-workers.md#heartbeats-capacity-and-shutdown) before raising Worker concurrency or Flow type count, and budget rolling overlap within both caps.
 
 ### Worker wake hook
 
-Configure `worker.wake.url` and optional `worker.wake.budget` (120 seconds by default) when an unavailable Worker can be started on demand. Dex posts a best-effort `kind: wake` notification with the target, and a rate-limited `kind: active` notification after a successful dispatch. For pull routing, the wake target is the Flow type queue; Dex sends it after the sticky wait and keeps the same dispatch attempt open. For listening routing, the budget holds connection retries without consuming new attempts. An internal token is sent when `internal.tokenFile` is configured. Size the dispatch wait and Step retry policy to cover actual startup time. [Released wake settings](https://github.com/superdurable/dex/blob/server/v1.16.0/server/config/auth.go)
+Configure `worker.wake.url` and optional `worker.wake.budget` (120 seconds by default) when an unavailable Worker can be started on demand. Dex posts a best-effort `kind: wake` notification with the target, and a rate-limited `kind: active` notification after a successful dispatch. For pull routing, the wake target is the Flow type queue; Dex sends it after the sticky wait and keeps the same dispatch attempt open. For listening routing, the budget holds connection retries without consuming new attempts. An internal token is sent when `internal.tokenFile` is configured. Size the dispatch wait and Step retry policy to cover actual startup time. [Released wake settings](https://github.com/superdurable/dex/blob/server/v1.17.0/server/config/auth.go)
 
 ### Removed multi-tenant configuration
 
-Multi-tenant mode has been removed since Server v1.10.0. Single-tenant Flow data is preserved, but a configuration containing the removed `tenancy` section fails startup. Move `tenancy.authenticators` to `auth.authenticators`, `tenancy.internal` to `internal`, and `tenancy.wake` to `worker.wake`; drop `subjectPattern` and `claims`, and use only SHA-256 entries in static token files. Also remove `blobStore.tenantCleanupConfirmationDelay` and each `attributeStore.stores.<name>.tenantColumn`: both are rejected at startup. If a destination table still requires a tenant column, migrate that table separately so single-tenant writes satisfy its schema. Inspect the deployed YAML and destination schema before upgrading. [Released migration error](https://github.com/superdurable/dex/blob/server/v1.16.0/server/config/removed_tenancy_config.go)
+Multi-tenant mode has been removed since Server v1.10.0. Single-tenant Flow data is preserved, but a configuration containing the removed `tenancy` section fails startup. Move `tenancy.authenticators` to `auth.authenticators`, `tenancy.internal` to `internal`, and `tenancy.wake` to `worker.wake`; drop `subjectPattern` and `claims`, and use only SHA-256 entries in static token files. Also remove `blobStore.tenantCleanupConfirmationDelay` and each `attributeStore.stores.<name>.tenantColumn`: both are rejected at startup. If a destination table still requires a tenant column, migrate that table separately so single-tenant writes satisfy its schema. Inspect the deployed YAML and destination schema before upgrading. [Released migration error](https://github.com/superdurable/dex/blob/server/v1.17.0/server/config/removed_tenancy_config.go)
 
 Before deploying a Worker, run `dexcli version check` against its target Server. Each Server and SDK release declares an inclusive protocol interval. Worker startup selects the highest common protocol before synchronizing Attribute indexes and binding WorkerService. Artifact versions are diagnostic only.
 
@@ -276,6 +276,8 @@ web:
 When `web.flowServiceTarget` is empty, Web connects to `localhost:<api.port>`. The connection uses plaintext gRPC and `api.grpcMaxMessageBytes`. Put TLS, authentication, and network policy at the deployment boundary.
 
 `/healthz` reports Web process liveness, not upstream API readiness. Web starts while FlowService is unavailable; `/api/*` returns the existing mapped gRPC error until the API recovers.
+
+`/readyz` validates the current Flow definition snapshot and then checks FlowService. With Server and CLI v1.17.0, Web asks FlowService for its engine. Against server-zd, readiness calls the FlowService health check, because a search can exceed the builtin search scan budget there. Against the Go Server, readiness still runs a one-result Flow search, because the Go Server's health check does not reach Temporal or Cadence. Use `/readyz` for traffic gating and `/healthz` for liveness. [Released Web readiness](https://github.com/superdurable/dex/blob/server/v1.17.0/web/README.md#run-through-the-dex-server-image)
 
 For Interpreter-only deployments without `internal.listen`, point `interpreter.interpreterActivityConfig.internalServiceTarget` at the API service. With a private listener, the Interpreter uses its local address by default. Scale Web, API, Interpreter, and Matching replicas according to HTTP traffic, FlowService traffic, execution load, and pull task load respectively.
 
@@ -332,13 +334,33 @@ Create every destination table or collection before starting the Server. Dex nev
 
 The `rowKey`, `columnNaming`, and `attributeMaps` store settings need Dex Server v1.6.0 or later, and an older Server rejects them at startup. Upgrade every Server before adding them to a shared configuration. With `rowKey` the key columns come from the Flow ID, so a Flow ID that does not match its template skips the batch with an error log. Watch the Server log for filtered writes, skipped batches, and exhausted retries, because a projection failure does not roll back Flow state. Design guidance is in [row keys, column names, and AttributeMap tables](data-handling.md#row-keys-column-names-and-attributemap-tables), and the full contract is the [Custom Attribute Store](https://docs.superdurable.io/production/attribute-store) page.
 
+## server-zd
+
+server-zd is a Dex Server whose only runtime dependency is object storage. It serves the same FlowService API, so the SDKs work unchanged, but it dispatches only to [pull Workers](pull-workers.md). Configure every Worker with the language's pull options and start Flows with the pull Worker target. It is released separately from Dex Server. Follow the [server-zd operation guide](https://docs.superdurable.io/production/server-zd-operations) for deployment, the lease, object storage, metrics, and the configuration mapping from the Go Server.
+
+Step failure policies, including Execute failure routes, WaitFor proceed-on-failure, and timeout-handler failure routes, run with Go Server semantics from server-zd v0.1.2. Earlier releases reject them at StartFlow and fail the attempt of a Step decision that sets one. See [recovery error types](error-handling.md#recovery-error-types).
+
+server-zd does not serve Dex Web. Run a web-only `dex-server start --services web` and set `web.flowServiceTarget` to the server-zd plaintext gRPC address. That process creates no Temporal or Cadence connection. When server-zd authentication is on, also set `web.flowServiceCredentialFile`.
+
+For local development, CLI v1.16.0 or later runs `dexcli dev --engine zd`, which starts `dex-server-zd` and Dex Web without Temporal. The default engine remains Temporal.
+
+- Install `dex-server-zd` from a server-zd release on PATH, set `DEX_SERVER_ZD_BINARY`, or pass `--zd-binary`.
+- State persists in `$HOME/.dex/zd/<dex-port>` unless `--zd-data-dir` names another directory.
+- `--zd-config FILE` passes a `dex-server-zd` YAML file with configuration overrides, such as closed Flow retention, Streams, or the search backend.
+- Logs go to standard error; `--server-log-folder` also writes `dex-server-zd.log`.
+- Temporal and Go Server options, such as `--sqlite-db-filename`, `--external-temporal-address`, `--attribute-store-config`, and `--blob-store-dir`, cannot be combined with `--engine zd`.
+
+[Released CLI engine options](https://github.com/superdurable/dex/blob/cli-v1.17.0/cli/README.md)
+
+On server-zd, time travel keeps the run ID and creates a new run attempt. With Server and CLI v1.17.0, Dex Web shows the run attempt and switches between attempts, and `GET /api/flows/summary` reports `runAttempt`. `dexcli flow summary` does not print it, so read it in Dex Web. On the Go Server, time travel creates a new run ID and `runAttempt` is zero. [Released Web behavior](https://github.com/superdurable/dex/blob/server/v1.17.0/web/README.md#run-against-server-zd)
+
 ## Safe recovery
 
 Diagnosis is read-only by default. Stop, time travel, publish, invoke, skip a Timer, or mutate Attributes only when the user asks to change the Flow.
 
 Before a mutation:
 
-- resolve the current exact run
+- resolve the current exact run, including its run attempt on [server-zd](#server-zd)
 - explain the expected state change
 - use an application Flow RPC or an explicit dexcli operation
 - satisfy any explicit confirmation flag
@@ -354,7 +376,7 @@ same history when safe:
 1. Deploy or restart the Worker with the corrected code.
 2. Time travel the failed Flow to the last safe execution before the failure.
 3. Let Dex replay and continue with the corrected Worker.
-4. Re-inspect the new run and verify the formerly failing path and durable state.
+4. Re-inspect the new run and verify the formerly failing path and durable state. On server-zd, the new run keeps its run ID and has the next run attempt.
 
 This is stronger than testing only a new Flow because it exercises recovery from the
 actual recorded history. Do not cross an external side effect unless it is idempotent,

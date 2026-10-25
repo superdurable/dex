@@ -87,6 +87,8 @@ Set **web.startFlowWorkerTargetHeadless** or **DEX_WEB_START_FLOW_WORKER_TARGET_
 
 The **POST /api/v2/start** request accepts **workerTargetAddress** or **workerTargetPull: true**. Sending both returns HTTP 400. If neither is supplied, **web.startFlowWorkerTargetPull** selects a pull target when true. Its default is false, and an explicit address still works. **workerTargetPull: false** requires an address even when the pull default is enabled. **DEX_WEB_START_FLOW_WORKER_TARGET_PULL** sets the same default through the environment. The dialog initially selects **Pull Worker** when this default is true. Headless routing applies only to address targets, so both settings can be enabled together. Dex Web does not check for a registered pull Worker before starting because registrations can change before dispatch.
 
+server-zd dispatches only to pull Workers. On server-zd, the dialog opens with **Pull Worker** selected and hides **Worker address**. A **POST /api/v2/start** request without either target field selects a pull target there, whatever **web.startFlowWorkerTargetPull** says. See [Run against server-zd](#run-against-server-zd).
+
 ## Worker routing
 
 Flow detail shows the **Worker target**: a listening address, a headless address, or **Pull**. A pull Flow also shows **Flow type queue**, named after its Flow type, and **Sticky app Worker ID**, the last app Worker recorded as serving the Flow.
@@ -144,3 +146,71 @@ A matching permission means an Action is or was available; it does not mean the 
 The browser condition only controls presentation. Every Action RPC must check the current state again before changing durable state or publishing a Channel message. Use locks when that check and the effect must be atomic.
 
 Work Queue does not add login or enforce authorization. **Working as** selects work; it does not grant the chosen permission. The trusted application boundary remains responsible for authenticating users, mapping roles to permissions, and limiting which permissions it sends. Deploy Dex Web behind that boundary.
+
+## Run against server-zd {#run-against-server-zd}
+
+[server-zd](/production/server-zd-operations) does not serve Dex Web. A
+web-only Dex Server process serves it instead. Set **web.flowServiceTarget** to
+the server-zd plaintext gRPC address. This process creates no Temporal or
+Cadence connection. When server-zd authentication is on, set
+**web.flowServiceCredentialFile** to a file with a static token or service JWT.
+
+~~~yaml
+web:
+  bindAddress: 0.0.0.0
+  port: 8802
+  flowServiceTarget: dex-server-zd:8801
+  flowServiceCredentialFile: /etc/dex/web-token
+~~~
+
+~~~bash
+dex-server --config web-only.yaml start --services web
+~~~
+
+For local development, **dexcli dev --engine zd** starts server-zd and Dex Web
+without Temporal. Install **dex-server-zd** from a server-zd release on your
+PATH, set **DEX_SERVER_ZD_BINARY**, or pass **--zd-binary**. Pass
+**--zd-config** with a server-zd YAML file to override settings such as closed
+Flow retention, Streams, or the search backend. The
+[CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md#start-locally)
+lists every flag.
+
+~~~bash
+dexcli dev --engine zd --flow-rendering-dir ./build
+~~~
+
+Dex Web asks the Server for its engine and reports it as **serverEngine** in
+**GET /api/v2/catalog**. The value is **temporal**, **cadence**, **zd**, or
+**unspecified** when the Server does not report one. On server-zd, Start Flow
+offers only pull Workers, as described in [Start Flow](#start-flow).
+
+### Run attempts {#run-attempts}
+
+On server-zd, time travel keeps the run ID and creates a new run attempt. Run
+attempts are numbered from 1. On the Go Dex Server, time travel creates a new
+run ID instead.
+
+The run details page shows a **Run attempt** selector in place of **Run
+chain**. The page opens from a **v1** run or from **Inspect** on **v2**.
+Choosing an earlier attempt adds **?runAttempt=N** to the page URL and shows
+that attempt's history. Live history stops for an earlier attempt. Live state
+always belongs to the current attempt. Time travel from that view searches the
+selected attempt. A **TimeTravelFork** event links to the previous run attempt.
+
+When the run attempt changes, the page reloads the whole history. Events after
+the fork point no longer belong to the current attempt.
+
+**GET /api/flows/history** accepts an optional **runAttempt**. Zero or absent
+selects the current attempt. Each event and **GET /api/flows/summary** report
+**runAttempt**, which is zero on the Go Dex Server. **POST
+/api/flows/time-travel** accepts an optional **runAttempt** and returns the new
+one.
+
+### Readiness {#readiness}
+
+**/healthz** reports only Web process liveness. **/readyz** validates the
+current definition snapshot and then checks FlowService. On server-zd, it calls
+FlowService **HealthCheck**, because a search can exceed the builtin search
+scan budget. On the Go Dex Server, it runs a one-result **SearchFlows**. That
+Server's **HealthCheck** does not reach Temporal or Cadence. Use **/readyz** to
+gate traffic and **/healthz** for liveness.

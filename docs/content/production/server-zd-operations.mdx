@@ -33,7 +33,7 @@ dex-server-zd serve --config /etc/dex-server-zd/config.yaml
 ~~~
 
 **serve** reads every setting from one YAML file. The
-[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.1/server-zd/config/dex-server-zd.example.yaml)
+[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.2/server-zd/config/dex-server-zd.example.yaml)
 lists every key with its default. An unknown key fails startup. An invalid
 value also fails startup, and the error names the YAML path of the rejected
 field. The image includes the example at
@@ -124,7 +124,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: dex-server-zd
-          image: docker.io/superdurable/dex-server-zd:0.1.1
+          image: docker.io/superdurable/dex-server-zd:0.1.2
           ports:
             - name: grpc
               containerPort: 8801
@@ -461,7 +461,7 @@ increase(dexzd_lease_renewals_total{outcome="error"}[10m]) > 0
 
 The full catalog, with types, histogram buckets, and Linux process metrics, is
 in the
-[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.1/server-zd/README.md#metrics).
+[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.2/server-zd/README.md#metrics).
 
 ## Authentication
 
@@ -555,5 +555,5 @@ it loads unchanged.
 | **attributeStore** | None | Not available in server-zd 0.1. |
 | **interpreter** | None | server-zd uses no Temporal or Cadence backend. |
 | **membership** and **internal** | None | A cluster runs one node and has no internal listener. |
-| **web** | None | server-zd does not serve Dex Web. |
+| **web** | None | server-zd does not serve Dex Web. Run a web-only Dex Server that points at server-zd. See [Run against server-zd](/production/dex-web#run-against-server-zd). |
 | **worker** | None | server-zd supports only pull Workers. |

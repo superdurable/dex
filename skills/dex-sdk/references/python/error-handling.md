@@ -20,7 +20,7 @@ External side effects require idempotency keys derived from durable identity. Pe
 
 Async APIs must be awaited. In a sync generator, yield every heartbeat/Stream `StepOutput`; swallowing one means the runtime never receives it. Do not catch `CancelledError` just to continue unsafe work.
 
-Use automatic failure policies for deterministic recovery, operator Channels for manual choice, and the Flow timeout handler for Flow-deadline semantics. Neither an internal transport reattachment nor a caller-visible request timeout means the Flow failed.
+Use automatic failure policies for deterministic recovery, operator Channels for manual choice, and the Flow timeout handler for Flow-deadline semantics. A recovery Step reads `context.recovery_error`. The Python SDK has no time-limit predicates at its v1.17.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types). Neither an internal transport reattachment nor a caller-visible request timeout means the Flow failed.
 
 ## Query-only Get failures
 
