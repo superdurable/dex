@@ -11,6 +11,7 @@ use std::sync::Arc;
 use dexzd_apply::{FlowStateReader, StateReadError};
 use dexzd_keyspace::row_keys::{partition_index_range, run_singleton_key};
 use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId, RunId, RunTable, TenantId};
+use dexzd_postgres_connection::ConnectionSettings;
 use dexzd_protocol::dex::IndexType;
 use dexzd_protocol::dexzd::v1::{LogPosition, RunRecord, SearchDocumentRecord};
 use prost::Message;
@@ -86,21 +87,25 @@ pub enum ProjectionError {
         offered: LogPosition,
     },
     /// Postgres could not complete a projection operation.
-    #[error("{operation} ParadeDB projection: {}", database_error_message(source))]
+    #[error("{operation} ParadeDB projection: {message}")]
     Database {
         /// Failed operation.
         operation: &'static str,
+        /// The Postgres error; the projector redacts the DSN and password before returning it.
+        message: String,
         /// Database failure.
         #[source]
         source: tokio_postgres::Error,
     },
     /// Postgres rejected one committed run's upsert.
-    #[error("upsert run {run_id} in partition {} into ParadeDB projection: {}", partition_id.0, database_error_message(source))]
+    #[error("upsert run {run_id} in partition {} into ParadeDB projection: {message}", partition_id.0)]
     RowDatabase {
         /// Partition containing the run.
         partition_id: PartitionId,
         /// Run whose upsert failed.
         run_id: RunId,
+        /// The Postgres error; the projector redacts the DSN and password before returning it.
+        message: String,
         /// Database failure.
         #[source]
         source: tokio_postgres::Error,
@@ -125,6 +130,14 @@ impl ProjectionError {
             Self::StateRead(_) => true,
             _ => false,
         }
+    }
+
+    /// Redacts database messages before they leave the projector; [`Self::Connection`] is already redacted.
+    fn redact_credentials(mut self, configuration: &ConnectionSettings) -> Self {
+        if let Self::Database { message, .. } | Self::RowDatabase { message, .. } = &mut self {
+            *message = configuration.redact_credentials(std::mem::take(message));
+        }
+        self
     }
 }
 
@@ -194,7 +207,7 @@ impl ParadeDbProjector {
                 slot.reconnect(self.backend.configuration()).await?;
                 continue;
             }
-            return result;
+            return result.map_err(|error| error.redact_credentials(self.backend.configuration()));
         }
     }
 
@@ -237,7 +250,9 @@ impl ParadeDbProjector {
                 continue;
             }
             drop(slot);
-            return result.map(|skipped| self.record_skipped_documents(skipped));
+            return result
+                .map(|skipped| self.record_skipped_documents(skipped))
+                .map_err(|error| error.redact_credentials(self.backend.configuration()));
         }
     }
 
@@ -278,7 +293,9 @@ impl ParadeDbProjector {
                 continue;
             }
             drop(slot);
-            return result.map(|skipped| self.record_skipped_documents(skipped));
+            return result
+                .map(|skipped| self.record_skipped_documents(skipped))
+                .map_err(|error| error.redact_credentials(self.backend.configuration()));
         }
     }
 
@@ -625,6 +642,7 @@ async fn execute_statement(
         .map_err(|source| ProjectionError::RowDatabase {
             partition_id,
             run_id,
+            message: database_error_message(&source),
             source,
         })?;
     Ok(())
@@ -725,7 +743,11 @@ fn is_replay(stored: Option<&LogPosition>, offered: &LogPosition) -> bool {
 }
 
 fn database_error(operation: &'static str, source: tokio_postgres::Error) -> ProjectionError {
-    ProjectionError::Database { operation, source }
+    ProjectionError::Database {
+        operation,
+        message: database_error_message(&source),
+        source,
+    }
 }
 
 fn operation_timeout(operation: &'static str) -> ProjectionError {

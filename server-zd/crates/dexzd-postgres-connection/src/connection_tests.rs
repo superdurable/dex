@@ -14,7 +14,7 @@ use tokio::net::TcpListener;
 use tokio_postgres::config::{SslMode, SslNegotiation};
 use tokio_rustls::LazyConfigAcceptor;
 
-use super::ConnectionSettings;
+use super::{ConnectionSettings, error_with_sources};
 use crate::dsn::{TlsParameters, split_tls_parameters};
 
 #[test]
@@ -245,4 +245,51 @@ async fn direct_negotiation_sends_tls_client_hello_with_postgresql_alpn() {
     };
     assert!(matches!(error, super::ConnectionError::Database(_)));
     server.await.expect("fake server inspects ClientHello");
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("connection closed")]
+struct ConnectionClosedError {
+    #[source]
+    source: std::io::Error,
+}
+
+#[test]
+fn redaction_removes_the_dsn_and_password_from_an_error_cause() {
+    let dsn = "host=db.example.com user=dex password=hidden-password sslmode=disable";
+    let settings = ConnectionSettings::parse(dsn).expect("valid keyword DSN");
+    let error = ConnectionClosedError {
+        source: std::io::Error::other(format!(
+            "FATAL: rejected {dsn}; DETAIL: password hidden-password expired"
+        )),
+    };
+    let message = settings.redact_credentials(error_with_sources(&error));
+    assert!(!message.contains(dsn), "{message}");
+    assert!(!message.contains("hidden-password"), "{message}");
+    assert_eq!(
+        message,
+        "connection closed: FATAL: rejected [REDACTED]; DETAIL: password [REDACTED] expired"
+    );
+}
+
+#[test]
+fn redaction_removes_a_url_dsn_with_tls_parameters_and_its_decoded_password() {
+    let dsn = "postgres://dex:p%40ss-word@db.example.com:5432/dex?sslmode=disable";
+    let settings = ConnectionSettings::parse_for_search(dsn).expect("valid URL DSN");
+    let message = settings.redact_credentials(format!("server echoed {dsn} and p@ss-word"));
+    assert_eq!(message, "server echoed [REDACTED] and [REDACTED]");
+}
+
+#[test]
+fn redaction_without_a_dsn_removes_the_configured_password() {
+    let mut config = tokio_postgres::Config::new();
+    config
+        .host("db.example.com")
+        .user("dex")
+        .password("hidden-password");
+    let settings = ConnectionSettings::from_config(config);
+    assert_eq!(
+        settings.redact_credentials("authentication failed for hidden-password".to_owned()),
+        "authentication failed for [REDACTED]"
+    );
 }

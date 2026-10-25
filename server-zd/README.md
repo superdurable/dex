@@ -349,13 +349,19 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   requires PostgreSQL 17 or later. For example,
   `postgres://role:pw@host:5432/db?sslmode=require&sslnegotiation=direct` opens TLS before the
   startup message. `sslmode=require` without `sslrootcert` encrypts the connection but does not
-  verify the server certificate. With `sslrootcert`, `require` also verifies the certificate
-  chain, but not the host name. `sslmode=verify-full` verifies the chain and the host name against
-  `sslrootcert`, or against the system roots when `sslrootcert` is absent. `sslrootcert=system`
-  uses the system roots and forces `verify-full`.
+  verify the server certificate. With a PEM file in `sslrootcert`, `require` verifies the
+  certificate chain against that file, but not the host name. `sslmode=verify-ca` verifies the
+  chain against the PEM file in `sslrootcert`, or against the system roots when `sslrootcert` is
+  absent. It never verifies the host name. `sslmode=verify-full` verifies the chain and the host
+  name, against the PEM file in `sslrootcert` or against the system roots when `sslrootcert` is
+  absent. `sslrootcert=system` uses the system roots and forces `verify-full`, whatever `sslmode`
+  says. Without `sslnegotiation=direct`, `prefer` and `allow` do not verify the certificate, even
+  with a PEM file in `sslrootcert`. `sslmode=allow` with `sslnegotiation=direct` is invalid.
   Without TLS parameters, the connection remains plaintext for compatibility with existing
   deployments. Explicit `sslmode=prefer` first attempts TLS without certificate verification;
-  previously it remained plaintext. `sslmode=allow` with `sslnegotiation=direct` is invalid.
+  previously it remained plaintext. With `sslnegotiation=direct`, `sslmode=prefer` or a missing
+  `sslmode` becomes `require`, and the `require` rules above apply, so TLS is mandatory and there
+  is no plaintext fallback.
   The connect timeout covers the TLS handshake and authentication, including reconnects.
 - A `search.paradeDbSchema` other than `public` is applied as the `search_path` connection option.
   A transaction pooler must pass that startup option through; otherwise keep the tables in `public`.

@@ -85,7 +85,7 @@ impl ParadeDbSearchBackend {
         for slot_index in 0..pool_size {
             let mut slot = ConnectionSlot::open(configuration).await?;
             if slot_index == 0 {
-                slot.ensure_schema_with_timeout(SCHEMA_SETUP_TIMEOUT)
+                slot.ensure_schema_with_timeout(configuration, SCHEMA_SETUP_TIMEOUT)
                     .await?;
             }
             slots.push(Mutex::new(slot));
@@ -119,6 +119,7 @@ impl ParadeDbSearchBackend {
                 }
                 Ok(Err(error)) => {
                     return Err(classify_database_error(
+                        &self.configuration,
                         "query ParadeDB visibility runs",
                         error,
                     ));
@@ -211,12 +212,13 @@ impl ConnectionSlot {
                     "connect to ParadeDB timed out after {timeout:?}"
                 )),
                 ConnectionError::Database(source) => {
-                    classify_database_error("connect to ParadeDB", source)
+                    classify_database_error(configuration, "connect to ParadeDB", source)
                 }
             })?;
+        let connection_settings = configuration.clone();
         let connection_task = tokio::spawn(async move {
             if let Err(error) = driver.await {
-                let error = error_with_sources(&error);
+                let error = connection_settings.redact_credentials(error_with_sources(&error));
                 tracing::error!(%error, "ParadeDB search connection closed");
             }
         });
@@ -227,9 +229,13 @@ impl ConnectionSlot {
         })
     }
 
-    async fn ensure_schema_with_timeout(&mut self, timeout: Duration) -> Result<(), SearchError> {
+    async fn ensure_schema_with_timeout(
+        &mut self,
+        configuration: &ConnectionSettings,
+        timeout: Duration,
+    ) -> Result<(), SearchError> {
         match tokio::time::timeout(timeout, ensure_schema(&mut self.client)).await {
-            Ok(result) => result.map_err(schema_search_error),
+            Ok(result) => result.map_err(|error| schema_search_error(configuration, error)),
             Err(_) => {
                 self.invalidate();
                 Err(SearchError::Unavailable(format!(
@@ -373,11 +379,14 @@ fn is_transient_sqlstate(sqlstate: &str) -> bool {
         )
 }
 
+/// Redacts the DSN and password from the message, because server-supplied text can repeat them.
 pub(super) fn classify_database_error(
+    configuration: &ConnectionSettings,
     operation: &str,
     error: tokio_postgres::Error,
 ) -> SearchError {
-    let message = format!("{operation}: {}", database_error_message(&error));
+    let message = configuration
+        .redact_credentials(format!("{operation}: {}", database_error_message(&error)));
     if is_transient_database_error(&error) {
         SearchError::Unavailable(message)
     } else {
@@ -385,6 +394,7 @@ pub(super) fn classify_database_error(
     }
 }
 
+/// Formats the error without redaction; callers apply [`ConnectionSettings::redact_credentials`].
 pub(super) fn database_error_message(error: &tokio_postgres::Error) -> String {
     let Some(database_error) = error.as_db_error() else {
         return format!("SQLSTATE none: {}", error_with_sources(error));
@@ -403,9 +413,11 @@ pub(super) fn database_error_message(error: &tokio_postgres::Error) -> String {
     message
 }
 
-fn schema_search_error(error: SchemaError) -> SearchError {
+fn schema_search_error(configuration: &ConnectionSettings, error: SchemaError) -> SearchError {
     match error {
-        SchemaError::Database { operation, source } => classify_database_error(operation, source),
+        SchemaError::Database { operation, source } => {
+            classify_database_error(configuration, operation, source)
+        }
         SchemaError::NewerVersion { .. } => SearchError::Internal(error.to_string()),
     }
 }
@@ -423,6 +435,7 @@ mod tests {
     use tempfile::NamedTempFile;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use tokio::task::JoinHandle;
     use tokio_postgres::{Config, NoTls};
     use tokio_rustls::TlsAcceptor;
 
@@ -462,7 +475,11 @@ mod tests {
                 is_transient,
                 "{sqlstate}"
             );
-            let classified = classify_database_error("connect to ParadeDB", error);
+            let classified = classify_database_error(
+                &ConnectionSettings::from_config(Config::new()),
+                "connect to ParadeDB",
+                error,
+            );
             match (is_transient, classified) {
                 (true, SearchError::Unavailable(message))
                 | (false, SearchError::Internal(message)) => {
@@ -501,7 +518,11 @@ mod tests {
         assert!(error.as_db_error().is_none());
         assert!(is_transient_database_error(&error));
         assert!(matches!(
-            classify_database_error("connect to ParadeDB", error),
+            classify_database_error(
+                &ConnectionSettings::from_config(Config::new()),
+                "connect to ParadeDB",
+                error
+            ),
             SearchError::Unavailable(message) if message.contains("SQLSTATE none")
         ));
     }
@@ -598,7 +619,7 @@ mod tests {
             .expect("fake server accepts startup");
         let result = tokio::time::timeout(
             Duration::from_secs(1),
-            slot.ensure_schema_with_timeout(Duration::from_millis(50)),
+            slot.ensure_schema_with_timeout(&connection_settings, Duration::from_millis(50)),
         )
         .await
         .expect("schema setup has a client-side deadline");
@@ -613,6 +634,37 @@ mod tests {
             .expect("stalled connection is retired");
     }
 
+    #[tokio::test]
+    async fn connect_error_redacts_the_dsn_and_password_from_server_text() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("fake PostgreSQL listener binds");
+        let port = listener
+            .local_addr()
+            .expect("listener has an address")
+            .port();
+        let dsn = format!(
+            "host=127.0.0.1 port={port} user=dex password=hidden-password connect_timeout=5"
+        );
+        let server = reject_startup(
+            listener,
+            format!(
+                "SFATAL\0VFATAL\0C28P01\0Mrejected {dsn}\0Dpassword hidden-password expired\0\0"
+            ),
+        );
+        let settings = ConnectionSettings::parse_for_search(&dsn).expect("valid plaintext DSN");
+        let error = match ConnectionSlot::open(&settings).await {
+            Ok(_) => panic!("the rejected startup cannot connect"),
+            Err(error) => error,
+        };
+        server.await.expect("fake server sends its rejection");
+        let message = error.to_string();
+        assert!(message.contains("SQLSTATE 28P01"), "{message}");
+        assert!(message.contains("[REDACTED]"), "{message}");
+        assert!(!message.contains(&dsn), "{message}");
+        assert!(!message.contains("hidden-password"), "{message}");
+    }
+
     async fn rejected_startup_error(sqlstate: &str) -> tokio_postgres::Error {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -622,7 +674,20 @@ mod tests {
             .expect("listener has an address")
             .port();
         let response = format!("SFATAL\0VFATAL\0C{sqlstate}\0Mforced rejection\0\0");
-        let server = tokio::spawn(async move {
+        let server = reject_startup(listener, response);
+        let mut configuration = Config::new();
+        configuration.host("127.0.0.1").port(port).user("test");
+        let error = match configuration.connect(NoTls).await {
+            Ok(_) => panic!("the rejected startup cannot connect"),
+            Err(error) => error,
+        };
+        server.await.expect("fake server sends its rejection");
+        error
+    }
+
+    /// Answers one client's startup message with the ErrorResponse fields in `response`.
+    fn reject_startup(listener: TcpListener, response: String) -> JoinHandle<()> {
+        tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.expect("client connects");
             let startup_length = stream.read_u32().await.expect("startup has a length");
             let mut startup = vec![0; startup_length as usize - 4];
@@ -637,15 +702,7 @@ mod tests {
                 .write_all(&message)
                 .await
                 .expect("server rejects startup");
-        });
-        let mut configuration = Config::new();
-        configuration.host("127.0.0.1").port(port).user("test");
-        let error = match configuration.connect(NoTls).await {
-            Ok(_) => panic!("the rejected startup cannot connect"),
-            Err(error) => error,
-        };
-        server.await.expect("fake server sends its rejection");
-        error
+        })
     }
 
     #[tokio::test]

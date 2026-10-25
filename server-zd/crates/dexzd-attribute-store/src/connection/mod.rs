@@ -51,9 +51,10 @@ impl ConnectionSettings {
                 },
             })?;
         let store = settings.name.clone();
+        let connection_settings = self.0.clone();
         let connection_task = tokio::spawn(async move {
             if let Err(error) = driver.await {
-                let error = error_with_sources(&error);
+                let error = connection_settings.redact_credentials(error_with_sources(&error));
                 tracing::warn!(store, %error, "Attribute Store connection closed");
             }
         });

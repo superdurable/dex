@@ -9,6 +9,7 @@
 use std::time::Duration;
 
 use dexzd_postgres_connection::error_with_sources;
+pub(crate) use dexzd_postgres_connection::redact_secret;
 
 /// An Attribute Store failure. Messages name the store, the operation, and the table.
 #[derive(Debug, thiserror::Error)]
@@ -200,14 +201,6 @@ impl AttributeStoreError {
             _ => None,
         }
     }
-}
-
-/// Go's `redactStorageSecret`: replaces every occurrence of a non-empty secret with `[REDACTED]`.
-pub(crate) fn redact_secret(message: String, secret: &str) -> String {
-    if secret.is_empty() || !message.contains(secret) {
-        return message;
-    }
-    message.replace(secret, "[REDACTED]")
 }
 
 /// Builds a database failure from a tokio-postgres error, redacting the DSN.
