@@ -8,7 +8,7 @@ Separate handler failures from controller/client failures. A Step or RPC returns
 
 Return errors with `?` when a durable read or write fails. For an application failure, construct a stable error type and useful message. `HandlerError::retry_after` overrides the next retry delay for that failure; `StepOptions::execute_retry` still bounds attempts. Use it only as explicit backoff for a transient failure. It is not a polling loop: an external “not ready yet” status is a normal branch of the [Polling pattern](patterns.md#polling), never an error. The excerpt below only demonstrates the delay override.
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.17.0/examples/rust/src/primitives/custom_retry/flow.rs)
+[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.20.0/examples/rust/src/primitives/custom_retry/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/custom_retry/flow.rs -->
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
@@ -37,7 +37,7 @@ Make Execute side effects idempotent across attempts. Dex retries a logical meth
 
 Configure retry policies for the phase that can fail. WaitFor should normally be pure durable preparation. If WaitFor exhaustion is explicitly recoverable, set `WaitForFailurePolicy::Proceed`; Execute must then check `context.wait_for_method_failed()` before selecting a recovery transition.
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.17.0/examples/rust/src/primitives/proceed_on_wait_failure/flow.rs)
+[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.20.0/examples/rust/src/primitives/proceed_on_wait_failure/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/proceed_on_wait_failure/flow.rs -->
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
@@ -66,7 +66,7 @@ Never enable Proceed without a deliberate Execute branch; otherwise failed prepa
 
 Record recovery progress durably before triggering another non-idempotent action.
 
-A recovery Step reads `Context::recovery_error()`. The Rust SDK has no time-limit predicates at its v1.17.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types).
+A recovery Step reads `Context::recovery_error()`. The Rust SDK has no time-limit predicates at its v1.20.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types).
 
 ## Client errors
 
@@ -79,6 +79,10 @@ When the API promises a critical operation has completed, follow the shared [req
 For an idempotent start, set one stable `StartFlowOptions::request_id(...)` and `ignore_already_started(true)` only when a retry of that same logical request may attach to the existing run. A remaining `SdkError::FlowAlreadyStarted` means a different Request ID owns the Flow ID. Treat it as a domain conflict unless the coordinator contract deliberately redirects the command to that existing Flow. Another service-backed variant can leave acceptance unknown; retry with the same identities or read owning domain state, never a dedicated start-deduplication table.
 
 For an explicitly best-effort external `Client::write_stream`, suppress only `SdkError::Service { .. }`, the remote fallback produced by that operation. Propagate local argument and value-mapping variants. Context Stream writes inside a handler remain `HandlerResult` work and must participate in the Step's retry or recovery policy.
+
+## Flow close cleanup
+
+From Rust SDK v1.20.0 or later, match `SdkError::FlowClosing { .. }` for a cleanup-sensitive Client call rejected with `ErrorSubStatus::FlowClosing` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. `SdkError` and `ErrorSubStatus` are non-exhaustive; include a wildcard arm in exhaustive matches. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released variants](https://github.com/superdurable/dex/blob/sdk-rust/v1.20.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs)
 
 ## Query-only Get failures
 

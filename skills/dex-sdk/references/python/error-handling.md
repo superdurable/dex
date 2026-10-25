@@ -20,7 +20,11 @@ External side effects require idempotency keys derived from durable identity. Pe
 
 Async APIs must be awaited. In a sync generator, yield every heartbeat/Stream `StepOutput`; swallowing one means the runtime never receives it. Do not catch `CancelledError` just to continue unsafe work.
 
-Use automatic failure policies for deterministic recovery, operator Channels for manual choice, and the Flow timeout handler for Flow-deadline semantics. A recovery Step reads `context.recovery_error`. The Python SDK has no time-limit predicates at its v1.17.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types). Neither an internal transport reattachment nor a caller-visible request timeout means the Flow failed.
+Use automatic failure policies for deterministic recovery, operator Channels for manual choice, and the Flow timeout handler for Flow-deadline semantics. A recovery Step reads `context.recovery_error`. The Python SDK has no time-limit predicates at its v1.20.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types). Neither an internal transport reattachment nor a caller-visible request timeout means the Flow failed.
+
+## Flow close cleanup
+
+From Python SDK v1.20.0 or later, catch `FlowClosingError` from `dex` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error](https://github.com/superdurable/dex/blob/sdk-python/v1.20.0/sdk-python/dex/runtime_errors.py)
 
 ## Query-only Get failures
 

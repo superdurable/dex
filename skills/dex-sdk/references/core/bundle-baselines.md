@@ -5,21 +5,21 @@ reference sources packaged with this Dex Skills release. Project dependencies
 and lockfiles remain authoritative for application code.
 
 ```text
-DEX_BASELINE=sdk-go/v1.17.0
-DEX_SERVER_BASELINE=server/v1.19.0
-DEX_CLI_BASELINE=cli-v1.19.0
-DEX_JAVA_BASELINE=sdk-java/v1.17.0
-DEX_PYTHON_BASELINE=sdk-python/v1.17.0
-DEX_TYPESCRIPT_BASELINE=sdk-typescript/v1.17.0
-DEX_RUST_BASELINE=sdk-rust/v1.17.0
+DEX_BASELINE=sdk-go/v1.20.0
+DEX_SERVER_BASELINE=server/v1.20.0
+DEX_CLI_BASELINE=cli-v1.20.0
+DEX_JAVA_BASELINE=sdk-java/v1.20.0
+DEX_PYTHON_BASELINE=sdk-python/v1.20.0
+DEX_TYPESCRIPT_BASELINE=sdk-typescript/v1.20.0
+DEX_RUST_BASELINE=sdk-rust/v1.20.0
 ```
 
 These values mirror the release metadata at the Dex Skills repository root.
 The package validator rejects any drift between the two copies.
 
-All five SDK baselines use their published v1.17.0 tags. The Server baseline
-is server/v1.19.0 and the CLI baseline is cli-v1.19.0. No SDK changed in
-CLI v1.18.0, CLI v1.19.0, or Server v1.19.0, so the SDK baselines stay at v1.17.0.
+All five SDK baselines use their published v1.20.0 tags. The Server baseline
+is server/v1.20.0 and the CLI baseline is cli-v1.20.0. The v1.20.0 release adds
+the typed FLOW_CLOSING error in every SDK.
 Each SDK and its language examples use that language's exact tag. **DEX_BASELINE**
 is the Go SDK pin, not a shared version for every language.
 The example dependency manifests in all five languages select SDK v1.15.0.
