@@ -59,7 +59,7 @@ func (server *pullTestServer) PollWorkerTask(stream dexpb.WorkerTaskService_Poll
 	server.streams = append(server.streams, registered)
 	shouldReconnect := server.reconnectFirst
 	server.reconnectFirst = false
-	if registered.registration.Queue == server.holdAfterEOFQueue {
+	if registered.registration != nil && registered.registration.Queue == server.holdAfterEOFQueue {
 		registered.eofReceived = make(chan struct{})
 		registered.allowReturn = make(chan struct{})
 		registered.ended = make(chan error, 1)
