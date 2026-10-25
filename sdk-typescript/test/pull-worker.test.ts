@@ -199,6 +199,76 @@ test("simultaneous Step arrivals cannot consume the RPC reserve", async () => {
   }
 });
 
+test("reserve pressure keeps an extra stream only on the declining queue until expiry", async () => {
+  const harness = await startHarness();
+  let releaseSteps!: () => void;
+  const gate = new Promise<void>((resolve) => { releaseSteps = resolve; });
+  const dispatcher = {
+    invokeExecute: async () => { await gate; return {}; },
+  } as unknown as WorkerDispatcher;
+  const worker = new PullWorker(new Registry([new TestFlow()]), dispatcher, harness.address,
+    { maxConcurrentTasks: 3, reservedRpcTasks: 1 }, undefined, () => {}, 300);
+  Reflect.set(worker, "registeredFlows", new Map([["TestFlow", {
+    steps: [{ name: "TestStep" }], rpcs: [],
+  }]]));
+  const idleCount = (queue: string): number => [...(Reflect.get(worker, "streams") as Set<{
+    queue: string; task: unknown; isRegistered: boolean; isDraining: boolean; isDisconnected: boolean;
+  }>)].filter((stream) => stream.queue === queue && stream.task === undefined
+    && stream.isRegistered && !stream.isDraining && !stream.isDisconnected).length;
+  const registerNext = async (): Promise<{ stream: CapturedStream; queue: string }> => {
+    const stream = await harness.nextStream();
+    const frame = await stream.frame("register");
+    if (frame.frame?.$case !== "register") throw new Error("expected Register frame");
+    const queue = frame.frame.value.queue;
+    stream.call.write(registered(true));
+    return { stream, queue };
+  };
+  const stepTask = (taskId: string): PollWorkerTaskResponse => ({ frame: { $case: "task", value: {
+    taskId, deadline: undefined,
+    request: { $case: "execute", value: InvokeExecuteMethodRequest.create({ flowType: "TestFlow", stepType: "TestStep" }) },
+  } } });
+  try {
+    worker.start();
+    const initial = [await registerNext(), await registerNext()];
+    const first = initial.find((entry) => entry.queue === "TestFlow")?.stream;
+    assert.ok(first);
+    await worker.registration.wait();
+    first.call.write(stepTask("first"));
+    await until(() => Reflect.get(worker, "busyTaskCount") === 1);
+    const second = await registerNext();
+    assert.equal(second.queue, "TestFlow");
+    second.stream.call.write(stepTask("second"));
+    await until(() => Reflect.get(worker, "busyTaskCount") === 2);
+    const declining = await registerNext();
+    assert.equal(declining.queue, "TestFlow");
+    declining.stream.call.write(stepTask("declined"));
+    const rejection = await declining.stream.frame("reject");
+    assert.equal(rejection.frame?.$case === "reject" && rejection.frame.value.reason,
+      PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY);
+    const extra = await registerNext();
+    assert.equal(extra.queue, "TestFlow");
+    await until(() => idleCount("TestFlow") === 2);
+    assert.equal(idleCount(worker.appWorkerID), 1);
+    const pressureTimers = Reflect.get(worker, "reservePressureTimers") as Map<string, ReturnType<typeof setTimeout>>;
+    clearTimeout(pressureTimers.get("TestFlow")!);
+    pressureTimers.delete("TestFlow");
+    (Reflect.get(worker, "expireReservePressure") as (queue: string) => void).call(worker, "TestFlow");
+    assert.equal(pressureTimers.has("TestFlow"), true);
+    assert.equal(idleCount("TestFlow"), 2);
+    releaseSteps();
+    await first.frame("taskFrame");
+    await second.stream.frame("taskFrame");
+    await until(() => Reflect.get(worker, "busyTaskCount") === 0 && idleCount("TestFlow") === 2);
+    assert.equal(idleCount(worker.appWorkerID), 1);
+    await until(() => idleCount("TestFlow") === 1);
+    assert.equal(idleCount(worker.appWorkerID), 1);
+  } finally {
+    releaseSteps();
+    await worker.close();
+    await harness.close();
+  }
+});
+
 test("generated appWorkerID uses host identity and eight base32 characters", async () => {
   const registry = new Registry([]);
   const dispatcher = {} as WorkerDispatcher;

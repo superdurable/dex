@@ -40,6 +40,7 @@ type pullWorker struct {
 	shouldWarnRPCCapacity          bool
 	reservedRPCDeclines            uint64
 	idleStreamsPerQueue            int
+	reservePressureLinger          time.Duration
 	stopDrainTimeout               time.Duration
 	stopOnPermanentStreamRejection bool
 	sdkVersion                     string
@@ -70,8 +71,6 @@ type pullQueueRegistration struct {
 	lastReserveDecline   time.Time
 	reservePressureTimer *time.Timer
 }
-
-const reservePressureLinger = 30 * time.Second
 
 type pullStream struct {
 	worker       *pullWorker
@@ -158,7 +157,8 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 		stopOnPermanentStreamRejection: options.StopOnPermanentStreamRejection,
 		maxConcurrentTasks:             maxConcurrentTasks, reservedRPCTasks: reservedRPCTasks,
 		shouldWarnRPCCapacity: options.ReservedRPCTasks == nil && maxConcurrentTasks == 1,
-		idleStreamsPerQueue:   idleStreamsPerQueue, stopDrainTimeout: stopDrainTimeout, sdkVersion: sdkVersion,
+		idleStreamsPerQueue:   idleStreamsPerQueue, reservePressureLinger: 30 * time.Second,
+		stopDrainTimeout: stopDrainTimeout, sdkVersion: sdkVersion,
 		ctx: ctx, cancel: cancel, streams: make(map[*pullStream]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{}),
 	}, nil
 }
@@ -323,7 +323,7 @@ func (worker *pullWorker) reconcile() {
 func (worker *pullWorker) desiredIdleStreamsPerQueue(queue string) int {
 	desired := worker.idleStreamsPerQueue
 	lastDecline := worker.queueRegistrations[queue].lastReserveDecline
-	if worker.reservedRPCTasks > 0 && !lastDecline.IsZero() && time.Since(lastDecline) < reservePressureLinger {
+	if worker.reservedRPCTasks > 0 && !lastDecline.IsZero() && time.Since(lastDecline) < worker.reservePressureLinger {
 		desired++
 	}
 	return desired
@@ -660,9 +660,9 @@ func (stream *pullStream) startTask(task *dexpb.PollWorkerTask) {
 		registration := stream.worker.queueRegistrations[stream.queue]
 		registration.lastReserveDecline = time.Now()
 		if registration.reservePressureTimer == nil {
-			registration.reservePressureTimer = time.AfterFunc(reservePressureLinger, stream.worker.signal)
+			registration.reservePressureTimer = time.AfterFunc(stream.worker.reservePressureLinger, stream.worker.signal)
 		} else {
-			registration.reservePressureTimer.Reset(reservePressureLinger)
+			registration.reservePressureTimer.Reset(stream.worker.reservePressureLinger)
 		}
 		stream.mu.Unlock()
 		stream.worker.mu.Unlock()

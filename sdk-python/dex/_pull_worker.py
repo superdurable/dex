@@ -37,7 +37,6 @@ from dex.pull_registration import PullRegistrationError, _PullRegistration
 from dex.worker_options import PullWorkerOptions
 
 _LOGGER = logging.getLogger(__name__)
-_RESERVE_PRESSURE_LINGER = 30.0
 _GRPC_AIO_EOF = getattr(grpc.aio, "EOF")
 _PERMANENT_CODES = {
     grpc.StatusCode.UNAUTHENTICATED,
@@ -88,6 +87,7 @@ class PullWorkerRuntime:
         executor: ThreadPoolExecutor | None,
         app_worker_id: str | None = None,
         credential_runner: AsyncCredentialRunner | None = None,
+        reserve_pressure_linger: float = 30.0,
     ) -> None:
         self._registry = registry
         self.app_worker_id = app_worker_id or resolve_app_worker_id(registry, options)
@@ -111,6 +111,7 @@ class PullWorkerRuntime:
         self.reserved_rpc_declines = 0
         self._last_reserve_decline: dict[str, float] = {}
         self._reserve_pressure_timers: dict[str, asyncio.TimerHandle] = {}
+        self._reserve_pressure_linger = reserve_pressure_linger
         self.idle_streams_per_queue = options.idle_streams_per_queue or 1
         self.stop_drain_timeout = options.stop_drain_timeout.total_seconds() or 30
         self._dispatcher = dispatcher
@@ -217,7 +218,7 @@ class PullWorkerRuntime:
         return self.idle_streams_per_queue + int(
             self.reserved_rpc_tasks > 0
             and last_decline is not None
-            and time.monotonic() - last_decline < _RESERVE_PRESSURE_LINGER
+            and time.monotonic() - last_decline < self._reserve_pressure_linger
         )
 
     def _stream_done(self, stream: PullStream, completed: asyncio.Task[None]) -> None:
@@ -250,7 +251,9 @@ class PullWorkerRuntime:
                 existing_timer.cancel()
             if self._loop is not None:
                 self._reserve_pressure_timers[queue_name] = self._loop.call_later(
-                    _RESERVE_PRESSURE_LINGER, self.signal
+                    self._reserve_pressure_linger,
+                    self._expire_reserve_pressure,
+                    queue_name,
                 )
             self.signal()
             request = task.wait_for if task.HasField("wait_for") else task.execute
@@ -261,6 +264,21 @@ class PullWorkerRuntime:
         self._busy_tasks += 1
         self.signal()
         return True
+
+    def _expire_reserve_pressure(self, queue: str) -> None:
+        last_decline = self._last_reserve_decline.get(queue)
+        if last_decline is None:
+            return
+        remaining = self._reserve_pressure_linger - (time.monotonic() - last_decline)
+        if remaining > 0:
+            assert self._loop is not None
+            self._reserve_pressure_timers[queue] = self._loop.call_later(
+                remaining, self._expire_reserve_pressure, queue
+            )
+            return
+        self._last_reserve_decline.pop(queue, None)
+        self._reserve_pressure_timers.pop(queue, None)
+        self.signal()
 
     def finish_task(self) -> None:
         self._busy_tasks -= 1

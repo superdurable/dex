@@ -113,6 +113,7 @@ pub struct PullWorkerOptions {
     pub(crate) max_concurrent_tasks: Option<usize>,
     pub(crate) reserved_rpc_tasks: Option<usize>,
     pub(crate) idle_streams_per_queue: Option<usize>,
+    pub(crate) reserve_pressure_linger: Option<Duration>,
     pub(crate) app_worker_id: Option<String>,
     pub(crate) stop_drain_timeout: Option<Duration>,
     pub(crate) stop_on_permanent_stream_rejection: bool,

@@ -68,6 +68,7 @@ pub(crate) struct PullWorker {
     reserved_rpc_tasks: usize,
     reserved_rpc_declines: Arc<AtomicU64>,
     idle_streams_per_queue: usize,
+    reserve_pressure_linger: Duration,
     stop_drain_timeout: Duration,
     pub(crate) registration: Arc<PullRegistration>,
     should_warn_rpc_capacity: bool,
@@ -100,6 +101,7 @@ struct PullShared {
     reserved_rpc_tasks: usize,
     reserved_rpc_declines: Arc<AtomicU64>,
     idle_streams_per_queue: usize,
+    reserve_pressure_linger: Duration,
 }
 
 struct ActiveTask {
@@ -149,6 +151,9 @@ impl PullWorker {
             .reserved_rpc_tasks
             .unwrap_or(usize::from(max_concurrent_tasks >= 2));
         let idle_streams_per_queue = options.idle_streams_per_queue.unwrap_or(1);
+        let reserve_pressure_linger = options
+            .reserve_pressure_linger
+            .unwrap_or(RESERVE_PRESSURE_LINGER);
         let stop_drain_timeout = options
             .stop_drain_timeout
             .unwrap_or(Duration::from_secs(30));
@@ -195,6 +200,7 @@ impl PullWorker {
             should_warn_rpc_capacity: options.reserved_rpc_tasks.is_none()
                 && max_concurrent_tasks == 1,
             idle_streams_per_queue,
+            reserve_pressure_linger,
             stop_drain_timeout,
         })
     }
@@ -224,6 +230,7 @@ impl PullWorker {
             reserved_rpc_tasks: self.reserved_rpc_tasks,
             reserved_rpc_declines: Arc::clone(&self.reserved_rpc_declines),
             idle_streams_per_queue: self.idle_streams_per_queue,
+            reserve_pressure_linger: self.reserve_pressure_linger,
         });
         let (stop, stop_receiver) = watch::channel(StopSignal {
             phase: 0,
@@ -238,26 +245,12 @@ impl PullWorker {
                 break;
             }
             self.reconcile(&shared, &stop_receiver, &mut streams);
-            let reserve_pressure_expiry = shared
-                .state
-                .lock()
-                .expect("pull state lock")
-                .last_reserve_decline
-                .values()
-                .map(|decline| *decline + RESERVE_PRESSURE_LINGER)
-                .min();
             tokio::select! {
                 change = shutdown.changed() => {
                     if change.is_err() || *shutdown.borrow() { break; }
                 }
                 () = shared.notify.notified() => {}
-                () = async {
-                    if let Some(expiry) = reserve_pressure_expiry {
-                        sleep_until(expiry).await;
-                    } else {
-                        std::future::pending::<()>().await;
-                    }
-                } => {}
+                () = shared.wait_for_reserve_pressure_expiry() => {}
                 result = streams.join_next(), if !streams.is_empty() => {
                     if let Some(Err(error)) = result { tracing::error!(%error, "pull Worker stream failed"); }
                 }
@@ -310,7 +303,7 @@ impl PullWorker {
         }
         state
             .last_reserve_decline
-            .retain(|_, decline| decline.elapsed() < RESERVE_PRESSURE_LINGER);
+            .retain(|_, decline| decline.elapsed() < shared.reserve_pressure_linger);
         for queue in &self.queues {
             let registered_idle = state
                 .streams
@@ -627,6 +620,22 @@ impl PullStream {
 }
 
 impl PullShared {
+    async fn wait_for_reserve_pressure_expiry(&self) {
+        let expiry = self
+            .state
+            .lock()
+            .expect("pull state lock")
+            .last_reserve_decline
+            .values()
+            .map(|decline| *decline + self.reserve_pressure_linger)
+            .min();
+        if let Some(expiry) = expiry {
+            sleep_until(expiry).await;
+        } else {
+            std::future::pending::<()>().await;
+        }
+    }
+
     fn desired_idle_streams_per_queue(&self, state: &PullState, queue: &str) -> usize {
         self.idle_streams_per_queue
             + usize::from(
@@ -634,7 +643,7 @@ impl PullShared {
                     && state
                         .last_reserve_decline
                         .get(queue)
-                        .is_some_and(|decline| decline.elapsed() < RESERVE_PRESSURE_LINGER),
+                        .is_some_and(|decline| decline.elapsed() < self.reserve_pressure_linger),
             )
     }
 
@@ -1031,7 +1040,9 @@ mod tests {
     use tonic::transport::Server;
     use tonic::{Request, Response};
 
+    mod concurrent_admission;
     mod options;
+    mod reserve_pressure;
 
     struct ReserveCapacityFlow;
 
@@ -1614,6 +1625,7 @@ mod tests {
             reserved_rpc_tasks,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         }
     }
 
@@ -1656,35 +1668,6 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_step_admission_preserves_rpc_reserve() {
-        let shared = Arc::new(reserved_rpc_shared(1));
-        let barrier = Arc::new(std::sync::Barrier::new(20));
-        let contenders: Vec<_> = (1..=20)
-            .map(|stream_id| {
-                let shared = Arc::clone(&shared);
-                let barrier = Arc::clone(&barrier);
-                std::thread::spawn(move || {
-                    let task = PollWorkerTask {
-                        request: Some(TaskRequest::Execute(Default::default())),
-                        ..Default::default()
-                    };
-                    barrier.wait();
-                    shared.try_accept(stream_id, Some(&task))
-                })
-            })
-            .collect();
-        assert_eq!(
-            1,
-            contenders
-                .into_iter()
-                .map(|contender| usize::from(contender.join().expect("admission thread")))
-                .sum::<usize>()
-        );
-        assert_eq!(1, shared.state.lock().expect("state lock").busy_tasks);
-        assert_eq!(19, shared.reserved_rpc_declines.load(Ordering::Relaxed));
-    }
-
-    #[test]
     fn rejects_an_assignment_when_global_capacity_is_full() {
         let shared = PullShared {
             registration: Arc::default(),
@@ -1724,6 +1707,7 @@ mod tests {
             reserved_rpc_tasks: 0,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         };
         assert!(shared.try_accept(1, None));
         assert!(!shared.try_accept(2, None));
@@ -1772,6 +1756,7 @@ mod tests {
             reserved_rpc_tasks: 0,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         };
         shared.mark_draining(2);
         assert!(!shared.release(1));
@@ -2147,6 +2132,7 @@ mod tests {
                 reserved_rpc_tasks: reserve,
                 reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
                 idle_streams_per_queue: 1,
+                reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
             });
             let (_stop, stop_receiver) = watch::channel(StopSignal {
                 phase: 0,
@@ -2364,6 +2350,7 @@ mod tests {
             reserved_rpc_tasks: 0,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         });
         let (_stop, stop_receiver) = watch::channel(StopSignal {
             phase: 0,

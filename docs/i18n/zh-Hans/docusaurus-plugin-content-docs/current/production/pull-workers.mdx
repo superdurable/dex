@@ -507,6 +507,7 @@ Server，Worker 与之前一样返回未注册错误。推送模式 Worker 仍�
 **matching.maxConcurrentTasksCap** 时，最多还需为 **F + 1** 条 stream 留出容量；
 默认每个 matching owner 上每个 app Worker ID 最多 256 条 stream。
 **matching.maxStreams** 默认限制每个 Matching 实例最多注册 100,000 条 stream。
+突发负载期间的瞬时峰值仍受 matching 容量上限约束。
 **matching.maxQueueLength**、**matching.maxFlowTypes** 和
 **matching.maxFlowTypeLength** 也限制注册内容，默认值均为 256。
 
@@ -538,7 +539,7 @@ Step 最多等待到分发等待时间结束，然后收到 **NO_WORKER_AVAILABL
 每个队列仍保留可用的空闲流。队列因预留 RPC 容量拒绝 Step 后，
 会多保留一条空闲 stream，直到最后一次拒绝后的 30 秒。其他队列维持配置的空闲数量。
 所有任务槽位都忙碌时，Worker 不会新建这条额外 stream。Step 积压较多的 Worker
-应将 **idleStreamsPerQueue** 设为至少二。预留容量导致的拒绝不会关闭流，
+应将 **idleStreamsPerQueue** 至少设为 2。预留容量导致的拒绝不会关闭流，
 也不会改变注册就绪状态。
 每次此类拒绝都会生成包含 Flow 类型的调试日志，并增加 Worker 的累计预留拒绝计数：
 Go 为 **PullReservedRPCDeclines()**，Java 为 **getPullReservedRpcDeclines()**，

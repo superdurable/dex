@@ -34,6 +34,7 @@ public final class PullWorkerOptions {
     private final int idleStreamsPerQueue;
     private final String appWorkerID;
     private final Duration stopDrainTimeout;
+    private final Duration reservePressureLinger;
     private final boolean stopOnPermanentStreamRejection;
 
     private PullWorkerOptions(final Builder builder) {
@@ -51,6 +52,7 @@ public final class PullWorkerOptions {
         this.appWorkerID = builder.appWorkerID;
         this.stopDrainTimeout = builder.stopDrainTimeout.isZero()
                 ? Duration.ofSeconds(30) : builder.stopDrainTimeout;
+        this.reservePressureLinger = builder.reservePressureLinger;
     }
 
     /**
@@ -90,6 +92,10 @@ public final class PullWorkerOptions {
         return stopDrainTimeout;
     }
 
+    Duration getReservePressureLinger() {
+        return reservePressureLinger;
+    }
+
     /**
      * Builds immutable outbound polling options.
      *
@@ -102,9 +108,18 @@ public final class PullWorkerOptions {
         private int idleStreamsPerQueue;
         private String appWorkerID = "";
         private Duration stopDrainTimeout = Duration.ZERO;
+        private Duration reservePressureLinger = Duration.ofSeconds(30);
         private boolean stopOnPermanentStreamRejection;
 
         private Builder() {
+        }
+
+        Builder reservePressureLingerForTest(final Duration value) {
+            if (value == null || value.isZero() || value.isNegative()) {
+                throw new IllegalArgumentException("reserve pressure linger must be positive");
+            }
+            this.reservePressureLinger = value;
+            return this;
         }
 
         /**

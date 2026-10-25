@@ -13,7 +13,7 @@ import logging
 import re
 import threading
 from contextlib import ExitStack
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Coroutine, cast
@@ -1562,6 +1562,133 @@ async def _surplus_streams_shrink_after_burst(idle_streams: int) -> None:
         opened_calls = len(stub.calls)
         runtime._reconcile(stub)
         assert len(stub.calls) == opened_calls
+    finally:
+        dispatcher.gate.set()
+        await runtime.stop()
+
+
+def test_reserve_pressure_is_queue_local_and_expires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(PullWorkerRuntime, "unknown_task_reason", _UNKNOWN_TASK_REASON)
+    asyncio.run(_reserve_pressure_is_queue_local_and_expires())
+
+
+async def _reserve_pressure_is_queue_local_and_expires() -> None:
+    class BlockingStepDispatcher:
+        def __init__(self) -> None:
+            self.gate = asyncio.Event()
+
+        async def invoke_execute(
+            self, request: pb.InvokeExecuteMethodRequest, is_active: Callable[[], bool]
+        ) -> AsyncIterator[pb.InvokeExecuteMethodResponse]:
+            await self.gate.wait()
+            yield pb.InvokeExecuteMethodResponse()
+
+    dispatcher = BlockingStepDispatcher()
+    runtime = PullWorkerRuntime(
+        Registry([ReservedRPCFlow()]),
+        dispatcher,
+        PullWorkerOptions(
+            app_worker_id="pressure-worker",
+            max_concurrent_tasks=3,
+            reserved_rpc_tasks=1,
+        ),
+        "localhost:8801",
+        None,
+        reserve_pressure_linger=0.3,
+    )
+    runtime._loop = asyncio.get_running_loop()
+    runtime._stopping = asyncio.Event()
+    runtime._wake = asyncio.Event()
+    stub = BurstStub()
+
+    def idle_streams(queue: str) -> int:
+        return sum(
+            stream.queue == queue
+            and stream._is_registered
+            and not stream.is_busy
+            and not stream.is_draining
+            for stream in runtime._streams
+        )
+
+    try:
+        await reconcile_burst_until(
+            runtime, stub, lambda: runtime.registration.snapshot().is_ready
+        )
+        for task_number in range(2):
+            stream = next(
+                candidate
+                for candidate in runtime._streams
+                if candidate.queue == "ReservedRPCFlow"
+                and candidate._is_registered
+                and not candidate.is_busy
+            )
+            call = cast(QueueCall, stream._call)
+            call.frames.put_nowait(
+                pb.PollWorkerTaskResponse(
+                    task=pb.PollWorkerTask(
+                        task_id=f"step-{task_number}",
+                        execute=pb.InvokeExecuteMethodRequest(
+                            flow_type="ReservedRPCFlow", step_type="ReservedRPCStep"
+                        ),
+                    )
+                )
+            )
+            await reconcile_burst_until(
+                runtime,
+                stub,
+                lambda: runtime._busy_tasks == task_number + 1
+                and idle_streams("ReservedRPCFlow") == 1,
+            )
+        declining = next(
+            candidate
+            for candidate in runtime._streams
+            if candidate.queue == "ReservedRPCFlow"
+            and candidate._is_registered
+            and not candidate.is_busy
+        )
+        declined_call = cast(QueueCall, declining._call)
+        declined_call.frames.put_nowait(
+            pb.PollWorkerTaskResponse(
+                task=pb.PollWorkerTask(
+                    task_id="declined",
+                    execute=pb.InvokeExecuteMethodRequest(
+                        flow_type="ReservedRPCFlow", step_type="ReservedRPCStep"
+                    ),
+                )
+            )
+        )
+        await reconcile_burst_until(
+            runtime,
+            stub,
+            lambda: runtime.reserved_rpc_declines == 1
+            and idle_streams("ReservedRPCFlow") == 2,
+        )
+        assert idle_streams("pressure-worker") == 1
+        assert any(
+            request.reject.reason == pb.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY
+            for request in declined_call.requests
+            if request.WhichOneof("frame") == "reject"
+        )
+        timer = runtime._reserve_pressure_timers.pop("ReservedRPCFlow")
+        timer.cancel()
+        runtime._expire_reserve_pressure("ReservedRPCFlow")
+        assert "ReservedRPCFlow" in runtime._reserve_pressure_timers
+        assert idle_streams("ReservedRPCFlow") == 2
+        dispatcher.gate.set()
+        await reconcile_burst_until(
+            runtime,
+            stub,
+            lambda: runtime._busy_tasks == 0 and idle_streams("ReservedRPCFlow") == 2,
+        )
+        assert idle_streams("pressure-worker") == 1
+        await reconcile_burst_until(
+            runtime,
+            stub,
+            lambda: idle_streams("ReservedRPCFlow") == 1,
+        )
+        assert idle_streams("pressure-worker") == 1
     finally:
         dispatcher.gate.set()
         await runtime.stop()

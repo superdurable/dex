@@ -40,10 +40,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -52,7 +51,6 @@ import java.util.logging.Logger;
 import java.util.function.Supplier;
 
 final class PullWorker {
-    private static final long RESERVE_PRESSURE_LINGER_NANOS = TimeUnit.SECONDS.toNanos(30);
     private static final Logger LOGGER = Logger.getLogger(PullWorker.class.getName());
     private static final char[] BASE32 = "abcdefghijklmnopqrstuvwxyz234567".toCharArray();
     private final WorkerTaskServiceGrpc.WorkerTaskServiceStub taskService;
@@ -60,8 +58,9 @@ final class PullWorker {
     private final JavaWorkerService workerService;
     private final WorkerDispatcher dispatcher;
     private final ExecutorService handlers;
-    private final ScheduledExecutorService scheduler;
+    private final ScheduledThreadPoolExecutor scheduler;
     private final PullWorkerOptions options;
+    private final long reservePressureLingerNanos;
     private final List<String> flowTypes;
     private final Map<String, Registry.RegisteredFlow> registeredFlows;
     private final List<String> queues;
@@ -108,12 +107,14 @@ final class PullWorker {
         this.taskService = credential == null ? serviceStub
                 : serviceStub.withCallCredentials(new GrpcCredential(credential));
         this.options = options;
+        this.reservePressureLingerNanos = options.getReservePressureLinger().toNanos();
         this.sdkVersion = sdkVersion;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        this.scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
             final Thread thread = new Thread(runnable, "dex-java-pull-timer");
             thread.setDaemon(true);
             return thread;
         });
+        scheduler.setRemoveOnCancelPolicy(true);
         final List<String> registered = new ArrayList<String>();
         final Map<String, Registry.RegisteredFlow> definitions =
                 new HashMap<String, Registry.RegisteredFlow>();
@@ -438,7 +439,7 @@ final class PullWorker {
     private int desiredIdleStreamsPerQueue(final String queue) {
         final long lastDecline = queueRegistrations.get(queue).lastReserveDeclineNanos;
         return options.getIdleStreamsPerQueue() + (options.getReservedRpcTasks() > 0
-                && lastDecline != 0L && System.nanoTime() - lastDecline < RESERVE_PRESSURE_LINGER_NANOS ? 1 : 0);
+                && lastDecline != 0L && System.nanoTime() - lastDecline < reservePressureLingerNanos ? 1 : 0);
     }
 
     private long retryDelay(final long backoff) {
@@ -589,7 +590,7 @@ final class PullWorker {
                     synchronized (PullWorker.this) {
                         reconcile();
                     }
-                }, RESERVE_PRESSURE_LINGER_NANOS, TimeUnit.NANOSECONDS);
+                }, reservePressureLingerNanos, TimeUnit.NANOSECONDS);
                 final String flowType = task.hasWaitFor()
                         ? task.getWaitFor().getFlowType() : task.getExecute().getFlowType();
                 LOGGER.log(Level.FINE, "decline Step task for reserved RPC capacity: {0}", flowType);

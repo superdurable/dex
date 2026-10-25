@@ -529,6 +529,7 @@ one more idle stream for 30 seconds after its last decline. Allow up to **F + 1*
 additional streams when sizing **matching.maxConcurrentTasksCap**, which defaults
 to 256 streams per app Worker ID on each matching owner. **matching.maxStreams**
 defaults to 100,000 registered streams per Matching instance.
+The transient peak during a burst remains bounded by the matching caps.
 **matching.maxQueueLength**,
 **matching.maxFlowTypes**, and **matching.maxFlowTypeLength** also limit
 registration. Their defaults are 256 each.

@@ -138,9 +138,10 @@ func TestWorkerPullReservePressureKeepsOnlyDecliningQueueExtra(t *testing.T) {
 	flow := &reservedRPCFlow{entered: make(chan string, 3), release: make(chan struct{})}
 	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{
 		FlowServiceAddress: address,
-		Pull: &PullWorkerOptions{MaxConcurrentTasks: 3, ReservedRPCTasks: ptr.Any(1)},
+		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 3, ReservedRPCTasks: ptr.Any(1)},
 	})
 	require.NoError(t, err)
+	worker.pull.reservePressureLinger = 300 * time.Millisecond
 	started := make(chan error, 1)
 	go func() { started <- worker.Start() }()
 	var releaseOnce sync.Once
@@ -168,12 +169,6 @@ func TestWorkerPullReservePressureKeepsOnlyDecliningQueueExtra(t *testing.T) {
 		worker.pull.mu.Unlock()
 		return busyTasks == 0 && pullRegisteredIdleStreams(worker, flowQueue) == 2 && pullRegisteredIdleStreams(worker, worker.pull.appWorkerID) == 1
 	}, 5*time.Second, time.Millisecond)
-	worker.pull.mu.Lock()
-	registration := worker.pull.queueRegistrations[flowQueue]
-	registration.lastReserveDecline = time.Now().Add(-reservePressureLinger)
-	registration.reservePressureTimer.Stop()
-	worker.pull.mu.Unlock()
-	worker.pull.signal()
 	require.Eventually(t, func() bool {
 		return pullRegisteredIdleStreams(worker, flowQueue) == 1 && pullRegisteredIdleStreams(worker, worker.pull.appWorkerID) == 1
 	}, 5*time.Second, time.Millisecond)

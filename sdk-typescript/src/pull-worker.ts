@@ -69,7 +69,6 @@ interface PollStream {
 }
 
 export class PullWorker {
-  private static readonly reservePressureLingerMs = 30_000;
   public readonly appWorkerID: string;
   public readonly registration: PullRegistration;
   private readonly client: InstanceType<typeof WorkerTaskServiceClient>;
@@ -99,6 +98,7 @@ export class PullWorker {
     private readonly options: PullWorkerOptions,
     credential?: Credential,
     private readonly onPermanentRejection: () => void = () => {},
+    private readonly reservePressureLingerMs = 30_000,
   ) {
     this.maxConcurrentTasks = positiveOption(options.maxConcurrentTasks, availableParallelism(), "maxConcurrentTasks");
     this.reservedRpcTasks = options.reservedRpcTasks ?? (this.maxConcurrentTasks >= 2 ? 1 : 0);
@@ -221,7 +221,7 @@ export class PullWorker {
   private desiredIdleStreamsPerQueue(queue: string): number {
     const lastDeclineMs = this.lastReserveDeclineMs.get(queue);
     return this.idleStreamsPerQueue + Number(this.reservedRpcTasks > 0 && lastDeclineMs !== undefined
-      && performance.now() - lastDeclineMs < PullWorker.reservePressureLingerMs);
+      && performance.now() - lastDeclineMs < this.reservePressureLingerMs);
   }
 
   private openStream(poll: PollStream): void {
@@ -327,12 +327,7 @@ export class PullWorker {
       this.lastReserveDeclineMs.set(poll.queue, performance.now());
       const existingTimer = this.reservePressureTimers.get(poll.queue);
       if (existingTimer !== undefined) clearTimeout(existingTimer);
-      const timer = setTimeout(() => {
-        this.reservePressureTimers.delete(poll.queue);
-        this.reconcile();
-      }, PullWorker.reservePressureLingerMs);
-      timer.unref();
-      this.reservePressureTimers.set(poll.queue, timer);
+      this.scheduleReservePressureExpiry(poll.queue, this.reservePressureLingerMs);
       debug("decline Step task for reserved RPC capacity: %s", task.request?.value.flowType);
       this.rejectTask(poll, task.taskId, PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY);
       this.reconcile();
@@ -347,6 +342,25 @@ export class PullWorker {
     poll.task = { id: task.taskId, controller, completion, deadlineCancellation };
     this.activeTasks.add(completion);
     this.busyTaskCount++;
+    this.reconcile();
+  }
+
+  private scheduleReservePressureExpiry(queue: string, delayMs: number): void {
+    const timer = setTimeout(() => this.expireReservePressure(queue), delayMs);
+    timer.unref();
+    this.reservePressureTimers.set(queue, timer);
+  }
+
+  private expireReservePressure(queue: string): void {
+    const lastDeclineMs = this.lastReserveDeclineMs.get(queue);
+    if (lastDeclineMs === undefined) return;
+    const remainingMs = this.reservePressureLingerMs - (performance.now() - lastDeclineMs);
+    if (remainingMs > 0) {
+      this.scheduleReservePressureExpiry(queue, remainingMs);
+      return;
+    }
+    this.lastReserveDeclineMs.delete(queue);
+    this.reservePressureTimers.delete(queue);
     this.reconcile();
   }
 

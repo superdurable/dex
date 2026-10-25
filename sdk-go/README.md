@@ -723,6 +723,8 @@ so excess assignments can be rejected for reassignment. It gracefully closes
 surplus idle streams after tasks finish, retaining `IdleStreamsPerQueue` registered
 idle streams per queue. After load drops, the steady-state bound is
 `MaxConcurrentTasks + (1 + number of Flow types) * IdleStreamsPerQueue` streams.
+Allow up to one more stream per queue for 30 seconds after reserve declines,
+or up to `1 + number of Flow types` additional streams.
 The transient peak during a burst remains bounded by the matching caps. Size both
 options for `matching.maxConcurrentTasksCap` per app Worker ID per matching owner
 (default 256) and `matching.maxStreams` per Matching instance (default 100,000).
@@ -781,10 +783,11 @@ is at least two, otherwise zero. With the CPU-count default, Steps get one fewer
 slot than before. Set it explicitly to zero to opt out. With one slot and no
 explicit reserve, Worker start logs one warning: RPCs may wait behind
 long-running Steps; use a limit of at least two or set the reserve explicitly.
-Flows must stay responsive because RPCs share Worker task capacity with Steps. The value must be nonnegative and less than
-`MaxConcurrentTasks` after its CPU-count default is resolved; invalid values
-fail construction. RPC and Step handlers count together: WaitFor and Execute
-tasks, including local attempts, are declined with `NO_CAPACITY` when the busy
+Flows must stay responsive because RPCs share Worker task capacity with Steps.
+The value must be nonnegative and less than `MaxConcurrentTasks` after its
+CPU-count default is resolved; invalid values fail construction. RPC and Step
+handlers count together. WaitFor and Execute tasks, including local attempts,
+are declined with `NO_CAPACITY` when the busy
 count reaches the task limit minus the reserve. API-direct and transactional
 InvokeWorkerRPC tasks can use the full limit.
 
@@ -805,10 +808,10 @@ does not close a stream or change registration readiness.
 
 Each reserve decline records the Flow type through the configured Go logger at
 debug level. Export the cumulative `PullReservedRPCDeclines()` Worker value to
-distinguish reserve pressure from full-capacity rejections. The count excludes full-capacity
-rejections and unknown names. It counts decline events, including repeated
-declines of the same Step dispatch while Dex retries it, so read its rate to
-assess reserve pressure. It never resets and remains available after shutdown.
+distinguish reserve pressure from full-capacity rejections. The count excludes
+full-capacity rejections and unknown names. It counts decline events, including
+repeated declines of the same Step dispatch while Dex retries it. Read its rate
+to assess reserve pressure. It never resets and remains available after shutdown.
 Listening Workers return zero.
 
 ## FlowService TLS
