@@ -27,8 +27,8 @@ const DEFAULT_STEP_FAILURE_SEED_COUNT: u64 = 32;
 /// Step failure policies change every trajectory, so their seeds form their own group.
 const FIRST_STEP_FAILURE_SEED: u64 = 0x5fa1_0000;
 const REGRESSION_SEEDS: &str = include_str!("../engine-regression-seeds.txt");
-/// Canonical command digests from main before Step failure policies; moving one drops its seed's
-/// regression.
+/// Canonical command digests from main before Step failure policies; a moved regression seed
+/// stops reproducing.
 const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u128)] = &[
     (
         EngineSimulationProfile::Standard,

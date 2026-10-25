@@ -60,8 +60,8 @@ pub enum EngineSimulationProfile {
     /// A four-event history window, restarts that may start a new node incarnation, and no
     /// snapshots.
     RedeploysWithShortHistoryWindow,
-    /// The fixed set's environment, with Step and timeout handler failure policies and retry
-    /// total durations of 1 to 5 seconds.
+    /// The fixed set's environment with Step failure policies, short Flow timeouts, and timeout
+    /// handlers.
     StepFailurePolicies,
 }
 
@@ -90,8 +90,8 @@ pub struct EngineSimulationSummary {
     pub trace_hash: u64,
     /// Events in the trace.
     pub trace_events: u64,
-    /// Chained xxh3-128 digest of the seed's canonical committed commands, in the order the
-    /// shadow accepted them; [`Self::merge`] leaves it unchanged.
+    /// Chained xxh3-128 digest of committed commands in shadow acceptance order; [`Self::merge`]
+    /// leaves it unchanged.
     pub canonical_command_digest: u128,
     /// Node process restarts, by what happened to the local store.
     pub restarts_by_local_store: BTreeMap<String, u64>,

@@ -218,10 +218,11 @@ seed. Each seed's `canonical_command_digest` must equal its pinned value. The di
 xxh3-128 over every committed command, in the order the shadow accepted them. The pinned values
 come from main before Step failure policies were added.
 
-A workload change that moves a regression seed's trajectory makes it stop reproducing its
-failure, and no test fails. Draw new choices only in a profile with its own seed group, as the
-redeploy and Step failure profiles do. When a pinned digest changes on purpose, revert each
-regression's fix and check that its seed still fails, or find a new seed.
+Any change that moves a regression seed's trajectory can make the seed stop reproducing its
+failure. An engine change can do that as well as a workload change. Without the pins, no test
+would fail. Draw new choices only in a profile with its own seed group, as the redeploy and Step
+failure profiles do. When a pinned digest changes, revert each regression's fix and check that
+its seed still fails, or find a new seed. Then update the pinned value.
 
 `3856990458` and `3856990875` reproduce the failure of reads of a purging run, which omitted a
 hard-delete Attribute right after the purge deleted its object. Each fails within 120 seconds
