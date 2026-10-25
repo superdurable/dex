@@ -362,6 +362,10 @@ When a Step is canceled by another Step's decision, an RPC decision, StopFlow, F
 
 server-zd does not serve Dex Web. Run a web-only `dex-server start --services web` and set `web.flowServiceTarget` to the server-zd plaintext gRPC address. That process creates no Temporal or Cadence connection. When server-zd authentication is on, also set `web.flowServiceCredentialFile`.
 
+From server-zd v0.1.6, `search.paradeDbConnectionString` accepts PostgreSQL URL or keyword-string TLS parameters: `sslmode=disable|allow|prefer|require|verify-ca|verify-full`, `sslrootcert` as a PEM CA file or `system` roots, `sslsni=0|1`, and `sslnegotiation=postgres|direct`. Direct negotiation requires PostgreSQL 17 or later; `sslmode=allow` with `sslnegotiation=direct` is invalid. Explicit `sslmode=prefer` first attempts TLS without certificate verification. A string without TLS parameters stays plaintext.
+
+`sslmode=require` without `sslrootcert` encrypts without verifying the server certificate; with `sslrootcert` it verifies the certificate chain but not the host name. `sslmode=verify-full` verifies the chain and host name against the supplied roots, or system roots when `sslrootcert` is absent. `sslrootcert=system` forces verify-full. `connect_timeout` is in seconds and bounds the TLS handshake and authentication, including reconnects; without it, the connection timeout is ten seconds. Connection errors include TLS and I/O causes but never the connection string. See the [server-zd v0.1.6 release](https://github.com/superdurable/dex/releases/tag/server-zd/v0.1.6) and [operation guide](https://docs.superdurable.io/production/server-zd-operations#configuration-mapping).
+
 Attribute Store synchronization is available from server-zd v0.1.3. Its `attributeStore` section uses the Go Server's keys and [destination table contract](#attribute-store-destinations), with these differences:
 
 - Only `type: postgres` is supported. Any other store type fails startup, so keep MySQL, Databricks, Snowflake, and MongoDB stores on the Go Server.

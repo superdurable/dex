@@ -17,6 +17,7 @@ SPEC.loader.exec_module(CHECKER)
 SERVER_TAG = "server/v9.9.9"
 UPDATER_PATH = "server/service/interpreter/workflowUpdater.go"
 SERVICE_PATH = "server/service/api/service.go"
+TERMINAL_PATH = "server/service/interpreter/terminalCoordinator.go"
 VALIDATORS = (
     "validateWorkerRpc",
     "validateDeleteChannelMessage",
@@ -166,6 +167,26 @@ func (s *serviceImpl) InvokeRPC(
     return s.doInvokeRPC(ctx, req, isTransactional)
 }
 
+func (s *serviceImpl) WaitForStepCompletion(
+    ctx context.Context,
+    req *dexpb.WaitForStepCompletionRequest,
+) (*dexpb.WaitForStepCompletionResponse, error) {
+    if s.client.GetBackendType() == service.BackendTypeCadence {
+        return nil, status.Errorf(codes.Unimplemented, "WaitForStepCompletion requires Temporal synchronous update")
+    }
+    return s.waitForStepCompletion(ctx, req)
+}
+
+func (s *serviceImpl) WaitForAttribute(
+    ctx context.Context,
+    req *dexpb.WaitForAttributeRequest,
+) (*dexpb.WaitForAttributeResponse, error) {
+    if s.client.GetBackendType() == service.BackendTypeCadence {
+        return nil, status.Errorf(codes.Unimplemented, "WaitForAttribute requires Temporal synchronous update")
+    }
+    return s.waitForAttribute(ctx, req)
+}
+
 func (s *serviceImpl) shouldInvokeRPCTransactionally(req *dexpb.InvokeRPCRequest) bool {
     return s.client.GetBackendType() == service.BackendTypeTemporal &&
         (req.GetIsTransactional() || len(req.GetLockAttributeKeys()) > 0 ||
@@ -189,6 +210,27 @@ func (s *serviceImpl) handleError(err error) error {
         }
     }
     return err
+}
+""")
+
+TERMINAL_SOURCE = gofmt_tabs("""package interpreter
+
+func (c *TerminalCoordinator) CoordinateAndFinalizeError(
+    ctx interfaces.UnifiedContext,
+    retErr error,
+) error {
+    c.startedFinalizing = true
+    if err := c.provider.Await(ctx, func() bool {
+        return c.attributeSyncer.ProducersDrained() && c.continueAsNewer.inflightUpdateOperations == 0
+    }); err != nil {
+        return err
+    }
+    for {
+        if err := c.attributeSyncer.FlushAndClose(ctx); err != nil {
+            return err
+        }
+        return retErr
+    }
 }
 """)
 
@@ -309,7 +351,7 @@ class GoFunctionSourceTest(unittest.TestCase):
 class GoServerCloseCleanupTest(unittest.TestCase):
     def setUp(self):
         self.repository = FixtureRepository(self)
-        self.files = {UPDATER_PATH: UPDATER_SOURCE, SERVICE_PATH: SERVICE_SOURCE}
+        self.files = {UPDATER_PATH: UPDATER_SOURCE, SERVICE_PATH: SERVICE_SOURCE, TERMINAL_PATH: TERMINAL_SOURCE}
         self.repository.commit_and_tag(SERVER_TAG, self.files)
 
     def check(self):
@@ -404,6 +446,24 @@ class GoServerCloseCleanupTest(unittest.TestCase):
             "SignalWorkflow", ("deleteCadenceChannelMessage", "s.client.SignalWorkflow("),
         )
 
+    def test_cadence_waits_return_unimplemented(self):
+        for wait in ("WaitForStepCompletion", "WaitForAttribute"):
+            with self.subTest(wait=wait):
+                self.repository.commit_and_tag(SERVER_TAG, self.files)
+                self.assert_mutation_fails(
+                    SERVICE_PATH, f"func (s *serviceImpl) {wait}(",
+                    "return nil, status.Errorf(codes.Unimplemented,",
+                    "return nil, status.Errorf(codes.FailedPrecondition,",
+                    "codes.Unimplemented", ("codes.Unimplemented", wait),
+                )
+
+    def test_terminal_cleanup_waits_for_inflight_updates(self):
+        self.assert_mutation_fails(
+            TERMINAL_PATH, "func (c *TerminalCoordinator) CoordinateAndFinalizeError(",
+            "c.continueAsNewer.inflightUpdateOperations == 0", "true",
+            "inflightUpdateOperations == 0", ("CoordinateAndFinalizeError",),
+        )
+
 
 class SdkFlowClosingErrorsTest(unittest.TestCase):
     def setUp(self):
@@ -441,6 +501,262 @@ class SdkFlowClosingErrorsTest(unittest.TestCase):
                     self.check()
                 self.assertIn(f"{tag}:{path} is missing required text", str(raised.exception))
                 self.repository.commit_and_tag(tag, {path: SDK_SOURCES[language][path]})
+
+
+class GoDescribeFlowTest(unittest.TestCase):
+    TAG = "sdk-go/v9.9.9"
+    CLIENT_PATH = "sdk-go/dex/client.go"
+    MAPPER_PATH = "sdk-go/dex/proto_mapper.go"
+    ERRORS_PATH = "sdk-go/dex/errors.go"
+    README_PATH = "sdk-go/README.md"
+    DOC_PATH = "docs/content/primitives/client/advanced.mdx"
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        source_root = Path(__file__).resolve().parents[2]
+        self.files = {
+            path: CHECKER.git(source_root, "show", f"refs/tags/sdk-go/v1.21.0:{path}")
+            for path in (self.CLIENT_PATH, self.MAPPER_PATH, self.ERRORS_PATH, self.README_PATH, self.DOC_PATH)
+        }
+        self.repository.commit_and_tag(self.TAG, self.files)
+        self.references = self.repository.root / "references"
+        for language, page, content in (
+            ("go", "observability.md", "func (client *Client) DescribeFlow(ctx context.Context, flowID string) (FlowInfo, error) returns *dex.FlowNotFoundError."),
+            ("core", "error-handling.md", "The Go SDK Client.DescribeFlow arrives in v1.21.0."),
+        ):
+            path = self.references / language / page
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+
+    def check(self):
+        CHECKER.check_go_describe_flow(self.repository.root, self.TAG, self.references)
+
+    def assert_mutation_fails(self, path, declaration, old, new):
+        mutated = replace_in_function(self.files[path], declaration, old, new) if declaration else replace_once(self.files[path], old, new)
+        self.repository.commit_and_tag(self.TAG, {path: mutated})
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn(f"{self.TAG}:{path}", str(raised.exception))
+
+    def test_released_api_and_reference_pass(self):
+        self.check()
+
+    def test_describe_must_call_summary_rpc_with_flow_id(self):
+        self.assert_mutation_fails(
+            self.CLIENT_PATH, "func (client *Client) DescribeFlow(",
+            "GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})",
+            "GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{})",
+        )
+
+    def test_client_validation_must_reject_nil_context(self):
+        self.assert_mutation_fails(
+            self.CLIENT_PATH, "func (client *Client) validateCall(",
+            "if ctx == nil {", "if false {",
+        )
+
+    def test_mapper_must_preserve_close_time(self):
+        self.assert_mutation_fails(
+            self.MAPPER_PATH, "func mapFlowInfo(",
+            "closedAt = response.CloseTime.AsTime()", "closedAt = time.Time{}",
+        )
+
+    def test_missing_flow_must_map_to_typed_error(self):
+        self.assert_mutation_fails(
+            self.ERRORS_PATH, "func translateRPCError(",
+            "return &FlowNotFoundError{ServiceError: serviceError}",
+            "return serviceError",
+        )
+
+    def test_reference_must_name_released_method(self):
+        page = self.references / "go" / "observability.md"
+        page.write_text(page.read_text().replace("DescribeFlow", "DescribeRun"))
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn(str(page), str(raised.exception))
+
+    def test_tagged_readme_must_keep_status_read_boundary(self):
+        self.assert_mutation_fails(
+            self.README_PATH, None,
+            "Use `WaitForFlow` when the caller needs to wait",
+            "Use `DescribeFlow` when the caller needs to wait",
+        )
+
+
+class ServerZdSearchTlsTest(unittest.TestCase):
+    TAG = "server-zd/v9.9.9"
+    CONNECTION_PATH = CHECKER.POSTGRES_CONNECTION_PATH
+    TLS_PATH = CHECKER.POSTGRES_TLS_PATH
+    DSN_PATH = CHECKER.POSTGRES_DSN_PATH
+    BACKEND_PATH = CHECKER.SEARCH_BACKEND_PATH
+    PROJECTION_PATH = "server-zd/crates/dexzd-server/src/server_node/search_projection.rs"
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        source_root = Path(__file__).resolve().parents[2]
+        paths = (
+            "server-zd/README.md",
+            "docs/content/production/server-zd-operations.mdx",
+            self.CONNECTION_PATH,
+            self.TLS_PATH,
+            self.DSN_PATH,
+            self.BACKEND_PATH,
+            self.PROJECTION_PATH,
+        )
+        self.files = {
+            path: CHECKER.git(source_root, "show", f"refs/tags/server-zd/v0.1.6:{path}")
+            for path in paths
+        }
+        self.repository.commit_and_tag(self.TAG, self.files)
+        self.references = self.repository.root / "references"
+        page = self.references / "core" / "operations.md"
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_text("From server-zd v0.1.6, sslmode=require and sslnegotiation=direct are supported.")
+
+    def check(self):
+        CHECKER.check_server_zd_search_tls(self.repository.root, self.TAG, self.references)
+
+    def assert_mutation_fails(self, path, old, new):
+        self.repository.commit_and_tag(self.TAG, {path: replace_once(self.files[path], old, new)})
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn(f"{self.TAG}:{path}", str(raised.exception))
+
+    def test_released_tls_source_and_reference_pass(self):
+        self.check()
+
+    def test_search_configuration_must_use_tls_parser(self):
+        self.assert_mutation_fails(
+            self.PROJECTION_PATH,
+            "ConnectionSettings::parse_for_search(", "ConnectionSettings::parse(",
+        )
+
+    def test_search_default_must_remain_plaintext(self):
+        self.assert_mutation_fails(
+            self.CONNECTION_PATH,
+            "Self::from_parsed_dsn(remaining, parameters, MissingSslMode::Disable)",
+            "Self::from_parsed_dsn(remaining, parameters, MissingSslMode::Prefer)",
+        )
+
+    def test_direct_negotiation_must_reject_allow(self):
+        self.assert_mutation_fails(
+            self.CONNECTION_PATH,
+            'Some("direct") && ssl_mode == "allow"', 'Some("direct") && ssl_mode == "disable"',
+        )
+
+    def test_tls_parameters_must_be_extracted_from_dsn(self):
+        self.assert_mutation_fails(
+            self.DSN_PATH,
+            '"sslrootcert" => tls.ssl_root_cert = Some(parameter.value)',
+            '"sslrootcert" => kept.push(raw)',
+        )
+
+    def test_system_roots_must_load_native_certificates(self):
+        self.assert_mutation_fails(
+            self.TLS_PATH,
+            "rustls_native_certs::load_native_certs()", "Default::default()",
+        )
+
+    def test_full_verification_must_use_root_certificates(self):
+        self.assert_mutation_fails(
+            self.TLS_PATH,
+            "builder.with_root_certificates(roots).with_no_client_auth()",
+            "builder.dangerous().with_custom_certificate_verifier(verifier).with_no_client_auth()",
+        )
+
+    def test_require_without_roots_must_not_verify_certificate(self):
+        self.assert_mutation_fails(
+            self.CONNECTION_PATH,
+            'None => Ok((SslMode::Require, Some(CertificateVerification::None)))',
+            'None => Ok((SslMode::Require, Some(CertificateVerification::Full(roots))))',
+        )
+
+    def test_verify_full_must_check_host_name(self):
+        self.assert_mutation_fails(
+            self.CONNECTION_PATH,
+            '"verify-full" => {', '"verify-full-removed" => {',
+        )
+
+    def test_timeout_must_bound_connection(self):
+        self.assert_mutation_fails(
+            self.CONNECTION_PATH,
+            "tokio::time::timeout(timeout, connecting)", "connecting.await",
+        )
+
+    def test_default_timeout_must_remain_ten_seconds(self):
+        self.assert_mutation_fails(
+            self.CONNECTION_PATH,
+            "const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);",
+            "const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);",
+        )
+
+    def test_sni_setting_must_reach_tls_client(self):
+        self.assert_mutation_fails(
+            self.TLS_PATH,
+            "config.enable_sni = is_sni_enabled", "config.enable_sni = false",
+        )
+
+    def test_connection_errors_must_preserve_causes(self):
+        self.assert_mutation_fails(
+            self.CONNECTION_PATH,
+            "source = cause.source()", "source = None",
+        )
+
+    def test_connection_error_test_must_reject_dsn_echo(self):
+        self.assert_mutation_fails(
+            self.BACKEND_PATH,
+            'assert!(!message.contains(&dsn), "{message}");',
+            'assert!(message.contains(&dsn), "{message}");',
+        )
+
+    def test_reference_must_name_new_release(self):
+        page = self.references / "core" / "operations.md"
+        page.write_text(page.read_text().replace("v0.1.6", "v0.1.5"))
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn(str(page), str(raised.exception))
+
+
+class FlowSummaryRpcTest(unittest.TestCase):
+    SERVER_TAG = "server/v9.9.9"
+    SERVER_ZD_TAG = "server-zd/v9.9.9"
+    ZD_SERVICE_PATH = "server-zd/crates/dexzd-api/src/flow_service.rs"
+    ZD_OPERATIONS_PATH = "server-zd/crates/dexzd-api/src/runtime_flow_operations.rs"
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        source_root = Path(__file__).resolve().parents[2]
+        self.server_source = CHECKER.git(source_root, "show", f"refs/tags/server/v1.20.0:{SERVICE_PATH}")
+        self.zd_sources = {
+            path: CHECKER.git(source_root, "show", f"refs/tags/server-zd/v0.1.6:{path}")
+            for path in (self.ZD_SERVICE_PATH, self.ZD_OPERATIONS_PATH)
+        }
+        self.repository.commit_and_tag(self.SERVER_TAG, {SERVICE_PATH: self.server_source})
+        self.repository.commit_and_tag(self.SERVER_ZD_TAG, self.zd_sources)
+
+    def check(self):
+        CHECKER.check_flow_summary_rpc(self.repository.root, self.SERVER_TAG, self.SERVER_ZD_TAG)
+
+    def test_released_server_rpcs_pass(self):
+        self.check()
+
+    def test_go_server_must_describe_execution(self):
+        mutated = replace_in_function(
+            self.server_source, "func (s *serviceImpl) GetFlowSummary(",
+            "s.client.DescribeWorkflowExecution(", "s.client.QueryWorkflow(",
+        )
+        self.repository.commit_and_tag(self.SERVER_TAG, {SERVICE_PATH: mutated})
+        with self.assertRaises(SystemExit):
+            self.check()
+
+    def test_server_zd_must_route_summary_rpc(self):
+        mutated = replace_once(
+            self.zd_sources[self.ZD_SERVICE_PATH],
+            ".get_flow_summary(TenantId::DEFAULT, request.into_inner())",
+            ".wait_for_flow(TenantId::DEFAULT, request.into_inner())",
+        )
+        self.repository.commit_and_tag(self.SERVER_ZD_TAG, {self.ZD_SERVICE_PATH: mutated})
+        with self.assertRaises(SystemExit):
+            self.check()
 
 
 if __name__ == "__main__":

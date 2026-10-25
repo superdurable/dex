@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.50.0 - 2026-10-25
+
+- Advance the Go SDK baseline and its pinned source links to sdk-go/v1.21.0. Keep Java, Python, TypeScript, Rust, Server, and CLI baselines at v1.20.0. Document Go `Client.DescribeFlow` as a non-waiting status read for a known Flow ID, with its `FlowInfo` fields, errors, and read boundaries. Both Dex Server implementations serve its underlying RPC.
+- Document server-zd v0.1.6 ParadeDB search TLS parameters, certificate verification modes, plaintext default, handshake timeout, and connection-error redaction. Retain the v0.1.3–v0.1.5 lifecycle guidance and links.
+- Extend tagged-source validation and mutation tests for DescribeFlow, search TLS, Go Server Cadence wait limitations, and in-flight update cleanup. Synchronize the bundle and plugin manifests at 0.50.0.
+
 ## 0.49.0 - 2026-10-25
 
 - Advance all five SDK baselines, the Server baseline, and the CLI baseline to their published v1.20.0 tags; refresh pinned source links. Document FLOW_CLOSING for cleanup rejections in Core and all five language error references, using each SDK's typed error. Synchronize the bundle and plugin manifests at 0.49.0.

@@ -7,10 +7,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
-# The server-zd release whose close-barrier guidance core/operations.md cites.
-SERVER_ZD_RELEASE = "server-zd/v0.1.5"
+# The server-zd release used by core operations guidance.
+SERVER_ZD_RELEASE = "server-zd/v0.1.6"
 WORKFLOW_UPDATER_PATH = "server/service/interpreter/workflowUpdater.go"
 API_SERVICE_PATH = "server/service/api/service.go"
+TERMINAL_COORDINATOR_PATH = "server/service/interpreter/terminalCoordinator.go"
+POSTGRES_CONNECTION_PATH = "server-zd/crates/dexzd-postgres-connection/src/lib.rs"
+POSTGRES_TLS_PATH = "server-zd/crates/dexzd-postgres-connection/src/tls.rs"
+POSTGRES_DSN_PATH = "server-zd/crates/dexzd-postgres-connection/src/dsn.rs"
+SEARCH_BACKEND_PATH = "server-zd/crates/dexzd-search/src/paradedb/search_backend.rs"
 # Go Server update validators that reject new requests during Flow close cleanup, with their handlers.
 CLEANUP_REJECTING_UPDATES = (
     ("validateWorkerRpc", "handleWorkerRpc"),
@@ -86,6 +91,225 @@ def require_tagged_go_function_text(checkout: Path, tag: str, path: str, declara
             fail(f"{location} function `{declaration}` is missing required text: {needle!r}")
 
 
+def rust_function_source(source: str, declaration: str, location: str) -> str:
+    lines = source.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith(declaration)]
+    if len(starts) != 1:
+        fail(f"{location} must declare `{declaration}` exactly once; found {len(starts)}")
+    start = starts[0]
+    indentation = declaration[: len(declaration) - len(declaration.lstrip())]
+    for index in range(start + 1, len(lines)):
+        if lines[index] == indentation + "}":
+            return "\n".join(lines[start : index + 1])
+    fail(f"{location} function `{declaration}` has no matching closing brace")
+
+
+def require_tagged_rust_function_text(checkout: Path, tag: str, path: str, declaration: str, *needles: str) -> None:
+    location = f"{tag}:{path}"
+    function = rust_function_source(git(checkout, "show", f"refs/tags/{tag}:{path}"), declaration, location)
+    for needle in needles:
+        if needle not in function:
+            fail(f"{location} function `{declaration}` is missing required text: {needle!r}")
+
+
+def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
+    client_path = "sdk-go/dex/client.go"
+    require_tagged_go_function_text(
+        checkout, tag, client_path, "type FlowInfo struct {",
+        "FlowID string", "RunID string", "FlowType string", "Status FlowStatus",
+        "StartedAt time.Time", "ClosedAt time.Time",
+    )
+    require_tagged_go_function_text(
+        checkout, tag, client_path,
+        "func (client *Client) validateCall(ctx context.Context) error {",
+        "if ctx == nil {", "if closed {", "if err := ctx.Err(); err != nil {",
+    )
+    require_tagged_go_function_text(
+        checkout, tag, client_path,
+        "func (client *Client) validateFlowCall(ctx context.Context, flowID string) error {",
+        "client.validateCall(ctx)", 'strings.TrimSpace(flowID) == ""',
+    )
+    require_tagged_go_function_text(
+        checkout, tag, client_path,
+        "func (client *Client) DescribeFlow(ctx context.Context, flowID string) (FlowInfo, error) {",
+        "client.validateFlowCall(ctx, flowID)",
+        "client.service.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})",
+        'translateRPCError(err, "DescribeFlow", flowID, flowTargetExisting)',
+        "return mapFlowInfo(response)",
+    )
+    require_tagged_go_function_text(
+        checkout, tag, "sdk-go/dex/errors.go", "func translateRPCError(",
+        "case ErrorSubStatusFlowNotFound:\n"
+        "\t\tswitch requirement {\n"
+        "\t\tcase flowTargetExisting:\n"
+        "\t\t\treturn &FlowNotFoundError{ServiceError: serviceError}",
+    )
+    require_tagged_go_function_text(
+        checkout, tag, "sdk-go/dex/proto_mapper.go",
+        "func mapFlowInfo(response *dexpb.GetFlowSummaryResponse) (FlowInfo, error) {",
+        'response.FlowExecutionId.FlowId == "" || response.FlowExecutionId.RunId == ""',
+        'response.FlowType == "" || response.StartTime == nil',
+        "mapFlowStatus(response.FlowStatus)", "response.StartTime.CheckValid()",
+        "closedAt := time.Time{}", "if response.CloseTime != nil {",
+        "response.CloseTime.CheckValid()", "closedAt = response.CloseTime.AsTime()",
+        "FlowID:    response.FlowExecutionId.FlowId", "RunID:     response.FlowExecutionId.RunId",
+        "FlowType:  response.FlowType", "Status:    status",
+        "StartedAt: response.StartTime.AsTime()", "ClosedAt:  closedAt",
+    )
+    require_text(references / "go" / "observability.md", "Client) DescribeFlow(", "FlowInfo", "FlowNotFoundError")
+    require_text(references / "core" / "error-handling.md", "Client.DescribeFlow", "Go SDK", "v1.21.0")
+    require_tagged_text(
+        checkout, tag, "sdk-go/README.md",
+        "`DescribeFlow(ctx, flowID)` reads one known Flow's current or latest run without",
+        "Use `WaitForFlow` when the caller needs to wait",
+        "and `SearchFlows` to find Flow IDs by query.",
+    )
+    require_tagged_text(
+        checkout, tag, "docs/content/primitives/client/advanced.mdx",
+        "The Go SDK also returns the close time when available.",
+    )
+
+
+def check_flow_summary_rpc(checkout: Path, server_tag: str, server_zd_tag: str) -> None:
+    require_tagged_go_function_text(
+        checkout, server_tag, API_SERVICE_PATH,
+        "func (s *serviceImpl) GetFlowSummary(",
+        'req == nil || req.GetFlowId() == ""',
+        "s.client.DescribeWorkflowExecution(",
+        "req.GetFlowId()", "req.GetRunId()",
+        "FlowStatus: description.Status", "StartTime:  timestamppb.New(description.StartTime)",
+        "if description.CloseTime != nil {",
+    )
+    require_tagged_rust_function_text(
+        checkout, server_zd_tag, "server-zd/crates/dexzd-api/src/flow_service.rs",
+        "    async fn get_flow_summary(",
+        ".get_flow_summary(TenantId::DEFAULT, request.into_inner())",
+    )
+    require_tagged_rust_function_text(
+        checkout, server_zd_tag, "server-zd/crates/dexzd-api/src/runtime_flow_operations.rs",
+        "    async fn get_flow_summary(",
+        "FlowRuntimeRegistry::get_flow_summary(self, tenant_id, request)",
+    )
+
+
+def check_server_zd_search_tls(checkout: Path, tag: str, references: Path) -> None:
+    require_tagged_text(checkout, tag, POSTGRES_CONNECTION_PATH, "const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);")
+    require_tagged_text(
+        checkout, tag, "server-zd/README.md",
+        "`search.paradeDbConnectionString`", "`sslmode` (`disable`, `allow`, `prefer`, `require`, `verify-ca`,",
+        "`sslrootcert` (a PEM CA file or `system`)", "`sslsni` (`0` or `1`)",
+        "`sslnegotiation` (`postgres` or `direct`)", "The connect timeout covers the TLS handshake",
+        "Without TLS parameters, the connection remains plaintext",
+    )
+    require_tagged_text(
+        checkout, tag, "docs/content/production/server-zd-operations.mdx",
+        "**search.paradeDbConnectionString**", "**sslmode=require** without **sslrootcert**",
+        "**sslmode=verify-full** verifies the chain and the host name",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, "server-zd/crates/dexzd-server/src/server_node/search_projection.rs",
+        "fn postgres_configuration(search: &SearchConfig)",
+        "ConnectionSettings::parse_for_search(", "&search.parade_db_connection_string",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, POSTGRES_CONNECTION_PATH,
+        "    pub fn parse_for_search(dsn: &str)",
+        "split_tls_parameters(dsn)", 'value != "0" && value != "1"',
+        "Self::from_parsed_dsn(remaining, parameters, MissingSslMode::Disable)",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, POSTGRES_DSN_PATH,
+        "pub(crate) fn split_tls_parameters(dsn: &str)",
+        '"sslmode" => tls.ssl_mode = Some(parameter.value)',
+        '"sslrootcert" => tls.ssl_root_cert = Some(parameter.value)',
+        '"sslsni" => tls.ssl_sni = Some(parameter.value)',
+        '"sslnegotiation" => {\n'
+        "                tls.ssl_negotiation = Some(parameter.value);\n"
+        "                kept.push(raw);",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, POSTGRES_CONNECTION_PATH,
+        "    fn from_parsed_dsn(",
+        'parameters.ssl_negotiation.as_deref() == Some("direct")',
+        'parameters.ssl_sni.as_deref() != Some("0")',
+        "client_config(verification, is_direct, is_sni_enabled)",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, POSTGRES_CONNECTION_PATH,
+        "fn resolve_tls(",
+        "MissingSslMode::Disable => \"disable\".to_owned()",
+        'Some("direct") && ssl_mode == "prefer"',
+        'Some("direct") && ssl_mode == "allow" {\n'
+        '        return Err("sslmode=allow is invalid with sslnegotiation=direct".to_owned());',
+        'if ssl_root_cert == "system" {\n'
+        '                ssl_mode = "verify-full".to_owned();',
+        '"disable" => Ok((SslMode::Disable, None))',
+        '"allow" | "prefer" => Ok((SslMode::Prefer, Some(CertificateVerification::None)))',
+        '"require" => match roots {\n'
+        "            Some(roots) => Ok((\n"
+        "                SslMode::Require,\n"
+        "                Some(CertificateVerification::ChainOnly(roots)),\n"
+        "            )),\n"
+        "            None => Ok((SslMode::Require, Some(CertificateVerification::None))),",
+        '"verify-ca" => {\n'
+        "            let roots = roots.map_or_else(system_roots, Ok)?;\n"
+        "            Ok((\n"
+        "                SslMode::Require,\n"
+        "                Some(CertificateVerification::ChainOnly(roots)),",
+        '"verify-full" => {\n'
+        "            let roots = roots.map_or_else(system_roots, Ok)?;\n"
+        "            Ok((SslMode::Require, Some(CertificateVerification::Full(roots))))",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, POSTGRES_CONNECTION_PATH,
+        "    pub async fn connect(&self)",
+        ".get_connect_timeout()", "unwrap_or(DEFAULT_CONNECT_TIMEOUT)",
+        "self.config.connect(tls.clone()).await?", "tokio::time::timeout(timeout, connecting)",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, POSTGRES_TLS_PATH,
+        "pub(crate) fn client_config(",
+        "CertificateVerification::Full(roots)",
+        "builder.with_root_certificates(roots).with_no_client_auth()",
+        "CertificateVerification::ChainOnly(roots)",
+        "ChainOnlyVerifier { inner: verifier }",
+        "CertificateVerification::None", "UnverifiedCertificate",
+        'config.alpn_protocols = vec![b"postgresql".to_vec()]',
+        "config.enable_sni = is_sni_enabled",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, POSTGRES_TLS_PATH,
+        "pub(crate) fn load_root_certificates(",
+        'if ssl_root_cert == "system"',
+        "rustls_native_certs::load_native_certs()",
+        "CertificateDer::pem_file_iter(ssl_root_cert)",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, POSTGRES_CONNECTION_PATH,
+        "fn describe_config_parse_error(",
+        "VALUE_CHECKED_KEYWORDS", "connection string has an unsupported keyword or is malformed",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, POSTGRES_CONNECTION_PATH,
+        "pub fn error_with_sources(", "error.source()", "cause.to_string()", "source = cause.source()",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, SEARCH_BACKEND_PATH,
+        "    pub(super) async fn open(configuration: &ConnectionSettings)",
+        "configuration.connect().await", "classify_database_error(\"connect to ParadeDB\", source)",
+    )
+    require_tagged_rust_function_text(
+        checkout, tag, SEARCH_BACKEND_PATH,
+        "pub(super) fn database_error_message(error: &tokio_postgres::Error)",
+        "error_with_sources(error)",
+    )
+    require_tagged_text(
+        checkout, tag, SEARCH_BACKEND_PATH,
+        'assert!(!message.contains(&dsn)', 'assert!(!message.contains("hidden-password")',
+    )
+    require_text(references / "core" / "operations.md", "server-zd v0.1.6", "sslmode=require", "sslnegotiation=direct")
+
+
 def check_go_server_close_cleanup(checkout: Path, tag: str) -> None:
     """Checks the Go Server Flow close cleanup rejection set and its backend routing in the tagged source."""
     require_tagged_go_function_text(
@@ -143,6 +367,13 @@ def check_go_server_close_cleanup(checkout: Path, tag: str) -> None:
         "\t\treturn nil, status.Errorf(codes.Unimplemented,",
         "isTransactional := s.shouldInvokeRPCTransactionally(req)",
     )
+    for wait in ("WaitForStepCompletion", "WaitForAttribute"):
+        require_tagged_go_function_text(
+            checkout, tag, API_SERVICE_PATH,
+            f"func (s *serviceImpl) {wait}(",
+            "if s.client.GetBackendType() == service.BackendTypeCadence {\n"
+            f'\t\treturn nil, status.Errorf(codes.Unimplemented, "{wait} requires Temporal synchronous update")',
+        )
     require_tagged_go_function_text(
         checkout,
         tag,
@@ -157,6 +388,14 @@ def check_go_server_close_cleanup(checkout: Path, tag: str) -> None:
         API_SERVICE_PATH,
         "func (s *serviceImpl) deleteCadenceChannelMessage(",
         "s.client.SignalWorkflow(",
+    )
+    require_tagged_go_function_text(
+        checkout, tag, TERMINAL_COORDINATOR_PATH,
+        "func (c *TerminalCoordinator) CoordinateAndFinalizeError(",
+        "c.startedFinalizing = true",
+        "c.provider.Await(ctx, func() bool {\n"
+        "\t\treturn c.attributeSyncer.ProducersDrained() && c.continueAsNewer.inflightUpdateOperations == 0",
+        "c.attributeSyncer.FlushAndClose(ctx)",
     )
 
 
@@ -397,18 +636,14 @@ def main() -> None:
         "is_hard_delete_on_null",
         "request.action_permission_mappings.is_some()",
     )
+    check_server_zd_search_tls(arguments.dex_root, SERVER_ZD_RELEASE, SDK_REFERENCES)
     check_go_server_close_cleanup(arguments.dex_root, server_baseline)
+    check_flow_summary_rpc(arguments.dex_root, server_baseline, SERVER_ZD_RELEASE)
     require_tagged_text(
         arguments.dex_root,
         server_baseline,
         "server/config/config.go",
         'yaml:"useTemporalSynchronousUpdateForAllRPCs"',
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        server_baseline,
-        "server/service/interpreter/terminalCoordinator.go",
-        "inflightUpdateOperations == 0",
     )
     require_tagged_text(
         arguments.dex_root,
@@ -431,6 +666,7 @@ def main() -> None:
         "w.cancelTask(request.TaskId)",
     )
     check_sdk_flow_closing_errors(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
+    check_go_describe_flow(arguments.dex_root, go_sdk_baseline, SDK_REFERENCES)
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,
