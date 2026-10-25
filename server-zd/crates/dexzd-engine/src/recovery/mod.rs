@@ -87,8 +87,9 @@ pub enum EngineStartError {
     Io(#[from] std::io::Error),
     /// The local store failed to open for a reason other than its contents; it stays in place.
     #[error(
-        "local store {directory} cannot be opened and was left in place: {source}; check that no \
-         other process has it open and that this process can write it",
+        "local store {directory} cannot be opened and was left in place: {source}; if no other \
+         process uses it, stop the node, move or delete {directory}, and restart to rebuild it \
+         from object storage",
         directory = .directory.display()
     )]
     LocalStoreUnavailable {

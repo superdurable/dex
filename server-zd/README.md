@@ -152,7 +152,8 @@ after a bulk replay returns the directory to about the live state size.
 When the local store is corrupt, is missing files, has an incompatible format, or cannot be
 updated from the retained log, the node renames the directory to the sibling `<directory>.discarded-<uuidv7>` and
 rebuilds it. Other open errors, such as a RocksDB lock that another process holds or a permission
-error, fail startup and leave the directory in place. After every successful start, the node
+error, fail startup and leave the directory in place. If the store itself cannot be read, stop the
+node, move or delete the directory, and restart to rebuild it from object storage. After every successful start, the node
 deletes all but the newest `localStorage.retainedSetAsideStoreCount` set-aside stores (default 1;
 0 keeps none) and logs each deleted path; the copy this start set aside always counts as the
 newest, and a failed deletion only logs a warning. After a successful start, the parent volume

@@ -75,7 +75,7 @@ fn is_missing_store_file(message: &str, store_directory: &Path) -> bool {
     // rust-rocksdb exposes no PathNotFound subcode, only RocksDB's status text.
     const PATH_NOT_FOUND_PREFIX: &str = "IO error: No such file or directory: ";
     // A lock error may mean another live process uses the store, so it never matches.
-    let is_lock_error = message.contains("/LOCK")
+    let is_lock_error = message.contains(&format!("{}/LOCK", store_directory.display()))
         || message.contains("While lock file")
         || message.contains("lock hold by current process")
         || message.contains("Resource temporarily unavailable");

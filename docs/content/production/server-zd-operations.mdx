@@ -205,14 +205,17 @@ Mount the volume at a parent directory, such as **/var/lib/dex-server-zd**. Set
 **localStorage.directory** to a subdirectory, such as
 **/var/lib/dex-server-zd/store**. When the node cannot reuse an existing local
 store, it renames the directory to a sibling with a **.discarded-** suffix and
-rebuilds it. This happens when the store is corrupt, is missing files, has an
-incompatible format, or cannot be updated from the retained log. That rename
-fails when the directory is the mount point itself.
+rebuilds it. This happens when RocksDB reports the store corrupt, missing
+files, or in an incompatible format while opening it, or when the store cannot
+be updated from the retained log. That rename fails when the directory is the
+mount point itself.
 
 Other errors that stop the node from opening the store fail startup and leave
 the directory in place. Examples are another process that holds the store open
 and a permission error. Stop the other process or fix the permissions, then
-restart.
+restart. If the store itself cannot be read, for example after a disk error,
+stop the node, move or delete the store directory, and restart. The node then
+rebuilds the store from object storage.
 
 A store that is newer than the metadata in object storage is also set aside,
 and the node logs an error. That copy may be the only local evidence that the
@@ -225,12 +228,15 @@ as the newest. Set the count to 0 to keep none. The node then deletes every
 copy at once, including a copy of a store that is newer than the metadata. The
 node logs each path it deletes. A failed deletion logs a warning and does not
 stop startup. The node deletes only directories that it set aside for this
-store, and never a store that a process holds open.
+store. It never sets aside or deletes the active store while another process
+holds its lock. The node never opens a set-aside copy again. Cleanup does not
+check whether another tool has a set-aside copy open.
 
 Releases up to server-zd v0.1.2 never delete set-aside directories. The first
 successful start after an upgrade deletes all but the newest. To keep older
 copies, raise the count or move them out of the parent directory before you
-upgrade.
+upgrade. Those releases also set the store aside after any open error; later
+releases do so only in the cases above.
 
 Size the volume for the live state, plus **localStorage.maxWalBytes** of
 write-ahead log (256 MiB by default), plus room for uncompacted files after a
