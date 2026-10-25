@@ -14,10 +14,10 @@ from types import TracebackType
 import grpc
 from google.protobuf import empty_pb2
 
+from dex._credential_transport import AsyncCredentialRunner, async_channel
 from dex._async_value_hydrator import AsyncValueHydrator
 from dex._async_worker_dispatcher import AsyncWorkerDispatcher
 from dex._async_worker_service import AsyncWorkerService
-from dex._credential_transport import AsyncCredentialRunner, async_channel
 from dex._pull_worker import PullWorkerRuntime, resolve_app_worker_id
 from dex._server_protocol import (
     NegotiatedServerProtocol,

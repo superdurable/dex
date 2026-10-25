@@ -273,19 +273,21 @@ A decline lets Dex try another Worker without consuming an attempt. If all
 Workers remain at their Step limit, a Step can wait until the dispatch wait
 expires, then receive `NO_WORKER_AVAILABLE`, consume an attempt, and follow its
 retry policy, as when all Workers are full. Local attempts wait the local
-dispatch wait, then fall back according to their policy. At the Step
-limit, each queue keeps one additional idle stream so an RPC can arrive while
-another stream declines queued Steps. Set `idleStreamsPerQueue` to at least two for
-Workers with heavy Step backlogs. A reserve decline does not close a stream or
-change registration readiness.
+dispatch wait, then fall back according to their policy. A queue that declines
+a Step for reserved RPC capacity keeps one additional idle stream until 30
+seconds after its last decline. Other queues retain their configured count.
+The Worker does not open the extra stream while all task slots are busy. Set
+`idleStreamsPerQueue` to at least two for heavy Step backlogs. A reserve decline
+does not close a stream or change registration readiness.
 
 Each reserve decline records the Flow type through node:util debuglog under
 dex:pull (enable with NODE_DEBUG=dex:pull). Export the cumulative
 `pullReservedRpcDeclines` Worker value to distinguish reserve pressure from
-full-capacity rejections. The count excludes full-capacity rejections and unknown names. It counts
-decline events, including repeated declines of the same Step dispatch while
-Dex retries it, so read its rate to assess reserve pressure. It never resets
-and remains available after shutdown. Listening Workers return zero.
+full-capacity rejections. The count excludes full-capacity
+rejections and unknown names. It counts decline events, including repeated
+declines of the same Step dispatch while Dex retries it, so read its rate to
+assess reserve pressure. It never resets and remains available after shutdown.
+Listening Workers return zero.
 
 ### Canceling Step executions
 

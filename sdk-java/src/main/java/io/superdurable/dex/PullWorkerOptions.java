@@ -139,7 +139,8 @@ public final class PullWorkerOptions {
          * consumes an attempt and follows the Step retry policy, as when all Workers are full.
          * Local attempts wait the local dispatch wait, then fall back according to their policy.
          * Declines emit a FINE debug log, increment getPullReservedRpcDeclines, and preserve readiness.
-         * At the Step limit, each queue keeps one additional idle stream so RPCs can arrive during Step declines.
+         * A queue keeps one extra idle stream for 30 seconds after its last reserve decline.
+         * The Worker does not open that stream while all task slots are busy.
          *
          * <pre>{@code
          * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
@@ -158,7 +159,7 @@ public final class PullWorkerOptions {
         /**
          * Sets the number of waiting streams maintained for each task queue.
          *
-         * <p>Each queue keeps one more stream while the Step limit is reached.
+         * <p>A queue keeps one more stream after a recent reserve decline.
          * Use at least two for Workers with heavy Step backlogs.
          *
          * @param value a nonnegative count; zero uses one idle stream per queue

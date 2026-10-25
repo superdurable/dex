@@ -81,11 +81,12 @@ class PullWorkerOptions:
             policy. Local attempts wait the local dispatch wait, then fall back
             according to their policy. Declines emit a Flow-type debug log,
             increment pull_reserved_rpc_declines, and preserve readiness.
-            At the Step limit, each queue keeps one additional idle stream so
-            RPCs can arrive during Step declines.
+            A queue keeps one additional idle stream for 30 seconds after its
+            last reserve decline. The Worker does not open it while all task
+            slots are busy.
         idle_streams_per_queue: Idle streams for the sticky queue and each Flow
-            type queue. Zero uses one. Each queue keeps one more at the Step
-            limit. Use at least two for heavy Step backlogs. Negative values
+            type queue. Zero uses one. A queue keeps one more after a recent
+            reserve decline. Use at least two for heavy Step backlogs. Negative values
             are invalid.
         app_worker_id: Unique process identity for sticky routing. Empty generates
             an identity with eight random base32 characters. A supplied value

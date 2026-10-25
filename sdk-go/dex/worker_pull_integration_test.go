@@ -613,7 +613,7 @@ func TestWorkerPullShrinksSurplusIdleStreams(t *testing.T) {
 			require.Eventually(t, func() bool {
 				worker.pull.mu.Lock()
 				defer worker.pull.mu.Unlock()
-				return worker.pull.busyTasks == 3 && len(worker.pull.streams) == 3+2*(idleStreams+1) && worker.pull.queueRegistrations[flowType].registeredStreams == 3+idleStreams+1
+				return worker.pull.busyTasks == 3 && len(worker.pull.streams) == 3+2*idleStreams && worker.pull.queueRegistrations[flowType].registeredStreams == 3+idleStreams
 			}, 5*time.Second, time.Millisecond)
 			require.True(t, worker.PullRegistrationState().IsReady)
 			worker.pull.mu.Lock()

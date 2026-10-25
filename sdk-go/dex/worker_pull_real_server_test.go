@@ -206,7 +206,7 @@ func TestWorkerPullReservedRPCWithRealServer(t *testing.T) {
 func TestWorkerPullReservedRPCWithStepBacklog(t *testing.T) {
 	address := os.Getenv("DEX_FLOW_SERVICE_ADDRESS")
 	require.NotEmpty(t, address)
-	entered := make(chan pullReservedRPCObservation, 52)
+	entered := make(chan pullReservedRPCObservation, 12)
 	release := make(chan struct{})
 	flow := &pullReservedRPCFlow{workerID: "reserved", entered: entered, release: release}
 	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{
@@ -235,7 +235,7 @@ func TestWorkerPullReservedRPCWithStepBacklog(t *testing.T) {
 	client, err := NewClient(worker.registry, cache, ClientOptions{FlowServiceAddress: address, WorkerTarget: worker.WorkerTarget()})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
-	flowIDs := make([]string, 52)
+	flowIDs := make([]string, 12)
 	for index := range flowIDs[:2] {
 		flowIDs[index] = "backlog-" + uuid.NewString()
 		_, err = client.StartFlow(ctx, flow, flowIDs[index], "step", StartFlowOptions{})

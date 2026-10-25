@@ -39,6 +39,7 @@ mod reconnect;
 
 const DRAINING: u8 = 1;
 const FORCED: u8 = 2;
+const RESERVE_PRESSURE_LINGER: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy)]
 struct StopSignal {
@@ -75,6 +76,7 @@ pub(crate) struct PullWorker {
 
 struct PullState {
     streams: HashMap<u64, StreamSlot>,
+    last_reserve_decline: HashMap<String, Instant>,
     busy_tasks: usize,
     next_stream_id: u64,
     is_stopping: bool,
@@ -211,6 +213,7 @@ impl PullWorker {
             registration: Arc::clone(&self.registration),
             state: Mutex::new(PullState {
                 streams: HashMap::new(),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 0,
                 is_stopping: false,
@@ -235,11 +238,26 @@ impl PullWorker {
                 break;
             }
             self.reconcile(&shared, &stop_receiver, &mut streams);
+            let reserve_pressure_expiry = shared
+                .state
+                .lock()
+                .expect("pull state lock")
+                .last_reserve_decline
+                .values()
+                .map(|decline| *decline + RESERVE_PRESSURE_LINGER)
+                .min();
             tokio::select! {
                 change = shutdown.changed() => {
                     if change.is_err() || *shutdown.borrow() { break; }
                 }
                 () = shared.notify.notified() => {}
+                () = async {
+                    if let Some(expiry) = reserve_pressure_expiry {
+                        sleep_until(expiry).await;
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                } => {}
                 result = streams.join_next(), if !streams.is_empty() => {
                     if let Some(Err(error)) = result { tracing::error!(%error, "pull Worker stream failed"); }
                 }
@@ -290,6 +308,9 @@ impl PullWorker {
         if state.is_stopping {
             return;
         }
+        state
+            .last_reserve_decline
+            .retain(|_, decline| decline.elapsed() < RESERVE_PRESSURE_LINGER);
         for queue in &self.queues {
             let registered_idle = state
                 .streams
@@ -302,7 +323,7 @@ impl PullWorker {
                         && !slot.is_draining
                 })
                 .count();
-            let desired_idle = shared.desired_idle_streams_per_queue(state.busy_tasks);
+            let desired_idle = shared.desired_idle_streams_per_queue(&state, queue);
             let mut surplus = registered_idle.saturating_sub(desired_idle);
             for slot in state.streams.values_mut().filter(|slot| {
                 slot.queue == *queue
@@ -323,7 +344,12 @@ impl PullWorker {
                 .values()
                 .filter(|slot| slot.queue == *queue && !slot.is_busy && !slot.is_retiring)
                 .count();
-            for _ in idle..desired_idle {
+            let creation_target = if state.busy_tasks == self.max_concurrent_tasks {
+                self.idle_streams_per_queue
+            } else {
+                desired_idle
+            };
+            for _ in idle..creation_target {
                 let stream_id = state.next_stream_id;
                 state.next_stream_id += 1;
                 let retirement = Arc::new(Notify::new());
@@ -601,11 +627,14 @@ impl PullStream {
 }
 
 impl PullShared {
-    fn desired_idle_streams_per_queue(&self, busy_tasks: usize) -> usize {
+    fn desired_idle_streams_per_queue(&self, state: &PullState, queue: &str) -> usize {
         self.idle_streams_per_queue
             + usize::from(
                 self.reserved_rpc_tasks > 0
-                    && busy_tasks >= self.max_concurrent_tasks - self.reserved_rpc_tasks,
+                    && state
+                        .last_reserve_decline
+                        .get(queue)
+                        .is_some_and(|decline| decline.elapsed() < RESERVE_PRESSURE_LINGER),
             )
     }
 
@@ -631,7 +660,10 @@ impl PullShared {
                 _ => None,
             };
             if let Some(flow_type) = flow_type {
+                let queue = slot.queue.clone();
                 self.reserved_rpc_declines.fetch_add(1, Ordering::Relaxed);
+                state.last_reserve_decline.insert(queue, Instant::now());
+                self.notify.notify_one();
                 tracing::debug!(%flow_type, "decline Step task for reserved RPC capacity");
                 return false;
             }
@@ -664,7 +696,7 @@ impl PullShared {
             })
             .count();
         let should_retire =
-            idle_replacements >= self.desired_idle_streams_per_queue(state.busy_tasks);
+            idle_replacements >= self.desired_idle_streams_per_queue(&state, &queue);
         if should_retire {
             state
                 .streams
@@ -1571,6 +1603,7 @@ mod tests {
                         )
                     })
                     .collect(),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 21,
                 is_stopping: false,
@@ -1680,6 +1713,7 @@ mod tests {
                         },
                     ),
                 ]),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 3,
                 is_stopping: false,
@@ -1727,6 +1761,7 @@ mod tests {
                         },
                     ),
                 ]),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 1,
                 next_stream_id: 3,
                 is_stopping: false,
@@ -2101,6 +2136,7 @@ mod tests {
                             retirement: Arc::new(Notify::new()),
                         },
                     )]),
+                    last_reserve_decline: HashMap::new(),
                     busy_tasks: 1,
                     next_stream_id: 2,
                     is_stopping: false,
@@ -2317,6 +2353,7 @@ mod tests {
                         retirement: Arc::new(Notify::new()),
                     },
                 )]),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 2,
                 is_stopping: false,

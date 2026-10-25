@@ -12,9 +12,9 @@ import asyncio
 import logging
 import re
 import threading
+from contextlib import ExitStack
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Coroutine, cast
 from unittest.mock import AsyncMock, patch
@@ -26,10 +26,10 @@ from google.protobuf import timestamp_pb2
 from dex import (
     AsyncWorker,
     BlobCache,
-    Context,
+    PullRegistrationError,
     Flow,
     FlowConfig,
-    PullRegistrationError,
+    Context,
     PullWorkerOptions,
     RPCResult,
     Step,
@@ -39,8 +39,8 @@ from dex import (
     Worker,
     WorkerOptions,
     WorkerTarget,
-    graceful_complete,
     retry_after,
+    graceful_complete,
     rpc,
 )
 from dex._pull_worker import PullStream, PullWorkerRuntime, generate_app_worker_id
@@ -48,6 +48,7 @@ from dex._worker_dispatcher import WorkerDispatcher
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
+
 
 _UNKNOWN_TASK_REASON = PullWorkerRuntime.unknown_task_reason
 

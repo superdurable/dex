@@ -511,14 +511,15 @@ export interface PullWorkerOptions {
    * then fall back according to their policy.
    * Declines emit a node:util debuglog message under dex:pull with the Flow type.
    * The pullReservedRpcDeclines counter increments; registration readiness is unaffected.
-   * At the Step limit, each queue keeps one additional idle stream so RPCs can arrive during Step declines.
+   * A queue keeps one extra idle stream for 30 seconds after its last reserve decline.
+   * The Worker does not open it while all task slots are busy.
    * @example
    * ```ts
    * const pull: PullWorkerOptions = { maxConcurrentTasks: 8, reservedRpcTasks: 2 };
    * ```
    */
   readonly reservedRpcTasks?: number;
-  /** Waiting streams on each queue; zero or omission uses one. At the Step limit, each queue keeps one more. Use at least two for heavy Step backlogs. Negative values are invalid. */
+  /** Waiting streams on each queue; zero or omission uses one. A queue keeps one more after a recent reserve decline. Use at least two for heavy Step backlogs. Negative values are invalid. */
   readonly idleStreamsPerQueue?: number;
   /** Process-unique Worker ID; defaults to host identity plus eight random base32 characters. Use a new ID after every restart. Values contain 1-63 ASCII letters, digits, dots, underscores, or hyphens and cannot equal a registered Flow type. */
   readonly appWorkerID?: string;

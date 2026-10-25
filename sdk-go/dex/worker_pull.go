@@ -64,10 +64,14 @@ type pullWorker struct {
 }
 
 type pullQueueRegistration struct {
-	registeredStreams  int
-	hasRegistered      bool
-	lastPermanentError error
+	registeredStreams    int
+	hasRegistered        bool
+	lastPermanentError   error
+	lastReserveDecline   time.Time
+	reservePressureTimer *time.Timer
 }
+
+const reservePressureLinger = 30 * time.Second
 
 type pullStream struct {
 	worker       *pullWorker
@@ -246,6 +250,11 @@ func (worker *pullWorker) run() error {
 func (worker *pullWorker) stop() {
 	worker.mu.Lock()
 	worker.isStopping = true
+	for _, registration := range worker.queueRegistrations {
+		if registration.reservePressureTimer != nil {
+			registration.reservePressureTimer.Stop()
+		}
+	}
 	worker.notifyRegistrationChanged()
 	for stream := range worker.streams {
 		stream.mu.Lock()
@@ -296,7 +305,10 @@ func (worker *pullWorker) reconcile() {
 				idle++
 			}
 		}
-		desired := worker.desiredIdleStreamsPerQueue()
+		desired := worker.desiredIdleStreamsPerQueue(queue)
+		if worker.busyTasks == worker.maxConcurrentTasks && desired > worker.idleStreamsPerQueue {
+			desired = worker.idleStreamsPerQueue
+		}
 		for idle < desired {
 			streamCtx, cancel := context.WithCancel(worker.ctx)
 			stream := &pullStream{worker: worker, queue: queue, ctx: streamCtx, cancel: cancel}
@@ -308,9 +320,10 @@ func (worker *pullWorker) reconcile() {
 	}
 }
 
-func (worker *pullWorker) desiredIdleStreamsPerQueue() int {
+func (worker *pullWorker) desiredIdleStreamsPerQueue(queue string) int {
 	desired := worker.idleStreamsPerQueue
-	if worker.reservedRPCTasks > 0 && worker.busyTasks >= worker.maxConcurrentTasks-worker.reservedRPCTasks {
+	lastDecline := worker.queueRegistrations[queue].lastReserveDecline
+	if worker.reservedRPCTasks > 0 && !lastDecline.IsZero() && time.Since(lastDecline) < reservePressureLinger {
 		desired++
 	}
 	return desired
@@ -644,8 +657,16 @@ func (stream *pullStream) startTask(task *dexpb.PollWorkerTask) {
 	isStepTask := task.GetWaitFor() != nil || task.GetExecute() != nil
 	if isStepTask && stream.worker.reservedRPCTasks > 0 && stream.worker.busyTasks >= stream.worker.maxConcurrentTasks-stream.worker.reservedRPCTasks && reason == dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED {
 		stream.worker.reservedRPCDeclines++
+		registration := stream.worker.queueRegistrations[stream.queue]
+		registration.lastReserveDecline = time.Now()
+		if registration.reservePressureTimer == nil {
+			registration.reservePressureTimer = time.AfterFunc(reservePressureLinger, stream.worker.signal)
+		} else {
+			registration.reservePressureTimer.Reset(reservePressureLinger)
+		}
 		stream.mu.Unlock()
 		stream.worker.mu.Unlock()
+		stream.worker.signal()
 		flowType := task.GetWaitFor().GetFlowType()
 		if task.GetExecute() != nil {
 			flowType = task.GetExecute().GetFlowType()
@@ -825,7 +846,7 @@ func (stream *pullStream) hasIdleReplacements() bool {
 			idleStreams++
 		}
 	}
-	return idleStreams >= stream.worker.desiredIdleStreamsPerQueue()
+	return idleStreams >= stream.worker.desiredIdleStreamsPerQueue(stream.queue)
 }
 
 func (stream *pullStream) cancelTaskContext() {

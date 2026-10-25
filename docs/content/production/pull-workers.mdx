@@ -521,13 +521,15 @@ spellings for the two capacity values; the same bound applies to every SDK.
 
 A Worker gracefully closes surplus idle streams after tasks finish. Each queue
 keeps at least **idleStreamsPerQueue** registered idle streams, and readiness stays
-true during this cleanup. With **F** registered Flow types, the steady-state bound
-after load drops is **maxConcurrentTasks + (F + 1) × idleStreamsPerQueue** streams.
-The extra queue is the Worker's app Worker ID queue. The transient peak during a
-burst remains bounded by the matching caps. Size the Worker for
-**matching.maxConcurrentTasksCap**, which defaults to 256 streams per app Worker
-ID on each matching owner. **matching.maxStreams** defaults to 100,000
-registered streams per Matching instance. **matching.maxQueueLength**,
+true during this cleanup. With **F** registered Flow types and no recent reserve
+declines, the steady-state bound after load drops is
+**maxConcurrentTasks + (F + 1) × idleStreamsPerQueue** streams. The extra queue is
+the Worker's app Worker ID queue. A queue with a recent reserve decline can keep
+one more idle stream for 30 seconds after its last decline. Allow up to **F + 1**
+additional streams when sizing **matching.maxConcurrentTasksCap**, which defaults
+to 256 streams per app Worker ID on each matching owner. **matching.maxStreams**
+defaults to 100,000 registered streams per Matching instance.
+**matching.maxQueueLength**,
 **matching.maxFlowTypes**, and **matching.maxFlowTypeLength** also limit
 registration. Their defaults are 256 each.
 
@@ -564,14 +566,21 @@ at their Step limit, a Step can wait until the dispatch wait expires, then recei
 **NO_WORKER_AVAILABLE**, consume an attempt, and follow its retry policy, as when
 all Workers are full. A local attempt waits the local dispatch wait and then falls
 back according to its policy.
-Idle streams stay available on every queue. Reserve declines do not close streams
-or change registration readiness. Each SDK emits a debug log with the Flow type
-for each reserve decline. Each Worker also exposes a cumulative reserve-decline
-counter: **PullReservedRPCDeclines()** in Go, **getPullReservedRpcDeclines()** in Java,
+Idle streams stay available on every queue. A queue that declines a Step for
+reserved RPC capacity keeps one additional idle stream until 30 seconds after
+its last decline. Other queues keep their configured idle count. The Worker does
+not open this extra stream when all task slots are busy. Set
+**idleStreamsPerQueue** to at least two for Workers with heavy Step backlogs.
+Reserve declines do not close streams or change registration readiness. Each SDK
+emits a debug log with the Flow type for each reserve decline. Each Worker also
+exposes a cumulative reserve-decline counter: **PullReservedRPCDeclines()** in Go,
+**getPullReservedRpcDeclines()** in Java,
 **pullReservedRpcDeclines** in TypeScript, **pull_reserved_rpc_declines** in Python,
 and **pull_reserved_rpc_declines()** in Rust. Full-capacity rejections and unknown
-names do not increment it. The count never resets, remains available after shutdown,
-and is zero for listening Workers. See each SDK README for logger configuration.
+names do not increment it. It counts decline events, including repeated declines
+of the same Step dispatch while Dex retries it, so read its rate. The count never
+resets, remains available after shutdown, and is zero for listening Workers. See
+each SDK README for logger configuration.
 
 The startup examples set the task limit to eight and explicitly reserve one slot
 for RPCs, matching the default. These diagnostics helpers expose registration

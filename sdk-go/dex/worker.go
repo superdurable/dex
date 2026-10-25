@@ -109,11 +109,12 @@ type PullWorkerOptions struct {
 	// dispatch wait expires, NO_WORKER_AVAILABLE consumes an attempt and follows the Step retry policy.
 	// Local attempts wait the local dispatch wait, then fall back according to their policy.
 	// Declines emit a Flow-type debug log, increment PullReservedRPCDeclines, and preserve readiness.
-	// At the Step limit, each queue keeps one additional idle stream so RPCs can arrive during Step declines.
+	// A queue keeps one extra idle stream for 30 seconds after its last reserve decline.
+	// The Worker does not open that stream while all task slots are busy.
 	// For example: PullWorkerOptions{MaxConcurrentTasks: 8, ReservedRPCTasks: ptr.Any(2)}.
 	ReservedRPCTasks *int
 	// IdleStreamsPerQueue sets waiting streams for each Flow type and the sticky queue. Zero uses one.
-	// Each queue keeps one more while the Step limit is reached. Use at least two for heavy Step backlogs.
+	// A queue keeps one more after a recent reserve decline. Use at least two for heavy Step backlogs.
 	IdleStreamsPerQueue int
 	// AppWorkerID overrides the generated process identity. Empty generates identity plus eight base32 characters.
 	// Set a new value after each process restart. It must not equal a registered Flow type.

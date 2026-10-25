@@ -52,6 +52,7 @@ import java.util.logging.Logger;
 import java.util.function.Supplier;
 
 final class PullWorker {
+    private static final long RESERVE_PRESSURE_LINGER_NANOS = TimeUnit.SECONDS.toNanos(30);
     private static final Logger LOGGER = Logger.getLogger(PullWorker.class.getName());
     private static final char[] BASE32 = "abcdefghijklmnopqrstuvwxyz234567".toCharArray();
     private final WorkerTaskServiceGrpc.WorkerTaskServiceStub taskService;
@@ -82,6 +83,8 @@ final class PullWorker {
         private int registeredStreams;
         private boolean hasRegistered;
         private Throwable lastPermanentError;
+        private long lastReserveDeclineNanos;
+        private ScheduledFuture<?> reservePressureTimer;
     }
     private boolean isStopping;
     private boolean hasLoggedUnsupported;
@@ -420,7 +423,10 @@ final class PullWorker {
                     idle++;
                 }
             }
-            while (idle < desiredIdleStreamsPerQueue()) {
+            final int desiredIdle = desiredIdleStreamsPerQueue(queue);
+            final int creationTarget = busyTasks == options.getMaxConcurrentTasks()
+                    ? options.getIdleStreamsPerQueue() : desiredIdle;
+            while (idle < creationTarget) {
                 final PullStream stream = new PullStream(queue);
                 streams.add(stream);
                 stream.open();
@@ -429,10 +435,10 @@ final class PullWorker {
         }
     }
 
-    private int desiredIdleStreamsPerQueue() {
-        return options.getIdleStreamsPerQueue()
-                + (options.getReservedRpcTasks() > 0
-                && busyTasks >= options.getMaxConcurrentTasks() - options.getReservedRpcTasks() ? 1 : 0);
+    private int desiredIdleStreamsPerQueue(final String queue) {
+        final long lastDecline = queueRegistrations.get(queue).lastReserveDeclineNanos;
+        return options.getIdleStreamsPerQueue() + (options.getReservedRpcTasks() > 0
+                && lastDecline != 0L && System.nanoTime() - lastDecline < RESERVE_PRESSURE_LINGER_NANOS ? 1 : 0);
     }
 
     private long retryDelay(final long backoff) {
@@ -574,10 +580,21 @@ final class PullWorker {
                     && busyTasks >= options.getMaxConcurrentTasks() - options.getReservedRpcTasks()
                     && unknownReason == PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED) {
                 reservedRpcDeclines++;
+                final QueueRegistration registration = queueRegistrations.get(queue);
+                registration.lastReserveDeclineNanos = System.nanoTime();
+                if (registration.reservePressureTimer != null) {
+                    registration.reservePressureTimer.cancel(false);
+                }
+                registration.reservePressureTimer = scheduler.schedule(() -> {
+                    synchronized (PullWorker.this) {
+                        reconcile();
+                    }
+                }, RESERVE_PRESSURE_LINGER_NANOS, TimeUnit.NANOSECONDS);
                 final String flowType = task.hasWaitFor()
                         ? task.getWaitFor().getFlowType() : task.getExecute().getFlowType();
                 LOGGER.log(Level.FINE, "decline Step task for reserved RPC capacity: {0}", flowType);
                 reject(task.getTaskId(), PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY);
+                reconcile();
                 return;
             }
             isBusy = true;
@@ -906,7 +923,7 @@ final class PullWorker {
                     idleReplacements++;
                 }
             }
-            return idleReplacements >= desiredIdleStreamsPerQueue();
+            return idleReplacements >= desiredIdleStreamsPerQueue(queue);
         }
     }
 }
