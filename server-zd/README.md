@@ -158,6 +158,17 @@ An invalid value fails startup with the YAML path of the rejected field.
 write-ahead log and up to four uncompacted 64 MiB level-0 files per column family. A compaction
 after a bulk replay returns the directory to about the live state size.
 
+When the local store is corrupt, is missing files, has an incompatible format, or cannot be
+updated from the retained log, the node renames the directory to the sibling `<directory>.discarded-<uuidv7>` and
+rebuilds it. Other open errors, such as a RocksDB lock that another process holds or a permission
+error, fail startup and leave the directory in place. If the store itself cannot be read, stop the
+node, move or delete the directory, and restart to rebuild it from object storage. After every successful start, the node
+deletes all but the newest `localStorage.retainedSetAsideStoreCount` set-aside stores (default 1;
+0 keeps none) and logs each deleted path; the copy this start set aside always counts as the
+newest, and a failed deletion only logs a warning. After a successful start, the parent volume
+holds at most that many old copies. A start that sets the store aside holds one more until it
+succeeds, and starts that fail after setting it aside each add a copy until one succeeds.
+
 Object storage uses `objectStore.endpoint` (empty for AWS endpoint resolution), `region`, `bucket`,
 `prefix`, and `forcePathStyle`. `objectStore.hardDeleteStore` optionally sends hard-delete values
 to a separate destination with the same keys; without it they use the primary bucket and prefix.

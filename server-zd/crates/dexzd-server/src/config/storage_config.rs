@@ -139,6 +139,19 @@ pub struct LocalStorageConfig {
     /// at most the live data plus maxWalBytes plus level-0 files that RocksDB has not compacted yet
     /// (at most four 64 MiB files per column family). Graceful shutdown stops a running compaction.
     pub compact_after_replay_bytes: u64,
+    /// Defaults to 1; number of set-aside local stores kept for diagnosis. When the local store is
+    /// corrupt, is missing files, has an incompatible format, or cannot be updated from the
+    /// retained log, the node renames the directory to a sibling named `<directory>.discarded-<uuidv7>` and rebuilds it.
+    /// Other open errors, such as a RocksDB lock that another process holds, fail startup and
+    /// leave the directory in place. After every successful start, the node deletes all but the
+    /// newest set-aside stores of that directory and logs each deleted path. The copy that the
+    /// current start set aside always counts as the newest. Any value is valid; 0 keeps none, so
+    /// even a copy of a store newer than the recorded metadata is deleted at once. After a
+    /// successful start, the volume holds at most this many old copies. A start that sets the
+    /// store aside holds one more until it succeeds, and each start that fails after setting the
+    /// store aside adds a copy until one succeeds. A failed deletion logs a warning and never
+    /// fails startup.
+    pub retained_set_aside_store_count: u32,
 }
 
 impl Default for LocalStorageConfig {
@@ -148,6 +161,7 @@ impl Default for LocalStorageConfig {
             block_cache_bytes: 256 * 1024 * 1024,
             max_wal_bytes: 256 * 1024 * 1024,
             compact_after_replay_bytes: 16 * 1024 * 1024,
+            retained_set_aside_store_count: 1,
         }
     }
 }

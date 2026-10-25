@@ -137,6 +137,10 @@ impl ComponentConfigs {
                     )?,
                 },
                 compact_after_replay_bytes: config.local_storage.compact_after_replay_bytes,
+                retained_set_aside_store_count: to_usize(
+                    "localStorage.retainedSetAsideStoreCount",
+                    u64::from(config.local_storage.retained_set_aside_store_count),
+                )?,
             },
             blocking_work: BlockingWorkPlacement::BlockingThreadPool,
         };

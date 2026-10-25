@@ -37,7 +37,8 @@ use crate::commit::{
 use crate::engine_id_source::EngineIdSource;
 use crate::recovery::{
     ClusterMetadata, EngineRuntimeHooks, EngineServices, EngineStartError, LocalStoreConfig,
-    LocalStoreRequirements, LogReplay, open_local_store, rebuild_search_order_indexes,
+    LocalStoreRequirements, LogReplay, OpenedLocalStore, delete_older_set_aside_stores,
+    open_local_store, rebuild_search_order_indexes,
 };
 use crate::snapshots::{
     LogCleanup, OwnershipFence, SnapshotCatalog, SnapshotConfig, SnapshotError, SnapshotRetention,
@@ -210,7 +211,10 @@ impl EngineNode {
                 node_id: config.node.node_id.clone(),
                 incarnation: metadata.streams.serving_incarnation,
             };
-            let store = open_local_store(
+            let OpenedLocalStore {
+                store,
+                set_aside_id,
+            } = open_local_store(
                 &config.local_store,
                 object_store.as_ref(),
                 &LocalStoreRequirements {
@@ -291,6 +295,13 @@ impl EngineNode {
             }
             .run()
             .await?;
+            delete_older_set_aside_stores(
+                &config.local_store,
+                config.recovery.retained_set_aside_store_count,
+                set_aside_id,
+                config.blocking_work,
+            )
+            .await;
             // Recovery uses these applier lanes; only later frames are live commits.
             appliers.enable_metrics();
             committer.seed_stamp_watermarks(&applied_command_timestamps(&store)?);

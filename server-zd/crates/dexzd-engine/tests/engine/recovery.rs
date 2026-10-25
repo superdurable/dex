@@ -156,6 +156,286 @@ async fn an_unreadable_rocksdb_store_is_set_aside_and_rebuilt() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn repeated_set_asides_keep_only_the_newest_configured_count() {
+    for retained_count in [1, 2] {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let store_directory = directory.path().join("store");
+        let decoys = [
+            "store.discarded-not-a-uuid".to_owned(),
+            format!("store.discarded-{}", uuid::Uuid::new_v4()),
+            format!("store.discarded-{}", uuid::Uuid::now_v7().simple()),
+            format!(
+                "store.discarded-{}",
+                uuid::Uuid::now_v7().to_string().to_uppercase()
+            ),
+            format!("store2.discarded-{}", uuid::Uuid::now_v7()),
+            format!("other.discarded-{}", uuid::Uuid::now_v7()),
+        ];
+        for decoy in &decoys {
+            std::fs::create_dir(directory.path().join(decoy)).expect("create decoy directory");
+        }
+        let decoy_file = format!("store.discarded-{}", uuid::Uuid::now_v7());
+        std::fs::write(directory.path().join(&decoy_file), b"not a store").expect("decoy file");
+        let link_target = directory.path().join("link-target");
+        std::fs::create_dir(&link_target).expect("create link target");
+        std::fs::write(link_target.join("kept"), b"linked contents").expect("link target file");
+        let decoy_link = directory
+            .path()
+            .join(format!("store.discarded-{}", uuid::Uuid::now_v7()));
+        std::os::unix::fs::symlink(&link_target, &decoy_link).expect("create decoy link");
+        let mut cluster = TestCluster::new();
+        let mut config = cluster.config(LocalStoreConfig::RocksDb {
+            directory: store_directory.clone(),
+            options: RocksDbStoreOptions::default(),
+        });
+        config.recovery.retained_set_aside_store_count = retained_count;
+        let first = cluster
+            .start(
+                &config,
+                Arc::new(CountingApplier::default()),
+                Arc::new(RecordingRuntime::default()),
+            )
+            .await
+            .expect("node starts");
+        first.commit_prompt("set-aside-flow", 1).await;
+        first.node.shutdown().await.expect("lease released");
+
+        let mut set_aside_order = Vec::new();
+        for restart in 1..=4_u64 {
+            std::fs::write(store_directory.join("CURRENT"), b"not a manifest name\n")
+                .expect("corrupt the store");
+            let before = set_aside_store_names(directory.path());
+            let node = cluster
+                .start(
+                    &config,
+                    Arc::new(CountingApplier::default()),
+                    Arc::new(RecordingRuntime::default()),
+                )
+                .await
+                .expect("node restarts");
+            let after = set_aside_store_names(directory.path());
+            let created: Vec<_> = after.difference(&before).cloned().collect();
+            assert_eq!(created.len(), 1, "one store set aside per start: {after:?}");
+            set_aside_order.push(created[0].clone());
+            let expected: std::collections::BTreeSet<_> = set_aside_order
+                [set_aside_order.len().saturating_sub(retained_count)..]
+                .iter()
+                .cloned()
+                .collect();
+            assert_eq!(
+                after, expected,
+                "retained {retained_count} after restart {restart}"
+            );
+            assert_eq!(node.committed_count("set-aside-flow").await, restart);
+            node.commit_prompt("set-aside-flow", 1).await;
+            assert_eq!(node.committed_count("set-aside-flow").await, restart + 1);
+            node.node.shutdown().await.expect("lease released");
+        }
+        for decoy in decoys.iter().chain([&decoy_file]) {
+            assert!(
+                directory.path().join(decoy).exists(),
+                "{decoy} must survive cleanup"
+            );
+        }
+        let link = std::fs::symlink_metadata(&decoy_link).expect("decoy link survives");
+        assert!(link.file_type().is_symlink());
+        assert_eq!(
+            std::fs::read(link_target.join("kept")).expect("link target survives"),
+            b"linked contents"
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_store_without_its_manifest_is_set_aside_and_rebuilt() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let store_directory = directory.path().join("store");
+    let mut cluster = TestCluster::new();
+    let config = cluster.config(LocalStoreConfig::RocksDb {
+        directory: store_directory.clone(),
+        options: RocksDbStoreOptions::default(),
+    });
+    let first = cluster
+        .start(
+            &config,
+            Arc::new(CountingApplier::default()),
+            Arc::new(RecordingRuntime::default()),
+        )
+        .await
+        .expect("node starts");
+    first.commit_prompt("manifest-flow", 2).await;
+    first.node.take_snapshot().await.expect("snapshot");
+    first.commit_prompt("manifest-flow", 1).await;
+    first.node.shutdown().await.expect("lease released");
+    let mut deleted_manifests = 0;
+    for entry in std::fs::read_dir(&store_directory).expect("list store") {
+        let path = entry.expect("store entry").path();
+        let is_manifest = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("MANIFEST-"));
+        if is_manifest {
+            std::fs::remove_file(&path).expect("delete manifest");
+            deleted_manifests += 1;
+        }
+    }
+    assert!(deleted_manifests > 0);
+    assert!(store_directory.join("CURRENT").exists());
+
+    let second = cluster
+        .start(
+            &config,
+            Arc::new(CountingApplier::default()),
+            Arc::new(RecordingRuntime::default()),
+        )
+        .await
+        .expect("node restarts");
+    assert_eq!(set_aside_store_names(directory.path()).len(), 1);
+    assert_eq!(second.committed_count("manifest-flow").await, 3);
+    second.commit_prompt("manifest-flow", 1).await;
+    assert_eq!(second.committed_count("manifest-flow").await, 4);
+    second.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_copy_this_start_set_aside_survives_a_future_dated_copy() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let store_directory = directory.path().join("store");
+    let mut cluster = TestCluster::new();
+    let config = cluster.config(LocalStoreConfig::RocksDb {
+        directory: store_directory.clone(),
+        options: RocksDbStoreOptions::default(),
+    });
+    let first = cluster
+        .start(
+            &config,
+            Arc::new(CountingApplier::default()),
+            Arc::new(RecordingRuntime::default()),
+        )
+        .await
+        .expect("node starts");
+    first.commit_prompt("future-flow", 1).await;
+    first.node.shutdown().await.expect("lease released");
+    // Dated in 2100, as a copy from a clock that ran ahead would be.
+    let future_id =
+        uuid::Builder::from_unix_timestamp_millis(4_102_444_800_000, &[0; 10]).into_uuid();
+    let future_copy = format!("store.discarded-{future_id}");
+    std::fs::create_dir(directory.path().join(&future_copy)).expect("create future copy");
+    std::fs::write(store_directory.join("CURRENT"), b"not a manifest name\n")
+        .expect("corrupt the store");
+
+    let second = cluster
+        .start(
+            &config,
+            Arc::new(CountingApplier::default()),
+            Arc::new(RecordingRuntime::default()),
+        )
+        .await
+        .expect("node restarts");
+    let retained = set_aside_store_names(directory.path());
+    assert_eq!(retained.len(), 1, "{retained:?}");
+    assert!(!retained.contains(&future_copy), "{retained:?}");
+    assert_eq!(second.committed_count("future-flow").await, 1);
+    second.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_store_that_another_handle_holds_open_fails_startup_and_stays_in_place() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let store_directory = directory.path().join("store");
+    let mut cluster = TestCluster::new();
+    let mut config = cluster.config(LocalStoreConfig::RocksDb {
+        directory: store_directory.clone(),
+        options: RocksDbStoreOptions::default(),
+    });
+    // Any rename or cleanup would remove this older copy.
+    config.recovery.retained_set_aside_store_count = 0;
+    let first = cluster
+        .start(
+            &config,
+            Arc::new(CountingApplier::default()),
+            Arc::new(RecordingRuntime::default()),
+        )
+        .await
+        .expect("node starts");
+    first.commit_prompt("held-flow", 2).await;
+    first.node.shutdown().await.expect("lease released");
+    let older_copy = format!("store.discarded-{}", uuid::Uuid::now_v7());
+    std::fs::create_dir(directory.path().join(&older_copy)).expect("create older copy");
+    let holder =
+        dexzd_storage::RocksDbLocalStore::open(&store_directory, RocksDbStoreOptions::default())
+            .expect("hold the store open");
+    let parent_before = directory_listing(directory.path());
+    let store_before = directory_listing(&store_directory);
+
+    let result = cluster
+        .start(
+            &config,
+            Arc::new(CountingApplier::default()),
+            Arc::new(RecordingRuntime::default()),
+        )
+        .await;
+    let Err(error) = result else {
+        panic!("startup must fail while another handle holds the store");
+    };
+    assert!(
+        matches!(error, EngineStartError::LocalStoreUnavailable { .. }),
+        "{error}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains(&store_directory.display().to_string()),
+        "{error}"
+    );
+    assert_eq!(directory_listing(directory.path()), parent_before);
+    // The failed RocksDB open only rotates the info log.
+    let store_after = directory_listing(&store_directory);
+    assert!(
+        store_before.is_subset(&store_after),
+        "{store_before:?} {store_after:?}"
+    );
+
+    drop(holder);
+    let restarted = cluster
+        .start(
+            &config,
+            Arc::new(CountingApplier::default()),
+            Arc::new(RecordingRuntime::default()),
+        )
+        .await
+        .expect("node restarts once the store is free");
+    assert_eq!(restarted.committed_count("held-flow").await, 2);
+    assert!(set_aside_store_names(directory.path()).is_empty());
+    restarted.node.shutdown().await.expect("lease released");
+}
+
+/// Returns the entry names directly in `directory`.
+fn directory_listing(directory: &std::path::Path) -> std::collections::BTreeSet<String> {
+    std::fs::read_dir(directory)
+        .expect("list directory")
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect()
+}
+
+/// Returns the names in `parent` that `set_aside` gives the `store` directory.
+fn set_aside_store_names(parent: &std::path::Path) -> std::collections::BTreeSet<String> {
+    std::fs::read_dir(parent)
+        .expect("list directory")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter_map(|name| {
+            let suffix = name.strip_prefix("store.discarded-")?;
+            let id = uuid::Uuid::try_parse(suffix).ok()?;
+            (id.get_version() == Some(uuid::Version::SortRand) && id.to_string() == suffix)
+                .then_some(name)
+        })
+        .collect()
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_halted_partition_stays_halted_after_restart() {
     let mut cluster = TestCluster::new();
     let first = cluster.start_in_memory().await;

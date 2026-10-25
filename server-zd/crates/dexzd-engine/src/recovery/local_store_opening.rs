@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -16,17 +17,22 @@ use dexzd_storage::{
     InMemoryLocalStore, LocalReadView, RestoredLocalStore, RocksDbLocalStore, RocksDbStoreOptions,
     restore_snapshot_with_lineage_id,
 };
-use uuid::Uuid;
+use uuid::{Uuid, Version};
 
+use crate::blocking_work::BlockingWorkPlacement;
 use crate::commit::EngineLocalStore;
 use crate::recovery::EngineStartError;
 use crate::recovery::node_streams::NodeStreams;
+
+/// Separates the store directory name from the UUIDv7 of a set-aside copy.
+const SET_ASIDE_INFIX: &str = ".discarded-";
 
 /// Where the node keeps its local state.
 #[derive(Clone)]
 pub enum LocalStoreConfig {
     /// RocksDB in `directory`. A missing, corrupt, or outdated store is set aside and
-    /// restored from the newest snapshot.
+    /// restored from the newest snapshot. Other open failures, such as a lock that another
+    /// process holds, fail startup and leave the directory in place.
     RocksDb {
         /// Store directory; created when missing.
         directory: PathBuf,
@@ -74,28 +80,43 @@ pub(crate) struct AppliedPosition {
     pub(crate) epoch: u64,
 }
 
+/// A local store that the retained log can update.
+pub(crate) struct OpenedLocalStore {
+    pub(crate) store: Arc<EngineLocalStore>,
+    /// UUIDv7 in the name of the copy that this start set aside, if any.
+    pub(crate) set_aside_id: Option<Uuid>,
+}
+
 pub(crate) async fn open_local_store(
     config: &LocalStoreConfig,
     object_store: &dyn ObjectStore,
     requirements: &LocalStoreRequirements<'_>,
-) -> Result<Arc<EngineLocalStore>, EngineStartError> {
-    let store = match config {
+) -> Result<OpenedLocalStore, EngineStartError> {
+    let (store, set_aside_id) = match config {
         LocalStoreConfig::RocksDb { directory, options } => {
             open_rocksdb_store(directory, *options, object_store, requirements).await?
         }
         #[cfg(feature = "test-util")]
         LocalStoreConfig::ExistingForTest(store) => {
             match reusable_existing_store(store, requirements)? {
-                Some(store) => return Ok(store),
-                None => restore_in_memory(object_store, requirements).await?,
+                Some(store) => {
+                    return Ok(OpenedLocalStore {
+                        store,
+                        set_aside_id: None,
+                    });
+                }
+                None => (restore_in_memory(object_store, requirements).await?, None),
             }
         }
-        LocalStoreConfig::InMemory => restore_in_memory(object_store, requirements).await?,
+        LocalStoreConfig::InMemory => (restore_in_memory(object_store, requirements).await?, None),
     };
     if let Some(gap) = find_unreplayable_gap(&store, requirements)? {
         return Err(gap);
     }
-    Ok(Arc::new(store))
+    Ok(OpenedLocalStore {
+        store: Arc::new(store),
+        set_aside_id,
+    })
 }
 
 /// Returns `store` when the retained log can update it, like a reopened RocksDB directory.
@@ -150,12 +171,18 @@ async fn restore_in_memory(
     })
 }
 
+/// Opens the RocksDB store in `directory`, or sets it aside and rebuilds it.
+///
+/// Returns the store and the UUIDv7 of the copy set aside, if any. Returns
+/// [`EngineStartError::LocalStoreUnavailable`] without renaming when opening fails for a reason
+/// other than the store's contents.
 async fn open_rocksdb_store(
     directory: &Path,
     options: RocksDbStoreOptions,
     object_store: &dyn ObjectStore,
     requirements: &LocalStoreRequirements<'_>,
-) -> Result<RestoredLocalStore, EngineStartError> {
+) -> Result<(RestoredLocalStore, Option<Uuid>), EngineStartError> {
+    let mut set_aside_id = None;
     if is_nonempty_directory(directory)? {
         match RocksDbLocalStore::open(directory, options) {
             Ok(store)
@@ -168,34 +195,45 @@ async fn open_rocksdb_store(
                 );
             }
             Ok(store) => match find_unreplayable_gap(&store, requirements)? {
-                None => return Ok(RestoredLocalStore::RocksDb(store)),
+                None => return Ok((RestoredLocalStore::RocksDb(store), None)),
+                // The copy may be the only evidence that object storage metadata went backwards.
+                Some(gap @ EngineStartError::InvalidMetadata { .. }) => {
+                    tracing::error!(gap = %gap, "the local store is newer than the recorded metadata; restoring the newest snapshot");
+                }
                 Some(gap) => {
                     tracing::warn!(gap = %gap, "the retained log cannot update the local store; restoring the newest snapshot");
                 }
             },
-            Err(error) => {
+            Err(error) if error.is_unusable_store_content(directory) => {
                 tracing::warn!(error = %error, "local store cannot be opened; restoring the newest snapshot");
             }
+            Err(source) => {
+                return Err(EngineStartError::LocalStoreUnavailable {
+                    directory: directory.to_path_buf(),
+                    source,
+                });
+            }
         }
-        set_aside(directory)?;
+        set_aside_id = Some(set_aside(directory)?);
     }
-    match requirements.snapshot {
-        Some(snapshot) => Ok(restore_snapshot_with_lineage_id(
-            object_store,
-            &snapshot.manifest_key,
-            directory,
-            options,
-            requirements.new_store_lineage_id,
-        )
-        .await?),
-        None => Ok(RestoredLocalStore::RocksDb(
-            RocksDbLocalStore::open_with_new_store_lineage_id(
+    let store = match requirements.snapshot {
+        Some(snapshot) => {
+            restore_snapshot_with_lineage_id(
+                object_store,
+                &snapshot.manifest_key,
                 directory,
                 options,
                 requirements.new_store_lineage_id,
-            )?,
-        )),
-    }
+            )
+            .await?
+        }
+        None => RestoredLocalStore::RocksDb(RocksDbLocalStore::open_with_new_store_lineage_id(
+            directory,
+            options,
+            requirements.new_store_lineage_id,
+        )?),
+    };
+    Ok((store, set_aside_id))
 }
 
 /// Returns why the retained log cannot bring `store` up to date, or `None` when it can.
@@ -282,10 +320,155 @@ fn is_nonempty_directory(directory: &Path) -> Result<bool, EngineStartError> {
     Ok(std::fs::read_dir(directory)?.next().transpose()?.is_some())
 }
 
-fn set_aside(directory: &Path) -> Result<(), EngineStartError> {
-    let mut discarded = directory.as_os_str().to_owned();
-    discarded.push(format!(".discarded-{}", Uuid::now_v7()));
+/// Renames `directory` to its set-aside sibling.
+///
+/// Returns the UUIDv7 in the new name.
+fn set_aside(directory: &Path) -> Result<Uuid, EngineStartError> {
+    let Some((parent, mut discarded_name)) = set_aside_location(directory) else {
+        return Err(EngineStartError::InvalidConfig {
+            detail: format!(
+                "local store directory {} has no final name to set aside",
+                directory.display()
+            ),
+        });
+    };
+    let id = Uuid::now_v7();
+    discarded_name.push(id.to_string());
+    let discarded = parent.join(discarded_name);
     std::fs::rename(directory, &discarded)?;
-    tracing::warn!(path = %PathBuf::from(&discarded).display(), "set aside the previous local store");
-    Ok(())
+    tracing::warn!(path = %discarded.display(), "set aside the previous local store");
+    Ok(id)
+}
+
+/// Returns the directory that holds set-aside copies of `directory`, and their name prefix
+/// `<store>.discarded-`.
+///
+/// Returns `None` when `directory` has no final name, such as `/` or a path ending in `..`.
+fn set_aside_location(directory: &Path) -> Option<(&Path, OsString)> {
+    let mut prefix = directory.file_name()?.to_owned();
+    prefix.push(SET_ASIDE_INFIX);
+    let parent = match directory.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    Some((parent, prefix))
+}
+
+/// Deletes set-aside stores of a RocksDB `config`, keeping `retained_count` newest with
+/// `this_start_id` first; failures only log.
+pub(crate) async fn delete_older_set_aside_stores(
+    config: &LocalStoreConfig,
+    retained_count: usize,
+    this_start_id: Option<Uuid>,
+    blocking_work: BlockingWorkPlacement,
+) {
+    let LocalStoreConfig::RocksDb { directory, .. } = config else {
+        return;
+    };
+    let directory = directory.clone();
+    let deleted = blocking_work
+        .run(move || {
+            delete_set_aside_stores_except_newest(&directory, retained_count, this_start_id);
+        })
+        .await;
+    if let Err(failure) = deleted {
+        tracing::warn!(error = %failure, "failed to delete older set-aside local stores");
+    }
+}
+
+/// Deletes `<store>.discarded-<uuidv7>` siblings of `directory` except the newest `retained_count`.
+/// The active store never matches: its name lacks the suffix.
+fn delete_set_aside_stores_except_newest(
+    directory: &Path,
+    retained_count: usize,
+    this_start_id: Option<Uuid>,
+) {
+    let Some((parent, prefix)) = set_aside_location(directory) else {
+        return;
+    };
+    let Some(prefix) = prefix.to_str() else {
+        tracing::warn!(path = %directory.display(), "cannot match set-aside stores of a local store without a UTF-8 name");
+        return;
+    };
+    let mut set_aside_stores = match list_set_aside_stores(parent, prefix) {
+        Ok(stores) => stores,
+        Err(error) => {
+            tracing::warn!(path = %parent.display(), error = %error, "failed to list set-aside local stores");
+            return;
+        }
+    };
+    let mut kept_count = retained_count;
+    if retained_count > 0
+        && let Some(this_start_id) = this_start_id
+    {
+        let listed_count = set_aside_stores.len();
+        set_aside_stores.retain(|(id, _)| *id != this_start_id);
+        if set_aside_stores.len() < listed_count {
+            kept_count -= 1;
+        }
+    }
+    // UUIDv7 bytes start with the creation time, so this sorts oldest first.
+    set_aside_stores.sort_unstable_by_key(|(id, _)| *id);
+    let deleted_count = set_aside_stores.len().saturating_sub(kept_count);
+    for (_, path) in set_aside_stores.into_iter().take(deleted_count) {
+        match std::fs::remove_dir_all(&path) {
+            Ok(()) => tracing::info!(path = %path.display(), "deleted a set-aside local store"),
+            Err(error) => {
+                tracing::warn!(path = %path.display(), error = %error, "failed to delete a set-aside local store");
+            }
+        }
+    }
+}
+
+/// Returns the UUIDv7 and path of every directory in `parent` named `<prefix><uuidv7>`, in
+/// directory order, skipping entries that cannot be read.
+///
+/// Returns an I/O error only when `parent` cannot be listed.
+fn list_set_aside_stores(
+    parent: &Path,
+    prefix: &str,
+) -> Result<Vec<(Uuid, PathBuf)>, std::io::Error> {
+    let mut stores = Vec::new();
+    for entry in std::fs::read_dir(parent)? {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                tracing::warn!(path = %parent.display(), error = %error, "skipped an unreadable entry while listing set-aside local stores");
+                continue;
+            }
+        };
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(error) => {
+                tracing::warn!(path = %entry.path().display(), error = %error, "skipped an entry of unknown type while listing set-aside local stores");
+                continue;
+            }
+        };
+        // set_aside renames a directory, so files and symbolic links are someone else's.
+        if !file_type.is_dir() {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let Some(suffix) = file_name
+            .to_str()
+            .and_then(|name| name.strip_prefix(prefix))
+        else {
+            continue;
+        };
+        if let Some(id) = parse_set_aside_id(suffix) {
+            stores.push((id, entry.path()));
+        }
+    }
+    Ok(stores)
+}
+
+/// Returns the UUIDv7 that `set_aside` wrote as `suffix`, or `None` for any other text.
+fn parse_set_aside_id(suffix: &str) -> Option<Uuid> {
+    let Ok(id) = Uuid::try_parse(suffix) else {
+        return None;
+    };
+    // try_parse also accepts simple, braced, and URN forms that set_aside never writes.
+    let is_set_aside_form =
+        id.get_version() == Some(Version::SortRand) && id.hyphenated().to_string() == suffix;
+    is_set_aside_form.then_some(id)
 }
