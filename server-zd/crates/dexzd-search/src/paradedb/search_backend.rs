@@ -14,7 +14,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use dexzd_keyspace::{RunId, TenantId};
-use dexzd_postgres_connection::{ConnectionError, ConnectionSettings, OpenConnection};
+use dexzd_postgres_connection::{
+    ConnectionError, ConnectionSettings, OpenConnection, error_with_sources,
+};
 use dexzd_visibility_query::parse_and_check;
 use tokio::sync::{Mutex, MutexGuard, Semaphore, SemaphorePermit};
 use tokio::task::JoinHandle;
@@ -384,7 +386,7 @@ pub(super) fn classify_database_error(
 
 pub(super) fn database_error_message(error: &tokio_postgres::Error) -> String {
     let Some(database_error) = error.as_db_error() else {
-        return format!("SQLSTATE none: {error}");
+        return format!("SQLSTATE none: {}", error_with_sources(error));
     };
     let mut message = format!(
         "SQLSTATE {}: {}",
@@ -410,12 +412,18 @@ fn schema_search_error(error: SchemaError) -> SearchError {
 #[cfg(test)]
 mod tests {
     use std::future::pending;
+    use std::io::Write as _;
+    use std::sync::Arc;
     use std::time::Duration;
 
     use dexzd_postgres_connection::ConnectionSettings;
+    use rcgen::generate_simple_self_signed;
+    use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
+    use tempfile::NamedTempFile;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio_postgres::{Config, NoTls};
+    use tokio_rustls::TlsAcceptor;
 
     use super::{ConnectionSlot, classify_database_error, is_transient_database_error};
     use crate::SearchError;
@@ -495,6 +503,59 @@ mod tests {
             classify_database_error("connect to ParadeDB", error),
             SearchError::Unavailable(message) if message.contains("SQLSTATE none")
         ));
+    }
+
+    #[tokio::test]
+    async fn tls_certificate_failure_includes_rustls_cause_without_dsn() {
+        let server_certificate = generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate server certificate");
+        let unrelated_ca = generate_simple_self_signed(vec!["unrelated.example".to_owned()])
+            .expect("generate unrelated CA");
+        let mut root_file = NamedTempFile::new().expect("create root certificate file");
+        root_file
+            .write_all(unrelated_ca.cert.pem().as_bytes())
+            .expect("write unrelated root certificate");
+        let server_config = rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::aws_lc_rs::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .expect("server protocol versions")
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![server_certificate.cert.der().clone()],
+            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+                server_certificate.signing_key.serialize_der(),
+            )),
+        )
+        .expect("server certificate config");
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("fake TLS listener binds");
+        let port = listener.local_addr().expect("listener address").port();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("client connects");
+            let handshake = TlsAcceptor::from(Arc::new(server_config))
+                .accept(stream)
+                .await;
+            assert!(handshake.is_err(), "client rejects untrusted certificate");
+        });
+        let dsn = format!(
+            "host=localhost hostaddr=127.0.0.1 port={port} user=dex password=hidden-password sslmode=verify-full sslnegotiation=direct sslrootcert={} connect_timeout=5",
+            root_file.path().display()
+        );
+        let settings = ConnectionSettings::parse_for_search(&dsn).expect("valid TLS DSN");
+        let error = match ConnectionSlot::open(&settings).await {
+            Ok(_) => panic!("untrusted certificate cannot connect"),
+            Err(error) => error,
+        };
+        let message = error.to_string();
+        assert!(
+            message.contains("certificate") || message.contains("UnknownIssuer"),
+            "{message}"
+        );
+        assert!(!message.contains(&dsn), "{message}");
+        assert!(!message.contains("hidden-password"), "{message}");
+        server.await.expect("fake server observes TLS rejection");
     }
 
     #[tokio::test]

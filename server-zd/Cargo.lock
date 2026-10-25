@@ -1332,11 +1332,15 @@ dependencies = [
  "dexzd-visibility-query",
  "prost",
  "prost-types",
+ "rcgen",
+ "rustls",
  "serde_json",
+ "tempfile",
  "thiserror",
  "time",
  "tokio",
  "tokio-postgres",
+ "tokio-rustls",
  "tracing",
 ]
 

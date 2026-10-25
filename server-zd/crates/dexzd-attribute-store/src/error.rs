@@ -8,6 +8,8 @@
 
 use std::time::Duration;
 
+use dexzd_postgres_connection::error_with_sources;
+
 /// An Attribute Store failure. Messages name the store, the operation, and the table.
 #[derive(Debug, thiserror::Error)]
 pub enum AttributeStoreError {
@@ -242,20 +244,10 @@ pub(crate) fn database_error(
     }
 }
 
-fn error_with_sources(error: &(dyn std::error::Error + 'static)) -> String {
-    let mut message = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        message.push_str(": ");
-        message.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    message
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{error_with_sources, redact_secret};
+    use super::redact_secret;
+    use dexzd_postgres_connection::error_with_sources;
 
     #[derive(Debug, thiserror::Error)]
     #[error("TLS handshake failed")]

@@ -10,7 +10,9 @@ use std::io::Write as _;
 
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, DnType, IsCa, KeyPair};
 use tempfile::NamedTempFile;
-use tokio_postgres::config::SslMode;
+use tokio::net::TcpListener;
+use tokio_postgres::config::{SslMode, SslNegotiation};
+use tokio_rustls::LazyConfigAcceptor;
 
 use super::ConnectionSettings;
 use crate::dsn::{TlsParameters, split_tls_parameters};
@@ -196,10 +198,51 @@ fn search_plaintext_default_preserves_no_tls_connections() {
     )
     .expect("valid direct negotiation DSN");
     assert_eq!(direct.configuration().get_ssl_mode(), SslMode::Require);
+    assert_eq!(
+        direct.configuration().get_ssl_negotiation(),
+        SslNegotiation::Direct
+    );
     assert!(direct.tls.is_some());
 
     let invalid_sni = ConnectionSettings::parse_for_search("host=localhost sslsni=bogus")
         .err()
         .expect("search must reject invalid sslsni");
     assert!(invalid_sni.to_string().contains("sslsni is invalid"));
+}
+
+#[tokio::test]
+async fn direct_negotiation_sends_tls_client_hello_with_postgresql_alpn() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind fake PostgreSQL listener");
+    let port = listener.local_addr().expect("listener address").port();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.expect("client connects");
+        let mut first_byte = [0_u8; 1];
+        stream
+            .peek(&mut first_byte)
+            .await
+            .expect("peek at first byte");
+        assert_eq!(first_byte[0], 0x16, "direct TLS starts with ClientHello");
+        let handshake = LazyConfigAcceptor::new(rustls::server::Acceptor::default(), stream)
+            .await
+            .expect("parse ClientHello");
+        let offered_alpn = handshake
+            .client_hello()
+            .alpn()
+            .expect("ClientHello offers ALPN")
+            .map(|protocol| protocol.to_vec())
+            .collect::<Vec<_>>();
+        assert_eq!(offered_alpn, vec![b"postgresql".to_vec()]);
+    });
+    let dsn = format!(
+        "host=localhost hostaddr=127.0.0.1 port={port} user=dex sslmode=require sslnegotiation=direct connect_timeout=5"
+    );
+    let settings = ConnectionSettings::parse_for_search(&dsn).expect("valid direct TLS DSN");
+    let error = match settings.connect().await {
+        Ok(_) => panic!("fake listener has no TLS server"),
+        Err(error) => error,
+    };
+    assert!(matches!(error, super::ConnectionError::Database(_)));
+    server.await.expect("fake server inspects ClientHello");
 }

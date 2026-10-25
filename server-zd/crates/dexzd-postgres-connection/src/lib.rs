@@ -49,7 +49,7 @@ const VALUE_CHECKED_KEYWORDS: [&str; 14] = [
 
 /// Selects the TLS mode when a connection string omits `sslmode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MissingSslMode {
+enum MissingSslMode {
     /// Try TLS first, following the existing Attribute Store behavior.
     Prefer,
     /// Use plaintext unless another TLS parameter is present; then try TLS first.
@@ -125,7 +125,7 @@ impl ConnectionSettings {
     }
 
     /// Parses a DSN using the selected mode when `sslmode` is absent.
-    pub fn parse_with_missing_ssl_mode(
+    fn parse_with_missing_ssl_mode(
         dsn: &str,
         missing_ssl_mode: MissingSslMode,
     ) -> Result<Self, ConnectionSettingsError> {
@@ -203,6 +203,31 @@ impl ConnectionSettings {
             .map_err(|_| ConnectionError::Timeout(timeout))?
             .map_err(ConnectionError::Database)
     }
+}
+
+/// Formats an error followed by its sources, from outermost to innermost.
+///
+/// Use this for PostgreSQL connection failures so TLS and I/O causes remain visible.
+/// The returned text is unredacted. Callers handling errors that may contain a DSN or password
+/// must redact the result before displaying it.
+///
+/// # Examples
+///
+/// ```
+/// use dexzd_postgres_connection::error_with_sources;
+///
+/// let error = std::io::Error::other("connection reset");
+/// assert_eq!(error_with_sources(&error), "connection reset");
+/// ```
+pub fn error_with_sources(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }
 
 /// pgx's `configTLS` decision: the tokio-postgres mode and how to verify the certificate, or None for no TLS.

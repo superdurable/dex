@@ -342,8 +342,9 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   `sslnegotiation` (`postgres` or `direct`), and `connect_timeout` in seconds. Direct negotiation
   requires PostgreSQL 17 or later. For example,
   `postgres://role:pw@host:5432/db?sslmode=require&sslnegotiation=direct` opens TLS before the
-  startup message. `sslmode=require` with `sslrootcert` verifies the certificate chain;
-  `sslmode=verify-full` also verifies the host name. `sslrootcert=system` forces `verify-full`.
+  startup message. `sslmode=require` without `sslrootcert` encrypts the connection but does not
+  verify the server certificate. Use `sslmode=verify-full` with `sslrootcert` to verify both the
+  certificate chain and host name. `sslrootcert=system` also forces `verify-full`.
   Without TLS parameters, the connection remains plaintext for compatibility with existing
   deployments. Explicit `sslmode=prefer` first attempts TLS without certificate verification;
   previously it remained plaintext. `sslmode=allow` with `sslnegotiation=direct` is invalid.
