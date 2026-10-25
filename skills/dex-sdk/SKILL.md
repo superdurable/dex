@@ -68,7 +68,7 @@ Then load only the references required by the task:
 | Server deployment or component topology | [Operations](references/core/operations.md) | language entry for Client and Worker targets |
 | server-zd, its Dex Web or Attribute Store sync, or `dexcli dev --engine zd` | [server-zd](references/core/operations.md#server-zd) | language entry for pull Worker options |
 | Pull Worker routing, capacity, shutdown, or retry | [Pull Workers](references/core/pull-workers.md) and [Operations](references/core/operations.md) | selected language's entry and **observability.md** |
-| Public API authentication, bearer credentials, API key exchange, or `dexcli` TLS | [Operations](references/core/operations.md#public-api-authentication) | selected language's entry |
+| Public API authentication, bearer credentials, API key exchange, Go FlowService TLS, or `dexcli` TLS | [Operations](references/core/operations.md#public-api-authentication) | selected language's entry |
 | Connector selection, local credentials, or named connections | [Operations](references/core/operations.md) | language entry for runtime support |
 | Large state, maps, or projections | [Data handling](references/core/data-handling.md) | selected language's **data-handling.md** |
 | Short-lived secrets or hard-delete Attributes | [Hard-delete Attributes](references/core/data-handling.md#hard-delete-attributes-for-short-lived-secrets) | selected language's **data-handling.md** |
