@@ -82,8 +82,8 @@ struct RunRetryState {
     failed_attempts: u32,
     /// Set by a run-scoped write failure or a rejected ack.
     backoff: Option<Backoff>,
-    /// Most Attributes per transaction after a timeout; `None` uses the batch size.
-    items_per_transaction: Option<usize>,
+    /// Most statements per transaction after a timeout; `None` chunks by the batch size.
+    statements_per_transaction: Option<usize>,
 }
 
 #[derive(Clone, Copy)]
@@ -389,7 +389,7 @@ impl AttributeSyncProjector {
             run,
             flow,
             entries,
-            items,
+            mut items,
             unreadable_value_detail,
         } = run_entries;
         let retry_key = (store_name.to_owned(), run);
@@ -451,14 +451,17 @@ impl AttributeSyncProjector {
                 next: RunNext::RetryRunAt(retry_at),
             };
         }
-        let items_per_transaction = self
+        let statements_per_transaction = self
             .run_retries
             .get(&retry_key)
-            .and_then(|state| state.items_per_transaction)
-            .unwrap_or(self.config.batch_size)
-            .max(1);
+            .and_then(|state| state.statements_per_transaction);
+        let batches = transaction_batches(
+            &mut items,
+            statements_per_transaction,
+            self.config.batch_size,
+        );
         let mut written_keys = BTreeSet::new();
-        for batch in items.chunks(items_per_transaction) {
+        for batch in batches {
             let (scope, detail) = match self.write_batch(store_name, &flow.flow_id, batch).await {
                 WriteResult::Committed => {
                     self.timed_out_runs.remove(store_name);
@@ -508,7 +511,7 @@ impl AttributeSyncProjector {
                     self.run_retries
                         .entry(retry_key.clone())
                         .or_default()
-                        .items_per_transaction = Some((batch.len() / 2).max(1));
+                        .statements_per_transaction = Some((statement_count(batch) / 2).max(1));
                     (RetryScope::TimedOutRun, detail)
                 }
             };
@@ -827,6 +830,49 @@ impl AttributeSyncProjectorHandle {
 }
 
 /// Acknowledges `entries` up to their largest written seq.
+/// Returns the transactions of a run, chunked by `batch_size` until a timeout sets a statement limit.
+///
+/// Under a statement limit, the first transaction holds every plain Attribute, followed by map
+/// instances; later transactions hold only map instances.
+fn transaction_batches<'items>(
+    items: &'items mut [AttributeSyncItem],
+    statements_per_transaction: Option<usize>,
+    batch_size: usize,
+) -> Vec<&'items [AttributeSyncItem]> {
+    let Some(statement_limit) = statements_per_transaction else {
+        return items.chunks(batch_size.max(1)).collect();
+    };
+    let statement_limit = statement_limit.max(1);
+    // One upsert writes every plain Attribute; splitting them only exposes a half-updated main row.
+    items.sort_by_key(is_attribute_map_instance);
+    let items: &'items [AttributeSyncItem] = items;
+    let plain_count = items.partition_point(|item| !is_attribute_map_instance(item));
+    let first_len = if plain_count == 0 {
+        0
+    } else {
+        (plain_count + statement_limit - 1).min(items.len())
+    };
+    let (first, instances) = items.split_at(first_len);
+    std::iter::once(first)
+        .filter(|batch| !batch.is_empty())
+        .chain(instances.chunks(statement_limit))
+        .collect()
+}
+
+/// Returns the statement count of a transaction: one main-row upsert plus one per map instance.
+fn statement_count(batch: &[AttributeSyncItem]) -> usize {
+    let instance_count = batch
+        .iter()
+        .filter(|item| is_attribute_map_instance(item))
+        .count();
+    instance_count + usize::from(instance_count < batch.len())
+}
+
+/// Attribute names cannot contain `/`, so only an AttributeMap instance key does.
+fn is_attribute_map_instance(item: &AttributeSyncItem) -> bool {
+    item.key.contains('/')
+}
+
 fn ack_command(
     store_name: &str,
     entries: &[&PendingEntry],

@@ -1489,6 +1489,60 @@ async fn a_partially_written_run_acknowledges_only_its_committed_transactions() 
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_timed_out_run_keeps_its_plain_attributes_in_one_transaction() {
+    let fixture = ProjectorFixture::start(sync_config());
+    // 63 items take 2.52 s, beyond the 2 s transaction timeout; 32 take 1.28 s.
+    fixture
+        .store
+        .slow_down_flow("order-14", Duration::from_millis(40));
+    let plain_keys = ["Address", "Status", "Zip"];
+    let instance_keys = member_keys(60);
+    let mut writes = member_writes(&instance_keys);
+    writes.extend(
+        plain_keys
+            .iter()
+            .map(|key| synced(key, Some(string_value("new")))),
+    );
+    fixture.start_flow("order-14", writes);
+    fixture
+        .wait_until("every entry is written and acknowledged", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    assert_eq!(
+        fixture.store.attempt_sizes_of_flow("order-14"),
+        vec![(63, false), (32, true), (30, true), (1, true)],
+        "the halved statement limit counts the main-row upsert as one statement"
+    );
+    let writes_with_plain_keys: Vec<Vec<String>> = fixture
+        .store
+        .committed_writes_of_flow("order-14")
+        .into_iter()
+        .map(|write| {
+            write
+                .items
+                .into_iter()
+                .map(|item| item.key)
+                .filter(|key| !key.contains('/'))
+                .collect::<Vec<_>>()
+        })
+        .filter(|plain_keys_of_write| !plain_keys_of_write.is_empty())
+        .collect();
+    assert_eq!(
+        writes_with_plain_keys,
+        vec![plain_keys.map(str::to_owned).to_vec()],
+        "one transaction updates every main-row column"
+    );
+    let mut committed_keys = committed_keys_of_flow(&fixture, "order-14");
+    committed_keys.sort();
+    let mut every_key: Vec<String> = plain_keys.map(str::to_owned).to_vec();
+    every_key.extend(instance_keys);
+    every_key.sort();
+    assert_eq!(committed_keys, every_key);
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
 async fn timeouts_of_three_runs_without_a_commit_back_off_the_whole_store() {
     let fixture = ProjectorFixture::start(sync_config());
     fixture

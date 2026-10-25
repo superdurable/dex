@@ -241,8 +241,10 @@ store's PostgreSQL tables. These differences from the Go Server apply:
   store. A failure caused by the written values, such as a constraint violation or a value too
   long for its column, backs off only that run, and other Flows keep syncing. So does a transaction
   that times out, deadlocks, or waits too long for a row lock. After a timeout, that run's retries
-  write half as many Attributes per transaction, down to one. Each transaction that commits is
-  acknowledged, so a retry writes only the rest. When three runs of a store time out with no
+  use half as many statements per transaction, down to one. One statement writes all of the run's
+  plain Attributes and stays in one transaction, so the main row is never partly updated. Each
+  AttributeMap instance is one statement, so a timed-out run's instances can land in different
+  transactions. Each transaction that commits is acknowledged, so a retry writes only the rest. When three runs of a store time out with no
   commit in between, the whole store backs off. The retry after a store backoff starts with other
   runs than the one that failed. A newer run of the same Flow ID waits for the older run so rows
   keep run order.
