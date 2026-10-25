@@ -18,9 +18,9 @@ These values mirror the release metadata at the Dex Skills repository root.
 The package validator rejects any drift between the two copies.
 
 The Go SDK baseline is its published v1.21.0 tag, which adds the Go
-**Client.DescribeFlow**. The Java, Python, TypeScript, and Rust SDKs already
-had their DescribeFlow calls at v1.20.0. Java, Python, TypeScript, and Rust remain at their
-published v1.20.0 tags because none has a newer release in this bundle. The
+**Client.DescribeFlow**. Java, Python, TypeScript, and Rust already had their
+DescribeFlow calls and remain at their published v1.20.0 tags because none has
+a newer release in this bundle. The
 Server and CLI remain at server/v1.20.0 and cli-v1.20.0 because neither was
 released with this update. The v1.20.0 release added the typed FLOW_CLOSING
 error in every SDK.
