@@ -583,12 +583,11 @@ impl PullStream {
                     }
                 } => {
                     let is_final_frame_sent = final_frame_sent.lock().await;
-                    if !*is_final_frame_sent {
-                        if let Err(error) = sender.as_ref().expect("open Worker stream").try_send(PollWorkerTaskRequest {
+                    if !*is_final_frame_sent
+                        && let Err(error) = sender.as_ref().expect("open Worker stream").try_send(PollWorkerTaskRequest {
                             frame: Some(RequestFrame::Pong(PollWorkerTaskPong {})),
                         }) {
-                            tracing::debug!(%error, "send Worker keepalive Pong");
-                        }
+                        tracing::debug!(%error, "send Worker keepalive Pong");
                     }
                 }
                 () = async { sleep_until(deadline.expect("task deadline")).await }, if deadline.is_some() => {

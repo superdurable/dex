@@ -723,18 +723,7 @@ class PullStream:
             _LOGGER.exception("send Worker error frame failed")
 
     async def _send_frame(self, frame: pb.PollWorkerTaskFrame) -> None:
-        async with self._send_lock:
-            if (
-                frame.HasField("rpc")
-                or frame.HasField("worker_error")
-                or frame.HasField("wait_for")
-                and frame.wait_for.WhichOneof("output") == "result"
-                or frame.HasField("execute")
-                and frame.execute.WhichOneof("output") == "result"
-            ):
-                self._stop_keepalive()
-                self._is_final_frame_sent = True
-            await self._call.write(pb.PollWorkerTaskRequest(task_frame=frame))
+        await self._send(pb.PollWorkerTaskRequest(task_frame=frame))
 
     async def _send_busy_keepalives(self) -> None:
         try:
@@ -758,6 +747,18 @@ class PullStream:
 
     async def _send(self, request: pb.PollWorkerTaskRequest) -> None:
         async with self._send_lock:
+            if request.HasField("task_frame"):
+                frame = request.task_frame
+                if (
+                    frame.HasField("rpc")
+                    or frame.HasField("worker_error")
+                    or frame.HasField("wait_for")
+                    and frame.wait_for.WhichOneof("output") == "result"
+                    or frame.HasField("execute")
+                    and frame.execute.WhichOneof("output") == "result"
+                ):
+                    self._stop_keepalive()
+                    self._is_final_frame_sent = True
             if request.HasField("pong") and (
                 self._is_final_frame_sent or self.is_half_closing
             ):

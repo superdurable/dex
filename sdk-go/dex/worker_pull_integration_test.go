@@ -490,6 +490,20 @@ func TestWorkerPullPingAfterFinalFramePreservesResult(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("RPC did not start")
 	}
+	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Reconnect{Reconnect: &dexpb.PollWorkerTaskReconnect{Reason: "drain after task"}}}))
+	require.Eventually(t, func() bool {
+		worker.pull.mu.Lock()
+		defer worker.pull.mu.Unlock()
+		for stream := range worker.pull.streams {
+			stream.mu.Lock()
+			isDraining := stream.queue == flowType && stream.isBusy && stream.isDraining
+			stream.mu.Unlock()
+			if isDraining {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond)
 	close(flow.release)
 	result := awaitPullFrame(t, queueStream).GetTaskFrame()
 	require.Equal(t, "post-final-ping", result.GetTaskId())
