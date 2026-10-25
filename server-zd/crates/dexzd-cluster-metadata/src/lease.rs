@@ -404,8 +404,29 @@ pub(super) async fn acquire_lease_inner(
             Ok(WriteOutcome::Written { etag }) => etag,
             Ok(WriteOutcome::PreconditionFailed) => continue,
             Err(error) if error.kind == ObjectStoreErrorKind::OutcomeUnknown => {
-                let current = acquisition_store.get(&key).await?;
-                match current {
+                // Acquisition rejects an expired lease, so confirming the write after its
+                // local validity is useless.
+                let read_back =
+                    tokio::time::timeout_at(sent_at + config.duration, acquisition_store.get(&key));
+                // An unconfirmed write has no known ETag to release, so cancellation
+                // leaves it to expire.
+                let read_back_result = if let Some(cancellation_receiver) = cancellation.as_mut() {
+                    tokio::select! {
+                        biased;
+                        result = read_back => result,
+                        () = wait_for_cancellation(cancellation_receiver) => return Ok(None),
+                    }
+                } else {
+                    read_back.await
+                };
+                let Ok(current) = read_back_result else {
+                    tracing::warn!(
+                        node_id = %node.node_id,
+                        "the node lease write outcome stayed unknown for its validity; reading the lease again"
+                    );
+                    continue;
+                };
+                match current? {
                     Some(content)
                         if NodeLease::decode(content.bytes.clone()).map_err(|source| {
                             MetadataError::Decode {

@@ -244,7 +244,10 @@ Startup proceeds in this order:
    starting at its first transient or unknown-outcome failure. Backoff and later read calls count
    toward that window. Concurrent reads do not share a budget, and a later read gets a new window.
    Permanent errors fail startup immediately. Lease loss or shutdown can stop retries sooner;
-   lease renewal continues during recovery.
+   lease renewal continues during recovery. The window bounds each read, not the whole startup, so
+   startup after lease acquisition has no overall time limit. That is acceptable because a
+   persistent outage still fails startup within one read's window, and renewal keeps the lease
+   while slow reads make progress.
 5. After recovery and rebuild finish, health switches to SERVING and the API serves requests.
    Startup failure closes the listener.
 
@@ -364,10 +367,12 @@ expires.
 
 A lost lease, a stopped commit pipeline, or a halted Flow runtime stops the node, and the process
 exits 1. Restart it. A signal before the node acquires its lease cancels startup and exits 0. If
-the node already holds its lease, startup normally finishes before graceful shutdown begins.
-Once a transient read has been retried, a signal cancels startup and releases the lease promptly.
-Graceful shutdown has the same 14.5-second total and exit status as a signal received while
-serving. A failed startup releases its lease and exits 1.
+the outcome of the node's lease write is still unknown, that write is not released, and a
+replacement waits for it to expire. If the node already holds its lease, a signal stops startup at
+once and releases the lease. The process then exits 0, or exits 1 when the release fails. If
+startup finishes before it observes the signal, the node runs graceful shutdown, with the same
+14.5-second total and exit status as a signal received while serving. A failed startup releases its
+lease and exits 1.
 
 The node serves only within its local lease validity. The deadline is `lease.duration` after the
 last successful renewal was sent, on the local monotonic clock. Renewal starts one third of

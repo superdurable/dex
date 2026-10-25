@@ -10,6 +10,8 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dexzd_clock::WallClock;
+use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
     EngineNode, EngineNodeConfig, EngineNodeDependencies, EngineRuntimeHooks, EngineServices,
     EngineStartError, LocalStoreConfig, NodeStopReason, SystemEngineIdSource,
@@ -174,7 +176,7 @@ async fn many_independent_short_read_failures_get_fresh_windows() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn concurrent_reads_survive_a_half_second_brownout() {
+async fn concurrent_reads_survive_a_one_second_brownout() {
     let mut cluster = TestCluster::new();
     let config = cluster.config(LocalStoreConfig::InMemory);
     let first = cluster.start_with(&config).await.expect("node starts");
@@ -209,7 +211,9 @@ async fn concurrent_reads_survive_a_half_second_brownout() {
         reads_in_flight >= 64,
         "only {reads_in_flight} reads started"
     );
-    tokio::time::advance(Duration::from_millis(500)).await;
+    // Sleeping runs each read's full backoff, so 64 reads would drain a shared 30 s budget
+    // within 0.5 s.
+    tokio::time::sleep(Duration::from_secs(1)).await;
     cluster.faults.clear();
     let restarted = start
         .await
@@ -444,6 +448,98 @@ async fn shutdown_during_acquisition_releases_a_written_lease() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn shutdown_interrupts_the_read_back_of_an_unknown_lease_write() {
+    let mut cluster = TestCluster::new();
+    let config = cluster.config(LocalStoreConfig::InMemory);
+    cluster.faults.fail_next_then_every_read_under(
+        ObjectStoreOperation::Put,
+        LEASE_KEY,
+        FaultAction::ApplyThenOutcomeUnknown,
+        ObjectStoreOperation::Get,
+        LEASE_KEY,
+    );
+    let lease_validity_deadline = LeaseValidityDeadline::disarmed();
+    let (sender, cancellation) = watch::channel(false);
+    let start = tokio::spawn(start_with_cancellation_and_deadline(
+        &cluster,
+        config.clone(),
+        cancellation,
+        lease_validity_deadline.clone(),
+    ));
+    cluster.faults.wait_until_faulted().await;
+    let manifest_writes = cluster
+        .object_store
+        .call_count(ObjectStoreOperation::Put, "manifest");
+    let latest_expiry = cluster.clock.now_unix_micros()
+        + i64::try_from(config.lease.duration.as_micros()).expect("lease duration fits i64");
+    sender.send(true).expect("start observes shutdown");
+    let (result, _) = tokio::time::timeout(Duration::from_secs(1), start)
+        .await
+        .expect("the lease read-back stops promptly")
+        .expect("start task completes");
+    assert!(matches!(result, Ok(None)));
+    assert!(lease_validity_deadline.armed_deadline().is_none());
+    assert_eq!(
+        cluster
+            .object_store
+            .call_count(ObjectStoreOperation::Put, LEASE_KEY),
+        1,
+        "no renewal or release follows an unconfirmed write"
+    );
+    assert_eq!(
+        cluster
+            .object_store
+            .call_count(ObjectStoreOperation::Put, "manifest"),
+        manifest_writes,
+        "no epoch raise follows an unconfirmed write"
+    );
+    cluster.faults.clear();
+    let lease = cluster
+        .object_store
+        .get(LEASE_KEY)
+        .await
+        .expect("read lease")
+        .expect("the unconfirmed write landed");
+    let lease = dexzd_protocol::dexzd::v1::NodeLease::decode(lease.bytes).expect("decode lease");
+    assert!(lease.expires_at_unix_micros <= latest_expiry);
+    let restart_started = Instant::now();
+    let restarted = cluster
+        .start_with(&config)
+        .await
+        .expect("a later start acquires the expired lease");
+    assert!(
+        restart_started.elapsed()
+            <= config.lease.duration + config.lease.takeover_grace + Duration::from_secs(1)
+    );
+    restarted.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn unknown_lease_write_is_retried_from_a_fresh_read_after_its_validity() {
+    let cluster = TestCluster::new();
+    let config = cluster.config(LocalStoreConfig::InMemory);
+    let lease_duration = config.lease.duration;
+    cluster.faults.fail_next_then_every_read_under(
+        ObjectStoreOperation::Put,
+        LEASE_KEY,
+        FaultAction::ApplyThenOutcomeUnknown,
+        ObjectStoreOperation::Get,
+        LEASE_KEY,
+    );
+    let start = tokio::spawn(start_node(&cluster, config));
+    cluster.faults.wait_until_faulted().await;
+    tokio::time::sleep(lease_duration + Duration::from_secs(1)).await;
+    cluster.faults.clear();
+    // Confirming the first write now would fail, because its local validity has ended.
+    let restarted = tokio::time::timeout(Duration::from_secs(10), start)
+        .await
+        .expect("acquisition finishes once reads recover")
+        .expect("start task completes")
+        .expect("a fresh read acquires the lease");
+    restarted.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
 async fn acquisition_retry_cannot_outlive_lease_validity() {
     let cluster = TestCluster::new();
     let mut config = cluster.config(LocalStoreConfig::InMemory);
@@ -572,7 +668,27 @@ async fn unknown_lease_write_outcome_is_verified() {
 fn start_with_cancellation(
     cluster: &TestCluster,
     config: EngineNodeConfig,
+    cancellation: watch::Receiver<bool>,
+) -> impl Future<
+    Output = (
+        Result<Option<EngineNode>, EngineStartError>,
+        Arc<CountingApplier>,
+    ),
+> + Send
++ 'static {
+    start_with_cancellation_and_deadline(
+        cluster,
+        config,
+        cancellation,
+        LeaseValidityDeadline::disarmed(),
+    )
+}
+
+fn start_with_cancellation_and_deadline(
+    cluster: &TestCluster,
+    config: EngineNodeConfig,
     mut cancellation: watch::Receiver<bool>,
+    lease_validity_deadline: LeaseValidityDeadline,
 ) -> impl Future<
     Output = (
         Result<Option<EngineNode>, EngineStartError>,
@@ -594,7 +710,7 @@ fn start_with_cancellation(
                 clock,
                 applier: applier.clone(),
                 id_source: Arc::new(SystemEngineIdSource),
-                lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
+                lease_validity_deadline,
             },
             move |_services: EngineServices| EngineRuntimeHooks {
                 committed_commands: factory_runtime.clone(),

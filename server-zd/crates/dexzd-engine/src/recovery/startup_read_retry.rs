@@ -82,6 +82,7 @@ impl StartupReadRetryStore {
                     return Err(self.budget_exhausted(
                         operation,
                         key,
+                        first_failure,
                         last_error
                             .as_ref()
                             .expect("a retry has an underlying error"),
@@ -93,6 +94,7 @@ impl StartupReadRetryStore {
                         return Err(self.budget_exhausted(
                             operation,
                             key,
+                            first_failure,
                             last_error
                                 .as_ref()
                                 .expect("a retry has an underlying error"),
@@ -119,7 +121,7 @@ impl StartupReadRetryStore {
                         .retry_deadline(first_failure)
                         .saturating_duration_since(Instant::now());
                     if budget_remaining.is_zero() {
-                        return Err(self.budget_exhausted(operation, key, &error));
+                        return Err(self.budget_exhausted(operation, key, first_failure, &error));
                     }
                     let delay = self
                         .retry_delay(operation, key, attempt, backoff)
@@ -141,29 +143,43 @@ impl StartupReadRetryStore {
 
     fn retry_deadline(&self, first_failure: Instant) -> Instant {
         let budget_deadline = first_failure + self.budget;
+        self.armed_lease_deadline()
+            .map_or(budget_deadline, |lease_deadline| {
+                budget_deadline.min(lease_deadline)
+            })
+    }
+
+    /// Returns the armed local lease validity deadline, or `None` when no confirmed lease bounds
+    /// retries.
+    fn armed_lease_deadline(&self) -> Option<Instant> {
         self.lease_validity_deadline
             .as_ref()
             .and_then(LeaseValidityDeadline::armed_deadline)
-            .map_or(budget_deadline, |lease_deadline| {
-                budget_deadline.min(Instant::from_std(lease_deadline))
-            })
+            .map(Instant::from_std)
     }
 
     fn budget_exhausted(
         &self,
         operation: ObjectStoreOperation,
         key: &str,
+        first_failure: Instant,
         last_error: &ObjectStoreError,
     ) -> ObjectStoreError {
-        ObjectStoreError::new(
-            operation,
-            key,
-            last_error.kind,
+        let is_lease_bounded = self
+            .armed_lease_deadline()
+            .is_some_and(|lease_deadline| lease_deadline < first_failure + self.budget);
+        let detail = if is_lease_bounded {
             format!(
-                "startup read retry deadline reached (budget {:?}, bounded by lease validity during acquisition); last error: {last_error}",
+                "startup read retries reached the local lease validity deadline before the {:?} retry budget; last error: {last_error}",
                 self.budget
-            ),
-        )
+            )
+        } else {
+            format!(
+                "startup read retry budget of {:?} exhausted; last error: {last_error}",
+                self.budget
+            )
+        };
+        ObjectStoreError::new(operation, key, last_error.kind, detail)
     }
 
     fn retry_delay(

@@ -188,7 +188,9 @@ object storage rejects the lease release. A replacement may then wait up to
 A SIGTERM during startup interrupts lease acquisition or recovery. If the node holds
 its lease, it stops startup and releases the lease within the shutdown budget.
 A failed release makes the process exit 1, and the next start may wait for the
-old lease to expire.
+old lease to expire. If the outcome of a lease write is still unknown when the
+SIGTERM arrives, the process exits 0 without releasing that write, and the next
+start may wait for it to expire.
 
 ### Local store volume
 
@@ -299,6 +301,10 @@ read gets a new window. The error names the operation, object key, and last erro
 when the window expires. Missing required objects, corrupt data, access denial,
 and lost lease ownership fail startup without read retries. Lease validity or
 shutdown may end retries sooner. Lease renewal continues during recovery retries.
+The window bounds each read, not the whole startup. After the lease is acquired,
+startup has no overall time limit. A persistent outage still fails startup within
+one read's window, and lease renewal keeps the lease while slow reads make progress.
+The startup probe bounds the total startup time.
 If object storage is unreachable at startup, the conditional-write self-check
 also exits 1. If startup fails, the process exits 1. Kubernetes restarts the
 container with backoff.

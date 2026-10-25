@@ -38,6 +38,8 @@ impl LeaseObjectStores {
 
 impl LeaseConfig {
     /// Acquires the lease, or returns `None` after cancellation and release of any written lease.
+    /// A write whose outcome is still unknown at cancellation is not released; it expires after
+    /// the lease duration.
     pub async fn acquire_until_cancelled(
         &self,
         store: Arc<dyn ObjectStore>,

@@ -341,6 +341,8 @@ struct DelayedOperation {
 #[derive(Default)]
 pub(crate) struct SwitchableFaults {
     one_shot_fault: Mutex<Option<(ObjectStoreOperation, String, FaultAction)>>,
+    /// Becomes the persistent read fault when the one-shot fault fires, within the same call.
+    read_fault_after_one_shot: Mutex<Option<(ObjectStoreOperation, String)>>,
     persistent_read_fault: Mutex<Option<(ObjectStoreOperation, String)>>,
     first_read_faults: Mutex<Option<(ObjectStoreOperation, String, BTreeSet<String>)>>,
     fault_entered: Notify,
@@ -363,6 +365,21 @@ impl SwitchableFaults {
     ) {
         *self.one_shot_fault.lock().expect("fault lock") =
             Some((operation, key.to_owned(), action));
+    }
+
+    /// Applies `action` to the next `operation` on `key`, then fails every later `read` under
+    /// `prefix`.
+    pub(crate) fn fail_next_then_every_read_under(
+        &self,
+        operation: ObjectStoreOperation,
+        key: &str,
+        action: FaultAction,
+        read: ObjectStoreOperation,
+        prefix: &str,
+    ) {
+        *self.read_fault_after_one_shot.lock().expect("fault lock") =
+            Some((read, prefix.to_owned()));
+        self.fail_next(operation, key, action);
     }
 
     pub(crate) fn fail_every_read_under(&self, operation: ObjectStoreOperation, prefix: &str) {
@@ -394,6 +411,7 @@ impl SwitchableFaults {
 
     pub(crate) fn clear(&self) {
         *self.one_shot_fault.lock().expect("fault lock") = None;
+        *self.read_fault_after_one_shot.lock().expect("fault lock") = None;
         *self.persistent_read_fault.lock().expect("fault lock") = None;
         *self.first_read_faults.lock().expect("fault lock") = None;
         *self.failing_put_prefix.lock().expect("fault lock") = None;
@@ -482,6 +500,14 @@ impl FaultInjector for SwitchableFaults {
             |(fault_operation, fault_key, _)| *fault_operation == operation && fault_key == key,
         );
         if let Some((_, _, action)) = one_shot {
+            let read_fault = self
+                .read_fault_after_one_shot
+                .lock()
+                .expect("fault lock")
+                .take();
+            if read_fault.is_some() {
+                *self.persistent_read_fault.lock().expect("fault lock") = read_fault;
+            }
             self.fault_entered.notify_one();
             return action;
         }
