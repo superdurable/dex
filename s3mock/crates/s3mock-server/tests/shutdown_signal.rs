@@ -10,6 +10,7 @@
 
 #![cfg(unix)]
 
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -46,6 +47,7 @@ async fn sigterm_and_sigint_finish_in_flight_requests_and_exit_zero() {
             .write_all(b"PUT /signals/object HTTP/1.1\r\nhost: s3mock\r\nconnection: close\r\ncontent-length: 10\r\n\r\nfirst")
             .await
             .expect("the request starts");
+        wait_for_upload_file(data_directory.path()).await;
         send_signal(&server, signal).await;
         in_flight
             .write_all(b"-half")
@@ -93,6 +95,30 @@ async fn request_when_ready(port: u16, request: &[u8]) -> String {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         }
+    }
+}
+
+/// Waits until PutObject has created its temporary file, which proves the request is in flight.
+async fn wait_for_upload_file(data_directory: &Path) {
+    let deadline = tokio::time::Instant::now() + STARTUP_DEADLINE;
+    loop {
+        let has_upload_file = std::fs::read_dir(data_directory.join("tmp"))
+            .expect("the store's temporary directory exists")
+            .any(|entry| {
+                entry
+                    .expect("the temporary directory is readable")
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "tmp")
+            });
+        if has_upload_file {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the PutObject never started"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
