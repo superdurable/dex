@@ -162,6 +162,10 @@ message FlowCloseRecord {
   repeated StoredStepCompletionOutput results = 3;
   // True when a child already reported this close to its parent.
   bool is_reported_to_parent = 4;
+  // Present for closes recorded after the close origin became persistent.
+  optional bool is_closed_at_once = 5;
+  // FlowClosed message when it differs from the result message.
+  optional string history_message = 6;
 }
 
 message StoredStepCompletionOutput {

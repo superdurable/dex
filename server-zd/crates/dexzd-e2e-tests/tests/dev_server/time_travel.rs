@@ -269,6 +269,17 @@ async fn reset_to_a_closed_point_returns_through_wait_for_flow_and_history() {
         wait_for_status(&mut flow_client, flow_id).await,
         FlowStatus::Completed
     );
+    let summary = flow_client
+        .get_flow_summary(GetFlowSummaryRequest {
+            flow_id: flow_id.to_owned(),
+            run_id: started.run_id.clone(),
+        })
+        .await
+        .expect("GetFlowSummary succeeds after the closed-point reset")
+        .into_inner();
+    assert_eq!(summary.run_attempt, 3);
+    assert_eq!(summary.flow_status, FlowStatus::Completed as i32);
+    assert!(summary.close_time.is_some());
     let events = flow_client
         .get_history_events(GetHistoryEventsRequest {
             flow_id: flow_id.to_owned(),
@@ -297,6 +308,10 @@ async fn reset_to_a_closed_point_returns_through_wait_for_flow_and_history() {
     };
     assert_eq!(closed.flow_status, FlowStatus::Completed as i32);
     assert_eq!(closed.results.len(), 1);
+    assert_eq!(
+        closed.results[0].completed_step_output,
+        Some(string_value("done"))
+    );
     worker.stop().await;
     server.shutdown().await;
 }

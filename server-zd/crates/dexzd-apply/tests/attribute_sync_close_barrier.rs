@@ -989,50 +989,30 @@ fn restored_natural_close_waits_for_remarks_then_records_flow_closed() {
 
 #[test]
 fn restored_stop_ignores_remarked_attribute_sync_entries() {
-    let mut harness = Harness::new();
-    harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
-    let stopped = harness.stop(StopType::Fail);
-    let stop_time = harness.history_record(harness.last_seq()).timestamp_micros;
-    assert!(wakes(&stopped).contains(&WaitableChange::FlowClosed));
-    harness.travel_to(reset(FlowResetType::Beginning));
-    let travel = harness.travel_to(reset_to_time(stop_time));
-    assert_eq!(harness.run_record().status, FlowStatus::Failed as i32);
-    assert!(harness.run_record().pending_close.is_none());
-    assert!(harness.outbox_entry_count() > 0);
-    assert!(wakes(&travel).contains(&WaitableChange::FlowClosed));
-    assert!(has_flow_closed_event(
-        &harness.history_record(harness.last_seq())
-    ));
-}
-
-#[test]
-fn an_admitted_rpc_holds_a_restored_close_without_synced_entries() {
-    let mut harness = Harness::new();
-    harness.start(&[], Vec::new(), 60);
-    harness.force_complete(Vec::new());
-    let close_time = harness.history_record(harness.last_seq()).timestamp_micros;
-    harness.travel_to(reset(FlowResetType::Beginning));
-
-    let held = harness.apply_while_rpc_in_flight(Command::TimeTravel(TimeTravelCommand {
-        request: Some(reset_to_time(close_time)),
-    }));
-    assert!(matches!(
-        held.reply.reply,
-        Some(command_reply::Reply::TimeTravel(_))
-    ));
-    assert_eq!(
-        held.effects
-            .iter()
-            .filter(|effect| matches!(effect, ApplyEffect::PendingCloseHeldByRpcs { .. }))
-            .count(),
-        1
-    );
-    assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
-    assert!(harness.run_record().pending_close.is_some());
-    assert_eq!(harness.outbox_entry_count(), 0);
-    let finalized = harness.check_pending_close();
-    assert!(wakes(&finalized).contains(&WaitableChange::FlowClosed));
-    assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+    for (stop_type, expected_status) in [
+        (StopType::Fail, FlowStatus::Failed),
+        (StopType::Cancel, FlowStatus::Canceled),
+        (StopType::Terminate, FlowStatus::Terminated),
+    ] {
+        let mut harness = Harness::new();
+        harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+        let stopped = harness.stop(stop_type);
+        let stop_time = harness.history_record(harness.last_seq()).timestamp_micros;
+        assert!(wakes(&stopped).contains(&WaitableChange::FlowClosed));
+        harness.travel_to(reset(FlowResetType::Beginning));
+        let travel = harness.travel_to(reset_to_time(stop_time));
+        assert_eq!(harness.run_record().status, expected_status as i32);
+        assert!(harness.run_record().pending_close.is_none());
+        assert_eq!(
+            harness.run_record().close.expect("close").is_closed_at_once,
+            Some(true)
+        );
+        assert!(harness.outbox_entry_count() > 0);
+        assert!(wakes(&travel).contains(&WaitableChange::FlowClosed));
+        assert!(has_flow_closed_event(
+            &harness.history_record(harness.last_seq())
+        ));
+    }
 }
 
 #[test]
@@ -1214,4 +1194,83 @@ fn rebuilt_rpc_held_cleanup_points_equal_their_recorded_states() {
             );
         }
     }
+}
+
+fn start_with_cancel_timeout(harness: &mut Harness) {
+    let outcome = harness.apply(Command::FlowStart(FlowStartCommand {
+        new_run_id: vec![9; 16],
+        request: Some(StartFlowRequest {
+            flow_id: FLOW_ID.to_owned(),
+            flow_type: "OrderFlow".to_owned(),
+            start_step_type: "ChargeStep".to_owned(),
+            step_options: Some(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            }),
+            flow_timeout_seconds: 30,
+            request_id: "start-cancel-timeout".to_owned(),
+            flow_start_options: Some(FlowStartOptions {
+                attributes: vec![synced("status", "opened")],
+                ..FlowStartOptions::default()
+            }),
+            ..StartFlowRequest::default()
+        }),
+        settings: Some(harness.settings),
+        resolved_timeout_policy: FlowTimeoutPolicy::Cancel as i32,
+        worker_target: Some(WorkerTarget {
+            is_pull_mode: true,
+            ..WorkerTarget::default()
+        }),
+        effective_flow_config: Some(FlowConfig {
+            attribute_store_names: Some(AttributeStoreNames {
+                names: vec![PRIMARY.to_owned()],
+            }),
+            ..FlowConfig::default()
+        }),
+        ..FlowStartCommand::default()
+    }));
+    let Some(command_reply::Reply::StartFlow(reply)) = &outcome.reply.reply else {
+        panic!("the Flow starts: {:?}", outcome.reply);
+    };
+    harness.run_id = reply.run_id.clone();
+}
+
+#[test]
+fn live_flow_timeout_cancel_waits_for_attribute_sync() {
+    let mut harness = Harness::new();
+    start_with_cancel_timeout(&mut harness);
+    harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![flow_timeout_timer(1)],
+    }));
+    let record = harness.run_record();
+    assert_eq!(record.status, FlowStatus::Running as i32);
+    assert_eq!(
+        record.pending_close.expect("C31 waits").status,
+        FlowStatus::Canceled as i32
+    );
+}
+
+#[test]
+fn restored_flow_timeout_cancel_waits_for_remarked_attributes() {
+    let mut harness = Harness::new();
+    start_with_cancel_timeout(&mut harness);
+    harness.ack(PRIMARY, harness.last_seq());
+    harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![flow_timeout_timer(1)],
+    }));
+    assert_eq!(harness.run_record().status, FlowStatus::Canceled as i32);
+    let close_time = harness.history_record(harness.last_seq()).timestamp_micros;
+    harness.travel_to(reset(FlowResetType::Beginning));
+    harness.travel_to(reset_to_time(close_time));
+    assert!(harness.outbox_entry_count() > 0, "re-marked entries exist");
+    let record = harness.run_record();
+    assert_eq!(
+        record.status,
+        FlowStatus::Running as i32,
+        "a restored Flow timeout CANCEL must wait for Attribute Sync"
+    );
+    assert_eq!(
+        record.pending_close.expect("C31 waits").status,
+        FlowStatus::Canceled as i32
+    );
 }

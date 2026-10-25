@@ -2124,7 +2124,34 @@ fn resetting_a_child_to_its_closed_point_reports_the_new_attempt_once() {
         .filter(|outbox| matches!(&outbox.payload, Some(outbox_record::Payload::ChildCompleted(completed)) if completed.child_run_attempt == 3))
         .collect();
     assert_eq!(reports.len(), 1);
+    let parent_semantic_events_before_second_report =
+        harness.record("parent", PARENT_RUN).semantic_event_count;
     assert_ok(&harness.deliver_completion(&reports[0]));
+    assert_eq!(
+        harness.record("parent", PARENT_RUN).semantic_event_count,
+        parent_semantic_events_before_second_report + 1
+    );
+    let parent_hash = harness.hasher.flow_hash(TenantId::DEFAULT, "parent");
+    let result_key = run_named_key(
+        parent_hash,
+        RunId(PARENT_RUN),
+        RunTable::SubFlowResult,
+        &format!("{:010}:{CHILD_ID}", 1),
+    );
+    let latest_result = SubFlowResultRecord::decode(
+        harness
+            .state
+            .get(ColumnFamily::Flow, &result_key)
+            .expect("memory reads")
+            .expect("SubFlow result")
+            .as_slice(),
+    )
+    .expect("SubFlow result decodes");
+    assert_eq!(latest_result.child_run_attempt, 3);
+    assert_eq!(
+        latest_result.result.expect("latest result").flow_status,
+        FlowStatus::Terminated as i32
+    );
     assert_eq!(
         harness.step("parent", PARENT_RUN, "StartStep-1").phase,
         completed_step.phase

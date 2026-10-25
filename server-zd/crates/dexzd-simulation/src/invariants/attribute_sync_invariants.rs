@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_apply::{StateWrite, TransactionalRpcHold, transactional_rpc_hold};
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, parse_run_key};
-use dexzd_protocol::dex::{FlowErrorType, FlowStatus};
+use dexzd_protocol::dex::FlowStatus;
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributeSyncOutboxRecord, FlowCommand, RunRecord, StepExecutionPhase,
     TimerId, flow_command::Command, timer_id,
@@ -276,14 +276,15 @@ impl CloseBarrierCounts {
 
 /// AS5: a run closes naturally only once it has no outbox entry and its command carries no
 /// in-flight transactional RPC. StopFlow and terminations close at once; time travel follows its
-/// restored close. AS6: an
-/// unstamped command that consults the barrier records a pending close that nothing holds.
+/// restored close. AS6: an unstamped command that consults the barrier records a pending close
+/// that nothing holds.
 ///
 /// Returns the natural closes this command deferred and finalized, updating which runs an
 /// admitted transactional RPC holds.
 pub(crate) fn check_close_barrier(
     command: &FlowCommand,
     is_applied: bool,
+    restored_close_is_at_once: Option<bool>,
     previous_records: &BTreeMap<RunId, RunRecord>,
     view: &FlowView,
     rpc_held_runs: &mut BTreeSet<RunId>,
@@ -335,16 +336,37 @@ pub(crate) fn check_close_barrier(
         let is_newly_closed = record.status != FlowStatus::Running as i32
             && (previous.status == FlowStatus::Running as i32
                 || previous.current_attempt != record.current_attempt);
-        let closes_without_barrier = transactional_rpc_hold(command)
-            == TransactionalRpcHold::ClosesAtOnce
-            || matches!(
-                FlowStatus::try_from(record.status),
-                Ok(FlowStatus::Canceled | FlowStatus::Terminated)
-            )
-            || record.close.as_ref().is_some_and(|close| {
-                close.error_type == FlowErrorType::ClientApiFailingFlow as i32
-            });
-        if !is_newly_closed || closes_without_barrier {
+        if !is_newly_closed {
+            continue;
+        }
+        let closes_without_barrier = match command.command {
+            Some(Command::TimeTravel(_)) => restored_close_is_at_once.ok_or_else(|| {
+                InvariantViolation::new(
+                    "AS5-natural-close-barrier",
+                    format!(
+                        "Flow {} run {run_id} closed without a closed TimeTravel target",
+                        command.flow_id
+                    ),
+                )
+            })?,
+            _ => transactional_rpc_hold(command) == TransactionalRpcHold::ClosesAtOnce,
+        };
+        if matches!(command.command, Some(Command::TimeTravel(_)))
+            && record
+                .close
+                .as_ref()
+                .and_then(|close| close.is_closed_at_once)
+                != Some(closes_without_barrier)
+        {
+            return Err(InvariantViolation::new(
+                "AS5-natural-close-barrier",
+                format!(
+                    "Flow {} run {run_id} changed its restored close origin",
+                    command.flow_id
+                ),
+            ));
+        }
+        if closes_without_barrier {
             continue;
         }
         if command.is_transactional_rpc_in_flight {

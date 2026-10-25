@@ -18,6 +18,7 @@ use super::attempt_scope::{AttemptRow, decode_timer_id, read_attempt_rows, run_s
 use super::lineage::{Lineage, genesis_seq};
 use super::reset_target::resolve_target;
 use super::state_rebuild::rebuild_attempt_state;
+use super::time_travel::restored_closing;
 use crate::command_handlers::CommandScope;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::state_access::{FlowTransaction, RunRows};
@@ -119,6 +120,39 @@ pub fn time_travel_target_hash(
         window_start_seq: cursor.record.window_start_seq,
         genesis_seq: genesis_seq(&transaction, cursor.rows)?,
     }))
+}
+
+/// Returns whether a valid TimeTravel target closed at once, or None for a running or invalid target.
+pub fn time_travel_target_closes_at_once(
+    context: &ApplyContext,
+    state: &dyn FlowStateReader,
+    command: &FlowCommand,
+) -> Result<Option<bool>, ApplyError> {
+    let Some(Command::TimeTravel(time_travel)) = &command.command else {
+        return Ok(None);
+    };
+    let transaction = FlowTransaction::new(state, *context);
+    let scope = CommandScope::new(
+        command,
+        BehaviorVersion::from_command(command.behavior_version)?,
+    );
+    let Ok(cursor) = RunCursor::open(&transaction, &scope)? else {
+        return Ok(None);
+    };
+    let request = time_travel.request.clone().unwrap_or_default();
+    let selected_attempt = match u32::try_from(request.run_attempt) {
+        Ok(0) => cursor.record.current_attempt,
+        Ok(attempt) if attempt <= cursor.record.current_attempt => attempt,
+        _ => return Ok(None),
+    };
+    let lineage = Lineage::of_attempt(&transaction, cursor.rows, selected_attempt)?;
+    let Ok(target) = resolve_target(&transaction, &cursor, scope.now_micros, &request, &lineage)?
+    else {
+        return Ok(None);
+    };
+    let rebuilt = rebuild_attempt_state(&transaction, cursor.rows, &cursor.record, target.point)?;
+    Ok(restored_closing(&rebuilt.run_status, &target)?
+        .map(|(_, is_closed_at_once)| is_closed_at_once))
 }
 
 fn encode_attempt_state(

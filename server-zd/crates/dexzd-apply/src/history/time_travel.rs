@@ -16,10 +16,10 @@ use dexzd_protocol::dex::{
     ErrorSubStatus, FlowErrorType, FlowStatus, TimeTravelForkHistoryEvent, flow_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttemptRecord, AttributeRecord, CommandErrorReply, CommandReply, FlowCommand, RetentionTimerId,
-    RunRecord, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepInvocationRecord,
-    TimeTravelCommand, TimeTravelReply, TimerId, TimerRecord, command_reply, flow_command::Command,
-    timer_id,
+    AttemptRecord, AttributeRecord, CheckpointRunStatus, CommandErrorReply, CommandReply,
+    FlowCommand, RetentionTimerId, RunRecord, StepExecutionRecord, StepInvocationKey,
+    StepInvocationPhase, StepInvocationRecord, TimeTravelCommand, TimeTravelReply, TimerId,
+    TimerRecord, command_reply, flow_command::Command, timer_id,
 };
 use prost::Message;
 
@@ -35,7 +35,7 @@ use crate::history::attempt_scope::{
 };
 use crate::history::lineage::{Lineage, history_records};
 use crate::history::replay_state::{TransactionReader, absorb_writes};
-use crate::history::reset_target::resolve_target;
+use crate::history::reset_target::{TravelTarget, resolve_target};
 use crate::history::state_rebuild::rebuild_attempt_state;
 use crate::projections::attribute_sync::mark_attribute_sync_entries;
 use crate::state_access::{FlowTransaction, read_flow_directory};
@@ -161,8 +161,8 @@ pub(crate) fn apply_time_travel(
     for event in reapplied_events {
         cursor.add_event(event);
     }
-    if let Some(closing) = restored_closing {
-        close_restored_attempt(transaction, &mut cursor, scope, closing)?;
+    if let Some((closing, is_closed_at_once)) = restored_closing {
+        close_restored_attempt(transaction, &mut cursor, scope, closing, is_closed_at_once)?;
     } else {
         // A restored pending close finalizes now when nothing it waits for remains.
         finalize_pending_close_if_ready(transaction, &mut cursor, scope)?;
@@ -410,10 +410,10 @@ fn prepare_run_lifecycle(
     Ok(())
 }
 
-fn restored_closing(
-    status: &dexzd_protocol::dexzd::v1::CheckpointRunStatus,
-    target: &crate::history::reset_target::TravelTarget,
-) -> Result<Option<FlowClosing>, ApplyError> {
+pub(super) fn restored_closing(
+    status: &CheckpointRunStatus,
+    target: &TravelTarget,
+) -> Result<Option<(FlowClosing, bool)>, ApplyError> {
     if status.status == FlowStatus::Running as i32 {
         return Ok(None);
     }
@@ -434,15 +434,26 @@ fn restored_closing(
                 close.error_type
             ),
         })?;
-    Ok(Some(FlowClosing {
-        status: restored_status,
-        error_type,
-        error_message: close.error_message.clone(),
-        history_message: target
-            .close_history_message
-            .clone()
-            .unwrap_or_else(|| close.error_message.clone()),
-    }))
+    // Older records lack the marker and retain the historical status-based classification.
+    let is_closed_at_once = close.is_closed_at_once.unwrap_or(
+        matches!(
+            restored_status,
+            FlowStatus::Canceled | FlowStatus::Terminated
+        ) || error_type == FlowErrorType::ClientApiFailingFlow,
+    );
+    Ok(Some((
+        FlowClosing {
+            status: restored_status,
+            error_type,
+            error_message: close.error_message.clone(),
+            history_message: close
+                .history_message
+                .clone()
+                .or_else(|| target.close_history_message.clone())
+                .unwrap_or_else(|| close.error_message.clone()),
+        },
+        is_closed_at_once,
+    )))
 }
 
 fn close_restored_attempt(
@@ -450,6 +461,7 @@ fn close_restored_attempt(
     cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
     closing: FlowClosing,
+    is_closed_at_once: bool,
 ) -> Result<(), ApplyError> {
     cursor.record.status = FlowStatus::Running as i32;
     cursor.record.closed_at_micros = 0;
@@ -467,11 +479,7 @@ fn close_restored_attempt(
         Vec::new(),
     );
     update_directory_status(transaction, cursor, scope)?;
-    if matches!(
-        closing.status,
-        FlowStatus::Canceled | FlowStatus::Terminated
-    ) || closing.error_type == FlowErrorType::ClientApiFailingFlow
-    {
+    if is_closed_at_once {
         close_flow_immediately(transaction, cursor, scope, closing)
     } else {
         close_flow(transaction, cursor, scope, closing)

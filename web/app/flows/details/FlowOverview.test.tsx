@@ -9,7 +9,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { StructuredValue } from '@/app/components/StructuredValue';
-import type { FlowState, FlowSummary } from '@/lib/types';
+import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowOverview } from './FlowOverview';
 
 function expectStrongLabelsInOrder(markup: string, labels: string[]): void {
@@ -22,6 +22,30 @@ function expectStrongLabelsInOrder(markup: string, labels: string[]): void {
 }
 
 describe('live Flow state failures', () => {
+  it('hides an ancestor close result while the restored close is pending', () => {
+    const summary: FlowSummary = {
+      flowId: 'flow-1',
+      runId: 'run-1',
+      firstRunId: 'run-1',
+      requestId: 'request-1',
+      flowType: 'PaymentFlow',
+      flowStatus: 'Running',
+      flowStatusCode: 1,
+      startTime: '2026-08-10T00:00:00Z',
+      closeTime: null,
+    };
+    const events: FlowHistoryEvent[] = [{
+      eventId: 1,
+      eventTime: null,
+      type: 'FlowClosed',
+      payload: { results: ['ancestor-result'] },
+    }];
+    const markup = renderToStaticMarkup(
+      <FlowOverview summary={summary} events={events} state={null} selectedEvent={null} />,
+    );
+    expect(markup).not.toContain('Close result');
+  });
+
   it('shows the Java Worker stack expanded with a named gRPC status', () => {
     const summary: FlowSummary = {
       flowId: 'flow-1',

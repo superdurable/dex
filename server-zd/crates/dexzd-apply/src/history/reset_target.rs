@@ -26,6 +26,7 @@ pub(crate) struct TravelTarget {
     pub(crate) point: HistoryPoint,
     /// Largest history event ID at the point, for the fork event.
     pub(crate) last_event_id: i64,
+    /// FlowClosed message from retained history for records written before it was persisted.
     pub(crate) close_history_message: Option<String>,
 }
 

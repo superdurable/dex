@@ -962,6 +962,64 @@ fn a_stopped_point_closes_immediately_after_a_reset() {
 }
 
 #[test]
+fn pruned_termination_history_keeps_its_message_after_reset() {
+    let mut harness = Harness::with_settings(RunSettings {
+        history_window_semantic_events: 4,
+        history_prune_chunk_semantic_events: 2,
+        checkpoint_max_commands: 2,
+        ..settings()
+    });
+    harness.start(start_request());
+    for index in 0..8 {
+        set_hard_delete_attribute(
+            &mut harness,
+            &format!("secret-{index}"),
+            &format!("secret-object-{index}"),
+        );
+    }
+    harness.apply(Command::FlowStop(FlowStopCommand {
+        request: Some(StopFlowRequest {
+            stop_type: StopType::Terminate as i32,
+            reason: "stopped at this point".to_owned(),
+            ..StopFlowRequest::default()
+        }),
+    }));
+    let stop_seq = harness.last_seq();
+    for index in 0..8 {
+        let erased = harness.apply(Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                attributes: vec![AttributeWrite {
+                    key: format!("secret-{index}"),
+                    value: Some(Value {
+                        kind: Some(value::Kind::NullValue(0)),
+                    }),
+                    is_hard_delete_on_null: true,
+                    ..AttributeWrite::default()
+                }],
+                ..SetAttributesRequest::default()
+            }),
+            ..AttributesSetCommand::default()
+        }));
+        assert!(is_ok(&erased.reply));
+    }
+    assert!(harness.run_record().window_start_seq > stop_seq);
+    assert!(harness.history_record(stop_seq).is_none());
+    let closed_point_time = harness
+        .history_record(harness.last_seq())
+        .unwrap()
+        .timestamp_micros;
+    harness.travel_to(ResetFlowRequest {
+        skip_writes_reapply: true,
+        ..reset_to_time(closed_point_time)
+    });
+    let fork = harness.history_record(harness.last_seq()).unwrap();
+    let Some(flow_history_event::Payload::FlowClosed(closed)) = &fork.events[1].payload else {
+        panic!("the stopped point closes the restored attempt");
+    };
+    assert_eq!(closed.error_message, "stopped at this point");
+}
+
+#[test]
 fn each_reset_type_selects_its_point() {
     let mut harness = Harness::new();
     let (execute_pending_seq, ship_created_seq) = run_charge_then_ship(&mut harness);
