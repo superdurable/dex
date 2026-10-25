@@ -84,6 +84,22 @@ wrapper often injects `cursoragent@cursor.com`; strip it before pushing. After
 every commit run `git log -1 --format=%B`. Do not use `--no-verify`. See
 `.cursor/rules/git-commit.mdc`.
 
+### Pull Request Descriptions
+
+Start every pull request description with these sections, in order:
+
+1. `## Summary`: what the PR changes.
+2. `## Why`: the background. State the problem or request that prompted the
+   change, the evidence (an issue, a failing test, a review finding, or a
+   report), and why this change is the right response. Link the issue or the
+   earlier PR. Write it for a reviewer who has no other context.
+
+Follow them with the sections the change needs, such as compatibility, design
+decisions, and `## Testing` (what ran locally and what CI covers). End with a
+closing keyword, such as `Fixes #123`, when an issue exists. The Why section
+follows the No Downstream Product Information rule. See
+`.cursor/rules/pull-requests.mdc` and `.github/pull_request_template.md`.
+
 ### Branch From Latest Main
 
 Before creating a feature branch, fetch and branch from `origin/main`. See
