@@ -698,7 +698,7 @@ impl AttributeStoreDatabase {
     fn store_config_yaml(&self, connection_string: &str) -> String {
         let schema = &self.schema;
         format!(
-            "attributeStore:\n  stores:\n    {STORE}:\n      type: postgres\n      dsn: \"{connection_string}\"\n      tableName: {schema}.orders\n      columnNaming: snake_case\n      attributeMaps:\n        Items:\n          tableName: {schema}.order_items\n          instanceKeyColumn: item_key\n      fencingTableName: {schema}.dexzd_attribute_sync_fencing\n  syncRetryPolicy:\n    maximumInterval: 500ms\n"
+            "attributeStore:\n  stores:\n    {STORE}:\n      type: postgres\n      dsn: \"{connection_string}\"\n      tableName: {schema}.orders\n      columnNaming: snake_case\n      attributeMaps:\n        Items:\n          tableName: {schema}.order_items\n          instanceKeyColumn: item_key\n      fencingTableName: {schema}.dexzd_attribute_sync_fencing\n  syncRetryPolicy:\n    maximumInterval: 500ms\n    totalDuration: 168h\n"
         )
     }
 

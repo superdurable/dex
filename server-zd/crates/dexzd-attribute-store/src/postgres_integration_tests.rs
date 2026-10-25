@@ -30,6 +30,8 @@ use crate::value_conversion_tests::{
 };
 
 const DATABASE_URL_VARIABLE: &str = "DEX_ZD_PARADEDB_URL";
+const TLS_DATABASE_URL_VARIABLE: &str = "DEX_ZD_TLS_POSTGRES_URL";
+const TLS_CA_CERT_VARIABLE: &str = "DEX_ZD_TLS_POSTGRES_CA_CERT";
 const FENCING_TABLE: &str = "fence";
 
 struct TestDatabase {
@@ -42,6 +44,10 @@ struct TestDatabase {
 impl TestDatabase {
     async fn open(test_name: &str) -> Option<Self> {
         let url = std::env::var(DATABASE_URL_VARIABLE).ok()?;
+        Some(Self::open_with_url(test_name, url).await)
+    }
+
+    async fn open_with_url(test_name: &str, url: String) -> Self {
         let client_and_task = connect_admin(&url).await;
         let schema = format!("das_{test_name}_{}", unique_suffix());
         let database = Self {
@@ -51,7 +57,7 @@ impl TestDatabase {
             schema,
         };
         database.execute(&["CREATE SCHEMA {s}"]).await;
-        Some(database)
+        database
     }
 
     /// Runs each statement with `{s}` replaced by the test schema.
@@ -114,6 +120,86 @@ impl TestDatabase {
         self.execute(&["DROP SCHEMA {s} CASCADE"]).await;
         self.connection_task.abort();
     }
+}
+
+fn tls_database_settings(
+    database: &TestDatabase,
+    root_certificate: Option<&str>,
+) -> AttributeStoreSettings {
+    let separator = if database.url.contains('?') { '&' } else { '?' };
+    let mut settings = database.settings("orders", "orders");
+    settings.dsn = format!("{}{separator}sslmode=verify-full", database.url);
+    if let Some(root_certificate) = root_certificate {
+        settings.dsn.push_str("&sslrootcert=");
+        settings.dsn.push_str(root_certificate);
+    }
+    settings
+}
+
+#[tokio::test]
+async fn postgres_verify_full_with_self_signed_ca_syncs_when_host_matches() {
+    let Ok(url) = std::env::var(TLS_DATABASE_URL_VARIABLE) else {
+        return;
+    };
+    let root_certificate = std::env::var(TLS_CA_CERT_VARIABLE)
+        .expect("the TLS Postgres URL requires a CA certificate path");
+    let database = TestDatabase::open_with_url("tls_valid", url).await;
+    database
+        .execute(&["CREATE TABLE {s}.orders (flow_id TEXT PRIMARY KEY, status TEXT)"])
+        .await;
+    database.create_fencing_table().await;
+    let store = connect(tls_database_settings(&database, Some(&root_certificate))).await;
+    write(&store, "o1", vec![("status", string_value("synced"))]).await;
+    assert_eq!(
+        database
+            .string("SELECT status FROM {s}.orders WHERE flow_id = 'o1'")
+            .await,
+        "synced"
+    );
+    database.drop_schema().await;
+}
+
+#[tokio::test]
+async fn postgres_verify_full_without_self_signed_ca_fails_startup() {
+    let Ok(url) = std::env::var(TLS_DATABASE_URL_VARIABLE) else {
+        return;
+    };
+    let database = TestDatabase::open_with_url("tls_no_ca", url).await;
+    database
+        .execute(&["CREATE TABLE {s}.orders (flow_id TEXT PRIMARY KEY, status TEXT)"])
+        .await;
+    database.create_fencing_table().await;
+    let error = connect_error(tls_database_settings(&database, None)).await;
+    assert!(
+        matches!(&error, AttributeStoreError::Database { sqlstate: None, .. }),
+        "{error}"
+    );
+    assert!(error.to_string().contains("UnknownIssuer"), "{error}");
+    database.drop_schema().await;
+}
+
+#[tokio::test]
+async fn postgres_verify_full_with_wrong_host_fails_startup() {
+    let Ok(url) = std::env::var(TLS_DATABASE_URL_VARIABLE) else {
+        return;
+    };
+    let root_certificate = std::env::var(TLS_CA_CERT_VARIABLE)
+        .expect("the TLS Postgres URL requires a CA certificate path");
+    let database = TestDatabase::open_with_url("tls_wrong_host", url).await;
+    database
+        .execute(&["CREATE TABLE {s}.orders (flow_id TEXT PRIMARY KEY, status TEXT)"])
+        .await;
+    database.create_fencing_table().await;
+    let mut settings = tls_database_settings(&database, Some(&root_certificate));
+    assert!(settings.dsn.contains("@localhost:"));
+    settings.dsn = settings.dsn.replacen("@localhost:", "@127.0.0.2:", 1);
+    let error = connect_error(settings).await;
+    assert!(
+        matches!(&error, AttributeStoreError::Database { sqlstate: None, .. }),
+        "{error}"
+    );
+    assert!(error.to_string().contains("not valid for name"), "{error}");
+    database.drop_schema().await;
 }
 
 async fn connect_admin(url: &str) -> (Client, JoinHandle<()>) {
@@ -983,15 +1069,16 @@ async fn postgres_fencing_tokens_are_independent_per_cluster_and_store() {
         .await;
     database.create_fencing_table().await;
     let orders = connect(database.settings("orders", "orders")).await;
+    let other_cluster = connect(database.settings("orders", "orders")).await;
     let copy = connect(database.settings("orders-copy", "orders")).await;
     let status = "SELECT status FROM {s}.orders WHERE flow_id = 'o1'";
 
-    write_status(&orders, "cluster-a", 1, "a1")
-        .await
-        .expect("first writer of cluster A");
-    write_status(&orders, "cluster-b", 1, "b1")
-        .await
-        .expect("cluster B starts at token 1 too");
+    let (first_cluster_write, second_cluster_write) = tokio::join!(
+        write_status(&orders, "cluster-a", 1, "a1"),
+        write_status(&other_cluster, "cluster-b", 1, "b1")
+    );
+    first_cluster_write.expect("first writer of cluster A");
+    second_cluster_write.expect("cluster B starts at token 1 too");
     write_status(&orders, "cluster-a", 5, "a5")
         .await
         .expect("a newer token for cluster A");
@@ -1011,7 +1098,7 @@ async fn postgres_fencing_tokens_are_independent_per_cluster_and_store() {
     write_status(&orders, "cluster-a", 5, "a5-again")
         .await
         .expect("an equal token is the same writer");
-    write_status(&orders, "cluster-b", 2, "b2")
+    write_status(&other_cluster, "cluster-b", 2, "b2")
         .await
         .expect("cluster B is independent");
     write_status(&copy, "cluster-a", 1, "copy")
@@ -1043,6 +1130,7 @@ async fn postgres_fencing_tokens_are_independent_per_cluster_and_store() {
         "{error}"
     );
 
+    drop(other_cluster);
     database
         .execute(&["DELETE FROM {s}.fence WHERE cluster_id = 'cluster-b'"])
         .await;

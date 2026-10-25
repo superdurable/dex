@@ -126,7 +126,44 @@ jobs:
       - name: Compare ParadeDB and builtin search
         run: cargo test -p dexzd-search paradedb::integration::paradedb_matches_builtin_evaluator -- --exact
       - name: Write the Postgres Attribute Store
-        run: cargo test -p dexzd-attribute-store postgres_integration_tests
+        run: cargo test -p dexzd-attribute-store postgres_integration_tests -- --skip postgres_verify_full
+      - name: Start PostgreSQL with a self-signed TLS certificate
+        run: |
+          set -euo pipefail
+          tls_directory="$RUNNER_TEMP/dexzd-postgres-tls"
+          mkdir -p "$tls_directory"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=Dex test CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" -keyout "$tls_directory/ca.key" -out "$tls_directory/ca.crt"
+          openssl req -newkey rsa:2048 -nodes -subj "/CN=localhost" -keyout "$tls_directory/server.key" -out "$tls_directory/server.csr"
+          cat > "$tls_directory/server.ext" <<'EOF'
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature,keyEncipherment
+          subjectAltName=DNS:localhost,IP:127.0.0.1
+          extendedKeyUsage=serverAuth
+          EOF
+          openssl x509 -req -days 1 -in "$tls_directory/server.csr" -CA "$tls_directory/ca.crt" -CAkey "$tls_directory/ca.key" -CAcreateserial -extfile "$tls_directory/server.ext" -out "$tls_directory/server.crt"
+          openssl verify -CAfile "$tls_directory/ca.crt" "$tls_directory/server.crt"
+          postgres_uid="$(docker run --rm --entrypoint id postgres:16 -u postgres)"
+          chmod 600 "$tls_directory/server.key"
+          sudo chown "$postgres_uid" "$tls_directory/server.key"
+          chmod 644 "$tls_directory/ca.crt" "$tls_directory/server.crt"
+          docker run -d --rm --name dexzd-postgres-tls -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=dexzd -p 5433:5432 -v "$tls_directory:/certs:ro" postgres:16 -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/certs/server.key -c ssl_ca_file=/certs/ca.crt
+          for attempt in $(seq 1 30); do
+            if docker exec dexzd-postgres-tls pg_isready -h 127.0.0.1 -p 5432 -U postgres -d dexzd; then
+              exit 0
+            fi
+            echo "Waiting for TLS PostgreSQL startup (attempt $attempt)"
+            sleep 1
+          done
+          docker logs dexzd-postgres-tls
+          exit 1
+      - name: Verify Attribute Store PostgreSQL TLS connections
+        env:
+          DEX_ZD_TLS_POSTGRES_URL: postgres://postgres:postgres@localhost:5433/dexzd
+          DEX_ZD_TLS_POSTGRES_CA_CERT: ${{ runner.temp }}/dexzd-postgres-tls/ca.crt
+        run: |
+          set -euo pipefail
+          : "${DEX_ZD_TLS_POSTGRES_URL:?the TLS Postgres URL is required}"
+          cargo test -p dexzd-attribute-store postgres_verify_full
       - name: Serve with ParadeDB search
         run: cargo test -p dexzd-server --test serve_process paradedb_search_projects_commits_and_rebuilds_on_startup -- --exact
       - name: Recover ParadeDB search after an outage

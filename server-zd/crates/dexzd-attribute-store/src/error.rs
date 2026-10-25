@@ -232,12 +232,56 @@ pub(crate) fn database_error(
             }
             (message, Some(database_error.code().code().to_owned()))
         }
-        None => (error.to_string(), None),
+        None => (error_with_sources(error), None),
     };
     AttributeStoreError::Database {
         store: store.to_owned(),
         operation: operation.into(),
         message: redact_secret(message, dsn),
         sqlstate,
+    }
+}
+
+fn error_with_sources(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{error_with_sources, redact_secret};
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("TLS handshake failed")]
+    struct HandshakeError {
+        #[source]
+        source: CertificateError,
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("certificate rejected")]
+    struct CertificateError {
+        #[source]
+        source: std::io::Error,
+    }
+
+    #[test]
+    fn source_chain_includes_cause_and_redacts_the_whole_message() {
+        let error = HandshakeError {
+            source: CertificateError {
+                source: std::io::Error::other("secret"),
+            },
+        };
+        let message = redact_secret(error_with_sources(&error), "secret");
+        assert_eq!(
+            message,
+            "TLS handshake failed: certificate rejected: [REDACTED]"
+        );
     }
 }
