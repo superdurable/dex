@@ -171,13 +171,10 @@ async fn postgres_verify_full_without_self_signed_ca_fails_startup() {
     database.create_fencing_table().await;
     let error = connect_error(tls_database_settings(&database, None)).await;
     assert!(
-        error.to_string().to_ascii_lowercase().contains("tls")
-            || error
-                .to_string()
-                .to_ascii_lowercase()
-                .contains("certificate"),
+        matches!(&error, AttributeStoreError::Database { sqlstate: None, .. }),
         "{error}"
     );
+    assert!(error.to_string().contains("UnknownIssuer"), "{error}");
     database.drop_schema().await;
 }
 
@@ -198,13 +195,10 @@ async fn postgres_verify_full_with_wrong_host_fails_startup() {
     settings.dsn = settings.dsn.replacen("@localhost:", "@127.0.0.2:", 1);
     let error = connect_error(settings).await;
     assert!(
-        error.to_string().to_ascii_lowercase().contains("tls")
-            || error
-                .to_string()
-                .to_ascii_lowercase()
-                .contains("certificate"),
+        matches!(&error, AttributeStoreError::Database { sqlstate: None, .. }),
         "{error}"
     );
+    assert!(error.to_string().contains("not valid for name"), "{error}");
     database.drop_schema().await;
 }
 
