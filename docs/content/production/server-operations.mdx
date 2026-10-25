@@ -86,7 +86,13 @@ service. With a private listener, the Interpreter uses its local address by
 default. A Web-only deployment does not connect to Temporal or Cadence. It
 starts before its API upstream is available, so **/healthz** reports only Web
 process health. Web API requests return an upstream error until FlowService is
-available.
+available. **/readyz** also checks FlowService, with a one-result
+**SearchFlows** on the Go Dex Server. See
+[Dex Web readiness](/production/dex-web#readiness).
+
+A Web-only process can also serve Dex Web for server-zd. Set
+**web.flowServiceTarget** to the server-zd address. See
+[Run against server-zd](/production/dex-web#run-against-server-zd).
 
 ## Pull Worker routing {#pull-worker-routing}
 

@@ -5,26 +5,28 @@ reference sources packaged with this Dex Skills release. Project dependencies
 and lockfiles remain authoritative for application code.
 
 ```text
-DEX_BASELINE=sdk-go/v1.16.0
-DEX_SERVER_BASELINE=server/v1.16.0
-DEX_CLI_BASELINE=cli-v1.16.0
-DEX_JAVA_BASELINE=sdk-java/v1.16.0
-DEX_PYTHON_BASELINE=sdk-python/v1.16.0
-DEX_TYPESCRIPT_BASELINE=sdk-typescript/v1.16.0
-DEX_RUST_BASELINE=sdk-rust/v1.16.0
+DEX_BASELINE=sdk-go/v1.17.0
+DEX_SERVER_BASELINE=server/v1.17.0
+DEX_CLI_BASELINE=cli-v1.17.0
+DEX_JAVA_BASELINE=sdk-java/v1.17.0
+DEX_PYTHON_BASELINE=sdk-python/v1.17.0
+DEX_TYPESCRIPT_BASELINE=sdk-typescript/v1.17.0
+DEX_RUST_BASELINE=sdk-rust/v1.17.0
 ```
 
 These values mirror the release metadata at the Dex Skills repository root.
 The package validator rejects any drift between the two copies.
 
-All five SDK baselines use their published v1.16.0 tags. The Server baseline
-is server/v1.16.0 and the CLI baseline is cli-v1.16.0.
+All five SDK baselines use their published v1.17.0 tags. The Server baseline
+is server/v1.17.0 and the CLI baseline is cli-v1.17.0.
 Each SDK and its language examples use that language's exact tag. **DEX_BASELINE**
 is the Go SDK pin, not a shared version for every language.
 The example dependency manifests in all five languages select SDK v1.15.0.
 They are runnable source examples, not the API-version authority.
 API key Credentials need SDK v1.16.0. Their guidance therefore comes from each
 SDK's source and README at its language tag, not from the examples.
+The Go **RecoveryErrorInfo** time-limit predicates need Go SDK v1.17.0, so
+their guidance comes from the Go SDK source and README at its tag.
 Hard-delete Attributes need SDK v1.11.0 and Server v1.11.0, so their
 excerpts come from the SDK READMEs and SDK integration tests at the corresponding language tag. Go SDK
 v1.5.0 changed default Go Flow and Step type names; see

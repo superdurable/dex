@@ -75,7 +75,11 @@ dex-server start --services web,api
 配置私有 listener 时，Interpreter 默认使用本地地址。
 仅部署 Web 时不会连接 Temporal 或 Cadence。Web 会在 API upstream 可用前启动，因此
 **/healthz** 只报告 Web process 的健康状态。在 FlowService 可用前，Web API request
-会返回 upstream error。
+会返回 upstream error。**/readyz** 还会检查 FlowService：在 Go Dex Server 上执行只返回
+一条结果的 **SearchFlows**。参见 [Dex Web readiness](/production/dex-web#readiness)。
+
+仅运行 Web 的 process 也可以为 server-zd 提供 Dex Web。将 **web.flowServiceTarget**
+设置为 server-zd 的 address。参见[对接 server-zd](/production/dex-web#run-against-server-zd)。
 
 ## Pull Worker 路由 {#pull-worker-routing}
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.47.0 - 2026-10-24
+
+- Advance all five SDK, Server, and CLI baselines to their published Dex 1.17.0 tags and refresh pinned source links. The language examples still select SDK v1.15.0. Synchronize the three plugin manifests and marketplace metadata at version 0.47.0.
+- Document the Go SDK v1.17.0 RecoveryErrorInfo predicates `IsMethodTimeout`, `IsHeartbeatTimeout`, and `IsRetryTotalDurationExceeded` in Core error handling and the Go error-handling, patterns, and advanced-features pages, with a pinned README excerpt. Record their documented false cases: a Worker API failure recorded before the method timeout, a retry total duration that ends between attempts, backend differences, and application error types that reuse a backend name. Tell Java, Python, TypeScript, and Rust users that their SDKs have no such predicates and must not compare error types with fixed strings.
+- Correct the Polling pattern: on the Go Server with Cadence, the retry total duration stops further attempts but does not end a running one.
+- Introduce server-zd in Core operations: pull Workers only, Step failure policies from server-zd v0.1.2 with Go Server semantics, Dex Web through a web-only `dex-server`, the `dexcli dev --engine zd` flags including `--zd-config`, and run attempts after time travel. Document Dex Web `/readyz`, which uses the FlowService health check on server-zd and a Flow search on the Go Server. Route recovery error types and server-zd tasks from the dex-sdk task table.
+- Document Dex Web with server-zd in App Builder: the `serverEngine` catalog field, the pull-only Start dialog and pull default for `POST /api/v2/start`, the run attempt selector and `runAttempt` API fields, and recording the run attempt in verification evidence.
+- Validate the new server-zd, Dex Web readiness, and recovery predicate guidance against the CLI baseline in `check-upstream-baselines.py`.
+
 ## 0.46.0 - 2026-10-24
 
 - Advance all five SDK, Server, and CLI baselines to their published Dex 1.16.0 tags and refresh pinned source links and excerpts. Record that every language example now selects SDK v1.15.0. Synchronize the three plugin manifests and marketplace metadata at version 0.46.0.

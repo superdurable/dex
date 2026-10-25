@@ -48,4 +48,28 @@ Before non-idempotent external work, use an idempotency key derived from durable
 
 Use Execute/WaitFor failure policies for automatic recovery, operator Channels for manual recovery, and a timeout handler for Flow-deadline semantics. Compensation must be idempotent and identify the original commit.
 
+A recovery path reads the final failure with **ctx.RecoveryError()**. It returns nil outside a recovery path. With Go SDK v1.17.0, recognize Dex time limits with **IsMethodTimeout()**, **IsHeartbeatTimeout()**, and **IsRetryTotalDurationExceeded()** on that value. Do not compare **ErrorType** with a fixed string, because each Dex backend spells these error types differently. The methods are nil-safe, so call them before the nil check. Keep a final branch for every other failure, which keeps the Worker's reported **ErrorType** and **Detail**. Read the documented false cases in [recovery error types](../core/error-handling.md#recovery-error-types): a Worker API failure recorded before the method timeout, a retry total duration that ends between attempts, and backend differences. The [released API documentation](https://github.com/superdurable/dex/blob/sdk-go/v1.17.0/sdk-go/dex/context.go) includes a complete recovery Step for an Execute failure route. The README shows a timeout-handler recovery Step:
+
+[Pinned SDK README](https://github.com/superdurable/dex/blob/sdk-go/v1.17.0/sdk-go/README.md)
+<!-- dex-source: sdk-go/README.md -->
+```go
+type timeoutRecoveryStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (timeoutRecoveryStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	failure := ctx.RecoveryError()
+	if failure.IsMethodTimeout() || failure.IsHeartbeatTimeout() {
+		return dex.ForceFail("timeout handler did not finish in time"), nil
+	}
+	if failure == nil {
+		return dex.ForceFail("timeout recovery has no failure"), nil
+	}
+	return dex.ForceFail(failure.Detail), nil
+}
+```
+
 Every Context operation can fail. Return or wrap its error; do not continue after a failed Attribute write, Channel delete, heartbeat, or Stream write as though it committed.

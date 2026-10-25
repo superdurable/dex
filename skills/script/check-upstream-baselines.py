@@ -120,6 +120,37 @@ def main() -> None:
         "connector-release-override",
     )
     require_text(
+        arguments.dex_root / "cli" / "internal" / "dev" / "config.go",
+        '"engine"',
+        '"zd-binary"',
+        '"zd-config"',
+        '"zd-data-dir"',
+    )
+    require_text(
+        arguments.dex_root / "web" / "api" / "v2.go",
+        '"serverEngine"',
+    )
+    require_text(
+        arguments.dex_root / "web" / "app" / "v2" / "start" / "workerTarget.ts",
+        "isAddressWorkerTargetSupported: !isPullOnly",
+    )
+    require_text(
+        arguments.dex_root / "web" / "server.go",
+        "checkFlowServiceReadiness",
+        "client.HealthCheck",
+    )
+    require_text(
+        arguments.dex_root / "web" / "README.md",
+        "### Run against server-zd",
+        "?runAttempt=N",
+    )
+    require_text(
+        arguments.dex_root / "sdk-go" / "dex" / "context.go",
+        "func (info *RecoveryErrorInfo) IsMethodTimeout() bool",
+        "func (info *RecoveryErrorInfo) IsHeartbeatTimeout() bool",
+        "func (info *RecoveryErrorInfo) IsRetryTotalDurationExceeded() bool",
+    )
+    require_text(
         arguments.dex_root / "web" / "connector_connection_store.go",
         "connections.json",
         "TriggerBindings",
