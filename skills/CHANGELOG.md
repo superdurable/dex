@@ -2,10 +2,10 @@
 
 ## 0.49.0 - 2026-10-25
 
-- Document the server-zd v0.1.4 natural close barrier in Core operations, read-after-write, and data handling: pending Attribute Sync writes and admitted transactional or locking RPCs delay completion, while cleanup accepts writes and rejects new update-style requests. Preserve the v0.1.3 behavior note and the immediate StopFlow and Terminate contract.
-- Document per-entry Attribute Sync retry windows, dropped entries for unconfigured stores, and the server-zd dev server's process-crash-safe default, refusal of unclean relaxed data directories, and immediate lease takeover.
-- Note in Core operations that server-zd delivers a Step cancellation to the pull Worker, so a handler without a heartbeat timeout still observes it, while the Go Server lets that handler run to completion. Both discard the canceled result.
-- Validate the guidance against the server-zd v0.1.4 README and operations guide. Synchronize the three plugin manifests and marketplace metadata at version 0.49.0 without changing SDK, Server, or CLI baselines.
+- Advance all five SDK baselines, the Server baseline, and the CLI baseline to their published v1.20.0 tags; refresh pinned source links. Document FLOW_CLOSING for cleanup rejections in Core and all five language error references, using each SDK's typed error. Keep the bundle and plugin manifests at 0.49.0.
+- Document the server-zd v0.1.4 natural close barrier: pending Attribute Sync writes and admitted transactional or locking RPCs delay completion. During cleanup, server-zd accepts SetAttributes, PublishToChannel, and non-transactional RPCs, and rejects new transactional or locking RPCs, waits, and DeleteChannelMessage. Qualify the Go Server comparison by backend and configuration. Record per-entry retries and dropped writes for unconfigured stores.
+- Document server-zd v0.1.5's closed-run hard-delete erase exception and FLOW_CLOSING sub-status; retain the v0.1.3 and v0.1.4 lifecycle boundaries. Note the server-zd dev server's process-crash-safe default, upgrade behavior for earlier relaxed data directories, and immediate lease takeover.
+- Explain that server-zd sends Step cancellation directly to pull Workers, while a regular Go Server attempt observes it through a recorded heartbeat or Stream frame and its ASYNC local phase is canceled directly. Keep heartbeats as the portable advice for long handlers, and reconcile Core, all five language observability pages, and App Builder guidance. Validate the behavior against the tagged source and check the server-zd tag independently of CLI ancestry.
 
 ## 0.48.0 - 2026-10-24
 

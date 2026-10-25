@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 # The server-zd release whose close-barrier guidance core/operations.md cites.
-SERVER_ZD_RELEASE = "server-zd/v0.1.4"
+SERVER_ZD_RELEASE = "server-zd/v0.1.5"
 
 
 def fail(message: str) -> None:
@@ -58,6 +58,18 @@ def require_ancestor(checkout: Path, ancestor: str, descendant: str, label: str)
         fail(f"{label} {ancestor} is not an ancestor of {descendant}")
 
 
+def require_tag(checkout: Path, tag: str) -> None:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
+        cwd=checkout,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        fail(f"Required release tag {tag} is unavailable in {checkout}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dex-root", required=True, type=Path)
@@ -67,7 +79,7 @@ def main() -> None:
     cli_baseline = (ROOT / "DEX_CLI_BASELINE").read_text().strip()
     require_revision(arguments.dex_root, cli_baseline, "Dex CLI")
     require_ancestor(arguments.dex_root, server_baseline, cli_baseline, "Dex Server baseline")
-    require_ancestor(arguments.dex_root, cli_baseline, SERVER_ZD_RELEASE, "Dex CLI baseline")
+    require_tag(arguments.dex_root, SERVER_ZD_RELEASE)
 
     require_text(
         arguments.dex_root / "cli" / "internal" / "flowviz" / "v2_directives.go",
@@ -178,7 +190,7 @@ def main() -> None:
         "GetFlowSummary and SearchFlows",
         "for every\n  transactional or locking RPC",
         "SetAttributes, PublishToChannel, and non-transactional RPC results are",
-        "flow terminal cleanup is in progress",
+        "cleanup fail with FAILED_PRECONDITION and FLOW_CLOSING",
         "`syncRetryPolicy.totalDuration` bounds each pending entry's retry window",
         "Entries of a store that is no longer configured",
         "StopFlow (CANCEL or FAIL), Terminate",
@@ -195,6 +207,58 @@ def main() -> None:
         "**syncRetryPolicy.totalDuration** limits how long each pending write is",
         "Pending writes for a store that is no longer configured are dropped at once",
         "**processCrashSafe**",
+        "every write erases a currently stored hard-delete Attribute with null",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        SERVER_ZD_RELEASE,
+        "server-zd/crates/dexzd-worker-dispatch/src/worker_registry.rs",
+        "CancelTask(",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        SERVER_ZD_RELEASE,
+        "server-zd/crates/dexzd-engine/src/effects/dispatch/method_attempt.rs",
+        "DEFAULT_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(60)",
+        "session.cancel();",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        SERVER_ZD_RELEASE,
+        "server-zd/crates/dexzd-apply/src/command_handlers/client_writes.rs",
+        "is_closed_hard_delete_erase",
+        "is_hard_delete_on_null",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        server_baseline,
+        "server/service/api/service.go",
+        "ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        server_baseline,
+        "server/service/interpreter/terminalCoordinator.go",
+        "inflightUpdateOperations == 0",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        server_baseline,
+        "server/service/interpreter/workflowImpl.go",
+        "defaultStepHeartbeatTimeout = time.Minute",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        server_baseline,
+        "server/service/interpreter/activityImpl.go",
+        "recordImplicitStepHeartbeat",
+        "RecordHeartbeat(ctx",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        server_baseline,
+        "server/service/matching/matching.go",
+        "w.cancelTask(request.TaskId)",
     )
     require_text(
         arguments.dex_root / "web" / "api" / "v2.go",
