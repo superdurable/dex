@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,9 +33,14 @@ type options struct {
 	hasAPIKey      bool
 	tokenURL       string
 	serverID       string
-	output         string
-	timeout        time.Duration
-	noHydrate      bool
+	isTLSEnabled   bool
+	// invalidTLSEnvironmentValue holds an unparsable DEX_TLS value, reported when a command connects.
+	invalidTLSEnvironmentValue string
+	tlsCAFile                  string
+	tlsServerName              string
+	output                     string
+	timeout                    time.Duration
+	noHydrate                  bool
 }
 
 func defaultOptions(lookupEnv func(string) (string, bool)) options {
@@ -60,18 +66,34 @@ func defaultOptions(lookupEnv func(string) (string, bool)) options {
 	}
 	tokenURL, _ := lookupEnv("DEX_TOKEN_URL")
 	serverID, _ := lookupEnv("DEX_SERVER_ID")
+	tlsValue, _ := lookupEnv("DEX_TLS")
+	tlsValue = strings.TrimSpace(tlsValue)
+	isTLSEnabled, invalidTLSEnvironmentValue := false, ""
+	if tlsValue != "" {
+		parsedTLSValue, err := strconv.ParseBool(tlsValue)
+		if err != nil {
+			invalidTLSEnvironmentValue = tlsValue
+		}
+		isTLSEnabled = parsedTLSValue
+	}
+	tlsCAFile, _ := lookupEnv("DEX_TLS_CA_FILE")
+	tlsServerName, _ := lookupEnv("DEX_TLS_SERVER_NAME")
 	return options{
-		server:         server,
-		credentialFile: credentialFile,
-		credential:     credentialValue,
-		hasFile:        hasFile,
-		hasCredential:  hasCredential,
-		apiKey:         apiKeyValue,
-		hasAPIKey:      hasAPIKey,
-		tokenURL:       strings.TrimSpace(tokenURL),
-		serverID:       strings.TrimSpace(serverID),
-		output:         "json",
-		timeout:        30 * time.Second,
+		server:                     server,
+		credentialFile:             credentialFile,
+		credential:                 credentialValue,
+		hasFile:                    hasFile,
+		hasCredential:              hasCredential,
+		apiKey:                     apiKeyValue,
+		hasAPIKey:                  hasAPIKey,
+		tokenURL:                   strings.TrimSpace(tokenURL),
+		serverID:                   strings.TrimSpace(serverID),
+		isTLSEnabled:               isTLSEnabled,
+		invalidTLSEnvironmentValue: invalidTLSEnvironmentValue,
+		tlsCAFile:                  strings.TrimSpace(tlsCAFile),
+		tlsServerName:              strings.TrimSpace(tlsServerName),
+		output:                     "json",
+		timeout:                    30 * time.Second,
 	}
 }
 
@@ -90,6 +112,9 @@ func addCommonFlags(flags *flag.FlagSet, options *options) {
 	flags.Var(apiKeyFileFlag{options: options}, "api-key-file", "API key file exchanged at --token-url for access tokens; use DEX_API_KEY for a key value (no key flag, to avoid shell history and process listings)")
 	flags.StringVar(&options.tokenURL, "token-url", options.tokenURL, "token endpoint that exchanges the API key; https, or http only for loopback hosts")
 	flags.StringVar(&options.serverID, "server-id", options.serverID, "server ID that the token endpoint scopes access tokens to")
+	flags.BoolVar(&options.isTLSEnabled, "tls", options.isTLSEnabled, "dial the server with TLS and verify it against the system root CAs; default DEX_TLS, otherwise plaintext")
+	flags.StringVar(&options.tlsCAFile, "tls-ca-file", options.tlsCAFile, "PEM file of root CAs trusted in addition to the system roots; default DEX_TLS_CA_FILE; requires --tls")
+	flags.StringVar(&options.tlsServerName, "tls-server-name", options.tlsServerName, "name that the server certificate must match, sent as SNI; default DEX_TLS_SERVER_NAME, otherwise the --server host; requires --tls")
 	flags.StringVar(&options.output, "output", options.output, "json or table")
 	flags.DurationVar(&options.timeout, "timeout", options.timeout, "request timeout; 0 disables")
 	flags.BoolVar(&options.noHydrate, "no-hydrate", options.noHydrate, "return blob references")
@@ -178,6 +203,17 @@ func (o options) validateAPIKeySettings() error {
 	}
 	if _, err := parseAPIKeyTokenURL(o.tokenURL); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateTLSSettings runs at connect time because global flags may also follow the subcommand.
+func (o options) validateTLSSettings() error {
+	if o.invalidTLSEnvironmentValue != "" {
+		return fmt.Errorf("DEX_TLS must be a boolean such as true or false, not %q", o.invalidTLSEnvironmentValue)
+	}
+	if !o.isTLSEnabled && (o.tlsCAFile != "" || o.tlsServerName != "") {
+		return fmt.Errorf("--tls-ca-file and --tls-server-name (DEX_TLS_CA_FILE, DEX_TLS_SERVER_NAME) require --tls or DEX_TLS=true")
 	}
 	return nil
 }

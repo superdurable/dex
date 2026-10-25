@@ -57,12 +57,12 @@ func (s *credentialTestService) recordedHeaders() []string {
 	return append([]string(nil), s.headers...)
 }
 
-func startCredentialTestService(t *testing.T) (*credentialTestService, string) {
+func startCredentialTestService(t *testing.T, serverOptions ...grpc.ServerOption) (*credentialTestService, string) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	service := &credentialTestService{}
-	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(service.recordHeader))
+	grpcServer := grpc.NewServer(append([]grpc.ServerOption{grpc.UnaryInterceptor(service.recordHeader)}, serverOptions...)...)
 	dexpb.RegisterFlowServiceServer(grpcServer, service)
 	serveFinished := make(chan error, 1)
 	go func() { serveFinished <- grpcServer.Serve(listener) }()
@@ -156,6 +156,9 @@ func TestCredentialFileFlagHelpHasNoNilPanic(t *testing.T) {
 	require.Contains(t, output.String(), "-api-key-file")
 	require.Contains(t, output.String(), "-token-url")
 	require.Contains(t, output.String(), "-server-id")
+	require.Contains(t, output.String(), "-tls")
+	require.Contains(t, output.String(), "-tls-ca-file")
+	require.Contains(t, output.String(), "-tls-server-name")
 	require.NotContains(t, output.String(), "panic")
 }
 

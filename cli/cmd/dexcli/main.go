@@ -94,4 +94,9 @@ func printUsage(output io.Writer) {
 	fmt.Fprintln(output, "  --token-url url         API key token endpoint (default DEX_TOKEN_URL)")
 	fmt.Fprintln(output, "  --server-id id          server ID the token endpoint scopes tokens to (default DEX_SERVER_ID)")
 	fmt.Fprintln(output, "  Use either a bearer token or an API key, not both.")
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "FlowService transport (plaintext by default):")
+	fmt.Fprintln(output, "  --tls                   dial with TLS, verified against the system root CAs (default DEX_TLS)")
+	fmt.Fprintln(output, "  --tls-ca-file path      PEM root CAs trusted in addition to the system roots (default DEX_TLS_CA_FILE)")
+	fmt.Fprintln(output, "  --tls-server-name name  name the server certificate must match (default DEX_TLS_SERVER_NAME, else the --server host)")
 }
