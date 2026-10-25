@@ -98,6 +98,7 @@ async fn synced_attributes_reach_postgres_through_outages_and_time_travel() {
 
     set_attributes(
         &mut flow_client,
+        "request-paid",
         vec![
             synced("Status", Some(string_value("paid"))),
             synced("Items/a", None),
@@ -134,6 +135,7 @@ async fn synced_attributes_reach_postgres_through_outages_and_time_travel() {
     proxy.cut().await;
     set_attributes(
         &mut flow_client,
+        "request-shipped",
         vec![synced("Status", Some(string_value("shipped")))],
     )
     .await;
@@ -241,12 +243,14 @@ async fn set_attributes(
     flow_client: &mut dexzd_protocol::dex::flow_service_client::FlowServiceClient<
         tonic::transport::Channel,
     >,
+    request_id: &str,
     writes: Vec<AttributeWrite>,
 ) {
     flow_client
         .set_attributes(SetAttributesRequest {
             flow_id: FLOW_ID.to_owned(),
             attributes: writes,
+            request_id: request_id.to_owned(),
             ..SetAttributesRequest::default()
         })
         .await
