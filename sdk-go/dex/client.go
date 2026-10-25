@@ -37,8 +37,12 @@ const serverCappedLongPollSeconds = int32(math.MaxInt32)
 
 // ClientOptions configures the FlowService client.
 type ClientOptions struct {
-	// FlowServiceAddress is Dex's plaintext gRPC target. Default: "localhost:8801".
+	// FlowServiceAddress is Dex's gRPC target. Default: "localhost:8801".
+	// With FlowServiceTLS, use the TLS endpoint's host:port, such as "dex.example.com:443".
 	FlowServiceAddress string
+	// FlowServiceTLS enables TLS for this Client's FlowService connection. Nil uses plaintext.
+	// See FlowServiceTLSOptions for trust roots, server name, and a complete example.
+	FlowServiceTLS *FlowServiceTLSOptions
 	// WorkerTarget is advertised by StartFlow unless overridden. Default: nil.
 	WorkerTarget *WorkerTarget
 	// Logger defaults to the shared BlobCache logger.
@@ -88,7 +92,7 @@ type Client struct {
 // registry supplies the validated definitions and cache hydrates large values. The
 // Client connects lazily to ClientOptions.FlowServiceAddress, which defaults to
 // localhost:8801. It panics when registry or cache is nil. It returns an error when
-// an address, worker target, or GrpcMaxMessageBytes is invalid, or the gRPC client
+// an address, worker target, FlowServiceTLS, or GrpcMaxMessageBytes is invalid, or the gRPC client
 // cannot be created.
 // The caller owns the returned Client and must call Close.
 func NewClient(
@@ -110,9 +114,13 @@ func NewClient(
 	if err != nil {
 		return nil, err
 	}
+	dialOptions, err := messageLimits.flowServiceDialOptions(flowServiceAddress, options.Credential, options.FlowServiceTLS)
+	if err != nil {
+		return nil, err
+	}
 	connection, err := grpc.NewClient(
 		flowServiceAddress,
-		messageLimits.flowServiceDialOptions(options.Credential)...,
+		dialOptions...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dex: create FlowService client: %w", err)
@@ -151,8 +159,10 @@ func resolveClientOptions(options ClientOptions) (string, *WorkerTarget, error) 
 	if flowServiceAddress == "" {
 		flowServiceAddress = defaultFlowServiceTarget
 	}
-	if err := validatePlaintextTarget(flowServiceAddress, false); err != nil {
-		return "", nil, fmt.Errorf("dex: invalid FlowService address: %w", err)
+	if options.FlowServiceTLS == nil {
+		if err := validatePlaintextTarget(flowServiceAddress, false); err != nil {
+			return "", nil, fmt.Errorf("dex: invalid FlowService address: %w", err)
+		}
 	}
 	if options.WorkerTarget == nil {
 		return flowServiceAddress, nil, nil

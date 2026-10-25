@@ -48,9 +48,13 @@ type WorkerOptions struct {
 	BindAddress string
 	// WorkerTarget is advertised to Dex and may differ from BindAddress. Default Address derives from BindAddress; Headless defaults false.
 	WorkerTarget WorkerTarget
-	// FlowServiceAddress is the plaintext Dex endpoint used for startup synchronization and blob hydration. Default: "localhost:8801".
+	// FlowServiceAddress is the Dex gRPC endpoint used for startup synchronization and blob hydration. Default: "localhost:8801".
+	// With FlowServiceTLS, use the TLS endpoint's host:port, such as "dex.example.com:443".
 	// Startup synchronization registers Attribute indexes.
 	FlowServiceAddress string
+	// FlowServiceTLS enables TLS for this Worker's FlowService connection. Nil uses plaintext.
+	// See FlowServiceTLSOptions for trust roots, server name, and a complete example.
+	FlowServiceTLS *FlowServiceTLSOptions
 	// AttributeIndexSyncTimeout bounds index registration at startup. Default: two minutes.
 	// Negative durations are invalid.
 	AttributeIndexSyncTimeout time.Duration
@@ -246,7 +250,10 @@ func NewWorker(
 	if err != nil {
 		return nil, err
 	}
-	dialOptions := messageLimits.flowServiceDialOptions(options.Credential)
+	dialOptions, err := messageLimits.flowServiceDialOptions(flowServiceAddress, options.Credential, options.FlowServiceTLS)
+	if err != nil {
+		return nil, err
+	}
 	if options.Pull != nil {
 		dialOptions = append(dialOptions, grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time: 30 * time.Second, Timeout: 10 * time.Second, PermitWithoutStream: false,
@@ -332,11 +339,13 @@ func resolveWorkerOptions(
 	if flowServiceAddress == "" {
 		flowServiceAddress = defaultFlowServiceTarget
 	}
-	if err := validatePlaintextTarget(flowServiceAddress, false); err != nil {
-		return "", WorkerTarget{}, "", 0, fmt.Errorf(
-			"dex: invalid FlowService address: %w",
-			err,
-		)
+	if options.FlowServiceTLS == nil {
+		if err := validatePlaintextTarget(flowServiceAddress, false); err != nil {
+			return "", WorkerTarget{}, "", 0, fmt.Errorf(
+				"dex: invalid FlowService address: %w",
+				err,
+			)
+		}
 	}
 	syncTimeout := options.AttributeIndexSyncTimeout
 	if syncTimeout < 0 {

@@ -28,6 +28,15 @@ reads it. See the [Go](https://github.com/superdurable/dex/blob/main/sdk-go/READ
 and [Rust](https://github.com/superdurable/dex/blob/main/sdk-rust/README.md#pull-mode)
 READMEs for startup details.
 
+The Go SDK can connect both the Client and a pull Worker to a TLS endpoint such
+as **dex.example.com:443**. Pass the same **FlowServiceTLSOptions** to both
+options. A nil value keeps plaintext gRPC. TLS uses version 1.2 or newer and
+negotiates HTTP/2 with ALPN h2. Certificates are verified against the system
+roots plus any PEM roots supplied in **AdditionalRootCAsPEM**; **ServerName**
+defaults to the address host. The [runnable Go example](https://github.com/superdurable/dex/blob/main/examples/go/production/pull-workers/tls.go)
+reads a private root certificate and passes the option to both connections.
+Other SDKs will gain this transport option in a later release.
+
 Dex Web v2 can start a Flow through a pull Worker. In **Start Flow**, select
 **Pull Worker** instead of entering a Worker address. The start request can also
 send **workerTargetPull: true**. For deployments that use pull Workers by default,
@@ -112,6 +121,43 @@ func StartPullGreeting(cache *blobcache.Cache, serverAddress string) (*GreetingF
 	}
 	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
 		FlowServiceAddress: serverAddress,
+		WorkerTarget:       worker.WorkerTarget(),
+	})
+	if err != nil {
+		return nil, nil, nil, nil, errors.Join(err, worker.Stop(context.Background()))
+	}
+	workerResult := make(chan error, 1)
+	go reportWorkerResult(worker, workerResult)
+	startupContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := worker.WaitPullRegistered(startupContext); err != nil {
+		return nil, nil, nil, nil, errors.Join(err, StopPullGreeting(context.Background(), worker, client, workerResult))
+	}
+	return flow, worker, client, workerResult, nil
+}
+
+func StartPullGreetingWithTLS(cache *blobcache.Cache, serverAddress string, caPath string) (*GreetingFlow, *dex.Worker, *dex.Client, <-chan error, error) {
+	rootPEM, err := os.ReadFile(caPath)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	tlsOptions := &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: rootPEM}
+	flow := &GreetingFlow{}
+	registry, err := dex.NewRegistry([]dex.Flow{flow})
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+		FlowServiceAddress: serverAddress,
+		FlowServiceTLS:     tlsOptions,
+		Pull:               &dex.PullWorkerOptions{},
+	})
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+		FlowServiceAddress: serverAddress,
+		FlowServiceTLS:     tlsOptions,
 		WorkerTarget:       worker.WorkerTarget(),
 	})
 	if err != nil {

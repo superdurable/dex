@@ -641,6 +641,48 @@ through `ClientOptions.WorkerTarget`, or set
 `StartFlowOptions.ConfigOverride.WorkerTarget` for one Flow. A SubFlow can select
 pull mode through `SubFlowOptions.ConfigOverride.WorkerTarget`.
 
+`FlowServiceAddress` uses plaintext gRPC by default. For a TLS-terminating
+Dex endpoint, use its `host:443` address and set `FlowServiceTLS` on both the
+Client and Worker. TLS requires version 1.2 or newer and negotiates ALPN `h2`.
+The certificate name defaults to the address host. Extra PEM root CAs extend
+the system roots; they do not replace them. A non-nil empty option uses only
+the system roots. TLS never falls back to plaintext. Existing bearer, file,
+and API key credentials work over either transport. The API key token endpoint
+has its own HTTPS trust configuration.
+
+```go
+rootPEM, err := os.ReadFile("/etc/dex/root-ca.pem")
+if err != nil {
+	return err
+}
+tlsOptions := &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: rootPEM}
+worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+	FlowServiceAddress: "dex.example.com:443",
+	FlowServiceTLS: tlsOptions,
+	Pull: &dex.PullWorkerOptions{},
+})
+if err != nil {
+	return err
+}
+client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+	FlowServiceAddress: "dex.example.com:443",
+	FlowServiceTLS: tlsOptions,
+	WorkerTarget: worker.WorkerTarget(),
+})
+if err != nil {
+	return err
+}
+defer client.Close()
+defer worker.Stop(context.Background())
+if err := worker.Start(); err != nil {
+	return err
+}
+```
+
+Set `ServerName` when the certificate name differs from the address host. An
+invalid `AdditionalRootCAsPEM` fails `NewClient` or `NewWorker`. The other SDKs
+will gain the FlowService TLS option in a later release.
+
 ```go
 worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
 	FlowServiceAddress: "dex.example:8801",
