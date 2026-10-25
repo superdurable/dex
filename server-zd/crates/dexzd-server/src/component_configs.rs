@@ -44,7 +44,12 @@ pub(crate) struct ComponentConfigs {
 
 impl ComponentConfigs {
     /// Converts the configuration sections; fails when a value does not fit its component.
-    pub(crate) fn from_config(config: &Config) -> Result<Self, ServerError> {
+    ///
+    /// Pass `should_take_over_held_lease` only when this process provably alone writes the object store.
+    pub(crate) fn from_config(
+        config: &Config,
+        should_take_over_held_lease: bool,
+    ) -> Result<Self, ServerError> {
         let grpc_max_message_bytes =
             to_usize("api.grpcMaxMessageBytes", config.api.grpc_max_message_bytes)?;
         let max_value_bytes = config.values.max_value_bytes;
@@ -90,7 +95,7 @@ impl ComponentConfigs {
             lease: dexzd_cluster_metadata::LeaseConfig {
                 duration: config.lease.duration,
                 fail_fast: config.lease.fail_if_held,
-                should_take_over_held_lease: config.dev.has_embedded_object_store(),
+                should_take_over_held_lease,
                 ..dexzd_cluster_metadata::LeaseConfig::default()
             },
             local_store: LocalStoreConfig::RocksDb {

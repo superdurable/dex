@@ -1354,6 +1354,7 @@ dependencies = [
  "prometheus-client",
  "prost",
  "prost-types",
+ "rustix",
  "s3mock",
  "s3mock-server",
  "serde",

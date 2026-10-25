@@ -201,13 +201,3 @@ impl Default for DevConfig {
         }
     }
 }
-
-impl DevConfig {
-    /// Returns whether this process serves the object store from `s3_data_directory` itself.
-    ///
-    /// The embedded store's metadata database admits one process per directory, so no other
-    /// process can write its lease object. Only `dev` sets the directory.
-    pub(crate) fn has_embedded_object_store(&self) -> bool {
-        !self.s3_data_directory.as_os_str().is_empty()
-    }
-}

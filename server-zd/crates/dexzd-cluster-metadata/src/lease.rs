@@ -48,7 +48,7 @@ pub struct LeaseConfig {
     pub takeover_grace: Duration,
     /// Return immediately when another live process holds the lease.
     pub fail_fast: bool,
-    /// Take over a held lease at once; set only when its previous holder provably cannot write.
+    /// Defaults to false; when true, takes over a held lease at once. Set only when its holder provably stopped.
     pub should_take_over_held_lease: bool,
 }
 

@@ -105,7 +105,8 @@ fn blocking_state_read_limit_parses_defaults_and_rejects_zero() {
     let mut configuration = valid_config();
     configuration.limits.max_blocking_state_reads = parsed.limits.max_blocking_state_reads;
     configuration.validate().expect("positive read limit");
-    let components = ComponentConfigs::from_config(&configuration).expect("component config");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
     assert_eq!(components.effects.max_blocking_state_reads, 7);
 
     let zero = Config::parse_yaml("limits:\n  maxBlockingStateReads: 0\n")
@@ -122,7 +123,7 @@ fn blocking_state_read_limit_parses_defaults_and_rejects_zero() {
 
 #[test]
 fn replay_and_local_store_disk_settings_reach_the_engine_node() {
-    let defaults = ComponentConfigs::from_config(&valid_config()).expect("component config");
+    let defaults = ComponentConfigs::from_config(&valid_config(), false).expect("component config");
     assert_eq!(
         defaults
             .engine_node
@@ -160,7 +161,8 @@ fn replay_and_local_store_disk_settings_reach_the_engine_node() {
         parsed.local_storage.retained_set_aside_store_count;
     configuration.recovery = parsed.recovery;
     configuration.validate().expect("valid replay settings");
-    let components = ComponentConfigs::from_config(&configuration).expect("component config");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
     let recovery = components.engine_node.recovery;
     assert_eq!(recovery.log_read_ahead.max_read_ahead_batches, 8);
     assert_eq!(recovery.log_read_ahead.max_buffered_bytes, 1024 * 1024);
@@ -179,7 +181,8 @@ fn replay_check_yaml_override_reaches_the_engine_node() {
     let parsed = Config::parse_yaml("commit:\n  debugReplayChecks: false\n")
         .expect("parse replay check override");
     configuration.commit = parsed.commit;
-    let components = ComponentConfigs::from_config(&configuration).expect("component config");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
     assert!(!components.engine_node.commit.debug_replay_checks);
 }
 
@@ -293,17 +296,6 @@ fn dev_defaults_to_a_thirty_second_lease_unless_the_overrides_set_its_duration()
 
     let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
     assert_eq!(serve.lease.duration, Duration::from_secs(10));
-
-    let dev_components = ComponentConfigs::from_config(&without_overrides).expect("dev components");
-    assert!(dev_components.engine_node.lease.should_take_over_held_lease);
-    let serve_components =
-        ComponentConfigs::from_config(&valid_config()).expect("serve components");
-    assert!(
-        !serve_components
-            .engine_node
-            .lease
-            .should_take_over_held_lease
-    );
 }
 
 #[test]
@@ -847,7 +839,8 @@ fn configured_attribute_stores_reach_request_validation() {
         "      type: postgres\n      dsn: postgres://localhost/app\n      tableName: orders\n",
     );
     configuration.validate().expect("valid store");
-    let components = ComponentConfigs::from_config(&configuration).expect("component config");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
     assert!(
         components
             .validation()
@@ -855,7 +848,8 @@ fn configured_attribute_stores_reach_request_validation() {
             .contains("orders")
     );
     assert_eq!(components.validation().attribute_store_names.len(), 1);
-    let without_stores = ComponentConfigs::from_config(&valid_config()).expect("component config");
+    let without_stores =
+        ComponentConfigs::from_config(&valid_config(), false).expect("component config");
     assert!(without_stores.validation().attribute_store_names.is_empty());
 }
 

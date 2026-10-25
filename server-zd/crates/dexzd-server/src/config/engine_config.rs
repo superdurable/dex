@@ -77,8 +77,9 @@ pub struct LeaseConfig {
     pub duration: Duration,
     /// Defaults to false; when true, startup fails if another unexpired owner holds the lease.
     ///
-    /// `dev` ignores it: its embedded object store admits one process per data directory, so a
-    /// held lease belongs to a stopped process, and `dev` takes it over at once.
+    /// `dev` ignores it while it holds the exclusive lock on `<data-dir>/dev.lock`: no other process
+    /// can then write its embedded object store, so a held lease belongs to a stopped process, and
+    /// `dev` takes it over at once. Where the filesystem cannot lock files, `dev` waits like `serve`.
     pub fail_if_held: bool,
 }
 

@@ -45,7 +45,7 @@ async fn a_sigkilled_dev_restarts_without_waiting_for_its_lease() {
     let run_id = run_greeting_flow(&mut FlowServiceClient::new(channel), FLOW_ID).await;
     worker.stop().await;
 
-    // The takeover is safe only while one process at a time can serve a data directory.
+    // The takeover is safe only while the data directory lock admits one process at a time.
     let mut intruder = ServeProcess::spawn_dev(
         &data_directory,
         &config_path,
@@ -54,8 +54,11 @@ async fn a_sigkilled_dev_restarts_without_waiting_for_its_lease() {
     );
     let intruder_status = intruder.wait_for_exit(INTRUDER_EXIT_BUDGET).await;
     assert!(
-        !intruder_status.success() && intruder.log().contains("starting the embedded S3 emulator"),
-        "a second dev process on the same data directory must fail to open its object store; \
+        !intruder_status.success()
+            && intruder
+                .log()
+                .contains("another dex-server-zd dev process holds"),
+        "a second dev process on the same data directory must fail on its lock; \
          it exited with {intruder_status}:\n{}",
         intruder.log()
     );

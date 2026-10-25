@@ -479,11 +479,15 @@ file, which must define at least one store; the `--config` file must not also se
 
 `dev` defaults `lease.duration` to 30 seconds, unless the `--config` file sets it; `serve` defaults
 it to 10 seconds. A `dev` node has no standby, so the longer lease costs no failover time and lets
-the node ride out longer host stalls. A `dev` start never waits for the lease, even after a crash.
-The embedded object store admits one process per data directory: a second `dev` process on the same
-directory fails to start. A lease that the store still shows as held therefore belongs to a stopped
-process, so `dev` takes it over at once, ignoring `lease.failIfHeld`. The takeover raises the node
-epoch, as any takeover does.
+the node ride out longer host stalls.
+
+`dev` holds an exclusive lock on `<data-dir>/dev.lock` for its whole run, so a second `dev` process
+on the same data directory fails to start. While `dev` holds the lock, no other process can write
+its embedded object store. A lease that the store still shows as held therefore belongs to a
+stopped process, so `dev` takes it over at once, ignoring `lease.failIfHeld`. A restart never waits
+for the lease, even after a crash. The takeover raises the node epoch, as any takeover does. On a
+filesystem that cannot lock files, `dev` logs a warning and waits for a held lease to expire, up to
+31 seconds.
 
 ## Stable command-line interface
 
