@@ -72,6 +72,7 @@ pub struct ServerConfig {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum DurabilityFlag {
     Strict,
+    ProcessCrashSafe,
     Relaxed,
 }
 
@@ -79,6 +80,7 @@ impl From<DurabilityFlag> for Durability {
     fn from(flag: DurabilityFlag) -> Durability {
         match flag {
             DurabilityFlag::Strict => Durability::Strict,
+            DurabilityFlag::ProcessCrashSafe => Durability::ProcessCrashSafe,
             DurabilityFlag::Relaxed => Durability::Relaxed,
         }
     }

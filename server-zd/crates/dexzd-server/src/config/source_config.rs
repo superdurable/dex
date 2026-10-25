@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{
-    AttributeStoreConfig, Config, CredentialSource, DevConfig, ObjectStoreCredentials,
-    SearchBackend, StreamStoreBackend,
+    AttributeStoreConfig, Config, CredentialSource, DevConfig, DevDurabilityMode,
+    ObjectStoreCredentials, SearchBackend, StreamStoreBackend,
 };
 use crate::DevCommandOptions;
 
@@ -88,7 +88,12 @@ impl Config {
             source,
         })?;
         let mut configuration = Self::parse_yaml(&contents)?;
-        if configuration.dev != DevConfig::default() {
+        // Any durability mode passes, since copies of the earlier example say relaxed.
+        let dev_paths = DevConfig {
+            durability_mode: DevDurabilityMode::default(),
+            ..configuration.dev.clone()
+        };
+        if dev_paths != DevConfig::default() {
             return Err(ConfigError::Invalid {
                 field: "dev",
                 message: "applies only to dex-server-zd dev; remove it from a serve configuration"

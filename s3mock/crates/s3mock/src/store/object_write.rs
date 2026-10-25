@@ -17,12 +17,12 @@ use std::path::{Path, PathBuf};
 use redb::ReadableTable;
 use ulid::Ulid;
 
-use super::multipart::{remove_upload, remove_upload_directory};
+use super::multipart::remove_upload;
 use super::object_read::{ObjectReadRequest, ReadConditions};
 use super::{
-    BUCKETS, LATEST, PARTS, Store, UPLOADS, VERSIONS, create_directory_durably, decode_json,
-    encode_json, load_versions, refresh_latest, relative_data_file, remove_superseded_files,
-    require_bucket, validate_object_key,
+    BUCKETS, LATEST, PARTS, Store, SupersededPath, UPLOADS, VERSIONS, create_directory_durably,
+    decode_json, encode_json, load_versions, refresh_latest, relative_data_file, require_bucket,
+    validate_object_key,
 };
 use crate::checksum::{ChecksumAlgorithm, ObjectChecksum};
 use crate::data_file::{
@@ -316,7 +316,7 @@ impl Store {
         write_condition: &WriteCondition,
         completed_upload: Option<&CompletedUpload>,
     ) -> Result<PutObjectOutcome, StoreError> {
-        let transaction = self.begin_write()?;
+        let transaction = self.begin_superseding_write()?;
         let mut superseded_files = Vec::new();
         let mut upload_directory = None;
         let (versioning, internal_version, etag, last_modified_unix_ms) = {
@@ -368,11 +368,12 @@ impl Store {
                 record.last_modified_unix_ms,
             )
         };
-        transaction.commit()?;
-        remove_superseded_files(&superseded_files);
-        if let Some(directory) = upload_directory {
-            remove_upload_directory(&directory);
-        }
+        let mut superseded_paths: Vec<SupersededPath> = superseded_files
+            .into_iter()
+            .map(SupersededPath::DataFile)
+            .collect();
+        superseded_paths.extend(upload_directory.map(SupersededPath::Directory));
+        self.commit_and_remove_superseded_paths(transaction, superseded_paths)?;
         Ok(PutObjectOutcome {
             etag,
             version_id: version_id_for(versioning, internal_version),

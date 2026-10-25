@@ -22,4 +22,4 @@ File downloads write to a temporary file beside the target and rename after the 
 
 ## Testing
 
-The shared conformance suite exercises the in-memory implementation and an in-process s3mock in strict and relaxed durability modes. It needs no cloud credentials or external service.
+The shared conformance suite exercises the in-memory implementation and an in-process s3mock in strict, process-crash-safe, and relaxed durability modes. It needs no cloud credentials or external service.

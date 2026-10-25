@@ -10,7 +10,7 @@
 
 use super::{
     BUCKETS, LATEST, Store, VERSIONS, encode_json, find_version, load_versions, parse_version_id,
-    refresh_latest, remove_superseded_files, require_bucket, validate_object_key,
+    refresh_latest, require_bucket, validate_object_key,
 };
 use crate::error::StoreError;
 use crate::key_codec::encode_version_key;
@@ -68,7 +68,7 @@ impl Store {
             .as_deref()
             .map(parse_version_id)
             .transpose()?;
-        let transaction = self.begin_write()?;
+        let transaction = self.begin_superseding_write()?;
         let mut superseded_files = Vec::new();
         let outcome = {
             let bucket_record = require_bucket(&transaction.open_table(BUCKETS)?, bucket)?;
@@ -138,8 +138,7 @@ impl Store {
             refresh_latest(&mut latest, &versions, bucket, key)?;
             outcome
         };
-        transaction.commit()?;
-        remove_superseded_files(&superseded_files);
+        self.commit_and_remove_superseded_files(transaction, superseded_files)?;
         Ok(Some(outcome))
     }
 

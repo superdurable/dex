@@ -68,6 +68,7 @@ impl EmbeddedS3 {
         }
         let durability = match config.durability_mode {
             DevDurabilityMode::Strict => Durability::Strict,
+            DevDurabilityMode::ProcessCrashSafe => Durability::ProcessCrashSafe,
             DevDurabilityMode::Relaxed => Durability::Relaxed,
         };
         let store_config = StoreConfig {
@@ -97,6 +98,7 @@ impl EmbeddedS3 {
             data_directory: directory.clone(),
             durability: match durability {
                 Durability::Strict => DurabilityFlag::Strict,
+                Durability::ProcessCrashSafe => DurabilityFlag::ProcessCrashSafe,
                 Durability::Relaxed => DurabilityFlag::Relaxed,
             },
             ..ServerConfig::default()
@@ -137,6 +139,20 @@ impl EmbeddedS3 {
 /// Returns the open failure as text; a newer store format names the dev remedy for the whole data directory.
 fn store_open_failure_detail(error: StoreError, data_directory: &Path) -> String {
     match error {
+        // The local store kept state that the rolled-back object store lost, so both must go.
+        StoreError::UncleanRelaxedSession { .. } => format!(
+            "the previous dev run in relaxed durability mode did not stop cleanly, so the embedded \
+             object store lost recent writes; delete the whole data directory {} to start empty, \
+             and use the default processCrashSafe durability mode to survive abrupt exits",
+            data_directory.display()
+        ),
+        StoreError::UncleanSessionWithoutRelaxedSessionMarkers { .. } => format!(
+            "the previous dev run, from a dex-server-zd release that defaulted to relaxed \
+             durability, did not stop cleanly, so the embedded object store may have lost recent \
+             writes; delete the whole data directory {} to start empty, or set \
+             dev.durabilityMode: strict if every earlier run used strict durability",
+            data_directory.display()
+        ),
         StoreError::UnsupportedStoreFormatVersion {
             found, supported, ..
         } => format!(
@@ -212,7 +228,7 @@ fn is_lock_unsupported_error(error: &io::Error) -> bool {
 }
 
 fn open_store(config: &StoreConfig, bucket: &str) -> Result<Store, StoreError> {
-    let store = Store::open(config)?;
+    let store = Store::open_refusing_unclean_relaxed_session(config)?;
     match store.create_bucket(bucket, false) {
         Ok(_) | Err(StoreError::BucketAlreadyOwnedByYou(_)) => Ok(store),
         Err(error) => Err(error),
@@ -290,6 +306,32 @@ mod tests {
             Path::new("/data"),
         );
         assert!(detail.contains("upgrade dex-server-zd"), "{detail}");
+        assert!(detail.contains("whole data directory /data "), "{detail}");
+        assert!(!detail.contains("/data/s3"), "{detail}");
+    }
+
+    #[test]
+    fn unclean_relaxed_session_names_the_whole_data_directory() {
+        let detail = store_open_failure_detail(
+            StoreError::UncleanRelaxedSession {
+                root_directory: PathBuf::from("/data/s3"),
+            },
+            Path::new("/data"),
+        );
+        assert!(detail.contains("did not stop cleanly"), "{detail}");
+        assert!(detail.contains("whole data directory /data "), "{detail}");
+        assert!(!detail.contains("/data/s3"), "{detail}");
+    }
+
+    #[test]
+    fn unclean_session_without_markers_names_the_whole_data_directory() {
+        let detail = store_open_failure_detail(
+            StoreError::UncleanSessionWithoutRelaxedSessionMarkers {
+                root_directory: PathBuf::from("/data/s3"),
+            },
+            Path::new("/data"),
+        );
+        assert!(detail.contains("defaulted to relaxed"), "{detail}");
         assert!(detail.contains("whole data directory /data "), "{detail}");
         assert!(!detail.contains("/data/s3"), "{detail}");
     }

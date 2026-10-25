@@ -80,6 +80,18 @@ pub enum StoreError {
         found: u64,
         supported: u64,
     },
+    #[error(
+        "the relaxed session that last opened {} did not close durably, so the store lost the \
+         writes after its previous durable close",
+        root_directory.display()
+    )]
+    UncleanRelaxedSession { root_directory: PathBuf },
+    #[error(
+        "{} was not closed cleanly by a release that wrote no relaxed session markers, so it may \
+         have lost the writes after its previous durable close",
+        root_directory.display()
+    )]
+    UncleanSessionWithoutRelaxedSessionMarkers { root_directory: PathBuf },
     #[error("metadata store error: {0}")]
     Metadata(#[from] redb::Error),
     #[error("metadata record is corrupt: {0}")]

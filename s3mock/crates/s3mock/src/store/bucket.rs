@@ -8,14 +8,13 @@
 
 //! Bucket lifecycle and versioning configuration.
 
-use std::fs;
 use std::net::Ipv4Addr;
 
 use redb::{ReadableDatabase, ReadableTable};
 
 use super::{
-    ABORTED_UPLOADS, BUCKETS, PARTS, Store, UPLOADS, VERSIONS, decode_json, encode_json,
-    require_bucket,
+    ABORTED_UPLOADS, BUCKETS, PARTS, Store, SupersededPath, UPLOADS, VERSIONS, decode_json,
+    encode_json, require_bucket,
 };
 use crate::error::StoreError;
 use crate::key_codec::{encode_bucket_prefix, prefix_successor};
@@ -61,7 +60,7 @@ impl Store {
 
     /// Deletes a bucket that holds no versions or delete markers.
     pub fn delete_bucket(&self, bucket: &str) -> Result<(), StoreError> {
-        let transaction = self.begin_write()?;
+        let transaction = self.begin_superseding_write()?;
         let record = {
             let mut buckets = transaction.open_table(BUCKETS)?;
             let record = require_bucket(&buckets, bucket)?;
@@ -90,16 +89,11 @@ impl Store {
             }
             record
         };
-        transaction.commit()?;
         let directory = self.bucket_directory(&record);
-        match fs::remove_dir_all(&directory) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                tracing::warn!(path = %directory.display(), %error, "failed to remove deleted bucket directory");
-            }
-        }
-        Ok(())
+        self.commit_and_remove_superseded_paths(
+            transaction,
+            vec![SupersededPath::Directory(directory)],
+        )
     }
 
     /// Returns the bucket record, or `NoSuchBucket`.

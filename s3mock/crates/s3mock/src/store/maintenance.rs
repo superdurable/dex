@@ -75,7 +75,9 @@ impl Store {
             if live_incarnations.contains(&name.as_str()) {
                 continue;
             }
-            if self.is_older_than_open(&name) {
+            // A relaxed bucket deletion holds this lock across its commit and defers the directory.
+            if self.is_older_than_open(&name) && !self.lock_deferred_removals().contains(&directory)
+            {
                 remove_directory(&directory);
             }
         }
@@ -113,7 +115,7 @@ impl Store {
                     continue;
                 }
                 collection.examined_files += 1;
-                if !self.is_referenced(bucket, &name, &path)? {
+                if self.is_orphan(bucket, &name, &path)? {
                     match fs::remove_file(&path) {
                         Ok(()) => collection.removed_files += 1,
                         Err(error) => {
@@ -167,7 +169,10 @@ impl Store {
                 continue;
             }
             if !live_uploads.contains(&upload_id) {
-                remove_directory(&upload_directory);
+                // Relaxed aborts and completions hold this lock across the commit that defers it.
+                if !self.lock_deferred_removals().contains(&upload_directory) {
+                    remove_directory(&upload_directory);
+                }
                 continue;
             }
             // A completion or abort may remove the directory while this scan runs.
@@ -186,7 +191,9 @@ impl Store {
                     continue;
                 }
                 collection.examined_files += 1;
-                if !live_part_files.contains(&path) {
+                if !live_part_files.contains(&path)
+                    && !self.lock_deferred_removals().contains(&path)
+                {
                     match fs::remove_file(&path) {
                         Ok(()) => collection.removed_files += 1,
                         Err(error) => {
@@ -197,6 +204,18 @@ impl Store {
             }
         }
         Ok(())
+    }
+
+    /// A data file is an orphan when no version references it and no relaxed commit deferred it.
+    fn is_orphan(
+        &self,
+        bucket: &BucketRecord,
+        file_name: &str,
+        path: &Path,
+    ) -> Result<bool, StoreError> {
+        // Superseding relaxed commits hold this lock, so both checks see the same state.
+        let deferred_removals = self.lock_deferred_removals();
+        Ok(!deferred_removals.contains(path) && !self.is_referenced(bucket, file_name, path)?)
     }
 
     /// A data file is live when a version of its header's key points back at this file.

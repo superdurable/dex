@@ -479,6 +479,31 @@ rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
 `--attribute-store-config` reads only the `attributeStore` section of a Go Server configuration
 file, which must define at least one store; the `--config` file must not also set `attributeStore`.
 
+`dev.durabilityMode` selects how the embedded s3mock stores acknowledged writes:
+
+| Mode | Survives | Cost |
+| --- | --- | --- |
+| `processCrashSafe` (default) | A process kill: SIGKILL, an OOM kill, or a deleted Pod. A host crash or power loss can lose recent writes. | Close to `relaxed`. Every write reaches the files before the reply, without fsync. |
+| `strict` | A process kill, a host crash, and power loss. | Every write is flushed with fsync. On macOS each flush is a full device flush, so a Flow takes several times longer. |
+| `relaxed` | Only a graceful stop. | Writes stay in memory until `dev` stops gracefully. |
+
+After a process kill in the default or `strict` mode, the next `dev` start on the same data
+directory recovers every acknowledged Flow. A relaxed object store rolls back after an abrupt exit,
+while the local store under `<data-dir>/store` keeps newer state. Every later start then fails, in
+any mode, with an error that names the data directory. Delete the whole data directory to start
+empty.
+
+Upgrading a data directory from an earlier release follows these rules:
+
+- A directory that an earlier release stopped gracefully keeps working in every mode.
+- A directory that an earlier release left after an abrupt exit is refused in the default and
+  `relaxed` modes, because those releases defaulted to `relaxed` and may have rolled back.
+- With `dev.durabilityMode: strict`, the same directory is accepted, and the upgrade is logged at
+  info level. Strict releases fsynced every commit, so the configuration is trusted. Set it only when
+  every earlier run of the directory used `strict`.
+
+After the first start of a release with this rule, the directory is stamped, and any mode works.
+
 `dev` defaults `lease.duration` to 30 seconds, unless the `--config` file sets it; `serve` defaults
 it to 10 seconds. A `dev` node has no standby, so the longer lease costs no failover time and lets
 the node ride out longer host stalls.

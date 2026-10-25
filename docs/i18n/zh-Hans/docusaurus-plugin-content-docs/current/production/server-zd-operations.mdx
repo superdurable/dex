@@ -263,7 +263,10 @@ probe 和 liveness probe。
 的主机停顿。dev 节点对数据目录中的 **dev.lock** 持有排他锁，所以同一目录上的第二个 dev
 进程会启动失败。持有这个锁期间，仍被持有的 lease 一定属于已经停止的进程。dev 节点随后会立即
 接管 lease 并提升 epoch，所以重启不需要等待，崩溃之后也一样。在不支持文件锁的文件系统上，dev
-节点会记录一条警告，并等待 lease 过期，最多 31 秒。
+节点会记录一条警告，并等待 lease 过期，最多 31 秒。默认的 **dev.durabilityMode** 是
+**processCrashSafe**，它在这类崩溃或 kill 之后保留每个已确认的写入，但不能承受主机崩溃或
+断电。**strict** 还能承受主机崩溃。在 **relaxed** 模式下异常退出之后，dev 节点会拒绝启动，
+直到你删除它的数据目录。参见[本地开发](/production/dex-web#run-against-server-zd)。
 
 数据安全不依赖这个时长。每次获得 lease 都会提升节点 epoch，每次日志写入都是条件写。
 两者一起把丢失 lease 的进程隔离在外。

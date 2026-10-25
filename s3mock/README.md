@@ -59,8 +59,26 @@ of its due time instead of on S3's daily schedule. Tests advance the lifecycle c
 waiting days; dates, tag and size filters, and transitions return `501 NotImplemented`.
 
 `--durability strict` (the default) flushes every acknowledged write with fsync, so it survives a
-crash. `--durability relaxed` skips fsync. It is much faster, but a crash may lose acknowledged
-writes, so do not use it for crash-recovery tests.
+host crash. `--durability process-crash-safe` writes every acknowledged write to its files before
+replying, without fsync. It survives a process kill but not a host crash or power loss, and it is
+almost as fast as relaxed. `--durability relaxed` keeps commits in memory until a durable commit.
+It is the fastest, but any crash may lose acknowledged writes, so do not use it for crash-recovery
+tests. After a crash, a relaxed store reopens at its last durable commit, and every object it lists
+is readable, and every listed multipart part can still complete. Relaxed mode keeps the object data
+files, part files, bucket directories, and upload directories that a write supersedes until a later
+durable commit. That commit happens on close, and before a superseding write once about 256
+removals wait. The bound is approximate, because concurrent writes that pass the check together
+each add their removals.
+
+`Store::open_refusing_unclean_relaxed_session` is for an embedding process that derives other state
+from the store. In relaxed mode it writes a `relaxed-session-open` marker before the store opens,
+and only a durable close removes it. When the marker remains after a crash, every later call fails
+with `StoreError::UncleanRelaxedSession`. The first guarded open of a directory also writes a
+`relaxed-session-markers` stamp. A directory without the stamp that redb must repair, because its
+last process did not close it, fails with `StoreError::UncleanSessionWithoutRelaxedSessionMarkers`.
+A strict guarded open is the exception: it trusts the configuration, accepts the directory, stamps
+it, and logs the upgrade.
+`Store::open` and the `s3mock` command never check the marker or the stamp.
 
 ## Store format
 

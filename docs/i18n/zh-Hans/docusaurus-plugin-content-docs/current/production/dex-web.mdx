@@ -172,6 +172,18 @@ server-zd YAML 文件，可以覆盖已关闭 Flow 的保留时间、Stream 或�
 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md#start-locally)
 列出了全部 flag。
 
+默认情况下，server-zd 在回复之前把每个已确认的写入写入文件，但不执行 fsync。
+因此进程被 kill 不会丢失 Flow，下次启动会从同一个状态目录继续。主机崩溃或断电可能
+丢失最近的写入。**dev.durabilityMode: strict** 覆盖项还能承受主机崩溃，但每次写入
+都要等待 fsync，在 macOS 上慢得多。**dev.durabilityMode: relaxed** 覆盖项会把写入
+保留在内存中，直到优雅停止。在 relaxed 模式下崩溃或被 kill 之后，server-zd 会拒绝
+启动，直到你删除状态目录。
+
+早期 server-zd release 默认使用 relaxed 模式。因此，早期 release 在崩溃或被 kill 后
+留下的状态目录，在默认模式和 relaxed 模式下都会被拒绝。如果该目录之前每次运行都使用
+**dev.durabilityMode: strict**，请保留这个覆盖项。server-zd 会接受该目录，因为 strict
+模式已经把每个写入刷到磁盘。早期 release 优雅停止后留下的目录在所有模式下都可以使用。
+
 ~~~bash
 dexcli dev --engine zd --flow-rendering-dir ./build
 ~~~

@@ -162,6 +162,8 @@ impl From<StoreError> for S3Error {
             }
             StoreError::CorruptDataFile { .. }
             | StoreError::UnsupportedStoreFormatVersion { .. }
+            | StoreError::UncleanRelaxedSession { .. }
+            | StoreError::UncleanSessionWithoutRelaxedSessionMarkers { .. }
             | StoreError::Metadata(_)
             | StoreError::CorruptMetadata(_)
             | StoreError::Io(_) => {

@@ -306,7 +306,12 @@ that directory fails to start. While it holds the lock, a held lease belongs to
 a stopped process. The dev node then takes the lease over at once with a raised
 epoch, so a restart does not wait, even after a crash. On a filesystem that
 cannot lock files, the dev node logs a warning and waits for the lease to
-expire, up to 31 seconds.
+expire, up to 31 seconds. The default **dev.durabilityMode**,
+**processCrashSafe**, keeps every acknowledged write across such a crash or
+kill, but not across a host crash or power loss. **strict** also survives a
+host crash. After an abrupt exit in **relaxed** mode, the dev node refuses to
+start until you delete its data directory. See
+[local development](/production/dex-web#run-against-server-zd).
 
 Data safety does not depend on the duration. Each lease acquisition raises the
 node epoch, and every log write is conditional. Together they fence a process

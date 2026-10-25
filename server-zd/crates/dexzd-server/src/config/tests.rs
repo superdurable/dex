@@ -190,7 +190,7 @@ fn replay_check_yaml_override_reaches_the_engine_node() {
 fn dev_flags_override_yaml_and_create_documented_local_layout() {
     let temporary = tempfile::tempdir().expect("test directory");
     let yaml_path = temporary.path().join("config.yaml");
-    fs::write(&yaml_path, "cluster:\n  nodeId: other\nobjectStore:\n  endpoint: 'https://external.invalid'\n  region: other-region\napi:\n  listen: '0.0.0.0:9000'\nsearch:\n  backend: paradedb\n  paradeDbConnectionString: postgres://localhost/dex\nstreamStore:\n  backend: disabled\ndev:\n  durabilityMode: strict\n").expect("write test config");
+    fs::write(&yaml_path, "cluster:\n  nodeId: other\nobjectStore:\n  endpoint: 'https://external.invalid'\n  region: other-region\napi:\n  listen: '0.0.0.0:9000'\nsearch:\n  backend: paradedb\n  paradeDbConnectionString: postgres://localhost/dex\nstreamStore:\n  backend: disabled\ndev:\n  durabilityMode: relaxed\n").expect("write test config");
     let data_directory = temporary.path().join("data");
     let log_directory = temporary.path().join("logs");
     let options = DevCommandOptions {
@@ -213,7 +213,10 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         options.data_dir.join("store")
     );
     assert_eq!(configuration.dev.log_directory, Some(log_directory));
-    assert_eq!(configuration.dev.durability_mode, DevDurabilityMode::Strict);
+    assert_eq!(
+        configuration.dev.durability_mode,
+        DevDurabilityMode::Relaxed
+    );
     assert_eq!(configuration.object_store.bucket, "dex-dev");
     assert_eq!(configuration.object_store.endpoint, "http://127.0.0.1:0");
     assert_eq!(configuration.object_store.region, "us-east-1");
@@ -243,7 +246,10 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         defaults.local_storage.directory,
         temporary.path().join("other-data/store")
     );
-    assert_eq!(defaults.dev.durability_mode, DevDurabilityMode::Relaxed);
+    assert_eq!(
+        defaults.dev.durability_mode,
+        DevDurabilityMode::ProcessCrashSafe
+    );
     assert_eq!(defaults.search.backend, SearchBackend::Builtin);
     assert_eq!(defaults.stream_store.backend, StreamStoreBackend::Memory);
     assert_eq!(defaults.object_store.endpoint, "http://127.0.0.1:0");
@@ -371,11 +377,19 @@ fn load_file_reports_io_and_field_failures() {
     fs::write(&complete, "cluster:\n  nodeId: node-a\nobjectStore:\n  bucket: dex-test\nlocalStorage:\n  directory: /tmp/dexzd\n").expect("write complete config");
     Config::load_file(&complete).expect("load complete production config");
     let with_dev = temporary.path().join("with-dev.yaml");
-    fs::write(&with_dev, "cluster:\n  nodeId: node-a\nobjectStore:\n  bucket: dex-test\nlocalStorage:\n  directory: /tmp/dexzd\ndev:\n  durabilityMode: strict\n").expect("write config with a dev section");
+    fs::write(&with_dev, "cluster:\n  nodeId: node-a\nobjectStore:\n  bucket: dex-test\nlocalStorage:\n  directory: /tmp/dexzd\ndev:\n  logDirectory: /tmp/dexzd-logs\n").expect("write config with a dev section");
     assert!(matches!(
         Config::load_file(&with_dev),
         Err(ConfigError::Invalid { field: "dev", .. })
     ));
+    for durability_mode in ["strict", "processCrashSafe", "relaxed"] {
+        let with_durability_mode = temporary
+            .path()
+            .join(format!("with-{durability_mode}.yaml"));
+        fs::write(&with_durability_mode, format!("cluster:\n  nodeId: node-a\nobjectStore:\n  bucket: dex-test\nlocalStorage:\n  directory: /tmp/dexzd\ndev:\n  durabilityMode: {durability_mode}\n")).expect("write config with a dev durability mode");
+        Config::load_file(&with_durability_mode)
+            .expect("a serve configuration copied from either example keeps loading");
+    }
 }
 
 #[test]

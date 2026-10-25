@@ -22,8 +22,8 @@ mod object_write;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicI64;
+use std::sync::{Mutex, MutexGuard};
 
 use redb::{
     Database, ReadOnlyDatabase, ReadableDatabase, ReadableTable, Table, TableDefinition,
@@ -36,6 +36,7 @@ use ulid::Ulid;
 use crate::error::StoreError;
 use crate::key_codec::{encode_object_key, prefix_successor};
 use crate::record::{BucketRecord, VersionRecord};
+use crate::unsynced_file_backend::UnsyncedFileBackend;
 
 pub use credential::{CredentialRecord, CredentialStatus};
 pub use lifecycle::LifecycleRun;
@@ -85,6 +86,12 @@ const METADATA_FILE_NAME: &str = "metadata.redb";
 const DATA_DIRECTORY_NAME: &str = "data";
 const TEMPORARY_DIRECTORY_NAME: &str = "tmp";
 const NULL_VERSION_ID: &str = "null";
+/// Exists while a guarded relaxed session is open; only its durable close removes it.
+const RELAXED_SESSION_MARKER_FILE_NAME: &str = "relaxed-session-open";
+/// Shows that every guarded open of the directory wrote relaxed session markers.
+const RELAXED_SESSION_MARKERS_STAMP_FILE_NAME: &str = "relaxed-session-markers";
+/// Deferred removals that force a durable commit; concurrent writes may each add theirs beyond it.
+const DEFERRED_REMOVAL_LIMIT: usize = 256;
 
 /// How much the store waits for stable storage before acknowledging a write.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -92,6 +99,8 @@ pub enum Durability {
     /// Every acknowledged write survives a crash: data files and metadata are flushed with fsync.
     #[default]
     Strict,
+    /// Every acknowledged write reaches the files without fsync: it survives a process kill, not a host crash.
+    ProcessCrashSafe,
     /// Writes skip fsync; a crash may lose acknowledged writes, so crash tests are invalid.
     Relaxed,
 }
@@ -132,6 +141,56 @@ pub struct Store {
     opened_at_unix_ms: u64,
     /// Added to wall-clock time for lifecycle decisions only.
     lifecycle_clock_offset_ms: AtomicI64,
+    /// Relaxed mode keeps superseded files until a durable commit, so a rollback finds them.
+    deferred_removals: Mutex<DeferredRemovals>,
+    /// Set by [`Store::open_refusing_unclean_relaxed_session`] in relaxed mode.
+    relaxed_session_marker: Option<PathBuf>,
+}
+
+/// A data file, part file, bucket directory, or upload directory whose metadata a commit dropped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SupersededPath {
+    DataFile(PathBuf),
+    Directory(PathBuf),
+}
+
+impl SupersededPath {
+    fn path(&self) -> &Path {
+        match self {
+            SupersededPath::DataFile(path) | SupersededPath::Directory(path) => path,
+        }
+    }
+}
+
+/// Paths that relaxed commits superseded, each waiting for a durable commit after its own.
+#[derive(Default)]
+struct DeferredRemovals {
+    next_sequence: u64,
+    /// In increasing sequence order.
+    paths: Vec<(u64, SupersededPath)>,
+}
+
+impl DeferredRemovals {
+    fn defer(&mut self, paths: Vec<SupersededPath>) {
+        for path in paths {
+            self.paths.push((self.next_sequence, path));
+            self.next_sequence += 1;
+        }
+    }
+
+    /// Returns and forgets the paths deferred before `covered_sequence` was read.
+    fn take_covered(&mut self, covered_sequence: u64) -> Vec<SupersededPath> {
+        let covered = self
+            .paths
+            .partition_point(|(sequence, _)| *sequence < covered_sequence);
+        self.paths.drain(..covered).map(|(_, path)| path).collect()
+    }
+
+    fn contains(&self, path: &Path) -> bool {
+        self.paths
+            .iter()
+            .any(|(_, deferred)| deferred.path() == path)
+    }
 }
 
 impl Store {
@@ -155,7 +214,11 @@ impl Store {
         if metadata_path.try_exists()? {
             check_store_format_version_read_only(&metadata_path, &config.root_directory)?;
         }
-        let database = Database::create(&metadata_path)?;
+        let database = match config.durability {
+            Durability::ProcessCrashSafe => Database::builder()
+                .create_with_backend(UnsyncedFileBackend::open(&metadata_path)?)?,
+            Durability::Strict | Durability::Relaxed => Database::create(&metadata_path)?,
+        };
         // redb flushes file contents, not the directory entry of a newly created database file.
         if is_durable {
             crate::data_file::sync_directory(&config.root_directory)?;
@@ -178,10 +241,66 @@ impl Store {
             version_generator: Mutex::new(version_generator),
             opened_at_unix_ms: opened_at.timestamp_ms(),
             lifecycle_clock_offset_ms: AtomicI64::new(0),
+            deferred_removals: Mutex::new(DeferredRemovals::default()),
+            relaxed_session_marker: None,
         };
         store.create_tables(is_format_version_stamped)?;
         store.remove_temporary_files()?;
         Ok(store)
+    }
+
+    /// Opens like [`Store::open`], but refuses a store that may have rolled back.
+    ///
+    /// Only a durable close removes a relaxed session marker. A crash or kill leaves it behind.
+    ///
+    /// A strict configuration is trusted for an unstamped store. Strict fsynced every earlier commit.
+    ///
+    /// Returns [`StoreError::UncleanRelaxedSession`] in any mode while a relaxed session marker remains.
+    ///
+    /// Returns [`StoreError::UncleanSessionWithoutRelaxedSessionMarkers`] for an unstamped unclean store, unless configured strict.
+    pub fn open_refusing_unclean_relaxed_session(
+        config: &StoreConfig,
+    ) -> Result<Store, StoreError> {
+        let root_directory = &config.root_directory;
+        let marker_path = root_directory.join(RELAXED_SESSION_MARKER_FILE_NAME);
+        let stamp_path = root_directory.join(RELAXED_SESSION_MARKERS_STAMP_FILE_NAME);
+        // Refused before any `Store` exists, because its drop would make the rollback durable.
+        if marker_path.try_exists()? {
+            return Err(StoreError::UncleanRelaxedSession {
+                root_directory: root_directory.clone(),
+            });
+        }
+        let metadata_path = root_directory.join(METADATA_FILE_NAME);
+        if !stamp_path.try_exists()? {
+            if metadata_path.try_exists()? && was_closed_uncleanly(&metadata_path)? {
+                // A strict configuration fsynced every earlier commit, so redb's repair loses none.
+                if config.durability != Durability::Strict {
+                    return Err(StoreError::UncleanSessionWithoutRelaxedSessionMarkers {
+                        root_directory: root_directory.clone(),
+                    });
+                }
+                tracing::info!(directory = %root_directory.display(), "accepting an unstamped strict store that was not closed cleanly, and stamping it");
+            }
+            create_directory_durably(root_directory, true)?;
+            create_file_durably(&stamp_path, root_directory)?;
+        }
+        let is_relaxed = config.durability == Durability::Relaxed;
+        if is_relaxed {
+            create_file_durably(&marker_path, root_directory)?;
+        }
+        match Store::open(config) {
+            Ok(mut store) => {
+                store.relaxed_session_marker = is_relaxed.then_some(marker_path);
+                Ok(store)
+            }
+            Err(error) => {
+                // No write happened, so the marker records nothing to refuse.
+                if is_relaxed && let Err(removal_error) = fs::remove_file(&marker_path) {
+                    tracing::warn!(path = %marker_path.display(), %removal_error, "failed to remove the relaxed session marker after a failed open");
+                }
+                Err(error)
+            }
+        }
     }
 
     /// Creates missing tables and stamps the current format version on an unstamped store.
@@ -207,14 +326,82 @@ impl Store {
     fn begin_write(&self) -> Result<WriteTransaction, StoreError> {
         let mut transaction = self.database.begin_write()?;
         transaction.set_durability(match self.durability {
-            Durability::Strict => redb::Durability::Immediate,
+            Durability::Strict | Durability::ProcessCrashSafe => redb::Durability::Immediate,
             Durability::Relaxed => redb::Durability::None,
         })?;
         Ok(transaction)
     }
 
+    /// Returns whether writes fsync files and directories.
     fn is_durable(&self) -> bool {
         self.durability == Durability::Strict
+    }
+
+    /// Returns whether commits stay in memory until a durable commit.
+    fn is_relaxed(&self) -> bool {
+        self.durability == Durability::Relaxed
+    }
+
+    /// Begins a write that may supersede paths, first flushing deferred removals at their limit.
+    ///
+    /// Returns the flush error without writing, so a failing flush cannot grow the deferred list.
+    fn begin_superseding_write(&self) -> Result<WriteTransaction, StoreError> {
+        if self.is_relaxed() && self.lock_deferred_removals().paths.len() >= DEFERRED_REMOVAL_LIMIT
+        {
+            self.make_relaxed_commits_durable()?;
+        }
+        self.begin_write()
+    }
+
+    /// Commits `transaction`, then removes the data files whose metadata it dropped.
+    fn commit_and_remove_superseded_files(
+        &self,
+        transaction: WriteTransaction,
+        superseded_files: Vec<PathBuf>,
+    ) -> Result<(), StoreError> {
+        self.commit_and_remove_superseded_paths(
+            transaction,
+            superseded_files
+                .into_iter()
+                .map(SupersededPath::DataFile)
+                .collect(),
+        )
+    }
+
+    /// Commits `transaction`, then removes the paths whose metadata it dropped.
+    ///
+    /// Relaxed mode defers the removal until a durable commit covers this one.
+    fn commit_and_remove_superseded_paths(
+        &self,
+        transaction: WriteTransaction,
+        superseded_paths: Vec<SupersededPath>,
+    ) -> Result<(), StoreError> {
+        if !self.is_relaxed() || superseded_paths.is_empty() {
+            transaction.commit()?;
+            remove_superseded_paths(&superseded_paths);
+            return Ok(());
+        }
+        // Held across the commit, so orphan collection sees each path referenced or deferred.
+        let mut deferred_removals = self.lock_deferred_removals();
+        transaction.commit()?;
+        deferred_removals.defer(superseded_paths);
+        Ok(())
+    }
+
+    /// Makes every earlier relaxed commit durable, then removes the paths they superseded.
+    fn make_relaxed_commits_durable(&self) -> Result<(), StoreError> {
+        let covered_sequence = self.lock_deferred_removals().next_sequence;
+        // The default durability is immediate, which also persists every earlier relaxed commit.
+        self.database.begin_write()?.commit()?;
+        let removable = self.lock_deferred_removals().take_covered(covered_sequence);
+        remove_superseded_paths(&removable);
+        Ok(())
+    }
+
+    fn lock_deferred_removals(&self) -> MutexGuard<'_, DeferredRemovals> {
+        self.deferred_removals
+            .lock()
+            .expect("no code panics while holding the deferred removal lock")
     }
 
     fn next_internal_version(&self) -> Ulid {
@@ -246,18 +433,42 @@ impl Store {
 impl Drop for Store {
     /// Relaxed commits reach disk only after a durable commit, so flush one on close.
     fn drop(&mut self) {
-        if self.durability == Durability::Strict {
+        if !self.is_relaxed() {
             return;
         }
-        let flushed = self
-            .database
-            .begin_write()
-            .map_err(StoreError::from)
-            .and_then(|transaction| transaction.commit().map_err(StoreError::from));
-        if let Err(error) = flushed {
+        if let Err(error) = self.make_relaxed_commits_durable() {
             tracing::warn!(%error, "failed to flush relaxed metadata commits on close");
+            return;
+        }
+        if let Some(marker_path) = &self.relaxed_session_marker {
+            remove_relaxed_session_marker(marker_path);
         }
     }
+}
+
+/// Removes the marker durably, so a host crash after a clean close cannot restore it.
+fn remove_relaxed_session_marker(marker_path: &Path) {
+    let removed = fs::remove_file(marker_path)
+        .and_then(|()| crate::data_file::sync_directory(&parent_directory(marker_path)));
+    if let Err(error) = removed {
+        tracing::warn!(path = %marker_path.display(), %error, "failed to remove the relaxed session marker after a durable close");
+    }
+}
+
+/// Returns whether redb needs a repair, which means the last process did not close it.
+fn was_closed_uncleanly(metadata_path: &Path) -> Result<bool, StoreError> {
+    match ReadOnlyDatabase::open(metadata_path) {
+        Ok(_) => Ok(false),
+        Err(redb::DatabaseError::RepairAborted) => Ok(true),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Creates an empty file and flushes it and its directory entry.
+fn create_file_durably(path: &Path, directory: &Path) -> Result<(), StoreError> {
+    fs::File::create(path)?.sync_all()?;
+    crate::data_file::sync_directory(directory)?;
+    Ok(())
 }
 
 /// Checks the format version without writing, when redb can open the file read-only.
@@ -412,11 +623,18 @@ fn refresh_latest(
     Ok(())
 }
 
-/// Removes data files whose metadata a committed transaction already dropped.
-fn remove_superseded_files(paths: &[PathBuf]) {
-    for path in paths {
-        if let Err(error) = fs::remove_file(path) {
-            tracing::warn!(path = %path.display(), %error, "failed to remove superseded data file");
+/// Removes paths whose metadata a committed transaction already dropped.
+fn remove_superseded_paths(paths: &[SupersededPath]) {
+    for superseded in paths {
+        let removed = match superseded {
+            SupersededPath::DataFile(path) => fs::remove_file(path),
+            SupersededPath::Directory(path) => match fs::remove_dir_all(path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                other => other,
+            },
+        };
+        if let Err(error) = removed {
+            tracing::warn!(path = %superseded.path().display(), %error, "failed to remove a superseded path");
         }
     }
 }
