@@ -76,22 +76,26 @@ that the suite skips with pull Workers. Both versions also passed the two pull W
 run against a real server.
 
 The `sdk-go/v1.15.0` suite predates server-zd, so it expects Go Server behavior in these areas.
-From `sdk-go/v1.16.0` on, the suite skips these tests on server-zd or asserts server-zd behavior:
+The `sdk-go/v1.16.0` suite skips unsupported cases or asserts server-zd behavior. The released
+`sdk-go/v1.17.0` and `sdk-go/v1.20.0` suites run the cancellation cases with Go Server
+expectations and fail against server-zd versions that support Step failure policies. The
+server-zd cancellation expectations below apply from the next Go SDK release containing this change.
 
 | Area | server-zd behavior | Affected tests |
 | --- | --- | --- |
-| Step failure policies | Through `server-zd/v0.1.1`, proceed-on-failure and proceed-to-configured-Step policies are rejected with `InvalidArgument`. A Worker Step decision that sets one fails the attempt. Later versions run them like the Go Server. | `TestProceedOnWaitForFailureFlow`, `TestStepRecovery`, and five `TestStepCancellation` scenarios |
+| Step failure policies | Through `server-zd/v0.1.1`, proceed-on-failure and proceed-to-configured-Step policies are rejected with `InvalidArgument`. A Worker Step decision that sets one fails the attempt. Later versions run them like the Go Server. See ASYNC Step cancellation and Canceled Step handlers below for related engine differences. | `TestProceedOnWaitForFailureFlow`, `TestStepRecovery`, and five `TestStepCancellation` scenarios |
 | Flow retry policies | StartFlow with a Flow retry policy returns `InvalidArgument`. | `TestBasicFlow` |
 | TriggerContinueAsNew | Returns `Unimplemented`. | `TestActionPermissionProjectionContinueAsNew`, `TestSubFlowPartialResultsSurviveContinueAsNewWithoutRestart` |
 | ASYNC Step heartbeats | Heartbeat checkpoints are kept from the first attempt. | `TestAsyncLocalHeartbeatIsIgnoredAndStreamsAreRetained` |
-| ASYNC Step cancellation | An ASYNC Step has no local phase, so cancellation ends its first handler invocation. | `TestStepCancellation` (`local-execute`, `local-timeout-fallback`) |
-| Canceled Step handlers | A pull Worker observes handler context cancellation even without a heartbeat timeout. | `TestStepCancellation` (`no-heartbeat`) |
+| ASYNC Step cancellation | An ASYNC Step has no local phase. Its handler runs once on server-zd; the Go Server runs a local invocation and then a remote one. | `TestStepCancellation` (`local-execute`, `local-timeout-fallback`) |
+| Canceled Step handlers | A pull Worker observes handler context cancellation without a heartbeat timeout, including for an ASYNC Step. | `TestStepCancellation` (`no-heartbeat`, `local-execute`) |
 | Push Workers | Not supported. | `TestMessageSizeHydrationSplitsBlobBatchesAboveLimit` (push-only) |
 
 The [released Go SDK compatibility workflow](../.github/workflows/server-zd-sdk-go-compatibility.yml)
 repeats this check after each server-zd release. It runs the newest `sdk-go` release's suite
 against the Linux amd64 binary. A manual run can choose any server-zd tag and any `sdk-go` tag
-from `sdk-go/v1.16.0` on.
+from `sdk-go/v1.16.0` on. The newest-release check remains red until a Go SDK release includes
+the cancellation expectations above.
 
 ## Metrics
 
