@@ -129,12 +129,15 @@ func (proxy *tlsTestProxy) forward(downstream net.Conn) {
 		}
 	}()
 	tlsConnection := downstream.(*tls.Conn)
-	if err := tlsConnection.Handshake(); err != nil || tlsConnection.ConnectionState().NegotiatedProtocol != "h2" {
+	if err := tlsConnection.Handshake(); err != nil {
 		return
 	}
-	proxy.mu.Lock()
-	proxy.serverNames = append(proxy.serverNames, tlsConnection.ConnectionState().ServerName)
-	proxy.mu.Unlock()
+	// Non-h2 connections are forwarded too, so a client that skipped ALPN enforcement would succeed.
+	if tlsConnection.ConnectionState().NegotiatedProtocol == "h2" {
+		proxy.mu.Lock()
+		proxy.serverNames = append(proxy.serverNames, tlsConnection.ConnectionState().ServerName)
+		proxy.mu.Unlock()
+	}
 	upstream, err := net.Dial("tcp", proxy.upstream)
 	if err != nil {
 		return
@@ -313,8 +316,8 @@ func TestFlowServiceTLSRejectsUnsupportedAddresses(t *testing.T) {
 	require.NoError(t, err)
 	cache := newPullSDKCache(t)
 	for _, address := range []string{
-		"unix:8443", "passthrough:443", "dns:443", "unix:///tmp/dex.sock",
-		"unix:/tmp/dex.sock", "dns:///localhost/path:443", "https://localhost:443",
+		"unix:8443", "Unix:8443", "passthrough:443", "Passthrough:443", "dns:443", "unix:///tmp/dex.sock",
+		"UNIX:///tmp/dex.sock", "unix:/tmp/dex.sock", "dns:///localhost/path:443", "https://localhost:443",
 	} {
 		t.Run(address, func(t *testing.T) {
 			_, err := dex.NewClient(registry, cache, dex.ClientOptions{
@@ -323,72 +326,76 @@ func TestFlowServiceTLSRejectsUnsupportedAddresses(t *testing.T) {
 			require.ErrorContains(t, err, "FlowServiceAddress as host:port, dns:///host:port, or dns://authority/host:port")
 		})
 	}
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+		FlowServiceAddress: "DNS:///localhost:443", FlowServiceTLS: &dex.FlowServiceTLSOptions{},
+	})
+	require.NoError(t, err, "gRPC resolves an uppercase dns scheme with its DNS resolver")
+	require.NoError(t, client.Close())
 }
 
 func TestFlowServiceTLSRejectsServerWithoutHTTP2ALPN(t *testing.T) {
-	address, caPEM, proxy := startTLSFlowServiceProxyWithConfig(t, "127.0.0.1:0", []string{"http/1.1"})
-	registry, err := dex.NewRegistry(nil)
-	require.NoError(t, err)
-	client, err := dex.NewClient(registry, newPullSDKCache(t), dex.ClientOptions{
-		FlowServiceAddress: address,
-		FlowServiceTLS:     &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM},
-	})
-	require.NoError(t, err)
-	defer func() { require.NoError(t, client.Close()) }()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	_, err = client.SearchFlows(ctx, "FlowType = 'tlsTransportFlow'", 1, "")
-	require.ErrorContains(t, err, "no application protocol")
-	require.False(t, proxy.hasObservedServerName(""))
+	for _, testCase := range []struct {
+		name       string
+		nextProtos []string
+		want       string
+	}{
+		{name: "HTTP/1.1 only", nextProtos: []string{"http/1.1"}, want: "no application protocol"},
+		{name: "no ALPN", want: "missing selected ALPN property"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			address, caPEM, proxy := startTLSFlowServiceProxyWithConfig(t, "127.0.0.1:0", testCase.nextProtos)
+			registry, err := dex.NewRegistry(nil)
+			require.NoError(t, err)
+			client, err := dex.NewClient(registry, newPullSDKCache(t), dex.ClientOptions{
+				FlowServiceAddress: address,
+				FlowServiceTLS:     &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM},
+			})
+			require.NoError(t, err)
+			defer func() { require.NoError(t, client.Close()) }()
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_, err = client.SearchFlows(ctx, "FlowType = 'tlsTransportFlow'", 1, "")
+			require.ErrorContains(t, err, testCase.want)
+			require.False(t, proxy.hasObservedServerName(""))
+		})
+	}
 }
 
 func TestFlowServiceTLSDNSTargetAndServerNameOverride(t *testing.T) {
 	for _, testCase := range []struct {
-		name                   string
-		usesDNSTarget          bool
-		usesServerNameOverride bool
-		usesIPv6               bool
-		usesDNSAuthority       bool
+		name           string
+		bindAddress    string
+		targetPrefix   string
+		usesLocalhost  bool
+		serverName     string
+		wantServerName string
 	}{
-		{name: "DNS target", usesDNSTarget: true},
-		{name: "server name override", usesServerNameOverride: true},
-		{name: "IPv6 literal", usesDNSTarget: true, usesIPv6: true},
-		{name: "DNS authority", usesDNSTarget: true, usesDNSAuthority: true},
+		{name: "DNS target", bindAddress: "127.0.0.1:0", targetPrefix: "dns:///", usesLocalhost: true, wantServerName: "localhost"},
+		{name: "server name override", bindAddress: "127.0.0.1:0", serverName: "localhost", wantServerName: "localhost"},
+		{name: "IPv6 literal", bindAddress: "[::1]:0"},
+		{name: "IPv6 DNS target", bindAddress: "[::1]:0", targetPrefix: "dns:///"},
+		// An IP endpoint never queries the authority's DNS server, so this only proves the form is accepted.
+		{name: "DNS authority form accepted", bindAddress: "127.0.0.1:0", targetPrefix: "dns://127.0.0.1:53/"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			bindAddress := "127.0.0.1:0"
-			if testCase.usesIPv6 {
-				bindAddress = "[::1]:0"
-			}
-			proxyAddress, caPEM, proxy := startTLSFlowServiceProxyWithConfig(t, bindAddress, []string{"h2"})
-			address := proxyAddress
-			if testCase.usesDNSTarget {
-				host, port, err := net.SplitHostPort(proxyAddress)
+			proxyAddress, caPEM, proxy := startTLSFlowServiceProxyWithConfig(t, testCase.bindAddress, []string{"h2"})
+			endpoint := proxyAddress
+			if testCase.usesLocalhost {
+				_, port, err := net.SplitHostPort(proxyAddress)
 				require.NoError(t, err)
-				if testCase.usesIPv6 {
-					address = "dns:///" + net.JoinHostPort(host, port)
-				} else if testCase.usesDNSAuthority {
-					address = "dns://127.0.0.1:53/" + net.JoinHostPort(host, port)
-				} else {
-					address = "dns:///localhost:" + port
-				}
+				endpoint = net.JoinHostPort("localhost", port)
 			}
-			tlsOptions := &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM}
-			if testCase.usesServerNameOverride {
-				tlsOptions.ServerName = "localhost"
-			}
+			tlsOptions := &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM, ServerName: testCase.serverName}
 			registry, err := dex.NewRegistry(nil)
 			require.NoError(t, err)
-			client, err := dex.NewClient(registry, newPullSDKCache(t), dex.ClientOptions{FlowServiceAddress: address, FlowServiceTLS: tlsOptions})
+			client, err := dex.NewClient(registry, newPullSDKCache(t), dex.ClientOptions{
+				FlowServiceAddress: testCase.targetPrefix + endpoint, FlowServiceTLS: tlsOptions,
+			})
 			require.NoError(t, err)
 			defer func() { require.NoError(t, client.Close()) }()
 			_, err = client.SearchFlows(integrationContext(t), "FlowType = 'tlsTransportFlow'", 1, "")
 			require.NoError(t, err)
-			wantServerName := "localhost"
-			if testCase.usesIPv6 || testCase.usesDNSAuthority {
-				wantServerName = ""
-			}
-			require.True(t, proxy.hasObservedServerName(wantServerName), "TLS proxy did not observe expected SNI %q", wantServerName)
+			require.True(t, proxy.hasObservedServerName(testCase.wantServerName), "TLS proxy did not observe expected SNI %q", testCase.wantServerName)
 		})
 	}
 }

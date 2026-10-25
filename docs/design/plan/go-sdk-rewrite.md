@@ -1310,7 +1310,9 @@ over TLS 1.2 or newer with ALPN h2. The address uses `host:443`,
 `dns:///host:443`, or `dns://authority/host:443` for TLS. Other gRPC resolver
 schemes and HTTP URLs are rejected.
 `FlowServiceTLSOptions.AdditionalRootCAsPEM` extends the system root
-pool; `ServerName` defaults to the address host. Invalid PEM fails construction.
+pool; `ServerName` defaults to the address host. An empty `ServerName` keeps the
+target's `host:port` as the HTTP/2 `:authority`; a nonempty one is sent as the
+`:authority` without a port. Invalid PEM fails construction.
 The same option applies to the Worker's FlowService connection, including pull
 task streams and blob hydration. The listening WorkerService stays plaintext.
 Existing Credentials work with either transport. The other SDKs will gain the

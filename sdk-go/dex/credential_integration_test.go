@@ -32,13 +32,16 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// credentialRecorder records the authorization metadata of every FlowService call it receives.
+// credentialRecorder records the authorization metadata, :authority, and TLS SNI of every FlowService call it receives.
 type credentialRecorder struct {
 	mu             sync.Mutex
 	authorizations map[string][]string
+	authorities    map[string][]string
+	tlsServerNames map[string][]string
 }
 
 func (recorder *credentialRecorder) intercept(
@@ -47,10 +50,7 @@ func (recorder *credentialRecorder) intercept(
 	info *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler,
 ) (interface{}, error) {
-	incoming, _ := metadata.FromIncomingContext(ctx)
-	recorder.mu.Lock()
-	recorder.authorizations[info.FullMethod] = append(recorder.authorizations[info.FullMethod], incoming.Get("authorization")...)
-	recorder.mu.Unlock()
+	recorder.record(ctx, info.FullMethod)
 	return handler(ctx, req)
 }
 
@@ -60,11 +60,23 @@ func (recorder *credentialRecorder) interceptStream(
 	info *grpc.StreamServerInfo,
 	handler grpc.StreamHandler,
 ) error {
-	incoming, _ := metadata.FromIncomingContext(stream.Context())
-	recorder.mu.Lock()
-	recorder.authorizations[info.FullMethod] = append(recorder.authorizations[info.FullMethod], incoming.Get("authorization")...)
-	recorder.mu.Unlock()
+	recorder.record(stream.Context(), info.FullMethod)
 	return handler(service, stream)
+}
+
+func (recorder *credentialRecorder) record(ctx context.Context, fullMethod string) {
+	incoming, _ := metadata.FromIncomingContext(ctx)
+	tlsServerName := ""
+	if callPeer, hasPeer := peer.FromContext(ctx); hasPeer {
+		if tlsInfo, isTLS := callPeer.AuthInfo.(credentials.TLSInfo); isTLS {
+			tlsServerName = tlsInfo.State.ServerName
+		}
+	}
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	recorder.authorizations[fullMethod] = append(recorder.authorizations[fullMethod], incoming.Get("authorization")...)
+	recorder.authorities[fullMethod] = append(recorder.authorities[fullMethod], incoming.Get(":authority")...)
+	recorder.tlsServerNames[fullMethod] = append(recorder.tlsServerNames[fullMethod], tlsServerName)
 }
 
 func (recorder *credentialRecorder) received(fullMethod string) []string {
@@ -73,11 +85,49 @@ func (recorder *credentialRecorder) received(fullMethod string) []string {
 	return append([]string(nil), recorder.authorizations[fullMethod]...)
 }
 
+func (recorder *credentialRecorder) receivedAuthorities(fullMethod string) []string {
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	return append([]string(nil), recorder.authorities[fullMethod]...)
+}
+
+func (recorder *credentialRecorder) receivedTLSServerNames(fullMethod string) []string {
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	return append([]string(nil), recorder.tlsServerNames[fullMethod]...)
+}
+
 func startCredentialRecordingFlowService(t *testing.T, service dexpb.FlowServiceServer, serverOptions ...grpc.ServerOption) (string, *credentialRecorder) {
 	t.Helper()
-	recorder := &credentialRecorder{authorizations: map[string][]string{}}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+	addresses, recorder := startCredentialRecordingFlowServiceOnAddresses(t, []string{"127.0.0.1:0"}, service, serverOptions...)
+	return addresses[0], recorder
+}
+
+func startCredentialRecordingFlowServiceOnAddresses(
+	t *testing.T,
+	bindAddresses []string,
+	service dexpb.FlowServiceServer,
+	serverOptions ...grpc.ServerOption,
+) ([]string, *credentialRecorder) {
+	t.Helper()
+	recorder := &credentialRecorder{
+		authorizations: map[string][]string{}, authorities: map[string][]string{}, tlsServerNames: map[string][]string{},
+	}
+	listeners := make([]net.Listener, 0, len(bindAddresses))
+	t.Cleanup(func() {
+		for _, listener := range listeners {
+			if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+				require.NoError(t, err)
+			}
+		}
+	})
+	addresses := make([]string, 0, len(bindAddresses))
+	for _, bindAddress := range bindAddresses {
+		listener, err := net.Listen("tcp", bindAddress)
+		require.NoError(t, err)
+		listeners = append(listeners, listener)
+		addresses = append(addresses, listener.Addr().String())
+	}
 	grpcServer := grpc.NewServer(append([]grpc.ServerOption{
 		grpc.UnaryInterceptor(recorder.intercept), grpc.StreamInterceptor(recorder.interceptStream),
 	}, serverOptions...)...)
@@ -85,16 +135,17 @@ func startCredentialRecordingFlowService(t *testing.T, service dexpb.FlowService
 	if pullService, ok := service.(dexpb.WorkerTaskServiceServer); ok {
 		dexpb.RegisterWorkerTaskServiceServer(grpcServer, pullService)
 	}
-	serveResult := make(chan error, 1)
-	go func() { serveResult <- grpcServer.Serve(listener) }()
+	serveResults := make(chan error, len(listeners))
+	for _, listener := range listeners {
+		go func() { serveResults <- grpcServer.Serve(listener) }()
+	}
 	t.Cleanup(func() {
 		grpcServer.Stop()
-		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			require.NoError(t, err)
+		for range listeners {
+			requireServeStopped(t, <-serveResults)
 		}
-		requireServeStopped(t, <-serveResult)
 	})
-	return listener.Addr().String(), recorder
+	return addresses, recorder
 }
 
 func TestClientCredentialsReachFlowServiceOverTLS(t *testing.T) {
@@ -154,6 +205,54 @@ func TestClientCredentialsReachFlowServiceOverTLS(t *testing.T) {
 	require.NoError(t, <-workerResult)
 }
 
+func TestFlowServiceTLSSendsTargetAuthority(t *testing.T) {
+	caPEM, certificate := newCredentialTLSCertificate(t)
+	addresses, recorder := startCredentialRecordingFlowServiceOnAddresses(t, []string{"127.0.0.1:0", "[::1]:0"},
+		&workerSyncFlowService{}, grpc.Creds(credentials.NewTLS(&tls.Config{
+			Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"},
+		})))
+	ipv4Address, ipv6Address := addresses[0], addresses[1]
+	_, ipv4Port, err := net.SplitHostPort(ipv4Address)
+	require.NoError(t, err)
+	registry, err := NewRegistry(nil)
+	require.NoError(t, err)
+	cache, err := blobcache.New(&blobcache.Config{Dir: t.TempDir(), MaxBytes: 1 << 20})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, cache.Close()) })
+	for _, testCase := range []struct {
+		name              string
+		address           string
+		serverName        string
+		wantAuthority     string
+		wantTLSServerName string
+	}{
+		{name: "IPv6 literal", address: ipv6Address, wantAuthority: ipv6Address},
+		{name: "IPv6 DNS target", address: "dns:///" + ipv6Address, wantAuthority: ipv6Address},
+		{name: "localhost", address: "localhost:" + ipv4Port, wantAuthority: "localhost:" + ipv4Port, wantTLSServerName: "localhost"},
+		{name: "localhost DNS target", address: "dns:///localhost:" + ipv4Port, wantAuthority: "localhost:" + ipv4Port, wantTLSServerName: "localhost"},
+		{name: "server name override", address: ipv4Address, serverName: "localhost", wantAuthority: "localhost", wantTLSServerName: "localhost"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			tlsOptions := &FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM, ServerName: testCase.serverName}
+			transportCredentials, err := flowServiceTransportCredentials(testCase.address, tlsOptions)
+			require.NoError(t, err)
+			require.Equal(t, testCase.serverName, transportCredentials.Info().ServerName)
+			client, err := NewClient(registry, cache, ClientOptions{FlowServiceAddress: testCase.address, FlowServiceTLS: tlsOptions})
+			require.NoError(t, err)
+			defer func() { require.NoError(t, client.Close()) }()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_, err = client.service.GetServerInfo(ctx, &emptypb.Empty{})
+			require.NoError(t, err)
+			authorities := recorder.receivedAuthorities(dexpb.FlowService_GetServerInfo_FullMethodName)
+			require.NotEmpty(t, authorities)
+			require.Equal(t, testCase.wantAuthority, authorities[len(authorities)-1])
+			tlsServerNames := recorder.receivedTLSServerNames(dexpb.FlowService_GetServerInfo_FullMethodName)
+			require.Equal(t, testCase.wantTLSServerName, tlsServerNames[len(tlsServerNames)-1])
+		})
+	}
+}
+
 type credentialPullFlowService struct {
 	workerSyncFlowService
 	registrationTestServer
@@ -206,7 +305,7 @@ func newCredentialTLSCertificate(t *testing.T) ([]byte, tls.Certificate) {
 	serverTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "localhost"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
-		DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
 		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 	serverDER, err := x509.CreateCertificate(rand.Reader, serverTemplate, caCertificate, &serverKey.PublicKey, caKey)
