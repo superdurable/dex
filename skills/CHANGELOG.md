@@ -2,9 +2,9 @@
 
 ## 0.50.0 - 2026-10-25
 
-- Advance the Go SDK baseline and its pinned source links to sdk-go/v1.21.0. Keep Java, Python, TypeScript, Rust, Server, and CLI baselines at v1.20.0. Document Go `Client.DescribeFlow` as a non-waiting status read for a known Flow ID, with its `FlowInfo` fields, errors, and read boundaries. Both Dex Server implementations serve its underlying RPC.
-- Document server-zd v0.1.6 ParadeDB search TLS parameters, certificate verification modes, plaintext default, handshake timeout, and connection-error redaction. Retain the v0.1.3–v0.1.5 lifecycle guidance and links.
-- Extend tagged-source validation and mutation tests for DescribeFlow, search TLS, Go Server Cadence wait limitations, and in-flight update cleanup. Synchronize the bundle and plugin manifests at 0.50.0.
+- Advance the Go SDK baseline and its pinned source links to sdk-go/v1.21.0. Keep Java, Python, TypeScript, Rust, Server, and CLI baselines at v1.20.0. Document Go `Client.DescribeFlow`, the v1.21.0 addition, as a non-waiting status read for a known Flow ID, with its `FlowInfo` fields, Go-only close time, errors, and read boundaries. Name every SDK's DescribeFlow call in Core, since Java `describeFlow`, Python `describe_flow`, TypeScript `describeFlow`, and Rust `describe_flow` already exist at v1.20.0, and add closed-Flow race guidance to the Go, Python, TypeScript, and Rust error references. Both Dex Server implementations serve the underlying RPC; only the Go Server changes the run ID after time travel.
+- Document server-zd v0.1.6 ParadeDB search TLS parameters, certificate verification modes, plaintext default, handshake timeout, and connection-error redaction. Warn that any TLS parameter without `sslmode` selects unverified `prefer` with plaintext fallback, even with a CA file, and recommend an explicit `sslmode`, preferably `verify-full`. Retain the v0.1.3–v0.1.5 lifecycle guidance and links.
+- Extend tagged-source validation and mutation tests for DescribeFlow in every SDK, both Servers' summary and not-found paths, search TLS, Go Server Cadence wait limitations, and in-flight update cleanup. Check each server-zd statement at the release it cites and at v0.1.6. Synchronize the bundle and plugin manifests at 0.50.0.
 
 ## 0.49.0 - 2026-10-25
 

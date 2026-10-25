@@ -32,6 +32,10 @@ Handle `*dex.FlowAlreadyStartedError` with `errors.As`. Inspect the start option
 
 For a failure that leaves acceptance unknown, a bounded retry can call StartFlow again with the same stable identities and options, without an intervening read. Alternatively read owning domain state after the error if it can establish acceptance. Preserve local/validation errors; do not turn every `*dex.ServiceError` into a replay. See the shared [start verification scenarios](../core/testing.md#startflow-ordering-and-retry-identity).
 
+## Closed-Flow races
+
+Follow the shared [closed-Flow race rule](../core/error-handling.md#closed-flow-races). `*dex.FlowNotActiveOrNotFoundError` from a mutation says it found no active target; it does not say the requested action succeeded. First reconcile from authoritative domain state and operation invariants. Call `Client.DescribeFlow` from Go SDK v1.21.0 and inspect `FlowInfo.Status` only when an otherwise unknown terminal distinction changes the outcome. Treat `dex.FlowCompleted` as idempotent success only when successful completion guarantees the requested condition. For another terminal status or a `*dex.FlowNotFoundError`, return an explicit domain failure or unknown outcome. If the Flow still appears running, query its domain state before a bounded, idempotent retry. See [Describe a Flow](observability.md#describe-a-flow) for the result fields and errors.
+
 ## Terminal business reads
 
 Apply the shared [terminal read RPC rule](../core/error-handling.md#terminal-read-rpc-rule) before catching `*dex.FlowNotActiveOrNotFoundError` from a snapshot RPC. Inspect its `dex.DefineRPC` registration in `GetRPCs`: `dex.RPCOptions.LockAttributes` must be empty and `IsTransactional` false for a terminal query. Include any `RPCInvokeOptions.LockAttributeMapInstances` in that check; collection loads alone do not require a transaction. The handler must return only typed output, with no durable effects, and Server policy must permit the query path.
