@@ -132,6 +132,7 @@ impl FlowOperationError {
                     original_worker_error_type: worker_error.error_type,
                     original_worker_error_status: worker_error.grpc_status,
                     original_worker_error_stack_trace: worker_error.stack_trace,
+                    ..ServiceErrorResponse::default()
                 },
             ),
             Self::Unavailable { detail } => (

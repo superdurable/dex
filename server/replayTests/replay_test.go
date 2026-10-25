@@ -26,6 +26,8 @@ import (
 var jsonHistoryFiles = []string{
 	"v6-pull-sync-wait-continue-as-new-CAN1.json",
 	"v6-pull-async-after-continue-as-new-finish.json",
+	"v6-pull-async-wait-continue-as-new-CAN1.json",
+	"v6-pull-async-wait-continue-as-new-finish.json",
 	"v1-pull-async-local-fallback.json",
 	"v1-pull-sticky-continue-as-new-CAN1.json",
 	"v1-pull-sticky-continue-as-new-in-progress.json",

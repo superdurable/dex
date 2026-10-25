@@ -1072,6 +1072,34 @@ func TestMatchingForwardedOwnerOmitsQueueSourceIntegration(t *testing.T) {
 	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED, result.GetQueueSource())
 }
 
+func TestMatchingForwardedStickyDisconnectAfterOutputKeepsQueueSourceIntegration(t *testing.T) {
+	entryMembers := newTestMembership()
+	entry := startTestServer(t, config.MatchingConfig{}, entryMembers)
+	owner := startTestServer(t, config.MatchingConfig{}, newTestMembership())
+	entryMembers.mu.Lock()
+	entryMembers.owners["worker-sticky"] = membership.HostInfo{RPCAddress: owner.listener.Addr().String()}
+	entryMembers.mu.Unlock()
+	worker := registerWorker(t, owner, "worker-sticky", "worker-sticky")
+	dispatch, err := dexpb.NewMatchingServiceClient(entry.connection).DispatchTask(testStreamContext(t), dispatchRequest("worker-sticky", "flow", 500*time.Millisecond, time.Second))
+	require.NoError(t, err)
+	assignment, err := worker.Recv()
+	require.NoError(t, err)
+	assigned, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, assigned.GetAssigned())
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE, assigned.GetQueueSource())
+	require.NoError(t, worker.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: &dexpb.PollWorkerTaskFrame{TaskId: assignment.GetTask().GetTaskId(), Output: &dexpb.PollWorkerTaskFrame_WaitFor{WaitFor: &dexpb.InvokeWaitForMethodOutput{Output: &dexpb.InvokeWaitForMethodOutput_Heartbeat{}}}}}}))
+	progress, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, progress.GetWaitFor().GetHeartbeat())
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE, progress.GetQueueSource())
+	require.NoError(t, worker.CloseSend())
+	failed, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.Equal(t, dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED, failed.GetDispatchError().GetReason())
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE, failed.GetQueueSource())
+}
+
 func TestMatchingStickyEmptyQueueFallsBackImmediatelyIntegration(t *testing.T) {
 	server := startTestServer(t, config.MatchingConfig{}, newTestMembership())
 	fallbackWorker := registerWorkerForFlowTypes(t, server, "fallback", "worker-fallback", []string{"fallback"})

@@ -29,6 +29,14 @@ type pullContinuedRunProbe struct {
 	continuedRunID string
 }
 
+type pullWaitForCompletedProbe struct {
+	test   *testing.T
+	ctx    context.Context
+	client dexpb.FlowServiceClient
+	flowID string
+	runID  string
+}
+
 func (p *pullContinuedRunProbe) hasContinued() bool {
 	var err error
 	p.continuedRunID, err = currentFlowRunID(p.ctx, p.runtime, p.flowID)
@@ -227,6 +235,55 @@ func TestPullRoutingReplayTemporal(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, completed.GetFlowStatus(), completed.GetErrorMessage())
 	t.Logf("replay history Flow ID %s first run %s continued run %s", flowID, started.GetRunId(), probe.continuedRunID)
+}
+
+func TestPullAsyncWaitContinueAsNewReplayTemporal(t *testing.T) {
+	if !*temporalIntegTest || *dexServerAddress != "" {
+		t.Skip()
+	}
+	runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal, Matching: &config.MatchingConfig{}})
+	workerID := "routing-async-replay-worker-" + uuid.NewString()
+	worker := startRawPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, workerID, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	flowID := "pull-async-wait-replay-" + uuid.NewString()
+	started, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId: newRequestID(), FlowId: flowID, FlowType: dispatchProbeFlowType, StartStepType: dispatchProbeStep,
+		FlowTimeoutSeconds: 120, FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			WorkerTarget: &dexpb.WorkerTarget{IsPullMode: true}, StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "wait_for", waitForPullTask(t, worker, flowID).method)
+	waitForProbe := &pullWaitForCompletedProbe{test: t, ctx: ctx, client: runtime.FlowClient, flowID: flowID, runID: started.GetRunId()}
+	require.Eventually(t, waitForProbe.hasCompleted, 10*time.Second, 50*time.Millisecond)
+	requirePullActiveRouting(t, ctx, runtime.FlowClient, flowID, workerID)
+	_, err = runtime.FlowClient.TriggerContinueAsNew(ctx, &dexpb.TriggerContinueAsNewRequest{FlowId: flowID, RunId: started.GetRunId()})
+	require.NoError(t, err)
+	continued := &pullContinuedRunProbe{ctx: ctx, runtime: runtime, flowID: flowID, originalRunID: started.GetRunId()}
+	require.Eventually(t, continued.hasContinued, 10*time.Second, 50*time.Millisecond)
+	requirePullActiveRouting(t, ctx, runtime.FlowClient, flowID, workerID)
+	_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{FlowId: flowID, Messages: []*dexpb.ChannelMessage{{ChannelName: dispatchProbeChannel}}})
+	require.NoError(t, err)
+	require.Equal(t, "execute", waitForPullTask(t, worker, flowID).method)
+	completed, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 15})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, completed.GetFlowStatus(), completed.GetErrorMessage())
+	t.Logf("async replay history Flow ID %s first run %s continued run %s", flowID, started.GetRunId(), continued.continuedRunID)
+}
+
+func (p *pullWaitForCompletedProbe) hasCompleted() bool {
+	history, err := p.client.GetHistoryEvents(p.ctx, &dexpb.GetHistoryEventsRequest{FlowId: p.flowID, RunId: p.runID, EstimatePageSize: 100})
+	if err != nil {
+		p.test.Logf("waiting for WaitFor history: %v", err)
+		return false
+	}
+	for _, event := range history.GetEvents() {
+		if event.GetStepWaitForCompleted() != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func testPullRouting(t *testing.T, backend service.BackendType) {
