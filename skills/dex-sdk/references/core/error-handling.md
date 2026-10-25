@@ -146,11 +146,11 @@ A recovery path receives the final failure that selected it. That path is an Exe
 
 These failure policies run with the same semantics on every Dex Server. server-zd supports them from v0.1.2. Earlier server-zd releases reject them at StartFlow and fail the attempt of a Step decision that sets one.
 
-With Go SDK v1.17.0, **RecoveryErrorInfo** offers **IsMethodTimeout**, **IsHeartbeatTimeout**, and **IsRetryTotalDurationExceeded**. They accept every backend spelling and return false for a nil value. Each one has documented false cases:
+With Go SDK v1.17.0, **RecoveryErrorInfo** offers **IsMethodTimeout**, **IsHeartbeatTimeout**, and **IsRetryTotalDurationExceeded**. They accept every backend spelling and return false for a nil value. Their documented false cases:
 
 - When the call to the Worker fails before Dex records a method timeout, Dex reports a Worker API failure, and **IsMethodTimeout** returns false. A Worker API failure has other causes, such as an unreachable Worker, so do not treat it as a timeout.
-- **IsRetryTotalDurationExceeded** is true only when the retry total duration ended a running attempt. When the total duration ends between attempts, Dex starts no further attempt and reports the final attempt's error type instead.
-- server-zd and the Go Server with Temporal end a running attempt at the retry total duration. On the Go Server, the local phase of an ASYNC Step can also end an attempt this way. The Go Server with Cadence does not, so **IsRetryTotalDurationExceeded** returns false there.
+- **IsRetryTotalDurationExceeded** is true only when the overall deadline of the method call ended a running attempt. When the total duration ends between attempts, Dex starts no further attempt and reports the final attempt's error type instead.
+- server-zd and the Go Server with Temporal end a running attempt at the retry total duration. On the Go Server, the local phase of an ASYNC Step can also end an attempt this way. The Go Server with Cadence does not end a running attempt at the retry total duration, so **IsRetryTotalDurationExceeded** returns false for that case there.
 - An application error type that reuses a backend time-limit name also matches. Give application error types distinct names.
 
 Java, Python, TypeScript, and Rust offer no such predicates at their v1.17.0 baselines. There, record the detail and error type for operators, and branch only on error types the application defines. Treat any other error type as an infrastructure failure rather than matching backend spellings. See the [Go recovery guidance](../go/error-handling.md#commit-and-recovery).

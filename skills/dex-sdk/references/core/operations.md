@@ -338,15 +338,15 @@ The `rowKey`, `columnNaming`, and `attributeMaps` store settings need Dex Server
 
 server-zd is a Dex Server whose only runtime dependency is object storage. It serves the same FlowService API, so the SDKs work unchanged, but it dispatches only to [pull Workers](pull-workers.md). Configure every Worker with the language's pull options and start Flows with the pull Worker target. It is released separately from Dex Server. Follow the [server-zd operation guide](https://docs.superdurable.io/production/server-zd-operations) for deployment, the lease, object storage, metrics, and the configuration mapping from the Go Server.
 
-Step failure policies, including Execute failure routes, WaitFor proceed-on-failure, and timeout-handler failure routes, run with Go Server semantics from server-zd v0.1.2. Earlier releases reject them at StartFlow. See [recovery error types](error-handling.md#recovery-error-types).
+Step failure policies, including Execute failure routes, WaitFor proceed-on-failure, and timeout-handler failure routes, run with Go Server semantics from server-zd v0.1.2. Earlier releases reject them at StartFlow and fail the attempt of a Step decision that sets one. See [recovery error types](error-handling.md#recovery-error-types).
 
 server-zd does not serve Dex Web. Run a web-only `dex-server start --services web` and set `web.flowServiceTarget` to the server-zd plaintext gRPC address. That process creates no Temporal or Cadence connection. When server-zd authentication is on, also set `web.flowServiceCredentialFile`.
 
-For local development, `dexcli dev --engine zd` starts `dex-server-zd` and Dex Web without Temporal. The default engine remains Temporal.
+For local development, CLI v1.16.0 or later runs `dexcli dev --engine zd`, which starts `dex-server-zd` and Dex Web without Temporal. The default engine remains Temporal.
 
 - Install `dex-server-zd` from a server-zd release on PATH, set `DEX_SERVER_ZD_BINARY`, or pass `--zd-binary`.
 - State persists in `$HOME/.dex/zd/<dex-port>` unless `--zd-data-dir` names another directory.
-- With CLI v1.16.0 or later, `--zd-config FILE` passes a `dex-server-zd` YAML file with configuration overrides, such as closed Flow retention, Streams, or the search backend.
+- `--zd-config FILE` passes a `dex-server-zd` YAML file with configuration overrides, such as closed Flow retention, Streams, or the search backend.
 - Logs go to standard error; `--server-log-folder` also writes `dex-server-zd.log`.
 - Temporal and Go Server options, such as `--sqlite-db-filename`, `--external-temporal-address`, `--attribute-store-config`, and `--blob-store-dir`, cannot be combined with `--engine zd`.
 
