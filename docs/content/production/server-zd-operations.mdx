@@ -316,13 +316,17 @@ starts after it.
 The duration only partly affects object storage outages:
 
 - A renewal attempt that fails with a transient error, such as a 5xx or
-  throttling response, is retried.
-- A renewal attempt that hangs is cut off after one sixth of the duration,
-  between 1 and 5 seconds, and retried.
-- A renewal write that lands after its attempt was cut off still counts. The
-  next attempt finds it.
-- Retries continue until 100 ms before the current lease period ends. The node
-  then stops.
+  throttling response, is retried after a backoff.
+- While another attempt still fits, each attempt is cut off after one sixth of
+  the duration, between 1 and 5 seconds. The last attempt may use all the
+  remaining time, so with a long lease it can run longer than 5 seconds.
+- Retries continue only while the next backoff ends before the renewal cutoff,
+  100 ms before the current lease period ends. When no retry fits, or the last
+  attempt fails, the node stops.
+- A renewal write that lands after its attempt was cut off still counts if a
+  later attempt finds it. A later attempt finds it by reading the lease after
+  its own write fails. The node adopts that write only before the renewal
+  cutoff.
 - A renewal lost to another holder, or a permanent storage error, stops the
   node at once.
 - A log write that object storage does not accept within 10 seconds also stops
