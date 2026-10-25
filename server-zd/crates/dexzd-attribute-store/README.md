@@ -90,3 +90,7 @@ Unit tests run with `cargo test -p dexzd-attribute-store`. The Postgres
 integration tests in `postgres_integration_tests` run only when
 `DEX_ZD_PARADEDB_URL` names a database whose user can create schemas and roles;
 CI runs them in the ParadeDB job. Each test uses its own schema and drops it.
+The `postgres_verify_full` tests use `DEX_ZD_TLS_POSTGRES_URL` for a TLS-enabled
+Postgres and `DEX_ZD_TLS_POSTGRES_CA_CERT` for its CA bundle. The URL must name
+`localhost`; the tests also connect through `127.0.0.2` to check host mismatch.
+CI starts a separate Postgres container with a generated self-signed CA.
