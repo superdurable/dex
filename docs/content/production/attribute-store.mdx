@@ -274,3 +274,30 @@ On the Cadence backend, SetAttributes calls and RPC results accepted during
 cleanup are drained for their Attribute writes; terminal processing does not
 start their next Steps. Terminate and engine timeouts are hard stops and may
 leave external storage behind the Flow's state.
+
+## server-zd {#server-zd}
+
+server-zd v0.1.3 or later also syncs Attributes. It uses the same
+**attributeStore** keys and table contract, with these differences:
+
+- Only **type: postgres** is supported.
+- Step, RPC, and SetAttributes commits never wait for the table write. server-zd
+  has no seven-second local phase.
+- Rows normally appear within a second of the commit. Treat the table as
+  eventually consistent.
+- Flows keep running while a store is unavailable. The backlog is written later
+  with the latest values.
+- Entries still pending **syncRetryPolicy.totalDuration** after they were first
+  marked are dropped. The Go Server measures it per batch instead. Later writes
+  of the same Attributes sync normally.
+- After time travel, the run's synced rows are rewritten with the state after
+  the time travel.
+- Each database needs a fencing table.
+- A Flow closes without waiting for its synced Attributes. Rows can land after
+  the Flow completes. The Go Server closes a Flow only after its pending writes
+  are written or dropped.
+- StopFlow closes the run as soon as it commits. A later SetAttributes on that
+  run returns NOT_FOUND. Write what a Flow needs before stopping it.
+
+See [Attribute Store sync](/production/server-zd-operations#attribute-store) in
+the server-zd operation guide.

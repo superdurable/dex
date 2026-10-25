@@ -33,7 +33,7 @@ dex-server-zd serve --config /etc/dex-server-zd/config.yaml
 ~~~
 
 **serve** reads every setting from one YAML file. The
-[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.2/server-zd/config/dex-server-zd.example.yaml)
+[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
 lists every key with its default. An unknown key fails startup. An invalid
 value also fails startup, and the error names the YAML path of the rejected
 field. The image includes the example at
@@ -124,7 +124,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: dex-server-zd
-          image: docker.io/superdurable/dex-server-zd:0.1.2
+          image: docker.io/superdurable/dex-server-zd:0.1.3
           ports:
             - name: grpc
               containerPort: 8801
@@ -450,6 +450,215 @@ Each run records the value when it starts. A new value applies only to runs that
 start after the node restarts with it. Runs that already started keep their
 recorded duration.
 
+## Attribute Store sync {#attribute-store}
+
+server-zd v0.1.3 or later can sync Attributes to PostgreSQL. This is the same
+feature as the Go Dex Server's
+[Custom Attribute Store](/production/attribute-store). A Flow marks an Attribute
+with **syncToAttributeStore** and lists a configured store name in its
+**FlowConfig**. server-zd then writes the Attribute to that store's tables.
+
+The **attributeStore** section uses the Go Server's keys and table contract.
+Create the tables as that page describes. This section covers only what differs
+in server-zd.
+
+### Differences from the Go Dex Server {#attribute-store-differences}
+
+- Only **type: postgres** is supported. The Go Server's **mysql**,
+  **databricks**, **snowflake**, and **mongodb** stores fail validation, so
+  startup fails. Keep those stores on the Go Server.
+- Step, RPC, and SetAttributes commits never wait for the table write. server-zd
+  has no seven-second local phase.
+- Rows normally appear within a second of the commit. Treat the table as
+  eventually consistent.
+- While a store is unavailable, Flows keep running. When the store recovers,
+  server-zd writes the backlog with the latest values.
+- Entries still pending **syncRetryPolicy.totalDuration** after they were first
+  marked are dropped. The Go Server instead gives each batch its own
+  **totalDuration** from its first attempt, and its batches wait in turn. Later
+  writes of the same Attributes sync normally.
+- After [time travel](/primitives/client/advanced#time-travel), server-zd
+  rewrites every row the run synced with the state after the time travel. The Go
+  Server does not rewrite them.
+- Each database needs a [fencing table](#attribute-store-fencing-table). The Go
+  Server needs none.
+- A Flow closes without waiting for its synced Attributes. Rows can land after
+  the Flow completes. The Go Server closes a Flow only after its pending writes
+  are written or dropped.
+- StopFlow closes the run as soon as it commits. A later SetAttributes on that
+  run returns NOT_FOUND. The Go Server accepts such writes while a canceled or
+  failed run winds down. Write what a Flow needs before stopping it.
+
+### Configuration {#attribute-store-configuration}
+
+~~~yaml
+attributeStore:
+  stores:
+    orders:
+      type: postgres
+      dsn: ""
+      tableName: public.orders
+      rowKey: order-{order_id}
+      columnNaming: snake_case
+      attributeMaps:
+        Items:
+          tableName: public.order_items
+          instanceKeyColumn: item_key
+      fencingTableName: dexzd_attribute_sync_fencing
+  schemaSyncInterval: 1m
+  syncBatchSize: 100
+  syncAttemptTimeout: 30s
+  syncRetryPolicy:
+    initialInterval: 100ms
+    backoffCoefficient: 2.0
+    maximumInterval: 30s
+    maximumAttempts: 0
+    totalDuration: 1h
+~~~
+
+The keys and defaults match the Go Server. As in the Go Server, an explicit zero
+for a duration, **syncBatchSize**, or a retry policy field means its default.
+The
+[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
+shows the section with comments.
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| **stores** | Empty | Maps each store name that a **FlowConfig** may list to a PostgreSQL destination. Empty disables sync and rejects every store name that a **FlowConfig** lists. |
+| **stores.NAME.type** | None | Must be **postgres**. |
+| **stores.NAME.dsn** | Empty | PostgreSQL connection string. When it is empty, server-zd reads an environment variable instead. Logs redact it. |
+| **stores.NAME.tableName** | None | Main table, as **table** or **schema.table**. |
+| **stores.NAME.rowKey**, **columnNaming**, and **attributeMaps** | Empty | Same as the Go Server. |
+| **stores.NAME.flowIdColumn**, **databaseName**, and **collectionName** | Empty | Must stay empty. Only Go warehouse and MongoDB stores use them. |
+| **stores.NAME.fencingTableName** | **dexzd_attribute_sync_fencing** | Exists only in server-zd. See [Fencing table](#attribute-store-fencing-table). |
+| **schemaSyncInterval** | 1m | Time between table schema refreshes, with 90–110% jitter. A write to an unknown column refreshes the schema at once. |
+| **syncBatchSize** | 100 | Most Attributes and AttributeMap instances of one run that one transaction writes. A run with more pending values uses several transactions. |
+| **syncAttemptTimeout** | 30s | Upper bound of one write transaction. See [Write timeout](#attribute-store-write-timeout). |
+| **syncRetryPolicy.initialInterval** | 100ms | Delay after the first failed write. |
+| **syncRetryPolicy.backoffCoefficient** | 2 | Multiplies the delay after each failed write. Must be positive and finite. |
+| **syncRetryPolicy.maximumInterval** | 30s | Longest delay between attempts. Must not be less than **initialInterval**. |
+| **syncRetryPolicy.maximumAttempts** | 0, unlimited | Consecutive failed writes of one run's entries, after which the entries are dropped. The count lives in memory, so it starts again after a restart. |
+| **syncRetryPolicy.totalDuration** | 1h | Entries still pending this long after they were first marked are dropped. |
+
+Leave **dsn** empty to keep the connection string out of the configuration file.
+server-zd then reads **DEX_ZD_ATTRIBUTE_STORE_DSN_** followed by the store name
+in upper case. Every character other than an ASCII letter or digit becomes an
+underscore. For the store **orders**, the variable is
+**DEX_ZD_ATTRIBUTE_STORE_DSN_ORDERS**. A store without a DSN in either place
+fails validation.
+
+### Fencing table {#attribute-store-fencing-table}
+
+Every write transaction raises a fencing token row to the node's epoch. A node
+that lost its [lease](#lease) therefore cannot overwrite newer values.
+
+Each database needs this table, named by **fencingTableName**. One table serves
+every store and every cluster in the database. server-zd never creates or alters
+tables. Create the table as the table owner before startup. Then grant
+**SELECT**, **INSERT**, and **UPDATE** on it to the role that server-zd connects
+as. Replace **dex** with that role.
+
+~~~sql
+CREATE TABLE dexzd_attribute_sync_fencing (
+  store_name text NOT NULL,
+  cluster_id text NOT NULL,
+  scope text NOT NULL,
+  fencing_token bigint NOT NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (store_name, cluster_id, scope)
+);
+GRANT SELECT, INSERT, UPDATE ON dexzd_attribute_sync_fencing TO dex;
+~~~
+
+You may delete the rows of a permanently stopped cluster. Never delete the rows
+of a running cluster.
+
+Startup connects to every store and checks its tables. Any failure fails
+startup, including an unreachable store or a missing fencing table. For a
+missing fencing table, the error includes the **CREATE TABLE** statement.
+Startup does not check grants. Without them, the fencing table looks missing,
+or every write fails with a permission error.
+
+### Write timeout {#attribute-store-write-timeout}
+
+A write transaction lasts at most **syncAttemptTimeout** or a quarter of
+**lease.duration**, whichever is smaller. A quarter of **lease.duration** is
+also the lease margin. A write starts only while more than the transaction
+timeout plus the margin of lease validity remains. The PostgreSQL
+**statement_timeout** equals the transaction timeout. A COMMIT sent just before
+the deadline therefore still lands before the lease ends.
+
+The timeout plus the margin is at most half of **lease.duration**. That is less
+than the two thirds of validity left when a lease renewal starts, so writes
+rarely wait for a renewal. With the default 10-second lease, a transaction lasts
+at most 2.5 seconds. With a 60-second lease, it lasts at most 15 seconds.
+
+### Retries and dropped entries {#attribute-store-retries}
+
+Failed writes are retried with the **syncRetryPolicy** backoff until
+**totalDuration**, like the Go Server. The failure decides what backs off:
+
+- **Store.** A connection failure, or another failure of the whole store, backs
+  off every run of that store.
+- **Run.** A failure caused by the written values or by a conflict with another
+  session backs off only that run. Other Flows keep syncing. Examples are a
+  constraint violation, a value too long for its column, a deadlock, and a
+  serialization failure.
+- **Timeout.** A transaction that exceeds the transaction timeout, for example
+  while it waits for a row lock, also backs off only that run.
+
+After a timeout, the run's retries use half as many statements per transaction,
+down to one. After a timeout, one statement writes all of the run's plain
+Attributes in one transaction, so the main row is not partly updated. Each AttributeMap
+instance is one statement, so a timed-out run's instances can land in different
+transactions. Each transaction that commits is acknowledged, so a retry writes
+only the rest.
+
+When three runs of a store time out with no commit in between, the whole store
+backs off. The retry after a store backoff starts with other runs than the one
+that failed. A newer run of the same Flow ID waits for the older run, so rows
+keep run order.
+
+Entries still pending **syncRetryPolicy.totalDuration** after they were first
+marked are dropped with an error log. Later writes of the same Attributes sync
+normally. **dexzd_attribute_sync_dropped_entries_total** counts dropped entries.
+It also counts entries that the store rejected with a non-retryable error.
+
+### Monitoring {#attribute-store-monitoring}
+
+| Metric | Meaning |
+| --- | --- |
+| **dexzd_attribute_sync_backlog_entries** | Entries waiting to be written, as of the last scan |
+| **dexzd_attribute_sync_oldest_pending_age_seconds** | Age of the oldest pending entry's retry window, 0 when none |
+| **dexzd_attribute_sync_write_failures_total** with **failure_kind** | Failed write transactions. **failure_kind** is **retryable** or **non_retryable**. Non-retryable failures drop their entries. |
+| **dexzd_attribute_sync_dropped_entries_total** | Entries dropped after the retry policy was exhausted or the store rejected them |
+| **dexzd_attribute_sync_fenced_writes_total** | Writes rejected because a newer owner raised the fencing token |
+
+~~~text
+# Dropped Attribute Sync entries
+increase(dexzd_attribute_sync_dropped_entries_total[10m]) > 0
+
+# Attribute Sync entries pending for more than 5 minutes
+dexzd_attribute_sync_oldest_pending_age_seconds > 300
+~~~
+
+### Local development {#attribute-store-local-development}
+
+**dex-server-zd dev** runs one local node with embedded object storage. Its
+**--attribute-store-config** flag reads only the **attributeStore** section of a
+Go Server configuration file. That section must define at least one store. The
+**--config** overrides file must not also set **attributeStore**.
+
+~~~bash
+dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-store.yaml
+~~~
+
+The database still needs its tables and the fencing table.
+**dexcli dev --engine zd --attribute-store-config** passes the file to this
+flag. It needs dexcli v1.19.0 or later. The Go Server rejects
+**fencingTableName**, so a file it also loads must use the default fencing table
+name.
+
 ## Metrics {#metrics}
 
 Set **metrics.listen** to serve plain HTTP **GET /metrics** on its own listener,
@@ -476,6 +685,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Timers | **dexzd_timer_lag_seconds** |
 | Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
 | Local disk | **dexzd_local_storage_bytes** |
+| Attribute Store sync | See [Monitoring](#attribute-store-monitoring) |
 
 **rpc_class** is one of **flow_write**, **flow_read**, **search**,
 **worker_poll**, and **worker_respond**. **code** is the gRPC status code in
@@ -499,7 +709,7 @@ increase(dexzd_lease_renewals_total{outcome="error"}[10m]) > 0
 
 The full catalog, with types, histogram buckets, and Linux process metrics, is
 in the
-[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.2/server-zd/README.md#metrics).
+[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/README.md#metrics).
 
 ## Authentication
 
@@ -590,7 +800,7 @@ it loads unchanged.
 | **log** | **RUST_LOG** environment variable | Logs go to standard error. The default level is **info**. |
 | No key; **SearchFlows** uses Temporal or Cadence visibility | **search.backend** | **builtin** (default) or **paradedb**. |
 | **blobStore** | None | server-zd keeps every value under its object storage prefix. Hard-delete values can use **objectStore.hardDeleteStore**. |
-| **attributeStore** | None | Not available in server-zd 0.1. |
+| **attributeStore** | **attributeStore** | Same keys, in server-zd v0.1.3 or later. Only **type: postgres** is supported. **flowIdColumn**, **databaseName**, and **collectionName** must stay empty. **fencingTableName** exists only in server-zd, and each database needs a fencing table. See [Attribute Store sync](#attribute-store). |
 | **interpreter** | None | server-zd uses no Temporal or Cadence backend. |
 | **membership** and **internal** | None | A cluster runs one node and has no internal listener. |
 | **web** | None | server-zd does not serve Dex Web. Run a web-only Dex Server that points at server-zd. See [Run against server-zd](/production/dex-web#run-against-server-zd). |

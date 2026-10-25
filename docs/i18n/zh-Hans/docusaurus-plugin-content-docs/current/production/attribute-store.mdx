@@ -238,3 +238,22 @@ transactional RPC 会被拒绝。在 Cadence 后端上，cleanup 期间已经接
 调用和 RPC result 会完成对应的 Attribute 写入，但 terminal processing 不会启动它们的
 next Step。Terminate 和 engine timeout 是 hard stop，可能使 external storage 落后于
 Flow state。
+
+## server-zd {#server-zd}
+
+server-zd v0.1.3 或更高版本也能同步 Attribute。它使用相同的 **attributeStore**
+键和表契约，但有以下差异：
+
+- 只支持 **type: postgres**。
+- Step、RPC 和 SetAttributes 的提交从不等待表写入。server-zd 没有七秒的 local 阶段。
+- 行通常在提交后一秒内出现。应把这张表视为最终一致。
+- store 不可用时，Flow 继续运行。积压的数据稍后用最新的值写入。
+- 首次标记后经过 **syncRetryPolicy.totalDuration** 仍未写入的 entry 会被丢弃。Go Server 则按 batch
+  分别计算。之后对同一 Attribute 的写入照常同步。
+- Time travel 之后，该 run 同步过的行会用 time travel 之后的状态重写。
+- 每个数据库都需要一张 fencing 表。
+- Flow 关闭时不等待同步的 Attribute，行可能在 Flow 完成之后才写入。Go Server 要等待写入的值都写完或被丢弃后才关闭 Flow。
+- StopFlow 一提交，run 就会关闭。之后对该 run 的 SetAttributes 返回 NOT_FOUND。Flow 需要的数据请在停止之前写入。
+
+详见 server-zd 运维指南中的
+[Attribute Store 同步](/production/server-zd-operations#attribute-store)。
