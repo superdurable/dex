@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dexzd_engine::{CommandCommitter, NodeStopReason};
-use dexzd_postgres_connection::{ConnectionSettings, MissingSslMode};
+use dexzd_postgres_connection::ConnectionSettings;
 use dexzd_search::SearchBackend;
 use dexzd_search::paradedb::{ParadeDbProjector, ParadeDbSearchBackend, ProjectionVisibilityWait};
 use tokio::sync::mpsc;
@@ -154,9 +154,8 @@ impl SearchProjection {
 
 /// Applies `search.paradeDbSchema` through the search path, as transaction poolers keep no session state.
 fn postgres_configuration(search: &SearchConfig) -> Result<ConnectionSettings, ServerError> {
-    let mut configuration = ConnectionSettings::parse_with_missing_ssl_mode(
+    let mut configuration = ConnectionSettings::parse_for_search(
         &search.parade_db_connection_string,
-        MissingSslMode::Disable,
     )
     .map_err(|reason| {
         ServerError::Config(ConfigError::Invalid {

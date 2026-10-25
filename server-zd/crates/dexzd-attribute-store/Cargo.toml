@@ -13,7 +13,6 @@ bytes.workspace = true
 dexzd-protocol.workspace = true
 dexzd-postgres-connection.workspace = true
 rand.workspace = true
-rustls.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 thiserror.workspace = true
 time.workspace = true
@@ -25,6 +24,7 @@ unicode-properties.workspace = true
 
 [dev-dependencies]
 rcgen.workspace = true
+rustls.workspace = true
 tempfile.workspace = true
 tokio-rustls.workspace = true
 

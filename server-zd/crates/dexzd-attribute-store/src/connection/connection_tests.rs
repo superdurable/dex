@@ -28,6 +28,12 @@ const SSL_REQUEST: [u8; 8] = [0, 0, 0, 8, 4, 210, 22, 47];
 /// The SQLSTATE the fake server returns once TLS and the startup message succeed.
 const REACHED_SERVER_SQLSTATE: &str = "28000";
 
+#[test]
+fn legacy_sslsni_value_loads_for_attribute_store() {
+    ConnectionSettings::parse("host=localhost sslsni=true")
+        .expect("Attribute Store accepts existing SNI values");
+}
+
 #[tokio::test]
 async fn verify_full_accepts_a_matching_certificate_from_the_bundle() {
     let certificates = issue_certificates(&["localhost"]);

@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use dexzd_keyspace::{PartitionId, RunId, TenantId};
-use dexzd_postgres_connection::{ConnectionSettings, MissingSslMode};
+use dexzd_postgres_connection::ConnectionSettings;
 use dexzd_protocol::dex::{self, FlowStatus, IndexType};
 use dexzd_protocol::dexzd::v1::{LogPosition, SearchAttributeValue, SearchDocumentRecord};
 use dexzd_visibility_query::{
@@ -67,16 +67,29 @@ impl SearchDocument for Document {
 #[tokio::test]
 async fn paradedb_projection_and_search_use_direct_tls() {
     let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_TLS_URL") else {
+        assert!(
+            !matches!(
+                std::env::var("DEX_ZD_REQUIRE_PARADEDB_TLS").as_deref(),
+                Ok("1")
+            ),
+            "the direct TLS test requires DEX_ZD_PARADEDB_TLS_URL"
+        );
         return;
     };
     let certificate_path = std::env::var("DEX_ZD_PARADEDB_TLS_CA_CERT")
         .expect("TLS ParadeDB test requires its CA certificate");
     let plaintext_configuration: tokio_postgres::Config =
         database_url.parse().expect("parse CI TLS ParadeDB URL");
-    assert!(
-        plaintext_configuration.connect(NoTls).await.is_err(),
-        "TLS-only ParadeDB must reject a plaintext startup"
-    );
+    let plaintext_error = plaintext_configuration
+        .connect(NoTls)
+        .await
+        .err()
+        .expect("TLS-only ParadeDB must reject a plaintext startup");
+    let database_error = plaintext_error
+        .as_db_error()
+        .expect("plaintext startup must receive a PostgreSQL rejection");
+    assert_eq!(database_error.code().code(), "28000");
+    assert!(database_error.message().contains("no encryption"));
 
     for (ssl_mode, partition_id, run_id) in [
         ("require", PartitionId(1), RunId([1; 16])),
@@ -91,8 +104,7 @@ async fn paradedb_projection_and_search_use_direct_tls() {
             "{database_url}?sslmode={ssl_mode}&sslnegotiation=direct&connect_timeout=5{root_certificate}"
         );
         let settings =
-            ConnectionSettings::parse_with_missing_ssl_mode(&dsn, MissingSslMode::Disable)
-                .expect("parse direct TLS ParadeDB DSN");
+            ConnectionSettings::parse_for_search(&dsn).expect("parse direct TLS ParadeDB DSN");
         let backend = Arc::new(
             ParadeDbSearchBackend::connect_with_settings(
                 &settings,

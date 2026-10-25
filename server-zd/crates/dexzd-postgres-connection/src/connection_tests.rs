@@ -12,7 +12,7 @@ use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, DnType, IsCa, 
 use tempfile::NamedTempFile;
 use tokio_postgres::config::SslMode;
 
-use super::{ConnectionSettings, MissingSslMode};
+use super::ConnectionSettings;
 use crate::dsn::{TlsParameters, split_tls_parameters};
 
 #[test]
@@ -93,6 +93,11 @@ fn ssl_modes_follow_pgx() {
         ),
         ("host=localhost".to_owned(), SslMode::Prefer, true),
         (
+            "host=localhost sslsni=true".to_owned(),
+            SslMode::Prefer,
+            true,
+        ),
+        (
             "host=localhost sslmode=allow".to_owned(),
             SslMode::Prefer,
             true,
@@ -135,7 +140,6 @@ fn ssl_modes_follow_pgx() {
     for (dsn, message) in [
         ("host=localhost sslmode=bogus", "sslmode is invalid"),
         ("host=localhost sslnegotiation=bogus", "sslnegotiation"),
-        ("host=localhost sslsni=bogus", "sslsni is invalid"),
         (
             "host=localhost sslmode=allow sslnegotiation=direct",
             "sslnegotiation=direct",
@@ -161,7 +165,7 @@ fn issue_ca_certificate() -> String {
     ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     ca_params
         .distinguished_name
-        .push(DnType::CommonName, "Attribute Store test CA");
+        .push(DnType::CommonName, "Postgres connection test CA");
     let ca = CertifiedIssuer::self_signed(ca_params, ca_key).expect("self-sign the CA");
     ca.pem()
 }
@@ -175,27 +179,27 @@ fn write_ca(ca_pem: &str) -> NamedTempFile {
 
 #[test]
 fn search_plaintext_default_preserves_no_tls_connections() {
-    let plain = ConnectionSettings::parse_with_missing_ssl_mode(
-        "postgres://dex:secret@localhost/dex",
-        MissingSslMode::Disable,
-    )
-    .expect("valid plaintext DSN");
+    let plain = ConnectionSettings::parse_for_search("postgres://dex:secret@localhost/dex")
+        .expect("valid plaintext DSN");
     assert_eq!(plain.configuration().get_ssl_mode(), SslMode::Disable);
     assert!(plain.tls.is_none());
 
-    let timed_plain = ConnectionSettings::parse_with_missing_ssl_mode(
+    let timed_plain = ConnectionSettings::parse_for_search(
         "postgres://dex:secret@localhost/dex?connect_timeout=5",
-        MissingSslMode::Disable,
     )
     .expect("valid plaintext DSN with a timeout");
     assert_eq!(timed_plain.configuration().get_ssl_mode(), SslMode::Disable);
     assert!(timed_plain.tls.is_none());
 
-    let direct = ConnectionSettings::parse_with_missing_ssl_mode(
+    let direct = ConnectionSettings::parse_for_search(
         "postgres://dex:secret@localhost/dex?sslnegotiation=direct",
-        MissingSslMode::Disable,
     )
     .expect("valid direct negotiation DSN");
     assert_eq!(direct.configuration().get_ssl_mode(), SslMode::Require);
     assert!(direct.tls.is_some());
+
+    let invalid_sni = ConnectionSettings::parse_for_search("host=localhost sslsni=bogus")
+        .err()
+        .expect("search must reject invalid sslsni");
+    assert!(invalid_sni.to_string().contains("sslsni is invalid"));
 }

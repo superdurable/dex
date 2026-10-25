@@ -29,6 +29,7 @@ synchronization.
 | `dexzd-stream-store` | In-memory Stream store |
 | `dexzd-storage` | Local RocksDB state store and snapshots |
 | `dexzd-worker-dispatch` | Pull Worker protocol server |
+| `dexzd-postgres-connection` | PostgreSQL connection string parsing and TLS connections for Attribute Store and search |
 | `dexzd-search` | SearchFlows backends |
 | `dexzd-engine` | Commit pipeline, Flow runtime, effects, recovery |
 | `dexzd-api` | FlowService gRPC handlers and public API authentication |
@@ -342,9 +343,11 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   requires PostgreSQL 17 or later. For example,
   `postgres://role:pw@host:5432/db?sslmode=require&sslnegotiation=direct` opens TLS before the
   startup message. `sslmode=require` with `sslrootcert` verifies the certificate chain;
-  `sslmode=verify-full` also verifies the host name. Without TLS parameters, the connection
-  remains plaintext for compatibility with existing deployments. The connect timeout covers the
-  TLS handshake and authentication, including reconnects.
+  `sslmode=verify-full` also verifies the host name. `sslrootcert=system` forces `verify-full`.
+  Without TLS parameters, the connection remains plaintext for compatibility with existing
+  deployments. Explicit `sslmode=prefer` first attempts TLS without certificate verification;
+  previously it remained plaintext. `sslmode=allow` with `sslnegotiation=direct` is invalid.
+  The connect timeout covers the TLS handshake and authentication, including reconnects.
 - A `search.paradeDbSchema` other than `public` is applied as the `search_path` connection option.
   A transaction pooler must pass that startup option through; otherwise keep the tables in `public`.
 - A background task copies each committed partition frame's search documents to ParadeDB. Commits

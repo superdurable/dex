@@ -209,15 +209,7 @@ impl ConnectionSlot {
                     "connect to ParadeDB timed out after {timeout:?}"
                 )),
                 ConnectionError::Database(source) => {
-                    let sqlstate = source
-                        .as_db_error()
-                        .map_or("none", |error| error.code().code());
-                    let message = format!("connect to ParadeDB: SQLSTATE {sqlstate}");
-                    if is_transient_database_error(&source) {
-                        SearchError::Unavailable(message)
-                    } else {
-                        SearchError::Internal(message)
-                    }
+                    classify_database_error("connect to ParadeDB", source)
                 }
             })?;
         let connection_task = tokio::spawn(async move {

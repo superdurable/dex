@@ -47,9 +47,12 @@ const VALUE_CHECKED_KEYWORDS: [&str; 14] = [
     "load_balance_hosts",
 ];
 
+/// Selects the TLS mode when a connection string omits `sslmode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MissingSslMode {
+    /// Try TLS first, following the existing Attribute Store behavior.
     Prefer,
+    /// Use plaintext unless another TLS parameter is present; then try TLS first.
     Disable,
 }
 
@@ -60,25 +63,35 @@ pub struct ConnectionSettings {
     tls: Option<MakeRustlsConnect>,
 }
 
+/// Drives one PostgreSQL connection until it closes or its owner drops the task.
 pub type ConnectionDriver = Pin<Box<dyn Future<Output = Result<(), tokio_postgres::Error>> + Send>>;
 
+/// Contains a connected client and the future that drives its connection.
 pub struct OpenConnection {
+    /// Sends PostgreSQL requests over the connection.
     pub client: Client,
+    /// Must be polled or spawned while the client is in use.
     pub driver: ConnectionDriver,
 }
 
+/// Reports a connection string or TLS configuration error without exposing the DSN.
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectionSettingsError {
+    /// The connection string is malformed or contains an unsupported option.
     #[error("{0}")]
     InvalidDsn(String),
+    /// A TLS option or certificate could not be used.
     #[error("{0}")]
     InvalidTls(String),
 }
 
+/// Reports a PostgreSQL connection failure or timeout.
 #[derive(thiserror::Error)]
 pub enum ConnectionError {
+    /// The PostgreSQL connection or TLS handshake failed.
     #[error("connect to Postgres failed")]
-    Database(tokio_postgres::Error),
+    Database(#[source] tokio_postgres::Error),
+    /// The connection exceeded its configured timeout.
     #[error("connect to Postgres timed out after {0:?}")]
     Timeout(Duration),
 }
@@ -95,10 +108,8 @@ impl ConnectionSettings {
         Self::parse_with_missing_ssl_mode(dsn, MissingSslMode::Prefer)
     }
 
-    pub fn parse_with_missing_ssl_mode(
-        dsn: &str,
-        missing_ssl_mode: MissingSslMode,
-    ) -> Result<Self, ConnectionSettingsError> {
+    /// Parses a search DSN, defaulting to plaintext and accepting only `sslsni=0` or `sslsni=1`.
+    pub fn parse_for_search(dsn: &str) -> Result<Self, ConnectionSettingsError> {
         let (remaining, parameters) =
             split_tls_parameters(dsn).map_err(ConnectionSettingsError::InvalidDsn)?;
         if parameters
@@ -110,6 +121,24 @@ impl ConnectionSettings {
                 "sslsni is invalid; use 0 or 1".to_owned(),
             ));
         }
+        Self::from_parsed_dsn(remaining, parameters, MissingSslMode::Disable)
+    }
+
+    /// Parses a DSN using the selected mode when `sslmode` is absent.
+    pub fn parse_with_missing_ssl_mode(
+        dsn: &str,
+        missing_ssl_mode: MissingSslMode,
+    ) -> Result<Self, ConnectionSettingsError> {
+        let (remaining, parameters) =
+            split_tls_parameters(dsn).map_err(ConnectionSettingsError::InvalidDsn)?;
+        Self::from_parsed_dsn(remaining, parameters, missing_ssl_mode)
+    }
+
+    fn from_parsed_dsn(
+        remaining: String,
+        parameters: TlsParameters,
+        missing_ssl_mode: MissingSslMode,
+    ) -> Result<Self, ConnectionSettingsError> {
         let mut config = remaining.parse::<Config>().map_err(|error| {
             ConnectionSettingsError::InvalidDsn(describe_config_parse_error(&error))
         })?;
@@ -129,14 +158,17 @@ impl ConnectionSettings {
         Ok(Self { config, tls })
     }
 
+    /// Wraps a tokio-postgres configuration for plaintext connections.
     pub fn from_config(config: Config) -> Self {
         Self { config, tls: None }
     }
 
+    /// Returns the configuration for changes before opening a connection.
     pub fn configuration_mut(&mut self) -> &mut Config {
         &mut self.config
     }
 
+    /// Returns the configuration used to open connections.
     pub fn configuration(&self) -> &Config {
         &self.config
     }
