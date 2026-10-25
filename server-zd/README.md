@@ -237,10 +237,15 @@ store's PostgreSQL tables. These differences from the Go Server apply:
   values once it recovers. Entries still pending `syncRetryPolicy.totalDuration` after they were
   first marked are dropped and counted in `dexzd_attribute_sync_dropped_entries_total`.
 - Failed writes are retried with the `syncRetryPolicy` backoff until `totalDuration`, like the Go
-  Server. A connection failure, timeout, or other failure of the whole store backs off every run of
-  that store. A failure caused by the written values, such as a constraint violation or a value
-  too long for its column, backs off only that run, and other Flows keep syncing. A newer run of
-  the same Flow ID waits for the older run so rows keep run order.
+  Server. A connection failure or other failure of the whole store backs off every run of that
+  store. A failure caused by the written values, such as a constraint violation or a value too
+  long for its column, backs off only that run, and other Flows keep syncing. So does a transaction
+  that times out, deadlocks, or waits too long for a row lock. After a timeout, that run's retries
+  write half as many Attributes per transaction, down to one. Each transaction that commits is
+  acknowledged, so a retry writes only the rest. When three runs of a store time out with no
+  commit in between, the whole store backs off. The retry after a store backoff starts with other
+  runs than the one that failed. A newer run of the same Flow ID waits for the older run so rows
+  keep run order.
 - After time travel, every row the run synced is rewritten with the state after the time travel.
 - Each database needs a Dex fencing table, named by `fencingTableName`
   (default `dexzd_attribute_sync_fencing`). One table serves every store and cluster in the
@@ -259,8 +264,14 @@ store's PostgreSQL tables. These differences from the Go Server apply:
 Startup connects to every store and checks its tables; any failure fails startup. A store's `dsn`
 may be left empty and supplied in `DEX_ZD_ATTRIBUTE_STORE_DSN_<NAME>`, where `NAME` is the store
 name in upper case with other characters replaced by `_`. A write transaction lasts at most
-`syncAttemptTimeout` or one eighth of `lease.duration`, whichever is smaller, and starts only while
-the lease has room for it, so writes always end while the node owns its partitions.
+`syncAttemptTimeout` or a quarter of `lease.duration`, whichever is smaller. A quarter of
+`lease.duration` is also the lease margin. A write starts only while more than the transaction
+timeout plus the margin of lease validity remains. Its client deadline therefore passes before the
+margin begins. A COMMIT sent just before the deadline finishes within the server-side
+`statement_timeout`, which equals the transaction timeout, so it still lands before the lease ends.
+The timeout plus the margin is at most half of `lease.duration`, less than the two thirds of
+validity left when a renewal starts, so writes rarely wait for a renewal. With the default
+10-second lease, a transaction lasts at most 2.5 seconds.
 
 ### Snapshot uploads after ownership changes
 

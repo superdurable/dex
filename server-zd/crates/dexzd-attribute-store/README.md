@@ -54,7 +54,9 @@ starts after any unknown-column schema refresh, which takes at most 30 seconds.
 It covers waiting for the store's write connection, connecting, and the
 transaction. The client abandons the connection when the write phase exceeds
 `transaction_timeout`. A transaction therefore commits within twice
-`transaction_timeout` after the write phase starts, or not at all.
+`transaction_timeout` after the write phase starts, or not at all. A deadline
+that passes before the connection is open returns `Timeout`. One that passes
+during the transaction returns `TransactionTimeout`.
 
 ## Connections
 
@@ -72,8 +74,15 @@ system roots. Channel binding uses `tls-server-end-point`.
 failure, because the Go Server retries them all. `failure_scope` tells the
 caller what a retry should hold back. SQLSTATE classes 21, 22, 23, 42, 44, 54,
 and P0 blame the batch's values or columns, so they return `Batch`. The
-exception is 42501, a missing grant. Every other failure returns `Store`,
-including connection errors without a SQLSTATE and timeouts.
+exception is 42501, a missing grant. A `TransactionTimeout` and SQLSTATEs
+25P03, 40001, 40P01, 55P03, and 57014 also return `Batch`. They mean that this
+transaction ran out of time or conflicted with another session over its rows.
+57014 also reports a cancel request for this backend, which is retried the same
+way. Every other failure returns `Store`. That includes connection errors
+without a SQLSTATE and a `Timeout` before the connection is open.
+
+`is_transaction_timeout` is true for a `TransactionTimeout` and for SQLSTATEs
+57014 and 25P03. The caller can retry such a batch with fewer items.
 
 ## Tests
 

@@ -121,7 +121,7 @@ attributeStore:
   stores: {}
   schemaSyncInterval: 1m
   syncBatchSize: 100
-  # The effective transaction timeout is also capped at one eighth of lease.duration.
+  # The effective transaction timeout is also capped at a quarter of lease.duration.
   syncAttemptTimeout: 30s
   syncRetryPolicy:
     initialInterval: 100ms

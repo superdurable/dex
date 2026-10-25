@@ -212,6 +212,8 @@ fn write_error(error: AttributeStoreError) -> AttributeSyncWriteError {
         AttributeSyncWriteError::Fenced { detail }
     } else if !error.is_retryable() {
         AttributeSyncWriteError::Rejected { detail }
+    } else if error.is_transaction_timeout() {
+        AttributeSyncWriteError::TimedOut { detail }
     } else {
         match error.failure_scope() {
             AttributeStoreFailureScope::Store => AttributeSyncWriteError::Retryable { detail },
@@ -219,5 +221,53 @@ fn write_error(error: AttributeStoreError) -> AttributeSyncWriteError {
                 AttributeSyncWriteError::RetryableForRun { detail }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn database_error(sqlstate: &str) -> AttributeStoreError {
+        AttributeStoreError::Database {
+            store: "orders".to_owned(),
+            operation: "write table \"public\".\"orders\"".to_owned(),
+            message: format!("SQLSTATE {sqlstate}"),
+            sqlstate: Some(sqlstate.to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_transaction_timeout_backs_off_only_its_run_and_a_connect_timeout_the_store() {
+        let transaction_timeout = AttributeStoreError::TransactionTimeout {
+            store: "orders".to_owned(),
+            operation: "write a batch to table \"public\".\"orders\"".to_owned(),
+            timeout: Duration::from_millis(2_500),
+        };
+        assert!(matches!(
+            write_error(transaction_timeout),
+            AttributeSyncWriteError::TimedOut { .. }
+        ));
+        assert!(matches!(
+            write_error(database_error("57014")),
+            AttributeSyncWriteError::TimedOut { .. }
+        ));
+        assert!(matches!(
+            write_error(database_error("40P01")),
+            AttributeSyncWriteError::RetryableForRun { .. }
+        ));
+        let connect_timeout = AttributeStoreError::Timeout {
+            store: "orders".to_owned(),
+            operation: "open the connection to write a batch".to_owned(),
+            timeout: Duration::from_millis(2_500),
+        };
+        assert!(matches!(
+            write_error(connect_timeout),
+            AttributeSyncWriteError::Retryable { .. }
+        ));
+        assert!(matches!(
+            write_error(database_error("08006")),
+            AttributeSyncWriteError::Retryable { .. }
+        ));
     }
 }

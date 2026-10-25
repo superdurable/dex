@@ -248,6 +248,7 @@ fn attribute_sync_config(config: &Config) -> Result<Option<AttributeSyncConfig>,
         return Ok(None);
     }
     let policy = attribute_store.effective_sync_retry_policy();
+    let lease_margin = config.lease.duration / 4;
     Ok(Some(AttributeSyncConfig {
         store_names: attribute_store.stores.keys().cloned().collect(),
         batch_size: to_usize(
@@ -261,10 +262,11 @@ fn attribute_sync_config(config: &Config) -> Result<Option<AttributeSyncConfig>,
             maximum_attempts: policy.maximum_attempts,
             total_duration: policy.total_duration,
         },
+        // Within the margin, a COMMIT sent at the deadline still lands before the lease ends.
         transaction_timeout: attribute_store
             .effective_sync_attempt_timeout()
-            .min(config.lease.duration / 8),
-        lease_margin: config.lease.duration / 4,
+            .min(lease_margin),
+        lease_margin,
     }))
 }
 

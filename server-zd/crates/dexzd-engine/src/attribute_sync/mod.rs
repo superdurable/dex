@@ -8,6 +8,7 @@
 
 //! Owner-side Attribute Sync: writes pending entries' latest committed values, then acknowledges them.
 
+mod ack_proposer;
 mod pending_entries;
 mod projector;
 mod waker;
@@ -61,7 +62,7 @@ impl AttributeSyncFence {
 /// Why an Attribute Store write did not commit.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AttributeSyncWriteError {
-    /// The store cannot serve writes, such as a lost connection or a timeout; every run of the store backs off.
+    /// The store cannot serve writes, such as a lost connection or a connect timeout; every run of the store backs off.
     #[error("Attribute Store write failed and will be retried: {detail}")]
     Retryable {
         /// Failure description without credentials.
@@ -70,6 +71,14 @@ pub enum AttributeSyncWriteError {
     /// The store refused this batch's content, such as a constraint violation; only this run backs off.
     #[error("Attribute Store refused a batch, which will be retried: {detail}")]
     RetryableForRun {
+        /// Failure description without credentials.
+        detail: String,
+    },
+    /// The transaction timed out; only this run backs off, then retries with half as many Attributes per transaction.
+    #[error(
+        "Attribute Store write timed out and will be retried in smaller transactions: {detail}"
+    )]
+    TimedOut {
         /// Failure description without credentials.
         detail: String,
     },

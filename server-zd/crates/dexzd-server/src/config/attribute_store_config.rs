@@ -53,9 +53,14 @@ pub struct AttributeStoreConfig {
     /// PostgreSQL transaction writes. A run with more pending Attributes uses several transactions.
     pub sync_batch_size: u32,
     /// Defaults to 30s; an explicit zero also means 30s. Upper bound of one write transaction.
-    /// The effective timeout is the smaller of this value and one eighth of lease.duration, so a
-    /// transaction always ends while this node still holds its lease. Writes start only while more
-    /// than this timeout plus a quarter of lease.duration of lease validity remains.
+    /// The effective timeout is the smaller of this value and a quarter of lease.duration, the
+    /// lease margin. Writes start only while more than the effective timeout plus the lease margin
+    /// of lease validity remains. The client deadline therefore passes before the margin begins,
+    /// and a COMMIT sent just before it finishes within the server-side statement timeout, before
+    /// the lease ends. The timeout plus the margin is at most half of lease.duration, less than the
+    /// two thirds of validity left when a renewal starts, so writes rarely wait for a renewal. A
+    /// run whose transaction times out backs off alone and retries with half as many Attributes
+    /// per transaction.
     #[serde(with = "humantime_serde")]
     pub sync_attempt_timeout: Duration,
     /// Retry backoff and drop deadline of failed writes. Defaults to 100ms initial interval, 30s

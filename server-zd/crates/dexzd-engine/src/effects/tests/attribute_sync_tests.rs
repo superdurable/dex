@@ -63,12 +63,22 @@ struct FakeAttributeStore {
     queued_store_failures: Mutex<BTreeMap<String, VecDeque<AttributeSyncWriteError>>>,
     persistent_store_failures: Mutex<BTreeMap<String, AttributeSyncWriteError>>,
     persistent_flow_failures: Mutex<BTreeMap<String, AttributeSyncWriteError>>,
+    /// Scripted outcomes of a Flow's next writes; `None` commits.
+    queued_flow_outcomes: Mutex<BTreeMap<String, VecDeque<Option<AttributeSyncWriteError>>>>,
+    slow_flows: Mutex<BTreeMap<String, SlowWrites>>,
     is_holding_writes: AtomicBool,
     /// Held writes allowed to finish while `is_holding_writes` stays set.
     released_write_permits: AtomicUsize,
     released: Notify,
     write_started: Notify,
     abandoned_writes: AtomicUsize,
+}
+
+/// Per-item write latency of one Flow, enforced against the writer's transaction timeout.
+#[derive(Clone, Copy)]
+struct SlowWrites {
+    item_latency: Duration,
+    transaction_timeout: Duration,
 }
 
 /// Counts a write whose future was dropped before it finished.
@@ -144,6 +154,35 @@ impl FakeAttributeStore {
         self.is_holding_writes.store(false, Ordering::SeqCst);
         self.released.notify_waiters();
     }
+
+    /// Makes each item of `flow_id`'s writes take `item_latency`, timing out like the real writer.
+    fn slow_down_flow(&self, flow_id: &str, item_latency: Duration) {
+        self.slow_flows.lock().expect("lock").insert(
+            flow_id.to_owned(),
+            SlowWrites {
+                item_latency,
+                transaction_timeout: sync_config().transaction_timeout,
+            },
+        );
+    }
+
+    /// Returns the item count of every write attempt of `flow_id` and whether it committed.
+    fn attempt_sizes_of_flow(&self, flow_id: &str) -> Vec<(usize, bool)> {
+        self.writes
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|write| write.flow_id == flow_id)
+            .map(|write| (write.items.len(), write.is_committed))
+            .collect()
+    }
+}
+
+/// The error the Postgres writer reports when a transaction outlasts its timeout.
+fn transaction_timeout_error() -> AttributeSyncWriteError {
+    AttributeSyncWriteError::TimedOut {
+        detail: "Attribute Store \"orders\" transaction timed out after 2s".to_owned(),
+    }
 }
 
 impl AttributeSyncWriter for FakeAttributeStore {
@@ -174,11 +213,27 @@ impl AttributeSyncWriter for FakeAttributeStore {
                 }
                 released.await;
             }
-            let failure = self
-                .queued_failures
+            let slow_writes = self.slow_flows.lock().expect("lock").get(flow_id).copied();
+            let mut timeout_failure = None;
+            if let Some(slow_writes) = slow_writes {
+                let item_count = u32::try_from(items.len()).expect("batches are small");
+                let write_duration = slow_writes.item_latency * item_count;
+                if write_duration > slow_writes.transaction_timeout {
+                    tokio::time::sleep(slow_writes.transaction_timeout).await;
+                    timeout_failure = Some(transaction_timeout_error());
+                } else {
+                    tokio::time::sleep(write_duration).await;
+                }
+            }
+            let scripted_outcome = self
+                .queued_flow_outcomes
                 .lock()
                 .expect("lock")
-                .pop_front()
+                .get_mut(flow_id)
+                .and_then(VecDeque::pop_front);
+            let failure = timeout_failure
+                .or_else(|| scripted_outcome.flatten())
+                .or_else(|| self.queued_failures.lock().expect("lock").pop_front())
                 .or_else(|| self.persistent_failure.lock().expect("lock").clone())
                 .or_else(|| {
                     self.queued_store_failures
@@ -1311,5 +1366,220 @@ async fn acknowledgements_across_every_partition_commit_well_under_two_seconds()
             "mark-to-ack latency stays well under the 2 s target: {latency:?}"
         );
     }
+    fixture.shutdown().await;
+}
+
+fn member_writes(keys: &[String]) -> Vec<AttributeWrite> {
+    keys.iter()
+        .map(|key| synced(key, Some(string_value("member"))))
+        .collect()
+}
+
+fn member_keys(count: usize) -> Vec<String> {
+    (0..count)
+        .map(|n| format!("Members/account-{n:03}"))
+        .collect()
+}
+
+fn committed_keys_of_flow(fixture: &ProjectorFixture, flow_id: &str) -> Vec<String> {
+    fixture
+        .store
+        .committed_writes_of_flow(flow_id)
+        .into_iter()
+        .flat_map(|write| write.items)
+        .map(|item| item.key)
+        .collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timed_out_large_run_splits_its_transactions_while_healthy_runs_sync_promptly() {
+    let fixture = ProjectorFixture::start(sync_config());
+    let large = flow_id_in_partition(&fixture.harness, "large-", |partition| partition.0 < 8);
+    let large_partition = fixture.harness.partition_of(&large);
+    // Flows of one partition are written in Flow ID order, so this one comes after the large run.
+    let same_partition = flow_id_in_partition(&fixture.harness, "zz-healthy-", |partition| {
+        partition == large_partition
+    });
+    let higher_partition = flow_id_in_partition(&fixture.harness, "healthy-", |partition| {
+        partition > large_partition
+    });
+    // 100 instances take 3 s, beyond the 2 s transaction timeout; 50 take 1.5 s.
+    fixture
+        .store
+        .slow_down_flow(&large, Duration::from_millis(30));
+    let keys = member_keys(100);
+    fixture.start_flow(&large, member_writes(&keys));
+    fixture
+        .wait_until("the large run's first transaction timed out", |fixture| {
+            fixture.store.attempt_count_of_flow(&large) == 1
+        })
+        .await;
+
+    let started_at = Instant::now();
+    for flow_id in [&same_partition, &higher_partition] {
+        fixture.start_flow(flow_id, vec![synced("Status", Some(string_value("new")))]);
+    }
+    fixture
+        .wait_until("both healthy runs are acknowledged", |fixture| {
+            !fixture.acks_of_flow(&same_partition).is_empty()
+                && !fixture.acks_of_flow(&higher_partition).is_empty()
+        })
+        .await;
+    assert!(
+        started_at.elapsed() < Duration::from_millis(500),
+        "healthy runs wait for neither the timed-out run nor a store backoff: {:?}",
+        started_at.elapsed()
+    );
+
+    fixture
+        .wait_until("the large run is written and acknowledged", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    assert_eq!(
+        fixture.store.attempt_sizes_of_flow(&large),
+        vec![(100, false), (50, true), (50, true)],
+        "the retry halves the transaction size"
+    );
+    assert_eq!(committed_keys_of_flow(&fixture, &large), keys);
+    let large_acks = fixture.acks_of_flow(&large);
+    assert_eq!(large_acks.len(), 1, "{large_acks:?}");
+    assert!(!large_acks[0].is_dropped);
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_partially_written_run_acknowledges_only_its_committed_transactions() {
+    let fixture = ProjectorFixture::start(sync_config());
+    let keys = member_keys(150);
+    fixture
+        .store
+        .queued_flow_outcomes
+        .lock()
+        .expect("lock")
+        .insert(
+            "order-13".to_owned(),
+            VecDeque::from([None, Some(transaction_timeout_error())]),
+        );
+    fixture.start_flow("order-13", member_writes(&keys));
+    fixture
+        .wait_until("every entry is written and acknowledged", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    assert_eq!(
+        fixture.store.attempt_sizes_of_flow("order-13"),
+        vec![(100, true), (50, false), (25, true), (25, true)],
+        "only the unwritten entries are retried, in halved transactions"
+    );
+    let acks = fixture.acks_of_flow("order-13");
+    assert_eq!(acks.len(), 2, "{acks:?}");
+    assert_eq!(
+        acks[0].attribute_keys,
+        keys[..100],
+        "the first ack covers only the committed transaction"
+    );
+    assert!(!acks[0].is_dropped);
+    assert!(
+        acks[1].attribute_keys.is_empty(),
+        "the last ack covers every remaining entry"
+    );
+    assert_eq!(committed_keys_of_flow(&fixture, "order-13"), keys);
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn timeouts_of_three_runs_without_a_commit_back_off_the_whole_store() {
+    let fixture = ProjectorFixture::start(sync_config());
+    fixture
+        .store
+        .persistent_store_failures
+        .lock()
+        .expect("lock")
+        .insert(STORE.to_owned(), transaction_timeout_error());
+    let flow_ids: Vec<String> = (0..6).map(|n| format!("stalled-order-{n}")).collect();
+    for flow_id in &flow_ids {
+        fixture.start_flow(flow_id, vec![synced("Status", Some(string_value("new")))]);
+    }
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    fixture.harness.settle().await;
+    let attempts = fixture.store.attempts_of_store(STORE);
+    assert!(attempts.len() >= 5, "{attempts:?}");
+    let first_flow_ids: BTreeSet<&str> = attempts[..3]
+        .iter()
+        .map(|attempt| attempt.flow_id.as_str())
+        .collect();
+    assert_eq!(
+        first_flow_ids.len(),
+        3,
+        "three distinct runs time out before the store backs off: {attempts:?}"
+    );
+    for pair in attempts[2..].windows(2) {
+        assert!(
+            pair[1].finished_at - pair[0].finished_at >= Duration::from_millis(100),
+            "later attempts wait for the store backoff: {attempts:?}"
+        );
+    }
+
+    fixture
+        .store
+        .persistent_store_failures
+        .lock()
+        .expect("lock")
+        .clear();
+    fixture
+        .wait_until("every run syncs once writes stop timing out", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_retry_after_a_store_backoff_starts_with_other_runs_than_the_failed_one() {
+    let fixture = ProjectorFixture::start(sync_config());
+    let failing = flow_id_in_partition(&fixture.harness, "failing-", |partition| partition.0 < 8);
+    let failing_partition = fixture.harness.partition_of(&failing);
+    // Flows of one partition are written in Flow ID order, so this one comes after the failing run.
+    let same_partition = flow_id_in_partition(&fixture.harness, "zz-healthy-", |partition| {
+        partition == failing_partition
+    });
+    let higher_partition = flow_id_in_partition(&fixture.harness, "healthy-", |partition| {
+        partition > failing_partition
+    });
+    fixture
+        .store
+        .persistent_flow_failures
+        .lock()
+        .expect("lock")
+        .insert(
+            failing.clone(),
+            AttributeSyncWriteError::Retryable {
+                detail: "connection reset".to_owned(),
+            },
+        );
+    fixture.start_flow(&failing, vec![synced("Status", Some(string_value("new")))]);
+    fixture
+        .wait_until("the failing run's first write failed", |fixture| {
+            fixture.store.attempt_count_of_flow(&failing) == 1
+        })
+        .await;
+
+    let started_at = Instant::now();
+    for flow_id in [&same_partition, &higher_partition] {
+        fixture.start_flow(flow_id, vec![synced("Status", Some(string_value("new")))]);
+    }
+    fixture
+        .wait_until("both healthy runs are acknowledged", |fixture| {
+            !fixture.acks_of_flow(&same_partition).is_empty()
+                && !fixture.acks_of_flow(&higher_partition).is_empty()
+        })
+        .await;
+    assert!(
+        started_at.elapsed() < Duration::from_millis(300),
+        "healthy runs wait for one store backoff, not for the failing run: {:?}",
+        started_at.elapsed()
+    );
+    assert!(fixture.acks_of_flow(&failing).is_empty());
     fixture.shutdown().await;
 }

@@ -16,14 +16,13 @@ use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::LeaseStatus;
 use dexzd_keyspace::{PartitionHasher, PartitionId};
 use dexzd_metrics::AttributeSyncFailureKind;
-use dexzd_protocol::dexzd::v1::{
-    AttributeSyncAckCommand, FlowCommand, command_reply, flow_command,
-};
+use dexzd_protocol::dexzd::v1::AttributeSyncAckCommand;
 use tokio::sync::watch;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use super::ack_proposer::{AckBatch, AckBatchResult, AckProposer, PendingAck};
 use super::pending_entries::{
     PendingEntry, PendingRunEntries, PendingStoreWork, read_pending_store_work,
 };
@@ -32,8 +31,11 @@ use super::{
     AttributeSyncRetryPolicy, AttributeSyncWaker, AttributeSyncWriteError, AttributeSyncWriter,
 };
 use crate::commit::NodeStopReason;
-use crate::effects::{EffectRuntime, EffectRuntimeError, RunLocation};
-use crate::runtime::{CommitUrgency, FlowAddress};
+use crate::effects::{EffectRuntime, RunLocation};
+use crate::runtime::FlowAddress;
+
+/// Distinct runs that time out without a commit in between before the whole store backs off.
+const STORE_TIMEOUT_RUN_COUNT: usize = 3;
 
 /// Writes pending Attribute Sync entries of every partition this node owns, one store at a time.
 pub struct AttributeSyncProjector {
@@ -49,10 +51,16 @@ pub struct AttributeSyncProjector {
     stop: CancellationToken,
     /// Backoffs after store-scoped failures; every run of the store waits.
     store_backoffs: BTreeMap<String, Backoff>,
+    /// Distinct runs of each store whose writes timed out since the store's last commit.
+    timed_out_runs: BTreeMap<String, BTreeSet<RunLocation>>,
     /// Failure counts and run-scoped backoffs; other runs of the store keep syncing.
     run_retries: BTreeMap<(String, RunLocation), RunRetryState>,
     /// When each deferred (partition, store) pair is read again; each pair is due on its own.
     deferred_work: BTreeMap<(PartitionId, String), Instant>,
+    /// The Flow whose store-scoped failure backed off the store; the pair's next pass starts after it.
+    resume_after_flow: BTreeMap<(PartitionId, String), FlowAddress>,
+    /// The partition each cycle visits first; it moves past the last store-scoped failure.
+    cycle_start_partition: PartitionId,
     backlog: BTreeMap<(PartitionId, String), BacklogSnapshot>,
 }
 
@@ -74,6 +82,8 @@ struct RunRetryState {
     failed_attempts: u32,
     /// Set by a run-scoped write failure or a rejected ack.
     backoff: Option<Backoff>,
+    /// Most Attributes per transaction after a timeout; `None` uses the batch size.
+    items_per_transaction: Option<usize>,
 }
 
 #[derive(Clone, Copy)]
@@ -102,42 +112,14 @@ enum RunNext {
 enum RetryScope {
     Store,
     Run,
+    /// The run backs off, and the store too once enough distinct runs timed out without a commit.
+    TimedOutRun,
 }
 
 enum WriteResult {
     Committed,
     Failed(AttributeSyncWriteError),
     Stopped,
-}
-
-struct PendingAck {
-    flow: FlowAddress,
-    run: RunLocation,
-    ack: AttributeSyncAckCommand,
-}
-
-/// One (partition, store) pair's acks, proposed once their writes committed.
-struct AckBatch {
-    partition: PartitionId,
-    store_name: String,
-    acks: Vec<PendingAck>,
-}
-
-/// How an ack batch ended.
-struct AckBatchResult {
-    partition: PartitionId,
-    store_name: String,
-    /// Runs whose ack apply rejected; their entries stay pending.
-    rejected_runs: Vec<RunLocation>,
-    has_stopped: bool,
-}
-
-/// Proposes acks from a background task, so writes of later partitions need not wait for commits.
-#[derive(Clone)]
-struct AckProposer {
-    runtime: Arc<dyn EffectRuntime>,
-    stop: CancellationToken,
-    retry_policy: AttributeSyncRetryPolicy,
 }
 
 impl AttributeSyncProjector {
@@ -162,8 +144,11 @@ impl AttributeSyncProjector {
             waker: dependencies.waker,
             stop: stop.clone(),
             store_backoffs: BTreeMap::new(),
+            timed_out_runs: BTreeMap::new(),
             run_retries: BTreeMap::new(),
             deferred_work: BTreeMap::new(),
+            resume_after_flow: BTreeMap::new(),
+            cycle_start_partition: PartitionId(0),
             backlog: BTreeMap::new(),
         };
         let task = tokio::spawn(async move {
@@ -249,7 +234,9 @@ impl AttributeSyncProjector {
     ) -> ControlFlow<()> {
         // Dropping the set on a stop aborts proposals; the next owner rewrites unacknowledged rows.
         let mut ack_batches = JoinSet::new();
-        for (partition, stores) in work {
+        let mut earlier_partitions = work;
+        let later_partitions = earlier_partitions.split_off(&self.cycle_start_partition);
+        for (partition, stores) in later_partitions.into_iter().chain(earlier_partitions) {
             self.project_partition(partition, stores, &mut ack_batches)
                 .await?;
         }
@@ -349,13 +336,28 @@ impl AttributeSyncProjector {
         work: PendingStoreWork,
     ) -> ControlFlow<(), Vec<PendingAck>> {
         let mut acks = Vec::new();
-        'flows: for flow_runs in work.flows {
+        let mut flows = work.flows;
+        let pair = (partition, store_name.to_owned());
+        if let Some(failed_flow) = self.resume_after_flow.remove(&pair) {
+            // Another run probes the store first, so one failing run cannot hold back the rest.
+            let resume_at = flows.partition_point(|flow_runs| {
+                flow_runs
+                    .first()
+                    .is_some_and(|run_entries| run_entries.flow <= failed_flow)
+            });
+            flows.rotate_left(resume_at);
+        }
+        'flows: for flow_runs in flows {
             for run_entries in flow_runs {
                 let flow = run_entries.flow.clone();
                 let run = run_entries.run;
                 let outcome = self.process_run(store_name, run_entries).await;
                 if let Some(ack) = outcome.ack {
-                    acks.push(PendingAck { flow, run, ack });
+                    acks.push(PendingAck {
+                        flow: flow.clone(),
+                        run,
+                        ack,
+                    });
                 }
                 match outcome.next {
                     RunNext::Continue => {}
@@ -366,6 +368,8 @@ impl AttributeSyncProjector {
                     }
                     RunNext::RetryStoreAt(retry_at) => {
                         self.defer(partition, store_name, retry_at);
+                        self.resume_after_flow.insert(pair, flow);
+                        self.cycle_start_partition = self.partition_after(partition);
                         break 'flows;
                     }
                     RunNext::Stop => return ControlFlow::Break(()),
@@ -446,11 +450,17 @@ impl AttributeSyncProjector {
                 next: RunNext::RetryRunAt(retry_at),
             };
         }
-        let batch_size = self.config.batch_size.max(1);
+        let items_per_transaction = self
+            .run_retries
+            .get(&retry_key)
+            .and_then(|state| state.items_per_transaction)
+            .unwrap_or(self.config.batch_size)
+            .max(1);
         let mut written_keys = BTreeSet::new();
-        for batch in items.chunks(batch_size) {
+        for batch in items.chunks(items_per_transaction) {
             let (scope, detail) = match self.write_batch(store_name, &flow.flow_id, batch).await {
                 WriteResult::Committed => {
+                    self.timed_out_runs.remove(store_name);
                     written_keys.extend(batch.iter().map(|item| item.key.as_str()));
                     continue;
                 }
@@ -492,6 +502,14 @@ impl AttributeSyncProjector {
                 WriteResult::Failed(AttributeSyncWriteError::RetryableForRun { detail }) => {
                     (RetryScope::Run, detail)
                 }
+                WriteResult::Failed(AttributeSyncWriteError::TimedOut { detail }) => {
+                    // Per-statement latency usually causes it, so a smaller transaction can fit.
+                    self.run_retries
+                        .entry(retry_key.clone())
+                        .or_default()
+                        .items_per_transaction = Some((batch.len() / 2).max(1));
+                    (RetryScope::TimedOutRun, detail)
+                }
             };
             self.metrics
                 .attribute_sync_write_failures
@@ -503,6 +521,7 @@ impl AttributeSyncProjector {
             let next = match scope {
                 RetryScope::Store => RunNext::RetryStoreAt(self.fail_store(store_name)),
                 RetryScope::Run => RunNext::RetryRunAt(self.fail_run(&retry_key)),
+                RetryScope::TimedOutRun => self.fail_timed_out_run(&retry_key),
             };
             tracing::warn!(
                 store_name,
@@ -562,7 +581,7 @@ impl AttributeSyncProjector {
                 WriteResult::Stopped
             }
             () = tokio::time::sleep_until(abandon_at) => {
-                WriteResult::Failed(AttributeSyncWriteError::Retryable {
+                WriteResult::Failed(AttributeSyncWriteError::TimedOut {
                     detail: "the write did not finish before the lease margin".to_owned(),
                 })
             }
@@ -680,6 +699,32 @@ impl AttributeSyncProjector {
         backoff.retry_at
     }
 
+    /// Backs off a timed-out run, and its store too after `STORE_TIMEOUT_RUN_COUNT` distinct runs
+    /// time out without a commit.
+    ///
+    /// Returns `RetryRunAt` with the run's retry, or `RetryStoreAt` with the store's retry once the
+    /// store backs off.
+    fn fail_timed_out_run(&mut self, retry_key: &(String, RunLocation)) -> RunNext {
+        let run_retry_at = self.fail_run(retry_key);
+        let (store_name, run) = retry_key;
+        let timed_out_runs = self.timed_out_runs.entry(store_name.clone()).or_default();
+        timed_out_runs.insert(*run);
+        if timed_out_runs.len() < STORE_TIMEOUT_RUN_COUNT {
+            return RunNext::RetryRunAt(run_retry_at);
+        }
+        tracing::warn!(
+            store_name,
+            timed_out_run_count = timed_out_runs.len(),
+            "Attribute Store writes of several runs timed out without a commit; backing off the store"
+        );
+        RunNext::RetryStoreAt(self.fail_store(store_name))
+    }
+
+    fn partition_after(&self, partition: PartitionId) -> PartitionId {
+        let next = (u32::from(partition.0) + 1) % self.partition_hasher.partition_count();
+        PartitionId(u16::try_from(next).expect("the manifest limits partitions to u16"))
+    }
+
     /// Drops retry state of runs in `partition` that no longer have pending entries of `store_name`.
     fn forget_settled_runs(
         &mut self,
@@ -726,89 +771,6 @@ impl AttributeSyncProjector {
     }
 }
 
-impl AckProposer {
-    /// Proposes every ack of `batch` concurrently, so one group commit batch carries them.
-    async fn propose_batch(self, batch: AckBatch) -> AckBatchResult {
-        let AckBatch {
-            partition,
-            store_name,
-            acks,
-        } = batch;
-        let proposer = &self;
-        let proposals = acks.into_iter().map(|pending| async move {
-            let command = FlowCommand {
-                flow_id: pending.flow.flow_id.clone(),
-                run_id: pending.run.run_id.as_bytes().to_vec(),
-                tenant_id: pending.flow.tenant_id.0,
-                command: Some(flow_command::Command::AttributeSyncAck(pending.ack)),
-                ..FlowCommand::default()
-            };
-            let reply = proposer
-                .propose_until_committed(&pending.flow, command)
-                .await;
-            (pending.flow, pending.run, reply)
-        });
-        let mut result = AckBatchResult {
-            partition,
-            store_name,
-            rejected_runs: Vec::new(),
-            has_stopped: false,
-        };
-        for (flow, run, reply) in futures::future::join_all(proposals).await {
-            match reply {
-                None => result.has_stopped = true,
-                Some(command_reply::Reply::Error(error)) => {
-                    tracing::warn!(
-                        store_name = %result.store_name,
-                        flow_id = %flow.flow_id,
-                        message = %error.message,
-                        "an Attribute Sync ack was rejected"
-                    );
-                    result.rejected_runs.push(run);
-                }
-                Some(_) => {}
-            }
-        }
-        result
-    }
-
-    /// Retries while the runtime is unavailable; returns `None` when the projector or node stops.
-    async fn propose_until_committed(
-        &self,
-        flow: &FlowAddress,
-        command: FlowCommand,
-    ) -> Option<command_reply::Reply> {
-        let mut delay = self.retry_policy.initial_interval;
-        loop {
-            let proposal =
-                self.runtime
-                    .propose_committed(flow, command.clone(), CommitUrgency::Batched);
-            let outcome = tokio::select! {
-                biased;
-                () = self.stop.cancelled() => return None,
-                outcome = proposal => outcome,
-            };
-            match outcome {
-                Ok(reply) => {
-                    return Some(reply.reply.unwrap_or(command_reply::Reply::Ok(
-                        dexzd_protocol::dexzd::v1::EmptyReply::default(),
-                    )));
-                }
-                Err(EffectRuntimeError::NodeStopping { .. }) => return None,
-                Err(error @ EffectRuntimeError::Unavailable { .. }) => {
-                    tracing::debug!(%error, flow_id = %flow.flow_id, "retrying an Attribute Sync ack");
-                    tokio::select! {
-                        biased;
-                        () = self.stop.cancelled() => return None,
-                        () = tokio::time::sleep(delay) => {}
-                    }
-                    delay = next_retry_delay(&self.retry_policy, delay);
-                }
-            }
-        }
-    }
-}
-
 impl Backoff {
     /// Returns the backoff after one more consecutive failure, starting at `initialInterval`.
     fn after_failure(previous: Option<Backoff>, policy: &AttributeSyncRetryPolicy) -> Self {
@@ -825,6 +787,7 @@ impl RetryScope {
         match self {
             Self::Store => "store",
             Self::Run => "run",
+            Self::TimedOutRun => "timed_out_run",
         }
     }
 }
@@ -912,7 +875,7 @@ async fn wait_for_lease_loss(lease_status: &mut watch::Receiver<LeaseStatus>) {
     }
 }
 
-fn next_retry_delay(policy: &AttributeSyncRetryPolicy, delay: Duration) -> Duration {
+pub(super) fn next_retry_delay(policy: &AttributeSyncRetryPolicy, delay: Duration) -> Duration {
     Duration::try_from_secs_f64(delay.as_secs_f64() * policy.backoff_coefficient)
         .unwrap_or(policy.maximum_interval)
         .min(policy.maximum_interval)

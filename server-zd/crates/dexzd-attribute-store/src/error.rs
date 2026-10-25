@@ -74,6 +74,18 @@ pub enum AttributeStoreError {
         /// The deadline that elapsed.
         timeout: Duration,
     },
+    /// A write transaction outlasted the transaction timeout after the connection opened; the connection was abandoned.
+    #[error(
+        "Attribute Store {store:?} transaction timed out after {timeout:?} trying to {operation}"
+    )]
+    TransactionTimeout {
+        /// The store name.
+        store: String,
+        /// The operation that timed out.
+        operation: String,
+        /// The transaction timeout that elapsed.
+        timeout: Duration,
+    },
     /// A newer token is recorded for this cluster and scope, so the transaction rolled back.
     #[error(
         "Attribute Store {store:?} rejected a write from cluster {cluster_id:?} scope {scope:?} \
@@ -104,9 +116,9 @@ pub enum AttributeStoreError {
 /// Which pending writes a failure holds back while it is retried.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttributeStoreFailureScope {
-    /// The store cannot serve any batch, such as a lost connection, a timeout, or failed authentication.
+    /// The store cannot serve any batch, such as a lost connection, a connect timeout, or failed authentication.
     Store,
-    /// Postgres rejected this batch's content, such as a constraint violation; other batches can succeed.
+    /// Postgres rejected this batch's content, such as a constraint violation, or its transaction timed out; other batches can succeed.
     Batch,
 }
 
@@ -124,28 +136,59 @@ const BATCH_SQLSTATE_CLASSES: [&str; 7] = [
 /// Raised under class 42 for a missing grant, which fails every batch of the store.
 const INSUFFICIENT_PRIVILEGE_SQLSTATE: &str = "42501";
 
+/// SQLSTATEs of a transaction that ran out of time or conflicted with another session over its rows.
+const TRANSACTION_SQLSTATES: [&str; 5] = [
+    "25P03", // idle_in_transaction_session_timeout ended the session
+    "40001", // serialization failure
+    "40P01", // deadlock detected
+    "55P03", // lock not available, such as lock_timeout
+    "57014", // statement_timeout, or a cancel request for this one backend
+];
+
+/// SQLSTATEs raised when the transaction ran out of time; a smaller batch may fit.
+const TRANSACTION_TIMEOUT_SQLSTATES: [&str; 2] = ["25P03", "57014"];
+
 impl AttributeStoreError {
     /// Returns true for database and timeout failures, which Go retries until the retry budget runs out,
     /// and false for fencing and invalid settings, tables, or tokens, which a retry cannot fix.
     pub fn is_retryable(&self) -> bool {
-        matches!(self, Self::Database { .. } | Self::Timeout { .. })
+        matches!(
+            self,
+            Self::Database { .. } | Self::Timeout { .. } | Self::TransactionTimeout { .. }
+        )
     }
 
-    /// Returns [`AttributeStoreFailureScope::Batch`] for a database failure whose SQLSTATE blames the
-    /// batch's values or columns, and [`AttributeStoreFailureScope::Store`] for every other failure:
-    /// connection and timeout failures, server-side unavailability, and non-retryable failures.
+    /// Returns [`AttributeStoreFailureScope::Batch`] for a transaction timeout, and for a database
+    /// failure whose SQLSTATE blames the batch's values or columns, its time, or a conflict over its
+    /// rows. Returns [`AttributeStoreFailureScope::Store`] for every other failure: connection
+    /// failures and connect timeouts, server-side unavailability, and non-retryable failures.
     pub fn failure_scope(&self) -> AttributeStoreFailureScope {
+        if matches!(self, Self::TransactionTimeout { .. }) {
+            return AttributeStoreFailureScope::Batch;
+        }
         let Some(sqlstate) = self.sqlstate() else {
             return AttributeStoreFailureScope::Store;
         };
         let is_batch_class = BATCH_SQLSTATE_CLASSES
             .iter()
             .any(|class| sqlstate.starts_with(class));
-        if is_batch_class && sqlstate != INSUFFICIENT_PRIVILEGE_SQLSTATE {
+        if (is_batch_class && sqlstate != INSUFFICIENT_PRIVILEGE_SQLSTATE)
+            || TRANSACTION_SQLSTATES.contains(&sqlstate)
+        {
             AttributeStoreFailureScope::Batch
         } else {
             AttributeStoreFailureScope::Store
         }
+    }
+
+    /// Returns true when a write transaction ran out of time: a [`Self::TransactionTimeout`], or
+    /// SQLSTATE 57014 or 25P03. 57014 also reports a cancel request for this backend, which is
+    /// retried the same way. Returns false for every other failure, including connect timeouts.
+    pub fn is_transaction_timeout(&self) -> bool {
+        matches!(self, Self::TransactionTimeout { .. })
+            || self
+                .sqlstate()
+                .is_some_and(|sqlstate| TRANSACTION_TIMEOUT_SQLSTATES.contains(&sqlstate))
     }
 
     /// Returns the SQLSTATE of a database failure, or None for other failures and connection errors.

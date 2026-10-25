@@ -1156,7 +1156,8 @@ async fn postgres_transaction_timeout_abandons_blocked_writes() {
         .await
         .expect_err("the row lock outlasts the transaction timeout");
     assert!(error.is_retryable(), "{error}");
-    assert_eq!(error.failure_scope(), AttributeStoreFailureScope::Store);
+    assert!(error.is_transaction_timeout(), "{error}");
+    assert_eq!(error.failure_scope(), AttributeStoreFailureScope::Batch);
     assert!(
         started.elapsed() < Duration::from_secs(3),
         "{:?}",

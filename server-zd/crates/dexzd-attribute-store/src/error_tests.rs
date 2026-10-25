@@ -41,7 +41,49 @@ fn sqlstates_blaming_the_batch_content_hold_back_only_that_batch() {
             AttributeStoreFailureScope::Batch,
             "{sqlstate}"
         );
+        assert!(!error.is_transaction_timeout(), "{sqlstate}");
     }
+}
+
+#[test]
+fn transaction_timeouts_and_row_conflicts_hold_back_only_that_batch() {
+    for (sqlstate, is_transaction_timeout) in [
+        ("25P03", true),  // idle_in_transaction_session_timeout
+        ("57014", true),  // statement_timeout or a cancel request
+        ("40001", false), // serialization failure
+        ("40P01", false), // deadlock detected
+        ("55P03", false), // lock_timeout
+    ] {
+        let error = database_error(Some(sqlstate));
+        assert!(error.is_retryable(), "{sqlstate}");
+        assert_eq!(
+            error.failure_scope(),
+            AttributeStoreFailureScope::Batch,
+            "{sqlstate}"
+        );
+        assert_eq!(
+            error.is_transaction_timeout(),
+            is_transaction_timeout,
+            "{sqlstate}"
+        );
+    }
+    let transaction_timeout = AttributeStoreError::TransactionTimeout {
+        store: "orders".to_owned(),
+        operation: "write a batch to table \"public\".\"orders\"".to_owned(),
+        timeout: Duration::from_millis(2_500),
+    };
+    assert!(transaction_timeout.is_retryable());
+    assert!(transaction_timeout.is_transaction_timeout());
+    assert_eq!(
+        transaction_timeout.failure_scope(),
+        AttributeStoreFailureScope::Batch
+    );
+    assert!(
+        transaction_timeout
+            .to_string()
+            .contains("transaction timed out after 2.5s"),
+        "{transaction_timeout}"
+    );
 }
 
 #[test]
@@ -51,12 +93,10 @@ fn connection_unavailability_and_store_wide_sqlstates_hold_back_the_store() {
         Some("08006"), // connection failure
         Some("28P01"), // password authentication failed
         Some("3D000"), // the database does not exist
-        Some("40001"), // serialization failure
-        Some("40P01"), // deadlock detected
         Some("42501"), // insufficient privilege
         Some("53300"), // too many connections
-        Some("57014"), // statement timeout
         Some("57P01"), // administrator shutdown
+        Some("57P03"), // the database is starting up
         Some("58030"), // I/O error
         Some("XX000"), // internal error
     ] {
@@ -67,14 +107,19 @@ fn connection_unavailability_and_store_wide_sqlstates_hold_back_the_store() {
             AttributeStoreFailureScope::Store,
             "{sqlstate:?}"
         );
+        assert!(!error.is_transaction_timeout(), "{sqlstate:?}");
     }
-    let timeout = AttributeStoreError::Timeout {
+    let connect_timeout = AttributeStoreError::Timeout {
         store: "orders".to_owned(),
-        operation: "write a batch".to_owned(),
+        operation: "open the connection to write a batch".to_owned(),
         timeout: Duration::from_secs(1),
     };
-    assert!(timeout.is_retryable());
-    assert_eq!(timeout.failure_scope(), AttributeStoreFailureScope::Store);
+    assert!(connect_timeout.is_retryable());
+    assert!(!connect_timeout.is_transaction_timeout());
+    assert_eq!(
+        connect_timeout.failure_scope(),
+        AttributeStoreFailureScope::Store
+    );
     let fenced = AttributeStoreError::Fenced {
         store: "orders".to_owned(),
         cluster_id: "c1".to_owned(),
