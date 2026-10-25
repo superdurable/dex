@@ -72,6 +72,8 @@ The before-page token is exclusive and scope-bound. The first page uses an empty
 
 `Client` and `AsyncClient` own Flow lifecycle, typed RPC invocation, Attribute-match waits, Stream reads/listing, history, search, config, timers, and reset. Read and write Flow-owned Attribute and Channel state through typed RPCs, not removed direct Client methods. Async calls must be awaited; sync calls must not run on an event loop thread. Use typed exceptions and explicit deadlines.
 
+Use `Client.describe_flow(flow_id)` or await `AsyncClient.describe_flow(flow_id)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow raises `FlowNotFoundError`. The call does not wait for terminal status: use `wait_for_flow` when the caller must wait, and do not loop on `describe_flow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `wait_for_flow` returns immediately, and a failed result carries them in `error_type` and `error_message`. Do not use `describe_flow` as a `start_flow` preflight. Use `search_flows` for indexed discovery. [Released Python Client API](https://github.com/superdurable/dex/blob/sdk-python/v1.20.0/sdk-python/dex/client.py)
+
 ## Selection
 
 Attribute = current state; Channel = queued intent; RPC = synchronous mutation/snapshot; Stream = incremental output; Timer = durable time; SubFlow = independently identified durable child.

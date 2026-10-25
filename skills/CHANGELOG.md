@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.50.0 - 2026-10-25
+
+- Advance the Go SDK baseline to its published sdk-go/v1.21.0 release and refresh Go source links. Keep the Java, Python, TypeScript, and Rust SDK baselines, the Server baseline, and the CLI baseline at v1.20.0. Go SDK v1.21.0 adds only Client.DescribeFlow. Synchronize the bundle and plugin manifests at 0.50.0.
+- Document one-off DescribeFlow status reads for known Flows in Core and all five language references. Each SDK returns FlowInfo without waiting and maps a missing Flow to its typed Flow-not-found error; Go FlowInfo also carries the close time when available. Each page says that DescribeFlow is neither a start preflight nor a wait and must not be called in a loop, that FlowInfo has no error type or message, and that WaitForFlow returns them immediately for a closed, retained Flow. Gate the Go guidance on Go SDK v1.21.0, because the pinned Go example module still selects SDK v1.15.0, and name Client.DescribeFlow in the Go StartFlow preflight warning.
+
 ## 0.49.0 - 2026-10-25
 
 - Advance all five SDK baselines, the Server baseline, and the CLI baseline to their published v1.20.0 tags; refresh pinned source links. Document FLOW_CLOSING for cleanup rejections in Core and all five language error references, using each SDK's typed error. Synchronize the bundle and plugin manifests at 0.49.0.

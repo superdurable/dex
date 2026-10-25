@@ -32,7 +32,7 @@ At the released SDK API baseline, use the exact public names:
 
 | SDK | Combined missing/inactive target error | Source |
 | --- | --- | --- |
-| Go | `*dex.FlowNotActiveOrNotFoundError` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.20.0/sdk-go/dex/errors.go) |
+| Go | `*dex.FlowNotActiveOrNotFoundError` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.21.0/sdk-go/dex/errors.go) |
 | Python | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-python/v1.20.0/sdk-python/dex/runtime_errors.py) |
 | TypeScript | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-typescript/v1.20.0/sdk-typescript/src/errors.ts) |
 | Java | `FlowNotActiveOrNotFoundException` | [Definition](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowNotActiveOrNotFoundException.java) |
@@ -109,6 +109,8 @@ Before handling a typed not-active error from an RPC, inspect its registered opt
 Do not add a `FlowNotActiveOrNotFoundError → WaitForFlow → Step-output decoding` fallback to a business read. Read the snapshot from its typed read-only RPC and retained Attributes/AttributeMaps. Do not reconstruct it by matching historical Step names: execution history is not the entity's read contract, and an intermediate Step output may omit later committed state.
 
 Use `WaitForFlow` when the caller explicitly needs engine terminal status or completion output, or to reconcile an inactive mutation/idempotent cleanup whose outcome cannot be established through authoritative domain state or a typed read-only RPC. Keep its completion-output contract distinct from an entity snapshot. History remains appropriate for explicit diagnosis or execution recovery, not routine business reads. Retention expiry or a missing execution must retain an explicit unavailable/missing outcome.
+
+Use the selected SDK's DescribeFlow operation for a one-off lifecycle read of a known Flow ID, such as after a read-only RPC returns non-terminal business state and the caller needs to know whether the Flow has failed. It returns the current or latest run's status without waiting, and a missing Flow returns the selected SDK's typed Flow-not-found error. DescribeFlow is not a wait: to wait for a terminal result, call WaitForFlow and repeat it after its long-poll timeout; do not call DescribeFlow in a loop instead. Its FlowInfo has no error type or message. For a closed Flow that is still retained, WaitForFlow returns immediately with its terminal status and, for a failure, the error type and message. Use SearchFlows to discover Flow IDs, and do not use DescribeFlow as a start preflight.
 
 Anti-pattern and replacement:
 
