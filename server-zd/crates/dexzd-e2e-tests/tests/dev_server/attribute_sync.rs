@@ -9,9 +9,11 @@
 //! Attribute Sync to PostgreSQL through the dev server; database tests run only when `DEX_ZD_PARADEDB_URL`
 //! names a PostgreSQL database.
 
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeSyncConfig, AttributeWrite, FlowConfig, FlowResetType,
     FlowStartOptions, ResetFlowRequest, SetAttributesRequest, StartFlowRequest, Value,
@@ -21,13 +23,28 @@ use dexzd_server::DevCommandOptions;
 use tokio::io::copy_bidirectional;
 use tokio::sync::watch;
 use tokio::task::{JoinHandle, JoinSet};
+use tokio::time::{Instant, MissedTickBehavior};
 use tokio_postgres::NoTls;
+use tonic::transport::Channel;
 
 use crate::harness::DevServer;
 
 const STORE: &str = "orders";
 const FLOW_ID: &str = "attribute-sync-order-1";
 const ROW_WAIT: Duration = Duration::from_secs(20);
+
+/// Concurrent Flows that each write an increasing counter during the latency measurement.
+const LATENCY_FLOW_COUNT: u32 = 40;
+/// SetAttributes calls of each Flow; the last counter equals this.
+const LATENCY_WRITES_PER_FLOW: u32 = 150;
+/// Pause between one Flow's writes; the Flows' first writes are spread across it.
+const LATENCY_WRITE_INTERVAL: Duration = Duration::from_millis(250);
+/// Pause between table reads; a sample is late by at most one read period.
+const LATENCY_POLL_INTERVAL: Duration = Duration::from_millis(10);
+/// How long after the last scheduled write every final counter must be visible.
+const LATENCY_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+/// The p99 bound of commit-to-table latency.
+const LATENCY_P99_BOUND: Duration = Duration::from_secs(2);
 
 fn string_value(text: &str) -> Value {
     Value {
@@ -166,6 +183,164 @@ async fn synced_attributes_reach_postgres_through_outages_and_time_travel() {
     database.drop_schema().await;
 }
 
+/// Under steady SetAttributes load from concurrent Flows, p99 commit-to-table latency stays within 2 s.
+///
+/// Sync writes only latest values, so a write is visible once its row shows its counter or a later one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn commit_to_table_p99_latency_stays_within_two_seconds_under_steady_load() {
+    let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
+        return;
+    };
+    let database = AttributeStoreDatabase::create(&database_url, true).await;
+    let server =
+        DevServer::start_with_config_overrides(Some(&database.store_config_yaml(&database_url)))
+            .await;
+    let flow_ids: Vec<String> = (0..LATENCY_FLOW_COUNT)
+        .map(|index| format!("attribute-sync-latency-{index:02}"))
+        .collect();
+    let mut flow_client = server.flow_client();
+    for flow_id in &flow_ids {
+        flow_client
+            .start_flow(start_request(
+                flow_id,
+                STORE,
+                vec![synced("Status", Some(string_value(&counter_text(0))))],
+            ))
+            .await
+            .expect("StartFlow succeeds");
+    }
+    // The samples exclude warm-up, such as the first store connection and schema load.
+    database
+        .observe_counters(&flow_ids, 0, Instant::now() + ROW_WAIT)
+        .await;
+
+    let load_started = Instant::now();
+    let mut writers = JoinSet::new();
+    for (index, flow_id) in (0..LATENCY_FLOW_COUNT).zip(&flow_ids) {
+        let first_write_at = load_started + LATENCY_WRITE_INTERVAL * index / LATENCY_FLOW_COUNT;
+        let flow_client = server.flow_client();
+        let flow_id = flow_id.clone();
+        writers.spawn(async move {
+            let committed_at = write_counter_series(flow_client, &flow_id, first_write_at).await;
+            (index, committed_at)
+        });
+    }
+    let observation_deadline =
+        load_started + LATENCY_WRITE_INTERVAL * LATENCY_WRITES_PER_FLOW + LATENCY_DRAIN_TIMEOUT;
+    let (observations, committed_at) = tokio::join!(
+        database.observe_counters(&flow_ids, LATENCY_WRITES_PER_FLOW, observation_deadline),
+        collect_commit_times(writers),
+    );
+    let load_duration = committed_at
+        .iter()
+        .filter_map(|flow_committed_at| flow_committed_at.last())
+        .max()
+        .expect("every Flow wrote")
+        .duration_since(load_started);
+
+    let mut latencies = commit_to_visible_latencies(&observations, &committed_at);
+    latencies.sort_unstable();
+    let write_count = LATENCY_FLOW_COUNT * LATENCY_WRITES_PER_FLOW;
+    assert_eq!(
+        latencies.len(),
+        usize::try_from(write_count).expect("the write count fits usize")
+    );
+    let p50 = nearest_rank_percentile(&latencies, 500);
+    let p90 = nearest_rank_percentile(&latencies, 900);
+    let p99 = nearest_rank_percentile(&latencies, 990);
+    let max = nearest_rank_percentile(&latencies, 1000);
+    eprintln!(
+        "attribute_sync_commit_to_table_latency: samples={} flows={LATENCY_FLOW_COUNT} writes_per_second={:.1} p50_ms={:.1} p90_ms={:.1} p99_ms={:.1} max_ms={:.1} poll_interval_ms={} longest_poll_gap_ms={:.1} (warm-up excluded; each sample is late by at most one poll gap)",
+        latencies.len(),
+        f64::from(write_count) / load_duration.as_secs_f64(),
+        milliseconds(p50),
+        milliseconds(p90),
+        milliseconds(p99),
+        milliseconds(max),
+        LATENCY_POLL_INTERVAL.as_millis(),
+        milliseconds(observations.longest_poll_gap),
+    );
+    assert!(
+        p99 <= LATENCY_P99_BOUND,
+        "p99 commit-to-table latency {p99:?} exceeds {LATENCY_P99_BOUND:?}"
+    );
+
+    server.shutdown().await;
+    database.drop_schema().await;
+}
+
+/// The Status text of a latency counter; it parses back to the counter.
+fn counter_text(counter: u32) -> String {
+    format!("{counter:06}")
+}
+
+/// Writes counters 1 through `LATENCY_WRITES_PER_FLOW` to `flow_id`, one per interval from `first_write_at`.
+///
+/// Returns when each SetAttributes call returned, which is after its write committed.
+async fn write_counter_series(
+    mut flow_client: FlowServiceClient<Channel>,
+    flow_id: &str,
+    first_write_at: Instant,
+) -> Vec<Instant> {
+    let mut ticks = tokio::time::interval_at(first_write_at, LATENCY_WRITE_INTERVAL);
+    ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut committed_at = Vec::new();
+    for counter in 1..=LATENCY_WRITES_PER_FLOW {
+        ticks.tick().await;
+        flow_client
+            .set_attributes(SetAttributesRequest {
+                flow_id: flow_id.to_owned(),
+                attributes: vec![synced("Status", Some(string_value(&counter_text(counter))))],
+                request_id: format!("{flow_id}-counter-{counter}"),
+                ..SetAttributesRequest::default()
+            })
+            .await
+            .expect("SetAttributes succeeds");
+        committed_at.push(Instant::now());
+    }
+    committed_at
+}
+
+/// Returns each writer's commit times at its Flow's index.
+async fn collect_commit_times(mut writers: JoinSet<(u32, Vec<Instant>)>) -> Vec<Vec<Instant>> {
+    let mut committed_at = vec![Vec::new(); writers.len()];
+    while let Some(joined) = writers.join_next().await {
+        let (index, flow_committed_at) = joined.expect("a counter writer completes");
+        committed_at[usize::try_from(index).expect("a Flow index fits usize")] = flow_committed_at;
+    }
+    committed_at
+}
+
+/// Returns, for every write, the time from its commit until its row showed its counter or a later one.
+fn commit_to_visible_latencies(
+    observations: &CounterObservations,
+    committed_at: &[Vec<Instant>],
+) -> Vec<Duration> {
+    let mut latencies = Vec::new();
+    for (increases, flow_committed_at) in observations.increases.iter().zip(committed_at) {
+        for (counter, committed) in (1..).zip(flow_committed_at) {
+            let visible_at = increases
+                .iter()
+                .find(|(observed_counter, _)| *observed_counter >= counter)
+                .map(|(_, observed_at)| *observed_at)
+                .expect("every Flow's final counter was observed");
+            // A row can appear before the client receives the SetAttributes reply.
+            latencies.push(visible_at.saturating_duration_since(*committed));
+        }
+    }
+    latencies
+}
+
+/// Returns the nearest-rank percentile of `sorted`, with `per_mille` in 1..=1000.
+fn nearest_rank_percentile(sorted: &[Duration], per_mille: usize) -> Duration {
+    let rank = (sorted.len() * per_mille).div_ceil(1000).max(1);
+    sorted[rank - 1]
+}
+
+fn milliseconds(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1000.0
+}
+
 /// Startup fails with the CREATE TABLE statement when the fencing table is missing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn startup_fails_with_the_fencing_table_ddl_when_it_is_missing() {
@@ -262,6 +437,14 @@ async fn set_attributes(
         })
         .await
         .expect("SetAttributes succeeds");
+}
+
+/// When each Flow's counter row was first seen at each higher counter.
+struct CounterObservations {
+    /// Per Flow index, every (counter, observed at) increase in order.
+    increases: Vec<Vec<(u32, Instant)>>,
+    /// Longest time between two table reads, which bounds how late a sample can be.
+    longest_poll_gap: Duration,
 }
 
 /// A schema with the store tables and, optionally, the fencing table.
@@ -365,6 +548,77 @@ impl AttributeStoreDatabase {
                 "timed out waiting for {description}: status {actual_status:?}, items {actual_items:?}"
             );
             tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    /// Polls the main table until every Flow of `flow_ids` shows `final_counter`.
+    ///
+    /// Returns when each row's counter first rose. Panics when a counter moves backwards or the
+    /// rows are not final by `deadline`.
+    async fn observe_counters(
+        &self,
+        flow_ids: &[String],
+        final_counter: u32,
+        deadline: Instant,
+    ) -> CounterObservations {
+        let flow_indexes: BTreeMap<&str, usize> = flow_ids
+            .iter()
+            .enumerate()
+            .map(|(index, flow_id)| (flow_id.as_str(), index))
+            .collect();
+        let query = format!("SELECT flow_id, status FROM {}.orders", self.schema);
+        let mut latest_counters: Vec<Option<u32>> = vec![None; flow_ids.len()];
+        let mut observations = CounterObservations {
+            increases: vec![Vec::new(); flow_ids.len()],
+            longest_poll_gap: Duration::ZERO,
+        };
+        let mut previous_poll_at: Option<Instant> = None;
+        loop {
+            let rows = self
+                .client
+                .query(&query, &[])
+                .await
+                .expect("the main rows can be read");
+            // Stamped after the read returns, so each sample is an upper bound.
+            let observed_at = Instant::now();
+            if let Some(previous_poll_at) = previous_poll_at.replace(observed_at) {
+                observations.longest_poll_gap = observations
+                    .longest_poll_gap
+                    .max(observed_at.duration_since(previous_poll_at));
+            }
+            for row in rows {
+                let flow_id: String = row.get(0);
+                let status: Option<String> = row.get(1);
+                let Some(&index) = flow_indexes.get(flow_id.as_str()) else {
+                    continue;
+                };
+                let counter: u32 = status
+                    .as_deref()
+                    .and_then(|text| text.parse().ok())
+                    .unwrap_or_else(|| panic!("the row of {flow_id} holds a counter: {status:?}"));
+                if let Some(previous_counter) = latest_counters[index] {
+                    assert!(
+                        counter >= previous_counter,
+                        "the row of {flow_id} moved back from {previous_counter} to {counter}"
+                    );
+                    if counter == previous_counter {
+                        continue;
+                    }
+                }
+                latest_counters[index] = Some(counter);
+                observations.increases[index].push((counter, observed_at));
+            }
+            if latest_counters
+                .iter()
+                .all(|counter| *counter == Some(final_counter))
+            {
+                return observations;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for every row to show counter {final_counter}: {latest_counters:?}"
+            );
+            tokio::time::sleep(LATENCY_POLL_INTERVAL).await;
         }
     }
 

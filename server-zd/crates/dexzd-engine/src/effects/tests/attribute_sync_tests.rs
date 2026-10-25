@@ -38,10 +38,12 @@ use crate::attribute_sync::{
     AttributeSyncProjector, AttributeSyncProjectorHandle, AttributeSyncRetryPolicy,
     AttributeSyncWaker, AttributeSyncWriteError, AttributeSyncWriter,
 };
-use crate::effects::EffectRuntime;
+use crate::effects::{EffectRuntime, EffectsConfig};
 use crate::runtime::CommitUrgency;
 
 const STORE: &str = "orders";
+/// The fence token of the first node; a restarted node takes the next one.
+const NODE_EPOCH: u64 = 7;
 
 /// One write the fake store accepted or refused.
 #[derive(Debug, Clone, PartialEq)]
@@ -134,6 +136,21 @@ impl FakeAttributeStore {
             .into_iter()
             .filter(|write| write.flow_id == flow_id)
             .collect()
+    }
+
+    /// Returns the stored values of `flow_id` after every committed write, as a table would hold them.
+    fn table_row(&self, flow_id: &str) -> BTreeMap<String, Value> {
+        let mut row = BTreeMap::new();
+        for write in self.committed_writes_of_flow(flow_id) {
+            for item in write.items {
+                if let Some(value) = item.value {
+                    row.insert(item.key, value);
+                } else {
+                    row.remove(&item.key);
+                }
+            }
+        }
+        row
     }
 
     /// Lets one held write finish while later writes stay held.
@@ -277,6 +294,7 @@ struct ProjectorFixture {
     lease: watch::Sender<LeaseStatus>,
     metrics: Arc<NodeMetrics>,
     projector: Option<AttributeSyncProjectorHandle>,
+    node_epoch: u64,
 }
 
 impl ProjectorFixture {
@@ -297,7 +315,25 @@ impl ProjectorFixture {
         lease_validity: Duration,
         waker: AttributeSyncWaker,
     ) -> Self {
-        let store = Arc::new(FakeAttributeStore::default());
+        Self::start_node(
+            harness,
+            config,
+            lease_validity,
+            waker,
+            Arc::new(FakeAttributeStore::default()),
+            NODE_EPOCH,
+        )
+    }
+
+    /// Starts a projector on `harness` that writes to `store` with the fence of `node_epoch`.
+    fn start_node(
+        harness: EffectHarness,
+        config: AttributeSyncConfig,
+        lease_validity: Duration,
+        waker: AttributeSyncWaker,
+        store: Arc<FakeAttributeStore>,
+        node_epoch: u64,
+    ) -> Self {
         let (lease, lease_status) =
             watch::channel(LeaseStatus::ValidUntil(Instant::now() + lease_validity));
         let metrics = Arc::new(NodeMetrics::unregistered());
@@ -309,7 +345,7 @@ impl ProjectorFixture {
                 partition_hasher: harness.hasher.clone(),
                 clock: Arc::clone(&harness.clock) as _,
                 metrics: Arc::clone(&metrics),
-                fence: AttributeSyncFence::for_node_owner([1; 16], "node-a", 7),
+                fence: AttributeSyncFence::for_node_owner([1; 16], "node-a", node_epoch),
                 lease_status,
                 waker,
             },
@@ -321,6 +357,7 @@ impl ProjectorFixture {
             lease,
             metrics,
             projector: Some(projector),
+            node_epoch,
         }
     }
 
@@ -452,6 +489,25 @@ impl ProjectorFixture {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         panic!("timed out waiting until {description}");
+    }
+
+    /// Stops the node before its in-flight acks commit, then starts a new node with the next epoch
+    /// over the same committed state and Attribute Store.
+    ///
+    /// The new projector's waker heard no marks, so only its startup scan can find pending entries.
+    async fn restart_after_crash(mut self, config: AttributeSyncConfig) -> Self {
+        let projector = self.projector.take().expect("the projector runs");
+        assert!(projector.shutdown(Duration::from_secs(1)).await);
+        let durable = self.harness.durable.clone();
+        self.harness.shutdown().await;
+        Self::start_node(
+            EffectHarness::with_config(durable, EffectsConfig::default()),
+            config,
+            Duration::from_secs(365 * 24 * 3600),
+            AttributeSyncWaker::new(),
+            self.store,
+            self.node_epoch + 1,
+        )
     }
 
     async fn shutdown(mut self) {
@@ -1245,6 +1301,111 @@ async fn entries_committed_before_the_projector_starts_are_synced_by_the_startup
         .collect();
     assert_eq!(written_flow_ids, flow_ids);
     assert_eq!(fixture.acks().len(), flow_ids.len());
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_crash_after_the_store_commit_and_before_the_ack_commits_rewrites_the_entries_on_restart()
+{
+    assert_a_crash_before_the_ack_commits_delivers_the_latest_values(false).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_crash_before_the_ack_commits_writes_values_committed_after_the_store_read_on_restart() {
+    assert_a_crash_before_the_ack_commits_delivers_the_latest_values(true).await;
+}
+
+/// The node dies after the store transaction commits and before its ack commits; the restarted
+/// node writes the entries again with the latest committed values.
+async fn assert_a_crash_before_the_ack_commits_delivers_the_latest_values(has_newer_write: bool) {
+    const FLOW_ID: &str = "order-crash";
+    let fixture = ProjectorFixture::start(sync_config());
+    fixture
+        .store
+        .is_holding_writes
+        .store(true, Ordering::SeqCst);
+    let write_started = fixture.store.write_started.notified();
+    let run_id = fixture.start_flow(
+        FLOW_ID,
+        vec![
+            synced("Status", Some(string_value("new"))),
+            synced("Members/account-1", Some(string_value("owner"))),
+        ],
+    );
+    write_started.await;
+    let first_items = vec![
+        item("Members/account-1", Some(string_value("owner"))),
+        item("Status", Some(string_value("new"))),
+    ];
+    let latest_items = if has_newer_write {
+        fixture.set_attributes(
+            FLOW_ID,
+            run_id,
+            vec![
+                synced("Status", Some(string_value("paid"))),
+                synced("Members/account-1", None),
+            ],
+        );
+        vec![
+            item("Members/account-1", None),
+            item("Status", Some(string_value("paid"))),
+        ]
+    } else {
+        first_items.clone()
+    };
+    let pending_seq = fixture
+        .pending_written_seq(FLOW_ID, run_id, "Status")
+        .expect("the entry is pending");
+    // From here every proposal of this node fails, so its ack cannot commit before the crash.
+    fixture
+        .harness
+        .runtime
+        .unavailable_proposals
+        .store(usize::MAX, Ordering::SeqCst);
+    fixture.store.release_writes();
+    fixture
+        .wait_until("the store commits and an ack proposal fails", |fixture| {
+            !fixture.store.committed_writes().is_empty()
+                && fixture
+                    .harness
+                    .runtime
+                    .unavailable_proposals
+                    .load(Ordering::SeqCst)
+                    < usize::MAX
+        })
+        .await;
+    let committed_before_crash = fixture.store.committed_writes();
+    assert_eq!(committed_before_crash.len(), 1);
+    assert_eq!(committed_before_crash[0].items, first_items);
+    assert!(
+        fixture.acks().is_empty(),
+        "no ack committed before the crash"
+    );
+    assert_eq!(
+        fixture.pending_written_seq(FLOW_ID, run_id, "Status"),
+        Some(pending_seq)
+    );
+
+    let fixture = fixture.restart_after_crash(sync_config()).await;
+    fixture
+        .wait_until(
+            "the restarted node writes and acknowledges the entries",
+            |fixture| fixture.pending_run_count() == 0,
+        )
+        .await;
+    let writes = fixture.store.committed_writes();
+    assert_eq!(writes.len(), 2, "{writes:?}");
+    assert_eq!(writes[1].items, latest_items);
+    assert_eq!(writes[1].fence.token, NODE_EPOCH + 1);
+    let expected_row: BTreeMap<String, Value> = latest_items
+        .into_iter()
+        .filter_map(|item| Some((item.key, item.value?)))
+        .collect();
+    assert_eq!(fixture.store.table_row(FLOW_ID), expected_row);
+    let acks = fixture.acks();
+    assert_eq!(acks.len(), 1, "{acks:?}");
+    assert!(!acks[0].is_dropped);
+    assert!(acks[0].acked_seq >= pending_seq, "{acks:?}");
     fixture.shutdown().await;
 }
 
