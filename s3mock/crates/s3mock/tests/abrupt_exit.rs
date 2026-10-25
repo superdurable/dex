@@ -343,3 +343,42 @@ fn a_guarded_open_checks_a_store_from_a_release_without_markers() {
     .expect("an unmarked store that was closed cleanly opens");
     assert_eq!(read(&reopened, "object").unwrap(), b"body");
 }
+
+/// A strict configuration is trusted for an unmarked store that was not closed cleanly.
+#[test]
+fn a_strict_guarded_open_accepts_an_unmarked_strict_store_copied_while_open() {
+    let directory = tempfile::tempdir().unwrap();
+    let root_directory = directory.path().join("store");
+    let crashed_directory = directory.path().join("crashed");
+    {
+        let store = Store::open(&config(&root_directory, Durability::Strict)).unwrap();
+        store.create_bucket(BUCKET, false).unwrap();
+        put(&store, "object", b"body");
+        copy_open_store(&root_directory, &crashed_directory);
+    }
+    for durability in [Durability::ProcessCrashSafe, Durability::Relaxed] {
+        let refused =
+            Store::open_refusing_unclean_relaxed_session(&config(&crashed_directory, durability));
+        assert!(
+            matches!(
+                refused,
+                Err(StoreError::UncleanSessionWithoutRelaxedSessionMarkers { .. })
+            ),
+            "a {durability:?} guarded open must refuse the unmarked store"
+        );
+    }
+    {
+        let reopened = Store::open_refusing_unclean_relaxed_session(&config(
+            &crashed_directory,
+            Durability::Strict,
+        ))
+        .expect("a strict guarded open trusts the configuration");
+        assert_eq!(read(&reopened, "object").unwrap(), b"body");
+    }
+    let stamped = Store::open_refusing_unclean_relaxed_session(&config(
+        &crashed_directory,
+        Durability::ProcessCrashSafe,
+    ))
+    .expect("the strict open stamped the store");
+    assert_eq!(read(&stamped, "object").unwrap(), b"body");
+}

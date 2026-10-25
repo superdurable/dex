@@ -179,6 +179,11 @@ server-zd YAML 文件，可以覆盖已关闭 Flow 的保留时间、Stream 或�
 保留在内存中，直到优雅停止。在 relaxed 模式下崩溃或被 kill 之后，server-zd 会拒绝
 启动，直到你删除状态目录。
 
+早期 server-zd release 默认使用 relaxed 模式。因此，早期 release 在崩溃或被 kill 后
+留下的状态目录，在默认模式和 relaxed 模式下都会被拒绝。如果该目录之前每次运行都使用
+**dev.durabilityMode: strict**，请保留这个覆盖项。server-zd 会接受该目录，因为 strict
+模式已经把每个写入刷到磁盘。早期 release 优雅停止后留下的目录在所有模式下都可以使用。
+
 ~~~bash
 dexcli dev --engine zd --flow-rendering-dir ./build
 ~~~

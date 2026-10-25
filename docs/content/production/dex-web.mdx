@@ -184,6 +184,13 @@ host crash, but each write waits for fsync and is much slower on macOS. The
 graceful stop. After a crash or kill in relaxed mode, server-zd refuses to
 start until you delete the state directory.
 
+Earlier server-zd releases defaulted to relaxed mode. A state directory that an
+earlier release left after a crash or kill is therefore refused in the default
+and relaxed modes. If every earlier run of that directory used
+**dev.durabilityMode: strict**, keep that override. server-zd then accepts the
+directory, because strict mode flushed every write. A directory that an earlier
+release stopped gracefully works in every mode.
+
 ~~~bash
 dexcli dev --engine zd --flow-rendering-dir ./build
 ~~~

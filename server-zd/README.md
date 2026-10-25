@@ -489,9 +489,18 @@ After a process kill in the default or `strict` mode, the next `dev` start on th
 directory recovers every acknowledged Flow. A relaxed object store rolls back after an abrupt exit,
 while the local store under `<data-dir>/store` keeps newer state. Every later start then fails, in
 any mode, with an error that names the data directory. Delete the whole data directory to start
-empty. A data directory that an earlier release left after an abrupt exit gets the same refusal,
-because those releases defaulted to `relaxed`. A directory that an earlier release stopped
-gracefully keeps working.
+empty.
+
+Upgrading a data directory from an earlier release follows these rules:
+
+- A directory that an earlier release stopped gracefully keeps working in every mode.
+- A directory that an earlier release left after an abrupt exit is refused in the default and
+  `relaxed` modes, because those releases defaulted to `relaxed` and may have rolled back.
+- With `dev.durabilityMode: strict`, the same directory is accepted, and the upgrade is logged at
+  info level. Strict releases fsynced every commit, so the configuration is trusted. Set it only when
+  every earlier run of the directory used `strict`.
+
+After the first start of a release with this rule, the directory is stamped, and any mode works.
 
 ## Stable command-line interface
 

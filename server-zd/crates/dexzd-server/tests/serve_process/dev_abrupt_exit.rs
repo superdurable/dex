@@ -228,6 +228,48 @@ async fn default_dev_checks_a_relaxed_directory_from_a_release_without_markers()
     }
 }
 
+/// A strict directory from a release without markers serves after a kill when strict is configured.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn strict_dev_accepts_a_killed_strict_directory_from_a_release_without_markers() {
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    let strict_config_path = write_overrides(directory.path(), "strict", STRICT_MODE_OVERRIDES);
+    let default_config_path = write_overrides(directory.path(), "default", DEFAULT_MODE_OVERRIDES);
+    let data_directory = directory.path().join("data");
+    let mut first = spawn_dev(
+        directory.path(),
+        &data_directory,
+        &strict_config_path,
+        "first",
+    );
+    run_flow_then_wait_for_object_write(&mut first, &data_directory, "dev-strict-upgrade").await;
+    let killed = first.kill().await;
+    assert!(!killed.success(), "SIGKILL stops the strict process");
+    remove_relaxed_session_files(&data_directory);
+
+    let mut refused = spawn_dev(
+        directory.path(),
+        &data_directory,
+        &default_config_path,
+        "default",
+    );
+    let status = refused.wait_for_exit(EXIT_BUDGET).await;
+    let log = refused.log();
+    assert!(
+        !status.success() && log.contains(UNCLEAN_SESSION_WITHOUT_MARKERS_TEXT),
+        "the default mode cannot tell that the unmarked directory was strict:\n{log}"
+    );
+    for (incarnation, config_path) in [
+        ("strict-upgraded", &strict_config_path),
+        ("default-after-stamp", &default_config_path),
+    ] {
+        let mut upgraded = spawn_dev(directory.path(), &data_directory, config_path, incarnation);
+        let channel = upgraded.wait_until_serving().await;
+        assert_flow_completed(&mut FlowServiceClient::new(channel), "dev-strict-upgrade").await;
+        let status = upgraded.terminate(STOP_BUDGET).await;
+        assert_eq!(status.code(), Some(0), "{}", upgraded.log());
+    }
+}
+
 async fn restarts_after_sigkill_with_the_earlier_flow(overrides: &str) {
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let config_path = write_overrides(directory.path(), "overrides", overrides);

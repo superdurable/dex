@@ -73,6 +73,8 @@ and only a durable close removes it. When the marker remains after a crash, ever
 with `StoreError::UncleanRelaxedSession`. The first guarded open of a directory also writes a
 `relaxed-session-markers` stamp. A directory without the stamp that redb must repair, because its
 last process did not close it, fails with `StoreError::UncleanSessionWithoutRelaxedSessionMarkers`.
+A strict guarded open is the exception: it trusts the configuration, accepts the directory, stamps
+it, and logs the upgrade.
 `Store::open` and the `s3mock` command never check the marker or the stamp.
 
 ## Store format

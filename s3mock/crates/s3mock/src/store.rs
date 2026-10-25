@@ -255,7 +255,8 @@ impl Store {
     /// an earlier relaxed session opened this way remains. Only that session's durable close
     /// removes its marker, so a crash or kill leaves it behind. Returns
     /// [`StoreError::UncleanSessionWithoutRelaxedSessionMarkers`] for a store that no guarded open
-    /// stamped and that was not closed cleanly, since its mode is unknown.
+    /// stamped and that was not closed cleanly, unless the configured mode is strict. The
+    /// configuration is trusted then, because a strict store fsynced every earlier commit.
     pub fn open_refusing_unclean_relaxed_session(
         config: &StoreConfig,
     ) -> Result<Store, StoreError> {
@@ -271,9 +272,13 @@ impl Store {
         let metadata_path = root_directory.join(METADATA_FILE_NAME);
         if !stamp_path.try_exists()? {
             if metadata_path.try_exists()? && was_closed_uncleanly(&metadata_path)? {
-                return Err(StoreError::UncleanSessionWithoutRelaxedSessionMarkers {
-                    root_directory: root_directory.clone(),
-                });
+                // A strict configuration fsynced every earlier commit, so redb's repair loses none.
+                if config.durability != Durability::Strict {
+                    return Err(StoreError::UncleanSessionWithoutRelaxedSessionMarkers {
+                        root_directory: root_directory.clone(),
+                    });
+                }
+                tracing::info!(directory = %root_directory.display(), "accepting an unstamped strict store that was not closed cleanly, and stamping it");
             }
             create_directory_durably(root_directory, true)?;
             create_file_durably(&stamp_path, root_directory)?;

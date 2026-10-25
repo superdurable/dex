@@ -74,7 +74,10 @@ host crash or power loss can lose recent writes. Set `dev.durabilityMode` in the
 `--zd-config` file to `strict` to fsync every write, which also survives a host
 crash but is much slower on macOS. `relaxed` keeps writes in memory until a
 graceful stop. After a crash or kill in relaxed mode, zd refuses to start until
-you delete the state directory.
+you delete the state directory. A state directory that an earlier zd release
+left after a crash or kill is refused too, because those releases defaulted to
+relaxed. If every earlier run used `dev.durabilityMode: strict`, keep that
+setting, and zd accepts the directory.
 `--attribute-store-config` also works with `--engine zd`. The CLI passes the
 file to `dex-server-zd dev --attribute-store-config`, which reads only its
 `attributeStore` section. zd supports only `type: postgres`, and each database
