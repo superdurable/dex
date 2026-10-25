@@ -530,10 +530,12 @@ in server-zd.
   waits starts its own retry window and extends the wait.
 - StopFlow and Terminate never wait. StopFlow closes the run as soon as it
   commits, even while a close waits, and the pending writes keep syncing after
-  the close. A later **SetAttributes** on that run returns NOT_FOUND unless
-  every write erases a currently stored hard-delete Attribute with null. This
-  exception applies only before the run is purged. It deletes the stored objects
-  without reopening the run. The Go Server accepts writes while a canceled or
+  the close. A later **SetAttributes** on that run returns NOT_FOUND. From
+  server-zd v0.1.5, it succeeds only when every write erases a currently stored
+  [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) with
+  null. This exception applies only before the run is purged. It deletes the
+  stored objects without reopening the run. The run's Flow history records the
+  erase after the close. The Go Server accepts writes while a canceled or
   failed run winds down. It rejects every write after the run closes. Write what
   a Flow needs before stopping it.
 - Pending writes for a store that is no longer configured are dropped at once
