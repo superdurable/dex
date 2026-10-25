@@ -427,6 +427,7 @@ class PullStream:
         if self.runtime.is_stopping:
             return False
         self._supports_unknown_name_rejection = False
+        self._is_final_frame_sent = False
         self._stream_metadata = None
         if self.runtime._credential_runner is None:
             self._call = self.stub.PollWorkerTask()
