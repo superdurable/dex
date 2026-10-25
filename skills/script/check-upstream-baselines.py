@@ -112,6 +112,26 @@ def require_text(path: Path, *needles: str) -> None:
             fail(f"{path} is missing required text: {needle}")
 
 
+def require_section_text(path: Path, heading: str, *needles: str) -> None:
+    """Requires needles in one Markdown section's own text, before its next heading of any level."""
+    lines = path.read_text().splitlines()
+    if lines.count(heading) != 1:
+        fail(f"{path} must contain the heading `{heading}` exactly once")
+    start = lines.index(heading) + 1
+    end = len(lines)
+    is_fenced = False
+    for index in range(start, len(lines)):
+        if lines[index].startswith("```"):
+            is_fenced = not is_fenced
+        elif not is_fenced and lines[index].startswith("#"):
+            end = index
+            break
+    section = "\n".join(lines[start:end])
+    for needle in needles:
+        if needle not in section:
+            fail(f"{path} section `{heading}` is missing required text: {needle}")
+
+
 def require_tagged_text(checkout: Path, tag: str, path: str, *needles: str) -> None:
     content = git(checkout, "show", f"refs/tags/{tag}:{path}")
     for needle in needles:
@@ -265,11 +285,17 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
         "A missing Flow returns `*dex.FlowNotFoundError`",
         "uses `GetFlowSummary` with the Flow ID and no run ID",
     )
-    require_text(
-        references / "core" / "error-handling.md",
+    require_section_text(
+        references / "core" / "error-handling.md", "## Closed-Flow races",
+        "For that status read, or another one-off status check of a known Flow ID, call the SDK's DescribeFlow API: "
         "Go **Client.DescribeFlow** (from Go SDK v1.21.0)",
+        "Each reads the current or latest run without waiting.",
         "Only the Go result also carries the close time, when available.",
+        "Both the Go Server and server-zd serve the underlying **GetFlowSummary** RPC.",
+        "Do not call it after a missing-target error at a query-only Get boundary.",
     )
+    require_section_text(references / "go" / "observability.md", "## Correlation and signals", "For a stall: confirm IDs/status;")
+    require_section_text(references / "go" / "observability.md", "## Describe a Flow", GO_DESCRIBE_FLOW_SIGNATURE)
     require_text(
         references / "go" / "error-handling.md",
         "Call `Client.DescribeFlow` from Go SDK v1.21.0", "`*dex.FlowNotFoundError`", "`dex.FlowCompleted`",

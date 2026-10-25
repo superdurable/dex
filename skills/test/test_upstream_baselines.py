@@ -665,6 +665,39 @@ class GoDescribeFlowTest(unittest.TestCase):
             "Every result also carries the close time, when available.",
         )
 
+    def test_core_status_read_must_keep_its_lead_in(self):
+        self.assert_reference_mutation_fails(
+            "core/error-handling.md",
+            "For that status read, or another one-off status check of a known Flow ID, call the SDK's DescribeFlow API:",
+            "For that status read, use a typed RPC:",
+        )
+
+    def test_core_status_read_must_stay_under_closed_flow_races(self):
+        page = self.references / "core" / "error-handling.md"
+        lines = page.read_text().split("\n")
+        paragraph = next(line for line in lines if line.startswith("For that status read,"))
+        lines.remove(paragraph)
+        heading = lines.index("### Terminal read RPC rule")
+        lines[heading + 1 : heading + 1] = ["", paragraph]
+        page.write_text("\n".join(lines))
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn("section `## Closed-Flow races` is missing required text", str(raised.exception))
+
+    def test_stall_checklist_must_stay_outside_describe_section(self):
+        page = self.references / "go" / "observability.md"
+        content = page.read_text()
+        stall_start = content.index("For a stall:")
+        describe_heading = "## Describe a Flow\n\n"
+        heading_start = content.index(describe_heading)
+        page.write_text(
+            content[:stall_start] + describe_heading + content[stall_start:heading_start]
+            + content[heading_start + len(describe_heading):]
+        )
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn("section `## Correlation and signals` is missing required text: For a stall:", str(raised.exception))
+
     def test_tagged_readme_must_keep_status_read_boundary(self):
         self.assert_mutation_fails(
             self.README_PATH, None,
