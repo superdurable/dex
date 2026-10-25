@@ -1,0 +1,84 @@
+name: Server ZD Dev Soak Nightly
+
+on:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+    inputs:
+      soak_seconds:
+        description: Seconds that dex-server-zd dev serves the soak workload
+        required: true
+        default: 10800
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-zd-dev-soak-nightly
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_BUILD_JOBS: "4"
+  RUST_BACKTRACE: "1"
+  RUSTUP_TOOLCHAIN: "1.97.1"
+
+jobs:
+  dev-soak:
+    name: Dev soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 255
+    defaults:
+      run:
+        working-directory: server-zd
+    env:
+      DEX_ZD_DEV_SOAK_SECONDS: ${{ inputs.soak_seconds || 10800 }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for the RocksDB bindings
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-test
+          save-if: false
+      - name: Validate soak duration
+        shell: bash
+        run: |
+          if ! [[ "$DEX_ZD_DEV_SOAK_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
+             (( ${#DEX_ZD_DEV_SOAK_SECONDS} > 5 || DEX_ZD_DEV_SOAK_SECONDS > 12600 )); then
+            echo 'Use 1-12600 seconds; the job timeout leaves time to build.' >&2
+            exit 1
+          fi
+      - name: Build the dev soak
+        run: cargo test --locked -p dexzd-server --test serve_process --no-run
+      - name: Run the dev soak
+        shell: bash
+        env:
+          DEX_ZD_DEV_SOAK_LOG_DIR: ${{ runner.temp }}/dev-soak-logs
+        run: |
+          set -o pipefail
+          mkdir -p "$DEX_ZD_DEV_SOAK_LOG_DIR"
+          test_log="$DEX_ZD_DEV_SOAK_LOG_DIR/dev-soak-test.log"
+          # Stop well before the job timeout so the failure step can still upload the logs.
+          timeout --signal=TERM --kill-after=1m "$(( DEX_ZD_DEV_SOAK_SECONDS + 900 ))s" \
+            cargo test --locked -p dexzd-server --test serve_process -- \
+            --ignored --exact dev_soak::dev_serves_for_the_soak_with_bounded_disk_usage --nocapture \
+            2>&1 | tee "$test_log"
+          # After a rename, --exact matches no test and cargo still succeeds.
+          if ! grep -q ' 1 passed;' "$test_log"; then
+            echo 'The dev soak did not run exactly one passing test.' >&2
+            exit 1
+          fi
+      - name: Upload dev soak logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dexzd-dev-soak-logs
+          path: ${{ runner.temp }}/dev-soak-logs/
+          if-no-files-found: warn
+          retention-days: 30
