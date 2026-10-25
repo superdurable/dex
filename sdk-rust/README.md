@@ -141,6 +141,9 @@ Single-condition waits read as `Wait::until(condition)`. `Wait::all_of` and
 domain-specific `SdkError` variants such as `FlowNotFound`, `FlowNotActiveOrNotFound`,
 `FlowAlreadyStarted`, `RpcLockConflict`, and `WorkerInvocation` instead of
 requiring callers to inspect transport metadata.
+An update-class request rejected during Flow close cleanup returns
+`SdkError::FlowClosing` with `ErrorSubStatus::FlowClosing`. Re-read the retained
+terminal Flow state before deciding whether another action is needed.
 
 `Wait::until`, `Wait::all_of`, and `Wait::any_of` use unnamed Conditions by
 default. Do not add Condition IDs merely because a Condition is nested in one

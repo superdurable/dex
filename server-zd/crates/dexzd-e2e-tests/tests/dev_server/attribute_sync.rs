@@ -16,9 +16,10 @@ use std::time::Duration;
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::{
     AttributeMatch, AttributeMatchOperator, AttributeStoreNames, AttributeSyncConfig,
-    AttributeWrite, FlowConfig, FlowErrorType, FlowResetType, FlowStartOptions, FlowStatus,
-    GetFlowSummaryRequest, ResetFlowRequest, SetAttributesRequest, StartFlowRequest, Value,
-    WaitForAttributeRequest, WaitForFlowRequest, WorkerTarget, value,
+    AttributeWrite, DeleteChannelMessageRequest, ErrorSubStatus, FlowConfig, FlowErrorType,
+    FlowResetType, FlowStartOptions, FlowStatus, GetFlowSummaryRequest, ResetFlowRequest,
+    SetAttributesRequest, StartFlowRequest, Value, WaitForAttributeRequest, WaitForFlowRequest,
+    WorkerTarget, value,
 };
 use dexzd_server::DevCommandOptions;
 use tokio::io::copy_bidirectional;
@@ -28,7 +29,7 @@ use tokio::time::{Instant, MissedTickBehavior};
 use tokio_postgres::NoTls;
 use tonic::transport::Channel;
 
-use crate::harness::DevServer;
+use crate::harness::{DevServer, service_error};
 
 const STORE: &str = "orders";
 const FLOW_ID: &str = "attribute-sync-order-1";
@@ -292,8 +293,27 @@ async fn a_store_outage_delays_a_natural_close_until_the_store_recovers() {
         .expect_err("WaitForAttribute fails during terminal cleanup");
     assert_eq!(attribute_wait.code(), tonic::Code::FailedPrecondition);
     assert_eq!(
+        service_error(&attribute_wait).sub_status,
+        ErrorSubStatus::FlowClosing as i32
+    );
+    assert_eq!(
         attribute_wait.message(),
         "flow terminal cleanup is in progress"
+    );
+    let channel_delete = flow_client
+        .delete_channel_message(DeleteChannelMessageRequest {
+            flow_id: flow_id.to_owned(),
+            channel_name: "orders".to_owned(),
+            message_id: "message-1".to_owned(),
+            request_id: "delete-in-cleanup".to_owned(),
+            ..DeleteChannelMessageRequest::default()
+        })
+        .await
+        .expect_err("DeleteChannelMessage fails during terminal cleanup");
+    assert_eq!(channel_delete.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(
+        service_error(&channel_delete).sub_status,
+        ErrorSubStatus::FlowClosing as i32
     );
     flow_client
         .set_attributes(SetAttributesRequest {

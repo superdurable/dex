@@ -18,6 +18,7 @@ import {
   DexServiceError,
   ErrorSubStatus,
   FlowAlreadyStartedError,
+  FlowClosingError,
   FlowNotActiveOrNotFoundError,
   FlowNotFoundError,
   LongPollTimeoutError,
@@ -142,6 +143,8 @@ export function translateServiceError(
   switch (subStatus) {
     case ErrorSubStatus.FLOW_ALREADY_STARTED:
       return new FlowAlreadyStartedError(...parameters);
+    case ErrorSubStatus.FLOW_CLOSING:
+      return new FlowClosingError(...parameters);
     case ErrorSubStatus.FLOW_NOT_EXISTS:
       if (requirement === "existing") {
         return new FlowNotFoundError(...parameters);
@@ -212,6 +215,8 @@ function mapSubStatus(value: ProtoErrorSubStatus): ErrorSubStatusValue {
       return ErrorSubStatus.CHANNEL_MESSAGE_NOT_FOUND;
     case ProtoErrorSubStatus.ERROR_SUB_STATUS_REQUEST_TIMEOUT:
       return ErrorSubStatus.REQUEST_TIMEOUT;
+    case ProtoErrorSubStatus.ERROR_SUB_STATUS_FLOW_CLOSING:
+      return ErrorSubStatus.FLOW_CLOSING;
     default:
       return ErrorSubStatus.UNCATEGORIZED;
   }

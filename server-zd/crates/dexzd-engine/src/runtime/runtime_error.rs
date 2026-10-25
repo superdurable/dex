@@ -113,7 +113,7 @@ impl RuntimeError {
     pub fn terminal_cleanup_in_progress() -> Self {
         Self::rejected(
             grpc_code::FAILED_PRECONDITION,
-            ErrorSubStatus::Uncategorized,
+            ErrorSubStatus::FlowClosing,
             dexzd_apply::TERMINAL_CLEANUP_MESSAGE,
         )
     }
@@ -152,10 +152,16 @@ impl RuntimeError {
     }
 
     pub(crate) fn from_reply(error: &CommandErrorReply) -> Self {
+        let sub_status = if error.grpc_code == grpc_code::FAILED_PRECONDITION
+            && error.message == dexzd_apply::TERMINAL_CLEANUP_MESSAGE
+        {
+            ErrorSubStatus::FlowClosing
+        } else {
+            ErrorSubStatus::try_from(error.sub_status).unwrap_or(ErrorSubStatus::Uncategorized)
+        };
         Self::Rejected {
             grpc_code: error.grpc_code,
-            sub_status: ErrorSubStatus::try_from(error.sub_status)
-                .unwrap_or(ErrorSubStatus::Uncategorized),
+            sub_status,
             message: error.message.clone(),
         }
     }

@@ -169,6 +169,22 @@ func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
 	require.Equal(t, terminalRPCAcceptedOutput, acceptedResponse.GetOutput().GetStringValue())
 	close(handler.releaseFinish)
 	assertRPCUpdateRejectedAfterStop(t, ctx, runtime.FlowClient, flowID, handler)
+	require.Eventually(t, func() bool {
+		_, waitErr := runtime.FlowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+			FlowId: flowID,
+			Match: &dexpb.AttributeMatch{
+				Key:      "message",
+				Operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL,
+				Operand:  &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "never"}},
+			},
+			RequestId: newRequestID(),
+		})
+		if status.Code(waitErr) != codes.FailedPrecondition {
+			return false
+		}
+		return grpcServiceErrorResponse(t, waitErr).GetSubStatus() ==
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING
+	}, 5*time.Second, 20*time.Millisecond)
 	require.NoError(t, lockTransaction.Commit())
 	lockReleased = true
 	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})

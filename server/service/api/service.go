@@ -2029,9 +2029,13 @@ func (s *serviceImpl) handleError(err error) error {
 				details,
 			).ToGRPCError()
 		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION:
+			subStatus := dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED
+			if details == "flow terminal cleanup is in progress" {
+				subStatus = dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING
+			}
 			return serviceerrors.NewErrorAndStatus(
 				codes.FailedPrecondition,
-				dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+				subStatus,
 				details,
 			).ToGRPCError()
 		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED:

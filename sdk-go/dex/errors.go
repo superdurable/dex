@@ -295,6 +295,24 @@ func (e *FlowAlreadyStartedError) Unwrap() error {
 	return e.ServiceError
 }
 
+// FlowClosingError reports that a request arrived while Dex was closing a Flow.
+// Re-read the retained terminal Flow state before deciding whether to retry or take another action.
+// Match it with errors.As to avoid depending on the service error text:
+//
+//	var closing *dex.FlowClosingError
+//	if errors.As(err, &closing) {
+//		return closing
+//	}
+type FlowClosingError struct {
+	// ServiceError contains the rejected operation and original transport failure.
+	*ServiceError
+}
+
+// Unwrap returns the shared service failure.
+func (e *FlowClosingError) Unwrap() error {
+	return e.ServiceError
+}
+
 // FlowNotFoundError reports a missing Flow for an existing-Flow operation.
 type FlowNotFoundError struct {
 	// ServiceError contains the failed existing-Flow operation metadata.
@@ -413,6 +431,8 @@ const (
 	ErrorSubStatusChannelMessageNotFound
 	// ErrorSubStatusRequestTimeout identifies an expired caller-visible request budget.
 	ErrorSubStatusRequestTimeout
+	// ErrorSubStatusFlowClosing identifies an update-class request rejected during Flow close cleanup.
+	ErrorSubStatusFlowClosing
 )
 
 type flowTargetRequirement uint8
@@ -469,6 +489,8 @@ func translateRPCError(
 	switch serviceError.SubStatus {
 	case ErrorSubStatusFlowAlreadyStarted:
 		return &FlowAlreadyStartedError{ServiceError: serviceError}
+	case ErrorSubStatusFlowClosing:
+		return &FlowClosingError{ServiceError: serviceError}
 	case ErrorSubStatusFlowNotFound:
 		switch requirement {
 		case flowTargetExisting:
@@ -524,6 +546,8 @@ func mapErrorSubStatus(subStatus dexpb.ErrorSubStatus) ErrorSubStatus {
 		return ErrorSubStatusChannelMessageNotFound
 	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_REQUEST_TIMEOUT:
 		return ErrorSubStatusRequestTimeout
+	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING:
+		return ErrorSubStatusFlowClosing
 	default:
 		return ErrorSubStatusUncategorized
 	}
