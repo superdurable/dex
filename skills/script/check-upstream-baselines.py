@@ -22,6 +22,8 @@ SERVER_ZD_STATE_ROWS_PATH = "server-zd/crates/dexzd-engine/src/runtime/read_oper
 SERVER_ZD_RUNTIME_ERROR_PATH = "server-zd/crates/dexzd-engine/src/runtime/runtime_error.rs"
 SERVER_ZD_TIME_TRAVEL_TEST_PATH = "server-zd/crates/dexzd-e2e-tests/tests/dev_server/time_travel.rs"
 SERVER_ERROR_STATUS_PATH = "server/service/common/errors/errorStatus.go"
+# Each language closed-Flow race section ends its completed-status rule with this text.
+COMPLETED_STATUS_RULE = " as idempotent success only when successful completion guarantees the requested condition."
 GO_DESCRIBE_FLOW_SIGNATURE = "func (client *Client) DescribeFlow(ctx context.Context, flowID string) (FlowInfo, error)"
 # Each server-zd statement as (release the references cite, tagged path, needles); "" means the bundled release.
 SERVER_ZD_STATEMENTS = (
@@ -277,11 +279,13 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
     require_text(
         references / "go" / "observability.md",
         f"From Go SDK v1.21.0, `{GO_DESCRIBE_FLOW_SIGNATURE}` reads the current or latest run",
-        "`StartedAt time.Time`, and `ClosedAt time.Time`.",
+        "`FlowInfo` has `FlowID string` (application-assigned ID), `RunID string` (server-assigned run ID), "
+        "`FlowType string`, `Status FlowStatus`, `StartedAt time.Time`, and `ClosedAt time.Time`.",
         "A zero `ClosedAt` means the run is open or its close time is unavailable.",
-        "On the Go Server, time travel creates a new run ID",
+        "On the Go Server, time travel creates a new run ID, so `RunID` can differ from the run ID `StartFlow` returned.",
         "server-zd keeps the run ID across time travel.",
-        "rejects a nil, canceled, or expired context, a closed Client, or an empty or whitespace-only Flow ID",
+        "The method rejects a nil, canceled, or expired context, a closed Client, or an empty or whitespace-only Flow ID "
+        "before the RPC.",
         "A missing Flow returns `*dex.FlowNotFoundError`",
         "uses `GetFlowSummary` with the Flow ID and no run ID",
     )
@@ -298,7 +302,8 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
     require_section_text(references / "go" / "observability.md", "## Describe a Flow", GO_DESCRIBE_FLOW_SIGNATURE)
     require_text(
         references / "go" / "error-handling.md",
-        "Call `Client.DescribeFlow` from Go SDK v1.21.0", "`*dex.FlowNotFoundError`", "`dex.FlowCompleted`",
+        "Call `Client.DescribeFlow` from Go SDK v1.21.0", "`*dex.FlowNotFoundError`",
+        f"Treat `dex.FlowCompleted`{COMPLETED_STATUS_RULE}",
     )
     require_tagged_text(
         checkout, tag, "sdk-go/README.md",
@@ -432,6 +437,7 @@ def check_server_zd_search_tls(checkout: Path, tag: str, references: Path) -> No
         checkout, tag, POSTGRES_CONNECTION_PATH,
         "    fn from_parsed_dsn(",
         "ConnectionSettingsError::InvalidDsn(describe_config_parse_error(&error))",
+        "let (ssl_mode, verification) = resolve_tls(&parameters, missing_ssl_mode)",
         'parameters.ssl_negotiation.as_deref() == Some("direct")',
         'parameters.ssl_sni.as_deref() != Some("0")',
         "client_config(verification, is_direct, is_sni_enabled)",
@@ -451,8 +457,11 @@ def check_server_zd_search_tls(checkout: Path, tag: str, references: Path) -> No
         '        ssl_mode = "require".to_owned();',
         'Some("direct") && ssl_mode == "allow" {\n'
         '        return Err("sslmode=allow is invalid with sslnegotiation=direct".to_owned());',
-        'if ssl_root_cert == "system" {\n'
-        '                ssl_mode = "verify-full".to_owned();',
+        'Some(ssl_root_cert) => {\n'
+        '            if ssl_root_cert == "system" {\n'
+        '                ssl_mode = "verify-full".to_owned();\n'
+        '            }\n'
+        '            Some(load_root_certificates(ssl_root_cert)?)',
         '"disable" => Ok((SslMode::Disable, None))',
         '"allow" | "prefer" => Ok((SslMode::Prefer, Some(CertificateVerification::None)))',
         '"require" => match roots {\n'
@@ -540,11 +549,17 @@ def check_server_zd_search_tls(checkout: Path, tag: str, references: Path) -> No
     )
     require_text(
         references / "core" / "operations.md",
-        "From server-zd v0.1.6, `search.paradeDbConnectionString` accepts",
+        "From server-zd v0.1.6, `search.paradeDbConnectionString` accepts PostgreSQL URL or keyword-string TLS parameters: "
+        "`sslmode=disable|allow|prefer|require|verify-ca|verify-full`, `sslrootcert` as a PEM CA file or `system` roots, "
+        "`sslsni=0|1`, and `sslnegotiation=postgres|direct`.",
         "Direct negotiation requires PostgreSQL 17 or later; `sslmode=allow` with `sslnegotiation=direct` is invalid.",
         "Explicit `sslmode=prefer` first attempts TLS without certificate verification and uses plaintext when the server declines TLS.",
         "A string without TLS parameters stays plaintext.",
-        "Always set `sslmode` explicitly. Without it, any other TLS parameter (`sslrootcert`, `sslsni`, or `sslnegotiation`) selects `prefer`: TLS without certificate verification, with plaintext fallback, even when `sslrootcert` names a CA file.",
+        "Always set `sslmode` explicitly. Without it, any other TLS parameter (an `sslrootcert` file, `sslsni`, or "
+        "`sslnegotiation=postgres`) selects `prefer`: TLS without certificate verification, with plaintext fallback, "
+        "even when `sslrootcert` names a CA file.",
+        "`sslrootcert=system` instead forces verify-full.",
+        "server-zd still reads that file at startup but never uses it to verify.",
         "With `sslnegotiation=direct`, a missing or `prefer` mode becomes `require`, which never falls back to plaintext.",
         "`sslmode=allow` behaves like `prefer` and tries TLS first, unlike libpq and pgx, which try plaintext first.",
         "`sslmode=verify-ca` verifies the certificate chain but not the host name, using system roots when `sslrootcert` is absent.",
@@ -726,7 +741,9 @@ def check_sdk_describe_flow(checkout: Path, baselines: dict[str, str], reference
     require_text(
         references / "java" / "error-handling.md",
         "`Client.describeFlow(flowId)` reads the current or latest run without waiting.",
-        "`getStartedAt()`; it has no close time.", "`FlowNotFoundException`",
+        "It returns `FlowInfo` with `getFlowId()`, `getRunId()`, `getFlowType()`, `getStatus()`, and `getStartedAt()`; "
+        "it has no close time.",
+        f"Treat `COMPLETED`{COMPLETED_STATUS_RULE}", "`FlowNotFoundException`",
     )
 
     python = baselines["python"]
@@ -751,7 +768,8 @@ def check_sdk_describe_flow(checkout: Path, baselines: dict[str, str], reference
     require_text(
         references / "python" / "error-handling.md",
         "Call `Client.describe_flow(flow_id)` or `await AsyncClient.describe_flow(flow_id)`",
-        "`started_at`; it has no close time.", "`FlowStatus.COMPLETED`", "`FlowNotFoundError`",
+        "It returns `FlowInfo` with `flow_id`, `run_id`, `flow_type`, `status`, and `started_at`; it has no close time.",
+        f"Treat `FlowStatus.COMPLETED`{COMPLETED_STATUS_RULE}", "`FlowNotFoundError`",
     )
 
     typescript = baselines["typescript"]
@@ -772,8 +790,10 @@ def check_sdk_describe_flow(checkout: Path, baselines: dict[str, str], reference
     ))
     require_text(
         references / "typescript" / "error-handling.md",
-        "Call `await client.describeFlow(flowId)`", "`startedAt`; it has no close time.",
-        'Treat status `"completed"`', "`FlowNotFoundError`", "An incomplete server summary rejects with `TypeError`.",
+        "Call `await client.describeFlow(flowId)`",
+        "It resolves to `FlowInfo` with `flowId`, `runId`, `flowType`, `status`, and `startedAt`; it has no close time.",
+        f'Treat status `"completed"`{COMPLETED_STATUS_RULE}', "`FlowNotFoundError`",
+        "An incomplete server summary rejects with `TypeError`.",
     )
 
     rust = baselines["rust"]
@@ -796,8 +816,10 @@ def check_sdk_describe_flow(checkout: Path, baselines: dict[str, str], reference
     ))
     require_text(
         references / "rust" / "error-handling.md",
-        "Call `client.describe_flow(flow_id)`", "It is a blocking call", "`started_at`; it has no close time.",
-        "`FlowStatus::Completed`", "`SdkError::FlowNotFound { .. }`",
+        "Call `client.describe_flow(flow_id)`", "It is a blocking call",
+        "It returns `SdkResult<FlowInfo>` with `flow_id`, `run_id`, `flow_type`, `status`, and `started_at`; "
+        "it has no close time.",
+        f"Treat `FlowStatus::Completed`{COMPLETED_STATUS_RULE}", "`SdkError::FlowNotFound { .. }`",
     )
 
     require_text(

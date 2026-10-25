@@ -698,6 +698,23 @@ class GoDescribeFlowTest(unittest.TestCase):
             self.check()
         self.assertIn("section `## Correlation and signals` is missing required text: For a stall:", str(raised.exception))
 
+    def test_completed_status_constant_must_match_release(self):
+        self.assert_mutation_fails(
+            self.CLIENT_PATH, None,
+            "// FlowCompleted means the Flow completed successfully.\n\tFlowCompleted\n",
+            "// FlowCompleted means the Flow completed successfully.\n\tFlowSucceeded\n",
+        )
+
+    def test_reference_completed_rule_must_not_widen(self):
+        self.assert_reference_mutation_fails(
+            "go/error-handling.md", "Treat `dex.FlowCompleted` as", "Treat `dex.FlowCompleted` or `dex.FlowCanceled` as",
+        )
+
+    def test_reference_must_list_every_flow_info_field(self):
+        self.assert_reference_mutation_fails(
+            "go/observability.md", "`RunID string` (server-assigned run ID), ", "",
+        )
+
     def test_tagged_readme_must_keep_status_read_boundary(self):
         self.assert_mutation_fails(
             self.README_PATH, None,
@@ -820,6 +837,53 @@ class SdkDescribeFlowTest(unittest.TestCase):
                     self, self.check, self.references / language / "error-handling.md",
                     "; it has no close time.", ", and its close time.",
                 )
+
+    def test_completed_status_must_match_release(self):
+        mutations = {
+            "java": (f"{self.JAVA_ROOT}/FlowStatus.java", None, "    COMPLETED,", "    SUCCEEDED,"),
+            "python": ("sdk-python/dex/flow_info.py", None, 'COMPLETED = "completed"', 'COMPLETED = "succeeded"'),
+            "typescript": ("sdk-typescript/src/options.ts", None, '  | "completed"', '  | "succeeded"'),
+            "rust": (f"{self.RUST_ROOT}/flow_info.rs", "pub enum FlowStatus {", "    Completed,", "    Succeeded,"),
+        }
+        for language, (path, declaration, old, new) in mutations.items():
+            with self.subTest(language=language):
+                self.assert_source_mutation_fails(language, path, declaration, old, new)
+
+    def test_rust_describe_flow_must_block(self):
+        self.assert_source_mutation_fails(
+            "rust", f"{self.RUST_ROOT}/client.rs", "    pub fn describe_flow(&self, flow_id: &str) -> SdkResult<FlowInfo> {",
+            "self.runtime.block_on(", "futures::executor::block_on(",
+        )
+
+    def test_typescript_incomplete_summary_must_throw_type_error(self):
+        self.assert_source_mutation_fails(
+            "typescript", "sdk-typescript/src/client.ts", "  public async describeFlow(flowId: string): Promise<FlowInfo> {",
+            "throw new TypeError(", "throw new Error(",
+        )
+
+    def test_reference_completed_rule_must_not_widen(self):
+        widened = {
+            "java": ("Treat `COMPLETED` as", "Treat `COMPLETED` or `CANCELED` as"),
+            "python": ("Treat `FlowStatus.COMPLETED` as", "Treat `FlowStatus.COMPLETED` or `FlowStatus.CANCELED` as"),
+            "typescript": ('Treat status `"completed"` as', 'Treat status `"completed"` or `"cancelled"` as'),
+            "rust": ("Treat `FlowStatus::Completed` as", "Treat `FlowStatus::Completed` or `FlowStatus::Canceled` as"),
+        }
+        for language, (old, new) in widened.items():
+            with self.subTest(language=language):
+                mutate_page(self, self.check, self.references / language / "error-handling.md", old, new)
+
+    def test_reference_must_list_every_flow_info_field(self):
+        dropped = {
+            "java": "`getRunId()`, ",
+            "python": "`run_id`, ",
+            "typescript": "`runId`, ",
+            "rust": "`run_id`, ",
+        }
+        for language, field in dropped.items():
+            with self.subTest(language=language):
+                page = self.references / language / "error-handling.md"
+                sentence = next(line for line in page.read_text().split(". ") if "it has no close time" in line)
+                mutate_page(self, self.check, page, sentence, sentence.replace(field, "", 1))
 
     def test_core_reference_must_name_every_sdk_call(self):
         mutate_page(
@@ -1041,6 +1105,48 @@ class ServerZdSearchTlsTest(unittest.TestCase):
         self.assert_mutation_fails(
             "server-zd/README.md", "  requires PostgreSQL 17 or later.", "  requires PostgreSQL 16 or later.",
         )
+
+    def test_system_roots_must_force_verify_full(self):
+        self.assert_mutation_fails(
+            self.CONNECTION_PATH, '                ssl_mode = "verify-full".to_owned();', '                ssl_mode = "require".to_owned();',
+            declaration="fn resolve_tls(",
+        )
+
+    def test_root_certificate_file_must_load_in_every_mode(self):
+        self.assert_mutation_fails(
+            self.CONNECTION_PATH, "Some(load_root_certificates(ssl_root_cert)?)", "load_root_certificates(ssl_root_cert).ok()",
+            declaration="fn resolve_tls(",
+        )
+
+    def test_parsing_must_resolve_tls_from_the_connection_string(self):
+        self.assert_mutation_fails(
+            self.CONNECTION_PATH,
+            "let (ssl_mode, verification) = resolve_tls(&parameters, missing_ssl_mode)",
+            "let (ssl_mode, verification) = resolve_tls(&TlsParameters::default(), missing_ssl_mode)",
+            declaration="    fn from_parsed_dsn(",
+        )
+
+    def test_direct_negotiation_must_offer_postgresql_alpn(self):
+        self.assert_mutation_fails(
+            self.TLS_PATH, 'config.alpn_protocols = vec![b"postgresql".to_vec()];', "config.alpn_protocols = Vec::new();",
+            declaration="pub(crate) fn client_config(",
+        )
+
+    def test_reference_missing_ssl_mode_must_exclude_system_roots(self):
+        self.assert_reference_mutation_fails(
+            "any other TLS parameter (an `sslrootcert` file, `sslsni`, or `sslnegotiation=postgres`) selects `prefer`",
+            "any other TLS parameter (`sslrootcert`, `sslsni`, or `sslnegotiation`) selects `prefer`",
+        )
+        self.assert_reference_mutation_fails("`sslrootcert=system` instead forces verify-full. ", "")
+
+    def test_reference_must_say_prefer_ignores_loaded_roots(self):
+        self.assert_reference_mutation_fails(
+            "server-zd still reads that file at startup but never uses it to verify.",
+            "server-zd uses that file to verify the certificate chain.",
+        )
+
+    def test_reference_must_list_accepted_parameters(self):
+        self.assert_reference_mutation_fails("`sslsni=0|1`, and", "`sslsni=0|1|2`, and")
 
     def test_reference_must_name_new_release(self):
         self.assert_reference_mutation_fails("From server-zd v0.1.6,", "From server-zd v0.1.5,")
