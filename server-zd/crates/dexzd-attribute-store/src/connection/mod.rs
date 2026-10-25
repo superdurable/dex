@@ -31,6 +31,11 @@ impl ConnectionSettings {
             .map_err(|error| error.to_string())
     }
 
+    /// Replaces the DSN and every spelling of its password with `[REDACTED]`.
+    pub(crate) fn redact_credentials(&self, message: String) -> String {
+        self.0.redact_credentials(message)
+    }
+
     /// Opens a connection bounded by the DSN's `connect_timeout` or ten seconds.
     pub(crate) async fn connect(
         &self,
@@ -38,12 +43,9 @@ impl ConnectionSettings {
     ) -> Result<ConnectionSlot, AttributeStoreError> {
         let OpenConnection { client, driver } =
             self.0.connect().await.map_err(|error| match error {
-                ConnectionError::Database(source) => database_error(
-                    &settings.name,
-                    &settings.dsn,
-                    "connect to Postgres",
-                    &source,
-                ),
+                ConnectionError::Database(source) => {
+                    database_error(&settings.name, self, "connect to Postgres", &source)
+                }
                 ConnectionError::Timeout(timeout) => AttributeStoreError::Timeout {
                     store: settings.name.clone(),
                     operation: "connect to Postgres".to_owned(),
@@ -51,9 +53,10 @@ impl ConnectionSettings {
                 },
             })?;
         let store = settings.name.clone();
+        let connection_settings = self.0.clone();
         let connection_task = tokio::spawn(async move {
             if let Err(error) = driver.await {
-                let error = error_with_sources(&error);
+                let error = connection_settings.redact_credentials(error_with_sources(&error));
                 tracing::warn!(store, %error, "Attribute Store connection closed");
             }
         });
