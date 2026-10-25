@@ -358,6 +358,8 @@ server-zd is a Dex Server whose only runtime dependency is object storage. It se
 
 Step failure policies, including Execute failure routes, WaitFor proceed-on-failure, and timeout-handler failure routes, run with Go Server semantics from server-zd v0.1.2. Earlier releases reject them at StartFlow and fail the attempt of a Step decision that sets one. See [recovery error types](error-handling.md#recovery-error-types).
 
+When a Step is canceled by another Step's decision, StopFlow, or the Flow closing, server-zd sends the cancellation to the pull Worker. The handler's context is canceled even when the Step sets no heartbeat timeout. On the Go Server, a handler without a heartbeat timeout does not observe the cancellation and runs to completion. Both servers discard a canceled Step's result. Make a handler that can be canceled stop on context cancellation, and keep its side effects idempotent.
+
 server-zd does not serve Dex Web. Run a web-only `dex-server start --services web` and set `web.flowServiceTarget` to the server-zd plaintext gRPC address. That process creates no Temporal or Cadence connection. When server-zd authentication is on, also set `web.flowServiceCredentialFile`.
 
 Attribute Store synchronization is available from server-zd v0.1.3. Its `attributeStore` section uses the Go Server's keys and [destination table contract](#attribute-store-destinations), with these differences:
