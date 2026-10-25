@@ -24,10 +24,12 @@ use std::collections::BTreeSet;
 
 use dexzd_apply::{TransactionalRpcHold, transactional_rpc_hold};
 use dexzd_keyspace::RunId;
-use dexzd_protocol::dex::FlowStatus;
+use dexzd_protocol::dex::{
+    AttributeWrite, FlowStatus, SetAttributesRequest, StopFlowRequest, StopType, Value, value,
+};
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, PendingCloseCheckCommand, StepInvocationPhase, TimerId, flow_command::Command,
-    timer_id,
+    AttributesSetCommand, FlowCommand, FlowStopCommand, HardDeleteObjectReference,
+    PendingCloseCheckCommand, StepInvocationPhase, TimerId, flow_command::Command, timer_id,
 };
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -49,6 +51,8 @@ const ATTRIBUTE_SYNC_COMMAND_PROBABILITY: f64 = 0.3;
 pub const STEP_FAILURE_FLOW_IDS: &[&str] = &["order-recovery-1", "order-recovery-2"];
 /// Mixed into the seed so the Step failure stream never shares draws with the main stream.
 const STEP_FAILURE_STREAM_SEED: u64 = 0x5fa1_7e00_0000_0000;
+const CLOSED_ERASE_STREAM_SEED: u64 = 0xc105_edee_0000_0000;
+const CLOSED_ERASE_FLOW_ID: &str = "closed-erase-simulation";
 /// Chance that the Step failure stream proposes a command after each main command.
 const STEP_FAILURE_COMMAND_PROBABILITY: f64 = 0.8;
 /// Proposal time of the first command: 2027-01-15 in microseconds.
@@ -63,6 +67,17 @@ pub struct CommandGenerator {
     sent_results: Vec<FlowCommand>,
     flow_ids: &'static [&'static str],
     stream: CommandStream,
+    closed_erase_phase: ClosedErasePhase,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClosedErasePhase {
+    Start,
+    Store,
+    Close,
+    Erase,
+    Replay,
+    Done,
 }
 
 /// The command stream a generator proposes for; each draws from its own seeded source.
@@ -74,6 +89,7 @@ enum CommandStream {
     AttributeSync,
     /// Step failure policies and retry total durations on [`STEP_FAILURE_FLOW_IDS`].
     StepFailure,
+    ClosedErase,
 }
 
 /// One possible next command and its weight.
@@ -121,6 +137,7 @@ impl CommandGenerator {
             sent_results: Vec::new(),
             flow_ids: FLOW_IDS,
             stream: CommandStream::Main,
+            closed_erase_phase: ClosedErasePhase::Start,
         }
     }
 
@@ -145,11 +162,120 @@ impl CommandGenerator {
         }
     }
 
+    pub(crate) fn closed_erase_stream(seed: u64) -> Self {
+        Self {
+            rng: ChaCha8Rng::seed_from_u64(seed ^ CLOSED_ERASE_STREAM_SEED),
+            flow_ids: &[CLOSED_ERASE_FLOW_ID],
+            stream: CommandStream::ClosedErase,
+            ..Self::new(seed)
+        }
+    }
+
+    pub(crate) fn next_closed_erase_command(
+        &mut self,
+        checker: &ApplyChecker,
+    ) -> Result<Option<(ClosedErasePhase, FlowCommand)>, InvariantViolation> {
+        let phase = self.closed_erase_phase;
+        if phase == ClosedErasePhase::Done {
+            return Ok(None);
+        }
+        let view = checker.view(CLOSED_ERASE_FLOW_ID, RunSelection::All)?;
+        let run = view.latest_run();
+        let (run_id, body, next_phase) = match phase {
+            ClosedErasePhase::Start => (
+                Vec::new(),
+                client_model::start_flow(&mut self.rng, CLOSED_ERASE_FLOW_ID, false, false),
+                ClosedErasePhase::Store,
+            ),
+            ClosedErasePhase::Store => (
+                run.expect("the closed-erase Flow started")
+                    .0
+                    .as_bytes()
+                    .to_vec(),
+                Command::AttributesSet(AttributesSetCommand {
+                    request: Some(SetAttributesRequest {
+                        attributes: vec![AttributeWrite {
+                            key: "secret".to_owned(),
+                            is_hard_delete_on_null: true,
+                            ..AttributeWrite::default()
+                        }],
+                        ..SetAttributesRequest::default()
+                    }),
+                    hard_delete_objects: vec![HardDeleteObjectReference {
+                        write_index: 0,
+                        object_id: format!("secret-{}", self.rng.random::<u64>()),
+                        size_bytes: 12,
+                        is_string_value: true,
+                    }],
+                    ..AttributesSetCommand::default()
+                }),
+                ClosedErasePhase::Close,
+            ),
+            ClosedErasePhase::Close => (
+                run.expect("the closed-erase Flow has a run")
+                    .0
+                    .as_bytes()
+                    .to_vec(),
+                Command::FlowStop(FlowStopCommand {
+                    request: Some(StopFlowRequest {
+                        stop_type: StopType::Terminate as i32,
+                        ..StopFlowRequest::default()
+                    }),
+                }),
+                ClosedErasePhase::Erase,
+            ),
+            ClosedErasePhase::Erase => (
+                run.expect("the closed-erase Flow has a run")
+                    .0
+                    .as_bytes()
+                    .to_vec(),
+                Command::AttributesSet(AttributesSetCommand {
+                    request: Some(SetAttributesRequest {
+                        attributes: vec![AttributeWrite {
+                            key: "secret".to_owned(),
+                            value: Some(Value {
+                                kind: Some(value::Kind::NullValue(0)),
+                            }),
+                            is_hard_delete_on_null: true,
+                            ..AttributeWrite::default()
+                        }],
+                        ..SetAttributesRequest::default()
+                    }),
+                    ..AttributesSetCommand::default()
+                }),
+                ClosedErasePhase::Replay,
+            ),
+            ClosedErasePhase::Replay => {
+                let (run_id, run) = run.expect("the closed-erase Flow has a run");
+                let (erase_seq, erase_record) = run.history.last().expect("the erase has history");
+                assert!(
+                    run.attempts
+                        .get(&1)
+                        .expect("the initial attempt exists")
+                        .checkpoint_seqs
+                        .iter()
+                        .all(|seq| seq < erase_seq)
+                );
+                let erase_time = erase_record.timestamp_micros;
+                (
+                    run_id.as_bytes().to_vec(),
+                    client_model::time_travel_to_window_point(CLOSED_ERASE_FLOW_ID, erase_time),
+                    ClosedErasePhase::Done,
+                )
+            }
+            ClosedErasePhase::Done => unreachable!("the completed phase returned above"),
+        };
+        self.closed_erase_phase = next_phase;
+        let mut command = self.envelope(CLOSED_ERASE_FLOW_ID, run_id, body);
+        command.expected_run_attempt = 0;
+        Ok(Some((phase, command)))
+    }
+
     /// Draws whether this stream proposes a command now.
     pub fn should_propose(&mut self) -> bool {
         let probability = match self.stream {
             CommandStream::StepFailure => STEP_FAILURE_COMMAND_PROBABILITY,
-            CommandStream::Main | CommandStream::AttributeSync => {
+            CommandStream::Main | CommandStream::AttributeSync | CommandStream::ClosedErase => {
                 ATTRIBUTE_SYNC_COMMAND_PROBABILITY
             }
         };

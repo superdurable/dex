@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
@@ -22,6 +23,7 @@ use dexzd_protocol::dex::{
 };
 use dexzd_server::{DevCommandOptions, RunningServer};
 use prost::Message;
+use s3mock::Store;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -85,6 +87,14 @@ impl DevServer {
 
     pub(crate) fn flow_client(&self) -> FlowServiceClient<Channel> {
         FlowServiceClient::new(self.channel.clone())
+    }
+
+    pub(crate) fn dev_object_store_for_test(&self) -> Arc<Store> {
+        self.server
+            .as_ref()
+            .expect("the dev server is running")
+            .dev_object_store_for_test()
+            .expect("the dev server has an embedded object store")
     }
 
     pub(crate) fn worker_client(&self) -> WorkerTaskServiceClient<Channel> {

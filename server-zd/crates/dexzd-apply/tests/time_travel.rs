@@ -30,18 +30,19 @@ use dexzd_protocol::dex::{
     IndexConfig, InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWaitForMethodResponse,
     InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, RetryPolicy,
     SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StepDecision, StepMovement,
-    StepOptions, TimerCondition, Value, WaitingCondition, WaitingConditionType,
-    WorkerErrorResponse, WorkerTarget, flow_history_event, value,
+    StepOptions, StopFlowRequest, StopType, TimerCondition, Value, WaitingCondition,
+    WaitingConditionType, WorkerErrorResponse, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, ChannelMessageDeleteCommand,
     ChannelMetaRecord, ChannelPublishCommand, CheckpointRecord, CommandReply, FlowCommand,
-    FlowDirectoryRecord, FlowStartCommand, HardDeleteObjectRecord, HardDeleteObjectReference,
-    HistoryRecord, RetryBackoffTimerId, RpcCommittedCommand, RunRecord, RunSettings,
-    StepAttemptFailedCommand, StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord,
-    StepInvocationKey, StepInvocationPhase, StepMethod, StepMethodCompletedCommand,
-    TimeTravelCommand, TimerId, TimerRecord, TimerSkipCommand, TimersFiredCommand, ValueRecord,
-    command_reply, flow_command::Command, step_method_completed_command, stored_value, timer_id,
+    FlowDirectoryRecord, FlowStartCommand, FlowStopCommand, HardDeleteObjectRecord,
+    HardDeleteObjectReference, HistoryRecord, RetryBackoffTimerId, RpcCommittedCommand, RunRecord,
+    RunSettings, StepAttemptFailedCommand, StepAttemptStartedCommand, StepExecutionPhase,
+    StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
+    StepMethodCompletedCommand, TimeTravelCommand, TimerId, TimerRecord, TimerSkipCommand,
+    TimersFiredCommand, ValueRecord, command_reply, flow_command::Command,
+    step_method_completed_command, stored_value, timer_id,
 };
 use prost::Message;
 
@@ -1964,6 +1965,86 @@ fn time_travel_keeps_hard_delete_attributes_current() {
         })
         .collect();
     assert_eq!(referenced, vec!["object-2".to_owned()]);
+}
+
+#[test]
+fn time_travel_replays_a_closed_run_erase_and_keeps_it_erased_before_close() {
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    set_hard_delete_attribute(&mut harness, "secret", "secret-object");
+    let before_close_time = harness
+        .history_record(harness.last_seq())
+        .expect("the hard-delete write has history")
+        .timestamp_micros;
+    harness.apply(Command::FlowStop(FlowStopCommand {
+        request: Some(StopFlowRequest {
+            stop_type: StopType::Terminate as i32,
+            ..StopFlowRequest::default()
+        }),
+    }));
+    let erased = harness.apply(Command::AttributesSet(AttributesSetCommand {
+        request: Some(SetAttributesRequest {
+            attributes: vec![AttributeWrite {
+                key: "secret".to_owned(),
+                value: Some(Value {
+                    kind: Some(value::Kind::NullValue(0)),
+                }),
+                is_hard_delete_on_null: true,
+                ..AttributeWrite::default()
+            }],
+            ..SetAttributesRequest::default()
+        }),
+        ..AttributesSetCommand::default()
+    }));
+    assert!(is_ok(&erased.reply));
+    let erase_seq = harness.last_seq();
+    assert!(
+        harness
+            .attempt_record(1)
+            .checkpoint_seqs
+            .iter()
+            .all(|seq| *seq < erase_seq)
+    );
+    let erase_time = harness
+        .history_record(erase_seq)
+        .expect("the closed erase has history")
+        .timestamp_micros;
+    let flow_hash = harness.context.flow_hash;
+    let run = harness.run();
+    let is_secret_absent = |harness: &Harness| {
+        harness
+            .get::<AttributeRecord>(
+                ColumnFamily::Flow,
+                &dexzd_keyspace::row_keys::run_named_key(
+                    flow_hash,
+                    run,
+                    RunTable::Attribute,
+                    "secret",
+                ),
+            )
+            .is_none()
+    };
+    assert!(is_secret_absent(&harness));
+    let (replayed_attempt, _) = harness.travel_to(reset_to_time(erase_time));
+    assert_eq!(replayed_attempt, 2);
+    assert_eq!(harness.run_record().status, FlowStatus::Terminated as i32);
+    assert!(is_secret_absent(&harness));
+
+    let (restored_attempt, _) = harness.travel_to(reapplying(ResetFlowRequest {
+        run_attempt: 1,
+        ..reset_to_time(before_close_time)
+    }));
+    assert_eq!(restored_attempt, 3);
+    assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
+    assert!(is_secret_absent(&harness));
+    assert!(
+        harness
+            .get::<HardDeleteObjectRecord>(
+                ColumnFamily::Flow,
+                &hard_delete_pending_key(flow_hash, run, "secret-object"),
+            )
+            .is_some()
+    );
 }
 
 fn publish_large(harness: &mut Harness, channel_name: &str, message_id: &str) {

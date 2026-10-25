@@ -442,8 +442,10 @@ server-zd 不同的地方。
 - **syncRetryPolicy.totalDuration** 限制的是每个待写入值的重试时长，而不是整个关闭。PostgreSQL
   故障期间，关闭会一直等到待写入的值被丢弃。关闭等待期间接受的每个同步写入都会开始自己的重试窗口，从而延长等待。
 - StopFlow 和 Terminate 从不等待。StopFlow 一提交，run 就会关闭，即使关闭正在等待也是如此；
-  待写入的值在关闭后继续同步。之后对该 run 的 SetAttributes 返回 NOT_FOUND。Go Server
-  在已取消或失败的 run 收尾期间仍接受这类写入。Flow 需要的数据请在停止之前写入。
+  待写入的值在关闭后继续同步。之后对该 run 的 **SetAttributes** 通常返回 NOT_FOUND；只有请求中的每项写入
+  都是把当前存储的 hard-delete Attribute 设为 null 时才会被接受。此例外仅适用于尚未清除的 run。
+  该操作会删除存储的对象，但不会重新打开 run。Go Server 在已取消或失败的 run 收尾期间接受写入，关闭后则拒绝写入。
+  Flow 需要的数据请在停止之前写入。
 - 已不在配置中的 store 的待写入值会被立即丢弃，并计入
   **dexzd_attribute_sync_dropped_entries_total**。
 

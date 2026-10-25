@@ -28,9 +28,9 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributeSyncOutboxRecord, AttributesSetCommand, CommandReply,
-    FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand, RetentionTimerId,
-    RunPurgeCommand, RunSettings, TimeTravelCommand, TimerId, TimersFiredCommand, command_reply,
-    flow_command::Command, timer_id,
+    FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
+    HardDeleteObjectReference, RetentionTimerId, RunPurgeCommand, RunSettings, TimeTravelCommand,
+    TimerId, TimersFiredCommand, command_reply, flow_command::Command, timer_id,
 };
 use prost::Message;
 
@@ -349,6 +349,72 @@ fn pending_stores(outcome: &ApplyOutcome) -> Vec<Vec<String>> {
             _ => None,
         })
         .collect()
+}
+
+#[test]
+fn a_closed_hard_delete_erase_marks_sync_only_with_an_explicit_sync_config() {
+    let mut harness = Harness::new();
+    harness.start(Some(&[PRIMARY]), Vec::new());
+    let stored = harness.apply(Command::AttributesSet(AttributesSetCommand {
+        request: Some(SetAttributesRequest {
+            attributes: ["sdk-secret", "synced-secret"]
+                .into_iter()
+                .map(|key| AttributeWrite {
+                    key: key.to_owned(),
+                    is_hard_delete_on_null: true,
+                    ..AttributeWrite::default()
+                })
+                .collect(),
+            request_id: "store-secret".to_owned(),
+            ..SetAttributesRequest::default()
+        }),
+        hard_delete_objects: ["sdk-secret-object", "synced-secret-object"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, object_id)| HardDeleteObjectReference {
+                write_index: u32::try_from(index).expect("two objects"),
+                object_id: object_id.to_owned(),
+                size_bytes: 10,
+                is_string_value: true,
+            })
+            .collect(),
+        request_fingerprint: b"store-secret".to_vec(),
+    }));
+    assert!(is_ok(&stored.reply));
+    harness.apply(Command::FlowStop(FlowStopCommand {
+        request: Some(StopFlowRequest {
+            stop_type: StopType::Terminate as i32,
+            ..StopFlowRequest::default()
+        }),
+    }));
+
+    let sdk_erase = harness.set(
+        vec![AttributeWrite {
+            key: "sdk-secret".to_owned(),
+            value: Some(null_value()),
+            is_hard_delete_on_null: true,
+            ..AttributeWrite::default()
+        }],
+        "erase-sdk-secret",
+    );
+    assert!(pending_stores(&sdk_erase).is_empty());
+    assert!(harness.entries().is_empty());
+
+    let erased = harness.set(
+        vec![synced("synced-secret", null_value())],
+        "erase-synced-secret",
+    );
+
+    assert_eq!(pending_stores(&erased), vec![vec![PRIMARY.to_owned()]]);
+    assert!(
+        harness
+            .entries()
+            .contains_key(&(PRIMARY.to_owned(), "synced-secret".to_owned()))
+    );
+    assert!(erased.effects.iter().any(|effect| matches!(
+        effect,
+        ApplyEffect::HardDeleteObjectsPending { object_ids, .. } if object_ids == &["synced-secret-object"]
+    )));
 }
 
 #[test]

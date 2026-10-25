@@ -16,7 +16,7 @@ use xxhash_rust::xxh3::xxh3_128;
 
 use crate::apply_checker::ApplyChecker;
 use crate::invariants::{CloseBarrierCounts, InvariantViolation};
-use crate::model::CommandGenerator;
+use crate::model::{ClosedErasePhase, CommandGenerator};
 
 /// Replays allowed while shrinking one failure.
 const SHRINK_REPLAY_BUDGET: usize = 200;
@@ -37,6 +37,10 @@ pub struct SimulationSummary {
     pub final_row_count: usize,
     /// Chained xxh3-128 digest of one seed's main-stream commands; `merge` leaves it unchanged.
     pub main_command_digest: u128,
+    /// Closed-run erases accepted by the separate seeded stream.
+    pub closed_run_erases: usize,
+    /// Time-travel rebuilds that replayed a closed-run erase.
+    pub closed_run_erase_replays: usize,
     /// Natural closes deferred for the Attribute Sync outbox, and pending closes finalized.
     pub close_barrier: CloseBarrierCounts,
 }
@@ -51,6 +55,8 @@ impl SimulationSummary {
     pub fn merge(&mut self, other: &Self) {
         self.commands += other.commands;
         self.final_row_count += other.final_row_count;
+        self.closed_run_erases += other.closed_run_erases;
+        self.closed_run_erase_replays += other.closed_run_erase_replays;
         for (kind, count) in &other.applied_by_kind {
             *self.applied_by_kind.entry(kind).or_default() += count;
         }
@@ -121,6 +127,7 @@ pub fn run_seed(
         CommandGenerator::attribute_sync_stream(seed),
         CommandGenerator::step_failure_stream(seed),
     ];
+    let mut closed_erase_stream = CommandGenerator::closed_erase_stream(seed);
     let mut summary = SimulationSummary::default();
     let mut history = Vec::with_capacity(command_count);
     for command_index in 0..command_count {
@@ -170,6 +177,48 @@ pub fn run_seed(
                 )
             })?;
         }
+        closed_erase_stream.follow_clock(&generator);
+        if let Some((phase, command)) = closed_erase_stream
+            .next_closed_erase_command(&checker)
+            .map_err(|violation| {
+                failure(
+                    seed,
+                    command_index,
+                    violation,
+                    history.clone(),
+                    &mut report_failure,
+                )
+            })?
+        {
+            history.push(command.clone());
+            let was_applied =
+                apply_and_count(&mut checker, &command, &mut summary).map_err(|violation| {
+                    failure(
+                        seed,
+                        command_index,
+                        violation,
+                        history.clone(),
+                        &mut report_failure,
+                    )
+                })?;
+            if !was_applied {
+                return Err(failure(
+                    seed,
+                    command_index,
+                    InvariantViolation::new(
+                        "closed-erase-stream",
+                        format!("{phase:?} was rejected"),
+                    ),
+                    history,
+                    &mut report_failure,
+                ));
+            }
+            match phase {
+                ClosedErasePhase::Erase => summary.closed_run_erases += 1,
+                ClosedErasePhase::Replay => summary.closed_run_erase_replays += 1,
+                _ => {}
+            }
+        }
     }
     summary.size_rejections = checker.size_rejections().clone();
     summary.close_barrier = checker.close_barrier_counts();
@@ -181,7 +230,7 @@ fn apply_and_count(
     checker: &mut ApplyChecker,
     command: &FlowCommand,
     summary: &mut SimulationSummary,
-) -> Result<(), InvariantViolation> {
+) -> Result<bool, InvariantViolation> {
     let outcome = checker.apply_and_check(command)?;
     let kind = command_kind(command);
     let is_error_reply = matches!(outcome.reply.reply, Some(command_reply::Reply::Error(_)));
@@ -192,7 +241,7 @@ fn apply_and_count(
     };
     *counts.entry(kind).or_default() += 1;
     summary.commands += 1;
-    Ok(())
+    Ok(!outcome.writes.is_empty() && !is_error_reply)
 }
 
 /// Chains `command`'s encoding onto `previous`, so the digest pins a whole command sequence.

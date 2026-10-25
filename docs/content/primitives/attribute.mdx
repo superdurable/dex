@@ -518,6 +518,8 @@ Use a hard-delete Attribute for a short-lived secret, such as an API key that a 
 
 Dex stores every value of a hard-delete Attribute only in its Blob Store, whatever the value size. Flow history keeps only a reference. Deleting the Attribute, or setting it to null, permanently deletes the stored value. After that, neither Dex APIs nor Flow history can recover it.
 
+On server-zd, a Client can erase a hard-delete Attribute after its Flow run closes and before the run is purged. Send **SetAttributes** with null for every Attribute in the request. Each Attribute must still have a stored hard-delete value. The erase leaves the run closed and permanently deletes its stored objects. Other writes to a closed run return NOT_FOUND.
+
 Step and RPC handlers receive the value directly. The SDKs never write it to their local blob cache, and Dex Server never writes it to its blob cache.
 
 Enable it on the definition with **HardDeleteOnNull** in Go, **hardDeleteOnNull** in Java and TypeScript, and **hard_delete_on_null** in Python and Rust. The option works for both Attributes and AttributeMaps.

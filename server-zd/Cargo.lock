@@ -1184,6 +1184,7 @@ dependencies = [
  "futures",
  "prost",
  "prost-types",
+ "s3mock",
  "tempfile",
  "tokio",
  "tokio-postgres",

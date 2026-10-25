@@ -25,22 +25,23 @@ use dexzd_keyspace::{
     parse_run_key, run_prefix, run_table_prefix,
 };
 use dexzd_protocol::dex::{
-    AttributeWrite, CloseDecision, CloseDecisionType, FlowAlreadyStartedOptions, FlowResetType,
-    FlowStartOptions, FlowStatus, FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy,
-    InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, Kv, ResetFlowRequest, RetryPolicy,
-    SetAttributesRequest, StartFlowRequest, StepDecision, StepMovement, StepOptions,
-    StopFlowRequest, StopType, Value, WorkerErrorResponse, WorkerTarget, flow_history_event, value,
+    ActionPermissionMappings, AttributeWrite, CloseDecision, CloseDecisionType, ErrorSubStatus,
+    FlowAlreadyStartedOptions, FlowResetType, FlowStartOptions, FlowStatus,
+    FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy, InvokeExecuteMethodResponse,
+    InvokeWaitForMethodResponse, Kv, ResetFlowRequest, RetryPolicy, SetAttributesRequest,
+    StartFlowRequest, StepDecision, StepMovement, StepOptions, StopFlowRequest, StopType, Value,
+    WorkerErrorResponse, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeRecord, AttributesSetCommand, CommandReply, FlowCommand, FlowStartCommand,
     FlowStopCommand, FlowTimeoutTimerId, HardDeleteObjectRecord, HardDeleteObjectReference,
-    HistoryRecord, HistoryRowMetadata, RetryBackoffTimerId, RunRecord, RunSettings,
-    RunStorageUsage, StepAttemptFailedCommand, StepAttemptHeartbeatCommand,
-    StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
-    StepInvocationPhase, StepMethod, StepMethodCompletedCommand, StoredValue, TimeTravelCommand,
-    TimerId, TimersFiredCommand, ValueBirthRecord, ValueGarbageRecord, command_reply,
-    flow_command::Command, step_attempt_heartbeat_command, step_method_completed_command,
-    stored_value, timer_id,
+    HardDeleteObjectsDeletedCommand, HistoryRecord, HistoryRowMetadata, RetentionTimerId,
+    RetryBackoffTimerId, RunPurgeCommand, RunRecord, RunSettings, RunStorageUsage,
+    StepAttemptFailedCommand, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
+    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
+    StepMethodCompletedCommand, StoredValue, TimeTravelCommand, TimerId, TimersFiredCommand,
+    ValueBirthRecord, ValueGarbageRecord, command_reply, flow_command::Command,
+    step_attempt_heartbeat_command, step_method_completed_command, stored_value, timer_id,
 };
 use prost::Message;
 
@@ -1966,6 +1967,233 @@ fn a_hard_delete_write_over_a_plain_attribute_releases_the_value() {
     assert_eq!(garbage_seqs.len(), 1);
     assert_eq!(harness.value_birth(value_id).garbage_seq, garbage_seqs[0]);
     assert!(harness.hard_delete_current_object("document").is_some());
+}
+
+#[test]
+fn a_closed_run_accepts_only_hard_delete_erases_and_deduplicates_them() {
+    let mut harness = Harness::new("order-1");
+    harness.start(start_request("start"));
+    harness.set_hard_delete_attribute("secret", "secret-object", "set-secret");
+    harness.set_hard_delete_attribute("retained", "retained-object", "set-retained");
+    harness.set_attribute("plain", string_value("visible"), "set-plain");
+    harness.set_hard_delete_attribute("overwritten", "overwritten-object", "set-overwritten");
+    harness.set_attribute(
+        "overwritten",
+        string_value("replacement"),
+        "replace-overwritten",
+    );
+    harness.apply(Command::FlowStop(FlowStopCommand {
+        request: Some(StopFlowRequest {
+            stop_type: StopType::Terminate as i32,
+            ..StopFlowRequest::default()
+        }),
+    }));
+    let closed_record = harness.run_record();
+    let erase = AttributesSetCommand {
+        request: Some(SetAttributesRequest {
+            attributes: vec![AttributeWrite {
+                key: "secret".to_owned(),
+                value: Some(Value {
+                    kind: Some(value::Kind::NullValue(0)),
+                }),
+                is_hard_delete_on_null: true,
+                ..AttributeWrite::default()
+            }],
+            request_id: "erase-secret".to_owned(),
+            ..SetAttributesRequest::default()
+        }),
+        request_fingerprint: b"erase-secret".to_vec(),
+        ..AttributesSetCommand::default()
+    };
+    let state_before_erase = MemoryState {
+        rows: harness.state.rows.clone(),
+    };
+    let erased = harness.apply(Command::AttributesSet(erase.clone()));
+    assert!(!is_error(&erased.reply, 5), "closed erase succeeds");
+    assert!(harness.attribute("secret").is_none());
+    assert!(harness.hard_delete_current_object("secret").is_none());
+    assert!(
+        harness
+            .hard_delete_pending_object("secret-object")
+            .is_some()
+    );
+    assert!(!erased.effects.iter().any(|effect| matches!(
+        effect,
+        ApplyEffect::WakeWaiters {
+            change: dexzd_apply::WaitableChange::AttributesChanged { .. },
+            ..
+        }
+    )));
+    let after_erase = harness.run_record();
+    assert_eq!(after_erase.status, closed_record.status);
+    assert_eq!(after_erase.close, closed_record.close);
+    assert_eq!(after_erase.closed_at_micros, closed_record.closed_at_micros);
+    assert_eq!(after_erase.current_attempt, closed_record.current_attempt);
+    let history_prefix = run_singleton_key(
+        harness.context.flow_hash,
+        harness.harness_run_id(),
+        RunTable::HistoryRecord,
+    );
+    let recorded_command = harness
+        .state
+        .rows
+        .iter()
+        .rfind(|((column_family, key), _)| {
+            *column_family == ColumnFamily::History && key.starts_with(&history_prefix)
+        })
+        .map(|(_, value)| HistoryRecord::decode(value.as_slice()).expect("history decodes"))
+        .and_then(|record| record.command)
+        .expect("the erase command is recorded in history");
+    let replayed_erase =
+        apply_flow_command(&harness.context, &state_before_erase, &recorded_command)
+            .expect("the recorded erase applies");
+    let mut replayed_state = state_before_erase;
+    replayed_state.commit(&replayed_erase);
+    assert_eq!(replayed_state.rows, harness.state.rows);
+    let repeated = harness.apply(Command::AttributesSet(erase));
+    assert_eq!(repeated.reply, erased.reply);
+    assert!(repeated.writes.is_empty());
+
+    for attributes in [
+        vec![AttributeWrite {
+            key: "plain".to_owned(),
+            value: Some(Value {
+                kind: Some(value::Kind::NullValue(0)),
+            }),
+            ..AttributeWrite::default()
+        }],
+        vec![AttributeWrite {
+            key: "plain".to_owned(),
+            value: Some(string_value("changed")),
+            ..AttributeWrite::default()
+        }],
+        vec![AttributeWrite {
+            key: "overwritten".to_owned(),
+            value: Some(Value {
+                kind: Some(value::Kind::NullValue(0)),
+            }),
+            is_hard_delete_on_null: true,
+            ..AttributeWrite::default()
+        }],
+        vec![AttributeWrite {
+            key: "missing".to_owned(),
+            value: Some(Value {
+                kind: Some(value::Kind::NullValue(0)),
+            }),
+            is_hard_delete_on_null: true,
+            ..AttributeWrite::default()
+        }],
+        vec![
+            AttributeWrite {
+                key: "secret".to_owned(),
+                value: Some(Value {
+                    kind: Some(value::Kind::NullValue(0)),
+                }),
+                is_hard_delete_on_null: true,
+                ..AttributeWrite::default()
+            },
+            AttributeWrite {
+                key: "plain".to_owned(),
+                value: Some(Value {
+                    kind: Some(value::Kind::NullValue(0)),
+                }),
+                ..AttributeWrite::default()
+            },
+        ],
+    ] {
+        let rejected = harness.apply(Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                attributes,
+                ..SetAttributesRequest::default()
+            }),
+            ..AttributesSetCommand::default()
+        }));
+        assert!(is_error(&rejected.reply, 5));
+        assert!(rejected.writes.is_empty());
+    }
+    for command in [
+        AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                action_permission_mappings: Some(ActionPermissionMappings::default()),
+                attributes: vec![AttributeWrite {
+                    key: "retained".to_owned(),
+                    value: Some(Value {
+                        kind: Some(value::Kind::NullValue(0)),
+                    }),
+                    ..AttributeWrite::default()
+                }],
+                ..SetAttributesRequest::default()
+            }),
+            ..AttributesSetCommand::default()
+        },
+        AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                attributes: vec![AttributeWrite {
+                    key: "retained".to_owned(),
+                    value: Some(Value {
+                        kind: Some(value::Kind::NullValue(0)),
+                    }),
+                    ..AttributeWrite::default()
+                }],
+                ..SetAttributesRequest::default()
+            }),
+            hard_delete_objects: vec![HardDeleteObjectReference {
+                write_index: 0,
+                object_id: "unexpected-object".to_owned(),
+                size_bytes: 1,
+                is_string_value: true,
+            }],
+            ..AttributesSetCommand::default()
+        },
+        AttributesSetCommand {
+            request: Some(SetAttributesRequest::default()),
+            ..AttributesSetCommand::default()
+        },
+    ] {
+        let rejected = harness.apply(Command::AttributesSet(command));
+        assert!(is_error(&rejected.reply, 5));
+        assert!(rejected.writes.is_empty());
+    }
+    assert!(harness.attribute("plain").is_some());
+
+    harness.apply(Command::HardDeleteObjectsDeleted(
+        HardDeleteObjectsDeletedCommand {
+            object_ids: vec!["secret-object".to_owned()],
+        },
+    ));
+    harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![TimerId {
+            run_attempt: 0,
+            kind: Some(timer_id::Kind::Retention(RetentionTimerId {})),
+        }],
+    }));
+    let purge_command = harness.command(Command::RunPurge(RunPurgeCommand {}));
+    let purged = apply_flow_command(&harness.context, &harness.state, &purge_command)
+        .expect("purge applies");
+    harness.state.commit(&purged);
+    let purged_erase_command = harness.command(Command::AttributesSet(AttributesSetCommand {
+        request: Some(SetAttributesRequest {
+            attributes: vec![AttributeWrite {
+                key: "secret".to_owned(),
+                value: Some(Value {
+                    kind: Some(value::Kind::NullValue(0)),
+                }),
+                is_hard_delete_on_null: true,
+                ..AttributeWrite::default()
+            }],
+            request_id: "after-purge".to_owned(),
+            ..SetAttributesRequest::default()
+        }),
+        request_fingerprint: b"after-purge".to_vec(),
+        ..AttributesSetCommand::default()
+    }));
+    let purged_erase = apply_flow_command(&harness.context, &harness.state, &purged_erase_command)
+        .expect("the purged run rejects the erase");
+    assert!(matches!(
+        purged_erase.reply.reply,
+        Some(command_reply::Reply::Error(error))
+            if error.grpc_code == 5 && error.sub_status == ErrorSubStatus::FlowNotExists as i32
+    ));
 }
 
 #[test]
