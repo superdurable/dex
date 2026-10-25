@@ -379,16 +379,17 @@ server-zd 不同的地方。
 
 - 只支持 **type: postgres**。Go Server 的 **mysql**、**databricks**、**snowflake** 和
   **mongodb** store 无法通过校验，因此启动会失败。这些 store 请继续使用 Go Server。
-- 同步是异步的。Step、RPC 和 SetAttributes 的提交不等待表写入，也没有七秒的同步阶段。
+- Step、RPC 和 SetAttributes 的提交从不等待表写入。server-zd 没有七秒的 local 阶段。
 - 行通常在提交后一秒内出现。应把这张表视为最终一致。
 - store 不可用时，Flow 继续运行。store 恢复后，server-zd 用最新的值写入积压的数据。
-- 与 Go Server 一样，首次标记后经过 **syncRetryPolicy.totalDuration** 仍未写入的 entry
-  会被丢弃。之后对同一 Attribute 的写入照常同步。
+- 首次标记后经过 **syncRetryPolicy.totalDuration** 仍未写入的 entry 会被丢弃。Go Server 则为每个
+  batch 从其第一次尝试起单独计算 **totalDuration**，各 batch 依次等待。之后对同一 Attribute 的写入照常同步。
 - [Time travel](/primitives/client/advanced#time-travel) 之后，server-zd 会用 time travel
   之后的状态重写该 run 同步过的每一行。Go Server 不会重写这些行。
 - 每个数据库都需要一张 [fencing 表](#attribute-store-fencing-table)。Go Server 不需要。
+- Flow 关闭时不等待同步的 Attribute，行可能在 Flow 完成之后才写入。Go Server 要等待写入的值都写完或被丢弃后才关闭 Flow。
 - StopFlow 一提交，run 就会关闭。之后对该 run 的 SetAttributes 返回 NOT_FOUND。Go Server
-  在 run 收尾期间仍接受这类写入。Flow 需要的数据请在停止之前写入。
+  在已取消或失败的 run 收尾期间仍接受这类写入。Flow 需要的数据请在停止之前写入。
 
 ### 配置 {#attribute-store-configuration}
 
@@ -471,6 +472,7 @@ GRANT SELECT, INSERT, UPDATE ON dexzd_attribute_sync_fencing TO dex;
 
 启动时会连接每个 store 并检查它的表。任何失败都会导致启动失败，包括 store 不可达和缺少
 fencing 表。缺少 fencing 表时，错误信息会给出 **CREATE TABLE** 语句。
+启动时不检查授权。缺少授权时，fencing 表会显示为不存在，或者每次写入都因权限错误失败。
 
 ### 写入超时 {#attribute-store-write-timeout}
 
@@ -489,12 +491,12 @@ fencing 表。缺少 fencing 表时，错误信息会给出 **CREATE TABLE** 语
 Go Server 相同。失败的类型决定哪些内容进入 backoff：
 
 - **Store。** 连接失败或整个 store 的其他失败，会让该 store 的每个 run 都进入 backoff。
-- **Run。** 由写入的值导致的失败只让该 run 进入 backoff，其他 Flow 继续同步。例如违反约束，
-  或者值超出列的长度。
-- **超时。** 事务超时、死锁或等待行锁过久，同样只让该 run 进入 backoff。
+- **Run。** 由写入的值或与其他会话的冲突导致的失败只让该 run 进入 backoff，其他 Flow 继续同步。
+  例如违反约束、值超出列的长度、死锁和序列化失败。
+- **超时。** 事务超过事务超时（例如等待行锁时），同样只让该 run 进入 backoff。
 
-超时之后，该 run 的重试会把每个事务的语句数减半，最少一条。一条语句写入该 run 的所有普通
-Attribute，并且留在同一个事务中，所以主行永远不会只更新一部分。每个 AttributeMap
+超时之后，该 run 的重试会把每个事务的语句数减半，最少一条。超时之后，一条语句在同一个事务中写入
+该 run 的所有普通 Attribute，所以主行不会只更新一部分。每个 AttributeMap
 instance 是一条语句，所以超时 run 的各个 instance 可能落在不同的事务中。每个提交成功的
 事务都会被确认，因此重试只写入剩下的部分。
 
@@ -535,7 +537,8 @@ dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-stor
 ~~~
 
 数据库仍然需要这些表和 fencing 表。**dexcli dev --engine zd --attribute-store-config**
-会把文件传给这个参数，需要 dexcli v1.19.0 或更高版本。
+会把文件传给这个参数，需要 dexcli v1.19.0 或更高版本。Go Server 会拒绝
+**fencingTableName**，因此 Go Server 也要加载的文件只能使用默认的 fencing 表名。
 
 ## 指标 {#metrics}
 
@@ -562,6 +565,7 @@ key label。
 | Timer | **dexzd_timer_lag_seconds** |
 | 快照 | **dexzd_snapshots_total**，带 **outcome**；**dexzd_snapshot_last_duration_seconds** |
 | 本地磁盘 | **dexzd_local_storage_bytes** |
+| Attribute Store 同步 | 见[监控](#attribute-store-monitoring) |
 
 **rpc_class** 取 **flow_write**、**flow_read**、**search**、**worker_poll** 或
 **worker_respond**。**code** 是 snake case 形式的 gRPC 状态码，例如 **ok** 或

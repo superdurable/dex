@@ -237,6 +237,8 @@ store's PostgreSQL tables. These differences from the Go Server apply:
   those stores on the Go Server.
 - Synchronization is asynchronous. Step, RPC, and SetAttributes commits do not wait for the table,
   and there is no 7-second synchronous phase. Rows normally appear within a second of the commit.
+  A Flow also closes without waiting for its synced Attributes, so rows can land after it
+  completes. The Go Server closes a Flow only after its pending writes are written or dropped.
   While a store is unavailable, Flows keep running and the backlog is written with the latest
   values once it recovers. Entries still pending `syncRetryPolicy.totalDuration` after they were
   first marked are dropped and counted in `dexzd_attribute_sync_dropped_entries_total`.

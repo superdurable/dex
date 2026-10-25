@@ -429,23 +429,27 @@ in server-zd.
 - Only **type: postgres** is supported. The Go Server's **mysql**,
   **databricks**, **snowflake**, and **mongodb** stores fail validation, so
   startup fails. Keep those stores on the Go Server.
-- Sync is asynchronous. Step, RPC, and SetAttributes commits do not wait for the
-  table write. There is no seven-second synchronous phase.
+- Step, RPC, and SetAttributes commits never wait for the table write. server-zd
+  has no seven-second local phase.
 - Rows normally appear within a second of the commit. Treat the table as
   eventually consistent.
 - While a store is unavailable, Flows keep running. When the store recovers,
   server-zd writes the backlog with the latest values.
-- As in the Go Server, entries still pending **syncRetryPolicy.totalDuration**
-  after they were first marked are dropped. Later writes of the same Attributes
-  sync normally.
+- Entries still pending **syncRetryPolicy.totalDuration** after they were first
+  marked are dropped. The Go Server instead gives each batch its own
+  **totalDuration** from its first attempt, and its batches wait in turn. Later
+  writes of the same Attributes sync normally.
 - After [time travel](/primitives/client/advanced#time-travel), server-zd
   rewrites every row the run synced with the state after the time travel. The Go
   Server does not rewrite them.
 - Each database needs a [fencing table](#attribute-store-fencing-table). The Go
   Server needs none.
+- A Flow closes without waiting for its synced Attributes. Rows can land after
+  the Flow completes. The Go Server closes a Flow only after its pending writes
+  are written or dropped.
 - StopFlow closes the run as soon as it commits. A later SetAttributes on that
-  run returns NOT_FOUND. The Go Server accepts such writes while its run winds
-  down. Write what a Flow needs before stopping it.
+  run returns NOT_FOUND. The Go Server accepts such writes while a canceled or
+  failed run winds down. Write what a Flow needs before stopping it.
 
 ### Configuration {#attribute-store-configuration}
 
@@ -534,6 +538,8 @@ of a running cluster.
 Startup connects to every store and checks its tables. Any failure fails
 startup, including an unreachable store or a missing fencing table. For a
 missing fencing table, the error includes the **CREATE TABLE** statement.
+Startup does not check grants. Without them, the fencing table looks missing,
+or every write fails with a permission error.
 
 ### Write timeout {#attribute-store-write-timeout}
 
@@ -556,15 +562,16 @@ Failed writes are retried with the **syncRetryPolicy** backoff until
 
 - **Store.** A connection failure, or another failure of the whole store, backs
   off every run of that store.
-- **Run.** A failure caused by the written values backs off only that run. Other
-  Flows keep syncing. Examples are a constraint violation and a value too long
-  for its column.
-- **Timeout.** A transaction that times out, deadlocks, or waits too long for a
-  row lock also backs off only that run.
+- **Run.** A failure caused by the written values or by a conflict with another
+  session backs off only that run. Other Flows keep syncing. Examples are a
+  constraint violation, a value too long for its column, a deadlock, and a
+  serialization failure.
+- **Timeout.** A transaction that exceeds the transaction timeout, for example
+  while it waits for a row lock, also backs off only that run.
 
 After a timeout, the run's retries use half as many statements per transaction,
-down to one. One statement writes all of the run's plain Attributes. It stays in
-one transaction, so the main row is never partly updated. Each AttributeMap
+down to one. After a timeout, one statement writes all of the run's plain
+Attributes in one transaction, so the main row is not partly updated. Each AttributeMap
 instance is one statement, so a timed-out run's instances can land in different
 transactions. Each transaction that commits is acknowledged, so a retry writes
 only the rest.
@@ -610,7 +617,9 @@ dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-stor
 
 The database still needs its tables and the fencing table.
 **dexcli dev --engine zd --attribute-store-config** passes the file to this
-flag. It needs dexcli v1.19.0 or later.
+flag. It needs dexcli v1.19.0 or later. The Go Server rejects
+**fencingTableName**, so a file it also loads must use the default fencing table
+name.
 
 ## Metrics {#metrics}
 
@@ -638,6 +647,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Timers | **dexzd_timer_lag_seconds** |
 | Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
 | Local disk | **dexzd_local_storage_bytes** |
+| Attribute Store sync | See [Monitoring](#attribute-store-monitoring) |
 
 **rpc_class** is one of **flow_write**, **flow_read**, **search**,
 **worker_poll**, and **worker_respond**. **code** is the gRPC status code in
