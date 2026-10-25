@@ -660,6 +660,73 @@ async fn retention_deletes_displaced_lineage_files_when_every_process_is_short_l
 }
 
 #[tokio::test(start_paused = true)]
+async fn retention_keeps_rocksdb_files_that_a_kept_snapshot_shares() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let mut cluster = TestCluster::new();
+    let mut config = cluster.config(LocalStoreConfig::RocksDb {
+        directory: directory.path().join("store"),
+        options: RocksDbStoreOptions::default(),
+    });
+    config.snapshots.deletion_delay = Duration::ZERO;
+    let snapshot_count = config.snapshots.retained_count + 3;
+    let test = cluster.start_with(&config).await.expect("node starts");
+    let mut files_by_manifest = Vec::new();
+    for _ in 0..snapshot_count {
+        test.commit_prompt("shared-file-flow", 1).await;
+        let reference = test.node.take_snapshot().await.expect("snapshot succeeds");
+        let content = cluster
+            .object_store
+            .get(&reference.manifest_key)
+            .await
+            .expect("read manifest")
+            .expect("manifest exists");
+        let manifest = SnapshotManifest::decode(content.bytes).expect("decode manifest");
+        let files: Vec<String> = manifest
+            .files
+            .into_iter()
+            .map(|file| file.object_key)
+            .collect();
+        files_by_manifest.push((reference.manifest_key, files));
+    }
+    test.node.shutdown().await.expect("lease released");
+
+    let kept_keys = snapshot_manifest_keys(&cluster).await;
+    let objects = snapshot_object_keys(&cluster).await;
+    let (kept, deleted): (Vec<_>, Vec<_>) = files_by_manifest
+        .iter()
+        .partition(|(key, _)| kept_keys.contains(key));
+    assert!(!deleted.is_empty(), "{kept_keys:?}");
+    let kept_files: Vec<&String> = kept.iter().flat_map(|(_, files)| files).collect();
+    let deleted_files: Vec<&String> = deleted.iter().flat_map(|(_, files)| files).collect();
+    assert!(
+        deleted_files.iter().any(|file| kept_files.contains(file)),
+        "a deleted snapshot shares files with a kept one"
+    );
+    for file in &kept_files {
+        assert!(objects.contains(file), "{file} is missing");
+    }
+    for file in deleted_files
+        .iter()
+        .filter(|file| !kept_files.contains(file))
+    {
+        assert!(!objects.contains(file), "{file} remains");
+    }
+    let restore_config = cluster.config(LocalStoreConfig::RocksDb {
+        directory: directory.path().join("restored-store"),
+        options: RocksDbStoreOptions::default(),
+    });
+    let restored = cluster
+        .start_with(&restore_config)
+        .await
+        .expect("snapshot restores into a fresh RocksDB store");
+    assert_eq!(
+        restored.committed_count("shared-file-flow").await,
+        snapshot_count as u64
+    );
+    restored.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_snapshot_reads_each_stored_snapshot_manifest_at_most_once() {
     let mut cluster = TestCluster::new();
     let test = cluster.start_in_memory().await;
