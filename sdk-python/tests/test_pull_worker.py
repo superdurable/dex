@@ -12,9 +12,9 @@ import asyncio
 import logging
 import re
 import threading
-from contextlib import ExitStack
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Coroutine, cast
 from unittest.mock import AsyncMock, patch
@@ -26,21 +26,28 @@ from google.protobuf import timestamp_pb2
 from dex import (
     AsyncWorker,
     BlobCache,
-    PullRegistrationError,
+    Context,
     Flow,
     FlowConfig,
+    PullRegistrationError,
     PullWorkerOptions,
+    RPCResult,
+    Step,
+    StepDecision,
+    StepList,
+    Wait,
     Worker,
     WorkerOptions,
     WorkerTarget,
+    graceful_complete,
     retry_after,
+    rpc,
 )
 from dex._pull_worker import PullStream, PullWorkerRuntime, generate_app_worker_id
 from dex._worker_dispatcher import WorkerDispatcher
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
-
 
 _UNKNOWN_TASK_REASON = PullWorkerRuntime.unknown_task_reason
 
@@ -146,6 +153,23 @@ def test_generated_app_worker_id_uses_identity_and_random_suffix(
 class ConflictingFlow(Flow[None]):
     def get_flow_type(self) -> str:
         return "conflicting-worker"
+
+
+class ReservedRPCStep(Step[None]):
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.skip_immediately()
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete(None)
+
+
+class ReservedRPCFlow(Flow[None]):
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(ReservedRPCStep())
+
+    @rpc(name="getResult")
+    def get_result(self, context: Context) -> RPCResult[bool]:
+        return RPCResult(True)
 
 
 def test_app_worker_id_cannot_equal_flow_type() -> None:
@@ -1644,11 +1668,11 @@ async def _reserved_rpc_admission(reserve: int, first_kind: str) -> None:
     assert runtime._busy_tasks == 0
 
 
-def test_reserved_rpc_concurrent_step_admission() -> None:
-    asyncio.run(_reserved_rpc_concurrent_step_admission())
+def test_reserved_rpc_synchronous_step_admission() -> None:
+    asyncio.run(_reserved_rpc_synchronous_step_admission())
 
 
-async def _reserved_rpc_concurrent_step_admission() -> None:
+async def _reserved_rpc_synchronous_step_admission() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
@@ -1661,12 +1685,93 @@ async def _reserved_rpc_concurrent_step_admission() -> None:
         pb.PollWorkerTask(execute=pb.InvokeExecuteMethodRequest()) for _ in range(20)
     ]
 
-    async def admit(task: pb.PollWorkerTask) -> bool:
-        return runtime.accept_task(task)
-
-    assert sum(await asyncio.gather(*(admit(task) for task in tasks))) == 1
+    assert sum(runtime.accept_task(task) for task in tasks) == 1
+    assert runtime.reserved_rpc_declines == 19
     assert runtime.accept_task(pb.PollWorkerTask(rpc=pb.InvokeWorkerRPCRequest()))
     assert not runtime.accept_task(pb.PollWorkerTask(rpc=pb.InvokeWorkerRPCRequest()))
+
+
+def test_reserved_rpc_classifies_registered_and_unknown_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(PullWorkerRuntime, "unknown_task_reason", _UNKNOWN_TASK_REASON)
+    asyncio.run(_reserved_rpc_classifies_registered_and_unknown_names())
+
+
+async def _reserved_rpc_classifies_registered_and_unknown_names() -> None:
+    runtime = PullWorkerRuntime(
+        Registry([ReservedRPCFlow()]),
+        None,
+        PullWorkerOptions(max_concurrent_tasks=2, reserved_rpc_tasks=1),
+        "localhost:8801",
+        None,
+    )
+    runtime._stopping = asyncio.Event()
+    streams = [PullStream(runtime, None, "ReservedRPCFlow") for _ in range(2)]
+    senders = [AsyncMock() for _ in streams]
+    gate = asyncio.Event()
+
+    async def execute(task: pb.PollWorkerTask) -> None:
+        await gate.wait()
+
+    with ExitStack() as patches:
+        for stream, sender in zip(streams, senders):
+            stream._supports_unknown_name_rejection = True
+            patches.enter_context(patch.object(stream, "_send", sender))
+            patches.enter_context(patch.object(stream, "_execute", execute))
+        try:
+            await streams[0]._start_task(
+                pb.PollWorkerTask(
+                    task_id="first",
+                    execute=pb.InvokeExecuteMethodRequest(
+                        flow_type="ReservedRPCFlow", step_type="ReservedRPCStep"
+                    ),
+                )
+            )
+            assert streams[0].is_busy
+            await streams[1]._start_task(
+                pb.PollWorkerTask(
+                    task_id="unknown",
+                    execute=pb.InvokeExecuteMethodRequest(
+                        flow_type="ReservedRPCFlow", step_type="MissingStep"
+                    ),
+                )
+            )
+            assert senders[1].await_args is not None
+            assert (
+                senders[1].await_args.args[0].reject.reason
+                == pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP
+            )
+            assert runtime.reserved_rpc_declines == 0
+            await streams[1]._start_task(
+                pb.PollWorkerTask(
+                    task_id="declined",
+                    execute=pb.InvokeExecuteMethodRequest(
+                        flow_type="ReservedRPCFlow", step_type="ReservedRPCStep"
+                    ),
+                )
+            )
+            assert senders[1].await_args is not None
+            assert (
+                senders[1].await_args.args[0].reject.reason
+                == pb.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY
+            )
+            assert runtime.reserved_rpc_declines == 1
+            await streams[1]._start_task(
+                pb.PollWorkerTask(
+                    task_id="rpc",
+                    rpc=pb.InvokeWorkerRPCRequest(
+                        flow_type="ReservedRPCFlow", rpc_name="getResult"
+                    ),
+                )
+            )
+            assert streams[1].is_busy
+            assert runtime._busy_tasks == 2
+        finally:
+            gate.set()
+            for stream in streams:
+                if stream.handler_task is not None:
+                    await stream._finish_handler()
 
 
 @pytest.mark.parametrize("capacity", [1, 4])

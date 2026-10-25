@@ -70,8 +70,7 @@ class PullWorkerOptions:
             at least two, otherwise zero. With the CPU-count default, Steps get one
             fewer slot than before. Set zero to opt out. With one slot and None,
             start logs one warning that RPCs may wait behind Steps. Flows must stay
-            responsive; Dex cannot prioritize synchronous RPCs like workflow
-            engines prioritize reads.
+            responsive because RPCs share Worker task capacity with Steps.
             WaitFor and Execute tasks, including local attempts, are declined when total busy handlers reach
             max_concurrent_tasks minus this reserve. API-direct and transactional RPCs
             can use the full limit.
@@ -82,8 +81,12 @@ class PullWorkerOptions:
             policy. Local attempts wait the local dispatch wait, then fall back
             according to their policy. Declines emit a Flow-type debug log,
             increment pull_reserved_rpc_declines, and preserve readiness.
+            At the Step limit, each queue keeps one additional idle stream so
+            RPCs can arrive during Step declines.
         idle_streams_per_queue: Idle streams for the sticky queue and each Flow
-            type queue. Zero uses one. Negative values are invalid.
+            type queue. Zero uses one. Each queue keeps one more at the Step
+            limit. Use at least two for heavy Step backlogs. Negative values
+            are invalid.
         app_worker_id: Unique process identity for sticky routing. Empty generates
             an identity with eight random base32 characters. A supplied value
             must contain 1-63 ASCII letters, digits, dots, underscores, or hyphens,

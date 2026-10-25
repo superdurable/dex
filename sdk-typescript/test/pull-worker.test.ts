@@ -80,8 +80,10 @@ test("unset reserve defaults to one and a one-slot Worker warns once", async (co
       await harness.close();
     }
   }
-  assert.equal(warning.mock.calls.length, 1);
-  assert.match(String(warning.mock.calls[0]?.arguments[0]), /RPCs may wait/);
+  const reserveWarnings = warning.mock.calls.filter((call) => String(call.arguments[0]).includes("RPCs may wait"));
+  assert.deepEqual(reserveWarnings.map((call) => call.arguments[0]), [
+    "RPCs may wait behind long-running Steps; use maxConcurrentTasks >= 2 or set reservedRpcTasks explicitly",
+  ]);
 });
 
 for (const reservedRpcTasks of [-1, 2, 3, 0.5, NaN, Infinity]) {

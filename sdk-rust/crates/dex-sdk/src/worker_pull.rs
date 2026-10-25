@@ -146,11 +146,6 @@ impl PullWorker {
         let reserved_rpc_tasks = options
             .reserved_rpc_tasks
             .unwrap_or(usize::from(max_concurrent_tasks >= 2));
-        if reserved_rpc_tasks >= max_concurrent_tasks {
-            return Err(invalid(
-                "reserved_rpc_tasks must be less than max_concurrent_tasks",
-            ));
-        }
         let idle_streams_per_queue = options.idle_streams_per_queue.unwrap_or(1);
         let stop_drain_timeout = options
             .stop_drain_timeout
@@ -159,6 +154,11 @@ impl PullWorker {
         {
             return Err(invalid(
                 "pull Worker task limit, idle stream count, and drain timeout must be positive",
+            ));
+        }
+        if reserved_rpc_tasks >= max_concurrent_tasks {
+            return Err(invalid(
+                "reserved_rpc_tasks must be less than max_concurrent_tasks",
             ));
         }
         let app_worker_id = match &options.app_worker_id {
@@ -302,7 +302,8 @@ impl PullWorker {
                         && !slot.is_draining
                 })
                 .count();
-            let mut surplus = registered_idle.saturating_sub(self.idle_streams_per_queue);
+            let desired_idle = shared.desired_idle_streams_per_queue(state.busy_tasks);
+            let mut surplus = registered_idle.saturating_sub(desired_idle);
             for slot in state.streams.values_mut().filter(|slot| {
                 slot.queue == *queue
                     && slot.is_registered
@@ -322,7 +323,7 @@ impl PullWorker {
                 .values()
                 .filter(|slot| slot.queue == *queue && !slot.is_busy && !slot.is_retiring)
                 .count();
-            for _ in idle..self.idle_streams_per_queue {
+            for _ in idle..desired_idle {
                 let stream_id = state.next_stream_id;
                 state.next_stream_id += 1;
                 let retirement = Arc::new(Notify::new());
@@ -600,6 +601,14 @@ impl PullStream {
 }
 
 impl PullShared {
+    fn desired_idle_streams_per_queue(&self, busy_tasks: usize) -> usize {
+        self.idle_streams_per_queue
+            + usize::from(
+                self.reserved_rpc_tasks > 0
+                    && busy_tasks >= self.max_concurrent_tasks - self.reserved_rpc_tasks,
+            )
+    }
+
     fn try_accept(&self, stream_id: u64, task: Option<&PollWorkerTask>) -> bool {
         let mut state = self.state.lock().expect("pull state lock");
         if state.is_stopping || state.busy_tasks >= self.max_concurrent_tasks {
@@ -654,7 +663,8 @@ impl PullShared {
                     && !slot.is_draining
             })
             .count();
-        let should_retire = idle_replacements >= self.idle_streams_per_queue;
+        let should_retire =
+            idle_replacements >= self.desired_idle_streams_per_queue(state.busy_tasks);
         if should_retire {
             state
                 .streams
@@ -988,6 +998,8 @@ mod tests {
     use tokio_stream::wrappers::{ReceiverStream, TcpListenerStream};
     use tonic::transport::Server;
     use tonic::{Request, Response};
+
+    mod options;
 
     struct ReserveCapacityFlow;
 
@@ -1474,52 +1486,6 @@ mod tests {
         (cache, directory)
     }
 
-    #[test]
-    fn validates_pull_options_and_target_conflicts() {
-        let (cache, _directory) = test_cache();
-        let registry = Registry::new()
-            .register(RegisteredFlow)
-            .expect("register Flow");
-        for options in [
-            WorkerOptions::new().pull(PullWorkerOptions::new().max_concurrent_tasks(0)),
-            WorkerOptions::new().pull(
-                PullWorkerOptions::new()
-                    .max_concurrent_tasks(2)
-                    .reserved_rpc_tasks(2),
-            ),
-            WorkerOptions::new().pull(
-                PullWorkerOptions::new()
-                    .max_concurrent_tasks(2)
-                    .reserved_rpc_tasks(3),
-            ),
-            WorkerOptions::new().pull(PullWorkerOptions::new().idle_streams_per_queue(0)),
-            WorkerOptions::new().pull(PullWorkerOptions::new().stop_drain_timeout(Duration::ZERO)),
-            WorkerOptions::new().pull(PullWorkerOptions::new().app_worker_id("bad/id")),
-            WorkerOptions::new().pull(PullWorkerOptions::new().app_worker_id("RegisteredFlow")),
-            WorkerOptions::new()
-                .pull(PullWorkerOptions::new())
-                .bind_address("127.0.0.1:8803"),
-            WorkerOptions::new()
-                .pull(PullWorkerOptions::new())
-                .worker_target(WorkerTarget::pull()),
-            WorkerOptions::new().worker_target(WorkerTarget::pull()),
-        ] {
-            assert!(matches!(
-                Worker::try_new(registry.clone(), Arc::clone(&cache), options),
-                Err(SdkError::FlowDefinition { .. })
-            ));
-        }
-        assert!(
-            Worker::try_new(
-                registry,
-                cache,
-                WorkerOptions::new().pull(PullWorkerOptions::new())
-            )
-            .is_ok()
-        );
-        assert!(WorkerTarget::pull().headless(true).validate().is_err());
-    }
-
     struct ReserveWarningSubscriber(Arc<AtomicU64>);
 
     impl tracing::Subscriber for ReserveWarningSubscriber {
@@ -1682,6 +1648,7 @@ mod tests {
                 .sum::<usize>()
         );
         assert_eq!(1, shared.state.lock().expect("state lock").busy_tasks);
+        assert_eq!(19, shared.reserved_rpc_declines.load(Ordering::Relaxed));
     }
 
     #[test]

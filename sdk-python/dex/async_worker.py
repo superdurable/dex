@@ -14,10 +14,10 @@ from types import TracebackType
 import grpc
 from google.protobuf import empty_pb2
 
-from dex._credential_transport import AsyncCredentialRunner, async_channel
 from dex._async_value_hydrator import AsyncValueHydrator
 from dex._async_worker_dispatcher import AsyncWorkerDispatcher
 from dex._async_worker_service import AsyncWorkerService
+from dex._credential_transport import AsyncCredentialRunner, async_channel
 from dex._pull_worker import PullWorkerRuntime, resolve_app_worker_id
 from dex._server_protocol import (
     NegotiatedServerProtocol,
@@ -225,6 +225,8 @@ class AsyncWorker:
     def pull_reserved_rpc_declines(self) -> int:
         """Return cumulative Step declines caused by reserved RPC capacity.
 
+        The counter counts decline events. Dex may decline the same Step dispatch
+        repeatedly while retrying it, so read the counter as a rate.
         Full-capacity rejections and unknown names are excluded. The count never
         resets during this Worker's lifetime and stays available after stop.
         Reading it alongside handlers is safe. Listening Workers return zero.

@@ -140,7 +140,7 @@ impl PullWorkerOptions {
     /// Unset reserves one slot when resolved capacity is at least two, otherwise zero.
     /// With the CPU-count default, Steps get one fewer slot than before. Set zero to opt out.
     /// With one slot and no explicit reserve, start warns once that RPCs may wait behind Steps.
-    /// Flows must stay responsive; Dex cannot prioritize synchronous RPCs like workflow engines prioritize reads.
+    /// Flows must stay responsive because RPCs share Worker task capacity with Steps.
     /// WaitFor and Execute tasks, including local attempts, are declined when
     /// total busy handlers reach the resolved task limit minus this reserve. RPCs use the full limit.
     /// API-direct and transactional RPCs both use the full limit. Declines reassign without consuming an attempt.
@@ -148,6 +148,7 @@ impl PullWorkerOptions {
     /// consumes an attempt and follows the Step retry policy. Local attempts wait the local dispatch
     /// wait, then fall back according to their policy. Readiness is unaffected.
     /// Declines emit a tracing debug event and increment [`crate::Worker::pull_reserved_rpc_declines`].
+    /// At the Step limit, each queue keeps one additional idle stream so RPCs can arrive during Step declines.
     ///
     /// `value` must be less than the task limit after its CPU-count default is resolved.
     /// [`crate::Worker::try_new`] returns [`crate::SdkError::FlowDefinition`] otherwise.
@@ -166,6 +167,7 @@ impl PullWorkerOptions {
     ///
     /// The default is one. Zero returns [`crate::SdkError::FlowDefinition`] from
     /// [`crate::Worker::try_new`]. The Worker also retains busy streams until their tasks finish.
+    /// Each queue keeps one additional idle stream at the Step limit. Use at least two for heavy Step backlogs.
     pub fn idle_streams_per_queue(mut self, value: usize) -> Self {
         self.idle_streams_per_queue = Some(value);
         self

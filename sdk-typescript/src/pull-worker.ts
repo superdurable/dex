@@ -196,7 +196,7 @@ export class PullWorker {
       for (const poll of this.streams) {
         if (poll.queue === queue && poll.task === undefined && !poll.isDraining) idleCount++;
       }
-      while (idleCount < this.idleStreamsPerQueue) {
+      while (idleCount < this.desiredIdleStreamsPerQueue()) {
         const poll: PollStream = {
           queue, stream: undefined, task: undefined, retryTimer: undefined,
           halfCloseTimer: undefined, halfClosePromise: undefined, resolveHalfClose: undefined,
@@ -209,6 +209,11 @@ export class PullWorker {
         idleCount++;
       }
     }
+  }
+
+  private desiredIdleStreamsPerQueue(): number {
+    return this.idleStreamsPerQueue + Number(this.reservedRpcTasks > 0
+      && this.busyTaskCount >= this.maxConcurrentTasks - this.reservedRpcTasks);
   }
 
   private openStream(poll: PollStream): void {
@@ -426,7 +431,7 @@ export class PullWorker {
     return [...this.streams].filter((candidate) =>
       candidate !== poll && candidate.queue === poll.queue && candidate.isRegistered
       && candidate.task === undefined && !candidate.isDraining && !candidate.isDisconnected
-    ).length >= this.idleStreamsPerQueue;
+    ).length >= this.desiredIdleStreamsPerQueue();
   }
 
   private sendTaskFrame(poll: PollStream, frame: PollWorkerTaskFrame): void {
@@ -501,7 +506,7 @@ export class PullWorker {
       const idleStreamCount = [...this.streams].filter((candidate) =>
         candidate !== poll && candidate.queue === poll.queue && candidate.task === undefined && !candidate.isDraining
       ).length;
-      if (poll.isRetiring || poll.isReconnectRequested && idleStreamCount >= this.idleStreamsPerQueue) {
+      if (poll.isRetiring || poll.isReconnectRequested && idleStreamCount >= this.desiredIdleStreamsPerQueue()) {
         this.streams.delete(poll);
       } else {
         this.scheduleReconnect(poll);

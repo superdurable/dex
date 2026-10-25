@@ -453,6 +453,9 @@ final class PullWorkerTest {
                                     io.superdurable.gen.PollWorkerTaskRejectReason
                                             .POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC);
                             second.assign(reservedRpcTask("second-rpc"));
+                            second.respond(PollWorkerTaskResponse.newBuilder().setPing(
+                                    io.superdurable.gen.PollWorkerTaskPing.getDefaultInstance()).build());
+                            assertTrue(second.awaitFrame().hasPong());
                         }
                         final PollStream idle = pollServer.awaitQueue("PullTestFlow");
                         for (PollWorkerTask task : Arrays.asList(executeTask("full-step", "block"),

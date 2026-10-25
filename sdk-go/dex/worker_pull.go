@@ -296,7 +296,7 @@ func (worker *pullWorker) reconcile() {
 				idle++
 			}
 		}
-		desired := worker.idleStreamsPerQueue
+		desired := worker.desiredIdleStreamsPerQueue()
 		for idle < desired {
 			streamCtx, cancel := context.WithCancel(worker.ctx)
 			stream := &pullStream{worker: worker, queue: queue, ctx: streamCtx, cancel: cancel}
@@ -306,6 +306,14 @@ func (worker *pullWorker) reconcile() {
 			go stream.run()
 		}
 	}
+}
+
+func (worker *pullWorker) desiredIdleStreamsPerQueue() int {
+	desired := worker.idleStreamsPerQueue
+	if worker.reservedRPCTasks > 0 && worker.busyTasks >= worker.maxConcurrentTasks-worker.reservedRPCTasks {
+		desired++
+	}
+	return desired
 }
 
 func (worker *pullWorker) waitRegistered(ctx context.Context) error {
@@ -817,7 +825,7 @@ func (stream *pullStream) hasIdleReplacements() bool {
 			idleStreams++
 		}
 	}
-	return idleStreams >= stream.worker.idleStreamsPerQueue
+	return idleStreams >= stream.worker.desiredIdleStreamsPerQueue()
 }
 
 func (stream *pullStream) cancelTaskContext() {

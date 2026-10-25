@@ -196,11 +196,17 @@ class PullWorkerRuntime:
                 and not stream.is_half_closing
                 for stream in self._streams
             )
-            for _ in range(self.idle_streams_per_queue - idle):
+            for _ in range(self.desired_idle_streams_per_queue() - idle):
                 stream = PullStream(self, stub, queue)
                 self._streams.add(stream)
                 stream.run_task = asyncio.create_task(stream.run())
                 stream.run_task.add_done_callback(stream.on_done)
+
+    def desired_idle_streams_per_queue(self) -> int:
+        return self.idle_streams_per_queue + int(
+            self.reserved_rpc_tasks > 0
+            and self._busy_tasks >= self.max_concurrent_tasks - self.reserved_rpc_tasks
+        )
 
     def _stream_done(self, stream: PullStream, completed: asyncio.Task[None]) -> None:
         self._streams.discard(stream)
@@ -744,7 +750,7 @@ class PullStream:
             and not candidate.is_draining
             for candidate in self.runtime._streams
         )
-        if idle_replacements >= self.runtime.idle_streams_per_queue:
+        if idle_replacements >= self.runtime.desired_idle_streams_per_queue():
             self.is_draining = True
             self._is_retiring = True
             self._retirement_requested.set()

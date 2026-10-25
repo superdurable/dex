@@ -500,7 +500,7 @@ export interface PullWorkerOptions {
    * Unset reserves one slot when resolved capacity is at least two, otherwise zero.
    * With the CPU-count default, Steps get one fewer slot than before. Set zero to opt out.
    * With one slot and no explicit reserve, start warns once that RPCs may wait behind Steps.
-   * Flows must stay responsive; Dex cannot prioritize synchronous RPCs like workflow engines prioritize reads.
+   * Flows must stay responsive because RPCs share Worker task capacity with Steps.
    * WaitFor and Execute tasks, including local attempts, are declined
    * when total busy handlers reach maxConcurrentTasks minus this reserve. RPCs can
    * use the full task limit, including API-direct and transactional RPCs. Requires an integer at least zero and below the task
@@ -511,13 +511,14 @@ export interface PullWorkerOptions {
    * then fall back according to their policy.
    * Declines emit a node:util debuglog message under dex:pull with the Flow type.
    * The pullReservedRpcDeclines counter increments; registration readiness is unaffected.
+   * At the Step limit, each queue keeps one additional idle stream so RPCs can arrive during Step declines.
    * @example
    * ```ts
    * const pull: PullWorkerOptions = { maxConcurrentTasks: 8, reservedRpcTasks: 2 };
    * ```
    */
   readonly reservedRpcTasks?: number;
-  /** Waiting streams on the sticky queue and each Flow type queue; zero or omission uses one. Negative values are invalid. */
+  /** Waiting streams on each queue; zero or omission uses one. At the Step limit, each queue keeps one more. Use at least two for heavy Step backlogs. Negative values are invalid. */
   readonly idleStreamsPerQueue?: number;
   /** Process-unique Worker ID; defaults to host identity plus eight random base32 characters. Use a new ID after every restart. Values contain 1-63 ASCII letters, digits, dots, underscores, or hyphens and cannot equal a registered Flow type. */
   readonly appWorkerID?: string;

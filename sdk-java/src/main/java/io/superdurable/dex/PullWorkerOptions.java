@@ -131,7 +131,7 @@ public final class PullWorkerOptions {
          * <p>Unset reserves one slot when the resolved task limit is at least two, otherwise zero.
          * With the CPU-count default, Steps get one fewer slot than before. Set zero to opt out.
          * With one slot and no explicit reserve, Worker start logs one warning about RPC starvation.
-         * Flows must stay responsive; Dex cannot prioritize synchronous RPCs like workflow engines prioritize reads.
+         * Flows must stay responsive because RPCs share Worker task capacity with Steps.
          * WaitFor and Execute tasks, including local attempts, are declined when
          * total busy handlers reach maxConcurrentTasks minus this reserve. RPCs can use the full
          * task limit, including API-direct and transactional RPCs. Declines reassign without consuming an attempt.
@@ -139,6 +139,7 @@ public final class PullWorkerOptions {
          * consumes an attempt and follows the Step retry policy, as when all Workers are full.
          * Local attempts wait the local dispatch wait, then fall back according to their policy.
          * Declines emit a FINE debug log, increment getPullReservedRpcDeclines, and preserve readiness.
+         * At the Step limit, each queue keeps one additional idle stream so RPCs can arrive during Step declines.
          *
          * <pre>{@code
          * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
@@ -156,6 +157,9 @@ public final class PullWorkerOptions {
 
         /**
          * Sets the number of waiting streams maintained for each task queue.
+         *
+         * <p>Each queue keeps one more stream while the Step limit is reached.
+         * Use at least two for Workers with heavy Step backlogs.
          *
          * @param value a nonnegative count; zero uses one idle stream per queue
          * @return this builder

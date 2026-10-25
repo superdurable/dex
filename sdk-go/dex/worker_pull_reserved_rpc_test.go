@@ -127,6 +127,7 @@ func TestWorkerPullReservedRPCConcurrentAdmission(t *testing.T) {
 		require.NotNil(t, frame.GetPong())
 	}
 	require.Equal(t, 19, rejected)
+	require.Equal(t, uint64(19), worker.PullReservedRPCDeclines())
 	worker.pull.mu.Lock()
 	require.Equal(t, 1, worker.pull.busyTasks)
 	worker.pull.mu.Unlock()

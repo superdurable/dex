@@ -420,13 +420,19 @@ final class PullWorker {
                     idle++;
                 }
             }
-            while (idle < options.getIdleStreamsPerQueue()) {
+            while (idle < desiredIdleStreamsPerQueue()) {
                 final PullStream stream = new PullStream(queue);
                 streams.add(stream);
                 stream.open();
                 idle++;
             }
         }
+    }
+
+    private int desiredIdleStreamsPerQueue() {
+        return options.getIdleStreamsPerQueue()
+                + (options.getReservedRpcTasks() > 0
+                && busyTasks >= options.getMaxConcurrentTasks() - options.getReservedRpcTasks() ? 1 : 0);
     }
 
     private long retryDelay(final long backoff) {
@@ -900,7 +906,7 @@ final class PullWorker {
                     idleReplacements++;
                 }
             }
-            return idleReplacements >= options.getIdleStreamsPerQueue();
+            return idleReplacements >= desiredIdleStreamsPerQueue();
         }
     }
 }
