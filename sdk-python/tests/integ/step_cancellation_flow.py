@@ -204,12 +204,16 @@ class CancellationRecovery(Step[None]):
 
 
 class CancellationFinal(Step[str]):
+    def __init__(self, flow: StepCancellationFlow) -> None:
+        self.flow = flow
+
     def wait_for(self, context: Context, input: str) -> Wait:
         del context, input
         return Wait.until(Timer.by_duration(timedelta(seconds=1)))
 
     def execute(self, context: Context, input: str) -> StepDecision:
-        del context
+        if self.flow.late_write.get(context) is not None:
+            return force_fail("canceled execution committed its late write")
         return graceful_complete(input)
 
 
@@ -298,7 +302,7 @@ class StepCancellationFlow(Flow[str]):
         self.blocking_execute = CancellationBlockingExecute(self)
         self.blocking_wait_for = CancellationBlockingWaitFor(self)
         self.winner = CancellationWinner(self)
-        self.final = CancellationFinal()
+        self.final = CancellationFinal(self)
         self.first_parent = CancellationFirstParent(self)
         self.second_parent = CancellationSecondParent(self)
         self.selector_winner = CancellationSelectorWinner(self)

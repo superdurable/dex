@@ -412,6 +412,9 @@ class StepCancellationWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
+            if (lateWrite.get(context) != null) {
+                return StepDecision.forceFail("canceled execution committed its late write");
+            }
             return StepDecision.gracefulComplete(input);
         }
     }

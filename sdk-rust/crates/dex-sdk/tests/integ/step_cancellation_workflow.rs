@@ -11,7 +11,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use std::sync::LazyLock;
 
@@ -86,6 +86,7 @@ impl Event {
 
 pub(crate) struct CancellationState {
     pub(crate) scenario: CancellationScenario,
+    pub(crate) is_server_zd: bool,
     pub(crate) blocking_started: Event,
     pub(crate) cancellation_observed: Event,
     pub(crate) late_handler_returned: Event,
@@ -100,9 +101,10 @@ pub(crate) struct CancellationState {
 }
 
 impl CancellationState {
-    pub(crate) fn new(scenario: CancellationScenario) -> Arc<Self> {
+    pub(crate) fn new(scenario: CancellationScenario, is_server_zd: bool) -> Arc<Self> {
         Arc::new(Self {
             scenario,
+            is_server_zd,
             blocking_started: Event::default(),
             cancellation_observed: Event::default(),
             late_handler_returned: Event::default(),
@@ -115,6 +117,13 @@ impl CancellationState {
             blocking_invocations: AtomicU32::new(0),
             selector_wait_count: AtomicU32::new(0),
         })
+    }
+
+    fn record_cancellation(&self, context: &Context) {
+        self.handler_canceled.store(true, Ordering::SeqCst);
+        self.context_reported_cancellation
+            .store(context.is_cancelled(), Ordering::SeqCst);
+        self.cancellation_observed.set();
     }
 }
 
@@ -216,7 +225,18 @@ impl Step for CancellationBlockingExecute {
             .fetch_add(1, Ordering::SeqCst);
         self.state.blocking_started.set();
         if self.state.scenario == CancellationScenario::NoHeartbeat {
-            thread::sleep(Duration::from_secs(7));
+            if self.state.is_server_zd {
+                // Polling observes cancel_task without recording a heartbeat.
+                let deadline = Instant::now() + Duration::from_secs(7);
+                while !context.is_cancelled() && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                if context.is_cancelled() {
+                    self.state.record_cancellation(context);
+                }
+            } else {
+                thread::sleep(Duration::from_secs(7));
+            }
         } else {
             wait_for_stream_cancellation(context, &self.state)?;
         }
@@ -291,11 +311,7 @@ fn wait_for_stream_cancellation(
         }
         thread::sleep(Duration::from_millis(100));
     }
-    state.handler_canceled.store(true, Ordering::SeqCst);
-    state
-        .context_reported_cancellation
-        .store(context.is_cancelled(), Ordering::SeqCst);
-    state.cancellation_observed.set();
+    state.record_cancellation(context);
     Ok(())
 }
 
@@ -353,7 +369,12 @@ impl Step for CancellationFinal {
         Ok(Wait::until(Timer::by_duration(Duration::from_secs(1))))
     }
 
-    fn execute(&self, _context: &mut Context, input: String) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
+        if LATE_WRITE.get(context)?.is_some() {
+            return Ok(StepDecision::force_fail(
+                "canceled execution committed its late write",
+            ));
+        }
         Ok(StepDecision::graceful_complete(input))
     }
 }

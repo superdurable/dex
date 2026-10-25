@@ -1,0 +1,128 @@
+name: Server ZD SDK CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdk-rust/**"
+      - "sdk-python/**"
+      - "sdk-typescript/**"
+      - "sdk-java/**"
+      - "server-zd/**"
+      - "s3mock/**"
+      - "cli/**"
+      - "web/**"
+      - "protos/**"
+      - ".github/workflows/server-zd-sdk-ci.yml"
+  pull_request:
+    paths:
+      - "sdk-rust/**"
+      - "sdk-python/**"
+      - "sdk-typescript/**"
+      - "sdk-java/**"
+      - "server-zd/**"
+      - "s3mock/**"
+      - "cli/**"
+      - "web/**"
+      - "protos/**"
+      - ".github/workflows/server-zd-sdk-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-zd-sdk-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTUP_TOOLCHAIN: "1.97.1"
+  CARGO_BUILD_JOBS: "4"
+  DEX_INTEG_ENGINE: zd
+  DEX_INTEG_WORKER_MODE: pull
+  DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
+
+jobs:
+  integration:
+    name: ${{ matrix.sdk }} SDK integration (server-zd pull)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sdk: Rust
+            directory: sdk-rust
+            service-log: /tmp/test-rust-sdk-integration-services.log
+          - sdk: Python
+            directory: sdk-python
+            service-log: /tmp/test-python-sdk-integration-services.log
+          - sdk: TypeScript
+            directory: sdk-typescript
+            service-log: /tmp/test-typescript-sdk-integration-services.log
+          - sdk: Java
+            directory: sdk-java
+            service-log: /tmp/test-java-sdk-integration-services.log
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for RocksDB
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-paradedb
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build dex-server-zd
+        working-directory: server-zd
+        run: cargo build --locked -p dexzd-server --bin dex-server-zd
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: |
+            cli/go.sum
+            server/go.sum
+            web/go.sum
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            sdk-typescript/package-lock.json
+      - name: Install Python and uv
+        if: matrix.sdk == 'Python'
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: sdk-python
+          enable-cache: true
+      - name: Install Java
+        if: matrix.sdk == 'Java'
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: "25"
+      - name: Set up Gradle
+        if: matrix.sdk == 'Java'
+        uses: gradle/actions/setup-gradle@v6
+      - name: Install TypeScript dependencies
+        if: matrix.sdk == 'TypeScript'
+        run: npm ci
+      - name: Install Python dependencies
+        if: matrix.sdk == 'Python'
+        run: uv sync --locked --reinstall-package dex-python-sdk
+      - name: Run SDK integration suite
+        run: ./run-integration-tests.sh
+      - name: Upload service logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-zd-${{ matrix.directory }}-services
+          path: ${{ matrix.service-log }}
+          if-no-files-found: ignore

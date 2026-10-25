@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { StepExecutionId, stringCodec } from "../../src/index.js";
-import { flowId, withEnvironment } from "./environment.js";
+import { flowId, isServerZD, withEnvironment } from "./environment.js";
 import {
   StepCancellationFlow,
   cancellationScenarios,
@@ -20,7 +20,8 @@ import {
 
 for (const scenario of cancellationScenarios) {
   test(`Step cancellation ${scenario}`, async () => {
-    const flow = new StepCancellationFlow(scenario);
+    const isServerZDEngine = await isServerZD();
+    const flow = new StepCancellationFlow(scenario, isServerZDEngine);
     await withEnvironment([flow], async ({ client }) => {
       const id = flowId(`typescript-cancellation-${scenario}`);
       await client.startFlow(flow, id, scenario);
@@ -52,21 +53,36 @@ for (const scenario of cancellationScenarios) {
         return;
       }
       if (scenario === "no-heartbeat") {
-        assert.equal(flow.handlerCanceled, false);
-        let returned = false;
-        void flow.lateHandlerReturned.then(() => { returned = true; });
-        await Promise.resolve();
-        assert.equal(returned, false);
+        if (isServerZDEngine) {
+          // server-zd cancels pull handlers without a recorded heartbeat.
+          await withTimeout(flow.cancellationObserved, 8_000);
+          assert.equal(flow.handlerCanceled, true);
+          assert.equal(flow.contextReportedCancellation, true);
+        } else {
+          // The Go Server leaves a non-heartbeating handler running.
+          assert.equal(flow.handlerCanceled, false);
+          let returned = false;
+          void flow.lateHandlerReturned.then(() => { returned = true; });
+          await Promise.resolve();
+          assert.equal(returned, false);
+        }
         await withTimeout(flow.lateHandlerReturned, 8_000);
       } else {
         await withTimeout(flow.cancellationObserved, 8_000);
         assert.equal(flow.handlerCanceled, true);
         assert.equal(flow.contextReportedCancellation, true);
       }
-      assert.equal(
-        flow.blockingInvocations,
-        scenario === "local-execute" || scenario === "local-timeout-fallback" ? 2 : 1,
-      );
+      let expectedInvocations = 1;
+      if (scenario === "local-execute" || scenario === "local-timeout-fallback") {
+        if (isServerZDEngine) {
+          // server-zd has no ASYNC local invocation.
+          expectedInvocations = 1;
+        } else {
+          // The Go Server runs local and remote ASYNC invocations.
+          expectedInvocations = 2;
+        }
+      }
+      assert.equal(flow.blockingInvocations, expectedInvocations);
       assert.equal(flow.recoveryRan, false);
     });
   });

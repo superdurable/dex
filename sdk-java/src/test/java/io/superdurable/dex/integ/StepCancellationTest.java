@@ -68,7 +68,7 @@ public final class StepCancellationTest {
             assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.LOCAL_EXECUTE);
             assertTrue(workflow.wasHandlerInterrupted());
             assertTrue(workflow.didContextReportCancellation());
-            assertEquals(2, workflow.blockingExecuteInvocations());
+            assertAsyncCancellationInvocationCount(workflow);
             assertFalse(workflow.wasRecoveryRun());
         }
     }
@@ -90,7 +90,7 @@ public final class StepCancellationTest {
                     environment,
                     flowId,
                     StepCancellationWorkflow.Scenario.LOCAL_TIMEOUT_FALLBACK);
-            assertEquals(2, workflow.blockingExecuteInvocations());
+            assertAsyncCancellationInvocationCount(workflow);
             assertTrue(workflow.wasHandlerInterrupted());
             assertTrue(workflow.didContextReportCancellation());
             assertFalse(workflow.wasRecoveryRun());
@@ -111,8 +111,16 @@ public final class StepCancellationTest {
                     StepExecutionId.of(workflow.canceledStepType()),
                     waitOptions(flowId, "no-heartbeat", CANCELLATION_TIMEOUT));
             assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.NO_HEARTBEAT);
-            assertFalse(workflow.hasLateHandlerReturned());
-            assertFalse(workflow.wasHandlerInterrupted());
+            if (IntegrationTestWaits.isServerZD()) {
+                // server-zd cancels pull handlers without a recorded heartbeat.
+                assertTrue(workflow.awaitCancellation(CANCELLATION_TIMEOUT));
+                assertTrue(workflow.wasHandlerInterrupted());
+                assertTrue(workflow.didContextReportCancellation());
+            } else {
+                // The Go Server leaves a non-heartbeating handler running.
+                assertFalse(workflow.hasLateHandlerReturned());
+                assertFalse(workflow.wasHandlerInterrupted());
+            }
             assertTrue(workflow.awaitLateHandlerReturn(CANCELLATION_TIMEOUT));
             assertEquals(1, workflow.blockingExecuteInvocations());
             assertFalse(workflow.wasRecoveryRun());
@@ -182,6 +190,17 @@ public final class StepCancellationTest {
             assertTrue(workflow.wasHandlerInterrupted());
             assertTrue(workflow.didContextReportCancellation());
             assertFalse(workflow.wasRecoveryRun());
+        }
+    }
+
+    private static void assertAsyncCancellationInvocationCount(
+            final StepCancellationWorkflow workflow) {
+        if (IntegrationTestWaits.isServerZD()) {
+            // server-zd has no ASYNC local invocation.
+            assertEquals(1, workflow.blockingExecuteInvocations());
+        } else {
+            // The Go Server runs local and remote ASYNC invocations.
+            assertEquals(2, workflow.blockingExecuteInvocations());
         }
     }
 
