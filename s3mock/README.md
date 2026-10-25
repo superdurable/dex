@@ -30,9 +30,12 @@ seconds for in-flight requests, and exits 0, so `docker stop` ends a container w
 The manual `S3mock release` workflow runs from `main` with a semantic `version` matching
 the workspace version in `s3mock/Cargo.toml`. It creates a
 new `s3mock/v<version>` tag and GitHub release only after native Linux amd64 and arm64 binaries
-and images pass smoke tests. The workflow rejects an existing versioned tag. The release contains binary
-archives and SHA-256 checksums; its notes give the digest of the multi-architecture
-`docker.io/superdurable/s3mock:<version>` image. The workflow has no automatic trigger.
+and images pass smoke tests. The smoke test also stops the container with `docker stop` and
+requires exit code 0. The workflow rejects an existing versioned tag. The release contains binary
+archives and SHA-256 checksums. Its notes give the digest of the multi-architecture
+`docker.io/superdurable/s3mock:<version>` image, followed by the version's section of
+[Release notes](#release-notes); the workflow fails before building when that section is
+missing. The workflow has no automatic trigger.
 GitHub-enforced locking of published tags and assets requires a separate repository release
 immutability setting.
 Before publishing the GitHub release, the workflow checks that the image digest can be read
@@ -350,3 +353,26 @@ intentionally dropped a committed response or truncated a response before yieldi
 The integration suite exercises all fault actions through `aws-sdk-s3`, seeded replay, admin
 validation and resets, counters and bounded logs, opaque ETag conditions, SDK memory/file
 uploads in strict mode, presigned GET and PUT, and signed chunk/trailer tampering through raw HTTP.
+
+## Release notes
+
+The release workflow publishes the section for the released version.
+
+### 0.1.1
+
+- CopyObject copies the source version's bytes, content headers, user metadata, and checksum
+  algorithm, with the COPY and REPLACE metadata directives, a source version ID, copy-source and
+  destination conditions, and per-resource authorization in strict mode. s3mock 0.1.0 handled a
+  PUT with `x-amz-copy-source` as an empty PutObject and stored a 0-byte object.
+- UploadPartCopy, copy-source ranges, and request headers whose effect s3mock does not emulate,
+  such as tagging, Object Lock retention, and KMS encryption, return `501 NotImplemented`
+  instead of being ignored.
+- Presigned GET and HEAD URLs that carry `X-Amz-Checksum-Mode=ENABLED`, as the AWS SDK for Go
+  v2 writes them, are accepted instead of returning `501 NotImplemented`.
+- SIGTERM stops the server gracefully with exit code 0, as SIGINT already did; `docker stop` no
+  longer ends with exit code 137.
+
+### 0.1.0
+
+- First release. Strict mode supports scoped credentials, presigned URLs, and bucket CORS. An
+  unknown access key returns `403 InvalidAccessKeyId` rather than `403 AccessDenied`.
