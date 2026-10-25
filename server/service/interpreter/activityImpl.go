@@ -164,7 +164,7 @@ func (a *Activities) IWaitForM(
 		activityInfo.Attempt,
 	)
 	activityAttempt.ApplyToWorkerContext(req.GetContext())
-	routing := pulldispatch.Routing(input.GetWorkerTarget(), input.GetDexTaskQueue(), "")
+	routing := pulldispatch.Routing(input.GetWorkerTarget(), input.GetDexTaskQueue(), "", dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED)
 	var localActivityFailure *dexpb.InternalLocalStepActivityFailure
 	if activityInfo.IsLocalActivity {
 		localActivityFailure = activityAttempt.LocalFailureDetails(
@@ -227,7 +227,7 @@ func (a *Activities) IWaitForM(
 	}
 	resp, err := a.receiveWaitForMethodResponse(ctx, stream, req, activityInfo, logger)
 	if pullStream != nil {
-		routing = pulldispatch.Routing(input.GetWorkerTarget(), input.GetDexTaskQueue(), pullStream.servedByAppWorkerID)
+		routing = pulldispatch.Routing(input.GetWorkerTarget(), input.GetDexTaskQueue(), pullStream.servedByAppWorkerID, pullStream.queueSource)
 		if localActivityFailure != nil {
 			localActivityFailure.PullRouting = routing
 		}
@@ -308,7 +308,7 @@ func (a *Activities) IWaitForM(
 	if pullStream != nil {
 		output.ServedByAppWorkerId = pullStream.servedByAppWorkerID
 	}
-	output.PullRouting = pulldispatch.Routing(input.GetWorkerTarget(), input.GetDexTaskQueue(), output.GetServedByAppWorkerId())
+	output.PullRouting = routing
 	return output, nil
 }
 
@@ -389,7 +389,7 @@ func (a *Activities) IExecuteM(
 		activityInfo.Attempt,
 	)
 	activityAttempt.ApplyToWorkerContext(req.GetContext())
-	routing := pulldispatch.Routing(input.GetWorkerTarget(), input.GetDexTaskQueue(), "")
+	routing := pulldispatch.Routing(input.GetWorkerTarget(), input.GetDexTaskQueue(), "", dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED)
 	var localActivityFailure *dexpb.InternalLocalStepActivityFailure
 	if activityInfo.IsLocalActivity {
 		localActivityFailure = activityAttempt.LocalFailureDetails(
@@ -465,7 +465,7 @@ func (a *Activities) IExecuteM(
 	}
 	resp, err := a.receiveExecuteMethodResponse(ctx, stream, req, activityInfo, logger)
 	if pullStream != nil {
-		routing = pulldispatch.Routing(input.GetWorkerTarget(), input.GetDexTaskQueue(), pullStream.servedByAppWorkerID)
+		routing = pulldispatch.Routing(input.GetWorkerTarget(), input.GetDexTaskQueue(), pullStream.servedByAppWorkerID, pullStream.queueSource)
 		if localActivityFailure != nil {
 			localActivityFailure.PullRouting = routing
 		}
@@ -548,7 +548,7 @@ func (a *Activities) IExecuteM(
 	if pullStream != nil {
 		output.ServedByAppWorkerId = pullStream.servedByAppWorkerID
 	}
-	output.PullRouting = pulldispatch.Routing(input.GetWorkerTarget(), input.GetDexTaskQueue(), output.GetServedByAppWorkerId())
+	output.PullRouting = routing
 	return output, nil
 }
 
@@ -972,7 +972,7 @@ func (a *Activities) IWRPC(
 		if errors.As(err, &dispatchError) {
 			return nil, newServerSideActivityError(ctx, provider, err, nil)
 		}
-		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, nil)
+		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, nil, nil)
 	}
 	out := &dexpb.InvokeWorkerRPCActivityOutput{
 		Response:            resp,
@@ -1994,7 +1994,7 @@ func newWorkerSideActivityError(
 	backendType service.BackendType,
 	err error,
 	localActivityFailure *dexpb.InternalLocalStepActivityFailure,
-	routing ...*dexpb.PullRouting,
+	routing *dexpb.PullRouting,
 ) error {
 	if ctx.Err() == context.Canceled {
 		return context.Canceled
@@ -2012,10 +2012,12 @@ func newWorkerSideActivityError(
 	activityError := &dexpb.InternalActivityError{
 		WorkerGrpcStatus: int32(grpcStatus.Code()),
 	}
-	if len(routing) > 0 {
-		activityError.PullRouting = routing[0]
-	}
+	activityError.PullRouting = routing
 	for _, statusDetail := range grpcStatus.Details() {
+		if dispatchError, isDispatchError := statusDetail.(*dexpb.DispatchTaskError); isDispatchError {
+			activityError.DispatchTaskErrorReason = dispatchError.GetReason()
+			continue
+		}
 		workerError, ok := statusDetail.(*dexpb.WorkerErrorResponse)
 		if !ok {
 			continue

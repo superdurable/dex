@@ -21,6 +21,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use crate::lease_acquisition::LeaseObjectStores;
 use crate::{LeaseValidityDeadline, MetadataError, NodeConfig, bump_node_epoch};
 
 const RELEASED_LEASE_EXPIRY_UNIX_MICROS: i64 = i64::MIN;
@@ -60,70 +61,6 @@ impl Default for LeaseConfig {
             fail_fast: false,
             should_take_over_held_lease: false,
         }
-    }
-}
-
-impl LeaseConfig {
-    /// Acquires the lease, or returns `None` if cancellation arrives before its write begins.
-    pub async fn acquire_until_cancelled(
-        &self,
-        store: Arc<dyn ObjectStore>,
-        clock: Arc<dyn WallClock>,
-        node: &NodeConfig,
-        cancellation: &mut watch::Receiver<bool>,
-    ) -> Result<Option<LeaseHandle>, MetadataError> {
-        self.acquire_until_cancelled_with_holder_process_id(
-            store,
-            clock,
-            node,
-            cancellation,
-            Uuid::new_v4().to_string(),
-        )
-        .await
-    }
-
-    /// Acquires the lease like [`Self::acquire_until_cancelled`], naming `holder_process_id` as
-    /// its holder.
-    pub async fn acquire_until_cancelled_with_holder_process_id(
-        &self,
-        store: Arc<dyn ObjectStore>,
-        clock: Arc<dyn WallClock>,
-        node: &NodeConfig,
-        cancellation: &mut watch::Receiver<bool>,
-        holder_process_id: String,
-    ) -> Result<Option<LeaseHandle>, MetadataError> {
-        acquire_lease_inner(
-            store,
-            clock,
-            node,
-            self,
-            Some(cancellation),
-            holder_process_id,
-            LeaseObservers::default(),
-        )
-        .await
-    }
-
-    /// Acquires a process-specific lease that reports to `observers`.
-    pub async fn acquire_until_cancelled_with_observers(
-        &self,
-        store: Arc<dyn ObjectStore>,
-        clock: Arc<dyn WallClock>,
-        node: &NodeConfig,
-        cancellation: &mut watch::Receiver<bool>,
-        holder_process_id: String,
-        observers: LeaseObservers,
-    ) -> Result<Option<LeaseHandle>, MetadataError> {
-        acquire_lease_inner(
-            store,
-            clock,
-            node,
-            self,
-            Some(cancellation),
-            holder_process_id,
-            observers,
-        )
-        .await
     }
 }
 
@@ -263,6 +200,7 @@ impl Drop for LeaseHandle {
 
 struct LeaseOwner {
     metrics: Option<NodeMetrics>,
+    acquisition_store: Arc<dyn ObjectStore>,
     store: Arc<dyn ObjectStore>,
     clock: Arc<dyn WallClock>,
     key: String,
@@ -300,7 +238,7 @@ pub async fn acquire_lease_with_holder_process_id(
     holder_process_id: String,
 ) -> Result<LeaseHandle, MetadataError> {
     let acquired = acquire_lease_inner(
-        store,
+        LeaseObjectStores::shared(store),
         clock,
         node,
         config,
@@ -312,8 +250,8 @@ pub async fn acquire_lease_with_holder_process_id(
     Ok(acquired.expect("a lease acquisition without cancellation must complete"))
 }
 
-async fn acquire_lease_inner(
-    store: Arc<dyn ObjectStore>,
+pub(super) async fn acquire_lease_inner(
+    stores: LeaseObjectStores,
     clock: Arc<dyn WallClock>,
     node: &NodeConfig,
     config: &LeaseConfig,
@@ -321,6 +259,10 @@ async fn acquire_lease_inner(
     process_id: String,
     observers: LeaseObservers,
 ) -> Result<Option<LeaseHandle>, MetadataError> {
+    let LeaseObjectStores {
+        acquisition: acquisition_store,
+        renewal: renewal_store,
+    } = stores;
     let LeaseObservers {
         metrics,
         validity_deadline,
@@ -353,7 +295,15 @@ async fn acquire_lease_inner(
         {
             return Ok(None);
         }
-        let existing = store.get(&key).await?;
+        let existing = if let Some(cancellation_receiver) = cancellation.as_mut() {
+            tokio::select! {
+                biased;
+                result = acquisition_store.get(&key) => result?,
+                () = wait_for_cancellation(cancellation_receiver) => return Ok(None),
+            }
+        } else {
+            acquisition_store.get(&key).await?
+        };
         let previous = existing
             .as_ref()
             .map(|content| {
@@ -447,15 +397,45 @@ async fn acquire_lease_inner(
         let condition = existing.map_or(WriteCondition::CreateOnly, |content| {
             WriteCondition::ReplaceIfEtagMatches { etag: content.etag }
         });
-        let write_result = store
-            .put(&key, Bytes::from(lease.encode_to_vec()), condition)
-            .await;
+        let lease_write =
+            acquisition_store.put(&key, Bytes::from(lease.encode_to_vec()), condition);
+        // A write cancelled in flight has an unknown outcome, so it is left to expire.
+        let write_result = if let Some(cancellation_receiver) = cancellation.as_mut() {
+            tokio::select! {
+                biased;
+                result = lease_write => result,
+                () = wait_for_cancellation(cancellation_receiver) => return Ok(None),
+            }
+        } else {
+            lease_write.await
+        };
         let etag = match write_result {
             Ok(WriteOutcome::Written { etag }) => etag,
             Ok(WriteOutcome::PreconditionFailed) => continue,
             Err(error) if error.kind == ObjectStoreErrorKind::OutcomeUnknown => {
-                let current = store.get(&key).await?;
-                match current {
+                // Acquisition rejects an expired lease, so confirming the write after its
+                // local validity is useless.
+                let read_back =
+                    tokio::time::timeout_at(sent_at + config.duration, acquisition_store.get(&key));
+                // An unconfirmed write has no known ETag to release, so cancellation
+                // leaves it to expire.
+                let read_back_result = if let Some(cancellation_receiver) = cancellation.as_mut() {
+                    tokio::select! {
+                        biased;
+                        result = read_back => result,
+                        () = wait_for_cancellation(cancellation_receiver) => return Ok(None),
+                    }
+                } else {
+                    read_back.await
+                };
+                let Ok(current) = read_back_result else {
+                    tracing::warn!(
+                        node_id = %node.node_id,
+                        "the node lease write outcome stayed unknown for its validity; reading the lease again"
+                    );
+                    continue;
+                };
+                match current? {
                     Some(content)
                         if NodeLease::decode(content.bytes.clone()).map_err(|source| {
                             MetadataError::Decode {
@@ -477,7 +457,8 @@ async fn acquire_lease_inner(
         let mut pending = PendingLease {
             owner: Some(LeaseOwner {
                 metrics: metrics.clone(),
-                store,
+                acquisition_store,
+                store: renewal_store,
                 clock,
                 key,
                 lease,
@@ -490,10 +471,30 @@ async fn acquire_lease_inner(
                 unconfirmed_renewals: Vec::new(),
             }),
         };
-        let epoch = match pending.owner_mut().finish_acquisition(node).await {
-            Ok(epoch) => epoch,
-            Err(error) => return Err(pending.release_after(error).await),
+        let epoch_result = if let Some(cancellation_receiver) = cancellation.as_mut() {
+            tokio::select! {
+                biased;
+                result = pending.owner_mut().finish_acquisition(node) => Some(result),
+                () = wait_for_cancellation(cancellation_receiver) => None,
+            }
+        } else {
+            Some(pending.owner_mut().finish_acquisition(node).await)
         };
+        let epoch = match epoch_result {
+            Some(Ok(epoch)) => epoch,
+            Some(Err(error)) => return Err(pending.release_after(error).await),
+            None => {
+                pending.release_after_cancellation().await?;
+                return Ok(None);
+            }
+        };
+        if cancellation
+            .as_ref()
+            .is_some_and(|receiver| *receiver.borrow())
+        {
+            pending.release_after_cancellation().await?;
+            return Ok(None);
+        }
         let owner = pending.take_owner();
         drop(receiver.borrow_and_update());
         let (shutdown_sender, shutdown_receiver) = oneshot::channel();
@@ -529,16 +530,31 @@ impl PendingLease {
     }
 
     /// Releases the lease, then returns `error`. The release continues if the caller is cancelled.
-    async fn release_after(mut self, error: MetadataError) -> MetadataError {
+    async fn release_after(self, error: MetadataError) -> MetadataError {
+        match self.release_explicitly().await {
+            Ok(()) => error,
+            Err(detail) => MetadataError::LeaseRelease {
+                detail: format!("{detail}; acquisition also failed: {error}"),
+            },
+        }
+    }
+
+    async fn release_after_cancellation(self) -> Result<(), MetadataError> {
+        self.release_explicitly()
+            .await
+            .map_err(|detail| MetadataError::LeaseRelease { detail })
+    }
+
+    async fn release_explicitly(mut self) -> Result<(), String> {
         let owner = self.take_owner();
         let release_task = tokio::spawn(release_unfinished_acquisition(owner));
-        if let Err(join_error) = release_task.await {
-            tracing::error!(
-                error = %join_error,
-                "the node lease release task failed after an unfinished acquisition"
-            );
+        match release_task.await {
+            Ok(result) => result,
+            Err(join_error) => {
+                tracing::error!(error = %join_error, "the node lease release task failed after an unfinished acquisition");
+                Err(join_error.to_string())
+            }
         }
-        error
     }
 }
 
@@ -562,23 +578,24 @@ impl Drop for PendingLease {
 }
 
 /// Releases the lease of a failed or cancelled acquisition within the release budget.
-async fn release_unfinished_acquisition(owner: LeaseOwner) {
+async fn release_unfinished_acquisition(owner: LeaseOwner) -> Result<(), String> {
     let node_id = owner.lease.node_id.clone();
     match tokio::time::timeout(LeaseHandle::RELEASE_BUDGET, owner.release()).await {
-        Ok(Ok(())) => tracing::info!(
-            %node_id,
-            "released the node lease after an unfinished acquisition"
-        ),
-        Ok(Err(error)) => tracing::error!(
-            %node_id,
-            %error,
-            "the node lease stays held after an unfinished acquisition"
-        ),
-        Err(_) => tracing::error!(
-            %node_id,
-            budget_milliseconds = LeaseHandle::RELEASE_BUDGET.as_millis(),
-            "releasing the node lease after an unfinished acquisition timed out"
-        ),
+        Ok(Ok(())) => {
+            tracing::info!(%node_id, "released the node lease after an unfinished acquisition");
+            Ok(())
+        }
+        Ok(Err(error)) => {
+            tracing::error!(%node_id, %error, "the node lease stays held after an unfinished acquisition");
+            Err(error.to_string())
+        }
+        Err(_) => {
+            tracing::error!(%node_id, budget_milliseconds = LeaseHandle::RELEASE_BUDGET.as_millis(), "releasing the node lease after an unfinished acquisition timed out");
+            Err(format!(
+                "node {node_id:?} lease release timed out after {:?}",
+                LeaseHandle::RELEASE_BUDGET
+            ))
+        }
     }
 }
 
@@ -612,7 +629,8 @@ impl LeaseOwner {
         if Instant::now() >= self.current_valid_until {
             return Err(self.lost("acquisition completed after local lease deadline"));
         }
-        let epoch = bump_node_epoch(self.store.as_ref(), self.clock.as_ref(), node).await?;
+        let epoch =
+            bump_node_epoch(self.acquisition_store.as_ref(), self.clock.as_ref(), node).await?;
         if Instant::now() >= self.current_valid_until {
             return Err(self.lost("epoch update completed after local lease deadline"));
         }
@@ -976,4 +994,15 @@ fn splitmix64(value: u64) -> u64 {
 /// Returns a random delay between half of `interval` and all of it.
 fn jittered_poll_delay(interval: Duration) -> Duration {
     interval - rand::random_range(Duration::ZERO..=interval / 2)
+}
+
+async fn wait_for_cancellation(cancellation: &mut watch::Receiver<bool>) {
+    loop {
+        if *cancellation.borrow_and_update() {
+            return;
+        }
+        if cancellation.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
 }

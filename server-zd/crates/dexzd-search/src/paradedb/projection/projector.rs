@@ -11,6 +11,7 @@ use std::sync::Arc;
 use dexzd_apply::{FlowStateReader, StateReadError};
 use dexzd_keyspace::row_keys::{partition_index_range, run_singleton_key};
 use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId, RunId, RunTable, TenantId};
+use dexzd_postgres_connection::ConnectionSettings;
 use dexzd_protocol::dex::IndexType;
 use dexzd_protocol::dexzd::v1::{LogPosition, RunRecord, SearchDocumentRecord};
 use prost::Message;
@@ -86,24 +87,26 @@ pub enum ProjectionError {
         offered: LogPosition,
     },
     /// Postgres could not complete a projection operation.
-    #[error("{operation} ParadeDB projection: {}", database_error_message(source))]
+    #[error("{operation} ParadeDB projection: {message}")]
     Database {
         /// Failed operation.
         operation: &'static str,
-        /// Database failure.
-        #[source]
-        source: tokio_postgres::Error,
+        /// The Postgres error; the projector redacts the DSN and password before returning it.
+        message: String,
+        /// Whether the database failure is transient, classified before its raw Postgres error was dropped.
+        is_transient: bool,
     },
     /// Postgres rejected one committed run's upsert.
-    #[error("upsert run {run_id} in partition {} into ParadeDB projection: {}", partition_id.0, database_error_message(source))]
+    #[error("upsert run {run_id} in partition {} into ParadeDB projection: {message}", partition_id.0)]
     RowDatabase {
         /// Partition containing the run.
         partition_id: PartitionId,
         /// Run whose upsert failed.
         run_id: RunId,
-        /// Database failure.
-        #[source]
-        source: tokio_postgres::Error,
+        /// The Postgres error; the projector redacts the DSN and password before returning it.
+        message: String,
+        /// Whether the database failure is transient, classified before its raw Postgres error was dropped.
+        is_transient: bool,
     },
     /// A pooled connection could not be reopened.
     #[error("reconnect ParadeDB projector: {0}")]
@@ -119,12 +122,20 @@ impl ProjectionError {
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::Connection(SearchError::Unavailable(_)) => true,
-            Self::Database { source, .. } | Self::RowDatabase { source, .. } => {
-                is_transient_database_error(source)
+            Self::Database { is_transient, .. } | Self::RowDatabase { is_transient, .. } => {
+                *is_transient
             }
             Self::StateRead(_) => true,
             _ => false,
         }
+    }
+
+    /// Redacts database messages before they leave the projector; [`Self::Connection`] is already redacted.
+    fn redact_credentials(mut self, configuration: &ConnectionSettings) -> Self {
+        if let Self::Database { message, .. } | Self::RowDatabase { message, .. } = &mut self {
+            *message = configuration.redact_credentials(std::mem::take(message));
+        }
+        self
     }
 }
 
@@ -194,7 +205,7 @@ impl ParadeDbProjector {
                 slot.reconnect(self.backend.configuration()).await?;
                 continue;
             }
-            return result;
+            return result.map_err(|error| error.redact_credentials(self.backend.configuration()));
         }
     }
 
@@ -237,7 +248,9 @@ impl ParadeDbProjector {
                 continue;
             }
             drop(slot);
-            return result.map(|skipped| self.record_skipped_documents(skipped));
+            return result
+                .map(|skipped| self.record_skipped_documents(skipped))
+                .map_err(|error| error.redact_credentials(self.backend.configuration()));
         }
     }
 
@@ -278,7 +291,9 @@ impl ParadeDbProjector {
                 continue;
             }
             drop(slot);
-            return result.map(|skipped| self.record_skipped_documents(skipped));
+            return result
+                .map(|skipped| self.record_skipped_documents(skipped))
+                .map_err(|error| error.redact_credentials(self.backend.configuration()));
         }
     }
 
@@ -622,11 +637,7 @@ async fn execute_statement(
     transaction
         .execute_typed(&statement.sql, &statement.typed_parameter_refs())
         .await
-        .map_err(|source| ProjectionError::RowDatabase {
-            partition_id,
-            run_id,
-            source,
-        })?;
+        .map_err(|source| row_database_error(partition_id, run_id, source))?;
     Ok(())
 }
 
@@ -724,8 +735,26 @@ fn is_replay(stored: Option<&LogPosition>, offered: &LogPosition) -> bool {
     stored.is_some_and(|stored| same_stream(stored, offered) && stored.seq >= offered.seq)
 }
 
+/// Keeps only the message and classification, so no raw Postgres text survives redaction.
 fn database_error(operation: &'static str, source: tokio_postgres::Error) -> ProjectionError {
-    ProjectionError::Database { operation, source }
+    ProjectionError::Database {
+        operation,
+        message: database_error_message(&source),
+        is_transient: is_transient_database_error(&source),
+    }
+}
+
+fn row_database_error(
+    partition_id: PartitionId,
+    run_id: RunId,
+    source: tokio_postgres::Error,
+) -> ProjectionError {
+    ProjectionError::RowDatabase {
+        partition_id,
+        run_id,
+        message: database_error_message(&source),
+        is_transient: is_transient_database_error(&source),
+    }
 }
 
 fn operation_timeout(operation: &'static str) -> ProjectionError {
@@ -736,14 +765,28 @@ fn operation_timeout(operation: &'static str) -> ProjectionError {
 
 fn should_retry(result: &Result<impl Sized, ProjectionError>, has_retried: bool) -> bool {
     !has_retried
-        && matches!(result, Err(ProjectionError::Database { source, .. } | ProjectionError::RowDatabase { source, .. }) if is_transient_database_error(source))
+        && matches!(
+            result,
+            Err(ProjectionError::Database {
+                is_transient: true,
+                ..
+            } | ProjectionError::RowDatabase {
+                is_transient: true,
+                ..
+            })
+        )
 }
 
 #[cfg(test)]
 mod tests {
+    use dexzd_keyspace::{PartitionId, RunId};
+    use dexzd_postgres_connection::{ConnectionSettings, error_with_sources};
     use dexzd_protocol::dexzd::v1::LogPosition;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio_postgres::{Config, NoTls};
 
-    use super::validate_position;
+    use super::{database_error, row_database_error, validate_position};
 
     #[test]
     fn permits_zero_incarnation_with_positive_sequence() {
@@ -753,5 +796,84 @@ mod tests {
             seq: 1,
         };
         assert!(validate_position(&position).is_ok());
+    }
+
+    #[tokio::test]
+    async fn database_errors_keep_neither_credentials_nor_the_raw_postgres_error() {
+        let dsn = "postgres://dex:p%40ss-word@db.example.com/dex?sslmode=disable";
+        let settings = ConnectionSettings::parse_for_search(dsn).expect("valid URL DSN");
+        let fields = |sqlstate: &str| {
+            format!(
+                "SFATAL\0VFATAL\0C{sqlstate}\0Mrejected {dsn}\0Dpassword p@ss-word or p%40ss-word expired\0\0"
+            )
+        };
+        let errors = [
+            (
+                database_error(
+                    "read progress from",
+                    rejected_startup_error(fields("08006")).await,
+                ),
+                true,
+            ),
+            (
+                row_database_error(
+                    PartitionId(3),
+                    RunId([7; 16]),
+                    rejected_startup_error(fields("28P01")).await,
+                ),
+                false,
+            ),
+        ];
+        for (error, is_retryable) in errors {
+            let error = error.redact_credentials(&settings);
+            assert_eq!(error.is_retryable(), is_retryable, "{error}");
+            assert!(std::error::Error::source(&error).is_none(), "{error:?}");
+            for text in [
+                error.to_string(),
+                format!("{error:?}"),
+                error_with_sources(&error),
+            ] {
+                assert!(text.contains("SQLSTATE"), "{text}");
+                assert!(text.contains("[REDACTED]"), "{text}");
+                for secret in [dsn, "p@ss-word", "p%40ss-word"] {
+                    assert!(!text.contains(secret), "{text}");
+                }
+            }
+        }
+    }
+
+    /// Returns the client error after a fake server rejects its startup with `fields`.
+    async fn rejected_startup_error(fields: String) -> tokio_postgres::Error {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("fake PostgreSQL listener binds");
+        let port = listener
+            .local_addr()
+            .expect("listener has an address")
+            .port();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("client connects");
+            let startup_length = stream.read_u32().await.expect("startup has a length");
+            let mut startup = vec![0; startup_length as usize - 4];
+            stream
+                .read_exact(&mut startup)
+                .await
+                .expect("client sends startup parameters");
+            let mut message = vec![b'E'];
+            message.extend_from_slice(&((fields.len() + 4) as u32).to_be_bytes());
+            message.extend_from_slice(fields.as_bytes());
+            stream
+                .write_all(&message)
+                .await
+                .expect("server rejects startup");
+        });
+        let mut configuration = Config::new();
+        configuration.host("127.0.0.1").port(port).user("test");
+        let error = match configuration.connect(NoTls).await {
+            Ok(_) => panic!("the rejected startup cannot connect"),
+            Err(error) => error,
+        };
+        server.await.expect("fake server sends its rejection");
+        error
     }
 }

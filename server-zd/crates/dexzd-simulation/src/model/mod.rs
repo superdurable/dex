@@ -115,6 +115,7 @@ enum Proposal<'view> {
     TravelToWindowPoint {
         run_id: RunId,
         timestamp_micros: i64,
+        run_attempt: i32,
     },
     AttributeSyncAck {
         run_id: RunId,
@@ -259,7 +260,7 @@ impl CommandGenerator {
                 let erase_time = erase_record.timestamp_micros;
                 (
                     run_id.as_bytes().to_vec(),
-                    client_model::time_travel_to_window_point(CLOSED_ERASE_FLOW_ID, erase_time),
+                    client_model::time_travel_to_window_point(CLOSED_ERASE_FLOW_ID, erase_time, 0),
                     ClosedErasePhase::Done,
                 )
             }
@@ -370,6 +371,21 @@ impl CommandGenerator {
                     Proposal::TravelToWindowPoint {
                         run_id: *run_id,
                         timestamp_micros,
+                        run_attempt: 0,
+                    },
+                ));
+            }
+            if self.stream == CommandStream::AttributeSync
+                && is_latest
+                && let Some((timestamp_micros, run_attempt)) =
+                    checker.closed_window_point(*run_id, run)
+            {
+                proposals.push((
+                    3,
+                    Proposal::TravelToWindowPoint {
+                        run_id: *run_id,
+                        timestamp_micros,
+                        run_attempt,
                     },
                 ));
             }
@@ -483,8 +499,13 @@ impl CommandGenerator {
             Proposal::TravelToWindowPoint {
                 run_id,
                 timestamp_micros,
+                run_attempt,
             } => {
-                let body = client_model::time_travel_to_window_point(flow_id, timestamp_micros);
+                let body = client_model::time_travel_to_window_point(
+                    flow_id,
+                    timestamp_micros,
+                    run_attempt,
+                );
                 self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
             }
             Proposal::AttributeSyncAck { run_id, run } => {

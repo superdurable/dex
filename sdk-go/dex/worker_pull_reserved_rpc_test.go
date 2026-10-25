@@ -127,9 +127,51 @@ func TestWorkerPullReservedRPCConcurrentAdmission(t *testing.T) {
 		require.NotNil(t, frame.GetPong())
 	}
 	require.Equal(t, 19, rejected)
+	require.Equal(t, uint64(19), worker.PullReservedRPCDeclines())
 	worker.pull.mu.Lock()
 	require.Equal(t, 1, worker.pull.busyTasks)
 	worker.pull.mu.Unlock()
+}
+
+func TestWorkerPullReservePressureKeepsOnlyDecliningQueueExtra(t *testing.T) {
+	address, server := startPullTestServer(t)
+	flow := &reservedRPCFlow{entered: make(chan string, 3), release: make(chan struct{})}
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{
+		FlowServiceAddress: address,
+		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 3, ReservedRPCTasks: ptr.Any(1)},
+	})
+	require.NoError(t, err)
+	worker.pull.reservePressureLinger = 1500 * time.Millisecond
+	started := make(chan error, 1)
+	go func() { started <- worker.Start() }()
+	var releaseOnce sync.Once
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(flow.release) })
+		require.NoError(t, worker.Stop(context.Background()))
+		require.NoError(t, <-started)
+	})
+	flowQueue := GetFinalFlowType(flow)
+	for taskNumber := 0; taskNumber < 2; taskNumber++ {
+		stream := awaitReservedRPCStream(t, server, flowQueue)
+		require.NoError(t, stream.send(reservedRPCTestTask("execute", fmt.Sprint(taskNumber))))
+		require.Equal(t, "execute", awaitReservedRPCEntry(t, flow))
+	}
+	decliningStream := awaitReservedRPCStream(t, server, flowQueue)
+	require.NoError(t, decliningStream.send(reservedRPCTestTask("execute", "declined")))
+	require.Equal(t, dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY, awaitPullFrame(t, decliningStream).GetReject().GetReason())
+	require.Eventually(t, func() bool {
+		return pullRegisteredIdleStreams(worker, flowQueue) == 2 && pullRegisteredIdleStreams(worker, worker.pull.appWorkerID) == 1
+	}, 5*time.Second, time.Millisecond)
+	releaseOnce.Do(func() { close(flow.release) })
+	require.Eventually(t, func() bool {
+		worker.pull.mu.Lock()
+		busyTasks := worker.pull.busyTasks
+		worker.pull.mu.Unlock()
+		return busyTasks == 0 && pullRegisteredIdleStreams(worker, flowQueue) == 2 && pullRegisteredIdleStreams(worker, worker.pull.appWorkerID) == 1
+	}, 5*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool {
+		return pullRegisteredIdleStreams(worker, flowQueue) == 1 && pullRegisteredIdleStreams(worker, worker.pull.appWorkerID) == 1
+	}, 5*time.Second, time.Millisecond)
 }
 
 func (flow *reservedRPCFlow) GetSteps() []StepDef {
@@ -210,6 +252,23 @@ func awaitReservedRPCStream(t *testing.T, server *pullTestServer, queue string) 
 			return candidate
 		}
 	}
+}
+
+func pullRegisteredIdleStreams(worker *Worker, queue string) int {
+	worker.pull.mu.Lock()
+	defer worker.pull.mu.Unlock()
+	idleStreams := 0
+	for stream := range worker.pull.streams {
+		if stream.queue != queue {
+			continue
+		}
+		stream.mu.Lock()
+		if stream.isRegistered && !stream.isBusy && !stream.isDraining {
+			idleStreams++
+		}
+		stream.mu.Unlock()
+	}
+	return idleStreams
 }
 
 type reservedRPCWarningLogger struct {

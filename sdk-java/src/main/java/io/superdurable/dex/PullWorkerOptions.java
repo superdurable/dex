@@ -34,6 +34,7 @@ public final class PullWorkerOptions {
     private final int idleStreamsPerQueue;
     private final String appWorkerID;
     private final Duration stopDrainTimeout;
+    private final Duration reservePressureLinger;
     private final boolean stopOnPermanentStreamRejection;
 
     private PullWorkerOptions(final Builder builder) {
@@ -51,6 +52,7 @@ public final class PullWorkerOptions {
         this.appWorkerID = builder.appWorkerID;
         this.stopDrainTimeout = builder.stopDrainTimeout.isZero()
                 ? Duration.ofSeconds(30) : builder.stopDrainTimeout;
+        this.reservePressureLinger = builder.reservePressureLinger;
     }
 
     /**
@@ -90,6 +92,10 @@ public final class PullWorkerOptions {
         return stopDrainTimeout;
     }
 
+    Duration getReservePressureLinger() {
+        return reservePressureLinger;
+    }
+
     /**
      * Builds immutable outbound polling options.
      *
@@ -102,9 +108,18 @@ public final class PullWorkerOptions {
         private int idleStreamsPerQueue;
         private String appWorkerID = "";
         private Duration stopDrainTimeout = Duration.ZERO;
+        private Duration reservePressureLinger = Duration.ofSeconds(30);
         private boolean stopOnPermanentStreamRejection;
 
         private Builder() {
+        }
+
+        Builder reservePressureLingerForTest(final Duration value) {
+            if (value == null || value.isZero() || value.isNegative()) {
+                throw new IllegalArgumentException("reserve pressure linger must be positive");
+            }
+            this.reservePressureLinger = value;
+            return this;
         }
 
         /**
@@ -131,7 +146,7 @@ public final class PullWorkerOptions {
          * <p>Unset reserves one slot when the resolved task limit is at least two, otherwise zero.
          * With the CPU-count default, Steps get one fewer slot than before. Set zero to opt out.
          * With one slot and no explicit reserve, Worker start logs one warning about RPC starvation.
-         * Flows must stay responsive; Dex cannot prioritize synchronous RPCs like workflow engines prioritize reads.
+         * Flows must stay responsive because RPCs share Worker task capacity with Steps.
          * WaitFor and Execute tasks, including local attempts, are declined when
          * total busy handlers reach maxConcurrentTasks minus this reserve. RPCs can use the full
          * task limit, including API-direct and transactional RPCs. Declines reassign without consuming an attempt.
@@ -139,6 +154,8 @@ public final class PullWorkerOptions {
          * consumes an attempt and follows the Step retry policy, as when all Workers are full.
          * Local attempts wait the local dispatch wait, then fall back according to their policy.
          * Declines emit a FINE debug log, increment getPullReservedRpcDeclines, and preserve readiness.
+         * A queue keeps one extra idle stream for 30 seconds after its last reserve decline.
+         * The Worker does not open that stream while all task slots are busy.
          *
          * <pre>{@code
          * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
@@ -156,6 +173,9 @@ public final class PullWorkerOptions {
 
         /**
          * Sets the number of waiting streams maintained for each task queue.
+         *
+         * <p>A queue keeps one more stream after a recent reserve decline.
+         * Use at least two for Workers with heavy Step backlogs.
          *
          * @param value a nonnegative count; zero uses one idle stream per queue
          * @return this builder

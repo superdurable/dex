@@ -32,7 +32,7 @@ At the released SDK API baseline, use the exact public names:
 
 | SDK | Combined missing/inactive target error | Source |
 | --- | --- | --- |
-| Go | `*dex.FlowNotActiveOrNotFoundError` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.20.0/sdk-go/dex/errors.go) |
+| Go | `*dex.FlowNotActiveOrNotFoundError` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.21.0/sdk-go/dex/errors.go) |
 | Python | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-python/v1.20.0/sdk-python/dex/runtime_errors.py) |
 | TypeScript | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-typescript/v1.20.0/sdk-typescript/src/errors.ts) |
 | Java | `FlowNotActiveOrNotFoundException` | [Definition](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowNotActiveOrNotFoundException.java) |
@@ -97,6 +97,8 @@ When **WaitFor** starts a SubFlow and Dex rejects that start before the child be
 ## Closed-Flow races
 
 For an operation that requires an active target, a typed terminal or not-active error proves that the attempted interaction had no active target. It does not prove that the requested work succeeded. First reconcile from already loaded authoritative domain state and operation invariants. Re-inspect the Flow only when the outcome depends on distinguishing running, successfully completed, other terminal, and missing states and that distinction is not otherwise available. Do not spend a status call when every possible state has the same idempotent outcome. Interpret query-only RPC errors under the [missing query target rule](#missing-query-targets) instead.
+
+For that status read, or another one-off status check of a known Flow ID, call the SDK's DescribeFlow API: Go **Client.DescribeFlow** (from Go SDK v1.21.0), Java **Client.describeFlow**, Python **Client.describe_flow** or **AsyncClient.describe_flow**, TypeScript **Client.describeFlow**, or Rust **Client::describe_flow**. Java, Python, TypeScript, and Rust already have it at their v1.20.0 baselines. Each reads the current or latest run without waiting. It returns the Flow ID, run ID, Flow type, status, and start time. Only the Go result also carries the close time, when available. A missing Flow returns the SDK's typed Flow-not-found error. Use a typed read-only RPC for business state, **WaitForFlow** for terminal completion and output, and **SearchFlows** to find Flow IDs by query. Both the Go Server and server-zd serve the underlying **GetFlowSummary** RPC. Do not call it after a missing-target error at a query-only Get boundary. Language details: [Go](../go/error-handling.md#closed-flow-races), [Java](../java/error-handling.md#closed-flow-races), [Python](../python/error-handling.md#closed-flow-races), [TypeScript](../typescript/error-handling.md#closed-flow-races), and [Rust](../rust/error-handling.md#closed-flow-races).
 
 Do not assume every RPC targets only an active Flow. A query-only RPC without locks or transactional execution can read a retained terminal execution. It may succeed after closure, so use a lifecycle API when active versus terminal changes the result. If a non-transactional handler returns durable effects, it may run before Dex rejects those effects with a not-active error. Transactional and locked RPCs, and every RPC under a Server policy that runs RPCs transactionally, require an active execution before the Worker handler runs.
 

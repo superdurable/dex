@@ -326,6 +326,8 @@ message DispatchTaskResponse {
   string served_by_app_worker_id = 6;
   // Identifies a Worker that rejected the task's Step type or RPC name.
   string rejected_by_app_worker_id = 9;
+  // Actual queue served; absent on older matching nodes, so consumers may infer it from Worker IDs.
+  PullRoutingSource queue_source = 10;
 }
 
 // Reports a failure before Dex receives a Worker result.
@@ -336,7 +338,7 @@ message DispatchTaskError {
 }
 
 // Distinguishes no available Worker, a disconnected Worker, and a missing Step or RPC registration.
-// Go Server internals; server-zd does not serve or persist them.
+// Go persists; server-zd does not.
 enum DispatchTaskErrorReason {
   DISPATCH_TASK_ERROR_REASON_UNSPECIFIED = 0;
   DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE = 1;
@@ -1280,6 +1282,7 @@ message ServiceErrorResponse {
   string original_worker_error_type = 4;
   int32 original_worker_error_status = 5;
   string original_worker_error_stack_trace = 6;
+  DispatchTaskErrorReason dispatch_task_error_reason = 7;
 }
 
 enum ErrorSubStatus {
@@ -1309,6 +1312,7 @@ message InternalActivityError {
   int32 worker_grpc_status = 2;
   InternalWorkerError worker_error = 3;
   PullRouting pull_routing = 4;
+  DispatchTaskErrorReason dispatch_task_error_reason = 5;
 }
 
 message InternalWorkerError {

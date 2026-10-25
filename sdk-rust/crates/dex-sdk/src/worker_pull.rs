@@ -51,6 +51,7 @@ use worker_identity::{generate_app_worker_id, validate_app_worker_id};
 const DRAINING: u8 = 1;
 const FORCED: u8 = 2;
 const BUSY_PULL_STREAM_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(20);
+const RESERVE_PRESSURE_LINGER: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy)]
 struct StopSignal {
@@ -79,6 +80,7 @@ pub(crate) struct PullWorker {
     reserved_rpc_tasks: usize,
     reserved_rpc_declines: Arc<AtomicU64>,
     idle_streams_per_queue: usize,
+    reserve_pressure_linger: Duration,
     stop_drain_timeout: Duration,
     pub(crate) registration: Arc<PullRegistration>,
     should_warn_rpc_capacity: bool,
@@ -87,6 +89,7 @@ pub(crate) struct PullWorker {
 
 struct PullState {
     streams: HashMap<u64, StreamSlot>,
+    last_reserve_decline: HashMap<String, Instant>,
     busy_tasks: usize,
     next_stream_id: u64,
     is_stopping: bool,
@@ -110,6 +113,7 @@ struct PullShared {
     reserved_rpc_tasks: usize,
     reserved_rpc_declines: Arc<AtomicU64>,
     idle_streams_per_queue: usize,
+    reserve_pressure_linger: Duration,
 }
 
 struct ActiveTask {
@@ -158,12 +162,10 @@ impl PullWorker {
         let reserved_rpc_tasks = options
             .reserved_rpc_tasks
             .unwrap_or(usize::from(max_concurrent_tasks >= 2));
-        if reserved_rpc_tasks >= max_concurrent_tasks {
-            return Err(invalid(
-                "reserved_rpc_tasks must be less than max_concurrent_tasks",
-            ));
-        }
         let idle_streams_per_queue = options.idle_streams_per_queue.unwrap_or(1);
+        let reserve_pressure_linger = options
+            .reserve_pressure_linger
+            .unwrap_or(RESERVE_PRESSURE_LINGER);
         let stop_drain_timeout = options
             .stop_drain_timeout
             .unwrap_or(Duration::from_secs(30));
@@ -171,6 +173,11 @@ impl PullWorker {
         {
             return Err(invalid(
                 "pull Worker task limit, idle stream count, and drain timeout must be positive",
+            ));
+        }
+        if reserved_rpc_tasks >= max_concurrent_tasks {
+            return Err(invalid(
+                "reserved_rpc_tasks must be less than max_concurrent_tasks",
             ));
         }
         let app_worker_id = match &options.app_worker_id {
@@ -205,6 +212,7 @@ impl PullWorker {
             should_warn_rpc_capacity: options.reserved_rpc_tasks.is_none()
                 && max_concurrent_tasks == 1,
             idle_streams_per_queue,
+            reserve_pressure_linger,
             stop_drain_timeout,
         })
     }
@@ -223,6 +231,7 @@ impl PullWorker {
             registration: Arc::clone(&self.registration),
             state: Mutex::new(PullState {
                 streams: HashMap::new(),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 0,
                 is_stopping: false,
@@ -233,6 +242,7 @@ impl PullWorker {
             reserved_rpc_tasks: self.reserved_rpc_tasks,
             reserved_rpc_declines: Arc::clone(&self.reserved_rpc_declines),
             idle_streams_per_queue: self.idle_streams_per_queue,
+            reserve_pressure_linger: self.reserve_pressure_linger,
         });
         let (stop, stop_receiver) = watch::channel(StopSignal {
             phase: 0,
@@ -252,6 +262,7 @@ impl PullWorker {
                     if change.is_err() || *shutdown.borrow() { break; }
                 }
                 () = shared.notify.notified() => {}
+                () = shared.wait_for_reserve_pressure_expiry() => {}
                 result = streams.join_next(), if !streams.is_empty() => {
                     if let Some(Err(error)) = result { tracing::error!(%error, "pull Worker stream failed"); }
                 }
@@ -302,6 +313,9 @@ impl PullWorker {
         if state.is_stopping {
             return;
         }
+        state
+            .last_reserve_decline
+            .retain(|_, decline| decline.elapsed() < shared.reserve_pressure_linger);
         for queue in &self.queues {
             let registered_idle = state
                 .streams
@@ -314,7 +328,8 @@ impl PullWorker {
                         && !slot.is_draining
                 })
                 .count();
-            let mut surplus = registered_idle.saturating_sub(self.idle_streams_per_queue);
+            let desired_idle = shared.desired_idle_streams_per_queue(&state, queue);
+            let mut surplus = registered_idle.saturating_sub(desired_idle);
             for slot in state.streams.values_mut().filter(|slot| {
                 slot.queue == *queue
                     && slot.is_registered
@@ -334,7 +349,12 @@ impl PullWorker {
                 .values()
                 .filter(|slot| slot.queue == *queue && !slot.is_busy && !slot.is_retiring)
                 .count();
-            for _ in idle..self.idle_streams_per_queue {
+            let creation_target = if state.busy_tasks == self.max_concurrent_tasks {
+                self.idle_streams_per_queue
+            } else {
+                desired_idle
+            };
+            for _ in idle..creation_target {
                 let stream_id = state.next_stream_id;
                 state.next_stream_id += 1;
                 let retirement = Arc::new(Notify::new());
@@ -645,6 +665,33 @@ impl PullStream {
 }
 
 impl PullShared {
+    async fn wait_for_reserve_pressure_expiry(&self) {
+        let expiry = self
+            .state
+            .lock()
+            .expect("pull state lock")
+            .last_reserve_decline
+            .values()
+            .map(|decline| *decline + self.reserve_pressure_linger)
+            .min();
+        if let Some(expiry) = expiry {
+            sleep_until(expiry).await;
+        } else {
+            std::future::pending::<()>().await;
+        }
+    }
+
+    fn desired_idle_streams_per_queue(&self, state: &PullState, queue: &str) -> usize {
+        self.idle_streams_per_queue
+            + usize::from(
+                self.reserved_rpc_tasks > 0
+                    && state
+                        .last_reserve_decline
+                        .get(queue)
+                        .is_some_and(|decline| decline.elapsed() < self.reserve_pressure_linger),
+            )
+    }
+
     fn try_accept(&self, stream_id: u64, task: Option<&PollWorkerTask>) -> bool {
         let mut state = self.state.lock().expect("pull state lock");
         if state.is_stopping || state.busy_tasks >= self.max_concurrent_tasks {
@@ -667,7 +714,10 @@ impl PullShared {
                 _ => None,
             };
             if let Some(flow_type) = flow_type {
+                let queue = slot.queue.clone();
                 self.reserved_rpc_declines.fetch_add(1, Ordering::Relaxed);
+                state.last_reserve_decline.insert(queue, Instant::now());
+                self.notify.notify_one();
                 tracing::debug!(%flow_type, "decline Step task for reserved RPC capacity");
                 return false;
             }
@@ -699,7 +749,8 @@ impl PullShared {
                     && !slot.is_draining
             })
             .count();
-        let should_retire = idle_replacements >= self.idle_streams_per_queue;
+        let should_retire =
+            idle_replacements >= self.desired_idle_streams_per_queue(&state, &queue);
         if should_retire {
             state
                 .streams
@@ -967,6 +1018,10 @@ mod tests {
     use tokio_stream::wrappers::{ReceiverStream, TcpListenerStream};
     use tonic::transport::Server;
     use tonic::{Request, Response};
+
+    mod concurrent_admission;
+    mod options;
+    mod reserve_pressure;
 
     struct ReserveCapacityFlow;
 
@@ -1453,52 +1508,6 @@ mod tests {
         (cache, directory)
     }
 
-    #[test]
-    fn validates_pull_options_and_target_conflicts() {
-        let (cache, _directory) = test_cache();
-        let registry = Registry::new()
-            .register(RegisteredFlow)
-            .expect("register Flow");
-        for options in [
-            WorkerOptions::new().pull(PullWorkerOptions::new().max_concurrent_tasks(0)),
-            WorkerOptions::new().pull(
-                PullWorkerOptions::new()
-                    .max_concurrent_tasks(2)
-                    .reserved_rpc_tasks(2),
-            ),
-            WorkerOptions::new().pull(
-                PullWorkerOptions::new()
-                    .max_concurrent_tasks(2)
-                    .reserved_rpc_tasks(3),
-            ),
-            WorkerOptions::new().pull(PullWorkerOptions::new().idle_streams_per_queue(0)),
-            WorkerOptions::new().pull(PullWorkerOptions::new().stop_drain_timeout(Duration::ZERO)),
-            WorkerOptions::new().pull(PullWorkerOptions::new().app_worker_id("bad/id")),
-            WorkerOptions::new().pull(PullWorkerOptions::new().app_worker_id("RegisteredFlow")),
-            WorkerOptions::new()
-                .pull(PullWorkerOptions::new())
-                .bind_address("127.0.0.1:8803"),
-            WorkerOptions::new()
-                .pull(PullWorkerOptions::new())
-                .worker_target(WorkerTarget::pull()),
-            WorkerOptions::new().worker_target(WorkerTarget::pull()),
-        ] {
-            assert!(matches!(
-                Worker::try_new(registry.clone(), Arc::clone(&cache), options),
-                Err(SdkError::FlowDefinition { .. })
-            ));
-        }
-        assert!(
-            Worker::try_new(
-                registry,
-                cache,
-                WorkerOptions::new().pull(PullWorkerOptions::new())
-            )
-            .is_ok()
-        );
-        assert!(WorkerTarget::pull().headless(true).validate().is_err());
-    }
-
     struct ReserveWarningSubscriber(Arc<AtomicU64>);
 
     impl tracing::Subscriber for ReserveWarningSubscriber {
@@ -1584,6 +1593,7 @@ mod tests {
                         )
                     })
                     .collect(),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 21,
                 is_stopping: false,
@@ -1594,6 +1604,7 @@ mod tests {
             reserved_rpc_tasks,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         }
     }
 
@@ -1636,34 +1647,6 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_step_admission_preserves_rpc_reserve() {
-        let shared = Arc::new(reserved_rpc_shared(1));
-        let barrier = Arc::new(std::sync::Barrier::new(20));
-        let contenders: Vec<_> = (1..=20)
-            .map(|stream_id| {
-                let shared = Arc::clone(&shared);
-                let barrier = Arc::clone(&barrier);
-                std::thread::spawn(move || {
-                    let task = PollWorkerTask {
-                        request: Some(TaskRequest::Execute(Default::default())),
-                        ..Default::default()
-                    };
-                    barrier.wait();
-                    shared.try_accept(stream_id, Some(&task))
-                })
-            })
-            .collect();
-        assert_eq!(
-            1,
-            contenders
-                .into_iter()
-                .map(|contender| usize::from(contender.join().expect("admission thread")))
-                .sum::<usize>()
-        );
-        assert_eq!(1, shared.state.lock().expect("state lock").busy_tasks);
-    }
-
-    #[test]
     fn rejects_an_assignment_when_global_capacity_is_full() {
         let shared = PullShared {
             registration: Arc::default(),
@@ -1692,6 +1675,7 @@ mod tests {
                         },
                     ),
                 ]),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 3,
                 is_stopping: false,
@@ -1702,6 +1686,7 @@ mod tests {
             reserved_rpc_tasks: 0,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         };
         assert!(shared.try_accept(1, None));
         assert!(!shared.try_accept(2, None));
@@ -1739,6 +1724,7 @@ mod tests {
                         },
                     ),
                 ]),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 1,
                 next_stream_id: 3,
                 is_stopping: false,
@@ -1749,6 +1735,7 @@ mod tests {
             reserved_rpc_tasks: 0,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         };
         shared.mark_draining(2);
         assert!(!shared.release(1));
@@ -2114,6 +2101,7 @@ mod tests {
                             retirement: Arc::new(Notify::new()),
                         },
                     )]),
+                    last_reserve_decline: HashMap::new(),
                     busy_tasks: 1,
                     next_stream_id: 2,
                     is_stopping: false,
@@ -2124,6 +2112,7 @@ mod tests {
                 reserved_rpc_tasks: reserve,
                 reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
                 idle_streams_per_queue: 1,
+                reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
             });
             let (_stop, stop_receiver) = watch::channel(StopSignal {
                 phase: 0,
@@ -2330,6 +2319,7 @@ mod tests {
                         retirement: Arc::new(Notify::new()),
                     },
                 )]),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 2,
                 is_stopping: false,
@@ -2340,6 +2330,7 @@ mod tests {
             reserved_rpc_tasks: 0,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         });
         let (_stop, stop_receiver) = watch::channel(StopSignal {
             phase: 0,

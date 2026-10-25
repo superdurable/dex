@@ -500,12 +500,14 @@ Server，Worker 与之前一样返回未注册错误。推送模式 Worker 仍�
 
 任务完成后，Worker 会正常关闭多余的空闲 stream。每个队列保留至少
 **idleStreamsPerQueue** 条已注册的空闲 stream，清理期间就绪状态保持为 true。
-对于注册了 **F** 个 Flow 类型的 Worker，负载下降后的稳态上限为
+对于注册了 **F** 个 Flow 类型的 Worker，若近期没有预留容量拒绝，负载下降后的稳态上限为
 **maxConcurrentTasks + (F + 1) × idleStreamsPerQueue** 条 stream。
-额外的队列是该 Worker 的 app Worker ID 队列。突发负载期间的瞬时峰值仍受 matching
-容量上限约束。应根据 **matching.maxConcurrentTasksCap** 配置 Worker；
+额外的队列是该 Worker 的 app Worker ID 队列。最近发生预留容量拒绝的队列，
+在最后一次拒绝后的 30 秒内可能再保留一条空闲 stream。配置
+**matching.maxConcurrentTasksCap** 时，最多还需为 **F + 1** 条 stream 留出容量；
 默认每个 matching owner 上每个 app Worker ID 最多 256 条 stream。
 **matching.maxStreams** 默认限制每个 Matching 实例最多注册 100,000 条 stream。
+突发负载期间的瞬时峰值仍受 matching 容量上限约束。
 **matching.maxQueueLength**、**matching.maxFlowTypes** 和
 **matching.maxFlowTypeLength** 也限制注册内容，默认值均为 256。
 
@@ -534,12 +536,16 @@ Worker 会以 **NO_CAPACITY** 拒绝所有 Step 任务，包括 WaitFor、Execut
 Dex 会尝试其他 Worker，不消耗 Step 尝试次数。如果所有 Worker 都持续达到 Step 容量上限，
 Step 最多等待到分发等待时间结束，然后收到 **NO_WORKER_AVAILABLE**、消耗一次尝试并遵循其重试策略，
 与所有 Worker 都已满载时相同。本地尝试等待本地分发等待时间，然后按照其策略回退。
-每个队列仍保留可用的空闲流。
-预留容量导致的拒绝不会关闭流，也不会改变注册就绪状态。
+每个队列仍保留可用的空闲流。队列因预留 RPC 容量拒绝 Step 后，
+会多保留一条空闲 stream，直到最后一次拒绝后的 30 秒。其他队列维持配置的空闲数量。
+所有任务槽位都忙碌时，Worker 不会新建这条额外 stream。Step 积压较多的 Worker
+应将 **idleStreamsPerQueue** 至少设为 2。预留容量导致的拒绝不会关闭流，
+也不会改变注册就绪状态。
 每次此类拒绝都会生成包含 Flow 类型的调试日志，并增加 Worker 的累计预留拒绝计数：
 Go 为 **PullReservedRPCDeclines()**，Java 为 **getPullReservedRpcDeclines()**，
 TypeScript 为 **pullReservedRpcDeclines**，Python 为 **pull_reserved_rpc_declines**，
 Rust 为 **pull_reserved_rpc_declines()**。满载拒绝和未知名称不会增加此计数。
+该计数统计拒绝事件；Dex 重试同一次 Step 分发时，可能多次拒绝它，因此应观察计数的变化速率。
 计数从不重置，关闭后仍可读取，监听模式 Worker 返回零。日志配置请参阅各 SDK 的 README。
 
 上面的启动示例将任务上限设为八，并显式为 RPC 预留一个槽位，与默认值一致。

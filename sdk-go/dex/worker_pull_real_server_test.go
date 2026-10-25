@@ -202,3 +202,81 @@ func TestWorkerPullReservedRPCWithRealServer(t *testing.T) {
 		t.Fatal(ctx.Err())
 	}
 }
+
+func TestWorkerPullReservedRPCWithStepBacklog(t *testing.T) {
+	address := os.Getenv("DEX_FLOW_SERVICE_ADDRESS")
+	require.NotEmpty(t, address)
+	entered := make(chan pullReservedRPCObservation, 12)
+	release := make(chan struct{})
+	flow := &pullReservedRPCFlow{workerID: "reserved", entered: entered, release: release}
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{
+		FlowServiceAddress: address,
+		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 3, ReservedRPCTasks: ptr.Any(1), AppWorkerID: "backlog-" + uuid.NewString()},
+	})
+	require.NoError(t, err)
+	started := make(chan error, 1)
+	go func() { started <- worker.Start() }()
+	t.Cleanup(func() {
+		require.NoError(t, worker.Stop(context.Background()))
+		require.NoError(t, <-started)
+	})
+	isReleased := false
+	defer func() {
+		if !isReleased {
+			close(release)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	require.NoError(t, worker.WaitPullRegistered(ctx))
+	cache, err := blobcache.New(&blobcache.Config{Dir: t.TempDir(), MaxBytes: 1 << 20})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, cache.Close()) })
+	client, err := NewClient(worker.registry, cache, ClientOptions{FlowServiceAddress: address, WorkerTarget: worker.WorkerTarget()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	flowIDs := make([]string, 12)
+	for index := range flowIDs[:2] {
+		flowIDs[index] = "backlog-" + uuid.NewString()
+		_, err = client.StartFlow(ctx, flow, flowIDs[index], "step", StartFlowOptions{})
+		require.NoError(t, err)
+	}
+	for range flowIDs[:2] {
+		select {
+		case observation := <-entered:
+			require.Equal(t, int32(1), observation.attempt)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	for index := 2; index < len(flowIDs); index++ {
+		flowIDs[index] = "backlog-" + uuid.NewString()
+		_, err = client.StartFlow(ctx, flow, flowIDs[index], "step", StartFlowOptions{})
+		require.NoError(t, err)
+	}
+	require.Eventually(t, func() bool {
+		return worker.PullReservedRPCDeclines() > 0
+	}, 5*time.Second, time.Millisecond)
+	rpcCtx, cancelRPC := context.WithTimeout(ctx, 3*time.Second)
+	defer cancelRPC()
+	startedRPC := time.Now()
+	var workerID string
+	require.NoError(t, client.InvokeRPC(rpcCtx, flowIDs[0], flow.GetWorker, nil, &workerID))
+	require.Less(t, time.Since(startedRPC), 2*time.Second)
+	require.Equal(t, "reserved", workerID)
+	close(release)
+	isReleased = true
+	for range flowIDs[2:] {
+		select {
+		case observation := <-entered:
+			require.Equal(t, int32(1), observation.attempt)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	for _, flowID := range flowIDs {
+		result, waitErr := client.WaitForFlow(ctx, flowID, WaitForFlowOptions{})
+		require.NoError(t, waitErr)
+		require.Equal(t, FlowCompleted, result.Status)
+	}
+}

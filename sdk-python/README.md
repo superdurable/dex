@@ -119,15 +119,18 @@ The Worker polls its sticky queue and every registered Flow type queue. Flow
 type names must be unique within a Dex server. `max_concurrent_tasks` defaults
 to the CPU count, and `idle_streams_per_queue` defaults to one. At capacity,
 the Worker rejects an assignment so Dex can reassign it. Each stream runs one
-task at a time; Step heartbeat and stream writes use the same stream. After tasks finish, the Worker
-gracefully closes surplus idle streams while preserving readiness. The SDK sends
-an upstream Pong every 20 seconds while a task runs and stops before its final
-frame. This interval is internal and needs no Worker option. After load drops,
+task at a time; Step heartbeat and stream writes use the same stream. After
+tasks finish, the Worker gracefully closes surplus idle streams while preserving
+readiness. The SDK sends an upstream Pong every 20 seconds while a task runs and
+stops before its final frame. This interval is internal and needs no Worker
+option. After load drops,
 the steady-state bound is `max_concurrent_tasks + (1 + number of Flow types) *
-idle_streams_per_queue` streams. The transient peak during a burst remains bounded
-by the matching caps. Size these options for `matching.maxConcurrentTasksCap` per
-app Worker ID per matching owner (256 by default) and `matching.maxStreams` per
-Matching instance (100,000 by default).
+idle_streams_per_queue` streams.
+Allow up to one more stream per queue for 30 seconds after reserve declines,
+or up to `1 + number of Flow types` additional streams. The transient peak
+during a burst remains bounded by the matching caps. Size these options for
+`matching.maxConcurrentTasksCap` per app Worker ID per matching owner (256 by
+default) and `matching.maxStreams` per Matching instance (100,000 by default).
 
 The Worker rejects an unregistered Step or RPC by name. Dex retries that task
 on another pull Worker without consuming a Step attempt, including when the
@@ -192,11 +195,11 @@ limit is at least two, otherwise zero. With the CPU-count default, Steps get one
 fewer slot than before. Set it explicitly to zero to opt out. With one slot and
 no explicit reserve, Worker start logs one warning: RPCs may wait behind
 long-running Steps; use a limit of at least two or set the reserve explicitly.
-Flows must stay responsive; Dex cannot prioritize synchronous RPCs like workflow
-engines prioritize reads. The value must be nonnegative and less than
-`max_concurrent_tasks` after its CPU-count default is resolved; invalid values
-fail construction. RPC and Step handlers count together: WaitFor and Execute
-tasks, including local attempts, are declined with `NO_CAPACITY` when the busy
+Flows must stay responsive because RPCs share Worker task capacity with Steps.
+The value must be nonnegative and less than `max_concurrent_tasks` after its
+CPU-count default is resolved; invalid values fail construction. RPC and Step
+handlers count together. WaitFor and Execute tasks, including local attempts,
+are declined with `NO_CAPACITY` when the busy
 count reaches the task limit minus the reserve. API-direct and transactional
 InvokeWorkerRPC tasks can use the full limit.
 
@@ -208,15 +211,20 @@ A decline lets Dex try another Worker without consuming an attempt. If all
 Workers remain at their Step limit, a Step can wait until the dispatch wait
 expires, then receive `NO_WORKER_AVAILABLE`, consume an attempt, and follow its
 retry policy, as when all Workers are full. Local attempts wait the local
-dispatch wait, then fall back according to their policy. Each queue still keeps
-its configured idle streams; a reserve decline does not close a stream or change
-registration readiness.
+dispatch wait, then fall back according to their policy. A queue that declines
+a Step for reserved RPC capacity keeps one additional idle stream until 30
+seconds after its last decline. Other queues retain their configured count.
+The Worker does not open the extra stream while all task slots are busy. Set
+`idle_streams_per_queue` to at least two for heavy Step backlogs. A reserve decline
+does not close a stream or change registration readiness.
 
 Each reserve decline records the Flow type through the dex._pull_worker logger
 at DEBUG level. Export the cumulative `pull_reserved_rpc_declines` Worker value
-to distinguish reserve pressure from full-capacity rejections. The count
-excludes full-capacity rejections and unknown names, never resets, and remains
-available after shutdown. Listening Workers return zero.
+to distinguish reserve pressure from full-capacity rejections. The count excludes
+full-capacity rejections and unknown names. It counts decline events, including
+repeated declines of the same Step dispatch while Dex retries it. Read its rate
+to assess reserve pressure. It never resets and remains available after shutdown.
+Listening Workers return zero.
 
 ## Flow state I/O
 

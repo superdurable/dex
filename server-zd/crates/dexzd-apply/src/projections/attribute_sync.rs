@@ -229,6 +229,11 @@ pub(crate) fn remove_attribute_sync_indexes(
     Ok(())
 }
 
+/// Whether the run's Flow config names an Attribute Store, so marking a synced key creates entries.
+pub(crate) fn has_attribute_store_names(record: &RunRecord) -> bool {
+    !attribute_store_names(record).is_empty()
+}
+
 fn attribute_store_names(record: &RunRecord) -> BTreeSet<String> {
     record
         .flow_config

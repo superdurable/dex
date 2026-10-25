@@ -40,10 +40,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -60,8 +59,9 @@ final class PullWorker {
     private final JavaWorkerService workerService;
     private final WorkerDispatcher dispatcher;
     private final ExecutorService handlers;
-    private final ScheduledExecutorService scheduler;
+    private final ScheduledThreadPoolExecutor scheduler;
     private final PullWorkerOptions options;
+    private final long reservePressureLingerNanos;
     private final List<String> flowTypes;
     private final Map<String, Registry.RegisteredFlow> registeredFlows;
     private final List<String> queues;
@@ -83,6 +83,8 @@ final class PullWorker {
         private int registeredStreams;
         private boolean hasRegistered;
         private Throwable lastPermanentError;
+        private long lastReserveDeclineNanos;
+        private ScheduledFuture<?> reservePressureTimer;
     }
     private boolean isStopping;
     private boolean hasLoggedUnsupported;
@@ -106,12 +108,14 @@ final class PullWorker {
         this.taskService = credential == null ? serviceStub
                 : serviceStub.withCallCredentials(new GrpcCredential(credential));
         this.options = options;
+        this.reservePressureLingerNanos = options.getReservePressureLinger().toNanos();
         this.sdkVersion = sdkVersion;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        this.scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
             final Thread thread = new Thread(runnable, "dex-java-pull-timer");
             thread.setDaemon(true);
             return thread;
         });
+        scheduler.setRemoveOnCancelPolicy(true);
         final List<String> registered = new ArrayList<String>();
         final Map<String, Registry.RegisteredFlow> definitions =
                 new HashMap<String, Registry.RegisteredFlow>();
@@ -421,13 +425,22 @@ final class PullWorker {
                     idle++;
                 }
             }
-            while (idle < options.getIdleStreamsPerQueue()) {
+            final int desiredIdle = desiredIdleStreamsPerQueue(queue);
+            final int creationTarget = busyTasks == options.getMaxConcurrentTasks()
+                    ? options.getIdleStreamsPerQueue() : desiredIdle;
+            while (idle < creationTarget) {
                 final PullStream stream = new PullStream(queue);
                 streams.add(stream);
                 stream.open();
                 idle++;
             }
         }
+    }
+
+    private int desiredIdleStreamsPerQueue(final String queue) {
+        final long lastDecline = queueRegistrations.get(queue).lastReserveDeclineNanos;
+        return options.getIdleStreamsPerQueue() + (options.getReservedRpcTasks() > 0
+                && lastDecline != 0L && System.nanoTime() - lastDecline < reservePressureLingerNanos ? 1 : 0);
     }
 
     private long retryDelay(final long backoff) {
@@ -572,10 +585,21 @@ final class PullWorker {
                     && busyTasks >= options.getMaxConcurrentTasks() - options.getReservedRpcTasks()
                     && unknownReason == PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED) {
                 reservedRpcDeclines++;
+                final QueueRegistration registration = queueRegistrations.get(queue);
+                registration.lastReserveDeclineNanos = System.nanoTime();
+                if (registration.reservePressureTimer != null) {
+                    registration.reservePressureTimer.cancel(false);
+                }
+                registration.reservePressureTimer = scheduler.schedule(() -> {
+                    synchronized (PullWorker.this) {
+                        reconcile();
+                    }
+                }, reservePressureLingerNanos, TimeUnit.NANOSECONDS);
                 final String flowType = task.hasWaitFor()
                         ? task.getWaitFor().getFlowType() : task.getExecute().getFlowType();
                 LOGGER.log(Level.FINE, "decline Step task for reserved RPC capacity: {0}", flowType);
                 reject(task.getTaskId(), PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY);
+                reconcile();
                 return;
             }
             isBusy = true;
@@ -932,7 +956,7 @@ final class PullWorker {
                     idleReplacements++;
                 }
             }
-            return idleReplacements >= options.getIdleStreamsPerQueue();
+            return idleReplacements >= desiredIdleStreamsPerQueue(queue);
         }
     }
 }

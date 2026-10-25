@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use bytes::Bytes;
 use dexzd_clock::WallClock;
@@ -28,6 +29,9 @@ use crate::recovery::{EngineStartError, describe_lost_ownership};
 /// Log replay settings of node startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecoveryConfig {
+    /// Defaults to 30 seconds; must be positive. Each startup read retries for this long after
+    /// its first retryable failure.
+    pub startup_read_retry_budget: Duration,
     /// Read-ahead of log batches while startup replays them.
     pub log_read_ahead: LogReadAheadConfig,
     /// Defaults to 16 MiB; replayed record bytes that start a background compaction.
@@ -41,6 +45,7 @@ pub struct RecoveryConfig {
 impl Default for RecoveryConfig {
     fn default() -> Self {
         Self {
+            startup_read_retry_budget: Duration::from_secs(30),
             log_read_ahead: LogReadAheadConfig::default(),
             compact_after_replay_bytes: 16 * 1024 * 1024,
             retained_set_aside_store_count: 1,

@@ -132,6 +132,7 @@ impl ComponentConfigs {
                 ..SnapshotConfig::default()
             },
             recovery: RecoveryConfig {
+                startup_read_retry_budget: config.recovery.startup_read_retry_budget,
                 log_read_ahead: LogReadAheadConfig {
                     max_read_ahead_batches: to_usize(
                         "recovery.readAheadBatches",
