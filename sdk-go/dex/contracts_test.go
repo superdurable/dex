@@ -447,6 +447,47 @@ func TestLocalErrorContracts(t *testing.T) {
 	}
 }
 
+func TestRecoveryErrorInfoRecognizesTimeLimitsAcrossBackendSpellings(t *testing.T) {
+	type timeLimitMatches struct {
+		isMethodTimeout              bool
+		isHeartbeatTimeout           bool
+		isRetryTotalDurationExceeded bool
+	}
+	cases := []struct {
+		errorType string
+		expected  timeLimitMatches
+	}{
+		{errorType: "StartToClose", expected: timeLimitMatches{isMethodTimeout: true}},
+		{errorType: "START_TO_CLOSE", expected: timeLimitMatches{isMethodTimeout: true}},
+		{errorType: "start_to_close", expected: timeLimitMatches{isMethodTimeout: true}},
+		{errorType: "Heartbeat", expected: timeLimitMatches{isHeartbeatTimeout: true}},
+		{errorType: "HEARTBEAT", expected: timeLimitMatches{isHeartbeatTimeout: true}},
+		{errorType: "ScheduleToClose", expected: timeLimitMatches{isRetryTotalDurationExceeded: true}},
+		{errorType: "SCHEDULE_TO_CLOSE", expected: timeLimitMatches{isRetryTotalDurationExceeded: true}},
+		{errorType: "ScheduleToStart"},
+		{errorType: "HeartbeatLost"},
+		{errorType: "FLOW_ERROR_TYPE_WORKER_API_FAIL"},
+		{errorType: "PaymentDeclined"},
+		{errorType: ""},
+	}
+	for _, testCase := range cases {
+		info := &dex.RecoveryErrorInfo{Detail: "failed", ErrorType: testCase.errorType}
+		actual := timeLimitMatches{
+			isMethodTimeout:              info.IsMethodTimeout(),
+			isHeartbeatTimeout:           info.IsHeartbeatTimeout(),
+			isRetryTotalDurationExceeded: info.IsRetryTotalDurationExceeded(),
+		}
+		if actual != testCase.expected {
+			t.Errorf("ErrorType %q matched %+v, want %+v", testCase.errorType, actual, testCase.expected)
+		}
+	}
+
+	var missing *dex.RecoveryErrorInfo
+	if missing.IsMethodTimeout() || missing.IsHeartbeatTimeout() || missing.IsRetryTotalDurationExceeded() {
+		t.Fatal("a nil RecoveryErrorInfo must not match a time limit")
+	}
+}
+
 func TestAttributeNotFoundErrorSupportsErrorsAs(t *testing.T) {
 	missing := error(&dex.AttributeNotFoundError{
 		AttributeName: "items",
@@ -520,7 +561,10 @@ func compileContextOperations(ctx dex.Context) error {
 	_ = ctx.HasTimerFired()
 	_ = ctx.HasTimerFiredByIndex(0)
 	_ = ctx.WaitForMethodFailed()
-	_ = ctx.RecoveryError()
+	recoveryError := ctx.RecoveryError()
+	_ = recoveryError.IsMethodTimeout()
+	_ = recoveryError.IsHeartbeatTimeout()
+	_ = recoveryError.IsRetryTotalDurationExceeded()
 	_ = itemsAttribute.MapSize(ctx)
 	_ = itemsAttribute.AllInstanceKeys(ctx)
 	_ = commandByOrder.MapSize(ctx)
