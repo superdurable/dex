@@ -435,7 +435,6 @@ mod tests {
     use tempfile::NamedTempFile;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
-    use tokio::task::JoinHandle;
     use tokio_postgres::{Config, NoTls};
     use tokio_rustls::TlsAcceptor;
 
@@ -646,12 +645,12 @@ mod tests {
         let dsn = format!(
             "host=127.0.0.1 port={port} user=dex password=hidden-password connect_timeout=5"
         );
-        let server = reject_startup(
+        let server = tokio::spawn(reject_startup(
             listener,
             format!(
                 "SFATAL\0VFATAL\0C28P01\0Mrejected {dsn}\0Dpassword hidden-password expired\0\0"
             ),
-        );
+        ));
         let settings = ConnectionSettings::parse_for_search(&dsn).expect("valid plaintext DSN");
         let error = match ConnectionSlot::open(&settings).await {
             Ok(_) => panic!("the rejected startup cannot connect"),
@@ -674,7 +673,7 @@ mod tests {
             .expect("listener has an address")
             .port();
         let response = format!("SFATAL\0VFATAL\0C{sqlstate}\0Mforced rejection\0\0");
-        let server = reject_startup(listener, response);
+        let server = tokio::spawn(reject_startup(listener, response));
         let mut configuration = Config::new();
         configuration.host("127.0.0.1").port(port).user("test");
         let error = match configuration.connect(NoTls).await {
@@ -686,23 +685,21 @@ mod tests {
     }
 
     /// Answers one client's startup message with the ErrorResponse fields in `response`.
-    fn reject_startup(listener: TcpListener, response: String) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("client connects");
-            let startup_length = stream.read_u32().await.expect("startup has a length");
-            let mut startup = vec![0; startup_length as usize - 4];
-            stream
-                .read_exact(&mut startup)
-                .await
-                .expect("client sends startup parameters");
-            let mut message = vec![b'E'];
-            message.extend_from_slice(&((response.len() + 4) as u32).to_be_bytes());
-            message.extend_from_slice(response.as_bytes());
-            stream
-                .write_all(&message)
-                .await
-                .expect("server rejects startup");
-        })
+    async fn reject_startup(listener: TcpListener, response: String) {
+        let (mut stream, _) = listener.accept().await.expect("client connects");
+        let startup_length = stream.read_u32().await.expect("startup has a length");
+        let mut startup = vec![0; startup_length as usize - 4];
+        stream
+            .read_exact(&mut startup)
+            .await
+            .expect("client sends startup parameters");
+        let mut message = vec![b'E'];
+        message.extend_from_slice(&((response.len() + 4) as u32).to_be_bytes());
+        message.extend_from_slice(response.as_bytes());
+        stream
+            .write_all(&message)
+            .await
+            .expect("server rejects startup");
     }
 
     #[tokio::test]

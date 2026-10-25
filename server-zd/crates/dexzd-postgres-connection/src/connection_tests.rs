@@ -293,3 +293,58 @@ fn redaction_without_a_dsn_removes_the_configured_password() {
         "authentication failed for [REDACTED]"
     );
 }
+
+#[test]
+fn redaction_removes_url_password_spellings_echoed_without_the_dsn() {
+    for (dsn, fragments) in [
+        (
+            "postgres://dex:p%40ss-word@db.example.com/dex?sslmode=disable",
+            ["dex:p%40ss-word", "p%40ss-word", "p@ss-word"].as_slice(),
+        ),
+        (
+            "postgres://db.example.com/dex?user=dex&password=q%26uery-word",
+            ["q%26uery-word", "q&uery-word"].as_slice(),
+        ),
+    ] {
+        let settings = ConnectionSettings::parse_for_search(dsn).expect("valid URL DSN");
+        for fragment in fragments {
+            let message = settings.redact_credentials(format!("server echoed {fragment}"));
+            assert_eq!(message, "server echoed [REDACTED]", "{dsn}: {fragment}");
+        }
+    }
+}
+
+#[test]
+fn redaction_removes_escaped_keyword_password_spellings_echoed_without_the_dsn() {
+    for (dsn, fragments) in [
+        (
+            r"host=db.example.com user=dex password='it\'s a \\secret' sslmode=disable",
+            [r"it\'s a \\secret", r"it's a \secret"].as_slice(),
+        ),
+        (
+            r"host=db.example.com user=dex password=bare\ secret sslmode=disable",
+            [r"bare\ secret", "bare secret"].as_slice(),
+        ),
+    ] {
+        let settings = ConnectionSettings::parse(dsn).expect("valid keyword DSN");
+        for fragment in fragments {
+            let message = settings.redact_credentials(format!("server echoed {fragment}"));
+            assert_eq!(message, "server echoed [REDACTED]", "{dsn}: {fragment}");
+        }
+    }
+}
+
+#[test]
+fn redaction_keeps_text_when_the_password_is_empty() {
+    for dsn in [
+        "postgres://dex:@db.example.com/dex",
+        "host=db.example.com user=dex password=''",
+    ] {
+        let settings = ConnectionSettings::parse_for_search(dsn).expect("valid DSN");
+        assert_eq!(
+            settings.redact_credentials("user dex: password '' rejected".to_owned()),
+            "user dex: password '' rejected",
+            "{dsn}"
+        );
+    }
+}

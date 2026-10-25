@@ -23,7 +23,7 @@ use tokio_postgres::config::SslMode;
 use tokio_postgres::{Client, Config, NoTls};
 use tokio_postgres_rustls::MakeRustlsConnect;
 
-use dsn::{TlsParameters, split_tls_parameters};
+use dsn::{TlsParameters, split_tls_parameters, written_password_spellings};
 use tls::{CertificateVerification, client_config, load_root_certificates};
 
 /// Applies when the DSN has no `connect_timeout`; it also bounds the TLS handshake and authentication.
@@ -61,8 +61,8 @@ enum MissingSslMode {
 pub struct ConnectionSettings {
     config: Config,
     tls: Option<MakeRustlsConnect>,
-    /// The DSN as written, kept to redact it from error text; None for [`Self::from_config`].
-    dsn: Option<String>,
+    /// The DSN and its written password spellings to redact; empty for [`Self::from_config`].
+    written_credentials: Vec<String>,
 }
 
 /// Drives one PostgreSQL connection until it closes or its owner drops the task.
@@ -158,10 +158,13 @@ impl ConnectionSettings {
                 Some(MakeRustlsConnect::new(client_config))
             }
         };
+        let mut written_credentials =
+            written_password_spellings(dsn).map_err(ConnectionSettingsError::InvalidDsn)?;
+        written_credentials.push(dsn.to_owned());
         Ok(Self {
             config,
             tls,
-            dsn: Some(dsn.to_owned()),
+            written_credentials,
         })
     }
 
@@ -170,7 +173,7 @@ impl ConnectionSettings {
         Self {
             config,
             tls: None,
-            dsn: None,
+            written_credentials: Vec::new(),
         }
     }
 
@@ -184,18 +187,19 @@ impl ConnectionSettings {
         &self.config
     }
 
-    /// Returns `message` with every occurrence of the original DSN, then of the configured password,
-    /// replaced by `[REDACTED]`. Settings built by [`Self::from_config`] have no DSN, so only the
-    /// password is replaced.
+    /// Replaces the DSN, its written password spellings, and the decoded password with `[REDACTED]`.
     pub fn redact_credentials(&self, message: String) -> String {
-        let message = match &self.dsn {
-            Some(dsn) => redact_secret(message, dsn),
-            None => message,
-        };
-        match self.config.get_password() {
-            Some(password) => redact_secret(message, &String::from_utf8_lossy(password)),
-            None => message,
-        }
+        let password = self.config.get_password().map(String::from_utf8_lossy);
+        let mut credentials = self
+            .written_credentials
+            .iter()
+            .map(String::as_str)
+            .chain(password.as_deref())
+            .filter(|credential| !credential.is_empty())
+            .collect::<Vec<_>>();
+        // Longest first, so a shorter spelling cannot break up a longer one.
+        credentials.sort_unstable_by_key(|credential| std::cmp::Reverse(credential.len()));
+        credentials.into_iter().fold(message, redact_secret)
     }
 
     /// Opens a connection bounded by the DSN's `connect_timeout` or ten seconds.
