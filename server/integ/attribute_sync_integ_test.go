@@ -29,6 +29,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestAttributeSyncTemporal(t *testing.T) {
@@ -280,7 +282,7 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 		},
 	}
 	if isServerZDBinaryMode() {
-		// server-zd closes the run when StopFlow commits, so it rejects later writes.
+		// C30: server-zd closes the run when StopFlow commits, so the write must come first.
 		_, err = runtime.FlowClient.SetAttributes(ctx, terminalWrite)
 		require.NoError(t, err)
 	}
@@ -289,7 +291,15 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
 	})
 	require.NoError(t, err)
-	if !isServerZDBinaryMode() {
+	if isServerZDBinaryMode() {
+		// C30: a write after StopFlow finds no open run.
+		_, err = runtime.FlowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+			RequestId:  newRequestID(),
+			FlowId:     flowID,
+			Attributes: []*dexpb.AttributeWrite{syncedStringAttribute("message", "after-stop")},
+		})
+		require.Equal(t, codes.NotFound, status.Code(err), "SetAttributes after StopFlow: %v", err)
+	} else {
 		_, err = runtime.FlowClient.SetAttributes(ctx, terminalWrite)
 		require.NoError(t, err)
 	}
