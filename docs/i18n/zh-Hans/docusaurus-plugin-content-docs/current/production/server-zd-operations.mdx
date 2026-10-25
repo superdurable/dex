@@ -365,6 +365,176 @@ server-zd 不发送服务端加密的请求头，因此使用 bucket 的默认�
 每个 run 在启动时记录这个值。新值只对节点用它重启之后启动的 run 生效。已经启动的 run
 保留自己记录的时长。
 
+## Attribute Store 同步 {#attribute-store}
+
+server-zd v0.1.3 或更高版本可以把 Attribute 同步到 PostgreSQL。这与 Go Dex Server 的
+[自定义 Attribute Store](/production/attribute-store) 是同一个功能。Flow 用
+**syncToAttributeStore** 标记 Attribute，并在 **FlowConfig** 中列出一个已配置的 store
+名称。server-zd 随后把该 Attribute 写入这个 store 的表。
+
+**attributeStore** 一节使用 Go Server 的键和表契约。按那一页的说明创建表。本节只介绍
+server-zd 不同的地方。
+
+### 与 Go Dex Server 的差异 {#attribute-store-differences}
+
+- 只支持 **type: postgres**。Go Server 的 **mysql**、**databricks**、**snowflake** 和
+  **mongodb** store 无法通过校验，因此启动会失败。这些 store 请继续使用 Go Server。
+- 同步是异步的。Step、RPC 和 SetAttributes 的提交不等待表写入，也没有七秒的同步阶段。
+- 行通常在提交后一秒内出现。应把这张表视为最终一致。
+- store 不可用时，Flow 继续运行。store 恢复后，server-zd 用最新的值写入积压的数据。
+- 与 Go Server 一样，首次标记后经过 **syncRetryPolicy.totalDuration** 仍未写入的 entry
+  会被丢弃。之后对同一 Attribute 的写入照常同步。
+- [Time travel](/primitives/client/advanced#time-travel) 之后，server-zd 会用 time travel
+  之后的状态重写该 run 同步过的每一行。Go Server 不会重写这些行。
+- 每个数据库都需要一张 [fencing 表](#attribute-store-fencing-table)。Go Server 不需要。
+
+### 配置 {#attribute-store-configuration}
+
+~~~yaml
+attributeStore:
+  stores:
+    orders:
+      type: postgres
+      dsn: ""
+      tableName: public.orders
+      rowKey: order-{order_id}
+      columnNaming: snake_case
+      attributeMaps:
+        Items:
+          tableName: public.order_items
+          instanceKeyColumn: item_key
+      fencingTableName: dexzd_attribute_sync_fencing
+  schemaSyncInterval: 1m
+  syncBatchSize: 100
+  syncAttemptTimeout: 30s
+  syncRetryPolicy:
+    initialInterval: 100ms
+    backoffCoefficient: 2.0
+    maximumInterval: 30s
+    maximumAttempts: 0
+    totalDuration: 1h
+~~~
+
+键和默认值与 Go Server 相同。与 Go Server 一样，时长、**syncBatchSize** 或重试策略字段
+显式设为零时，表示使用默认值。
+[示例配置](https://github.com/superdurable/dex/blob/server-zd/v0.1.2/server-zd/config/dex-server-zd.example.yaml)
+带注释地列出了这一节。
+
+| 键 | 默认值 | 说明 |
+| --- | --- | --- |
+| **stores** | 空 | 把 **FlowConfig** 可以列出的每个 store 名称映射到一个 PostgreSQL 目标。为空时关闭同步，并拒绝 **FlowConfig** 列出的每个 store 名称。 |
+| **stores.NAME.type** | 无 | 必须是 **postgres**。 |
+| **stores.NAME.dsn** | 空 | PostgreSQL 连接字符串。为空时，server-zd 改为读取环境变量。日志会隐去它。 |
+| **stores.NAME.tableName** | 无 | 主表，写成 **table** 或 **schema.table**。 |
+| **stores.NAME.rowKey**、**columnNaming** 和 **attributeMaps** | 空 | 与 Go Server 相同。 |
+| **stores.NAME.flowIdColumn**、**databaseName** 和 **collectionName** | 空 | 必须留空。只有 Go 的 warehouse 和 MongoDB store 使用它们。 |
+| **stores.NAME.fencingTableName** | **dexzd_attribute_sync_fencing** | 只存在于 server-zd。见 [Fencing 表](#attribute-store-fencing-table)。 |
+| **schemaSyncInterval** | 1m | 两次表 schema 刷新之间的时间，带 90–110% 的 jitter。写入未知的列会立即刷新 schema。 |
+| **syncBatchSize** | 100 | 一个事务最多写入一个 run 的多少个 Attribute 和 AttributeMap instance。待写入的值更多时，该 run 使用多个事务。 |
+| **syncAttemptTimeout** | 30s | 一个写事务的时长上限。见[写入超时](#attribute-store-write-timeout)。 |
+| **syncRetryPolicy.initialInterval** | 100ms | 第一次写入失败后的等待时间。 |
+| **syncRetryPolicy.backoffCoefficient** | 2 | 每次写入失败后，等待时间乘以这个系数。必须是有限的正数。 |
+| **syncRetryPolicy.maximumInterval** | 30s | 两次尝试之间的最长等待时间。不能小于 **initialInterval**。 |
+| **syncRetryPolicy.maximumAttempts** | 0，不限 | 一个 run 的 entry 连续写入失败达到这个次数后，这些 entry 会被丢弃。计数保存在内存中，重启后重新计数。 |
+| **syncRetryPolicy.totalDuration** | 1h | 首次标记后经过这段时间仍未写入的 entry 会被丢弃。 |
+
+把 **dsn** 留空，可以让连接字符串不出现在配置文件中。server-zd 这时读取
+**DEX_ZD_ATTRIBUTE_STORE_DSN_** 加上大写的 store 名称。ASCII 字母和数字以外的每个字符都会
+换成下划线。例如 store **orders** 对应的变量是 **DEX_ZD_ATTRIBUTE_STORE_DSN_ORDERS**。
+两处都没有 DSN 的 store 无法通过校验。
+
+### Fencing 表 {#attribute-store-fencing-table}
+
+每个写事务都会把一行 fencing token 提升到节点的 epoch。因此，丢失 [lease](#lease) 的节点
+无法覆盖更新的值。
+
+每个数据库都需要这张表，表名由 **fencingTableName** 指定。一张表可以服务数据库中的所有
+store 和所有集群。server-zd 从不创建或修改表。启动前，以表 owner 的身份创建这张表，然后把
+它的 **SELECT**、**INSERT** 和 **UPDATE** 权限授予 server-zd 连接时使用的 role。把 **dex**
+换成那个 role。
+
+~~~sql
+CREATE TABLE dexzd_attribute_sync_fencing (
+  store_name text NOT NULL,
+  cluster_id text NOT NULL,
+  scope text NOT NULL,
+  fencing_token bigint NOT NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (store_name, cluster_id, scope)
+);
+GRANT SELECT, INSERT, UPDATE ON dexzd_attribute_sync_fencing TO dex;
+~~~
+
+已经永久停止的集群，其行可以删除。不要删除正在运行的集群的行。
+
+启动时会连接每个 store 并检查它的表。任何失败都会导致启动失败，包括 store 不可达和缺少
+fencing 表。缺少 fencing 表时，错误信息会给出 **CREATE TABLE** 语句。
+
+### 写入超时 {#attribute-store-write-timeout}
+
+一个写事务最多持续 **syncAttemptTimeout** 和 **lease.duration** 的四分之一中较小的那个。
+**lease.duration** 的四分之一同时也是 lease margin。只有剩余的 lease 有效期大于事务超时
+加 margin 时，才会开始一次写入。PostgreSQL 的 **statement_timeout** 等于事务超时。因此，
+在截止时间前一刻发出的 COMMIT 仍会在 lease 结束前完成。
+
+事务超时加 margin 最多是 **lease.duration** 的一半，少于开始续约时剩余的三分之二有效期，
+所以写入很少需要等待续约。默认的 10 秒 lease 下，一个事务最多持续 2.5 秒。60 秒 lease
+下，最多持续 15 秒。
+
+### 重试和丢弃的 entry {#attribute-store-retries}
+
+失败的写入会按照 **syncRetryPolicy** 的 backoff 重试，直到 **totalDuration**，这一点与
+Go Server 相同。失败的类型决定哪些内容进入 backoff：
+
+- **Store。** 连接失败或整个 store 的其他失败，会让该 store 的每个 run 都进入 backoff。
+- **Run。** 由写入的值导致的失败只让该 run 进入 backoff，其他 Flow 继续同步。例如违反约束，
+  或者值超出列的长度。
+- **超时。** 事务超时、死锁或等待行锁过久，同样只让该 run 进入 backoff。
+
+超时之后，该 run 的重试会把每个事务的语句数减半，最少一条。一条语句写入该 run 的所有普通
+Attribute，并且留在同一个事务中，所以主行永远不会只更新一部分。每个 AttributeMap
+instance 是一条语句，所以超时 run 的各个 instance 可能落在不同的事务中。每个提交成功的
+事务都会被确认，因此重试只写入剩下的部分。
+
+同一个 store 有三个 run 超时，且其间没有任何提交时，整个 store 进入 backoff。store backoff
+之后的重试会先处理失败的那个 run 以外的其他 run。同一 Flow ID 的较新 run 会等待较旧的 run，
+因此行的写入保持 run 的顺序。
+
+首次标记后经过 **syncRetryPolicy.totalDuration** 仍未写入的 entry 会被丢弃，并输出 error
+log。之后对同一 Attribute 的写入照常同步。**dexzd_attribute_sync_dropped_entries_total**
+统计被丢弃的 entry，也统计被 store 以不可重试错误拒绝的 entry。
+
+### 监控 {#attribute-store-monitoring}
+
+| 指标 | 含义 |
+| --- | --- |
+| **dexzd_attribute_sync_backlog_entries** | 截至上一次扫描，等待写入的 entry 数 |
+| **dexzd_attribute_sync_oldest_pending_age_seconds** | 最早的待写入 entry 的重试窗口已持续的时间，没有时为 0 |
+| **dexzd_attribute_sync_write_failures_total**，带 **failure_kind** | 失败的写事务。**failure_kind** 取 **retryable** 或 **non_retryable**。不可重试的失败会丢弃其 entry。 |
+| **dexzd_attribute_sync_dropped_entries_total** | 因重试策略耗尽或被 store 拒绝而丢弃的 entry |
+| **dexzd_attribute_sync_fenced_writes_total** | 因更新的 owner 提升了 fencing token 而被拒绝的写入 |
+
+~~~text
+# Dropped Attribute Sync entries
+increase(dexzd_attribute_sync_dropped_entries_total[10m]) > 0
+
+# Attribute Sync entries pending for more than 5 minutes
+dexzd_attribute_sync_oldest_pending_age_seconds > 300
+~~~
+
+### 本地开发 {#attribute-store-local-development}
+
+**dex-server-zd dev** 在本地运行一个使用内嵌对象存储的节点。它的
+**--attribute-store-config** 参数只读取 Go Server 配置文件中的 **attributeStore** 一节。
+这一节至少要定义一个 store。**--config** 覆盖文件不能同时设置 **attributeStore**。
+
+~~~bash
+dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-store.yaml
+~~~
+
+数据库仍然需要这些表和 fencing 表。**dexcli dev --engine zd --attribute-store-config**
+会把文件传给这个参数，需要 1.17.0 之后的 dexcli release。
+
 ## 指标 {#metrics}
 
 设置 **metrics.listen** 后，节点会在独立于 **api.listen** 的监听器上提供明文 HTTP
@@ -492,7 +662,7 @@ server-zd 会拒绝未知的键，因此 Go Server 的配置文件不能原样�
 | **log** | **RUST_LOG** 环境变量 | 日志输出到标准错误，默认级别为 **info**。 |
 | 没有对应的键；**SearchFlows** 使用 Temporal 或 Cadence 的 visibility | **search.backend** | **builtin**（默认）或 **paradedb**。 |
 | **blobStore** | 无 | server-zd 把所有值保存在自己的对象存储前缀下。硬删除的值可以使用 **objectStore.hardDeleteStore**。 |
-| **attributeStore** | 无 | server-zd 0.1 不提供。 |
+| **attributeStore** | **attributeStore** | 相同的键，需要 server-zd v0.1.3 或更高版本。只支持 **type: postgres**。**flowIdColumn**、**databaseName** 和 **collectionName** 必须留空。**fencingTableName** 只存在于 server-zd，每个数据库都需要一张 fencing 表。见 [Attribute Store 同步](#attribute-store)。 |
 | **interpreter** | 无 | server-zd 不使用 Temporal 或 Cadence backend。 |
 | **membership** 和 **internal** | 无 | 一个集群只运行一个节点，没有内部监听器。 |
 | **web** | 无 | server-zd 不提供 Dex Web。请运行一个指向 server-zd 的仅 Web Dex Server。参见[对接 server-zd](/production/dex-web#run-against-server-zd)。 |
