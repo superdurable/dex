@@ -6,8 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { StructuredValue } from '@/app/components/StructuredValue';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowOverview } from './FlowOverview';
@@ -21,7 +24,32 @@ function expectStrongLabelsInOrder(markup: string, labels: string[]): void {
   }
 }
 
+afterEach(cleanup);
+
 describe('live Flow state failures', () => {
+  it('shows the newest close result after a reset from one closed point to another', () => {
+    const summary: FlowSummary = {
+      flowId: 'flow-1',
+      runId: 'run-1',
+      firstRunId: 'run-1',
+      requestId: 'request-1',
+      flowType: 'PaymentFlow',
+      flowStatus: 'Completed',
+      flowStatusCode: 2,
+      startTime: '2026-08-10T00:00:00Z',
+      closeTime: '2026-08-10T00:05:00Z',
+    };
+    const events: FlowHistoryEvent[] = [
+      { eventId: 1, eventTime: null, type: 'FlowClosed', payload: { results: ['ancestor-result'] } },
+      { eventId: 2, eventTime: null, type: 'TimeTravelFork', payload: {} },
+      { eventId: 3, eventTime: null, type: 'FlowClosed', payload: { results: ['newest-result'] } },
+    ];
+    render(<FlowOverview summary={summary} events={events} state={null} selectedEvent={null} />);
+    fireEvent.click(screen.getByRole('button', { name: /Close result/ }));
+    expect(screen.getByText(/newest-result/)).toBeTruthy();
+    expect(screen.queryByText(/ancestor-result/)).toBeNull();
+  });
+
   it('hides an ancestor close result while the restored close is pending', () => {
     const summary: FlowSummary = {
       flowId: 'flow-1',

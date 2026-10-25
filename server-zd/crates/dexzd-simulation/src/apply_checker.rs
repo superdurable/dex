@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use dexzd_apply::diagnostics::time_travel_target_closes_at_once;
+use dexzd_apply::diagnostics::time_travel_target_close;
 use dexzd_apply::{ApplyContext, ApplyOutcome, StateWrite, apply_flow_command};
 use dexzd_keyspace::row_keys::{run_singleton_key, value_row_key};
 use dexzd_keyspace::{
@@ -156,10 +156,10 @@ impl ApplyChecker {
         check_outbox_writes(command, &outcome.writes, &self.state)?;
         let touched_runs = touched_runs(&outcome);
         let previous_records = self.run_records(&command.flow_id, &touched_runs)?;
-        let restored_close_is_at_once = if is_applied
+        let time_travel_target = if is_applied
             && matches!(command.command, Some(Command::TimeTravel(_)))
         {
-            time_travel_target_closes_at_once(&context, &self.state, command)
+            time_travel_target_close(&context, &self.state, command)
                 .map_err(|error| InvariantViolation::new("time-travel-target", error.to_string()))?
         } else {
             None
@@ -173,7 +173,7 @@ impl ApplyChecker {
         let close_barrier_counts = check_close_barrier(
             command,
             is_applied,
-            restored_close_is_at_once,
+            time_travel_target,
             &previous_records,
             &view,
             &mut self.memory.rpc_held_runs,

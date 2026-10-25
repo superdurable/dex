@@ -9,6 +9,7 @@
 //! Read-only state hashes for debug and test verification; apply never calls these helpers.
 
 use dexzd_keyspace::{RunId, RunTable};
+use dexzd_protocol::dex::FlowStatus;
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, StepExecutionRecord, TimerRecord, flow_command::Command,
 };
@@ -17,8 +18,7 @@ use prost::Message;
 use super::attempt_scope::{AttemptRow, decode_timer_id, read_attempt_rows, run_status_of};
 use super::lineage::{Lineage, genesis_seq};
 use super::reset_target::resolve_target;
-use super::state_rebuild::rebuild_attempt_state;
-use super::time_travel::restored_closing;
+use super::state_rebuild::{HistoryPoint, RebuiltAttempt, rebuild_attempt_state};
 use crate::command_handlers::CommandScope;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::state_access::{FlowTransaction, RunRows};
@@ -82,61 +82,76 @@ pub fn current_semantic_point_hash(
     }))
 }
 
+/// How the run stands at a TimeTravel target, read from its rebuilt state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeTravelTargetClose {
+    /// The run is running at the target, possibly with a pending close.
+    Running,
+    /// The run is closed at the target.
+    Closed {
+        /// True when the close skipped the Attribute Sync barrier; absent in records written before the marker.
+        is_closed_at_once: Option<bool>,
+    },
+}
+
 /// Hashes a TimeTravel target's reconstructed state; returns `None` when no valid target exists.
 pub fn time_travel_target_hash(
     context: &ApplyContext,
     state: &dyn FlowStateReader,
     command: &FlowCommand,
 ) -> Result<Option<SemanticPointHash>, ApplyError> {
-    let Some(Command::TimeTravel(time_travel)) = &command.command else {
-        return Ok(None);
-    };
     let transaction = FlowTransaction::new(state, *context);
-    let scope = CommandScope::new(
-        command,
-        BehaviorVersion::from_command(command.behavior_version)?,
-    );
-    let Ok(cursor) = RunCursor::open(&transaction, &scope)? else {
+    let Some((cursor, point, rebuilt)) = rebuild_time_travel_target(&transaction, command)? else {
         return Ok(None);
     };
-    let request = time_travel.request.clone().unwrap_or_default();
-    let selected_attempt = match u32::try_from(request.run_attempt) {
-        Ok(0) => cursor.record.current_attempt,
-        Ok(attempt) if attempt <= cursor.record.current_attempt => attempt,
-        _ => return Ok(None),
-    };
-    let lineage = Lineage::of_attempt(&transaction, cursor.rows, selected_attempt)?;
-    let Ok(target) = resolve_target(&transaction, &cursor, scope.now_micros, &request, &lineage)?
-    else {
-        return Ok(None);
-    };
-    let rebuilt = rebuild_attempt_state(&transaction, cursor.rows, &cursor.record, target.point)?;
     let encoded_state = encode_attempt_state(&rebuilt.rows, &rebuilt.run_status)?;
     Ok(Some(SemanticPointHash {
         run_id: cursor.rows.run_id,
-        run_attempt: target.point.attempt,
-        run_seq: target.point.seq,
+        run_attempt: point.attempt,
+        run_seq: point.seq,
         state_hash: hash_attempt_state(&encoded_state),
         window_start_seq: cursor.record.window_start_seq,
         genesis_seq: genesis_seq(&transaction, cursor.rows)?,
     }))
 }
 
-/// Returns whether a valid TimeTravel target closed at once, or None for a running or invalid target.
-pub fn time_travel_target_closes_at_once(
+/// Reads the close of a TimeTravel target's rebuilt state, without apply's close classification.
+///
+/// Returns `None` when no valid target exists.
+pub fn time_travel_target_close(
     context: &ApplyContext,
     state: &dyn FlowStateReader,
     command: &FlowCommand,
-) -> Result<Option<bool>, ApplyError> {
+) -> Result<Option<TimeTravelTargetClose>, ApplyError> {
+    let transaction = FlowTransaction::new(state, *context);
+    let Some((_, _, rebuilt)) = rebuild_time_travel_target(&transaction, command)? else {
+        return Ok(None);
+    };
+    let status = rebuilt.run_status;
+    if status.status == FlowStatus::Running as i32 {
+        return Ok(Some(TimeTravelTargetClose::Running));
+    }
+    Ok(Some(TimeTravelTargetClose::Closed {
+        is_closed_at_once: status.close.and_then(|close| close.is_closed_at_once),
+    }))
+}
+
+/// Resolves the command's TimeTravel target and rebuilds the attempt state there.
+///
+/// Returns the run's cursor, the target point, and the rebuilt state, or `None` when the command
+/// is not a TimeTravel with a valid target.
+fn rebuild_time_travel_target(
+    transaction: &FlowTransaction<'_>,
+    command: &FlowCommand,
+) -> Result<Option<(RunCursor, HistoryPoint, RebuiltAttempt)>, ApplyError> {
     let Some(Command::TimeTravel(time_travel)) = &command.command else {
         return Ok(None);
     };
-    let transaction = FlowTransaction::new(state, *context);
     let scope = CommandScope::new(
         command,
         BehaviorVersion::from_command(command.behavior_version)?,
     );
-    let Ok(cursor) = RunCursor::open(&transaction, &scope)? else {
+    let Ok(cursor) = RunCursor::open(transaction, &scope)? else {
         return Ok(None);
     };
     let request = time_travel.request.clone().unwrap_or_default();
@@ -145,14 +160,13 @@ pub fn time_travel_target_closes_at_once(
         Ok(attempt) if attempt <= cursor.record.current_attempt => attempt,
         _ => return Ok(None),
     };
-    let lineage = Lineage::of_attempt(&transaction, cursor.rows, selected_attempt)?;
-    let Ok(target) = resolve_target(&transaction, &cursor, scope.now_micros, &request, &lineage)?
+    let lineage = Lineage::of_attempt(transaction, cursor.rows, selected_attempt)?;
+    let Ok(target) = resolve_target(transaction, &cursor, scope.now_micros, &request, &lineage)?
     else {
         return Ok(None);
     };
-    let rebuilt = rebuild_attempt_state(&transaction, cursor.rows, &cursor.record, target.point)?;
-    Ok(restored_closing(&rebuilt.run_status, &target)?
-        .map(|(_, is_closed_at_once)| is_closed_at_once))
+    let rebuilt = rebuild_attempt_state(transaction, cursor.rows, &cursor.record, target.point)?;
+    Ok(Some((cursor, target.point, rebuilt)))
 }
 
 fn encode_attempt_state(

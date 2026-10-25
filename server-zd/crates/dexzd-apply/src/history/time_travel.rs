@@ -144,11 +144,18 @@ pub(crate) fn apply_time_travel(
         &holder_rows(&restored_rows, &run_status_of(&cursor.record)),
         cursor.seq,
     )?;
+    // Marked before reapply, so a reapplied natural close waits; reapplied writes mark themselves.
+    remark_synced_attributes(
+        transaction,
+        &mut cursor,
+        scope,
+        &previous_rows,
+        &restored_rows,
+    )?;
     let reapplied_events =
         reapply_external_inputs(transaction, &mut cursor, scope, &reapplied_inputs)?;
     apply_received_child_results(transaction, &mut cursor, scope)?;
     let final_rows = read_attempt_rows(transaction, cursor.rows)?;
-    remark_synced_attributes(transaction, &mut cursor, scope, &previous_rows, &final_rows)?;
     dispatch_restored_invocations(&mut cursor, &final_rows)?;
     cursor.add_event(flow_history_event::Payload::TimeTravelFork(
         TimeTravelForkHistoryEvent {
@@ -317,10 +324,10 @@ fn remark_synced_attributes(
     cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
     previous_rows: &[AttemptRow],
-    final_rows: &[AttemptRow],
+    restored_rows: &[AttemptRow],
 ) -> Result<(), ApplyError> {
     let mut keys = synced_row_keys(previous_rows)?;
-    keys.extend(synced_row_keys(final_rows)?);
+    keys.extend(synced_row_keys(restored_rows)?);
     mark_attribute_sync_entries(transaction, cursor, &keys, scope.now_micros)
 }
 
@@ -410,7 +417,7 @@ fn prepare_run_lifecycle(
     Ok(())
 }
 
-pub(super) fn restored_closing(
+fn restored_closing(
     status: &CheckpointRunStatus,
     target: &TravelTarget,
 ) -> Result<Option<(FlowClosing, bool)>, ApplyError> {
