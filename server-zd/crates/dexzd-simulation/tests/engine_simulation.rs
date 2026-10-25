@@ -27,14 +27,14 @@ const DEFAULT_STEP_FAILURE_SEED_COUNT: u64 = 32;
 /// Step failure policies change every trajectory, so their seeds form their own group.
 const FIRST_STEP_FAILURE_SEED: u64 = 0x5fa1_0000;
 const REGRESSION_SEEDS: &str = include_str!("../engine-regression-seeds.txt");
-/// Canonical command digests from main before Step failure policies; a moved regression seed
-/// stops reproducing.
+/// Canonical command digests, originally from main before Step failure policies; a moved regression
+/// seed stops reproducing.
 const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u128)] = &[
     (
         EngineSimulationProfile::Standard,
         3856990760,
         120,
-        0x0ce8cbe54d9986053a30ca0d359f5e3a,
+        0xc18f4d7110dd8c3f02e9f8444e153d37,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -52,7 +52,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         FIRST_SEED,
         120,
-        0xbdb1270b47fa4d7e9ededa5ea96f25ee,
+        0x74dac9f5c84e9eb949e7ea8408bbfdfc,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -64,7 +64,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         FIRST_SEED + 2,
         120,
-        0xa7a76a800cf7f89ca4d4739e963916d3,
+        0x91cef8f1002d01ffd3730d1836442f5e,
     ),
     (
         EngineSimulationProfile::RedeploysWithShortHistoryWindow,
@@ -245,6 +245,8 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
             "pin the canonical command digest of regression seed {seed} {active_seconds}"
         );
     }
+    let mut actual_digests = Vec::new();
+    let mut expected_digests = Vec::new();
     for &(profile, seed, active_seconds, expected) in PINNED_CANONICAL_COMMAND_DIGESTS {
         let config = EngineSimulationConfig {
             active_seconds,
@@ -252,12 +254,13 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
             ..EngineSimulationConfig::default()
         };
         let summary = run_engine_seed(seed, &config).unwrap_or_else(|failure| panic!("{failure}"));
-        assert_eq!(
-            summary.canonical_command_digest, expected,
-            "{profile:?} seed {seed} changed its committed commands, so it no longer replays its \
-             trajectory"
-        );
+        actual_digests.push((profile, seed, summary.canonical_command_digest));
+        expected_digests.push((profile, seed, expected));
     }
+    assert_eq!(
+        actual_digests, expected_digests,
+        "pinned committed command trajectories changed"
+    );
 }
 
 /// Runs each seed for its active seconds; a failing seed writes its report and panics.

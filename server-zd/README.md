@@ -13,6 +13,14 @@ returns NOT_FOUND. The Go Server accepts such writes while its run winds down af
 Write what a Flow needs before stopping it. StopFlow and Terminate never wait for Attribute Store
 synchronization.
 
+## Go Server differences in Step failure messages
+
+| Area | server-zd behavior | Go Server behavior |
+| --- | --- | --- |
+| Step method timeout | The Flow failure message is `method timeout of <seconds>s expired`. | The Flow failure message contains a Temporal timeout string. |
+| Step heartbeat timeout | The Flow failure message is `no heartbeat within <seconds>s`. | The Flow failure message contains a Temporal timeout string. |
+| Step retry total duration | The Flow failure message is `retry policy total duration expired`. | The Flow failure message contains a Temporal timeout string. |
+
 ## Layout
 
 | Crate | Role |

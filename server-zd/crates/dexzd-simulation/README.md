@@ -216,7 +216,7 @@ environment variables as the fixed set, without the regression seeds.
 `engine-regression-seeds.txt`, the first three fixed-set seeds, and the first redeploy-profile
 seed. Each seed's `canonical_command_digest` must equal its pinned value. The digest chains
 xxh3-128 over every committed command, in the order the shadow accepted them. The pinned values
-come from main before Step failure policies were added.
+originally came from main before Step failure policies were added.
 
 Any change that moves a regression seed's trajectory can make the seed stop reproducing its
 failure. An engine change can do that as well as a workload change. Without the pins, no test

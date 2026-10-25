@@ -15,10 +15,11 @@ use dexzd_protocol::dex::{
     ServiceErrorResponse, StepMethodFailure, Value, WaitForMethodFailurePolicy, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    RetryBackoffTimerId, StepAttemptFailedCommand, StepAttemptHeartbeatCommand,
-    StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
-    StepInvocationPhase, StepMethod, StepMethodCompletedCommand, TimerId, TimerRecord,
-    step_attempt_heartbeat_command, step_method_completed_command, timer_id,
+    RetryBackoffTimerId, StepAttemptFailedCommand, StepAttemptFailureKind,
+    StepAttemptHeartbeatCommand, StepAttemptStartedCommand, StepExecutionPhase,
+    StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
+    StepMethodCompletedCommand, TimerId, TimerRecord, step_attempt_heartbeat_command,
+    step_method_completed_command, timer_id,
 };
 use prost::Message;
 
@@ -330,11 +331,12 @@ pub(crate) fn apply_attempt_failed(
                 cursor.rows.put_step_execution(transaction, &recovery_step);
                 finish_step(transaction, cursor, &mut step, StepExecutionPhase::Failed)?;
             } else {
-                finish_step(transaction, cursor, &mut step, StepExecutionPhase::Failed)?;
-                let message = format!(
-                    "Step execution {} failed after {} attempts: {}",
-                    step.step_execution_id, command.attempt, failure.backend_error
+                let message = final_flow_failure_message(
+                    command,
+                    &recovery_error.detail,
+                    &cursor.record.flow_type,
                 );
+                finish_step(transaction, cursor, &mut step, StepExecutionPhase::Failed)?;
                 crate::command_handlers::flow_close::close_flow(
                     transaction,
                     cursor,
@@ -348,6 +350,48 @@ pub(crate) fn apply_attempt_failed(
         }
     }
     Ok(StepCommandOutcome::Applied(ok_reply()))
+}
+
+fn final_flow_failure_message(
+    command: &StepAttemptFailedCommand,
+    recovery_detail: &str,
+    flow_type: &str,
+) -> String {
+    let kind = StepAttemptFailureKind::try_from(command.kind)
+        .unwrap_or(StepAttemptFailureKind::Unspecified);
+    match kind {
+        StepAttemptFailureKind::DispatchError => {
+            if let Some(detail) = command
+                .server_detail
+                .strip_prefix("DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE: ")
+            {
+                return format!("no Worker available for queue {flow_type}: {detail}");
+            }
+            if let Some(detail) = command
+                .server_detail
+                .strip_prefix("DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED: ")
+            {
+                return format!("Worker disconnected during pull dispatch: {detail}");
+            }
+            if let Some(detail) = command
+                .server_detail
+                .strip_prefix("DISPATCH_TASK_ERROR_REASON_UNKNOWN_NAME: ")
+            {
+                return detail.to_owned();
+            }
+            if command.server_detail.starts_with("DISPATCH_TASK_ERROR_REASON_UNSPECIFIED: ") {
+                return format!("matching dispatch: rpc error: code = Internal desc = unknown dispatch failure for queue {flow_type}");
+            }
+            recovery_detail.to_owned()
+        }
+        StepAttemptFailureKind::InvalidResponse => match command.server_detail.as_str() {
+            "WaitFor frame carries no result" => "InvokeWaitForMethod emitted an empty output".to_owned(),
+            "Execute frame carries no result" => "InvokeExecuteMethod emitted an empty output".to_owned(),
+            "final frame does not match the dispatched method" => "matching dispatch: rpc error: code = Internal desc = unexpected pull dispatch frame".to_owned(),
+            _ => recovery_detail.to_owned(),
+        },
+        _ => recovery_detail.to_owned(),
+    }
 }
 
 fn recovery_error(
