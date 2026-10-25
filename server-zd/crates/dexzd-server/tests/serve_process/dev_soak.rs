@@ -32,8 +32,17 @@ const FLOWS_PER_CYCLE: usize = 20;
 const GREETING_FLOWS_PER_CYCLE: usize = 2;
 const REWRITES_PER_FLOW: usize = 4;
 const LARGE_VALUE_BYTES: usize = 8 * 1024;
-const RESTART_EVERY_CYCLES: usize = 3;
-const COLD_RESTORE_EVERY_CYCLES: usize = 7;
+/// Restarts are spaced in time so snapshots, log deletion, and retention run between them.
+const RESTART_INTERVAL: Duration = Duration::from_secs(60);
+const COLD_RESTORE_INTERVAL: Duration = Duration::from_secs(5 * 60);
+/// Server log lines counted across every incarnation to explain disk use.
+const RECLAMATION_LOG_LINES: [&str; 5] = [
+    "snapshot complete",
+    "deleted log batches covered by snapshots",
+    "deleted snapshots beyond the retained count",
+    "deleted unreferenced snapshot files",
+    "RunPurge was rejected",
+];
 const STOP_BUDGET: Duration = Duration::from_secs(15);
 /// Peak disk use in the last quarter may exceed the warm-up peak by this factor plus the slack.
 const DISK_GROWTH_FACTOR: u64 = 2;
@@ -58,18 +67,29 @@ async fn dev_serves_for_the_soak_with_bounded_disk_usage() {
     .await;
     let mut disk_samples = Vec::new();
     let mut stop_durations = Vec::new();
+    let mut logs = Vec::new();
     let mut cycle = 0;
+    let mut last_restart_at = started_at;
+    let mut last_cold_restore_at = started_at;
     while started_at.elapsed() < soak {
         write_cycle(&mut server.flow_client, cycle).await;
-        disk_samples.push((started_at.elapsed(), directory_bytes(&data_directory)));
+        disk_samples.push(DiskSample {
+            elapsed: started_at.elapsed(),
+            object_store_bytes: directory_bytes(&data_directory.join("s3")),
+            local_store_bytes: directory_bytes(&data_directory.join("store")),
+        });
         cycle += 1;
-        let is_cold_restore = cycle % COLD_RESTORE_EVERY_CYCLES == 0;
-        if is_cold_restore || cycle % RESTART_EVERY_CYCLES == 0 {
-            stop_durations.push(server.stop().await);
+        let is_cold_restore = last_cold_restore_at.elapsed() >= COLD_RESTORE_INTERVAL;
+        if is_cold_restore || last_restart_at.elapsed() >= RESTART_INTERVAL {
+            let (stop_duration, log) = server.stop().await;
+            stop_durations.push(stop_duration);
+            logs.push(log);
             if is_cold_restore {
                 fs::remove_dir_all(data_directory.join("store"))
                     .expect("the local store directory is removed");
+                last_cold_restore_at = tokio::time::Instant::now();
             }
+            last_restart_at = tokio::time::Instant::now();
             incarnation += 1;
             server = DevServer::start(
                 &data_directory,
@@ -80,7 +100,16 @@ async fn dev_serves_for_the_soak_with_bounded_disk_usage() {
             assert_latest_cycle_is_readable(&mut server.flow_client, cycle - 1).await;
         }
     }
-    stop_durations.push(server.stop().await);
+    let first_flow_summary = server
+        .flow_client
+        .get_flow_summary(GetFlowSummaryRequest {
+            flow_id: soak_flow_id(0, 0),
+            run_id: String::new(),
+        })
+        .await;
+    let (stop_duration, log) = server.stop().await;
+    stop_durations.push(stop_duration);
+    logs.push(log);
     eprintln!(
         "dev soak: {cycle} cycles, {incarnation} restarts in {:?}; slowest graceful stop {:?}",
         started_at.elapsed(),
@@ -89,12 +118,34 @@ async fn dev_serves_for_the_soak_with_bounded_disk_usage() {
             .max()
             .expect("the soak stops at least once")
     );
-    for (elapsed, bytes) in &disk_samples {
-        eprintln!("dev soak disk: {:>6}s {bytes} bytes", elapsed.as_secs());
+    for line in RECLAMATION_LOG_LINES {
+        let count: usize = logs.iter().map(|log| log.matches(line).count()).sum();
+        eprintln!("dev soak log: {count:>6} x {line}");
+    }
+    for sample in &disk_samples {
+        eprintln!(
+            "dev soak disk: {:>6}s object store {} bytes, local store {} bytes",
+            sample.elapsed.as_secs(),
+            sample.object_store_bytes,
+            sample.local_store_bytes
+        );
     }
     if soak >= MINIMUM_SOAK_FOR_DISK_ASSERTION {
+        // Retention is two minutes, so the first cycle's Flows must be purged by now.
+        let status = first_flow_summary
+            .expect_err("the first cycle's Flow is purged")
+            .code();
+        assert_eq!(status, tonic::Code::NotFound);
         assert_disk_use_is_bounded(&disk_samples, soak);
     }
+}
+
+/// Disk use of the embedded object store and the local store after one cycle.
+#[derive(Debug)]
+struct DiskSample {
+    elapsed: Duration,
+    object_store_bytes: u64,
+    local_store_bytes: u64,
 }
 
 /// A running `dev` process with a greeting Worker and a FlowService client.
@@ -117,8 +168,8 @@ impl DevServer {
         }
     }
 
-    /// Sends SIGTERM, requires a clean exit, and returns how long the graceful stop took.
-    async fn stop(mut self) -> Duration {
+    /// Sends SIGTERM, requires a clean exit, and returns the graceful stop time and the process log.
+    async fn stop(mut self) -> (Duration, String) {
         self.worker.stop().await;
         let stopping_at = tokio::time::Instant::now();
         let status = self.process.terminate(STOP_BUDGET).await;
@@ -129,7 +180,7 @@ impl DevServer {
             status.code() == Some(0) && !log.contains("ShutdownIncomplete"),
             "dev did not stop cleanly with {status} after {stop_duration:?}:\n{log}"
         );
-        stop_duration
+        (stop_duration, log)
     }
 }
 
@@ -245,12 +296,12 @@ async fn assert_latest_cycle_is_readable(
 }
 
 /// Fails when peak disk use in the last quarter outgrows the warm-up peak.
-fn assert_disk_use_is_bounded(disk_samples: &[(Duration, u64)], soak: Duration) {
+fn assert_disk_use_is_bounded(disk_samples: &[DiskSample], soak: Duration) {
     let peak_between = |from: Duration, to: Duration| {
         disk_samples
             .iter()
-            .filter(|(elapsed, _)| *elapsed >= from && *elapsed <= to)
-            .map(|(_, bytes)| *bytes)
+            .filter(|sample| sample.elapsed >= from && sample.elapsed <= to)
+            .map(|sample| sample.object_store_bytes + sample.local_store_bytes)
             .max()
             .expect("every quarter of the soak has disk samples")
     };
