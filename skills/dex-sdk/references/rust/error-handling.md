@@ -82,7 +82,7 @@ For an explicitly best-effort external `Client::write_stream`, suppress only `Sd
 
 ## Flow close cleanup
 
-From Rust SDK v1.20.0, match `SdkError::FlowClosing { .. }` for a cleanup-sensitive Client call rejected with `ErrorSubStatus::FlowClosing` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. `SdkError` and `ErrorSubStatus` are non-exhaustive; include a wildcard arm in exhaustive matches. [Released variants](https://github.com/superdurable/dex/blob/sdk-rust/v1.20.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs)
+From Rust SDK v1.20.0 or later, match `SdkError::FlowClosing { .. }` for a cleanup-sensitive Client call rejected with `ErrorSubStatus::FlowClosing` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. `SdkError` and `ErrorSubStatus` are non-exhaustive; include a wildcard arm in exhaustive matches. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released variants](https://github.com/superdurable/dex/blob/sdk-rust/v1.20.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs)
 
 ## Query-only Get failures
 

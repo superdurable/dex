@@ -26,7 +26,7 @@ For an idempotent start, set one stable `StartFlowOptions.Builder.requestId(...)
 
 ## Flow close cleanup
 
-From Java SDK v1.20.0, catch `FlowClosingException` from `io.superdurable.dex.exceptions` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. [Released exception](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowClosingException.java)
+From Java SDK v1.20.0 or later, catch `FlowClosingException` from `io.superdurable.dex.exceptions` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released exception](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowClosingException.java)
 
 ## Query-only Get failures
 

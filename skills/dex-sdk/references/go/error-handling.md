@@ -14,7 +14,7 @@ For an explicitly best-effort external `Client.WriteStream`, an `errors.As` matc
 
 ## Flow close cleanup
 
-From Go SDK v1.20.0, match `*dex.FlowClosingError` with `errors.As` when a cleanup-sensitive Client call is rejected. Its `ServiceError.SubStatus` is `dex.ErrorSubStatusFlowClosing`, and the service code is FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether to retry or take another action. [Released error mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.20.0/sdk-go/dex/errors.go)
+From Go SDK v1.20.0 or later, match `*dex.FlowClosingError` with `errors.As` when a cleanup-sensitive Client call is rejected. Its `ServiceError.SubStatus` is `dex.ErrorSubStatusFlowClosing`, and the service code is FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether to retry or take another action. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.20.0/sdk-go/dex/errors.go)
 
 ## StartFlow error handling
 

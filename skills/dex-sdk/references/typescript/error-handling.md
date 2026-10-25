@@ -39,7 +39,7 @@ The runnable examples classify with the exported concrete errors and treat `Flow
 
 ## Flow close cleanup
 
-From TypeScript SDK v1.20.0, narrow the caught value with `instanceof FlowClosingError` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. [Released error](https://github.com/superdurable/dex/blob/sdk-typescript/v1.20.0/sdk-typescript/src/errors.ts)
+From TypeScript SDK v1.20.0 or later, narrow the caught value with `instanceof FlowClosingError` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error](https://github.com/superdurable/dex/blob/sdk-typescript/v1.20.0/sdk-typescript/src/errors.ts)
 
 ## Query-only Get failures
 

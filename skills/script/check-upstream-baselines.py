@@ -77,6 +77,11 @@ def main() -> None:
 
     server_baseline = (ROOT / "DEX_SERVER_BASELINE").read_text().strip()
     cli_baseline = (ROOT / "DEX_CLI_BASELINE").read_text().strip()
+    sdk_baselines = {
+        language: (ROOT / f"DEX_{language.upper()}_BASELINE").read_text().strip()
+        for language in ("java", "python", "rust", "typescript")
+    }
+    go_sdk_baseline = (ROOT / "DEX_BASELINE").read_text().strip()
     require_revision(arguments.dex_root, cli_baseline, "Dex CLI")
     require_ancestor(arguments.dex_root, server_baseline, cli_baseline, "Dex Server baseline")
     require_tag(arguments.dex_root, SERVER_ZD_RELEASE)
@@ -147,6 +152,7 @@ def main() -> None:
         '"zd-binary"',
         '"zd-config"',
         '"zd-data-dir"',
+        'flags.StringVar(&cfg.ZDConfigPath, "zd-config"',
     )
     require_text(
         arguments.dex_root / "cli" / "internal" / "dev" / "zd_process.go",
@@ -196,6 +202,9 @@ def main() -> None:
         "StopFlow (CANCEL or FAIL), Terminate",
         "`processCrashSafe` (default)",
         "Delete the whole data directory to start",
+        "A directory that an earlier release stopped gracefully keeps working in every mode.",
+        "A directory that an earlier release left after an abrupt exit is refused in the default and",
+        "After the first start of a release with this rule, the directory is stamped, and any mode works.",
         "takes it over at once",
     )
     require_tagged_text(
@@ -219,7 +228,6 @@ def main() -> None:
         arguments.dex_root,
         SERVER_ZD_RELEASE,
         "server-zd/crates/dexzd-engine/src/effects/dispatch/method_attempt.rs",
-        "DEFAULT_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(60)",
         "session.cancel();",
     )
     require_tagged_text(
@@ -228,12 +236,34 @@ def main() -> None:
         "server-zd/crates/dexzd-apply/src/command_handlers/client_writes.rs",
         "is_closed_hard_delete_erase",
         "is_hard_delete_on_null",
+        "request.action_permission_mappings.is_some()",
+        "!hard_delete_objects.is_empty()",
     )
     require_tagged_text(
         arguments.dex_root,
         server_baseline,
         "server/service/api/service.go",
         "ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING",
+        "shouldInvokeRPCTransactionally",
+        "deleteCadenceChannelMessage",
+        "s.client.SignalWorkflow(",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        server_baseline,
+        "server/service/interpreter/workflowUpdater.go",
+        "rejectTerminalUpdate",
+        "FlowTerminalCleanupInProgressMessage",
+        "validateDeleteChannelMessage",
+        "validateWorkerRpc",
+        "validateWaitForStepCompletion",
+        "validateWaitForAttribute",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        server_baseline,
+        "server/config/config.go",
+        'yaml:"useTemporalSynchronousUpdateForAllRPCs"',
     )
     require_tagged_text(
         arguments.dex_root,
@@ -244,21 +274,84 @@ def main() -> None:
     require_tagged_text(
         arguments.dex_root,
         server_baseline,
-        "server/service/interpreter/workflowImpl.go",
-        "defaultStepHeartbeatTimeout = time.Minute",
+        "server/service/interpreter/activityImpl.go",
+        "recordImplicitStepHeartbeat",
+        "a.activityProvider.RecordHeartbeat(ctx",
     )
     require_tagged_text(
         arguments.dex_root,
         server_baseline,
-        "server/service/interpreter/activityImpl.go",
-        "recordImplicitStepHeartbeat",
-        "RecordHeartbeat(ctx",
+        "server/service/interpreter/pullDispatch.go",
+        "deadline, hasDeadline := ctx.Deadline()",
+        "Deadline:                 timestamppb.New(deadline)",
     )
     require_tagged_text(
         arguments.dex_root,
         server_baseline,
         "server/service/matching/matching.go",
         "w.cancelTask(request.TaskId)",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        go_sdk_baseline,
+        "sdk-go/dex/errors.go",
+        "type FlowClosingError struct",
+        "ErrorSubStatusFlowClosing",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        go_sdk_baseline,
+        "sdk-go/dex/client.go",
+        "func (client *Client) WaitForAttributeMatch(",
+        "func (client *Client) WaitForAttributeMapInstanceMatch(",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        go_sdk_baseline,
+        "sdk-go/dex/worker_pull.go",
+        "context.WithDeadline(taskCtx, task.GetDeadline().AsTime())",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        sdk_baselines["java"],
+        "sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowClosingException.java",
+        "public final class FlowClosingException",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        sdk_baselines["python"],
+        "sdk-python/dex/runtime_errors.py",
+        "class FlowClosingError",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        sdk_baselines["python"],
+        "sdk-python/dex/__init__.py",
+        '"FlowClosingError"',
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        sdk_baselines["rust"],
+        "sdk-rust/crates/dex-sdk/src/sdk_error.rs",
+        "    FlowClosing {",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        sdk_baselines["rust"],
+        "sdk-rust/crates/dex-sdk/src/lib.rs",
+        "pub use sdk_error::{ErrorSubStatus, SdkError",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        sdk_baselines["typescript"],
+        "sdk-typescript/src/errors.ts",
+        "class FlowClosingError",
+    )
+    require_tagged_text(
+        arguments.dex_root,
+        sdk_baselines["typescript"],
+        "sdk-typescript/src/index.ts",
+        'export * from "./errors.js"',
     )
     require_text(
         arguments.dex_root / "web" / "api" / "v2.go",
@@ -384,7 +477,7 @@ def main() -> None:
         arguments.dex_root / "cli" / "internal" / "flowviz" / "go_start_flow_inputs.go",
         "start_flow_input_type_mismatch",
     )
-    print("validated Dex Server and CLI baselines")
+    print("validated Dex SDK, Server, CLI, and server-zd baselines")
 
 
 if __name__ == "__main__":

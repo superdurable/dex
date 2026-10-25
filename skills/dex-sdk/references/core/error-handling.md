@@ -18,7 +18,7 @@ The public error shape is language-specific. Python, Java, and TypeScript expose
 
 ## Flow close cleanup rejection
 
-With Server v1.20.0 on Temporal or server-zd v0.1.5, a new transactional or locking RPC, WaitForStepCompletion, WaitForAttribute, or DeleteChannelMessage rejected during natural-close cleanup returns FAILED_PRECONDITION with sub-status FLOW_CLOSING. SDK v1.20.0 in every language maps this to a typed error. Match that type rather than the error detail. Wait for or read the retained terminal Flow state before deciding whether another action is needed; the rejected request was not accepted. See [server-zd operations](operations.md#server-zd) for backend and version boundaries.
+With Server v1.20.0 or later on Temporal, or server-zd v0.1.5 or later, a new transactional or locking RPC, WaitForStepCompletion, WaitForAttributeMatch, WaitForAttributeMapInstanceMatch, or Server DeleteChannelMessage rejected during Flow close cleanup returns FAILED_PRECONDITION with sub-status FLOW_CLOSING. On the Go Server, this also applies while a stopped run winds down. SDK v1.20.0 or later in every language maps this to a typed error. Match that type rather than the error detail. Wait for or read the retained terminal Flow state before deciding whether another action is needed; the rejected request was not accepted. See [server-zd operations](operations.md#server-zd) for backend and version boundaries.
 
 ## Capacity and rate-limit failures
 
