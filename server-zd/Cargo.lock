@@ -1149,6 +1149,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "tracing",
+ "unicode-properties",
 ]
 
 [[package]]

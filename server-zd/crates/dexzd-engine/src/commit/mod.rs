@@ -24,7 +24,7 @@ pub use committed_state_view::CommittedStateView;
 pub use replay_checks::{ReplayCheck, ReplayMismatch};
 
 pub(crate) use command_committer::CommandCommitterParts;
-pub(crate) use commit_state::CommitState;
+pub(crate) use commit_state::{CommitState, LEASE_VALIDITY_EXPIRED_DETAIL};
 pub(crate) use log_proposer::{CommitProgress, CommittedBatchRouter, run_log_proposer};
 pub(crate) use partition_applier::{
     AppliedPositionAdvancer, FrameApplier, PartitionApplierPool, PartitionFrame,

@@ -16,13 +16,15 @@ use crate::map_table::MapTableSchema;
 use crate::row_key::RowKeyTemplate;
 use crate::schema::{ResolvedTables, TableReference, TableSchema};
 use crate::settings::{
-    AttributeMapTableSettings, AttributeStoreSettings, ColumnNaming, FencingToken,
+    AttributeMapTableSettings, AttributeStoreSettings, AttributeSyncItem, ColumnNaming,
+    FencingToken,
 };
 use crate::statements::{
     build_fencing_statement, build_keyed_delete, build_keyed_upsert, fencing_table_ddl,
 };
 use crate::store::{
-    AttributeStore, jitter_interval, path_escape, path_unescape, timeout_milliseconds,
+    AttributeStore, jitter_interval, latest_values, path_escape, path_unescape,
+    timeout_milliseconds,
 };
 use crate::value_conversion::SqlArgument;
 use crate::value_conversion_tests::{column, int_value, null_value, object_value, string_value};
@@ -288,6 +290,36 @@ fn batch_statements_follow_go_order_and_filtering() {
             .build_statements(&snapshot, &key_values, &nothing)
             .is_empty()
     );
+
+    for missing in [None, Some(Value { kind: None }), Some(null_value())] {
+        let items = [
+            AttributeSyncItem {
+                key: "DisplayName".to_owned(),
+                value: missing.clone(),
+            },
+            AttributeSyncItem {
+                key: "Members/account-3".to_owned(),
+                value: missing.clone(),
+            },
+        ];
+        let latest = latest_values(&items);
+        assert_eq!(latest["DisplayName"], null_value(), "{missing:?}");
+        let statements = store.build_statements(&snapshot, &key_values, &latest);
+        let queries = statements
+            .iter()
+            .map(|statement| statement.query.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            queries,
+            [
+                r#"INSERT INTO "public"."groups" ("group_id", "display_name") VALUES ($1, $2) ON CONFLICT ("group_id") DO UPDATE SET "display_name" = EXCLUDED."display_name""#,
+                r#"DELETE FROM "public"."members" WHERE "group_id" = $1 AND "account_id" = $2"#,
+            ],
+            "{missing:?}"
+        );
+        assert_eq!(statements[0].arguments, [text("g1"), SqlArgument::Null]);
+        assert_eq!(statements[1].arguments, [text("g1"), text("account-3")]);
+    }
 }
 
 #[test]

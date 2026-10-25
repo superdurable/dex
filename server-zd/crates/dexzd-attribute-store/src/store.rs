@@ -69,6 +69,7 @@ impl AttributeStore {
         let row_key = settings
             .row_key
             .as_deref()
+            .filter(|row_key| !row_key.is_empty())
             .map(RowKeyTemplate::parse)
             .transpose()
             .map_err(|reason| AttributeStoreError::InvalidSettings {
@@ -133,13 +134,7 @@ impl AttributeStore {
             );
             return Ok(());
         };
-        let mut latest = BTreeMap::new();
-        for item in items {
-            let value = item.value.clone().unwrap_or(Value {
-                kind: Some(Kind::NullValue(0)),
-            });
-            latest.insert(item.key.clone(), value);
-        }
+        let latest = latest_values(items);
         let snapshot = self.snapshot_with_columns(snapshot, &latest).await;
         let statements = self.build_statements(&snapshot, &key_values, &latest);
         if statements.is_empty() {
@@ -484,7 +479,8 @@ impl AttributeStore {
         )
         .await;
         outcome.unwrap_or_else(|_| {
-            // Dropping the connection guarantees the abandoned transaction never commits later.
+            // The abandoned transaction commits within 2× the timeout or not at all;
+            // fencing keeps a late commit safe.
             *connection = None;
             Err(timed_out())
         })
@@ -613,6 +609,22 @@ impl ColumnRefreshState {
         }
         true
     }
+}
+
+/// Returns the last value of each key; a missing value or a value without a kind is a null write.
+pub(crate) fn latest_values(items: &[AttributeSyncItem]) -> BTreeMap<String, Value> {
+    let mut latest = BTreeMap::new();
+    for item in items {
+        let value = item
+            .value
+            .clone()
+            .filter(|value| value.kind.is_some())
+            .unwrap_or(Value {
+                kind: Some(Kind::NullValue(0)),
+            });
+        latest.insert(item.key.clone(), value);
+    }
+    latest
 }
 
 /// Go's `jitterInterval`: scales the interval by 0.9 to 1.1 for a sample in [0, 1).

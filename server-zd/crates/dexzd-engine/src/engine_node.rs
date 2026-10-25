@@ -15,7 +15,8 @@ use std::time::{Duration, Instant};
 
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{
-    ClusterConfig, LeaseConfig, LeaseHandle, LeaseReleaseError, LeaseStatus, NodeConfig,
+    ClusterConfig, LeaseConfig, LeaseHandle, LeaseObservers, LeaseReleaseError, LeaseStatus,
+    LeaseValidityDeadline, NodeConfig,
 };
 use dexzd_keyspace::PartitionId;
 use dexzd_log::{CommitPipeline, StreamIdentity};
@@ -30,8 +31,8 @@ use crate::blocking_work::BlockingWorkPlacement;
 use crate::command_applier::CommandApplier;
 use crate::commit::{
     AppliedPositionAdvancer, CommandCommitter, CommandCommitterParts, CommitConfig, CommitProgress,
-    CommitState, CommittedBatchRouter, EngineLocalStore, FrameApplier, NodeStopReason,
-    PartitionApplierPool, run_log_proposer,
+    CommitState, CommittedBatchRouter, EngineLocalStore, FrameApplier,
+    LEASE_VALIDITY_EXPIRED_DETAIL, NodeStopReason, PartitionApplierPool, run_log_proposer,
 };
 use crate::engine_id_source::EngineIdSource;
 use crate::recovery::{
@@ -84,6 +85,8 @@ pub struct EngineNodeDependencies {
     pub applier: Arc<dyn CommandApplier>,
     /// Creates the command, lineage, and EpochStart writer IDs.
     pub id_source: Arc<dyn EngineIdSource>,
+    /// Armed with the lease's local validity; commits are refused and unacknowledged after it passes.
+    pub lease_validity_deadline: LeaseValidityDeadline,
 }
 
 /// A node serving its log stream. After a fatal failure it stops serving; then exit non-zero.
@@ -137,6 +140,7 @@ impl EngineNode {
             clock,
             applier,
             id_source,
+            lease_validity_deadline,
         } = dependencies;
         // Fails fast on a contradicting manifest; the predecessor may still change it until the lease.
         let unleased_metadata = ClusterMetadata::bootstrap_or_validate(
@@ -154,13 +158,16 @@ impl EngineNode {
         let cluster_id = unleased_metadata.cluster_id()?;
         let Some(lease) = config
             .lease
-            .acquire_until_cancelled_with_metrics(
+            .acquire_until_cancelled_with_observers(
                 object_store.clone(),
                 clock.clone(),
                 &config.node,
                 cancellation,
                 id_source.lease_holder_process_id(),
-                metrics.as_ref().clone(),
+                LeaseObservers {
+                    metrics: Some(metrics.as_ref().clone()),
+                    validity_deadline: lease_validity_deadline.clone(),
+                },
             )
             .await?
         else {
@@ -173,7 +180,7 @@ impl EngineNode {
         metrics.set_role(dexzd_metrics::NodeRole::Recovering);
         let recovery_started = std::time::Instant::now();
         tracing::info!(node_id = %config.node.node_id, epoch, partition_count, "engine node recovering");
-        let state = Arc::new(CommitState::new(partition_count));
+        let state = Arc::new(CommitState::new(partition_count, lease_validity_deadline));
         let mut tasks = RunningTasks::default();
         tasks.spawn(watch_lease(
             lease.subscribe(),
@@ -714,7 +721,7 @@ async fn watch_lease(
             () = tokio::time::sleep_until(deadline) => {
                 metrics.lease_epoch.set(0);
                 state.stop(NodeStopReason::LeaseLost {
-                    detail: "lease validity expired before renewal".to_owned(),
+                    detail: LEASE_VALIDITY_EXPIRED_DETAIL.to_owned(),
                 });
                 return;
             }

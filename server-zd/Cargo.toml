@@ -98,6 +98,7 @@ tonic-prost-build = "0.14"
 tower-layer = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
 uuid = { version = "1", features = ["v4", "v7"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zstd = "0.13"

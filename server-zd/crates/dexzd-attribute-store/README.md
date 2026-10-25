@@ -15,11 +15,29 @@ Any failure fails construction. It never creates or alters a table.
 upsert, then one upsert or delete per AttributeMap instance, ordered by map name
 and instance key. Filtering, `rowKey`, `columnNaming: snake_case`, the SQL type
 contract, and unknown-column refreshes follow the Go Server. An item whose value
-is `None` is a null write.
+is `None`, or a `Value` without a kind, is a null write.
 
 Go runs a batch with one statement outside a transaction. This crate always
 uses a transaction, because the fencing check must commit atomically with the
 writes.
+
+## Differences from the Go Server
+
+- The transaction does not work with PgBouncer statement pooling. Use
+  transaction or session pooling.
+- The per-transaction `statement_timeout` can fail a long lock wait that Go
+  would wait out within its attempt timeout.
+- `sslmode=allow` tries TLS first. pgx tries plaintext first.
+- Unknown DSN keys fail startup. pgx sends them as runtime parameters, so set
+  `search_path` through `options='-c search_path=...'` instead.
+- `sslcert`, `sslkey`, `PG*` environment variables, and the passfile are not
+  supported.
+- DSN errors use fixed messages and never quote the DSN.
+- Go skips a missing store value and upserts a map instance with defaults. This
+  crate treats both as null writes.
+- Instance keys or JSON that are not valid UTF-8, and JSON nested deeper than
+  128 levels, are logged and skipped instead of failing the batch. Go sends
+  them to Postgres.
 
 ## Fencing
 

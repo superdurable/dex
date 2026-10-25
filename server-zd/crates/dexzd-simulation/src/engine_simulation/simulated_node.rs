@@ -192,6 +192,7 @@ impl NodeProcess {
                 clock: wall_clock,
                 applier,
                 id_source: Arc::clone(&environment.id_source),
+                lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
             },
             move |services: EngineServices| {
                 let partition_hasher = services.partition_hasher.clone();

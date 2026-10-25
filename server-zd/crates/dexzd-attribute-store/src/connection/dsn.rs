@@ -155,7 +155,7 @@ fn key_value_parameters(dsn: &str) -> Result<Vec<Parameter>, String> {
             index += 1;
         }
         if characters.get(index).map(|(_, character)| *character) != Some('=') {
-            return Err(format!("connection string parameter {key:?} has no '='"));
+            return Err("connection string has a keyword without '='".to_owned());
         }
         index += 1;
         while characters
@@ -172,9 +172,7 @@ fn key_value_parameters(dsn: &str) -> Result<Vec<Parameter>, String> {
         loop {
             let Some(&(_, character)) = characters.get(index) else {
                 if is_quoted {
-                    return Err(format!(
-                        "connection string parameter {key:?} has an unterminated quote"
-                    ));
+                    return Err("connection string has an unterminated quoted value".to_owned());
                 }
                 break;
             };
@@ -184,9 +182,7 @@ fn key_value_parameters(dsn: &str) -> Result<Vec<Parameter>, String> {
             if character == '\\' {
                 index += 1;
                 let Some(&(_, escaped)) = characters.get(index) else {
-                    return Err(format!(
-                        "connection string parameter {key:?} ends with an escape"
-                    ));
+                    return Err("connection string ends with an unfinished escape".to_owned());
                 };
                 value.push(escaped);
             } else {
@@ -197,7 +193,7 @@ fn key_value_parameters(dsn: &str) -> Result<Vec<Parameter>, String> {
         if is_quoted {
             index += 1;
         } else if value.is_empty() {
-            return Err(format!("connection string parameter {key:?} has no value"));
+            return Err("connection string has a keyword without a value".to_owned());
         }
         parameters.push(Parameter {
             key,
