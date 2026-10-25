@@ -2598,6 +2598,7 @@ The remaining FlowService operations use non-generic public types:
 |---|---|
 | `StopFlow` | `Client.StopFlow(ctx, flowID, StopOptions)` |
 | `WaitForFlow` | `Client.WaitForFlow(ctx, flowID, WaitForFlowOptions)` |
+| `GetFlowSummary` | `Client.DescribeFlow(ctx, flowID)` returns `FlowInfo` for the current or latest run without waiting |
 | `SearchFlows` | `Client.SearchFlows(ctx, query, pageSize, nextPageToken)` |
 | `TimeTravel` | `Client.TimeTravel(ctx, flowID, TimeTravelOptions)` |
 | `SkipTimer` | `Client.SkipTimer(ctx, flowID, StepExecutionID, TimerID)` |
@@ -2964,7 +2965,7 @@ metadata.
 `WaitForFlow` returns `FlowResult` for every terminal status. Transport,
 long-poll, hydration, and invalid-input failures remain errors.
 
-WaitForFlow and TimeTravel require an existing Flow. Stop, timer, config, and
+DescribeFlow, WaitForFlow, and TimeTravel require an existing Flow. Stop, timer, config, and
 Step or Attribute wait operations require an active Flow. RPCs use
 `FlowNotActiveOrNotFoundError` for a missing target or a closed target that the
 operation cannot use. The error alone cannot distinguish those cases. A retained
