@@ -162,6 +162,7 @@ impl Harness {
             proposed_at_micros: self.now_micros,
             command_id: (self.now_micros as u128).to_be_bytes().to_vec(),
             tenant_id: 0,
+            is_transactional_rpc_in_flight: false,
             command: Some(body),
         }
     }

@@ -33,11 +33,6 @@ pub(crate) struct LogProposal {
     pub(crate) waits_for_commit: bool,
 }
 
-struct StampState {
-    last_stamped_micros: Vec<i64>,
-    proposals: mpsc::UnboundedSender<LogProposal>,
-}
-
 /// Stamps commands and submits them to the commit pipeline; shared by every Flow runtime.
 #[derive(Clone)]
 pub struct CommandCommitter {
@@ -52,7 +47,10 @@ struct CommitterInner {
     epoch: u64,
     behavior_version: u32,
     admission: Arc<Semaphore>,
-    stamps: Mutex<StampState>,
+    /// Each partition's last stamped proposed_at; its lock orders that partition's stamps and
+    /// enqueues.
+    stamp_watermarks: Vec<Mutex<i64>>,
+    proposals: mpsc::UnboundedSender<LogProposal>,
     is_checking_replay: bool,
 }
 
@@ -80,10 +78,8 @@ impl CommandCommitter {
                 epoch: parts.epoch,
                 behavior_version: parts.behavior_version,
                 admission: Arc::new(Semaphore::new(parts.max_unapplied_bytes as usize)),
-                stamps: Mutex::new(StampState {
-                    last_stamped_micros: vec![0; partition_count],
-                    proposals: parts.proposals,
-                }),
+                stamp_watermarks: (0..partition_count).map(|_| Mutex::new(0)).collect(),
+                proposals: parts.proposals,
                 is_checking_replay: parts.is_checking_replay,
             }),
         }
@@ -91,9 +87,8 @@ impl CommandCommitter {
 
     /// Raises each partition's stamp watermark to its applied command timestamp.
     pub(crate) fn seed_stamp_watermarks(&self, applied_micros: &[(PartitionId, i64)]) {
-        let mut stamps = self.lock_stamps();
         for (partition, micros) in applied_micros {
-            let watermark = &mut stamps.last_stamped_micros[usize::from(partition.0)];
+            let mut watermark = self.lock_stamp_watermark(*partition);
             *watermark = (*watermark).max(*micros);
         }
     }
@@ -110,8 +105,23 @@ impl CommandCommitter {
     pub fn submit(
         &self,
         context: ApplyContext,
+        command: FlowCommand,
+        urgency: CommitUrgency,
+    ) -> Result<(FlowCommand, CommitTicket), CommitError> {
+        self.submit_with_final_stamp(context, command, urgency, &mut |_| {})
+    }
+
+    /// Like [`Self::submit`], but calls `finish_stamp` with the stamped command under the
+    /// partition's stamp lock, before the command is encoded and enqueued. Other partitions keep
+    /// stamping meanwhile.
+    ///
+    /// Returns what [`Self::submit`] returns.
+    pub fn submit_with_final_stamp(
+        &self,
+        context: ApplyContext,
         mut command: FlowCommand,
         urgency: CommitUrgency,
+        finish_stamp: &mut dyn FnMut(&mut FlowCommand),
     ) -> Result<(FlowCommand, CommitTicket), CommitError> {
         let inner = &*self.inner;
         inner.state.check_serving()?;
@@ -127,12 +137,12 @@ impl CommandCommitter {
         command.epoch = inner.epoch;
         command.behavior_version = inner.behavior_version;
         command.command_id.clone_from(&command_id);
-        let mut stamps = self.lock_stamps();
-        let watermark = stamps.last_stamped_micros[usize::from(partition.0)];
+        let mut watermark = self.lock_stamp_watermark(partition);
         command.proposed_at_micros = inner
             .clock
             .now_unix_micros()
             .max(watermark.saturating_add(1));
+        finish_stamp(&mut command);
         let record = Bytes::from(
             LogRecord {
                 partition: u32::from(partition.0),
@@ -159,7 +169,7 @@ impl CommandCommitter {
             record,
             waits_for_commit: urgency == CommitUrgency::Prompt,
         };
-        if stamps.proposals.send(proposal).is_err() {
+        if inner.proposals.send(proposal).is_err() {
             let reason = inner
                 .state
                 .stop_reason()
@@ -172,8 +182,8 @@ impl CommandCommitter {
             }
             return Err(error);
         }
-        stamps.last_stamped_micros[usize::from(partition.0)] = command.proposed_at_micros;
-        drop(stamps);
+        *watermark = command.proposed_at_micros;
+        drop(watermark);
         Ok((command, ticket))
     }
 
@@ -213,22 +223,22 @@ impl CommandCommitter {
         self.inner.state.stop_reason()
     }
 
-    fn lock_stamps(&self) -> std::sync::MutexGuard<'_, StampState> {
-        self.inner
-            .stamps
+    fn lock_stamp_watermark(&self, partition: PartitionId) -> std::sync::MutexGuard<'_, i64> {
+        self.inner.stamp_watermarks[usize::from(partition.0)]
             .lock()
             .expect("stamp lock is not poisoned")
     }
 }
 
 impl FlowCommandCommitter for CommandCommitter {
-    fn submit(
+    fn submit_with_final_stamp(
         &self,
         context: ApplyContext,
         command: FlowCommand,
         urgency: CommitUrgency,
+        finish_stamp: &mut dyn FnMut(&mut FlowCommand),
     ) -> Result<(FlowCommand, CommitTicket), CommitError> {
-        CommandCommitter::submit(self, context, command, urgency)
+        CommandCommitter::submit_with_final_stamp(self, context, command, urgency, finish_stamp)
     }
 
     fn committed_view(&self) -> Result<Box<dyn FlowStateReader + Send>, CommitError> {

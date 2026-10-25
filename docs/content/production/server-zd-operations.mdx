@@ -507,15 +507,37 @@ in server-zd.
   Server does not rewrite them.
 - Each database needs a [fencing table](#attribute-store-fencing-table). The Go
   Server needs none.
-- A Flow closes without waiting for its synced Attributes. Rows can land after
-  the Flow completes. The Go Server closes a Flow only after its pending writes
-  are written or dropped.
-- StopFlow closes the run as soon as it commits. A later **SetAttributes** returns
-  NOT_FOUND unless every write erases a currently stored hard-delete Attribute
-  with null. This exception applies only before the run is purged. It deletes
-  the stored objects without reopening the run. The Go Server accepts writes
-  while a canceled or failed run winds down. It rejects every write after the
-  run closes. Write what a Flow needs before stopping it.
+- server-zd v0.1.3 closes a Flow without waiting for its synced Attributes.
+  Rows can land after the Flow completes.
+- server-zd v0.1.4 or later waits, like the Go Server. A Step decision that
+  completes or fails the Flow, exhausted Step retries, or the Flow timeout stops
+  the Steps at once. The run then stays RUNNING until every pending write is
+  written or dropped. WaitForFlow returns only then, so the rows are already in
+  the table.
+- While a close waits, SetAttributes, PublishToChannel, and RPCs that are
+  neither transactional nor locking are accepted. Their synced writes extend
+  the wait, and they start no Step.
+  Transactional or locking RPCs, WaitForStepCompletion, WaitForAttribute, and
+  DeleteChannelMessage calls made during the wait fail with
+  FAILED_PRECONDITION.
+- In server-zd v0.1.4 or later, a natural close also waits for every
+  transactional or locking RPC admitted before it, even without an Attribute
+  Store. Such an RPC still commits, and its synced writes join the wait. The
+  close is recorded once those RPCs commit, fail, or time out.
+- **syncRetryPolicy.totalDuration** limits how long each pending write is
+  retried, not the whole close. During a PostgreSQL outage a close waits until
+  its pending writes are dropped. Every synced write accepted while the close
+  waits starts its own retry window and extends the wait.
+- StopFlow and Terminate never wait. StopFlow closes the run as soon as it
+  commits, even while a close waits, and the pending writes keep syncing after
+  the close. A later **SetAttributes** on that run returns NOT_FOUND unless
+  every write erases a currently stored hard-delete Attribute with null. This
+  exception applies only before the run is purged. It deletes the stored objects
+  without reopening the run. The Go Server accepts writes while a canceled or
+  failed run winds down. It rejects every write after the run closes. Write what
+  a Flow needs before stopping it.
+- Pending writes for a store that is no longer configured are dropped at once
+  and counted in **dexzd_attribute_sync_dropped_entries_total**.
 
 ### Configuration {#attribute-store-configuration}
 

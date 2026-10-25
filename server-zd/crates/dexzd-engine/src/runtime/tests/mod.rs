@@ -8,6 +8,7 @@
 
 mod byte_limit_tests;
 mod client_operation_tests;
+mod close_barrier_tests;
 mod commit_failure_tests;
 mod concurrency_tests;
 mod fixtures;

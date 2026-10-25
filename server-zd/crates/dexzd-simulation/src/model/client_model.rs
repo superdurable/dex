@@ -325,6 +325,18 @@ pub(crate) fn attribute_sync_ack(rng: &mut ChaCha8Rng, run: &RunView) -> Command
     })
 }
 
+/// Skips the Flow timeout: the timeout handler's only timer, index 0 with no condition ID.
+pub(crate) fn skip_flow_timeout(flow_id: &str) -> Command {
+    Command::TimerSkip(TimerSkipCommand {
+        request: Some(SkipTimerRequest {
+            flow_id: flow_id.to_owned(),
+            step_execution_id: "sys:timeout_handler-1".to_owned(),
+            timer_condition_index: Some(0),
+            ..SkipTimerRequest::default()
+        }),
+    })
+}
+
 /// RPC commits, timer skips, and time travel, whose handlers land after the backbone.
 pub(crate) fn later_handler_command(
     rng: &mut ChaCha8Rng,

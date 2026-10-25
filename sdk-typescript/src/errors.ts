@@ -28,6 +28,8 @@ export const ErrorSubStatus = Object.freeze({
   CHANNEL_MESSAGE_NOT_FOUND: "channelMessageNotFound",
   /** A caller-defined request budget expired. */
   REQUEST_TIMEOUT: "requestTimeout",
+  /** Dex rejected an update-class request during Flow close cleanup. */
+  FLOW_CLOSING: "flowClosing",
 } as const);
 
 /** Represents a value from {@link ErrorSubStatus}. */
@@ -78,6 +80,25 @@ export class DexServiceError extends Error {
 
 /** Indicates that `startFlow` conflicts with an existing Flow ID. */
 export class FlowAlreadyStartedError extends DexServiceError {}
+
+/**
+ * Reports a request rejected while Dex closes a Flow.
+ * Re-read the retained terminal Flow state before deciding what to do next.
+ * @example
+ * ```typescript
+ * const options = { requestTimeoutMs: timeoutMs };
+ * try {
+ *   await client.waitForStepCompletion(flowId, stepExecutionId, options);
+ * } catch (error) {
+ *   if (error instanceof FlowClosingError) {
+ *     await client.waitForFlow(flowId);
+ *   } else {
+ *     throw error;
+ *   }
+ * }
+ * ```
+ */
+export class FlowClosingError extends DexServiceError {}
 
 /** Indicates that an operation targeted a Flow ID that does not exist. */
 export class FlowNotFoundError extends DexServiceError {}

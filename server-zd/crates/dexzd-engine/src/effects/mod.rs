@@ -20,6 +20,7 @@ mod method_request;
 mod object_deletions;
 mod outbox_delivery;
 mod partition_rebuild;
+mod pending_close_check;
 mod state_reads;
 mod timer_service;
 
@@ -234,6 +235,7 @@ pub(crate) enum TrackedWork {
     OutboxMessage { run_id: RunId, message_id: Vec<u8> },
     HardDeleteObjects { run_id: RunId },
     RunPurge { run_id: RunId },
+    PendingCloseCheck { run_id: RunId },
 }
 
 /// Dependencies of the effect runner, passed once to [`EffectRunner::new`].
@@ -667,6 +669,9 @@ impl EffectRouter {
             ApplyEffect::RunPurgeRequested { run_id } => {
                 self.spawn_tracked(flow, TrackedWork::RunPurge { run_id });
             }
+            ApplyEffect::PendingCloseHeldByRpcs { run_id } => {
+                self.spawn_tracked(flow, TrackedWork::PendingCloseCheck { run_id });
+            }
         }
     }
 
@@ -692,6 +697,10 @@ impl EffectRouter {
                 }
                 TrackedWork::RunPurge { run_id } => {
                     object_deletions::purge_run(&context, &flow, *run_id).await
+                }
+                TrackedWork::PendingCloseCheck { run_id } => {
+                    pending_close_check::finalize_pending_close_after_rpcs(&context, &flow, *run_id)
+                        .await
                 }
             };
             if let Err(error) = result {

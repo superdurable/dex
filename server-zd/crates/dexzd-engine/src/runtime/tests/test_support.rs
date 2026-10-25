@@ -170,11 +170,12 @@ impl FakeCommitter {
 }
 
 impl FlowCommandCommitter for FakeCommitter {
-    fn submit(
+    fn submit_with_final_stamp(
         &self,
         context: ApplyContext,
         mut command: FlowCommand,
         _urgency: CommitUrgency,
+        finish_stamp: &mut dyn FnMut(&mut FlowCommand),
     ) -> Result<(FlowCommand, CommitTicket), CommitError> {
         if let Some(error) = self.submit_errors.lock().unwrap().pop_front() {
             return Err(error);
@@ -184,6 +185,7 @@ impl FlowCommandCommitter for FakeCommitter {
         command.behavior_version = 1;
         command.proposed_at_micros = i64::try_from(number).unwrap() * 1_000_000;
         command.command_id = u128::from(number).to_be_bytes().to_vec();
+        finish_stamp(&mut command);
         let (sender, ticket) = CommitTicket::new_pair();
         self.submitted_commands
             .lock()

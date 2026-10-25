@@ -20,6 +20,7 @@ use dexzd_protocol::dex::AttributeWrite;
 use dexzd_protocol::dexzd::v1::{AttributeSyncAckCommand, AttributeSyncOutboxRecord, RunRecord};
 
 use crate::command_handlers::command_replies::ok_reply;
+use crate::command_handlers::flow_close::finalize_pending_close_if_ready;
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::state_access::{FlowTransaction, RunRows};
@@ -91,6 +92,9 @@ pub(crate) fn apply_attribute_sync_ack(
     scope: &CommandScope<'_>,
     command: &AttributeSyncAckCommand,
 ) -> Result<HandlerResult, ApplyError> {
+    if scope.is_replay {
+        return replay_recorded_close(transaction, cursor, scope);
+    }
     let flow_hash = cursor.rows.flow_hash;
     let run_id = cursor.run_id();
     let selected_keys: BTreeSet<&str> = command.attribute_keys.iter().map(String::as_str).collect();
@@ -150,12 +154,51 @@ pub(crate) fn apply_attribute_sync_ack(
             attribute_keys: deleted_keys,
         });
     }
+    let is_finalized =
+        !has_remaining_entry && finalize_pending_close_if_ready(transaction, &mut cursor, scope)?;
+    let kind = if is_finalized {
+        HistoryKind::SEMANTIC
+    } else {
+        HistoryKind::BOOKKEEPING
+    };
     Ok(HandlerResult::Applied(cursor.finish(
         transaction,
         scope,
         ok_reply(),
-        HistoryKind::BOOKKEEPING,
+        kind,
     )?))
+}
+
+/// A rebuild replays only acks that finalized a pending close, and never reads the run-scoped outbox.
+fn replay_recorded_close(
+    transaction: &mut FlowTransaction<'_>,
+    mut cursor: RunCursor,
+    scope: &CommandScope<'_>,
+) -> Result<HandlerResult, ApplyError> {
+    if !finalize_pending_close_if_ready(transaction, &mut cursor, scope)? {
+        return Err(ApplyError::InvariantViolation {
+            detail: "a replayed Attribute Sync ack recorded a close without a pending close"
+                .to_owned(),
+        });
+    }
+    Ok(HandlerResult::Applied(cursor.finish(
+        transaction,
+        scope,
+        ok_reply(),
+        HistoryKind::SEMANTIC,
+    )?))
+}
+
+/// Whether the run has an Attribute Sync outbox entry for any store, including buffered writes.
+pub(crate) fn has_attribute_sync_entries(
+    transaction: &FlowTransaction<'_>,
+    rows: RunRows,
+) -> Result<bool, ApplyError> {
+    let prefix = run_table_prefix(rows.flow_hash, rows.run_id, RunTable::AttributeSyncOutbox);
+    let (start, end) = prefix_range(&prefix);
+    Ok(!transaction
+        .scan(ColumnFamily::Flow, &start, &end, 1)?
+        .is_empty())
 }
 
 /// Deletes the pending index keys of a purged run; the range delete removes its entries.

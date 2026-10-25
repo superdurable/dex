@@ -16,6 +16,7 @@ import (
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/service"
+	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/ptr"
 	"go.temporal.io/sdk/client"
 )
@@ -26,6 +27,7 @@ var testNamespace = "default"
 
 type DexServiceTestConfig struct {
 	BackendType                            service.BackendType
+	ApiUnifiedClientWrapper                func(uclient.UnifiedClient) uclient.UnifiedClient
 	CadenceDomain                          string
 	MemoEncryption                         bool
 	DefaultHeaders                         map[string]string

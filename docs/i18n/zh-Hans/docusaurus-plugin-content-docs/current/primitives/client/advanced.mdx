@@ -6,6 +6,10 @@ slug: /primitives/client/advanced
 
 # Client Advanced
 
+## Flow 关闭期间的请求 {#requests-during-flow-close}
+
+Flow 关闭期间，Dex 会以 gRPC **FAILED_PRECONDITION** 和子状态 **FLOW_CLOSING** 拒绝新发起的事务性或带锁的 RPC、**WaitForStepCompletion**、**WaitForAttributeMatch** 和 Channel 消息删除。每种 SDK 都提供有类型的 Flow closing 错误。决定是否需要进一步操作前，应重新读取保留的 Flow 终态。该错误不能证明先前的请求已经成功。
+
 ## 等待 Flow
 
 **WaitForFlow** 等待 Flow 到达 terminal status。bounded wait 在 Flow 仍然 open 时会返回 long-poll timeout；再次调用即可继续等待。

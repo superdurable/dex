@@ -26,6 +26,7 @@ use super::ack_proposer::{AckBatch, AckBatchResult, AckProposer, PendingAck};
 use super::pending_entries::{
     PendingEntry, PendingRunEntries, PendingStoreWork, read_pending_store_work,
 };
+use super::unconfigured_stores::{UnconfiguredStoreDrops, read_unconfigured_store_drops};
 use super::{
     AttributeSyncConfig, AttributeSyncDependencies, AttributeSyncFence, AttributeSyncItem,
     AttributeSyncRetryPolicy, AttributeSyncWaker, AttributeSyncWriteError, AttributeSyncWriter,
@@ -57,6 +58,8 @@ pub struct AttributeSyncProjector {
     run_retries: BTreeMap<(String, RunLocation), RunRetryState>,
     /// When each deferred (partition, store) pair is read again; each pair is due on its own.
     deferred_work: BTreeMap<(PartitionId, String), Instant>,
+    /// When partitions whose unconfigured-store read failed are read again.
+    deferred_unconfigured_reads: BTreeMap<PartitionId, Instant>,
     /// The Flow whose store-scoped failure backed off the store; the pair's next pass starts after it.
     resume_after_flow: BTreeMap<(PartitionId, String), FlowAddress>,
     /// The partition each cycle visits first; it moves past the last store-scoped failure.
@@ -147,6 +150,7 @@ impl AttributeSyncProjector {
             timed_out_runs: BTreeMap::new(),
             run_retries: BTreeMap::new(),
             deferred_work: BTreeMap::new(),
+            deferred_unconfigured_reads: BTreeMap::new(),
             resume_after_flow: BTreeMap::new(),
             cycle_start_partition: PartitionId(0),
             backlog: BTreeMap::new(),
@@ -182,7 +186,12 @@ impl AttributeSyncProjector {
                 continue;
             }
             // `next_work` took every due pair, so this instant is in the future and the wait never spins.
-            let retry_at = self.deferred_work.values().min().copied();
+            let retry_at = self
+                .deferred_work
+                .values()
+                .chain(self.deferred_unconfigured_reads.values())
+                .min()
+                .copied();
             let mut lease_status = self.lease_status.clone();
             // Biased for reproducible simulation; stop and lease loss fire once.
             tokio::select! {
@@ -222,6 +231,11 @@ impl AttributeSyncProjector {
                 }
             }
         }
+        for (partition, retry_at) in &self.deferred_unconfigured_reads {
+            if *retry_at <= now {
+                work.insert(*partition, StoreSelection::Every);
+            }
+        }
         work
     }
 
@@ -234,19 +248,63 @@ impl AttributeSyncProjector {
     ) -> ControlFlow<()> {
         // Dropping the set on a stop aborts proposals; the next owner rewrites unacknowledged rows.
         let mut ack_batches = JoinSet::new();
+        let mut unconfigured_drops = self.read_unconfigured_drops(&work).await;
         let mut earlier_partitions = work;
         let later_partitions = earlier_partitions.split_off(&self.cycle_start_partition);
         for (partition, stores) in later_partitions.into_iter().chain(earlier_partitions) {
-            self.project_partition(partition, stores, &mut ack_batches)
+            if self.stop.is_cancelled() {
+                return ControlFlow::Break(());
+            }
+            let drops = unconfigured_drops.remove(&partition).unwrap_or_default();
+            self.project_partition(partition, stores, drops, &mut ack_batches)
                 .await?;
         }
         self.finish_ack_batches(ack_batches).await
+    }
+
+    /// Returns `work`'s drops of unconfigured stores by partition; a failed read defers instead.
+    async fn read_unconfigured_drops(
+        &mut self,
+        work: &BTreeMap<PartitionId, StoreSelection>,
+    ) -> BTreeMap<PartitionId, Vec<UnconfiguredStoreDrops>> {
+        let configured: BTreeSet<String> = self.config.store_names.iter().cloned().collect();
+        let reads: Vec<(PartitionId, Option<BTreeSet<String>>)> = work
+            .iter()
+            .filter_map(|(partition, stores)| match stores {
+                StoreSelection::Every => Some((*partition, None)),
+                StoreSelection::Only(selected) if selected.is_subset(&configured) => None,
+                StoreSelection::Only(selected) => Some((*partition, Some(selected.clone()))),
+            })
+            .collect();
+        if reads.is_empty() {
+            return BTreeMap::new();
+        }
+        let partitions: Vec<PartitionId> = reads.iter().map(|(partition, _)| *partition).collect();
+        for partition in &partitions {
+            self.deferred_unconfigured_reads.remove(partition);
+        }
+        let runtime = Arc::clone(&self.runtime);
+        match read_unconfigured_store_drops(runtime, reads, configured, self.stop.clone()).await {
+            Ok(drops) => drops,
+            Err(detail) => {
+                tracing::warn!(
+                    detail,
+                    "reading entries of unconfigured Attribute Stores failed; retrying"
+                );
+                let retry_at = Instant::now() + self.config.retry_policy.initial_interval;
+                for partition in partitions {
+                    self.deferred_unconfigured_reads.insert(partition, retry_at);
+                }
+                BTreeMap::new()
+            }
+        }
     }
 
     async fn project_partition(
         &mut self,
         partition: PartitionId,
         stores: StoreSelection,
+        unconfigured_drops: Vec<UnconfiguredStoreDrops>,
         ack_batches: &mut JoinSet<AckBatchResult>,
     ) -> ControlFlow<()> {
         for store_name in self.config.store_names.clone() {
@@ -304,6 +362,20 @@ impl AttributeSyncProjector {
                     acks,
                 }));
             }
+        }
+        for drop in unconfigured_drops {
+            self.deferred_work
+                .remove(&(partition, drop.store_name.clone()));
+            let proposer = AckProposer {
+                runtime: Arc::clone(&self.runtime),
+                stop: self.stop.clone(),
+                retry_policy: self.config.retry_policy.clone(),
+            };
+            ack_batches.spawn(proposer.propose_batch(AckBatch {
+                partition,
+                store_name: drop.store_name,
+                acks: drop.acks,
+            }));
         }
         ControlFlow::Continue(())
     }

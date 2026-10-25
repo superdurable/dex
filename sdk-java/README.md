@@ -664,6 +664,9 @@ is active.
 `LongPollTimeoutException` identifies an expected long-poll timeout.
 `RequestTimeoutException` identifies an exhausted caller-defined request
 budget.
+`FlowClosingException` identifies an update-class request rejected during Flow
+close cleanup. Re-read the retained terminal Flow state before deciding whether
+another action is needed.
 `Client.waitForFlow` returns `FlowResult` for successful and unsuccessful
 terminal statuses. Inspect `getStatus`, `getErrorType`, and `getErrorMessage`
 before decoding outputs from an unsuccessful result.

@@ -2947,12 +2947,17 @@ const (
 	ErrorSubStatusFlowNotFound
 	ErrorSubStatusWorkerAPI
 	ErrorSubStatusLongPollTimeout
+	ErrorSubStatusChannelMessageNotFound
+	ErrorSubStatusRequestTimeout
+	ErrorSubStatusFlowClosing
 )
 ```
 
 Applications use `errors.As` with `FlowAlreadyStartedError`,
 `FlowNotFoundError`, `FlowNotActiveOrNotFoundError`, `WorkerInvocationError`,
-`RPCLockConflictError`, or `LongPollTimeoutError`. Each unwraps through
+`RPCLockConflictError`, `LongPollTimeoutError`, or `FlowClosingError`.
+`FlowClosingError` identifies an update-class request rejected during Flow close cleanup.
+Each unwraps through
 `ServiceError` to the original gRPC status. `ErrorSubStatus` remains diagnostic
 metadata.
 

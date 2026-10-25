@@ -15,6 +15,7 @@ import { Metadata, status, type ServiceError } from "@grpc/grpc-js";
 import {
   DexServiceError,
   FlowAlreadyStartedError,
+  FlowClosingError,
   FlowNotActiveOrNotFoundError,
   FlowNotFoundError,
   LongPollTimeoutError,
@@ -34,6 +35,18 @@ test("missing Flow uses the endpoint lifecycle requirement", () => {
   assert.ok(
     translateServiceError(error, "publish", "flow-id", "active") instanceof FlowNotActiveOrNotFoundError,
   );
+});
+
+test("Flow closing maps to a typed error", () => {
+  const translated = translateServiceError(
+    serviceError(status.FAILED_PRECONDITION, ErrorSubStatus.ERROR_SUB_STATUS_FLOW_CLOSING),
+    "waitForAttributeMatch",
+    "flow-id",
+    "active",
+  );
+  assert.ok(translated instanceof FlowClosingError);
+  assert.equal(translated.code, status.FAILED_PRECONDITION);
+  assert.equal(translated.subStatus, "flowClosing");
 });
 
 test("worker failures preserve worker details and isolate lock conflicts", () => {

@@ -98,8 +98,9 @@ impl FlowRuntimeRegistry {
     /// canceled). A Step that failed the Flow never finishes.
     ///
     /// Returns `REQUEST_TIMEOUT` when `request_timeout_seconds` passes, `LONG_POLL_TIME_OUT`
-    /// after one call's wait so the client polls again, and `FLOW_NOT_EXISTS` once the run
-    /// closed without the Step finishing.
+    /// after one call's wait so the client polls again, `FLOW_NOT_EXISTS` once the run
+    /// closed without the Step finishing, and `FAILED_PRECONDITION` while a natural close waits
+    /// for the Attribute Sync outbox.
     pub async fn wait_for_step_completion(
         &self,
         tenant_id: TenantId,
@@ -123,6 +124,7 @@ impl FlowRuntimeRegistry {
             request.request_timeout_seconds,
             STEP_COMPLETION_REQUEST_TIMEOUT_MESSAGE,
         );
+        let mut admission = TerminalCleanupAdmission::default();
         self.long_poll(
             &flow,
             WaitInterest::StepExecution(step_execution_id),
@@ -130,6 +132,7 @@ impl FlowRuntimeRegistry {
             WAIT_CALL_DEADLINE_MESSAGE,
             |state, context| {
                 let run = read_run(state, context, &flow, "")?;
+                let is_terminal_cleanup = admission.check(&run)?;
                 let completion = step_completion_state(
                     state,
                     context.flow_hash,
@@ -140,6 +143,9 @@ impl FlowRuntimeRegistry {
                 .map_err(|error| read_model_error(&flow, error))?;
                 match completion {
                     StepCompletionState::Completed => Ok(Some(WaitForStepCompletionResponse {})),
+                    StepCompletionState::NotCompleted if is_terminal_cleanup => {
+                        Err(RuntimeError::terminal_cleanup_in_progress())
+                    }
                     StepCompletionState::NotCompleted => Ok(None),
                     // Go reports a wait on a closed Flow as a missing Flow.
                     StepCompletionState::EndedWithoutCompletion => {
@@ -154,7 +160,8 @@ impl FlowRuntimeRegistry {
     /// Waits until an Attribute of the current run matches and returns the matched value.
     ///
     /// Returns `FAILED_PRECONDITION` when the stored value is above the inline threshold, a
-    /// hard-delete value, or not comparable; timeouts behave like WaitForStepCompletion.
+    /// hard-delete value, or not comparable, or while a natural close waits for the Attribute
+    /// Sync outbox; timeouts behave like WaitForStepCompletion.
     pub async fn wait_for_attribute(
         &self,
         tenant_id: TenantId,
@@ -173,6 +180,7 @@ impl FlowRuntimeRegistry {
             request.request_timeout_seconds,
             ATTRIBUTE_REQUEST_TIMEOUT_MESSAGE,
         );
+        let mut admission = TerminalCleanupAdmission::default();
         self.long_poll(
             &flow,
             WaitInterest::Attribute(attribute_match.key.clone()),
@@ -183,6 +191,12 @@ impl FlowRuntimeRegistry {
                 if is_closed_status(run.record.status) {
                     return Err(RuntimeError::flow_not_found(&flow.flow_id));
                 }
+                let is_terminal_cleanup = admission.check(&run)?;
+                let unmatched = if is_terminal_cleanup {
+                    Err(RuntimeError::terminal_cleanup_in_progress())
+                } else {
+                    Ok(None)
+                };
                 let record: Option<AttributeRecord> = decode_row(
                     state,
                     ColumnFamily::Flow,
@@ -195,7 +209,7 @@ impl FlowRuntimeRegistry {
                     "Attribute",
                 )?;
                 let Some(stored) = record.and_then(|record| record.value) else {
-                    return Ok(None);
+                    return unmatched;
                 };
                 let current = match stored.kind {
                     Some(stored_value::Kind::InlineValue(value)) => value,
@@ -205,14 +219,14 @@ impl FlowRuntimeRegistry {
                             attribute_match.key
                         )));
                     }
-                    None => return Ok(None),
+                    None => return unmatched,
                 };
                 if is_attribute_matched(&current, &attribute_match)? {
                     return Ok(Some(WaitForAttributeResponse {
                         matched_value: Some(current),
                     }));
                 }
-                Ok(None)
+                unmatched
             },
         )
         .await
@@ -345,6 +359,26 @@ impl FlowRuntimeRegistry {
                 timeout_message,
             }),
         }
+    }
+}
+
+/// Admits a wait like the Go Server's workflow update validator during terminal cleanup.
+#[derive(Default)]
+struct TerminalCleanupAdmission {
+    is_admitted: bool,
+}
+
+impl TerminalCleanupAdmission {
+    /// Rejects a new call while a natural close waits; an admitted call still returns a match.
+    ///
+    /// Returns whether the run is in terminal cleanup, or the rejection of a new call.
+    fn check(&mut self, run: &ResolvedRun) -> Result<bool, RuntimeError> {
+        let is_terminal_cleanup = run.record.pending_close.is_some();
+        if !self.is_admitted && is_terminal_cleanup {
+            return Err(RuntimeError::terminal_cleanup_in_progress());
+        }
+        self.is_admitted = true;
+        Ok(is_terminal_cleanup)
     }
 }
 

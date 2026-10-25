@@ -66,6 +66,17 @@ impl EffectRuntime for FlowRuntimeRegistry {
         })
     }
 
+    fn wait_for_transactional_rpcs<'a>(
+        &'a self,
+        flow: &'a FlowAddress,
+    ) -> BoxFuture<'a, Result<(), EffectRuntimeError>> {
+        Box::pin(async move {
+            FlowRuntimeRegistry::wait_for_transactional_rpcs(self, flow)
+                .await
+                .map_err(effect_runtime_error)
+        })
+    }
+
     fn try_start_invocation<'a>(
         &'a self,
         flow: &'a FlowAddress,

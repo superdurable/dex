@@ -430,12 +430,16 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 	t.Cleanup(func() {
 		api.DumpFlowForContinueAsNewHeaderObserver = previousDumpObserver
 	})
+	apiClient := unifiedClient
+	if testConfig.ApiUnifiedClientWrapper != nil {
+		apiClient = testConfig.ApiUnifiedClientWrapper(unifiedClient)
+	}
 	runtime.Matching = startApiServer(
 		t,
 		listener,
 		internalListener,
 		&cfg,
-		unifiedClient,
+		apiClient,
 		logger,
 		store,
 		attributeStore,

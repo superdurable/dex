@@ -15,6 +15,7 @@ from google.rpc import status_pb2
 from dex import (
     DexServiceError,
     FlowAlreadyStartedError,
+    FlowClosingError,
     FlowNotActiveOrNotFoundError,
     FlowNotFoundError,
     LongPollTimeoutError,
@@ -44,6 +45,17 @@ def test_missing_flow_uses_endpoint_lifecycle_requirement() -> None:
         translate_rpc_error(error, "publish", "flow-id", "active"),
         FlowNotActiveOrNotFoundError,
     )
+
+
+def test_flow_closing_has_a_typed_error() -> None:
+    error = rich_error(
+        grpc.StatusCode.FAILED_PRECONDITION,
+        pb.ERROR_SUB_STATUS_FLOW_CLOSING,
+    )
+    translated = translate_rpc_error(error, "wait_for_attribute", "flow-id", "active")
+    assert isinstance(translated, FlowClosingError)
+    assert translated.code is grpc.StatusCode.FAILED_PRECONDITION
+    assert translated.sub_status.name == "FLOW_CLOSING"
 
 
 def test_worker_failure_details_and_lock_conflict_are_distinct() -> None:

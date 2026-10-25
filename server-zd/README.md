@@ -10,7 +10,8 @@ example, it supports only pull Workers).
 
 StopFlow closes the run as soon as it commits. A later write to that run, such as SetAttributes,
 returns NOT_FOUND. The Go Server accepts such writes while its run winds down after a cancel.
-Write what a Flow needs before stopping it.
+Write what a Flow needs before stopping it. StopFlow and Terminate never wait for Attribute Store
+synchronization.
 
 ## Layout
 
@@ -248,11 +249,37 @@ store's PostgreSQL tables. These differences from the Go Server apply:
   those stores on the Go Server.
 - Synchronization is asynchronous. Step, RPC, and SetAttributes commits do not wait for the table,
   and there is no 7-second synchronous phase. Rows normally appear within a second of the commit.
-  A Flow also closes without waiting for its synced Attributes, so rows can land after it
-  completes. The Go Server closes a Flow only after its pending writes are written or dropped.
   While a store is unavailable, Flows keep running and the backlog is written with the latest
   values once it recovers. Entries still pending `syncRetryPolicy.totalDuration` after they were
   first marked are dropped and counted in `dexzd_attribute_sync_dropped_entries_total`.
+- server-zd v0.1.3 closes a Flow without waiting for its synced Attributes, so rows can land
+  after it completes. server-zd v0.1.4 or later waits, like the Go Server. A natural close (a
+  Step decision that completes or fails the Flow, exhausted Step retries, or the Flow timeout)
+  cancels the Steps and disarms the Flow timeout at once. The run then stays RUNNING with a
+  pending close until no outbox entry, for any store, remains. GetFlowSummary and SearchFlows
+  show RUNNING meanwhile, and WaitForFlow returns only after the rows are written or dropped.
+- A natural close in v0.1.4 or later also waits, with or without an Attribute Store, for every
+  transactional or locking RPC that was admitted before it, as the Go Server waits for its
+  in-flight updates. The owner stamps such a closing command, apply keeps the close pending, and
+  the owner records it with a PendingCloseCheck command once those RPCs commit, fail, or time
+  out. A new owner after a restart or takeover has no admitted RPC and records the close during
+  recovery. Waits and non-transactional RPCs do not hold a close.
+- During that cleanup, SetAttributes, PublishToChannel, and non-transactional RPC results are
+  accepted, and their synced writes extend the wait. They start no Step. Transactional or locking
+  RPCs, WaitForStepCompletion, WaitForAttribute, and DeleteChannelMessage calls made during
+  cleanup fail with FAILED_PRECONDITION and FLOW_CLOSING, as the Go Server rejects them. A wait
+  admitted earlier still returns a match it sees, and a transactional RPC
+  admitted earlier still commits; its synced writes join the outbox before the close.
+- `syncRetryPolicy.totalDuration` bounds each pending entry's retry window, not the whole close.
+  During a PostgreSQL outage a natural close waits until its entries are dropped, up to that long
+  per entry, and each write accepted during cleanup adds an entry with its own window, which
+  extends the wait.
+- StopFlow (CANCEL or FAIL), Terminate, and ID reuse termination close the run at once, even
+  during cleanup; the stop discards a pending close. The run's remaining entries keep syncing
+  after the close. ResetFlow replaces a pending close with the state of the reset point.
+- Entries of a store that is no longer configured, including when the `attributeStore` section
+  is gone, are dropped at once with an error log and counted in
+  `dexzd_attribute_sync_dropped_entries_total`, so their runs' closes can finish.
 - Failed writes are retried with the `syncRetryPolicy` backoff until `totalDuration`, like the Go
   Server. A connection failure or other failure of the whole store backs off every run of that
   store. A failure caused by the written values, such as a constraint violation or a value too

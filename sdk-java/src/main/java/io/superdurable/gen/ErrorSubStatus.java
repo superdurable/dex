@@ -43,6 +43,14 @@ public enum ErrorSubStatus
    * <code>ERROR_SUB_STATUS_REQUEST_TIMEOUT = 7;</code>
    */
   ERROR_SUB_STATUS_REQUEST_TIMEOUT(7),
+  /**
+   * <pre>
+   * An update-class request arrived while Flow close cleanup is in progress.
+   * </pre>
+   *
+   * <code>ERROR_SUB_STATUS_FLOW_CLOSING = 8;</code>
+   */
+  ERROR_SUB_STATUS_FLOW_CLOSING(8),
   UNRECOGNIZED(-1),
   ;
 
@@ -87,6 +95,14 @@ public enum ErrorSubStatus
    * <code>ERROR_SUB_STATUS_REQUEST_TIMEOUT = 7;</code>
    */
   public static final int ERROR_SUB_STATUS_REQUEST_TIMEOUT_VALUE = 7;
+  /**
+   * <pre>
+   * An update-class request arrived while Flow close cleanup is in progress.
+   * </pre>
+   *
+   * <code>ERROR_SUB_STATUS_FLOW_CLOSING = 8;</code>
+   */
+  public static final int ERROR_SUB_STATUS_FLOW_CLOSING_VALUE = 8;
 
 
   public final int getNumber() {
@@ -121,6 +137,7 @@ public enum ErrorSubStatus
       case 5: return ERROR_SUB_STATUS_LONG_POLL_TIME_OUT;
       case 6: return ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND;
       case 7: return ERROR_SUB_STATUS_REQUEST_TIMEOUT;
+      case 8: return ERROR_SUB_STATUS_FLOW_CLOSING;
       default: return null;
     }
   }

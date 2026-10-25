@@ -22,6 +22,8 @@ pub(crate) struct FlowRuntime {
     state: Mutex<FlowRuntimeState>,
     /// Number of overlay entries settled (committed) so far.
     settled_count: watch::Sender<u64>,
+    /// Admitted transactional and locking RPCs that have not ended; raised under the state lock.
+    transactional_rpcs: watch::Sender<u32>,
 }
 
 pub(crate) struct FlowRuntimeState {
@@ -44,6 +46,7 @@ impl FlowRuntime {
                 settled_count: 0,
             }),
             settled_count: watch::Sender::new(0),
+            transactional_rpcs: watch::Sender::new(0),
         }
     }
 
@@ -65,6 +68,25 @@ impl FlowRuntime {
 
     pub(crate) fn subscribe_settled(&self) -> watch::Receiver<u64> {
         self.settled_count.subscribe()
+    }
+
+    /// Counts one more admitted transactional RPC; call it while holding the state lock.
+    pub(crate) fn admit_transactional_rpc(&self, _state: &FlowRuntimeState) {
+        self.transactional_rpcs.send_modify(|count| *count += 1);
+    }
+
+    /// Counts one admitted transactional RPC less; takes no lock, so any drop may call it.
+    pub(crate) fn release_transactional_rpc(&self) {
+        self.transactional_rpcs
+            .send_modify(|count| *count = count.saturating_sub(1));
+    }
+
+    pub(crate) fn transactional_rpc_count(&self) -> u32 {
+        *self.transactional_rpcs.borrow()
+    }
+
+    pub(crate) fn subscribe_transactional_rpcs(&self) -> watch::Receiver<u32> {
+        self.transactional_rpcs.subscribe()
     }
 }
 

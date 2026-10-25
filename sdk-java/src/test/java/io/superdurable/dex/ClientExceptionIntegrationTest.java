@@ -27,6 +27,7 @@ import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
+import io.superdurable.dex.exceptions.FlowClosingException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RequestTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
@@ -112,6 +113,15 @@ final class ClientExceptionIntegrationTest {
                 () -> client.stopFlow("inactive"));
         assertEquals(Status.Code.NOT_FOUND, inactive.getCode());
         assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, inactive.getSubStatus());
+    }
+
+    @Test
+    void mapsFlowClosingToTypedException() {
+        final FlowClosingException closing = assertThrows(
+                FlowClosingException.class,
+                () -> client.stopFlow("closing"));
+        assertEquals(Status.Code.FAILED_PRECONDITION, closing.getCode());
+        assertEquals(ErrorSubStatus.FLOW_CLOSING, closing.getSubStatus());
     }
 
     @Test
@@ -414,6 +424,13 @@ final class ClientExceptionIntegrationTest {
         public void stopFlow(
                 final StopFlowRequest request,
                 final StreamObserver<Empty> observer) {
+            if ("closing".equals(request.getFlowId())) {
+                observer.onError(error(
+                        Status.Code.FAILED_PRECONDITION,
+                        io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_FLOW_CLOSING,
+                        "flow terminal cleanup is in progress"));
+                return;
+            }
             if ("worker".equals(request.getFlowId())) {
                 observer.onError(error(
                         Status.Code.FAILED_PRECONDITION,

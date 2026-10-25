@@ -126,6 +126,7 @@ pub(crate) fn run_status_of(record: &RunRecord) -> CheckpointRunStatus {
         closed_at_micros: record.closed_at_micros,
         close: record.close.clone(),
         is_graceful_completion_requested: record.is_graceful_completion_requested,
+        pending_close: record.pending_close.clone(),
     }
 }
 
@@ -135,6 +136,7 @@ pub(crate) fn set_run_status(record: &mut RunRecord, status: &CheckpointRunStatu
     record.closed_at_micros = status.closed_at_micros;
     record.close.clone_from(&status.close);
     record.is_graceful_completion_requested = status.is_graceful_completion_requested;
+    record.pending_close.clone_from(&status.pending_close);
 }
 
 /// The attempt state as holder rewriting reads it: rows plus a run record row with the close.
@@ -147,6 +149,7 @@ pub(crate) fn holder_rows(
         closed_at_micros: status.closed_at_micros,
         close: status.close.clone(),
         is_graceful_completion_requested: status.is_graceful_completion_requested,
+        pending_close: status.pending_close.clone(),
         ..RunRecord::default()
     };
     let mut rows: Vec<CheckpointRow> = attempt_rows

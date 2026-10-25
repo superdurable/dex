@@ -22,6 +22,17 @@ pub(crate) struct CommandScope<'command> {
     pub(crate) now_micros: i64,
     /// Time travel replays a recorded command to rebuild state; it records no history.
     pub(crate) is_replay: bool,
+    /// What decides whether a natural close waits for the Attribute Sync outbox.
+    pub(crate) close_barrier_source: CloseBarrierSource,
+}
+
+/// What decides whether a natural close waits for the Attribute Sync outbox.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CloseBarrierSource {
+    /// Live apply waits while the run has outbox entries.
+    Outbox,
+    /// A rebuild repeats the recorded command, which closed the run if its history has FlowClosed.
+    RecordedHistory { has_flow_closed: bool },
 }
 
 impl<'command> CommandScope<'command> {
@@ -32,6 +43,7 @@ impl<'command> CommandScope<'command> {
             tenant_id: TenantId(command.tenant_id),
             now_micros: command.proposed_at_micros,
             is_replay: false,
+            close_barrier_source: CloseBarrierSource::Outbox,
         }
     }
 

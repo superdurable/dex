@@ -229,13 +229,13 @@ func assertRPCUpdateRejectedAfterStop(
 	t.Helper()
 	require.Eventually(t, func() bool {
 		_, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-			RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCProbe,
+			RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCProbe, IsTransactional: true,
 		})
 		return status.Code(err) == codes.FailedPrecondition || status.Code(err) == codes.NotFound
 	}, 5*time.Second, 20*time.Millisecond)
 	invokesBefore := handler.probeInvokeCount()
 	_, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCProbe,
+		RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCProbe, IsTransactional: true,
 	})
 	require.Contains(t, []codes.Code{codes.FailedPrecondition, codes.NotFound}, status.Code(err))
 	require.Equal(t, invokesBefore, handler.probeInvokeCount())

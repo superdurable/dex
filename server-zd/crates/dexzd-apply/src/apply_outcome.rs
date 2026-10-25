@@ -63,6 +63,8 @@ pub enum WaitableChange {
     },
     /// The run attempt changed through time travel.
     RunAttemptChanged,
+    /// A natural close started waiting for the Attribute Sync outbox.
+    FlowCleanupStarted,
 }
 
 /// Work for the runtime that follows from a committed command.
@@ -132,6 +134,11 @@ pub enum ApplyEffect {
         run_id: RunId,
         /// Attribute Store names, sorted and deduplicated.
         store_names: Vec<String>,
+    },
+    /// A pending close waits for transactional RPCs that the owner admitted earlier.
+    PendingCloseHeldByRpcs {
+        /// Run whose close waits.
+        run_id: RunId,
     },
     /// An Attribute Sync ack dropped entries whose retries were exhausted.
     AttributeSyncDropped {

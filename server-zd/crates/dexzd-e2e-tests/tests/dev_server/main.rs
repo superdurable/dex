@@ -10,6 +10,7 @@
 
 mod attribute_sync;
 mod channel_message_delete;
+mod close_barrier;
 mod failure_policies;
 mod flow_controls;
 mod hard_delete_closed;

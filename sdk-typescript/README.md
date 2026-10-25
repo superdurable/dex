@@ -637,6 +637,9 @@ reads (`describeFlow`, `waitForFlow`, and `timeTravel`) use
 `FlowNotActiveOrNotFoundError`. Start conflicts, worker failures, RPC lock contention,
 and long-poll timeouts use `FlowAlreadyStartedError`,
 `WorkerInvocationError`, `RpcLockConflictError`, and `LongPollTimeoutError`.
+An update-class request rejected during Flow close cleanup uses
+`FlowClosingError` with sub-status `FLOW_CLOSING`. Re-read the retained terminal
+Flow state before deciding whether another action is needed.
 
 RPCs also use this error when the target Flow cannot be found, including query-only
 reads. A query-only RPC without locks, transactional execution, durable effects, or

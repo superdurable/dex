@@ -25,7 +25,7 @@ use prost::Message;
 
 use crate::ApplyError;
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
-use crate::command_handlers::flow_close::{FlowClosing, close_flow};
+use crate::command_handlers::flow_close::{FlowClosing, close_flow_immediately};
 use crate::command_handlers::flow_data::apply_attribute_writes;
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
@@ -328,7 +328,7 @@ fn terminate_previous_run(
         ..*scope
     };
     let mut cursor = RunCursor::for_new_run(rows, record);
-    close_flow(
+    close_flow_immediately(
         transaction,
         &mut cursor,
         &previous_run_scope,

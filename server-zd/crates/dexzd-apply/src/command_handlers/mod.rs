@@ -21,7 +21,7 @@ pub(crate) mod run_cursor;
 pub(crate) mod step_commands;
 
 pub(crate) use command_scope::{
-    CommandScope, HandlerOutput, ReplayedCommandCounters, ReplayedCommandOutput,
+    CloseBarrierSource, CommandScope, HandlerOutput, ReplayedCommandCounters, ReplayedCommandOutput,
 };
 
 use dexzd_protocol::dex::ErrorSubStatus;
@@ -61,9 +61,11 @@ pub(crate) fn apply_replayed_command(
     state: &dyn FlowStateReader,
     command: &FlowCommand,
     behavior_version: BehaviorVersion,
+    has_flow_closed: bool,
 ) -> Result<Option<Vec<crate::StateWrite>>, ApplyError> {
     let mut scope = CommandScope::new(command, behavior_version);
     scope.is_replay = true;
+    scope.close_barrier_source = CloseBarrierSource::RecordedHistory { has_flow_closed };
     let (outcome, is_applied) = apply_in_scope(context, state, &scope)?;
     Ok(is_applied.then_some(outcome.writes))
 }
@@ -112,6 +114,7 @@ fn apply_in_scope(
                         let mut failure_scope =
                             CommandScope::new(&recorded_failure, behavior_version);
                         failure_scope.is_replay = scope.is_replay;
+                        failure_scope.close_barrier_source = scope.close_barrier_source;
                         let cursor = match with_run(&transaction, &failure_scope)? {
                             Ok(cursor) => cursor,
                             Err(reply) => return Ok((ApplyOutcome::rejected(reply), false)),
@@ -176,6 +179,7 @@ fn apply_in_scope(
                         let mut failure_scope =
                             CommandScope::new(&failure_command, behavior_version);
                         failure_scope.is_replay = scope.is_replay;
+                        failure_scope.close_barrier_source = scope.close_barrier_source;
                         return apply_in_scope(context, state, &failure_scope);
                     }
                     return Ok((
@@ -261,6 +265,9 @@ pub(crate) fn apply_run_command(
         }
         Command::OutboxAck(ack) => {
             crate::cross_flow::apply_outbox_ack(transaction, cursor, scope, ack)
+        }
+        Command::PendingCloseCheck(_) => {
+            flow_close::apply_pending_close_check(transaction, cursor, scope)
         }
         Command::AttributeSyncAck(ack) => {
             crate::projections::attribute_sync::apply_attribute_sync_ack(

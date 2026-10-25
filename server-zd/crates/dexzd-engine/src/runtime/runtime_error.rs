@@ -109,6 +109,15 @@ impl RuntimeError {
         )
     }
 
+    /// Returns the Go Server's `FAILED_PRECONDITION` for an update-class request during terminal cleanup.
+    pub fn terminal_cleanup_in_progress() -> Self {
+        Self::rejected(
+            grpc_code::FAILED_PRECONDITION,
+            ErrorSubStatus::FlowClosing,
+            dexzd_apply::TERMINAL_CLEANUP_MESSAGE,
+        )
+    }
+
     /// Whether this is the StopFlow rejection of a closed run, which keeps the Go Server's text.
     pub fn is_closed_run_stop_rejection(&self) -> bool {
         matches!(
@@ -143,10 +152,17 @@ impl RuntimeError {
     }
 
     pub(crate) fn from_reply(error: &CommandErrorReply) -> Self {
+        // Map committed cleanup replies here so older stored replies also receive the sub-status.
+        let sub_status = if error.grpc_code == grpc_code::FAILED_PRECONDITION
+            && error.message == dexzd_apply::TERMINAL_CLEANUP_MESSAGE
+        {
+            ErrorSubStatus::FlowClosing
+        } else {
+            ErrorSubStatus::try_from(error.sub_status).unwrap_or(ErrorSubStatus::Uncategorized)
+        };
         Self::Rejected {
             grpc_code: error.grpc_code,
-            sub_status: ErrorSubStatus::try_from(error.sub_status)
-                .unwrap_or(ErrorSubStatus::Uncategorized),
+            sub_status,
             message: error.message.clone(),
         }
     }

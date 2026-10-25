@@ -35,6 +35,8 @@ const (
 	WaitForStepCompletionUpdateType = "WaitForStepCompletion"
 	WaitForAttributeUpdateType      = "WaitForAttribute"
 
+	FlowTerminalCleanupInProgressMessage = "flow terminal cleanup is in progress"
+
 	SearchAttributeActiveStepTypes         = "ActiveStepTypes"
 	SearchAttributeDexParentFlowID         = "DexParentFlowID"
 	SearchAttributeDexWorkflowType         = "FlowType"

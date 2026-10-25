@@ -23,6 +23,7 @@ from dex.runtime_errors import (
     DexServiceError,
     ErrorSubStatus,
     FlowAlreadyStartedError,
+    FlowClosingError,
     FlowNotActiveOrNotFoundError,
     FlowNotFoundError,
     LongPollTimeoutError,
@@ -125,6 +126,8 @@ def translate_rpc_error(
     parameters = (code, sub_status, detail, operation, flow_id)
     if sub_status is ErrorSubStatus.FLOW_ALREADY_STARTED:
         return FlowAlreadyStartedError(*parameters)
+    if sub_status is ErrorSubStatus.FLOW_CLOSING:
+        return FlowClosingError(*parameters)
     if sub_status is ErrorSubStatus.FLOW_NOT_EXISTS:
         if requirement == "existing":
             return FlowNotFoundError(*parameters)
@@ -251,5 +254,6 @@ def _map_sub_status(value: int) -> ErrorSubStatus:
             pb.ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND
         ): ErrorSubStatus.CHANNEL_MESSAGE_NOT_FOUND,
         int(pb.ERROR_SUB_STATUS_REQUEST_TIMEOUT): ErrorSubStatus.REQUEST_TIMEOUT,
+        int(pb.ERROR_SUB_STATUS_FLOW_CLOSING): ErrorSubStatus.FLOW_CLOSING,
     }
     return statuses.get(value, ErrorSubStatus.UNCATEGORIZED)

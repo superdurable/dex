@@ -705,6 +705,10 @@ exception through Python exception chaining. Worker failures also expose
 serialization, and invalid handler returns use `FlowDefinitionError`,
 `ValueMappingError`, and `InvalidStepResultError`.
 
+Update-class requests rejected during Flow close cleanup raise
+`FlowClosingError` with sub-status `FLOW_CLOSING`. Re-read the retained terminal
+Flow state before deciding whether another action is needed.
+
 ### Sync vs asyncio
 
 - **Sync (default):** `Client` and `Worker` use blocking gRPC and a thread-pool

@@ -15,7 +15,7 @@ use prost::Message;
 use xxhash_rust::xxh3::xxh3_128;
 
 use crate::apply_checker::ApplyChecker;
-use crate::invariants::InvariantViolation;
+use crate::invariants::{CloseBarrierCounts, InvariantViolation};
 use crate::model::{ClosedErasePhase, CommandGenerator};
 
 /// Replays allowed while shrinking one failure.
@@ -41,6 +41,8 @@ pub struct SimulationSummary {
     pub closed_run_erases: usize,
     /// Time-travel rebuilds that replayed a closed-run erase.
     pub closed_run_erase_replays: usize,
+    /// Natural closes deferred for the Attribute Sync outbox, and pending closes finalized.
+    pub close_barrier: CloseBarrierCounts,
 }
 
 impl SimulationSummary {
@@ -64,6 +66,7 @@ impl SimulationSummary {
         for (class, count) in &other.size_rejections {
             *self.size_rejections.entry(class).or_default() += count;
         }
+        self.close_barrier.merge(&other.close_barrier);
     }
 }
 
@@ -218,6 +221,7 @@ pub fn run_seed(
         }
     }
     summary.size_rejections = checker.size_rejections().clone();
+    summary.close_barrier = checker.close_barrier_counts();
     summary.final_row_count = checker.state().row_count();
     Ok(summary)
 }
@@ -330,6 +334,7 @@ pub fn command_kind(command: &FlowCommand) -> &'static str {
         Some(Command::InboxMessage(_)) => "InboxMessage",
         Some(Command::OutboxAck(_)) => "OutboxAck",
         Some(Command::AttributeSyncAck(_)) => "AttributeSyncAck",
+        Some(Command::PendingCloseCheck(_)) => "PendingCloseCheck",
         Some(Command::HardDeleteObjectsDeleted(_)) => "HardDeleteObjectsDeleted",
         Some(Command::RunPurge(_)) => "RunPurge",
     }
