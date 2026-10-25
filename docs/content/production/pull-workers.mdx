@@ -683,10 +683,10 @@ The **matching** role owns pull Worker queues. Keep at least one Matching
 instance running. Workers connect to an API instance on the public FlowService
 port; the API forwards their streams to the queue owner. Preserve bidirectional
 HTTP/2 streaming. The SDK sends upstream **Pong** frames every 20 seconds while
-a task runs. Upgrade the SDK to get this behavior, then set load balancer and
-proxy idle timeouts above 20 seconds, with margin for network delays. Older SDKs
-need idle timeouts above the longest task duration. Dex continues to send
-**Ping** frames to idle streams at **matching.pingInterval**.
+a task runs. Upgrade the SDK to get this behavior. Dex sends **Ping** frames to
+idle streams at **matching.pingInterval**. Set load balancer and proxy idle
+timeouts above both 20 seconds and **matching.pingInterval**, with margin for
+network delays. Older SDKs need idle timeouts above the longest task duration.
 
 For one Server process, Dex uses a local membership ring. For multiple Server
 instances, configure **membership** and a private **internal.listen** on each

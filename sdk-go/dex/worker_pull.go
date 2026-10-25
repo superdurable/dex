@@ -902,7 +902,7 @@ func (stream *pullStream) startKeepalive() {
 			case <-done:
 				return
 			case <-ticker.C:
-				if err := stream.sendPong(); err != nil {
+				if err := stream.sendKeepalivePong(done); err != nil {
 					stream.worker.service.logger.Debug("send Worker keepalive Pong", "error", err)
 					return
 				}
@@ -928,6 +928,16 @@ func (stream *pullStream) sendPong() error {
 	stream.sendMu.Lock()
 	defer stream.sendMu.Unlock()
 	if stream.isSendClosed || stream.isFinalFrameSent {
+		return nil
+	}
+	return stream.stream.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Pong{Pong: &dexpb.PollWorkerTaskPong{}}})
+}
+
+// sendKeepalivePong skips a stale tick, so it never writes to a later stream before Register.
+func (stream *pullStream) sendKeepalivePong(done chan struct{}) error {
+	stream.sendMu.Lock()
+	defer stream.sendMu.Unlock()
+	if stream.keepaliveDone != done || stream.isSendClosed || stream.isFinalFrameSent {
 		return nil
 	}
 	return stream.stream.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Pong{Pong: &dexpb.PollWorkerTaskPong{}}})

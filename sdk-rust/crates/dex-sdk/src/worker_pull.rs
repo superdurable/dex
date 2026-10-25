@@ -20,9 +20,11 @@ use dex_protocol::dex::{
     PollWorkerTask, PollWorkerTaskFrame, PollWorkerTaskPong, PollWorkerTaskRegister,
     PollWorkerTaskReject, PollWorkerTaskRejectReason, PollWorkerTaskRequest, WorkerErrorResponse,
 };
-use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc, watch};
+use tokio::sync::{Notify, mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
-use tokio::time::{Instant, Interval, interval_at, sleep, sleep_until, timeout_at};
+use tokio::time::{
+    Instant, Interval, MissedTickBehavior, interval_at, sleep, sleep_until, timeout_at,
+};
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 use tonic::transport::Endpoint;
 use tonic::{Code, Status};
@@ -35,6 +37,8 @@ use crate::worker::worker_error_response;
 use crate::worker_dispatcher::WorkerDispatcher;
 use crate::{PullWorkerOptions, SdkError, SdkResult};
 
+#[cfg(test)]
+mod final_frame_lock_tests;
 mod reconnect;
 mod task_deadline;
 mod worker_error;
@@ -477,7 +481,7 @@ impl PullStream {
         let mut supports_unknown_name_rejection = false;
         let mut is_draining = false;
         let mut active: Option<ActiveTask> = None;
-        let final_frame_sent = Arc::new(AsyncMutex::new(false));
+        let final_frame_sent = Arc::new(Mutex::new(false));
         let mut keepalive_interval: Option<Interval> = None;
         loop {
             let deadline = active.as_ref().and_then(|task| task.deadline);
@@ -516,8 +520,10 @@ impl PullStream {
                                         let cancel_code = Arc::new(AtomicI32::new(0));
                                         let task_id = task.task_id.clone();
                                         let deadline = task.deadline.as_ref().map(task_deadline);
-                                        *final_frame_sent.lock().await = false;
-                                        keepalive_interval = Some(interval_at(Instant::now() + BUSY_PULL_STREAM_KEEPALIVE_INTERVAL, BUSY_PULL_STREAM_KEEPALIVE_INTERVAL));
+                                        *final_frame_sent.lock().expect("final frame lock") = false;
+                                        let mut interval = interval_at(Instant::now() + BUSY_PULL_STREAM_KEEPALIVE_INTERVAL, BUSY_PULL_STREAM_KEEPALIVE_INTERVAL);
+                                        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                                        keepalive_interval = Some(interval);
                                         let handler = tokio::spawn(execute_task(self.dispatcher.clone(), task, cancellation.clone(), transport_cancellation.clone(), Arc::clone(&cancel_code), sender.as_ref().expect("open Worker stream").clone(), Arc::clone(&final_frame_sent)));
                                         active = Some(ActiveTask { task_id, cancellation, transport_cancellation, cancel_code, handler, deadline });
                                         self.shared.notify.notify_one();
@@ -530,11 +536,19 @@ impl PullStream {
                                     }
                                 }
                                 Some(ResponseFrame::Ping(_)) => {
-                                    let final_frame_guard = final_frame_sent.lock().await;
-                                    if active.is_some() && *final_frame_guard {
-                                        continue;
-                                    }
-                                    if let Err(status) = send_control_frame(sender.as_ref().expect("open Worker stream"), RequestFrame::Pong(PollWorkerTaskPong {})).await {
+                                    // Never block the poll loop: a full outbound queue already carries upstream data.
+                                    let sent = {
+                                        let is_final_frame_sent = final_frame_sent.lock().expect("final frame lock");
+                                        if active.is_some() && *is_final_frame_sent {
+                                            Ok(())
+                                        } else {
+                                            match sender.as_ref().expect("open Worker stream").try_send(PollWorkerTaskRequest { frame: Some(RequestFrame::Pong(PollWorkerTaskPong {})) }) {
+                                                Err(mpsc::error::TrySendError::Closed(_)) => Err(Status::unavailable("Worker task stream cannot send control frame: channel closed")),
+                                                Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
+                                            }
+                                        }
+                                    };
+                                    if let Err(status) = sent {
                                         if !self.should_defer_stream_rejection(&status) {
                                             self.record_stream_result(Some(&status));
                                         }
@@ -582,7 +596,7 @@ impl PullStream {
                         None => std::future::pending().await,
                     }
                 } => {
-                    let is_final_frame_sent = final_frame_sent.lock().await;
+                    let is_final_frame_sent = final_frame_sent.lock().expect("final frame lock");
                     if !*is_final_frame_sent
                         && let Err(error) = sender.as_ref().expect("open Worker stream").try_send(PollWorkerTaskRequest {
                             frame: Some(RequestFrame::Pong(PollWorkerTaskPong {})),
@@ -725,7 +739,7 @@ async fn execute_task(
     transport_cancellation: InvocationCancellation,
     cancel_code: Arc<AtomicI32>,
     sender: mpsc::Sender<PollWorkerTaskRequest>,
-    final_frame_sent: Arc<AsyncMutex<bool>>,
+    final_frame_sent: Arc<Mutex<bool>>,
 ) {
     let task_id = task.task_id;
     match task.request {
@@ -888,7 +902,7 @@ async fn send_task_frame(
     task_id: &str,
     output: Output,
     cancellation: &InvocationCancellation,
-    final_frame_sent: &AsyncMutex<bool>,
+    final_frame_sent: &Mutex<bool>,
 ) -> Result<(), Status> {
     let is_final_frame = matches!(&output, Output::Rpc(_) | Output::WorkerError(_))
         || matches!(&output, Output::WaitFor(value) if matches!(value.output.as_ref(), Some(dex_protocol::dex::invoke_wait_for_method_output::Output::Result(_))))
@@ -899,15 +913,15 @@ async fn send_task_frame(
             output: Some(output),
         })),
     };
-    let mut final_frame_guard = final_frame_sent.lock().await;
-    if is_final_frame {
-        *final_frame_guard = true;
-    }
-    tokio::select! {
+    let permit = tokio::select! {
         biased;
-        result = sender.send(request) => result.map_err(|error| Status::unavailable(format!("Worker task stream cannot send task frame: {error}"))),
-        () = cancellation.cancelled() => Err(Status::cancelled("Worker task was cancelled")),
-    }
+        result = sender.reserve() => result.map_err(|error| Status::unavailable(format!("Worker task stream cannot send task frame: {error}")))?,
+        () = cancellation.cancelled() => return Err(Status::cancelled("Worker task was cancelled")),
+    };
+    // Set the flag before enqueueing, so a later keepalive Pong never follows the final frame.
+    *final_frame_sent.lock().expect("final frame lock") |= is_final_frame;
+    permit.send(request);
+    Ok(())
 }
 
 fn is_permanent(code: Code) -> bool {
@@ -1822,7 +1836,7 @@ mod tests {
                 "task-1",
                 Output::WorkerError(WorkerErrorResponse::default()),
                 &cancellation,
-                &AsyncMutex::new(false),
+                &Mutex::new(false),
             ),
         )
         .await

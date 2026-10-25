@@ -772,6 +772,7 @@ class PullStream:
         await asyncio.gather(self.handler_task, return_exceptions=True)
         async with self._send_lock:
             self._stop_keepalive()
+            self._is_final_frame_sent = False
         if self._deadline_handle is not None:
             self._deadline_handle.cancel()
             self._deadline_handle = None

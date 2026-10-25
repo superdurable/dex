@@ -504,6 +504,30 @@ final class PullWorkerTest {
     }
 
     @Test
+    void reopenedStreamAnswersPingAfterTaskEndsOnClosedStream() throws Exception {
+        final TestFlow flow = new TestFlow();
+        final PollServer pollServer = new PollServer(null, false, Duration.ZERO,
+                Collections.<Boolean>emptyList(), true);
+        try (RunningWorker running = new RunningWorker(pollServer, flow, 1)) {
+            final PollStream first = pollServer.awaitQueue("PullTestFlow");
+            first.respond(PollWorkerTaskResponse.newBuilder().setRegistered(
+                    io.superdurable.gen.PollWorkerTaskRegistered.getDefaultInstance()).build());
+            first.assign(reservedRpcTask("closed-busy-rpc"));
+            assertTrue(flow.entered.await(5, TimeUnit.SECONDS));
+            // Leave the replacement unregistered so the reopened stream is not retired.
+            assertNotNull(pollServer.awaitQueue("PullTestFlow"));
+            first.responses.onError(Status.UNAVAILABLE.asRuntimeException());
+            flow.release.countDown();
+            final PollStream reopened = pollServer.awaitQueue("PullTestFlow");
+            reopened.respond(PollWorkerTaskResponse.newBuilder().setRegistered(
+                    io.superdurable.gen.PollWorkerTaskRegistered.getDefaultInstance()).build());
+            reopened.respond(PollWorkerTaskResponse.newBuilder()
+                    .setPing(io.superdurable.gen.PollWorkerTaskPing.getDefaultInstance()).build());
+            assertTrue(reopened.awaitFrame().hasPong());
+        }
+    }
+
+    @Test
     void rejectsAtCapacityAndDrainsLargeFinalFrameOnReconnectAndStop() throws Exception {
         final TestFlow flow = new TestFlow();
         final PollServer pollServer = new PollServer();

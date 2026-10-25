@@ -470,6 +470,7 @@ final class PullWorker {
             isClosed = false;
             isHalfClosed = false;
             isRegistered = false;
+            isFinalFrameSent = false;
             supportsUnknownNameRejection = false;
             closeFailure = null;
             try {
@@ -765,6 +766,7 @@ final class PullWorker {
             handlerThread = null;
             taskID = null;
             isBusy = false;
+            isFinalFrameSent = false;
             busyTasks--;
             if (!isClosed && !isDraining && hasIdleReplacement(true)) {
                 isDraining = true;
@@ -775,7 +777,6 @@ final class PullWorker {
             } else if (isDraining || isStopping) {
                 halfClose();
             } else {
-                isFinalFrameSent = false;
                 reconcile();
             }
             PullWorker.this.notifyAll();

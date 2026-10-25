@@ -461,6 +461,36 @@ test("busy stream sends keepalive Pong without changing RPC result", async () =>
   }
 });
 
+test("reopened stream answers Ping after a task ends on a closed stream", async () => {
+  const harness = await startHarness();
+  let finishTask!: () => void;
+  const gate = new Promise<void>((resolve) => { finishTask = resolve; });
+  const worker = harness.worker(async () => {
+    await gate;
+    return InvokeWorkerRPCResponse.create({});
+  });
+  try {
+    worker.start();
+    const first = await harness.nextStream();
+    first.call.write(registered(false));
+    first.call.write(rpcTask("closed-busy-rpc"));
+    await until(() => harness.invocationCount === 1);
+    // Leave the replacement unregistered so the reopened stream is not retired.
+    await harness.nextStream();
+    first.call.emit("error", { code: status.UNAVAILABLE, details: "proxy reset" });
+    await until(() => worker.pullRegistrationState().queues.every((queue) => !queue.hasRegisteredStream));
+    finishTask();
+    const reopened = await harness.nextStream();
+    reopened.call.write(registered(false));
+    reopened.call.write({ frame: { $case: "ping", value: {} } });
+    await reopened.frame("pong");
+  } finally {
+    finishTask();
+    await worker.close();
+    await harness.close();
+  }
+});
+
 test("busy Reconnect retains only the replacement idle stream", async () => {
   const harness = await startHarness();
   let finishTask!: () => void;

@@ -221,6 +221,7 @@ export class PullWorker {
     poll.supportsUnknownNameRejection = false;
     poll.isDisconnected = false;
     poll.isHalfClosed = false;
+    poll.isFinalFrameSent = false;
     poll.failure = undefined;
     poll.isDraining = false;
     poll.isReconnectRequested = false;
@@ -280,7 +281,7 @@ export class PullWorker {
         if (poll.task?.id === frame.value.taskId) poll.task.controller.abort();
         break;
       case "ping":
-        if (poll.isFinalFrameSent) break;
+        if (poll.task !== undefined && poll.isFinalFrameSent) break;
         try {
           this.send(poll, { frame: { $case: "pong", value: {} } });
         } catch (failure) {
@@ -424,6 +425,7 @@ export class PullWorker {
     if (task === undefined) return;
     task.deadlineCancellation?.stop();
     poll.task = undefined;
+    poll.isFinalFrameSent = false;
     this.activeTasks.delete(task.completion);
     this.busyTaskCount--;
     if (!poll.isDisconnected && !poll.isDraining && this.hasRegisteredIdleReplacements(poll)) {
@@ -434,8 +436,6 @@ export class PullWorker {
       if (!this.isStopping) this.scheduleReconnect(poll);
     } else if (this.isStopping || poll.isDraining) {
       this.halfCloseStream(poll);
-    } else {
-      poll.isFinalFrameSent = false;
     }
     this.reconcile();
   }

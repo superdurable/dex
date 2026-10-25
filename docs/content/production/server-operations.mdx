@@ -168,9 +168,10 @@ the values shown above by default.
 Dex sends a **Ping** frame on idle poll streams every **matching.pingInterval**
 (20 seconds by default). Current SDKs send upstream **Pong** frames every 20
 seconds while a task runs. Configure load balancers and proxies for long-lived
-HTTP/2 streams, and set their idle timeouts above 20 seconds with margin for
-network delays. Workers using older SDKs need idle timeouts above the longest
-task duration. Preserve bidirectional streaming through the public endpoint.
+HTTP/2 streams, and set their idle timeouts above both 20 seconds and
+**matching.pingInterval**, with margin for network delays. Workers using older
+SDKs need idle timeouts above the longest task duration. Preserve bidirectional
+streaming through the public endpoint.
 
 ## Configuration
 
