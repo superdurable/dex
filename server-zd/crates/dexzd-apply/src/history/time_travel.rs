@@ -155,7 +155,7 @@ pub(crate) fn apply_time_travel(
         &reapplied_inputs,
         has_pending_remarks,
     )?;
-    apply_received_child_results(transaction, &mut cursor, scope)?;
+    apply_received_child_results(transaction, &mut cursor, scope, has_pending_remarks)?;
     let final_rows = read_attempt_rows(transaction, cursor.rows)?;
     remark_synced_attributes(transaction, &mut cursor, scope, &previous_rows, &final_rows)?;
     dispatch_restored_invocations(&mut cursor, &final_rows)?;
@@ -515,9 +515,15 @@ fn apply_received_child_results(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
+    has_pending_remarks: bool,
 ) -> Result<(), ApplyError> {
+    // A close from a completed restored wait also precedes the remarks.
+    let child_result_scope = CommandScope {
+        has_pending_time_travel_remarks: has_pending_remarks,
+        ..*scope
+    };
     let effects_before = cursor.effects.len();
-    crate::cross_flow::complete_restored_sub_flow_waits(transaction, cursor, scope)?;
+    crate::cross_flow::complete_restored_sub_flow_waits(transaction, cursor, &child_result_scope)?;
     let effects = cursor.effects.split_off(effects_before);
     keep_fork_effects(cursor, effects);
     Ok(())

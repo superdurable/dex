@@ -23,24 +23,25 @@ use dexzd_keyspace::{
     parse_run_key, run_prefix, run_table_prefix,
 };
 use dexzd_protocol::dex::{
-    ActiveStepSearchMode, AttributeWrite, CloseDecision, CloseDecisionType, FlowConfig,
-    FlowErrorType, FlowResetType, FlowStatus, FlowTimeoutHandlerOptions, FlowTimeoutPolicy,
-    InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, ResetFlowRequest,
-    SetAttributesRequest, StartFlowRequest, StepDecision, StepDurability, StepOptions,
-    StopFlowRequest, StopType, SubFlowCondition, SubFlowOptions, SubFlowReusePolicy, Value,
-    WaitingCondition, WaitingConditionType, WorkerTarget, value,
+    ActiveStepSearchMode, AttributeStoreNames, AttributeSyncConfig, AttributeWrite, CloseDecision,
+    CloseDecisionType, FlowConfig, FlowErrorType, FlowResetType, FlowStatus,
+    FlowTimeoutHandlerOptions, FlowTimeoutPolicy, InvokeExecuteMethodResponse,
+    InvokeWaitForMethodResponse, ResetFlowRequest, SetAttributesRequest, StartFlowRequest,
+    StepDecision, StepDurability, StepOptions, StopFlowRequest, StopType, SubFlowCondition,
+    SubFlowOptions, SubFlowReusePolicy, Value, WaitingCondition, WaitingConditionType,
+    WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttemptRecord, AttributeRecord, AttributesSetCommand, CheckpointRecord, ChildFlowStartMessage,
-    CrossFlowEndpoint, FlowCommand, FlowStartCommand, FlowStopCommand, FlowTimeoutTimerId,
-    HardDeleteObjectRecord, HardDeleteObjectReference, HardDeleteObjectsDeletedCommand,
-    HistoryRecord, InboxMessageCommand, OutboxAckCommand, OutboxRecord, OutboxRetentionTimerId,
-    ParentFlowReference, RetentionTimerId, RunPurgeCommand, RunRecord, RunSettings,
-    StepAttemptFailedCommand, StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord,
-    StepInvocationKey, StepMethod, StepMethodCompletedCommand, SubFlowResultRecord,
-    TimeTravelCommand, TimerId, TimerRecord, TimersFiredCommand, command_reply,
-    flow_command::Command, inbox_message_command, outbox_record, step_method_completed_command,
-    timer_id,
+    AttemptRecord, AttributeRecord, AttributeSyncAckCommand, AttributesSetCommand,
+    CheckpointRecord, ChildFlowStartMessage, CrossFlowEndpoint, FlowCommand, FlowStartCommand,
+    FlowStopCommand, FlowTimeoutTimerId, HardDeleteObjectRecord, HardDeleteObjectReference,
+    HardDeleteObjectsDeletedCommand, HistoryRecord, InboxMessageCommand, OutboxAckCommand,
+    OutboxRecord, OutboxRetentionTimerId, ParentFlowReference, RetentionTimerId, RunPurgeCommand,
+    RunRecord, RunSettings, StepAttemptFailedCommand, StepAttemptStartedCommand,
+    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepMethod,
+    StepMethodCompletedCommand, SubFlowResultRecord, TimeTravelCommand, TimerId, TimerRecord,
+    TimersFiredCommand, command_reply, flow_command::Command, inbox_message_command, outbox_record,
+    step_method_completed_command, timer_id,
 };
 use prost::Message;
 
@@ -2047,6 +2048,154 @@ fn time_travel_without_reapply_completes_a_restored_wait_from_a_received_child_r
 #[test]
 fn time_travel_with_reapply_completes_a_restored_wait_from_a_received_child_result() {
     travel_to_a_wait_whose_child_result_was_received(false);
+}
+
+#[test]
+fn a_graceful_completion_after_a_restored_child_result_waits_for_remarked_attributes() {
+    let mut harness = Harness::new();
+    harness.start_parent_with_config(FlowConfig {
+        attribute_store_names: Some(AttributeStoreNames {
+            names: vec!["primary".to_owned()],
+        }),
+        ..FlowConfig::default()
+    });
+    assert_ok(&harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                attributes: vec![AttributeWrite {
+                    key: "status".to_owned(),
+                    value: Some(Value {
+                        kind: Some(value::Kind::StringValue("opened".to_owned())),
+                    }),
+                    sync_config: Some(AttributeSyncConfig { enabled: true }),
+                    ..AttributeWrite::default()
+                }],
+                ..SetAttributesRequest::default()
+            }),
+            ..AttributesSetCommand::default()
+        }),
+    ));
+    harness.ack_attribute_sync();
+    assert_eq!(harness.attribute_sync_entry_count(), 0);
+    let start = harness.register_sub_flow_wait(SubFlowReusePolicy::Unspecified);
+    let waiting_seq = harness.record("parent", PARENT_RUN).next_run_seq - 1;
+    let waiting_time = harness.parent_history_time(waiting_seq);
+    assert_ok(&harness.deliver_start_outbox(&start, FIRST_CHILD_RUN));
+    harness.apply(
+        CHILD_ID,
+        &FIRST_CHILD_RUN,
+        Command::FlowStop(FlowStopCommand {
+            request: Some(StopFlowRequest {
+                stop_type: StopType::Terminate as i32,
+                ..StopFlowRequest::default()
+            }),
+        }),
+    );
+    let report = harness
+        .outbox(CHILD_ID, FIRST_CHILD_RUN)
+        .pop()
+        .expect("the child reports its result");
+    assert_ok(&harness.deliver_completion(&report));
+
+    // The retained child result completes the restored wait before the reset re-marks `status`.
+    harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::TimeTravel(TimeTravelCommand {
+            request: Some(ResetFlowRequest {
+                flow_id: "parent".to_owned(),
+                reset_type: FlowResetType::HistoryEventTime as i32,
+                history_event_time: (i128::from(waiting_time) * 1000).to_string(),
+                ..ResetFlowRequest::default()
+            }),
+        }),
+    );
+    let restored = harness.record("parent", PARENT_RUN);
+    assert_eq!(restored.current_attempt, 2);
+    assert_eq!(restored.status, FlowStatus::Running as i32);
+    assert!(restored.pending_close.is_none());
+    assert_eq!(
+        harness.step("parent", PARENT_RUN, "StartStep-1").phase,
+        StepExecutionPhase::Execute as i32
+    );
+    assert!(harness.attribute_sync_entry_count() > 0);
+
+    let invocation = StepInvocationKey {
+        step_execution_id: "StartStep-1".to_owned(),
+        method: StepMethod::Execute as i32,
+    };
+    assert_ok(&harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::StepAttemptStarted(StepAttemptStartedCommand {
+            invocation: Some(invocation.clone()),
+            attempt: 1,
+            task_id: vec![9; 16],
+            pull_routing: None,
+        }),
+    ));
+    assert_ok(&harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(invocation),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::Execute(
+                InvokeExecuteMethodResponse {
+                    step_decision: Some(StepDecision {
+                        close_decision: Some(CloseDecision {
+                            close_decision_type: CloseDecisionType::GracefulComplete as i32,
+                            ..CloseDecision::default()
+                        }),
+                        ..StepDecision::default()
+                    }),
+                    ..InvokeExecuteMethodResponse::default()
+                },
+            )),
+            ..StepMethodCompletedCommand::default()
+        }),
+    ));
+    let pending = harness.record("parent", PARENT_RUN);
+    assert_eq!(pending.status, FlowStatus::Running as i32);
+    assert_eq!(
+        pending.pending_close.map(|close| close.status),
+        Some(FlowStatus::Completed as i32)
+    );
+
+    harness.ack_attribute_sync();
+    assert_eq!(
+        harness.record("parent", PARENT_RUN).status,
+        FlowStatus::Completed as i32
+    );
+}
+
+impl Harness {
+    /// Acknowledges every parent Attribute Sync entry of the `primary` store.
+    fn ack_attribute_sync(&mut self) {
+        let acked_seq = self.record("parent", PARENT_RUN).next_run_seq - 1;
+        self.apply(
+            "parent",
+            &PARENT_RUN,
+            Command::AttributeSyncAck(AttributeSyncAckCommand {
+                store_name: "primary".to_owned(),
+                acked_seq,
+                attribute_keys: Vec::new(),
+                is_dropped: false,
+            }),
+        );
+    }
+
+    fn attribute_sync_entry_count(&self) -> usize {
+        let flow_hash = self.hasher.flow_hash(TenantId::DEFAULT, "parent");
+        let prefix = run_table_prefix(flow_hash, RunId(PARENT_RUN), RunTable::AttributeSyncOutbox);
+        let (start, end) = prefix_range(&prefix);
+        self.state
+            .scan(ColumnFamily::Flow, &start, &end, usize::MAX)
+            .expect("memory reads")
+            .len()
+    }
 }
 
 #[test]
