@@ -13,7 +13,11 @@ use aws_sdk_s3::types::{BucketVersioningStatus, VersioningConfiguration};
 use crate::objects::put_text;
 use crate::support::{ConformanceTarget, error_code_and_status, read_body};
 
-async fn set_versioning(target: &ConformanceTarget, bucket: &str, status: BucketVersioningStatus) {
+pub(crate) async fn set_versioning(
+    target: &ConformanceTarget,
+    bucket: &str,
+    status: BucketVersioningStatus,
+) {
     target
         .client
         .put_bucket_versioning()
