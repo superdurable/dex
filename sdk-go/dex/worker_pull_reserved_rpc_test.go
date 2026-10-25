@@ -141,7 +141,7 @@ func TestWorkerPullReservePressureKeepsOnlyDecliningQueueExtra(t *testing.T) {
 		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 3, ReservedRPCTasks: ptr.Any(1)},
 	})
 	require.NoError(t, err)
-	worker.pull.reservePressureLinger = 300 * time.Millisecond
+	worker.pull.reservePressureLinger = 1500 * time.Millisecond
 	started := make(chan error, 1)
 	go func() { started <- worker.Start() }()
 	var releaseOnce sync.Once

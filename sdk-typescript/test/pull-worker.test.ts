@@ -207,7 +207,7 @@ test("reserve pressure keeps an extra stream only on the declining queue until e
     invokeExecute: async () => { await gate; return {}; },
   } as unknown as WorkerDispatcher;
   const worker = new PullWorker(new Registry([new TestFlow()]), dispatcher, harness.address,
-    { maxConcurrentTasks: 3, reservedRpcTasks: 1 }, undefined, () => {}, 300);
+    { maxConcurrentTasks: 3, reservedRpcTasks: 1 }, undefined, () => {}, 1_500);
   Reflect.set(worker, "registeredFlows", new Map([["TestFlow", {
     steps: [{ name: "TestStep" }], rpcs: [],
   }]]));

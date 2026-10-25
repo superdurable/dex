@@ -338,7 +338,7 @@ final class PullWorkerTest {
         final TestFlow flow = new TestFlow();
         final PollServer pollServer = new PollServer();
         try (RunningWorker running = new RunningWorker(pollServer, flow, 3,
-                Duration.ofSeconds(5), false, 1, 1, Duration.ofMillis(300))) {
+                Duration.ofSeconds(5), false, 1, 1, Duration.ofMillis(1500))) {
             try {
                 running.worker.waitPullRegistered(Duration.ofSeconds(5));
                 final PollStream first = pollServer.awaitQueue("PullTestFlow");

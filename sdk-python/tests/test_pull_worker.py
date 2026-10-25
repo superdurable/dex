@@ -1596,7 +1596,7 @@ async def _reserve_pressure_is_queue_local_and_expires() -> None:
         ),
         "localhost:8801",
         None,
-        reserve_pressure_linger=0.3,
+        reserve_pressure_linger=1.5,
     )
     runtime._loop = asyncio.get_running_loop()
     runtime._stopping = asyncio.Event()
