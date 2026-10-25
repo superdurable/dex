@@ -90,6 +90,7 @@ impl ComponentConfigs {
             lease: dexzd_cluster_metadata::LeaseConfig {
                 duration: config.lease.duration,
                 fail_fast: config.lease.fail_if_held,
+                should_take_over_held_lease: config.dev.has_embedded_object_store(),
                 ..dexzd_cluster_metadata::LeaseConfig::default()
             },
             local_store: LocalStoreConfig::RocksDb {

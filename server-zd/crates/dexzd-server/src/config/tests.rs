@@ -293,6 +293,17 @@ fn dev_defaults_to_a_thirty_second_lease_unless_the_overrides_set_its_duration()
 
     let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
     assert_eq!(serve.lease.duration, Duration::from_secs(10));
+
+    let dev_components = ComponentConfigs::from_config(&without_overrides).expect("dev components");
+    assert!(dev_components.engine_node.lease.should_take_over_held_lease);
+    let serve_components =
+        ComponentConfigs::from_config(&valid_config()).expect("serve components");
+    assert!(
+        !serve_components
+            .engine_node
+            .lease
+            .should_take_over_held_lease
+    );
 }
 
 #[test]

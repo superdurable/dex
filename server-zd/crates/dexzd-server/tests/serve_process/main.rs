@@ -10,6 +10,7 @@
 
 #![cfg(unix)]
 
+mod dev_restart;
 mod dev_soak;
 mod harness;
 mod lease_release;

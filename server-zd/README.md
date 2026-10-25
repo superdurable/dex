@@ -228,7 +228,7 @@ Startup proceeds in this order:
    conditional-write self-check.
 3. The node acquires the lease of `cluster.nodeId` for `lease.duration`. A lease that another
    process still holds is awaited until it expires, or fails startup when `lease.failIfHeld` is
-   true.
+   true. `dev` takes a held lease over at once instead; see [dev](#dev).
 4. The node restores `localStorage.directory` from the latest snapshot and the command log. The
    directory is a cache; an empty one is rebuilt from object storage. Replay keeps up to
    `recovery.readAheadBatches` log reads in flight, holding at most `recovery.readAheadBytes` of
@@ -479,9 +479,11 @@ file, which must define at least one store; the `--config` file must not also se
 
 `dev` defaults `lease.duration` to 30 seconds, unless the `--config` file sets it; `serve` defaults
 it to 10 seconds. A `dev` node has no standby, so the longer lease costs no failover time and lets
-the node ride out longer host stalls. A stop by SIGTERM or SIGINT releases the lease, so the next
-start acquires it at once. After a crash, the next start on the same data directory waits up to
-31 seconds for the old lease to expire.
+the node ride out longer host stalls. A `dev` start never waits for the lease, even after a crash.
+The embedded object store admits one process per data directory: a second `dev` process on the same
+directory fails to start. A lease that the store still shows as held therefore belongs to a stopped
+process, so `dev` takes it over at once, ignoring `lease.failIfHeld`. The takeover raises the node
+epoch, as any takeover does.
 
 ## Stable command-line interface
 

@@ -363,6 +363,7 @@ fn engine_node_config(
             takeover_grace: LEASE_TAKEOVER_GRACE,
             // The wait loop draws jitter from the thread RNG; the simulator schedules retries.
             fail_fast: true,
+            should_take_over_held_lease: false,
         },
         local_store,
         commit: CommitConfig {

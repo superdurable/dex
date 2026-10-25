@@ -76,6 +76,9 @@ pub struct LeaseConfig {
     #[serde(with = "humantime_serde")]
     pub duration: Duration,
     /// Defaults to false; when true, startup fails if another unexpired owner holds the lease.
+    ///
+    /// `dev` ignores it: its embedded object store admits one process per data directory, so a
+    /// held lease belongs to a stopped process, and `dev` takes it over at once.
     pub fail_if_held: bool,
 }
 

@@ -300,8 +300,10 @@ The node holds a lease object in object storage. **lease.duration** defaults to
 
 **dex-server-zd dev** defaults **lease.duration** to 30 seconds, unless its
 override file sets it. A dev node has no standby, so the longer lease costs no
-failover time. It lets the node ride out longer host stalls. After a dev node
-crashes, the next start waits up to 31 seconds for the old lease to expire.
+failover time. It lets the node ride out longer host stalls. A dev start never
+waits for the lease, even after a crash. Its embedded object store admits one
+process per data directory. A held lease therefore belongs to a stopped process,
+and the dev node takes it over at once with a raised epoch.
 
 Data safety does not depend on the duration. Each lease acquisition raises the
 node epoch, and every log write is conditional. Together they fence a process
