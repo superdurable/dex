@@ -35,6 +35,13 @@ fn string_value(text: &str) -> Value {
     }
 }
 
+/// The value that clears an Attribute; it deletes an AttributeMap instance row.
+fn null_value() -> Value {
+    Value {
+        kind: Some(value::Kind::NullValue(0)),
+    }
+}
+
 fn synced(key: &str, value: Option<Value>) -> AttributeWrite {
     AttributeWrite {
         key: key.to_owned(),
@@ -101,7 +108,7 @@ async fn synced_attributes_reach_postgres_through_outages_and_time_travel() {
         "request-paid",
         vec![
             synced("Status", Some(string_value("paid"))),
-            synced("Items/a", None),
+            synced("Items/a", Some(null_value())),
             synced("Items/b", Some(string_value("second"))),
         ],
     )
