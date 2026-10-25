@@ -92,7 +92,7 @@ impl Store {
         let directory = self.bucket_directory(&record);
         self.commit_and_remove_superseded_paths(
             transaction,
-            vec![SupersededPath::BucketDirectory(directory)],
+            vec![SupersededPath::Directory(directory)],
         )
     }
 

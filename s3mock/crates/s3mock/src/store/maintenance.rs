@@ -169,7 +169,10 @@ impl Store {
                 continue;
             }
             if !live_uploads.contains(&upload_id) {
-                remove_directory(&upload_directory);
+                // Relaxed aborts and completions hold this lock across the commit that defers it.
+                if !self.lock_deferred_removals().contains(&upload_directory) {
+                    remove_directory(&upload_directory);
+                }
                 continue;
             }
             // A completion or abort may remove the directory while this scan runs.
@@ -188,7 +191,9 @@ impl Store {
                     continue;
                 }
                 collection.examined_files += 1;
-                if !live_part_files.contains(&path) {
+                if !live_part_files.contains(&path)
+                    && !self.lock_deferred_removals().contains(&path)
+                {
                     match fs::remove_file(&path) {
                         Ok(()) => collection.removed_files += 1,
                         Err(error) => {

@@ -10,8 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 
 use redb::{ReadableDatabase, ReadableTable, Table};
@@ -22,8 +21,9 @@ use super::object_listing::{
 };
 use super::object_write::CompletedUpload;
 use super::{
-    ABORTED_UPLOADS, BUCKETS, MAX_KEYS_LIMIT, PARTS, Store, UPLOADS, UPLOADS_DIRECTORY_NAME,
-    create_directory_durably, decode_json, encode_json, require_bucket, validate_object_key,
+    ABORTED_UPLOADS, BUCKETS, MAX_KEYS_LIMIT, PARTS, Store, SupersededPath, UPLOADS,
+    UPLOADS_DIRECTORY_NAME, create_directory_durably, decode_json, encode_json, require_bucket,
+    validate_object_key,
 };
 use crate::checksum::{ChecksumAlgorithm, ChecksumType};
 use crate::data_file::{self, ObjectWriter, StagedObject};
@@ -179,12 +179,7 @@ impl Store {
         }
         staged.temporary_file.publish(&path)?;
         match self.insert_part(bucket, key, upload_ulid, &bucket_record, &record) {
-            Ok(replaced) => {
-                if let Some(replaced) = replaced {
-                    remove_file_logged(&replaced);
-                }
-                Ok(record)
-            }
+            Ok(()) => Ok(record),
             Err(error) => {
                 remove_file_logged(&path);
                 Err(error)
@@ -199,7 +194,7 @@ impl Store {
         upload_ulid: Ulid,
         bucket_record: &BucketRecord,
         record: &PartRecord,
-    ) -> Result<Option<PathBuf>, StoreError> {
+    ) -> Result<(), StoreError> {
         if self.is_durable() {
             let path = self.bucket_directory(bucket_record).join(&record.data_file);
             data_file::sync_directory(
@@ -207,7 +202,7 @@ impl Store {
                     .expect("part files live in an upload directory"),
             )?;
         }
-        let transaction = self.begin_write()?;
+        let transaction = self.begin_superseding_write()?;
         let replaced = {
             let current_bucket = require_bucket(&transaction.open_table(BUCKETS)?, bucket)?;
             if current_bucket.incarnation != bucket_record.incarnation {
@@ -228,10 +223,11 @@ impl Store {
                 None => None,
             };
             parts.insert(part_key.as_slice(), encode_json(record)?.as_slice())?;
-            replaced.map(|part| self.bucket_directory(bucket_record).join(part.data_file))
+            replaced.map(|part| {
+                SupersededPath::DataFile(self.bucket_directory(bucket_record).join(part.data_file))
+            })
         };
-        transaction.commit()?;
-        Ok(replaced)
+        self.commit_and_remove_superseded_paths(transaction, replaced.into_iter().collect())
     }
 
     /// Deletes an upload and its parts. Aborting an already aborted upload succeeds again, as in S3.
@@ -242,7 +238,7 @@ impl Store {
         upload_id: &str,
     ) -> Result<(), StoreError> {
         let upload_ulid = parse_upload_id(upload_id)?;
-        let transaction = self.begin_write()?;
+        let transaction = self.begin_superseding_write()?;
         let directory = {
             let bucket_record = require_bucket(&transaction.open_table(BUCKETS)?, bucket)?;
             let mut uploads = transaction.open_table(UPLOADS)?;
@@ -266,9 +262,10 @@ impl Store {
             }
             self.upload_directory(&bucket_record, upload_id)
         };
-        transaction.commit()?;
-        remove_upload_directory(&directory);
-        Ok(())
+        self.commit_and_remove_superseded_paths(
+            transaction,
+            vec![SupersededPath::Directory(directory)],
+        )
     }
 
     /// Lists the parts of an upload in part-number order.
@@ -432,17 +429,6 @@ pub(super) fn load_parts(
         loaded.push(decode_json(entry?.1.value())?);
     }
     Ok(loaded)
-}
-
-/// Removes the part files of a finished upload; leftovers are collected at the next startup.
-pub(super) fn remove_upload_directory(directory: &Path) {
-    match fs::remove_dir_all(directory) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => {
-            tracing::warn!(path = %directory.display(), %error, "failed to remove upload directory");
-        }
-    }
 }
 
 /// Parses an upload ID; IDs s3mock never issued cannot name an upload.

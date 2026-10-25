@@ -16,9 +16,7 @@ use std::path::Path;
 use redb::backends::FileBackend;
 use redb::{BackendError, DatabaseError, StorageBackend};
 
-/// Delegates to redb's file backend, except that syncing returns at once.
-///
-/// Commits still reach the page cache before returning, so they survive a process kill.
+/// Delegates to redb's file backend but skips syncing, so commits survive a process kill, not a host crash.
 #[derive(Debug)]
 pub(crate) struct UnsyncedFileBackend {
     file_backend: FileBackend,

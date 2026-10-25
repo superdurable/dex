@@ -90,7 +90,7 @@ const NULL_VERSION_ID: &str = "null";
 const RELAXED_SESSION_MARKER_FILE_NAME: &str = "relaxed-session-open";
 /// Shows that every guarded open of the directory wrote relaxed session markers.
 const RELAXED_SESSION_MARKERS_STAMP_FILE_NAME: &str = "relaxed-session-markers";
-/// Deferred removals that force a durable commit, bounding the disk that superseded files hold.
+/// Deferred removals that force a durable commit; concurrent writes may each add theirs beyond it.
 const DEFERRED_REMOVAL_LIMIT: usize = 256;
 
 /// How much the store waits for stable storage before acknowledging a write.
@@ -147,17 +147,17 @@ pub struct Store {
     relaxed_session_marker: Option<PathBuf>,
 }
 
-/// A data file or bucket directory whose metadata a commit dropped.
+/// A data file, part file, bucket directory, or upload directory whose metadata a commit dropped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SupersededPath {
     DataFile(PathBuf),
-    BucketDirectory(PathBuf),
+    Directory(PathBuf),
 }
 
 impl SupersededPath {
     fn path(&self) -> &Path {
         match self {
-            SupersededPath::DataFile(path) | SupersededPath::BucketDirectory(path) => path,
+            SupersededPath::DataFile(path) | SupersededPath::Directory(path) => path,
         }
     }
 }
@@ -249,14 +249,11 @@ impl Store {
         Ok(store)
     }
 
-    /// Opens like [`Store::open`], but refuses a store whose last relaxed session ended abruptly.
+    /// Opens like [`Store::open`], but refuses a store that may have rolled back.
     ///
-    /// Returns [`StoreError::UncleanRelaxedSession`], in any durability mode, while the marker of
-    /// an earlier relaxed session opened this way remains. Only that session's durable close
-    /// removes its marker, so a crash or kill leaves it behind. Returns
-    /// [`StoreError::UncleanSessionWithoutRelaxedSessionMarkers`] for a store that no guarded open
-    /// stamped and that was not closed cleanly, unless the configured mode is strict. The
-    /// configuration is trusted then, because a strict store fsynced every earlier commit.
+    /// Returns [`StoreError::UncleanRelaxedSession`] in any mode while a relaxed session marker remains.
+    ///
+    /// Returns [`StoreError::UncleanSessionWithoutRelaxedSessionMarkers`] for an unstamped unclean store, unless configured strict.
     pub fn open_refusing_unclean_relaxed_session(
         config: &StoreConfig,
     ) -> Result<Store, StoreError> {
@@ -627,7 +624,7 @@ fn remove_superseded_paths(paths: &[SupersededPath]) {
     for superseded in paths {
         let removed = match superseded {
             SupersededPath::DataFile(path) => fs::remove_file(path),
-            SupersededPath::BucketDirectory(path) => match fs::remove_dir_all(path) {
+            SupersededPath::Directory(path) => match fs::remove_dir_all(path) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 other => other,
             },

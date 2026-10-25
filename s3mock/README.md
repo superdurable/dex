@@ -64,8 +64,11 @@ replying, without fsync. It survives a process kill but not a host crash or powe
 almost as fast as relaxed. `--durability relaxed` keeps commits in memory until a durable commit.
 It is the fastest, but any crash may lose acknowledged writes, so do not use it for crash-recovery
 tests. After a crash, a relaxed store reopens at its last durable commit, and every object it lists
-is readable. Relaxed mode keeps the data files and bucket directories that a write supersedes until
-a later durable commit. That commit happens on close, and before a write once 256 removals wait.
+is readable, and every listed multipart part can still complete. Relaxed mode keeps the object data
+files, part files, bucket directories, and upload directories that a write supersedes until a later
+durable commit. That commit happens on close, and before a superseding write once about 256
+removals wait. The bound is approximate, because concurrent writes that pass the check together
+each add their removals.
 
 `Store::open_refusing_unclean_relaxed_session` is for an embedding process that derives other state
 from the store. In relaxed mode it writes a `relaxed-session-open` marker before the store opens,

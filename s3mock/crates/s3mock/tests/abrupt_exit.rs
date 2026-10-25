@@ -13,7 +13,8 @@ use std::io::Read;
 use std::path::Path;
 
 use s3mock::{
-    ChecksumAlgorithm, DeleteObjectRequest, Durability, ListObjectsRequest, ObjectReadRequest,
+    ChecksumAlgorithm, CompleteMultipartUploadRequest, CompletedPart, CreateMultipartUploadRequest,
+    DeleteObjectRequest, Durability, ListObjectsRequest, ListPartsRequest, ObjectReadRequest,
     PutObjectRequest, Store, StoreConfig, StoreError, UploadChecksumExpectations,
 };
 
@@ -381,4 +382,114 @@ fn a_strict_guarded_open_accepts_an_unmarked_strict_store_copied_while_open() {
     ))
     .expect("the strict open stamped the store");
     assert_eq!(read(&stamped, "object").unwrap(), b"body");
+}
+
+/// Uploads one part and returns its ETag.
+fn upload_part(store: &Store, upload_id: &str, body: &[u8]) -> String {
+    let mut writer = store
+        .begin_upload_part(BUCKET, "multipart", upload_id, 1, ChecksumAlgorithm::Crc32)
+        .expect("the upload exists");
+    writer
+        .write_all(body)
+        .expect("the temporary file is writable");
+    let staged = writer
+        .finish(&UploadChecksumExpectations::default())
+        .expect("no digests are declared");
+    store
+        .commit_upload_part(BUCKET, "multipart", upload_id, 1, staged)
+        .expect("the part commits")
+        .etag
+}
+
+fn complete_upload(store: &Store, upload_id: &str, etag: &str) -> Result<(), StoreError> {
+    store
+        .complete_multipart_upload(
+            BUCKET,
+            "multipart",
+            upload_id,
+            CompleteMultipartUploadRequest {
+                parts: vec![CompletedPart {
+                    part_number: 1,
+                    etag: etag.to_owned(),
+                    checksum_base64: None,
+                }],
+                ..CompleteMultipartUploadRequest::default()
+            },
+        )
+        .map(|_| ())
+}
+
+/// A multipart change in a relaxed session that an abrupt exit loses.
+#[derive(Clone, Copy, Debug)]
+enum LostMultipartChange {
+    ReplacePart,
+    Abort,
+    Complete,
+}
+
+/// A rolled-back relaxed multipart change keeps the durable upload's parts readable and completable.
+#[test]
+fn a_rolled_back_relaxed_multipart_change_keeps_the_upload_completable() {
+    for change in [
+        LostMultipartChange::ReplacePart,
+        LostMultipartChange::Abort,
+        LostMultipartChange::Complete,
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let root_directory = directory.path().join("store");
+        let (upload_id, durable_etag) = {
+            let store = Store::open(&config(&root_directory, Durability::Relaxed)).unwrap();
+            store.create_bucket(BUCKET, false).unwrap();
+            let upload = store
+                .create_multipart_upload(
+                    BUCKET,
+                    "multipart",
+                    CreateMultipartUploadRequest::default(),
+                )
+                .unwrap();
+            let etag = upload_part(&store, &upload.upload_id, b"durable part");
+            (upload.upload_id, etag)
+        };
+        let crashed_directory = directory.path().join("crashed");
+        {
+            let store = Store::open(&config(&root_directory, Durability::Relaxed)).unwrap();
+            match change {
+                LostMultipartChange::ReplacePart => {
+                    upload_part(&store, &upload_id, b"lost part");
+                }
+                LostMultipartChange::Abort => {
+                    store
+                        .abort_multipart_upload(BUCKET, "multipart", &upload_id)
+                        .unwrap();
+                }
+                LostMultipartChange::Complete => {
+                    complete_upload(&store, &upload_id, &durable_etag).unwrap();
+                }
+            }
+            copy_open_store(&root_directory, &crashed_directory);
+        }
+
+        let reopened = Store::open(&config(&crashed_directory, Durability::Relaxed)).unwrap();
+        let parts = reopened
+            .list_parts(
+                BUCKET,
+                "multipart",
+                &upload_id,
+                &ListPartsRequest {
+                    part_number_marker: 0,
+                    max_parts: 1000,
+                },
+            )
+            .unwrap_or_else(|error| panic!("{change:?}: the upload rolls back: {error}"))
+            .parts;
+        assert_eq!(parts.len(), 1, "{change:?}: the durable part is listed");
+        assert_eq!(parts[0].etag, durable_etag, "{change:?}");
+        complete_upload(&reopened, &upload_id, &durable_etag)
+            .unwrap_or_else(|error| panic!("{change:?}: the listed part is readable: {error}"));
+        assert_eq!(
+            read(&reopened, "multipart").unwrap(),
+            b"durable part",
+            "{change:?}"
+        );
+    }
 }
