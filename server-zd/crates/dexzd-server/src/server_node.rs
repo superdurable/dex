@@ -75,7 +75,15 @@ const SEARCH_PROJECTION_STOP_BUDGET: Duration = Duration::from_secs(1);
 const ENGINE_STOP_BUDGET: Duration =
     EngineNode::SHUTDOWN_BUDGET.saturating_add(Duration::from_millis(500));
 const STREAM_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(1);
-const EMBEDDED_S3_STOP_BUDGET: Duration = Duration::from_secs(1);
+/// Closing the relaxed embedded store fsyncs under host load; abandoning it can lose acknowledged writes.
+const EMBEDDED_S3_MINIMUM_STOP_BUDGET: Duration = Duration::from_secs(1);
+/// Embedded S3 stops last and may use whatever the earlier steps left of this total.
+const SHUTDOWN_BUDGET: Duration = GRPC_DRAIN_BUDGET
+    .saturating_add(EFFECT_TASKS_STOP_BUDGET)
+    .saturating_add(SEARCH_PROJECTION_STOP_BUDGET)
+    .saturating_add(ENGINE_STOP_BUDGET)
+    .saturating_add(STREAM_STORE_CLOSE_BUDGET)
+    .saturating_add(EMBEDDED_S3_MINIMUM_STOP_BUDGET);
 /// gRPC keepalive, equal to the Go Server's.
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(20);
 const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -615,11 +623,36 @@ impl ServerNode {
     /// Serves until shutdown is requested or the node stops, then tears everything down.
     async fn serve(
         self,
-        mut grpc: GrpcServer,
+        grpc: GrpcServer,
         metrics_server: Option<MetricsServer>,
         shutdown_request: CancellationToken,
         embedded_s3: Option<EmbeddedS3>,
     ) -> Result<(), ServerError> {
+        let (outcome, mut teardown) = self
+            .serve_and_stop_node(grpc, metrics_server, shutdown_request)
+            .await;
+        // Every node component and its S3 client is dropped before the emulator stops.
+        if let Some(embedded_s3) = embedded_s3 {
+            teardown
+                .run(
+                    "embedded S3",
+                    embedded_s3_stop_budget(&teardown),
+                    embedded_s3.shutdown(),
+                )
+                .await;
+        }
+        teardown.finish(outcome)
+    }
+
+    /// Serves until shutdown is requested or the node stops, then stops and drops every node component.
+    ///
+    /// Returns how serving ended and the teardown, whose steps so far stay within their budgets.
+    async fn serve_and_stop_node(
+        self,
+        mut grpc: GrpcServer,
+        metrics_server: Option<MetricsServer>,
+        shutdown_request: CancellationToken,
+    ) -> (Result<(), ServerError>, BoundedTeardown) {
         let Self {
             metrics,
             engine,
@@ -662,7 +695,7 @@ impl ServerNode {
             Err(error) => tracing::error!(%error, "dex-server-zd stopping after a failure"),
         }
         metrics.set_role(dexzd_metrics::NodeRole::Draining);
-        let mut teardown = BoundedTeardown::default();
+        let mut teardown = BoundedTeardown::start();
         grpc.health.set_not_serving().await;
         dispatch.shutdown();
         registry.close_long_polls();
@@ -720,17 +753,13 @@ impl ServerNode {
                 close_stream_store(&stream_store),
             )
             .await;
-        if let Some(embedded_s3) = embedded_s3 {
-            teardown
-                .run(
-                    "embedded S3",
-                    EMBEDDED_S3_STOP_BUDGET,
-                    embedded_s3.shutdown(),
-                )
-                .await;
-        }
-        teardown.finish(outcome)
+        (outcome, teardown)
     }
+}
+
+/// Returns what the earlier steps left of [`SHUTDOWN_BUDGET`], and at least the embedded S3 minimum.
+fn embedded_s3_stop_budget(teardown: &BoundedTeardown) -> Duration {
+    teardown.remaining_budget(SHUTDOWN_BUDGET, EMBEDDED_S3_MINIMUM_STOP_BUDGET)
 }
 
 /// Returns builtin SearchFlows over committed views of the engine.
@@ -774,5 +803,62 @@ impl CommittedSearchViewProvider for CommittedSearchViews {
             .committed_view()
             .map_err(|error| SearchError::Unavailable(error.to_string()))?;
         Ok(Arc::new(view))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_step_budgets_total_the_documented_shutdown_budget() {
+        assert_eq!(SHUTDOWN_BUDGET, Duration::from_millis(14_500));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_embedded_s3_close_uses_the_budget_that_earlier_steps_left() {
+        let mut teardown = BoundedTeardown::start();
+        teardown.run("engine", ENGINE_STOP_BUDGET, async {}).await;
+        teardown
+            .run(
+                "embedded S3",
+                embedded_s3_stop_budget(&teardown),
+                tokio::time::sleep(Duration::from_secs(3)),
+            )
+            .await;
+        let finished = teardown.finish(Ok(()));
+        assert!(finished.is_ok(), "{finished:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_embedded_s3_ends_at_the_shutdown_budget_or_after_its_minimum() {
+        let slowest_earlier_steps = SHUTDOWN_BUDGET.saturating_sub(EMBEDDED_S3_MINIMUM_STOP_BUDGET);
+        for earlier_steps in [
+            Duration::ZERO,
+            Duration::from_secs(5),
+            slowest_earlier_steps,
+            Duration::from_secs(14),
+        ] {
+            let started = tokio::time::Instant::now();
+            let mut teardown = BoundedTeardown::start();
+            tokio::time::sleep(earlier_steps).await;
+            let budget = embedded_s3_stop_budget(&teardown);
+            teardown
+                .run("embedded S3", budget, std::future::pending())
+                .await;
+            assert_eq!(
+                started.elapsed(),
+                SHUTDOWN_BUDGET.max(earlier_steps + EMBEDDED_S3_MINIMUM_STOP_BUDGET),
+                "after {earlier_steps:?}"
+            );
+            let expected = format!("embedded S3 exceeded its {} ms budget", budget.as_millis());
+            assert!(
+                matches!(
+                    teardown.finish(Ok(())),
+                    Err(ServerError::ShutdownIncomplete { steps }) if steps == expected
+                ),
+                "after {earlier_steps:?}"
+            );
+        }
     }
 }
