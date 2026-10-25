@@ -204,7 +204,7 @@ async fn open_rocksdb_store(
                     tracing::warn!(gap = %gap, "the retained log cannot update the local store; restoring the newest snapshot");
                 }
             },
-            Err(error) if error.is_unusable_store_content() => {
+            Err(error) if error.is_unusable_store_content(directory) => {
                 tracing::warn!(error = %error, "local store cannot be opened; restoring the newest snapshot");
             }
             Err(source) => {

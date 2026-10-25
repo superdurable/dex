@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::path::Path;
+
 use dexzd_keyspace::{ColumnFamily, PartitionId, decode_partition_meta_key, partition_meta_key};
 use dexzd_protocol::dexzd::v1::{NodeMeta, PartitionMeta};
 use prost::Message;
@@ -44,23 +46,43 @@ pub enum StorageError {
 }
 
 impl StorageError {
-    /// Returns whether opening a store failed on its contents: corruption, an incompatible
-    /// format, or missing or undecodable node metadata.
+    /// Returns whether opening the store in `store_directory` failed on its contents:
+    /// corruption, a missing file inside the directory, an incompatible format, or missing or
+    /// undecodable node metadata.
     ///
-    /// Returns `false` for I/O failures, such as another process holding the RocksDB lock or a
-    /// permission error, and for every other error.
-    pub fn is_unusable_store_content(&self) -> bool {
+    /// Returns `false` for other I/O failures, such as another process holding the RocksDB lock
+    /// or a permission error, and for every other error.
+    pub fn is_unusable_store_content(&self, store_directory: &Path) -> bool {
         match self {
-            Self::RocksDb(error) => matches!(
-                error.kind(),
+            Self::RocksDb(error) => match error.kind() {
                 rocksdb::ErrorKind::Corruption
-                    | rocksdb::ErrorKind::NotSupported
-                    | rocksdb::ErrorKind::InvalidArgument
-            ),
+                | rocksdb::ErrorKind::NotSupported
+                | rocksdb::ErrorKind::InvalidArgument => true,
+                rocksdb::ErrorKind::IOError => {
+                    is_missing_store_file(error.as_ref(), store_directory)
+                }
+                _ => false,
+            },
             Self::MissingNodeMetadata { .. } | Self::Decode(_) | Self::Invalid(_) => true,
             _ => false,
         }
     }
+}
+
+/// Returns whether a RocksDB I/O error `message` reports a missing file inside
+/// `store_directory`, other than its lock file.
+fn is_missing_store_file(message: &str, store_directory: &Path) -> bool {
+    // rust-rocksdb exposes no PathNotFound subcode, only RocksDB's status text.
+    const PATH_NOT_FOUND_PREFIX: &str = "IO error: No such file or directory: ";
+    // A lock error may mean another live process uses the store, so it never matches.
+    let is_lock_error = message.contains("/LOCK")
+        || message.contains("While lock file")
+        || message.contains("lock hold by current process")
+        || message.contains("Resource temporarily unavailable");
+    let store_file_prefix = format!("{}/", store_directory.display());
+    !is_lock_error
+        && message.starts_with(PATH_NOT_FOUND_PREFIX)
+        && message.contains(&store_file_prefix)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

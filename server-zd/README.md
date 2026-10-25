@@ -149,8 +149,8 @@ An invalid value fails startup with the YAML path of the rejected field.
 write-ahead log and up to four uncompacted 64 MiB level-0 files per column family. A compaction
 after a bulk replay returns the directory to about the live state size.
 
-When the local store is corrupt, has an incompatible format, or cannot be updated from the
-retained log, the node renames the directory to the sibling `<directory>.discarded-<uuidv7>` and
+When the local store is corrupt, is missing files, has an incompatible format, or cannot be
+updated from the retained log, the node renames the directory to the sibling `<directory>.discarded-<uuidv7>` and
 rebuilds it. Other open errors, such as a RocksDB lock that another process holds or a permission
 error, fail startup and leave the directory in place. After every successful start, the node
 deletes all but the newest `localStorage.retainedSetAsideStoreCount` set-aside stores (default 1;

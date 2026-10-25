@@ -140,8 +140,8 @@ pub struct LocalStorageConfig {
     /// (at most four 64 MiB files per column family). Graceful shutdown stops a running compaction.
     pub compact_after_replay_bytes: u64,
     /// Defaults to 1; number of set-aside local stores kept for diagnosis. When the local store is
-    /// corrupt, has an incompatible format, or cannot be updated from the retained log, the node
-    /// renames the directory to a sibling named `<directory>.discarded-<uuidv7>` and rebuilds it.
+    /// corrupt, is missing files, has an incompatible format, or cannot be updated from the
+    /// retained log, the node renames the directory to a sibling named `<directory>.discarded-<uuidv7>` and rebuilds it.
     /// Other open errors, such as a RocksDB lock that another process holds, fail startup and
     /// leave the directory in place. After every successful start, the node deletes all but the
     /// newest set-aside stores of that directory and logs each deleted path. The copy that the

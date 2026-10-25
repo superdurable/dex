@@ -247,6 +247,57 @@ async fn repeated_set_asides_keep_only_the_newest_configured_count() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_store_without_its_manifest_is_set_aside_and_rebuilt() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let store_directory = directory.path().join("store");
+    let mut cluster = TestCluster::new();
+    let config = cluster.config(LocalStoreConfig::RocksDb {
+        directory: store_directory.clone(),
+        options: RocksDbStoreOptions::default(),
+    });
+    let first = cluster
+        .start(
+            &config,
+            Arc::new(CountingApplier::default()),
+            Arc::new(RecordingRuntime::default()),
+        )
+        .await
+        .expect("node starts");
+    first.commit_prompt("manifest-flow", 2).await;
+    first.node.take_snapshot().await.expect("snapshot");
+    first.commit_prompt("manifest-flow", 1).await;
+    first.node.shutdown().await.expect("lease released");
+    let mut deleted_manifests = 0;
+    for entry in std::fs::read_dir(&store_directory).expect("list store") {
+        let path = entry.expect("store entry").path();
+        let is_manifest = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("MANIFEST-"));
+        if is_manifest {
+            std::fs::remove_file(&path).expect("delete manifest");
+            deleted_manifests += 1;
+        }
+    }
+    assert!(deleted_manifests > 0);
+    assert!(store_directory.join("CURRENT").exists());
+
+    let second = cluster
+        .start(
+            &config,
+            Arc::new(CountingApplier::default()),
+            Arc::new(RecordingRuntime::default()),
+        )
+        .await
+        .expect("node restarts");
+    assert_eq!(set_aside_store_names(directory.path()).len(), 1);
+    assert_eq!(second.committed_count("manifest-flow").await, 3);
+    second.commit_prompt("manifest-flow", 1).await;
+    assert_eq!(second.committed_count("manifest-flow").await, 4);
+    second.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
 async fn the_copy_this_start_set_aside_survives_a_future_dated_copy() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let store_directory = directory.path().join("store");
