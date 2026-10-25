@@ -396,7 +396,7 @@ export interface PollWorkerTaskResponse {
     /** Requests a reconnect after the current task finishes. */
     { $case: "reconnect"; value: PollWorkerTaskReconnect }
     | //
-    /** Checks whether a registered stream remains responsive, including during a task. */
+    /** Checks whether an idle stream remains responsive. */
     { $case: "ping"; value: PollWorkerTaskPing }
     | undefined;
 }
@@ -438,7 +438,7 @@ export interface PollWorkerTaskReconnect {
   reason: string;
 }
 
-/** Checks that a registered pull stream remains responsive, including during a task. */
+/** Checks that an idle pull stream remains responsive. */
 export interface PollWorkerTaskPing {
 }
 

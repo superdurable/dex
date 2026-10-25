@@ -81,7 +81,7 @@ const (
 	DefaultMatchingMaxFlowTypes = 256
 	// DefaultMatchingMaxFlowTypeLength bounds each declared Flow type.
 	DefaultMatchingMaxFlowTypeLength = 256
-	// DefaultMatchingPingInterval keeps Worker streams active through load balancers.
+	// DefaultMatchingPingInterval keeps idle Worker streams active through load balancers.
 	DefaultMatchingPingInterval = 20 * time.Second
 	// DefaultMaxWaitSeconds caps transport long polls when MaxWaitSeconds is 0.
 	DefaultMaxWaitSeconds int64 = 60
@@ -269,7 +269,7 @@ type (
 		MaxFlowTypes int `yaml:"maxFlowTypes"`
 		// MaxFlowTypeLength bounds each declared Flow type. Default 256. Must be positive when set.
 		MaxFlowTypeLength int `yaml:"maxFlowTypeLength"`
-		// PingInterval sends an application Ping on registered poll streams, including during tasks. Default 20s. Must be positive when set.
+		// PingInterval sends an application Ping on idle poll streams. Default 20s. Must be positive when set.
 		PingInterval time.Duration `yaml:"pingInterval"`
 	}
 

@@ -831,17 +831,19 @@ async def _busy_reconnect_drains_before_closing_stream() -> None:
     ]
 
 
-def test_busy_ping_returns_pong_without_changing_rpc_result() -> None:
-    asyncio.run(_busy_ping_returns_pong_without_changing_rpc_result())
+def test_busy_keepalive_pong_stops_before_rpc_result() -> None:
+    asyncio.run(_busy_keepalive_pong_stops_before_rpc_result())
 
 
-async def _busy_ping_returns_pong_without_changing_rpc_result() -> None:
+async def _busy_keepalive_pong_stops_before_rpc_result() -> None:
     dispatcher = BlockingDispatcher()
     call = QueueCall(
         [
             pb.PollWorkerTaskResponse(registered=pb.PollWorkerTaskRegistered()),
             pb.PollWorkerTaskResponse(
-                task=pb.PollWorkerTask(task_id="busy-ping", rpc=pb.InvokeWorkerRPCRequest())
+                task=pb.PollWorkerTask(
+                    task_id="busy-ping", rpc=pb.InvokeWorkerRPCRequest()
+                )
             ),
         ]
     )
@@ -854,21 +856,30 @@ async def _busy_ping_returns_pong_without_changing_rpc_result() -> None:
     )
     runtime._stopping = asyncio.Event()
     stream = PullStream(runtime, FakeStub(cast(FakeCall, call)), "busy-ping-worker")
-    polling = asyncio.create_task(stream._poll())
-    await asyncio.wait_for(dispatcher.started.wait(), timeout=1)
-    call.frames.put_nowait(pb.PollWorkerTaskResponse(ping=pb.PollWorkerTaskPing()))
+    pong_written = asyncio.Event()
 
-    async def wait_for_pong() -> None:
-        while not any(request.WhichOneof("frame") == "pong" for request in call.requests):
-            await asyncio.sleep(0)
+    async def record_request(request: pb.PollWorkerTaskRequest) -> None:
+        await QueueCall.write(call, request)
+        if request.WhichOneof("frame") == "pong":
+            pong_written.set()
 
-    await asyncio.wait_for(wait_for_pong(), timeout=1)
-    assert [request.WhichOneof("frame") for request in call.requests] == ["register", "pong"]
-    dispatcher.gate.set()
-    call.frames.put_nowait(
-        pb.PollWorkerTaskResponse(reconnect=pb.PollWorkerTaskReconnect(reason="done"))
-    )
-    assert await asyncio.wait_for(polling, timeout=1)
+    with patch(
+        "dex._pull_worker._BUSY_PULL_STREAM_KEEPALIVE_SECONDS", 0.05
+    ), patch.object(call, "write", new=record_request):
+        polling = asyncio.create_task(stream._poll())
+        await asyncio.wait_for(dispatcher.started.wait(), timeout=1)
+        await asyncio.wait_for(pong_written.wait(), timeout=1)
+        assert [request.WhichOneof("frame") for request in call.requests] == [
+            "register",
+            "pong",
+        ]
+        dispatcher.gate.set()
+        call.frames.put_nowait(
+            pb.PollWorkerTaskResponse(
+                reconnect=pb.PollWorkerTaskReconnect(reason="done")
+            )
+        )
+        assert await asyncio.wait_for(polling, timeout=1)
     assert [request.WhichOneof("frame") for request in call.requests] == [
         "register",
         "pong",

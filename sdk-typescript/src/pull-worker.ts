@@ -39,6 +39,7 @@ import { sdkVersion } from "./sdk-version.generated.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
 
 const debug = debuglog("dex:pull");
+const BUSY_PULL_STREAM_KEEPALIVE_MS = 20_000;
 
 interface ActiveTask {
   readonly id: string;
@@ -53,6 +54,7 @@ interface PollStream {
   task: ActiveTask | undefined;
   retryTimer: ReturnType<typeof setTimeout> | undefined;
   halfCloseTimer: ReturnType<typeof setTimeout> | undefined;
+  keepaliveTimer: ReturnType<typeof setInterval> | undefined;
   halfClosePromise: Promise<void> | undefined;
   resolveHalfClose: (() => void) | undefined;
   isRegistered: boolean;
@@ -60,6 +62,7 @@ interface PollStream {
   supportsUnknownNameRejection: boolean;
   isDisconnected: boolean;
   isHalfClosed: boolean;
+  isFinalFrameSent: boolean;
   isDraining: boolean;
   isRetiring: boolean;
   isReconnectRequested: boolean;
@@ -199,8 +202,8 @@ export class PullWorker {
       while (idleCount < this.idleStreamsPerQueue) {
         const poll: PollStream = {
           queue, stream: undefined, task: undefined, retryTimer: undefined,
-          halfCloseTimer: undefined, halfClosePromise: undefined, resolveHalfClose: undefined,
-          isRegistered: false, hasRecordedResult: false, supportsUnknownNameRejection: false, isDisconnected: false, isHalfClosed: false, isDraining: false, isRetiring: false,
+          halfCloseTimer: undefined, keepaliveTimer: undefined, halfClosePromise: undefined, resolveHalfClose: undefined,
+          isRegistered: false, hasRecordedResult: false, supportsUnknownNameRejection: false, isDisconnected: false, isHalfClosed: false, isFinalFrameSent: false, isDraining: false, isRetiring: false,
           isReconnectRequested: false, hasRetriedRejectedToken: false,
           backoffMs: 100, failure: undefined,
         };
@@ -277,6 +280,7 @@ export class PullWorker {
         if (poll.task?.id === frame.value.taskId) poll.task.controller.abort();
         break;
       case "ping":
+        if (poll.isFinalFrameSent) break;
         try {
           this.send(poll, { frame: { $case: "pong", value: {} } });
         } catch (failure) {
@@ -320,6 +324,17 @@ export class PullWorker {
     const deadlineCancellation = deadlineMs === undefined
       ? undefined
       : new DeadlineCancellation(deadlineMs, controller);
+    poll.isFinalFrameSent = false;
+    poll.keepaliveTimer = setInterval(() => {
+      if (poll.isDisconnected || poll.isFinalFrameSent || poll.task === undefined) return;
+      try {
+        this.send(poll, { frame: { $case: "pong", value: {} } });
+      } catch (failure) {
+        console.error("send Worker keepalive Pong", failure);
+        this.disconnect(poll);
+      }
+    }, BUSY_PULL_STREAM_KEEPALIVE_MS);
+    poll.keepaliveTimer.unref();
     const completion = this.executeTask(poll, task, controller.signal).finally(() => this.finishTask(poll));
     poll.task = { id: task.taskId, controller, completion, deadlineCancellation };
     this.activeTasks.add(completion);
@@ -404,6 +419,7 @@ export class PullWorker {
   }
 
   private finishTask(poll: PollStream): void {
+    this.stopKeepalive(poll);
     const task = poll.task;
     if (task === undefined) return;
     task.deadlineCancellation?.stop();
@@ -418,6 +434,8 @@ export class PullWorker {
       if (!this.isStopping) this.scheduleReconnect(poll);
     } else if (this.isStopping || poll.isDraining) {
       this.halfCloseStream(poll);
+    } else {
+      poll.isFinalFrameSent = false;
     }
     this.reconcile();
   }
@@ -430,7 +448,18 @@ export class PullWorker {
   }
 
   private sendTaskFrame(poll: PollStream, frame: PollWorkerTaskFrame): void {
+    if (frame.output?.$case === "rpc" || frame.output?.$case === "workerError"
+      || frame.output?.$case === "waitFor" && frame.output.value.output?.$case === "result"
+      || frame.output?.$case === "execute" && frame.output.value.output?.$case === "result") {
+      this.stopKeepalive(poll);
+      poll.isFinalFrameSent = true;
+    }
     this.send(poll, { frame: { $case: "taskFrame", value: frame } });
+  }
+
+  private stopKeepalive(poll: PollStream): void {
+    if (poll.keepaliveTimer !== undefined) clearInterval(poll.keepaliveTimer);
+    poll.keepaliveTimer = undefined;
   }
 
   private send(poll: PollStream, request: PollWorkerTaskRequest): void {
@@ -441,6 +470,7 @@ export class PullWorker {
   }
 
   private disconnect(poll: PollStream): void {
+    this.stopKeepalive(poll);
     if (poll.isDisconnected) return;
     this.recordStreamResult(poll);
     poll.isDisconnected = true;
@@ -451,6 +481,7 @@ export class PullWorker {
   }
 
   private onStreamClosed(poll: PollStream): void {
+    this.stopKeepalive(poll);
     if (poll.isHalfClosed) {
       this.completeHalfClose(poll);
       return;
@@ -463,6 +494,7 @@ export class PullWorker {
   }
 
   private halfCloseStream(poll: PollStream): void {
+    this.stopKeepalive(poll);
     if (poll.isHalfClosed || poll.stream === undefined) return;
     poll.isDisconnected = true;
     poll.isHalfClosed = true;

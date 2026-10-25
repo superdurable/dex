@@ -7,7 +7,7 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * Checks that a registered pull stream remains responsive, including during a task.
+ * Checks that an idle pull stream remains responsive.
  * </pre>
  *
  * Protobuf type {@code dex.PollWorkerTaskPing}
@@ -199,7 +199,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Checks that a registered pull stream remains responsive, including during a task.
+   * Checks that an idle pull stream remains responsive.
    * </pre>
    *
    * Protobuf type {@code dex.PollWorkerTaskPing}

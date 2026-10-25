@@ -48,7 +48,7 @@ pub struct MetricsConfig {
     pub listen: String,
 }
 
-/// Controls pull Worker dispatch waits, registration capacity, and pings.
+/// Controls pull Worker dispatch waits, registration capacity, and idle pings.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct MatchingConfig {
@@ -68,7 +68,7 @@ pub struct MatchingConfig {
     pub max_flow_types: u32,
     /// Defaults to 256 characters; maximum length of each registered Flow type.
     pub max_flow_type_length: u32,
-    /// Defaults to 20 s; interval between pings on registered Worker streams, including during tasks.
+    /// Defaults to 20 s; interval between pings on idle Worker streams.
     #[serde(with = "humantime_serde")]
     pub ping_interval: Duration,
 }

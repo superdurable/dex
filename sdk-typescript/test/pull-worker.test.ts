@@ -430,7 +430,7 @@ test("Reconnect backs off idle streams and drains a busy stream", async () => {
   }
 });
 
-test("busy stream answers Ping without changing RPC result", async () => {
+test("busy stream sends keepalive Pong without changing RPC result", async () => {
   const harness = await startHarness();
   let finishTask!: () => void;
   const gate = new Promise<void>((resolve) => { finishTask = resolve; });
@@ -446,6 +446,7 @@ test("busy stream answers Ping without changing RPC result", async () => {
     await until(() => harness.invocationCount === 1);
     stream.call.write({ frame: { $case: "ping", value: {} } });
     await stream.frame("pong");
+    await stream.frame("pong", 2, 25_000);
     finishTask();
     const result = await stream.frame("taskFrame");
     assert.equal(result.frame?.$case, "taskFrame");

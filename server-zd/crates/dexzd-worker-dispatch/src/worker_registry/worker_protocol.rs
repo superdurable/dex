@@ -179,7 +179,7 @@ async fn read_worker_stream(
             },
             _ = ping.tick() => {
                 let state = worker.state.lock().expect("Worker state lock poisoned");
-                if (state.current.is_some() || !state.is_closing) && worker.output.send(Ok(PollWorkerTaskResponse {
+                if !state.is_busy && !state.is_closing && worker.output.send(Ok(PollWorkerTaskResponse {
                     frame: Some(poll_worker_task_response::Frame::Ping(PollWorkerTaskPing {})),
                 })).is_err() { break; }
             },

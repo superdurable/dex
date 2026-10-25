@@ -482,7 +482,7 @@ final class PullWorkerTest {
     }
 
     @Test
-    void answersPingDuringRunningRpcWithoutChangingResult() throws Exception {
+    void sendsKeepaliveDuringRunningRpcWithoutChangingResult() throws Exception {
         final TestFlow flow = new TestFlow();
         final PollServer pollServer = new PollServer();
         try (RunningWorker running = new RunningWorker(pollServer, flow, 1)) {
@@ -492,6 +492,7 @@ final class PullWorkerTest {
             stream.respond(PollWorkerTaskResponse.newBuilder()
                     .setPing(io.superdurable.gen.PollWorkerTaskPing.getDefaultInstance()).build());
             assertTrue(stream.awaitFrame().hasPong());
+            assertTrue(stream.awaitFrame(25).hasPong());
             flow.release.countDown();
             final PollWorkerTaskRequest result = stream.awaitFrame();
             assertEquals("busy-ping-rpc", result.getTaskFrame().getTaskId());
@@ -1244,7 +1245,11 @@ final class PullWorkerTest {
         }
 
         private PollWorkerTaskRequest awaitFrame() throws InterruptedException {
-            final PollWorkerTaskRequest frame = frames.poll(15, TimeUnit.SECONDS);
+            return awaitFrame(15);
+        }
+
+        private PollWorkerTaskRequest awaitFrame(final long timeoutSeconds) throws InterruptedException {
+            final PollWorkerTaskRequest frame = frames.poll(timeoutSeconds, TimeUnit.SECONDS);
             assertNotNull(frame);
             return frame;
         }

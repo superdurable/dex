@@ -379,6 +379,8 @@ The Worker polls its sticky queue and every registered Flow type queue. Flow
 type names must be unique within a Dex server. The task limit defaults to the
 CPU count, and each queue keeps one idle stream by default. A stream runs one
 task at a time. At capacity, the Worker rejects an assignment for reassignment.
+The SDK sends an upstream Pong every 20 seconds while a task runs and stops
+before its final frame. This interval is internal and needs no Worker option.
 An unregistered Step or RPC is rejected by name. Dex retries that task on
 another pull Worker without consuming a Step attempt, including when the Flow
 was sticky to the rejecting Worker. If no capable Worker accepts it within the

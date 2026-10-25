@@ -120,7 +120,9 @@ type names must be unique within a Dex server. `max_concurrent_tasks` defaults
 to the CPU count, and `idle_streams_per_queue` defaults to one. At capacity,
 the Worker rejects an assignment so Dex can reassign it. Each stream runs one
 task at a time; Step heartbeat and stream writes use the same stream. After tasks finish, the Worker
-gracefully closes surplus idle streams while preserving readiness. After load drops,
+gracefully closes surplus idle streams while preserving readiness. The SDK sends
+an upstream Pong every 20 seconds while a task runs and stops before its final
+frame. This interval is internal and needs no Worker option. After load drops,
 the steady-state bound is `max_concurrent_tasks + (1 + number of Flow types) *
 idle_streams_per_queue` streams. The transient peak during a burst remains bounded
 by the matching caps. Size these options for `matching.maxConcurrentTasksCap` per

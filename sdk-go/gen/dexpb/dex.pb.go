@@ -2136,7 +2136,7 @@ type PollWorkerTaskResponse_Reconnect struct {
 }
 
 type PollWorkerTaskResponse_Ping struct {
-	// Checks whether a registered stream remains responsive, including during a task.
+	// Checks whether an idle stream remains responsive.
 	Ping *PollWorkerTaskPing `protobuf:"bytes,5,opt,name=ping,proto3,oneof"`
 }
 
@@ -2408,7 +2408,7 @@ func (x *PollWorkerTaskReconnect) GetReason() string {
 	return ""
 }
 
-// Checks that a registered pull stream remains responsive, including during a task.
+// Checks that an idle pull stream remains responsive.
 type PollWorkerTaskPing struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
