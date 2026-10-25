@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 type cancellationScenario string
@@ -456,6 +457,9 @@ func (cancellationSelectorWaitingStep) Execute(
 }
 
 func TestStepCancellation(t *testing.T) {
+	serverEngine, err := integrationServerEngine()
+	require.NoError(t, err)
+	isServerZD := serverEngine == dexpb.ServerEngine_SERVER_ENGINE_ZD
 	scenarios := []cancellationScenario{
 		cancelHeartbeatExecute,
 		cancelHeartbeatWaitFor,
@@ -467,12 +471,12 @@ func TestStepCancellation(t *testing.T) {
 	}
 	for _, scenario := range scenarios {
 		t.Run(string(scenario), func(t *testing.T) {
-			runCancellationScenario(t, scenario)
+			runCancellationScenario(t, scenario, isServerZD)
 		})
 	}
 }
 
-func runCancellationScenario(t *testing.T, scenario cancellationScenario) {
+func runCancellationScenario(t *testing.T, scenario cancellationScenario, isServerZD bool) {
 	t.Helper()
 	flowID := newFlowID(t, "go-cancellation-"+string(scenario))
 	state := newCancellationState(scenario)
@@ -516,11 +520,16 @@ func runCancellationScenario(t *testing.T, scenario cancellationScenario) {
 		require.False(t, state.firstSelectorExecuted.Load())
 		require.True(t, state.secondSelectorExecuted.Load())
 	case cancelNoHeartbeat:
-		require.False(t, state.handlerCanceled.Load())
-		select {
-		case <-state.lateHandlerReturned:
-			t.Fatal("handler returned before Flow completed")
-		default:
+		if isServerZD {
+			requireChannel(t, state.cancellationObserved, 8*time.Second)
+			require.True(t, state.handlerCanceled.Load())
+		} else {
+			require.False(t, state.handlerCanceled.Load())
+			select {
+			case <-state.lateHandlerReturned:
+				t.Fatal("handler returned before Flow completed")
+			default:
+			}
 		}
 		requireChannel(t, state.lateHandlerReturned, 8*time.Second)
 	default:
@@ -529,7 +538,7 @@ func runCancellationScenario(t *testing.T, scenario cancellationScenario) {
 	if scenario != cancelGlobalSelector && scenario != cancelSiblingSelector {
 		require.False(t, state.recoveryRan.Load())
 		expectedInvocations := int32(1)
-		if scenario == cancelLocalExecute || scenario == cancelLocalFallback {
+		if !isServerZD && (scenario == cancelLocalExecute || scenario == cancelLocalFallback) {
 			expectedInvocations = 2
 		}
 		require.Equal(t, expectedInvocations, state.blockingInvocations.Load())

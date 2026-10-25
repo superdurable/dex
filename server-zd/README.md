@@ -84,6 +84,8 @@ From `sdk-go/v1.16.0` on, the suite skips these tests on server-zd or asserts se
 | Flow retry policies | StartFlow with a Flow retry policy returns `InvalidArgument`. | `TestBasicFlow` |
 | TriggerContinueAsNew | Returns `Unimplemented`. | `TestActionPermissionProjectionContinueAsNew`, `TestSubFlowPartialResultsSurviveContinueAsNewWithoutRestart` |
 | ASYNC Step heartbeats | Heartbeat checkpoints are kept from the first attempt. | `TestAsyncLocalHeartbeatIsIgnoredAndStreamsAreRetained` |
+| ASYNC Step cancellation | An ASYNC Step has no local phase, so cancellation ends its first handler invocation. | `TestStepCancellation` (`local-execute`, `local-timeout-fallback`) |
+| Canceled Step handlers | A pull Worker observes handler context cancellation even without a heartbeat timeout. | `TestStepCancellation` (`no-heartbeat`) |
 | Push Workers | Not supported. | `TestMessageSizeHydrationSplitsBlobBatchesAboveLimit` (push-only) |
 
 The [released Go SDK compatibility workflow](../.github/workflows/server-zd-sdk-go-compatibility.yml)
