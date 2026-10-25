@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_hash};
 use dexzd_apply::read_model::{get_search_document, search_order_index_keys_of_document};
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
@@ -2121,6 +2122,7 @@ fn a_graceful_completion_after_a_restored_child_result_waits_for_remarked_attrib
         StepExecutionPhase::Execute as i32
     );
     assert!(harness.attribute_sync_entry_count() > 0);
+    let mut points = vec![harness.parent_semantic_point()];
 
     let invocation = StepInvocationKey {
         step_execution_id: "StartStep-1".to_owned(),
@@ -2163,12 +2165,18 @@ fn a_graceful_completion_after_a_restored_child_result_waits_for_remarked_attrib
         pending.pending_close.map(|close| close.status),
         Some(FlowStatus::Completed as i32)
     );
+    points.push(harness.parent_semantic_point());
 
     harness.ack_attribute_sync();
     assert_eq!(
         harness.record("parent", PARENT_RUN).status,
         FlowStatus::Completed as i32
     );
+    points.push(harness.parent_semantic_point());
+    for (timestamp, expected) in points {
+        let rebuilt = harness.rebuilt_parent_point_hash(2, timestamp);
+        assert_eq!(rebuilt, expected, "point at {timestamp}");
+    }
 }
 
 impl Harness {
@@ -2185,6 +2193,74 @@ impl Harness {
                 is_dropped: false,
             }),
         );
+    }
+
+    /// The time and state hash of the parent's current semantic point.
+    fn parent_semantic_point(&self) -> (i64, [u8; 16]) {
+        let record = self.record("parent", PARENT_RUN);
+        let history = self.parent_history(record.next_run_seq - 1);
+        assert!(history.is_semantic, "the last command is a semantic point");
+        let hash = current_semantic_point_hash(
+            &self.parent_context(),
+            &self.state,
+            RunId(PARENT_RUN),
+            &history.command.expect("history command").command_id,
+        )
+        .expect("hash the current point")
+        .expect("semantic point")
+        .state_hash;
+        (history.timestamp_micros, hash)
+    }
+
+    /// The state hash a TimeTravel to `timestamp_micros` of `run_attempt` rebuilds.
+    fn rebuilt_parent_point_hash(&self, run_attempt: u32, timestamp_micros: i64) -> [u8; 16] {
+        let command = self.parent_time_travel_command(run_attempt, timestamp_micros);
+        time_travel_target_hash(&self.parent_context(), &self.state, &command)
+            .expect("rebuild the point")
+            .expect("the point exists")
+            .state_hash
+    }
+
+    fn parent_context(&self) -> ApplyContext {
+        let flow_hash = self.hasher.flow_hash(TenantId::DEFAULT, "parent");
+        ApplyContext {
+            partition: self.hasher.partition_of(flow_hash),
+            flow_hash,
+        }
+    }
+
+    fn parent_time_travel_command(&self, run_attempt: u32, timestamp_micros: i64) -> FlowCommand {
+        FlowCommand {
+            flow_id: "parent".to_owned(),
+            run_id: PARENT_RUN.to_vec(),
+            epoch: 1,
+            behavior_version: 1,
+            proposed_at_micros: self.now_micros + 1000,
+            command_id: [1; 16].to_vec(),
+            command: Some(Command::TimeTravel(TimeTravelCommand {
+                request: Some(ResetFlowRequest {
+                    flow_id: "parent".to_owned(),
+                    reset_type: FlowResetType::HistoryEventTime as i32,
+                    run_attempt,
+                    history_event_time: (i128::from(timestamp_micros) * 1000).to_string(),
+                    ..ResetFlowRequest::default()
+                }),
+            })),
+            ..FlowCommand::default()
+        }
+    }
+
+    fn parent_history(&self, seq: u64) -> HistoryRecord {
+        let parent_hash = self.hasher.flow_hash(TenantId::DEFAULT, "parent");
+        let bytes = self
+            .state
+            .get(
+                ColumnFamily::History,
+                &history_record_key(parent_hash, RunId(PARENT_RUN), seq),
+            )
+            .expect("memory reads")
+            .expect("the point is recorded");
+        HistoryRecord::decode(bytes.as_slice()).expect("history decodes")
     }
 
     fn attribute_sync_entry_count(&self) -> usize {
