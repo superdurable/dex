@@ -77,8 +77,8 @@ run against a real server.
 
 The `sdk-go/v1.15.0` suite predates server-zd, so it expects Go Server behavior in these areas.
 The `sdk-go/v1.16.0` suite skips unsupported cases or asserts server-zd behavior. The released
-`sdk-go/v1.17.0` and `sdk-go/v1.20.0` suites run the cancellation cases with Go Server
-expectations and fail against server-zd versions that support Step failure policies. The
+`sdk-go/v1.17.0`, `sdk-go/v1.20.0`, and `sdk-go/v1.21.0` suites run the cancellation cases with
+Go Server expectations and fail against server-zd versions that support Step failure policies. The
 server-zd cancellation expectations below apply from the next Go SDK release containing this change.
 
 | Area | server-zd behavior | Affected tests |

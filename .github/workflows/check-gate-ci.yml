@@ -88,6 +88,7 @@ jobs:
               - '.github/workflows/server-zd-ci.yml'
             server_zd_sdk_go:
               - 'server-zd/**'
+              - 's3mock/**'
               - 'sdk-go/**'
               - 'cli/**'
               - 'web/**'

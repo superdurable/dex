@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "server-zd/**"
+      - "s3mock/**"
       - "sdk-go/**"
       - "cli/**"
       - "web/**"
@@ -15,6 +16,7 @@ on:
   pull_request:
     paths:
       - "server-zd/**"
+      - "s3mock/**"
       - "sdk-go/**"
       - "cli/**"
       - "web/**"
