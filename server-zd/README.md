@@ -227,19 +227,24 @@ Startup proceeds in this order:
    `dex.FlowService`, and `dex.WorkerTaskService`; FlowService and WorkerTaskService calls return
    Unavailable while startup continues.
 2. Every S3 destination verifies a prefixed child listing. Every destination then passes a
-   conditional-write self-check.
+   conditional-write self-check. The self-check does not use startup read retries.
 3. The node acquires the lease of `cluster.nodeId` for `lease.duration`. A lease that another
    process still holds is awaited until it expires, or fails startup when `lease.failIfHeld` is
-   true. `dev` takes a held lease over at once instead; see [dev](#dev).
+   true. `dev` takes a held lease over at once instead; see [dev](#dev). Transient or
+   unknown-outcome reads of the cluster, manifest, and lease objects are retried during bootstrap
+   and acquisition.
 4. The node restores `localStorage.directory` from the latest snapshot and the command log. The
    directory is a cache; an empty one is rebuilt from object storage. Replay keeps up to
    `recovery.readAheadBatches` log reads in flight, holding at most `recovery.readAheadBytes` of
    log objects or one larger batch, and applies batches in log order as they arrive. After a
    replay of at least `localStorage.compactAfterReplayBytes`, the local store is compacted in the
    background while the node serves.
-   Transient object-storage reads are retried with jittered exponential backoff for up to
-   `recovery.startupReadRetryBudget` of total retry time (default 30 seconds). Permanent errors
-   fail startup immediately. Lease renewal continues during retries; losing the lease stops recovery.
+   Transient or unknown-outcome object-storage reads are retried with jittered exponential backoff.
+   Each read gets its own `recovery.startupReadRetryBudget` wall-clock window (default 30 seconds),
+   starting at its first transient or unknown-outcome failure. Backoff and later read calls count
+   toward that window. Concurrent reads do not share a budget, and a later read gets a new window.
+   Permanent errors fail startup immediately. Lease loss or shutdown can stop retries sooner;
+   lease renewal continues during recovery.
 5. After recovery and rebuild finish, health switches to SERVING and the API serves requests.
    Startup failure closes the listener.
 

@@ -246,7 +246,7 @@ where
                         return (server.shutdown().await, None);
                     }
                     Ok(None) => {
-                        tracing::info!("termination signal while waiting for the node lease; startup cancelled");
+                        tracing::info!("termination signal during startup; startup cancelled");
                         return (Ok(()), None);
                     }
                     Err(error) => return (Err(error), None),

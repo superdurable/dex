@@ -191,16 +191,11 @@ impl Simulation {
         ));
         let sampled_fault_probability =
             FAULT_PROBABILITIES[rng.random_range(0..FAULT_PROBABILITIES.len())];
-        let fault_probability =
-            config
-                .fault_probability_percent
-                .map_or(sampled_fault_probability, |percent| {
-                    assert!(
-                        percent <= 100,
-                        "fault probability percent must not exceed 100"
-                    );
-                    f64::from(percent) / 100.0
-                });
+        let fault_probability = config
+            .fault_probability_percent
+            .map_or(sampled_fault_probability, |percent| {
+                f64::from(percent) / 100.0
+            });
         let retention_after_close = if rng.random_bool(0.5) {
             LONG_RETENTION
         } else {

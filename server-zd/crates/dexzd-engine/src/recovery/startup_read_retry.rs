@@ -8,18 +8,18 @@
 
 use std::future::Future;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
     ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
     ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
 };
-use tokio::sync::watch;
 use tokio::time::Instant;
 
 const INITIAL_BACKOFF: Duration = Duration::from_millis(20);
@@ -33,8 +33,7 @@ pub(crate) struct StartupReadRetryStore {
     jitter_source: String,
     metrics: Arc<NodeMetrics>,
     active: AtomicBool,
-    remaining_budget: Mutex<Duration>,
-    retry_started: watch::Sender<bool>,
+    lease_validity_deadline: Option<LeaseValidityDeadline>,
 }
 
 impl StartupReadRetryStore {
@@ -43,31 +42,20 @@ impl StartupReadRetryStore {
         budget: Duration,
         jitter_source: String,
         metrics: Arc<NodeMetrics>,
+        lease_validity_deadline: Option<LeaseValidityDeadline>,
     ) -> Self {
-        let (retry_started, _) = watch::channel(false);
         Self {
             inner,
             budget,
             jitter_source,
             metrics,
             active: AtomicBool::new(true),
-            remaining_budget: Mutex::new(budget),
-            retry_started,
+            lease_validity_deadline,
         }
     }
 
     pub(crate) fn finish_startup(&self) {
         self.active.store(false, Ordering::Release);
-    }
-
-    pub(crate) async fn wait_for_retry(&self) {
-        let mut retry_started = self.retry_started.subscribe();
-        if !*retry_started.borrow_and_update() {
-            retry_started
-                .changed()
-                .await
-                .expect("the startup retry store keeps the sender alive");
-        }
     }
 
     async fn retry_read<T, F, Fut>(
@@ -85,13 +73,12 @@ impl StartupReadRetryStore {
         }
         let mut backoff = INITIAL_BACKOFF;
         let mut attempt = 0_u32;
+        let mut retry_started_at = None;
         let mut last_error = None;
         loop {
-            let read_result = if attempt == 0 {
-                read().await
-            } else {
-                let remaining_budget = self.budget_remaining();
-                if remaining_budget.is_zero() {
+            let read_result = if let Some(first_failure) = retry_started_at {
+                let deadline = self.retry_deadline(first_failure);
+                if deadline <= Instant::now() {
                     return Err(self.budget_exhausted(
                         operation,
                         key,
@@ -100,10 +87,7 @@ impl StartupReadRetryStore {
                             .expect("a retry has an underlying error"),
                     ));
                 }
-                let read_started = Instant::now();
-                let result = tokio::time::timeout(remaining_budget, read()).await;
-                self.consume_budget(read_started.elapsed());
-                match result {
+                match tokio::time::timeout_at(deadline, read()).await {
                     Ok(result) => result,
                     Err(_) => {
                         return Err(self.budget_exhausted(
@@ -115,6 +99,8 @@ impl StartupReadRetryStore {
                         ));
                     }
                 }
+            } else {
+                read().await
             };
             match read_result {
                 Ok(value) => return Ok(value),
@@ -127,23 +113,23 @@ impl StartupReadRetryStore {
                     if !self.active.load(Ordering::Acquire) {
                         return Err(error);
                     }
+                    let first_failure = *retry_started_at.get_or_insert_with(Instant::now);
                     attempt = attempt.saturating_add(1);
-                    let Some((delay, budget_remaining)) =
-                        self.reserve_delay(operation, key, attempt, backoff)
-                    else {
+                    let budget_remaining = self
+                        .retry_deadline(first_failure)
+                        .saturating_duration_since(Instant::now());
+                    if budget_remaining.is_zero() {
                         return Err(self.budget_exhausted(operation, key, &error));
-                    };
-                    self.retry_started.send_replace(true);
+                    }
+                    let delay = self
+                        .retry_delay(operation, key, attempt, backoff)
+                        .min(budget_remaining);
                     self.metrics.startup_read_retries.inc();
-                    tracing::warn!(
-                        %operation,
-                        key,
-                        attempt,
-                        delay_ms = delay.as_millis(),
-                        budget_remaining_ms = budget_remaining.as_millis(),
-                        error = %error,
-                        "retrying startup object storage read"
-                    );
+                    if attempt == 1 {
+                        tracing::warn!(%operation, key, attempt, delay_ms = delay.as_millis(), budget_remaining_ms = budget_remaining.as_millis(), error = %error, "retrying startup object storage read");
+                    } else {
+                        tracing::debug!(%operation, key, attempt, delay_ms = delay.as_millis(), budget_remaining_ms = budget_remaining.as_millis(), error = %error, "retrying startup object storage read");
+                    }
                     last_error = Some(error);
                     tokio::time::sleep(delay).await;
                     backoff = backoff.saturating_mul(2).min(MAX_BACKOFF);
@@ -153,19 +139,14 @@ impl StartupReadRetryStore {
         }
     }
 
-    fn budget_remaining(&self) -> Duration {
-        *self
-            .remaining_budget
-            .lock()
-            .expect("startup retry budget lock is not poisoned")
-    }
-
-    fn consume_budget(&self, elapsed: Duration) {
-        let mut remaining_budget = self
-            .remaining_budget
-            .lock()
-            .expect("startup retry budget lock is not poisoned");
-        *remaining_budget = remaining_budget.saturating_sub(elapsed);
+    fn retry_deadline(&self, first_failure: Instant) -> Instant {
+        let budget_deadline = first_failure + self.budget;
+        self.lease_validity_deadline
+            .as_ref()
+            .and_then(LeaseValidityDeadline::armed_deadline)
+            .map_or(budget_deadline, |lease_deadline| {
+                budget_deadline.min(Instant::from_std(lease_deadline))
+            })
     }
 
     fn budget_exhausted(
@@ -179,31 +160,10 @@ impl StartupReadRetryStore {
             key,
             last_error.kind,
             format!(
-                "startup read retry budget {:?} exhausted; last error: {last_error}",
+                "startup read retry deadline reached (budget {:?}, bounded by lease validity during acquisition); last error: {last_error}",
                 self.budget
             ),
         )
-    }
-
-    fn reserve_delay(
-        &self,
-        operation: ObjectStoreOperation,
-        key: &str,
-        attempt: u32,
-        backoff: Duration,
-    ) -> Option<(Duration, Duration)> {
-        let mut remaining_budget = self
-            .remaining_budget
-            .lock()
-            .expect("startup retry budget lock is not poisoned");
-        if remaining_budget.is_zero() {
-            return None;
-        }
-        let delay = self
-            .retry_delay(operation, key, attempt, backoff)
-            .min(*remaining_budget);
-        *remaining_budget -= delay;
-        Some((delay, *remaining_budget))
     }
 
     fn retry_delay(

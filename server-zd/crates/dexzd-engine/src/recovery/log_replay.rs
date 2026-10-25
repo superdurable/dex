@@ -29,7 +29,8 @@ use crate::recovery::{EngineStartError, describe_lost_ownership};
 /// Log replay settings of node startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecoveryConfig {
-    /// Defaults to 30 seconds; total retry time for transient startup reads. Must be positive.
+    /// Defaults to 30 seconds. Each startup read gets this wall-clock retry window from its
+    /// first transient or unknown-outcome failure; concurrent and later reads have independent windows. Must be positive.
     pub startup_read_retry_budget: Duration,
     /// Read-ahead of log batches while startup replays them.
     pub log_read_ahead: LogReadAheadConfig,

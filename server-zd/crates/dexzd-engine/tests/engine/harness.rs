@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -342,6 +342,7 @@ struct DelayedOperation {
 pub(crate) struct SwitchableFaults {
     one_shot_fault: Mutex<Option<(ObjectStoreOperation, String, FaultAction)>>,
     persistent_read_fault: Mutex<Option<(ObjectStoreOperation, String)>>,
+    first_read_faults: Mutex<Option<(ObjectStoreOperation, String, BTreeSet<String>)>>,
     fault_entered: Notify,
     failing_put_prefix: Mutex<Option<String>>,
     /// Key whose writes fail once the remaining count of allowed writes is zero.
@@ -369,6 +370,15 @@ impl SwitchableFaults {
             Some((operation, prefix.to_owned()));
     }
 
+    pub(crate) fn fail_first_read_of_each_key_under(
+        &self,
+        operation: ObjectStoreOperation,
+        prefix: &str,
+    ) {
+        *self.first_read_faults.lock().expect("fault lock") =
+            Some((operation, prefix.to_owned(), BTreeSet::new()));
+    }
+
     pub(crate) async fn wait_until_faulted(&self) {
         self.fault_entered.notified().await;
     }
@@ -385,6 +395,7 @@ impl SwitchableFaults {
     pub(crate) fn clear(&self) {
         *self.one_shot_fault.lock().expect("fault lock") = None;
         *self.persistent_read_fault.lock().expect("fault lock") = None;
+        *self.first_read_faults.lock().expect("fault lock") = None;
         *self.failing_put_prefix.lock().expect("fault lock") = None;
         *self.limited_put.lock().expect("fault lock") = None;
         *self.delayed.lock().expect("fault lock") = None;
@@ -484,6 +495,14 @@ impl FaultInjector for SwitchableFaults {
             })
         {
             self.fault_entered.notify_one();
+            return FaultAction::FailBeforeEffect;
+        }
+        if let Some((fault_operation, prefix, failed_keys)) =
+            self.first_read_faults.lock().expect("fault lock").as_mut()
+            && *fault_operation == operation
+            && key.starts_with(prefix.as_str())
+            && failed_keys.insert(key.to_owned())
+        {
             return FaultAction::FailBeforeEffect;
         }
         let armed = self.delayed.lock().expect("fault lock").take_if(|delayed| {

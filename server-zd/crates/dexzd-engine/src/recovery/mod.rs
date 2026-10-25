@@ -138,6 +138,14 @@ pub enum EngineStartError {
         /// Why it stopped.
         reason: NodeStopReason,
     },
+    /// Startup failed and its lease release also failed.
+    #[error("startup failed: {start}; releasing its lease also failed: {detail}")]
+    FailedStartLeaseRelease {
+        /// Original startup error.
+        start: Box<EngineStartError>,
+        /// Lease release failure.
+        detail: String,
+    },
     /// The configuration is invalid.
     #[error("invalid engine configuration: {detail}")]
     InvalidConfig {

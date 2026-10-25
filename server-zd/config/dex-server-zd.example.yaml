@@ -36,7 +36,7 @@ snapshot:
   retainedCount: 3
   logDeletionDelay: 24h
 recovery:
-  # Total retry time allowed for transient object-storage reads during startup.
+  # Wall-clock retry window per startup read, starting at its first transient or unknown-outcome failure.
   startupReadRetryBudget: 30s
   # Log batches read ahead while startup replays the log.
   readAheadBatches: 64

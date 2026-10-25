@@ -16,6 +16,7 @@ use dexzd_engine::{
 };
 use dexzd_log::LogError;
 use dexzd_object_store::{FaultAction, ObjectStore, ObjectStoreOperation};
+use prost::Message;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -98,6 +99,9 @@ async fn transient_log_listing_cannot_look_like_an_empty_stream() {
 async fn transient_cluster_manifest_and_lease_reads_start() {
     let mut cluster = TestCluster::new();
     let config = cluster.config(LocalStoreConfig::InMemory);
+    let cluster_reads_before = cluster
+        .object_store
+        .call_count(ObjectStoreOperation::Get, "cluster");
     cluster.faults.fail_next(
         ObjectStoreOperation::Get,
         "cluster",
@@ -107,8 +111,17 @@ async fn transient_cluster_manifest_and_lease_reads_start() {
         .start_with(&config)
         .await
         .expect("cluster read retried");
+    assert!(
+        cluster
+            .object_store
+            .call_count(ObjectStoreOperation::Get, "cluster")
+            >= cluster_reads_before + 2
+    );
     first.node.shutdown().await.expect("lease released");
     for key in ["manifest", LEASE_KEY] {
+        let reads_before = cluster
+            .object_store
+            .call_count(ObjectStoreOperation::Get, key);
         cluster.faults.fail_next(
             ObjectStoreOperation::Get,
             key,
@@ -118,8 +131,115 @@ async fn transient_cluster_manifest_and_lease_reads_start() {
             .start_with(&config)
             .await
             .expect("metadata read retried");
+        assert!(
+            cluster
+                .object_store
+                .call_count(ObjectStoreOperation::Get, key)
+                >= reads_before + 2
+        );
         node.node.shutdown().await.expect("lease released");
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn many_independent_short_read_failures_get_fresh_windows() {
+    let mut cluster = TestCluster::new();
+    let mut config = cluster.config(LocalStoreConfig::InMemory);
+    config.recovery.startup_read_retry_budget = Duration::from_millis(200);
+    let first = cluster.start_with(&config).await.expect("node starts");
+    first.commit_prompt(FLOW_ID, 100).await;
+    first.node.shutdown().await.expect("lease released");
+    let reads_before = cluster
+        .faults
+        .count_operations_per_key(ObjectStoreOperation::Get, "log/");
+    cluster
+        .faults
+        .fail_first_read_of_each_key_under(ObjectStoreOperation::Get, "log/");
+    let restarted = cluster
+        .start_with(&config)
+        .await
+        .expect("independent reads retry");
+    assert_eq!(restarted.committed_count(FLOW_ID).await, 100);
+    let retrying_keys = cluster
+        .faults
+        .count_operations_per_key(ObjectStoreOperation::Get, "log/")
+        .iter()
+        .filter(|(key, count)| **count >= reads_before.get(*key).copied().unwrap_or(0) + 2)
+        .count();
+    assert!(
+        retrying_keys >= 100,
+        "only {retrying_keys} log keys were retried"
+    );
+    restarted.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn concurrent_reads_survive_a_half_second_brownout() {
+    let mut cluster = TestCluster::new();
+    let config = cluster.config(LocalStoreConfig::InMemory);
+    let first = cluster.start_with(&config).await.expect("node starts");
+    first.commit_prompt(FLOW_ID, 80).await;
+    first.node.shutdown().await.expect("lease released");
+    let reads_before = cluster
+        .faults
+        .count_operations_per_key(ObjectStoreOperation::Get, "log/");
+    cluster
+        .faults
+        .fail_every_read_under(ObjectStoreOperation::Get, "log/");
+    let start = tokio::spawn(start_node(&cluster, config));
+    for _ in 0..10_000 {
+        let reads_in_flight = cluster
+            .faults
+            .count_operations_per_key(ObjectStoreOperation::Get, "log/")
+            .iter()
+            .filter(|(key, count)| **count > *reads_before.get(*key).unwrap_or(&0))
+            .count();
+        if reads_in_flight >= 64 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    let reads_in_flight = cluster
+        .faults
+        .count_operations_per_key(ObjectStoreOperation::Get, "log/")
+        .iter()
+        .filter(|(key, count)| **count > *reads_before.get(*key).unwrap_or(&0))
+        .count();
+    assert!(
+        reads_in_flight >= 64,
+        "only {reads_in_flight} reads started"
+    );
+    tokio::time::advance(Duration::from_millis(500)).await;
+    cluster.faults.clear();
+    let restarted = start
+        .await
+        .expect("start task completes")
+        .expect("brownout recovers");
+    assert_eq!(restarted.committed_count(FLOW_ID).await, 80);
+    restarted.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn permanent_store_error_fails_without_retry() {
+    let mut cluster = TestCluster::new();
+    let config = cluster.config(LocalStoreConfig::InMemory);
+    cluster.faults.fail_next(
+        ObjectStoreOperation::Get,
+        "cluster",
+        FaultAction::FailPermanently,
+    );
+    let error = cluster
+        .start_with(&config)
+        .await
+        .err()
+        .expect("permanent error fails startup");
+    assert!(error.to_string().contains("injected permanent failure"));
+    assert_eq!(
+        cluster
+            .object_store
+            .call_count(ObjectStoreOperation::Get, "cluster"),
+        1
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -223,11 +343,21 @@ async fn lease_loss_interrupts_startup_read_retry() {
     let mut cluster = TestCluster::new();
     let config = cluster.config(LocalStoreConfig::InMemory);
     let first = cluster.start_with(&config).await.expect("node starts");
-    first.commit_prompt(FLOW_ID, 1).await;
+    first.commit_prompt(FLOW_ID, 5).await;
     first.node.shutdown().await.expect("lease released");
+    let log_keys_before: Vec<String> = cluster
+        .object_store
+        .list("log/", None, 1000)
+        .await
+        .expect("list log")
+        .objects
+        .into_iter()
+        .map(|object| object.key)
+        .collect();
+    assert!(log_keys_before.len() >= 6);
     cluster
         .faults
-        .fail_every_read_under(ObjectStoreOperation::Get, "log/");
+        .fail_every_read_under(ObjectStoreOperation::Get, &log_keys_before[3]);
     let (_sender, cancellation) = watch::channel(false);
     let start = tokio::spawn(start_with_cancellation(&cluster, config, cancellation));
     cluster.faults.wait_until_faulted().await;
@@ -242,7 +372,133 @@ async fn lease_loss_interrupts_startup_read_retry() {
             reason: NodeStopReason::LeaseLost { .. }
         })
     ));
-    assert!(applier.applied_commands().is_empty());
+    let applied_before_stop = applier.applied_commands().len();
+    assert!(
+        applied_before_stop > 0 && applied_before_stop < 5,
+        "{applied_before_stop} commands applied"
+    );
+    tokio::task::yield_now().await;
+    assert_eq!(applier.applied_commands().len(), applied_before_stop);
+    let log_keys_after: Vec<String> = cluster
+        .object_store
+        .list("log/", None, 1000)
+        .await
+        .expect("list log")
+        .objects
+        .into_iter()
+        .map(|object| object.key)
+        .collect();
+    assert_eq!(
+        log_keys_after, log_keys_before,
+        "stale epoch must not write EpochStart"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn shutdown_interrupts_a_retrying_lease_read_without_prior_retries() {
+    let cluster = TestCluster::new();
+    let config = cluster.config(LocalStoreConfig::InMemory);
+    cluster
+        .faults
+        .fail_every_read_under(ObjectStoreOperation::Get, LEASE_KEY);
+    let (sender, cancellation) = watch::channel(false);
+    let start = tokio::spawn(start_with_cancellation(&cluster, config, cancellation));
+    cluster.faults.wait_until_faulted().await;
+    sender.send(true).expect("start observes shutdown");
+    let (result, _) = tokio::time::timeout(Duration::from_secs(1), start)
+        .await
+        .expect("lease acquisition stops promptly")
+        .expect("start task completes");
+    assert!(matches!(result, Ok(None)));
+}
+
+#[tokio::test(start_paused = true)]
+async fn shutdown_during_acquisition_releases_a_written_lease() {
+    let cluster = TestCluster::new();
+    let config = cluster.config(LocalStoreConfig::InMemory);
+    cluster
+        .faults
+        .delay_next_put_under(LEASE_KEY, Duration::from_millis(1));
+    let (sender, cancellation) = watch::channel(false);
+    let start = tokio::spawn(start_with_cancellation(&cluster, config, cancellation));
+    cluster.faults.wait_until_delayed_operation_entered().await;
+    cluster
+        .faults
+        .fail_every_read_under(ObjectStoreOperation::Get, "manifest");
+    tokio::time::advance(Duration::from_millis(1)).await;
+    cluster.faults.wait_until_faulted().await;
+    sender.send(true).expect("start observes shutdown");
+    let (result, _) = tokio::time::timeout(Duration::from_secs(1), start)
+        .await
+        .expect("acquisition stops promptly")
+        .expect("start task completes");
+    assert!(matches!(result, Ok(None)));
+    let lease = cluster
+        .object_store
+        .get(LEASE_KEY)
+        .await
+        .expect("read lease")
+        .expect("lease exists");
+    let lease = dexzd_protocol::dexzd::v1::NodeLease::decode(lease.bytes).expect("decode lease");
+    assert_eq!(lease.expires_at_unix_micros, i64::MIN);
+}
+
+#[tokio::test(start_paused = true)]
+async fn acquisition_retry_cannot_outlive_lease_validity() {
+    let cluster = TestCluster::new();
+    let mut config = cluster.config(LocalStoreConfig::InMemory);
+    config.lease.duration = Duration::from_millis(300);
+    cluster
+        .faults
+        .delay_next_put_under(LEASE_KEY, Duration::from_millis(1));
+    let start = tokio::spawn(start_node(&cluster, config));
+    cluster.faults.wait_until_delayed_operation_entered().await;
+    cluster
+        .faults
+        .fail_every_read_under(ObjectStoreOperation::Get, "manifest");
+    tokio::time::advance(Duration::from_millis(1)).await;
+    cluster.faults.wait_until_faulted().await;
+    let retry_started = Instant::now();
+    let error = tokio::time::timeout(Duration::from_secs(1), start)
+        .await
+        .expect("acquisition stays within lease validity")
+        .expect("start task completes")
+        .err()
+        .expect("manifest read fails");
+    assert!(
+        retry_started.elapsed() < Duration::from_millis(600),
+        "{error}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn failed_start_lease_release_is_reported() {
+    let mut cluster = TestCluster::new();
+    let mut config = cluster.config(LocalStoreConfig::InMemory);
+    config.recovery.startup_read_retry_budget = Duration::from_millis(100);
+    let first = cluster.start_with(&config).await.expect("node starts");
+    first.commit_prompt(FLOW_ID, 1).await;
+    first.node.shutdown().await.expect("lease released");
+    cluster
+        .faults
+        .fail_every_read_under(ObjectStoreOperation::Get, "log/");
+    let start = tokio::spawn(start_node(&cluster, config));
+    cluster.faults.wait_until_faulted().await;
+    cluster.faults.fail_puts_under(LEASE_KEY);
+    let error = start
+        .await
+        .expect("start task completes")
+        .err()
+        .expect("start fails");
+    assert!(
+        matches!(&error, EngineStartError::FailedStartLeaseRelease { .. }),
+        "{error}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("releasing its lease also failed")
+    );
 }
 
 #[tokio::test(start_paused = true)]

@@ -123,7 +123,8 @@ impl Default for SnapshotConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecoveryConfig {
-    /// Defaults to 30 s; total retry time for transient object-storage reads during startup. Must be positive.
+    /// Defaults to 30 s. Each startup read retries transient errors until this much wall time
+    /// passes from its first transient or unknown-outcome failure; concurrent and later reads have independent windows. Must be positive.
     #[serde(with = "humantime_serde")]
     pub startup_read_retry_budget: Duration,
     /// Defaults to 64; most log batches read ahead of the batch being applied, counting GETs in

@@ -40,7 +40,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         3856990458,
         120,
-        0x6340852824a3ae1d7e9d3727a09e2d89,
+        0x0dc2c3ab9e7649a0b35d61c1aa89e640,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -52,7 +52,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         FIRST_SEED,
         120,
-        0x40051375c9429e3b7dbd939a5ab6135e,
+        0x53f712c27d2e27eac81761d187896dd2,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -64,13 +64,13 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         FIRST_SEED + 2,
         120,
-        0x096d3c89f5c968463f646fd440fe7c6c,
+        0xa7a76a800cf7f89ca4d4739e963916d3,
     ),
     (
         EngineSimulationProfile::RedeploysWithShortHistoryWindow,
         FIRST_REDEPLOY_SEED,
         120,
-        0x4c07bc8c25fde27fae23c049f8cda82a,
+        0xf1816654187698979ddd607f093005aa,
     ),
 ];
 
@@ -279,8 +279,15 @@ fn run_seeds(
         let config = EngineSimulationConfig {
             active_seconds,
             profile,
-            fault_probability_percent: environment_number("DEXZD_SIMULATION_FAULT_PERCENT")
-                .map(|percent| u8::try_from(percent).expect("fault percentage must fit in u8")),
+            fault_probability_percent: environment_number("DEXZD_SIMULATION_FAULT_PERCENT").map(
+                |percent| {
+                    assert!(
+                        percent <= 100,
+                        "DEXZD_SIMULATION_FAULT_PERCENT must be 0..=100"
+                    );
+                    u8::try_from(percent).expect("validated fault percentage fits in u8")
+                },
+            ),
             ..EngineSimulationConfig::default()
         };
         match run_engine_seed(seed, &config) {
