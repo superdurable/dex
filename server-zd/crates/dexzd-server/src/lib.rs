@@ -100,6 +100,13 @@ pub enum ServerError {
         #[source]
         source: dexzd_search::SearchError,
     },
+    /// An Attribute Store could not be connected or failed its table checks.
+    #[error("starting Attribute Store synchronization: {source}")]
+    AttributeStore {
+        /// Store error, naming the store and table, with the DSN redacted.
+        #[source]
+        source: dexzd_attribute_store::AttributeStoreError,
+    },
     /// The engine could not recover or start serving.
     #[error("starting the engine: {source}")]
     EngineStart {

@@ -71,6 +71,9 @@ func startZDProcess(cfg *Config, dataDirectory string, dexAddress string, logs i
 	if cfg.ZDConfigPath != "" {
 		arguments = append(arguments, "--config", cfg.ZDConfigPath)
 	}
+	if cfg.AttributeStoreConfigPath != "" {
+		arguments = append(arguments, "--attribute-store-config", cfg.AttributeStoreConfigPath)
+	}
 	command := exec.Command(cfg.ZDBinary, arguments...)
 	return startChildProcess(command, logs, "dex-server-zd", true)
 }

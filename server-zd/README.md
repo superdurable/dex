@@ -122,6 +122,11 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_flow_end_to_end_latency_seconds` | histogram, buckets 1, 10, 60, 600, 3600, 21600, 86400 | — | Run start to close using committed timestamps |
 | `dexzd_step_schedule_to_start_latency_seconds` | histogram, buckets 0.005, 0.025, 0.1, 0.5, 2.5, 10 | — | Committed SYNC Step task becoming dispatchable to Worker delivery; ASYNC speculative dispatches have no committed schedule time |
 | `dexzd_worker_stream_events_total` | counter | `event`: delivered, closed | Task deliveries and persistent Worker stream closes |
+| `dexzd_attribute_sync_backlog_entries` | gauge | — | Attribute Sync entries waiting to be written to an Attribute Store, as of the projector's last scan |
+| `dexzd_attribute_sync_oldest_pending_age_seconds` | gauge | — | Age of the oldest pending Attribute Sync entry's retry window, 0 when none |
+| `dexzd_attribute_sync_write_failures_total` | counter | `failure_kind`: retryable, non_retryable | Failed Attribute Store write transactions; non-retryable failures drop their entries |
+| `dexzd_attribute_sync_dropped_entries_total` | counter | — | Attribute Sync entries dropped after `syncRetryPolicy` was exhausted or the store rejected them |
+| `dexzd_attribute_sync_fenced_writes_total` | counter | — | Attribute Store writes rejected because a newer owner raised the fencing token |
 
 Worker polling uses a persistent stream, so there is no empty poll outcome. The stream event metric counts each task delivery and each stream close.
 Worker results return on that same stream. There is no separate Worker response RPC, so `worker_respond` remains a zero latency series.
@@ -217,6 +222,58 @@ Startup proceeds in this order:
    background while the node serves.
 5. After recovery and rebuild finish, health switches to SERVING and the API serves requests.
    Startup failure closes the listener.
+
+### Attribute Store synchronization
+
+The `attributeStore` section uses the Go Server's keys and table contract. Attributes written with
+SyncToAttributeStore by a Flow whose FlowConfig lists a configured store name are written to that
+store's PostgreSQL tables. These differences from the Go Server apply:
+
+- Only `type: postgres` is supported. Other types fail startup with a configuration error; keep
+  those stores on the Go Server.
+- Synchronization is asynchronous. Step, RPC, and SetAttributes commits do not wait for the table,
+  and there is no 7-second synchronous phase. Rows normally appear within a second of the commit.
+  While a store is unavailable, Flows keep running and the backlog is written with the latest
+  values once it recovers. Entries still pending `syncRetryPolicy.totalDuration` after they were
+  first marked are dropped and counted in `dexzd_attribute_sync_dropped_entries_total`.
+- Failed writes are retried with the `syncRetryPolicy` backoff until `totalDuration`, like the Go
+  Server. A connection failure or other failure of the whole store backs off every run of that
+  store. A failure caused by the written values, such as a constraint violation or a value too
+  long for its column, backs off only that run, and other Flows keep syncing. So does a transaction
+  that times out, deadlocks, or waits too long for a row lock. After a timeout, that run's retries
+  use half as many statements per transaction, down to one. One statement writes all of the run's
+  plain Attributes and stays in one transaction, so the main row is never partly updated. Each
+  AttributeMap instance is one statement, so a timed-out run's instances can land in different
+  transactions. Each transaction that commits is acknowledged, so a retry writes only the rest. When three runs of a store time out with no
+  commit in between, the whole store backs off. The retry after a store backoff starts with other
+  runs than the one that failed. A newer run of the same Flow ID waits for the older run so rows
+  keep run order.
+- After time travel, every row the run synced is rewritten with the state after the time travel.
+- Each database needs a Dex fencing table, named by `fencingTableName`
+  (default `dexzd_attribute_sync_fencing`). One table serves every store and cluster in the
+  database. Create it as the table owner, then grant `SELECT`, `INSERT`, and `UPDATE` on it to the
+  Dex role. dex-server-zd never creates or alters tables, and startup fails with this statement when
+  the table is missing:
+
+  ```sql
+  CREATE TABLE dexzd_attribute_sync_fencing (store_name text NOT NULL, cluster_id text NOT NULL,
+    scope text NOT NULL, fencing_token bigint NOT NULL, updated_at timestamptz NOT NULL,
+    PRIMARY KEY (store_name, cluster_id, scope));
+  ```
+
+  Rows of permanently stopped clusters may be deleted; never delete the rows of a running cluster.
+
+Startup connects to every store and checks its tables; any failure fails startup. A store's `dsn`
+may be left empty and supplied in `DEX_ZD_ATTRIBUTE_STORE_DSN_<NAME>`, where `NAME` is the store
+name in upper case with other characters replaced by `_`. A write transaction lasts at most
+`syncAttemptTimeout` or a quarter of `lease.duration`, whichever is smaller. A quarter of
+`lease.duration` is also the lease margin. A write starts only while more than the transaction
+timeout plus the margin of lease validity remains. Its client deadline therefore passes before the
+margin begins. A COMMIT sent just before the deadline finishes within the server-side
+`statement_timeout`, which equals the transaction timeout, so it still lands before the lease ends.
+The timeout plus the margin is at most half of `lease.duration`, less than the two thirds of
+validity left when a renewal starts, so writes rarely wait for a renewal. With the default
+10-second lease, a transaction lasts at most 2.5 seconds.
 
 ### Snapshot uploads after ownership changes
 
@@ -394,7 +451,7 @@ The manually dispatched main-image workflow builds its selected ref and publishe
 ### dev
 
 ```bash
-dex-server-zd dev --data-dir ./zd-data [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>]
+dex-server-zd dev --data-dir ./zd-data [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>] [--attribute-store-config <dex.yaml>]
 ```
 
 `dev` runs one node with an embedded s3mock whose data lives under `<data-dir>/s3`, and keeps local
@@ -402,6 +459,8 @@ state under `<data-dir>/store`. `dexcli dev -engine zd` starts it with these fla
 node ID to `dev`, anonymous credentials, the embedded endpoint, and the `--listen` address, and it
 rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
 `<log-dir>/dex-server-zd.log`. A `search.backend: paradedb` override uses ParadeDB as `serve` does.
+`--attribute-store-config` reads only the `attributeStore` section of a Go Server configuration
+file, which must define at least one store; the `--config` file must not also set `attributeStore`.
 
 ## Stable command-line interface
 
@@ -415,6 +474,7 @@ them without depending on the implementation of the server:
 | `dev` | `--listen <address>` | Plaintext gRPC listen address as `IP:port`; host names are rejected; defaults to `127.0.0.1:8801`. |
 | `dev` | `--config <file>` | Optional YAML configuration overrides. |
 | `dev` | `--log-dir <dir>` | Optional directory that also receives `dex-server-zd.log`. |
+| `dev` | `--attribute-store-config <file>` | Optional Go Server YAML file whose `attributeStore` section configures Attribute synchronization. |
 | Both | `--version` | Prints `dex-server-zd X.Y.Z`. |
 
 SIGTERM stops `dev` and exits with status 0.

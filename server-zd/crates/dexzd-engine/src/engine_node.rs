@@ -99,6 +99,7 @@ pub struct EngineNode {
     snapshots: Arc<SnapshotService>,
     lease: LeaseHandle,
     tasks: RunningTasks,
+    cluster_id: [u8; 16],
 }
 
 impl EngineNode {
@@ -425,6 +426,7 @@ impl EngineNode {
                     snapshots,
                     lease,
                     tasks,
+                    cluster_id,
                 }))
             }
             Err(error) => {
@@ -439,6 +441,21 @@ impl EngineNode {
     /// Returns the committer that Flow runtimes submit commands through.
     pub fn committer(&self) -> &CommandCommitter {
         &self.committer
+    }
+
+    /// Returns the ID of the cluster object, which never changes after the cluster is created.
+    pub fn cluster_id(&self) -> [u8; 16] {
+        self.cluster_id
+    }
+
+    /// Returns the node epoch this process raised when it took the lease.
+    pub fn node_epoch(&self) -> u64 {
+        self.lease.epoch()
+    }
+
+    /// Returns the validity of this node's lease, for work that must end before the lease does.
+    pub fn lease_status(&self) -> watch::Receiver<LeaseStatus> {
+        self.lease.subscribe()
     }
 
     /// Waits until the node stops serving and returns why.

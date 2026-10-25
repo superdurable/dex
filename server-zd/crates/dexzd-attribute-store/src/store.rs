@@ -455,6 +455,9 @@ impl AttributeStore {
     }
 
     /// Waits for the write connection and runs the fenced transaction, all within `transaction_timeout`.
+    ///
+    /// Returns `Timeout` when the deadline passes before the connection is open, because that blames
+    /// the store, and `TransactionTimeout` when it passes during the transaction.
     async fn execute_fenced(
         &self,
         fencing: &SqlStatement,
@@ -463,16 +466,25 @@ impl AttributeStore {
     ) -> Result<(), AttributeStoreError> {
         let timeout = self.settings.transaction_timeout;
         let deadline = Instant::now() + timeout;
-        let timed_out = || AttributeStoreError::Timeout {
+        let table = self.tables.table.qualified();
+        let connect_timed_out = || AttributeStoreError::Timeout {
             store: self.settings.name.clone(),
-            operation: format!("write a batch to table {}", self.tables.table.qualified()),
+            operation: format!("open the connection to write a batch to table {table}"),
             timeout,
         };
         let Ok(mut connection) =
             tokio::time::timeout_at(deadline, self.write_connection.lock()).await
         else {
-            return Err(timed_out());
+            return Err(connect_timed_out());
         };
+        match tokio::time::timeout_at(deadline, self.connected(&mut connection)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => return Err(error),
+            Err(_) => {
+                *connection = None;
+                return Err(connect_timed_out());
+            }
+        }
         let outcome = tokio::time::timeout_at(
             deadline,
             self.run_fenced_transaction(&mut connection, fencing, statements, fence),
@@ -482,7 +494,11 @@ impl AttributeStore {
             // The abandoned transaction commits within 2× the timeout or not at all;
             // fencing keeps a late commit safe.
             *connection = None;
-            Err(timed_out())
+            Err(AttributeStoreError::TransactionTimeout {
+                store: self.settings.name.clone(),
+                operation: format!("write a batch to table {table}"),
+                timeout,
+            })
         })
     }
 

@@ -31,6 +31,7 @@ impl Config {
         self.validate_matching_and_streams()?;
         self.validate_search_and_limits()?;
         self.auth.validate()?;
+        self.attribute_store.validate()?;
         Ok(())
     }
 

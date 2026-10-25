@@ -16,6 +16,7 @@ path = "src/main.rs"
 async-trait.workspace = true
 clap.workspace = true
 dexzd-api.workspace = true
+dexzd-attribute-store.workspace = true
 dexzd-apply.workspace = true
 dexzd-clock.workspace = true
 dexzd-cluster-metadata.workspace = true

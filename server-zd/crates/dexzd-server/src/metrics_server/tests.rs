@@ -22,6 +22,7 @@ async fn metrics_listener_is_off_by_default() {
         listen: api_address,
         log_dir: None,
         config: None,
+        attribute_store_config: None,
     })
     .await
     .expect("dev server starts");

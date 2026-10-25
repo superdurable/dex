@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+mod attribute_sync;
 mod bounded_teardown;
 mod client_deadline;
 mod lease_validity_watchdog;
@@ -26,11 +27,12 @@ use dexzd_apply::FlowStateReader;
 use dexzd_clock::{SystemWallClock, WallClock};
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
-    CommandApplier, CommandCommitter, DeterministicCommandApplier, EffectDependencies,
-    EffectRunner, EffectTasksHandle, EngineNode, EngineNodeDependencies, EngineRuntimeHooks,
-    EngineServices, FlowRuntimeDependencies, FlowRuntimeRegistry, HardDeleteObjects,
-    NodeMetaUploadLedger, NodeStopReason, SystemEngineIdSource,
+    AttributeSyncWaker, CommandApplier, CommandCommitter, DeterministicCommandApplier,
+    EffectDependencies, EffectRunner, EffectTasksHandle, EngineNode, EngineNodeDependencies,
+    EngineRuntimeHooks, EngineServices, FlowRuntimeDependencies, FlowRuntimeRegistry,
+    HardDeleteObjects, NodeMetaUploadLedger, NodeStopReason, SystemEngineIdSource,
 };
+use dexzd_keyspace::PartitionHasher;
 use dexzd_metrics::NodeMetrics;
 use dexzd_protocol::dex::flow_service_server::FlowServiceServer;
 use dexzd_protocol::dex::worker_task_service_server::WorkerTaskServiceServer;
@@ -58,6 +60,7 @@ use crate::worker_rpc_invoker::PullWorkerRpcInvoker;
 
 pub(crate) use search_projection::CommittedSearchFrames;
 
+use attribute_sync::{AttributeStores, AttributeSyncService, AttributeSyncStart};
 use bounded_teardown::BoundedTeardown;
 pub(crate) use lease_validity_watchdog::LeaseValidityWatchdog;
 use search_projection::{ParadeDbSearch, SearchProjection};
@@ -66,6 +69,7 @@ use search_projection::{ParadeDbSearch, SearchProjection};
 const GRPC_DRAIN_BUDGET: Duration = Duration::from_secs(4);
 /// Shutdown budgets of the later steps; with the gRPC drain they total 14.5 seconds.
 const EFFECT_TASKS_STOP_BUDGET: Duration = Duration::from_secs(2);
+/// Also bounds the Attribute Sync projector, which stops at the same time.
 const SEARCH_PROJECTION_STOP_BUDGET: Duration = Duration::from_secs(1);
 /// Covers the engine's three-second task stop and its lease release.
 const ENGINE_STOP_BUDGET: Duration =
@@ -402,12 +406,14 @@ struct ServerNode {
     stream_store: Arc<StreamStore>,
     flow_service: DexFlowService,
     search_projection: Option<SearchProjection>,
+    attribute_sync: Option<AttributeSyncService>,
 }
 
 /// What the engine's runtime factory builds; captured so the node can own it after start.
 struct RuntimeParts {
     registry: FlowRuntimeRegistry,
     effect_tasks: EffectTasksHandle,
+    partition_hasher: PartitionHasher,
 }
 
 impl ServerNode {
@@ -443,6 +449,10 @@ impl ServerNode {
         let committed_search_frames = parade_db_search
             .as_ref()
             .map(ParadeDbSearch::committed_frames);
+        let attribute_stores =
+            AttributeStores::connect(&config.attribute_store, components.attribute_sync.as_ref())
+                .await?;
+        let attribute_sync_waker = AttributeSyncWaker::new();
         let runtime_parts: Arc<Mutex<Option<RuntimeParts>>> = Arc::new(Mutex::new(None));
         let started = EngineNode::start_until_cancelled(
             &components.engine_node,
@@ -477,12 +487,13 @@ impl ServerNode {
                         validation_config: components.validation().clone(),
                         stream_store: stream_store.clone(),
                         id_source: services.id_source.clone(),
+                        attribute_sync_waker: attribute_sync_waker.clone(),
                     },
                 );
                 let registry = FlowRuntimeRegistry::new(
                     &components.runtime,
                     FlowRuntimeDependencies {
-                        hasher: partition_hasher,
+                        hasher: partition_hasher.clone(),
                         committer: Arc::new(services.committer),
                         applier: applier.clone(),
                         effects: Arc::new(effect_runner.clone()),
@@ -506,6 +517,7 @@ impl ServerNode {
                     Some(RuntimeParts {
                         registry,
                         effect_tasks,
+                        partition_hasher,
                     });
                 hooks
             },
@@ -534,6 +546,7 @@ impl ServerNode {
         let RuntimeParts {
             registry,
             effect_tasks,
+            partition_hasher,
         } = parts.expect("the engine calls the runtime factory before it starts serving");
         let (search_backend, search_projection) = match parade_db_search {
             Some(parade_db_search) => (
@@ -560,6 +573,17 @@ impl ServerNode {
                 }
             },
         };
+        let attribute_sync = attribute_stores.map(|attribute_stores| {
+            attribute_stores.start(AttributeSyncStart {
+                engine: &engine,
+                node_id: &config.cluster.node_id,
+                runtime: Arc::new(registry.clone()),
+                partition_hasher,
+                clock: clock.clone(),
+                metrics: metrics.clone(),
+                waker: attribute_sync_waker,
+            })
+        });
         let flow_service = DexFlowService::new(
             &components.flow_service,
             FlowServiceDependencies {
@@ -584,6 +608,7 @@ impl ServerNode {
             stream_store,
             flow_service,
             search_projection,
+            attribute_sync,
         }))
     }
 
@@ -604,6 +629,7 @@ impl ServerNode {
             stream_store,
             flow_service,
             search_projection,
+            attribute_sync,
         } = self;
         let worker_task_service =
             WorkerTaskServiceServer::new(dispatch.service_for_tenant(DEFAULT_TENANT_ID))
@@ -661,12 +687,25 @@ impl ServerNode {
                 effect_tasks.shutdown(),
             )
             .await;
-        if let Some(search_projection) = search_projection
-            && !search_projection
-                .shutdown(SEARCH_PROJECTION_STOP_BUDGET)
-                .await
-        {
+        let (has_search_projection_stopped, has_attribute_sync_stopped) = tokio::join!(
+            async {
+                match search_projection {
+                    Some(projection) => projection.shutdown(SEARCH_PROJECTION_STOP_BUDGET).await,
+                    None => true,
+                }
+            },
+            async {
+                match attribute_sync {
+                    Some(service) => service.shutdown(SEARCH_PROJECTION_STOP_BUDGET).await,
+                    None => true,
+                }
+            },
+        );
+        if !has_search_projection_stopped {
             teardown.record_overrun("search projection", SEARCH_PROJECTION_STOP_BUDGET);
+        }
+        if !has_attribute_sync_stopped {
+            teardown.record_overrun("Attribute Sync projector", SEARCH_PROJECTION_STOP_BUDGET);
         }
         teardown
             .run_fallible("engine", ENGINE_STOP_BUDGET, engine.shutdown())

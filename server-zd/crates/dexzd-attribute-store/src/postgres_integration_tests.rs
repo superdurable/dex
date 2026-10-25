@@ -17,7 +17,7 @@ use tokio::task::JoinHandle;
 use tokio_postgres::{Client, NoTls};
 use tokio_util::sync::CancellationToken;
 
-use crate::error::AttributeStoreError;
+use crate::error::{AttributeStoreError, AttributeStoreFailureScope};
 use crate::schema::TableReference;
 use crate::settings::{
     AttributeMapTableSettings, AttributeStoreSettings, AttributeSyncItem, ColumnNaming,
@@ -767,6 +767,7 @@ async fn postgres_map_tables_replace_and_delete_instances() {
         .expect_err("the stale snapshot writes a dropped column");
     assert!(error.is_retryable(), "{error}");
     assert_eq!(error.sqlstate(), Some("42703"), "{error}");
+    assert_eq!(error.failure_scope(), AttributeStoreFailureScope::Batch);
     assert_eq!(database.string(display_name).await, "Core");
     assert_eq!(
         database.strings(member_ids).await,
@@ -1155,6 +1156,8 @@ async fn postgres_transaction_timeout_abandons_blocked_writes() {
         .await
         .expect_err("the row lock outlasts the transaction timeout");
     assert!(error.is_retryable(), "{error}");
+    assert!(error.is_transaction_timeout(), "{error}");
+    assert_eq!(error.failure_scope(), AttributeStoreFailureScope::Batch);
     assert!(
         started.elapsed() < Duration::from_secs(3),
         "{:?}",

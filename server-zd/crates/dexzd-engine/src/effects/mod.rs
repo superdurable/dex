@@ -54,8 +54,11 @@ pub use hard_delete_objects::{
 };
 pub use method_request::MethodRequest;
 pub(crate) use method_request::resolve_method_durability;
-pub(crate) use state_reads::{RunLocation, read_run_record, read_step_execution};
+pub(crate) use state_reads::{
+    RunLocation, decode_row, hex, read_run_record, read_step_execution, scan_all,
+};
 
+use crate::attribute_sync::AttributeSyncWaker;
 use crate::blocking_work::BlockingWorkPlacement;
 use crate::engine_id_source::EngineIdSource;
 use crate::recovery::{PartitionRuntimeRebuilder, RuntimeRebuildError};
@@ -251,6 +254,8 @@ pub struct EffectDependencies {
     pub stream_store: Arc<StreamStore>,
     /// Creates child run IDs, dispatch task IDs, and Worker Channel message IDs.
     pub id_source: Arc<dyn EngineIdSource>,
+    /// Signaled when apply marks Attribute Sync entries; pass the projector's waker.
+    pub attribute_sync_waker: AttributeSyncWaker,
 }
 
 /// Shared state of every effect task.
@@ -265,6 +270,7 @@ pub(crate) struct EffectContext {
     pub(crate) validation_config: ValidationConfig,
     pub(crate) stream_store: Arc<StreamStore>,
     pub(crate) id_source: Arc<dyn EngineIdSource>,
+    pub(crate) attribute_sync_waker: AttributeSyncWaker,
     /// Hard-delete uploads recorded before this node started; recovery checks only these, so
     /// uploads of commands proposed after startup are never mistaken for orphans.
     /// An error fails every partition rebuild, because a later read could include new uploads.
@@ -478,6 +484,7 @@ impl EffectTasks {
             },
             stream_store: self.dependencies.stream_store,
             id_source: self.dependencies.id_source,
+            attribute_sync_waker: self.dependencies.attribute_sync_waker,
             startup_pending_uploads,
             shutdown: shutdown.clone(),
             tracker: tracker.clone(),
@@ -631,13 +638,22 @@ impl EffectRouter {
                     self.spawn_tracked(flow, work);
                 }
             }
-            // The Attribute Sync projector reads the pending index itself.
-            ApplyEffect::AttributeSyncPending { .. } => {}
+            ApplyEffect::AttributeSyncPending { .. } => {
+                let partition = self
+                    .context
+                    .hasher
+                    .partition_of_flow(flow.tenant_id, &flow.flow_id);
+                self.context.attribute_sync_waker.wake_partition(partition);
+            }
             ApplyEffect::AttributeSyncDropped {
                 run_id,
                 store_name,
                 attribute_keys,
             } => {
+                self.context
+                    .metrics
+                    .attribute_sync_dropped_entries
+                    .inc_by(u64::try_from(attribute_keys.len()).unwrap_or(u64::MAX));
                 tracing::warn!(
                     %run_id,
                     store_name,

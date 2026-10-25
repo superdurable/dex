@@ -10,7 +10,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::{
-    Config, CredentialSource, DevConfig, ObjectStoreCredentials, SearchBackend, StreamStoreBackend,
+    AttributeStoreConfig, Config, CredentialSource, DevConfig, ObjectStoreCredentials,
+    SearchBackend, StreamStoreBackend,
 };
 use crate::DevCommandOptions;
 
@@ -59,6 +60,16 @@ pub enum ConfigError {
         /// Constraint and valid range, without secret values.
         message: String,
     },
+    /// A field of one `attributeStore.stores` entry violates its constraint.
+    #[error("attributeStore.stores.{store_name}.{field}: {message}")]
+    InvalidAttributeStore {
+        /// Configured Attribute Store name.
+        store_name: String,
+        /// CamelCase YAML field of the store entry.
+        field: &'static str,
+        /// Constraint, without secret values.
+        message: String,
+    },
 }
 
 impl Config {
@@ -94,26 +105,37 @@ impl Config {
                 message: "--data-dir must be non-empty".to_owned(),
             });
         }
-        let (mut configuration, has_stream_store_backend_override) = if let Some(path) =
-            &options.config
-        {
-            let contents = fs::read_to_string(path).map_err(|source| ConfigError::Read {
-                path: path.clone(),
-                source,
-            })?;
-            let yaml_configuration: serde_yaml_ng::Value = serde_yaml_ng::from_str(&contents)
-                .map_err(|source| ConfigError::Yaml { source })?;
-            let has_stream_store_backend_override = yaml_configuration
-                .get("streamStore")
-                .and_then(|section| section.get("backend"))
-                .is_some();
-            (
-                Self::parse_yaml(&contents)?,
-                has_stream_store_backend_override,
-            )
-        } else {
-            (Self::default(), false)
-        };
+        let (mut configuration, has_stream_store_backend_override, has_attribute_store_override) =
+            if let Some(path) = &options.config {
+                let contents = fs::read_to_string(path).map_err(|source| ConfigError::Read {
+                    path: path.clone(),
+                    source,
+                })?;
+                let yaml_configuration: serde_yaml_ng::Value =
+                    serde_yaml_ng::from_str(&contents)
+                        .map_err(|source| ConfigError::Yaml { source })?;
+                let has_stream_store_backend_override = yaml_configuration
+                    .get("streamStore")
+                    .and_then(|section| section.get("backend"))
+                    .is_some();
+                (
+                    Self::parse_yaml(&contents)?,
+                    has_stream_store_backend_override,
+                    yaml_configuration.get("attributeStore").is_some(),
+                )
+            } else {
+                (Self::default(), false, false)
+            };
+        if let Some(path) = &options.attribute_store_config {
+            if has_attribute_store_override {
+                return Err(ConfigError::Invalid {
+                    field: "attributeStore",
+                    message: "set it in --config or in --attribute-store-config, not both"
+                        .to_owned(),
+                });
+            }
+            configuration.attribute_store = read_go_attribute_store_section(path)?;
+        }
         if configuration.object_store.hard_delete_store.is_some() {
             return Err(ConfigError::Invalid {
                 field: "objectStore.hardDeleteStore",
@@ -146,6 +168,7 @@ impl Config {
     }
 
     fn resolve_environment_credentials(&mut self) -> Result<(), ConfigError> {
+        self.attribute_store.resolve_environment_dsns()?;
         if self.search.backend == SearchBackend::Paradedb
             && self.search.parade_db_connection_string.is_empty()
             && let Some(connection_string) = read_environment_credential(
@@ -179,6 +202,32 @@ impl Config {
             )?;
         }
         Ok(())
+    }
+}
+
+/// Reads the `attributeStore` section of a Go Dex Server YAML file and ignores its other sections.
+fn read_go_attribute_store_section(path: &Path) -> Result<AttributeStoreConfig, ConfigError> {
+    let contents = fs::read_to_string(path).map_err(|source| ConfigError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let document: serde_yaml_ng::Value =
+        serde_yaml_ng::from_str(&contents).map_err(|source| ConfigError::Yaml { source })?;
+    let section = document
+        .get("attributeStore")
+        .cloned()
+        .unwrap_or(serde_yaml_ng::Value::Null);
+    let attribute_store: Option<AttributeStoreConfig> =
+        serde_yaml_ng::from_value(section).map_err(|source| ConfigError::Yaml { source })?;
+    match attribute_store {
+        Some(attribute_store) if !attribute_store.stores.is_empty() => Ok(attribute_store),
+        _ => Err(ConfigError::Invalid {
+            field: "attributeStore.stores",
+            message: format!(
+                "--attribute-store-config file {} does not define any stores",
+                path.display()
+            ),
+        }),
     }
 }
 

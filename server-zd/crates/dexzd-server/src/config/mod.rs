@@ -8,6 +8,7 @@
 
 //! Typed, validated configuration for the dex-server-zd executable.
 
+mod attribute_store_config;
 mod auth_config;
 mod engine_config;
 mod service_config;
@@ -18,6 +19,11 @@ mod validation;
 #[cfg(test)]
 mod tests;
 
+pub use attribute_store_config::{
+    AttributeStoreColumnNaming, AttributeStoreConfig, AttributeStoreEntryConfig,
+    AttributeStoreMapTableConfig, AttributeStoreRetryPolicyConfig, AttributeStoreType,
+    dsn_environment_variable,
+};
 pub use auth_config::{AuthConfig, AuthenticatorConfig, AuthenticatorKind};
 pub use engine_config::{
     ClusterConfig, CommitConfig, HistoryConfig, LeaseConfig, LimitsConfig, RecoveryConfig,
@@ -36,7 +42,7 @@ pub use storage_config::{
 use serde::{Deserialize, Serialize};
 
 /// Groups every server-zd configuration section for validation and component injection.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct Config {
     /// Cluster identity and partition layout. Defaults to an unset node ID and 1024 partitions.
@@ -73,6 +79,8 @@ pub struct Config {
     pub search: SearchConfig,
     /// Flow, speculative state, wait, and deduplication limits.
     pub limits: LimitsConfig,
+    /// PostgreSQL Attribute synchronization with the Go Dex Server's keys. Defaults to no stores.
+    pub attribute_store: AttributeStoreConfig,
     /// Local development paths and embedded S3 durability. Defaults to unset paths and relaxed durability.
     pub dev: DevConfig,
 }

@@ -34,7 +34,10 @@ use std::path::PathBuf;
 
 pub use api_requests::{ApiLatency, ApiRequests, GrpcCode, RpcClass, classify_rpc};
 pub use commit_latency::CommitLatency;
-pub use fixed_labels::{ObjectErrorCounters, OutcomeCounters, RoleGauges};
+pub use fixed_labels::{
+    AttributeSyncFailureKind, AttributeSyncWriteFailures, ObjectErrorCounters, OutcomeCounters,
+    RoleGauges,
+};
 pub use histogram::AtomicHistogram;
 use histogram::{FLOW_LATENCY_BOUNDS, SCHEDULE_LATENCY_BOUNDS};
 pub use object_requests::{ObjectKind, ObjectOperation, ObjectRequests, classify_object_kind};
@@ -109,6 +112,16 @@ pub struct NodeMetrics {
     pub step_schedule_to_start_latency: AtomicHistogram<7>,
     /// Task deliveries and persistent Worker stream closes.
     pub worker_stream_events: WorkerStreamEvents,
+    /// Attribute Sync entries waiting to be written, as of the projector's last scan.
+    pub attribute_sync_backlog_entries: Gauge,
+    /// Age of the oldest pending Attribute Sync entry's retry window, 0 when none.
+    pub attribute_sync_oldest_pending_age: Gauge<f64, std::sync::atomic::AtomicU64>,
+    /// Failed Attribute Store write transactions.
+    pub attribute_sync_write_failures: AttributeSyncWriteFailures,
+    /// Attribute Sync entries dropped after their retries were exhausted.
+    pub attribute_sync_dropped_entries: Counter,
+    /// Attribute Store writes rejected because a newer owner raised the fencing token.
+    pub attribute_sync_fenced_writes: Counter,
 }
 
 /// A lifecycle role for one node.
@@ -323,6 +336,31 @@ impl NodeMetrics {
             "Delivered Worker tasks and closed Worker streams.",
             metrics.worker_stream_events.clone(),
         );
+        registry.register(
+            "dexzd_attribute_sync_backlog_entries",
+            "Attribute Sync entries waiting to be written.",
+            metrics.attribute_sync_backlog_entries.clone(),
+        );
+        registry.register(
+            "dexzd_attribute_sync_oldest_pending_age_seconds",
+            "Age of the oldest pending Attribute Sync entry.",
+            metrics.attribute_sync_oldest_pending_age.clone(),
+        );
+        registry.register(
+            "dexzd_attribute_sync_write_failures",
+            "Failed Attribute Store write transactions.",
+            metrics.attribute_sync_write_failures.clone(),
+        );
+        registry.register(
+            "dexzd_attribute_sync_dropped_entries",
+            "Attribute Sync entries dropped after retries were exhausted.",
+            metrics.attribute_sync_dropped_entries.clone(),
+        );
+        registry.register(
+            "dexzd_attribute_sync_fenced_writes",
+            "Attribute Store writes rejected by a newer owner's fencing token.",
+            metrics.attribute_sync_fenced_writes.clone(),
+        );
         registry.register_collector(Box::new(LocalStorageCollector {
             directory: local_store_directory,
             gauge: metrics.local_storage_bytes.clone(),
@@ -367,6 +405,11 @@ impl NodeMetrics {
             flow_end_to_end_latency: AtomicHistogram::new(&FLOW_LATENCY_BOUNDS),
             step_schedule_to_start_latency: AtomicHistogram::new(&SCHEDULE_LATENCY_BOUNDS),
             worker_stream_events: WorkerStreamEvents::default(),
+            attribute_sync_backlog_entries: Gauge::default(),
+            attribute_sync_oldest_pending_age: Gauge::default(),
+            attribute_sync_write_failures: AttributeSyncWriteFailures::default(),
+            attribute_sync_dropped_entries: Counter::default(),
+            attribute_sync_fenced_writes: Counter::default(),
         }
     }
 

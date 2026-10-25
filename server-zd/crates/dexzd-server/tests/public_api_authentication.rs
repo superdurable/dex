@@ -180,6 +180,7 @@ impl AuthenticatedDevServer {
             listen,
             log_dir: None,
             config: Some(config),
+            attribute_store_config: None,
         })
         .await
         .expect("the dev server starts");

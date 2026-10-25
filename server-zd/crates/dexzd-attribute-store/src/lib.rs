@@ -19,6 +19,8 @@ mod store;
 mod value_conversion;
 
 #[cfg(test)]
+mod error_tests;
+#[cfg(test)]
 mod postgres_integration_tests;
 #[cfg(test)]
 mod row_key_tests;
@@ -27,7 +29,7 @@ mod statements_tests;
 #[cfg(test)]
 mod value_conversion_tests;
 
-pub use error::AttributeStoreError;
+pub use error::{AttributeStoreError, AttributeStoreFailureScope};
 pub use settings::{
     AttributeMapTableSettings, AttributeStoreSettings, AttributeSyncItem, ColumnNaming,
     DEFAULT_FENCING_TABLE_NAME, DEFAULT_SCHEMA_SYNC_INTERVAL, DEFAULT_TRANSACTION_TIMEOUT,

@@ -11,8 +11,9 @@ use std::time::Duration;
 use dexzd_api::{CredentialAuthenticatorConfig, FlowServiceConfig};
 use dexzd_cluster_metadata::NodeConfig;
 use dexzd_engine::{
-    BlockingWorkPlacement, CommitConfig, EffectsConfig, EngineNodeConfig, LocalStoreConfig,
-    RecoveryConfig, RuntimeConfig, SnapshotConfig, default_run_settings,
+    AttributeSyncConfig, AttributeSyncRetryPolicy, BlockingWorkPlacement, CommitConfig,
+    EffectsConfig, EngineNodeConfig, LocalStoreConfig, RecoveryConfig, RuntimeConfig,
+    SnapshotConfig, default_run_settings,
 };
 use dexzd_log::LogReadAheadConfig;
 use dexzd_request_validation::ValidationConfig;
@@ -37,6 +38,8 @@ pub(crate) struct ComponentConfigs {
     pub(crate) grpc_max_message_bytes: usize,
     /// Empty when public API authentication is disabled.
     pub(crate) authenticators: Vec<CredentialAuthenticatorConfig>,
+    /// `None` when no Attribute Store is configured.
+    pub(crate) attribute_sync: Option<AttributeSyncConfig>,
 }
 
 impl ComponentConfigs {
@@ -51,6 +54,7 @@ impl ComponentConfigs {
                 "limits.maxFlowIdBytes",
                 u64::from(config.limits.max_flow_id_bytes),
             )?,
+            attribute_store_names: config.attribute_store.stores.keys().cloned().collect(),
             has_blob_store: true,
             ..ValidationConfig::default()
         };
@@ -227,6 +231,7 @@ impl ComponentConfigs {
             flow_service,
             grpc_max_message_bytes,
             authenticators: config.auth.credential_authenticators(),
+            attribute_sync: attribute_sync_config(config)?,
         })
     }
 
@@ -234,6 +239,35 @@ impl ComponentConfigs {
     pub(crate) fn validation(&self) -> &ValidationConfig {
         &self.runtime.validation
     }
+}
+
+/// Bounds a write transaction so that it ends while the lease is valid; renewals keep two thirds.
+fn attribute_sync_config(config: &Config) -> Result<Option<AttributeSyncConfig>, ServerError> {
+    let attribute_store = &config.attribute_store;
+    if attribute_store.stores.is_empty() {
+        return Ok(None);
+    }
+    let policy = attribute_store.effective_sync_retry_policy();
+    let lease_margin = config.lease.duration / 4;
+    Ok(Some(AttributeSyncConfig {
+        store_names: attribute_store.stores.keys().cloned().collect(),
+        batch_size: to_usize(
+            "attributeStore.syncBatchSize",
+            u64::from(attribute_store.effective_sync_batch_size()),
+        )?,
+        retry_policy: AttributeSyncRetryPolicy {
+            initial_interval: policy.initial_interval,
+            maximum_interval: policy.maximum_interval,
+            backoff_coefficient: policy.backoff_coefficient,
+            maximum_attempts: policy.maximum_attempts,
+            total_duration: policy.total_duration,
+        },
+        // Within the margin, a COMMIT sent at the deadline still lands before the lease ends.
+        transaction_timeout: attribute_store
+            .effective_sync_attempt_timeout()
+            .min(lease_margin),
+        lease_margin,
+    }))
 }
 
 fn to_usize(field: &'static str, value: u64) -> Result<usize, ServerError> {

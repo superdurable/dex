@@ -8,6 +8,7 @@
 
 //! Runtime that proposes, commits, and applies server-zd commands and runs their effects: dispatch, timers, deliveries, and recovery.
 
+mod attribute_sync;
 mod blocking_work;
 mod command_applier;
 mod commit;
@@ -19,6 +20,11 @@ mod recovery;
 mod runtime;
 mod snapshots;
 
+pub use attribute_sync::{
+    AttributeSyncConfig, AttributeSyncDependencies, AttributeSyncFence, AttributeSyncItem,
+    AttributeSyncProjector, AttributeSyncProjectorHandle, AttributeSyncRetryPolicy,
+    AttributeSyncWaker, AttributeSyncWriteError, AttributeSyncWriter,
+};
 pub use blocking_work::BlockingWorkPlacement;
 pub use command_applier::{CommandApplier, DeterministicCommandApplier};
 pub use commit::{

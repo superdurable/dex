@@ -14,8 +14,9 @@ use std::time::Duration;
 use dexzd_engine::LocalStoreConfig;
 
 use super::{
-    Config, ConfigError, CredentialSource, DevDurabilityMode, ObjectStoreLocationConfig,
-    SearchBackend, StreamStoreBackend,
+    AttributeStoreColumnNaming, AttributeStoreType, Config, ConfigError, CredentialSource,
+    DevDurabilityMode, ObjectStoreLocationConfig, SearchBackend, StreamStoreBackend,
+    dsn_environment_variable,
 };
 use crate::DevCommandOptions;
 use crate::component_configs::ComponentConfigs;
@@ -187,6 +188,7 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
         log_dir: Some(log_directory.clone()),
         config: Some(yaml_path),
+        attribute_store_config: None,
     };
     let configuration = Config::load_dev(&options).expect("dev configuration");
     assert_eq!(configuration.cluster.node_id, "dev");
@@ -220,6 +222,7 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         listen: options.listen,
         log_dir: None,
         config: None,
+        attribute_store_config: None,
     })
     .expect("dev defaults without YAML");
     assert_eq!(
@@ -239,6 +242,7 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         listen: options.listen,
         log_dir: None,
         config: None,
+        attribute_store_config: None,
     })
     .expect_err("empty dev data directory");
     assert!(matches!(
@@ -264,6 +268,7 @@ fn dev_rejects_a_separate_hard_delete_store_before_resolving_credentials() {
         listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
         log_dir: None,
         config: Some(yaml_path),
+        attribute_store_config: None,
     })
     .expect_err("dev must reject a separate hard-delete destination");
     assert!(matches!(
@@ -588,4 +593,271 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
     separate_hard_delete
         .validate()
         .expect("valid separate hard-delete destination");
+}
+
+/// A Go Dex Server configuration file with sections dex-server-zd ignores.
+const GO_ATTRIBUTE_STORE_YAML: &str = "log:\n  level: info\ninterpreter:\n  temporal:\n    hostPort: localhost:7233\nattributeStore:\n  stores:\n    orders:\n      type: postgres\n      dsn: postgres://dex:secret@db.example.com/app?sslmode=verify-full\n      tableName: public.orders\n      rowKey: order-{order_id}\n      columnNaming: snake_case\n      attributeMaps:\n        Items:\n          tableName: public.order_items\n          instanceKeyColumn: item_key\n  schemaSyncInterval: 0s\n  syncBatchSize: 0\n  syncRetryPolicy:\n    initialInterval: 0s\n    backoffCoefficient: 0\n    totalDuration: 168h\n";
+
+fn attribute_store_config_with(yaml_store_fields: &str) -> Config {
+    let mut configuration = valid_config();
+    configuration.attribute_store = Config::parse_yaml(&format!(
+        "attributeStore:\n  stores:\n    orders:\n{yaml_store_fields}"
+    ))
+    .expect("store YAML parses")
+    .attribute_store;
+    configuration
+}
+
+#[test]
+fn attribute_store_section_uses_go_keys_and_zero_defaults() {
+    let defaults = Config::default().attribute_store;
+    assert!(defaults.stores.is_empty());
+    assert_eq!(defaults.schema_sync_interval, Duration::from_secs(60));
+    assert_eq!(defaults.sync_batch_size, 100);
+    assert_eq!(defaults.sync_attempt_timeout, Duration::from_secs(30));
+    assert_eq!(
+        defaults.sync_retry_policy.initial_interval,
+        Duration::from_millis(100)
+    );
+    assert_eq!(
+        defaults.sync_retry_policy.maximum_interval,
+        Duration::from_secs(30)
+    );
+    assert!((defaults.sync_retry_policy.backoff_coefficient - 2.0).abs() < f64::EPSILON);
+    assert_eq!(defaults.sync_retry_policy.maximum_attempts, 0);
+    assert_eq!(
+        defaults.sync_retry_policy.total_duration,
+        Duration::from_secs(3600)
+    );
+
+    let document: serde_yaml_ng::Value =
+        serde_yaml_ng::from_str(GO_ATTRIBUTE_STORE_YAML).expect("Go YAML");
+    let mut configuration = valid_config();
+    configuration.attribute_store = serde_yaml_ng::from_value(
+        document
+            .get("attributeStore")
+            .cloned()
+            .expect("attributeStore section"),
+    )
+    .expect("the Go attributeStore section parses");
+    configuration.validate().expect("the Go section is valid");
+    let attribute_store = &configuration.attribute_store;
+    let store = &attribute_store.stores["orders"];
+    assert_eq!(store.store_type, AttributeStoreType::Postgres);
+    assert_eq!(store.column_naming, AttributeStoreColumnNaming::SnakeCase);
+    assert_eq!(store.row_key, "order-{order_id}");
+    assert_eq!(
+        store.attribute_maps["Items"].instance_key_column,
+        "item_key"
+    );
+    assert_eq!(store.fencing_table_name, "dexzd_attribute_sync_fencing");
+    assert_eq!(
+        attribute_store.effective_schema_sync_interval(),
+        Duration::from_secs(60)
+    );
+    assert_eq!(attribute_store.effective_sync_batch_size(), 100);
+    let policy = attribute_store.effective_sync_retry_policy();
+    assert_eq!(policy.initial_interval, Duration::from_millis(100));
+    assert!((policy.backoff_coefficient - 2.0).abs() < f64::EPSILON);
+    assert_eq!(policy.total_duration, Duration::from_secs(168 * 3600));
+
+    let debug = format!("{configuration:?}");
+    assert!(!debug.contains("secret"), "{debug}");
+    let serialized = serde_yaml_ng::to_string(&configuration).expect("serialize");
+    assert!(!serialized.contains("secret"));
+
+    let null_policy = Config::parse_yaml("attributeStore:\n  syncRetryPolicy: null\n")
+        .expect("a null retry policy means every default");
+    assert_eq!(
+        null_policy.attribute_store.sync_retry_policy,
+        defaults.sync_retry_policy
+    );
+    let exact_names = attribute_store_config_with(
+        "      type: postgres\n      dsn: postgres://localhost/app\n      tableName: orders\n      columnNaming: \"\"\n",
+    );
+    assert_eq!(
+        exact_names.attribute_store.stores["orders"].column_naming,
+        AttributeStoreColumnNaming::Exact
+    );
+    exact_names
+        .validate()
+        .expect("exact column names are valid");
+}
+
+#[test]
+fn attribute_store_validation_accepts_only_postgres_with_go_rules() {
+    let cases: [(&str, &str, &str); 9] = [
+        (
+            "      type: mysql\n      dsn: root@tcp(localhost)/app\n      tableName: orders\n",
+            "type",
+            "supports only postgres",
+        ),
+        (
+            "      type: mongodb\n      dsn: mongodb://localhost\n      databaseName: app\n      collectionName: orders\n",
+            "type",
+            "supports only postgres",
+        ),
+        (
+            "      dsn: postgres://localhost/app\n      tableName: orders\n",
+            "type",
+            "required",
+        ),
+        (
+            "      type: postgres\n      tableName: orders\n",
+            "dsn",
+            "DEX_ZD_ATTRIBUTE_STORE_DSN_ORDERS",
+        ),
+        (
+            "      type: postgres\n      dsn: postgres://localhost/app\n",
+            "tableName",
+            "required",
+        ),
+        (
+            "      type: postgres\n      dsn: postgres://localhost/app\n      tableName: db.public.orders\n",
+            "tableName",
+            "at most 2",
+        ),
+        (
+            "      type: postgres\n      dsn: postgres://localhost/app\n      tableName: orders\n      flowIdColumn: flow_id\n",
+            "flowIdColumn",
+            "warehouse",
+        ),
+        (
+            "      type: postgres\n      dsn: postgres://localhost/app\n      tableName: orders\n      attributeMaps:\n        Items/All:\n          tableName: items\n          instanceKeyColumn: item_key\n",
+            "attributeMaps",
+            "no '/'",
+        ),
+        (
+            "      type: postgres\n      dsn: postgres://localhost/app\n      tableName: orders\n      fencingTableName: \"\"\n",
+            "fencingTableName",
+            "invalid identifier",
+        ),
+    ];
+    for (store_fields, expected_field, expected_message) in cases {
+        let error = attribute_store_config_with(store_fields)
+            .validate()
+            .expect_err(store_fields);
+        match &error {
+            ConfigError::InvalidAttributeStore {
+                store_name,
+                field,
+                message,
+            } => {
+                assert_eq!(store_name, "orders");
+                assert_eq!(*field, expected_field, "{store_fields}");
+                assert!(message.contains(expected_message), "{message}");
+            }
+            other => panic!("expected an Attribute Store field error, got {other:?}"),
+        }
+        assert!(
+            error
+                .to_string()
+                .starts_with(&format!("attributeStore.stores.orders.{expected_field}: "))
+        );
+    }
+    let mut configuration = valid_config();
+    configuration
+        .attribute_store
+        .sync_retry_policy
+        .backoff_coefficient = -1.0;
+    assert!(matches!(
+        configuration.validate(),
+        Err(ConfigError::Invalid {
+            field: "attributeStore.syncRetryPolicy.backoffCoefficient",
+            ..
+        })
+    ));
+    let mut configuration = valid_config();
+    configuration
+        .attribute_store
+        .sync_retry_policy
+        .maximum_interval = Duration::from_millis(50);
+    assert!(matches!(
+        configuration.validate(),
+        Err(ConfigError::Invalid {
+            field: "attributeStore.syncRetryPolicy.maximumInterval",
+            ..
+        })
+    ));
+    assert!(matches!(
+        Config::parse_yaml("attributeStore:\n  stores:\n    orders:\n      type: oracle\n"),
+        Err(ConfigError::Yaml { .. })
+    ));
+    assert_eq!(
+        dsn_environment_variable("order-store.v2"),
+        "DEX_ZD_ATTRIBUTE_STORE_DSN_ORDER_STORE_V2"
+    );
+}
+
+#[test]
+fn configured_attribute_stores_reach_request_validation() {
+    let configuration = attribute_store_config_with(
+        "      type: postgres\n      dsn: postgres://localhost/app\n      tableName: orders\n",
+    );
+    configuration.validate().expect("valid store");
+    let components = ComponentConfigs::from_config(&configuration).expect("component config");
+    assert!(
+        components
+            .validation()
+            .attribute_store_names
+            .contains("orders")
+    );
+    assert_eq!(components.validation().attribute_store_names.len(), 1);
+    let without_stores = ComponentConfigs::from_config(&valid_config()).expect("component config");
+    assert!(without_stores.validation().attribute_store_names.is_empty());
+}
+
+#[test]
+fn dev_reads_the_attribute_store_section_of_a_go_configuration_file() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let go_config = temporary.path().join("dex.yaml");
+    fs::write(&go_config, GO_ATTRIBUTE_STORE_YAML).expect("write Go config");
+    let options = DevCommandOptions {
+        data_dir: temporary.path().join("data"),
+        listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
+        log_dir: None,
+        config: None,
+        attribute_store_config: Some(go_config.clone()),
+    };
+    let configuration = Config::load_dev(&options).expect("dev configuration");
+    assert_eq!(
+        configuration.attribute_store.stores["orders"].table_name,
+        "public.orders"
+    );
+
+    let zd_config = temporary.path().join("zd.yaml");
+    fs::write(&zd_config, "attributeStore:\n  syncBatchSize: 10\n").expect("write zd config");
+    let conflict = Config::load_dev(&DevCommandOptions {
+        config: Some(zd_config),
+        attribute_store_config: Some(go_config),
+        data_dir: temporary.path().join("data"),
+        listen: options.listen,
+        log_dir: None,
+    })
+    .expect_err("the section may come from only one file");
+    assert!(matches!(
+        conflict,
+        ConfigError::Invalid {
+            field: "attributeStore",
+            ..
+        }
+    ));
+
+    let without_stores = temporary.path().join("empty.yaml");
+    fs::write(&without_stores, "log:\n  level: info\n").expect("write config");
+    let empty = Config::load_dev(&DevCommandOptions {
+        attribute_store_config: Some(without_stores),
+        data_dir: temporary.path().join("data"),
+        listen: options.listen,
+        log_dir: None,
+        config: None,
+    })
+    .expect_err("a file without stores is rejected");
+    assert!(matches!(
+        empty,
+        ConfigError::Invalid {
+            field: "attributeStore.stores",
+            ..
+        }
+    ));
 }

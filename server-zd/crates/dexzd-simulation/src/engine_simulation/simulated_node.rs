@@ -15,12 +15,13 @@ use bytes::Bytes;
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{ClusterConfig, LeaseConfig, METADATA_FORMAT_VERSION, NodeConfig};
 use dexzd_engine::{
-    BlockingWorkPlacement, CommandApplier, CommitConfig, DeterministicCommandApplier,
-    EffectDependencies, EffectRunner, EffectTasksHandle, EffectsConfig, EngineIdSource,
-    EngineLocalStore, EngineNode, EngineNodeConfig, EngineNodeDependencies, EngineRuntimeHooks,
-    EngineServices, EngineStartError, FlowRuntimeDependencies, FlowRuntimeRegistry,
-    HardDeleteObjects, LocalStoreConfig, NodeMetaUploadLedger, NodeStopReason, RecoveryConfig,
-    RuntimeConfig, SnapshotConfig, default_run_settings,
+    AttributeSyncWaker, BlockingWorkPlacement, CommandApplier, CommitConfig,
+    DeterministicCommandApplier, EffectDependencies, EffectRunner, EffectTasksHandle,
+    EffectsConfig, EngineIdSource, EngineLocalStore, EngineNode, EngineNodeConfig,
+    EngineNodeDependencies, EngineRuntimeHooks, EngineServices, EngineStartError,
+    FlowRuntimeDependencies, FlowRuntimeRegistry, HardDeleteObjects, LocalStoreConfig,
+    NodeMetaUploadLedger, NodeStopReason, RecoveryConfig, RuntimeConfig, SnapshotConfig,
+    default_run_settings,
 };
 use dexzd_keyspace::{ColumnFamily, KEY_LAYOUT_VERSION};
 use dexzd_object_store::{ObjectStore, WriteCondition};
@@ -216,6 +217,7 @@ impl NodeProcess {
                         validation_config: ValidationConfig::default(),
                         stream_store,
                         id_source: services.id_source.clone(),
+                        attribute_sync_waker: AttributeSyncWaker::new(),
                     },
                 );
                 let registry = FlowRuntimeRegistry::new(
