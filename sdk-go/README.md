@@ -915,6 +915,14 @@ unless exactly one completion exists. For multiple outputs, match
 order, but parallel branch order is not deterministic. No-output Flows return
 an empty slice.
 
+`DescribeFlow(ctx, flowID)` reads one known Flow's current or latest run without
+waiting. Use it for a one-off status check, for example when a read-only RPC
+returns a non-terminal business state and the caller needs to know whether the
+Flow has failed. Its `FlowInfo` contains `FlowID`, `RunID`, `FlowType`, `Status`,
+`StartedAt`, and `ClosedAt`. `ClosedAt` is zero while the run is open or when
+the close time is unavailable. Use `WaitForFlow` when the caller needs to wait
+for a terminal result, and `SearchFlows` to find Flow IDs by query.
+
 Remote FlowService failures use concrete Go error types. Match expected
 conditions with `errors.As` instead of comparing gRPC codes or sub-statuses:
 
@@ -925,9 +933,10 @@ if errors.As(err, &inactive) {
 }
 ```
 
-`FlowNotFoundError` is returned by reads requiring an existing Flow, including
-WaitForFlow and TimeTravel. RPCs, timer operations, and step or attribute waits return
-`FlowNotActiveOrNotFoundError` when no active Flow is available.
+`FlowNotFoundError` is returned by operations requiring an existing Flow,
+including DescribeFlow, WaitForFlow, and TimeTravel. RPCs, timer operations,
+and step or attribute waits return `FlowNotActiveOrNotFoundError` when no active
+Flow is available.
 
 RPCs also use this error when the target Flow cannot be found, including query-only
 reads. A query-only RPC without locks, transactional execution, durable effects, or
