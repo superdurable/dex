@@ -7,18 +7,12 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::worker_task_service_client::WorkerTaskServiceClient;
 use dexzd_protocol::dex::{GetFlowSummaryRequest, PollWorkerTaskRequest};
-use dexzd_protocol::dexzd::v1::NodeLease;
 use dexzd_server::{DevCommandOptions, start_dev_server};
-use prost::Message;
-use s3mock::{
-    ChecksumAlgorithm, Durability, EtagMode, PutObjectRequest, Store, StoreConfig,
-    UploadChecksumExpectations,
-};
+use s3mock::{Durability, EtagMode, Store, StoreConfig};
 use s3mock_server::SignatureVerification;
 use tempfile::TempDir;
 use tonic::Code;
@@ -127,48 +121,38 @@ async fn sigterm_stops_a_standby_waiting_for_a_live_holder() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancelled_dev_start_releases_the_grpc_listener() {
     let directory = TempDir::new().expect("a temporary test directory can be created");
-    let store = Store::open(&StoreConfig {
-        root_directory: directory.path().join("s3"),
-        durability: Durability::Relaxed,
-        etag_mode: EtagMode::Md5,
-    })
-    .expect("the embedded object store opens");
-    store
-        .create_bucket("dex-dev", false)
-        .expect("the dev bucket is created");
-    let now_micros = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("the clock is after the Unix epoch")
-        .as_micros();
-    let expires_at_unix_micros = i64::try_from(now_micros).expect("time fits i64") + 60_000_000;
-    let lease = NodeLease {
-        node_id: "dev".to_owned(),
-        incarnation: 1,
-        epoch: 1,
-        holder_process_id: "held-by-another-process".to_owned(),
-        expires_at_unix_micros,
-        duration_micros: 60_000_000,
-        version: 1,
-    };
-    let mut writer = store
-        .begin_put("dex-dev", "lease/dev", ChecksumAlgorithm::Crc32)
-        .expect("the lease upload starts");
-    writer
-        .write_all(&lease.encode_to_vec())
-        .expect("the lease is written");
-    let staged = writer
-        .finish(&UploadChecksumExpectations::default())
-        .expect("the lease upload finishes");
-    store
-        .commit_put("dex-dev", "lease/dev", staged, PutObjectRequest::default())
-        .expect("the lease is stored");
-    drop(store);
+    // dev takes a held lease over at once, so a silent ParadeDB keeps startup waiting instead.
+    let silent_parade_db = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("the silent ParadeDB listener binds");
+    let parade_db_address = silent_parade_db
+        .local_addr()
+        .expect("the silent ParadeDB listener has an address");
+    let silent_parade_db_task = tokio::spawn(async move {
+        let mut connections = Vec::new();
+        loop {
+            let (stream, _) = silent_parade_db
+                .accept()
+                .await
+                .expect("the ParadeDB connection is accepted");
+            connections.push(stream);
+        }
+    });
+    let config_path = directory.path().join("overrides.yaml");
+    std::fs::write(
+        &config_path,
+        format!(
+            "search:\n  backend: paradedb\n  paradeDbConnectionString: \"host=127.0.0.1 port={} user=dex dbname=dex connect_timeout=60\"\n",
+            parade_db_address.port()
+        ),
+    )
+    .expect("the dev overrides are written");
 
     let waiting_options = DevCommandOptions {
-        data_dir: directory.path().to_path_buf(),
+        data_dir: directory.path().join("data"),
         listen: free_loopback_address(),
         log_dir: None,
-        config: None,
+        config: Some(config_path),
         attribute_store_config: None,
     };
     let waiting_address = waiting_options.listen;
@@ -191,7 +175,7 @@ async fn cancelled_dev_start_releases_the_grpc_listener() {
     .expect("the waiting dev server opens its early listener");
     assert!(
         !waiting.is_finished(),
-        "the second dev server must wait for the lease"
+        "the dev server must still wait for ParadeDB"
     );
     waiting.abort();
     let cancelled = match waiting.await {
@@ -202,7 +186,7 @@ async fn cancelled_dev_start_releases_the_grpc_listener() {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             match Store::open(&StoreConfig {
-                root_directory: directory.path().join("s3"),
+                root_directory: directory.path().join("data").join("s3"),
                 durability: Durability::Relaxed,
                 etag_mode: EtagMode::Md5,
             }) {
@@ -216,6 +200,7 @@ async fn cancelled_dev_start_releases_the_grpc_listener() {
     })
     .await
     .expect("the cancelled dev server releases its embedded object store");
+    silent_parade_db_task.abort();
 
     let rebound_listener = tokio::time::timeout(Duration::from_secs(5), async {
         loop {

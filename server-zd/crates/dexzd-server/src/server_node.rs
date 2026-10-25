@@ -12,6 +12,8 @@ mod client_deadline;
 mod lease_validity_watchdog;
 mod public_api_authentication;
 mod search_projection;
+#[cfg(test)]
+mod startup_cancellation_tests;
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -165,7 +167,11 @@ pub(crate) async fn start_server(
     cancellation: &mut watch::Receiver<bool>,
     lease_expiry_response: LeaseExpiryResponse,
 ) -> Result<Option<RunningServer>, ServerError> {
-    let components = ComponentConfigs::from_config(config)?;
+    // Only a held dev data directory lock proves that the previous lease holder has stopped.
+    let should_take_over_held_lease = embedded_s3
+        .as_ref()
+        .is_some_and(EmbeddedS3::has_exclusive_data_directory);
+    let components = ComponentConfigs::from_config(config, should_take_over_held_lease)?;
     let authenticator =
         public_api_authentication::public_api_authenticator(&components.authenticators)?;
     let listener = TcpListener::bind(config.api.listen)

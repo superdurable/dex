@@ -8,6 +8,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use super::{
     AttributeStoreConfig, Config, CredentialSource, DevConfig, ObjectStoreCredentials,
@@ -16,6 +17,8 @@ use super::{
 use crate::DevCommandOptions;
 
 const EMBEDDED_S3_ENDPOINT_PENDING: &str = "http://127.0.0.1:0";
+/// Dev has no standby, so a longer lease rides out host stalls; only crash restarts wait longer.
+const DEV_LEASE_DURATION: Duration = Duration::from_secs(30);
 
 /// Reports a YAML, filesystem, environment, or field validation failure.
 #[derive(Debug, thiserror::Error)]
@@ -105,27 +108,23 @@ impl Config {
                 message: "--data-dir must be non-empty".to_owned(),
             });
         }
-        let (mut configuration, has_stream_store_backend_override, has_attribute_store_override) =
-            if let Some(path) = &options.config {
-                let contents = fs::read_to_string(path).map_err(|source| ConfigError::Read {
-                    path: path.clone(),
-                    source,
-                })?;
-                let yaml_configuration: serde_yaml_ng::Value =
-                    serde_yaml_ng::from_str(&contents)
-                        .map_err(|source| ConfigError::Yaml { source })?;
-                let has_stream_store_backend_override = yaml_configuration
-                    .get("streamStore")
-                    .and_then(|section| section.get("backend"))
-                    .is_some();
-                (
-                    Self::parse_yaml(&contents)?,
-                    has_stream_store_backend_override,
-                    yaml_configuration.get("attributeStore").is_some(),
-                )
-            } else {
-                (Self::default(), false, false)
-            };
+        let (mut configuration, override_document) = if let Some(path) = &options.config {
+            let contents = fs::read_to_string(path).map_err(|source| ConfigError::Read {
+                path: path.clone(),
+                source,
+            })?;
+            let override_document: serde_yaml_ng::Value = serde_yaml_ng::from_str(&contents)
+                .map_err(|source| ConfigError::Yaml { source })?;
+            (Self::parse_yaml(&contents)?, Some(override_document))
+        } else {
+            (Self::default(), None)
+        };
+        let has_stream_store_backend_override =
+            has_yaml_key(override_document.as_ref(), &["streamStore", "backend"]);
+        let has_attribute_store_override =
+            has_yaml_key(override_document.as_ref(), &["attributeStore"]);
+        let has_lease_duration_override =
+            has_yaml_key(override_document.as_ref(), &["lease", "duration"]);
         if let Some(path) = &options.attribute_store_config {
             if has_attribute_store_override {
                 return Err(ConfigError::Invalid {
@@ -154,6 +153,9 @@ impl Config {
         configuration.local_storage.directory = options.data_dir.join("store");
         if !has_stream_store_backend_override {
             configuration.stream_store.backend = StreamStoreBackend::Memory;
+        }
+        if !has_lease_duration_override {
+            configuration.lease.duration = DEV_LEASE_DURATION;
         }
         if configuration.object_store.bucket.is_empty() {
             configuration.object_store.bucket = "dex-dev".to_owned();
@@ -203,6 +205,15 @@ impl Config {
         }
         Ok(())
     }
+}
+
+/// Returns whether `document` sets the nested key `path`, including to an explicit null.
+fn has_yaml_key(document: Option<&serde_yaml_ng::Value>, path: &[&str]) -> bool {
+    path.iter()
+        .fold(document, |value, key| {
+            value.and_then(|section| section.get(*key))
+        })
+        .is_some()
 }
 
 /// Reads the `attributeStore` section of a Go Dex Server YAML file and ignores its other sections.

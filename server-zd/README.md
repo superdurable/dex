@@ -228,7 +228,7 @@ Startup proceeds in this order:
    conditional-write self-check.
 3. The node acquires the lease of `cluster.nodeId` for `lease.duration`. A lease that another
    process still holds is awaited until it expires, or fails startup when `lease.failIfHeld` is
-   true.
+   true. `dev` takes a held lease over at once instead; see [dev](#dev).
 4. The node restores `localStorage.directory` from the latest snapshot and the command log. The
    directory is a cache; an empty one is rebuilt from object storage. Replay keeps up to
    `recovery.readAheadBatches` log reads in flight, holding at most `recovery.readAheadBytes` of
@@ -478,6 +478,18 @@ rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
 `<log-dir>/dex-server-zd.log`. A `search.backend: paradedb` override uses ParadeDB as `serve` does.
 `--attribute-store-config` reads only the `attributeStore` section of a Go Server configuration
 file, which must define at least one store; the `--config` file must not also set `attributeStore`.
+
+`dev` defaults `lease.duration` to 30 seconds, unless the `--config` file sets it; `serve` defaults
+it to 10 seconds. A `dev` node has no standby, so the longer lease costs no failover time and lets
+the node ride out longer host stalls.
+
+`dev` holds an exclusive lock on `<data-dir>/dev.lock` for its whole run, so a second `dev` process
+on the same data directory fails to start. While `dev` holds the lock, no other process can write
+its embedded object store. A lease that the store still shows as held therefore belongs to a
+stopped process, so `dev` takes it over at once, ignoring `lease.failIfHeld`. A restart never waits
+for the lease, even after a crash. The takeover raises the node epoch, as any takeover does. On a
+filesystem that cannot lock files, `dev` logs a warning and waits for a held lease to expire, up to
+31 seconds.
 
 ## Stable command-line interface
 
