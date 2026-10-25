@@ -112,6 +112,8 @@ enum CallOutcome<T> {
 pub(crate) struct SimulatedClient {
     pub(crate) client_label: String,
     rng: ChaCha8Rng,
+    /// Whether started Flows' Steps carry failure policies, as in the Step failure profile.
+    has_step_failure_policies: bool,
     serving: ServingNode,
     committed_log: Arc<CommittedLog>,
     records: Arc<Mutex<ClientRecords>>,
@@ -123,6 +125,7 @@ impl SimulatedClient {
     pub(crate) fn new(
         client_label: String,
         seed: u64,
+        has_step_failure_policies: bool,
         serving: ServingNode,
         committed_log: Arc<CommittedLog>,
         records: Arc<Mutex<ClientRecords>>,
@@ -131,6 +134,7 @@ impl SimulatedClient {
         Self {
             client_label,
             rng: ChaCha8Rng::seed_from_u64(seed),
+            has_step_failure_policies,
             serving,
             committed_log,
             records,
@@ -157,7 +161,12 @@ impl SimulatedClient {
         );
         match self.rng.random_range(0..100) {
             0..=11 => {
-                let request = start_flow_request(&mut self.rng, flow_id, &marker);
+                let request = start_flow_request(
+                    &mut self.rng,
+                    flow_id,
+                    &marker,
+                    self.has_step_failure_policies,
+                );
                 let outcome = self
                     .call("StartFlow", flow_id, |registry| {
                         let request = request.clone();

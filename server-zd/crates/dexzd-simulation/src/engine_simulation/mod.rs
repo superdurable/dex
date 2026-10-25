@@ -60,6 +60,9 @@ pub enum EngineSimulationProfile {
     /// A four-event history window, restarts that may start a new node incarnation, and no
     /// snapshots.
     RedeploysWithShortHistoryWindow,
+    /// The fixed set's environment, with Step and timeout handler failure policies and retry
+    /// total durations of 1 to 5 seconds.
+    StepFailurePolicies,
 }
 
 impl EngineSimulationProfile {
@@ -70,7 +73,13 @@ impl EngineSimulationProfile {
             Self::RedeploysWithShortHistoryWindow => {
                 "redeploys_with_a_short_history_window_keep_every_invariant"
             }
+            Self::StepFailurePolicies => "step_failure_policies_keep_every_invariant",
         }
+    }
+
+    /// Whether generated Steps and timeout handlers carry failure policies and total durations.
+    fn has_step_failure_policies(self) -> bool {
+        self == Self::StepFailurePolicies
     }
 }
 
@@ -81,6 +90,9 @@ pub struct EngineSimulationSummary {
     pub trace_hash: u64,
     /// Events in the trace.
     pub trace_events: u64,
+    /// Chained xxh3-128 digest of the seed's canonical committed commands, in the order the
+    /// shadow accepted them; [`Self::merge`] leaves it unchanged.
+    pub canonical_command_digest: u128,
     /// Node process restarts, by what happened to the local store.
     pub restarts_by_local_store: BTreeMap<String, u64>,
     /// Successor lease writes that took effect while the old-epoch process still ran.
@@ -129,6 +141,9 @@ pub struct EngineSimulationSummary {
     pub worker_behaviors: BTreeMap<String, u64>,
     /// Commands that changed committed state, by command kind.
     pub applied_by_kind: BTreeMap<String, u64>,
+    /// What Step failure policies did in applied StepAttemptFailed commands: `wait-for-proceed`,
+    /// `execute-recovery`, `timeout-handler-recovery`, and `retry-deadline` failures.
+    pub step_failure_recoveries: BTreeMap<String, u64>,
     /// Client calls by operation and outcome.
     pub client_calls: BTreeMap<String, u64>,
     /// Client writes acknowledged and then found in the committed log.
@@ -216,6 +231,10 @@ impl EngineSimulationSummary {
         merge_counts(&mut self.injected_faults, &other.injected_faults);
         merge_counts(&mut self.worker_behaviors, &other.worker_behaviors);
         merge_counts(&mut self.applied_by_kind, &other.applied_by_kind);
+        merge_counts(
+            &mut self.step_failure_recoveries,
+            &other.step_failure_recoveries,
+        );
         merge_counts(&mut self.client_calls, &other.client_calls);
         self.acknowledged_writes += other.acknowledged_writes;
         self.checked_reads += other.checked_reads;

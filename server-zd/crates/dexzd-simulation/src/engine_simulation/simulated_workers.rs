@@ -100,6 +100,8 @@ struct ScriptedEvent {
 
 struct WorkerPoolState {
     rng: ChaCha8Rng,
+    /// Whether new Steps carry failure policies, as in the Step failure profile.
+    has_step_failure_policies: bool,
     is_calm: bool,
     is_holding: bool,
     dispatch_history: BTreeMap<String, Vec<AttemptIdentity>>,
@@ -117,10 +119,11 @@ pub(crate) struct SimulatedWorkers {
 }
 
 impl SimulatedWorkers {
-    pub(crate) fn new(seed: u64, trace: Arc<EventTrace>) -> Self {
+    pub(crate) fn new(seed: u64, has_step_failure_policies: bool, trace: Arc<EventTrace>) -> Self {
         Self {
             state: Mutex::new(WorkerPoolState {
                 rng: ChaCha8Rng::seed_from_u64(seed),
+                has_step_failure_policies,
                 is_calm: false,
                 is_holding: false,
                 dispatch_history: BTreeMap::new(),
@@ -461,6 +464,7 @@ impl WorkerPoolState {
                 let call = MethodCallView {
                     step_type: &request.step_type,
                     may_start_sub_flows,
+                    has_step_failure_policies: self.has_step_failure_policies,
                     is_execute: false,
                     attributes: &request.attributes,
                     loaded_channel_messages: &request.loaded_channel_messages,
@@ -475,6 +479,7 @@ impl WorkerPoolState {
                 let call = MethodCallView {
                     step_type: &request.step_type,
                     may_start_sub_flows,
+                    has_step_failure_policies: self.has_step_failure_policies,
                     is_execute: true,
                     attributes: &request.attributes,
                     loaded_channel_messages: &request.loaded_channel_messages,

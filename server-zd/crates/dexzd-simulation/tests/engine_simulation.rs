@@ -23,7 +23,56 @@ const FIRST_SEED: u64 = 0xe5e5_0000;
 const DEFAULT_REDEPLOY_SEED_COUNT: u64 = 16;
 /// The redeploy profile changes every trajectory, so its seeds form their own group.
 const FIRST_REDEPLOY_SEED: u64 = 0x4ede_0000;
+const DEFAULT_STEP_FAILURE_SEED_COUNT: u64 = 32;
+/// Step failure policies change every trajectory, so their seeds form their own group.
+const FIRST_STEP_FAILURE_SEED: u64 = 0x5fa1_0000;
 const REGRESSION_SEEDS: &str = include_str!("../engine-regression-seeds.txt");
+/// Canonical command digests from main before Step failure policies; moving one drops its seed's
+/// regression.
+const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u128)] = &[
+    (
+        EngineSimulationProfile::Standard,
+        3856990760,
+        120,
+        0x0ce8cbe54d9986053a30ca0d359f5e3a,
+    ),
+    (
+        EngineSimulationProfile::Standard,
+        3856990458,
+        120,
+        0x7b480a3f15e803d2795e4204498ee7fd,
+    ),
+    (
+        EngineSimulationProfile::Standard,
+        3856990875,
+        120,
+        0x8f6f08ab792571d2dc0ebb625a4c1905,
+    ),
+    (
+        EngineSimulationProfile::Standard,
+        FIRST_SEED,
+        120,
+        0xbdb1270b47fa4d7e9ededa5ea96f25ee,
+    ),
+    (
+        EngineSimulationProfile::Standard,
+        FIRST_SEED + 1,
+        120,
+        0x070707ab938adad0eab32b0e2b706749,
+    ),
+    (
+        EngineSimulationProfile::Standard,
+        FIRST_SEED + 2,
+        120,
+        0xa7a76a800cf7f89ca4d4739e963916d3,
+    ),
+    (
+        EngineSimulationProfile::RedeploysWithShortHistoryWindow,
+        FIRST_REDEPLOY_SEED,
+        120,
+        0x3a74ab1b3c1de958379342fdb1f4b453,
+    ),
+];
 
 fn environment_number(name: &str) -> Option<u64> {
     let text = std::env::var(name).ok()?;
@@ -143,6 +192,64 @@ fn redeploys_with_a_short_history_window_keep_every_invariant() {
     ];
     for (name, value) in checks {
         assert!(value > 0, "the redeploy profile had no {name}: {total:#?}");
+    }
+}
+
+#[test]
+fn step_failure_policies_keep_every_invariant() {
+    let (seeds, is_single_seed) = configured(
+        DEFAULT_STEP_FAILURE_SEED_COUNT,
+        FIRST_STEP_FAILURE_SEED,
+        &[],
+    );
+    let mut total = run_seeds(&seeds, EngineSimulationProfile::StepFailurePolicies);
+    total.recent_events.clear();
+    println!("Step failure profile coverage: {total:#?}");
+    if is_single_seed {
+        return;
+    }
+    for outcome in [
+        "wait-for-proceed",
+        "execute-recovery",
+        "timeout-handler-recovery",
+        "retry-deadline",
+    ] {
+        assert!(
+            total
+                .step_failure_recoveries
+                .get(outcome)
+                .is_some_and(|count| *count > 0),
+            "the Step failure profile had no {outcome}: {total:#?}"
+        );
+    }
+}
+
+#[test]
+fn pinned_seeds_keep_their_canonical_command_trajectories() {
+    for (seed, active_seconds) in regression_seed_cases() {
+        let is_pinned = PINNED_CANONICAL_COMMAND_DIGESTS.iter().any(
+            |&(profile, pinned_seed, pinned_seconds, _)| {
+                (profile, pinned_seed, pinned_seconds)
+                    == (EngineSimulationProfile::Standard, seed, active_seconds)
+            },
+        );
+        assert!(
+            is_pinned,
+            "pin the canonical command digest of regression seed {seed} {active_seconds}"
+        );
+    }
+    for &(profile, seed, active_seconds, expected) in PINNED_CANONICAL_COMMAND_DIGESTS {
+        let config = EngineSimulationConfig {
+            active_seconds,
+            profile,
+            ..EngineSimulationConfig::default()
+        };
+        let summary = run_engine_seed(seed, &config).unwrap_or_else(|failure| panic!("{failure}"));
+        assert_eq!(
+            summary.canonical_command_digest, expected,
+            "{profile:?} seed {seed} changed its committed commands, so it no longer replays its \
+             trajectory"
+        );
     }
 }
 
@@ -324,6 +431,10 @@ fn one_seed_produces_the_same_trace_and_final_state_twice() {
         (
             FIRST_REDEPLOY_SEED,
             EngineSimulationProfile::RedeploysWithShortHistoryWindow,
+        ),
+        (
+            FIRST_STEP_FAILURE_SEED,
+            EngineSimulationProfile::StepFailurePolicies,
         ),
     ] {
         let config = EngineSimulationConfig {

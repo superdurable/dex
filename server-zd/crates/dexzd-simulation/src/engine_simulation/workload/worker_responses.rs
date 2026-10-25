@@ -29,9 +29,12 @@ use crate::model::{
 pub(crate) const COUNTER_STEP_TYPE: &str = "ChargeStep";
 
 /// Random valid Step options, except locks fixed by Step type so a Worker knows its locks.
-pub(crate) fn engine_step_options(rng: &mut ChaCha8Rng, step_type: &str) -> StepOptions {
-    let should_proceed_on_execute_failure = rng.random_bool(0.1);
-    StepOptions {
+pub(crate) fn engine_step_options(
+    rng: &mut ChaCha8Rng,
+    step_type: &str,
+    has_step_failure_policies: bool,
+) -> StepOptions {
+    let mut options = StepOptions {
         skip_wait_for: rng.random_bool(0.4),
         wait_for_lock_attribute_keys: match step_type {
             "ShipStep" => vec!["orders/1".to_owned()],
@@ -42,8 +45,8 @@ pub(crate) fn engine_step_options(rng: &mut ChaCha8Rng, step_type: &str) -> Step
             "ShipStep" => vec!["status".to_owned()],
             _ => Vec::new(),
         },
-        wait_for_retry_policy: retry_policy(rng),
-        execute_retry_policy: retry_policy(rng),
+        wait_for_retry_policy: retry_policy(rng, has_step_failure_policies),
+        execute_retry_policy: retry_policy(rng, has_step_failure_policies),
         wait_for_load_attribute_map_instances: subset(rng, &["orders/", "users/alice"], 0.3),
         execute_load_attribute_map_instances: subset(rng, &["orders/", "orders/2"], 0.3),
         wait_for_load_channel_names: subset(rng, LOADABLE_CHANNEL_NAMES, 0.25),
@@ -58,27 +61,34 @@ pub(crate) fn engine_step_options(rng: &mut ChaCha8Rng, step_type: &str) -> Step
         } else {
             0
         },
-        wait_for_failure_policy: if rng.random_bool(0.1) {
-            WaitForMethodFailurePolicy::ProceedOnFailure as i32
-        } else {
-            WaitForMethodFailurePolicy::Unspecified as i32
-        },
-        execute_failure_policy: if should_proceed_on_execute_failure {
-            ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
-        } else {
-            ExecuteMethodFailurePolicy::Unspecified as i32
-        },
-        execute_failure_proceed_step_type: if should_proceed_on_execute_failure {
-            "RecoverStep".to_owned()
-        } else {
-            String::new()
-        },
-        execute_failure_proceed_step_options: should_proceed_on_execute_failure.then(|| {
-            Box::new(StepOptions {
-                skip_wait_for: true,
-                ..StepOptions::default()
-            })
-        }),
+        ..StepOptions::default()
+    };
+    // Other profiles skip these draws, so their pinned seeds keep their trajectories.
+    if has_step_failure_policies {
+        add_step_failure_policies(rng, &mut options);
+    }
+    options
+}
+
+/// Sometimes lets a failed WaitFor proceed, or sends a failed Execute to a recovery Step.
+fn add_step_failure_policies(rng: &mut ChaCha8Rng, options: &mut StepOptions) {
+    if rng.random_bool(0.1) {
+        options.wait_for_failure_policy = WaitForMethodFailurePolicy::ProceedOnFailure as i32;
+    }
+    if rng.random_bool(0.1) {
+        options.execute_failure_policy = ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32;
+        options.execute_failure_proceed_step_type = RECOVERY_STEP_TYPE.to_owned();
+        options.execute_failure_proceed_step_options = Some(Box::new(recovery_step_options()));
+    }
+}
+
+/// The Step type that failure policies proceed to.
+pub(crate) const RECOVERY_STEP_TYPE: &str = "RecoverStep";
+
+/// Options of a recovery Step, which skips WaitFor.
+pub(crate) fn recovery_step_options() -> StepOptions {
+    StepOptions {
+        skip_wait_for: true,
         ..StepOptions::default()
     }
 }
@@ -86,14 +96,14 @@ pub(crate) fn engine_step_options(rng: &mut ChaCha8Rng, step_type: &str) -> Step
 /// Channels a Step may load by name; `queue/a` and `queue/b` belong to the `queue/` map.
 const LOADABLE_CHANNEL_NAMES: &[&str] = &["inbox", "events"];
 
-/// A retry policy, sometimes with a total duration short enough to expire during a run.
-pub(crate) fn retry_policy(rng: &mut ChaCha8Rng) -> Option<RetryPolicy> {
+/// A retry policy; with `may_expire`, sometimes a total duration short enough to expire in a run.
+pub(crate) fn retry_policy(rng: &mut ChaCha8Rng, may_expire: bool) -> Option<RetryPolicy> {
     rng.random_bool(0.7).then(|| RetryPolicy {
         initial_interval_seconds: rng.random_range(1..3),
         backoff_coefficient: if rng.random_bool(0.5) { 2.0 } else { 0.0 },
         maximum_interval_seconds: if rng.random_bool(0.5) { 5 } else { 0 },
         maximum_attempts: rng.random_range(0..5),
-        total_duration_seconds: if rng.random_bool(0.3) {
+        total_duration_seconds: if may_expire && rng.random_bool(0.3) {
             rng.random_range(1..6)
         } else {
             0
@@ -131,6 +141,8 @@ pub(crate) struct MethodCallView<'request> {
     pub(crate) step_type: &'request str,
     /// Whether the Flow may start child Flows; only clients' Flows do, so children never nest.
     pub(crate) may_start_sub_flows: bool,
+    /// Whether new Steps carry failure policies, as in the Step failure profile.
+    pub(crate) has_step_failure_policies: bool,
     pub(crate) is_execute: bool,
     pub(crate) attributes: &'request [Kv],
     pub(crate) loaded_channel_messages: &'request BTreeMap<String, ChannelValues>,
@@ -165,7 +177,11 @@ pub(crate) fn execute_response(
     steps_left: &mut u32,
 ) -> InvokeExecuteMethodResponse {
     InvokeExecuteMethodResponse {
-        step_decision: Some(step_decision(rng, steps_left)),
+        step_decision: Some(step_decision(
+            rng,
+            steps_left,
+            call.has_step_failure_policies,
+        )),
         upsert_attributes: attribute_writes(rng, call),
         upsert_step_exe_locals: locals(rng),
         publish_to_channel: publications(rng),
@@ -288,7 +304,11 @@ fn waiting_condition(rng: &mut ChaCha8Rng, call: &MethodCallView<'_>) -> Option<
                     sub_flow_type: "ChildFlow".to_owned(),
                     start_step_type: start_step_type.to_owned(),
                     step_input: rng.random_bool(0.8).then(|| random_value(rng)),
-                    step_options: Some(engine_step_options(rng, start_step_type)),
+                    step_options: Some(engine_step_options(
+                        rng,
+                        start_step_type,
+                        call.has_step_failure_policies,
+                    )),
                     ..SubFlowCondition::default()
                 }],
                 ..WaitingCondition::default()
@@ -315,7 +335,11 @@ fn waiting_condition(rng: &mut ChaCha8Rng, call: &MethodCallView<'_>) -> Option<
     }
 }
 
-fn step_decision(rng: &mut ChaCha8Rng, steps_left: &mut u32) -> StepDecision {
+fn step_decision(
+    rng: &mut ChaCha8Rng,
+    steps_left: &mut u32,
+    has_step_failure_policies: bool,
+) -> StepDecision {
     let mut next_steps = Vec::new();
     for _ in 0..rng.random_range(0..3) {
         if *steps_left == 0 {
@@ -326,7 +350,11 @@ fn step_decision(rng: &mut ChaCha8Rng, steps_left: &mut u32) -> StepDecision {
         next_steps.push(StepMovement {
             step_type: step_type.to_owned(),
             step_input: rng.random_bool(0.8).then(|| random_value(rng)),
-            step_options: Some(engine_step_options(rng, step_type)),
+            step_options: Some(engine_step_options(
+                rng,
+                step_type,
+                has_step_failure_policies,
+            )),
             ..StepMovement::default()
         });
     }
