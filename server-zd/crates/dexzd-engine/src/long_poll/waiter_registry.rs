@@ -34,7 +34,12 @@ pub(crate) enum WaitInterest {
 impl WaitInterest {
     fn is_woken_by(&self, change: &WaitableChange) -> bool {
         match (self, change) {
-            (_, WaitableChange::FlowClosed | WaitableChange::RunAttemptChanged) => true,
+            (
+                _,
+                WaitableChange::FlowClosed
+                | WaitableChange::RunAttemptChanged
+                | WaitableChange::FlowCleanupStarted,
+            ) => true,
             (Self::Attribute(key), WaitableChange::AttributesChanged { keys }) => {
                 keys.binary_search(key).is_ok()
             }

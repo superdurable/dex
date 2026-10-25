@@ -212,6 +212,22 @@ pub trait FlowCommandCommitter: Send + Sync + 'static {
         context: ApplyContext,
         command: FlowCommand,
         urgency: CommitUrgency,
+    ) -> Result<(FlowCommand, CommitTicket), CommitError> {
+        self.submit_with_final_stamp(context, command, urgency, &mut |_| {})
+    }
+
+    /// Like [`Self::submit`], but calls `finish_stamp` with the stamped command before it is
+    /// enqueued, so owner stamps can depend on the final stamp. `finish_stamp` blocks stamping
+    /// only for the command's partition. It may apply the command to the caller's overlay but
+    /// must not wait or take the Flow's lock.
+    ///
+    /// Returns what [`Self::submit`] returns.
+    fn submit_with_final_stamp(
+        &self,
+        context: ApplyContext,
+        command: FlowCommand,
+        urgency: CommitUrgency,
+        finish_stamp: &mut dyn FnMut(&mut FlowCommand),
     ) -> Result<(FlowCommand, CommitTicket), CommitError>;
 
     /// Returns a consistent read view of committed state (a local store snapshot).

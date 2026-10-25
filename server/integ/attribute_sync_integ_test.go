@@ -93,8 +93,6 @@ func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	// Skip before locking the table; a later skip cancels ctx before the rollback cleanup.
-	requireGoServerSetting(t, "Temporal synchronous RPC updates")
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
@@ -115,20 +113,10 @@ func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
 		_, dropErr := database.ExecContext(context.Background(), "DROP TABLE IF EXISTS public."+tableName)
 		require.NoError(t, dropErr)
 	})
-	lockTransaction, err := database.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	lockReleased := false
-	t.Cleanup(func() {
-		if !lockReleased {
-			require.NoError(t, lockTransaction.Rollback())
-		}
-	})
-	_, err = lockTransaction.ExecContext(ctx, "LOCK TABLE public."+tableName+" IN ACCESS EXCLUSIVE MODE")
-	require.NoError(t, err)
-
 	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType:                            service.BackendTypeTemporal,
-		UseTemporalSynchronousUpdateForAllRPCs: true,
+		BackendType: service.BackendTypeTemporal,
+		// server-zd runs IsTransactional RPCs as the Go Server runs every RPC with this setting.
+		UseTemporalSynchronousUpdateForAllRPCs: !isServerZDBinaryMode(),
 		AttributeStore: config.AttributeStoreConfig{
 			Stores: map[string]config.AttributeStoreConfigEntry{
 				"reporting": {
@@ -139,6 +127,16 @@ func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
 			},
 		},
 	})
+	lockTransaction, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	lockReleased := false
+	t.Cleanup(func() {
+		if !lockReleased {
+			require.NoError(t, lockTransaction.Rollback())
+		}
+	})
+	_, err = lockTransaction.ExecContext(ctx, "LOCK TABLE public."+tableName+" IN ACCESS EXCLUSIVE MODE")
+	require.NoError(t, err)
 	handler := newFinalizingRPCHandler(true)
 	workerTarget := startWorker(t, handler)
 	flowID := terminalRPCFlowType + "-graceful-" + newRequestID()
@@ -165,7 +163,7 @@ func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
 		require.FailNow(t, "graceful step did not start", ctx.Err())
 	}
 	acceptedResponse, err := runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCAccepted,
+		RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCAccepted, IsTransactional: true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, terminalRPCAcceptedOutput, acceptedResponse.GetOutput().GetStringValue())

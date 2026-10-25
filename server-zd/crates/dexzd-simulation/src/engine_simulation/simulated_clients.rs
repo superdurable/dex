@@ -23,8 +23,8 @@ use rand_chacha::ChaCha8Rng;
 use crate::engine_simulation::committed_log::{CommittedLog, ReadWindow};
 use crate::engine_simulation::event_trace::EventTrace;
 use crate::engine_simulation::workload::{
-    OPERATION_MARKER_PREFIX, delete_message_request, publish_request, rpc_request,
-    set_attributes_request, start_flow_request, stop_request,
+    OPERATION_MARKER_PREFIX, delete_message_request, flow_timeout_skip_request, publish_request,
+    rpc_request, set_attributes_request, start_flow_request, stop_request,
 };
 use crate::invariants::InvariantViolation;
 use crate::model::CHANNEL_NAMES;
@@ -242,11 +242,22 @@ impl SimulatedClient {
                     self.acknowledge(&marker, "InvokeRpc", flow_id, None);
                 }
             }
+            72..=79 if self.has_step_failure_policies => self.skip_flow_timeout(flow_id).await,
             72..=89 => self.read_attributes(flow_id).await,
             _ => {
                 self.read_channel_messages(flow_id).await;
             }
         }
+    }
+
+    /// Skips the Flow timeout. A skip has no request ID, so nothing is acknowledged.
+    async fn skip_flow_timeout(&mut self, flow_id: &str) {
+        let request = flow_timeout_skip_request(flow_id);
+        self.call("SkipTimer", flow_id, |registry| {
+            let request = request.clone();
+            async move { FlowOperations::skip_timer(&registry, TenantId::DEFAULT, request).await }
+        })
+        .await;
     }
 
     async fn delete_a_message(&mut self, flow_id: &str, marker: &str) {

@@ -16,8 +16,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dexzd_apply::{
-    ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateWrite, WaitableChange,
+    ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateWrite, TransactionalRpcHold,
+    WaitableChange, transactional_rpc_hold,
 };
+use dexzd_keyspace::row_keys::run_singleton_key;
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, parse_run_key};
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, RunRecord, StepInvocationKey, flow_command, inbox_message_command,
@@ -30,6 +32,7 @@ use crate::CommandApplier;
 use crate::engine_id_source::EngineIdSource;
 use crate::long_poll::WaiterRegistry;
 use crate::runtime::flow_runtime::{FlowRuntime, FlowRuntimeState};
+use crate::runtime::read_operations::state_rows::decode_row;
 use crate::runtime::rpc_locks::{
     LockBlocker, RpcLockTable, find_invocation_lock_blocker, find_rpc_lock_blocker,
 };
@@ -170,6 +173,57 @@ impl FlowRuntimeRegistry {
                 })
             }
         }
+    }
+
+    /// Waits until no transactional or locking RPC admitted for `flow` is in flight.
+    ///
+    /// Returns `NodeStopping` when the registry halts while waiting.
+    pub async fn wait_for_transactional_rpcs(
+        &self,
+        flow: &FlowAddress,
+    ) -> Result<(), RuntimeError> {
+        self.check_running()?;
+        let Some(lease) = self.inner.lease_existing(flow) else {
+            return Ok(());
+        };
+        let mut in_flight = lease.runtime().subscribe_transactional_rpcs();
+        // Biased for reproducible simulation; the halt fires once, so the wait cannot starve.
+        tokio::select! {
+            biased;
+            () = self.inner.halted.cancelled() => Err(self.inner.halted_error()),
+            // A dropped runtime has no RPC left.
+            _drained = in_flight.wait_for(|count| *count == 0) => Ok(()),
+        }
+    }
+
+    /// Admits a transactional or locking RPC of `run_id` and counts it until the guard drops.
+    ///
+    /// Counting and the pending close check share the Flow's lock, so a close proposed later
+    /// waits for this RPC. Returns `FAILED_PRECONDITION` while the run is in terminal cleanup.
+    pub(crate) fn admit_transactional_rpc(
+        &self,
+        flow: &FlowAddress,
+        run_id: RunId,
+    ) -> Result<TransactionalRpcGuard, RuntimeError> {
+        self.check_running()?;
+        let lease = self.inner.lease(flow);
+        let runtime = lease.runtime();
+        {
+            let state = runtime.lock_state();
+            let committed = self.inner.dependencies.committer.committed_view()?;
+            let reader = state.overlay.reader(committed.as_ref());
+            let record: Option<RunRecord> = decode_row(
+                &reader,
+                ColumnFamily::Flow,
+                &run_singleton_key(runtime.context.flow_hash, run_id, RunTable::RunRecord),
+                "RunRecord",
+            )?;
+            if record.is_some_and(|record| record.pending_close.is_some()) {
+                return Err(RuntimeError::terminal_cleanup_in_progress());
+            }
+            runtime.admit_transactional_rpc(&state);
+        }
+        Ok(TransactionalRpcGuard { lease })
     }
 
     /// Reports whether a pending invocation may start now: every lock key is free in the
@@ -441,27 +495,51 @@ impl FlowRuntimeRegistry {
         }
         let dependencies = &self.inner.dependencies;
         let committed = dependencies.committer.committed_view()?;
-        let built = {
+        let (built, is_admitted_rpc_commit) = {
             let reader = state.overlay.reader(committed.as_ref());
-            build(&mut ProposalScope {
+            let mut scope = ProposalScope {
                 state: &reader,
                 rpc_locks: &mut state.rpc_locks,
                 context: runtime.context,
-            })?
+                is_admitted_rpc_commit: false,
+            };
+            let built = build(&mut scope)?;
+            (built, scope.is_admitted_rpc_commit)
         };
         let Some((command, extra)) = built else {
             return Ok(Admission::Decided(None));
         };
         let command = self.resolve_child_start(command);
+        let other_transactional_rpcs = runtime
+            .transactional_rpc_count()
+            .saturating_sub(u32::from(is_admitted_rpc_commit));
+        let is_close_held = other_transactional_rpcs > 0
+            && transactional_rpc_hold(&command) == TransactionalRpcHold::MayClose;
         self.check_running()?;
         // Reserve before submit, which cannot be undone; the outcome's size is added after apply.
         let reserved_bytes = command.encoded_len();
         if !self.inner.try_reserve_bytes(reserved_bytes) {
             return Ok(Admission::AtCapacity);
         }
-        let submitted = dependencies
-            .committer
-            .submit(runtime.context, command, urgency);
+        let submitted = if is_close_held {
+            // Only a command that would close the run carries the stamp, so others keep their bytes.
+            let reader = state.overlay.reader(committed.as_ref());
+            dependencies.committer.submit_with_final_stamp(
+                runtime.context,
+                command,
+                urgency,
+                &mut |stamped| {
+                    stamped.is_transactional_rpc_in_flight = dependencies
+                        .applier
+                        .apply(&runtime.context, &reader, stamped)
+                        .is_ok_and(|outcome| wakes_flow_closed(&outcome));
+                },
+            )
+        } else {
+            dependencies
+                .committer
+                .submit(runtime.context, command, urgency)
+        };
         let (stamped, ticket) = match submitted {
             Ok(submitted) => submitted,
             Err(error) => {
@@ -484,6 +562,12 @@ impl FlowRuntimeRegistry {
                 return Err(error);
             }
         };
+        debug_assert!(
+            !is_close_held || !wakes_flow_closed(&speculative),
+            "command {:?} closed Flow {} while a transactional RPC was in flight",
+            stamped.command,
+            stamped.flow_id
+        );
         let entry = OverlayEntry::new(&stamped, speculative.clone());
         self.inner
             .settle_reservation(reserved_bytes, entry.size_bytes);
@@ -563,6 +647,7 @@ impl FlowRuntimeRegistry {
             state: &reader,
             rpc_locks: &mut state.rpc_locks,
             context: runtime.context,
+            is_admitted_rpc_commit: false,
         })
     }
 
@@ -628,6 +713,32 @@ pub(crate) struct ProposalScope<'a> {
     pub(crate) state: &'a dyn FlowStateReader,
     pub(crate) rpc_locks: &'a mut RpcLockTable,
     pub(crate) context: ApplyContext,
+    /// Set by the commit of an admitted transactional RPC, which must not wait for itself.
+    pub(crate) is_admitted_rpc_commit: bool,
+}
+
+/// One admitted transactional or locking RPC; natural closes wait until it drops.
+pub(crate) struct TransactionalRpcGuard {
+    lease: FlowRuntimeLease,
+}
+
+impl Drop for TransactionalRpcGuard {
+    fn drop(&mut self) {
+        self.lease.runtime().release_transactional_rpc();
+    }
+}
+
+/// Whether the outcome records a close.
+fn wakes_flow_closed(outcome: &ApplyOutcome) -> bool {
+    outcome.effects.iter().any(|effect| {
+        matches!(
+            effect,
+            ApplyEffect::WakeWaiters {
+                change: WaitableChange::FlowClosed,
+                ..
+            }
+        )
+    })
 }
 
 /// RPC locks held for one RPC; released on drop.

@@ -11,6 +11,7 @@
 mod ack_proposer;
 mod pending_entries;
 mod projector;
+mod unconfigured_stores;
 mod waker;
 
 use std::sync::Arc;
@@ -131,7 +132,7 @@ pub struct AttributeSyncRetryPolicy {
 /// Settings of the Attribute Sync projector, derived from the `attributeStore` section.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttributeSyncConfig {
-    /// Configured Attribute Store names; entries of other stores stay pending.
+    /// Configured Attribute Store names, possibly none; entries of other stores are dropped.
     pub store_names: Vec<String>,
     /// Most Attributes of one run written in one transaction; values below 1 count as 1.
     pub batch_size: usize,

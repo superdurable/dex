@@ -8,10 +8,12 @@
 
 //! One engine node process: the engine, its Flow runtime and effects, and how it crashes.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
+use dexzd_apply::{ApplyContext, ApplyError, ApplyOutcome, FlowStateReader};
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{ClusterConfig, LeaseConfig, METADATA_FORMAT_VERSION, NodeConfig};
 use dexzd_engine::{
@@ -25,7 +27,7 @@ use dexzd_engine::{
 };
 use dexzd_keyspace::{ColumnFamily, KEY_LAYOUT_VERSION};
 use dexzd_object_store::{ObjectStore, WriteCondition};
-use dexzd_protocol::dexzd::v1::{ClusterObject, PartitionHashAlgorithm, RunSettings};
+use dexzd_protocol::dexzd::v1::{ClusterObject, FlowCommand, PartitionHashAlgorithm, RunSettings};
 use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::{InMemoryLocalStore, LocalStore, ScanDirection, WriteBatch};
 use dexzd_stream_store::{StreamStore, StreamStoreConfig};
@@ -64,6 +66,54 @@ pub(crate) struct ClusterEnvironment {
     pub(crate) retention_after_close: Duration,
     pub(crate) profile: EngineSimulationProfile,
     pub(crate) origin: tokio::time::Instant,
+    pub(crate) close_hold_dry_runs: Arc<CloseHoldDryRuns>,
+}
+
+/// Commands that a registry dry-ran for an admitted RPC's close hold, by command kind.
+#[derive(Default)]
+pub(crate) struct CloseHoldDryRuns {
+    by_kind: Mutex<BTreeMap<&'static str, u64>>,
+}
+
+impl CloseHoldDryRuns {
+    pub(crate) fn counts(&self) -> BTreeMap<&'static str, u64> {
+        self.by_kind
+            .lock()
+            .expect("dry run count lock is not poisoned")
+            .clone()
+    }
+}
+
+/// The registry's applier. A command applied a second time had a dry run first.
+struct DryRunCountingApplier {
+    applier: Arc<dyn CommandApplier>,
+    applied_command_ids: Mutex<BTreeSet<Vec<u8>>>,
+    dry_runs: Arc<CloseHoldDryRuns>,
+}
+
+impl CommandApplier for DryRunCountingApplier {
+    fn apply(
+        &self,
+        context: &ApplyContext,
+        state: &dyn FlowStateReader,
+        command: &FlowCommand,
+    ) -> Result<ApplyOutcome, ApplyError> {
+        let is_first_apply = self
+            .applied_command_ids
+            .lock()
+            .expect("command ID lock is not poisoned")
+            .insert(command.command_id.clone());
+        if !is_first_apply {
+            *self
+                .dry_runs
+                .by_kind
+                .lock()
+                .expect("dry run count lock is not poisoned")
+                .entry(crate::command_kind(command))
+                .or_default() += 1;
+        }
+        self.applier.apply(context, state, command)
+    }
 }
 
 impl ClusterEnvironment {
@@ -183,7 +233,11 @@ impl NodeProcess {
         let factory_parts = Arc::clone(&runtime_parts);
         let factory_clock = Arc::clone(&wall_clock);
         let factory_store = Arc::clone(&object_store_port);
-        let factory_applier = Arc::clone(&applier);
+        let factory_applier: Arc<dyn CommandApplier> = Arc::new(DryRunCountingApplier {
+            applier: Arc::clone(&applier),
+            applied_command_ids: Mutex::new(BTreeSet::new()),
+            dry_runs: Arc::clone(&environment.close_hold_dry_runs),
+        });
         let started = EngineNode::start(
             &engine_node_config(local_store_config, incarnation, environment.profile),
             EngineNodeDependencies {

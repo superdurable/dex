@@ -316,6 +316,7 @@ fn effect_size_bytes(effect: &ApplyEffect) -> usize {
         } => store_name.len() + attribute_keys.iter().map(String::len).sum::<usize>(),
         ApplyEffect::TimerArmed { .. }
         | ApplyEffect::RunPurgeRequested { .. }
+        | ApplyEffect::PendingCloseHeldByRpcs { .. }
         | ApplyEffect::WakeWaiters { .. } => 0,
     };
     std::mem::size_of::<ApplyEffect>() + heap_bytes

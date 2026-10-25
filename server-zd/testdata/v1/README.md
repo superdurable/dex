@@ -43,6 +43,8 @@ Then the node took a snapshot. After the snapshot:
   acknowledged. The parent completes gracefully.
 - `account-sync`: an Attribute Sync ack up to the start command's seq deletes one entry and
   leaves the newer change pending; a drop ack for that key clears the store's entries.
+- `held-close`: a Step decision completes the Flow while the owner stamps a transactional RPC
+  as in flight, so the close waits without outbox entries; a pending close check records it.
 - `order-sync`: a transactional RPC that locks an Attribute commits, then the locking Step
   runs and completes the Flow.
 - `order-async`: ASYNC Steps whose events wait for the batch window. They share a log batch

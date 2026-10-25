@@ -38,8 +38,8 @@ pub(crate) struct ComponentConfigs {
     pub(crate) grpc_max_message_bytes: usize,
     /// Empty when public API authentication is disabled.
     pub(crate) authenticators: Vec<CredentialAuthenticatorConfig>,
-    /// `None` when no Attribute Store is configured.
-    pub(crate) attribute_sync: Option<AttributeSyncConfig>,
+    /// Has no store names when no Attribute Store is configured; orphaned entries still drop.
+    pub(crate) attribute_sync: AttributeSyncConfig,
 }
 
 impl ComponentConfigs {
@@ -252,14 +252,11 @@ impl ComponentConfigs {
 }
 
 /// Bounds a write transaction so that it ends while the lease is valid; renewals keep two thirds.
-fn attribute_sync_config(config: &Config) -> Result<Option<AttributeSyncConfig>, ServerError> {
+fn attribute_sync_config(config: &Config) -> Result<AttributeSyncConfig, ServerError> {
     let attribute_store = &config.attribute_store;
-    if attribute_store.stores.is_empty() {
-        return Ok(None);
-    }
     let policy = attribute_store.effective_sync_retry_policy();
     let lease_margin = config.lease.duration / 4;
-    Ok(Some(AttributeSyncConfig {
+    Ok(AttributeSyncConfig {
         store_names: attribute_store.stores.keys().cloned().collect(),
         batch_size: to_usize(
             "attributeStore.syncBatchSize",
@@ -277,7 +274,7 @@ fn attribute_sync_config(config: &Config) -> Result<Option<AttributeSyncConfig>,
             .effective_sync_attempt_timeout()
             .min(lease_margin),
         lease_margin,
-    }))
+    })
 }
 
 fn to_usize(field: &'static str, value: u64) -> Result<usize, ServerError> {

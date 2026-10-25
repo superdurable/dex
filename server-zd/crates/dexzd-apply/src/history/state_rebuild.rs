@@ -10,6 +10,7 @@
 
 use dexzd_keyspace::ColumnFamily;
 use dexzd_keyspace::row_keys::checkpoint_key;
+use dexzd_protocol::dex::flow_history_event;
 use dexzd_protocol::dexzd::v1::{
     CheckpointRecord, CheckpointRunStatus, FlowCommand, HistoryRecord, RunRecord,
     TimersFiredCommand, flow_command::Command,
@@ -110,6 +111,7 @@ fn replay_command(
         replay_state,
         &command,
         behavior_version,
+        has_flow_closed(history_record),
     )?;
     let Some(writes) = replayed else {
         return Err(ApplyError::InvariantViolation {
@@ -147,9 +149,16 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
             }
             Command::TimersFired(TimersFiredCommand { timers })
         }
+        // Only an ack or check that finalized a pending close changed attempt-scoped state.
+        Command::AttributeSyncAck(_) | Command::PendingCloseCheck(_)
+            if has_flow_closed(history_record) =>
+        {
+            body.clone()
+        }
         Command::FlowConfigUpdate(_)
         | Command::OutboxAck(_)
         | Command::AttributeSyncAck(_)
+        | Command::PendingCloseCheck(_)
         | Command::HardDeleteObjectsDeleted(_)
         | Command::RunPurge(_) => return Ok(None),
         // Attempts start at a checkpoint after these, and only the latest run travels.
@@ -167,4 +176,14 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
         command: Some(replayed_body),
         ..command.clone()
     }))
+}
+
+/// Whether the recorded command closed its run, which its FlowClosed history event shows.
+fn has_flow_closed(history_record: &HistoryRecord) -> bool {
+    history_record.events.iter().any(|event| {
+        matches!(
+            event.payload,
+            Some(flow_history_event::Payload::FlowClosed(_))
+        )
+    })
 }

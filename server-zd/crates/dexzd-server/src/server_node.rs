@@ -420,7 +420,7 @@ struct ServerNode {
     stream_store: Arc<StreamStore>,
     flow_service: DexFlowService,
     search_projection: Option<SearchProjection>,
-    attribute_sync: Option<AttributeSyncService>,
+    attribute_sync: AttributeSyncService,
 }
 
 /// What the engine's runtime factory builds; captured so the node can own it after start.
@@ -464,8 +464,7 @@ impl ServerNode {
             .as_ref()
             .map(ParadeDbSearch::committed_frames);
         let attribute_stores =
-            AttributeStores::connect(&config.attribute_store, components.attribute_sync.as_ref())
-                .await?;
+            AttributeStores::connect(&config.attribute_store, &components.attribute_sync).await?;
         let attribute_sync_waker = AttributeSyncWaker::new();
         let runtime_parts: Arc<Mutex<Option<RuntimeParts>>> = Arc::new(Mutex::new(None));
         let started = EngineNode::start_until_cancelled(
@@ -587,16 +586,14 @@ impl ServerNode {
                 }
             },
         };
-        let attribute_sync = attribute_stores.map(|attribute_stores| {
-            attribute_stores.start(AttributeSyncStart {
-                engine: &engine,
-                node_id: &config.cluster.node_id,
-                runtime: Arc::new(registry.clone()),
-                partition_hasher,
-                clock: clock.clone(),
-                metrics: metrics.clone(),
-                waker: attribute_sync_waker,
-            })
+        let attribute_sync = attribute_stores.start(AttributeSyncStart {
+            engine: &engine,
+            node_id: &config.cluster.node_id,
+            runtime: Arc::new(registry.clone()),
+            partition_hasher,
+            clock: clock.clone(),
+            metrics: metrics.clone(),
+            waker: attribute_sync_waker,
         });
         let flow_service = DexFlowService::new(
             &components.flow_service,
@@ -733,12 +730,7 @@ impl ServerNode {
                     None => true,
                 }
             },
-            async {
-                match attribute_sync {
-                    Some(service) => service.shutdown(SEARCH_PROJECTION_STOP_BUDGET).await,
-                    None => true,
-                }
-            },
+            attribute_sync.shutdown(SEARCH_PROJECTION_STOP_BUDGET),
         );
         if !has_search_projection_stopped {
             teardown.record_overrun("search projection", SEARCH_PROJECTION_STOP_BUDGET);

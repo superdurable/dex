@@ -198,6 +198,8 @@ fn recovered_memory(
         window_points,
         // Later acks only make AS1 skip more keys, so the shadow's acks never misreport.
         attribute_sync_acks: shadow.attribute_sync_acks().clone(),
+        // A recovered store may predate the release of a hold that the shadow saw.
+        rpc_held_runs: shadow.ever_rpc_held_runs().clone(),
     }
 }
 
@@ -326,6 +328,21 @@ pub(crate) fn check_drained(
             ));
         }
         for (run_id, run) in &view.runs {
+            // Admission rejects RPCs during cleanup, so a held close finalizes once RPCs drain.
+            if run
+                .record
+                .as_ref()
+                .is_some_and(|record| record.pending_close.is_some())
+                && run.attribute_sync_entries.is_empty()
+            {
+                return Err(InvariantViolation::new(
+                    "pending-close-not-finalized",
+                    format!(
+                        "Flow {flow_id} run {run_id} still has a pending close without outbox \
+                         entries after the calm tail"
+                    ),
+                ));
+            }
             for step in run.step_executions.values() {
                 let Some(invocation) = &step.invocation else {
                     continue;

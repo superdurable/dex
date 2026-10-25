@@ -12,8 +12,8 @@ mod client_requests;
 mod worker_responses;
 
 pub(crate) use client_requests::{
-    OPERATION_MARKER_PREFIX, delete_message_request, operation_marker, publish_request,
-    rpc_request, set_attributes_request, start_flow_request, stop_request,
+    OPERATION_MARKER_PREFIX, delete_message_request, flow_timeout_skip_request, operation_marker,
+    publish_request, rpc_request, set_attributes_request, start_flow_request, stop_request,
 };
 pub(crate) use worker_responses::{
     MethodCallView, execute_response, heartbeat_value, rpc_response, wait_for_response,

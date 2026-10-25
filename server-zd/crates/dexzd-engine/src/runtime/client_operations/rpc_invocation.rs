@@ -49,7 +49,8 @@ impl FlowRuntimeRegistry {
     /// Invokes an RPC handler on a Worker against a committed snapshot and commits its effects.
     ///
     /// A read-only RPC (no locks, not transactional, no effects) is never logged. Lock keys are
-    /// taken for the whole call; any held key fails with `ABORTED`.
+    /// taken for the whole call; any held key fails with `ABORTED`. A transactional RPC fails
+    /// with `FAILED_PRECONDITION` while a natural close waits for the Attribute Sync outbox.
     pub async fn invoke_rpc(
         &self,
         tenant_id: TenantId,
@@ -70,6 +71,12 @@ impl FlowRuntimeRegistry {
         let run_id = {
             let committed = self.inner.dependencies.committer.committed_view()?;
             read_run(committed.as_ref(), context, &flow, &request.run_id)?.run_id
+        };
+        // The Go Server rejects these workflow updates during cleanup, and waits for admitted ones.
+        let rpc_admission = if is_transactional {
+            Some(self.admit_transactional_rpc(&flow, run_id)?)
+        } else {
+            None
         };
         let lock_guard = if lock_keys.is_empty() {
             None
@@ -157,6 +164,7 @@ impl FlowRuntimeRegistry {
             .commit_rpc(&flow, &run, request, result, is_transactional)
             .await;
         drop(lock_guard);
+        drop(rpc_admission);
         output
     }
 
@@ -227,7 +235,10 @@ impl FlowRuntimeRegistry {
             command.expected_run_attempt = run.record.current_attempt;
         }
         let reply = self
-            .propose_client_command_with_uploads(flow, uploads, |_| Ok(command.clone()))
+            .propose_client_command_with_uploads(flow, uploads, |scope| {
+                scope.is_admitted_rpc_commit = is_transactional;
+                Ok(command.clone())
+            })
             .await?;
         let command_reply::Reply::Rpc(rpc_reply) = reply else {
             return Err(RuntimeError::Internal {

@@ -85,6 +85,15 @@ pub trait EffectRuntime: Send + Sync + 'static {
         flow: &'a FlowAddress,
     ) -> BoxFuture<'a, Result<(), EffectRuntimeError>>;
 
+    /// Waits until no transactional or locking RPC that this node admitted for `flow` is in
+    /// flight. A restarted node has none.
+    ///
+    /// Returns [`EffectRuntimeError::NodeStopping`] when the runtime halts while waiting.
+    fn wait_for_transactional_rpcs<'a>(
+        &'a self,
+        flow: &'a FlowAddress,
+    ) -> BoxFuture<'a, Result<(), EffectRuntimeError>>;
+
     /// Inside the Flow's actor: proposes `StepAttemptStarted` with `task_id` and `pull_routing`
     /// when every lock key of the invocation is free in the overlay lock table and the
     /// in-memory RPC locks, and no earlier waiter queues on any of its keys. The urgency

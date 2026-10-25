@@ -22,9 +22,13 @@ pub(crate) use value_generation::{
 
 use std::collections::BTreeSet;
 
+use dexzd_apply::{TransactionalRpcHold, transactional_rpc_hold};
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dex::FlowStatus;
-use dexzd_protocol::dexzd::v1::{FlowCommand, StepInvocationPhase, TimerId, flow_command::Command};
+use dexzd_protocol::dexzd::v1::{
+    FlowCommand, PendingCloseCheckCommand, StepInvocationPhase, TimerId, flow_command::Command,
+    timer_id,
+};
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
@@ -99,6 +103,12 @@ enum Proposal<'view> {
     AttributeSyncAck {
         run_id: RunId,
         run: &'view RunView,
+    },
+    PendingCloseCheck {
+        run_id: RunId,
+    },
+    SkipFlowTimeout {
+        run_id: RunId,
     },
 }
 
@@ -186,7 +196,14 @@ impl CommandGenerator {
             ticket -= weight;
         }
         let proposal = chosen.expect("the ticket is below the total weight");
-        Ok(self.realize(flow_id, proposal))
+        let mut command = self.realize(flow_id, proposal);
+        // Only this stream models owner stamps, so the main stream's draws stay unchanged.
+        if self.stream == CommandStream::AttributeSync
+            && transactional_rpc_hold(&command) == TransactionalRpcHold::MayClose
+        {
+            command.is_transactional_rpc_in_flight = self.rng.random_bool(0.3);
+        }
+        Ok(command)
     }
 
     fn proposals<'view>(
@@ -239,6 +256,25 @@ impl CommandGenerator {
                         run,
                     },
                 ));
+            }
+            let has_pending_close = run
+                .record
+                .as_ref()
+                .is_some_and(|record| record.pending_close.is_some());
+            if self.stream == CommandStream::AttributeSync && has_pending_close {
+                proposals.push((3, Proposal::PendingCloseCheck { run_id: *run_id }));
+            }
+            let has_flow_timeout = run.timers.iter().any(|(_, timer)| {
+                matches!(
+                    timer
+                        .timer_id
+                        .as_ref()
+                        .and_then(|timer_id| timer_id.kind.as_ref()),
+                    Some(timer_id::Kind::FlowTimeout(_))
+                )
+            });
+            if self.stream == CommandStream::AttributeSync && is_latest && has_flow_timeout {
+                proposals.push((6, Proposal::SkipFlowTimeout { run_id: *run_id }));
             }
             if is_latest {
                 proposals.push((
@@ -329,6 +365,14 @@ impl CommandGenerator {
                 let body = client_model::attribute_sync_ack(rng, run);
                 self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
             }
+            Proposal::PendingCloseCheck { run_id } => {
+                let body = Command::PendingCloseCheck(PendingCloseCheckCommand {});
+                self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
+            }
+            Proposal::SkipFlowTimeout { run_id } => {
+                let body = client_model::skip_flow_timeout(flow_id);
+                self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
+            }
             Proposal::StartAttempt(call) => {
                 let body = worker_model::start_attempt(rng, &call);
                 self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body)
@@ -386,6 +430,7 @@ impl CommandGenerator {
             proposed_at_micros: self.now_micros,
             command_id: value_generation::random_bytes(&mut self.rng).to_vec(),
             tenant_id: 0,
+            is_transactional_rpc_in_flight: false,
             command: Some(body),
         }
     }

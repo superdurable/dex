@@ -197,6 +197,8 @@ pub(super) struct ApplyRuntime {
     /// Delays each `propose_committed`, like a group commit window plus an object store write.
     pub(super) proposal_delay: Mutex<Duration>,
     overrides: Mutex<Vec<CommandOverride>>,
+    /// Transactional RPCs a test holds in flight; pending close checks wait for zero.
+    pub(super) transactional_rpcs: tokio::sync::watch::Sender<u32>,
 }
 
 impl ApplyRuntime {
@@ -317,6 +319,22 @@ impl EffectRuntime for ApplyRuntime {
     ) -> BoxFuture<'a, Result<(), EffectRuntimeError>> {
         // Proposals commit before they return.
         Box::pin(async { Ok(()) })
+    }
+
+    fn wait_for_transactional_rpcs<'a>(
+        &'a self,
+        _flow: &'a FlowAddress,
+    ) -> BoxFuture<'a, Result<(), EffectRuntimeError>> {
+        let mut in_flight = self.transactional_rpcs.subscribe();
+        Box::pin(async move {
+            in_flight
+                .wait_for(|count| *count == 0)
+                .await
+                .map(drop)
+                .map_err(|_| EffectRuntimeError::NodeStopping {
+                    detail: "the test runtime dropped".to_owned(),
+                })
+        })
     }
 
     fn try_start_invocation<'a>(
@@ -894,6 +912,7 @@ impl EffectHarness {
             committed_reads: AtomicUsize::new(0),
             proposal_delay: Mutex::new(Duration::ZERO),
             overrides: Mutex::new(Vec::new()),
+            transactional_rpcs: tokio::sync::watch::Sender::new(0),
         });
         let tasks = tasks.start(Arc::clone(&runtime) as _);
         Self {
