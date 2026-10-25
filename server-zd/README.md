@@ -88,7 +88,7 @@ server-zd cancellation expectations below apply from the next Go SDK release con
 | TriggerContinueAsNew | Returns `Unimplemented`. | `TestActionPermissionProjectionContinueAsNew`, `TestSubFlowPartialResultsSurviveContinueAsNewWithoutRestart` |
 | ASYNC Step heartbeats | Heartbeat checkpoints are kept from the first attempt. | `TestAsyncLocalHeartbeatIsIgnoredAndStreamsAreRetained` |
 | ASYNC Step cancellation | An ASYNC Step has no local phase. Its handler runs once on server-zd; the Go Server runs a local invocation and then a remote one. | `TestStepCancellation` (`local-execute`, `local-timeout-fallback`) |
-| Canceled Step handlers | A pull Worker observes handler context cancellation without a heartbeat timeout, including for an ASYNC Step. | `TestStepCancellation` (`no-heartbeat`, `local-execute`) |
+| Canceled Step handlers | server-zd sends `cancel_task`, so a pull Worker cancels a running handler context even if the handler records no heartbeat. On the Go Server, a running handler observes cancellation when it records a heartbeat or writes a Stream frame. This also applies to the ASYNC `local-execute` case on server-zd. | `TestStepCancellation` (`no-heartbeat`, `local-execute`) |
 | Push Workers | Not supported. | `TestMessageSizeHydrationSplitsBlobBatchesAboveLimit` (push-only) |
 
 The [released Go SDK compatibility workflow](../.github/workflows/server-zd-sdk-go-compatibility.yml)

@@ -182,7 +182,7 @@ func (cancellationBlockingExecuteStep) Execute(
 	if err := waitForHandlerCancellation(ctx, state, duration, shouldHeartbeat); err != nil {
 		return nil, err
 	}
-	// server-zd cancels pull handlers without a heartbeat; return a late write and decision after cancellation.
+	// server-zd cancels pull handlers without recording a heartbeat; return a late write and decision after cancellation.
 	if ctx.Err() != nil && !(scenario == cancelNoHeartbeat && isServerZD) {
 		return nil, ctx.Err()
 	}
@@ -354,9 +354,26 @@ type cancellationFinalStep struct {
 }
 
 func (cancellationFinalStep) WaitFor(
-	_ dex.Context,
-	_ cancellationScenario,
+	ctx dex.Context,
+	scenario cancellationScenario,
 ) (*dex.Wait, error) {
+	if scenario == cancelNoHeartbeat {
+		serverEngine, err := integrationServerEngine()
+		if err != nil {
+			return nil, err
+		}
+		if serverEngine == dexpb.ServerEngine_SERVER_ENGINE_ZD {
+			state, err := cancellationStateFor(ctx)
+			if err != nil {
+				return nil, err
+			}
+			select {
+			case <-state.lateHandlerReturned:
+			case <-time.After(10 * time.Second):
+				return nil, fmt.Errorf("canceled handler did not return before final Step wait")
+			}
+		}
+	}
 	return dex.Until(dex.Timer(time.Second)), nil
 }
 
@@ -533,7 +550,7 @@ func runCancellationScenario(t *testing.T, scenario cancellationScenario, isServ
 		require.True(t, state.secondSelectorExecuted.Load())
 	case cancelNoHeartbeat:
 		if isServerZD {
-			// server-zd delivers cancellation to pull handlers without a heartbeat.
+			// server-zd delivers cancellation to pull handlers without recording a heartbeat.
 			requireChannel(t, state.cancellationObserved, 8*time.Second)
 			require.True(t, state.handlerCanceled.Load())
 		} else {
