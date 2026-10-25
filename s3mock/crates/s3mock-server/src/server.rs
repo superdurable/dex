@@ -60,6 +60,8 @@ impl ServerHandle {
     }
 
     /// Stops accepting connections and waits for in-flight requests to finish.
+    ///
+    /// Then it closes the store on a blocking thread when it holds the last reference.
     pub async fn shutdown(mut self) {
         if let Some(sender) = self.shutdown_sender.take()
             && sender.send(()).is_err()
@@ -149,6 +151,10 @@ async fn accept_connections(
         tracing::warn!("in-flight requests did not finish within the shutdown grace period");
     }
     connections.shutdown().await;
+    // Closing a relaxed store fsyncs its commits, which can take seconds under host I/O load.
+    if let Err(error) = tokio::task::spawn_blocking(move || drop(store)).await {
+        tracing::error!(%error, "closing the store failed");
+    }
 }
 
 async fn handle_request(

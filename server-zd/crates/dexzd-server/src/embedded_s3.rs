@@ -78,6 +78,8 @@ impl EmbeddedS3 {
     }
 
     /// Stops accepting requests and waits for in-flight requests.
+    ///
+    /// Then it waits while the emulator's store flushes relaxed commits to disk.
     pub(crate) async fn shutdown(self) {
         self.server.shutdown().await;
     }
