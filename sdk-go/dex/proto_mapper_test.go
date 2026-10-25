@@ -371,6 +371,15 @@ func TestFlowInfoMappingRejectsIncompleteSummaries(t *testing.T) {
 			expectedError: "is missing StartTime",
 		},
 		{
+			name: "unknown status",
+			response: &dexpb.GetFlowSummaryResponse{
+				FlowExecutionId: executionID,
+				FlowStatus:      dexpb.FlowStatus(99),
+				StartTime:       startTime,
+			},
+			expectedError: "has an invalid FlowStatus: dex: unsupported flow status 99",
+		},
+		{
 			name: "invalid start time",
 			response: &dexpb.GetFlowSummaryResponse{
 				FlowExecutionId: executionID,
@@ -417,6 +426,141 @@ func TestFlowInfoMappingAcceptsEmptyFlowType(t *testing.T) {
 		StartedAt: startedAt,
 		ClosedAt:  closedAt,
 	}, info)
+}
+
+func TestSearchFlowsPageMappingRejectsIncompleteEntries(t *testing.T) {
+	startTime := timestamppb.New(time.Unix(100, 0))
+	invalidTime := &timestamppb.Timestamp{Nanos: -1}
+	testCases := []struct {
+		name          string
+		entry         *dexpb.SearchFlowsResponseEntry
+		expectedError string
+	}{
+		{
+			name:          "nil entry",
+			expectedError: "dex: SearchFlows entry 1 is nil",
+		},
+		{
+			name: "missing Flow ID",
+			entry: &dexpb.SearchFlowsResponseEntry{
+				RunId:      "run-2",
+				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+				StartTime:  startTime,
+			},
+			expectedError: "dex: SearchFlows entry 1 is missing FlowId",
+		},
+		{
+			name: "missing run ID",
+			entry: &dexpb.SearchFlowsResponseEntry{
+				FlowId:     "order-456",
+				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+				StartTime:  startTime,
+			},
+			expectedError: `dex: SearchFlows entry for Flow "order-456" is missing RunId`,
+		},
+		{
+			name: "unknown status",
+			entry: &dexpb.SearchFlowsResponseEntry{
+				FlowId:     "order-456",
+				RunId:      "run-2",
+				FlowStatus: dexpb.FlowStatus(99),
+				StartTime:  startTime,
+			},
+			expectedError: `dex: SearchFlows entry for Flow "order-456" has an invalid FlowStatus: dex: unsupported flow status 99`,
+		},
+		{
+			name: "missing start time",
+			entry: &dexpb.SearchFlowsResponseEntry{
+				FlowId:     "order-456",
+				RunId:      "run-2",
+				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+			},
+			expectedError: `dex: SearchFlows entry for Flow "order-456" is missing StartTime`,
+		},
+		{
+			name: "invalid start time",
+			entry: &dexpb.SearchFlowsResponseEntry{
+				FlowId:     "order-456",
+				RunId:      "run-2",
+				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+				StartTime:  invalidTime,
+			},
+			expectedError: `dex: SearchFlows entry for Flow "order-456" has an invalid StartTime`,
+		},
+		{
+			name: "invalid close time",
+			entry: &dexpb.SearchFlowsResponseEntry{
+				FlowId:     "order-456",
+				RunId:      "run-2",
+				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
+				StartTime:  startTime,
+				CloseTime:  invalidTime,
+			},
+			expectedError: `dex: SearchFlows entry for Flow "order-456" has an invalid CloseTime`,
+		},
+	}
+	validEntry := &dexpb.SearchFlowsResponseEntry{
+		FlowId:     "order-123",
+		RunId:      "run-1",
+		FlowType:   "OrderFlow",
+		FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+		StartTime:  startTime,
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := mapSearchFlowsPage(&dexpb.SearchFlowsResponse{
+				FlowRuns: []*dexpb.SearchFlowsResponseEntry{validEntry, testCase.entry},
+			})
+			require.ErrorContains(t, err, testCase.expectedError)
+		})
+	}
+}
+
+func TestSearchFlowsPageMappingAcceptsEmptyFlowType(t *testing.T) {
+	startedAt := time.Unix(100, 0).UTC()
+	closedAt := startedAt.Add(time.Minute)
+	page, err := mapSearchFlowsPage(&dexpb.SearchFlowsResponse{
+		FlowRuns: []*dexpb.SearchFlowsResponseEntry{
+			{
+				FlowId:     "order-123",
+				RunId:      "run-1",
+				FlowType:   "OrderFlow",
+				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+				StartTime:  timestamppb.New(startedAt),
+			},
+			{
+				FlowId:     "cleanup-1",
+				RunId:      "run-2",
+				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
+				StartTime:  timestamppb.New(startedAt),
+				CloseTime:  timestamppb.New(closedAt),
+			},
+		},
+		NextPageToken: "next-page",
+	})
+	require.NoError(t, err)
+	require.Equal(t, SearchFlowsPage{
+		Flows: []SearchFlowEntry{
+			{
+				FlowID:            "order-123",
+				RunID:             "run-1",
+				FlowType:          "OrderFlow",
+				Status:            FlowRunning,
+				StartedAt:         startedAt,
+				IndexedAttributes: map[string]Value{},
+			},
+			{
+				FlowID:            "cleanup-1",
+				RunID:             "run-2",
+				FlowType:          "",
+				Status:            FlowCompleted,
+				StartedAt:         startedAt,
+				ClosedAt:          closedAt,
+				IndexedAttributes: map[string]Value{},
+			},
+		},
+		NextPageToken: "next-page",
+	}, page)
 }
 
 func TestFlowConfigRejectsUnknownEnums(t *testing.T) {

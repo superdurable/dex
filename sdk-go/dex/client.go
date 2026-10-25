@@ -343,7 +343,8 @@ type FlowInfo struct {
 	// RunID is the server-assigned run ID.
 	RunID string
 	// FlowType is the registered Flow type.
-	// It is empty when the server did not record a Flow type for this run.
+	// It is empty when the server cannot report a Flow type for this run,
+	// such as a run Dex did not start as a Flow.
 	FlowType string
 	// Status is the current or terminal Flow status.
 	Status FlowStatus
@@ -360,6 +361,8 @@ type SearchFlowEntry struct {
 	// RunID is the server-assigned run ID.
 	RunID string
 	// FlowType is the registered Flow type.
+	// It is empty when the server cannot report a Flow type for this run,
+	// such as a run Dex did not start as a Flow.
 	FlowType string
 	// Status is the indexed Flow status.
 	Status FlowStatus
