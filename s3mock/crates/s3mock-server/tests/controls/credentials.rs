@@ -1135,6 +1135,82 @@ async fn every_supported_s3_operation_uses_its_documented_action() {
     server.server.shutdown().await;
 }
 
+#[tokio::test]
+async fn copy_object_needs_read_on_the_source_and_write_on_the_destination() {
+    let server = RunningServer::start(&["--signature-verification", "strict"]).await;
+    server.put("source/object", "copy me").await;
+    server.put("private/object", "hidden").await;
+    let policy = json!({"Version":"2012-10-17","Statement":[
+        {"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::testing/source/*"},
+        {"Effect":"Allow","Action":"s3:PutObject","Resource":"arn:aws:s3:::testing/copies/*"},
+        {"Effect":"Deny","Action":"s3:PutObject","Resource":"arn:aws:s3:::testing/copies/denied"}
+    ]});
+    create(&server, "copier", policy).await;
+    let copier = client(&server.server, "copier", "secret");
+    let copy = |source: &str, destination: &str| {
+        copier
+            .copy_object()
+            .bucket("testing")
+            .key(destination)
+            .copy_source(format!("testing/{source}"))
+    };
+    copy("source/object", "copies/object")
+        .send()
+        .await
+        .expect("GetObject on the source and PutObject on the destination allow the copy");
+    assert_eq!(server.get("copies/object").await, b"copy me");
+    let (_, log) = server.admin("GET", "requests", Value::Null).await;
+    assert!(log["requests"].as_array().expect("request log").iter().any(
+        |request| request["operation"] == "CopyObject"
+            && request["key"] == "copies/object"
+            && request["status"] == 200
+    ));
+    for (source, destination) in [
+        ("private/object", "copies/private"),
+        ("source/object", "elsewhere/object"),
+        ("source/object", "copies/denied"),
+        ("source/object?versionId=null", "copies/version"),
+        ("source/missing", "copies/missing"),
+    ] {
+        let error = copy(source, destination)
+            .send()
+            .await
+            .expect_err("the policy denies the copy");
+        assert_eq!(
+            error.code(),
+            Some("AccessDenied"),
+            "{source} to {destination}"
+        );
+    }
+    let policy = json!({"Version":"2012-10-17","Statement":[
+        {"Effect":"Allow","Action":"s3:GetObjectVersion","Resource":"arn:aws:s3:::testing/source/*"},
+        {"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::testing/source/missing"},
+        {"Effect":"Allow","Action":"s3:PutObject","Resource":"arn:aws:s3:::testing/copies/*"},
+        {"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::testing"}
+    ]});
+    create(&server, "version-copier", policy).await;
+    let version_copier = client(&server.server, "version-copier", "secret");
+    version_copier
+        .copy_object()
+        .bucket("testing")
+        .key("copies/version")
+        .copy_source("testing/source/object?versionId=null")
+        .send()
+        .await
+        .expect("GetObjectVersion allows a version-addressed copy");
+    assert_eq!(server.get("copies/version").await, b"copy me");
+    let missing = version_copier
+        .copy_object()
+        .bucket("testing")
+        .key("copies/missing")
+        .copy_source("testing/source/missing")
+        .send()
+        .await
+        .expect_err("the source does not exist");
+    assert_eq!(missing.code(), Some("NoSuchKey"));
+    server.server.shutdown().await;
+}
+
 async fn create(server: &RunningServer, access_key_id: &str, policy: Value) {
     let (status, body) = server
         .admin(

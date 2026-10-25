@@ -22,14 +22,20 @@ Every flag also reads an `S3MOCK_*` environment variable; the control flags are 
 Point an S3 client at `http://127.0.0.1:9000` with path-style addressing
 and any access key. Request signatures are not verified by default.
 
+SIGTERM or SIGINT stops the server gracefully. It stops accepting connections, waits up to 10
+seconds for in-flight requests, and exits 0, so `docker stop` ends a container without a kill.
+
 ## Releases
 
 The manual `S3mock release` workflow runs from `main` with a semantic `version` matching
 the workspace version in `s3mock/Cargo.toml`. It creates a
 new `s3mock/v<version>` tag and GitHub release only after native Linux amd64 and arm64 binaries
-and images pass smoke tests. The workflow rejects an existing versioned tag. The release contains binary
-archives and SHA-256 checksums; its notes give the digest of the multi-architecture
-`docker.io/superdurable/s3mock:<version>` image. The workflow has no automatic trigger.
+and images pass smoke tests. The smoke test also stops the container with `docker stop` and
+requires exit code 0. The workflow rejects an existing versioned tag. The release contains binary
+archives and SHA-256 checksums. Its notes give the digest of the multi-architecture
+`docker.io/superdurable/s3mock:<version>` image, followed by the version's section of
+[Release notes](#release-notes); the workflow fails before building when that section is
+missing. The workflow has no automatic trigger.
 GitHub-enforced locking of published tags and assets requires a separate repository release
 immutability setting.
 Before publishing the GitHub release, the workflow checks that the image digest can be read
@@ -91,9 +97,9 @@ S3MOCK_STORE_FORMAT_OUTPUT="$PWD/crates/s3mock/tests/testdata/store_format_v2" \
 | --- | --- |
 | Buckets | CreateBucket, HeadBucket, DeleteBucket (ends in-progress uploads), ListBuckets, GetBucketLocation |
 | Versioning | GetBucketVersioning, PutBucketVersioning, ListObjectVersions, version-addressed GET, HEAD, and DELETE |
-| Objects | PutObject, GetObject, HeadObject, DeleteObject |
+| Objects | PutObject, GetObject, HeadObject, DeleteObject, CopyObject |
 | Listing | ListObjectsV2 with prefix, delimiter, max-keys, continuation-token, start-after, and encoding-type |
-| Conditions | PutObject `If-None-Match: *` and `If-Match`; GET and HEAD `If-Match`, `If-None-Match`, `If-Modified-Since`, and `If-Unmodified-Since` |
+| Conditions | PutObject and CopyObject `If-None-Match: *` and `If-Match`; GET and HEAD `If-Match`, `If-None-Match`, `If-Modified-Since`, and `If-Unmodified-Since`; CopyObject `x-amz-copy-source-if-match`, `-if-none-match`, `-if-modified-since`, and `-if-unmodified-since` |
 | Integrity | `Content-MD5`; CRC32, CRC32C, CRC64NVME, SHA1, and SHA256 checksums in headers or aws-chunked trailers |
 | Ranges | One `Range: bytes=` range per request |
 | Multipart | CreateMultipartUpload, UploadPart, CompleteMultipartUpload (with `If-None-Match` and `If-Match`), AbortMultipartUpload, ListParts, ListMultipartUploads |
@@ -104,6 +110,35 @@ S3MOCK_STORE_FORMAT_OUTPUT="$PWD/crates/s3mock/tests/testdata/store_format_v2" \
 
 Other operations and subresources return `501 NotImplemented`.
 
+CopyObject reads `x-amz-copy-source` as a URL-encoded `bucket/key`, optionally with a leading
+`/` and `?versionId=<id>`. It copies the source version's bytes, content headers, user metadata,
+and checksum algorithm; `x-amz-checksum-algorithm` chooses another algorithm. The copy is a
+single-part object with a recomputed checksum and an MD5 ETag, even when the source was a
+multipart upload. `x-amz-metadata-directive: COPY`, the default, ignores metadata sent with the
+request; `REPLACE` takes the content headers and user metadata from the request. Every failed
+`x-amz-copy-source-if-*` condition answers `412 PreconditionFailed`, and a future
+`x-amz-copy-source-if-modified-since` date is ignored. The response is a `CopyObjectResult` with
+the ETag, LastModified, and checksum, plus `x-amz-version-id` when the destination bucket has
+versioning enabled and `x-amz-copy-source-version-id` when the source bucket is versioned. A
+missing source is `404 NoSuchKey`. A version ID that names a delete marker, a malformed version
+ID, a source above 5 GiB, and a copy of an object onto itself without a version ID or `REPLACE`
+are `400 InvalidRequest`. UploadPartCopy, `x-amz-copy-source-range`, copy sources given as ARNs,
+and source customer-key encryption return `501 NotImplemented`.
+
+PutObject, CopyObject, CreateMultipartUpload, and UploadPart refuse with `501 NotImplemented`
+the request headers whose effect s3mock does not emulate, rather than ignore them: object tagging,
+Object Lock retention, legal holds and event holds, ACL grants and canned ACLs other than
+`private` and `bucket-owner-full-control`, server-side encryption other than `AES256`,
+customer-provided encryption keys, the `GLACIER` and `DEEP_ARCHIVE` storage classes, website
+redirects, append offsets, and checksum algorithms other than CRC32, CRC32C, CRC64NVME, SHA1,
+and SHA256. A refused request writes nothing.
+
+GET and HEAD return the stored checksum and `x-amz-checksum-type` when the request carries the
+`x-amz-checksum-mode: ENABLED` header. A presigned URL may also carry `X-Amz-Checksum-Mode` in its
+query, as the AWS SDK for Go v2 writes it; S3 and s3mock accept it but return no checksum headers
+for it. In strict mode a presigned URL that sends `x-amz-checksum-mode` as an unsigned header is
+refused with `403`, as S3 refuses it.
+
 ## Test
 
 ```bash
@@ -111,9 +146,11 @@ make test
 S3MOCK_CONFORMANCE_TARGET=aws make test
 ```
 
-The second command runs the conformance suite against real S3; all 45 tests passed against AWS S3
-in us-east-1 on 2026-10-23. AWS answered 500 InternalError when a checksummed multipart upload
-listed part 2 without part 1; s3mock returns the documented 400 InvalidPartOrder instead. Run it on
+The second command runs the conformance suite against real S3; all 68 tests passed against AWS S3
+in us-east-1 on 2026-10-24. AWS answered 500 InternalError when a checksummed multipart upload
+listed part 2 without part 1; s3mock returns the documented 400 InvalidPartOrder instead. AWS once
+answered a CompleteMultipartUpload with a wrong part ETag with `InvalidPart` inside a 200
+response, which S3 documents for that operation; reruns answered 400. Run it on
 demand, for example before relying on a newly emulated S3 behavior, with local AWS credentials:
 
 ```bash
@@ -178,7 +215,8 @@ fields and unsupported S3 actions are rejected when the credential is created. A
 have an optional `Sid`. Access key IDs contain only letters, digits, `.`, `_`, and `-`. An absent
 prefix does not satisfy a prefix condition, even one that matches an empty prefix. HeadBucket has
 no prefix. GET and HEAD for a missing key return 404 when `s3:ListBucket` permits listing with
-`s3:prefix` equal to that key; otherwise they return `403 AccessDenied`.
+`s3:prefix` equal to that key; otherwise they return `403 AccessDenied`. CopyObject applies the
+same rule to its source key.
 
 ### Strict-mode IAM actions
 
@@ -200,6 +238,7 @@ no prefix. GET and HEAD for a missing key return 404 when `s3:ListBucket` permit
 | ListMultipartUploads | `s3:ListBucketMultipartUploads` | Bucket |
 | ListObjectVersions | `s3:ListBucketVersions` | Bucket |
 | PutObject, CreateMultipartUpload, UploadPart, CompleteMultipartUpload | `s3:PutObject` | Object |
+| CopyObject | `s3:PutObject` on the destination, and `s3:GetObject` on the source; with a source `versionId`, `s3:GetObjectVersion` on the source | Object |
 | GetObject, HeadObject | `s3:GetObject`; with `versionId`, `s3:GetObjectVersion` | Object |
 | DeleteObject | `s3:DeleteObject`; with `versionId`, `s3:DeleteObjectVersion` | Object |
 | DeleteObjects | `s3:DeleteObject` per key; with `VersionId`, `s3:DeleteObjectVersion` per key | Object |
@@ -275,7 +314,7 @@ concurrent scheduling can change that order. An SDK retry is a separate request 
 
 | Action JSON | Behavior |
 | --- | --- |
-| `{"type":"commit_then_drop"}` | Requires `operation` to be `PutObject`, `UploadPart`, or `CompleteMultipartUpload`. A successful store commit closes the connection without a response; an unsuccessful condition still returns its normal error. |
+| `{"type":"commit_then_drop"}` | Requires `operation` to be `PutObject`, `CopyObject`, `UploadPart`, or `CompleteMultipartUpload`. A successful store commit closes the connection without a response; an unsuccessful condition still returns its normal error. |
 | `{"type":"delay","milliseconds":100}` | Waits before invoking the S3 handler. Maximum 600000 milliseconds (ten minutes); deleting faults releases sleeping requests. |
 | `{"type":"error","status":500}` | Returns `InternalError` without invoking the store. Status 403 returns `AccessDenied`; 503 returns `SlowDown`; 409 returns `ConditionalRequestConflict`. Other statuses are rejected. |
 | `{"type":"missing_key_access_denied"}` | Requires `GetObject` or `HeadObject`. Changes only a missing key's `NoSuchKey` response to 403 `AccessDenied`; existing keys and missing buckets retain their normal responses. |
@@ -314,3 +353,26 @@ intentionally dropped a committed response or truncated a response before yieldi
 The integration suite exercises all fault actions through `aws-sdk-s3`, seeded replay, admin
 validation and resets, counters and bounded logs, opaque ETag conditions, SDK memory/file
 uploads in strict mode, presigned GET and PUT, and signed chunk/trailer tampering through raw HTTP.
+
+## Release notes
+
+The release workflow publishes the section for the released version.
+
+### 0.1.1
+
+- CopyObject copies the source version's bytes, content headers, user metadata, and checksum
+  algorithm, with the COPY and REPLACE metadata directives, a source version ID, copy-source and
+  destination conditions, and per-resource authorization in strict mode. s3mock 0.1.0 handled a
+  PUT with `x-amz-copy-source` as an empty PutObject and stored a 0-byte object.
+- UploadPartCopy, copy-source ranges, and request headers whose effect s3mock does not emulate,
+  such as tagging, Object Lock retention, and KMS encryption, return `501 NotImplemented`
+  instead of being ignored.
+- Presigned GET and HEAD URLs that carry `X-Amz-Checksum-Mode=ENABLED`, as the AWS SDK for Go
+  v2 writes them, are accepted instead of returning `501 NotImplemented`.
+- SIGTERM stops the server gracefully with exit code 0, as SIGINT already did; `docker stop` no
+  longer ends with exit code 137.
+
+### 0.1.0
+
+- First release. Strict mode supports scoped credentials, presigned URLs, and bucket CORS. An
+  unknown access key returns `403 InvalidAccessKeyId` rather than `403 AccessDenied`.

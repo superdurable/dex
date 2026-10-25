@@ -44,6 +44,17 @@ jobs:
             echo "Release version ${VERSION} does not match s3mock crate version ${crate_version}" >&2
             exit 1
           }
+          awk -v heading="### ${VERSION}" '
+            $0 == "## Release notes" { in_notes = 1; next }
+            in_notes && /^## / { exit }
+            in_notes && $0 == heading { in_version = 1; next }
+            in_version && /^##/ { exit }
+            in_version { print }
+          ' s3mock/README.md > "${RUNNER_TEMP}/s3mock-version-notes.md"
+          grep -q '[^[:space:]]' "${RUNNER_TEMP}/s3mock-version-notes.md" || {
+            echo "s3mock/README.md has no release notes under '### ${VERSION}'" >&2
+            exit 1
+          }
           tag="s3mock/v${VERSION}"
           [[ -z "$(git ls-remote --tags --refs origin "refs/tags/${tag}")" ]] || {
             echo "Release tag already exists: ${tag}" >&2
@@ -135,7 +146,7 @@ jobs:
           tags: s3mock:smoke
           cache-from: type=gha,scope=s3mock-${{ matrix.arch }}
           cache-to: type=gha,scope=s3mock-${{ matrix.arch }},mode=min
-      - name: Smoke non-root image and persistent volume
+      - name: Smoke non-root image, graceful stop, and persistent volume
         shell: bash
         run: |
           set -euo pipefail
@@ -165,7 +176,15 @@ jobs:
           curl -fsS -X PUT "http://127.0.0.1:${port}/release-smoke" >/dev/null
           curl -fsS -X PUT --data 'persisted' \
             "http://127.0.0.1:${port}/release-smoke/object" >/dev/null
-          docker rm -f s3mock-release-smoke >/dev/null
+          # Container runtimes stop with SIGTERM; a graceful stop exits 0 instead of 137.
+          docker stop --time 20 s3mock-release-smoke >/dev/null
+          exit_code="$(docker inspect --format '{{.State.ExitCode}}' s3mock-release-smoke)"
+          [[ "${exit_code}" == 0 ]] || {
+            echo "s3mock exited with ${exit_code} after docker stop" >&2
+            docker logs s3mock-release-smoke >&2
+            exit 1
+          }
+          docker rm s3mock-release-smoke >/dev/null
           start_server
           [[ "$(curl -fsS "http://127.0.0.1:${port}/release-smoke/object")" == persisted ]]
       - uses: docker/login-action@v4
@@ -310,9 +329,15 @@ jobs:
 
           Digest: \`docker.io/superdurable/s3mock@${IMAGE_DIGEST}\`
 
-          Strict mode supports scoped credentials, presigned URLs, and bucket CORS. An unknown
-          access key now returns \`403 InvalidAccessKeyId\` rather than \`403 AccessDenied\`.
+          ### Changes
           EOF
+          awk -v heading="### ${VERSION}" '
+            $0 == "## Release notes" { in_notes = 1; next }
+            in_notes && /^## / { exit }
+            in_notes && $0 == heading { in_version = 1; next }
+            in_version && /^##/ { exit }
+            in_version { print }
+          ' s3mock/README.md >> "${RUNNER_TEMP}/release-notes.md"
           gh release create "${tag}" dist/*.tar.gz dist/checksums.txt \
             --target "${GITHUB_SHA}" --title "s3mock v${VERSION}" \
             --latest=false \

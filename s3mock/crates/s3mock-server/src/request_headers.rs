@@ -9,7 +9,7 @@
 //! Parsing of S3 request headers into store requests.
 
 use std::collections::BTreeMap;
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use http::HeaderMap;
 use s3mock::{ByteRangeRequest, ChecksumAlgorithm, ContentHeaders, ReadConditions, WriteCondition};
@@ -18,6 +18,63 @@ use crate::s3_error::S3Error;
 
 const USER_METADATA_PREFIX: &str = "x-amz-meta-";
 const AWS_CHUNKED: &str = "aws-chunked";
+const CHECKSUM_HEADER_PREFIX: &str = "x-amz-checksum-";
+/// Checksum headers that name no algorithm value, such as the CreateMultipartUpload choices.
+const CHECKSUM_CONTROL_HEADERS: [&str; 3] = [
+    "x-amz-checksum-algorithm",
+    "x-amz-checksum-mode",
+    "x-amz-checksum-type",
+];
+/// Write headers whose S3 semantics s3mock does not emulate; ignoring them would change results.
+const UNSUPPORTED_WRITE_HEADERS: [&str; 16] = [
+    "x-amz-grant-full-control",
+    "x-amz-grant-read",
+    "x-amz-grant-read-acp",
+    "x-amz-grant-write-acp",
+    "x-amz-object-lock-event-hold",
+    "x-amz-object-lock-event-hold-duration-days",
+    "x-amz-object-lock-event-hold-duration-years",
+    "x-amz-object-lock-legal-hold",
+    "x-amz-object-lock-mode",
+    "x-amz-object-lock-retain-until-date",
+    "x-amz-server-side-encryption-aws-kms-key-id",
+    "x-amz-server-side-encryption-bucket-key-enabled",
+    "x-amz-server-side-encryption-context",
+    "x-amz-tagging",
+    "x-amz-website-redirect-location",
+    "x-amz-write-offset-bytes",
+];
+/// Customer-provided encryption keys, which S3 requires again on every later read.
+const CUSTOMER_KEY_HEADER_PREFIX: &str = "x-amz-server-side-encryption-customer-";
+const COPY_SOURCE_HEADER_PREFIX: &str = "x-amz-copy-source";
+/// CopyObject headers whose features s3mock does not implement.
+const UNSUPPORTED_COPY_HEADERS: [&str; 5] = [
+    "x-amz-copy-source-range",
+    "x-amz-copy-source-server-side-encryption-customer-algorithm",
+    "x-amz-copy-source-server-side-encryption-customer-key",
+    "x-amz-copy-source-server-side-encryption-customer-key-md5",
+    "x-amz-object-annotation-directive",
+];
+
+/// An object write whose request headers s3mock checks for features it does not emulate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ObjectWrite {
+    PutObject,
+    CopyObject,
+    CreateMultipartUpload,
+    UploadPart,
+}
+
+impl ObjectWrite {
+    fn s3_name(self) -> &'static str {
+        match self {
+            ObjectWrite::PutObject => "PutObject",
+            ObjectWrite::CopyObject => "CopyObject",
+            ObjectWrite::CreateMultipartUpload => "CreateMultipartUpload",
+            ObjectWrite::UploadPart => "UploadPart",
+        }
+    }
+}
 
 /// Returns a header value, treating a non-UTF-8 value as absent.
 pub(crate) fn header_text<'headers>(
@@ -25,6 +82,63 @@ pub(crate) fn header_text<'headers>(
     name: &str,
 ) -> Option<&'headers str> {
     headers.get(name).and_then(|value| value.to_str().ok())
+}
+
+/// Refuses with NotImplemented a header that changes the write in a way s3mock does not emulate.
+pub(crate) fn refuse_unsupported_write_headers(
+    headers: &HeaderMap,
+    write: ObjectWrite,
+) -> Result<(), S3Error> {
+    for (name, value) in headers {
+        let name = name.as_str();
+        let is_unsupported_checksum = name.starts_with(CHECKSUM_HEADER_PREFIX)
+            && ChecksumAlgorithm::from_header_name(name).is_none()
+            && !CHECKSUM_CONTROL_HEADERS.contains(&name);
+        let is_unsupported = is_unsupported_checksum
+            || name.starts_with(CUSTOMER_KEY_HEADER_PREFIX)
+            || match write {
+                ObjectWrite::UploadPart => name.starts_with(COPY_SOURCE_HEADER_PREFIX),
+                ObjectWrite::PutObject | ObjectWrite::CreateMultipartUpload => {
+                    is_unsupported_object_attribute(name, value)
+                        || name.starts_with(COPY_SOURCE_HEADER_PREFIX)
+                }
+                ObjectWrite::CopyObject => {
+                    is_unsupported_object_attribute(name, value)
+                        || UNSUPPORTED_COPY_HEADERS.contains(&name)
+                }
+            };
+        if is_unsupported {
+            return Err(S3Error::not_implemented(&format!(
+                "{} with the {name} header",
+                write.s3_name()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Accepts ACLs and encryption matching S3 defaults, and storage classes S3 serves without restore.
+fn is_unsupported_object_attribute(name: &str, value: &http::HeaderValue) -> bool {
+    let value = value.to_str().ok().map(str::trim);
+    match name {
+        "x-amz-acl" => !matches!(value, Some("private" | "bucket-owner-full-control")),
+        "x-amz-server-side-encryption" => value != Some("AES256"),
+        "x-amz-storage-class" => matches!(value, None | Some("GLACIER" | "DEEP_ARCHIVE")),
+        _ => UNSUPPORTED_WRITE_HEADERS.contains(&name),
+    }
+}
+
+/// Parses `x-amz-checksum-algorithm`, which CreateMultipartUpload and CopyObject accept.
+pub(crate) fn requested_checksum_algorithm(
+    headers: &HeaderMap,
+) -> Result<Option<ChecksumAlgorithm>, S3Error> {
+    header_text(headers, "x-amz-checksum-algorithm")
+        .map(|name| {
+            ChecksumAlgorithm::from_s3_name(name.trim()).ok_or_else(|| {
+                S3Error::invalid_argument(format!("unsupported checksum algorithm {name:?}"))
+            })
+        })
+        .transpose()
 }
 
 /// How the request body is framed on the wire.
@@ -147,18 +261,21 @@ pub(crate) fn user_metadata(headers: &HeaderMap) -> BTreeMap<String, String> {
         .collect()
 }
 
-pub(crate) fn write_condition(headers: &HeaderMap) -> Result<WriteCondition, S3Error> {
+pub(crate) fn write_condition(
+    headers: &HeaderMap,
+    operation: &str,
+) -> Result<WriteCondition, S3Error> {
     match (
         header_text(headers, "if-none-match"),
         header_text(headers, "if-match"),
     ) {
-        (Some(_), Some(_)) => Err(S3Error::not_implemented(
-            "PutObject with both If-None-Match and If-Match",
-        )),
+        (Some(_), Some(_)) => Err(S3Error::not_implemented(&format!(
+            "{operation} with both If-None-Match and If-Match"
+        ))),
         (Some(value), None) if value.trim() == "*" => Ok(WriteCondition::IfNoneMatchAny),
-        (Some(_), None) => Err(S3Error::not_implemented(
-            "PutObject with an If-None-Match value other than *",
-        )),
+        (Some(_), None) => Err(S3Error::not_implemented(&format!(
+            "{operation} with an If-None-Match value other than *"
+        ))),
         (None, Some(value)) => Ok(WriteCondition::IfMatch(value.trim().to_owned())),
         (None, None) => Ok(WriteCondition::Unconditional),
     }
@@ -166,13 +283,33 @@ pub(crate) fn write_condition(headers: &HeaderMap) -> Result<WriteCondition, S3E
 
 /// Parses conditional-read headers; an unparsable date is ignored, as RFC 9110 requires.
 pub(crate) fn read_conditions(headers: &HeaderMap) -> ReadConditions {
-    let owned = |name: &str| header_text(headers, name).map(str::to_owned);
+    conditions_from_headers(headers, "")
+}
+
+/// Parses `x-amz-copy-source-if-*`; like S3, it ignores a future `if-modified-since` date.
+pub(crate) fn copy_source_conditions(headers: &HeaderMap) -> ReadConditions {
+    let mut conditions = conditions_from_headers(headers, "x-amz-copy-source-");
+    let now_unix_seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX)
+        });
+    if conditions
+        .if_modified_since_unix_seconds
+        .is_some_and(|since| since > now_unix_seconds)
+    {
+        conditions.if_modified_since_unix_seconds = None;
+    }
+    conditions
+}
+
+fn conditions_from_headers(headers: &HeaderMap, prefix: &str) -> ReadConditions {
+    let text = |name: &str| header_text(headers, &format!("{prefix}{name}"));
     ReadConditions {
-        if_match: owned("if-match"),
-        if_none_match: owned("if-none-match"),
-        if_modified_since_unix_seconds: header_text(headers, "if-modified-since")
-            .and_then(parse_http_date_seconds),
-        if_unmodified_since_unix_seconds: header_text(headers, "if-unmodified-since")
+        if_match: text("if-match").map(str::to_owned),
+        if_none_match: text("if-none-match").map(str::to_owned),
+        if_modified_since_unix_seconds: text("if-modified-since").and_then(parse_http_date_seconds),
+        if_unmodified_since_unix_seconds: text("if-unmodified-since")
             .and_then(parse_http_date_seconds),
     }
 }

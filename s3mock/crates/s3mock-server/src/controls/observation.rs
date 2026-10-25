@@ -46,7 +46,7 @@ pub(crate) struct RequestObservation {
 
 impl RequestObservation {
     pub(crate) fn new(method: &Method, uri: &Uri, headers: &HeaderMap) -> Self {
-        let operation = routing::route(method, uri);
+        let operation = routing::route(method, uri, headers);
         let (name, bucket, key) = match &operation {
             Ok(S3Operation::ListBuckets) => (S3OperationName::ListBuckets, "", ""),
             Ok(S3Operation::GetObjectLockConfiguration { bucket }) => (
@@ -112,6 +112,9 @@ impl RequestObservation {
             }
             Ok(S3Operation::PutObject { bucket, key }) => {
                 (S3OperationName::PutObject, bucket.as_str(), key.as_str())
+            }
+            Ok(S3Operation::CopyObject { bucket, key, .. }) => {
+                (S3OperationName::CopyObject, bucket.as_str(), key.as_str())
             }
             Ok(S3Operation::GetObject { bucket, key, .. }) => {
                 (S3OperationName::GetObject, bucket.as_str(), key.as_str())

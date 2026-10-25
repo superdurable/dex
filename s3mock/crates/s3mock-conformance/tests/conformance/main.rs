@@ -9,7 +9,9 @@
 //! S3 conformance tests; each test runs against the target selected by `S3MOCK_CONFORMANCE_TARGET`.
 
 mod buckets;
+mod checksum_mode;
 mod conditions;
+mod copy;
 mod cors;
 mod delete_objects;
 mod durability;

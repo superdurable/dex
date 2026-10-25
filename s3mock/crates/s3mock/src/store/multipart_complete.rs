@@ -9,7 +9,7 @@
 //! CompleteMultipartUpload: validate the part list, concatenate the parts, and commit one version.
 
 use std::fs::File;
-use std::io::{self, Read};
+use std::io;
 
 use md5::{Digest, Md5};
 use redb::ReadableDatabase;
@@ -27,7 +27,6 @@ use crate::record::{BucketRecord, PartRecord, UploadRecord};
 
 /// S3 rejects non-final parts below 5 MiB.
 const MIN_PART_SIZE: u64 = 5 * 1024 * 1024;
-const COPY_BUFFER_BYTES: usize = 1024 * 1024;
 
 /// Parameters of a CompleteMultipartUpload request.
 #[derive(Clone, Debug, Default)]
@@ -192,15 +191,8 @@ impl Store {
                 Err(error) => return Err(error.into()),
             }
         }
-        let mut buffer = vec![0u8; COPY_BUFFER_BYTES];
         for mut file in files {
-            loop {
-                let read = file.read(&mut buffer)?;
-                if read == 0 {
-                    break;
-                }
-                writer.write_all(&buffer[..read])?;
-            }
+            writer.write_from(&mut file)?;
         }
         Ok(writer)
     }

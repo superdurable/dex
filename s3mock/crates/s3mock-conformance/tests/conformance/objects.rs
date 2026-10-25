@@ -297,7 +297,7 @@ pub(crate) async fn put_text(
         .to_owned()
 }
 
-fn hex_md5(data: &[u8]) -> String {
+pub(crate) fn hex_md5(data: &[u8]) -> String {
     Md5::digest(data)
         .iter()
         .map(|byte| format!("{byte:02x}"))

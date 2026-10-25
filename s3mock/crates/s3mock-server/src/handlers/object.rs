@@ -26,8 +26,9 @@ use tokio_util::io::ReaderStream;
 use super::bucket::status_response;
 use crate::aws_chunked::AwsChunkedDecoder;
 use crate::request_headers::{
-    BodyEncoding, UploadChecksumPlan, body_encoding, byte_range, content_headers, header_text,
-    read_conditions, upload_checksum_plan, user_metadata, write_condition,
+    BodyEncoding, ObjectWrite, UploadChecksumPlan, body_encoding, byte_range, content_headers,
+    header_text, read_conditions, refuse_unsupported_write_headers, upload_checksum_plan,
+    user_metadata, write_condition,
 };
 use crate::routing::QueryParameters;
 use crate::s3_error::{S3Error, format_http_date};
@@ -55,12 +56,13 @@ pub(crate) async fn put_object(
     headers: HeaderMap,
     body: crate::server::RequestBody,
 ) -> Result<S3Response, S3Error> {
+    refuse_unsupported_write_headers(&headers, ObjectWrite::PutObject)?;
     let encoding = body_encoding(&headers)?;
     let checksum_plan = upload_checksum_plan(&headers)?;
     let request = PutObjectRequest {
         content_headers: content_headers(&headers),
         user_metadata: user_metadata(&headers),
-        write_condition: write_condition(&headers)?,
+        write_condition: write_condition(&headers, "PutObject")?,
     };
     let content_md5_base64 = header_text(&headers, "content-md5").map(str::to_owned);
     let writer = {
