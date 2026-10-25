@@ -14,6 +14,7 @@ mod error;
 mod key_codec;
 mod record;
 mod store;
+mod unsynced_file_backend;
 
 pub use checksum::{ChecksumAlgorithm, ChecksumType, ObjectChecksum, decode_base64, md5_base64};
 pub use data_file::{ObjectWriter, StagedObject, UploadChecksumExpectations};

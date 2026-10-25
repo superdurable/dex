@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! A relaxed store after an abrupt exit, simulated by copying its files while it is open.
+//! Stores after an abrupt exit, simulated by copying their files while they are open.
 
 use std::fs;
 use std::io::Read;
@@ -176,19 +176,78 @@ fn superseded_files_of_a_long_relaxed_session_are_removed_before_close() {
     );
 }
 
-/// A strict store still removes superseded files at once.
+/// Strict and process-crash-safe stores remove superseded files at once.
 #[test]
-fn strict_mode_removes_superseded_files_at_once() {
-    let directory = tempfile::tempdir().unwrap();
-    let store = Store::open(&config(directory.path(), Durability::Strict)).unwrap();
-    store.create_bucket(BUCKET, false).unwrap();
-    for revision in 0..3 {
-        put(&store, "lease", format!("revision {revision}").as_bytes());
+fn strict_and_process_crash_safe_modes_remove_superseded_files_at_once() {
+    for durability in [Durability::Strict, Durability::ProcessCrashSafe] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&config(directory.path(), durability)).unwrap();
+        store.create_bucket(BUCKET, false).unwrap();
+        for revision in 0..3 {
+            put(&store, "lease", format!("revision {revision}").as_bytes());
+        }
+        assert_eq!(count_data_files(directory.path()), 1, "{durability:?}");
     }
-    assert_eq!(count_data_files(directory.path()), 1);
 }
 
-/// The guarded open refuses every later open, in either mode, once a relaxed session ends abruptly.
+/// A process kill loses no acknowledged write of a process-crash-safe store.
+#[test]
+fn a_process_crash_safe_store_keeps_every_acknowledged_write_after_an_abrupt_exit() {
+    let directory = tempfile::tempdir().unwrap();
+    let root_directory = directory.path().join("store");
+    let crashed_directory = directory.path().join("crashed");
+    {
+        let store = Store::open(&config(&root_directory, Durability::ProcessCrashSafe)).unwrap();
+        store.create_bucket(BUCKET, false).unwrap();
+        put(&store, "overwritten", b"first version");
+        put(&store, "deleted", b"deleted object");
+        for revision in 0..300 {
+            put(&store, "lease", format!("revision {revision}").as_bytes());
+        }
+        put(&store, "overwritten", b"acknowledged version");
+        store
+            .delete_object(BUCKET, "deleted", &DeleteObjectRequest::default())
+            .unwrap();
+        put(&store, "created", b"acknowledged object");
+        copy_open_store(&root_directory, &crashed_directory);
+    }
+
+    let reopened = Store::open(&config(&crashed_directory, Durability::ProcessCrashSafe)).unwrap();
+    assert_eq!(listed_keys(&reopened), ["created", "lease", "overwritten"]);
+    assert_eq!(
+        read(&reopened, "overwritten").unwrap(),
+        b"acknowledged version"
+    );
+    assert_eq!(read(&reopened, "created").unwrap(), b"acknowledged object");
+    assert_eq!(read(&reopened, "lease").unwrap(), b"revision 299");
+}
+
+/// A relaxed bucket deletion keeps the bucket directory until a durable commit covers it.
+#[test]
+fn a_rolled_back_relaxed_bucket_deletion_keeps_its_objects_readable() {
+    let directory = tempfile::tempdir().unwrap();
+    let root_directory = directory.path().join("store");
+    {
+        let store = Store::open(&config(&root_directory, Durability::Relaxed)).unwrap();
+        store.create_bucket(BUCKET, false).unwrap();
+        put(&store, "object", b"durable object");
+    }
+    let crashed_directory = directory.path().join("crashed");
+    {
+        let store = Store::open(&config(&root_directory, Durability::Relaxed)).unwrap();
+        store
+            .delete_object(BUCKET, "object", &DeleteObjectRequest::default())
+            .unwrap();
+        store.delete_bucket(BUCKET).unwrap();
+        copy_open_store(&root_directory, &crashed_directory);
+    }
+
+    let reopened = Store::open(&config(&crashed_directory, Durability::Relaxed)).unwrap();
+    assert_eq!(listed_keys(&reopened), ["object"], "metadata rolls back");
+    assert_eq!(read(&reopened, "object").unwrap(), b"durable object");
+}
+
+/// The guarded open refuses every later open, in any mode, once a relaxed session ends abruptly.
 #[test]
 fn a_guarded_open_refuses_a_store_whose_relaxed_session_ended_abruptly() {
     let directory = tempfile::tempdir().unwrap();
@@ -205,7 +264,12 @@ fn a_guarded_open_refuses_a_store_whose_relaxed_session_ended_abruptly() {
         copy_open_store(&root_directory, &crashed_directory);
     }
 
-    for durability in [Durability::Relaxed, Durability::Relaxed, Durability::Strict] {
+    for durability in [
+        Durability::Relaxed,
+        Durability::Relaxed,
+        Durability::Strict,
+        Durability::ProcessCrashSafe,
+    ] {
         let refused =
             Store::open_refusing_unclean_relaxed_session(&config(&crashed_directory, durability));
         assert!(
@@ -222,26 +286,60 @@ fn a_guarded_open_refuses_a_store_whose_relaxed_session_ended_abruptly() {
     assert_eq!(read(&reopened, "object").unwrap(), b"body");
 }
 
-/// A strict session needs no marker, so a strict store copied while open still opens.
+/// Sessions that need no marker leave a store that the guarded open accepts after an abrupt exit.
 #[test]
-fn a_guarded_open_accepts_a_strict_store_copied_while_open() {
+fn a_guarded_open_accepts_strict_and_process_crash_safe_stores_copied_while_open() {
+    for durability in [Durability::Strict, Durability::ProcessCrashSafe] {
+        let directory = tempfile::tempdir().unwrap();
+        let root_directory = directory.path().join("store");
+        let crashed_directory = directory.path().join("crashed");
+        {
+            let store =
+                Store::open_refusing_unclean_relaxed_session(&config(&root_directory, durability))
+                    .unwrap();
+            store.create_bucket(BUCKET, false).unwrap();
+            put(&store, "object", b"body");
+            copy_open_store(&root_directory, &crashed_directory);
+        }
+        let reopened = Store::open_refusing_unclean_relaxed_session(&config(
+            &crashed_directory,
+            Durability::ProcessCrashSafe,
+        ))
+        .unwrap_or_else(|error| panic!("a {durability:?} session leaves no marker: {error}"));
+        assert_eq!(read(&reopened, "object").unwrap(), b"body");
+    }
+}
+
+/// A store from a release without markers opens after a clean close and is refused after a crash.
+#[test]
+fn a_guarded_open_checks_a_store_from_a_release_without_markers() {
     let directory = tempfile::tempdir().unwrap();
-    let root_directory = directory.path().join("store");
+    let clean_directory = directory.path().join("clean");
     let crashed_directory = directory.path().join("crashed");
     {
-        let store = Store::open_refusing_unclean_relaxed_session(&config(
-            &root_directory,
-            Durability::Strict,
-        ))
-        .unwrap();
+        let store = Store::open(&config(&clean_directory, Durability::Relaxed)).unwrap();
         store.create_bucket(BUCKET, false).unwrap();
         put(&store, "object", b"body");
-        copy_open_store(&root_directory, &crashed_directory);
+        copy_open_store(&clean_directory, &crashed_directory);
+    }
+
+    for _ in 0..2 {
+        let refused = Store::open_refusing_unclean_relaxed_session(&config(
+            &crashed_directory,
+            Durability::ProcessCrashSafe,
+        ));
+        assert!(
+            matches!(
+                refused,
+                Err(StoreError::UncleanSessionWithoutRelaxedSessionMarkers { .. })
+            ),
+            "an unmarked store that was not closed cleanly must be refused"
+        );
     }
     let reopened = Store::open_refusing_unclean_relaxed_session(&config(
-        &crashed_directory,
-        Durability::Relaxed,
+        &clean_directory,
+        Durability::ProcessCrashSafe,
     ))
-    .expect("a strict session leaves no marker");
+    .expect("an unmarked store that was closed cleanly opens");
     assert_eq!(read(&reopened, "object").unwrap(), b"body");
 }

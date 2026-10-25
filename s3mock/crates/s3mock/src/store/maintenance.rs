@@ -75,7 +75,9 @@ impl Store {
             if live_incarnations.contains(&name.as_str()) {
                 continue;
             }
-            if self.is_older_than_open(&name) {
+            // A relaxed bucket deletion holds this lock across its commit and defers the directory.
+            if self.is_older_than_open(&name) && !self.lock_deferred_removals().contains(&directory)
+            {
                 remove_directory(&directory);
             }
         }

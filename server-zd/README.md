@@ -477,13 +477,21 @@ rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
 `--attribute-store-config` reads only the `attributeStore` section of a Go Server configuration
 file, which must define at least one store; the `--config` file must not also set `attributeStore`.
 
-`dev.durabilityMode` defaults to `strict`. The embedded s3mock then flushes every acknowledged write
-with fsync, so a crash or SIGKILL loses nothing, and the next `dev` start on the same data directory
-recovers every Flow. `relaxed` skips fsync for faster writes. Its writes reach disk only when `dev`
-stops gracefully, while the local store under `<data-dir>/store` keeps newer state. After a crash
-or SIGKILL in relaxed mode, every later start therefore fails with an error that names the data
-directory, in either mode. Delete the whole data directory to start empty. Strict writes cost more,
-most on macOS, where each fsync is a full device flush.
+`dev.durabilityMode` selects how the embedded s3mock stores acknowledged writes:
+
+| Mode | Survives | Cost |
+| --- | --- | --- |
+| `processCrashSafe` (default) | A process kill: SIGKILL, an OOM kill, or a deleted Pod. A host crash or power loss can lose recent writes. | Close to `relaxed`. Every write reaches the files before the reply, without fsync. |
+| `strict` | A process kill, a host crash, and power loss. | Every write is flushed with fsync. On macOS each flush is a full device flush, so a Flow takes several times longer. |
+| `relaxed` | Only a graceful stop. | Writes stay in memory until `dev` stops gracefully. |
+
+After a process kill in the default or `strict` mode, the next `dev` start on the same data
+directory recovers every acknowledged Flow. A relaxed object store rolls back after an abrupt exit,
+while the local store under `<data-dir>/store` keeps newer state. Every later start then fails, in
+any mode, with an error that names the data directory. Delete the whole data directory to start
+empty. A data directory that an earlier release left after an abrupt exit gets the same refusal,
+because those releases defaulted to `relaxed`. A directory that an earlier release stopped
+gracefully keeps working.
 
 ## Stable command-line interface
 

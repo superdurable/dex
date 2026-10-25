@@ -68,10 +68,12 @@ The CLI stores zd state in `$HOME/.dex/zd/<dex-port>` by default. Pass
 retention, Streams, or the search backend. The CLI passes the file to
 `dex-server-zd dev --config`. It waits for the zd gRPC health services before
 opening Dex Web. zd supports pull Workers only.
-zd flushes every acknowledged write to disk by default, so killing it loses no
-Flows, and the next start resumes from the same state directory. Setting
-`dev.durabilityMode: relaxed` in the `--zd-config` file skips those flushes for
-faster writes. After a crash or kill in relaxed mode, zd refuses to start until
+By default zd writes every acknowledged write to its files without fsync. Killing
+it loses no Flows, and the next start resumes from the same state directory. A
+host crash or power loss can lose recent writes. Set `dev.durabilityMode` in the
+`--zd-config` file to `strict` to fsync every write, which also survives a host
+crash but is much slower on macOS. `relaxed` keeps writes in memory until a
+graceful stop. After a crash or kill in relaxed mode, zd refuses to start until
 you delete the state directory.
 `--attribute-store-config` also works with `--engine zd`. The CLI passes the
 file to `dex-server-zd dev --attribute-store-config`, which reads only its

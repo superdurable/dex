@@ -68,7 +68,7 @@ impl Store {
             .as_deref()
             .map(parse_version_id)
             .transpose()?;
-        let transaction = self.begin_write()?;
+        let transaction = self.begin_superseding_write()?;
         let mut superseded_files = Vec::new();
         let outcome = {
             let bucket_record = require_bucket(&transaction.open_table(BUCKETS)?, bucket)?;

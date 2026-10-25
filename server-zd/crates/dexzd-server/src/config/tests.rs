@@ -243,7 +243,10 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         defaults.local_storage.directory,
         temporary.path().join("other-data/store")
     );
-    assert_eq!(defaults.dev.durability_mode, DevDurabilityMode::Strict);
+    assert_eq!(
+        defaults.dev.durability_mode,
+        DevDurabilityMode::ProcessCrashSafe
+    );
     assert_eq!(defaults.search.backend, SearchBackend::Builtin);
     assert_eq!(defaults.stream_store.backend, StreamStoreBackend::Memory);
     assert_eq!(defaults.object_store.endpoint, "http://127.0.0.1:0");
@@ -342,7 +345,7 @@ fn load_file_reports_io_and_field_failures() {
         Config::load_file(&with_dev),
         Err(ConfigError::Invalid { field: "dev", .. })
     ));
-    for durability_mode in ["strict", "relaxed"] {
+    for durability_mode in ["strict", "processCrashSafe", "relaxed"] {
         let with_durability_mode = temporary
             .path()
             .join(format!("with-{durability_mode}.yaml"));

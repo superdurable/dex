@@ -316,7 +316,7 @@ impl Store {
         write_condition: &WriteCondition,
         completed_upload: Option<&CompletedUpload>,
     ) -> Result<PutObjectOutcome, StoreError> {
-        let transaction = self.begin_write()?;
+        let transaction = self.begin_superseding_write()?;
         let mut superseded_files = Vec::new();
         let mut upload_directory = None;
         let (versioning, internal_version, etag, last_modified_unix_ms) = {

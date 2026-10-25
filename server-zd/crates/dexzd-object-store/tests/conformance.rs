@@ -513,6 +513,11 @@ async fn strict_s3_conformance() {
 }
 
 #[tokio::test]
+async fn process_crash_safe_s3_conformance() {
+    s3_conformance(Durability::ProcessCrashSafe).await;
+}
+
+#[tokio::test]
 async fn relaxed_s3_conformance() {
     s3_conformance(Durability::Relaxed).await;
 }
