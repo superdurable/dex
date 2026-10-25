@@ -8,7 +8,7 @@
 
 //! One engine node process: the engine, its Flow runtime and effects, and how it crashes.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -84,11 +84,10 @@ impl CloseHoldDryRuns {
     }
 }
 
-/// The registry's applier. Proposals never interleave here, so a repeated command ID marks a
-/// dry run.
+/// The registry's applier. A command applied a second time had a dry run first.
 struct DryRunCountingApplier {
     applier: Arc<dyn CommandApplier>,
-    last_command_id: Mutex<Vec<u8>>,
+    applied_command_ids: Mutex<BTreeSet<Vec<u8>>>,
     dry_runs: Arc<CloseHoldDryRuns>,
 }
 
@@ -99,11 +98,12 @@ impl CommandApplier for DryRunCountingApplier {
         state: &dyn FlowStateReader,
         command: &FlowCommand,
     ) -> Result<ApplyOutcome, ApplyError> {
-        let mut last_command_id = self
-            .last_command_id
+        let is_first_apply = self
+            .applied_command_ids
             .lock()
-            .expect("command ID lock is not poisoned");
-        if *last_command_id == command.command_id {
+            .expect("command ID lock is not poisoned")
+            .insert(command.command_id.clone());
+        if !is_first_apply {
             *self
                 .dry_runs
                 .by_kind
@@ -111,10 +111,7 @@ impl CommandApplier for DryRunCountingApplier {
                 .expect("dry run count lock is not poisoned")
                 .entry(crate::command_kind(command))
                 .or_default() += 1;
-        } else {
-            last_command_id.clone_from(&command.command_id);
         }
-        drop(last_command_id);
         self.applier.apply(context, state, command)
     }
 }
@@ -238,7 +235,7 @@ impl NodeProcess {
         let factory_store = Arc::clone(&object_store_port);
         let factory_applier: Arc<dyn CommandApplier> = Arc::new(DryRunCountingApplier {
             applier: Arc::clone(&applier),
-            last_command_id: Mutex::new(Vec::new()),
+            applied_command_ids: Mutex::new(BTreeSet::new()),
             dry_runs: Arc::clone(&environment.close_hold_dry_runs),
         });
         let started = EngineNode::start(
