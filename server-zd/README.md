@@ -267,8 +267,8 @@ store's PostgreSQL tables. These differences from the Go Server apply:
 - During that cleanup, SetAttributes, PublishToChannel, and non-transactional RPC results are
   accepted, and their synced writes extend the wait. They start no Step. Transactional or locking
   RPCs, WaitForStepCompletion, WaitForAttribute, and DeleteChannelMessage calls made during
-  cleanup fail with FAILED_PRECONDITION "flow terminal cleanup is in progress", as the Go Server
-  rejects them. A wait admitted earlier still returns a match it sees, and a transactional RPC
+  cleanup fail with FAILED_PRECONDITION and FLOW_CLOSING, as the Go Server rejects them. A wait
+  admitted earlier still returns a match it sees, and a transactional RPC
   admitted earlier still commits; its synced writes join the outbox before the close.
 - `syncRetryPolicy.totalDuration` bounds each pending entry's retry window, not the whole close.
   During a PostgreSQL outage a natural close waits until its entries are dropped, up to that long

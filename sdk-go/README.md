@@ -946,6 +946,10 @@ failures return `WorkerInvocationError`; its `Worker` field preserves the
 original Worker code, type, and detail. Concurrent locking RPCs return
 `RPCLockConflictError` separately.
 
+Update-class requests rejected during Flow close cleanup return `FlowClosingError`
+with `ErrorSubStatusFlowClosing` and gRPC `FailedPrecondition`. Re-read the
+retained terminal Flow state before deciding whether another action is needed.
+
 `WaitForFlow` returns `FlowResult` for every terminal status. Inspect `Status`,
 `ErrorType`, `ErrorMessage`, and any requested `Completions`; transport and
 long-poll failures remain errors.

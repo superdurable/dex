@@ -6,6 +6,10 @@ slug: /primitives/client/advanced
 
 # Client Advanced
 
+## Requests during Flow close
+
+While a Flow closes, Dex rejects new transactional or locking RPCs, **WaitForStepCompletion**, **WaitForAttributeMatch**, and Channel message deletion with gRPC **FAILED_PRECONDITION** and sub-status **FLOW_CLOSING**. Each SDK exposes a typed Flow closing error. Re-read the retained terminal Flow state before deciding whether any further action is needed. The error does not prove that an earlier request succeeded.
+
 ## Wait for a Flow
 
 **WaitForFlow** waits for terminal Flow status. A bounded wait can return a long-poll timeout while the Flow is still open; call it again to keep waiting.

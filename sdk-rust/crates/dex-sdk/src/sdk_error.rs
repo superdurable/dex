@@ -21,6 +21,7 @@ pub type SdkResult<T> = Result<T, SdkError>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Provides Dex-specific detail beyond a gRPC status code.
+#[non_exhaustive]
 pub enum ErrorSubStatus {
     /// Dex returned no specific status.
     Uncategorized,
@@ -36,6 +37,8 @@ pub enum ErrorSubStatus {
     ChannelMessageNotFound,
     /// A caller-defined request budget expired.
     RequestTimeout,
+    /// Dex rejected an update-class request during Flow close cleanup.
+    FlowClosing,
 }
 
 #[derive(Clone, Debug)]
@@ -135,6 +138,7 @@ impl WorkerError {
 ///
 /// Match specific variants when recovery differs. [`Self::service_error`] extracts common gRPC
 /// metadata from every service-backed variant.
+#[non_exhaustive]
 pub enum SdkError {
     /// A general Dex service or transport call failed.
     Service {
@@ -144,6 +148,21 @@ pub enum SdkError {
     /// Starting a Flow conflicted with an existing Flow ID.
     FlowAlreadyStarted {
         /// Structured start-operation failure.
+        service: ServiceError,
+    },
+    /// An update-class request arrived while Dex was closing the Flow.
+    ///
+    /// Re-read the retained terminal Flow state before deciding what to do next.
+    /// Match this variant instead of comparing service detail text:
+    ///
+    /// ```no_run
+    /// # use dex_sdk::{SdkError, SdkResult};
+    /// fn should_reread_terminal_state(result: &SdkResult<()>) -> bool {
+    ///     matches!(result, Err(SdkError::FlowClosing { .. }))
+    /// }
+    /// ```
+    FlowClosing {
+        /// Structured rejected-operation failure, including the original transport cause.
         service: ServiceError,
     },
     /// An operation requiring an existing Flow targeted an unknown ID.
@@ -235,6 +254,7 @@ impl Display for SdkError {
         match self {
             Self::Service { service }
             | Self::FlowAlreadyStarted { service }
+            | Self::FlowClosing { service }
             | Self::FlowNotFound { service }
             | Self::FlowNotActiveOrNotFound { service }
             | Self::RpcLockConflict { service }
@@ -289,6 +309,7 @@ impl SdkError {
         match self {
             Self::Service { service }
             | Self::FlowAlreadyStarted { service }
+            | Self::FlowClosing { service }
             | Self::FlowNotFound { service }
             | Self::FlowNotActiveOrNotFound { service }
             | Self::RpcLockConflict { service }
@@ -338,6 +359,7 @@ impl SdkError {
         }
         match sub_status {
             ErrorSubStatus::FlowAlreadyStarted => Self::FlowAlreadyStarted { service },
+            ErrorSubStatus::FlowClosing => Self::FlowClosing { service },
             ErrorSubStatus::FlowNotExists => match requirement {
                 FlowTargetRequirement::Active => Self::FlowNotActiveOrNotFound { service },
                 FlowTargetRequirement::Existing => Self::FlowNotFound { service },
@@ -425,6 +447,7 @@ fn map_sub_status(value: i32) -> ErrorSubStatus {
         Some(ProtoErrorSubStatus::LongPollTimeOut) => ErrorSubStatus::LongPollTimeout,
         Some(ProtoErrorSubStatus::ChannelMessageNotFound) => ErrorSubStatus::ChannelMessageNotFound,
         Some(ProtoErrorSubStatus::RequestTimeout) => ErrorSubStatus::RequestTimeout,
+        Some(ProtoErrorSubStatus::FlowClosing) => ErrorSubStatus::FlowClosing,
         _ => ErrorSubStatus::Uncategorized,
     }
 }
@@ -450,6 +473,25 @@ mod tests {
             FlowTargetRequirement::Active,
         );
         assert!(matches!(active, SdkError::FlowNotActiveOrNotFound { .. }));
+    }
+
+    #[test]
+    fn flow_closing_has_a_typed_variant() {
+        let error = SdkError::from_status(
+            rich_status(
+                GrpcCode::FailedPrecondition,
+                ProtoErrorSubStatus::FlowClosing,
+            ),
+            "wait_for_attribute_match",
+            Some("flow-id"),
+            FlowTargetRequirement::Active,
+        );
+        assert!(matches!(error, SdkError::FlowClosing { .. }));
+        let service = error
+            .service_error()
+            .expect("FlowClosing carries service metadata");
+        assert_eq!(service.sub_status(), ErrorSubStatus::FlowClosing);
+        assert_eq!(service.code(), GrpcCode::FailedPrecondition);
     }
 
     #[test]

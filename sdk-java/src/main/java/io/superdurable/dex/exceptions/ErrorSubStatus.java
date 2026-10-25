@@ -37,5 +37,8 @@ public enum ErrorSubStatus {
     CHANNEL_MESSAGE_NOT_FOUND,
 
     /** Indicates that a caller-visible request budget expired. */
-    REQUEST_TIMEOUT
+    REQUEST_TIMEOUT,
+
+    /** Indicates that Dex rejected an update-class request during Flow close cleanup. */
+    FLOW_CLOSING
 }

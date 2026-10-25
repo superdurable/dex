@@ -590,7 +590,7 @@ async fn update_class_requests_fail_during_terminal_cleanup_while_wait_for_flow_
     ];
     for error in errors {
         assert_eq!(error.grpc_code(), grpc_code::FAILED_PRECONDITION);
-        assert_eq!(error.sub_status(), ErrorSubStatus::Uncategorized);
+        assert_eq!(error.sub_status(), ErrorSubStatus::FlowClosing);
         assert_eq!(error.to_string(), dexzd_apply::TERMINAL_CLEANUP_MESSAGE);
     }
     assert_pending(flow_wait.as_mut()).await;
@@ -603,6 +603,7 @@ async fn update_class_requests_fail_during_terminal_cleanup_while_wait_for_flow_
         .await
         .expect_err("a new wait is rejected during terminal cleanup, even when it matches");
     assert_eq!(new_wait.grpc_code(), grpc_code::FAILED_PRECONDITION);
+    assert_eq!(new_wait.sub_status(), ErrorSubStatus::FlowClosing);
 
     let rpc_error = harness
         .registry
@@ -619,6 +620,7 @@ async fn update_class_requests_fail_during_terminal_cleanup_while_wait_for_flow_
         .await
         .unwrap_err();
     assert_eq!(rpc_error.grpc_code(), grpc_code::FAILED_PRECONDITION);
+    assert_eq!(rpc_error.sub_status(), ErrorSubStatus::FlowClosing);
     assert!(
         harness.rpc_invoker.invocations.lock().unwrap().is_empty(),
         "the Worker is not called"

@@ -239,6 +239,8 @@ export enum ErrorSubStatus {
   ERROR_SUB_STATUS_LONG_POLL_TIME_OUT = 5,
   ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND = 6,
   ERROR_SUB_STATUS_REQUEST_TIMEOUT = 7,
+  /** ERROR_SUB_STATUS_FLOW_CLOSING - An update-class request arrived while Flow close cleanup is in progress. */
+  ERROR_SUB_STATUS_FLOW_CLOSING = 8,
   UNRECOGNIZED = -1,
 }
 

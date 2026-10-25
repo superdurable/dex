@@ -25,6 +25,7 @@ class ErrorSubStatus(Enum):
         LONG_POLL_TIMEOUT: A wait ended without observing its condition.
         CHANNEL_MESSAGE_NOT_FOUND: A pending Channel message ID no longer exists.
         REQUEST_TIMEOUT: A caller-defined request budget expired.
+        FLOW_CLOSING: Dex rejected an update-class request during Flow close cleanup.
     """
 
     UNCATEGORIZED = "uncategorized"
@@ -34,6 +35,7 @@ class ErrorSubStatus(Enum):
     LONG_POLL_TIMEOUT = "long_poll_timeout"
     CHANNEL_MESSAGE_NOT_FOUND = "channel_message_not_found"
     REQUEST_TIMEOUT = "request_timeout"
+    FLOW_CLOSING = "flow_closing"
 
 
 class FlowErrorType(Enum):
@@ -94,6 +96,25 @@ class DexServiceError(RuntimeError):
 
 class FlowAlreadyStartedError(DexServiceError):
     """Indicate that ``start_flow`` conflicts with an existing Flow ID."""
+
+    pass
+
+
+class FlowClosingError(DexServiceError):
+    """Report a request rejected while Dex closes a Flow.
+
+    Re-read the retained terminal Flow state before deciding what to do next.
+    Catch this error directly instead of comparing the service detail::
+
+        from dex import FlowClosingError, WaitForStepCompletionOptions
+
+        try:
+            await client.wait_for_step_completion(
+                flow_id, step_execution_id, WaitForStepCompletionOptions()
+            )
+        except FlowClosingError:
+            terminal_result = await client.wait_for_flow(flow_id)
+    """
 
     pass
 

@@ -531,7 +531,7 @@ func (u *WorkflowUpdater) rejectTerminalUpdate() error {
 	}
 	return u.provider.NewUpdateError(
 		dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION,
-		"flow terminal cleanup is in progress",
+		service.FlowTerminalCleanupInProgressMessage,
 	)
 }
 

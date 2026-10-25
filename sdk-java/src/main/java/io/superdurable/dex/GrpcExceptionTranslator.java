@@ -18,6 +18,7 @@ import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.ChannelMessageNotFoundException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
+import io.superdurable.dex.exceptions.FlowClosingException;
 import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
@@ -61,6 +62,8 @@ final class GrpcExceptionTranslator {
         switch (subStatus) {
             case FLOW_ALREADY_STARTED:
                 return new FlowAlreadyStartedException(code, detail, exception);
+            case FLOW_CLOSING:
+                return new FlowClosingException(code, detail, exception);
             case FLOW_NOT_EXISTS:
                 return missingFlowException(code, detail, exception, requirement);
             case WORKER_API_ERROR:
@@ -171,6 +174,8 @@ final class GrpcExceptionTranslator {
                 return ErrorSubStatus.CHANNEL_MESSAGE_NOT_FOUND;
             case ERROR_SUB_STATUS_REQUEST_TIMEOUT:
                 return ErrorSubStatus.REQUEST_TIMEOUT;
+            case ERROR_SUB_STATUS_FLOW_CLOSING:
+                return ErrorSubStatus.FLOW_CLOSING;
             default:
                 return ErrorSubStatus.UNCATEGORIZED;
         }

@@ -56,6 +56,20 @@ func TestTranslateRPCErrorPreservesWorkerDetailsAndUnwraps(t *testing.T) {
 	require.Equal(t, codes.FailedPrecondition, status.Code(translated))
 }
 
+func TestTranslateRPCErrorFlowClosing(t *testing.T) {
+	rpcStatus, err := status.New(codes.FailedPrecondition, "flow closing").WithDetails(
+		&dexpb.ServiceErrorResponse{
+			SubStatus: dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING,
+		},
+	)
+	require.NoError(t, err)
+	translated := translateRPCError(rpcStatus.Err(), "WaitForAttribute", "flow-1", flowTargetActive)
+	var closing *FlowClosingError
+	require.ErrorAs(t, translated, &closing)
+	require.Equal(t, ErrorSubStatusFlowClosing, closing.SubStatus)
+	require.Equal(t, codes.FailedPrecondition, closing.Code)
+}
+
 func TestTranslateRPCErrorFallbackAndLocalError(t *testing.T) {
 	translated := translateRPCError(
 		status.Error(codes.Unavailable, "backend unavailable"),
