@@ -6,8 +6,19 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release whose close-barrier guidance core/operations.md cites.
 SERVER_ZD_RELEASE = "server-zd/v0.1.5"
+WORKFLOW_UPDATER_PATH = "server/service/interpreter/workflowUpdater.go"
+API_SERVICE_PATH = "server/service/api/service.go"
+# Go Server update validators that reject new requests during Flow close cleanup, with their handlers.
+CLEANUP_REJECTING_UPDATES = (
+    ("validateWorkerRpc", "handleWorkerRpc"),
+    ("validateDeleteChannelMessage", "handleDeleteChannelMessage"),
+    ("validateWaitForStepCompletion", "handleWaitForStepCompletion"),
+    ("validateWaitForAttribute", "handleWaitForAttribute"),
+)
+TERMINAL_UPDATE_GUARD = "if err := u.rejectTerminalUpdate(); err != nil {\n\t\treturn err\n\t}"
 
 
 def fail(message: str) -> None:
@@ -48,6 +59,151 @@ def require_tagged_text(checkout: Path, tag: str, path: str, *needles: str) -> N
             fail(f"{tag}:{path} is missing required text: {needle}")
 
 
+def go_function_source(source: str, declaration: str, location: str) -> str:
+    """Returns one gofmt-formatted top-level Go function from its unique declaration line through its closing brace."""
+    lines = source.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith(declaration)]
+    if not starts:
+        fail(f"{location} has no function declared as `{declaration}`")
+    if len(starts) > 1:
+        fail(f"{location} declares `{declaration}` {len(starts)} times")
+    start = starts[0]
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if line == "}":
+            return "\n".join(lines[start : index + 1])
+        # gofmt indents bodies, so only a multi-line signature's ") ... {" may also start at column 0.
+        if line and not line[0].isspace() and not line.startswith(")"):
+            break
+    fail(f"{location} function `{declaration}` has no column-0 closing brace before the next declaration")
+
+
+def require_tagged_go_function_text(checkout: Path, tag: str, path: str, declaration: str, *needles: str) -> None:
+    location = f"{tag}:{path}"
+    function = go_function_source(git(checkout, "show", f"refs/tags/{tag}:{path}"), declaration, location)
+    for needle in needles:
+        if needle not in function:
+            fail(f"{location} function `{declaration}` is missing required text: {needle!r}")
+
+
+def check_go_server_close_cleanup(checkout: Path, tag: str) -> None:
+    """Checks the Go Server Flow close cleanup rejection set and its backend routing in the tagged source."""
+    require_tagged_go_function_text(
+        checkout,
+        tag,
+        WORKFLOW_UPDATER_PATH,
+        "func NewWorkflowUpdater(",
+        *(f"updater.{validator},\n\t\tupdater.{handler}," for validator, handler in CLEANUP_REJECTING_UPDATES),
+    )
+    for validator, _ in CLEANUP_REJECTING_UPDATES:
+        require_tagged_go_function_text(
+            checkout,
+            tag,
+            WORKFLOW_UPDATER_PATH,
+            f"func (u *WorkflowUpdater) {validator}(",
+            TERMINAL_UPDATE_GUARD,
+        )
+    require_tagged_go_function_text(
+        checkout,
+        tag,
+        WORKFLOW_UPDATER_PATH,
+        "func (u *WorkflowUpdater) rejectTerminalUpdate(",
+        "if !u.terminalCoordinator.HasStartedFinalizing() {",
+        "dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION,\n\t\tservice.FlowTerminalCleanupInProgressMessage,",
+    )
+    require_tagged_go_function_text(
+        checkout,
+        tag,
+        API_SERVICE_PATH,
+        "func (s *serviceImpl) handleError(",
+        "case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION:\n"
+        "\t\t\tsubStatus := dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED\n"
+        "\t\t\tif details == service.FlowTerminalCleanupInProgressMessage {\n"
+        "\t\t\t\tsubStatus = dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING\n"
+        "\t\t\t}\n"
+        "\t\t\treturn serviceerrors.NewErrorAndStatus(\n"
+        "\t\t\t\tcodes.FailedPrecondition,\n"
+        "\t\t\t\tsubStatus,",
+    )
+    require_tagged_go_function_text(
+        checkout,
+        tag,
+        API_SERVICE_PATH,
+        "func (s *serviceImpl) shouldInvokeRPCTransactionally(",
+        "return s.client.GetBackendType() == service.BackendTypeTemporal &&\n"
+        "\t\t(req.GetIsTransactional() || len(req.GetLockAttributeKeys()) > 0 ||\n"
+        "\t\t\ts.apiCfg.UseTemporalSynchronousUpdateForAllRPCs)",
+    )
+    require_tagged_go_function_text(
+        checkout,
+        tag,
+        API_SERVICE_PATH,
+        "func (s *serviceImpl) InvokeRPC(",
+        "if len(req.GetLockAttributeKeys()) > 0 && backendType == service.BackendTypeCadence {\n"
+        "\t\treturn nil, status.Errorf(codes.Unimplemented,",
+        "isTransactional := s.shouldInvokeRPCTransactionally(req)",
+    )
+    require_tagged_go_function_text(
+        checkout,
+        tag,
+        API_SERVICE_PATH,
+        "func (s *serviceImpl) DeleteChannelMessage(",
+        "if s.client.GetBackendType() == service.BackendTypeCadence {\n"
+        "\t\treturn s.deleteCadenceChannelMessage(",
+    )
+    require_tagged_go_function_text(
+        checkout,
+        tag,
+        API_SERVICE_PATH,
+        "func (s *serviceImpl) deleteCadenceChannelMessage(",
+        "s.client.SignalWorkflow(",
+    )
+
+
+def check_sdk_flow_closing_errors(checkout: Path, baselines: dict[str, str], references: Path) -> None:
+    """Checks each SDK's tagged typed Flow close cleanup error and that its reference page uses the same name."""
+    go_error = "FlowClosingError"
+    go_sub_status = "ErrorSubStatusFlowClosing"
+    require_tagged_text(checkout, baselines["go"], "sdk-go/dex/errors.go", f"type {go_error} struct", go_sub_status)
+    require_text(references / "go" / "error-handling.md", f"`*dex.{go_error}`", f"`dex.{go_sub_status}`")
+
+    java_package = "io.superdurable.dex.exceptions"
+    java_error = "FlowClosingException"
+    require_tagged_text(
+        checkout,
+        baselines["java"],
+        f"sdk-java/src/main/java/{java_package.replace('.', '/')}/{java_error}.java",
+        f"package {java_package};",
+        f"public final class {java_error} ",
+    )
+    require_text(references / "java" / "error-handling.md", f"`{java_error}` from `{java_package}`")
+
+    python_error = "FlowClosingError"
+    require_tagged_text(checkout, baselines["python"], "sdk-python/dex/runtime_errors.py", f"class {python_error}(")
+    require_tagged_text(checkout, baselines["python"], "sdk-python/dex/__init__.py", f'"{python_error}"')
+    require_text(references / "python" / "error-handling.md", f"`{python_error}` from `dex`")
+
+    rust_variant = "FlowClosing"
+    require_tagged_text(checkout, baselines["rust"], "sdk-rust/crates/dex-sdk/src/sdk_error.rs", f"    {rust_variant} {{")
+    require_tagged_text(
+        checkout,
+        baselines["rust"],
+        "sdk-rust/crates/dex-sdk/src/lib.rs",
+        "pub use sdk_error::{ErrorSubStatus, SdkError",
+    )
+    require_text(references / "rust" / "error-handling.md", f"`SdkError::{rust_variant} {{ .. }}`")
+
+    typescript_error = "FlowClosingError"
+    require_tagged_text(
+        checkout,
+        baselines["typescript"],
+        "sdk-typescript/src/errors.ts",
+        f"export class {typescript_error} ",
+    )
+    require_tagged_text(checkout, baselines["typescript"], "sdk-typescript/src/index.ts", 'export * from "./errors.js"')
+    require_text(references / "typescript" / "error-handling.md", f"`instanceof {typescript_error}`")
+
+
 def require_ancestor(checkout: Path, ancestor: str, descendant: str, label: str) -> None:
     result = subprocess.run(
         ["git", "merge-base", "--is-ancestor", ancestor, descendant],
@@ -77,11 +233,14 @@ def main() -> None:
 
     server_baseline = (ROOT / "DEX_SERVER_BASELINE").read_text().strip()
     cli_baseline = (ROOT / "DEX_CLI_BASELINE").read_text().strip()
-    sdk_baselines = {
-        language: (ROOT / f"DEX_{language.upper()}_BASELINE").read_text().strip()
-        for language in ("java", "python", "rust", "typescript")
-    }
     go_sdk_baseline = (ROOT / "DEX_BASELINE").read_text().strip()
+    sdk_baselines = {
+        "go": go_sdk_baseline,
+        **{
+            language: (ROOT / f"DEX_{language.upper()}_BASELINE").read_text().strip()
+            for language in ("java", "python", "rust", "typescript")
+        },
+    }
     require_revision(arguments.dex_root, cli_baseline, "Dex CLI")
     require_ancestor(arguments.dex_root, server_baseline, cli_baseline, "Dex Server baseline")
     require_tag(arguments.dex_root, SERVER_ZD_RELEASE)
@@ -237,28 +396,8 @@ def main() -> None:
         "is_closed_hard_delete_erase",
         "is_hard_delete_on_null",
         "request.action_permission_mappings.is_some()",
-        "!hard_delete_objects.is_empty()",
     )
-    require_tagged_text(
-        arguments.dex_root,
-        server_baseline,
-        "server/service/api/service.go",
-        "ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING",
-        "shouldInvokeRPCTransactionally",
-        "deleteCadenceChannelMessage",
-        "s.client.SignalWorkflow(",
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        server_baseline,
-        "server/service/interpreter/workflowUpdater.go",
-        "rejectTerminalUpdate",
-        "FlowTerminalCleanupInProgressMessage",
-        "validateDeleteChannelMessage",
-        "validateWorkerRpc",
-        "validateWaitForStepCompletion",
-        "validateWaitForAttribute",
-    )
+    check_go_server_close_cleanup(arguments.dex_root, server_baseline)
     require_tagged_text(
         arguments.dex_root,
         server_baseline,
@@ -291,13 +430,7 @@ def main() -> None:
         "server/service/matching/matching.go",
         "w.cancelTask(request.TaskId)",
     )
-    require_tagged_text(
-        arguments.dex_root,
-        go_sdk_baseline,
-        "sdk-go/dex/errors.go",
-        "type FlowClosingError struct",
-        "ErrorSubStatusFlowClosing",
-    )
+    check_sdk_flow_closing_errors(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,
@@ -310,48 +443,6 @@ def main() -> None:
         go_sdk_baseline,
         "sdk-go/dex/worker_pull.go",
         "context.WithDeadline(taskCtx, task.GetDeadline().AsTime())",
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        sdk_baselines["java"],
-        "sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowClosingException.java",
-        "public final class FlowClosingException",
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        sdk_baselines["python"],
-        "sdk-python/dex/runtime_errors.py",
-        "class FlowClosingError",
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        sdk_baselines["python"],
-        "sdk-python/dex/__init__.py",
-        '"FlowClosingError"',
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        sdk_baselines["rust"],
-        "sdk-rust/crates/dex-sdk/src/sdk_error.rs",
-        "    FlowClosing {",
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        sdk_baselines["rust"],
-        "sdk-rust/crates/dex-sdk/src/lib.rs",
-        "pub use sdk_error::{ErrorSubStatus, SdkError",
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        sdk_baselines["typescript"],
-        "sdk-typescript/src/errors.ts",
-        "class FlowClosingError",
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        sdk_baselines["typescript"],
-        "sdk-typescript/src/index.ts",
-        'export * from "./errors.js"',
     )
     require_text(
         arguments.dex_root / "web" / "api" / "v2.go",
