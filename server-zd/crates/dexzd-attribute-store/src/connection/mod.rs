@@ -9,7 +9,7 @@
 #[cfg(test)]
 mod connection_tests;
 
-use dexzd_postgres_connection::{ConnectionError, OpenConnection};
+use dexzd_postgres_connection::{ConnectionError, OpenConnection, error_with_sources};
 use tokio::task::JoinHandle;
 use tokio_postgres::Client;
 
@@ -53,6 +53,7 @@ impl ConnectionSettings {
         let store = settings.name.clone();
         let connection_task = tokio::spawn(async move {
             if let Err(error) = driver.await {
+                let error = error_with_sources(&error);
                 tracing::warn!(store, %error, "Attribute Store connection closed");
             }
         });

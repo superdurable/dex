@@ -216,6 +216,7 @@ impl ConnectionSlot {
             })?;
         let connection_task = tokio::spawn(async move {
             if let Err(error) = driver.await {
+                let error = error_with_sources(&error);
                 tracing::error!(%error, "ParadeDB search connection closed");
             }
         });
