@@ -1453,7 +1453,7 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronizedAndPortClosed(t *testing
 		{
 			name:              "unimplemented",
 			serverInfoFailure: status.Error(codes.Unimplemented, "old Server"),
-			errorDetail:       "FlowService connection failed",
+			errorDetail:       "incompatible with Server version \"unknown\" protocol [unknown,unknown]: GetServerInfo failed",
 		},
 		{
 			name:              "request failure",
@@ -1477,6 +1477,11 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronizedAndPortClosed(t *testing
 			err = worker.Start()
 			require.ErrorContains(t, err, testCase.errorDetail)
 			require.Contains(t, err.Error(), "Go SDK version")
+			if testCase.name != "request failure" {
+				require.ErrorContains(t, err, "incompatible")
+			} else {
+				require.NotContains(t, err.Error(), "incompatible")
+			}
 			require.Equal(t, []string{"GetServerInfo"}, flowService.recordedCalls())
 			connection, dialErr := net.DialTimeout("tcp", address, 50*time.Millisecond)
 			if connection != nil {

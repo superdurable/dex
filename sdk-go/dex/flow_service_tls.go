@@ -18,6 +18,7 @@ import (
 
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/resolver"
 )
 
 // FlowServiceTLSOptions enables TLS for a Client or Worker's FlowService connection.
@@ -28,7 +29,9 @@ import (
 // FlowServiceAddress host is the default certificate name. The TLS settings
 // apply only to FlowService, not to a Worker's listening WorkerService or an
 // APIKeyCredential token endpoint.
-// FlowServiceAddress accepts host:port or dns:///host:port, but not an HTTP URL.
+// With TLS, FlowServiceAddress accepts only host:port, dns:///host:port,
+// or dns://authority/host:port (with an explicit DNS resolver authority).
+// Other gRPC resolver schemes are available only with plaintext connections.
 // Connections open on demand, so certificate, hostname, and handshake failures
 // appear as Unavailable on the first Client call or from Worker.Start.
 // The endpoint or gateway must accept ALPN h2 and forward gRPC over HTTP/2.
@@ -66,6 +69,7 @@ type FlowServiceTLSOptions struct {
 	// AdditionalRootCAsPEM adds PEM-encoded root CAs to the system roots.
 	// Empty uses the system roots alone. The bytes are read at construction, not watched for changes.
 	// At least one certificate must parse from a nonempty bundle, or NewClient or NewWorker fails.
+	// Non-certificate and unparsable PEM blocks are skipped when another certificate parses.
 	// Without system roots or an added trusted CA, certificate verification fails on connection.
 	AdditionalRootCAsPEM []byte
 	// ServerName overrides the FlowServiceAddress host for certificate verification, SNI, and HTTP/2 :authority.
@@ -79,24 +83,32 @@ func flowServiceTransportCredentials(address string, options *FlowServiceTLSOpti
 	if options == nil {
 		return insecure.NewCredentials(), nil
 	}
-	targetAddress, isDNSTarget := strings.CutPrefix(address, "dns:///")
-	if !isDNSTarget {
-		targetAddress = address
+	targetAddress := address
+	if dnsTarget, isDNSTarget := strings.CutPrefix(address, "dns://"); isDNSTarget {
+		authority, endpoint, hasEndpoint := strings.Cut(dnsTarget, "/")
+		if !hasEndpoint || strings.ContainsAny(authority, " \t\r\n?#@") || strings.ContainsAny(endpoint, "/?#") {
+			return nil, fmt.Errorf("dex: FlowServiceTLS requires FlowServiceAddress as host:port, dns:///host:port, or dns://authority/host:port, got %q", address)
+		}
+		targetAddress = endpoint
+	} else {
+		scheme, _, hasColon := strings.Cut(address, ":")
+		if strings.ContainsAny(address, "/?#") || (hasColon && resolver.Get(scheme) != nil) {
+			return nil, fmt.Errorf("dex: FlowServiceTLS requires FlowServiceAddress as host:port, dns:///host:port, or dns://authority/host:port, got %q", address)
+		}
 	}
 	host, port, err := net.SplitHostPort(targetAddress)
-	if err != nil || host == "" {
-		return nil, fmt.Errorf("dex: FlowServiceTLS requires FlowServiceAddress as host:port or dns:///host:port, got %q", address)
+	if err != nil || !isValidFlowServiceTLSName(host) {
+		return nil, fmt.Errorf("dex: FlowServiceTLS requires FlowServiceAddress as host:port, dns:///host:port, or dns://authority/host:port, got %q", address)
 	}
 	portNumber, err := strconv.Atoi(port)
 	if err != nil || portNumber < 1 || portNumber > 65535 {
 		return nil, fmt.Errorf("dex: FlowServiceTLS requires FlowServiceAddress port 1-65535, got %q", address)
 	}
 	serverName := options.ServerName
-	if serverName != "" && (strings.ContainsAny(serverName, " \t\r\n/#?") ||
-		(strings.Contains(serverName, ":") && net.ParseIP(serverName) == nil)) {
+	if serverName != "" && !isValidFlowServiceTLSName(serverName) {
 		return nil, fmt.Errorf("dex: FlowServiceTLS.ServerName must be a DNS name or IP address, got %q", serverName)
 	}
-	if serverName == "" && isDNSTarget {
+	if serverName == "" {
 		serverName = host
 	}
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: serverName}
@@ -111,4 +123,9 @@ func flowServiceTransportCredentials(address string, options *FlowServiceTLSOpti
 		tlsConfig.RootCAs = rootCAs
 	}
 	return credentials.NewTLS(tlsConfig), nil
+}
+
+func isValidFlowServiceTLSName(name string) bool {
+	return name != "" && !strings.ContainsAny(name, " \t\r\n/#?@") &&
+		(!strings.Contains(name, ":") || net.ParseIP(name) != nil)
 }

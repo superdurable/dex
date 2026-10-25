@@ -228,7 +228,7 @@ const (
 //
 // registry supplies definitions and cache hydrates large values. It panics when
 // registry or cache is nil. It validates listener, advertised target,
-// FlowService address, synchronization timeout, and GrpcMaxMessageBytes, then creates the private gRPC
+// FlowService address, FlowServiceTLS, synchronization timeout, and GrpcMaxMessageBytes, then creates the private gRPC
 // server and FlowService connection without starting a listener. The returned
 // Worker owns that connection; Start or Stop closes it.
 func NewWorker(

@@ -39,7 +39,8 @@ const credentialFileCheckInterval = time.Second
 //	client, err := dex.NewClient(registry, cache, dex.ClientOptions{Credential: credential})
 //
 // The credential is sent over the same connection as every other call. Dex may be served over
-// plaintext gRPC; protect the network path between the application and Dex accordingly.
+// plaintext gRPC. Set ClientOptions.FlowServiceTLS or WorkerOptions.FlowServiceTLS
+// to encrypt the FlowService connection that carries the credential.
 type Credential interface {
 	// Token returns the current bearer credential. It is called before every FlowService call,
 	// may be called concurrently, and must return quickly.

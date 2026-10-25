@@ -641,8 +641,34 @@ through `ClientOptions.WorkerTarget`, or set
 `StartFlowOptions.ConfigOverride.WorkerTarget` for one Flow. A SubFlow can select
 pull mode through `SubFlowOptions.ConfigOverride.WorkerTarget`.
 
+```go
+worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+	FlowServiceAddress: "dex.example:8801",
+	Pull: &dex.PullWorkerOptions{
+		MaxConcurrentTasks: 8,
+		IdleStreamsPerQueue: 1,
+		StopDrainTimeout: 30 * time.Second,
+	},
+})
+if err != nil {
+	return err
+}
+client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+	FlowServiceAddress: "dex.example:8801",
+	WorkerTarget: worker.WorkerTarget(),
+})
+if err != nil {
+	return err
+}
+defer client.Close()
+defer worker.Stop(context.Background())
+if err := worker.Start(); err != nil {
+	return err
+}
+```
+
 `FlowServiceAddress` uses plaintext gRPC by default. For a TLS-terminating
-Dex endpoint, use its `host:443` or `dns:///host:443` address and set
+Dex endpoint, use its `host:443`, `dns:///host:443`, or `dns://authority/host:443` address and set
 `FlowServiceTLS` on both the Client and Worker. TLS requires version 1.2 or
 newer and negotiates ALPN `h2`.
 The certificate name defaults to the address host. Extra PEM root CAs extend
@@ -682,34 +708,8 @@ if err := worker.Start(); err != nil {
 
 Set `ServerName` when the certificate name differs from the address host; it
 also sets the HTTP/2 `:authority`. An IP address sends no SNI. An
-invalid `AdditionalRootCAsPEM` fails `NewClient` or `NewWorker`. The other SDKs
+`AdditionalRootCAsPEM` with no parseable certificate fails `NewClient` or `NewWorker`. The other SDKs
 will gain the FlowService TLS option in a later release.
-
-```go
-worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
-	FlowServiceAddress: "dex.example:8801",
-	Pull: &dex.PullWorkerOptions{
-		MaxConcurrentTasks: 8,
-		IdleStreamsPerQueue: 1,
-		StopDrainTimeout: 30 * time.Second,
-	},
-})
-if err != nil {
-	return err
-}
-client, err := dex.NewClient(registry, cache, dex.ClientOptions{
-	FlowServiceAddress: "dex.example:8801",
-	WorkerTarget: worker.WorkerTarget(),
-})
-if err != nil {
-	return err
-}
-defer client.Close()
-defer worker.Stop(context.Background())
-if err := worker.Start(); err != nil {
-	return err
-}
-```
 
 From Go SDK 1.13.0, call `WaitPullRegistered(ctx)` after launching `Start`
 on a goroutine to gate startup and rolling deployments on registration of every

@@ -54,6 +54,19 @@ func (recorder *credentialRecorder) intercept(
 	return handler(ctx, req)
 }
 
+func (recorder *credentialRecorder) interceptStream(
+	service interface{},
+	stream grpc.ServerStream,
+	info *grpc.StreamServerInfo,
+	handler grpc.StreamHandler,
+) error {
+	incoming, _ := metadata.FromIncomingContext(stream.Context())
+	recorder.mu.Lock()
+	recorder.authorizations[info.FullMethod] = append(recorder.authorizations[info.FullMethod], incoming.Get("authorization")...)
+	recorder.mu.Unlock()
+	return handler(service, stream)
+}
+
 func (recorder *credentialRecorder) received(fullMethod string) []string {
 	recorder.mu.Lock()
 	defer recorder.mu.Unlock()
@@ -65,8 +78,13 @@ func startCredentialRecordingFlowService(t *testing.T, service dexpb.FlowService
 	recorder := &credentialRecorder{authorizations: map[string][]string{}}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	grpcServer := grpc.NewServer(append([]grpc.ServerOption{grpc.UnaryInterceptor(recorder.intercept)}, serverOptions...)...)
+	grpcServer := grpc.NewServer(append([]grpc.ServerOption{
+		grpc.UnaryInterceptor(recorder.intercept), grpc.StreamInterceptor(recorder.interceptStream),
+	}, serverOptions...)...)
 	dexpb.RegisterFlowServiceServer(grpcServer, service)
+	if pullService, ok := service.(dexpb.WorkerTaskServiceServer); ok {
+		dexpb.RegisterWorkerTaskServiceServer(grpcServer, pullService)
+	}
 	serveResult := make(chan error, 1)
 	go func() { serveResult <- grpcServer.Serve(listener) }()
 	t.Cleanup(func() {
@@ -133,6 +151,40 @@ func TestClientCredentialsReachFlowServiceOverTLS(t *testing.T) {
 	}, 10*time.Second, 50*time.Millisecond)
 	require.Equal(t, []string{"Bearer worker-token"}, recorder.received(dexpb.FlowService_SyncAttributeIndexes_FullMethodName))
 	require.NoError(t, worker.Stop(context.Background()))
+	require.NoError(t, <-workerResult)
+}
+
+type credentialPullFlowService struct {
+	workerSyncFlowService
+	registrationTestServer
+}
+
+func TestWorkerCredentialReachesPullStreamOverTLS(t *testing.T) {
+	caPEM, certificate := newCredentialTLSCertificate(t)
+	pullService := &credentialPullFlowService{registrationTestServer: registrationTestServer{
+		streams: make(chan *registrationTestStream, 8),
+	}}
+	address, recorder := startCredentialRecordingFlowService(t, pullService, grpc.Creds(credentials.NewTLS(&tls.Config{
+		Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"},
+	})))
+	worker, err := newWorkerForTest(t, []Flow{&registrationFlow{flowType: "tls-credential-pull"}}, WorkerOptions{
+		FlowServiceAddress: address,
+		FlowServiceTLS:     &FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM},
+		Credential:         staticTestCredential("pull-token"),
+		Pull:               &PullWorkerOptions{AppWorkerID: "tls-credential-pull-worker"},
+	})
+	require.NoError(t, err)
+	workerResult := make(chan error, 1)
+	go func() { workerResult <- worker.Start() }()
+	firstRegistration := awaitRegistrationTestStream(t, &pullService.registrationTestServer, 10*time.Second)
+	secondRegistration := awaitRegistrationTestStream(t, &pullService.registrationTestServer, 10*time.Second)
+	require.Equal(t, []string{"Bearer pull-token", "Bearer pull-token"}, recorder.received(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName))
+	firstRegistration.register()
+	secondRegistration.register()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, worker.WaitPullRegistered(ctx))
+	require.NoError(t, worker.Stop(ctx))
 	require.NoError(t, <-workerResult)
 }
 

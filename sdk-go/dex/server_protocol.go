@@ -9,12 +9,17 @@
 package dex
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -99,9 +104,43 @@ func (protocol *negotiatedServerProtocol) requireHardDeleteAttributeSupport(
 }
 
 func serverProtocolRequestError(sdkVersion string, err error) error {
+	if status.Code(err) == codes.Unimplemented {
+		return serverProtocolGetServerInfoFailure(sdkVersion, err)
+	}
+	if status.Code(err) == codes.Unavailable || isTLSHandshakeFailure(err) {
+		return fmt.Errorf(
+			"dex: FlowService connection failed during GetServerInfo for Go SDK version %q: %w",
+			sdkVersion,
+			err,
+		)
+	}
+	return serverProtocolGetServerInfoFailure(sdkVersion, err)
+}
+
+func isTLSHandshakeFailure(err error) bool {
+	var certificateVerificationError *tls.CertificateVerificationError
+	var recordHeaderError tls.RecordHeaderError
+	var alertError tls.AlertError
+	var unknownAuthorityError x509.UnknownAuthorityError
+	var hostnameError x509.HostnameError
+	var certificateInvalidError x509.CertificateInvalidError
+	var systemRootsError x509.SystemRootsError
+	return errors.As(err, &certificateVerificationError) ||
+		errors.As(err, &recordHeaderError) ||
+		errors.As(err, &alertError) ||
+		errors.As(err, &unknownAuthorityError) ||
+		errors.As(err, &hostnameError) ||
+		errors.As(err, &certificateInvalidError) ||
+		errors.As(err, &systemRootsError)
+}
+
+func serverProtocolGetServerInfoFailure(sdkVersion string, err error) error {
 	return fmt.Errorf(
-		"dex: FlowService connection failed during GetServerInfo for Go SDK version %q: %w",
+		"dex: Go SDK version %q protocol [%d,%d] is incompatible with Server version %q protocol [unknown,unknown]: GetServerInfo failed: %w",
 		sdkVersion,
+		minimumSupportedServerProtocolVersion,
+		maximumSupportedServerProtocolVersion,
+		"unknown",
 		err,
 	)
 }

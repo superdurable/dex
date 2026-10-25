@@ -76,10 +76,14 @@ type tlsTestProxy struct {
 }
 
 func startTLSFlowServiceProxy(t *testing.T) (string, []byte, *tlsTestProxy) {
+	return startTLSFlowServiceProxyWithConfig(t, "127.0.0.1:0", []string{"h2"})
+}
+
+func startTLSFlowServiceProxyWithConfig(t *testing.T, bindAddress string, nextProtos []string) (string, []byte, *tlsTestProxy) {
 	t.Helper()
 	caPEM, certificate := newTLSTestCertificate(t)
-	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
-		Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"},
+	listener, err := tls.Listen("tcp", bindAddress, &tls.Config{
+		Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12, NextProtos: nextProtos,
 	})
 	require.NoError(t, err)
 	proxy := &tlsTestProxy{t: t, listener: listener, upstream: flowServiceAddress(), connections: make(map[net.Conn]struct{})}
@@ -188,7 +192,7 @@ func newTLSTestCertificate(t *testing.T) ([]byte, tls.Certificate) {
 	serverTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "localhost"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
-		DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
 		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 	serverDER, err := x509.CreateCertificate(rand.Reader, serverTemplate, caCertificate, &serverKey.PublicKey, caKey)
@@ -264,7 +268,7 @@ func TestFlowServiceTLSRejectsInvalidTransport(t *testing.T) {
 		tlsOptions *dex.FlowServiceTLSOptions
 		want       string
 	}{
-		{name: "plaintext", want: "Unavailable"},
+		{name: "plaintext", want: "server preface"},
 		{name: "untrusted CA", tlsOptions: &dex.FlowServiceTLSOptions{}, want: "failed to verify certificate"},
 		{name: "wrong server name", tlsOptions: &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM, ServerName: "wrong.example"}, want: "wrong.example"},
 	} {
@@ -276,6 +280,9 @@ func TestFlowServiceTLSRejectsInvalidTransport(t *testing.T) {
 			defer cancel()
 			_, err = client.SearchFlows(ctx, "FlowType = 'tlsTransportFlow'", 1, "")
 			require.ErrorContains(t, err, testCase.want)
+			if testCase.name == "untrusted CA" {
+				require.NotContains(t, err.Error(), "is valid for")
+			}
 		})
 	}
 	_, err = dex.NewClient(registry, cache, dex.ClientOptions{FlowServiceAddress: address,
@@ -301,22 +308,70 @@ func TestFlowServiceTLSRejectsInvalidTransport(t *testing.T) {
 	require.NotContains(t, err.Error(), "incompatible")
 }
 
+func TestFlowServiceTLSRejectsUnsupportedAddresses(t *testing.T) {
+	registry, err := dex.NewRegistry(nil)
+	require.NoError(t, err)
+	cache := newPullSDKCache(t)
+	for _, address := range []string{
+		"unix:8443", "passthrough:443", "dns:443", "unix:///tmp/dex.sock",
+		"unix:/tmp/dex.sock", "dns:///localhost/path:443", "https://localhost:443",
+	} {
+		t.Run(address, func(t *testing.T) {
+			_, err := dex.NewClient(registry, cache, dex.ClientOptions{
+				FlowServiceAddress: address, FlowServiceTLS: &dex.FlowServiceTLSOptions{},
+			})
+			require.ErrorContains(t, err, "FlowServiceAddress as host:port, dns:///host:port, or dns://authority/host:port")
+		})
+	}
+}
+
+func TestFlowServiceTLSRejectsServerWithoutHTTP2ALPN(t *testing.T) {
+	address, caPEM, proxy := startTLSFlowServiceProxyWithConfig(t, "127.0.0.1:0", []string{"http/1.1"})
+	registry, err := dex.NewRegistry(nil)
+	require.NoError(t, err)
+	client, err := dex.NewClient(registry, newPullSDKCache(t), dex.ClientOptions{
+		FlowServiceAddress: address,
+		FlowServiceTLS:     &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM},
+	})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, client.Close()) }()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err = client.SearchFlows(ctx, "FlowType = 'tlsTransportFlow'", 1, "")
+	require.ErrorContains(t, err, "no application protocol")
+	require.False(t, proxy.hasObservedServerName(""))
+}
+
 func TestFlowServiceTLSDNSTargetAndServerNameOverride(t *testing.T) {
 	for _, testCase := range []struct {
 		name                   string
 		usesDNSTarget          bool
 		usesServerNameOverride bool
+		usesIPv6               bool
+		usesDNSAuthority       bool
 	}{
 		{name: "DNS target", usesDNSTarget: true},
 		{name: "server name override", usesServerNameOverride: true},
+		{name: "IPv6 literal", usesDNSTarget: true, usesIPv6: true},
+		{name: "DNS authority", usesDNSTarget: true, usesDNSAuthority: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			proxyAddress, caPEM, proxy := startTLSFlowServiceProxy(t)
+			bindAddress := "127.0.0.1:0"
+			if testCase.usesIPv6 {
+				bindAddress = "[::1]:0"
+			}
+			proxyAddress, caPEM, proxy := startTLSFlowServiceProxyWithConfig(t, bindAddress, []string{"h2"})
 			address := proxyAddress
 			if testCase.usesDNSTarget {
-				_, port, err := net.SplitHostPort(proxyAddress)
+				host, port, err := net.SplitHostPort(proxyAddress)
 				require.NoError(t, err)
-				address = "dns:///localhost:" + port
+				if testCase.usesIPv6 {
+					address = "dns:///" + net.JoinHostPort(host, port)
+				} else if testCase.usesDNSAuthority {
+					address = "dns://127.0.0.1:53/" + net.JoinHostPort(host, port)
+				} else {
+					address = "dns:///localhost:" + port
+				}
 			}
 			tlsOptions := &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM}
 			if testCase.usesServerNameOverride {
@@ -329,7 +384,11 @@ func TestFlowServiceTLSDNSTargetAndServerNameOverride(t *testing.T) {
 			defer func() { require.NoError(t, client.Close()) }()
 			_, err = client.SearchFlows(integrationContext(t), "FlowType = 'tlsTransportFlow'", 1, "")
 			require.NoError(t, err)
-			require.True(t, proxy.hasObservedServerName("localhost"), "TLS proxy did not observe localhost SNI")
+			wantServerName := "localhost"
+			if testCase.usesIPv6 || testCase.usesDNSAuthority {
+				wantServerName = ""
+			}
+			require.True(t, proxy.hasObservedServerName(wantServerName), "TLS proxy did not observe expected SNI %q", wantServerName)
 		})
 	}
 }
