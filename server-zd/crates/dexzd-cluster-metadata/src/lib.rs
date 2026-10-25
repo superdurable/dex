@@ -11,15 +11,17 @@
 mod cluster;
 mod error;
 mod lease;
+mod lease_validity_deadline;
 mod manifest;
 mod registry;
 
 pub use cluster::{ClusterBootstrap, ClusterConfig, bootstrap_or_validate};
 pub use error::MetadataError;
 pub use lease::{
-    LeaseConfig, LeaseHandle, LeaseReleaseError, LeaseStatus, acquire_lease,
+    LeaseConfig, LeaseHandle, LeaseObservers, LeaseReleaseError, LeaseStatus, acquire_lease,
     acquire_lease_with_holder_process_id,
 };
+pub use lease_validity_deadline::LeaseValidityDeadline;
 pub use manifest::{
     ManifestChange, NodeConfig, bump_node_epoch, create_initial_manifest, raise_version_barrier,
     read_manifest, update_manifest, update_partition_snapshot,

@@ -263,6 +263,7 @@ pub(crate) fn start_node(
         let applier = Arc::new(CountingApplier::default());
         let runtime = Arc::new(RecordingRuntime::default());
         let factory_runtime = runtime.clone();
+        let lease_validity_deadline = dexzd_cluster_metadata::LeaseValidityDeadline::disarmed();
         let node = EngineNode::start(
             &config,
             EngineNodeDependencies {
@@ -271,6 +272,7 @@ pub(crate) fn start_node(
                 clock,
                 applier: applier.clone(),
                 id_source: Arc::new(dexzd_engine::SystemEngineIdSource),
+                lease_validity_deadline: lease_validity_deadline.clone(),
             },
             move |_services: EngineServices| EngineRuntimeHooks {
                 committed_commands: factory_runtime.clone(),
@@ -283,6 +285,7 @@ pub(crate) fn start_node(
             applier,
             runtime,
             hasher,
+            lease_validity_deadline,
         })
     }
 }

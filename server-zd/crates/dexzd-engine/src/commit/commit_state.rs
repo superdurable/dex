@@ -11,6 +11,7 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock, RwLockReadGuard};
 
+use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_keyspace::PartitionId;
 use tokio::sync::{OwnedSemaphorePermit, watch};
 
@@ -80,10 +81,14 @@ pub(crate) struct CommitState {
     /// Appliers hold it for reading while they write; `stop` holds it for writing.
     store_writes: RwLock<()>,
     halted_partitions: Vec<AtomicBool>,
+    lease_validity_deadline: LeaseValidityDeadline,
 }
 
 impl CommitState {
-    pub(crate) fn new(partition_count: u32) -> Self {
+    pub(crate) fn new(
+        partition_count: u32,
+        lease_validity_deadline: LeaseValidityDeadline,
+    ) -> Self {
         let (lifecycle, _) = watch::channel(NodeState::Recovering);
         Self {
             lifecycle,
@@ -92,6 +97,7 @@ impl CommitState {
             halted_partitions: (0..partition_count)
                 .map(|_| AtomicBool::new(false))
                 .collect(),
+            lease_validity_deadline,
         }
     }
 
@@ -162,11 +168,20 @@ impl CommitState {
             NodeState::Recovering => Err(CommitError::Unavailable {
                 detail: "the node is recovering".to_owned(),
             }),
-            NodeState::Serving => Ok(()),
+            NodeState::Serving if self.is_lease_valid_now() => Ok(()),
+            NodeState::Serving => Err(lease_validity_expired_error()),
             NodeState::Stopped(reason) => Err(CommitError::NodeStopping {
                 detail: reason.to_string(),
             }),
         }
+    }
+
+    /// Returns whether the lease is held and its local deadline has not passed.
+    ///
+    /// Reads an atomic, so it never waits for the lease renewal or the watchdog timer.
+    pub(crate) fn is_lease_valid_now(&self) -> bool {
+        self.lease_validity_deadline
+            .is_valid_at(tokio::time::Instant::now().into_std())
     }
 
     pub(crate) fn stop_reason(&self) -> Option<NodeStopReason> {
@@ -234,6 +249,16 @@ impl CommitState {
             .expect("pending command lock is not poisoned")
     }
 }
+
+/// The error for commands submitted or committed after the local lease deadline passed.
+pub(crate) fn lease_validity_expired_error() -> CommitError {
+    CommitError::NodeStopping {
+        detail: format!("node lease lost: {LEASE_VALIDITY_EXPIRED_DETAIL}"),
+    }
+}
+
+/// Lease-lost detail when the local validity deadline passes before a renewal succeeds.
+pub(crate) const LEASE_VALIDITY_EXPIRED_DETAIL: &str = "lease validity expired before renewal";
 
 /// The error for commands of a partition that stopped applying after an apply failure.
 pub(crate) fn partition_stopped_error(partition: PartitionId) -> CommitError {

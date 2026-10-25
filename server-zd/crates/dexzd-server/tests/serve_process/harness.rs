@@ -526,6 +526,19 @@ impl ServeProcess {
         }
     }
 
+    /// Returns the address that serves the API and gRPC health.
+    pub(crate) fn address(&self) -> SocketAddr {
+        self.address
+    }
+
+    /// Returns whether the process has exited.
+    pub(crate) fn has_exited(&mut self) -> bool {
+        self.child
+            .try_wait()
+            .expect("the process status is readable")
+            .is_some()
+    }
+
     /// Returns everything the process wrote to standard error.
     pub(crate) fn log(&self) -> String {
         fs::read_to_string(&self.log_path)
