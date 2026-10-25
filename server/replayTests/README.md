@@ -27,7 +27,7 @@ and Step Activity ID names. Histories recorded with the former names are unsuppo
 2. Export from a real Temporal server:
 
 ```bash
-docker exec temporal-admin-tools temporal workflow show \
+temporal workflow show \
   --workflow-id <id> --run-id <rid> --output json \
   > server/replayTests/history/vN-<scenario>.json
 ```

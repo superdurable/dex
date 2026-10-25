@@ -8,7 +8,7 @@ package io.superdurable.gen;
 /**
  * <pre>
  * Distinguishes no available Worker, a disconnected Worker, and a missing Step or RPC registration.
- * Go Server internals; server-zd does not serve or persist them.
+ * Go persists; server-zd does not.
  * </pre>
  *
  * Protobuf enum {@code dex.DispatchTaskErrorReason}

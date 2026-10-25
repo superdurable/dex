@@ -107,6 +107,7 @@ func ServiceErrorResponseFromActivityError(
 		Detail:                    activityError.GetServerDetail(),
 		SubStatus:                 activityErrorSubStatus(flowErrorType),
 		OriginalWorkerErrorStatus: activityError.GetWorkerGrpcStatus(),
+		DispatchTaskErrorReason:   activityError.GetDispatchTaskErrorReason(),
 	}
 	workerError := activityError.GetWorkerError()
 	if workerError == nil {

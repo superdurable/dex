@@ -955,7 +955,7 @@ func (i *Interpreter) processStepExecution(
 			activityInput.StickyWait = durationpb.New(i.activities.MatchingConfig().StickyWait)
 		}
 		if globalVersioner.UsesPullRoutingVisibility() {
-			continueAsNewer.RecordWaitForPullRouting(stepExeId, pulldispatch.Routing(activityInput.GetWorkerTarget(), activityInput.GetDexTaskQueue(), ""))
+			continueAsNewer.RecordWaitForPullRouting(stepExeId, pulldispatch.Routing(activityInput.GetWorkerTarget(), activityInput.GetDexTaskQueue(), "", dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED))
 		}
 		var activityOutput dexpb.InvokeWaitForMethodActivityOutput
 		waitForMethErr = provider.ExecuteActivity(
@@ -975,7 +975,7 @@ func (i *Interpreter) processStepExecution(
 			return nil, service.StepExecutionStatusInternalError, err
 		}
 
-		if globalVersioner.UsesPullRoutingVisibility() && waitForMethErr == nil {
+		if globalVersioner.UsesPullRoutingVisibility() && waitForMethErr == nil && activityOutput.GetPullRouting() != nil {
 			continueAsNewer.RecordWaitForPullRouting(stepExeId, activityOutput.GetPullRouting())
 		}
 
@@ -1318,7 +1318,7 @@ func (i *Interpreter) invokeExecuteMethod(
 		activityInput.StickyWait = durationpb.New(i.activities.MatchingConfig().StickyWait)
 	}
 	if globalVersioner.UsesPullRoutingVisibility() {
-		continueAsNewer.RecordExecutePullRouting(stepExeId, pulldispatch.Routing(activityInput.GetWorkerTarget(), activityInput.GetDexTaskQueue(), ""))
+		continueAsNewer.RecordExecutePullRouting(stepExeId, pulldispatch.Routing(activityInput.GetWorkerTarget(), activityInput.GetDexTaskQueue(), "", dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED))
 	}
 	var activityOutput dexpb.InvokeExecuteMethodActivityOutput
 	exeMethErr := provider.ExecuteActivity(
@@ -1344,7 +1344,7 @@ func (i *Interpreter) invokeExecuteMethod(
 		}
 		return nil, service.StepExecutionStatusFailedNoProceed, exeMethErr
 	}
-	if globalVersioner.UsesPullRoutingVisibility() {
+	if globalVersioner.UsesPullRoutingVisibility() && activityOutput.GetPullRouting() != nil {
 		continueAsNewer.RecordExecutePullRouting(stepExeId, activityOutput.GetPullRouting())
 	}
 	executeResponse := activityOutput.GetResponse()
