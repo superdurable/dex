@@ -20,8 +20,12 @@ import io.grpc.Status;
  * For example:
  *
  * <pre>{@code
+ * io.superdurable.dex.WaitForStepCompletionOptions options =
+ *         io.superdurable.dex.WaitForStepCompletionOptions.newBuilder()
+ *                 .requestTimeout(timeout)
+ *                 .build();
  * try {
- *     client.waitForStepCompletion(flowId, stepExecutionId, timeout);
+ *     client.waitForStepCompletion(flowId, stepExecutionId, options);
  * } catch (FlowClosingException closing) {
  *     client.waitForFlow(flowId, timeout);
  * }

@@ -86,8 +86,9 @@ export class FlowAlreadyStartedError extends DexServiceError {}
  * Re-read the retained terminal Flow state before deciding what to do next.
  * @example
  * ```typescript
+ * const options = { requestTimeoutMs: timeoutMs };
  * try {
- *   await client.waitForStepCompletion(flowId, stepExecutionId, timeout);
+ *   await client.waitForStepCompletion(flowId, stepExecutionId, options);
  * } catch (error) {
  *   if (error instanceof FlowClosingError) {
  *     await client.waitForFlow(flowId);

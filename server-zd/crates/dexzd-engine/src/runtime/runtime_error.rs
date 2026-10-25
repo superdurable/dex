@@ -152,6 +152,7 @@ impl RuntimeError {
     }
 
     pub(crate) fn from_reply(error: &CommandErrorReply) -> Self {
+        // Map committed cleanup replies here so older stored replies also receive the sub-status.
         let sub_status = if error.grpc_code == grpc_code::FAILED_PRECONDITION
             && error.message == dexzd_apply::TERMINAL_CLEANUP_MESSAGE
         {

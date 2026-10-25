@@ -299,9 +299,18 @@ func (e *FlowAlreadyStartedError) Unwrap() error {
 // Re-read the retained terminal Flow state before deciding whether to retry or take another action.
 // Match it with errors.As to avoid depending on the service error text:
 //
-//	var closing *dex.FlowClosingError
-//	if errors.As(err, &closing) {
-//		return closing
+//	import (
+//		"context"
+//		"errors"
+//		"github.com/superdurable/dex/sdk-go/dex"
+//	)
+//
+//	func readTerminalFlowAfterClosing(ctx context.Context, client *dex.Client, flowID string, callErr error) (dex.FlowResult, error) {
+//		var closing *dex.FlowClosingError
+//		if errors.As(callErr, &closing) {
+//			return client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{})
+//		}
+//		return dex.FlowResult{}, callErr
 //	}
 type FlowClosingError struct {
 	// ServiceError contains the rejected operation and original transport failure.

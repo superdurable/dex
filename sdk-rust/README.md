@@ -1,5 +1,7 @@
 # Dex Rust SDK
 
+[Release notes](RELEASE_NOTES.md)
+
 ## Authentication
 
 Set a credential on each Client and Worker when Dex authentication is enabled.

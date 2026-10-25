@@ -10,7 +10,7 @@ package integ
 
 import (
 	"context"
-	"strings"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -19,9 +19,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
+	uclient "github.com/superdurable/dex/service/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+var errTerminalProducerDrainClosingUpdate = errors.New("terminal cleanup update rejected")
 
 const (
 	terminalProducerDrainFlowType               = "terminal-producer-drain"
@@ -32,7 +35,7 @@ const (
 	terminalProducerDrainWaitingChannelStepType = "waiting-channel"
 	terminalProducerDrainFailingStepType        = "failing-timer"
 	terminalProducerDrainWakeupStepType         = "wakeup-timer"
-	terminalProducerDrainProbeRPC               = "terminal-producer-drain-probe"
+	terminalProducerDrainProbeRPC               = "probe-terminal-producer-drain"
 	terminalProducerDrainChannelName            = "terminal-producer-drain-never-published"
 	terminalProducerDrainStopFailureText        = "stop while Execute is active"
 	terminalProducerDrainDecisionFailureText    = "fail while another Step is waiting"
@@ -47,6 +50,46 @@ type terminalProducerDrainHandler struct {
 	waitingConditionStartedOnce sync.Once
 	executeStarted              chan struct{}
 	waitingConditionStarted     chan struct{}
+}
+
+type terminalProducerDrainClosingUpdateClient struct {
+	uclient.UnifiedClient
+}
+
+func newTerminalProducerDrainClosingUpdateClient(client uclient.UnifiedClient) uclient.UnifiedClient {
+	return &terminalProducerDrainClosingUpdateClient{UnifiedClient: client}
+}
+
+func (client *terminalProducerDrainClosingUpdateClient) SynchronousUpdateWorkflow(
+	ctx context.Context,
+	valuePtr interface{},
+	workflowID string,
+	runID string,
+	updateID string,
+	updateType string,
+	input interface{},
+) error {
+	request, isRPCRequest := input.(*dexpb.InvokeRPCRequest)
+	if updateType == service.InvokeRpcUpdateType && isRPCRequest &&
+		request.GetRpcName() == terminalProducerDrainProbeRPC {
+		return errTerminalProducerDrainClosingUpdate
+	}
+	return client.UnifiedClient.SynchronousUpdateWorkflow(
+		ctx, valuePtr, workflowID, runID, updateID, updateType, input,
+	)
+}
+
+func (client *terminalProducerDrainClosingUpdateClient) GetIfUpdateError(
+	err error,
+	detail *string,
+) (dexpb.UpdateErrorType, bool) {
+	if errors.Is(err, errTerminalProducerDrainClosingUpdate) {
+		if detail != nil {
+			*detail = service.FlowTerminalCleanupInProgressMessage
+		}
+		return dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION, true
+	}
+	return client.UnifiedClient.GetIfUpdateError(err, detail)
 }
 
 func newTerminalProducerDrainHandler() *terminalProducerDrainHandler {
@@ -95,10 +138,16 @@ func testTerminalProducerDrain(t *testing.T, backendType service.BackendType) {
 func testTerminalActiveExecuteProducerDrain(t *testing.T, backendType service.BackendType) {
 	handler := newTerminalProducerDrainHandler()
 	workerTarget := startWorker(t, handler)
-	runtime := startDexService(t, DexServiceTestConfig{
+	testConfig := DexServiceTestConfig{
 		BackendType:                            backendType,
 		UseTemporalSynchronousUpdateForAllRPCs: true,
-	})
+	}
+	hasInProcessGoServer := *dexServerBinary == "" && *dexServerAddress == ""
+	if backendType == service.BackendTypeTemporal && hasInProcessGoServer {
+		// Inject the terminal rejection so API mapping coverage does not depend on a brief closing window.
+		testConfig.ApiUnifiedClientWrapper = newTerminalProducerDrainClosingUpdateClient
+	}
+	runtime := startDexService(t, testConfig)
 	flowID := terminalProducerDrainFlowType + "-" + uuid.NewString()
 	cleanupTerminalProducerDrainFlow(t, runtime.FlowClient, flowID)
 
@@ -126,13 +175,15 @@ func testTerminalActiveExecuteProducerDrain(t *testing.T, backendType service.Ba
 		Reason:   terminalProducerDrainStopFailureText,
 	})
 	require.NoError(t, err)
+	if backendType == service.BackendTypeTemporal && hasInProcessGoServer {
+		assertTerminalProducerDrainClosingUpdateMapped(t, ctx, runtime.FlowClient, flowID)
+	}
 
 	result, waitErr := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowID,
 		WaitTimeSeconds: 5,
 	})
 	if waitErr != nil {
-		confirmTerminalFinalizationStarted(t, ctx, runtime.FlowClient, flowID, backendType)
 		t.Fatalf(
 			"Flow remained running because an active Execute Step blocked terminal producer drain: %v",
 			waitErr,
@@ -179,7 +230,6 @@ func testTerminalWaitingConditionProducerDrain(
 		WaitTimeSeconds: 8,
 	})
 	if waitErr != nil {
-		confirmTerminalFinalizationStarted(t, ctx, runtime.FlowClient, flowID, backendType)
 		t.Fatalf(
 			"Flow remained running because a waiting %s Step blocked terminal producer drain: %v",
 			conditionKind,
@@ -214,26 +264,21 @@ func cleanupTerminalProducerDrainFlow(
 	})
 }
 
-func confirmTerminalFinalizationStarted(
+func assertTerminalProducerDrainClosingUpdateMapped(
 	t *testing.T,
 	ctx context.Context,
 	flowClient dexpb.FlowServiceClient,
 	flowID string,
-	backendType service.BackendType,
 ) {
 	t.Helper()
-	if backendType != service.BackendTypeTemporal {
-		return
-	}
-	require.Eventually(t, func() bool {
-		_, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-			RequestId: newRequestID(),
-			FlowId:    flowID,
-			RpcName:   terminalProducerDrainProbeRPC,
-		})
-		return status.Code(err) == codes.FailedPrecondition &&
-			strings.Contains(err.Error(), "flow terminal cleanup is in progress")
-	}, 5*time.Second, 20*time.Millisecond)
+	_, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowID,
+		RpcName:   terminalProducerDrainProbeRPC,
+	})
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Equal(t, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING,
+		grpcServiceErrorResponse(t, err).GetSubStatus())
 }
 
 func (h *terminalProducerDrainHandler) InvokeWorkerRPC(

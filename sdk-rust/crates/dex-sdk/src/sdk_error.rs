@@ -21,6 +21,7 @@ pub type SdkResult<T> = Result<T, SdkError>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Provides Dex-specific detail beyond a gRPC status code.
+#[non_exhaustive]
 pub enum ErrorSubStatus {
     /// Dex returned no specific status.
     Uncategorized,
@@ -137,6 +138,7 @@ impl WorkerError {
 ///
 /// Match specific variants when recovery differs. [`Self::service_error`] extracts common gRPC
 /// metadata from every service-backed variant.
+#[non_exhaustive]
 pub enum SdkError {
     /// A general Dex service or transport call failed.
     Service {

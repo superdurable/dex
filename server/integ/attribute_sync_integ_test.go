@@ -177,7 +177,8 @@ func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
 				Operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL,
 				Operand:  &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "never"}},
 			},
-			RequestId: newRequestID(),
+			RequestId:             newRequestID(),
+			RequestTimeoutSeconds: 1,
 		})
 		if status.Code(waitErr) != codes.FailedPrecondition {
 			return false
