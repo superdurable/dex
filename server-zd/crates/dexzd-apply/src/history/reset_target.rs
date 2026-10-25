@@ -8,7 +8,9 @@
 
 //! Maps a ResetFlow request to a semantic point of the selected lineage (plan section 8.4).
 
-use dexzd_protocol::dex::{ErrorSubStatus, FlowResetStepMethod, FlowResetType, ResetFlowRequest};
+use dexzd_protocol::dex::{
+    ErrorSubStatus, FlowResetStepMethod, FlowResetType, ResetFlowRequest, flow_history_event,
+};
 use dexzd_protocol::dexzd::v1::{CommandReply, HistoryRecord, StepMethod};
 
 use crate::ApplyError;
@@ -19,11 +21,12 @@ use crate::history::state_rebuild::HistoryPoint;
 use crate::state_access::FlowTransaction;
 
 /// The point a time travel returns to.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct TravelTarget {
     pub(crate) point: HistoryPoint,
     /// Largest history event ID at the point, for the fork event.
     pub(crate) last_event_id: i64,
+    pub(crate) close_history_message: Option<String>,
 }
 
 /// Resolves the target point, or returns the reply that rejects the request.
@@ -113,6 +116,17 @@ pub(crate) fn resolve_target(
             seq: selected.seq,
         },
         last_event_id: last_event_id_at(&candidates, selected.seq),
+        close_history_message: candidates
+            .iter()
+            .filter(|record| record.seq <= selected.seq)
+            .flat_map(|record| &record.events)
+            .filter_map(|event| match &event.payload {
+                Some(flow_history_event::Payload::FlowClosed(closed)) => {
+                    Some(closed.error_message.clone())
+                }
+                _ => None,
+            })
+            .next_back(),
     }))
 }
 

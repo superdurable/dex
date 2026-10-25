@@ -2049,6 +2049,90 @@ fn time_travel_with_reapply_completes_a_restored_wait_from_a_received_child_resu
     travel_to_a_wait_whose_child_result_was_received(false);
 }
 
+#[test]
+fn resetting_a_child_to_its_closed_point_reports_the_new_attempt_once() {
+    let mut harness = Harness::new();
+    harness.start_parent();
+    let start = harness.register_sub_flow_wait(SubFlowReusePolicy::Unspecified);
+    assert_ok(&harness.deliver_start_outbox(&start, FIRST_CHILD_RUN));
+    harness.apply(
+        CHILD_ID,
+        &FIRST_CHILD_RUN,
+        Command::FlowStop(FlowStopCommand {
+            request: Some(StopFlowRequest {
+                stop_type: StopType::Terminate as i32,
+                ..StopFlowRequest::default()
+            }),
+        }),
+    );
+    let child_hash = harness.hasher.flow_hash(TenantId::DEFAULT, CHILD_ID);
+    let close_seq = harness.record(CHILD_ID, FIRST_CHILD_RUN).next_run_seq - 1;
+    let close_record: HistoryRecord = HistoryRecord::decode(
+        harness
+            .state
+            .get(
+                ColumnFamily::History,
+                &history_record_key(child_hash, RunId(FIRST_CHILD_RUN), close_seq),
+            )
+            .expect("memory reads")
+            .expect("child close history")
+            .as_slice(),
+    )
+    .expect("history decodes");
+    let first_report = harness
+        .outbox(CHILD_ID, FIRST_CHILD_RUN)
+        .pop()
+        .expect("first report");
+    assert_ok(&harness.deliver_completion(&first_report));
+    let completed_step = harness.step("parent", PARENT_RUN, "StartStep-1");
+    assert_ne!(completed_step.phase, StepExecutionPhase::Waiting as i32);
+
+    for (reset_type, history_event_time, run_attempt) in [
+        (FlowResetType::Beginning, String::new(), 0),
+        (
+            FlowResetType::HistoryEventTime,
+            (i128::from(close_record.timestamp_micros) * 1000).to_string(),
+            1,
+        ),
+    ] {
+        let reset = harness.apply(
+            CHILD_ID,
+            &FIRST_CHILD_RUN,
+            Command::TimeTravel(TimeTravelCommand {
+                request: Some(ResetFlowRequest {
+                    flow_id: CHILD_ID.to_owned(),
+                    reset_type: reset_type as i32,
+                    history_event_time,
+                    run_attempt,
+                    skip_writes_reapply: true,
+                    ..ResetFlowRequest::default()
+                }),
+            }),
+        );
+        assert!(matches!(
+            reset.reply.reply,
+            Some(command_reply::Reply::TimeTravel(_))
+        ));
+    }
+    let child = harness.record(CHILD_ID, FIRST_CHILD_RUN);
+    assert_eq!(child.current_attempt, 3);
+    assert_eq!(child.status, FlowStatus::Terminated as i32);
+    assert!(child.close.expect("close").is_reported_to_parent);
+    let reports: Vec<_> = harness
+        .outbox(CHILD_ID, FIRST_CHILD_RUN)
+        .into_iter()
+        .filter(|outbox| matches!(&outbox.payload, Some(outbox_record::Payload::ChildCompleted(completed)) if completed.child_run_attempt == 3))
+        .collect();
+    assert_eq!(reports.len(), 1);
+    assert_ok(&harness.deliver_completion(&reports[0]));
+    assert_eq!(
+        harness.step("parent", PARENT_RUN, "StartStep-1").phase,
+        completed_step.phase
+    );
+    let duplicate = harness.deliver_completion(&reports[0]);
+    assert!(duplicate.writes.is_empty());
+}
+
 fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
     let mut harness = Harness::new();
     harness.start_parent();

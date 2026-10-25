@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_apply::{StateWrite, TransactionalRpcHold, transactional_rpc_hold};
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, parse_run_key};
-use dexzd_protocol::dex::FlowStatus;
+use dexzd_protocol::dex::{FlowErrorType, FlowStatus};
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributeSyncOutboxRecord, FlowCommand, RunRecord, StepExecutionPhase,
     TimerId, flow_command::Command, timer_id,
@@ -275,7 +275,8 @@ impl CloseBarrierCounts {
 }
 
 /// AS5: a run closes naturally only once it has no outbox entry and its command carries no
-/// in-flight transactional RPC. StopFlow, terminations, and time travel close at once. AS6: an
+/// in-flight transactional RPC. StopFlow and terminations close at once; time travel follows its
+/// restored close. AS6: an
 /// unstamped command that consults the barrier records a pending close that nothing holds.
 ///
 /// Returns the natural closes this command deferred and finalized, updating which runs an
@@ -331,9 +332,19 @@ pub(crate) fn check_close_barrier(
                 counts.finalized_after_rpcs += 1;
             }
         }
-        let is_newly_closed = previous.status == FlowStatus::Running as i32
-            && record.status != FlowStatus::Running as i32;
-        if !is_newly_closed || may_close_at_once {
+        let is_newly_closed = record.status != FlowStatus::Running as i32
+            && (previous.status == FlowStatus::Running as i32
+                || previous.current_attempt != record.current_attempt);
+        let closes_without_barrier = transactional_rpc_hold(command)
+            == TransactionalRpcHold::ClosesAtOnce
+            || matches!(
+                FlowStatus::try_from(record.status),
+                Ok(FlowStatus::Canceled | FlowStatus::Terminated)
+            )
+            || record.close.as_ref().is_some_and(|close| {
+                close.error_type == FlowErrorType::ClientApiFailingFlow as i32
+            });
+        if !is_newly_closed || closes_without_barrier {
             continue;
         }
         if command.is_transactional_rpc_in_flight {

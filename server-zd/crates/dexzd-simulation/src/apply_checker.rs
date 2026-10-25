@@ -259,6 +259,29 @@ impl ApplyChecker {
         })
     }
 
+    pub(crate) fn closed_window_point(
+        &self,
+        run_id: RunId,
+        run: &crate::state_view::RunView,
+    ) -> Option<(i64, i32)> {
+        let points = self.memory.window_points.get(&run_id)?;
+        run.history.iter().rev().find_map(|(seq, history)| {
+            (points.contains_key(seq)
+                && history.events.iter().any(|event| {
+                    matches!(
+                        event.payload,
+                        Some(dexzd_protocol::dex::flow_history_event::Payload::FlowClosed(_))
+                    )
+                }))
+            .then(|| {
+                i32::try_from(history.attempt)
+                    .ok()
+                    .map(|attempt| (history.timestamp_micros, attempt))
+            })
+            .flatten()
+        })
+    }
+
     /// Stamps the points `remember_window_points` just recorded or pruned.
     fn record_window_point_spans(
         &mut self,

@@ -18,7 +18,7 @@ use dexzd_apply::{
 };
 use dexzd_keyspace::row_keys::{
     attempt_record_key, checkpoint_key, hard_delete_current_key, hard_delete_pending_key,
-    history_record_key, run_singleton_key, value_row_key,
+    history_record_key, retention_index_key, run_singleton_key, value_row_key,
 };
 use dexzd_keyspace::{
     ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, ValueId,
@@ -37,9 +37,9 @@ use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, ChannelMessageDeleteCommand,
     ChannelMetaRecord, ChannelPublishCommand, CheckpointRecord, CommandReply, FlowCommand,
     FlowDirectoryRecord, FlowStartCommand, FlowStopCommand, HardDeleteObjectRecord,
-    HardDeleteObjectReference, HistoryRecord, RetryBackoffTimerId, RpcCommittedCommand, RunRecord,
-    RunSettings, StepAttemptFailedCommand, StepAttemptStartedCommand, StepExecutionPhase,
-    StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
+    HardDeleteObjectReference, HistoryRecord, RetryBackoffTimerId, RpcCommittedCommand,
+    RunPurgeCommand, RunRecord, RunSettings, StepAttemptFailedCommand, StepAttemptStartedCommand,
+    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
     StepMethodCompletedCommand, TimeTravelCommand, TimerId, TimerRecord, TimerSkipCommand,
     TimersFiredCommand, ValueRecord, command_reply, flow_command::Command,
     step_method_completed_command, stored_value, timer_id,
@@ -781,6 +781,184 @@ fn beginning_reopens_a_completed_flow_with_the_start_state() {
         harness.step("ChargeStep-1").phase,
         dexzd_protocol::dexzd::v1::StepExecutionPhase::Execute as i32
     );
+}
+
+#[test]
+fn a_closed_point_closes_each_new_attempt_with_retention_and_history() {
+    for is_running_before_reset in [true, false] {
+        let mut harness = Harness::new();
+        harness.start(start_request());
+        harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+        harness.complete_wait_for("ChargeStep-1");
+        harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+        harness.complete_execute("ChargeStep-1", 1, force_complete());
+        let original_close_time = harness
+            .history_record(harness.last_seq())
+            .unwrap()
+            .timestamp_micros;
+        let original_history = harness.history_record(harness.last_seq()).unwrap();
+        let original_hash = current_semantic_point_hash(
+            &harness.context,
+            &harness.state,
+            harness.run(),
+            &original_history.command.expect("close command").command_id,
+        )
+        .expect("hash closed point")
+        .expect("semantic point")
+        .state_hash;
+        let original_deadline = harness.run_record().retention_deadline_micros;
+        let original_key = retention_index_key(
+            harness.context.partition,
+            original_deadline,
+            harness.context.flow_hash,
+            harness.run(),
+        );
+        assert!(
+            harness
+                .state
+                .rows
+                .contains_key(&(ColumnFamily::PartitionIndex, original_key.clone()))
+        );
+        if is_running_before_reset {
+            harness.travel_to(reset(FlowResetType::Beginning));
+            assert!(
+                !harness
+                    .state
+                    .rows
+                    .contains_key(&(ColumnFamily::PartitionIndex, original_key.clone()))
+            );
+        }
+        let diagnostic_command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            request: Some(ResetFlowRequest {
+                run_attempt: 1,
+                ..reset_to_time(original_close_time)
+            }),
+        }));
+        let target_hash =
+            time_travel_target_hash(&harness.context, &harness.state, &diagnostic_command)
+                .expect("rebuild closed point")
+                .expect("closed point exists")
+                .state_hash;
+        assert_eq!(target_hash, original_hash);
+        let (attempt, outcome) = harness.travel_to(ResetFlowRequest {
+            run_attempt: 1,
+            ..reset_to_time(original_close_time)
+        });
+        assert_eq!(attempt, if is_running_before_reset { 3 } else { 2 });
+        let record = harness.run_record();
+        assert_eq!(record.status, FlowStatus::Completed as i32);
+        assert!(record.retention_deadline_micros > original_deadline);
+        assert_eq!(record.closed_at_micros, harness.now_micros);
+        assert_eq!(harness.directory_status(), FlowStatus::Completed as i32);
+        assert!(!harness.has_index_entry(IndexKind::ActiveWork));
+        assert!(
+            !harness
+                .state
+                .rows
+                .contains_key(&(ColumnFamily::PartitionIndex, original_key))
+        );
+        let retention_key = retention_index_key(
+            harness.context.partition,
+            record.retention_deadline_micros,
+            harness.context.flow_hash,
+            harness.run(),
+        );
+        assert!(
+            harness
+                .state
+                .rows
+                .contains_key(&(ColumnFamily::PartitionIndex, retention_key))
+        );
+        assert!(outcome.effects.iter().any(|effect| matches!(
+            effect,
+            ApplyEffect::WakeWaiters {
+                change: dexzd_apply::WaitableChange::FlowClosed,
+                ..
+            }
+        )));
+        let fork = harness.history_record(harness.last_seq()).unwrap();
+        assert!(matches!(
+            fork.events[0].payload,
+            Some(flow_history_event::Payload::TimeTravelFork(_))
+        ));
+        let Some(flow_history_event::Payload::FlowClosed(closed)) = &fork.events[1].payload else {
+            panic!("the new attempt records FlowClosed after TimeTravelFork");
+        };
+        assert_eq!(closed.flow_status, FlowStatus::Completed as i32);
+        assert_eq!(closed.results.len(), 1);
+        harness.now_micros = record.retention_deadline_micros;
+        let fired = harness.apply(Command::TimersFired(TimersFiredCommand {
+            timers: vec![TimerId {
+                run_attempt: 0,
+                kind: Some(timer_id::Kind::Retention(
+                    dexzd_protocol::dexzd::v1::RetentionTimerId {},
+                )),
+            }],
+        }));
+        assert!(
+            fired
+                .effects
+                .iter()
+                .any(|effect| matches!(effect, ApplyEffect::RunPurgeRequested { .. }))
+        );
+        harness.apply(Command::RunPurge(RunPurgeCommand {}));
+        let run_key = run_singleton_key(
+            harness.context.flow_hash,
+            harness.run(),
+            RunTable::RunRecord,
+        );
+        assert!(
+            !harness
+                .state
+                .rows
+                .contains_key(&(ColumnFamily::Flow, run_key))
+        );
+    }
+}
+
+#[test]
+fn a_stopped_point_closes_immediately_after_a_reset() {
+    for (stop_type, expected_status) in [
+        (StopType::Cancel, FlowStatus::Canceled),
+        (StopType::Fail, FlowStatus::Failed),
+        (StopType::Terminate, FlowStatus::Terminated),
+    ] {
+        let mut harness = Harness::new();
+        harness.start(start_request());
+        harness.apply(Command::FlowStop(FlowStopCommand {
+            request: Some(StopFlowRequest {
+                stop_type: stop_type as i32,
+                reason: "stopped at this point".to_owned(),
+                ..StopFlowRequest::default()
+            }),
+        }));
+        let stopped_at = harness
+            .history_record(harness.last_seq())
+            .unwrap()
+            .timestamp_micros;
+        harness.travel_to(reset(FlowResetType::Beginning));
+        let (_, outcome) = harness.travel_to(ResetFlowRequest {
+            run_attempt: 1,
+            ..reset_to_time(stopped_at)
+        });
+        assert_eq!(harness.run_record().status, expected_status as i32);
+        assert!(harness.run_record().pending_close.is_none());
+        let fork = harness.history_record(harness.last_seq()).unwrap();
+        let Some(flow_history_event::Payload::FlowClosed(closed)) = &fork.events[1].payload else {
+            panic!("the stopped point closes the new attempt");
+        };
+        assert_eq!(closed.flow_status, expected_status as i32);
+        if stop_type == StopType::Terminate {
+            assert_eq!(closed.error_message, "stopped at this point");
+        }
+        assert!(outcome.effects.iter().any(|effect| matches!(
+            effect,
+            ApplyEffect::WakeWaiters {
+                change: dexzd_apply::WaitableChange::FlowClosed,
+                ..
+            }
+        )));
+    }
 }
 
 #[test]

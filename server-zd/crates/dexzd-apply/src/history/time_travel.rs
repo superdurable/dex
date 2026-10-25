@@ -10,10 +10,10 @@
 
 use std::collections::BTreeSet;
 
-use dexzd_keyspace::row_keys::{active_work_index_key, timer_index_key};
+use dexzd_keyspace::row_keys::{active_work_index_key, retention_index_key, timer_index_key};
 use dexzd_keyspace::{ColumnFamily, RunTable};
 use dexzd_protocol::dex::{
-    ErrorSubStatus, FlowStatus, TimeTravelForkHistoryEvent, flow_history_event,
+    ErrorSubStatus, FlowErrorType, FlowStatus, TimeTravelForkHistoryEvent, flow_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, CommandErrorReply, CommandReply, FlowCommand, RetentionTimerId,
@@ -25,7 +25,8 @@ use prost::Message;
 
 use crate::command_handlers::command_replies::{TERMINAL_CLEANUP_MESSAGE, error_reply, grpc_code};
 use crate::command_handlers::flow_close::{
-    finalize_pending_close_if_ready, update_directory_status,
+    FlowClosing, close_flow, close_flow_immediately, finalize_pending_close_if_ready,
+    update_directory_status,
 };
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult, ReplayedCommandCounters};
@@ -106,6 +107,7 @@ pub(crate) fn apply_time_travel(
         Vec::new()
     };
     let rebuilt = rebuild_attempt_state(transaction, cursor.rows, &cursor.record, target.point)?;
+    let restored_closing = restored_closing(&rebuilt.run_status, &target)?;
     let previous_rows = read_attempt_rows(transaction, cursor.rows)?;
     let previous_status = run_status_of(&cursor.record);
     let was_running = cursor.record.status == FlowStatus::Running as i32;
@@ -133,7 +135,7 @@ pub(crate) fn apply_time_travel(
         &previous_rows,
         rebuilt.rows,
     )?;
-    update_run_lifecycle(transaction, &mut cursor, scope, was_running)?;
+    prepare_run_lifecycle(transaction, &mut cursor, scope, was_running)?;
     let restored_rows = read_attempt_rows(transaction, cursor.rows)?;
     crate::values::rewrite_holders_for_time_travel(
         transaction,
@@ -159,8 +161,12 @@ pub(crate) fn apply_time_travel(
     for event in reapplied_events {
         cursor.add_event(event);
     }
-    // A restored pending close finalizes now when nothing it waits for remains.
-    finalize_pending_close_if_ready(transaction, &mut cursor, scope)?;
+    if let Some(closing) = restored_closing {
+        close_restored_attempt(transaction, &mut cursor, scope, closing)?;
+    } else {
+        // A restored pending close finalizes now when nothing it waits for remains.
+        finalize_pending_close_if_ready(transaction, &mut cursor, scope)?;
+    }
     cursor.wake(WaitableChange::RunAttemptChanged);
     let reply = CommandReply {
         reply: Some(command_reply::Reply::TimeTravel(TimeTravelReply {
@@ -364,8 +370,8 @@ fn restored_task_id(command_id: &[u8], index: u32) -> Vec<u8> {
     task_id
 }
 
-/// Reopens a closed run or closes a running one when the restored status differs.
-fn update_run_lifecycle(
+/// Clears prior retention and reopens the run when its restored state is running.
+fn prepare_run_lifecycle(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
@@ -373,31 +379,103 @@ fn update_run_lifecycle(
 ) -> Result<(), ApplyError> {
     let is_running = cursor.record.status == FlowStatus::Running as i32;
     let partition = transaction.context().partition;
-    let active_work_key = active_work_index_key(partition, cursor.rows.flow_hash, cursor.run_id());
     let retention_timer = TimerId {
         run_attempt: 0,
         kind: Some(timer_id::Kind::Retention(RetentionTimerId {})),
     };
-    match (was_running, is_running) {
-        (true, true) => return Ok(()),
-        (false, true) => {
+    if !was_running {
+        let previous_deadline = cursor.record.retention_deadline_micros;
+        if previous_deadline != 0 {
             disarm_timer(transaction, cursor, &retention_timer)?;
-            cursor.record.retention_deadline_micros = 0;
-            transaction.put(ColumnFamily::PartitionIndex, active_work_key, Vec::new());
+            transaction.delete(
+                ColumnFamily::PartitionIndex,
+                retention_index_key(
+                    partition,
+                    previous_deadline,
+                    cursor.rows.flow_hash,
+                    cursor.run_id(),
+                ),
+            );
         }
-        (true, false) => {
-            let settings = cursor.record.settings.unwrap_or_default();
-            let retention_deadline = scope
-                .now_micros
-                .saturating_add(settings.retention_after_close_micros);
-            cursor.record.retention_deadline_micros = retention_deadline;
-            arm_timer(transaction, cursor, &retention_timer, retention_deadline);
-            transaction.delete(ColumnFamily::PartitionIndex, active_work_key);
-            cursor.wake(WaitableChange::FlowClosed);
-        }
-        (false, false) => {}
+        cursor.record.retention_deadline_micros = 0;
     }
-    update_directory_status(transaction, cursor, scope)
+    if is_running && !was_running {
+        transaction.put(
+            ColumnFamily::PartitionIndex,
+            active_work_index_key(partition, cursor.rows.flow_hash, cursor.run_id()),
+            Vec::new(),
+        );
+        update_directory_status(transaction, cursor, scope)?;
+    }
+    Ok(())
+}
+
+fn restored_closing(
+    status: &dexzd_protocol::dexzd::v1::CheckpointRunStatus,
+    target: &crate::history::reset_target::TravelTarget,
+) -> Result<Option<FlowClosing>, ApplyError> {
+    if status.status == FlowStatus::Running as i32 {
+        return Ok(None);
+    }
+    let close = status
+        .close
+        .as_ref()
+        .ok_or_else(|| ApplyError::InvariantViolation {
+            detail: "a restored closed run has no close record".to_owned(),
+        })?;
+    let restored_status =
+        FlowStatus::try_from(status.status).map_err(|_| ApplyError::InvariantViolation {
+            detail: format!("a restored run has unknown status {}", status.status),
+        })?;
+    let error_type =
+        FlowErrorType::try_from(close.error_type).map_err(|_| ApplyError::InvariantViolation {
+            detail: format!(
+                "a restored close has unknown error type {}",
+                close.error_type
+            ),
+        })?;
+    Ok(Some(FlowClosing {
+        status: restored_status,
+        error_type,
+        error_message: close.error_message.clone(),
+        history_message: target
+            .close_history_message
+            .clone()
+            .unwrap_or_else(|| close.error_message.clone()),
+    }))
+}
+
+fn close_restored_attempt(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
+    closing: FlowClosing,
+) -> Result<(), ApplyError> {
+    cursor.record.status = FlowStatus::Running as i32;
+    cursor.record.closed_at_micros = 0;
+    cursor.record.pending_close = None;
+    if let Some(close) = cursor.record.close.as_mut() {
+        close.is_reported_to_parent = false;
+    }
+    transaction.put(
+        ColumnFamily::PartitionIndex,
+        active_work_index_key(
+            transaction.context().partition,
+            cursor.rows.flow_hash,
+            cursor.run_id(),
+        ),
+        Vec::new(),
+    );
+    update_directory_status(transaction, cursor, scope)?;
+    if matches!(
+        closing.status,
+        FlowStatus::Canceled | FlowStatus::Terminated
+    ) || closing.error_type == FlowErrorType::ClientApiFailingFlow
+    {
+        close_flow_immediately(transaction, cursor, scope, closing)
+    } else {
+        close_flow(transaction, cursor, scope, closing)
+    }
 }
 
 /// Completes restored SubFlow conditions from received child results (C15), even without reapply.

@@ -940,6 +940,102 @@ fn time_travel_clears_the_pending_close_and_the_run_continues() {
 }
 
 #[test]
+fn restored_natural_close_waits_for_remarks_then_records_flow_closed() {
+    let mut harness = Harness::new();
+    harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+    harness.ack(PRIMARY, harness.last_seq());
+    harness.force_complete(Vec::new());
+    let close_time = harness.history_record(harness.last_seq()).timestamp_micros;
+    assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+
+    harness.travel_to(reset(FlowResetType::Beginning));
+    let travel = harness.travel_to(reset_to_time(close_time));
+    let pending = harness.run_record();
+    assert_eq!(pending.status, FlowStatus::Running as i32);
+    assert_eq!(
+        pending.pending_close.as_ref().map(|close| close.status),
+        Some(FlowStatus::Completed as i32)
+    );
+    assert_eq!(harness.directory_status(), FlowStatus::Running as i32);
+    assert!(harness.has_active_work_index());
+    assert!(harness.outbox_entry_count() > 0);
+    assert!(!has_flow_closed_event(
+        &harness.history_record(harness.last_seq())
+    ));
+    assert!(!wakes(&travel).contains(&WaitableChange::FlowClosed));
+
+    let rejected = harness.apply(Command::ChannelMessageDelete(ChannelMessageDeleteCommand {
+        request: Some(DeleteChannelMessageRequest {
+            flow_id: FLOW_ID.to_owned(),
+            channel_name: "orders".to_owned(),
+            message_id: "new-write".to_owned(),
+            ..DeleteChannelMessageRequest::default()
+        }),
+        request_fingerprint: Vec::new(),
+    }));
+    assert_error(&rejected.reply, 9, TERMINAL_CLEANUP_MESSAGE);
+
+    let ack = harness.ack(PRIMARY, harness.last_seq());
+    assert!(wakes(&ack).contains(&WaitableChange::FlowClosed));
+    let final_record = harness.run_record();
+    assert_eq!(final_record.status, FlowStatus::Completed as i32);
+    assert!(final_record.pending_close.is_none());
+    assert_eq!(harness.directory_status(), FlowStatus::Completed as i32);
+    assert!(!harness.has_active_work_index());
+    assert!(has_flow_closed_event(
+        &harness.history_record(harness.last_seq())
+    ));
+}
+
+#[test]
+fn restored_stop_ignores_remarked_attribute_sync_entries() {
+    let mut harness = Harness::new();
+    harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+    let stopped = harness.stop(StopType::Fail);
+    let stop_time = harness.history_record(harness.last_seq()).timestamp_micros;
+    assert!(wakes(&stopped).contains(&WaitableChange::FlowClosed));
+    harness.travel_to(reset(FlowResetType::Beginning));
+    let travel = harness.travel_to(reset_to_time(stop_time));
+    assert_eq!(harness.run_record().status, FlowStatus::Failed as i32);
+    assert!(harness.run_record().pending_close.is_none());
+    assert!(harness.outbox_entry_count() > 0);
+    assert!(wakes(&travel).contains(&WaitableChange::FlowClosed));
+    assert!(has_flow_closed_event(
+        &harness.history_record(harness.last_seq())
+    ));
+}
+
+#[test]
+fn an_admitted_rpc_holds_a_restored_close_without_synced_entries() {
+    let mut harness = Harness::new();
+    harness.start(&[], Vec::new(), 60);
+    harness.force_complete(Vec::new());
+    let close_time = harness.history_record(harness.last_seq()).timestamp_micros;
+    harness.travel_to(reset(FlowResetType::Beginning));
+
+    let held = harness.apply_while_rpc_in_flight(Command::TimeTravel(TimeTravelCommand {
+        request: Some(reset_to_time(close_time)),
+    }));
+    assert!(matches!(
+        held.reply.reply,
+        Some(command_reply::Reply::TimeTravel(_))
+    ));
+    assert_eq!(
+        held.effects
+            .iter()
+            .filter(|effect| matches!(effect, ApplyEffect::PendingCloseHeldByRpcs { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
+    assert!(harness.run_record().pending_close.is_some());
+    assert_eq!(harness.outbox_entry_count(), 0);
+    let finalized = harness.check_pending_close();
+    assert!(wakes(&finalized).contains(&WaitableChange::FlowClosed));
+    assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+}
+
+#[test]
 fn rebuilt_cleanup_points_equal_their_recorded_states() {
     let mut harness = Harness::with_settings(RunSettings {
         checkpoint_max_commands: 2,
