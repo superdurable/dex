@@ -16,6 +16,7 @@ import random
 import re
 import socket
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
@@ -86,6 +87,7 @@ class PullWorkerRuntime:
         executor: ThreadPoolExecutor | None,
         app_worker_id: str | None = None,
         credential_runner: AsyncCredentialRunner | None = None,
+        reserve_pressure_linger: float = 30.0,
     ) -> None:
         self._registry = registry
         self.app_worker_id = app_worker_id or resolve_app_worker_id(registry, options)
@@ -107,6 +109,9 @@ class PullWorkerRuntime:
             options.reserved_rpc_tasks is None and self.max_concurrent_tasks == 1
         )
         self.reserved_rpc_declines = 0
+        self._last_reserve_decline: dict[str, float] = {}
+        self._reserve_pressure_timers: dict[str, asyncio.TimerHandle] = {}
+        self._reserve_pressure_linger = reserve_pressure_linger
         self.idle_streams_per_queue = options.idle_streams_per_queue or 1
         self.stop_drain_timeout = options.stop_drain_timeout.total_seconds() or 30
         self._dispatcher = dispatcher
@@ -196,11 +201,25 @@ class PullWorkerRuntime:
                 and not stream.is_half_closing
                 for stream in self._streams
             )
-            for _ in range(self.idle_streams_per_queue - idle):
+            desired_idle = self.desired_idle_streams_per_queue(queue)
+            creation_target = (
+                self.idle_streams_per_queue
+                if self._busy_tasks == self.max_concurrent_tasks
+                else desired_idle
+            )
+            for _ in range(creation_target - idle):
                 stream = PullStream(self, stub, queue)
                 self._streams.add(stream)
                 stream.run_task = asyncio.create_task(stream.run())
                 stream.run_task.add_done_callback(stream.on_done)
+
+    def desired_idle_streams_per_queue(self, queue: str) -> int:
+        last_decline = self._last_reserve_decline.get(queue)
+        return self.idle_streams_per_queue + int(
+            self.reserved_rpc_tasks > 0
+            and last_decline is not None
+            and time.monotonic() - last_decline < self._reserve_pressure_linger
+        )
 
     def _stream_done(self, stream: PullStream, completed: asyncio.Task[None]) -> None:
         self._streams.discard(stream)
@@ -210,7 +229,9 @@ class PullWorkerRuntime:
                 _LOGGER.error("Worker task stream failed", exc_info=failure)
         self.signal()
 
-    def accept_task(self, task: pb.PollWorkerTask | None = None) -> bool:
+    def accept_task(
+        self, task: pb.PollWorkerTask | None = None, queue: str | None = None
+    ) -> bool:
         if self._stopping is None or self._stopping.is_set():
             return False
         if self._busy_tasks >= self.max_concurrent_tasks:
@@ -223,6 +244,18 @@ class PullWorkerRuntime:
             and self.unknown_task_reason(task) is None
         ):
             self.reserved_rpc_declines += 1
+            queue_name = queue or self.app_worker_id
+            self._last_reserve_decline[queue_name] = time.monotonic()
+            existing_timer = self._reserve_pressure_timers.pop(queue_name, None)
+            if existing_timer is not None:
+                existing_timer.cancel()
+            if self._loop is not None:
+                self._reserve_pressure_timers[queue_name] = self._loop.call_later(
+                    self._reserve_pressure_linger,
+                    self._expire_reserve_pressure,
+                    queue_name,
+                )
+            self.signal()
             request = task.wait_for if task.HasField("wait_for") else task.execute
             _LOGGER.debug(
                 "decline Step task for reserved RPC capacity: %s", request.flow_type
@@ -231,6 +264,21 @@ class PullWorkerRuntime:
         self._busy_tasks += 1
         self.signal()
         return True
+
+    def _expire_reserve_pressure(self, queue: str) -> None:
+        last_decline = self._last_reserve_decline.get(queue)
+        if last_decline is None:
+            return
+        remaining = self._reserve_pressure_linger - (time.monotonic() - last_decline)
+        if remaining > 0:
+            assert self._loop is not None
+            self._reserve_pressure_timers[queue] = self._loop.call_later(
+                remaining, self._expire_reserve_pressure, queue
+            )
+            return
+        self._last_reserve_decline.pop(queue, None)
+        self._reserve_pressure_timers.pop(queue, None)
+        self.signal()
 
     def finish_task(self) -> None:
         self._busy_tasks -= 1
@@ -250,6 +298,9 @@ class PullWorkerRuntime:
             asyncio.get_running_loop().time() + self.stop_drain_timeout
         )
         self._stopping.set()
+        for timer in self._reserve_pressure_timers.values():
+            timer.cancel()
+        self._reserve_pressure_timers.clear()
         try:
             for stream in tuple(self._streams):
                 stream.drain()
@@ -586,7 +637,11 @@ class PullStream:
         if unknown_reason is not None:
             await self._reject_task(task, unknown_reason)
             return
-        if self.is_busy or self.is_draining or not self.runtime.accept_task(task):
+        if (
+            self.is_busy
+            or self.is_draining
+            or not self.runtime.accept_task(task, self.queue)
+        ):
             await self._reject_task(task)
             return
         self.is_busy = True
@@ -744,7 +799,7 @@ class PullStream:
             and not candidate.is_draining
             for candidate in self.runtime._streams
         )
-        if idle_replacements >= self.runtime.idle_streams_per_queue:
+        if idle_replacements >= self.runtime.desired_idle_streams_per_queue(self.queue):
             self.is_draining = True
             self._is_retiring = True
             self._retirement_requested.set()
