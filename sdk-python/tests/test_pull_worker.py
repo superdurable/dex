@@ -931,8 +931,7 @@ class UnknownTaskCall(QueueCall):
                 self.frames.put_nowait(
                     pb.PollWorkerTaskResponse(ping=pb.PollWorkerTaskPing())
                 )
-        elif kind == "pong":
-            self.frames.put_nowait(getattr(grpc.aio, "EOF"))
+                self.frames.put_nowait(getattr(grpc.aio, "EOF"))
 
 
 class UnknownTaskDispatcher:
@@ -990,7 +989,7 @@ async def _unknown_task_rejection_follows_registered_capability_on_reconnect() -
     assert not any(
         request.WhichOneof("frame") == "reject" for request in legacy_call.requests
     )
-    assert any(
+    assert not any(
         request.WhichOneof("frame") == "pong" for request in legacy_call.requests
     )
 
@@ -1006,6 +1005,9 @@ async def _unknown_task_rejection_follows_registered_capability_on_reconnect() -
         ("unknown-step", pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP),
         ("unknown-rpc", pb.POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC),
     ]
+    assert any(
+        request.WhichOneof("frame") == "pong" for request in capable_call.requests
+    )
 
     reconnected_call = UnknownTaskCall(False)
     stream.stub = FakeStub(cast(FakeCall, reconnected_call))
