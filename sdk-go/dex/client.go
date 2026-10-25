@@ -38,7 +38,7 @@ const serverCappedLongPollSeconds = int32(math.MaxInt32)
 // ClientOptions configures the FlowService client.
 type ClientOptions struct {
 	// FlowServiceAddress is Dex's gRPC target. Default: "localhost:8801".
-	// With FlowServiceTLS, use the TLS endpoint's host:port, such as "dex.example.com:443".
+	// With FlowServiceTLS, use host:port or dns:///host:port, such as "dex.example.com:443".
 	FlowServiceAddress string
 	// FlowServiceTLS enables TLS for this Client's FlowService connection. Nil uses plaintext.
 	// See FlowServiceTLSOptions for trust roots, server name, and a complete example.

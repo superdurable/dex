@@ -1453,12 +1453,12 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronizedAndPortClosed(t *testing
 		{
 			name:              "unimplemented",
 			serverInfoFailure: status.Error(codes.Unimplemented, "old Server"),
-			errorDetail:       "GetServerInfo failed",
+			errorDetail:       "FlowService connection failed",
 		},
 		{
 			name:              "request failure",
 			serverInfoFailure: status.Error(codes.Unavailable, "offline"),
-			errorDetail:       "GetServerInfo failed",
+			errorDetail:       "FlowService connection failed",
 		},
 	}
 	for _, testCase := range testCases {

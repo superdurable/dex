@@ -642,8 +642,9 @@ through `ClientOptions.WorkerTarget`, or set
 pull mode through `SubFlowOptions.ConfigOverride.WorkerTarget`.
 
 `FlowServiceAddress` uses plaintext gRPC by default. For a TLS-terminating
-Dex endpoint, use its `host:443` address and set `FlowServiceTLS` on both the
-Client and Worker. TLS requires version 1.2 or newer and negotiates ALPN `h2`.
+Dex endpoint, use its `host:443` or `dns:///host:443` address and set
+`FlowServiceTLS` on both the Client and Worker. TLS requires version 1.2 or
+newer and negotiates ALPN `h2`.
 The certificate name defaults to the address host. Extra PEM root CAs extend
 the system roots; they do not replace them. A non-nil empty option uses only
 the system roots. TLS never falls back to plaintext. Existing bearer, file,
@@ -679,7 +680,8 @@ if err := worker.Start(); err != nil {
 }
 ```
 
-Set `ServerName` when the certificate name differs from the address host. An
+Set `ServerName` when the certificate name differs from the address host; it
+also sets the HTTP/2 `:authority`. An IP address sends no SNI. An
 invalid `AdditionalRootCAsPEM` fails `NewClient` or `NewWorker`. The other SDKs
 will gain the FlowService TLS option in a later release.
 

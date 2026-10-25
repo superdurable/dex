@@ -117,6 +117,7 @@ func TestClientCredentialsReachFlowServiceOverTLS(t *testing.T) {
 			_, err = client.service.GetServerInfo(ctx, &emptypb.Empty{})
 			require.NoError(t, err)
 			received := recorder.received(dexpb.FlowService_GetServerInfo_FullMethodName)
+			require.NotEmpty(t, received)
 			require.Equal(t, testCase.want, received[len(received)-1])
 		})
 	}

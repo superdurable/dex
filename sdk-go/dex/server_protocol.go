@@ -100,11 +100,8 @@ func (protocol *negotiatedServerProtocol) requireHardDeleteAttributeSupport(
 
 func serverProtocolRequestError(sdkVersion string, err error) error {
 	return fmt.Errorf(
-		"dex: Go SDK version %q protocol [%d,%d] is incompatible with Server version %q protocol [unknown,unknown]: GetServerInfo failed: %w",
+		"dex: FlowService connection failed during GetServerInfo for Go SDK version %q: %w",
 		sdkVersion,
-		minimumSupportedServerProtocolVersion,
-		maximumSupportedServerProtocolVersion,
-		"unknown",
 		err,
 	)
 }

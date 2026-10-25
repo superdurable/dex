@@ -28,6 +28,11 @@ import (
 // FlowServiceAddress host is the default certificate name. The TLS settings
 // apply only to FlowService, not to a Worker's listening WorkerService or an
 // APIKeyCredential token endpoint.
+// FlowServiceAddress accepts host:port or dns:///host:port, but not an HTTP URL.
+// Connections open on demand, so certificate, hostname, and handshake failures
+// appear as Unavailable on the first Client call or from Worker.Start.
+// The endpoint or gateway must accept ALPN h2 and forward gRPC over HTTP/2.
+// An IP address or IP ServerName sends no SNI and requires a matching IP SAN.
 //
 //	func run(ctx context.Context, registry *dex.Registry, cache *blobcache.Cache) error {
 //		rootPEM, err := os.ReadFile("/etc/dex/root-ca.pem")
@@ -60,10 +65,12 @@ import (
 type FlowServiceTLSOptions struct {
 	// AdditionalRootCAsPEM adds PEM-encoded root CAs to the system roots.
 	// Empty uses the system roots alone. The bytes are read at construction, not watched for changes.
-	// Invalid PEM fails NewClient or NewWorker.
+	// At least one certificate must parse from a nonempty bundle, or NewClient or NewWorker fails.
+	// Without system roots or an added trusted CA, certificate verification fails on connection.
 	AdditionalRootCAsPEM []byte
-	// ServerName overrides the FlowServiceAddress host for certificate verification and SNI.
+	// ServerName overrides the FlowServiceAddress host for certificate verification, SNI, and HTTP/2 :authority.
 	// Empty uses the FlowServiceAddress host. Use a DNS name or IP address without a port.
+	// An IP address sends no SNI and requires a matching IP SAN.
 	// An invalid value fails NewClient or NewWorker.
 	ServerName string
 }
@@ -72,9 +79,13 @@ func flowServiceTransportCredentials(address string, options *FlowServiceTLSOpti
 	if options == nil {
 		return insecure.NewCredentials(), nil
 	}
-	host, port, err := net.SplitHostPort(address)
+	targetAddress, isDNSTarget := strings.CutPrefix(address, "dns:///")
+	if !isDNSTarget {
+		targetAddress = address
+	}
+	host, port, err := net.SplitHostPort(targetAddress)
 	if err != nil || host == "" {
-		return nil, fmt.Errorf("dex: FlowServiceTLS requires FlowServiceAddress as host:port, got %q", address)
+		return nil, fmt.Errorf("dex: FlowServiceTLS requires FlowServiceAddress as host:port or dns:///host:port, got %q", address)
 	}
 	portNumber, err := strconv.Atoi(port)
 	if err != nil || portNumber < 1 || portNumber > 65535 {
@@ -85,7 +96,10 @@ func flowServiceTransportCredentials(address string, options *FlowServiceTLSOpti
 		(strings.Contains(serverName, ":") && net.ParseIP(serverName) == nil)) {
 		return nil, fmt.Errorf("dex: FlowServiceTLS.ServerName must be a DNS name or IP address, got %q", serverName)
 	}
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: options.ServerName}
+	if serverName == "" && isDNSTarget {
+		serverName = host
+	}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: serverName}
 	if len(options.AdditionalRootCAsPEM) > 0 {
 		rootCAs, err := x509.SystemCertPool()
 		if err != nil {

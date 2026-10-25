@@ -780,8 +780,6 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 
 此本地示例使用监听式 Worker。生产环境中的 Worker 出站连接见
 [拉取模式 Worker](/production/pull-workers)。
-Go Client 和拉取模式 Worker 通过 TLS 网关连接的方法见
-[FlowService TLS](/production/pull-workers)。
 
 <SdkTabs
   examples={{

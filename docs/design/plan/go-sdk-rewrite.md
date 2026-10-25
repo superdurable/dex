@@ -1306,8 +1306,9 @@ func (client *Client) Close() error
 
 An empty `FlowServiceAddress` uses `localhost:8801`. Nil `FlowServiceTLS` keeps
 the plaintext gRPC dial target. A non-nil option dials the FlowService target
-over TLS 1.2 or newer with ALPN h2. The address uses `host:443` for TLS, not an
-HTTP URL. `FlowServiceTLSOptions.AdditionalRootCAsPEM` extends the system root
+over TLS 1.2 or newer with ALPN h2. The address uses `host:443` or
+`dns:///host:443` for TLS, not an HTTP URL.
+`FlowServiceTLSOptions.AdditionalRootCAsPEM` extends the system root
 pool; `ServerName` defaults to the address host. Invalid PEM fails construction.
 The same option applies to the Worker's FlowService connection, including pull
 task streams and blob hydration. The listening WorkerService stays plaintext.

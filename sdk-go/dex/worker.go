@@ -49,7 +49,7 @@ type WorkerOptions struct {
 	// WorkerTarget is advertised to Dex and may differ from BindAddress. Default Address derives from BindAddress; Headless defaults false.
 	WorkerTarget WorkerTarget
 	// FlowServiceAddress is the Dex gRPC endpoint used for startup synchronization and blob hydration. Default: "localhost:8801".
-	// With FlowServiceTLS, use the TLS endpoint's host:port, such as "dex.example.com:443".
+	// With FlowServiceTLS, use host:port or dns:///host:port, such as "dex.example.com:443".
 	// Startup synchronization registers Attribute indexes.
 	FlowServiceAddress string
 	// FlowServiceTLS enables TLS for this Worker's FlowService connection. Nil uses plaintext.

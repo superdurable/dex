@@ -1,6 +1,6 @@
 # Dex Go examples
 
-The default examples use `github.com/superdurable/dex/sdk-go v1.15.0` from `go.mod`.
+These examples target `github.com/superdurable/dex/sdk-go v1.10.1`.
 
 `dex.None` marks a nil-only Step, RPC, or Channel payload. Calls pass `nil`.
 
@@ -77,15 +77,6 @@ The defaults connect to Dex at `localhost:8801`. These environment variables ove
   target, and starts Flows with the pull Worker target.
 
 When Dex runs in Docker, set `DEX_WORKER_TARGET=host.docker.internal:8803`.
-
-The [FlowService TLS pull Worker sample](./production/pull-workers/tls.go)
-uses the SDK in this checkout. It has the `sdk_go_tls` build tag while this
-module pins a released SDK without the TLS option. Compile it through the root
-Go workspace:
-
-```bash
-GOWORK="$(cd ../.. && pwd)/go.work" go test -tags sdk_go_tls ./production/pull-workers
-```
 
 `make bins` also builds `./dex-deal-dsl`. That binary is not required for
 the default samples server.

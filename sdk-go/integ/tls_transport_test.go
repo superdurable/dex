@@ -71,10 +71,11 @@ type tlsTestProxy struct {
 	upstream    string
 	mu          sync.Mutex
 	connections map[net.Conn]struct{}
+	serverNames []string
 	workers     sync.WaitGroup
 }
 
-func startTLSFlowServiceProxy(t *testing.T) (string, []byte) {
+func startTLSFlowServiceProxy(t *testing.T) (string, []byte, *tlsTestProxy) {
 	t.Helper()
 	caPEM, certificate := newTLSTestCertificate(t)
 	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
@@ -95,7 +96,7 @@ func startTLSFlowServiceProxy(t *testing.T) (string, []byte) {
 		proxy.mu.Unlock()
 		proxy.workers.Wait()
 	})
-	return listener.Addr().String(), caPEM
+	return listener.Addr().String(), caPEM, proxy
 }
 
 func (proxy *tlsTestProxy) accept() {
@@ -127,6 +128,9 @@ func (proxy *tlsTestProxy) forward(downstream net.Conn) {
 	if err := tlsConnection.Handshake(); err != nil || tlsConnection.ConnectionState().NegotiatedProtocol != "h2" {
 		return
 	}
+	proxy.mu.Lock()
+	proxy.serverNames = append(proxy.serverNames, tlsConnection.ConnectionState().ServerName)
+	proxy.mu.Unlock()
 	upstream, err := net.Dial("tcp", proxy.upstream)
 	if err != nil {
 		return
@@ -153,6 +157,17 @@ func (proxy *tlsTestProxy) forward(downstream net.Conn) {
 		proxy.t.Logf("close TLS downstream: %v", err)
 	}
 	<-copyDone
+}
+
+func (proxy *tlsTestProxy) hasObservedServerName(serverName string) bool {
+	proxy.mu.Lock()
+	defer proxy.mu.Unlock()
+	for _, observedServerName := range proxy.serverNames {
+		if observedServerName == serverName {
+			return true
+		}
+	}
+	return false
 }
 
 func newTLSTestCertificate(t *testing.T) ([]byte, tls.Certificate) {
@@ -184,7 +199,10 @@ func newTLSTestCertificate(t *testing.T) ([]byte, tls.Certificate) {
 }
 
 func TestFlowServiceTLSWithPullWorkerAndLargeValue(t *testing.T) {
-	address, caPEM := startTLSFlowServiceProxy(t)
+	proxyAddress, caPEM, proxy := startTLSFlowServiceProxy(t)
+	_, port, err := net.SplitHostPort(proxyAddress)
+	require.NoError(t, err)
+	address := net.JoinHostPort("localhost", port)
 	registry, err := dex.NewRegistry([]dex.Flow{tlsTransportFlow{}})
 	require.NoError(t, err)
 	cache := newUncachedMessageSizeCache(t)
@@ -233,10 +251,11 @@ func TestFlowServiceTLSWithPullWorkerAndLargeValue(t *testing.T) {
 		}
 		return false
 	}, 20*time.Second, 200*time.Millisecond)
+	require.True(t, proxy.hasObservedServerName("localhost"), "TLS proxy did not observe localhost SNI")
 }
 
 func TestFlowServiceTLSRejectsInvalidTransport(t *testing.T) {
-	address, caPEM := startTLSFlowServiceProxy(t)
+	address, caPEM, _ := startTLSFlowServiceProxy(t)
 	registry, err := dex.NewRegistry(nil)
 	require.NoError(t, err)
 	cache := newPullSDKCache(t)
@@ -246,8 +265,8 @@ func TestFlowServiceTLSRejectsInvalidTransport(t *testing.T) {
 		want       string
 	}{
 		{name: "plaintext", want: "Unavailable"},
-		{name: "untrusted CA", tlsOptions: &dex.FlowServiceTLSOptions{}, want: "certificate"},
-		{name: "wrong server name", tlsOptions: &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM, ServerName: "wrong.example"}, want: "certificate"},
+		{name: "untrusted CA", tlsOptions: &dex.FlowServiceTLSOptions{}, want: "failed to verify certificate"},
+		{name: "wrong server name", tlsOptions: &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM, ServerName: "wrong.example"}, want: "wrong.example"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			client, err := dex.NewClient(registry, cache, dex.ClientOptions{FlowServiceAddress: address, FlowServiceTLS: testCase.tlsOptions})
@@ -267,8 +286,50 @@ func TestFlowServiceTLSRejectsInvalidTransport(t *testing.T) {
 	require.ErrorContains(t, err, "FlowServiceTLS.AdditionalRootCAsPEM")
 	_, err = dex.NewClient(registry, cache, dex.ClientOptions{FlowServiceAddress: "https://localhost:443",
 		FlowServiceTLS: &dex.FlowServiceTLSOptions{}})
-	require.ErrorContains(t, err, "FlowService")
+	require.ErrorContains(t, err, "FlowServiceAddress")
 	_, err = dex.NewWorker(registry, cache, dex.WorkerOptions{FlowServiceAddress: address,
 		FlowServiceTLS: &dex.FlowServiceTLSOptions{ServerName: "localhost:443"}, Pull: &dex.PullWorkerOptions{}})
 	require.ErrorContains(t, err, "FlowServiceTLS.ServerName")
+	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+		FlowServiceAddress: address, FlowServiceTLS: &dex.FlowServiceTLSOptions{},
+		Pull: &dex.PullWorkerOptions{}, AttributeIndexSyncTimeout: 5 * time.Second,
+	})
+	require.NoError(t, err)
+	err = worker.Start()
+	require.ErrorContains(t, err, "FlowService connection failed")
+	require.ErrorContains(t, err, "failed to verify certificate")
+	require.NotContains(t, err.Error(), "incompatible")
+}
+
+func TestFlowServiceTLSDNSTargetAndServerNameOverride(t *testing.T) {
+	for _, testCase := range []struct {
+		name                   string
+		usesDNSTarget          bool
+		usesServerNameOverride bool
+	}{
+		{name: "DNS target", usesDNSTarget: true},
+		{name: "server name override", usesServerNameOverride: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			proxyAddress, caPEM, proxy := startTLSFlowServiceProxy(t)
+			address := proxyAddress
+			if testCase.usesDNSTarget {
+				_, port, err := net.SplitHostPort(proxyAddress)
+				require.NoError(t, err)
+				address = "dns:///localhost:" + port
+			}
+			tlsOptions := &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM}
+			if testCase.usesServerNameOverride {
+				tlsOptions.ServerName = "localhost"
+			}
+			registry, err := dex.NewRegistry(nil)
+			require.NoError(t, err)
+			client, err := dex.NewClient(registry, newPullSDKCache(t), dex.ClientOptions{FlowServiceAddress: address, FlowServiceTLS: tlsOptions})
+			require.NoError(t, err)
+			defer func() { require.NoError(t, client.Close()) }()
+			_, err = client.SearchFlows(integrationContext(t), "FlowType = 'tlsTransportFlow'", 1, "")
+			require.NoError(t, err)
+			require.True(t, proxy.hasObservedServerName("localhost"), "TLS proxy did not observe localhost SNI")
+		})
+	}
 }
