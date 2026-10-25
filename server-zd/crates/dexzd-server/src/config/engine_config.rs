@@ -63,7 +63,7 @@ impl Default for CommitConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct LeaseConfig {
-    /// Defaults to 10 s; owner renews after one third of this interval and stops serving when validity ends.
+    /// Defaults to 10 s, or 30 s for `dev` unless its `--config` file sets it; owner renews after one third of this interval and stops serving when validity ends.
     ///
     /// Validity ends this long after the last successful renewal was sent, on the local monotonic
     /// clock. Each renewal attempt times out after one sixth of this interval, from 1 s to 5 s,

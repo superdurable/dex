@@ -298,6 +298,11 @@ exits 1. Kubernetes restarts the container with backoff in both cases.
 The node holds a lease object in object storage. **lease.duration** defaults to
 10 seconds. The node renews the lease after one third of the duration.
 
+**dex-server-zd dev** defaults **lease.duration** to 30 seconds, unless its
+override file sets it. A dev node has no standby, so the longer lease costs no
+failover time. It lets the node ride out longer host stalls. After a dev node
+crashes, the next start waits up to 31 seconds for the old lease to expire.
+
 Data safety does not depend on the duration. Each lease acquisition raises the
 node epoch, and every log write is conditional. Together they fence a process
 that lost its lease.
@@ -310,15 +315,21 @@ starts after it.
 
 The duration only partly affects object storage outages:
 
-- A renewal that object storage rejects stops the node at once.
-- A renewal request that hangs is cut off when the current lease period ends.
-  The node then stops.
+- A renewal attempt that fails with a transient error, such as a 5xx or
+  throttling response, is retried.
+- A renewal attempt that hangs is cut off after one sixth of the duration,
+  between 1 and 5 seconds, and retried.
+- A renewal write that lands after its attempt was cut off still counts. The
+  next attempt finds it.
+- Retries continue until 100 ms before the current lease period ends. The node
+  then stops.
+- A renewal lost to another holder, or a permanent storage error, stops the
+  node at once.
 - A log write that object storage does not accept within 10 seconds also stops
   the node. This limit is fixed and does not depend on the lease duration.
 
-A longer lease therefore lets an idle node ride out a stalled object store for
-longer. It does not make the node tolerate failed requests. After any of these
-stops, the process exits 1.
+A longer lease therefore lets an idle node ride out a stalled object store or a
+stalled host for longer. After any of these stops, the process exits 1.
 
 For a single-replica deployment, set **lease.duration** to 60 seconds. Lease
 renewals then make about 180 PUT requests per hour, compared with about 1,080 at

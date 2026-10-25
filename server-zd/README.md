@@ -477,6 +477,12 @@ rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
 `--attribute-store-config` reads only the `attributeStore` section of a Go Server configuration
 file, which must define at least one store; the `--config` file must not also set `attributeStore`.
 
+`dev` defaults `lease.duration` to 30 seconds, unless the `--config` file sets it; `serve` defaults
+it to 10 seconds. A `dev` node has no standby, so the longer lease costs no failover time and lets
+the node ride out longer host stalls. A stop by SIGTERM or SIGINT releases the lease, so the next
+start acquires it at once. After a crash, the next start on the same data directory waits up to
+31 seconds for the old lease to expire.
+
 ## Stable command-line interface
 
 These commands and flags are part of the Beta compatibility interface. Applications can invoke

@@ -262,6 +262,40 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
 }
 
 #[test]
+fn dev_defaults_to_a_thirty_second_lease_unless_the_overrides_set_its_duration() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let dev_options = |config: Option<PathBuf>| DevCommandOptions {
+        data_dir: temporary.path().join("data"),
+        listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
+        log_dir: None,
+        config,
+        attribute_store_config: None,
+    };
+    let without_overrides =
+        Config::load_dev(&dev_options(None)).expect("dev defaults without YAML");
+    assert_eq!(without_overrides.lease.duration, Duration::from_secs(30));
+
+    let other_lease_key_path = temporary.path().join("fail-if-held.yaml");
+    fs::write(&other_lease_key_path, "lease:\n  failIfHeld: true\n").expect("write test config");
+    let with_other_lease_key = Config::load_dev(&dev_options(Some(other_lease_key_path)))
+        .expect("dev configuration with another lease key");
+    assert_eq!(with_other_lease_key.lease.duration, Duration::from_secs(30));
+    assert!(with_other_lease_key.lease.fail_if_held);
+
+    let explicit_duration_path = temporary.path().join("lease-duration.yaml");
+    fs::write(&explicit_duration_path, "lease:\n  duration: 10s\n").expect("write test config");
+    let with_explicit_duration = Config::load_dev(&dev_options(Some(explicit_duration_path)))
+        .expect("dev configuration with an explicit lease duration");
+    assert_eq!(
+        with_explicit_duration.lease.duration,
+        Duration::from_secs(10)
+    );
+
+    let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
+    assert_eq!(serve.lease.duration, Duration::from_secs(10));
+}
+
+#[test]
 fn dev_rejects_a_separate_hard_delete_store_before_resolving_credentials() {
     let temporary = tempfile::tempdir().expect("test directory");
     let yaml_path = temporary.path().join("config.yaml");
