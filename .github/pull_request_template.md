@@ -4,7 +4,7 @@
 
 ## Why
 
-<!-- The problem or request behind this change, its evidence, and why this is the right fix. Link the issue or earlier PR. -->
+<!-- The problem or request behind this change. Its evidence. Why this is the right fix. Link the Dex issue or earlier PR if one exists. -->
 
 ## Testing
 

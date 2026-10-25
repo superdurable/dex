@@ -8,15 +8,15 @@ alwaysApply: true
 Start every pull request description with these sections, in order:
 
 1. `## Summary`: what the PR changes.
-2. `## Why`: the background. State the problem or request that prompted the
-   change, the evidence (an issue, a failing test, a review finding, or a
-   report), and why this change is the right response. Link the relevant Dex
-   issue or earlier PR when one exists. Write it for a reviewer who has no
-   other context.
+2. `## Why`: the background. State the problem or request behind the change.
+   Give its evidence, such as an issue, a failing test, a review finding, or
+   a report. Explain why this change is the right response. Link the relevant
+   Dex issue or earlier PR when one exists. Write for a reviewer with no other
+   context.
 
-Follow them with the sections the change needs, such as compatibility, design
-decisions, and `## Testing` (what ran locally and what CI covers). End with a
-closing keyword, such as `Fixes #123`, only when the PR fully resolves that
-issue. The Why section
-follows the No Downstream Product Information rule. See
+Add the sections the change needs after them, such as compatibility, design
+decisions, and `## Testing`. Testing says what ran locally and what CI covers.
+End with a closing keyword, such as `Fixes #123`, only when the PR fully
+resolves that issue. The whole description follows the No Downstream Product
+Information rule. See
 `.github/pull_request_template.md`.
