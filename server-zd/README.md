@@ -211,9 +211,10 @@ The `s3:ListBucket` condition must use `StringLike` with `PREFIX/*`. An exact-pr
 403, and the Server cannot use a prefixed listing to distinguish it from a denied object.
 With the `StringLike` grant above, AWS S3 returns 404 for missing-object reads; narrower grants
 can return 403. The Server handles either response when the prefixed listing is allowed.
-The startup conditional-write probe also creates and deletes a key under that prefix. No
-unconditioned bucket access or bucket administration action is required. The bucket may be
-unversioned: create-only and replacement writes use `If-None-Match` and `If-Match` with opaque
+The startup conditional-write probe also creates and deletes a key under that prefix. A signal
+during the probe may leave that key behind. No unconditioned bucket access or bucket
+administration action is required. The bucket may be unversioned: create-only and replacement
+writes use `If-None-Match` and `If-Match` with opaque
 ETags, not object versions or MD5 digests. The S3 client sends no server-side encryption headers,
 so the bucket's default SSE-KMS configuration applies. For a customer-managed KMS key, grant the
 role `kms:GenerateDataKey` and `kms:Decrypt` on that key, and allow those actions in its key policy.
@@ -368,8 +369,8 @@ expires.
 A lost lease, a stopped commit pipeline, or a halted Flow runtime stops the node, and the process
 exits 1. Restart it. A signal before the node acquires its lease cancels startup and exits 0. If
 the outcome of the node's lease write is still unknown, that write is not released, and a
-replacement waits for it to expire. If the node already holds its lease, a signal stops startup at
-once and releases the lease. The process then exits 0, or exits 1 when the release fails. If
+replacement may wait for it to expire. If the node already holds its lease, a signal stops startup
+at once and releases the lease. The process then exits 0, or exits 1 when the release fails. If
 startup finishes before it observes the signal, the node runs graceful shutdown, with the same
 14.5-second total and exit status as a signal received while serving. A failed startup releases its
 lease and exits 1.

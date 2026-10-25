@@ -397,9 +397,18 @@ pub(super) async fn acquire_lease_inner(
         let condition = existing.map_or(WriteCondition::CreateOnly, |content| {
             WriteCondition::ReplaceIfEtagMatches { etag: content.etag }
         });
-        let write_result = acquisition_store
-            .put(&key, Bytes::from(lease.encode_to_vec()), condition)
-            .await;
+        let lease_write =
+            acquisition_store.put(&key, Bytes::from(lease.encode_to_vec()), condition);
+        // A write cancelled in flight has an unknown outcome, so it is left to expire.
+        let write_result = if let Some(cancellation_receiver) = cancellation.as_mut() {
+            tokio::select! {
+                biased;
+                result = lease_write => result,
+                () = wait_for_cancellation(cancellation_receiver) => return Ok(None),
+            }
+        } else {
+            lease_write.await
+        };
         let etag = match write_result {
             Ok(WriteOutcome::Written { etag }) => etag,
             Ok(WriteOutcome::PreconditionFailed) => continue,

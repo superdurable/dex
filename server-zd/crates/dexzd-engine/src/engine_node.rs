@@ -124,9 +124,14 @@ impl EngineNode {
         Ok(started.expect("startup without cancellation must return an engine node"))
     }
 
-    /// Starts the node, or returns `None` when cancellation arrives before it holds its lease,
-    /// including while waiting for its lease. Cancellation after the lease is acquired releases
-    /// the lease and returns [`EngineStartError::Stopped`] with [`NodeStopReason::Shutdown`].
+    /// Starts the node like [`EngineNode::start`], and stops early when cancellation arrives.
+    ///
+    /// Returns the serving node, or `None` when cancellation arrives before the node holds its
+    /// lease, including while it waits for the lease. Returns [`EngineStartError::Stopped`] with
+    /// [`NodeStopReason::Shutdown`] when cancellation arrives after acquisition, once the lease is
+    /// released. Returns the start error when startup fails for another reason. Returns
+    /// [`EngineStartError::FailedStartLeaseRelease`] when the lease release after a cancelled or
+    /// failed start fails.
     pub async fn start_until_cancelled<F>(
         config: &EngineNodeConfig,
         dependencies: EngineNodeDependencies,

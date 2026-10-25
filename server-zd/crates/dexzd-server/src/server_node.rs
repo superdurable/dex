@@ -451,12 +451,20 @@ impl ServerNode {
         lease_validity_deadline: LeaseValidityDeadline,
         cancellation: &mut watch::Receiver<bool>,
     ) -> Result<Option<Self>, ServerError> {
-        let object_stores = ObjectStores::connect(
-            &config.object_store,
-            config.commit.multipart_threshold_bytes,
-            metrics.as_ref(),
+        // A cancelled startup check may leave its probe object behind.
+        let object_stores = match until_cancelled(
+            ObjectStores::connect(
+                &config.object_store,
+                config.commit.multipart_threshold_bytes,
+                metrics.as_ref(),
+            ),
+            cancellation,
         )
-        .await?;
+        .await
+        {
+            Some(connected) => connected?,
+            None => return Ok(None),
+        };
         let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock);
         let applier: Arc<dyn CommandApplier> = Arc::new(DeterministicCommandApplier);
         let dispatch = WorkerDispatch::new_with_metrics(
@@ -471,13 +479,31 @@ impl ServerNode {
         let partition_count = config.cluster.partition_count;
         let parade_db_search = match config.search.backend {
             SearchBackendKind::Builtin => None,
-            SearchBackendKind::Paradedb => Some(ParadeDbSearch::connect(&config.search).await?),
+            SearchBackendKind::Paradedb => {
+                match until_cancelled(ParadeDbSearch::connect(&config.search), cancellation).await {
+                    Some(connected) => Some(connected?),
+                    None => {
+                        close_stream_store(&stream_store).await;
+                        return Ok(None);
+                    }
+                }
+            }
         };
         let committed_search_frames = parade_db_search
             .as_ref()
             .map(ParadeDbSearch::committed_frames);
-        let attribute_stores =
-            AttributeStores::connect(&config.attribute_store, &components.attribute_sync).await?;
+        let attribute_stores = match until_cancelled(
+            AttributeStores::connect(&config.attribute_store, &components.attribute_sync),
+            cancellation,
+        )
+        .await
+        {
+            Some(connected) => connected?,
+            None => {
+                close_stream_store(&stream_store).await;
+                return Ok(None);
+            }
+        };
         let attribute_sync_waker = AttributeSyncWaker::new();
         let runtime_parts: Arc<Mutex<Option<RuntimeParts>>> = Arc::new(Mutex::new(None));
         let started = EngineNode::start_until_cancelled(
@@ -808,6 +834,29 @@ fn builtin_search_backend(
 async fn close_stream_store(stream_store: &StreamStore) {
     if let Err(error) = stream_store.close().await {
         tracing::warn!(%error, "Stream Store did not close cleanly");
+    }
+}
+
+/// Returns the output of `operation`, or `None` when cancellation arrives first.
+async fn until_cancelled<T>(
+    operation: impl std::future::Future<Output = T>,
+    cancellation: &mut watch::Receiver<bool>,
+) -> Option<T> {
+    tokio::select! {
+        biased;
+        output = operation => Some(output),
+        () = wait_for_cancellation(cancellation) => None,
+    }
+}
+
+async fn wait_for_cancellation(cancellation: &mut watch::Receiver<bool>) {
+    loop {
+        if *cancellation.borrow_and_update() {
+            return;
+        }
+        if cancellation.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
     }
 }
 

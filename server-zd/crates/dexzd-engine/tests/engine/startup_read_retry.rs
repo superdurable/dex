@@ -27,6 +27,8 @@ use crate::standby_takeover::start_node;
 
 const FLOW_ID: &str = "recovered-flow";
 const LEASE_KEY: &str = "lease/node-a";
+/// Longer than the 14.5-second server shutdown budget and the 30-second S3 request timeout.
+const SLOW_LEASE_WRITE: Duration = Duration::from_secs(60);
 
 #[tokio::test(start_paused = true)]
 async fn transient_batch_read_replays_the_same_state() {
@@ -511,6 +513,65 @@ async fn shutdown_interrupts_the_read_back_of_an_unknown_lease_write() {
         restart_started.elapsed()
             <= config.lease.duration + config.lease.takeover_grace + Duration::from_secs(1)
     );
+    restarted.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn shutdown_interrupts_a_slow_lease_write() {
+    let mut cluster = TestCluster::new();
+    let config = cluster.config(LocalStoreConfig::InMemory);
+    cluster
+        .faults
+        .delay_next_put_under(LEASE_KEY, SLOW_LEASE_WRITE);
+    let lease_validity_deadline = LeaseValidityDeadline::disarmed();
+    let (sender, cancellation) = watch::channel(false);
+    let start = tokio::spawn(start_with_cancellation_and_deadline(
+        &cluster,
+        config.clone(),
+        cancellation,
+        lease_validity_deadline.clone(),
+    ));
+    cluster.faults.wait_until_delayed_operation_entered().await;
+    let manifest_writes = cluster
+        .object_store
+        .call_count(ObjectStoreOperation::Put, "manifest");
+    sender.send(true).expect("start observes shutdown");
+    let (result, _) = tokio::time::timeout(Duration::from_secs(1), start)
+        .await
+        .expect("the lease write stops promptly")
+        .expect("start task completes");
+    assert!(matches!(result, Ok(None)));
+    assert!(lease_validity_deadline.armed_deadline().is_none());
+    assert_eq!(
+        cluster
+            .object_store
+            .call_count(ObjectStoreOperation::Put, LEASE_KEY),
+        1,
+        "no release follows a cancelled write"
+    );
+    assert_eq!(
+        cluster
+            .object_store
+            .call_count(ObjectStoreOperation::Put, "manifest"),
+        manifest_writes,
+        "no epoch raise follows a cancelled write"
+    );
+    tokio::time::sleep(SLOW_LEASE_WRITE).await;
+    assert!(
+        cluster
+            .object_store
+            .get(LEASE_KEY)
+            .await
+            .expect("read lease")
+            .is_none(),
+        "the dropped write never lands"
+    );
+    let restart_started = Instant::now();
+    let restarted = cluster
+        .start_with(&config)
+        .await
+        .expect("a later start acquires the lease");
+    assert!(restart_started.elapsed() < config.lease.duration);
     restarted.node.shutdown().await.expect("lease released");
 }
 
