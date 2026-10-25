@@ -74,6 +74,7 @@ type forwardDispatchRelay struct {
 	isMatched          bool
 	isAssigned         bool
 	isSticky           bool
+	queueSource        dexpb.PullRoutingSource
 	excludedWorkerIDs  map[string]struct{}
 }
 
@@ -851,7 +852,7 @@ func (e *Engine) dispatchQueue(ctx context.Context, request *dexpb.DispatchTaskR
 		for workerID := range excludedWorkerIDs {
 			remoteRequest.ExcludedAppWorkerIds = append(remoteRequest.ExcludedAppWorkerIds, workerID)
 		}
-		relay := &forwardDispatchRelay{request: request, send: send, dispatchEnd: dispatchEnd, isSticky: queueName != request.FallbackQueue && request.FallbackQueue != "", excludedWorkerIDs: excludedWorkerIDs}
+		relay := &forwardDispatchRelay{request: request, send: send, dispatchEnd: dispatchEnd, isSticky: queueName != request.FallbackQueue && request.FallbackQueue != "", queueSource: dispatchQueueSource(request, queueName), excludedWorkerIDs: excludedWorkerIDs}
 		err := e.forwardDispatch(ctx, remoteRequest, owner.RPCAddress, relay.relay)
 		return relay.isMatched, err
 	}
@@ -902,7 +903,7 @@ func (e *Engine) dispatchQueue(ctx context.Context, request *dexpb.DispatchTaskR
 			timer.Stop()
 			continue
 		}
-		outcome, attemptErr := worker.dispatchTaskAssignment(ctx, request, dispatchEnd, deadlineTimer.C, send)
+		outcome, attemptErr := worker.dispatchTaskAssignment(ctx, request, dispatchEnd, deadlineTimer.C, dispatchQueueSource(request, queueName), send)
 		if attemptErr != nil {
 			return false, attemptErr
 		}
@@ -934,6 +935,7 @@ func (e *Engine) dispatchQueue(ctx context.Context, request *dexpb.DispatchTaskR
 func (r *forwardDispatchRelay) relay(frame *dexpb.DispatchTaskResponse) error {
 	if frame.GetAssigned() != nil {
 		r.isAssigned = true
+		frame.QueueSource = r.queueSource
 		return r.send(frame)
 	}
 	if frame.GetUnassigned() != nil {
@@ -947,7 +949,7 @@ func (r *forwardDispatchRelay) relay(frame *dexpb.DispatchTaskResponse) error {
 			}
 			if r.isAssigned {
 				r.isAssigned = false
-				return sendAssignmentState(r.request, false, r.send)
+				return sendAssignmentState(r.request, false, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED, r.send)
 			}
 			return nil
 		}
@@ -956,12 +958,16 @@ func (r *forwardDispatchRelay) relay(frame *dexpb.DispatchTaskResponse) error {
 			(dispatchErr.Reason == dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED && !r.hasForwardedOutput && time.Now().Before(r.dispatchEnd)) {
 			if r.isAssigned {
 				r.isAssigned = false
-				return sendAssignmentState(r.request, false, r.send)
+				return sendAssignmentState(r.request, false, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED, r.send)
 			}
 			return nil
 		}
 	} else {
 		r.hasForwardedOutput = true
+		frame.QueueSource = r.queueSource
+	}
+	if frame.GetDispatchError() != nil && (r.isAssigned || r.hasForwardedOutput) {
+		frame.QueueSource = r.queueSource
 	}
 	r.isMatched = true
 	return r.send(frame)
@@ -972,6 +978,7 @@ func (w *workerStream) dispatchTaskAssignment(
 	request *dexpb.DispatchTaskRequest,
 	dispatchEnd time.Time,
 	deadline <-chan time.Time,
+	queueSource dexpb.PullRoutingSource,
 	send func(*dexpb.DispatchTaskResponse) error,
 ) (dispatchAttemptOutcome, error) {
 	assignment := &taskAssignment{frames: make(chan *dexpb.PollWorkerTaskRequest, 32), abandoned: make(chan struct{}), taskID: request.TaskId}
@@ -1000,7 +1007,7 @@ func (w *workerStream) dispatchTaskAssignment(
 		}
 		return dispatchAttemptRetryDisconnected, nil
 	}
-	if err := sendAssignmentState(request, true, send); err != nil {
+	if err := sendAssignmentState(request, true, queueSource, send); err != nil {
 		w.cancelTask(request.TaskId)
 		return dispatchAttemptTerminal, err
 	}
@@ -1010,13 +1017,13 @@ func (w *workerStream) dispatchTaskAssignment(
 		case frame := <-assignment.frames:
 			if rejection := frame.GetReject(); rejection != nil {
 				if hasReceivedOutput {
-					return dispatchAttemptTerminal, send(dispatchError(dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED, "Worker rejected task after output"))
+					return dispatchAttemptTerminal, send(dispatchErrorForAssignedQueue(dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED, "Worker rejected task after output", queueSource))
 				}
-				return rejectionOutcome(request, rejection.Reason), sendAssignmentState(request, false, send)
+				return rejectionOutcome(request, rejection.Reason), sendAssignmentState(request, false, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED, send)
 			}
 			output := frame.GetTaskFrame()
 			hasReceivedOutput = true
-			if err := send(relayFrame(output, w.registration.AppWorkerId)); err != nil {
+			if err := send(relayFrame(output, w.registration.AppWorkerId, queueSource)); err != nil {
 				w.cancelTask(request.TaskId)
 				return dispatchAttemptTerminal, err
 			}
@@ -1029,13 +1036,13 @@ func (w *workerStream) dispatchTaskAssignment(
 				case frame := <-assignment.frames:
 					if rejection := frame.GetReject(); rejection != nil {
 						if hasReceivedOutput {
-							return dispatchAttemptTerminal, send(dispatchError(dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED, "Worker rejected task after output"))
+							return dispatchAttemptTerminal, send(dispatchErrorForAssignedQueue(dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED, "Worker rejected task after output", queueSource))
 						}
-						return rejectionOutcome(request, rejection.Reason), sendAssignmentState(request, false, send)
+						return rejectionOutcome(request, rejection.Reason), sendAssignmentState(request, false, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED, send)
 					}
 					if output := frame.GetTaskFrame(); output != nil {
 						hasReceivedOutput = true
-						if err := send(relayFrame(output, w.registration.AppWorkerId)); err != nil {
+						if err := send(relayFrame(output, w.registration.AppWorkerId, queueSource)); err != nil {
 							return dispatchAttemptTerminal, err
 						}
 						if isFinal(output) {
@@ -1045,9 +1052,9 @@ func (w *workerStream) dispatchTaskAssignment(
 				default:
 					if !hasReceivedOutput && time.Now().Before(dispatchEnd) {
 						// Pre-output disconnects can replay tasks because delivery is at least once.
-						return dispatchAttemptRetryDisconnected, sendAssignmentState(request, false, send)
+						return dispatchAttemptRetryDisconnected, sendAssignmentState(request, false, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED, send)
 					}
-					return dispatchAttemptTerminal, send(dispatchError(dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED, "Worker stream disconnected"))
+					return dispatchAttemptTerminal, send(dispatchErrorForAssignedQueue(dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED, "Worker stream disconnected", queueSource))
 				}
 			}
 		case <-ctx.Done():
@@ -1129,22 +1136,35 @@ func unmatchedDispatchError(request *dexpb.DispatchTaskRequest, excludedWorkerID
 	return dispatchError(dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_UNKNOWN_NAME, detail)
 }
 
+func dispatchErrorForAssignedQueue(reason dexpb.DispatchTaskErrorReason, detail string, queueSource dexpb.PullRoutingSource) *dexpb.DispatchTaskResponse {
+	response := dispatchError(reason, detail)
+	response.QueueSource = queueSource
+	return response
+}
+
 func dispatchError(reason dexpb.DispatchTaskErrorReason, detail string) *dexpb.DispatchTaskResponse {
 	return &dexpb.DispatchTaskResponse{Output: &dexpb.DispatchTaskResponse_DispatchError{DispatchError: &dexpb.DispatchTaskError{Reason: reason, Detail: detail}}}
 }
 
-func sendAssignmentState(request *dexpb.DispatchTaskRequest, isAssigned bool, send func(*dexpb.DispatchTaskResponse) error) error {
+func dispatchQueueSource(request *dexpb.DispatchTaskRequest, queueName string) dexpb.PullRoutingSource {
+	if request.GetFallbackQueue() != "" && queueName != request.GetFallbackQueue() {
+		return dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE
+	}
+	return dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_FLOW_TYPE_QUEUE
+}
+
+func sendAssignmentState(request *dexpb.DispatchTaskRequest, isAssigned bool, queueSource dexpb.PullRoutingSource, send func(*dexpb.DispatchTaskResponse) error) error {
 	if !request.GetSupportsAssignmentState() {
 		return nil
 	}
 	if isAssigned {
-		return send(&dexpb.DispatchTaskResponse{Output: &dexpb.DispatchTaskResponse_Assigned{Assigned: &emptypb.Empty{}}})
+		return send(&dexpb.DispatchTaskResponse{Output: &dexpb.DispatchTaskResponse_Assigned{Assigned: &emptypb.Empty{}}, QueueSource: queueSource})
 	}
 	return send(&dexpb.DispatchTaskResponse{Output: &dexpb.DispatchTaskResponse_Unassigned{Unassigned: &emptypb.Empty{}}})
 }
 
-func relayFrame(frame *dexpb.PollWorkerTaskFrame, workerID string) *dexpb.DispatchTaskResponse {
-	response := &dexpb.DispatchTaskResponse{}
+func relayFrame(frame *dexpb.PollWorkerTaskFrame, workerID string, queueSource dexpb.PullRoutingSource) *dexpb.DispatchTaskResponse {
+	response := &dexpb.DispatchTaskResponse{QueueSource: queueSource}
 	switch output := frame.Output.(type) {
 	case *dexpb.PollWorkerTaskFrame_WaitFor:
 		response.Output = &dexpb.DispatchTaskResponse_WaitFor{WaitFor: output.WaitFor}

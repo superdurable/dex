@@ -21,6 +21,20 @@ import (
 	"github.com/superdurable/dex/service/common/ptr"
 )
 
+type pullContinuedRunProbe struct {
+	ctx            context.Context
+	runtime        *integRuntime
+	flowID         string
+	originalRunID  string
+	continuedRunID string
+}
+
+func (p *pullContinuedRunProbe) hasContinued() bool {
+	var err error
+	p.continuedRunID, err = currentFlowRunID(p.ctx, p.runtime, p.flowID)
+	return err == nil && p.continuedRunID != p.originalRunID
+}
+
 func TestPullRoutingTemporal(t *testing.T) {
 	if !*temporalIntegTest || *dexServerAddress != "" {
 		t.Skip()
@@ -75,6 +89,98 @@ func TestPullRPCRoutingTemporal(t *testing.T) {
 	}
 	require.NotNil(t, closed)
 	require.Equal(t, workerID, closed.GetStickyAppWorkerId())
+}
+
+func TestPullRPCSignalRoutingTemporal(t *testing.T) {
+	if !*temporalIntegTest || *dexServerAddress != "" {
+		t.Skip()
+	}
+	testPullRPCSignalRouting(t, service.BackendTypeTemporal)
+}
+
+func TestPullRPCSignalRoutingCadence(t *testing.T) {
+	if !*cadenceIntegTest || *dexServerAddress != "" {
+		t.Skip()
+	}
+	testPullRPCSignalRouting(t, service.BackendTypeCadence)
+}
+
+func testPullRPCSignalRouting(t *testing.T, backend service.BackendType) {
+	t.Helper()
+	runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{}})
+	workerID := "routing-signal-rpc-" + uuid.NewString()
+	worker := startStateWritingPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, workerID, "rpc-write")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := "pull-signal-rpc-routing-" + uuid.NewString()
+	started, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId: newRequestID(), FlowId: flowID, FlowType: dispatchProbeFlowType, StartStepType: dispatchProbeStep,
+		FlowTimeoutSeconds: 120, FlowStartOptions: withWorkerTarget(nil, &dexpb.WorkerTarget{IsPullMode: true}),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "wait_for", waitForPullTask(t, worker, flowID).method)
+	_, err = runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId: newRequestID(), FlowId: flowID, RpcName: "updateProbe", IsTransactional: false, TimeoutSeconds: 10,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "rpc", waitForPullTask(t, worker, flowID).method)
+	require.Equal(t, "execute", waitForPullTask(t, worker, flowID).method)
+	_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{FlowId: flowID, Messages: []*dexpb.ChannelMessage{{ChannelName: dispatchProbeChannel}}})
+	require.NoError(t, err)
+	require.Equal(t, "execute", waitForPullTask(t, worker, flowID).method)
+	completed, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 15})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, completed.GetFlowStatus(), completed.GetErrorMessage())
+	attributes, err := runtime.FlowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{FlowId: flowID, AllKeys: true})
+	require.NoError(t, err)
+	require.Equal(t, "written", attributesToMap(attributes.GetAttributes())["rpc-write"].GetStringValue())
+	history, err := runtime.FlowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{FlowId: flowID, RunId: started.GetRunId(), EstimatePageSize: 100})
+	require.NoError(t, err)
+	var rpcEvent *dexpb.RpcExecutionCompletedEvent
+	for _, event := range history.GetEvents() {
+		if event.GetRpcExecutionCompleted() != nil {
+			rpcEvent = event.GetRpcExecutionCompleted()
+		}
+	}
+	require.NotNil(t, rpcEvent)
+	require.Equal(t, "updateProbe", rpcEvent.GetRpcName())
+	require.Equal(t, workerID, rpcEvent.GetServedByAppWorkerId())
+}
+
+func TestPullRoutingReplayTemporal(t *testing.T) {
+	if !*temporalIntegTest || *dexServerAddress != "" {
+		t.Skip()
+	}
+	runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal, Matching: &config.MatchingConfig{}})
+	workerID := "routing-replay-worker-" + uuid.NewString()
+	worker := newRawPullWorkerWithExecuteBehavior(t, runtime.PublicAddress, dispatchProbeFlowType, workerID, nil, false, false, false, false, false, false, false, pullExecuteDefault, rawPullWorkerConfig{rpcAttributeKey: "replay-write", rpcAsyncStep: true})
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	flowID := "pull-routing-replay-" + uuid.NewString()
+	started, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId: newRequestID(), FlowId: flowID, FlowType: dispatchProbeFlowType, StartStepType: dispatchProbeStep,
+		FlowTimeoutSeconds: 120, FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			WorkerTarget: &dexpb.WorkerTarget{IsPullMode: true}, StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "wait_for", waitForPullTask(t, worker, flowID).method)
+	requirePullActiveRouting(t, ctx, runtime.FlowClient, flowID, workerID)
+	_, err = runtime.FlowClient.TriggerContinueAsNew(ctx, &dexpb.TriggerContinueAsNewRequest{FlowId: flowID, RunId: started.GetRunId()})
+	require.NoError(t, err)
+	probe := &pullContinuedRunProbe{ctx: ctx, runtime: runtime, flowID: flowID, originalRunID: started.GetRunId()}
+	require.Eventually(t, probe.hasContinued, 10*time.Second, 50*time.Millisecond)
+	_, err = runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{RequestId: newRequestID(), FlowId: flowID, RpcName: "updateReplay", TimeoutSeconds: 10})
+	require.NoError(t, err)
+	require.Equal(t, "rpc", waitForPullTask(t, worker, flowID).method)
+	require.Equal(t, "execute", waitForPullTask(t, worker, flowID).method)
+	_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{FlowId: flowID, Messages: []*dexpb.ChannelMessage{{ChannelName: dispatchProbeChannel}}})
+	require.NoError(t, err)
+	require.Equal(t, "execute", waitForPullTask(t, worker, flowID).method)
+	completed, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 15})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, completed.GetFlowStatus(), completed.GetErrorMessage())
+	t.Logf("replay history Flow ID %s first run %s continued run %s", flowID, started.GetRunId(), probe.continuedRunID)
 }
 
 func testPullRouting(t *testing.T, backend service.BackendType) {

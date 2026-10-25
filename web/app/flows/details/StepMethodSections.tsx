@@ -713,7 +713,7 @@ export function FailureContent({
         ['Attempt', showAttempt ? failure.attempt : undefined],
         ['Error type', backendError],
         ['Detail', serverDetail],
-        ['Dispatch failure', pullDispatchFailureLabel(serverDetail)],
+        ['Dispatch failure', pullDispatchFailureLabel(details.dispatchTaskErrorReason, serverDetail)],
         ['Worker error type', details.originalWorkerErrorType],
         ['Worker error detail', workerDetail],
         ['Worker gRPC status', workerStatus],
@@ -1070,7 +1070,10 @@ export function pendingPhaseLabel(value: unknown): string {
   return 'Unspecified';
 }
 
-function pullDispatchFailureLabel(value: unknown): string | undefined {
+function pullDispatchFailureLabel(reason: unknown, value: unknown): string | undefined {
+  if (reason === 1) return 'No Worker available';
+  if (reason === 2) return 'Worker disconnected';
+  if (reason === 3) return 'Unknown Step type or RPC name: dispatch timed out';
   if (typeof value !== 'string') return undefined;
   if (value.includes('no Worker available for queue')) return 'No Worker available';
   if (value.includes('Worker disconnected during pull dispatch')) return 'Worker disconnected';

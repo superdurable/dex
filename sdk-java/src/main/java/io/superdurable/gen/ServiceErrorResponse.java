@@ -33,6 +33,7 @@ private static final long serialVersionUID = 0L;
     originalWorkerErrorDetail_ = "";
     originalWorkerErrorType_ = "";
     originalWorkerErrorStackTrace_ = "";
+    dispatchTaskErrorReason_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -238,6 +239,24 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int DISPATCH_TASK_ERROR_REASON_FIELD_NUMBER = 7;
+  private int dispatchTaskErrorReason_ = 0;
+  /**
+   * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 7;</code>
+   * @return The enum numeric value on the wire for dispatchTaskErrorReason.
+   */
+  @java.lang.Override public int getDispatchTaskErrorReasonValue() {
+    return dispatchTaskErrorReason_;
+  }
+  /**
+   * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 7;</code>
+   * @return The dispatchTaskErrorReason.
+   */
+  @java.lang.Override public io.superdurable.gen.DispatchTaskErrorReason getDispatchTaskErrorReason() {
+    io.superdurable.gen.DispatchTaskErrorReason result = io.superdurable.gen.DispatchTaskErrorReason.forNumber(dispatchTaskErrorReason_);
+    return result == null ? io.superdurable.gen.DispatchTaskErrorReason.UNRECOGNIZED : result;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -270,6 +289,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(originalWorkerErrorStackTrace_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 6, originalWorkerErrorStackTrace_);
     }
+    if (dispatchTaskErrorReason_ != io.superdurable.gen.DispatchTaskErrorReason.DISPATCH_TASK_ERROR_REASON_UNSPECIFIED.getNumber()) {
+      output.writeEnum(7, dispatchTaskErrorReason_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -293,6 +315,10 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(originalWorkerErrorStackTrace_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(6, originalWorkerErrorStackTrace_);
+    }
+    if (dispatchTaskErrorReason_ != io.superdurable.gen.DispatchTaskErrorReason.DISPATCH_TASK_ERROR_REASON_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(7, dispatchTaskErrorReason_);
     }
     return size;
   }
@@ -329,6 +355,7 @@ private static final long serialVersionUID = 0L;
         != other.getOriginalWorkerErrorStatus()) return false;
     if (!getOriginalWorkerErrorStackTrace()
         .equals(other.getOriginalWorkerErrorStackTrace())) return false;
+    if (dispatchTaskErrorReason_ != other.dispatchTaskErrorReason_) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -352,6 +379,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getOriginalWorkerErrorStatus();
     hash = (37 * hash) + ORIGINAL_WORKER_ERROR_STACK_TRACE_FIELD_NUMBER;
     hash = (53 * hash) + getOriginalWorkerErrorStackTrace().hashCode();
+    hash = (37 * hash) + DISPATCH_TASK_ERROR_REASON_FIELD_NUMBER;
+    hash = (53 * hash) + dispatchTaskErrorReason_;
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -489,6 +518,7 @@ private static final long serialVersionUID = 0L;
       originalWorkerErrorType_ = "";
       originalWorkerErrorStatus_ = 0;
       originalWorkerErrorStackTrace_ = "";
+      dispatchTaskErrorReason_ = 0;
       return this;
     }
 
@@ -540,6 +570,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000020) != 0)) {
         result.originalWorkerErrorStackTrace_ = originalWorkerErrorStackTrace_;
       }
+      if (((from_bitField0_ & 0x00000040) != 0)) {
+        result.dispatchTaskErrorReason_ = dispatchTaskErrorReason_;
+      }
     }
 
     @java.lang.Override
@@ -579,6 +612,9 @@ private static final long serialVersionUID = 0L;
         originalWorkerErrorStackTrace_ = other.originalWorkerErrorStackTrace_;
         bitField0_ |= 0x00000020;
         onChanged();
+      }
+      if (other.dispatchTaskErrorReason_ != 0) {
+        setDispatchTaskErrorReasonValue(other.getDispatchTaskErrorReasonValue());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -636,6 +672,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000020;
               break;
             } // case 50
+            case 56: {
+              dispatchTaskErrorReason_ = input.readEnum();
+              bitField0_ |= 0x00000040;
+              break;
+            } // case 56
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1021,6 +1062,58 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       originalWorkerErrorStackTrace_ = value;
       bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+
+    private int dispatchTaskErrorReason_ = 0;
+    /**
+     * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 7;</code>
+     * @return The enum numeric value on the wire for dispatchTaskErrorReason.
+     */
+    @java.lang.Override public int getDispatchTaskErrorReasonValue() {
+      return dispatchTaskErrorReason_;
+    }
+    /**
+     * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 7;</code>
+     * @param value The enum numeric value on the wire for dispatchTaskErrorReason to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDispatchTaskErrorReasonValue(int value) {
+      dispatchTaskErrorReason_ = value;
+      bitField0_ |= 0x00000040;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 7;</code>
+     * @return The dispatchTaskErrorReason.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.DispatchTaskErrorReason getDispatchTaskErrorReason() {
+      io.superdurable.gen.DispatchTaskErrorReason result = io.superdurable.gen.DispatchTaskErrorReason.forNumber(dispatchTaskErrorReason_);
+      return result == null ? io.superdurable.gen.DispatchTaskErrorReason.UNRECOGNIZED : result;
+    }
+    /**
+     * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 7;</code>
+     * @param value The dispatchTaskErrorReason to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setDispatchTaskErrorReason(io.superdurable.gen.DispatchTaskErrorReason value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000040;
+      dispatchTaskErrorReason_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 7;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDispatchTaskErrorReason() {
+      bitField0_ = (bitField0_ & ~0x00000040);
+      dispatchTaskErrorReason_ = 0;
       onChanged();
       return this;
     }

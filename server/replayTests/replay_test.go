@@ -24,6 +24,8 @@ import (
 // gRPC-era Temporal histories recaptured after the interpreter rewrite.
 // Global versioning restarted at v1; do not keep pre-rewrite version baselines.
 var jsonHistoryFiles = []string{
+	"v6-pull-sync-wait-continue-as-new-CAN1.json",
+	"v6-pull-async-after-continue-as-new-finish.json",
 	"v1-pull-async-local-fallback.json",
 	"v1-pull-sticky-continue-as-new-CAN1.json",
 	"v1-pull-sticky-continue-as-new-in-progress.json",
