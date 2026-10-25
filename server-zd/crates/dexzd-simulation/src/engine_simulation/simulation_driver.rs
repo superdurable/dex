@@ -78,10 +78,6 @@ const DRAIN_GRACE: Duration = Duration::from_secs(60);
 const FAULT_PROBABILITIES: [f64; 5] = [0.0, 0.001, 0.005, 0.01, 0.02];
 /// Longest wait of a crash for pipelined log writes or cross-Flow work to crash during.
 const PIPELINED_WRITE_WAIT: Duration = Duration::from_secs(3);
-/// Starts see fewer faults: one transient read error fails a start, and the log grows.
-const START_FAULT_DIVISOR: f64 = 4.0;
-/// Redeploy-profile starts replay the whole log, so start faults scale down beyond this many batches.
-const FULL_RATE_START_REPLAY_BATCHES: f64 = 100.0;
 
 /// The shared store applies every call; faults come from each process's own layer.
 struct NoInjectedFaults;
@@ -193,7 +189,18 @@ impl Simulation {
             config.profile.has_step_failure_policies(),
             Arc::clone(&trace),
         ));
-        let fault_probability = FAULT_PROBABILITIES[rng.random_range(0..FAULT_PROBABILITIES.len())];
+        let sampled_fault_probability =
+            FAULT_PROBABILITIES[rng.random_range(0..FAULT_PROBABILITIES.len())];
+        let fault_probability =
+            config
+                .fault_probability_percent
+                .map_or(sampled_fault_probability, |percent| {
+                    assert!(
+                        percent <= 100,
+                        "fault probability percent must not exceed 100"
+                    );
+                    f64::from(percent) / 100.0
+                });
         let retention_after_close = if rng.random_bool(0.5) {
             LONG_RETENTION
         } else {
@@ -806,7 +813,7 @@ impl Simulation {
                 &process_label,
                 start_kind,
                 self.rng.random(),
-                self.start_fault_probability(),
+                self.fault_probability,
             );
             let start = ProcessStart {
                 process_label: process_label.clone(),
@@ -883,24 +890,6 @@ impl Simulation {
             "node-cannot-recover",
             format!("{MAX_START_ATTEMPTS} starts failed; the last failed with: {last_error}"),
         ))
-    }
-
-    /// Returns the fault probability of a starting process's object store calls. A redeploy-profile
-    /// start keeps its expected faults bounded however long the log it replays.
-    fn start_fault_probability(&self) -> f64 {
-        let probability = self.fault_probability / START_FAULT_DIVISOR;
-        if !self.is_redeploy_profile() {
-            return probability;
-        }
-        let landed_batches = self
-            .environment
-            .storage
-            .observations
-            .lock()
-            .expect("storage observation lock is not poisoned")
-            .log_batches
-            .landed_batch_count();
-        probability * (FULL_RATE_START_REPLAY_BATCHES / landed_batches.max(1) as f64).min(1.0)
     }
 
     fn serve(&mut self, process: NodeProcess) {

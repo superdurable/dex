@@ -115,6 +115,7 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_snapshot_last_duration_seconds` | gauge | — | Duration of the last successful snapshot |
 | `dexzd_snapshot_last_bytes` | gauge | — | Size of the last successful snapshot |
 | `dexzd_recovery_last_duration_seconds` | gauge | — | Duration of the last completed recovery or takeover replay |
+| `dexzd_startup_read_retries_total` | counter | — | Transient object storage reads retried during startup |
 | `dexzd_recovery_last_replayed_bytes` | gauge | — | Uncompressed command record bytes replayed by the last recovery |
 | `dexzd_local_storage_bytes` | gauge | — | Local SST and WAL bytes, sampled at scrape time |
 | `dexzd_timer_lag_seconds` | gauge | — | Age of the oldest due timer not yet fired, 0 when none |
@@ -236,6 +237,9 @@ Startup proceeds in this order:
    log objects or one larger batch, and applies batches in log order as they arrive. After a
    replay of at least `localStorage.compactAfterReplayBytes`, the local store is compacted in the
    background while the node serves.
+   Transient object-storage reads are retried with jittered exponential backoff for up to
+   `recovery.startupReadRetryBudget` of total retry time (default 30 seconds). Permanent errors
+   fail startup immediately. Lease renewal continues during retries; losing the lease stops recovery.
 5. After recovery and rebuild finish, health switches to SERVING and the API serves requests.
    Startup failure closes the listener.
 
@@ -355,9 +359,10 @@ expires.
 
 A lost lease, a stopped commit pipeline, or a halted Flow runtime stops the node, and the process
 exits 1. Restart it. A signal before the node acquires its lease cancels startup and exits 0. If
-the node already holds its lease, startup finishes before graceful shutdown begins. That shutdown
-has the same 14.5-second total and exit status as a signal received while serving. A failed startup
-releases its lease and exits 1.
+the node already holds its lease, startup normally finishes before graceful shutdown begins.
+Once a transient read has been retried, a signal cancels startup and releases the lease promptly.
+Graceful shutdown has the same 14.5-second total and exit status as a signal received while
+serving. A failed startup releases its lease and exits 1.
 
 The node serves only within its local lease validity. The deadline is `lease.duration` after the
 last successful renewal was sent, on the local monotonic clock. Renewal starts one third of

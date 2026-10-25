@@ -31,8 +31,9 @@ use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
     AttributeSyncWaker, CommandApplier, CommandCommitter, DeterministicCommandApplier,
     EffectDependencies, EffectRunner, EffectTasksHandle, EngineNode, EngineNodeDependencies,
-    EngineRuntimeHooks, EngineServices, FlowRuntimeDependencies, FlowRuntimeRegistry,
-    HardDeleteObjects, NodeMetaUploadLedger, NodeStopReason, SystemEngineIdSource,
+    EngineRuntimeHooks, EngineServices, EngineStartError, FlowRuntimeDependencies,
+    FlowRuntimeRegistry, HardDeleteObjects, NodeMetaUploadLedger, NodeStopReason,
+    SystemEngineIdSource,
 };
 use dexzd_keyspace::PartitionHasher;
 use dexzd_metrics::NodeMetrics;
@@ -565,6 +566,15 @@ impl ServerNode {
                     parts.effect_tasks.shutdown().await;
                 }
                 close_stream_store(&stream_store).await;
+                if matches!(
+                    &source,
+                    EngineStartError::Stopped {
+                        reason: NodeStopReason::Shutdown
+                    }
+                ) && *cancellation.borrow()
+                {
+                    return Ok(None);
+                }
                 return Err(ServerError::EngineStart { source });
             }
         };

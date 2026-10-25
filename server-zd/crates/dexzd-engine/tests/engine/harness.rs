@@ -340,6 +340,9 @@ struct DelayedOperation {
 /// operation, once switched on. Records every operation it sees.
 #[derive(Default)]
 pub(crate) struct SwitchableFaults {
+    one_shot_fault: Mutex<Option<(ObjectStoreOperation, String, FaultAction)>>,
+    persistent_read_fault: Mutex<Option<(ObjectStoreOperation, String)>>,
+    fault_entered: Notify,
     failing_put_prefix: Mutex<Option<String>>,
     /// Key whose writes fail once the remaining count of allowed writes is zero.
     limited_put: Mutex<Option<(String, usize)>>,
@@ -351,6 +354,25 @@ pub(crate) struct SwitchableFaults {
 }
 
 impl SwitchableFaults {
+    pub(crate) fn fail_next(
+        &self,
+        operation: ObjectStoreOperation,
+        key: &str,
+        action: FaultAction,
+    ) {
+        *self.one_shot_fault.lock().expect("fault lock") =
+            Some((operation, key.to_owned(), action));
+    }
+
+    pub(crate) fn fail_every_read_under(&self, operation: ObjectStoreOperation, prefix: &str) {
+        *self.persistent_read_fault.lock().expect("fault lock") =
+            Some((operation, prefix.to_owned()));
+    }
+
+    pub(crate) async fn wait_until_faulted(&self) {
+        self.fault_entered.notified().await;
+    }
+
     pub(crate) fn fail_puts_under(&self, prefix: &str) {
         *self.failing_put_prefix.lock().expect("fault lock") = Some(prefix.to_owned());
     }
@@ -361,6 +383,8 @@ impl SwitchableFaults {
     }
 
     pub(crate) fn clear(&self) {
+        *self.one_shot_fault.lock().expect("fault lock") = None;
+        *self.persistent_read_fault.lock().expect("fault lock") = None;
         *self.failing_put_prefix.lock().expect("fault lock") = None;
         *self.limited_put.lock().expect("fault lock") = None;
         *self.delayed.lock().expect("fault lock") = None;
@@ -443,6 +467,25 @@ impl FaultInjector for SwitchableFaults {
             .lock()
             .expect("fault lock")
             .push((operation, key.to_owned()));
+        let one_shot = self.one_shot_fault.lock().expect("fault lock").take_if(
+            |(fault_operation, fault_key, _)| *fault_operation == operation && fault_key == key,
+        );
+        if let Some((_, _, action)) = one_shot {
+            self.fault_entered.notify_one();
+            return action;
+        }
+        if self
+            .persistent_read_fault
+            .lock()
+            .expect("fault lock")
+            .as_ref()
+            .is_some_and(|(fault_operation, prefix)| {
+                *fault_operation == operation && key.starts_with(prefix)
+            })
+        {
+            self.fault_entered.notify_one();
+            return FaultAction::FailBeforeEffect;
+        }
         let armed = self.delayed.lock().expect("fault lock").take_if(|delayed| {
             delayed.operation == operation
                 && if delayed.matches_prefix {

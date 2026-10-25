@@ -37,8 +37,8 @@ use crate::commit::{
 use crate::engine_id_source::EngineIdSource;
 use crate::recovery::{
     ClusterMetadata, EngineRuntimeHooks, EngineServices, EngineStartError, LocalStoreConfig,
-    LocalStoreRequirements, LogReplay, OpenedLocalStore, delete_older_set_aside_stores,
-    open_local_store, rebuild_search_order_indexes,
+    LocalStoreRequirements, LogReplay, OpenedLocalStore, StartupReadRetryStore,
+    delete_older_set_aside_stores, open_local_store, rebuild_search_order_indexes,
 };
 use crate::snapshots::{
     LogCleanup, OwnershipFence, SnapshotCatalog, SnapshotConfig, SnapshotError, SnapshotRetention,
@@ -143,14 +143,22 @@ impl EngineNode {
             id_source,
             lease_validity_deadline,
         } = dependencies;
+        // The injected holder ID makes retry jitter follow the simulation seed.
+        let holder_process_id = id_source.lease_holder_process_id();
+        let retrying_store = Arc::new(StartupReadRetryStore::new(
+            object_store,
+            config.recovery.startup_read_retry_budget,
+            holder_process_id.clone(),
+            metrics.clone(),
+        ));
+        let object_store: Arc<dyn ObjectStore> = retrying_store.clone();
         // Fails fast on a contradicting manifest; the predecessor may still change it until the lease.
-        let unleased_metadata = ClusterMetadata::bootstrap_or_validate(
-            object_store.as_ref(),
-            clock.as_ref(),
-            config.cluster,
-            &config.node,
-        )
-        .await?;
+        let unleased_metadata = tokio::select! {
+            metadata = ClusterMetadata::bootstrap_or_validate(
+                object_store.as_ref(), clock.as_ref(), config.cluster, &config.node,
+            ) => metadata?,
+            () = wait_for_cancellation(cancellation) => return Ok(None),
+        };
         let partition_count = unleased_metadata.partition_count();
         metrics
             .behavior_version
@@ -164,7 +172,7 @@ impl EngineNode {
                 clock.clone(),
                 &config.node,
                 cancellation,
-                id_source.lease_holder_process_id(),
+                holder_process_id,
                 LeaseObservers {
                     metrics: Some(metrics.as_ref().clone()),
                     validity_deadline: lease_validity_deadline.clone(),
@@ -198,7 +206,7 @@ impl EngineNode {
                 lease,
             }),
         };
-        let serving = async {
+        let mut serving_future = Box::pin(async {
             let parts = starting.parts_mut();
             let metadata = unleased_metadata
                 .read_under_lease(object_store.as_ref(), &config.node, epoch)
@@ -418,9 +426,18 @@ impl EngineNode {
             tracing::info!(epoch, next_seq = replayed.next_seq, "engine node serving");
             metrics.set_role(dexzd_metrics::NodeRole::Serving);
             Ok((committer, applied_positions, snapshots))
-        }
-        .await;
-        match serving {
+        });
+        let serving_result = tokio::select! {
+            biased;
+            reason = state.wait_stopped() => Err(EngineStartError::Stopped { reason }),
+            () = wait_for_cancellation_after_retry(cancellation, &retrying_store) => Err(EngineStartError::Stopped {
+                reason: NodeStopReason::Shutdown,
+            }),
+            result = &mut serving_future => result,
+        };
+        drop(serving_future);
+        retrying_store.finish_startup();
+        match serving_result {
             Ok((committer, applied_positions, snapshots)) => {
                 let LeasedParts {
                     state,
@@ -673,6 +690,8 @@ fn validate_config(config: &EngineNodeConfig) -> Result<(), EngineStartError> {
         Some("recovery.log_read_ahead.max_read_ahead_batches must be positive")
     } else if config.recovery.log_read_ahead.max_buffered_bytes == 0 {
         Some("recovery.log_read_ahead.max_buffered_bytes must be positive")
+    } else if config.recovery.startup_read_retry_budget.is_zero() {
+        Some("recovery.startup_read_retry_budget must be positive")
     } else {
         None
     };
@@ -682,6 +701,25 @@ fn validate_config(config: &EngineNodeConfig) -> Result<(), EngineStartError> {
         }),
         None => Ok(()),
     }
+}
+
+async fn wait_for_cancellation(cancellation: &mut watch::Receiver<bool>) {
+    loop {
+        if *cancellation.borrow_and_update() {
+            return;
+        }
+        if cancellation.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
+async fn wait_for_cancellation_after_retry(
+    cancellation: &mut watch::Receiver<bool>,
+    retrying_store: &StartupReadRetryStore,
+) {
+    wait_for_cancellation(cancellation).await;
+    retrying_store.wait_for_retry().await;
 }
 
 fn applied_command_timestamps(

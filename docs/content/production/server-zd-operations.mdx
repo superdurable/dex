@@ -186,7 +186,9 @@ object storage rejects the lease release. A replacement may then wait up to
 **lease.duration** plus about 1 second.
 
 A SIGTERM can arrive during startup after the node holds its lease. Startup then
-finishes before the graceful shutdown begins. A long log replay can therefore
+normally finishes before the graceful shutdown begins. Once a transient object
+storage read has been retried, SIGTERM cancels startup and releases the lease.
+A long log replay without such a retry can therefore
 outlast the grace period. Kubernetes then kills the process, and the next start
 waits for the old lease to expire.
 
@@ -290,8 +292,14 @@ startup probe. A standby needs a TCP or exec startup probe and liveness probe
 instead.
 
 The process exits on its own after a fatal error, such as a lost lease or a
-failed commit. If object storage is unreachable at startup, the process also
-exits 1. Kubernetes restarts the container with backoff in both cases.
+failed commit. During startup, transient object storage read errors are retried
+with jittered exponential backoff. **recovery.startupReadRetryBudget** allows
+30 seconds of total retry time by default and must be positive. The error
+names the operation and object key if that budget expires. Missing required
+objects, corrupt data, access denial, and lost lease ownership fail startup
+without read retries. Lease renewal continues while recovery retries reads.
+If startup fails, the process exits 1. Kubernetes restarts the container with
+backoff.
 
 ## Lease {#lease}
 
