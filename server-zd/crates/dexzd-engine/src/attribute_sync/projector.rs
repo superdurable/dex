@@ -268,6 +268,7 @@ impl AttributeSyncProjector {
                     );
                     let retry_at = self.fail_store(&store_name);
                     self.defer(partition, &store_name, retry_at);
+                    self.cycle_start_partition = self.partition_after(partition);
                     continue;
                 }
             };
