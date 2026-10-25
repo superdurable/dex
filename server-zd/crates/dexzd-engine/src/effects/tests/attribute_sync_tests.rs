@@ -491,10 +491,7 @@ impl ProjectorFixture {
         panic!("timed out waiting until {description}");
     }
 
-    /// Stops the node before its in-flight acks commit, then starts a new node with the next epoch
-    /// over the same committed state and Attribute Store.
-    ///
-    /// The new projector's waker heard no marks, so only its startup scan can find pending entries.
+    /// Restarts on the next epoch over the same committed state; only the startup scan sees pending entries.
     async fn restart_after_crash(mut self, config: AttributeSyncConfig) -> Self {
         let projector = self.projector.take().expect("the projector runs");
         assert!(projector.shutdown(Duration::from_secs(1)).await);
@@ -1315,8 +1312,7 @@ async fn a_crash_before_the_ack_commits_writes_values_committed_after_the_store_
     assert_a_crash_before_the_ack_commits_delivers_the_latest_values(true).await;
 }
 
-/// The node dies after the store transaction commits and before its ack commits; the restarted
-/// node writes the entries again with the latest committed values.
+/// After the store commit and before the ack commits, a restart rewrites the latest values.
 async fn assert_a_crash_before_the_ack_commits_delivers_the_latest_values(has_newer_write: bool) {
     const FLOW_ID: &str = "order-crash";
     let fixture = ProjectorFixture::start(sync_config());
@@ -1364,15 +1360,18 @@ async fn assert_a_crash_before_the_ack_commits_delivers_the_latest_values(has_ne
         .store(usize::MAX, Ordering::SeqCst);
     fixture.store.release_writes();
     fixture
-        .wait_until("the store commits and an ack proposal fails", |fixture| {
-            !fixture.store.committed_writes().is_empty()
-                && fixture
-                    .harness
-                    .runtime
-                    .unavailable_proposals
-                    .load(Ordering::SeqCst)
-                    < usize::MAX
-        })
+        .wait_until(
+            "the store commits and a proposal of this node fails",
+            |fixture| {
+                !fixture.store.committed_writes().is_empty()
+                    && fixture
+                        .harness
+                        .runtime
+                        .unavailable_proposals
+                        .load(Ordering::SeqCst)
+                        < usize::MAX
+            },
+        )
         .await;
     let committed_before_crash = fixture.store.committed_writes();
     assert_eq!(committed_before_crash.len(), 1);

@@ -135,4 +135,7 @@ jobs:
         run: 'cargo test -p dexzd-e2e-tests --test dev_server attribute_sync:: -- --skip attribute_sync::commit_to_table_p99_latency'
       # Runs alone so other tests do not share its CPU; --nocapture prints the percentiles.
       - name: Measure Attribute Sync commit-to-table latency
-        run: 'cargo test -p dexzd-e2e-tests --test dev_server attribute_sync::commit_to_table_p99_latency_stays_within_two_seconds_under_steady_load -- --exact --nocapture'
+        run: |
+          set -o pipefail
+          cargo test -p dexzd-e2e-tests --test dev_server attribute_sync::commit_to_table_p99_latency_stays_within_two_seconds_under_steady_load -- --exact --nocapture 2>&1 | tee "$RUNNER_TEMP/attribute-sync-latency.log"
+          grep -q '^attribute_sync_commit_to_table_latency:' "$RUNNER_TEMP/attribute-sync-latency.log"

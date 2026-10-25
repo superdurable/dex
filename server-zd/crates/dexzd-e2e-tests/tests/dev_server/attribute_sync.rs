@@ -184,8 +184,6 @@ async fn synced_attributes_reach_postgres_through_outages_and_time_travel() {
 }
 
 /// Under steady SetAttributes load from concurrent Flows, p99 commit-to-table latency stays within 2 s.
-///
-/// Sync writes only latest values, so a write is visible once its row shows its counter or a later one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn commit_to_table_p99_latency_stays_within_two_seconds_under_steady_load() {
     let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
