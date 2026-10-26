@@ -57,6 +57,7 @@ examples/rust/target/
 s3mock/target/
 server-zd/target/
 server-zd/target/release/dex-server-zd
+benchmark/bin/dexbench
 
 # TypeScript
 sdk-typescript/node_modules/

@@ -18,6 +18,7 @@ examples/rust/target/
 s3mock/target/
 server-zd/target/
 server-zd/target/release/dex-server-zd
+benchmark/bin/dexbench
 **/target/
 **/node_modules/
 **/.venv/
