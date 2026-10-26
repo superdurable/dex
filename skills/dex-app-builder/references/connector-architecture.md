@@ -93,6 +93,12 @@ because its response was lost; an explicit rerun creates a new business
 operation identity. Inspect the released factory's execution options instead
 of assuming its retry defaults satisfy this boundary.
 
+### Connector branches, retries, and deterministic failure
+
+- Wire only the happy-path branches of a connector call. An unwired branch fails the Flow run. Wire another branch only when a requirement names its reaction.
+- Use the connector factory's default retry policy and pass an explicit call identity. Override retries only with a stated reason. Use the uncertain outcome rarely.
+- Fail a deterministic, non-retryable condition, such as input beyond a stated limit or an empty required result, with the force-fail Step decision. A returned error is retried instead. Go: `dex.ForceFail("reason")`. At their pinned baselines, Java has `StepDecision.forceFail`, Python `force_fail`, TypeScript `forceFail`, and Rust `StepDecision::force_fail`. The Connector SDK is Go-only, so connector Steps are Go.
+
 ## Application composition
 
 Prefer an existing released connector capability over application-local

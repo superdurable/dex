@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.52.0 - 2026-10-25
+
+- Add App Builder rules for connector calls: wire only happy-path branches, keep the default retry policy with an explicit call identity, fail deterministic non-retryable conditions with the force-fail Step decision (named per SDK at its pinned baseline), and test the happy path plus each wired branch with connector mock defaults. Baselines stay unchanged.
+
 ## 0.51.1 - 2026-10-25
 
 - Document one-off DescribeFlow status reads for known Flows in the Go, Python, TypeScript, and Rust primitives references, and point the Go error reference to Client.DescribeFlow. Baselines stay at their 0.51.0 values.
