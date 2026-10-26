@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.51.0 - 2026-10-25
+
+- Advance the Go SDK baseline and pinned links to sdk-go/v1.22.0. Keep Java, Python, TypeScript, Rust, Server, and CLI at v1.20.0; their v1.23.0 releases are not yet adopted. The other Go commit updates integration test expectations for server-zd cancellation; its application behavior was already documented.
+- Document Go Client and Worker FlowService TLS, its plaintext and system-root defaults, CA and server-name settings, address restrictions, HTTP/2 gateway requirement, pull Worker and API key credential boundaries, and construction versus connection errors. State the lack of a client-certificate option and of a TLS option in the other four SDKs at their baselines. Clarify the plaintext Server listeners, separate dexcli TLS, and Dex Web's plaintext FlowService target.
+- Pin the TLS behavior to the tagged Go SDK and Server sources, cross-check the Core and five language references, and add released-source mutation tests. Synchronize the bundle and plugin manifests at 0.51.0.
+
 ## 0.50.0 - 2026-10-25
 
 - Advance the Go SDK baseline and its pinned source links to sdk-go/v1.21.0. Keep Java, Python, TypeScript, Rust, Server, and CLI baselines at v1.20.0. Document Go `Client.DescribeFlow`, the v1.21.0 addition, as a non-waiting status read for a known Flow ID, with its `FlowInfo` fields, Go-only close time, errors, and read boundaries. Name every SDK's DescribeFlow call in Core, since Java `describeFlow`, Python `describe_flow`, TypeScript `describeFlow`, and Rust `describe_flow` already exist at v1.20.0, and add closed-Flow race guidance to the Go, Python, TypeScript, and Rust error references. Both Dex Server implementations serve the underlying RPC; only the Go Server changes the run ID after time travel.
