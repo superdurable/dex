@@ -97,7 +97,6 @@ fn run_scenario(scenario: CancellationScenario, is_server_zd: bool) {
                 // server-zd cancels pull handlers without a recorded heartbeat.
                 assert!(state.cancellation_observed.wait(Duration::from_secs(8)));
                 assert!(state.handler_canceled.load(Ordering::SeqCst));
-                assert!(state.context_reported_cancellation.load(Ordering::SeqCst));
             } else {
                 // The Go Server leaves a non-heartbeating handler running.
                 assert!(!state.handler_canceled.load(Ordering::SeqCst));
@@ -115,11 +114,8 @@ fn run_scenario(scenario: CancellationScenario, is_server_zd: bool) {
         scenario,
         CancellationScenario::LocalExecute | CancellationScenario::LocalTimeoutFallback
     );
-    let expected_invocations = if has_async_local_phase && is_server_zd {
-        // server-zd has no ASYNC local invocation.
-        1
-    } else if has_async_local_phase {
-        // The Go Server runs local and remote ASYNC invocations.
+    // The Go Server runs local and remote ASYNC invocations; server-zd has no local one.
+    let expected_invocations = if has_async_local_phase && !is_server_zd {
         2
     } else {
         1

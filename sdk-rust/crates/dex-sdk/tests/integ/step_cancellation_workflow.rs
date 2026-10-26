@@ -56,6 +56,16 @@ impl CancellationScenario {
             Self::SiblingSelector => "sibling-selector",
         }
     }
+
+    pub(crate) fn cancels_blocking_execute(self) -> bool {
+        match self {
+            Self::HeartbeatExecute
+            | Self::LocalExecute
+            | Self::LocalTimeoutFallback
+            | Self::NoHeartbeat => true,
+            Self::HeartbeatWaitFor | Self::GlobalSelector | Self::SiblingSelector => false,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -150,7 +160,7 @@ impl StepCancellationWorkflow {
             blocking_wait_for: CancellationBlockingWaitFor(Arc::clone(&state)),
             winner: CancellationWinner(Arc::clone(&state)),
             recovery: CancellationRecovery(Arc::clone(&state)),
-            final_step: CancellationFinal,
+            final_step: CancellationFinal(Arc::clone(&state)),
             first_parent: CancellationFirstParent(Arc::clone(&state)),
             second_parent: CancellationSecondParent(Arc::clone(&state)),
             selector_winner: CancellationSelectorWinner(Arc::clone(&state)),
@@ -337,7 +347,10 @@ impl Step for CancellationWinner {
             }
             thread::sleep(Duration::from_secs(1));
         }
-        let decision = StepDecision::go_to(&CancellationFinal, self.0.scenario.name().to_string());
+        let decision = StepDecision::go_to(
+            &CancellationFinal(Arc::clone(&self.0)),
+            self.0.scenario.name().to_string(),
+        );
         if self.0.scenario == CancellationScenario::HeartbeatWaitFor {
             return Ok(decision.cancel_step(&CancellationBlockingWaitFor(Arc::clone(&self.0))));
         }
@@ -360,12 +373,22 @@ impl Step for CancellationRecovery {
     }
 }
 
-struct CancellationFinal;
+struct CancellationFinal(Arc<CancellationState>);
 
 impl Step for CancellationFinal {
     type Input = String;
 
     fn wait_for(&self, _context: &mut Context, _input: String) -> HandlerResult<Wait> {
+        // On server-zd the canceled Rust handler sends its late write; order it before the read.
+        if self.0.is_server_zd
+            && self.0.scenario.cancels_blocking_execute()
+            && !self.0.late_handler_returned.wait(Duration::from_secs(10))
+        {
+            return Err(HandlerError::new(
+                "StepCancellationFailure",
+                "canceled handler did not return before final Step wait",
+            ));
+        }
         Ok(Wait::until(Timer::by_duration(Duration::from_secs(1))))
     }
 
@@ -428,7 +451,10 @@ impl Step for CancellationSelectorWinner {
                 "selector Steps did not reach waiting",
             ));
         }
-        let decision = StepDecision::go_to(&CancellationFinal, self.0.scenario.name().to_string());
+        let decision = StepDecision::go_to(
+            &CancellationFinal(Arc::clone(&self.0)),
+            self.0.scenario.name().to_string(),
+        );
         if self.0.scenario == CancellationScenario::GlobalSelector {
             return Ok(decision.cancel_step(&CancellationSelectorWaiting(Arc::clone(&self.0))));
         }

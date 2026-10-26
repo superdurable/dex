@@ -91,6 +91,7 @@ public final class StepCancellationTest {
                     flowId,
                     StepCancellationWorkflow.Scenario.LOCAL_TIMEOUT_FALLBACK);
             assertAsyncCancellationInvocationCount(workflow);
+            assertTrue(workflow.awaitCancellation(CANCELLATION_TIMEOUT));
             assertTrue(workflow.wasHandlerInterrupted());
             assertTrue(workflow.didContextReportCancellation());
             assertFalse(workflow.wasRecoveryRun());
@@ -195,13 +196,10 @@ public final class StepCancellationTest {
 
     private static void assertAsyncCancellationInvocationCount(
             final StepCancellationWorkflow workflow) {
-        if (IntegrationTestWaits.isServerZD()) {
-            // server-zd has no ASYNC local invocation.
-            assertEquals(1, workflow.blockingExecuteInvocations());
-        } else {
-            // The Go Server runs local and remote ASYNC invocations.
-            assertEquals(2, workflow.blockingExecuteInvocations());
-        }
+        // The Go Server runs local and remote ASYNC invocations; server-zd has no local one.
+        assertEquals(
+                IntegrationTestWaits.isServerZD() ? 1 : 2,
+                workflow.blockingExecuteInvocations());
     }
 
     private static String start(

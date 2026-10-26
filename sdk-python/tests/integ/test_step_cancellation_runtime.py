@@ -16,10 +16,9 @@ from datetime import timedelta
 import pytest
 
 from dex import StepExecutionId, WaitForStepCompletionOptions
-from dex.dexpb import dex_pb2 as pb
 
 from .async_environment import AsyncDexDevTestEnvironment
-from .flow_service_client import _server_engine
+from .flow_service_client import is_server_zd
 from .shared import unique_id
 from .step_cancellation_flow import CancellationScenario, StepCancellationFlow
 
@@ -30,7 +29,7 @@ def test_step_cancellation(scenario: CancellationScenario) -> None:
 
 
 async def _run_step_cancellation(scenario: CancellationScenario) -> None:
-    is_server_zd = _server_engine() == pb.SERVER_ENGINE_ZD
+    is_zd_engine = is_server_zd()
     flow = StepCancellationFlow(scenario)
     async with AsyncDexDevTestEnvironment(
         flow, allow_async_handlers=True
@@ -68,7 +67,7 @@ async def _run_step_cancellation(scenario: CancellationScenario) -> None:
             assert flow.second_selector_executed
             return
         if scenario is CancellationScenario.NO_HEARTBEAT:
-            if is_server_zd:
+            if is_zd_engine:
                 # server-zd cancels pull handlers without a recorded heartbeat.
                 await asyncio.wait_for(flow.cancellation_observed.wait(), timeout=8)
                 assert flow.handler_canceled
@@ -82,16 +81,11 @@ async def _run_step_cancellation(scenario: CancellationScenario) -> None:
             await asyncio.wait_for(flow.cancellation_observed.wait(), timeout=8)
             assert flow.handler_canceled
             assert flow.context_reported_cancellation
-        expected_invocations = 1
-        if scenario in {
+        has_async_local_phase = scenario in {
             CancellationScenario.LOCAL_EXECUTE,
             CancellationScenario.LOCAL_TIMEOUT_FALLBACK,
-        }:
-            if is_server_zd:
-                # server-zd has no ASYNC local invocation.
-                expected_invocations = 1
-            else:
-                # The Go Server runs local and remote ASYNC invocations.
-                expected_invocations = 2
+        }
+        # The Go Server runs local and remote ASYNC invocations; server-zd has no local one.
+        expected_invocations = 2 if has_async_local_phase and not is_zd_engine else 1
         assert flow.blocking_invocations == expected_invocations
         assert not flow.recovery_ran

@@ -72,17 +72,10 @@ for (const scenario of cancellationScenarios) {
         assert.equal(flow.handlerCanceled, true);
         assert.equal(flow.contextReportedCancellation, true);
       }
-      let expectedInvocations = 1;
-      if (scenario === "local-execute" || scenario === "local-timeout-fallback") {
-        if (isServerZDEngine) {
-          // server-zd has no ASYNC local invocation.
-          expectedInvocations = 1;
-        } else {
-          // The Go Server runs local and remote ASYNC invocations.
-          expectedInvocations = 2;
-        }
-      }
-      assert.equal(flow.blockingInvocations, expectedInvocations);
+      const hasAsyncLocalPhase =
+        scenario === "local-execute" || scenario === "local-timeout-fallback";
+      // The Go Server runs local and remote ASYNC invocations; server-zd has no local one.
+      assert.equal(flow.blockingInvocations, hasAsyncLocalPhase && !isServerZDEngine ? 2 : 1);
       assert.equal(flow.recoveryRan, false);
     });
   });

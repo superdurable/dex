@@ -412,6 +412,7 @@ class StepCancellationWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
+            // The pull Worker replaces a canceled handler's result with a CANCELLED error.
             if (lateWrite.get(context) != null) {
                 return StepDecision.forceFail("canceled execution committed its late write");
             }

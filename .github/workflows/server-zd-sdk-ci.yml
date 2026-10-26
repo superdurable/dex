@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "sdk-go/**"
       - "sdk-rust/**"
       - "sdk-python/**"
       - "sdk-typescript/**"
@@ -13,9 +14,12 @@ on:
       - "cli/**"
       - "web/**"
       - "protos/**"
+      - "go.work"
+      - "go.work.sum"
       - ".github/workflows/server-zd-sdk-ci.yml"
   pull_request:
     paths:
+      - "sdk-go/**"
       - "sdk-rust/**"
       - "sdk-python/**"
       - "sdk-typescript/**"
@@ -25,6 +29,8 @@ on:
       - "cli/**"
       - "web/**"
       - "protos/**"
+      - "go.work"
+      - "go.work.sum"
       - ".github/workflows/server-zd-sdk-ci.yml"
   workflow_dispatch:
 
@@ -35,7 +41,12 @@ concurrency:
   group: server-zd-sdk-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The CARGO_* and RUST* values match the Server ZD CI ParadeDB job, so its main cache restores here.
+# server/** is not a trigger: zd-mode dexcli dev runs no Go Server code beyond server/gen/dexpb (protos/**).
 env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
   RUSTUP_TOOLCHAIN: "1.97.1"
   CARGO_BUILD_JOBS: "4"
   DEX_INTEG_ENGINE: zd
@@ -51,17 +62,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - sdk: Go
+            directory: sdk-go
+            script: ./run-e2e-tests.sh
+            service-log: /tmp/test-go-sdk-phase5-e2e-services.log
           - sdk: Rust
             directory: sdk-rust
+            script: ./run-integration-tests.sh
             service-log: /tmp/test-rust-sdk-integration-services.log
           - sdk: Python
             directory: sdk-python
+            script: ./run-integration-tests.sh
             service-log: /tmp/test-python-sdk-integration-services.log
           - sdk: TypeScript
             directory: sdk-typescript
+            script: ./run-integration-tests.sh
             service-log: /tmp/test-typescript-sdk-integration-services.log
           - sdk: Java
             directory: sdk-java
+            script: ./run-integration-tests.sh
             service-log: /tmp/test-java-sdk-integration-services.log
     defaults:
       run:
@@ -76,7 +95,8 @@ jobs:
         with:
           workspaces: server-zd
           shared-key: server-zd-paradedb
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Restore-only: the ParadeDB job owns this key, and five legs must not race to save it.
+          save-if: false
       - name: Build dex-server-zd
         working-directory: server-zd
         run: cargo build --locked -p dexzd-server --bin dex-server-zd
@@ -84,9 +104,11 @@ jobs:
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: |
+            sdk-go/go.sum
             cli/go.sum
             server/go.sum
             web/go.sum
+            go.work.sum
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -118,7 +140,7 @@ jobs:
         if: matrix.sdk == 'Python'
         run: uv sync --locked --reinstall-package dex-python-sdk
       - name: Run SDK integration suite
-        run: ./run-integration-tests.sh
+        run: ${{ matrix.script }}
       - name: Upload service logs
         if: always()
         uses: actions/upload-artifact@v7

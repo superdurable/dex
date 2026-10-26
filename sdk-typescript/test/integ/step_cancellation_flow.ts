@@ -52,6 +52,13 @@ export const cancellationScenarios: readonly CancellationScenario[] = [
   "sibling-selector",
 ];
 
+const blockingExecuteScenarios: ReadonlySet<CancellationScenario> = new Set([
+  "heartbeat-execute",
+  "local-execute",
+  "local-timeout-fallback",
+  "no-heartbeat",
+]);
+
 class CancellationStart implements Step<string> {
   public readonly inputCodec = stringCodec;
 
@@ -227,7 +234,15 @@ class CancellationFinal implements Step<string> {
     return "TypeScriptCancellationFinal";
   }
 
-  public waitFor(_context: Context, _input: string): Wait {
+  public async waitFor(_context: Context, _input: string): Promise<Wait> {
+    // On server-zd the canceled TypeScript handler sends its late write; order it before the read.
+    if (this.flow.isServerZD && blockingExecuteScenarios.has(this.flow.scenario)) {
+      await rejectAfter(
+        this.flow.lateHandlerReturned,
+        10_000,
+        "canceled handler did not return before final Step wait",
+      );
+    }
     return Wait.until(Timer.byDuration(1_000));
   }
 
@@ -422,6 +437,22 @@ function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
     }
     signal.addEventListener("abort", abort, { once: true });
   });
+}
+
+async function rejectAfter(
+  promise: Promise<void>,
+  milliseconds: number,
+  message: string,
+): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+  try {
+    await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function delayWithHeartbeats(context: AsyncContext, milliseconds: number): Promise<void> {

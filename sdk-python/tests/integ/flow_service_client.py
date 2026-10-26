@@ -28,8 +28,12 @@ def flow_service_client() -> pb_grpc.FlowServiceStub:
     return pb_grpc.FlowServiceStub(channel)  # type: ignore[no-untyped-call]
 
 
+def is_server_zd() -> bool:
+    return _server_engine() == pb.SERVER_ENGINE_ZD
+
+
 def skip_if_server_zd(feature: str) -> None:
-    if _server_engine() == pb.SERVER_ENGINE_ZD:
+    if is_server_zd():
         pytest.skip(f"server-zd does not support {feature}")
 
 

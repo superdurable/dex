@@ -212,6 +212,7 @@ class CancellationFinal(Step[str]):
         return Wait.until(Timer.by_duration(timedelta(seconds=1)))
 
     def execute(self, context: Context, input: str) -> StepDecision:
+        # The pull Worker replaces a canceled handler's result with a CANCELLED error.
         if self.flow.late_write.get(context) is not None:
             return force_fail("canceled execution committed its late write")
         return graceful_complete(input)
