@@ -1,0 +1,4 @@
+cpu_model=Apple M5 Pro
+cpu_count=18
+ram_bytes=51539607552
+free_disk_kb=201233688

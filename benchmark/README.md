@@ -1,88 +1,133 @@
 # Dex server benchmark
 
-`dexbench` uses the Go SDK and an in-process pull Worker pool to compare the Go
-Dex Server on Temporal with server-zd. It runs one target at a time and writes
-one JSON file per target and scenario.
+`dexbench` compares server-zd and the Go Server with the same Go SDK, Worker
+configuration, machine, warmup, measurement window, and concurrency. It runs one
+server at a time. Quick mode uses local development servers and gives a rough
+comparison. Prod mode uses a dedicated EC2 host, PostgreSQL-backed Temporal,
+and real S3. Use prod results for performance conclusions.
 
-## Prepare an Ubuntu 22.04 or 24.04 instance
+Each run writes one JSON file per scenario, target, and concurrency under
+`benchmark/results/<YYYY-MM-DD>-<mode>-<host>/`, plus `report.md` and `host.txt`.
+These results are tracked in Git. The temporary server data and logs are removed
+when the script exits.
 
-Install Go 1.26 or newer from [go.dev/dl](https://go.dev/dl/), the
-[Temporal CLI](https://docs.temporal.io/cli), and `git`. Prod mode also needs
-[Docker Engine with Compose](https://docs.docker.com/engine/install/ubuntu/)
-and AWS credentials that the default AWS SDK chain can read.
+## Quick mode: fresh Ubuntu 22.04 or 24.04
+
+Install Git, curl, jq, and Python with apt. Install Go and the Temporal CLI in
+your home directory; the remaining steps need no sudo. Use Go 1.26 or newer.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl git jq python3 tar xz-utils
+mkdir -p "$HOME/.local"
+go_archive="$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '.[0].files[] | select(.os=="linux" and .arch=="amd64" and .kind=="archive") | .filename' | head -1)"
+curl -fsSL "https://go.dev/dl/$go_archive" -o "/tmp/$go_archive"
+tar -C "$HOME/.local" -xzf "/tmp/$go_archive"
+export PATH="$HOME/.local/go/bin:$HOME/.local/bin:$HOME/.temporalio/bin:$PATH"
+curl -fsSL https://temporal.download/cli.sh -o /tmp/temporal-cli-install.sh
+bash /tmp/temporal-cli-install.sh
+go version
+temporal --version
+```
+
+Clone Dex and install a recent `dexcli`. A release binary works if
+`dexcli dev --help` lists `-engine`. A source build from this checkout is the
+most direct option. Building from source also requires Node.js 22 and npm to
+compile the embedded Web assets. Check `uptime` before each build and wait until
+its one-minute load is below 24:
 
 ```bash
 git clone https://github.com/superdurable/dex.git
 cd dex
-go version
-temporal --version
-go build -o cli/dexcli ./cli/cmd/dexcli
-cd server-zd && cargo build --release -p dexzd-server && cd ..
-export DEXBENCH_DEXCLI_BINARY="$PWD/cli/dexcli"
-export DEXBENCH_ZD_BINARY="$PWD/server-zd/target/release/dex-server-zd"
+mkdir -p "$HOME/.local/bin"
+node_archive="$(curl -fsSL https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt | awk '$2 ~ /linux-x64.tar.xz$/ {print $2; exit}')"
+curl -fsSL "https://nodejs.org/dist/latest-v22.x/$node_archive" -o "/tmp/$node_archive"
+mkdir -p "$HOME/.local/node"
+tar -xJf "/tmp/$node_archive" -C "$HOME/.local/node" --strip-components=1
+export PATH="$HOME/.local/node/bin:$PATH"
+(cd web && nice -n 10 npm ci && nice -n 10 npm run build)
+(cd cli && nice -n 10 go build -o "$HOME/.local/bin/dexcli" ./cmd/dexcli)
+export DEXBENCH_DEXCLI_BINARY="$HOME/.local/bin/dexcli"
 ```
 
-The latest `server-zd/v*` GitHub release also provides a Linux binary. Replace
-the source build with its `dex-server-zd_v*_linux_amd64.tar.gz` asset when
-appropriate. The release binary and the source build both work with `run.sh`.
+Install the newest server-zd release binary in the same directory. Select the
+asset for the host architecture (`amd64` or `arm64`).
 
-## Run
+```bash
+zd_tag="$(curl -fsSL 'https://api.github.com/repos/superdurable/dex/releases?per_page=100' | jq -r '.[] | select(.draft == false and .prerelease == false and (.tag_name | startswith("server-zd/v"))) | .tag_name' | sort -V | tail -1)"
+zd_version="${zd_tag#server-zd/}"
+curl -fsSL "https://github.com/superdurable/dex/releases/download/$zd_tag/dex-server-zd_${zd_version}_linux_amd64.tar.gz" -o /tmp/dex-server-zd.tar.gz
+tar -xzf /tmp/dex-server-zd.tar.gz -C "$HOME/.local/bin" dex-server-zd
+export DEXBENCH_ZD_BINARY="$HOME/.local/bin/dex-server-zd"
+```
+
+Quick mode starts both targets through `dexcli dev`. The ZD target uses its
+embedded s3mock; the Go target uses the Temporal CLI dev server with SQLite.
+It does not start Docker or use AWS. Check that the host has enough free disk
+for recovery. The script records CPU model, core count, RAM, and free disk. It
+scales recovery log targets from 100/500/1000 MiB to 10/50/100 MiB below 10
+GiB free, and skips recovery below 2 GiB.
 
 ```bash
 benchmark/run.sh quick
-```
-
-Quick mode starts each server through `dexcli dev`. The Go target uses the
-SQLite-backed Temporal CLI dev server. The ZD target uses its embedded S3
-emulator. Both use fresh local state. The default is 60 seconds of measurement
-and 10 seconds of warmup for each of six scenario rows per target, so allow
-about 15–20 minutes including startup.
-
-Prod mode starts Temporal and PostgreSQL using the existing
-`server/docker-compose/integ-dependencies.yml` file. It runs the Go Dex Server
-through `dexcli dev --external-temporal-address`, then runs
-`dex-server-zd serve` against a real S3 bucket. The prefix gains a unique
-timestamp and the ZD local disk directory is new for every run. The script
-stops the server and Compose stack on exit; it does not delete S3 objects.
-
-```bash
-export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
-export DEXBENCH_S3_BUCKET=your-bucket
-export DEXBENCH_S3_PREFIX=dex-benchmark
-export DEXBENCH_S3_REGION=us-east-1
-benchmark/run.sh prod
-```
-
-Use instance roles or other default-chain credentials instead of access-key
-environment variables when available. Restrict the bucket to the benchmark
-prefix. For either mode, use `DEXBENCH_DURATION`, `DEXBENCH_WARMUP`,
-`DEXBENCH_CONCURRENCY`, `DEXBENCH_WORKERS`, `DEXBENCH_STEPS`,
-`DEXBENCH_SCENARIOS`, `DEXBENCH_TARGETS` and `DEXBENCH_OUT` to change the run.
-`DEXBENCH_TARGETS=zd` runs only ZD. `--short` on `dexbench run` uses five seconds
-per scenario, one second of warmup, and two clients and Worker slots.
-
-The script prints its result directory. Render a comparison from its JSON
-files:
-
-```bash
 benchmark/bin/dexbench report benchmark/results/<run-directory>/*.json
 ```
 
-Each file includes operation counts and errors, throughput, latency percentiles,
-server and SDK identity, machine details, one-second CPU and RSS samples, and
-ZD object-store and commit metrics when the metrics endpoint is enabled.
-`start-complete` measures StartFlow through WaitForFlow; `sequential-steps` and
-`async-steps` measure K-Step chains; `rpc` produces plain and Attribute-locked
-RPC rows; `channel-wake` measures publication through the waiting Step's Execute
-start. Chain Step latency measures one Execute start to the next, including
-server scheduling. The publish timestamp and Execute timestamp share the same
-benchmark process clock.
+For a short local smoke of all scenarios on ZD, use:
 
-Use the same instance, concurrency, Worker pool, duration, and Step count for
-both targets. Quick mode is a developer comparison: Temporal uses SQLite and ZD
-uses an embedded object store. Prod mode uses PostgreSQL-backed Temporal and
-real S3 for ZD, but the Go Dex Server still runs under `dexcli dev`; its local
-blob store and the two storage designs are different. CPU and RSS cover the
-specified Dex server process; they do not include Temporal, PostgreSQL, or S3.
-The benchmark does not currently implement the optional log-size recovery
-scenario.
+```bash
+DEXBENCH_TARGETS=zd DEXBENCH_DURATION=10 DEXBENCH_WARMUP=1 \
+  DEXBENCH_CONCURRENCY=2 DEXBENCH_RECOVERY_MB=1 benchmark/run.sh quick
+```
+
+## Prod mode: dedicated EC2 host
+
+The coordinator prepares and reaches the host through Systems Manager Session
+Manager. The host needs an instance role with access to the dedicated bucket,
+and a mounted local NVMe directory. No SSH port or static AWS keys are needed.
+On the host, from the Dex checkout:
+
+```bash
+benchmark/prod/host-setup.sh
+export DEXBENCH_S3_BUCKET=<dedicated-bucket>
+export DEXBENCH_S3_PREFIX=<dedicated-prefix>
+export DEXBENCH_S3_REGION=<region>
+export DEXBENCH_NVME_DIR=<mounted-local-nvme-directory>
+benchmark/prod/run-prod.sh
+```
+
+`host-setup.sh` installs Docker Compose, Go, the Temporal CLI, and the newest
+`server-zd/v*` and `server/v*` releases. It downloads Linux release assets;
+when a Go Server release has no binary asset, it builds that release tag from
+source. The prod script starts Temporal and PostgreSQL from
+`server/docker-compose/`, runs the standalone Go Server, then runs
+`dex-server-zd serve` on real S3. Both targets use a PostgreSQL Attribute
+Store for the synchronized S7 variant. ZD state lives on local NVMe. The
+script removes its Docker containers and local temporary state on exit; the
+coordinator removes the benchmark bucket and host afterward.
+
+## Configuration and metrics
+
+The defaults are a 30-second warmup and a 3-minute measurement at concurrency
+1, 8, 32, and 128. Set `DEXBENCH_DURATION`, `DEXBENCH_WARMUP`,
+`DEXBENCH_CONCURRENCY` (comma-separated), `DEXBENCH_WORKERS`, `DEXBENCH_STEPS`,
+`DEXBENCH_SCENARIOS`, `DEXBENCH_TARGETS`, `DEXBENCH_RECOVERY_MB`, or
+`DEXBENCH_OUT` to override them. `DEXBENCH_TARGETS=zd` runs only ZD.
+
+S1 starts and completes a one-Step Flow. S2 and S3 run ten sequential SYNC or
+ASYNC Steps. S4 measures plain and Attribute-locked RPCs. S5 compares a read-only
+RPC with direct FlowService GetAttributes through the generated gRPC client.
+S6 measures Channel publication to Step execution. S7 measures external
+SetAttributes writes with synchronization disabled and, when a PostgreSQL
+Attribute Store is configured, enabled. S8 runs only on ZD: it writes each
+configured log payload size, restarts without the local state, and measures
+until FlowService becomes ready. S8 records the replayed byte count reported
+by the server as well as the target payload size.
+
+Each JSON contains configuration, release and SDK identity, the Git commit,
+machine details, attempts, successes and errors, throughput, exact latency
+percentiles, one-second CPU and RSS samples, and ZD object-store and commit
+metrics when available. On prod, Go Server resource samples include Temporal
+and both PostgreSQL containers. `report.md` shows both targets side by side
+with ZD/Temporal throughput and latency ratios for each scenario and
+concurrency.

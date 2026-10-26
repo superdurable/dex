@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -39,42 +40,88 @@ func machineInfo() MachineInfo {
 			if strings.HasPrefix(line, "MemTotal:") {
 				fields := strings.Fields(line)
 				kilobytes, parseErr := strconv.ParseUint(fields[1], 10, 64)
-				if parseErr == nil { info.RAMBytes = kilobytes * 1024 }
+				if parseErr == nil {
+					info.RAMBytes = kilobytes * 1024
+				}
 				break
 			}
 		}
 	}
+	if info.CPUModel == "" {
+		if output, err := exec.Command("sysctl", "-n", "machdep.cpu.brand_string").Output(); err == nil {
+			info.CPUModel = strings.TrimSpace(string(output))
+		}
+	}
+	if info.RAMBytes == 0 {
+		if output, err := exec.Command("sysctl", "-n", "hw.memsize").Output(); err == nil {
+			if bytes, parseErr := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64); parseErr == nil {
+				info.RAMBytes = bytes
+			}
+		}
+	}
+	var disk syscall.Statfs_t
+	diskPath := os.Getenv("DEXBENCH_DISK_PATH")
+	if diskPath == "" {
+		diskPath = "."
+	}
+	if err := syscall.Statfs(diskPath, &disk); err == nil {
+		info.FreeDiskBytes = disk.Bavail * uint64(disk.Bsize)
+	}
 	return info
 }
 
+func MachineDetails() MachineInfo { return machineInfo() }
+
 func serverPID(config Config) (int, error) {
-	if config.ServerPID > 0 { return config.ServerPID, nil }
-	if config.ServerProcess == "" { return 0, nil }
+	if config.ServerPID > 0 {
+		return config.ServerPID, nil
+	}
+	if config.ServerProcess == "" {
+		return 0, nil
+	}
 	output, err := exec.Command("pgrep", "-n", "-x", config.ServerProcess).Output()
-	if err != nil { return 0, fmt.Errorf("find server process %s: %w", config.ServerProcess, err) }
+	if err != nil {
+		return 0, fmt.Errorf("find server process %s: %w", config.ServerProcess, err)
+	}
 	return strconv.Atoi(strings.TrimSpace(string(output)))
 }
 
 func sampleProcess(pid int) (ResourceSample, error) {
 	output, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "%cpu=,rss=").Output()
-	if err != nil { return ResourceSample{}, fmt.Errorf("sample process %d: %w", pid, err) }
+	if err != nil {
+		return ResourceSample{}, fmt.Errorf("sample process %d: %w", pid, err)
+	}
 	fields := strings.Fields(string(output))
-	if len(fields) != 2 { return ResourceSample{}, fmt.Errorf("unexpected ps output for %d: %q", pid, output) }
+	if len(fields) != 2 {
+		return ResourceSample{}, fmt.Errorf("unexpected ps output for %d: %q", pid, output)
+	}
 	cpu, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil { return ResourceSample{}, err }
+	if err != nil {
+		return ResourceSample{}, err
+	}
 	rss, err := strconv.ParseUint(fields[1], 10, 64)
-	if err != nil { return ResourceSample{}, err }
+	if err != nil {
+		return ResourceSample{}, err
+	}
 	return ResourceSample{At: time.Now().UTC(), CPUPercent: cpu, RSSBytes: rss * 1024}, nil
 }
 
 func scrapeMetrics(ctx context.Context, address string) (map[string]float64, error) {
-	if address == "" { return nil, nil }
+	if address == "" {
+		return nil, nil
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	response, err := http.DefaultClient.Do(request)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK { return nil, fmt.Errorf("metrics returned %s", response.Status) }
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("metrics returned %s", response.Status)
+	}
 	return parseMetrics(response.Body)
 }
 
@@ -83,23 +130,35 @@ func parseMetrics(reader io.Reader) (map[string]float64, error) {
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") { continue }
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
 		fields := strings.Fields(line)
-		if len(fields) < 2 { continue }
-		if !strings.HasPrefix(fields[0], "dexzd_object_store_") && !strings.HasPrefix(fields[0], "dexzd_commit_latency_seconds") { continue }
+		if len(fields) < 2 {
+			continue
+		}
+		if !strings.HasPrefix(fields[0], "dexzd_object_store_") && !strings.HasPrefix(fields[0], "dexzd_commit_latency_seconds") && !strings.HasPrefix(fields[0], "dexzd_recovery_last_") {
+			continue
+		}
 		value, err := strconv.ParseFloat(fields[1], 64)
-		if err != nil { return nil, fmt.Errorf("parse metric %s: %w", fields[0], err) }
+		if err != nil {
+			return nil, fmt.Errorf("parse metric %s: %w", fields[0], err)
+		}
 		values[fields[0]] = value
 	}
 	return values, scanner.Err()
 }
 
 func metricDifference(before, after map[string]float64, duration time.Duration) *ObjectStoreMetrics {
-	if after == nil { return nil }
+	if after == nil {
+		return nil
+	}
 	metrics := &ObjectStoreMetrics{RequestsPerMinute: map[string]float64{}, CommitLatencyBuckets: map[string]float64{}}
 	for name, final := range after {
 		delta := final - before[name]
-		if delta < 0 { delta = final }
+		if delta < 0 {
+			delta = final
+		}
 		switch {
 		case strings.HasPrefix(name, "dexzd_object_store_requests"):
 			metrics.RequestsPerMinute[name] = delta / duration.Minutes()

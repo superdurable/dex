@@ -3,44 +3,67 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-quick}"
-case "$mode" in quick|prod) ;; *) echo "usage: $0 quick|prod" >&2; exit 2 ;; esac
+if [[ "$mode" == prod ]]; then exec "$repo_root/benchmark/prod/run-prod.sh"; fi
+if [[ "$mode" != quick ]]; then echo "usage: $0 quick|prod" >&2; exit 2; fi
 
-duration="${DEXBENCH_DURATION:-60}"
-warmup="${DEXBENCH_WARMUP:-10}"
-concurrency="${DEXBENCH_CONCURRENCY:-16}"
-workers="${DEXBENCH_WORKERS:-16}"
+wait_for_load() {
+  local load
+  while :; do
+    load="$(uptime | sed -E 's/.*load averages?: ([0-9.]+).*/\1/')"
+    if awk -v load="$load" 'BEGIN { exit !(load < 24) }'; then return; fi
+    echo "waiting for 1-minute load below 24 (now $load)" >&2
+    sleep 15
+  done
+}
+
+duration="${DEXBENCH_DURATION:-180}"
+warmup="${DEXBENCH_WARMUP:-30}"
+concurrency="${DEXBENCH_CONCURRENCY:-1,8,32,128}"
+workers="${DEXBENCH_WORKERS:-0}"
 steps="${DEXBENCH_STEPS:-10}"
-scenarios="${DEXBENCH_SCENARIOS:-start-complete,sequential-steps,async-steps,rpc,channel-wake}"
+scenarios="${DEXBENCH_SCENARIOS:-start-complete,sequential-steps,async-steps,rpc,attribute-read,channel-wake,attribute-write,recovery}"
 targets="${DEXBENCH_TARGETS:-temporal,zd}"
-output_dir="${DEXBENCH_OUT:-$repo_root/benchmark/results/$(date -u +%Y%m%dT%H%M%SZ)-$mode}"
+output_dir="${DEXBENCH_OUT:-$repo_root/benchmark/results/$(date -u +%Y-%m-%d)-$mode-$(hostname -s)}"
 run_dir="$(mktemp -d)"
 benchmark_binary="$repo_root/benchmark/bin/dexbench"
 current_pid=""
-compose_started=0
 
 cleanup() {
   if [[ -n "$current_pid" ]]; then
     kill "$current_pid" 2>/dev/null || true
     wait "$current_pid" 2>/dev/null || true
   fi
-  if [[ "$compose_started" == 1 ]]; then
-    docker compose --env-file "$repo_root/server/docker-compose/.env" -f "$repo_root/server/docker-compose/integ-dependencies.yml" down -v >/dev/null 2>&1 || true
-  fi
   rm -rf "$run_dir"
 }
 trap cleanup EXIT INT TERM
 
 mkdir -p "$repo_root/benchmark/bin" "$output_dir"
-(cd "$repo_root/benchmark" && GOWORK=off go build -o "$benchmark_binary" ./cmd/dexbench)
+if compgen -G "$output_dir/*.json" >/dev/null; then
+  echo "result directory already contains JSON; set DEXBENCH_OUT for a new run" >&2
+  exit 1
+fi
+wait_for_load
+(cd "$repo_root/benchmark" && nice -n 10 env GOWORK=off go build -o "$benchmark_binary" ./cmd/dexbench)
 dexcli_binary="${DEXBENCH_DEXCLI_BINARY:-$(command -v dexcli || true)}"
 zd_binary="${DEXBENCH_ZD_BINARY:-$(command -v dex-server-zd || true)}"
 if [[ -z "$dexcli_binary" ]]; then echo "set DEXBENCH_DEXCLI_BINARY or install dexcli" >&2; exit 1; fi
 if [[ "$targets" == *zd* && -z "$zd_binary" ]]; then echo "set DEXBENCH_ZD_BINARY or install dex-server-zd" >&2; exit 1; fi
+dexcli_help="$("$dexcli_binary" dev --help 2>&1)"
+if [[ "$dexcli_help" != *-engine* ]]; then echo "dexcli must support dev --engine; build this checkout's cli/cmd/dexcli" >&2; exit 1; fi
+
+cpu_model="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || awk -F: '/model name/{print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
+cpu_count="$(getconf _NPROCESSORS_ONLN)"
+ram_bytes="$(sysctl -n hw.memsize 2>/dev/null || awk '/MemTotal/{print $2 * 1024; exit}' /proc/meminfo 2>/dev/null || true)"
+free_disk_kb="$(df -Pk "$output_dir" | awk 'NR==2 {print $4}')"
+printf 'cpu_model=%s\ncpu_count=%s\nram_bytes=%s\nfree_disk_kb=%s\n' "$cpu_model" "$cpu_count" "$ram_bytes" "$free_disk_kb" > "$output_dir/host.txt"
+DEXBENCH_GIT_COMMIT="$(git -C "$repo_root" rev-parse HEAD)"
+export DEXBENCH_GIT_COMMIT
+export DEXBENCH_DISK_PATH="$output_dir"
 
 wait_for_server() {
   local attempts
-  for ((attempts=0; attempts<90; attempts++)); do
-    if (echo > /dev/tcp/127.0.0.1/8801) >/dev/null 2>&1; then return 0; fi
+  for ((attempts=0; attempts<180; attempts++)); do
+    if "$benchmark_binary" probe >/dev/null 2>&1; then return 0; fi
     if ! kill -0 "$current_pid" 2>/dev/null; then echo "server exited during startup" >&2; return 1; fi
     sleep 1
   done
@@ -60,7 +83,7 @@ run_target() {
   local metrics_argument=()
   local version="unknown"
   if [[ "$target" == zd ]]; then
-    if [[ "$mode" == prod ]]; then server_pid="$current_pid"; else server_pid="$(pgrep -n -x dex-server-zd || true)"; fi
+    server_pid="$(pgrep -n -x dex-server-zd || true)"
     metrics_argument=(--metrics-url http://127.0.0.1:9901/metrics)
     version="$($zd_binary --version 2>/dev/null || echo unknown)"
   else
@@ -68,65 +91,47 @@ run_target() {
   fi
   local pid_argument=()
   if [[ -n "$server_pid" ]]; then pid_argument=(--server-pid "$server_pid"); fi
-  DEXBENCH_SERVER_VERSION="$version" "$benchmark_binary" run \
+  local extra_resource=()
+  if [[ "$target" == temporal ]]; then
+    temporal_pid="$(pgrep -n -x temporal || true)"
+    if [[ -n "$temporal_pid" ]]; then extra_resource=(--resource-pids "$temporal_pid"); fi
+  fi
+  wait_for_load
+  DEXBENCH_SERVER_VERSION="$version" nice -n 10 "$benchmark_binary" run \
     --address 127.0.0.1:8801 --target "$target" --engine "$target" \
     --duration "$duration" --warmup "$warmup" --concurrency "$concurrency" \
-    --workers "$workers" --steps "$steps" --scenarios "$scenarios" \
-    --out "$output_dir" "${pid_argument[@]}" "${metrics_argument[@]}"
+    --workers "$workers" --steps "$steps" --scenarios "$normal_scenarios" --mode quick \
+    --out "$output_dir" ${pid_argument[@]+"${pid_argument[@]}"} ${metrics_argument[@]+"${metrics_argument[@]}"} ${extra_resource[@]+"${extra_resource[@]}"}
 }
 
-if [[ "$mode" == prod ]]; then
-  : "${DEXBENCH_S3_BUCKET:?set DEXBENCH_S3_BUCKET}"
-  : "${DEXBENCH_S3_PREFIX:?set DEXBENCH_S3_PREFIX}"
-  : "${DEXBENCH_S3_REGION:?set DEXBENCH_S3_REGION}"
-  docker compose --env-file "$repo_root/server/docker-compose/.env" -f "$repo_root/server/docker-compose/integ-dependencies.yml" up -d postgresql elasticsearch temporal
-  compose_started=1
-  for ((attempts=0; attempts<90; attempts++)); do
-    if (echo > /dev/tcp/127.0.0.1/7233) >/dev/null 2>&1; then break; fi
-    sleep 1
-  done
-fi
+normal_scenarios=""
+has_recovery=0
+IFS=, read -ra requested_scenarios <<< "$scenarios"
+for scenario in "${requested_scenarios[@]}"; do
+  scenario="${scenario//[[:space:]]/}"
+  if [[ "$scenario" == recovery ]]; then has_recovery=1; continue; fi
+  if [[ -n "$normal_scenarios" ]]; then normal_scenarios+=","; fi
+  normal_scenarios+="$scenario"
+done
 
 IFS=, read -ra requested_targets <<< "$targets"
 for target in "${requested_targets[@]}"; do
   target="${target//[[:space:]]/}"
+  if [[ -z "$normal_scenarios" ]]; then continue; fi
+  wait_for_load
   case "$target" in
     temporal)
-      if [[ "$mode" == quick ]]; then
-        "$dexcli_binary" dev --engine temporal --open=false --dex-port 8801 --web-port 8802 \
-          --sqlite-db-filename "$run_dir/temporal.sqlite" --blob-store-dir "$run_dir/go-blobs" >"$output_dir/temporal-server.log" 2>&1 &
-      else
-        "$dexcli_binary" dev --engine temporal --open=false --dex-port 8801 --web-port 8802 \
-          --external-temporal-address 127.0.0.1:7233 --blob-store-dir "$run_dir/go-blobs" >"$output_dir/temporal-server.log" 2>&1 &
-      fi
+      nice -n 10 "$dexcli_binary" dev --engine temporal --open=false --dex-port 8801 --web-port 8802 \
+        --sqlite-db-filename "$run_dir/temporal.sqlite" --blob-store-dir "$run_dir/go-blobs" >"$run_dir/temporal-server.log" 2>&1 &
       current_pid=$!
       ;;
     zd)
-      if [[ "$mode" == quick ]]; then
-        cat > "$run_dir/zd-quick.yaml" <<'YAML'
+      cat > "$run_dir/zd-quick.yaml" <<'YAML'
 metrics:
   listen: "127.0.0.1:9901"
 YAML
-        "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
-          --zd-binary "$zd_binary" --zd-data-dir "$run_dir/zd-data" --zd-config "$run_dir/zd-quick.yaml" >"$output_dir/zd-server.log" 2>&1 &
-      else
-        cat > "$run_dir/zd-prod.yaml" <<YAML
-cluster:
-  nodeId: "benchmark-$(date -u +%s)"
-objectStore:
-  region: "$DEXBENCH_S3_REGION"
-  bucket: "$DEXBENCH_S3_BUCKET"
-  prefix: "$DEXBENCH_S3_PREFIX/$(date -u +%Y%m%dT%H%M%SZ)"
-  credentialsSource: defaultChain
-localStorage:
-  directory: "$run_dir/zd-data"
-api:
-  listen: "127.0.0.1:8801"
-metrics:
-  listen: "127.0.0.1:9901"
-YAML
-        "$zd_binary" serve --config "$run_dir/zd-prod.yaml" >"$output_dir/zd-server.log" 2>&1 &
-      fi
+      nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
+        --zd-binary "$zd_binary" --zd-data-dir "$run_dir/zd-data" --zd-config "$run_dir/zd-quick.yaml" >"$run_dir/zd-server.log" 2>&1 &
       current_pid=$!
       ;;
     *) echo "unknown target: $target" >&2; exit 2 ;;
@@ -136,4 +141,60 @@ YAML
   stop_server
 done
 
+if [[ "$has_recovery" == 1 && "$targets" == *zd* ]]; then
+  if [[ -n "${DEXBENCH_RECOVERY_MB:-}" ]]; then
+    recovery_sizes="$DEXBENCH_RECOVERY_MB"
+  elif (( free_disk_kb < 2097152 )); then
+    recovery_sizes=""
+  elif (( free_disk_kb < 10485760 )); then
+    recovery_sizes="10,50,100"
+  else
+    recovery_sizes="100,500,1000"
+  fi
+  if [[ -z "$recovery_sizes" ]]; then
+    echo "recovery skipped: less than 2 GiB free" | tee "$output_dir/recovery-skipped.txt"
+  else
+    IFS=, read -ra requested_sizes <<< "$recovery_sizes"
+    for size in "${requested_sizes[@]}"; do
+    data_dir="$run_dir/recovery-$size"
+    mkdir -p "$data_dir"
+    cat > "$run_dir/zd-recovery.yaml" <<'YAML'
+metrics:
+  listen: "127.0.0.1:9901"
+snapshot:
+  logThresholdBytes: 2147483647
+  interval: 24h
+YAML
+    wait_for_load
+    nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
+      --zd-binary "$zd_binary" --zd-data-dir "$data_dir" --zd-config "$run_dir/zd-recovery.yaml" \
+      >"$run_dir/recovery-$size-server.log" 2>&1 &
+    current_pid=$!
+    wait_for_server
+    wait_for_load
+    nice -n 10 "$benchmark_binary" seed-recovery --size-mb "$size" > "$run_dir/recovery-$size-seed.txt"
+    stop_server
+    rm -rf "$data_dir/store"
+    wait_for_load
+    start_ns="$(python3 -c 'import time; print(time.time_ns())')"
+    nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
+      --zd-binary "$zd_binary" --zd-data-dir "$data_dir" --zd-config "$run_dir/zd-recovery.yaml" \
+      >>"$run_dir/recovery-$size-server.log" 2>&1 &
+    current_pid=$!
+    wait_for_server
+    end_ns="$(python3 -c 'import time; print(time.time_ns())')"
+    elapsed="$(python3 -c 'import sys; print((int(sys.argv[2])-int(sys.argv[1]))/1e9)' "$start_ns" "$end_ns")"
+    version="$($zd_binary --version 2>/dev/null || echo unknown)"
+    DEXBENCH_SERVER_VERSION="$version" "$benchmark_binary" record-recovery --size-mb "$size" \
+      --elapsed-seconds "$elapsed" --mode quick --out "$output_dir/zd-recovery-${size}mb.json"
+    stop_server
+    done
+  fi
+fi
+
+if compgen -G "$output_dir/*.json" >/dev/null; then
+  "$benchmark_binary" report "$output_dir"/*.json > "$output_dir/report.md"
+else
+  printf 'No scenarios produced results.\n' > "$output_dir/report.md"
+fi
 echo "results: $output_dir"

@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-10-26T19:43:23.983333Z",
+  "config": {
+    "address": "127.0.0.1:8801",
+    "target": "zd",
+    "engine": "zd",
+    "scenario": "async-steps",
+    "duration_seconds": 10,
+    "warmup_seconds": 1,
+    "concurrency": 2,
+    "worker_pool": 2,
+    "steps": 10,
+    "timeout_seconds": 30,
+    "server_pid": 48650,
+    "metrics_url": "http://127.0.0.1:9901/metrics",
+    "attribute_bytes": 16384,
+    "mode": "quick",
+    "git_commit": "284eaba017ef4eccffc19f81511a75311aeb5a1e"
+  },
+  "server_version": "dex-server-zd 0.1.0",
+  "sdk_version": "in-repo (../sdk-go)",
+  "machine": {
+    "cpu_model": "Apple M5 Pro",
+    "cores": 18,
+    "ram_bytes": 51539607552,
+    "os": "darwin",
+    "architecture": "arm64",
+    "free_disk_bytes": 205415616512
+  },
+  "attempts": 790,
+  "successes": 790,
+  "errors": {},
+  "throughput_per_second": 790,
+  "throughput_unit": "steps",
+  "latency": {
+    "p50_ms": 25.279958,
+    "p90_ms": 26.263167,
+    "p99_ms": 29.888833,
+    "max_ms": 30.808416
+  },
+  "step_latency": {
+    "p50_ms": 0.249,
+    "p90_ms": 1.45,
+    "p99_ms": 2.074,
+    "max_ms": 6.39
+  },
+  "step_samples": 7110,
+  "resources": [
+    {
+      "at": "2026-10-26T19:43:25.999814Z",
+      "cpu_percent": 45.2,
+      "rss_bytes": 375848960
+    },
+    {
+      "at": "2026-10-26T19:43:27.000078Z",
+      "cpu_percent": 50.6,
+      "rss_bytes": 378585088
+    },
+    {
+      "at": "2026-10-26T19:43:28.000523Z",
+      "cpu_percent": 46.4,
+      "rss_bytes": 381108224
+    },
+    {
+      "at": "2026-10-26T19:43:28.999986Z",
+      "cpu_percent": 41.8,
+      "rss_bytes": 383746048
+    },
+    {
+      "at": "2026-10-26T19:43:29.999812Z",
+      "cpu_percent": 40.8,
+      "rss_bytes": 386580480
+    },
+    {
+      "at": "2026-10-26T19:43:30.999874Z",
+      "cpu_percent": 47.2,
+      "rss_bytes": 389152768
+    },
+    {
+      "at": "2026-10-26T19:43:31.999901Z",
+      "cpu_percent": 39.9,
+      "rss_bytes": 391823360
+    },
+    {
+      "at": "2026-10-26T19:43:33.000681Z",
+      "cpu_percent": 42.9,
+      "rss_bytes": 394199040
+    },
+    {
+      "at": "2026-10-26T19:43:33.999952Z",
+      "cpu_percent": 58.4,
+      "rss_bytes": 400162816
+    },
+    {
+      "at": "2026-10-26T19:43:34.99989Z",
+      "cpu_percent": 56.6,
+      "rss_bytes": 402194432
+    }
+  ],
+  "object_store": {
+    "requests_per_minute": {
+      "dexzd_object_store_requests_total{operation=\"delete\",object_kind=\"other\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"get\",object_kind=\"lease\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"get\",object_kind=\"manifest\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"get\",object_kind=\"other\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"list\",object_kind=\"log\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"lease\"}": 5.9884197436103,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"log\"}": 7096.277396178205,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"manifest\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"other\"}": 0
+    },
+    "request_errors": 0,
+    "commit_latency_buckets": {
+      "dexzd_commit_latency_seconds_bucket{le=\"+Inf\"}": 1185,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.01\"}": 1185,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.025\"}": 1185,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.05\"}": 1185,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.1\"}": 1185,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.25\"}": 1185,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.5\"}": 1185,
+      "dexzd_commit_latency_seconds_bucket{le=\"1.0\"}": 1185,
+      "dexzd_commit_latency_seconds_bucket{le=\"2.5\"}": 1185
+    },
+    "commit_latency_count": 1185,
+    "commit_latency_sum_seconds": 0.9297003959999728
+  }
+}
