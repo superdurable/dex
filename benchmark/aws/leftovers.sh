@@ -2,11 +2,17 @@
 # Lists resources still tagged dex-benchmark=<name>, plus its IAM role and instance profile.
 # Exits 1 when anything remains. Usage: leftovers.sh <region> <name>
 set -euo pipefail
+# shellcheck source=common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 remaining=0
 # The tagging API can report a deleted resource for a few minutes, so confirm live state too.
-for arn in $(tagged_resources | grep -Ev ':(instance|volume)/' || true); do
+for arn in $(tagged_resources); do
+  case "$arn" in
+    *:instance/* | *:volume/*) continue ;;
+    arn:aws:s3:::*) aws s3api head-bucket --bucket "${arn#arn:aws:s3:::}" >/dev/null 2>&1 || continue ;;
+    *:security-group/*) aws ec2 describe-security-groups --group-ids "${arn##*/}" >/dev/null 2>&1 || continue ;;
+  esac
   echo "tagged: $arn"
   remaining=1
 done

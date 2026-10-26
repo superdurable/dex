@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Formats and mounts the first unmounted instance-store NVMe disk, then points Docker's data root at it.
-# Run once on a fresh host before host-setup.sh. It never touches EBS volumes.
+# Formats and mounts instance-store NVMe, and moves Docker's data root onto it.
 set -euo pipefail
 
 mount_point="${DEXBENCH_NVME_MOUNT:-/mnt/nvme}"

@@ -2,6 +2,7 @@
 # Creates the benchmark S3 bucket, a bucket-scoped instance role and profile, and one SSM-managed EC2 host.
 # Every resource is tagged dex-benchmark=<name>. Usage: create.sh <region> <name>
 set -euo pipefail
+# shellcheck source=common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 instance_type="${DEXBENCH_INSTANCE_TYPE:-m6id.2xlarge}"
 root_volume_gb="${DEXBENCH_ROOT_VOLUME_GB:-50}"

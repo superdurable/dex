@@ -95,6 +95,7 @@ type Result struct {
 	MeasuredSeconds       float64             `json:"measured_seconds"`
 	VerifiedBytes         int64               `json:"verified_bytes_per_read,omitempty"`
 	BlobsLoaded           int64               `json:"blobs_loaded,omitempty"`
+	FlowStatePollsPerWake float64             `json:"flow_state_polls_per_wake,omitempty"`
 	CPUMethod             string              `json:"cpu_method,omitempty"`
 	ThroughputPerSecond   float64             `json:"throughput_per_second"`
 	ThroughputUnit        string              `json:"throughput_unit"`

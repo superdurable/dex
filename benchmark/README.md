@@ -211,8 +211,11 @@ blob cache after the first load, so the direct variant moves more bytes per
 read. JSON results record the verified bytes per read and the number of blobs
 loaded.
 
-S6 starts a Flow whose Step waits on a Channel, polls GetFlowState until that
-Step is waiting, and then publishes with FlowService PublishToChannel. Only
+S6 starts a Flow whose Step waits on a Channel. After the Step's WaitFor
+returns, it polls GetFlowState until that Step is waiting, and then publishes
+with FlowService PublishToChannel. Gating the poll on WaitFor keeps it near one
+GetFlowState call per wake, which matters because the Go Server answers it
+with a Temporal query. Only
 the time from the publish call to the start of the Step's Execute is measured.
 Its throughput includes the untimed setup, so use only its latency.
 

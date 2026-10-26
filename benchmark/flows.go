@@ -151,17 +151,30 @@ type wakeSignal struct {
 	startedAt time.Time
 }
 
-// wakeSignals reports Execute start times to the in-process client that published the wake.
+// wakeSignals reports WaitFor returns and Execute starts to the in-process client of that Flow.
 type wakeSignals struct {
-	channels []chan wakeSignal
+	channels       []chan wakeSignal
+	waitedChannels []chan int64
 }
 
 func newWakeSignals(clients int) *wakeSignals {
-	signals := &wakeSignals{channels: make([]chan wakeSignal, clients)}
+	signals := &wakeSignals{channels: make([]chan wakeSignal, clients), waitedChannels: make([]chan int64, clients)}
 	for index := range signals.channels {
 		signals.channels[index] = make(chan wakeSignal, 8)
+		signals.waitedChannels[index] = make(chan int64, 8)
 	}
 	return signals
+}
+
+func (signals *wakeSignals) notifyWaited(input wakeInput) {
+	if input.Client < 0 || input.Client >= len(signals.waitedChannels) {
+		return
+	}
+	select {
+	case signals.waitedChannels[input.Client] <- input.Sequence:
+	default:
+		// A retried WaitFor can report twice; the client discards stale sequences.
+	}
 }
 
 func (signals *wakeSignals) notify(input wakeInput, startedAt time.Time) {
@@ -193,7 +206,8 @@ type wakeWaitStep struct {
 	signals *wakeSignals
 }
 
-func (wakeWaitStep) WaitFor(_ dex.Context, _ wakeInput) (*dex.Wait, error) {
+func (step wakeWaitStep) WaitFor(_ dex.Context, input wakeInput) (*dex.Wait, error) {
+	step.signals.notifyWaited(input)
 	return dex.Until(benchmarkWakeChannel.ForOne()), nil
 }
 

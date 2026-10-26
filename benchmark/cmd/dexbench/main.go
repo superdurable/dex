@@ -90,8 +90,7 @@ func checkHealth(connection *grpc.ClientConn, timeout time.Duration) error {
 	return nil
 }
 
-// waitReady polls FlowService health at a fixed interval. Each attempt dials a new connection,
-// so gRPC reconnect backoff cannot quantize the measured readiness time.
+// waitReady dials fresh connections so gRPC reconnect backoff cannot quantize readiness time.
 func waitReady(args []string) error {
 	flags := flag.NewFlagSet("wait-ready", flag.ContinueOnError)
 	var address string

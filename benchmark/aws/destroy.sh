@@ -2,6 +2,7 @@
 # Deletes every resource create.sh made for <name>, then lists anything still tagged. Safe to rerun.
 # Usage: destroy.sh <region> <name>
 set -euo pipefail
+# shellcheck source=common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 instances="$(aws ec2 describe-instances --filters "$tag_filter" Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down \

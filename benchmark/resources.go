@@ -127,8 +127,8 @@ func (sampler *resourceSampler) sample() (ResourceSample, error) {
 	return sample, nil
 }
 
-// processTreeUsage returns CPU seconds used since previous, current RSS, and process count for the trees.
-// A process absent from previous, or with a new start time, started during the interval.
+// processTreeUsage returns the trees' CPU seconds since previous, current RSS bytes, and process count.
+// A process absent from previous, or with a new start time, contributes all its CPU time.
 func processTreeUsage(previous, current map[int]processTime, roots []int) (float64, uint64, int) {
 	var cpuSeconds float64
 	var rssBytes uint64

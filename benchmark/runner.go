@@ -48,6 +48,7 @@ type Runner struct {
 	nextFlowID           atomic.Int64
 	nextWakeSequence     atomic.Int64
 	blobsLoaded          atomic.Int64
+	flowStatePolls       atomic.Int64
 	runPrefix            string
 	expectedReadValues   map[string]string
 	expectedBytesPerRead int64
@@ -136,6 +137,7 @@ func (runner *Runner) Run(ctx context.Context) (Result, error) {
 	}
 	runner.stepLatencies.take()
 	runner.blobsLoaded.Store(0)
+	runner.flowStatePolls.Store(0)
 	metricsContext, cancelMetrics := context.WithTimeout(ctx, 5*time.Second)
 	beforeMetrics, err := scrapeMetrics(metricsContext, config.MetricsURL)
 	cancelMetrics()
@@ -170,6 +172,9 @@ func (runner *Runner) Run(ctx context.Context) (Result, error) {
 	result.StepSamples = len(stepSamples)
 	result.StepLatency = calculatePercentiles(stepSamples)
 	result.BlobsLoaded = runner.blobsLoaded.Load()
+	if config.Scenario == "channel-wake" && result.Attempts > 0 {
+		result.FlowStatePollsPerWake = float64(runner.flowStatePolls.Load()) / float64(result.Attempts)
+	}
 	if strings.HasPrefix(config.Scenario, "attribute-read") {
 		result.VerifiedBytes = runner.expectedBytesPerRead
 	}
@@ -385,6 +390,9 @@ func (runner *Runner) wakeWaitingFlow(ctx context.Context, clientIndex int) (tim
 	if _, err := runner.client.StartFlow(ctx, runner.wake, flowID, wakeInput{Client: clientIndex, Sequence: sequence}, dex.StartFlowOptions{}); err != nil {
 		return 0, err
 	}
+	if err := runner.waitForWaitForReturn(ctx, clientIndex, sequence); err != nil {
+		return 0, err
+	}
 	if err := runner.waitUntilStepWaiting(ctx, flowID); err != nil {
 		return 0, err
 	}
@@ -411,10 +419,26 @@ func (runner *Runner) wakeWaitingFlow(ctx context.Context, clientIndex int) (tim
 	}
 }
 
+// waitForWaitForReturn keeps GetFlowState polls, which are Temporal queries on the Go Server, near one per wake.
+func (runner *Runner) waitForWaitForReturn(ctx context.Context, clientIndex int, sequence int64) error {
+	waited := runner.wake.signals.waitedChannels[clientIndex]
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for WaitFor: %w", ctx.Err())
+		case waitedSequence := <-waited:
+			if waitedSequence == sequence {
+				return nil
+			}
+		}
+	}
+}
+
 func (runner *Runner) waitUntilStepWaiting(ctx context.Context, flowID string) error {
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
 	for {
+		runner.flowStatePolls.Add(1)
 		state, err := runner.service.GetFlowState(ctx, &dexpb.GetFlowStateRequest{FlowId: flowID})
 		if err != nil {
 			return fmt.Errorf("get Flow state: %w", err)
