@@ -372,7 +372,7 @@ func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) 
 		return
 	}
 	result, err := h.client.SearchFlows(request.Context(), &dexpb.SearchFlowsRequest{
-		Query:         engineWorkflowSearchQuery(query),
+		Query:         query,
 		PageSize:      body.PageSize,
 		NextPageToken: body.NextPageToken,
 	})

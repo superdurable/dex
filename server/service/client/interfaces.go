@@ -67,6 +67,8 @@ type UnifiedClient interface {
 	) error
 	ResetWorkflow(ctx context.Context, request *dexpb.ResetFlowRequest) (runId string, err error)
 	GetBackendType() (backendType service.BackendType)
+	// InterpreterWorkflowType returns the backend workflow type registered for Flow runs.
+	InterpreterWorkflowType() string
 	GetApiService() interface{}
 }
 

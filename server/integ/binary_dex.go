@@ -490,6 +490,11 @@ func (client *temporalOnlyUnifiedClient) GetBackendType() service.BackendType {
 	return ""
 }
 
+func (client *temporalOnlyUnifiedClient) InterpreterWorkflowType() string {
+	client.reportUnsupported("InterpreterWorkflowType")
+	return ""
+}
+
 func (client *temporalOnlyUnifiedClient) GetApiService() interface{} {
 	client.reportUnsupported("GetApiService")
 	return nil

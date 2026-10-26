@@ -56,7 +56,6 @@ import (
 
 const (
 	defaultHistoryPageSize                 = 100
-	interpreterWorkflowType                = "Engine"
 	waitForStepCompletionUpdateIDNamespace = "wait-for-step-completion:"
 	waitForAttributeUpdateIDNamespace      = "wait-for-attribute:"
 )
@@ -1345,14 +1344,7 @@ func (s *serviceImpl) SearchFlows(
 	if req.GetPageSize() > 0 {
 		pageSize = req.GetPageSize()
 	}
-	query := fmt.Sprintf(`WorkflowType = "%s"`, interpreterWorkflowType)
-	if strings.TrimSpace(req.GetQuery()) != "" {
-		query = fmt.Sprintf("(%s) AND (%s)", req.GetQuery(), query)
-	}
-	const currentRuns = `ExecutionStatus != "ContinuedAsNew"`
-	if !req.GetIncludeContinuedAsNew() {
-		query = fmt.Sprintf("(%s) AND (%s)", query, currentRuns)
-	}
+	query := buildFlowSearchQuery(req.GetQuery(), s.client.InterpreterWorkflowType(), req.GetIncludeContinuedAsNew())
 	response, err := s.client.ListWorkflow(ctx, &uclient.ListWorkflowExecutionsRequest{
 		PageSize:      pageSize,
 		Query:         query,
@@ -1365,6 +1357,72 @@ func (s *serviceImpl) SearchFlows(
 		FlowRuns:      response.Executions,
 		NextPageToken: string(response.NextPageToken),
 	}, nil
+}
+
+// buildFlowSearchQuery restricts the caller's query to Flow runs and keeps a trailing ORDER BY clause last.
+func buildFlowSearchQuery(callerQuery string, interpreterWorkflowType string, includeContinuedAsNew bool) string {
+	predicate, orderByClause := splitTrailingOrderByClause(callerQuery)
+	query := fmt.Sprintf(`WorkflowType = "%s"`, interpreterWorkflowType)
+	if predicate != "" {
+		query = fmt.Sprintf("(%s) AND (%s)", predicate, query)
+	}
+	if !includeContinuedAsNew {
+		query = fmt.Sprintf(`(%s) AND (ExecutionStatus != "ContinuedAsNew")`, query)
+	}
+	if orderByClause != "" {
+		query += " " + orderByClause
+	}
+	return query
+}
+
+// splitTrailingOrderByClause returns the trimmed predicate and the last ORDER BY clause outside quotes, or an
+// empty clause when the query has none.
+func splitTrailingOrderByClause(query string) (predicate string, orderByClause string) {
+	orderByStart := -1
+	var openQuote byte
+	for i := 0; i < len(query); i++ {
+		character := query[i]
+		if openQuote != 0 {
+			if character == '\\' {
+				i++
+			} else if character == openQuote {
+				openQuote = 0
+			}
+			continue
+		}
+		if character == '"' || character == '\'' || character == '`' {
+			openQuote = character
+			continue
+		}
+		if isOrderByKeywordAt(query, i) {
+			orderByStart = i
+		}
+	}
+	if orderByStart < 0 {
+		return strings.TrimSpace(query), ""
+	}
+	return strings.TrimSpace(query[:orderByStart]), strings.TrimSpace(query[orderByStart:])
+}
+
+func isOrderByKeywordAt(query string, start int) bool {
+	if start > 0 && isQueryIdentifierCharacter(query[start-1]) {
+		return false
+	}
+	const orderKeyword = "order"
+	end := start + len(orderKeyword)
+	if end >= len(query) || !strings.EqualFold(query[start:end], orderKeyword) {
+		return false
+	}
+	afterOrder := strings.TrimLeft(query[end:], " \t\r\n")
+	if len(afterOrder) == len(query)-end || len(afterOrder) < 2 || !strings.EqualFold(afterOrder[:2], "by") {
+		return false
+	}
+	return len(afterOrder) == 2 || !isQueryIdentifierCharacter(afterOrder[2])
+}
+
+func isQueryIdentifierCharacter(character byte) bool {
+	return character == '_' || character >= '0' && character <= '9' ||
+		character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z'
 }
 
 func (s *serviceImpl) SyncAttributeIndexes(
@@ -1398,7 +1456,7 @@ func (s *serviceImpl) GetFlowSummary(
 	if err != nil {
 		return nil, s.handleError(err)
 	}
-	if description.WorkflowType != interpreterWorkflowType {
+	if description.WorkflowType != s.client.InterpreterWorkflowType() {
 		return nil, serviceerrors.NotFound("flow does not exist").ToGRPCError()
 	}
 	response := &dexpb.GetFlowSummaryResponse{

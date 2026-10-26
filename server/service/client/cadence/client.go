@@ -279,7 +279,7 @@ func (t *cadenceClient) StartInterpreterWorkflow(
 		workflowOptions.DelayStart = *options.WorkflowStartDelay
 	}
 
-	run, err := t.cClient.StartWorkflow(ctx, workflowOptions, t.it.Engine, args...)
+	run, err := t.cClient.StartWorkflow(ctx, workflowOptions, cadence.InterpreterWorkflowType, args...)
 	if err != nil {
 		return "", err
 	}
@@ -1248,6 +1248,10 @@ func (t *cadenceClient) ResetWorkflow(
 		return "", err
 	}
 	return resp.GetRunId(), nil
+}
+
+func (t *cadenceClient) InterpreterWorkflowType() string {
+	return cadence.InterpreterWorkflowType
 }
 
 func (t *cadenceClient) GetBackendType() (backendType service.BackendType) {

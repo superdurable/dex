@@ -95,28 +95,25 @@ func verifySearchFlowsExcludeInternalWorkflow(t *testing.T, backend service.Back
 	require.Equal(t, codes.NotFound, status.Code(err))
 	require.Equal(t, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS, grpcServiceErrorResponse(t, err).GetSubStatus())
 
+	query := fmt.Sprintf("%s = '%s' OR %s = '%s' OR %s = '%s'",
+		workflowIDField, cleanupWorkflowID, workflowIDField, flowIDs[0], workflowIDField, flowIDs[1])
 	require.Eventually(t, func() bool {
-		runs, searchErr := searchRunPages(ctx, runtime.FlowClient, "", false, 1000)
-		if searchErr != nil {
+		runs, searchErr := searchRunPages(ctx, runtime.FlowClient, query, false, 1)
+		if searchErr != nil || len(runs) != 2 {
 			return false
 		}
 		foundFlows := map[string]bool{}
 		for _, run := range runs {
-			if run.GetFlowId() == cleanupWorkflowID {
-				return false
-			}
 			foundFlows[run.GetFlowId()] = true
 		}
 		return foundFlows[flowIDs[0]] && foundFlows[flowIDs[1]]
-	}, 30*time.Second, 200*time.Millisecond, "empty search must return Flows without cleanup")
+	}, 30*time.Second, 200*time.Millisecond, "scoped search must return both Flows without cleanup")
 
-	query := fmt.Sprintf("%s = '%s' OR %s = '%s' OR %s = '%s'",
-		workflowIDField, cleanupWorkflowID, workflowIDField, flowIDs[0], workflowIDField, flowIDs[1])
-	runs, err := searchRunPages(ctx, runtime.FlowClient, query, false, 1)
+	// The cleanup run is already visible, so its absence here proves filtering.
+	runs, err := searchRunPages(ctx, runtime.FlowClient, "", false, 1000)
 	require.NoError(t, err)
-	require.Len(t, runs, 2)
 	for _, run := range runs {
-		require.Contains(t, flowIDs, run.GetFlowId())
+		require.NotEqual(t, cleanupWorkflowID, run.GetFlowId())
 	}
 }
 

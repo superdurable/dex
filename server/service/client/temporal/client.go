@@ -307,7 +307,7 @@ func (t *temporalClient) StartInterpreterWorkflow(
 		workflowOptions.StartDelay = *options.WorkflowStartDelay
 	}
 
-	run, err := t.tClient.ExecuteWorkflow(ctx, workflowOptions, t.it.Engine, args...)
+	run, err := t.tClient.ExecuteWorkflow(ctx, workflowOptions, temporal.InterpreterWorkflowType, args...)
 	if err != nil {
 		return "", err
 	}
@@ -1422,6 +1422,10 @@ func (t *temporalClient) ResetWorkflow(
 		return "", err
 	}
 	return resp.GetRunId(), nil
+}
+
+func (t *temporalClient) InterpreterWorkflowType() string {
+	return temporal.InterpreterWorkflowType
 }
 
 func (t *temporalClient) GetBackendType() (backendType service.BackendType) {
