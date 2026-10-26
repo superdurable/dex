@@ -24,6 +24,9 @@ pub(crate) struct CommandScope<'command> {
     pub(crate) is_replay: bool,
     /// What decides whether a natural close waits for the Attribute Sync outbox.
     pub(crate) close_barrier_source: CloseBarrierSource,
+    /// Time travel re-marks synced Attributes after reapplied input, so a reapplied natural close
+    /// waits.
+    pub(crate) has_pending_time_travel_remarks: bool,
 }
 
 /// What decides whether a natural close waits for the Attribute Sync outbox.
@@ -44,6 +47,7 @@ impl<'command> CommandScope<'command> {
             now_micros: command.proposed_at_micros,
             is_replay: false,
             close_barrier_source: CloseBarrierSource::Outbox,
+            has_pending_time_travel_remarks: false,
         }
     }
 

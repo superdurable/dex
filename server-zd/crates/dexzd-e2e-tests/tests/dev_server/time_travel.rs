@@ -186,6 +186,136 @@ async fn time_travel_to_a_step_execution_reapplies_client_writes_unless_skipped(
     server.shutdown().await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reset_to_a_closed_point_returns_through_wait_for_flow_and_history() {
+    let server = DevServer::start().await;
+    let mut flow_client = server.flow_client();
+    let mut worker = ScriptedWorker::start(server.worker_client(), FLOW_TYPE).await;
+    let flow_id = "travel-to-closed-point";
+    let started = start_pull_flow(
+        &mut flow_client,
+        flow_id,
+        FLOW_TYPE,
+        CHARGE_STEP_TYPE,
+        string_value(ORDER_INPUT),
+        StepOptions {
+            skip_wait_for: true,
+            ..StepOptions::default()
+        },
+    )
+    .await;
+    let task = worker.next_task().await;
+    worker.reply(
+        task.task_id.clone(),
+        execute_result(InvokeExecuteMethodResponse {
+            step_decision: Some(force_complete(string_value("done"))),
+            ..InvokeExecuteMethodResponse::default()
+        }),
+    );
+    assert_eq!(
+        wait_for_status(&mut flow_client, flow_id).await,
+        FlowStatus::Completed
+    );
+    let original_events = flow_client
+        .get_history_events(GetHistoryEventsRequest {
+            flow_id: flow_id.to_owned(),
+            run_id: started.run_id.clone(),
+            estimate_page_size: 100,
+            ..GetHistoryEventsRequest::default()
+        })
+        .await
+        .expect("GetHistoryEvents succeeds")
+        .into_inner()
+        .events;
+    let original_close = original_events
+        .iter()
+        .find(|event| {
+            matches!(
+                event.payload,
+                Some(flow_history_event::Payload::FlowClosed(_))
+            )
+        })
+        .expect("original FlowClosed event");
+    let event_time = original_close
+        .event_time
+        .as_ref()
+        .expect("close event time");
+    let close_nanos = i128::from(event_time.seconds) * 1_000_000_000 + i128::from(event_time.nanos);
+    reset_flow(
+        &mut flow_client,
+        ResetFlowRequest {
+            flow_id: flow_id.to_owned(),
+            reset_type: FlowResetType::Beginning as i32,
+            skip_writes_reapply: true,
+            ..ResetFlowRequest::default()
+        },
+    )
+    .await;
+    let restored = reset_flow(
+        &mut flow_client,
+        ResetFlowRequest {
+            flow_id: flow_id.to_owned(),
+            reset_type: FlowResetType::HistoryEventTime as i32,
+            history_event_time: close_nanos.to_string(),
+            run_attempt: 1,
+            skip_writes_reapply: true,
+            ..ResetFlowRequest::default()
+        },
+    )
+    .await;
+    assert_eq!(restored.run_id, started.run_id);
+    assert_eq!(restored.run_attempt, 3);
+    assert_eq!(
+        wait_for_status(&mut flow_client, flow_id).await,
+        FlowStatus::Completed
+    );
+    let summary = flow_client
+        .get_flow_summary(GetFlowSummaryRequest {
+            flow_id: flow_id.to_owned(),
+            run_id: started.run_id.clone(),
+        })
+        .await
+        .expect("GetFlowSummary succeeds after the closed-point reset")
+        .into_inner();
+    assert_eq!(summary.run_attempt, 3);
+    assert_eq!(summary.flow_status, FlowStatus::Completed as i32);
+    assert!(summary.close_time.is_some());
+    let events = flow_client
+        .get_history_events(GetHistoryEventsRequest {
+            flow_id: flow_id.to_owned(),
+            run_id: started.run_id,
+            run_attempt: 3,
+            estimate_page_size: 100,
+            ..GetHistoryEventsRequest::default()
+        })
+        .await
+        .expect("GetHistoryEvents succeeds after reset")
+        .into_inner()
+        .events;
+    let fork_index = events
+        .iter()
+        .position(|event| {
+            event.run_attempt == 3
+                && matches!(
+                    event.payload,
+                    Some(flow_history_event::Payload::TimeTravelFork(_))
+                )
+        })
+        .expect("fork event in attempt 3");
+    let Some(flow_history_event::Payload::FlowClosed(closed)) = &events[fork_index + 1].payload
+    else {
+        panic!("FlowClosed follows TimeTravelFork");
+    };
+    assert_eq!(closed.flow_status, FlowStatus::Completed as i32);
+    assert_eq!(closed.results.len(), 1);
+    assert_eq!(
+        closed.results[0].completed_step_output,
+        Some(string_value("done"))
+    );
+    worker.stop().await;
+    server.shutdown().await;
+}
+
 /// Runs ChargeStep, which writes an Attribute, until ReviewStep waits; then a client writes one.
 ///
 /// Returns the run ID.

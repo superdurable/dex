@@ -123,6 +123,10 @@ impl Default for SnapshotConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecoveryConfig {
+    /// Defaults to 30 s. Each startup read retries transient errors until this much wall time
+    /// passes from its first transient or unknown-outcome failure; concurrent and later reads have independent windows. Must be positive.
+    #[serde(with = "humantime_serde")]
+    pub startup_read_retry_budget: Duration,
     /// Defaults to 64; most log batches read ahead of the batch being applied, counting GETs in
     /// flight. Replay reads about this many batches per object-store GET round trip, so 64 at a
     /// 10 ms GET latency allows about 6,400 batches per second. Must be between 1 and 1024.
@@ -137,6 +141,7 @@ pub struct RecoveryConfig {
 impl Default for RecoveryConfig {
     fn default() -> Self {
         Self {
+            startup_read_retry_budget: Duration::from_secs(30),
             read_ahead_batches: 64,
             read_ahead_bytes: 64 * 1024 * 1024,
         }

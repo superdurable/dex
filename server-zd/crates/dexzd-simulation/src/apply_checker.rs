@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use dexzd_apply::diagnostics::time_travel_target_close;
 use dexzd_apply::{ApplyContext, ApplyOutcome, StateWrite, apply_flow_command};
 use dexzd_keyspace::row_keys::{run_singleton_key, value_row_key};
 use dexzd_keyspace::{
@@ -155,6 +156,14 @@ impl ApplyChecker {
         check_outbox_writes(command, &outcome.writes, &self.state)?;
         let touched_runs = touched_runs(&outcome);
         let previous_records = self.run_records(&command.flow_id, &touched_runs)?;
+        let time_travel_target = if is_applied
+            && matches!(command.command, Some(Command::TimeTravel(_)))
+        {
+            time_travel_target_close(&context, &self.state, command)
+                .map_err(|error| InvariantViolation::new("time-travel-target", error.to_string()))?
+        } else {
+            None
+        };
         self.state.commit(&outcome.writes);
         self.applied_commands += 1;
         self.redecoded_state
@@ -164,6 +173,7 @@ impl ApplyChecker {
         let close_barrier_counts = check_close_barrier(
             command,
             is_applied,
+            time_travel_target,
             &previous_records,
             &view,
             &mut self.memory.rpc_held_runs,
@@ -256,6 +266,29 @@ impl ApplyChecker {
                         .any(|value_id| !run.value_holders.contains_key(value_id))
                 }))
             .then_some(history.timestamp_micros)
+        })
+    }
+
+    pub(crate) fn closed_window_point(
+        &self,
+        run_id: RunId,
+        run: &crate::state_view::RunView,
+    ) -> Option<(i64, i32)> {
+        let points = self.memory.window_points.get(&run_id)?;
+        run.history.iter().rev().find_map(|(seq, history)| {
+            (points.contains_key(seq)
+                && history.events.iter().any(|event| {
+                    matches!(
+                        event.payload,
+                        Some(dexzd_protocol::dex::flow_history_event::Payload::FlowClosed(_))
+                    )
+                }))
+            .then(|| {
+                i32::try_from(history.attempt)
+                    .ok()
+                    .map(|attempt| (history.timestamp_micros, attempt))
+            })
+            .flatten()
         })
     }
 

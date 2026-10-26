@@ -179,5 +179,24 @@ public interface DispatchTaskResponseOrBuilder extends
   com.google.protobuf.ByteString
       getRejectedByAppWorkerIdBytes();
 
+  /**
+   * <pre>
+   * Actual queue served; absent on older matching nodes, so consumers may infer it from Worker IDs.
+   * </pre>
+   *
+   * <code>.dex.PullRoutingSource queue_source = 10;</code>
+   * @return The enum numeric value on the wire for queueSource.
+   */
+  int getQueueSourceValue();
+  /**
+   * <pre>
+   * Actual queue served; absent on older matching nodes, so consumers may infer it from Worker IDs.
+   * </pre>
+   *
+   * <code>.dex.PullRoutingSource queue_source = 10;</code>
+   * @return The queueSource.
+   */
+  io.superdurable.gen.PullRoutingSource getQueueSource();
+
   io.superdurable.gen.DispatchTaskResponse.OutputCase getOutputCase();
 }

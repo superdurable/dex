@@ -303,9 +303,11 @@ server-zd v0.1.3 or later also syncs Attributes. It uses the same
   retried, not the whole close. During a PostgreSQL outage a close waits until
   its pending writes are dropped. Synced writes accepted while the close waits,
   including those of transactional RPCs admitted before it, extend the wait.
-- StopFlow and Terminate never wait. StopFlow closes the run as soon as it
-  commits. A later SetAttributes on that run returns NOT_FOUND. Write what a
-  Flow needs before stopping it.
+- **StopFlow** and **Terminate** never wait. **StopFlow** closes the run as soon
+  as it commits. A later **SetAttributes** on that run returns NOT_FOUND. From
+  server-zd v0.1.5, it succeeds only when every write erases a currently stored
+  [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) with
+  null. Write what a Flow needs before stopping it.
 
 See [Attribute Store sync](/production/server-zd-operations#attribute-store) in
 the server-zd operation guide.

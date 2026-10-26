@@ -15,7 +15,7 @@ use dexzd_apply::{
     apply_flow_command,
 };
 use dexzd_keyspace::row_keys::{
-    attribute_sync_outbox_key, attribute_sync_pending_index_key, prefix_range,
+    attribute_sync_outbox_key, attribute_sync_pending_index_key, prefix_range, run_named_key,
 };
 use dexzd_keyspace::{
     ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, run_prefix,
@@ -27,10 +27,11 @@ use dexzd_protocol::dex::{
     StopFlowRequest, StopType, UpdateFlowConfigRequest, Value, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributeSyncAckCommand, AttributeSyncOutboxRecord, AttributesSetCommand, CommandReply,
-    FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
-    HardDeleteObjectReference, RetentionTimerId, RunPurgeCommand, RunSettings, TimeTravelCommand,
-    TimerId, TimersFiredCommand, command_reply, flow_command::Command, timer_id,
+    AttributeRecord, AttributeSyncAckCommand, AttributeSyncOutboxRecord, AttributesSetCommand,
+    CommandReply, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
+    HardDeleteObjectReference, RetentionTimerId, RunPurgeCommand, RunSettings, StoredValue,
+    TimeTravelCommand, TimerId, TimersFiredCommand, command_reply, flow_command::Command,
+    stored_value, timer_id,
 };
 use prost::Message;
 
@@ -260,6 +261,19 @@ impl Harness {
                 )
             })
             .collect()
+    }
+
+    fn attribute(&self, attribute_key: &str) -> Option<AttributeRecord> {
+        let key = run_named_key(
+            self.context.flow_hash,
+            self.run(),
+            RunTable::Attribute,
+            attribute_key,
+        );
+        self.state
+            .rows
+            .get(&(ColumnFamily::Flow, key))
+            .map(|bytes| AttributeRecord::decode(bytes.as_slice()).expect("Attribute decodes"))
     }
 
     fn has_pending_index(&self, store_name: &str) -> bool {
@@ -710,6 +724,77 @@ fn time_travel_remarks_rows_of_the_abandoned_and_restored_state() {
             (entry(PRIMARY, "status"), (4, travel_time)),
         ]),
         "the restored status and the abandoned plan are rewritten"
+    );
+    assert!(harness.has_pending_index(PRIMARY));
+}
+
+#[test]
+fn time_travel_reapplies_unsynced_writes_without_requesting_synchronization() {
+    let mut harness = Harness::new();
+    harness.start(
+        Some(&[PRIMARY]),
+        vec![
+            synced("status", string_value("opened")),
+            synced("plans/basic", string_value("trial")),
+            synced("region", string_value("eu")),
+        ],
+    );
+    harness.ack(PRIMARY, 1, &[], false);
+    let quiet = harness.set(
+        vec![
+            unsynced("status", string_value("quiet")),
+            unsynced("plans/basic", null_value()),
+            synced("region", null_value()),
+        ],
+        "set-1",
+    );
+    assert_eq!(pending_stores(&quiet), vec![vec![PRIMARY.to_owned()]]);
+    assert_eq!(
+        harness.entries().keys().cloned().collect::<Vec<_>>(),
+        vec![entry(PRIMARY, "region")],
+        "only the synced deletion requests synchronization"
+    );
+    harness.ack(PRIMARY, 3, &[], false);
+    assert!(harness.entries().is_empty());
+
+    let travel = harness.apply(Command::TimeTravel(TimeTravelCommand {
+        request: Some(ResetFlowRequest {
+            flow_id: "account-1".to_owned(),
+            reset_type: FlowResetType::Beginning as i32,
+            reason: "test".to_owned(),
+            skip_writes_reapply: false,
+            ..ResetFlowRequest::default()
+        }),
+    }));
+    let Some(command_reply::Reply::TimeTravel(reply)) = &travel.reply.reply else {
+        panic!("time travel applies: {:?}", travel.reply);
+    };
+    assert_eq!(reply.run_attempt, 2);
+    let travel_time = harness.now_micros;
+    let status = harness
+        .attribute("status")
+        .expect("reapply restores the status");
+    assert_eq!(
+        status.value,
+        Some(StoredValue {
+            kind: Some(stored_value::Kind::InlineValue(string_value("quiet"))),
+        })
+    );
+    assert_eq!(
+        status.sync_config,
+        Some(AttributeSyncConfig { enabled: false })
+    );
+    assert!(harness.attribute("plans/basic").is_none());
+    assert!(harness.attribute("region").is_none());
+    assert_eq!(
+        pending_stores(&travel),
+        vec![vec![PRIMARY.to_owned()]],
+        "only the reapplied synced deletion marks the outbox"
+    );
+    assert_eq!(
+        harness.entries(),
+        BTreeMap::from([(entry(PRIMARY, "region"), (5, travel_time))]),
+        "the store keeps the synced status and plan; it never receives the unsynced writes"
     );
     assert!(harness.has_pending_index(PRIMARY));
 }

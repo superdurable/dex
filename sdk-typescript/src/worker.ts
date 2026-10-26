@@ -212,7 +212,8 @@ export class Worker {
 
   /**
    * Cumulative Step declines caused by reserved RPC capacity during this Worker's lifetime.
-   * Excludes full-capacity rejections and unknown names. The count never resets and
+   * Counts decline events. Dex may decline the same Step dispatch repeatedly while retrying it,
+   * so read the counter as a rate. Excludes full-capacity rejections and unknown names. The count never resets and
    * remains available after close. Listening Workers return zero. Reading during
    * handler execution is safe. Export the value to a monitoring counter.
    * @returns The cumulative reserve-decline count, or zero for a listening Worker.

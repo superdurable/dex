@@ -34,7 +34,7 @@ Follow the shared [missing query target rule](../core/error-handling.md#missing-
 
 ## Closed-Flow races
 
-`FlowNotActiveOrNotFoundException` says the mutation found no active target; it does not say the requested action succeeded. Catch it only where the operation contract is known. First reconcile from authoritative domain state and operation invariants. Call `describeFlow` and inspect `FlowStatus` only when an otherwise unknown terminal distinction changes the outcome:
+`FlowNotActiveOrNotFoundException` says the mutation found no active target; it does not say the requested action succeeded. Catch it only where the operation contract is known. First reconcile from authoritative domain state and operation invariants. `Client.describeFlow(flowId)` reads the current or latest run without waiting. It returns `FlowInfo` with `getFlowId()`, `getRunId()`, `getFlowType()`, `getStatus()`, and `getStartedAt()`; it has no close time. See the [released Client](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/sdk-java/src/main/java/io/superdurable/dex/Client.java) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/sdk-java/src/main/java/io/superdurable/dex/FlowInfo.java). Call `describeFlow` and inspect `FlowStatus` only when an otherwise unknown terminal distinction changes the outcome:
 
 - Treat `COMPLETED` as idempotent success only when successful completion guarantees the requested condition.
 - For any other terminal status or a subsequent `FlowNotFoundException`, record or return an explicit domain failure or unknown outcome instead of retrying a terminal fact indefinitely.

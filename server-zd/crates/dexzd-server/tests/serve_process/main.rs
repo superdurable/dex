@@ -443,7 +443,7 @@ async fn losing_the_lease_exits_non_zero() {
     primary.shutdown().await;
 }
 
-/// SIGTERM after the node took its lease finishes recovery, exits 0, and releases the lease.
+/// SIGTERM after the node took its lease interrupts recovery, exits 0, and releases the lease.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sigterm_during_recovery_exits_zero_and_releases_the_lease() {
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
@@ -480,14 +480,24 @@ async fn sigterm_during_recovery_exits_zero_and_releases_the_lease() {
     })
     .await
     .expect("the node takes its lease");
+    tokio::time::timeout(SEARCH_BUDGET, async {
+        while !first.log().contains("engine node recovering") {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the node enters recovery");
     let first_status = first.terminate(SHUTDOWN_BUDGET).await;
     let first_log = first.log();
     assert_eq!(first_status.code(), Some(0), "{first_log}");
     assert!(
-        first_log.contains("termination signal during startup"),
+        first_log.contains("termination signal during startup; startup cancelled"),
         "{first_log}"
     );
-    assert!(first_log.contains("engine node stopped"), "{first_log}");
+    assert!(
+        first_log.contains("released the node lease after an unfinished start"),
+        "{first_log}"
+    );
     primary.set_fault_rules("[]").await;
 
     let second_address = free_loopback_address();

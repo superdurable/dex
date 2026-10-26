@@ -23,7 +23,7 @@ use tokio_postgres::config::SslMode;
 use tokio_postgres::{Client, Config, NoTls};
 use tokio_postgres_rustls::MakeRustlsConnect;
 
-use dsn::{TlsParameters, split_tls_parameters};
+use dsn::{TlsParameters, split_tls_parameters, written_password_spellings};
 use tls::{CertificateVerification, client_config, load_root_certificates};
 
 /// Applies when the DSN has no `connect_timeout`; it also bounds the TLS handshake and authentication.
@@ -61,6 +61,8 @@ enum MissingSslMode {
 pub struct ConnectionSettings {
     config: Config,
     tls: Option<MakeRustlsConnect>,
+    /// The DSN and its written password spellings to redact; empty for [`Self::from_config`].
+    written_credentials: Vec<String>,
 }
 
 /// Drives one PostgreSQL connection until it closes or its owner drops the task.
@@ -121,7 +123,7 @@ impl ConnectionSettings {
                 "sslsni is invalid; use 0 or 1".to_owned(),
             ));
         }
-        Self::from_parsed_dsn(remaining, parameters, MissingSslMode::Disable)
+        Self::from_parsed_dsn(dsn, remaining, parameters, MissingSslMode::Disable)
     }
 
     /// Parses a DSN using the selected mode when `sslmode` is absent.
@@ -131,10 +133,11 @@ impl ConnectionSettings {
     ) -> Result<Self, ConnectionSettingsError> {
         let (remaining, parameters) =
             split_tls_parameters(dsn).map_err(ConnectionSettingsError::InvalidDsn)?;
-        Self::from_parsed_dsn(remaining, parameters, missing_ssl_mode)
+        Self::from_parsed_dsn(dsn, remaining, parameters, missing_ssl_mode)
     }
 
     fn from_parsed_dsn(
+        dsn: &str,
         remaining: String,
         parameters: TlsParameters,
         missing_ssl_mode: MissingSslMode,
@@ -155,12 +158,23 @@ impl ConnectionSettings {
                 Some(MakeRustlsConnect::new(client_config))
             }
         };
-        Ok(Self { config, tls })
+        let mut written_credentials =
+            written_password_spellings(dsn).map_err(ConnectionSettingsError::InvalidDsn)?;
+        written_credentials.push(dsn.to_owned());
+        Ok(Self {
+            config,
+            tls,
+            written_credentials,
+        })
     }
 
     /// Wraps a tokio-postgres configuration for plaintext connections.
     pub fn from_config(config: Config) -> Self {
-        Self { config, tls: None }
+        Self {
+            config,
+            tls: None,
+            written_credentials: Vec::new(),
+        }
     }
 
     /// Returns the configuration for changes before opening a connection.
@@ -171,6 +185,21 @@ impl ConnectionSettings {
     /// Returns the configuration used to open connections.
     pub fn configuration(&self) -> &Config {
         &self.config
+    }
+
+    /// Replaces the DSN, its written password spellings, and the decoded password with `[REDACTED]`.
+    pub fn redact_credentials(&self, message: String) -> String {
+        let password = self.config.get_password().map(String::from_utf8_lossy);
+        let mut credentials = self
+            .written_credentials
+            .iter()
+            .map(String::as_str)
+            .chain(password.as_deref())
+            .filter(|credential| !credential.is_empty())
+            .collect::<Vec<_>>();
+        // Longest first, so a shorter spelling cannot break up a longer one.
+        credentials.sort_unstable_by_key(|credential| std::cmp::Reverse(credential.len()));
+        credentials.into_iter().fold(message, redact_secret)
     }
 
     /// Opens a connection bounded by the DSN's `connect_timeout` or ten seconds.
@@ -210,6 +239,7 @@ impl ConnectionSettings {
 /// Use this for PostgreSQL connection failures so TLS and I/O causes remain visible.
 /// The returned text is unredacted. Callers handling errors that may contain a DSN or password
 /// must redact the result before displaying it.
+/// [`ConnectionSettings::redact_credentials`] removes both.
 ///
 /// # Examples
 ///
@@ -228,6 +258,14 @@ pub fn error_with_sources(error: &(dyn std::error::Error + 'static)) -> String {
         source = cause.source();
     }
     message
+}
+
+/// Go's `redactStorageSecret`: replaces every occurrence of a non-empty secret with `[REDACTED]`.
+pub fn redact_secret(message: String, secret: &str) -> String {
+    if secret.is_empty() || !message.contains(secret) {
+        return message;
+    }
+    message.replace(secret, "[REDACTED]")
 }
 
 /// pgx's `configTLS` decision: the tokio-postgres mode and how to verify the certificate, or None for no TLS.

@@ -63,7 +63,7 @@ export enum PollWorkerTaskRejectReason {
 
 /**
  * Distinguishes no available Worker, a disconnected Worker, and a missing Step or RPC registration.
- * Go Server internals; server-zd does not serve or persist them.
+ * Go persists; server-zd does not.
  */
 export enum DispatchTaskErrorReason {
   DISPATCH_TASK_ERROR_REASON_UNSPECIFIED = 0,
@@ -506,6 +506,8 @@ export interface DispatchTaskResponse {
   servedByAppWorkerId: string;
   /** Identifies a Worker that rejected the task's Step type or RPC name. */
   rejectedByAppWorkerId: string;
+  /** Actual queue served; absent on older matching nodes, so consumers may infer it from Worker IDs. */
+  queueSource: PullRoutingSource;
 }
 
 /**
@@ -1386,6 +1388,7 @@ export interface ServiceErrorResponse {
   originalWorkerErrorType: string;
   originalWorkerErrorStatus: number;
   originalWorkerErrorStackTrace: string;
+  dispatchTaskErrorReason: DispatchTaskErrorReason;
 }
 
 export interface WorkerErrorResponse {
@@ -1402,6 +1405,7 @@ export interface InternalActivityError {
   workerGrpcStatus: number;
   workerError: InternalWorkerError | undefined;
   pullRouting: PullRouting | undefined;
+  dispatchTaskErrorReason: DispatchTaskErrorReason;
 }
 
 export interface InternalWorkerError {
@@ -3181,7 +3185,7 @@ export const DispatchTaskRequest: MessageFns<DispatchTaskRequest> = {
 };
 
 function createBaseDispatchTaskResponse(): DispatchTaskResponse {
-  return { output: undefined, servedByAppWorkerId: "", rejectedByAppWorkerId: "" };
+  return { output: undefined, servedByAppWorkerId: "", rejectedByAppWorkerId: "", queueSource: 0 };
 }
 
 export const DispatchTaskResponse: MessageFns<DispatchTaskResponse> = {
@@ -3214,6 +3218,9 @@ export const DispatchTaskResponse: MessageFns<DispatchTaskResponse> = {
     }
     if (message.rejectedByAppWorkerId !== "") {
       writer.uint32(74).string(message.rejectedByAppWorkerId);
+    }
+    if (message.queueSource !== 0) {
+      writer.uint32(80).int32(message.queueSource);
     }
     return writer;
   },
@@ -3297,6 +3304,14 @@ export const DispatchTaskResponse: MessageFns<DispatchTaskResponse> = {
           message.rejectedByAppWorkerId = reader.string();
           continue;
         }
+        case 10: {
+          if (tag !== 80) {
+            break;
+          }
+
+          message.queueSource = reader.int32() as any;
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3357,6 +3372,7 @@ export const DispatchTaskResponse: MessageFns<DispatchTaskResponse> = {
     }
     message.servedByAppWorkerId = object.servedByAppWorkerId ?? "";
     message.rejectedByAppWorkerId = object.rejectedByAppWorkerId ?? "";
+    message.queueSource = object.queueSource ?? 0;
     return message;
   },
 };
@@ -12435,6 +12451,7 @@ function createBaseServiceErrorResponse(): ServiceErrorResponse {
     originalWorkerErrorType: "",
     originalWorkerErrorStatus: 0,
     originalWorkerErrorStackTrace: "",
+    dispatchTaskErrorReason: 0,
   };
 }
 
@@ -12457,6 +12474,9 @@ export const ServiceErrorResponse: MessageFns<ServiceErrorResponse> = {
     }
     if (message.originalWorkerErrorStackTrace !== "") {
       writer.uint32(50).string(message.originalWorkerErrorStackTrace);
+    }
+    if (message.dispatchTaskErrorReason !== 0) {
+      writer.uint32(56).int32(message.dispatchTaskErrorReason);
     }
     return writer;
   },
@@ -12516,6 +12536,14 @@ export const ServiceErrorResponse: MessageFns<ServiceErrorResponse> = {
           message.originalWorkerErrorStackTrace = reader.string();
           continue;
         }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.dispatchTaskErrorReason = reader.int32() as any;
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -12536,6 +12564,7 @@ export const ServiceErrorResponse: MessageFns<ServiceErrorResponse> = {
     message.originalWorkerErrorType = object.originalWorkerErrorType ?? "";
     message.originalWorkerErrorStatus = object.originalWorkerErrorStatus ?? 0;
     message.originalWorkerErrorStackTrace = object.originalWorkerErrorStackTrace ?? "";
+    message.dispatchTaskErrorReason = object.dispatchTaskErrorReason ?? 0;
     return message;
   },
 };
@@ -12635,7 +12664,13 @@ export const WorkerErrorResponse: MessageFns<WorkerErrorResponse> = {
 };
 
 function createBaseInternalActivityError(): InternalActivityError {
-  return { serverDetail: "", workerGrpcStatus: 0, workerError: undefined, pullRouting: undefined };
+  return {
+    serverDetail: "",
+    workerGrpcStatus: 0,
+    workerError: undefined,
+    pullRouting: undefined,
+    dispatchTaskErrorReason: 0,
+  };
 }
 
 export const InternalActivityError: MessageFns<InternalActivityError> = {
@@ -12651,6 +12686,9 @@ export const InternalActivityError: MessageFns<InternalActivityError> = {
     }
     if (message.pullRouting !== undefined) {
       PullRouting.encode(message.pullRouting, writer.uint32(34).fork()).join();
+    }
+    if (message.dispatchTaskErrorReason !== 0) {
+      writer.uint32(40).int32(message.dispatchTaskErrorReason);
     }
     return writer;
   },
@@ -12694,6 +12732,14 @@ export const InternalActivityError: MessageFns<InternalActivityError> = {
           message.pullRouting = PullRouting.decode(reader, reader.uint32());
           continue;
         }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.dispatchTaskErrorReason = reader.int32() as any;
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -12716,6 +12762,7 @@ export const InternalActivityError: MessageFns<InternalActivityError> = {
     message.pullRouting = (object.pullRouting !== undefined && object.pullRouting !== null)
       ? PullRouting.fromPartial(object.pullRouting)
       : undefined;
+    message.dispatchTaskErrorReason = object.dispatchTaskErrorReason ?? 0;
     return message;
   },
 };

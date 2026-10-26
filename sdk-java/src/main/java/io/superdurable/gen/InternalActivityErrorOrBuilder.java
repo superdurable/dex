@@ -57,4 +57,15 @@ public interface InternalActivityErrorOrBuilder extends
    * <code>.dex.PullRouting pull_routing = 4;</code>
    */
   io.superdurable.gen.PullRoutingOrBuilder getPullRoutingOrBuilder();
+
+  /**
+   * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 5;</code>
+   * @return The enum numeric value on the wire for dispatchTaskErrorReason.
+   */
+  int getDispatchTaskErrorReasonValue();
+  /**
+   * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 5;</code>
+   * @return The dispatchTaskErrorReason.
+   */
+  io.superdurable.gen.DispatchTaskErrorReason getDispatchTaskErrorReason();
 }

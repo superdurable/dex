@@ -9,9 +9,13 @@ so the Dex SDKs work without changes. It differs from the Go Server in a few doc
 example, it supports only pull Workers).
 
 StopFlow closes the run as soon as it commits. A later write to that run, such as SetAttributes,
-returns NOT_FOUND. The Go Server accepts such writes while its run winds down after a cancel.
-Write what a Flow needs before stopping it. StopFlow and Terminate never wait for Attribute Store
-synchronization.
+returns NOT_FOUND. Since v0.1.5, SetAttributes has one exception on a closed run that is not yet
+purged: it is accepted when the request has at least one write and every write sets a currently
+stored hard-delete Attribute to null, and the request omits the Action permission mappings field.
+The erase deletes the stored values and leaves the run closed. Value writes, ordinary erases, and
+mixed requests still return NOT_FOUND. The Go Server accepts writes while a canceled or failed run
+winds down, and rejects every write after the run closes. Write what a Flow needs before stopping
+it. StopFlow and Terminate never wait for Attribute Store synchronization.
 
 ## Layout
 
@@ -122,6 +126,7 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_snapshot_last_duration_seconds` | gauge | — | Duration of the last successful snapshot |
 | `dexzd_snapshot_last_bytes` | gauge | — | Size of the last successful snapshot |
 | `dexzd_recovery_last_duration_seconds` | gauge | — | Duration of the last completed recovery or takeover replay |
+| `dexzd_startup_read_retries_total` | counter | — | Transient object storage reads retried during startup |
 | `dexzd_recovery_last_replayed_bytes` | gauge | — | Uncompressed command record bytes replayed by the last recovery |
 | `dexzd_local_storage_bytes` | gauge | — | Local SST and WAL bytes, sampled at scrape time |
 | `dexzd_timer_lag_seconds` | gauge | — | Age of the oldest due timer not yet fired, 0 when none |
@@ -217,9 +222,10 @@ The `s3:ListBucket` condition must use `StringLike` with `PREFIX/*`. An exact-pr
 403, and the Server cannot use a prefixed listing to distinguish it from a denied object.
 With the `StringLike` grant above, AWS S3 returns 404 for missing-object reads; narrower grants
 can return 403. The Server handles either response when the prefixed listing is allowed.
-The startup conditional-write probe also creates and deletes a key under that prefix. No
-unconditioned bucket access or bucket administration action is required. The bucket may be
-unversioned: create-only and replacement writes use `If-None-Match` and `If-Match` with opaque
+The startup conditional-write probe also creates and deletes a key under that prefix. A signal
+during the probe may leave that key behind. No unconditioned bucket access or bucket
+administration action is required. The bucket may be unversioned: create-only and replacement
+writes use `If-None-Match` and `If-Match` with opaque
 ETags, not object versions or MD5 digests. The S3 client sends no server-side encryption headers,
 so the bucket's default SSE-KMS configuration applies. For a customer-managed KMS key, grant the
 role `kms:GenerateDataKey` and `kms:Decrypt` on that key, and allow those actions in its key policy.
@@ -233,16 +239,27 @@ Startup proceeds in this order:
    `dex.FlowService`, and `dex.WorkerTaskService`; FlowService and WorkerTaskService calls return
    Unavailable while startup continues.
 2. Every S3 destination verifies a prefixed child listing. Every destination then passes a
-   conditional-write self-check.
+   conditional-write self-check. The self-check does not use startup read retries.
 3. The node acquires the lease of `cluster.nodeId` for `lease.duration`. A lease that another
    process still holds is awaited until it expires, or fails startup when `lease.failIfHeld` is
-   true. `dev` takes a held lease over at once instead; see [dev](#dev).
+   true. `dev` takes a held lease over at once instead; see [dev](#dev). Transient or
+   unknown-outcome reads of the cluster, manifest, and lease objects are retried during bootstrap
+   and acquisition.
 4. The node restores `localStorage.directory` from the latest snapshot and the command log. The
    directory is a cache; an empty one is rebuilt from object storage. Replay keeps up to
    `recovery.readAheadBatches` log reads in flight, holding at most `recovery.readAheadBytes` of
    log objects or one larger batch, and applies batches in log order as they arrive. After a
    replay of at least `localStorage.compactAfterReplayBytes`, the local store is compacted in the
    background while the node serves.
+   Transient or unknown-outcome object-storage reads are retried with jittered exponential backoff.
+   Each read gets its own `recovery.startupReadRetryBudget` wall-clock window (default 30 seconds),
+   starting at its first transient or unknown-outcome failure. Backoff and later read calls count
+   toward that window. Concurrent reads do not share a budget, and a later read gets a new window.
+   Permanent errors fail startup immediately. Lease loss or shutdown can stop retries sooner;
+   lease renewal continues during recovery. The window bounds each read, not the whole startup, so
+   startup after lease acquisition has no overall time limit. That is acceptable because a
+   persistent outage still fails startup within one read's window, and renewal keeps the lease
+   while slow reads make progress.
 5. After recovery and rebuild finish, health switches to SERVING and the API serves requests.
    Startup failure closes the listener.
 
@@ -349,13 +366,19 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   requires PostgreSQL 17 or later. For example,
   `postgres://role:pw@host:5432/db?sslmode=require&sslnegotiation=direct` opens TLS before the
   startup message. `sslmode=require` without `sslrootcert` encrypts the connection but does not
-  verify the server certificate. With `sslrootcert`, `require` also verifies the certificate
-  chain, but not the host name. `sslmode=verify-full` verifies the chain and the host name against
-  `sslrootcert`, or against the system roots when `sslrootcert` is absent. `sslrootcert=system`
-  uses the system roots and forces `verify-full`.
+  verify the server certificate. With a PEM file in `sslrootcert`, `require` verifies the
+  certificate chain against that file, but not the host name. `sslmode=verify-ca` verifies the
+  chain against the PEM file in `sslrootcert`, or against the system roots when `sslrootcert` is
+  absent. It never verifies the host name. `sslmode=verify-full` verifies the chain and the host
+  name, against the PEM file in `sslrootcert` or against the system roots when `sslrootcert` is
+  absent. `sslrootcert=system` uses the system roots and forces `verify-full`, whatever `sslmode`
+  says. Without `sslnegotiation=direct`, `prefer` and `allow` do not verify the certificate, even
+  with a PEM file in `sslrootcert`. `sslmode=allow` with `sslnegotiation=direct` is invalid.
   Without TLS parameters, the connection remains plaintext for compatibility with existing
   deployments. Explicit `sslmode=prefer` first attempts TLS without certificate verification;
-  previously it remained plaintext. `sslmode=allow` with `sslnegotiation=direct` is invalid.
+  previously it remained plaintext. With `sslnegotiation=direct`, `sslmode=prefer` or a missing
+  `sslmode` becomes `require`, and the `require` rules above apply, so TLS is mandatory and there
+  is no plaintext fallback.
   The connect timeout covers the TLS handshake and authentication, including reconnects.
 - A `search.paradeDbSchema` other than `public` is applied as the `search_path` connection option.
   A transaction pooler must pass that startup option through; otherwise keep the tables in `public`.
@@ -376,9 +399,12 @@ expires.
 
 A lost lease, a stopped commit pipeline, or a halted Flow runtime stops the node, and the process
 exits 1. Restart it. A signal before the node acquires its lease cancels startup and exits 0. If
-the node already holds its lease, startup finishes before graceful shutdown begins. That shutdown
-has the same 14.5-second total and exit status as a signal received while serving. A failed startup
-releases its lease and exits 1.
+the outcome of the node's lease write is still unknown, that write is not released, and a
+replacement may wait for it to expire. If the node already holds its lease, a signal stops startup
+at once and releases the lease. The process then exits 0, or exits 1 when the release fails. If
+startup finishes before it observes the signal, the node runs graceful shutdown, with the same
+14.5-second total and exit status as a signal received while serving. A failed startup releases its
+lease and exits 1.
 
 The node serves only within its local lease validity. The deadline is `lease.duration` after the
 last successful renewal was sent, on the local monotonic clock. Renewal starts one third of
