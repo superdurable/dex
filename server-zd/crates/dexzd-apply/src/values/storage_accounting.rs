@@ -9,7 +9,8 @@
 use dexzd_keyspace::row_keys::run_singleton_key;
 use dexzd_keyspace::{ColumnFamily, RunTable, parse_run_key, run_prefix, run_table_prefix};
 use dexzd_protocol::dexzd::v1::{
-    HistoryRowMetadata, RunRecord, RunStorageUsage, ValueBirthRecord, ValueGarbageRecord,
+    AttributeSyncOutboxRecord, HistoryRowMetadata, RunRecord, RunStorageUsage, ValueBirthRecord,
+    ValueGarbageRecord,
 };
 use prost::Message;
 
@@ -81,8 +82,13 @@ fn usage_after_changes(
             })?;
         match change.column_family {
             ColumnFamily::Flow => {
-                let row_delta = row_size(change.current.as_ref(), &change.key)
-                    - row_size(change.previous.as_ref(), &change.key);
+                let row_delta = if parsed.table == RunTable::AttributeSyncOutbox {
+                    accounted_outbox_row_size(change.current.as_ref(), &change.key)?
+                        - accounted_outbox_row_size(change.previous.as_ref(), &change.key)?
+                } else {
+                    row_size(change.current.as_ref(), &change.key)
+                        - row_size(change.previous.as_ref(), &change.key)
+                };
                 match parsed.table {
                     RunTable::ValueBirth => {
                         state_delta += row_delta;
@@ -139,6 +145,17 @@ pub(crate) fn projected_superseded_value_bytes(
 
 fn row_size(value: Option<&Vec<u8>>, key: &[u8]) -> i128 {
     value.map_or(0, |value| (key.len() + value.len()) as i128)
+}
+
+fn accounted_outbox_row_size(value: Option<&Vec<u8>>, key: &[u8]) -> Result<i128, ApplyError> {
+    let Some(bytes) = value else {
+        return Ok(0);
+    };
+    let mut record = decode_record::<AttributeSyncOutboxRecord>(bytes, "Attribute Sync outbox")?;
+    let full_record_size = record.encoded_len();
+    record.sync_item = None;
+    // The snapshot is additional storage; it does not change the established run-state limit.
+    Ok((key.len() + bytes.len()) as i128 - (full_record_size - record.encoded_len()) as i128)
 }
 
 trait SizedValueRecord: Message + Default {

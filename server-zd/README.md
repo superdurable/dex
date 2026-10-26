@@ -274,7 +274,8 @@ store's PostgreSQL tables. These differences from the Go Server apply:
 - Synchronization is asynchronous. Step, RPC, and SetAttributes commits do not wait for the table,
   and there is no 7-second synchronous phase. Rows normally appear within a second of the commit.
   While a store is unavailable, Flows keep running and the backlog is written with the latest
-  values once it recovers. Entries still pending `syncRetryPolicy.totalDuration` after they were
+  synced values once it recovers. A later unsynced write does not replace a pending synced value.
+  Entries still pending `syncRetryPolicy.totalDuration` after they were
   first marked are dropped and counted in `dexzd_attribute_sync_dropped_entries_total`.
 - server-zd v0.1.3 closes a Flow without waiting for its synced Attributes, so rows can land
   after it completes. server-zd v0.1.4 or later waits, like the Go Server. A natural close (a
@@ -300,7 +301,8 @@ store's PostgreSQL tables. These differences from the Go Server apply:
   extends the wait.
 - StopFlow (CANCEL or FAIL), Terminate, and ID reuse termination close the run at once, even
   during cleanup; the stop discards a pending close. The run's remaining entries keep syncing
-  after the close. ResetFlow replaces a pending close with the state of the reset point.
+  after the close. ResetFlow replaces a pending close with the state of the reset point. When a
+  reset restores an unsynced Attribute over a synced one, its store row is deleted.
 - Entries of a store that is no longer configured, including when the `attributeStore` section
   is gone, are dropped at once with an error log and counted in
   `dexzd_attribute_sync_dropped_entries_total`, so their runs' closes can finish.

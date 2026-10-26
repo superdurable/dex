@@ -55,6 +55,7 @@ pub(crate) fn apply_attribute_writes(
         .flatten();
     let mut changed_keys =
         Vec::with_capacity(writes.len() + usize::from(projected_write.is_some()));
+    let mut pending_store_names = BTreeSet::new();
     for (write_index, write) in writes.iter().enumerate() {
         let hard_delete_object = hard_delete_objects
             .iter()
@@ -68,6 +69,13 @@ pub(crate) fn apply_attribute_writes(
         if let Err(rejection) = outcome {
             return Ok(Err(rejection));
         }
+        let synced_keys = attribute_sync::synced_write_keys([write]);
+        pending_store_names.extend(attribute_sync::mark_attribute_sync_entries(
+            transaction,
+            cursor,
+            &synced_keys,
+            now_micros,
+        )?);
         if (!write.is_hard_delete_on_null || is_null_value(write.value.as_ref()))
             && write
                 .index_config
@@ -78,16 +86,26 @@ pub(crate) fn apply_attribute_writes(
         }
         changed_keys.push(write.key.clone());
     }
-    let mut synced_keys = attribute_sync::synced_write_keys(writes);
     if let Some(write) = projected_write {
         if let Err(rejection) = apply_plain_write(transaction, cursor, &write)? {
             return Ok(Err(rejection));
         }
-        synced_keys.extend(attribute_sync::synced_write_keys([&write]));
+        let synced_keys = attribute_sync::synced_write_keys([&write]);
+        pending_store_names.extend(attribute_sync::mark_attribute_sync_entries(
+            transaction,
+            cursor,
+            &synced_keys,
+            now_micros,
+        )?);
         cursor.indexed_attribute_writes.push(write.clone());
         changed_keys.push(write.key);
     }
-    attribute_sync::mark_attribute_sync_entries(transaction, cursor, &synced_keys, now_micros)?;
+    if !pending_store_names.is_empty() {
+        cursor.add_effect(ApplyEffect::AttributeSyncPending {
+            run_id: cursor.run_id(),
+            store_names: pending_store_names.into_iter().collect(),
+        });
+    }
     if should_wake_waiters && !changed_keys.is_empty() {
         let mut keys = changed_keys.clone();
         keys.sort();
