@@ -42,7 +42,7 @@ type Runner struct {
 	completion           completionFlow
 	chain                *chainFlow
 	rpc                  rpcFlow
-	attribute            attributeFlow
+	attribute            *attributeFlow
 	wake                 *wakeFlow
 	stepLatencies        latencyCollector
 	nextFlowID           atomic.Int64
@@ -67,6 +67,7 @@ func NewRunner(config Config) (*Runner, error) {
 		runner.expectedReadValues[attribute.AttributeName()] = value
 		runner.expectedBytesPerRead += int64(len(value))
 	}
+	runner.attribute = &attributeFlow{expectedValues: runner.expectedReadValues}
 	registry, err := dex.NewRegistry([]dex.Flow{runner.completion, runner.chain, runner.rpc, runner.attribute, runner.wake})
 	if err != nil {
 		return nil, err
@@ -348,12 +349,12 @@ func (runner *Runner) runOperation(ctx context.Context, clientIndex int, persist
 	case "channel-wake":
 		return runner.wakeWaitingFlow(ctx, clientIndex)
 	case "attribute-read-rpc":
-		var bytesRead int64
-		if err := runner.client.InvokeRPC(ctx, persistentFlowID, runner.attribute.ReadAttributes, nil, &bytesRead); err != nil {
+		var output attributeReadOutput
+		if err := runner.client.InvokeRPC(ctx, persistentFlowID, runner.attribute.ReadAttributes, nil, &output); err != nil {
 			return 0, err
 		}
-		if bytesRead != runner.expectedBytesPerRead {
-			return 0, fmt.Errorf("RPC read %d bytes, expected %d", bytesRead, runner.expectedBytesPerRead)
+		if output.VerifiedValues != len(runner.expectedReadValues) || output.VerifiedBytes != runner.expectedBytesPerRead {
+			return 0, fmt.Errorf("RPC verified %d values and %d bytes, expected %d and %d", output.VerifiedValues, output.VerifiedBytes, len(runner.expectedReadValues), runner.expectedBytesPerRead)
 		}
 		return 0, nil
 	case "attribute-read-direct":

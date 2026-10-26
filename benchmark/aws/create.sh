@@ -8,7 +8,9 @@ instance_type="${DEXBENCH_INSTANCE_TYPE:-m6id.2xlarge}"
 root_volume_gb="${DEXBENCH_ROOT_VOLUME_GB:-50}"
 
 bucket="$(tagged_buckets | head -1)"
-if [[ -z "$bucket" ]]; then
+if [[ -n "$bucket" ]]; then
+  require_owned bucket "$bucket"
+else
   bucket="$name-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
   if [[ "$region" == us-east-1 ]]; then
     aws s3api create-bucket --bucket "$bucket" >/dev/null
@@ -22,14 +24,18 @@ fi
 echo "bucket: $bucket"
 
 trust_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-if ! aws iam get-role --role-name "$role_name" >/dev/null 2>&1; then
+if aws iam get-role --role-name "$role_name" >/dev/null 2>&1; then
+  require_owned role "$role_name"
+else
   aws iam create-role --role-name "$role_name" --assume-role-policy-document "$trust_policy" \
     --tags "Key=$tag_key,Value=$name" >/dev/null
 fi
 bucket_policy="$(printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],"Resource":"arn:aws:s3:::%s"},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":"arn:aws:s3:::%s/*"}]}' "$bucket" "$bucket")"
 aws iam put-role-policy --role-name "$role_name" --policy-name "$policy_name" --policy-document "$bucket_policy"
 aws iam attach-role-policy --role-name "$role_name" --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-if ! aws iam get-instance-profile --instance-profile-name "$profile_name" >/dev/null 2>&1; then
+if aws iam get-instance-profile --instance-profile-name "$profile_name" >/dev/null 2>&1; then
+  require_owned profile "$profile_name"
+else
   aws iam create-instance-profile --instance-profile-name "$profile_name" --tags "Key=$tag_key,Value=$name" >/dev/null
 fi
 if [[ -z "$(aws iam get-instance-profile --instance-profile-name "$profile_name" --query 'InstanceProfile.Roles[].RoleName' --output text)" ]]; then

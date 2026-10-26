@@ -17,9 +17,10 @@ wait_for_load() {
   done
 }
 
-duration="${DEXBENCH_DURATION:-180}"
-warmup="${DEXBENCH_WARMUP:-30}"
-concurrency="${DEXBENCH_CONCURRENCY:-1,8,32,128}"
+# Quick defaults target about one hour; set DEXBENCH_DURATION=180 DEXBENCH_WARMUP=30 DEXBENCH_CONCURRENCY=1,8,32,128 for the full sweep.
+duration="${DEXBENCH_DURATION:-60}"
+warmup="${DEXBENCH_WARMUP:-15}"
+concurrency="${DEXBENCH_CONCURRENCY:-1,32}"
 workers="${DEXBENCH_WORKERS:-0}"
 steps="${DEXBENCH_STEPS:-10}"
 scenarios="${DEXBENCH_SCENARIOS:-start-complete,sequential-steps,async-steps,rpc,attribute-read,channel-wake,attribute-write,recovery}"

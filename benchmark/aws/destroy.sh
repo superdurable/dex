@@ -20,13 +20,16 @@ for volume in $(aws ec2 describe-volumes --filters "$tag_filter" Name=status,Val
   aws ec2 delete-volume --volume-id "$volume"
 done
 
+# Instances and security groups are found by tag; IAM names and buckets are checked before deletion.
 if aws iam get-instance-profile --instance-profile-name "$profile_name" >/dev/null 2>&1; then
+  require_owned profile "$profile_name"
   for role in $(aws iam get-instance-profile --instance-profile-name "$profile_name" --query 'InstanceProfile.Roles[].RoleName' --output text); do
     aws iam remove-role-from-instance-profile --instance-profile-name "$profile_name" --role-name "$role"
   done
   aws iam delete-instance-profile --instance-profile-name "$profile_name"
 fi
 if aws iam get-role --role-name "$role_name" >/dev/null 2>&1; then
+  require_owned role "$role_name"
   for policy in $(aws iam list-attached-role-policies --role-name "$role_name" --query 'AttachedPolicies[].PolicyArn' --output text); do
     aws iam detach-role-policy --role-name "$role_name" --policy-arn "$policy"
   done
@@ -38,6 +41,7 @@ fi
 
 for bucket in $(tagged_buckets); do
   if aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
+    require_owned bucket "$bucket"
     aws s3 rm "s3://$bucket" --recursive --only-show-errors
     aws s3api delete-bucket --bucket "$bucket"
   fi

@@ -224,17 +224,21 @@ func (step wakeWaitStep) Execute(ctx dex.Context, input wakeInput) (*dex.StepDec
 	return dex.GracefulComplete(nil), nil
 }
 
-type attributeFlow struct{ dex.FlowDefaults }
+// attributeFlow compares each read value with the value written at start, inside the Worker.
+type attributeFlow struct {
+	dex.FlowDefaults
+	expectedValues map[string]string
+}
 
-func (attributeFlow) GetSteps() []dex.StepDef {
+func (*attributeFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(rpcWaitStep{})}
 }
 
-func (flow attributeFlow) GetRPCs() []dex.RPCDef {
+func (flow *attributeFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{dex.DefineRPC(flow.ReadAttributes, nil)}
 }
 
-func (attributeFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*attributeFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	definitions := make([]dex.AttributeDef, 0, len(benchmarkReadAttributes)+1)
 	for _, attribute := range benchmarkReadAttributes {
 		definitions = append(definitions, attribute)
@@ -243,14 +247,25 @@ func (attributeFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Attributes: definitions, Channels: []dex.ChannelDef{benchmarkWakeChannel}}
 }
 
-func (attributeFlow) ReadAttributes(ctx dex.Context, _ dex.None) (*dex.RPCResult[int64], error) {
-	var bytesRead int64
+// attributeReadOutput reports how many values matched their written content, and their total size.
+type attributeReadOutput struct {
+	VerifiedValues int
+	VerifiedBytes  int64
+}
+
+func (flow *attributeFlow) ReadAttributes(ctx dex.Context, _ dex.None) (*dex.RPCResult[attributeReadOutput], error) {
+	var output attributeReadOutput
 	for _, attribute := range benchmarkReadAttributes {
 		value, err := attribute.Get(ctx)
 		if err != nil {
 			return nil, err
 		}
-		bytesRead += int64(len(value))
+		expected := flow.expectedValues[attribute.AttributeName()]
+		if value != expected {
+			return nil, fmt.Errorf("Attribute %s returned %d bytes that differ from the %d bytes written", attribute.AttributeName(), len(value), len(expected))
+		}
+		output.VerifiedValues++
+		output.VerifiedBytes += int64(len(value))
 	}
-	return &dex.RPCResult[int64]{Output: bytesRead}, nil
+	return &dex.RPCResult[attributeReadOutput]{Output: output}, nil
 }

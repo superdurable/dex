@@ -28,3 +28,24 @@ tagged_resources() {
 tagged_buckets() {
   tagged_resources | sed -n 's#^arn:aws:s3:::##p'
 }
+
+# has_benchmark_tag reads a tag list as "key<TAB>value" lines and succeeds for dex-benchmark=<name>.
+has_benchmark_tag() {
+  awk -F '\t' -v key="$tag_key" -v value="$name" '$1 == key && $2 == value {found = 1} END {exit !found}'
+}
+
+# require_owned refuses to touch an existing resource unless it carries dex-benchmark=<name>.
+# Usage: require_owned role|profile|bucket <resource name>
+require_owned() {
+  local kind="$1" resource="$2" tags
+  case "$kind" in
+    role) tags="$(aws iam list-role-tags --role-name "$resource" --query 'Tags[].[Key,Value]' --output text)" ;;
+    profile) tags="$(aws iam list-instance-profile-tags --instance-profile-name "$resource" --query 'Tags[].[Key,Value]' --output text)" ;;
+    bucket) tags="$(aws s3api get-bucket-tagging --bucket "$resource" --query 'TagSet[].[Key,Value]' --output text 2>/dev/null || true)" ;;
+    *) echo "unknown resource kind $kind" >&2; exit 2 ;;
+  esac
+  if ! has_benchmark_tag <<< "$tags"; then
+    echo "refusing to modify $kind $resource: it is not tagged $tag_key=$name" >&2
+    exit 1
+  fi
+}

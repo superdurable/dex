@@ -90,9 +90,13 @@ DEXBENCH_TARGETS=zd DEXBENCH_DURATION=10 DEXBENCH_WARMUP=1 \
   benchmark/run.sh quick
 ```
 
-The quick sweep runs 9 scenario variants at 4 concurrency levels. Each step
-takes the 30-second warmup, the 3-minute measurement, and a few seconds of
-server restart, so expect about 2.2 hours per target and 4.5 hours in total.
+Quick mode defaults to a 15-second warmup and a 1-minute measurement at
+concurrency 1 and 32. It runs 9 scenario variants at 2 concurrency levels, 18
+steps per target. Each step takes 75 seconds plus a few seconds of server
+restart, so expect about 25 minutes per target. With S8 seeding and replaying
+up to 1000 MiB, the default quick run takes about 1 hour. For the full sweep,
+set `DEXBENCH_DURATION=180 DEXBENCH_WARMUP=30 DEXBENCH_CONCURRENCY=1,8,32,128`;
+it takes about 4.5 hours.
 
 ## Prod mode: dedicated EC2 host
 
@@ -112,7 +116,10 @@ aws ssm start-session --region us-west-2 --target <instance-id>
 ```
 
 `create.sh` prints the bucket name and instance ID. It is safe to rerun; it
-reuses resources that already exist.
+reuses resources that already exist. Before it modifies an existing role,
+instance profile, or bucket, it checks that the resource carries the tag
+`dex-benchmark=<name>`, and it refuses otherwise. It finds instances and
+security groups only by that tag.
 
 ### Prepare the host
 
@@ -181,14 +188,17 @@ benchmark/aws/destroy.sh us-west-2 dexbench-run1
 
 `destroy.sh` terminates the instance and deletes the security group, the
 instance profile, the role and its policies, and the bucket with its objects.
-It is safe to rerun. It ends by running `benchmark/aws/leftovers.sh`, which
+It is safe to rerun. It applies the same tag check and refuses to delete a
+role, instance profile, or bucket without `dex-benchmark=<name>`. It ends by
+running `benchmark/aws/leftovers.sh`, which
 lists anything still tagged `dex-benchmark=<name>` and exits nonzero when
 something remains.
 
 ## Configuration and metrics
 
-The defaults are a 30-second warmup and a 3-minute measurement at concurrency
-1, 8, 32, and 128. Set `DEXBENCH_DURATION`, `DEXBENCH_WARMUP`,
+Prod mode defaults to a 30-second warmup and a 3-minute measurement at
+concurrency 1, 8, 32, and 128. Quick mode defaults to 15 seconds, 1 minute, and
+concurrency 1 and 32. Set `DEXBENCH_DURATION`, `DEXBENCH_WARMUP`,
 `DEXBENCH_CONCURRENCY` (comma-separated), `DEXBENCH_WORKERS`, `DEXBENCH_STEPS`,
 `DEXBENCH_SCENARIOS`, `DEXBENCH_TARGETS`, `DEXBENCH_RECOVERY_MB`, or
 `DEXBENCH_OUT` to override them. `DEXBENCH_TARGETS=zd` runs only ZD. Before
@@ -202,11 +212,13 @@ Attribute-locked RPCs. Each client uses its own Flow, so the locked RPC has no
 lock contention.
 
 S5 reads ten 16 KiB Attributes. The RPC variant reads them inside a read-only
-RPC on the Worker. The direct variant calls FlowService GetAttributes through
-the generated gRPC client. Values over the server's inline limit come back as
-blob references, so it then resolves every reference with one LoadBlobs call,
-as an uncached client would. Both variants check the full content and size of
-every value on every read. The Worker serves the RPC variant from its local
+RPC on the Worker. The RPC compares every value with the value written at Flow
+start and returns the count of matching values and their total size, which the
+client checks. The direct variant calls FlowService GetAttributes through the
+generated gRPC client. Values over the server's inline limit come back as blob
+references, so it then resolves every reference with one LoadBlobs call, as an
+uncached client would, and compares every value on the client. Both variants
+therefore check the full content and size of every value on every read. The Worker serves the RPC variant from its local
 blob cache after the first load, so the direct variant moves more bytes per
 read. JSON results record the verified bytes per read and the number of blobs
 loaded.
