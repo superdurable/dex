@@ -33,6 +33,7 @@ use crate::runtime::read_operations::state_rows::{
     ResolvedRun, WireValue, decode_row, hydrate_value_reference, load_complete_value, read_run,
     response_value, scan_run_rows,
 };
+use crate::runtime::registry::TransactionalRpcAdmission;
 use crate::runtime::{
     FlowAddress, FlowRuntimeRegistry, RpcInvokeError, RuntimeError, WorkerRpcInvocation,
     WorkerRpcResult, grpc_code,
@@ -52,10 +53,7 @@ impl FlowRuntimeRegistry {
     /// taken for the whole call; any held key fails with `ABORTED`. A transactional RPC fails
     /// with `FAILED_PRECONDITION` while a natural close waits for the Attribute Sync outbox.
     ///
-    /// Before any Worker call, a transactional or locking RPC whose request ID is already recorded
-    /// returns the recorded reply. Otherwise one on a closed run fails with `NOT_FOUND` and
-    /// `FLOW_NOT_EXISTS`. A plain RPC on a closed run still reaches its handler, so it can read
-    /// the retained run; apply rejects any write it returns.
+    /// A transactional or locking RPC replays its recorded request ID, else fails `NOT_FOUND` on a closed run.
     pub async fn invoke_rpc(
         &self,
         tenant_id: TenantId,
@@ -86,7 +84,14 @@ impl FlowRuntimeRegistry {
         };
         // The Go Server rejects these workflow updates during cleanup, and waits for admitted ones.
         let rpc_admission = if is_transactional {
-            Some(self.admit_transactional_rpc(&flow, run_id)?)
+            let admission = self.admit_transactional_rpc(&flow, run_id, |committed| {
+                replay_recorded_rpc(committed, context, run_id, &request)?
+                    .ok_or_else(|| RuntimeError::flow_not_found(&flow.flow_id))
+            })?;
+            match admission {
+                TransactionalRpcAdmission::Admitted(guard) => Some(guard),
+                TransactionalRpcAdmission::Replayed(response) => return Ok(response),
+            }
         } else {
             None
         };
@@ -288,7 +293,7 @@ fn admit_transactional_rpc_run(
     run: &ResolvedRun,
     request: &InvokeRpcRequest,
 ) -> Result<Option<InvokeRpcResponse>, RuntimeError> {
-    if let Some(response) = replay_recorded_rpc(state, context, run, request)? {
+    if let Some(response) = replay_recorded_rpc(state, context, run.run_id, request)? {
         return Ok(Some(response));
     }
     if run.record.status != FlowStatus::Running as i32 {
@@ -300,12 +305,12 @@ fn admit_transactional_rpc_run(
 fn replay_recorded_rpc(
     state: &dyn FlowStateReader,
     context: ApplyContext,
-    run: &ResolvedRun,
+    run_id: RunId,
     request: &InvokeRpcRequest,
 ) -> Result<Option<InvokeRpcResponse>, RuntimeError> {
     let key = request_dedup_key(
         context.flow_hash,
-        run.run_id,
+        run_id,
         RequestKind::InvokeRpc,
         &request.request_id,
     );
@@ -323,7 +328,7 @@ fn replay_recorded_rpc(
     match recorded.reply.and_then(|reply| reply.reply) {
         Some(command_reply::Reply::Rpc(reply)) => {
             let output = match reply.output {
-                Some(stored) => load_complete_value(state, context.flow_hash, run.run_id, &stored)?,
+                Some(stored) => load_complete_value(state, context.flow_hash, run_id, &stored)?,
                 None => None,
             };
             Ok(Some(InvokeRpcResponse { output }))

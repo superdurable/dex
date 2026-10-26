@@ -21,6 +21,7 @@ use dexzd_apply::{
 };
 use dexzd_keyspace::row_keys::run_singleton_key;
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, parse_run_key};
+use dexzd_protocol::dex::{FlowStatus, InvokeRpcResponse};
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, RunRecord, StepInvocationKey, flow_command, inbox_message_command,
 };
@@ -199,12 +200,19 @@ impl FlowRuntimeRegistry {
     /// Admits a transactional or locking RPC of `run_id` and counts it until the guard drops.
     ///
     /// Counting and the pending close check share the Flow's lock, so a close proposed later
-    /// waits for this RPC. Returns `FAILED_PRECONDITION` while the run is in terminal cleanup.
+    /// waits for this RPC. The closed status is checked under that lock too, so a concurrent
+    /// StopFlow cannot slip in before admission.
+    ///
+    /// Returns `Admitted` with the guard while the run is running. Returns `Replayed` with the
+    /// reply of `closed_run_reply`, called with the committed view, when the run is closed or
+    /// missing; its error is returned instead when it has no recorded reply. Returns
+    /// `FAILED_PRECONDITION` while the run is in terminal cleanup.
     pub(crate) fn admit_transactional_rpc(
         &self,
         flow: &FlowAddress,
         run_id: RunId,
-    ) -> Result<TransactionalRpcGuard, RuntimeError> {
+        closed_run_reply: impl FnOnce(&dyn FlowStateReader) -> Result<InvokeRpcResponse, RuntimeError>,
+    ) -> Result<TransactionalRpcAdmission, RuntimeError> {
         self.check_running()?;
         let lease = self.inner.lease(flow);
         let runtime = lease.runtime();
@@ -218,12 +226,20 @@ impl FlowRuntimeRegistry {
                 &run_singleton_key(runtime.context.flow_hash, run_id, RunTable::RunRecord),
                 "RunRecord",
             )?;
-            if record.is_some_and(|record| record.pending_close.is_some()) {
+            let Some(record) = record.filter(|record| record.status == FlowStatus::Running as i32)
+            else {
+                // Replays only committed replies; the overlay may hold an uncommitted one.
+                let reply = closed_run_reply(committed.as_ref())?;
+                return Ok(TransactionalRpcAdmission::Replayed(reply));
+            };
+            if record.pending_close.is_some() {
                 return Err(RuntimeError::terminal_cleanup_in_progress());
             }
             runtime.admit_transactional_rpc(&state);
         }
-        Ok(TransactionalRpcGuard { lease })
+        Ok(TransactionalRpcAdmission::Admitted(TransactionalRpcGuard {
+            lease,
+        }))
     }
 
     /// Reports whether a pending invocation may start now: every lock key is free in the
@@ -718,6 +734,14 @@ pub(crate) struct ProposalScope<'a> {
 }
 
 /// One admitted transactional or locking RPC; natural closes wait until it drops.
+/// The outcome of [`FlowRuntimeRegistry::admit_transactional_rpc`].
+pub(crate) enum TransactionalRpcAdmission {
+    /// The RPC is admitted and counted until the guard drops.
+    Admitted(TransactionalRpcGuard),
+    /// The run is closed and the request ID has this recorded reply.
+    Replayed(InvokeRpcResponse),
+}
+
 pub(crate) struct TransactionalRpcGuard {
     lease: FlowRuntimeLease,
 }
