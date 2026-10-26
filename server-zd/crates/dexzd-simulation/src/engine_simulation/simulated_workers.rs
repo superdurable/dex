@@ -278,8 +278,6 @@ impl SimulatedWorkers {
     }
 
     /// Holds a child-wait probe RPC until its run's child wait ends or its deadline passes.
-    ///
-    /// The close hold then dry-runs the child result.
     async fn hold_rpc_during_child_wait(&self, invocation: &WorkerRpcInvocation) {
         if invocation.request.rpc_name != AWAIT_CHILD_RESULT_RPC_NAME {
             return;

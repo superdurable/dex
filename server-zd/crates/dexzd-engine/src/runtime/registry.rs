@@ -733,7 +733,6 @@ pub(crate) struct ProposalScope<'a> {
     pub(crate) is_admitted_rpc_commit: bool,
 }
 
-/// One admitted transactional or locking RPC; natural closes wait until it drops.
 /// The outcome of [`FlowRuntimeRegistry::admit_transactional_rpc`].
 pub(crate) enum TransactionalRpcAdmission {
     /// The RPC is admitted and counted until the guard drops.
@@ -742,6 +741,7 @@ pub(crate) enum TransactionalRpcAdmission {
     Replayed(InvokeRpcResponse),
 }
 
+/// One admitted transactional or locking RPC; natural closes wait until it drops.
 pub(crate) struct TransactionalRpcGuard {
     lease: FlowRuntimeLease,
 }

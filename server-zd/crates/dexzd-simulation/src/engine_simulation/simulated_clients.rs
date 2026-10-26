@@ -257,8 +257,6 @@ impl SimulatedClient {
     }
 
     /// Keeps a locking RPC in flight on each `flow_id` run that waits for a child Flow.
-    ///
-    /// Draws only from this client's own seed.
     pub(crate) async fn run_child_wait_probe_until(
         mut self,
         until: tokio::time::Instant,
