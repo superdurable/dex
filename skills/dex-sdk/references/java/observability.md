@@ -12,7 +12,7 @@ Long-running handlers must call `recordHeartbeat` before the configured heartbea
 
 Server v1.10.1 enforces the Step HeartbeatTimeout for pull Workers; Server v1.10.0 does not. On the Go Server, cancellation reaches a regular Step handler through heartbeats or Stream frames; server-zd also sends cancellation directly to the pull Worker. Record heartbeats within the timeout when a long-running handler must observe cancellation on every Dex Server. For a pull target, later attempts after the one-attempt ASYNC local phase receive the last recorded heartbeat. See [pull Worker routing](../core/pull-workers.md).
 
-[Pinned Java heartbeat source](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java)
+[Pinned Java heartbeat source](https://github.com/superdurable/dex/blob/sdk-java/v1.23.0/examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java -->
 ```java
 final int completedBatches = context.hasLastHeartbeatValue()

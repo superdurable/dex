@@ -35,7 +35,7 @@ Dex Web derives its experience from:
 
 With Server and CLI v1.15.0, Flow detail shows the Worker target and, for pull Flows, the Flow type queue and sticky app Worker ID. Active Steps and Step history show serving app Worker IDs for WaitFor and Execute, the dispatch sticky app Worker ID, and the queue source. **Sticky queue** means the serving ID matches the sticky ID captured for that dispatch; otherwise a completed dispatch shows **Flow type queue**. Compare against that captured ID, not just the Flow's current sticky ID.
 
-Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Address targets retain address-only routing. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage. [Released routing UI](https://github.com/superdurable/dex/blob/server/v1.20.0/web/app/flows/details/PullRouting.tsx)
+Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Address targets retain address-only routing. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage. [Released routing UI](https://github.com/superdurable/dex/blob/server/v1.24.0/web/app/flows/details/PullRouting.tsx)
 
 Use the Flow target, captured dispatch sticky ID, queue source, and failure reason before changing Worker routing. Inspect [reserve pressure and capacity](../../dex-sdk/references/core/pull-workers.md#reserved-rpc-capacity) when registered Workers decline Steps.
 
@@ -49,7 +49,7 @@ With Server and CLI v1.17.0, Dex Web also works against [server-zd](../../dex-sd
 - `GET /api/flows/history` and `POST /api/flows/time-travel` accept an optional `runAttempt`; zero or absent selects the current attempt. `GET /api/flows/summary` and each history event report `runAttempt`, which is zero on the Go Server.
 - `/readyz` calls the FlowService health check on server-zd instead of a Flow search.
 
-Record the run attempt with the run ID in verification evidence on server-zd. [Released Web behavior](https://github.com/superdurable/dex/blob/server/v1.20.0/web/README.md#run-against-server-zd)
+Record the run attempt with the run ID in verification evidence on server-zd. [Released Web behavior](https://github.com/superdurable/dex/blob/server/v1.24.0/web/README.md#run-against-server-zd)
 
 ## Management UI design
 

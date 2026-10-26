@@ -549,7 +549,7 @@ class GoDescribeFlowTest(unittest.TestCase):
     def setUp(self):
         self.repository = FixtureRepository(self)
         self.files = tagged_sources(
-            "sdk-go/v1.21.0", self.CLIENT_PATH, self.MAPPER_PATH, self.ERRORS_PATH, self.README_PATH, self.DOC_PATH,
+            "sdk-go/v1.24.0", self.CLIENT_PATH, self.MAPPER_PATH, self.ERRORS_PATH, self.README_PATH, self.DOC_PATH,
         )
         self.repository.commit_and_tag(self.TAG, self.files)
         self.references = copy_references(
@@ -600,7 +600,7 @@ class GoDescribeFlowTest(unittest.TestCase):
     def test_mapper_must_preserve_close_time(self):
         self.assert_mutation_fails(
             self.MAPPER_PATH, "func mapFlowInfo(",
-            "closedAt = response.CloseTime.AsTime()", "closedAt = time.Time{}",
+            "closedAt = response.GetCloseTime().AsTime()", "closedAt = time.Time{}",
         )
 
     def test_missing_flow_must_map_to_typed_error(self):
@@ -785,7 +785,7 @@ class SdkDescribeFlowTest(unittest.TestCase):
         self.tags = {language: f"sdk-{language}/v9.9.9" for language in ("go", *self.PATHS)}
         self.sources = {}
         for language, paths in self.PATHS.items():
-            self.sources[language] = tagged_sources(f"sdk-{language}/v1.20.0", *paths)
+            self.sources[language] = tagged_sources(f"sdk-{language}/v1.23.0", *paths)
             self.repository.commit_and_tag(self.tags[language], self.sources[language])
         self.references = copy_references(
             self.repository.root, "core/error-handling.md",
@@ -894,7 +894,7 @@ class SdkDescribeFlowTest(unittest.TestCase):
     def test_core_reference_must_not_present_describe_as_go_only(self):
         mutate_page(
             self, self.check, self.references / "core" / "error-handling.md",
-            "Java, Python, TypeScript, and Rust already have it at their v1.20.0 baselines.",
+            "Java, Python, TypeScript, and Rust already have it at their v1.23.0 baselines.",
             "Only the Go SDK has it.",
         )
 
@@ -1196,7 +1196,7 @@ class FlowSummaryRpcTest(unittest.TestCase):
 
     def setUp(self):
         self.repository = FixtureRepository(self)
-        self.server_sources = tagged_sources("server/v1.20.0", SERVICE_PATH, self.ERROR_STATUS_PATH)
+        self.server_sources = tagged_sources("server/v1.24.0", SERVICE_PATH, self.ERROR_STATUS_PATH)
         self.zd_sources = tagged_sources(
             "server-zd/v0.1.6", self.ZD_SERVICE_PATH, self.ZD_OPERATIONS_PATH, self.ZD_READ_PATH,
             self.ZD_STATE_ROWS_PATH, self.ZD_RUNTIME_ERROR_PATH, self.ZD_TIME_TRAVEL_PATH,
@@ -1368,14 +1368,31 @@ class ServerZdStatementsTest(unittest.TestCase):
         self.assertIn(f"Required release tag {self.CITED_TAG} is unavailable", str(raised.exception))
 
 
+class Release124ReferencesTest(unittest.TestCase):
+    def setUp(self):
+        self.references = CHECKER.SDK_REFERENCES
+
+    def check(self):
+        CHECKER.check_release_1_24_references(self.references)
+
+    def test_release_statements_pass(self):
+        self.check()
+
+    def test_each_release_statement_must_be_enforced(self):
+        for page, needles in CHECKER.REFERENCE_1_24_STATEMENTS:
+            for needle in needles:
+                with self.subTest(page=page, needle=needle):
+                    mutate_page(self, self.check, self.references / page, needle, needle[:-1] + "?")
+
+
 class FlowServiceTlsTest(unittest.TestCase):
-    GO_TAG = "sdk-go/v1.22.0"
+    GO_TAG = "sdk-go/v1.24.0"
     SDK_TAGS = {
         "go": GO_TAG,
-        "java": "sdk-java/v1.20.0",
-        "python": "sdk-python/v1.20.0",
-        "typescript": "sdk-typescript/v1.20.0",
-        "rust": "sdk-rust/v1.20.0",
+        "java": "sdk-java/v1.23.0",
+        "python": "sdk-python/v1.23.0",
+        "typescript": "sdk-typescript/v1.23.0",
+        "rust": "sdk-rust/v1.23.0",
     }
     TAGGED_PATHS = {
         GO_TAG: (
@@ -1384,23 +1401,23 @@ class FlowServiceTlsTest(unittest.TestCase):
             "sdk-go/dex/credential_api_key.go", "sdk-go/dex/credential_integration_test.go",
             "sdk-go/integ/tls_transport_test.go",
         ),
-        "sdk-java/v1.20.0": (
+        "sdk-java/v1.23.0": (
             "sdk-java/src/main/java/io/superdurable/dex/Client.java",
             "sdk-java/src/main/java/io/superdurable/dex/Worker.java",
             "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
             "sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java",
         ),
-        "sdk-python/v1.20.0": (
+        "sdk-python/v1.23.0": (
             "sdk-python/dex/_credential_transport.py", "sdk-python/dex/_pull_worker.py",
             "sdk-python/dex/client_options.py", "sdk-python/dex/worker_options.py",
         ),
-        "sdk-typescript/v1.20.0": ("sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts",
+        "sdk-typescript/v1.23.0": ("sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts",
                                       "sdk-typescript/src/options.ts"),
-        "sdk-rust/v1.20.0": (
+        "sdk-rust/v1.23.0": (
             "sdk-rust/crates/dex-sdk/src/client.rs", "sdk-rust/crates/dex-sdk/src/worker.rs",
             "sdk-rust/crates/dex-sdk/src/client_options.rs", "sdk-rust/crates/dex-sdk/src/worker_options.rs",
         ),
-        "server/v1.20.0": ("server/config/config.go", "server/service/api/routers.go",
+        "server/v1.24.0": ("server/config/config.go", "server/service/api/routers.go",
                             "server/cmd/server/dex/dex.go"),
         "server-zd/v0.1.6": (
             "server-zd/crates/dexzd-server/src/config/service_config.rs", "server-zd/README.md",
@@ -1507,23 +1524,23 @@ class FlowServiceTlsTest(unittest.TestCase):
                         "if status.Code(err) == codes.Unavailable {", "if status.Code(err) == codes.Unimplemented {")
 
     def test_java_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-java/v1.20.0", "sdk-java/src/main/java/io/superdurable/dex/Client.java",
+        self.mutate_tag("sdk-java/v1.23.0", "sdk-java/src/main/java/io/superdurable/dex/Client.java",
                         ".usePlaintext()", ".useTransportSecurity()")
 
     def test_java_options_must_not_add_tls_without_reference_update(self):
-        self.mutate_tag("sdk-java/v1.20.0", "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
+        self.mutate_tag("sdk-java/v1.23.0", "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
                         "private final Credential credential;", "private final Credential credential;\n    private final Object tlsConfig;")
 
     def test_python_pull_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-python/v1.20.0", "sdk-python/dex/_pull_worker.py",
+        self.mutate_tag("sdk-python/v1.23.0", "sdk-python/dex/_pull_worker.py",
                         "return grpc.aio.insecure_channel(server_address)", "return grpc.aio.secure_channel(server_address)")
 
     def test_typescript_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-typescript/v1.20.0", "sdk-typescript/src/client.ts",
+        self.mutate_tag("sdk-typescript/v1.23.0", "sdk-typescript/src/client.ts",
                         "credentials.createInsecure()", "credentials.createSsl()")
 
     def test_rust_default_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-rust/v1.20.0", "sdk-rust/crates/dex-sdk/src/client.rs",
+        self.mutate_tag("sdk-rust/v1.23.0", "sdk-rust/crates/dex-sdk/src/client.rs",
                         'format!("http://{address}")', 'format!("https://{address}")')
 
     def test_server_zd_listener_must_remain_plaintext(self):
@@ -1531,12 +1548,12 @@ class FlowServiceTlsTest(unittest.TestCase):
                         "bind address for the plaintext public gRPC services", "bind address for the TLS public gRPC services")
 
     def test_go_server_must_not_add_native_tls_without_reference_update(self):
-        self.mutate_tag("server/v1.20.0", "server/service/api/routers.go",
+        self.mutate_tag("server/v1.24.0", "server/service/api/routers.go",
                         "if publicEnabled && !authCfg.IsEnabled() {\n\t\tserver.grpcServer = grpc.NewServer(append(",
                         "if publicEnabled && !authCfg.IsEnabled() {\n\t\tserver.grpcServer = grpc.NewServer(grpc.Creds(credentials.NewTLS(config)), append(")
 
     def test_dex_web_must_keep_separate_plaintext_transport(self):
-        self.mutate_tag("server/v1.20.0", "server/cmd/server/dex/dex.go",
+        self.mutate_tag("server/v1.24.0", "server/cmd/server/dex/dex.go",
                         "grpc.WithTransportCredentials(insecure.NewCredentials())",
                         "grpc.WithTransportCredentials(credentials.NewTLS(config))")
 
