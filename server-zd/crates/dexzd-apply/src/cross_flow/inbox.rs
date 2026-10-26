@@ -289,10 +289,13 @@ fn apply_child_completed(
         .result
         .clone()
         .ok_or_else(|| invalid_cross_flow_message("child completion has no Flow result"))?;
-    if previous.as_ref().is_some_and(|previous| {
-        previous.child_run_id == completed.child_run_id
-            && previous.child_run_attempt > completed.child_run_attempt
-    }) {
+    // Recorded reports applied live, including stale ones that older binaries accepted.
+    if !scope.is_replay
+        && previous.as_ref().is_some_and(|previous| {
+            previous.child_run_id == completed.child_run_id
+                && previous.child_run_attempt > completed.child_run_attempt
+        })
+    {
         return Ok(HandlerResult::Rejected(ok_reply()));
     }
     if let Some(previous) = previous.and_then(|previous| previous.result) {
