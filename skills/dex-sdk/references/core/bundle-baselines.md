@@ -21,12 +21,12 @@ The Go SDK baseline is its published v1.22.0 tag. v1.21.0 added Go
 **Client.DescribeFlow**, which the other SDKs already had. v1.22.0 adds
 **ClientOptions.FlowServiceTLS** and **WorkerOptions.FlowServiceTLS** for Go
 FlowService connections. Java, Python, TypeScript, and Rust remain at their
-published v1.20.0 tags because none has a newer release in this bundle; their
-default FlowService connections use plaintext at those tags. The other Go commit between
+published v1.20.0 tags; their v1.23.0 releases are not yet adopted in this
+bundle. Their default FlowService connections use plaintext at those tags. The other Go commit between
 v1.21.0 and v1.22.0 updates integration test expectations for server-zd Step
 cancellation without changing an application API. The
-Server and CLI remain at server/v1.20.0 and cli-v1.20.0 because neither was
-released with this update. The v1.20.0 release added the typed FLOW_CLOSING
+Server and CLI remain at server/v1.20.0 and cli-v1.20.0; their v1.23.0
+releases are not yet adopted in this bundle. The v1.20.0 release added the typed FLOW_CLOSING
 error in every SDK.
 Each SDK and its language examples use that language's exact tag. **DEX_BASELINE**
 is the Go SDK pin, not a shared version for every language.
