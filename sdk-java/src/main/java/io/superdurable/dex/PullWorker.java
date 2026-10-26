@@ -40,10 +40,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -53,14 +52,16 @@ import java.util.function.Supplier;
 
 final class PullWorker {
     private static final Logger LOGGER = Logger.getLogger(PullWorker.class.getName());
+    private static final long BUSY_PULL_STREAM_KEEPALIVE_SECONDS = 20L;
     private static final char[] BASE32 = "abcdefghijklmnopqrstuvwxyz234567".toCharArray();
     private final WorkerTaskServiceGrpc.WorkerTaskServiceStub taskService;
     private final Credential credential;
     private final JavaWorkerService workerService;
     private final WorkerDispatcher dispatcher;
     private final ExecutorService handlers;
-    private final ScheduledExecutorService scheduler;
+    private final ScheduledThreadPoolExecutor scheduler;
     private final PullWorkerOptions options;
+    private final long reservePressureLingerNanos;
     private final List<String> flowTypes;
     private final Map<String, Registry.RegisteredFlow> registeredFlows;
     private final List<String> queues;
@@ -82,6 +83,8 @@ final class PullWorker {
         private int registeredStreams;
         private boolean hasRegistered;
         private Throwable lastPermanentError;
+        private long lastReserveDeclineNanos;
+        private ScheduledFuture<?> reservePressureTimer;
     }
     private boolean isStopping;
     private boolean hasLoggedUnsupported;
@@ -105,12 +108,14 @@ final class PullWorker {
         this.taskService = credential == null ? serviceStub
                 : serviceStub.withCallCredentials(new GrpcCredential(credential));
         this.options = options;
+        this.reservePressureLingerNanos = options.getReservePressureLinger().toNanos();
         this.sdkVersion = sdkVersion;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        this.scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
             final Thread thread = new Thread(runnable, "dex-java-pull-timer");
             thread.setDaemon(true);
             return thread;
         });
+        scheduler.setRemoveOnCancelPolicy(true);
         final List<String> registered = new ArrayList<String>();
         final Map<String, Registry.RegisteredFlow> definitions =
                 new HashMap<String, Registry.RegisteredFlow>();
@@ -420,13 +425,22 @@ final class PullWorker {
                     idle++;
                 }
             }
-            while (idle < options.getIdleStreamsPerQueue()) {
+            final int desiredIdle = desiredIdleStreamsPerQueue(queue);
+            final int creationTarget = busyTasks == options.getMaxConcurrentTasks()
+                    ? options.getIdleStreamsPerQueue() : desiredIdle;
+            while (idle < creationTarget) {
                 final PullStream stream = new PullStream(queue);
                 streams.add(stream);
                 stream.open();
                 idle++;
             }
         }
+    }
+
+    private int desiredIdleStreamsPerQueue(final String queue) {
+        final long lastDecline = queueRegistrations.get(queue).lastReserveDeclineNanos;
+        return options.getIdleStreamsPerQueue() + (options.getReservedRpcTasks() > 0
+                && lastDecline != 0L && System.nanoTime() - lastDecline < reservePressureLingerNanos ? 1 : 0);
     }
 
     private long retryDelay(final long backoff) {
@@ -440,6 +454,7 @@ final class PullWorker {
         private StreamObserver<PollWorkerTaskRequest> requests;
         private Context.CancellableContext taskContext;
         private ScheduledFuture<?> deadlineTimer;
+        private ScheduledFuture<?> keepaliveTimer;
         private ScheduledFuture<?> closeTimer;
         private Thread handlerThread;
         private Throwable closeFailure;
@@ -447,6 +462,7 @@ final class PullWorker {
         private volatile Status.Code cancellationStatus;
         private long backoffMillis = 100L;
         private boolean isBusy;
+        private boolean isFinalFrameSent;
         private boolean isDraining;
         private boolean isRetiring;
         private boolean isHalfClosed;
@@ -467,6 +483,7 @@ final class PullWorker {
             isClosed = false;
             isHalfClosed = false;
             isRegistered = false;
+            isFinalFrameSent = false;
             supportsUnknownNameRejection = false;
             closeFailure = null;
             try {
@@ -568,17 +585,37 @@ final class PullWorker {
                     && busyTasks >= options.getMaxConcurrentTasks() - options.getReservedRpcTasks()
                     && unknownReason == PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED) {
                 reservedRpcDeclines++;
+                final QueueRegistration registration = queueRegistrations.get(queue);
+                registration.lastReserveDeclineNanos = System.nanoTime();
+                if (registration.reservePressureTimer != null) {
+                    registration.reservePressureTimer.cancel(false);
+                }
+                registration.reservePressureTimer = scheduler.schedule(() -> {
+                    synchronized (PullWorker.this) {
+                        reconcile();
+                    }
+                }, reservePressureLingerNanos, TimeUnit.NANOSECONDS);
                 final String flowType = task.hasWaitFor()
                         ? task.getWaitFor().getFlowType() : task.getExecute().getFlowType();
                 LOGGER.log(Level.FINE, "decline Step task for reserved RPC capacity: {0}", flowType);
                 reject(task.getTaskId(), PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY);
+                reconcile();
                 return;
             }
             isBusy = true;
+            isFinalFrameSent = false;
             busyTasks++;
             taskID = task.getTaskId();
             taskContext = Context.current().withCancellation();
             cancellationStatus = null;
+            keepaliveTimer = scheduler.scheduleAtFixedRate(() -> {
+                synchronized (PullWorker.this) {
+                    if (isBusy && !isFinalFrameSent && !isHalfClosed && !isClosed) {
+                        send(PollWorkerTaskRequest.newBuilder()
+                                .setPong(PollWorkerTaskPong.getDefaultInstance()).build());
+                    }
+                }
+            }, BUSY_PULL_STREAM_KEEPALIVE_SECONDS, BUSY_PULL_STREAM_KEEPALIVE_SECONDS, TimeUnit.SECONDS);
             if (task.hasDeadline()) {
                 final Instant deadline = Instant.ofEpochSecond(
                         task.getDeadline().getSeconds(), task.getDeadline().getNanos());
@@ -697,16 +734,32 @@ final class PullWorker {
         }
 
         private void sendFrame(final PollWorkerTaskFrame frame) {
-            if (!frame.hasWorkerError() && cancellationStatus != null) {
-                throw Status.fromCode(cancellationStatus).asRuntimeException();
+            synchronized (PullWorker.this) {
+                if (!frame.hasWorkerError() && cancellationStatus != null) {
+                    throw Status.fromCode(cancellationStatus).asRuntimeException();
+                }
+                if (frame.hasRpc() || frame.hasWorkerError()
+                        || frame.hasWaitFor() && frame.getWaitFor().hasResult()
+                        || frame.hasExecute() && frame.getExecute().hasResult()) {
+                    stopKeepalive();
+                    isFinalFrameSent = true;
+                }
+                send(PollWorkerTaskRequest.newBuilder()
+                        .setTaskFrame(frame.toBuilder().setTaskId(taskID)).build());
             }
-            send(PollWorkerTaskRequest.newBuilder()
-                    .setTaskFrame(frame.toBuilder().setTaskId(taskID)).build());
+        }
+
+        private void stopKeepalive() {
+            if (keepaliveTimer != null) {
+                keepaliveTimer.cancel(false);
+                keepaliveTimer = null;
+            }
         }
 
         private void send(final PollWorkerTaskRequest request) {
             synchronized (PullWorker.this) {
-                if (!isHalfClosed && !isClosed && requests != null) {
+                if (!isHalfClosed && !isClosed && requests != null
+                        && (!request.hasPong() || !isFinalFrameSent)) {
                     requests.onNext(request);
                 }
             }
@@ -725,6 +778,7 @@ final class PullWorker {
         }
 
         private void finishTask() {
+            stopKeepalive();
             if (deadlineTimer != null) {
                 deadlineTimer.cancel(false);
                 deadlineTimer = null;
@@ -736,6 +790,7 @@ final class PullWorker {
             handlerThread = null;
             taskID = null;
             isBusy = false;
+            isFinalFrameSent = false;
             busyTasks--;
             if (!isClosed && !isDraining && hasIdleReplacement(true)) {
                 isDraining = true;
@@ -752,6 +807,7 @@ final class PullWorker {
         }
 
         private void halfClose() {
+            stopKeepalive();
             if (isClosed) {
                 if (!isBusy && isStopping) {
                     streams.remove(this);
@@ -900,7 +956,7 @@ final class PullWorker {
                     idleReplacements++;
                 }
             }
-            return idleReplacements >= options.getIdleStreamsPerQueue();
+            return idleReplacements >= desiredIdleStreamsPerQueue(queue);
         }
     }
 }

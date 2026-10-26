@@ -171,9 +171,10 @@ spec:
 如果某一步没有按时完成或者失败，例如对象存储拒绝释放 lease，进程以 1 退出。替代进程这时
 最多要等 **lease.duration** 再加约 1 秒。
 
-节点拿到 lease 之后，SIGTERM 可能在启动过程中到达。这时节点会先完成启动，再开始
-优雅关闭。因此，很长的日志重放可能超过宽限期。Kubernetes 随后会杀掉进程，下一次启动要
-等旧 lease 过期。
+启动期间收到 SIGTERM 会中断 lease 获取或恢复。如果节点已经持有 lease，它会在关闭预算内
+停止启动并释放 lease。释放失败时进程以 1 退出，下次启动可能要等待旧 lease 过期。如果
+SIGTERM 到达时某次 lease 写入的结果仍然未知，进程以 0 退出，不会释放这次写入，下次启动
+可能要等待它过期。
 
 ### 本地存储卷
 
@@ -250,8 +251,18 @@ gRPC health 上做 liveness 不会造成反复重启。
 **NOT_SERVING**，永远过不了这个 startup probe。standby 需要改用 TCP 或 exec 的 startup
 probe 和 liveness probe。
 
-发生致命错误后，例如 lease 丢失或提交失败，进程会自行退出。启动时如果对象存储不可达，
-进程也会以 1 退出。这两种情况下，Kubernetes 都会按退避策略重启容器。
+发生致命错误后，例如 lease 丢失或提交失败，进程会自行退出。启动期间，对象存储读取遇到
+暂时性错误或结果未知的错误时，节点会按带抖动的指数退避重试。
+**recovery.startupReadRetryBudget** 为每次读取设置从首次暂时性错误或结果未知的错误开始计算的实际时间窗口，
+默认 30 秒，且必须大于零。退避等待和后续读取都计入该次读取的窗口。并发读取不共享时间，
+之后的独立读取会获得新的窗口。窗口到期时，错误会指出操作、对象键和最后一次错误。
+必需对象缺失、数据损坏、访问被拒绝或 lease 所有权丢失时，启动不会重试读取。
+lease 有效期结束或关闭请求可能更早终止重试。恢复期间重试读取时，lease 仍会续约。
+该窗口限制的是每次读取，而不是整个启动过程。获得 lease 之后，启动没有总体时间上限。
+持续的故障仍会在一次读取的窗口内使启动失败；读取较慢但仍有进展时，续约会让 lease 保持有效。
+startup probe 限制启动的总时长。
+如果启动时无法访问对象存储，条件写入自检也会使进程以 1 退出。启动失败时进程以 1 退出，
+Kubernetes 随后按退避策略重启容器。
 
 ## Lease {#lease}
 
@@ -442,9 +453,11 @@ server-zd 不同的地方。
 - **syncRetryPolicy.totalDuration** 限制的是每个待写入值的重试时长，而不是整个关闭。PostgreSQL
   故障期间，关闭会一直等到待写入的值被丢弃。关闭等待期间接受的每个同步写入都会开始自己的重试窗口，从而延长等待。
 - StopFlow 和 Terminate 从不等待。StopFlow 一提交，run 就会关闭，即使关闭正在等待也是如此；
-  待写入的值在关闭后继续同步。之后对该 run 的 **SetAttributes** 通常返回 NOT_FOUND；只有请求中的每项写入
-  都是把当前存储的 hard-delete Attribute 设为 null 时才会被接受。此例外仅适用于尚未清除的 run。
-  该操作会删除存储的对象，但不会重新打开 run。Go Server 在已取消或失败的 run 收尾期间接受写入，关闭后则拒绝写入。
+  待写入的值在关闭后继续同步。之后对该 run 的 **SetAttributes** 返回 NOT_FOUND。从 server-zd v0.1.5 起，
+  只有请求中的每项写入都是把当前存储的
+  [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) 设为 null 时，才会被接受。
+  此例外仅适用于尚未清除的 run。该操作会删除存储的对象，但不会重新打开 run。run 的 Flow history
+  会在关闭之后记录这次擦除。Go Server 在已取消或失败的 run 收尾期间接受写入，关闭后则拒绝写入。
   Flow 需要的数据请在停止之前写入。
 - 已不在配置中的 store 的待写入值会被立即丢弃，并计入
   **dexzd_attribute_sync_dropped_entries_total**。
@@ -725,7 +738,7 @@ server-zd 会拒绝未知的键，因此 Go Server 的配置文件不能原样�
 | **interpreter.temporal.prometheus.listenAddress** | **metrics.listen** | 指标名称不同，见[指标](#metrics)。 |
 | **log** | **RUST_LOG** 环境变量 | 日志输出到标准错误，默认级别为 **info**。 |
 | 没有对应的键；**SearchFlows** 使用 Temporal 或 Cadence 的 visibility | **search.backend** | **builtin**（默认）或 **paradedb**。 |
-| 没有对应的键 | **search.paradeDbConnectionString** | ParadeDB 搜索使用的 PostgreSQL URL 或键值连接字符串。支持 **sslmode**（disable、allow、prefer、require、verify-ca、verify-full）、**sslrootcert**（PEM 文件或系统根证书）、**sslsni**（0 或 1）、**sslnegotiation**（postgres 或 direct），以及以秒为单位的 **connect_timeout**。直接 TLS 协商需要 PostgreSQL 17 或更高版本。不设置 **sslrootcert** 时，**sslmode=require** 会加密连接，但不会验证服务器证书；设置 **sslrootcert** 时，**require** 还会验证证书链，但不验证主机名。**sslmode=verify-full** 会用 **sslrootcert** 验证证书链和主机名；不设置 **sslrootcert** 时使用系统根证书。**sslrootcert=system** 使用系统根证书，并强制使用 verify-full。**sslmode=allow** 不能与 **sslnegotiation=direct** 组合使用。不指定 TLS 参数时，连接保持明文，以兼容现有部署。显式设置 **sslmode=prefer** 现在会尝试不验证证书的 TLS；此前会保持明文。 |
+| 没有对应的键 | **search.paradeDbConnectionString** | ParadeDB 搜索使用的 PostgreSQL URL 或键值连接字符串。支持 **sslmode**（disable、allow、prefer、require、verify-ca、verify-full）、**sslrootcert**（PEM 文件或系统根证书）、**sslsni**（0 或 1）、**sslnegotiation**（postgres 或 direct），以及以秒为单位的 **connect_timeout**。直接 TLS 协商需要 PostgreSQL 17 或更高版本。不设置 **sslrootcert** 时，**sslmode=require** 会加密连接，但不会验证服务器证书。**sslrootcert** 指定 PEM 文件时，**require** 会用该文件验证证书链，但不验证主机名。**sslmode=verify-ca** 会用 **sslrootcert** 指定的 PEM 文件验证证书链；不设置 **sslrootcert** 时使用系统根证书。它从不验证主机名。**sslmode=verify-full** 会验证证书链和主机名，使用 **sslrootcert** 指定的 PEM 文件；不设置 **sslrootcert** 时使用系统根证书。**sslrootcert=system** 使用系统根证书，并且无论 **sslmode** 设置为什么，都强制使用 verify-full。未使用 **sslnegotiation=direct** 时，即使 **sslrootcert** 指定了 PEM 文件，**prefer** 和 **allow** 也不验证证书。**sslmode=allow** 不能与 **sslnegotiation=direct** 组合使用。不指定 TLS 参数时，连接保持明文，以兼容现有部署。显式设置 **sslmode=prefer** 现在会尝试不验证证书的 TLS；此前会保持明文。使用 **sslnegotiation=direct** 时，**sslmode=prefer** 或未设置的 **sslmode** 会变为 **require**，并适用上述 **require** 规则，因此必须使用 TLS，不会回退到明文。 |
 | **blobStore** | 无 | server-zd 把所有值保存在自己的对象存储前缀下。硬删除的值可以使用 **objectStore.hardDeleteStore**。 |
 | **attributeStore** | **attributeStore** | 相同的键，需要 server-zd v0.1.3 或更高版本。只支持 **type: postgres**。**flowIdColumn**、**databaseName** 和 **collectionName** 必须留空。**fencingTableName** 只存在于 server-zd，每个数据库都需要一张 fencing 表。见 [Attribute Store 同步](#attribute-store)。 |
 | **interpreter** | 无 | server-zd 不使用 Temporal 或 Cadence backend。 |

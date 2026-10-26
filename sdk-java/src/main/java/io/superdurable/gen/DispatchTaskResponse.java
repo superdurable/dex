@@ -35,6 +35,7 @@ private static final long serialVersionUID = 0L;
   private DispatchTaskResponse() {
     servedByAppWorkerId_ = "";
     rejectedByAppWorkerId_ = "";
+    queueSource_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -442,6 +443,32 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int QUEUE_SOURCE_FIELD_NUMBER = 10;
+  private int queueSource_ = 0;
+  /**
+   * <pre>
+   * Actual queue served; absent on older matching nodes, so consumers may infer it from Worker IDs.
+   * </pre>
+   *
+   * <code>.dex.PullRoutingSource queue_source = 10;</code>
+   * @return The enum numeric value on the wire for queueSource.
+   */
+  @java.lang.Override public int getQueueSourceValue() {
+    return queueSource_;
+  }
+  /**
+   * <pre>
+   * Actual queue served; absent on older matching nodes, so consumers may infer it from Worker IDs.
+   * </pre>
+   *
+   * <code>.dex.PullRoutingSource queue_source = 10;</code>
+   * @return The queueSource.
+   */
+  @java.lang.Override public io.superdurable.gen.PullRoutingSource getQueueSource() {
+    io.superdurable.gen.PullRoutingSource result = io.superdurable.gen.PullRoutingSource.forNumber(queueSource_);
+    return result == null ? io.superdurable.gen.PullRoutingSource.UNRECOGNIZED : result;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -483,6 +510,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(rejectedByAppWorkerId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 9, rejectedByAppWorkerId_);
     }
+    if (queueSource_ != io.superdurable.gen.PullRoutingSource.PULL_ROUTING_SOURCE_UNSPECIFIED.getNumber()) {
+      output.writeEnum(10, queueSource_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -521,6 +551,10 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(rejectedByAppWorkerId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(9, rejectedByAppWorkerId_);
     }
+    if (queueSource_ != io.superdurable.gen.PullRoutingSource.PULL_ROUTING_SOURCE_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(10, queueSource_);
+    }
     return size;
   }
   @java.lang.Override
@@ -549,6 +583,7 @@ private static final long serialVersionUID = 0L;
         .equals(other.getServedByAppWorkerId())) return false;
     if (!getRejectedByAppWorkerId()
         .equals(other.getRejectedByAppWorkerId())) return false;
+    if (queueSource_ != other.queueSource_) return false;
     if (!getOutputCase().equals(other.getOutputCase())) return false;
     switch (outputCase_) {
       case 1:
@@ -597,6 +632,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getServedByAppWorkerId().hashCode();
     hash = (37 * hash) + REJECTED_BY_APP_WORKER_ID_FIELD_NUMBER;
     hash = (53 * hash) + getRejectedByAppWorkerId().hashCode();
+    hash = (37 * hash) + QUEUE_SOURCE_FIELD_NUMBER;
+    hash = (53 * hash) + queueSource_;
     switch (outputCase_) {
       case 1:
         hash = (37 * hash) + WAIT_FOR_FIELD_NUMBER;
@@ -788,6 +825,7 @@ private static final long serialVersionUID = 0L;
       }
       servedByAppWorkerId_ = "";
       rejectedByAppWorkerId_ = "";
+      queueSource_ = 0;
       outputCase_ = 0;
       output_ = null;
       return this;
@@ -829,6 +867,9 @@ private static final long serialVersionUID = 0L;
       }
       if (((from_bitField0_ & 0x00000100) != 0)) {
         result.rejectedByAppWorkerId_ = rejectedByAppWorkerId_;
+      }
+      if (((from_bitField0_ & 0x00000200) != 0)) {
+        result.queueSource_ = queueSource_;
       }
     }
 
@@ -886,6 +927,9 @@ private static final long serialVersionUID = 0L;
         rejectedByAppWorkerId_ = other.rejectedByAppWorkerId_;
         bitField0_ |= 0x00000100;
         onChanged();
+      }
+      if (other.queueSource_ != 0) {
+        setQueueSourceValue(other.getQueueSourceValue());
       }
       switch (other.getOutputCase()) {
         case WAIT_FOR: {
@@ -1005,6 +1049,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000100;
               break;
             } // case 74
+            case 80: {
+              queueSource_ = input.readEnum();
+              bitField0_ |= 0x00000200;
+              break;
+            } // case 80
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2283,6 +2332,78 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       rejectedByAppWorkerId_ = value;
       bitField0_ |= 0x00000100;
+      onChanged();
+      return this;
+    }
+
+    private int queueSource_ = 0;
+    /**
+     * <pre>
+     * Actual queue served; absent on older matching nodes, so consumers may infer it from Worker IDs.
+     * </pre>
+     *
+     * <code>.dex.PullRoutingSource queue_source = 10;</code>
+     * @return The enum numeric value on the wire for queueSource.
+     */
+    @java.lang.Override public int getQueueSourceValue() {
+      return queueSource_;
+    }
+    /**
+     * <pre>
+     * Actual queue served; absent on older matching nodes, so consumers may infer it from Worker IDs.
+     * </pre>
+     *
+     * <code>.dex.PullRoutingSource queue_source = 10;</code>
+     * @param value The enum numeric value on the wire for queueSource to set.
+     * @return This builder for chaining.
+     */
+    public Builder setQueueSourceValue(int value) {
+      queueSource_ = value;
+      bitField0_ |= 0x00000200;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Actual queue served; absent on older matching nodes, so consumers may infer it from Worker IDs.
+     * </pre>
+     *
+     * <code>.dex.PullRoutingSource queue_source = 10;</code>
+     * @return The queueSource.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.PullRoutingSource getQueueSource() {
+      io.superdurable.gen.PullRoutingSource result = io.superdurable.gen.PullRoutingSource.forNumber(queueSource_);
+      return result == null ? io.superdurable.gen.PullRoutingSource.UNRECOGNIZED : result;
+    }
+    /**
+     * <pre>
+     * Actual queue served; absent on older matching nodes, so consumers may infer it from Worker IDs.
+     * </pre>
+     *
+     * <code>.dex.PullRoutingSource queue_source = 10;</code>
+     * @param value The queueSource to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setQueueSource(io.superdurable.gen.PullRoutingSource value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000200;
+      queueSource_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Actual queue served; absent on older matching nodes, so consumers may infer it from Worker IDs.
+     * </pre>
+     *
+     * <code>.dex.PullRoutingSource queue_source = 10;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearQueueSource() {
+      bitField0_ = (bitField0_ & ~0x00000200);
+      queueSource_ = 0;
       onChanged();
       return this;
     }

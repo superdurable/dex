@@ -40,6 +40,7 @@ type pullWorker struct {
 	shouldWarnRPCCapacity          bool
 	reservedRPCDeclines            uint64
 	idleStreamsPerQueue            int
+	reservePressureLinger          time.Duration
 	stopDrainTimeout               time.Duration
 	stopOnPermanentStreamRejection bool
 	sdkVersion                     string
@@ -64,20 +65,24 @@ type pullWorker struct {
 }
 
 type pullQueueRegistration struct {
-	registeredStreams  int
-	hasRegistered      bool
-	lastPermanentError error
+	registeredStreams    int
+	hasRegistered        bool
+	lastPermanentError   error
+	lastReserveDecline   time.Time
+	reservePressureTimer *time.Timer
 }
 
 type pullStream struct {
-	worker       *pullWorker
-	queue        string
-	ctx          context.Context
-	cancel       context.CancelFunc
-	mu           sync.Mutex
-	sendMu       sync.Mutex
-	stream       dexpb.WorkerTaskService_PollWorkerTaskClient
-	isSendClosed bool
+	worker           *pullWorker
+	queue            string
+	ctx              context.Context
+	cancel           context.CancelFunc
+	mu               sync.Mutex
+	sendMu           sync.Mutex
+	stream           dexpb.WorkerTaskService_PollWorkerTaskClient
+	isSendClosed     bool
+	keepaliveDone    chan struct{}
+	isFinalFrameSent bool
 	// Registration state is guarded by worker.mu, independently of stream.mu and sendMu.
 	isRegistered                 bool
 	taskID                       string
@@ -88,6 +93,8 @@ type pullStream struct {
 	isRetiring                   bool
 	supportsUnknownNameRejection bool
 }
+
+const busyPullStreamKeepaliveInterval = 20 * time.Second
 
 func newPullWorker(registry *Registry, service *workerService, conn *grpc.ClientConn, options PullWorkerOptions, sdkVersion string) (*pullWorker, error) {
 	maxConcurrentTasks := options.MaxConcurrentTasks
@@ -154,7 +161,8 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 		stopOnPermanentStreamRejection: options.StopOnPermanentStreamRejection,
 		maxConcurrentTasks:             maxConcurrentTasks, reservedRPCTasks: reservedRPCTasks,
 		shouldWarnRPCCapacity: options.ReservedRPCTasks == nil && maxConcurrentTasks == 1,
-		idleStreamsPerQueue:   idleStreamsPerQueue, stopDrainTimeout: stopDrainTimeout, sdkVersion: sdkVersion,
+		idleStreamsPerQueue:   idleStreamsPerQueue, reservePressureLinger: 30 * time.Second,
+		stopDrainTimeout: stopDrainTimeout, sdkVersion: sdkVersion,
 		ctx: ctx, cancel: cancel, streams: make(map[*pullStream]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{}),
 	}, nil
 }
@@ -246,6 +254,11 @@ func (worker *pullWorker) run() error {
 func (worker *pullWorker) stop() {
 	worker.mu.Lock()
 	worker.isStopping = true
+	for _, registration := range worker.queueRegistrations {
+		if registration.reservePressureTimer != nil {
+			registration.reservePressureTimer.Stop()
+		}
+	}
 	worker.notifyRegistrationChanged()
 	for stream := range worker.streams {
 		stream.mu.Lock()
@@ -296,7 +309,10 @@ func (worker *pullWorker) reconcile() {
 				idle++
 			}
 		}
-		desired := worker.idleStreamsPerQueue
+		desired := worker.desiredIdleStreamsPerQueue(queue)
+		if worker.busyTasks == worker.maxConcurrentTasks && desired > worker.idleStreamsPerQueue {
+			desired = worker.idleStreamsPerQueue
+		}
 		for idle < desired {
 			streamCtx, cancel := context.WithCancel(worker.ctx)
 			stream := &pullStream{worker: worker, queue: queue, ctx: streamCtx, cancel: cancel}
@@ -306,6 +322,15 @@ func (worker *pullWorker) reconcile() {
 			go stream.run()
 		}
 	}
+}
+
+func (worker *pullWorker) desiredIdleStreamsPerQueue(queue string) int {
+	desired := worker.idleStreamsPerQueue
+	lastDecline := worker.queueRegistrations[queue].lastReserveDecline
+	if worker.reservedRPCTasks > 0 && !lastDecline.IsZero() && time.Since(lastDecline) < worker.reservePressureLinger {
+		desired++
+	}
+	return desired
 }
 
 func (worker *pullWorker) waitRegistered(ctx context.Context) error {
@@ -508,6 +533,7 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 	stream.sendMu.Lock()
 	stream.stream = clientStream
 	stream.isSendClosed = false
+	stream.isFinalFrameSent = false
 	stream.sendMu.Unlock()
 	responses := make(chan *dexpb.PollWorkerTaskResponse, 1)
 	receiveErrors := make(chan error, 1)
@@ -554,7 +580,7 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (bool, error) {
 				}
 				stream.mu.Unlock()
 			case *dexpb.PollWorkerTaskResponse_Ping:
-				if err := stream.send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Pong{Pong: &dexpb.PollWorkerTaskPong{}}}); err != nil {
+				if err := stream.sendPong(); err != nil {
 					stream.cancelTaskContext()
 					return wasRegistered, awaitPullStreamStatus(pollCtx, responses, receiveErrors, err)
 				}
@@ -636,8 +662,16 @@ func (stream *pullStream) startTask(task *dexpb.PollWorkerTask) {
 	isStepTask := task.GetWaitFor() != nil || task.GetExecute() != nil
 	if isStepTask && stream.worker.reservedRPCTasks > 0 && stream.worker.busyTasks >= stream.worker.maxConcurrentTasks-stream.worker.reservedRPCTasks && reason == dexpb.PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED {
 		stream.worker.reservedRPCDeclines++
+		registration := stream.worker.queueRegistrations[stream.queue]
+		registration.lastReserveDecline = time.Now()
+		if registration.reservePressureTimer == nil {
+			registration.reservePressureTimer = time.AfterFunc(stream.worker.reservePressureLinger, stream.worker.signal)
+		} else {
+			registration.reservePressureTimer.Reset(stream.worker.reservePressureLinger)
+		}
 		stream.mu.Unlock()
 		stream.worker.mu.Unlock()
+		stream.worker.signal()
 		flowType := task.GetWaitFor().GetFlowType()
 		if task.GetExecute() != nil {
 			flowType = task.GetExecute().GetFlowType()
@@ -661,6 +695,7 @@ func (stream *pullStream) startTask(task *dexpb.PollWorkerTask) {
 	stream.mu.Unlock()
 	stream.worker.mu.Unlock()
 	stream.worker.signal()
+	stream.startKeepalive()
 	go stream.executeTask(taskCtx, task)
 }
 
@@ -783,6 +818,7 @@ func (stream *pullStream) finishTask() {
 }
 
 func (stream *pullStream) completeTask() {
+	stream.stopKeepalive()
 	stream.worker.mu.Lock()
 	stream.mu.Lock()
 	stream.taskCancel()
@@ -800,6 +836,10 @@ func (stream *pullStream) completeTask() {
 	stream.worker.mu.Unlock()
 	if isDraining {
 		stream.closeSend()
+	} else {
+		stream.sendMu.Lock()
+		stream.isFinalFrameSent = false
+		stream.sendMu.Unlock()
 	}
 	stream.worker.signal()
 }
@@ -817,7 +857,7 @@ func (stream *pullStream) hasIdleReplacements() bool {
 			idleStreams++
 		}
 	}
-	return idleStreams >= stream.worker.idleStreamsPerQueue
+	return idleStreams >= stream.worker.desiredIdleStreamsPerQueue(stream.queue)
 }
 
 func (stream *pullStream) cancelTaskContext() {
@@ -877,9 +917,65 @@ func (stream *pullStream) send(request *dexpb.PollWorkerTaskRequest) error {
 	return stream.stream.Send(request)
 }
 
+func (stream *pullStream) startKeepalive() {
+	stream.sendMu.Lock()
+	stream.isFinalFrameSent = false
+	done := make(chan struct{})
+	stream.keepaliveDone = done
+	stream.sendMu.Unlock()
+	go func() {
+		ticker := time.NewTicker(busyPullStreamKeepaliveInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if err := stream.sendKeepalivePong(done); err != nil {
+					stream.worker.service.logger.Debug("send Worker keepalive Pong", "error", err)
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (stream *pullStream) stopKeepalive() {
+	stream.sendMu.Lock()
+	defer stream.sendMu.Unlock()
+	stream.stopKeepaliveLocked()
+}
+
+func (stream *pullStream) stopKeepaliveLocked() {
+	if stream.keepaliveDone != nil {
+		close(stream.keepaliveDone)
+		stream.keepaliveDone = nil
+	}
+}
+
+func (stream *pullStream) sendPong() error {
+	stream.sendMu.Lock()
+	defer stream.sendMu.Unlock()
+	if stream.isSendClosed || stream.isFinalFrameSent {
+		return nil
+	}
+	return stream.stream.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Pong{Pong: &dexpb.PollWorkerTaskPong{}}})
+}
+
+// sendKeepalivePong skips a stale tick, so it never writes to a later stream before Register.
+func (stream *pullStream) sendKeepalivePong(done chan struct{}) error {
+	stream.sendMu.Lock()
+	defer stream.sendMu.Unlock()
+	if stream.keepaliveDone != done || stream.isSendClosed || stream.isFinalFrameSent {
+		return nil
+	}
+	return stream.stream.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_Pong{Pong: &dexpb.PollWorkerTaskPong{}}})
+}
+
 func (stream *pullStream) closeSend() {
 	stream.sendMu.Lock()
 	defer stream.sendMu.Unlock()
+	stream.stopKeepaliveLocked()
 	if stream.isSendClosed {
 		return
 	}
@@ -890,7 +986,16 @@ func (stream *pullStream) closeSend() {
 }
 
 func (stream *pullStream) sendTaskFrame(frame *dexpb.PollWorkerTaskFrame) error {
-	return stream.send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: frame}})
+	stream.sendMu.Lock()
+	defer stream.sendMu.Unlock()
+	if stream.isSendClosed {
+		return io.ErrClosedPipe
+	}
+	if frame.GetRpc() != nil || frame.GetWorkerError() != nil || frame.GetWaitFor().GetResult() != nil || frame.GetExecute().GetResult() != nil {
+		stream.stopKeepaliveLocked()
+		stream.isFinalFrameSent = true
+	}
+	return stream.stream.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: frame}})
 }
 
 type pullWaitForSender struct {

@@ -21,6 +21,8 @@ struct Parameter {
     key: String,
     value: String,
     span: (usize, usize),
+    /// The value as written: still escaped or percent-encoded, without quotes.
+    raw_value_span: (usize, usize),
 }
 
 /// Removes the TLS parameters, keeping the rest verbatim; errors never quote the credential-bearing DSN.
@@ -51,6 +53,44 @@ pub(crate) fn split_tls_parameters(dsn: &str) -> Result<(String, TlsParameters),
         (false, _) => kept.join(separator),
     };
     Ok((remaining, tls))
+}
+
+/// Returns each nonempty password as written, plus a URL userinfo carrying one; errors never quote the DSN.
+pub(crate) fn written_password_spellings(dsn: &str) -> Result<Vec<String>, String> {
+    let mut spellings = dsn_parameters(dsn)?
+        .into_iter()
+        .filter(|parameter| parameter.key == "password")
+        .map(|parameter| dsn[parameter.raw_value_span.0..parameter.raw_value_span.1].to_owned())
+        .filter(|password| !password.is_empty())
+        .collect::<Vec<_>>();
+    if let Some(userinfo) = url_userinfo(dsn)
+        && let Some((_, password)) = userinfo.split_once(':')
+        && !password.is_empty()
+    {
+        spellings.push(password.to_owned());
+        spellings.push(userinfo.to_owned());
+    }
+    Ok(spellings)
+}
+
+/// Parses the URL query or keyword parameters like tokio-postgres.
+fn dsn_parameters(dsn: &str) -> Result<Vec<Parameter>, String> {
+    match url_query_start(dsn) {
+        Some(query_start) => url_parameters(dsn, query_start),
+        None if is_url(dsn) => Ok(Vec::new()),
+        None => key_value_parameters(dsn),
+    }
+}
+
+/// Returns the text before the first `@`, where tokio-postgres reads the user and password.
+fn url_userinfo(dsn: &str) -> Option<&str> {
+    if !is_url(dsn) {
+        return None;
+    }
+    let authority_start = dsn.find("://")? + 3;
+    dsn[authority_start..]
+        .find('@')
+        .map(|at| &dsn[authority_start..authority_start + at])
 }
 
 fn is_url(dsn: &str) -> bool {
@@ -86,6 +126,7 @@ fn url_parameters(dsn: &str, query_start: usize) -> Result<Vec<Parameter>, Strin
             key: percent_decode(&dsn[position..equals])?,
             value: percent_decode(&dsn[equals + 1..value_end])?,
             span: (position, value_end),
+            raw_value_span: (equals + 1, value_end),
         });
         position = value_end + 1;
     }
@@ -168,6 +209,7 @@ fn key_value_parameters(dsn: &str) -> Result<Vec<Parameter>, String> {
         if is_quoted {
             index += 1;
         }
+        let raw_value_start = offset_at(index);
         let mut value = String::new();
         loop {
             let Some(&(_, character)) = characters.get(index) else {
@@ -190,6 +232,7 @@ fn key_value_parameters(dsn: &str) -> Result<Vec<Parameter>, String> {
             }
             index += 1;
         }
+        let raw_value_end = offset_at(index);
         if is_quoted {
             index += 1;
         } else if value.is_empty() {
@@ -199,6 +242,7 @@ fn key_value_parameters(dsn: &str) -> Result<Vec<Parameter>, String> {
             key,
             value,
             span: (offset_at(start), offset_at(index)),
+            raw_value_span: (raw_value_start, raw_value_end),
         });
     }
 }

@@ -18,7 +18,9 @@ import (
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -128,9 +130,41 @@ func TestHardDeleteAttributeClientNegotiatesBeforeStartFlow(t *testing.T) {
 	}
 }
 
+func TestHardDeleteAttributeClientReportsGetServerInfoFailure(t *testing.T) {
+	for _, testCase := range []struct {
+		name                string
+		failure             error
+		want                string
+		isConnectionFailure bool
+	}{
+		{name: "old Server", failure: status.Error(codes.Unimplemented, "old Server"), want: "incompatible with Server version \"unknown\" protocol [unknown,unknown]: GetServerInfo failed"},
+		{name: "rejected credential", failure: status.Error(codes.PermissionDenied, "rejected"), want: "GetServerInfo failed"},
+		{name: "connection failure", failure: status.Error(codes.Unavailable, "offline"), want: "FlowService connection failed", isConnectionFailure: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			client, service := newHardDeleteTestClient(t, hardDeleteAttributeProtocolVersion)
+			service.serverInfoFailure = testCase.failure
+			initialSecret, err := InitialAttribute(hardDeleteTestSecret, "secret")
+			require.NoError(t, err)
+			_, err = client.StartFlow(context.Background(), hardDeleteTestFlow{}, "flow-1", nil, StartFlowOptions{
+				Attributes: []InitialAttributeDef{initialSecret},
+			})
+			require.ErrorContains(t, err, testCase.want)
+			if testCase.isConnectionFailure {
+				require.NotContains(t, err.Error(), "incompatible")
+			} else {
+				require.ErrorContains(t, err, "incompatible")
+			}
+			require.Equal(t, status.Code(testCase.failure), status.Code(err))
+			require.Nil(t, service.startRequest)
+		})
+	}
+}
+
 type hardDeleteTestFlowService struct {
 	dexpb.UnimplementedFlowServiceServer
 	serverProtocolVersion uint32
+	serverInfoFailure     error
 	startRequest          *dexpb.StartFlowRequest
 }
 
@@ -138,6 +172,9 @@ func (service *hardDeleteTestFlowService) GetServerInfo(
 	context.Context,
 	*emptypb.Empty,
 ) (*dexpb.ServerInfo, error) {
+	if service.serverInfoFailure != nil {
+		return nil, service.serverInfoFailure
+	}
 	return &dexpb.ServerInfo{
 		ServerVersion:                   "test",
 		MinimumSupportedProtocolVersion: 1,

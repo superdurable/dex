@@ -93,9 +93,9 @@ server-zd dispatches only to pull Workers. On server-zd, the dialog opens with *
 
 Flow detail shows the **Worker target**: a listening address, a headless address, or **Pull**. A pull Flow also shows **Flow type queue**, named after its Flow type, and **Sticky app Worker ID**, the last app Worker recorded as serving the Flow.
 
-For pull Flows, active Steps and Step history show routing for **WaitFor** and **Execute**. **Serving app Worker ID** identifies the Worker that served the method. **Queue source** is **Sticky queue** when that Worker matches the **Dispatch sticky app Worker ID** recorded for the dispatch. Otherwise, a completed dispatch shows **Flow type queue**. A pending or failed dispatch without a serving Worker shows **—** for its Worker and queue source.
+For pull Flows, active Steps and Step history show routing for **WaitFor** and **Execute**. **Serving app Worker ID** identifies the Worker that served the method. **Queue source** shows the queue that served the task: **Sticky queue** or **Flow type queue**. A Worker may serve a task from the Flow type queue even when its ID matches the **Dispatch sticky app Worker ID**. For older records without queue metadata, Dex infers the source from those IDs. A pending dispatch shows **—** until its queue is known. A failed dispatch may show its queue even if no serving Worker is known.
 
-A dispatch failure distinguishes no available Worker, an unknown Step type or RPC name that exhausted the dispatch wait, and a Worker disconnect. RPC history shows the serving app Worker ID for recorded invocations. Address targets show their address without pull routing fields. Older runs without routing metadata show **—**.
+A dispatch failure distinguishes no available Worker, an unknown Step type or RPC name that exhausted the dispatch wait, and a Worker disconnect. For new Step failure records, an unknown registration appears as **Unknown Step type: dispatch timed out**. RPC history shows the serving app Worker ID for recorded invocations. Address targets show their address without pull routing fields. Older runs without routing metadata show **—**.
 
 ## Search and Summary
 

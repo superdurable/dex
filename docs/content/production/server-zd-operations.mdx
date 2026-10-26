@@ -185,10 +185,12 @@ when some shutdown step does not complete in time or fails, for example when
 object storage rejects the lease release. A replacement may then wait up to
 **lease.duration** plus about 1 second.
 
-A SIGTERM can arrive during startup after the node holds its lease. Startup then
-finishes before the graceful shutdown begins. A long log replay can therefore
-outlast the grace period. Kubernetes then kills the process, and the next start
-waits for the old lease to expire.
+A SIGTERM during startup interrupts lease acquisition or recovery. If the node holds
+its lease, it stops startup and releases the lease within the shutdown budget.
+A failed release makes the process exit 1, and the next start may wait for the
+old lease to expire. If the outcome of a lease write is still unknown when the
+SIGTERM arrives, the process exits 0 without releasing that write, and the next
+start may wait for it to expire.
 
 ### Local store volume
 
@@ -290,8 +292,22 @@ startup probe. A standby needs a TCP or exec startup probe and liveness probe
 instead.
 
 The process exits on its own after a fatal error, such as a lost lease or a
-failed commit. If object storage is unreachable at startup, the process also
-exits 1. Kubernetes restarts the container with backoff in both cases.
+failed commit. During startup, transient or unknown-outcome object storage read errors are retried
+with jittered exponential backoff. **recovery.startupReadRetryBudget** sets a
+wall-clock window for each read, starting at its first transient or unknown-outcome failure. The
+default is 30 seconds and must be positive. Backoff and subsequent read calls
+count toward that read's window. Concurrent reads do not share time, and a later
+read gets a new window. The error names the operation, object key, and last error
+when the window expires. Missing required objects, corrupt data, access denial,
+and lost lease ownership fail startup without read retries. Lease validity or
+shutdown may end retries sooner. Lease renewal continues during recovery retries.
+The window bounds each read, not the whole startup. After the lease is acquired,
+startup has no overall time limit. A persistent outage still fails startup within
+one read's window, and lease renewal keeps the lease while slow reads make progress.
+The startup probe bounds the total startup time.
+If object storage is unreachable at startup, the conditional-write self-check
+also exits 1. If startup fails, the process exits 1. Kubernetes restarts the
+container with backoff.
 
 ## Lease {#lease}
 
@@ -530,10 +546,12 @@ in server-zd.
   waits starts its own retry window and extends the wait.
 - StopFlow and Terminate never wait. StopFlow closes the run as soon as it
   commits, even while a close waits, and the pending writes keep syncing after
-  the close. A later **SetAttributes** on that run returns NOT_FOUND unless
-  every write erases a currently stored hard-delete Attribute with null. This
-  exception applies only before the run is purged. It deletes the stored objects
-  without reopening the run. The Go Server accepts writes while a canceled or
+  the close. A later **SetAttributes** on that run returns NOT_FOUND. From
+  server-zd v0.1.5, it succeeds only when every write erases a currently stored
+  [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) with
+  null. This exception applies only before the run is purged. It deletes the
+  stored objects without reopening the run. The run's Flow history records the
+  erase after the close. The Go Server accepts writes while a canceled or
   failed run winds down. It rejects every write after the run closes. Write what
   a Flow needs before stopping it.
 - Pending writes for a store that is no longer configured are dropped at once
@@ -849,7 +867,7 @@ it loads unchanged.
 | **interpreter.temporal.prometheus.listenAddress** | **metrics.listen** | Metric names differ. See [Metrics](#metrics). |
 | **log** | **RUST_LOG** environment variable | Logs go to standard error. The default level is **info**. |
 | No key; **SearchFlows** uses Temporal or Cadence visibility | **search.backend** | **builtin** (default) or **paradedb**. |
-| No key | **search.paradeDbConnectionString** | PostgreSQL URL or keyword string for ParadeDB search. Supports **sslmode** (disable, allow, prefer, require, verify-ca, verify-full), **sslrootcert** (PEM file or system roots), **sslsni** (0 or 1), **sslnegotiation** (postgres or direct), and **connect_timeout** in seconds. Direct TLS requires PostgreSQL 17 or later. **sslmode=require** without **sslrootcert** encrypts the connection but does not verify the server certificate. With **sslrootcert**, **require** also verifies the certificate chain, but not the host name. **sslmode=verify-full** verifies the chain and the host name against **sslrootcert**, or against the system roots when **sslrootcert** is absent. **sslrootcert=system** uses the system roots and forces verify-full. **sslmode=allow** with **sslnegotiation=direct** is invalid. Without TLS parameters, the connection remains plaintext for compatibility with existing deployments. Explicit **sslmode=prefer** now attempts TLS without certificate verification; previously it remained plaintext. |
+| No key | **search.paradeDbConnectionString** | PostgreSQL URL or keyword string for ParadeDB search. Supports **sslmode** (disable, allow, prefer, require, verify-ca, verify-full), **sslrootcert** (PEM file or system roots), **sslsni** (0 or 1), **sslnegotiation** (postgres or direct), and **connect_timeout** in seconds. Direct TLS requires PostgreSQL 17 or later. **sslmode=require** without **sslrootcert** encrypts the connection but does not verify the server certificate. With a PEM file in **sslrootcert**, **require** verifies the certificate chain against that file, but not the host name. **sslmode=verify-ca** verifies the chain against the PEM file in **sslrootcert**, or against the system roots when **sslrootcert** is absent. It never verifies the host name. **sslmode=verify-full** verifies the chain and the host name, against the PEM file in **sslrootcert** or against the system roots when **sslrootcert** is absent. **sslrootcert=system** uses the system roots and forces verify-full, whatever **sslmode** says. Without **sslnegotiation=direct**, **prefer** and **allow** do not verify the certificate, even with a PEM file in **sslrootcert**. **sslmode=allow** with **sslnegotiation=direct** is invalid. Without TLS parameters, the connection remains plaintext for compatibility with existing deployments. Explicit **sslmode=prefer** now attempts TLS without certificate verification; previously it remained plaintext. With **sslnegotiation=direct**, **sslmode=prefer** or a missing **sslmode** becomes **require**, and the **require** rules above apply, so TLS is mandatory and there is no plaintext fallback. |
 | **blobStore** | None | server-zd keeps every value under its object storage prefix. Hard-delete values can use **objectStore.hardDeleteStore**. |
 | **attributeStore** | **attributeStore** | Same keys, in server-zd v0.1.3 or later. Only **type: postgres** is supported. **flowIdColumn**, **databaseName**, and **collectionName** must stay empty. **fencingTableName** exists only in server-zd, and each database needs a fencing table. See [Attribute Store sync](#attribute-store). |
 | **interpreter** | None | server-zd uses no Temporal or Cadence backend. |

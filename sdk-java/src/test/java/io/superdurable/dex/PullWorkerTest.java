@@ -26,6 +26,7 @@ import io.superdurable.gen.InvokeWaitForMethodRequest;
 import io.superdurable.gen.PollWorkerTask;
 import io.superdurable.gen.PollWorkerTaskCancelTask;
 import io.superdurable.gen.PollWorkerTaskReconnect;
+import io.superdurable.gen.PollWorkerTaskRejectReason;
 import io.superdurable.gen.PollWorkerTaskRequest;
 import io.superdurable.gen.PollWorkerTaskResponse;
 import io.superdurable.gen.ServerInfo;
@@ -333,6 +334,37 @@ final class PullWorkerTest {
     }
 
     @Test
+    void reservePressureAddsOnlyDecliningQueueStreamUntilTimerExpires() throws Exception {
+        final TestFlow flow = new TestFlow();
+        final PollServer pollServer = new PollServer();
+        try (RunningWorker running = new RunningWorker(pollServer, flow, 3,
+                Duration.ofSeconds(5), false, 1, 1, Duration.ofMillis(1500))) {
+            try {
+                running.worker.waitPullRegistered(Duration.ofSeconds(5));
+                final PollStream first = pollServer.awaitQueue("PullTestFlow");
+                first.assign(executeTask("first", "block"));
+                final PollStream second = pollServer.awaitQueue("PullTestFlow");
+                second.assign(executeTask("second", "block"));
+                final PollStream declining = pollServer.awaitQueue("PullTestFlow");
+                declining.assign(executeTask("declined", "block"));
+                assertEquals(PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY,
+                        declining.awaitFrame().getReject().getReason());
+                running.awaitIdleStreamCount("PullTestFlow", 2);
+                assertEquals(1, running.idleStreamCount("pull-java-unit"));
+                flow.release.countDown();
+                assertTrue(first.awaitFrame().hasTaskFrame());
+                assertTrue(second.awaitFrame().hasTaskFrame());
+                running.awaitIdleStreamCount("PullTestFlow", 2);
+                assertEquals(1, running.idleStreamCount("pull-java-unit"));
+                running.awaitIdleStreamCount("PullTestFlow", 1);
+                assertEquals(1, running.idleStreamCount("pull-java-unit"));
+            } finally {
+                flow.release.countDown();
+            }
+        }
+    }
+
+    @Test
     void concurrentStepAdmissionPreservesRpcReserve() throws Exception {
         final TestFlow flow = new TestFlow();
         final PollServer pollServer = new PollServer();
@@ -453,6 +485,9 @@ final class PullWorkerTest {
                                     io.superdurable.gen.PollWorkerTaskRejectReason
                                             .POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_RPC);
                             second.assign(reservedRpcTask("second-rpc"));
+                            second.respond(PollWorkerTaskResponse.newBuilder().setPing(
+                                    io.superdurable.gen.PollWorkerTaskPing.getDefaultInstance()).build());
+                            assertTrue(second.awaitFrame().hasPong());
                         }
                         final PollStream idle = pollServer.awaitQueue("PullTestFlow");
                         for (PollWorkerTask task : Arrays.asList(executeTask("full-step", "block"),
@@ -479,6 +514,52 @@ final class PullWorkerTest {
                         .setFlowType("PullTestFlow").setRpcName("getResult")
                         .setContext(io.superdurable.gen.Context.newBuilder().setFlowId("test-flow"))
                         .setInput(mapper.encode("block"))).build();
+    }
+
+    @Test
+    void sendsKeepaliveDuringRunningRpcWithoutChangingResult() throws Exception {
+        final TestFlow flow = new TestFlow();
+        final PollServer pollServer = new PollServer();
+        try (RunningWorker running = new RunningWorker(pollServer, flow, 1)) {
+            final PollStream stream = pollServer.awaitQueue("PullTestFlow");
+            stream.assign(reservedRpcTask("busy-ping-rpc"));
+            assertTrue(flow.entered.await(5, TimeUnit.SECONDS));
+            stream.respond(PollWorkerTaskResponse.newBuilder()
+                    .setPing(io.superdurable.gen.PollWorkerTaskPing.getDefaultInstance()).build());
+            assertTrue(stream.awaitFrame().hasPong());
+            assertTrue(stream.awaitFrame(25).hasPong());
+            flow.release.countDown();
+            final PollWorkerTaskRequest result = stream.awaitFrame();
+            assertEquals("busy-ping-rpc", result.getTaskFrame().getTaskId());
+            assertTrue(result.getTaskFrame().getRpc().hasOutput());
+            assertEquals(new ValueMapper(new com.fasterxml.jackson.databind.ObjectMapper()).encode("block"),
+                    result.getTaskFrame().getRpc().getOutput());
+            assertFalse(result.getTaskFrame().hasWorkerError());
+        }
+    }
+
+    @Test
+    void reopenedStreamAnswersPingAfterTaskEndsOnClosedStream() throws Exception {
+        final TestFlow flow = new TestFlow();
+        final PollServer pollServer = new PollServer(null, false, Duration.ZERO,
+                Collections.<Boolean>emptyList(), true);
+        try (RunningWorker running = new RunningWorker(pollServer, flow, 1)) {
+            final PollStream first = pollServer.awaitQueue("PullTestFlow");
+            first.respond(PollWorkerTaskResponse.newBuilder().setRegistered(
+                    io.superdurable.gen.PollWorkerTaskRegistered.getDefaultInstance()).build());
+            first.assign(reservedRpcTask("closed-busy-rpc"));
+            assertTrue(flow.entered.await(5, TimeUnit.SECONDS));
+            // Leave the replacement unregistered so the reopened stream is not retired.
+            assertNotNull(pollServer.awaitQueue("PullTestFlow"));
+            first.responses.onError(Status.UNAVAILABLE.asRuntimeException());
+            flow.release.countDown();
+            final PollStream reopened = pollServer.awaitQueue("PullTestFlow");
+            reopened.respond(PollWorkerTaskResponse.newBuilder().setRegistered(
+                    io.superdurable.gen.PollWorkerTaskRegistered.getDefaultInstance()).build());
+            reopened.respond(PollWorkerTaskResponse.newBuilder()
+                    .setPing(io.superdurable.gen.PollWorkerTaskPing.getDefaultInstance()).build());
+            assertTrue(reopened.awaitFrame().hasPong());
+        }
     }
 
     @Test
@@ -1223,7 +1304,11 @@ final class PullWorkerTest {
         }
 
         private PollWorkerTaskRequest awaitFrame() throws InterruptedException {
-            final PollWorkerTaskRequest frame = frames.poll(15, TimeUnit.SECONDS);
+            return awaitFrame(15);
+        }
+
+        private PollWorkerTaskRequest awaitFrame(final long timeoutSeconds) throws InterruptedException {
+            final PollWorkerTaskRequest frame = frames.poll(timeoutSeconds, TimeUnit.SECONDS);
             assertNotNull(frame);
             return frame;
         }
@@ -1285,6 +1370,17 @@ final class PullWorkerTest {
             return idle;
         }
 
+        private void awaitIdleStreamCount(final String queue, final int expected) throws Exception {
+            final PullWorker pullWorker = pullWorker();
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            synchronized (pullWorker) {
+                while (idleStreamCount(queue) != expected && System.nanoTime() < deadline) {
+                    pullWorker.wait(10L);
+                }
+            }
+            assertEquals(expected, idleStreamCount(queue));
+        }
+
         private PullWorker pullWorker() throws ReflectiveOperationException {
             final Field pullWorkerField = Worker.class.getDeclaredField("pullWorker");
             pullWorkerField.setAccessible(true);
@@ -1311,6 +1407,13 @@ final class PullWorkerTest {
         private RunningWorker(final PollServer pollServer, final TestFlow flow, final int capacity,
                 final Duration stopTimeout, final boolean shouldStopOnRejection, final int idleStreams,
                 final Integer reservedRpcTasks) throws IOException {
+            this(pollServer, flow, capacity, stopTimeout, shouldStopOnRejection, idleStreams,
+                    reservedRpcTasks, Duration.ofSeconds(30));
+        }
+
+        private RunningWorker(final PollServer pollServer, final TestFlow flow, final int capacity,
+                final Duration stopTimeout, final boolean shouldStopOnRejection, final int idleStreams,
+                final Integer reservedRpcTasks, final Duration reservePressureLinger) throws IOException {
             this.pollServer = pollServer;
             this.shouldStopOnRejection = shouldStopOnRejection;
             server = NettyServerBuilder.forPort(0).flowControlWindow(64 * 1024)
@@ -1340,6 +1443,7 @@ final class PullWorkerTest {
                                     .appWorkerID("pull-java-unit")
                                     .maxConcurrentTasks(capacity)
                                     .reservedRpcTasks(reservedRpcTasks)
+                                    .reservePressureLingerForTest(reservePressureLinger)
                                     .idleStreamsPerQueue(idleStreams)
                                     .stopOnPermanentStreamRejection(shouldStopOnRejection)
                                     .stopDrainTimeout(stopTimeout).build())

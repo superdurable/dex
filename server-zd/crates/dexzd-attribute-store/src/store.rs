@@ -87,11 +87,17 @@ impl AttributeStore {
             .simple_query("SELECT 1")
             .await
             .map_err(|error| {
-                database_error(&settings.name, &settings.dsn, "ping database", &error)
+                database_error(
+                    &settings.name,
+                    &connection_settings,
+                    "ping database",
+                    &error,
+                )
             })?;
         let describer = SchemaDescriber {
             client: &slot.client,
             settings: &settings,
+            connection_settings: &connection_settings,
         };
         let tables = describer.resolve_tables().await?;
         let snapshot = describer.describe(&tables, row_key.as_ref()).await?;
@@ -220,6 +226,7 @@ impl AttributeStore {
         SchemaDescriber {
             client: &slot.client,
             settings: &self.settings,
+            connection_settings: &self.connection_settings,
         }
         .describe(&self.tables, self.row_key.as_ref())
         .await
@@ -573,7 +580,12 @@ impl AttributeStore {
         operation: impl Into<String>,
         error: &tokio_postgres::Error,
     ) -> AttributeStoreError {
-        database_error(&self.settings.name, &self.settings.dsn, operation, error)
+        database_error(
+            &self.settings.name,
+            &self.connection_settings,
+            operation,
+            error,
+        )
     }
 
     #[cfg(test)]

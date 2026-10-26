@@ -265,6 +265,9 @@ func TestPublicContractsCompile(t *testing.T) {
 	}
 	_ = dex.MovementOf(noPayload, nil)
 	_ = noPayloadChannel.ForOne()
+	tlsOptions := &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: []byte("pem"), ServerName: "dex.example.com"}
+	_ = dex.ClientOptions{FlowServiceAddress: "dex.example.com:443", FlowServiceTLS: tlsOptions}
+	_ = dex.WorkerOptions{FlowServiceAddress: "dex.example.com:443", FlowServiceTLS: tlsOptions}
 
 	initial, err := dex.InitialAttribute(statusAttribute, "new")
 	if err != nil {
