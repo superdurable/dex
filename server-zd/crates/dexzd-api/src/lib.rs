@@ -11,12 +11,12 @@
 mod attribute_indexes;
 mod authentication;
 mod client_deadline;
+mod flow_coordinator_operations;
 mod flow_operation_error;
 mod flow_operations;
 mod flow_service;
 mod flow_service_config;
 mod health_status;
-mod runtime_flow_operations;
 mod stream_operations;
 
 pub use attribute_indexes::AttributeIndexes;

@@ -595,7 +595,7 @@ pub(crate) fn validate_flow_config(
         ));
     }
     if require_target || flow_config.worker_target.is_some() {
-        normalize_worker_target(
+        validate_and_canonicalize_pull_worker_target(
             &format!("{path}.worker_target"),
             flow_config.worker_target.as_ref(),
         )?;
@@ -650,7 +650,7 @@ pub(crate) fn apply_flow_config_override(effective: &mut FlowConfig, override_co
     }
 }
 
-pub(crate) fn normalize_worker_target(
+pub(crate) fn validate_and_canonicalize_pull_worker_target(
     path: &str,
     target: Option<&WorkerTarget>,
 ) -> Result<WorkerTarget, ValidationError> {

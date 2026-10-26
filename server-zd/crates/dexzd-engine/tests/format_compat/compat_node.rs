@@ -12,9 +12,9 @@ use std::time::Duration;
 use dexzd_cluster_metadata::{ClusterConfig, LeaseConfig, NodeConfig};
 use dexzd_engine::{
     BlockingWorkPlacement, CommitConfig, CommittedCommandSink, CommittedFlowCommand,
-    DeterministicCommandApplier, EngineIdSource, EngineNode, EngineNodeConfig,
-    EngineNodeDependencies, EngineRuntimeHooks, LocalStoreConfig, PartitionRuntimeRebuilder,
-    RecoveryConfig, RuntimeRebuildError, SnapshotConfig,
+    DeterministicCommandApplier, EngineCommandAndEffectHooks, EngineIdSource, EngineNode,
+    EngineNodeConfig, EngineNodeDependencies, LocalStoreConfig, PartitionEffectRebuildError,
+    PartitionEffectRebuilder, RecoveryConfig, SnapshotConfig,
 };
 use dexzd_keyspace::PartitionId;
 use dexzd_object_store::InMemoryObjectStore;
@@ -28,17 +28,17 @@ const LEASE_DURATION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const NEVER: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
 
 /// Runtime hooks that run no effects, so only scripted commands reach the log.
-pub(crate) struct PassiveRuntime;
+pub(crate) struct NoopCommandAndEffectHooks;
 
-impl CommittedCommandSink for PassiveRuntime {
+impl CommittedCommandSink for NoopCommandAndEffectHooks {
     fn apply_committed(&self, _committed: CommittedFlowCommand) {}
 }
 
-impl PartitionRuntimeRebuilder for PassiveRuntime {
+impl PartitionEffectRebuilder for NoopCommandAndEffectHooks {
     fn rebuild_partition(
         &self,
         _partition: PartitionId,
-    ) -> BoxFuture<'_, Result<usize, RuntimeRebuildError>> {
+    ) -> BoxFuture<'_, Result<usize, PartitionEffectRebuildError>> {
         Box::pin(async { Ok(0) })
     }
 }
@@ -92,9 +92,9 @@ pub(crate) async fn start_engine_node(
             id_source,
             lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
         },
-        |_services| EngineRuntimeHooks {
-            committed_commands: Arc::new(PassiveRuntime),
-            rebuilder: Arc::new(PassiveRuntime),
+        |_services| EngineCommandAndEffectHooks {
+            committed_commands: Arc::new(NoopCommandAndEffectHooks),
+            rebuilder: Arc::new(NoopCommandAndEffectHooks),
         },
     )
     .await

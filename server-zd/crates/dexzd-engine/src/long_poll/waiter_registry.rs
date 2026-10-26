@@ -16,7 +16,7 @@ use dexzd_apply::WaitableChange;
 use dexzd_protocol::dex::ErrorSubStatus;
 use tokio::sync::Notify;
 
-use crate::runtime::{FlowAddress, RuntimeError, grpc_code};
+use crate::flow_coordination::{FlowAddress, FlowCoordinationError, grpc_code};
 
 /// What a waiter waits for; selects which committed changes wake it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,10 +107,10 @@ impl WaiterRegistry {
         &self,
         flow: &FlowAddress,
         interest: WaitInterest,
-    ) -> Result<WaiterRegistration, RuntimeError> {
+    ) -> Result<WaiterRegistration, FlowCoordinationError> {
         let mut table = self.shared.lock_table();
         if table.is_closed {
-            return Err(RuntimeError::Unavailable {
+            return Err(FlowCoordinationError::Unavailable {
                 detail: "long polls are closed because the node is stopping".to_owned(),
             });
         }
@@ -203,8 +203,8 @@ impl Drop for WaiterRegistration {
     }
 }
 
-fn waiter_limit_error(scope: &str, limit: usize) -> RuntimeError {
-    RuntimeError::rejected(
+fn waiter_limit_error(scope: &str, limit: usize) -> FlowCoordinationError {
+    FlowCoordinationError::rejected(
         grpc_code::RESOURCE_EXHAUSTED,
         ErrorSubStatus::Uncategorized,
         format!("too many long-poll waiters on this {scope}; the limit is {limit}"),

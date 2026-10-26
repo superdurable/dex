@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_api::{FlowOperationError, FlowOperations};
-use dexzd_engine::{EngineLocalStore, FlowRuntimeRegistry};
+use dexzd_engine::{EngineLocalStore, FlowCoordinatorRegistry};
 use dexzd_keyspace::TenantId;
 use dexzd_protocol::dex::{GetAttributesRequest, GetChannelMessagesRequest};
 use rand::{RngExt, SeedableRng};
@@ -46,7 +46,7 @@ const MAX_CALLS_PER_OPERATION: u32 = 4;
 #[derive(Clone)]
 struct ServingProcess {
     process_label: String,
-    registry: FlowRuntimeRegistry,
+    registry: FlowCoordinatorRegistry,
     local_store: Arc<EngineLocalStore>,
 }
 
@@ -60,7 +60,7 @@ impl ServingNode {
     pub(crate) fn serve(
         &self,
         process_label: &str,
-        registry: FlowRuntimeRegistry,
+        registry: FlowCoordinatorRegistry,
         local_store: Arc<EngineLocalStore>,
     ) {
         *self.lock() = Some(ServingProcess {
@@ -453,7 +453,7 @@ impl SimulatedClient {
         mut invoke: F,
     ) -> CallOutcome<T>
     where
-        F: FnMut(FlowRuntimeRegistry) -> Fut,
+        F: FnMut(FlowCoordinatorRegistry) -> Fut,
         Fut: Future<Output = Result<T, FlowOperationError>>,
     {
         for call_number in 1..=MAX_CALLS_PER_OPERATION {

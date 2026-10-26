@@ -30,7 +30,7 @@ use super::{
     start_request, string_value,
 };
 use crate::effects::{EffectsConfig, MethodRequest};
-use crate::runtime::{CommitUrgency, RuntimeEffectSink};
+use crate::flow_coordination::{CommitUrgency, FlowCoordinationEffectSink};
 
 pub(super) fn force_complete() -> InvokeExecuteMethodResponse {
     InvokeExecuteMethodResponse {
@@ -48,7 +48,7 @@ pub(super) fn force_complete() -> InvokeExecuteMethodResponse {
 
 fn failures(harness: &EffectHarness) -> Vec<(i32, bool, String)> {
     harness
-        .runtime
+        .flow_operations
         .commands_matching(is_attempt_failed)
         .into_iter()
         .filter_map(|recorded| match recorded.command.command {
@@ -106,11 +106,13 @@ async fn sync_wait_for_and_execute_dispatch_with_go_server_context_and_complete_
 
     let record = harness.run_record("order-1", run_id);
     assert_eq!(record.status, FlowStatus::Completed as i32);
-    let completed = harness.runtime.commands_matching(is_method_completed);
+    let completed = harness
+        .flow_operations
+        .commands_matching(is_method_completed);
     assert_eq!(completed.len(), 2);
     let run = harness.run_location("order-1", run_id);
     let history = get_history_events(
-        &harness.runtime.snapshot(),
+        &harness.flow_operations.snapshot(),
         run.flow_hash,
         run_id,
         0,
@@ -165,7 +167,7 @@ async fn flow_timeout_handler_dispatch_and_history_use_start_source() {
 
     let run = harness.run_location("timeout-handler-source", run_id);
     let history = get_history_events(
-        &harness.runtime.snapshot(),
+        &harness.flow_operations.snapshot(),
         run.flow_hash,
         run_id,
         0,
@@ -212,7 +214,7 @@ async fn starts_record_the_dispatch_routing_and_results_the_serving_worker() {
     harness.settle().await;
 
     let start_routings: Vec<_> = harness
-        .runtime
+        .flow_operations
         .commands_matching(|command| {
             matches!(command, flow_command::Command::StepAttemptStarted(_))
         })
@@ -230,7 +232,7 @@ async fn starts_record_the_dispatch_routing_and_results_the_serving_worker() {
         ]
     );
     let result_routings: Vec<_> = harness
-        .runtime
+        .flow_operations
         .commands_matching(is_method_completed)
         .into_iter()
         .filter_map(|recorded| match recorded.command.command {
@@ -253,7 +255,7 @@ async fn a_start_waits_until_the_run_routing_is_readable() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
     harness
-        .runtime
+        .flow_operations
         .is_flow_state_unreadable
         .store(true, Ordering::SeqCst);
     harness.start_flow(start_request("order-1"), settings());
@@ -262,7 +264,7 @@ async fn a_start_waits_until_the_run_routing_is_readable() {
     assert!(harness.dispatcher.try_next_dispatch().await.is_none());
 
     harness
-        .runtime
+        .flow_operations
         .is_flow_state_unreadable
         .store(false, Ordering::SeqCst);
     let dispatch = harness.dispatcher.next_dispatch().await;
@@ -279,7 +281,7 @@ async fn worker_error_fails_the_attempt_and_the_backoff_timer_dispatches_attempt
     let first = harness.dispatcher.next_dispatch().await;
     first.fail_with_worker_error("card declined");
     harness.settle().await;
-    let failed = harness.runtime.commands_matching(is_attempt_failed);
+    let failed = harness.flow_operations.commands_matching(is_attempt_failed);
     let Some(flow_command::Command::StepAttemptFailed(failure)) = &failed[0].command.command else {
         panic!("expected a failure");
     };
@@ -436,7 +438,7 @@ async fn heartbeats_propose_only_checkpoint_changes_coalesced_within_the_batch_w
     let dispatch = harness.dispatcher.next_dispatch().await;
     let heartbeats = || {
         harness
-            .runtime
+            .flow_operations
             .commands_matching(|command| {
                 matches!(command, flow_command::Command::StepAttemptHeartbeat(_))
             })
@@ -552,7 +554,7 @@ async fn check_large_value_dispatch(is_hydrating: bool) {
     tokio::time::sleep(Duration::from_millis(30)).await;
     harness.settle().await;
     let heartbeat_count = harness
-        .runtime
+        .flow_operations
         .commands_matching(|command| {
             matches!(command, flow_command::Command::StepAttemptHeartbeat(_))
         })
@@ -594,7 +596,7 @@ async fn invalid_worker_responses_fail_the_attempt_and_retry() {
     );
     assert!(
         harness
-            .runtime
+            .flow_operations
             .commands_matching(is_method_completed)
             .is_empty()
     );
@@ -693,7 +695,7 @@ async fn stopping_the_flow_cancels_the_running_attempt_without_a_failure() {
         ..FlowCommand::default()
     };
     harness
-        .runtime
+        .flow_operations
         .commit(&EffectHarness::flow("order-1"), stop, CommitUrgency::Prompt)
         .expect("stop commits");
     harness.settle().await;
@@ -704,7 +706,7 @@ async fn stopping_the_flow_cancels_the_running_attempt_without_a_failure() {
     assert!(failures(&harness).is_empty());
     assert!(
         harness
-            .runtime
+            .flow_operations
             .commands_matching(is_method_completed)
             .is_empty()
     );
@@ -716,7 +718,7 @@ async fn invocations_wait_for_busy_locks_and_start_once_free() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
     harness
-        .runtime
+        .flow_operations
         .busy_lock_keys
         .lock()
         .expect("lock")
@@ -730,7 +732,12 @@ async fn invocations_wait_for_busy_locks_and_start_once_free() {
     tokio::time::sleep(Duration::from_secs(3)).await;
     assert!(harness.dispatcher.try_next_dispatch().await.is_none());
 
-    harness.runtime.busy_lock_keys.lock().expect("lock").clear();
+    harness
+        .flow_operations
+        .busy_lock_keys
+        .lock()
+        .expect("lock")
+        .clear();
     tokio::time::sleep(Duration::from_millis(1100)).await;
     let dispatch = harness.dispatcher.next_dispatch().await;
     assert_eq!(dispatch.context().attempt, 1);
@@ -746,7 +753,7 @@ async fn locks_released_effect_retries_a_parked_invocation_at_once() {
     let harness = EffectHarness::with_config(super::DurableState::new(), config);
     harness.rebuild_all_partitions().await;
     harness
-        .runtime
+        .flow_operations
         .busy_lock_keys
         .lock()
         .expect("lock")
@@ -758,7 +765,12 @@ async fn locks_released_effect_retries_a_parked_invocation_at_once() {
     });
     let run_id = harness.start_flow(request, settings());
     harness.settle().await;
-    harness.runtime.busy_lock_keys.lock().expect("lock").clear();
+    harness
+        .flow_operations
+        .busy_lock_keys
+        .lock()
+        .expect("lock")
+        .clear();
     harness.runner.handle(
         &EffectHarness::flow("order-1"),
         &[ApplyEffect::LocksReleased {
@@ -775,13 +787,13 @@ async fn locks_released_effect_retries_a_parked_invocation_at_once() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn unavailable_runtime_proposals_are_retried_until_committed() {
+async fn unavailable_flow_proposals_are_retried_until_committed() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
     let run_id = harness.start_flow(start_request("order-1"), settings());
     let dispatch = harness.dispatcher.next_dispatch().await;
     harness
-        .runtime
+        .flow_operations
         .unavailable_proposals
         .store(3, Ordering::SeqCst);
     dispatch.complete_wait_for(InvokeWaitForMethodResponse::default());
@@ -791,7 +803,10 @@ async fn unavailable_runtime_proposals_are_retried_until_committed() {
         MethodRequest::Execute(_)
     ));
     assert_eq!(
-        harness.runtime.commands_matching(is_method_completed).len(),
+        harness
+            .flow_operations
+            .commands_matching(is_method_completed)
+            .len(),
         1
     );
     assert_eq!(
@@ -900,7 +915,9 @@ async fn async_methods_propose_with_batched_urgency() {
     let wait_for = harness.dispatcher.next_dispatch().await;
     wait_for.complete_wait_for(InvokeWaitForMethodResponse::default());
     harness.dispatcher.next_dispatch().await;
-    let completed = harness.runtime.commands_matching(is_method_completed);
+    let completed = harness
+        .flow_operations
+        .commands_matching(is_method_completed);
     assert_eq!(completed[0].urgency, CommitUrgency::Batched);
     harness.shutdown().await;
 }
@@ -919,7 +936,7 @@ async fn a_restored_running_attempt_is_redispatched_after_its_original_dispatch_
         "ChargeStep-1",
     );
     let running_step = harness
-        .runtime
+        .flow_operations
         .snapshot()
         .rows
         .get(&(ColumnFamily::Flow, step_key.clone()))
@@ -937,7 +954,7 @@ async fn a_restored_running_attempt_is_redispatched_after_its_original_dispatch_
     {
         let mut record = harness.run_record("order-1", run_id);
         record.current_attempt = 2;
-        let mut state = harness.runtime.state.lock().expect("lock");
+        let mut state = harness.flow_operations.state.lock().expect("lock");
         state
             .rows
             .insert((ColumnFamily::Flow, step_key), running_step);
@@ -980,7 +997,7 @@ async fn an_unreadable_attempt_state_times_out_the_method_and_releases_its_locks
     harness.rebuild_all_partitions().await;
     // Like the production runtime, a start reads state, so the outage begins once it commits.
     harness
-        .runtime
+        .flow_operations
         .is_flow_state_unreadable_after_start
         .store(true, Ordering::SeqCst);
     let mut request = start_request("order-1");
@@ -993,7 +1010,7 @@ async fn an_unreadable_attempt_state_times_out_the_method_and_releases_its_locks
     harness.settle().await;
     let published_effects = || {
         harness
-            .runtime
+            .flow_operations
             .published_effects
             .lock()
             .expect("lock")

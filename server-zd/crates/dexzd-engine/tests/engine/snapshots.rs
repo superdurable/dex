@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dexzd_engine::{
-    CommitUrgency, DeterministicCommandApplier, EngineNode, EngineNodeConfig,
-    EngineNodeDependencies, EngineRuntimeHooks, EngineServices, LocalStoreConfig, NodeStopReason,
+    CommitUrgency, DeterministicCommandApplier, EngineCommandAndEffectHooks, EngineNode,
+    EngineNodeConfig, EngineNodeDependencies, EngineServices, LocalStoreConfig, NodeStopReason,
 };
 use dexzd_keyspace::row_keys::{checkpoint_key, history_record_key};
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, TenantId};
@@ -34,7 +34,9 @@ use dexzd_storage::{
 use prost::Message;
 use tokio::sync::Notify;
 
-use crate::harness::{CountingApplier, PARTITION_COUNT, RecordingRuntime, TestCluster};
+use crate::harness::{
+    CountingApplier, PARTITION_COUNT, RecordingCommandAndEffectHooks, TestCluster,
+};
 
 async fn start_deterministic_node(
     cluster: &TestCluster,
@@ -43,12 +45,12 @@ async fn start_deterministic_node(
     EngineNode,
     Arc<RestoredLocalStore>,
     PartitionHasher,
-    Arc<RecordingRuntime>,
+    Arc<RecordingCommandAndEffectHooks>,
 ) {
     let captured = Arc::new(Mutex::new(None));
     let captured_for_factory = captured.clone();
-    let runtime = Arc::new(RecordingRuntime::default());
-    let runtime_for_factory = runtime.clone();
+    let recording_hooks = Arc::new(RecordingCommandAndEffectHooks::default());
+    let runtime_for_factory = recording_hooks.clone();
     let node = EngineNode::start(
         config,
         EngineNodeDependencies {
@@ -62,7 +64,7 @@ async fn start_deterministic_node(
         move |services: EngineServices| {
             *captured_for_factory.lock().expect("capture lock") =
                 Some((services.local_store, services.partition_hasher));
-            EngineRuntimeHooks {
+            EngineCommandAndEffectHooks {
                 committed_commands: runtime_for_factory.clone(),
                 rebuilder: runtime_for_factory,
             }
@@ -75,7 +77,7 @@ async fn start_deterministic_node(
         .expect("capture lock")
         .take()
         .expect("services captured");
-    (node, store, hasher, runtime)
+    (node, store, hasher, recording_hooks)
 }
 
 async fn commit_flow_start(node: &EngineNode, hasher: &PartitionHasher, flow_id: &str) -> RunId {
@@ -255,7 +257,7 @@ async fn snapshots_start_after_the_log_threshold_or_the_interval() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node starts");

@@ -19,11 +19,11 @@ use dexzd_protocol::dexzd::v1::StepInvocationKey;
 use tokio_util::sync::CancellationToken;
 
 use crate::effects::dispatch::method_attempt::{MethodAttempt, pull_routing};
-use crate::effects::effect_runtime::{EffectRuntimeError, InvocationStartOutcome};
+use crate::effects::flow_effect_operations::{FlowEffectOperationError, InvocationStartOutcome};
 use crate::effects::method_request::MethodAttemptKey;
 use crate::effects::state_reads::read_run_record;
 use crate::effects::{EffectContext, EffectError, RouterMessage};
-use crate::runtime::FlowAddress;
+use crate::flow_coordination::FlowAddress;
 
 /// Result of one lock-checked start, reported back to the router.
 #[derive(Debug)]
@@ -201,7 +201,7 @@ async fn try_start_until_answered(
     loop {
         let outcome = match read_dispatch_pull_routing(context, flow, key) {
             Ok(Some(pull_routing)) => context
-                .runtime
+                .flow_operations
                 .try_start_invocation(
                     flow,
                     key.run_id,
@@ -212,7 +212,7 @@ async fn try_start_until_answered(
                     pull_routing,
                 )
                 .await
-                .map_err(EffectError::Runtime),
+                .map_err(EffectError::FlowOperations),
             Ok(None) => return InvocationStartResult::Stale,
             Err(error) => Err(error),
         };
@@ -220,7 +220,7 @@ async fn try_start_until_answered(
             Ok(InvocationStartOutcome::Started) => return InvocationStartResult::Started,
             Ok(InvocationStartOutcome::LocksBusy) => return InvocationStartResult::LocksBusy,
             Ok(InvocationStartOutcome::Stale) => return InvocationStartResult::Stale,
-            Err(EffectError::Runtime(EffectRuntimeError::NodeStopping { .. })) => {
+            Err(EffectError::FlowOperations(FlowEffectOperationError::NodeStopping { .. })) => {
                 return InvocationStartResult::Stopped;
             }
             Err(error) => {
@@ -246,7 +246,7 @@ fn read_dispatch_pull_routing(
     flow: &FlowAddress,
     key: &MethodAttemptKey,
 ) -> Result<Option<PullRouting>, EffectError> {
-    let reader = context.runtime.flow_state_reader(flow, true)?;
+    let reader = context.flow_operations.flow_state_reader(flow, true)?;
     let run = context.run_location(flow, key.run_id);
     let run_record = read_run_record(reader.as_ref(), run)?;
     Ok(run_record.map(|record| pull_routing(&record.sticky_app_worker_id, "")))

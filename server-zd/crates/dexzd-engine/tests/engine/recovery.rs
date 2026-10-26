@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dexzd_engine::{
-    CommitError, CommitUrgency, EngineNode, EngineNodeDependencies, EngineRuntimeHooks,
+    CommitError, CommitUrgency, EngineCommandAndEffectHooks, EngineNode, EngineNodeDependencies,
     EngineServices, EngineStartError, LocalStoreConfig, NodeStopReason,
 };
 use dexzd_keyspace::PartitionId;
@@ -20,8 +20,8 @@ use dexzd_object_store::{ObjectStore, WriteCondition};
 use dexzd_storage::RocksDbStoreOptions;
 
 use crate::harness::{
-    BLOCKING_FLOW, CountingApplier, FAILING_FLOW, PARTITION_COUNT, RecordingRuntime, SinkEvent,
-    TestCluster, assert_frames_finish_after_their_commands,
+    BLOCKING_FLOW, CountingApplier, FAILING_FLOW, PARTITION_COUNT, RecordingCommandAndEffectHooks,
+    SinkEvent, TestCluster, assert_frames_finish_after_their_commands,
 };
 
 /// Writes a barrier this binary does not support, as a newer binary's upgrade would.
@@ -60,7 +60,7 @@ async fn restart_after_crash_replays_the_log_into_a_new_store() {
     drop(first);
 
     let second = cluster.start_in_memory().await;
-    let replayed = second.runtime.committed_commands();
+    let replayed = second.recording_hooks.committed_commands();
     assert!(
         replayed
             .iter()
@@ -70,7 +70,10 @@ async fn restart_after_crash_replays_the_log_into_a_new_store() {
     assert!(committed == 3 || committed == 4, "{committed}");
     assert_eq!(second.committed_count(&other_flow).await, 2);
     assert_eq!(replayed.len() as u64, committed + 2);
-    assert_eq!(second.runtime.rebuilt_partitions(), all_partitions());
+    assert_eq!(
+        second.recording_hooks.rebuilt_partitions(),
+        all_partitions()
+    );
     let (after_restart, ticket) = second
         .submit("crash-flow", CommitUrgency::Prompt)
         .expect("submit succeeds");
@@ -93,7 +96,7 @@ async fn restart_with_the_same_rocksdb_store_applies_only_new_batches() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node starts");
@@ -104,7 +107,7 @@ async fn restart_with_the_same_rocksdb_store_applies_only_new_batches() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node restarts");
@@ -128,7 +131,7 @@ async fn an_unreadable_rocksdb_store_is_set_aside_and_rebuilt() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node starts");
@@ -141,7 +144,7 @@ async fn an_unreadable_rocksdb_store_is_set_aside_and_rebuilt() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node restarts");
@@ -193,7 +196,7 @@ async fn repeated_set_asides_keep_only_the_newest_configured_count() {
             .start(
                 &config,
                 Arc::new(CountingApplier::default()),
-                Arc::new(RecordingRuntime::default()),
+                Arc::new(RecordingCommandAndEffectHooks::default()),
             )
             .await
             .expect("node starts");
@@ -209,7 +212,7 @@ async fn repeated_set_asides_keep_only_the_newest_configured_count() {
                 .start(
                     &config,
                     Arc::new(CountingApplier::default()),
-                    Arc::new(RecordingRuntime::default()),
+                    Arc::new(RecordingCommandAndEffectHooks::default()),
                 )
                 .await
                 .expect("node restarts");
@@ -259,7 +262,7 @@ async fn a_store_without_its_manifest_is_set_aside_and_rebuilt() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node starts");
@@ -286,7 +289,7 @@ async fn a_store_without_its_manifest_is_set_aside_and_rebuilt() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node restarts");
@@ -310,7 +313,7 @@ async fn the_copy_this_start_set_aside_survives_a_future_dated_copy() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node starts");
@@ -328,7 +331,7 @@ async fn the_copy_this_start_set_aside_survives_a_future_dated_copy() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node restarts");
@@ -354,7 +357,7 @@ async fn a_store_that_another_handle_holds_open_fails_startup_and_stays_in_place
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node starts");
@@ -372,7 +375,7 @@ async fn a_store_that_another_handle_holds_open_fails_startup_and_stays_in_place
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await;
     let Err(error) = result else {
@@ -401,7 +404,7 @@ async fn a_store_that_another_handle_holds_open_fails_startup_and_stays_in_place
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node restarts once the store is free");
@@ -452,7 +455,7 @@ async fn a_halted_partition_stays_halted_after_restart() {
     assert_eq!(second.node.halted_partitions(), vec![failing_partition]);
     assert!(
         !second
-            .runtime
+            .recording_hooks
             .rebuilt_partitions()
             .contains(&failing_partition)
     );
@@ -462,17 +465,22 @@ async fn a_halted_partition_stays_halted_after_restart() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_failed_runtime_rebuild_fails_startup() {
+async fn a_failed_partition_effect_rebuild_fails_startup() {
     let mut cluster = TestCluster::new();
     let config = cluster.config(LocalStoreConfig::InMemory);
     let result = cluster
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::failing_rebuild_of(PartitionId(1))),
+            Arc::new(RecordingCommandAndEffectHooks::failing_rebuild_of(
+                PartitionId(1),
+            )),
         )
         .await;
-    assert!(matches!(result, Err(EngineStartError::RuntimeRebuild(_))));
+    assert!(matches!(
+        result,
+        Err(EngineStartError::PartitionEffectRebuild(_))
+    ));
     // The failed start released its lease, so a fail-fast successor takes it at once.
     let mut successor_config = config.clone();
     successor_config.lease.fail_fast = true;
@@ -501,7 +509,7 @@ async fn shutdown_releases_the_lease_when_an_applier_lane_is_stuck() {
         .start(
             &config,
             successor_applier,
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await;
     // Open before asserting, so a failure does not leave the stuck lane blocked.
@@ -525,7 +533,7 @@ async fn a_newer_version_barrier_fails_startup() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await;
     assert!(matches!(
@@ -600,8 +608,8 @@ async fn a_newer_epoch_in_the_log_fences_the_node() {
 async fn submissions_during_recovery_are_unavailable() {
     let cluster = TestCluster::new();
     let config = cluster.config(LocalStoreConfig::InMemory);
-    let runtime = Arc::new(RecordingRuntime::default());
-    let factory_runtime = runtime.clone();
+    let recording_hooks = Arc::new(RecordingCommandAndEffectHooks::default());
+    let factory_runtime = recording_hooks.clone();
     let mut rejection = None;
     let node = EngineNode::start(
         &config,
@@ -629,7 +637,7 @@ async fn submissions_during_recovery_are_unavailable() {
                     CommitUrgency::Prompt,
                 )
                 .err();
-            EngineRuntimeHooks {
+            EngineCommandAndEffectHooks {
                 committed_commands: factory_runtime.clone(),
                 rebuilder: factory_runtime,
             }
@@ -664,7 +672,7 @@ async fn replayed_frames_finish_after_their_last_command() {
 
     let second = cluster.start_in_memory().await;
     let partition = second.context("replay-frame-flow").partition;
-    let replayed_events = second.runtime.sink_events_of(partition);
+    let replayed_events = second.recording_hooks.sink_events_of(partition);
     assert_eq!(
         replayed_events
             .iter()
@@ -741,7 +749,7 @@ async fn voided_batches_after_takeover_keep_submission_order() {
     // Shutdown joins the applier lanes, which hand each command to the runtime after its ticket.
     second.node.shutdown().await.expect("lease released");
     let committed_ids: Vec<Vec<u8>> = second
-        .runtime
+        .recording_hooks
         .committed_commands()
         .into_iter()
         .filter(|committed| committed.command.epoch == 2)

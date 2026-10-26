@@ -30,9 +30,9 @@ use dexzd_clock::{SystemWallClock, WallClock};
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
     AttributeSyncWaker, CommandApplier, CommandCommitter, DeterministicCommandApplier,
-    EffectDependencies, EffectRunner, EffectTasksHandle, EngineNode, EngineNodeDependencies,
-    EngineRuntimeHooks, EngineServices, EngineStartError, FlowRuntimeDependencies,
-    FlowRuntimeRegistry, HardDeleteObjects, NodeMetaUploadLedger, NodeStopReason,
+    EffectDependencies, EffectRunner, EffectTasksHandle, EngineCommandAndEffectHooks, EngineNode,
+    EngineNodeDependencies, EngineServices, EngineStartError, FlowCoordinatorDependencies,
+    FlowCoordinatorRegistry, HardDeleteObjects, NodeMetaUploadLedger, NodeStopReason,
     SystemEngineIdSource,
 };
 use dexzd_keyspace::PartitionHasher;
@@ -58,7 +58,7 @@ use crate::config::{Config, SearchBackend as SearchBackendKind};
 use crate::embedded_s3::EmbeddedS3;
 use crate::metrics_server::MetricsServer;
 use crate::object_stores::ObjectStores;
-use crate::runtime_hooks::RegistryCommittedCommandSink;
+use crate::registry_committed_command_sink::RegistryCommittedCommandSink;
 use crate::worker_rpc_invoker::PullWorkerRpcInvoker;
 
 pub(crate) use search_projection::CommittedSearchFrames;
@@ -427,7 +427,7 @@ where
 struct ServerNode {
     metrics: Arc<NodeMetrics>,
     engine: EngineNode,
-    registry: FlowRuntimeRegistry,
+    registry: FlowCoordinatorRegistry,
     effect_tasks: EffectTasksHandle,
     dispatch: WorkerDispatch,
     stream_store: Arc<StreamStore>,
@@ -437,8 +437,8 @@ struct ServerNode {
 }
 
 /// What the engine's runtime factory builds; captured so the node can own it after start.
-struct RuntimeParts {
-    registry: FlowRuntimeRegistry,
+struct ServerNodeStartupParts {
+    registry: FlowCoordinatorRegistry,
     effect_tasks: EffectTasksHandle,
     partition_hasher: PartitionHasher,
 }
@@ -505,7 +505,7 @@ impl ServerNode {
             }
         };
         let attribute_sync_waker = AttributeSyncWaker::new();
-        let runtime_parts: Arc<Mutex<Option<RuntimeParts>>> = Arc::new(Mutex::new(None));
+        let startup_parts: Arc<Mutex<Option<ServerNodeStartupParts>>> = Arc::new(Mutex::new(None));
         let started = EngineNode::start_until_cancelled(
             &components.engine_node,
             EngineNodeDependencies {
@@ -542,9 +542,9 @@ impl ServerNode {
                         attribute_sync_waker: attribute_sync_waker.clone(),
                     },
                 );
-                let registry = FlowRuntimeRegistry::new(
-                    &components.runtime,
-                    FlowRuntimeDependencies {
+                let registry = FlowCoordinatorRegistry::new(
+                    &components.flow_coordination,
+                    FlowCoordinatorDependencies {
                         hasher: partition_hasher.clone(),
                         committer: Arc::new(services.committer),
                         applier: applier.clone(),
@@ -556,17 +556,17 @@ impl ServerNode {
                     },
                 );
                 let effect_tasks = effect_tasks.start(Arc::new(registry.clone()));
-                let hooks = EngineRuntimeHooks {
+                let hooks = EngineCommandAndEffectHooks {
                     committed_commands: Arc::new(RegistryCommittedCommandSink::new(
                         registry.clone(),
                         committed_search_frames.clone(),
                     )),
                     rebuilder: Arc::new(effect_runner),
                 };
-                *runtime_parts
+                *startup_parts
                     .lock()
                     .expect("runtime parts lock is poisoned only if a holder panicked") =
-                    Some(RuntimeParts {
+                    Some(ServerNodeStartupParts {
                         registry,
                         effect_tasks,
                         partition_hasher,
@@ -576,7 +576,7 @@ impl ServerNode {
             cancellation,
         )
         .await;
-        let parts = runtime_parts
+        let parts = startup_parts
             .lock()
             .expect("runtime parts lock is poisoned only if a holder panicked")
             .take();
@@ -604,7 +604,7 @@ impl ServerNode {
                 return Err(ServerError::EngineStart { source });
             }
         };
-        let RuntimeParts {
+        let ServerNodeStartupParts {
             registry,
             effect_tasks,
             partition_hasher,
@@ -637,7 +637,7 @@ impl ServerNode {
         let attribute_sync = attribute_stores.start(AttributeSyncStart {
             engine: &engine,
             node_id: &config.cluster.node_id,
-            runtime: Arc::new(registry.clone()),
+            flow_operations: Arc::new(registry.clone()),
             partition_hasher,
             clock: clock.clone(),
             metrics: metrics.clone(),

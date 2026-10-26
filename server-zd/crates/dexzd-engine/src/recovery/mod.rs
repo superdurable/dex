@@ -9,19 +9,19 @@
 //! Node startup: cluster metadata, local store, log replay, and runtime rebuild hooks.
 
 mod cluster_metadata;
+mod engine_startup_hooks;
 mod local_store_opening;
 mod log_replay;
 mod node_streams;
-mod runtime_rebuild;
 mod search_order_rebuild;
 mod startup_read_retry;
 
+pub use engine_startup_hooks::{
+    CommittedCommandSink, EngineCommandAndEffectHooks, EngineServices, PartitionEffectRebuildError,
+    PartitionEffectRebuilder,
+};
 pub use local_store_opening::LocalStoreConfig;
 pub use log_replay::RecoveryConfig;
-pub use runtime_rebuild::{
-    CommittedCommandSink, EngineRuntimeHooks, EngineServices, PartitionRuntimeRebuilder,
-    RuntimeRebuildError,
-};
 
 pub(crate) use cluster_metadata::ClusterMetadata;
 pub(crate) use local_store_opening::{
@@ -131,7 +131,7 @@ pub enum EngineStartError {
     },
     /// A partition runtime could not be rebuilt.
     #[error(transparent)]
-    RuntimeRebuild(#[from] RuntimeRebuildError),
+    PartitionEffectRebuild(#[from] PartitionEffectRebuildError),
     /// The node stopped during startup.
     #[error("the node stopped during startup: {reason}")]
     Stopped {

@@ -30,9 +30,10 @@ use prost::Message;
 use crate::effects::EffectError;
 use crate::effects::state_reads::{RunLocation, decode_row, scan_all};
 use crate::engine_id_source::EngineIdSource;
-use crate::runtime::{
+use crate::flow_coordination::{
     FlowAddress, HardDeleteReadError, HardDeleteUploadError, HardDeleteUploadOutcome,
-    HardDeleteUploads as RuntimeHardDeleteUploads, HardDeleteValueReader, HardDeleteValueUploader,
+    HardDeleteUploads as FlowCoordinationHardDeleteUploads, HardDeleteValueReader,
+    HardDeleteValueUploader,
 };
 
 /// Key prefix of every hard-delete object, relative to the hard-delete object store.
@@ -465,7 +466,7 @@ impl HardDeleteValueUploader for HardDeleteObjects {
         flow: &'a FlowAddress,
         run_id: RunId,
         writes: &'a mut [AttributeWrite],
-    ) -> BoxFuture<'a, Result<RuntimeHardDeleteUploads, HardDeleteUploadError>> {
+    ) -> BoxFuture<'a, Result<FlowCoordinationHardDeleteUploads, HardDeleteUploadError>> {
         Box::pin(async move {
             let uploads = self
                 .upload_attribute_writes(self.owner_of(flow, run_id), writes)
@@ -473,7 +474,7 @@ impl HardDeleteValueUploader for HardDeleteObjects {
                 .map_err(|error| HardDeleteUploadError {
                     detail: error.to_string(),
                 })?;
-            Ok(RuntimeHardDeleteUploads {
+            Ok(FlowCoordinationHardDeleteUploads {
                 references: uploads.references,
                 object_keys: uploads.object_keys,
             })
@@ -482,7 +483,7 @@ impl HardDeleteValueUploader for HardDeleteObjects {
 
     fn finish_hard_delete_uploads(
         &self,
-        uploads: RuntimeHardDeleteUploads,
+        uploads: FlowCoordinationHardDeleteUploads,
         outcome: HardDeleteUploadOutcome,
     ) -> BoxFuture<'_, Result<(), HardDeleteUploadError>> {
         Box::pin(async move {

@@ -130,7 +130,7 @@ impl CommitPipeline {
         let (proposals, receiver) = mpsc::channel(config.max_in_flight * 2);
         let (committed_sender, committed_receiver) = mpsc::channel(config.max_in_flight * 2);
         let admission = Arc::new(Semaphore::new(config.max_pending_bytes as usize));
-        let runtime = PipelineRuntime {
+        let task_context = CommitPipelineTaskContext {
             metrics,
             store,
             clock,
@@ -139,7 +139,7 @@ impl CommitPipeline {
             config: config.clone(),
             committed_sender,
         };
-        let task = tokio::spawn(run_pipeline(runtime, next_seq, receiver));
+        let task = tokio::spawn(run_pipeline(task_context, next_seq, receiver));
         Ok((
             Self {
                 proposals,
@@ -248,7 +248,7 @@ struct InFlightBatch {
     encoded_bytes: u64,
 }
 
-struct PipelineRuntime {
+struct CommitPipelineTaskContext {
     metrics: NodeMetrics,
     store: Arc<dyn ObjectStore>,
     clock: Arc<dyn WallClock>,
@@ -259,11 +259,11 @@ struct PipelineRuntime {
 }
 
 async fn run_pipeline(
-    runtime: PipelineRuntime,
+    task_context: CommitPipelineTaskContext,
     mut next_seq: u64,
     mut receiver: mpsc::Receiver<Proposal>,
 ) {
-    let PipelineRuntime {
+    let CommitPipelineTaskContext {
         metrics,
         store,
         clock,
@@ -271,7 +271,7 @@ async fn run_pipeline(
         epoch,
         config,
         committed_sender,
-    } = runtime;
+    } = task_context;
     let mut open = PendingBatch::default();
     let mut open_deadline = None;
     let mut ready = VecDeque::new();

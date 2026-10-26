@@ -13,8 +13,8 @@ use std::time::Duration;
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
-    EngineNode, EngineNodeConfig, EngineNodeDependencies, EngineRuntimeHooks, EngineServices,
-    EngineStartError, LocalStoreConfig, NodeStopReason, SystemEngineIdSource,
+    EngineCommandAndEffectHooks, EngineNode, EngineNodeConfig, EngineNodeDependencies,
+    EngineServices, EngineStartError, LocalStoreConfig, NodeStopReason, SystemEngineIdSource,
 };
 use dexzd_log::LogError;
 use dexzd_object_store::{FaultAction, ObjectStore, ObjectStoreOperation};
@@ -22,7 +22,7 @@ use prost::Message;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::harness::{CountingApplier, RecordingRuntime, TestCluster};
+use crate::harness::{CountingApplier, RecordingCommandAndEffectHooks, TestCluster};
 use crate::standby_takeover::start_node;
 
 const FLOW_ID: &str = "recovered-flow";
@@ -761,8 +761,8 @@ fn start_with_cancellation_and_deadline(
     let clock = cluster.clock.clone();
     async move {
         let applier = Arc::new(CountingApplier::default());
-        let runtime = Arc::new(RecordingRuntime::default());
-        let factory_runtime = runtime.clone();
+        let recording_hooks = Arc::new(RecordingCommandAndEffectHooks::default());
+        let factory_runtime = recording_hooks.clone();
         let result = EngineNode::start_until_cancelled(
             &config,
             EngineNodeDependencies {
@@ -773,7 +773,7 @@ fn start_with_cancellation_and_deadline(
                 id_source: Arc::new(SystemEngineIdSource),
                 lease_validity_deadline,
             },
-            move |_services: EngineServices| EngineRuntimeHooks {
+            move |_services: EngineServices| EngineCommandAndEffectHooks {
                 committed_commands: factory_runtime.clone(),
                 rebuilder: factory_runtime,
             },

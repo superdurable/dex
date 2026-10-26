@@ -19,7 +19,7 @@ use dexzd_protocol::dexzd::v1::{
 use crate::effects::hard_delete_objects::HardDeleteObjectOwner;
 use crate::effects::state_reads::{decode_row, read_run_record, scan_all};
 use crate::effects::{EffectContext, EffectError};
-use crate::runtime::{CommitUrgency, FlowAddress};
+use crate::flow_coordination::{CommitUrgency, FlowAddress};
 
 /// Deletes the run's hard-delete objects that wait for deletion, then proposes
 /// `HardDeleteObjectsDeleted`; repeats until committed state has none left.
@@ -36,7 +36,7 @@ pub(crate) async fn delete_pending_hard_delete_objects(
     };
     loop {
         let object_ids = {
-            let reader = context.runtime.flow_state_reader(flow, false)?;
+            let reader = context.flow_operations.flow_state_reader(flow, false)?;
             let mut prefix =
                 run_table_prefix(run.flow_hash, run.run_id, RunTable::HardDeleteObject);
             prefix.push(HARD_DELETE_PENDING_OBJECT);
@@ -97,7 +97,7 @@ pub(crate) async fn purge_run(
 ) -> Result<(), EffectError> {
     let run = context.run_location(flow, run_id);
     let is_purging = {
-        let reader = context.runtime.flow_state_reader(flow, false)?;
+        let reader = context.flow_operations.flow_state_reader(flow, false)?;
         read_run_record(reader.as_ref(), run)?.is_some_and(|record| record.is_purging)
     };
     if !is_purging {

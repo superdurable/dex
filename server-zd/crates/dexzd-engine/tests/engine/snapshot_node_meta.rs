@@ -10,13 +10,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_engine::{
-    EngineLocalStore, EngineNode, EngineNodeDependencies, EngineRuntimeHooks, EngineServices,
-    HardDeleteUploadLedger, LocalStoreConfig, NodeMetaUploadLedger, SystemEngineIdSource,
+    EngineCommandAndEffectHooks, EngineLocalStore, EngineNode, EngineNodeDependencies,
+    EngineServices, HardDeleteUploadLedger, LocalStoreConfig, NodeMetaUploadLedger,
+    SystemEngineIdSource,
 };
 use dexzd_protocol::dexzd::v1::PendingHardDeleteUpload;
 use dexzd_storage::{LocalReadView, RocksDbStoreOptions};
 
-use crate::harness::{CountingApplier, RecordingRuntime, TestCluster, TestNode};
+use crate::harness::{CountingApplier, RecordingCommandAndEffectHooks, TestCluster, TestNode};
 
 /// How long the first snapshot file upload is held.
 const SNAPSHOT_UPLOAD_DELAY: Duration = Duration::from_secs(5);
@@ -35,8 +36,8 @@ async fn start_node_with_node_meta_services(
     let captured = Arc::new(Mutex::new(None));
     let factory_captured = captured.clone();
     let applier = Arc::new(CountingApplier::default());
-    let runtime = Arc::new(RecordingRuntime::default());
-    let factory_runtime = runtime.clone();
+    let recording_hooks = Arc::new(RecordingCommandAndEffectHooks::default());
+    let factory_runtime = recording_hooks.clone();
     let lease_validity_deadline = dexzd_cluster_metadata::LeaseValidityDeadline::disarmed();
     let node = EngineNode::start(
         config,
@@ -51,7 +52,7 @@ async fn start_node_with_node_meta_services(
         move |services: EngineServices| {
             *factory_captured.lock().expect("capture lock") =
                 Some((services.local_store, services.node_meta_lock));
-            EngineRuntimeHooks {
+            EngineCommandAndEffectHooks {
                 committed_commands: factory_runtime.clone(),
                 rebuilder: factory_runtime,
             }
@@ -75,7 +76,7 @@ async fn start_node_with_node_meta_services(
     let node = TestNode {
         node,
         applier,
-        runtime,
+        recording_hooks,
         hasher: cluster.hasher.clone(),
         lease_validity_deadline,
     };

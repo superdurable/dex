@@ -986,7 +986,7 @@ fn start_error_kind(error: &EngineStartError) -> &'static str {
         EngineStartError::Storage(_) => "local-store",
         EngineStartError::Log(_) => "log",
         EngineStartError::Stopped { .. } => "stopped",
-        EngineStartError::RuntimeRebuild(_) => "runtime-rebuild",
+        EngineStartError::PartitionEffectRebuild(_) => "runtime-rebuild",
         _ => "other",
     }
 }

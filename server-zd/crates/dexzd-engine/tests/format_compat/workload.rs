@@ -1462,10 +1462,11 @@ mod load_blobs_purge_tests {
 
     use dexzd_apply::ApplyEffect;
     use dexzd_engine::{
-        DeterministicCommandApplier, FlowAddress, FlowRuntimeDependencies, FlowRuntimeRegistry,
-        HardDeleteReadError, HardDeleteUploadError, HardDeleteUploadOutcome, HardDeleteValueReader,
-        HardDeleteValueUploader, RpcInvokeError, RpcWorkerInvoker, RuntimeConfig,
-        RuntimeEffectSink, RuntimeHardDeleteUploads, WorkerRpcInvocation, WorkerRpcResult,
+        DeterministicCommandApplier, FlowAddress, FlowCoordinationConfig,
+        FlowCoordinationEffectSink, FlowCoordinationHardDeleteUploads, FlowCoordinatorDependencies,
+        FlowCoordinatorRegistry, HardDeleteReadError, HardDeleteUploadError,
+        HardDeleteUploadOutcome, HardDeleteValueReader, HardDeleteValueUploader, RpcInvokeError,
+        RpcWorkerInvoker, WorkerRpcInvocation, WorkerRpcResult,
     };
     use dexzd_keyspace::{ValueId, ValueReference, flow_directory_key, run_table_prefix};
     use dexzd_protocol::dex::{IdReusePolicy, LoadBlobRequestEntry, LoadBlobsRequest, value};
@@ -1477,13 +1478,13 @@ mod load_blobs_purge_tests {
 
     use super::*;
 
-    struct UnusedRuntimePorts;
+    struct UnusedFlowCoordinationPorts;
 
-    impl RuntimeEffectSink for UnusedRuntimePorts {
+    impl FlowCoordinationEffectSink for UnusedFlowCoordinationPorts {
         fn handle(&self, _flow: &FlowAddress, _effects: &[ApplyEffect], _is_committed: bool) {}
     }
 
-    impl RpcWorkerInvoker for UnusedRuntimePorts {
+    impl RpcWorkerInvoker for UnusedFlowCoordinationPorts {
         fn invoke_worker_rpc(
             &self,
             _invocation: WorkerRpcInvocation,
@@ -1492,7 +1493,7 @@ mod load_blobs_purge_tests {
         }
     }
 
-    impl HardDeleteValueReader for UnusedRuntimePorts {
+    impl HardDeleteValueReader for UnusedFlowCoordinationPorts {
         fn read_hard_delete_value<'a>(
             &'a self,
             _flow: &'a FlowAddress,
@@ -1503,19 +1504,20 @@ mod load_blobs_purge_tests {
         }
     }
 
-    impl HardDeleteValueUploader for UnusedRuntimePorts {
+    impl HardDeleteValueUploader for UnusedFlowCoordinationPorts {
         fn upload_hard_delete_values<'a>(
             &'a self,
             _flow: &'a FlowAddress,
             _run_id: RunId,
             _writes: &'a mut [AttributeWrite],
-        ) -> BoxFuture<'a, Result<RuntimeHardDeleteUploads, HardDeleteUploadError>> {
+        ) -> BoxFuture<'a, Result<FlowCoordinationHardDeleteUploads, HardDeleteUploadError>>
+        {
             Box::pin(async { panic!("LoadBlobs does not upload hard-delete objects") })
         }
 
         fn finish_hard_delete_uploads(
             &self,
-            _uploads: RuntimeHardDeleteUploads,
+            _uploads: FlowCoordinationHardDeleteUploads,
             _outcome: HardDeleteUploadOutcome,
         ) -> BoxFuture<'_, Result<(), HardDeleteUploadError>> {
             Box::pin(async { panic!("LoadBlobs does not finish hard-delete uploads") })
@@ -1538,10 +1540,10 @@ mod load_blobs_purge_tests {
             object_store: &object_store,
             hasher: &hasher,
         };
-        let ports = Arc::new(UnusedRuntimePorts);
-        let registry = FlowRuntimeRegistry::new(
-            &RuntimeConfig::default(),
-            FlowRuntimeDependencies {
+        let ports = Arc::new(UnusedFlowCoordinationPorts);
+        let registry = FlowCoordinatorRegistry::new(
+            &FlowCoordinationConfig::default(),
+            FlowCoordinatorDependencies {
                 hasher: hasher.clone(),
                 committer: Arc::new(node.committer().clone()),
                 applier: Arc::new(DeterministicCommandApplier),

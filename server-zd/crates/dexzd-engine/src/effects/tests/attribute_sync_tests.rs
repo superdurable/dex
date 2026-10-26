@@ -41,8 +41,8 @@ use crate::attribute_sync::{
     AttributeSyncProjector, AttributeSyncProjectorHandle, AttributeSyncRetryPolicy,
     AttributeSyncWaker, AttributeSyncWriteError, AttributeSyncWriter,
 };
-use crate::effects::{EffectRuntime, EffectsConfig};
-use crate::runtime::CommitUrgency;
+use crate::effects::{EffectsConfig, FlowEffectOperations};
+use crate::flow_coordination::CommitUrgency;
 
 const STORE: &str = "orders";
 /// The fence token of the first node; a restarted node takes the next one.
@@ -344,7 +344,8 @@ impl ProjectorFixture {
             &config,
             AttributeSyncDependencies {
                 writer: Arc::clone(&store) as _,
-                runtime: Arc::clone(&harness.runtime) as Arc<dyn EffectRuntime>,
+                flow_operations: Arc::clone(&harness.flow_operations)
+                    as Arc<dyn FlowEffectOperations>,
                 partition_hasher: harness.hasher.clone(),
                 clock: Arc::clone(&harness.clock) as _,
                 metrics: Arc::clone(&metrics),
@@ -388,7 +389,7 @@ impl ProjectorFixture {
         let key = attribute_sync_outbox_key(run.flow_hash, run.run_id, STORE, attribute_key);
         let bytes = self
             .harness
-            .runtime
+            .flow_operations
             .snapshot()
             .get(ColumnFamily::Flow, &key)
             .expect("memory reads never fail")?;
@@ -416,7 +417,7 @@ impl ProjectorFixture {
         };
         let reply = self
             .harness
-            .runtime
+            .flow_operations
             .commit(
                 &EffectHarness::flow(flow_id),
                 command,
@@ -429,7 +430,7 @@ impl ProjectorFixture {
     /// Returns the committed pending index keys of every store and partition.
     fn pending_run_count(&self) -> usize {
         self.harness
-            .runtime
+            .flow_operations
             .snapshot()
             .rows
             .keys()
@@ -457,7 +458,7 @@ impl ProjectorFixture {
 
     fn acks_with_flow_ids(&self) -> Vec<(String, AttributeSyncAckCommand)> {
         self.harness
-            .runtime
+            .flow_operations
             .commands_matching(|command| {
                 matches!(command, flow_command::Command::AttributeSyncAck(_))
             })
@@ -473,7 +474,7 @@ impl ProjectorFixture {
 
     fn dropped_effect_count(&self) -> usize {
         self.harness
-            .runtime
+            .flow_operations
             .published_effects
             .lock()
             .expect("lock")
@@ -1006,14 +1007,14 @@ async fn an_elapsed_backoff_of_one_store_does_not_spin_another_stores_retries() 
         .await;
     let reads_before = fixture
         .harness
-        .runtime
+        .flow_operations
         .committed_reads
         .load(Ordering::SeqCst);
     tokio::time::sleep(Duration::from_secs(5)).await;
     fixture.harness.settle().await;
     let reads = fixture
         .harness
-        .runtime
+        .flow_operations
         .committed_reads
         .load(Ordering::SeqCst)
         - reads_before;
@@ -1329,7 +1330,7 @@ async fn an_unsynced_write_after_a_pending_synced_write_does_not_reach_the_store
         ..FlowCommand::default()
     };
     let reply = harness
-        .runtime
+        .flow_operations
         .commit(&flow, command, CommitUrgency::Prompt)
         .expect("unsynced write commits");
     assert!(!is_error_reply(&reply));
@@ -1381,7 +1382,7 @@ async fn time_travel_to_an_unsynced_value_deletes_the_store_row() {
         ..FlowCommand::default()
     };
     let reply = harness
-        .runtime
+        .flow_operations
         .commit(&flow, set_command, CommitUrgency::Prompt)
         .expect("synced write commits");
     assert!(!is_error_reply(&reply));
@@ -1399,7 +1400,7 @@ async fn time_travel_to_an_unsynced_value_deletes_the_store_row() {
         ..FlowCommand::default()
     };
     let reply = harness
-        .runtime
+        .flow_operations
         .commit(&flow, ack_command, CommitUrgency::Prompt)
         .expect("sync ack commits");
     assert!(!is_error_reply(&reply));
@@ -1418,7 +1419,7 @@ async fn time_travel_to_an_unsynced_value_deletes_the_store_row() {
         ..FlowCommand::default()
     };
     let reply = harness
-        .runtime
+        .flow_operations
         .commit(&flow, reset_command, CommitUrgency::Prompt)
         .expect("reset commits");
     assert!(!is_error_reply(&reply));
@@ -1484,7 +1485,7 @@ async fn assert_pending_reset_store_row(
             unsynced("Status", string_value(value))
         };
         let reply = harness
-            .runtime
+            .flow_operations
             .commit(
                 &flow,
                 FlowCommand {
@@ -1507,7 +1508,7 @@ async fn assert_pending_reset_store_row(
         assert!(!is_error_reply(&reply));
     }
     let reply = harness
-        .runtime
+        .flow_operations
         .commit(
             &flow,
             FlowCommand {
@@ -1561,7 +1562,7 @@ async fn legacy_pending_entries_read_only_synced_current_values() {
         ],
     );
     let reply = harness
-        .runtime
+        .flow_operations
         .commit(
             &EffectHarness::flow(FLOW_ID),
             FlowCommand {
@@ -1584,7 +1585,7 @@ async fn legacy_pending_entries_read_only_synced_current_values() {
     assert!(!is_error_reply(&reply));
     let run = harness.run_location(FLOW_ID, run_id);
     {
-        let mut state = harness.runtime.state.lock().expect("lock");
+        let mut state = harness.flow_operations.state.lock().expect("lock");
         state.rows.remove(&(
             ColumnFamily::Flow,
             run_named_key(run.flow_hash, run.run_id, RunTable::Attribute, "Missing"),
@@ -1679,7 +1680,7 @@ async fn assert_a_crash_before_the_ack_commits_delivers_the_latest_values(has_ne
     // From here every proposal of this node fails, so its ack cannot commit before the crash.
     fixture
         .harness
-        .runtime
+        .flow_operations
         .unavailable_proposals
         .store(usize::MAX, Ordering::SeqCst);
     fixture.store.release_writes();
@@ -1690,7 +1691,7 @@ async fn assert_a_crash_before_the_ack_commits_delivers_the_latest_values(has_ne
                 !fixture.store.committed_writes().is_empty()
                     && fixture
                         .harness
-                        .runtime
+                        .flow_operations
                         .unavailable_proposals
                         .load(Ordering::SeqCst)
                         < usize::MAX
@@ -1795,7 +1796,12 @@ async fn acknowledgements_across_every_partition_commit_well_under_two_seconds()
     let fixture = ProjectorFixture::start(sync_config());
     // Each commit waits like a group commit window plus a slow object store write.
     let commit_latency = Duration::from_millis(150);
-    *fixture.harness.runtime.proposal_delay.lock().expect("lock") = commit_latency;
+    *fixture
+        .harness
+        .flow_operations
+        .proposal_delay
+        .lock()
+        .expect("lock") = commit_latency;
     let partition_count =
         usize::try_from(fixture.harness.hasher.partition_count()).expect("fits usize");
     let mut flows_per_partition: BTreeMap<PartitionId, usize> = BTreeMap::new();
@@ -2279,7 +2285,7 @@ fn commit_held_close(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
         ..FlowCommand::default()
     };
     let reply = harness
-        .runtime
+        .flow_operations
         .commit(
             &EffectHarness::flow(flow_id),
             command,
@@ -2310,7 +2316,7 @@ async fn a_close_held_by_transactional_rpcs_finalizes_once_they_end() {
     let harness = EffectHarness::new();
     let run_id = start_closing_flow(&harness, "held-close", &[], Vec::new());
     let execute = harness.dispatcher.next_dispatch().await;
-    harness.runtime.transactional_rpcs.send_replace(1);
+    harness.flow_operations.transactional_rpcs.send_replace(1);
     commit_held_close(&harness, "held-close", run_id);
     tokio::time::sleep(Duration::from_millis(500)).await;
     harness.settle().await;
@@ -2318,7 +2324,7 @@ async fn a_close_held_by_transactional_rpcs_finalizes_once_they_end() {
     assert_eq!(held.status, FlowStatus::Running as i32);
     assert!(held.pending_close.is_some());
 
-    harness.runtime.transactional_rpcs.send_replace(0);
+    harness.flow_operations.transactional_rpcs.send_replace(0);
     wait_for_status(&harness, "held-close", run_id, FlowStatus::Completed).await;
     drop(execute);
     harness.shutdown().await;
@@ -2329,7 +2335,7 @@ async fn a_new_owner_finalizes_a_close_that_rpcs_of_the_old_owner_held() {
     let harness = EffectHarness::new();
     let run_id = start_closing_flow(&harness, "held-close", &[], Vec::new());
     let execute = harness.dispatcher.next_dispatch().await;
-    harness.runtime.transactional_rpcs.send_replace(1);
+    harness.flow_operations.transactional_rpcs.send_replace(1);
     commit_held_close(&harness, "held-close", run_id);
     harness.settle().await;
     drop(execute);

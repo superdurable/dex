@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use dexzd_apply::{ApplyOutcome, StateWrite};
 use dexzd_engine::{
-    CommittedCommandSink, CommittedFlowCommand, EngineLocalStore, FlowRuntimeRegistry,
+    CommittedCommandSink, CommittedFlowCommand, EngineLocalStore, FlowCoordinatorRegistry,
     HardDeleteObjectOwner,
 };
 use dexzd_keyspace::row_keys::{HARD_DELETE_PENDING_OBJECT, SEARCH_ORDER_INDEX_VERSION};
@@ -373,7 +373,7 @@ impl CommittedLog {
     pub(crate) fn sink_for(
         self: &Arc<Self>,
         process_label: &str,
-        registry: FlowRuntimeRegistry,
+        registry: FlowCoordinatorRegistry,
     ) -> Arc<ObservingCommandSink> {
         Arc::new(ObservingCommandSink {
             log: Arc::clone(self),
@@ -853,7 +853,7 @@ fn describe_write(write: &StateWrite) -> String {
 pub(crate) struct ObservingCommandSink {
     log: Arc<CommittedLog>,
     process_label: String,
-    registry: FlowRuntimeRegistry,
+    registry: FlowCoordinatorRegistry,
 }
 
 impl CommittedCommandSink for ObservingCommandSink {

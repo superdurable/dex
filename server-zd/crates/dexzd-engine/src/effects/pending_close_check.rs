@@ -14,8 +14,8 @@ use dexzd_keyspace::{ColumnFamily, RunId, RunTable, run_table_prefix};
 use dexzd_protocol::dexzd::v1::{FlowCommand, PendingCloseCheckCommand, flow_command};
 
 use crate::effects::state_reads::read_run_record;
-use crate::effects::{EffectContext, EffectError, EffectRuntimeError};
-use crate::runtime::{CommitUrgency, FlowAddress};
+use crate::effects::{EffectContext, EffectError, FlowEffectOperationError};
+use crate::flow_coordination::{CommitUrgency, FlowAddress};
 
 /// Waits until the run's transactional RPCs end, then proposes a check that records the close.
 ///
@@ -32,12 +32,12 @@ pub(crate) async fn finalize_pending_close_after_rpcs(
         let drained = tokio::select! {
             biased;
             () = context.shutdown.cancelled() => return Err(EffectError::Stopped),
-            drained = context.runtime.wait_for_transactional_rpcs(flow) => drained,
+            drained = context.flow_operations.wait_for_transactional_rpcs(flow) => drained,
         };
         match drained {
             Ok(()) => {}
-            Err(EffectRuntimeError::NodeStopping { .. }) => return Err(EffectError::Stopped),
-            Err(error @ EffectRuntimeError::Unavailable { .. }) => {
+            Err(FlowEffectOperationError::NodeStopping { .. }) => return Err(EffectError::Stopped),
+            Err(error @ FlowEffectOperationError::Unavailable { .. }) => {
                 tracing::warn!(%error, %run_id, "waiting for transactional RPCs failed; retrying");
                 if !backoff.wait(&context.shutdown).await {
                     return Err(EffectError::Stopped);
@@ -80,7 +80,7 @@ fn has_unblocked_pending_close(
     run_id: RunId,
 ) -> Result<bool, EffectError> {
     let run = context.run_location(flow, run_id);
-    let reader = context.runtime.flow_state_reader(flow, false)?;
+    let reader = context.flow_operations.flow_state_reader(flow, false)?;
     let Some(record) = read_run_record(reader.as_ref(), run)? else {
         return Ok(false);
     };
