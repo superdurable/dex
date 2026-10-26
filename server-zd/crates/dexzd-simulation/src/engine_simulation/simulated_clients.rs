@@ -22,9 +22,11 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::engine_simulation::committed_log::{CommittedLog, ReadWindow};
 use crate::engine_simulation::event_trace::EventTrace;
+use crate::engine_simulation::simulated_workers::SimulatedWorkers;
 use crate::engine_simulation::workload::{
-    OPERATION_MARKER_PREFIX, delete_message_request, flow_timeout_skip_request, publish_request,
-    rpc_request, set_attributes_request, start_flow_request, stop_request,
+    OPERATION_MARKER_PREFIX, await_child_result_rpc_request, delete_message_request,
+    flow_timeout_skip_request, publish_request, rpc_request, set_attributes_request,
+    start_flow_request, stop_request,
 };
 use crate::invariants::InvariantViolation;
 use crate::model::CHANNEL_NAMES;
@@ -33,6 +35,10 @@ use crate::model::CHANNEL_NAMES;
 pub(crate) const ENGINE_FLOW_IDS: &[&str] = &["order-1", "order-2", "order-3"];
 /// Longest time a client waits for one call before it treats the outcome as unknown.
 const CALL_TIMEOUT: Duration = Duration::from_secs(15);
+/// Mixed into the seed of the child-wait probes, so they draw apart from the other clients.
+pub(crate) const CHILD_WAIT_PROBE_SEED_SALT: u64 = 0xc41d_0000;
+/// Pause between the child-wait probe's checks for a run waiting for a child Flow.
+const CHILD_WAIT_PROBE_INTERVAL: Duration = Duration::from_millis(250);
 /// Calls of one operation, including retries with the same request ID.
 const MAX_CALLS_PER_OPERATION: u32 = 4;
 
@@ -103,7 +109,7 @@ pub(crate) struct ClientRecords {
 enum CallOutcome<T> {
     /// The call succeeded within the window of generations its node had applied.
     Succeeded(T, ReadWindow),
-    Rejected,
+    Rejected(FlowOperationError),
     /// Every call timed out or was unavailable; the write may or may not have happened.
     Unknown,
 }
@@ -246,6 +252,47 @@ impl SimulatedClient {
             72..=89 => self.read_attributes(flow_id).await,
             _ => {
                 self.read_channel_messages(flow_id).await;
+            }
+        }
+    }
+
+    /// Keeps a locking RPC in flight on each run of `flow_id` that waits for a child Flow.
+    ///
+    /// The Worker holds the RPC until the child's result arrives, so the parent's close hold
+    /// dry-runs that result. Draws only from this client's own seed.
+    pub(crate) async fn run_child_wait_probe_until(
+        mut self,
+        until: tokio::time::Instant,
+        flow_id: &'static str,
+        workers: Arc<SimulatedWorkers>,
+    ) {
+        while tokio::time::Instant::now() < until {
+            tokio::time::sleep(CHILD_WAIT_PROBE_INTERVAL).await;
+            let Some(run_id) = workers.run_waiting_for_child(flow_id) else {
+                continue;
+            };
+            self.next_operation += 1;
+            let marker = format!(
+                "{OPERATION_MARKER_PREFIX}{}-{}",
+                self.client_label, self.next_operation
+            );
+            let request = await_child_result_rpc_request(flow_id, &run_id, &marker);
+            let outcome = self
+                .call("InvokeRpc", flow_id, |registry| {
+                    let request = request.clone();
+                    async move {
+                        FlowOperations::invoke_rpc(&registry, TenantId::DEFAULT, request).await
+                    }
+                })
+                .await;
+            match outcome {
+                CallOutcome::Succeeded(..) => {
+                    self.acknowledge(&marker, "InvokeRpc", flow_id, None);
+                }
+                CallOutcome::Rejected(FlowOperationError::FlowNotFound { .. }) => {
+                    workers.end_child_waits_of_run(flow_id, &run_id);
+                }
+                CallOutcome::Rejected(_) | CallOutcome::Unknown => {}
             }
         }
     }
@@ -449,7 +496,7 @@ impl SimulatedClient {
                     let backoff = Duration::from_millis(self.rng.random_range(100..2_000));
                     tokio::time::sleep(backoff).await;
                 }
-                Ok(Err(_)) => return CallOutcome::Rejected,
+                Ok(Err(error)) => return CallOutcome::Rejected(error),
             }
         }
         CallOutcome::Unknown

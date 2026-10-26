@@ -37,7 +37,7 @@ use crate::engine_simulation::engine_invariants::{
 use crate::engine_simulation::event_trace::EventTrace;
 use crate::engine_simulation::seed_summary::{final_state, finish_summary};
 use crate::engine_simulation::simulated_clients::{
-    ClientRecords, ENGINE_FLOW_IDS, ServingNode, SimulatedClient,
+    CHILD_WAIT_PROBE_SEED_SALT, ClientRecords, ENGINE_FLOW_IDS, ServingNode, SimulatedClient,
 };
 use crate::engine_simulation::simulated_clock::{
     SimulatedWallClock, duration_micros, elapsed_micros,
@@ -281,6 +281,23 @@ impl Simulation {
             );
             let client_task = tokio::spawn(client.run_until(active_end));
             client_tasks.push(client_task);
+        }
+        if self.config.profile == EngineSimulationProfile::Standard {
+            for &flow_id in ENGINE_FLOW_IDS {
+                let probe = SimulatedClient::new(
+                    format!("probe-{flow_id}"),
+                    self.seed ^ CHILD_WAIT_PROBE_SEED_SALT,
+                    false,
+                    self.serving_node.clone(),
+                    Arc::clone(&self.environment.committed_log),
+                    Arc::clone(&self.client_records),
+                    Arc::clone(&self.environment.trace),
+                );
+                let workers = Arc::clone(&self.environment.workers);
+                let probe_task =
+                    tokio::spawn(probe.run_child_wait_probe_until(active_end, flow_id, workers));
+                client_tasks.push(probe_task);
+            }
         }
         client_tasks
     }
