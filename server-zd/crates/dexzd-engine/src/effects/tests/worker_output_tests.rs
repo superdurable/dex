@@ -19,7 +19,7 @@ use dexzd_protocol::dexzd::v1::{flow_command, step_method_completed_command};
 
 use super::dispatch_tests::force_complete;
 use super::{EffectHarness, is_method_completed, settings, start_request, string_value};
-use crate::runtime::CommitUrgency;
+use crate::flow_coordination::CommitUrgency;
 
 const PROGRESS_STREAM: &str = "progress";
 
@@ -86,7 +86,7 @@ async fn step_stream_writes_reach_the_stream_store_in_frame_order_including_fail
     );
     assert!(
         harness
-            .runtime
+            .flow_operations
             .commands_matching(|command| matches!(
                 command,
                 flow_command::Command::StepAttemptHeartbeat(_)
@@ -137,7 +137,7 @@ async fn failing_async_attempts_propose_their_checkpoint_before_the_failure() {
     harness.dispatcher.next_dispatch().await;
 
     let attempt_commands: Vec<(&str, u32, CommitUrgency)> = harness
-        .runtime
+        .flow_operations
         .commands
         .lock()
         .expect("lock")
@@ -198,7 +198,7 @@ async fn every_step_result_publication_gets_a_new_uuid_v7_message_id() {
     harness.settle().await;
 
     let message_ids: Vec<String> = harness
-        .runtime
+        .flow_operations
         .commands_matching(is_method_completed)
         .into_iter()
         .flat_map(|recorded| match recorded.command.command {

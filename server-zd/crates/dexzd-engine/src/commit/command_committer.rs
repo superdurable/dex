@@ -23,7 +23,7 @@ use crate::commit::commit_state::{
 use crate::commit::committed_state_view::CommittedStateView;
 use crate::commit::replay_checks::{ReplayMismatch, compare_speculative_outcome};
 use crate::engine_id_source::EngineIdSource;
-use crate::runtime::{
+use crate::flow_coordination::{
     CommitError, CommitTicket, CommitUrgency, CommittedCommand, FlowCommandCommitter,
 };
 
@@ -251,7 +251,7 @@ impl FlowCommandCommitter for CommandCommitter {
         command: &FlowCommand,
         speculative: &ApplyOutcome,
         committed: &CommittedCommand,
-    ) -> Result<(), crate::runtime::ReplayMismatch> {
+    ) -> Result<(), crate::flow_coordination::ReplayMismatch> {
         CommandCommitter::check_speculative_outcome(
             self,
             partition,
@@ -259,7 +259,7 @@ impl FlowCommandCommitter for CommandCommitter {
             speculative,
             committed,
         )
-        .map_err(|mismatch| crate::runtime::ReplayMismatch {
+        .map_err(|mismatch| crate::flow_coordination::ReplayMismatch {
             detail: mismatch.to_string(),
         })
     }

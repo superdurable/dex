@@ -36,8 +36,8 @@ use crate::commit::{
 };
 use crate::engine_id_source::EngineIdSource;
 use crate::recovery::{
-    ClusterMetadata, EngineRuntimeHooks, EngineServices, EngineStartError, LocalStoreConfig,
-    LocalStoreRequirements, LogReplay, OpenedLocalStore, StartupReadRetryStore,
+    ClusterMetadata, EngineCommandAndEffectHooks, EngineServices, EngineStartError,
+    LocalStoreConfig, LocalStoreRequirements, LogReplay, OpenedLocalStore, StartupReadRetryStore,
     delete_older_set_aside_stores, open_local_store, rebuild_search_order_indexes,
 };
 use crate::snapshots::{
@@ -112,15 +112,19 @@ impl EngineNode {
     pub async fn start<F>(
         config: &EngineNodeConfig,
         dependencies: EngineNodeDependencies,
-        runtime_factory: F,
+        command_and_effect_hooks_factory: F,
     ) -> Result<Self, EngineStartError>
     where
-        F: FnOnce(EngineServices) -> EngineRuntimeHooks,
+        F: FnOnce(EngineServices) -> EngineCommandAndEffectHooks,
     {
         let (_cancellation_sender, mut cancellation) = watch::channel(false);
-        let started =
-            Self::start_until_cancelled(config, dependencies, runtime_factory, &mut cancellation)
-                .await?;
+        let started = Self::start_until_cancelled(
+            config,
+            dependencies,
+            command_and_effect_hooks_factory,
+            &mut cancellation,
+        )
+        .await?;
         Ok(started.expect("startup without cancellation must return an engine node"))
     }
 
@@ -135,11 +139,11 @@ impl EngineNode {
     pub async fn start_until_cancelled<F>(
         config: &EngineNodeConfig,
         dependencies: EngineNodeDependencies,
-        runtime_factory: F,
+        command_and_effect_hooks_factory: F,
         cancellation: &mut watch::Receiver<bool>,
     ) -> Result<Option<Self>, EngineStartError>
     where
-        F: FnOnce(EngineServices) -> EngineRuntimeHooks,
+        F: FnOnce(EngineServices) -> EngineCommandAndEffectHooks,
     {
         validate_config(config)?;
         let EngineNodeDependencies {
@@ -268,7 +272,7 @@ impl EngineNode {
                 is_checking_replay: config.commit.debug_replay_checks,
                 proposals: proposal_sender,
             });
-            let runtime = runtime_factory(EngineServices {
+            let hooks = command_and_effect_hooks_factory(EngineServices {
                 committer: committer.clone(),
                 partition_hasher: metadata.cluster.partition_hasher.clone(),
                 node_meta_lock: node_meta_lock.clone(),
@@ -292,7 +296,7 @@ impl EngineNode {
                     applier,
                     hasher: metadata.cluster.partition_hasher.clone(),
                     state: state.clone(),
-                    committed_commands: runtime.committed_commands.clone(),
+                    committed_commands: hooks.committed_commands.clone(),
                     is_checking_replay: config.commit.debug_replay_checks,
                     blocking_work: config.blocking_work,
                     semantic_point_hashes: std::sync::Mutex::new(std::collections::BTreeMap::new()),
@@ -381,7 +385,7 @@ impl EngineNode {
                     u16::try_from(partition).expect("the manifest limits partitions to u16"),
                 );
                 if !state.is_partition_halted(partition) {
-                    total_effects += runtime.rebuilder.rebuild_partition(partition).await?;
+                    total_effects += hooks.rebuilder.rebuild_partition(partition).await?;
                     rebuilt_partition_count += 1;
                 }
             }

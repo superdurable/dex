@@ -18,7 +18,7 @@ use dexzd_clock::WallClock;
 use dexzd_engine::{
     AttributeSyncConfig, AttributeSyncDependencies, AttributeSyncFence, AttributeSyncItem,
     AttributeSyncProjector, AttributeSyncProjectorHandle, AttributeSyncWaker,
-    AttributeSyncWriteError, AttributeSyncWriter, EffectRuntime, EngineNode,
+    AttributeSyncWriteError, AttributeSyncWriter, EngineNode, FlowEffectOperations,
 };
 use dexzd_keyspace::PartitionHasher;
 use futures::future::BoxFuture;
@@ -38,7 +38,7 @@ pub(crate) struct AttributeStores {
 pub(crate) struct AttributeSyncStart<'a> {
     pub(crate) engine: &'a EngineNode,
     pub(crate) node_id: &'a str,
-    pub(crate) runtime: Arc<dyn EffectRuntime>,
+    pub(crate) flow_operations: Arc<dyn FlowEffectOperations>,
     pub(crate) partition_hasher: PartitionHasher,
     pub(crate) clock: Arc<dyn WallClock>,
     pub(crate) metrics: Arc<dexzd_metrics::NodeMetrics>,
@@ -132,7 +132,7 @@ impl AttributeStores {
             &self.config,
             AttributeSyncDependencies {
                 writer: self.stores,
-                runtime: start.runtime,
+                flow_operations: start.flow_operations,
                 partition_hasher: start.partition_hasher,
                 clock: start.clock,
                 metrics: start.metrics,

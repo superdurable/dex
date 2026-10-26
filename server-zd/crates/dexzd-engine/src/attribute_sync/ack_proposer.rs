@@ -18,8 +18,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::AttributeSyncRetryPolicy;
 use super::projector::next_retry_delay;
-use crate::effects::{EffectRuntime, EffectRuntimeError, RunLocation};
-use crate::runtime::{CommitUrgency, FlowAddress};
+use crate::effects::{FlowEffectOperationError, FlowEffectOperations, RunLocation};
+use crate::flow_coordination::{CommitUrgency, FlowAddress};
 
 /// One run's ack, proposed once its write committed.
 pub(super) struct PendingAck {
@@ -47,7 +47,7 @@ pub(super) struct AckBatchResult {
 /// Proposes acks from a background task, so writes of later partitions need not wait for commits.
 #[derive(Clone)]
 pub(super) struct AckProposer {
-    pub(super) runtime: Arc<dyn EffectRuntime>,
+    pub(super) flow_operations: Arc<dyn FlowEffectOperations>,
     pub(super) stop: CancellationToken,
     pub(super) retry_policy: AttributeSyncRetryPolicy,
 }
@@ -106,9 +106,11 @@ impl AckProposer {
     ) -> Option<command_reply::Reply> {
         let mut delay = self.retry_policy.initial_interval;
         loop {
-            let proposal =
-                self.runtime
-                    .propose_committed(flow, command.clone(), CommitUrgency::Batched);
+            let proposal = self.flow_operations.propose_committed(
+                flow,
+                command.clone(),
+                CommitUrgency::Batched,
+            );
             let outcome = tokio::select! {
                 biased;
                 () = self.stop.cancelled() => return None,
@@ -120,8 +122,8 @@ impl AckProposer {
                         dexzd_protocol::dexzd::v1::EmptyReply::default(),
                     )));
                 }
-                Err(EffectRuntimeError::NodeStopping { .. }) => return None,
-                Err(error @ EffectRuntimeError::Unavailable { .. }) => {
+                Err(FlowEffectOperationError::NodeStopping { .. }) => return None,
+                Err(error @ FlowEffectOperationError::Unavailable { .. }) => {
                     tracing::debug!(%error, flow_id = %flow.flow_id, "retrying an Attribute Sync ack");
                     tokio::select! {
                         biased;

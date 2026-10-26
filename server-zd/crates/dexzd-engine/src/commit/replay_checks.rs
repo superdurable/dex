@@ -14,7 +14,7 @@ use dexzd_keyspace::PartitionId;
 use dexzd_protocol::dexzd::v1::{FlowCommand, LogPosition, flow_command::Command};
 use prost::Message;
 
-use crate::runtime::CommittedCommand;
+use crate::flow_coordination::CommittedCommand;
 
 /// Two applications of the same command to the same state produced different outcomes.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]

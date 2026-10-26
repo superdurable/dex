@@ -87,7 +87,7 @@ async fn a_restart_redispatches_running_attempts_with_the_same_attempt_and_reque
     assert_eq!(invocation.task_id, task_id);
     assert!(
         second
-            .runtime
+            .flow_operations
             .commands_matching(|command| matches!(
                 command,
                 flow_command::Command::StepAttemptStarted(_)
@@ -119,7 +119,7 @@ async fn a_restarted_attempt_with_unreadable_state_times_out_at_its_configured_m
 
     let second = restart(&durable);
     second
-        .runtime
+        .flow_operations
         .is_flow_state_unreadable
         .store(true, std::sync::atomic::Ordering::SeqCst);
     second.rebuild_all_partitions().await;
@@ -127,13 +127,13 @@ async fn a_restarted_attempt_with_unreadable_state_times_out_at_its_configured_m
     second.settle().await;
     assert!(
         second
-            .runtime
+            .flow_operations
             .commands_matching(is_attempt_failed)
             .is_empty()
     );
     tokio::time::sleep(Duration::from_millis(200)).await;
     second.settle().await;
-    let failures = second.runtime.commands_matching(is_attempt_failed);
+    let failures = second.flow_operations.commands_matching(is_attempt_failed);
     let Some(flow_command::Command::StepAttemptFailed(failure)) = &failures[0].command.command
     else {
         panic!("expected a failure");
@@ -193,14 +193,14 @@ async fn a_restart_cuts_a_running_attempt_at_its_original_retry_deadline() {
     second.settle().await;
     assert!(
         second
-            .runtime
+            .flow_operations
             .commands_matching(is_attempt_failed)
             .is_empty(),
         "the rebuilt attempt keeps its original deadline"
     );
     tokio::time::sleep(Duration::from_millis(200)).await;
     second.settle().await;
-    let failures = second.runtime.commands_matching(is_attempt_failed);
+    let failures = second.flow_operations.commands_matching(is_attempt_failed);
     let Some(flow_command::Command::StepAttemptFailed(failure)) = &failures[0].command.command
     else {
         panic!("expected a failure");
@@ -215,7 +215,7 @@ async fn a_restart_starts_pending_invocations() {
     let first = EffectHarness::new();
     first.rebuild_all_partitions().await;
     first
-        .runtime
+        .flow_operations
         .busy_lock_keys
         .lock()
         .expect("lock")
@@ -346,7 +346,7 @@ async fn a_restart_resumes_outbox_deliveries_and_hard_delete_deletions() {
         .owner_of(&EffectHarness::flow("child"), child_run);
     put_object(&first, &owner.object_key("replaced")).await;
     {
-        let mut state = first.runtime.state.lock().expect("lock");
+        let mut state = first.flow_operations.state.lock().expect("lock");
         state.put_message(
             ColumnFamily::Flow,
             outbox_key(child.flow_hash, child.run_id, &[5; 16]),
@@ -406,27 +406,29 @@ async fn a_restart_resumes_outbox_deliveries_and_hard_delete_deletions() {
     first.shutdown().await;
 
     let second = restart(&durable);
-    second.runtime.add_override(ok_override(|command| {
+    second.flow_operations.add_override(ok_override(|command| {
         matches!(
             command,
             flow_command::Command::InboxMessage(_) | flow_command::Command::OutboxAck(_)
         )
     }));
-    second.runtime.add_override(Box::new(|command, state| {
-        let Some(flow_command::Command::HardDeleteObjectsDeleted(_)) = &command.command else {
-            return None;
-        };
-        state.rows.retain(|_, value| {
-            HardDeleteObjectRecord::decode(value.as_slice()).is_err() || value.is_empty()
-        });
-        Some(super::ok_reply())
-    }));
+    second
+        .flow_operations
+        .add_override(Box::new(|command, state| {
+            let Some(flow_command::Command::HardDeleteObjectsDeleted(_)) = &command.command else {
+                return None;
+            };
+            state.rows.retain(|_, value| {
+                HardDeleteObjectRecord::decode(value.as_slice()).is_err() || value.is_empty()
+            });
+            Some(super::ok_reply())
+        }));
     second.rebuild_all_partitions().await;
     tokio::time::sleep(Duration::from_millis(10)).await;
     second.settle().await;
 
     let kinds: Vec<&'static str> = second
-        .runtime
+        .flow_operations
         .commands
         .lock()
         .expect("lock")
@@ -518,7 +520,10 @@ async fn a_redispatch_reads_the_current_hard_delete_object_when_the_snapshot_obj
     });
     second.settle().await;
     assert_eq!(
-        second.runtime.commands_matching(is_method_completed).len(),
+        second
+            .flow_operations
+            .commands_matching(is_method_completed)
+            .len(),
         1
     );
     assert_eq!(
@@ -575,7 +580,7 @@ async fn a_crash_after_retention_expiry_is_purged_from_the_retention_index_on_re
     let retention_prefix = partition_index_prefix(partition, IndexKind::Retention);
     let retention_rows = |harness: &EffectHarness| {
         harness
-            .runtime
+            .flow_operations
             .snapshot()
             .rows
             .keys()
@@ -597,7 +602,7 @@ async fn a_crash_after_retention_expiry_is_purged_from_the_retention_index_on_re
     assert!(first.run_record("expired", run_id).is_purging);
     assert!(
         first
-            .runtime
+            .flow_operations
             .commands_matching(|command| matches!(command, flow_command::Command::RunPurge(_)))
             .is_empty()
     );
@@ -609,14 +614,14 @@ async fn a_crash_after_retention_expiry_is_purged_from_the_retention_index_on_re
     second.rebuild_all_partitions().await;
     second.settle().await;
     let purges = second
-        .runtime
+        .flow_operations
         .commands_matching(|command| matches!(command, flow_command::Command::RunPurge(_)));
     assert_eq!(purges.len(), 1);
     assert_eq!(purges[0].reply, ok_reply());
     let run = second.run_location("expired", run_id);
     assert!(
         second
-            .runtime
+            .flow_operations
             .snapshot()
             .get(
                 ColumnFamily::Flow,

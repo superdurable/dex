@@ -22,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::ack_proposer::PendingAck;
 use super::pending_entries::read_pending_store_work;
-use crate::effects::{EffectError, EffectRuntime};
+use crate::effects::{EffectError, FlowEffectOperations};
 
 /// Drop acks of one unconfigured store in one partition.
 pub(super) struct UnconfiguredStoreDrops {
@@ -36,13 +36,13 @@ pub(super) struct UnconfiguredStoreDrops {
 /// Returns one drop ack per pending run, by partition and store, or the read failure's description.
 /// A cancelled `stop` ends the read early with the partitions read so far.
 pub(super) async fn read_unconfigured_store_drops(
-    runtime: Arc<dyn EffectRuntime>,
+    flow_operations: Arc<dyn FlowEffectOperations>,
     reads: Vec<(PartitionId, Option<BTreeSet<String>>)>,
     configured_store_names: BTreeSet<String>,
     stop: CancellationToken,
 ) -> Result<BTreeMap<PartitionId, Vec<UnconfiguredStoreDrops>>, String> {
     tokio::task::spawn_blocking(move || {
-        let reader = runtime
+        let reader = flow_operations
             .committed_state_reader()
             .map_err(|error| error.to_string())?;
         let mut drops = BTreeMap::new();

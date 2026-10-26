@@ -10,7 +10,7 @@ use dexzd_protocol::dex::WorkerErrorResponse;
 use dexzd_protocol::dexzd::v1::StepAttemptFailureKind;
 
 use crate::effects::method_request::RequestValueSlot;
-use crate::runtime::grpc_code;
+use crate::flow_coordination::grpc_code;
 
 pub(super) struct AttemptFailure {
     pub(super) kind: StepAttemptFailureKind,

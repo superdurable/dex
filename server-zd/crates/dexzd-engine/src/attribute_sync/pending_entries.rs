@@ -26,7 +26,7 @@ use dexzd_protocol::dexzd::v1::{
 
 use super::AttributeSyncItem;
 use crate::effects::{EffectError, RunLocation, decode_row, read_run_record, scan_all};
-use crate::runtime::FlowAddress;
+use crate::flow_coordination::FlowAddress;
 
 /// One pending entry as committed.
 #[derive(Debug, Clone, PartialEq, Eq)]

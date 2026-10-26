@@ -82,13 +82,13 @@ async fn send_at_the_deadline(deadline: Instant, readiness: Readiness, send: imp
 fn assert_every_first_attempt_failed(harness: &EffectHarness, kind: StepAttemptFailureKind) {
     assert!(
         harness
-            .runtime
+            .flow_operations
             .commands_matching(is_method_completed)
             .is_empty(),
         "no result after an expired deadline is proposed"
     );
     let failures: Vec<_> = harness
-        .runtime
+        .flow_operations
         .commands_matching(|command| matches!(command, flow_command::Command::StepAttemptFailed(_)))
         .into_iter()
         .filter_map(|recorded| match recorded.command.command {
@@ -162,13 +162,13 @@ async fn retry_total_duration_cuts_the_running_attempt_before_method_timeout() {
     harness.settle().await;
     assert!(
         harness
-            .runtime
+            .flow_operations
             .commands_matching(is_attempt_failed)
             .is_empty()
     );
     tokio::time::sleep_until(started_at + Duration::from_millis(3_100)).await;
     harness.settle().await;
-    let failures = harness.runtime.commands_matching(is_attempt_failed);
+    let failures = harness.flow_operations.commands_matching(is_attempt_failed);
     assert_eq!(failures.len(), 1);
     assert!(failures.iter().all(|recorded| matches!(
         &recorded.command.command,
@@ -213,7 +213,7 @@ async fn a_worker_frame_after_the_heartbeat_deadline_fails_before_the_timer_fire
 /// Starts one Flow and returns the gate's guard once its first state read is held on a blocking
 /// thread.
 async fn start_with_a_held_state_read(harness: &EffectHarness) -> super::OpenStateReadGateOnDrop {
-    let held_reads = harness.runtime.state_read_gate.close();
+    let held_reads = harness.flow_operations.state_read_gate.close();
     let mut request = start_request("order-1");
     request.step_options = Some(StepOptions {
         wait_for_lock_attribute_keys: vec!["inventory".to_owned()],
@@ -222,14 +222,17 @@ async fn start_with_a_held_state_read(harness: &EffectHarness) -> super::OpenSta
     });
     harness.start_flow(request, settings());
     harness.yield_to_tasks().await;
-    harness.runtime.state_read_gate.wait_for_held_reads(1);
+    harness
+        .flow_operations
+        .state_read_gate
+        .wait_for_held_reads(1);
     held_reads
 }
 
 /// Asserts that only the first attempt failed, by method timeout before any dispatch, releasing
 /// its lock.
 fn assert_the_first_attempt_timed_out_before_dispatch(harness: &EffectHarness) {
-    let failures = harness.runtime.commands_matching(|command| {
+    let failures = harness.flow_operations.commands_matching(|command| {
         matches!(command, flow_command::Command::StepAttemptFailed(_))
     });
     assert_eq!(failures.len(), 1);
@@ -241,7 +244,11 @@ fn assert_the_first_attempt_timed_out_before_dispatch(harness: &EffectHarness) {
     assert_eq!(failure.kind, StepAttemptFailureKind::MethodTimeout as i32);
     assert_eq!(failure.server_detail, "method timeout of 30s expired");
     assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 0);
-    let published_effects = harness.runtime.published_effects.lock().expect("lock");
+    let published_effects = harness
+        .flow_operations
+        .published_effects
+        .lock()
+        .expect("lock");
     assert!(published_effects.iter().any(|effect| matches!(
         effect,
         ApplyEffect::LocksReleased { lock_keys, .. } if lock_keys == &["inventory".to_owned()]
@@ -266,7 +273,7 @@ async fn a_stalled_first_state_read_cannot_hold_off_the_method_timeout() {
     harness.yield_to_tasks().await;
     assert!(
         harness
-            .runtime
+            .flow_operations
             .commands_matching(|command| matches!(
                 command,
                 flow_command::Command::StepAttemptFailed(_)
@@ -275,7 +282,7 @@ async fn a_stalled_first_state_read_cannot_hold_off_the_method_timeout() {
     );
     tokio::time::advance(Duration::from_millis(200)).await;
     harness.yield_to_tasks().await;
-    assert_eq!(harness.runtime.state_read_gate.held_reads(), 1);
+    assert_eq!(harness.flow_operations.state_read_gate.held_reads(), 1);
     assert_the_first_attempt_timed_out_before_dispatch(&harness);
 
     held_reads.open_and_wait_for_reads();
@@ -309,9 +316,9 @@ async fn effect_shutdown_waits_for_a_state_read_abandoned_at_the_method_deadline
     tokio::time::advance(Duration::from_millis(30_100)).await;
     harness.yield_to_tasks().await;
     assert_the_first_attempt_timed_out_before_dispatch(&harness);
-    assert_eq!(harness.runtime.state_read_gate.held_reads(), 1);
+    assert_eq!(harness.flow_operations.state_read_gate.held_reads(), 1);
 
-    let gate = Arc::clone(&harness.runtime.state_read_gate);
+    let gate = Arc::clone(&harness.flow_operations.state_read_gate);
     let shutdown = tokio::spawn(harness.shutdown());
     for _ in 0..200 {
         tokio::task::yield_now().await;
@@ -342,7 +349,7 @@ async fn an_attempt_without_a_free_blocking_read_slot_times_out_without_reading(
     harness.start_flow(request, settings());
     harness.yield_to_tasks().await;
     assert_eq!(
-        harness.runtime.state_read_gate.open_reader_count(),
+        harness.flow_operations.state_read_gate.open_reader_count(),
         1,
         "the second attempt opens no reader while the stalled read holds the only slot"
     );
@@ -351,7 +358,7 @@ async fn an_attempt_without_a_free_blocking_read_slot_times_out_without_reading(
     tokio::time::advance(Duration::from_millis(5_100)).await;
     harness.yield_to_tasks().await;
     let failures: Vec<_> = harness
-        .runtime
+        .flow_operations
         .commands_matching(|command| matches!(command, flow_command::Command::StepAttemptFailed(_)))
         .into_iter()
         .filter_map(|recorded| match recorded.command.command {
@@ -368,7 +375,7 @@ async fn an_attempt_without_a_free_blocking_read_slot_times_out_without_reading(
             StepAttemptFailureKind::MethodTimeout as i32
         )]
     );
-    assert_eq!(harness.runtime.state_read_gate.held_reads(), 1);
+    assert_eq!(harness.flow_operations.state_read_gate.held_reads(), 1);
 
     held_reads.open_and_wait_for_reads();
     let mut dispatched_flow_ids = BTreeSet::new();

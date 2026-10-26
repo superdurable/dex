@@ -40,7 +40,7 @@ and any write they return is rejected. The Go Server behaves the same way.
 | `dexzd-worker-dispatch` | Pull Worker protocol server |
 | `dexzd-postgres-connection` | PostgreSQL connection string parsing and TLS connections for Attribute Store and search |
 | `dexzd-search` | SearchFlows backends |
-| `dexzd-engine` | Commit pipeline, Flow runtime, effects, recovery |
+| `dexzd-engine` | Commit pipeline, Flow coordination, effects, recovery |
 | `dexzd-api` | FlowService gRPC handlers and public API authentication |
 | `dexzd-server` | The `dex-server-zd` executable |
 | `dexzd-simulation` | Deterministic simulation tests |
@@ -420,7 +420,7 @@ the same `cluster.nodeId` acquires the lease at once. When object storage reject
 the release does not finish within 2 seconds, the process exits 1 and the lease stays held until it
 expires.
 
-A lost lease, a stopped commit pipeline, or a halted Flow runtime stops the node, and the process
+A lost lease, a stopped commit pipeline, or a halted Flow coordinator stops the node, and the process
 exits 1. Restart it. A signal before the node acquires its lease cancels startup and exits 0. If
 the outcome of the node's lease write is still unknown, that write is not released, and a
 replacement may wait for it to expire. If the node already holds its lease, a signal stops startup

@@ -14,7 +14,7 @@
 //! [`EffectRunner::rebuild_partition`], so a lost effect delays work but never loses it.
 
 mod dispatch;
-mod effect_runtime;
+mod flow_effect_operations;
 mod hard_delete_objects;
 mod method_request;
 mod object_deletions;
@@ -47,7 +47,9 @@ use tokio_util::task::TaskTracker;
 pub use dispatch::{
     MethodDispatchRequest, MethodDispatchSession, MethodDispatchStartError, MethodDispatcher,
 };
-pub use effect_runtime::{EffectRuntime, EffectRuntimeError, InvocationStartOutcome};
+pub use flow_effect_operations::{
+    FlowEffectOperationError, FlowEffectOperations, InvocationStartOutcome,
+};
 pub use hard_delete_objects::{
     HARD_DELETE_OBJECT_KEY_PREFIX, HardDeleteObjectOwner, HardDeleteObjects,
     HardDeleteUploadLedger, HardDeleteUploads, NodeMetaUploadLedger, decode_hard_delete_value,
@@ -62,8 +64,8 @@ pub(crate) use state_reads::{
 use crate::attribute_sync::AttributeSyncWaker;
 use crate::blocking_work::BlockingWorkPlacement;
 use crate::engine_id_source::EngineIdSource;
-use crate::recovery::{PartitionRuntimeRebuilder, RuntimeRebuildError};
-use crate::runtime::{CommitUrgency, FlowAddress, RuntimeEffectSink};
+use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
+use crate::recovery::{PartitionEffectRebuildError, PartitionEffectRebuilder};
 use dispatch::{DispatchScheduler, InvocationStartResult};
 use method_request::MethodAttemptKey;
 use timer_service::TimerServices;
@@ -178,7 +180,7 @@ pub enum EffectError {
     Storage(#[from] StorageError),
     /// The runtime could not serve a proposal or read.
     #[error(transparent)]
-    Runtime(#[from] EffectRuntimeError),
+    FlowOperations(#[from] FlowEffectOperationError),
     /// The hard-delete upload ledger could not be read when the effect runner started, so
     /// recovery cannot tell which uploads predate the start. Restart the node to read it again.
     #[error("reading pending hard-delete uploads at startup failed: {detail}")]
@@ -196,7 +198,8 @@ impl EffectError {
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::ObjectStore(error) => error.is_retryable(),
-            Self::Runtime(EffectRuntimeError::Unavailable { .. }) | Self::StateRead(_) => true,
+            Self::FlowOperations(FlowEffectOperationError::Unavailable { .. })
+            | Self::StateRead(_) => true,
             _ => false,
         }
     }
@@ -264,7 +267,7 @@ pub struct EffectDependencies {
 pub(crate) struct EffectContext {
     pub(crate) metrics: Arc<dexzd_metrics::NodeMetrics>,
     pub(crate) config: EffectsConfig,
-    pub(crate) runtime: Arc<dyn EffectRuntime>,
+    pub(crate) flow_operations: Arc<dyn FlowEffectOperations>,
     pub(crate) dispatcher: Arc<dyn MethodDispatcher>,
     pub(crate) hard_delete_objects: HardDeleteObjects,
     pub(crate) hasher: PartitionHasher,
@@ -318,7 +321,7 @@ impl EffectContext {
         let mut backoff = self.retry_backoff();
         loop {
             let proposal = self
-                .runtime
+                .flow_operations
                 .propose_committed(flow, command.clone(), urgency);
             // Biased for reproducible simulation; shutdown fires once, so the proposal cannot
             // starve.
@@ -329,8 +332,8 @@ impl EffectContext {
             };
             match outcome {
                 Ok(reply) => return Some(reply),
-                Err(EffectRuntimeError::NodeStopping { .. }) => return None,
-                Err(error @ EffectRuntimeError::Unavailable { .. }) => {
+                Err(FlowEffectOperationError::NodeStopping { .. }) => return None,
+                Err(error @ FlowEffectOperationError::Unavailable { .. }) => {
                     tracing::debug!(%error, flow_id = %flow.flow_id, "retrying an effect proposal");
                     if !backoff.wait(&self.shutdown).await {
                         return None;
@@ -418,7 +421,7 @@ impl EffectRunner {
     }
 }
 
-impl RuntimeEffectSink for EffectRunner {
+impl FlowCoordinationEffectSink for EffectRunner {
     /// Committed effects run all work. Speculative effects (ASYNC Steps) only start and run
     /// method attempts; the committed copy of the same effect is then ignored.
     fn handle(&self, flow: &FlowAddress, effects: &[ApplyEffect], is_committed: bool) {
@@ -437,15 +440,15 @@ impl RuntimeEffectSink for EffectRunner {
     }
 }
 
-impl PartitionRuntimeRebuilder for EffectRunner {
+impl PartitionEffectRebuilder for EffectRunner {
     fn rebuild_partition(
         &self,
         partition: PartitionId,
-    ) -> BoxFuture<'_, Result<usize, RuntimeRebuildError>> {
+    ) -> BoxFuture<'_, Result<usize, PartitionEffectRebuildError>> {
         Box::pin(async move {
             self.rebuild_partition_effect_count(partition)
                 .await
-                .map_err(|error| RuntimeRebuildError {
+                .map_err(|error| PartitionEffectRebuildError {
                     partition,
                     detail: error.to_string(),
                 })
@@ -455,7 +458,7 @@ impl PartitionRuntimeRebuilder for EffectRunner {
 
 impl EffectTasks {
     /// Starts the router task with the runtime it proposes through.
-    pub fn start(self, runtime: Arc<dyn EffectRuntime>) -> EffectTasksHandle {
+    pub fn start(self, flow_operations: Arc<dyn FlowEffectOperations>) -> EffectTasksHandle {
         let shutdown = CancellationToken::new();
         let tracker = TaskTracker::new();
         let startup_pending_uploads = self
@@ -474,7 +477,7 @@ impl EffectTasks {
         let context = Arc::new(EffectContext {
             metrics: self.dependencies.metrics,
             config: self.config,
-            runtime,
+            flow_operations,
             dispatcher: self.dependencies.dispatcher,
             hard_delete_objects: self.dependencies.hard_delete_objects,
             hasher: self.dependencies.partition_hasher,

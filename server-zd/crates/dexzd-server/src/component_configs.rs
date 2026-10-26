@@ -12,7 +12,7 @@ use dexzd_api::{CredentialAuthenticatorConfig, FlowServiceConfig};
 use dexzd_cluster_metadata::NodeConfig;
 use dexzd_engine::{
     AttributeSyncConfig, AttributeSyncRetryPolicy, BlockingWorkPlacement, CommitConfig,
-    EffectsConfig, EngineNodeConfig, LocalStoreConfig, RecoveryConfig, RuntimeConfig,
+    EffectsConfig, EngineNodeConfig, FlowCoordinationConfig, LocalStoreConfig, RecoveryConfig,
     SnapshotConfig, default_run_settings,
 };
 use dexzd_log::LogReadAheadConfig;
@@ -30,7 +30,7 @@ const LOG_STREAM_INCARNATION: u32 = 1;
 /// Typed configurations of every component, derived from one validated [`Config`].
 pub(crate) struct ComponentConfigs {
     pub(crate) engine_node: EngineNodeConfig,
-    pub(crate) runtime: RuntimeConfig,
+    pub(crate) flow_coordination: FlowCoordinationConfig,
     pub(crate) effects: EffectsConfig,
     pub(crate) matching: MatchingConfig,
     pub(crate) stream_store: StreamStoreConfig,
@@ -151,7 +151,7 @@ impl ComponentConfigs {
             },
             blocking_work: BlockingWorkPlacement::BlockingThreadPool,
         };
-        let runtime = RuntimeConfig {
+        let flow_coordination = FlowCoordinationConfig {
             max_speculative_commands_per_flow: to_usize(
                 "limits.maxSpeculativeCommandsPerFlow",
                 u64::from(config.limits.max_speculative_commands_per_flow),
@@ -175,7 +175,7 @@ impl ComponentConfigs {
             hydrate_value_references: config.values.hydrate_before_dispatch,
             run_settings,
             validation: validation.clone(),
-            ..RuntimeConfig::default()
+            ..FlowCoordinationConfig::default()
         };
         let effects = EffectsConfig {
             heartbeat_batch_window: config.commit.batch_window,
@@ -235,7 +235,7 @@ impl ComponentConfigs {
         };
         Ok(Self {
             engine_node,
-            runtime,
+            flow_coordination,
             effects,
             matching,
             stream_store,
@@ -248,7 +248,7 @@ impl ComponentConfigs {
 
     /// Returns the validation limits shared by the runtime and Worker response checks.
     pub(crate) fn validation(&self) -> &ValidationConfig {
-        &self.runtime.validation
+        &self.flow_coordination.validation
     }
 }
 

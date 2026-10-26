@@ -44,8 +44,8 @@ use crate::effects::method_request::{
     resolve_method_durability,
 };
 use crate::effects::state_reads::{RunLocation, decode_row};
-use crate::effects::{EffectContext, EffectError, EffectRuntimeError};
-use crate::runtime::{CommitUrgency, FlowAddress};
+use crate::effects::{EffectContext, EffectError, FlowEffectOperationError};
+use crate::flow_coordination::{CommitUrgency, FlowAddress};
 
 const DEFAULT_METHOD_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
 const DEFAULT_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -198,7 +198,7 @@ impl MethodAttempt {
         let key = self.key.clone();
         let task_id = self.task_id.clone();
         let is_hydrating = self.context.config.hydrate_before_dispatch;
-        let runtime = Arc::clone(&self.context.runtime);
+        let flow_operations = Arc::clone(&self.context.flow_operations);
         let flow = self.flow.clone();
         self.read_off_task(true, move |reader| {
             if is_hydrating {
@@ -211,7 +211,7 @@ impl MethodAttempt {
                 );
             }
             // Opened after `reader`, so fewer of its values still look uncommitted.
-            let open_committed = || Ok(runtime.flow_state_reader(&flow, false)?);
+            let open_committed = || Ok(flow_operations.flow_state_reader(&flow, false)?);
             let hydration = RequestValueHydration::UncommittedValues {
                 open_committed: &open_committed,
             };
@@ -236,7 +236,7 @@ impl MethodAttempt {
             .expect("the blocking read slots are never closed");
         let reader = self
             .context
-            .runtime
+            .flow_operations
             .flow_state_reader(&self.flow, include_speculative)?;
         let read_cancel = self.cancel.child_token();
         // When the attempt stops waiting, a read that has not started yet skips the store.
@@ -318,9 +318,9 @@ impl MethodAttempt {
     ///
     /// Returns [`EffectError::Stopped`] when the node stops first.
     async fn wait_for_proposed_commands(&self) -> Result<(), EffectError> {
-        match self.context.runtime.sync_barrier(&self.flow).await {
+        match self.context.flow_operations.sync_barrier(&self.flow).await {
             Ok(()) => Ok(()),
-            Err(EffectRuntimeError::NodeStopping { .. }) => Err(EffectError::Stopped),
+            Err(FlowEffectOperationError::NodeStopping { .. }) => Err(EffectError::Stopped),
             Err(error) => Err(error.into()),
         }
     }
@@ -521,7 +521,7 @@ impl MethodAttempt {
         // A lost checkpoint only means the next attempt sees an older value.
         if let Err(error) = self
             .context
-            .runtime
+            .flow_operations
             .propose_speculative(&self.flow, command, CommitUrgency::Batched)
             .await
         {

@@ -32,8 +32,8 @@ use super::{
     AttributeSyncRetryPolicy, AttributeSyncWaker, AttributeSyncWriteError, AttributeSyncWriter,
 };
 use crate::commit::NodeStopReason;
-use crate::effects::{EffectRuntime, RunLocation};
-use crate::runtime::FlowAddress;
+use crate::effects::{FlowEffectOperations, RunLocation};
+use crate::flow_coordination::FlowAddress;
 
 /// Distinct runs that time out without a commit in between before the whole store backs off.
 const STORE_TIMEOUT_RUN_COUNT: usize = 3;
@@ -42,7 +42,7 @@ const STORE_TIMEOUT_RUN_COUNT: usize = 3;
 pub struct AttributeSyncProjector {
     config: AttributeSyncConfig,
     writer: Arc<dyn AttributeSyncWriter>,
-    runtime: Arc<dyn EffectRuntime>,
+    flow_operations: Arc<dyn FlowEffectOperations>,
     partition_hasher: PartitionHasher,
     clock: Arc<dyn WallClock>,
     metrics: Arc<dexzd_metrics::NodeMetrics>,
@@ -138,7 +138,7 @@ impl AttributeSyncProjector {
         let projector = Self {
             config: config.clone(),
             writer: dependencies.writer,
-            runtime: dependencies.runtime,
+            flow_operations: dependencies.flow_operations,
             partition_hasher: dependencies.partition_hasher,
             clock: dependencies.clock,
             metrics: dependencies.metrics,
@@ -283,8 +283,9 @@ impl AttributeSyncProjector {
         for partition in &partitions {
             self.deferred_unconfigured_reads.remove(partition);
         }
-        let runtime = Arc::clone(&self.runtime);
-        match read_unconfigured_store_drops(runtime, reads, configured, self.stop.clone()).await {
+        let flow_operations = Arc::clone(&self.flow_operations);
+        let stop = self.stop.clone();
+        match read_unconfigured_store_drops(flow_operations, reads, configured, stop).await {
             Ok(drops) => drops,
             Err(detail) => {
                 tracing::warn!(
@@ -299,7 +300,6 @@ impl AttributeSyncProjector {
             }
         }
     }
-
     async fn project_partition(
         &mut self,
         partition: PartitionId,
@@ -352,7 +352,7 @@ impl AttributeSyncProjector {
                 .await?;
             if !acks.is_empty() {
                 let proposer = AckProposer {
-                    runtime: Arc::clone(&self.runtime),
+                    flow_operations: Arc::clone(&self.flow_operations),
                     stop: self.stop.clone(),
                     retry_policy: self.config.retry_policy.clone(),
                 };
@@ -367,7 +367,7 @@ impl AttributeSyncProjector {
             self.deferred_work
                 .remove(&(partition, drop.store_name.clone()));
             let proposer = AckProposer {
-                runtime: Arc::clone(&self.runtime),
+                flow_operations: Arc::clone(&self.flow_operations),
                 stop: self.stop.clone(),
                 retry_policy: self.config.retry_policy.clone(),
             };
@@ -385,10 +385,10 @@ impl AttributeSyncProjector {
         partition: PartitionId,
         store_name: &str,
     ) -> Result<PendingStoreWork, String> {
-        let runtime = Arc::clone(&self.runtime);
+        let flow_operations = Arc::clone(&self.flow_operations);
         let store_name = store_name.to_owned();
         tokio::task::spawn_blocking(move || {
-            let reader = runtime
+            let reader = flow_operations
                 .committed_state_reader()
                 .map_err(|error| error.to_string())?;
             read_pending_store_work(reader.as_ref(), partition, &store_name)

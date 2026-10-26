@@ -50,7 +50,7 @@ The command count keeps failures beyond the default 400 commands in every PR run
 
 ## Engine simulation
 
-The second stage runs the real engine: `EngineNode`, the Flow runtime registry, and the effect
+The second stage runs the real engine: `EngineNode`, the Flow coordinator registry, and the effect
 runner, assembled as the server assembles them. Everything runs on one current-thread Tokio
 runtime with paused time, and every choice derives from one seed.
 

@@ -16,10 +16,10 @@ use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{ClusterConfig, LeaseConfig, NodeConfig};
 use dexzd_engine::{
     BlockingWorkPlacement, CommandApplier, CommitConfig, CommitError, CommitTicket, CommitUrgency,
-    CommittedCommandSink, CommittedFlowCommand, CommittedStateView, EngineNode, EngineNodeConfig,
-    EngineNodeDependencies, EngineRuntimeHooks, EngineServices, EngineStartError, LocalStoreConfig,
-    PartitionRuntimeRebuilder, RecoveryConfig, RuntimeRebuildError, SnapshotConfig,
-    SystemEngineIdSource,
+    CommittedCommandSink, CommittedFlowCommand, CommittedStateView, EngineCommandAndEffectHooks,
+    EngineNode, EngineNodeConfig, EngineNodeDependencies, EngineServices, EngineStartError,
+    LocalStoreConfig, PartitionEffectRebuildError, PartitionEffectRebuilder, RecoveryConfig,
+    SnapshotConfig, SystemEngineIdSource,
 };
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, PartitionId, TenantId, flow_directory_key, flow_directory_prefix,
@@ -193,7 +193,7 @@ pub(crate) fn decode_u64(bytes: &[u8]) -> u64 {
 
 /// Records rebuilt partitions, every committed command, and every frame end.
 #[derive(Default)]
-pub(crate) struct RecordingRuntime {
+pub(crate) struct RecordingCommandAndEffectHooks {
     rebuilt: Mutex<Vec<PartitionId>>,
     committed: Mutex<Vec<CommittedFlowCommand>>,
     sink_events: Mutex<Vec<(PartitionId, SinkEvent)>>,
@@ -210,7 +210,7 @@ pub(crate) enum SinkEvent {
     FrameFinished(LogPosition),
 }
 
-impl RecordingRuntime {
+impl RecordingCommandAndEffectHooks {
     pub(crate) fn failing_rebuild_of(partition: PartitionId) -> Self {
         Self {
             failing_partition: Some(partition),
@@ -261,7 +261,7 @@ impl RecordingRuntime {
     }
 }
 
-impl CommittedCommandSink for RecordingRuntime {
+impl CommittedCommandSink for RecordingCommandAndEffectHooks {
     fn apply_committed(&self, committed: CommittedFlowCommand) {
         self.record_sink_event(
             committed.context.partition,
@@ -310,14 +310,14 @@ pub(crate) fn assert_frames_finish_after_their_commands(events: &[SinkEvent]) ->
     finished_frames
 }
 
-impl PartitionRuntimeRebuilder for RecordingRuntime {
+impl PartitionEffectRebuilder for RecordingCommandAndEffectHooks {
     fn rebuild_partition(
         &self,
         partition: PartitionId,
-    ) -> BoxFuture<'_, Result<usize, RuntimeRebuildError>> {
+    ) -> BoxFuture<'_, Result<usize, PartitionEffectRebuildError>> {
         Box::pin(async move {
             if self.failing_partition == Some(partition) {
-                return Err(RuntimeRebuildError {
+                return Err(PartitionEffectRebuildError {
                     partition,
                     detail: "scripted rebuild failure".to_owned(),
                 });
@@ -617,9 +617,9 @@ impl TestCluster {
         &mut self,
         config: &EngineNodeConfig,
         applier: Arc<CountingApplier>,
-        runtime: Arc<RecordingRuntime>,
+        recording_hooks: Arc<RecordingCommandAndEffectHooks>,
     ) -> Result<TestNode, EngineStartError> {
-        let factory_runtime = runtime.clone();
+        let factory_runtime = recording_hooks.clone();
         let lease_validity_deadline = dexzd_cluster_metadata::LeaseValidityDeadline::disarmed();
         let node = EngineNode::start(
             config,
@@ -631,7 +631,7 @@ impl TestCluster {
                 id_source: Arc::new(SystemEngineIdSource),
                 lease_validity_deadline: lease_validity_deadline.clone(),
             },
-            move |_services: EngineServices| EngineRuntimeHooks {
+            move |_services: EngineServices| EngineCommandAndEffectHooks {
                 committed_commands: factory_runtime.clone(),
                 rebuilder: factory_runtime,
             },
@@ -648,7 +648,7 @@ impl TestCluster {
         Ok(TestNode {
             node,
             applier,
-            runtime,
+            recording_hooks,
             hasher: self.hasher.clone(),
             lease_validity_deadline,
         })
@@ -667,7 +667,7 @@ impl TestCluster {
         self.start(
             config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
     }
@@ -706,7 +706,7 @@ impl TestCluster {
 pub(crate) struct TestNode {
     pub(crate) node: EngineNode,
     pub(crate) applier: Arc<CountingApplier>,
-    pub(crate) runtime: Arc<RecordingRuntime>,
+    pub(crate) recording_hooks: Arc<RecordingCommandAndEffectHooks>,
     pub(crate) hasher: PartitionHasher,
     /// The deadline the node's lease arms; a test moves it to stand in for a late lease timer.
     pub(crate) lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline,

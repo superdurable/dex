@@ -23,7 +23,7 @@ use crate::effects::state_reads::{
     RunLocation, TimerIndexEntry, parse_timer_index_key, read_run_record, timer_index_start_key,
 };
 use crate::effects::{EffectContext, EffectError};
-use crate::runtime::{CommitUrgency, FlowAddress};
+use crate::flow_coordination::{CommitUrgency, FlowAddress};
 
 /// The router's handles to the running partition timer services.
 pub(crate) struct TimerServices {
@@ -211,7 +211,7 @@ impl PartitionTimerService {
         now: Instant,
     ) -> Result<Vec<(Vec<u8>, TimerIndexEntry)>, EffectError> {
         let limit = self.context.config.timer_load_limit;
-        let reader = self.context.runtime.committed_state_reader()?;
+        let reader = self.context.flow_operations.committed_state_reader()?;
         let mut start = partition_index_prefix(self.partition, IndexKind::Timer);
         let end = timer_index_start_key(self.partition, horizon_micros.saturating_add(1));
         let mut entries = Vec::new();
@@ -253,7 +253,7 @@ impl PartitionTimerService {
         timers: Vec<TimerId>,
     ) -> Result<(), EffectError> {
         let run_record = {
-            let reader = self.context.runtime.committed_state_reader()?;
+            let reader = self.context.flow_operations.committed_state_reader()?;
             read_run_record(reader.as_ref(), run)?
         };
         let Some(run_record) = run_record else {

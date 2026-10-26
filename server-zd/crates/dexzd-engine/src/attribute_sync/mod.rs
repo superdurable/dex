@@ -24,7 +24,7 @@ use dexzd_protocol::dex::Value;
 use futures::future::BoxFuture;
 use tokio::sync::watch;
 
-use crate::effects::EffectRuntime;
+use crate::effects::FlowEffectOperations;
 
 pub use projector::{AttributeSyncProjector, AttributeSyncProjectorHandle};
 pub use waker::AttributeSyncWaker;
@@ -149,7 +149,7 @@ pub struct AttributeSyncDependencies {
     /// Writes to the configured Attribute Stores.
     pub writer: Arc<dyn AttributeSyncWriter>,
     /// Committed state reads and ack proposals.
-    pub runtime: Arc<dyn EffectRuntime>,
+    pub flow_operations: Arc<dyn FlowEffectOperations>,
     /// The cluster's partition hasher.
     pub partition_hasher: PartitionHasher,
     /// Owner wall clock, compared with the committed retry window starts.

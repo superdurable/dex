@@ -54,14 +54,16 @@ use tokio::sync::mpsc;
 
 use crate::SystemEngineIdSource;
 use crate::attribute_sync::AttributeSyncWaker;
-use crate::effects::effect_runtime::{EffectRuntime, EffectRuntimeError, InvocationStartOutcome};
+use crate::effects::flow_effect_operations::{
+    FlowEffectOperationError, FlowEffectOperations, InvocationStartOutcome,
+};
 use crate::effects::state_reads::{RunLocation, read_step_execution};
 use crate::effects::{
     EffectDependencies, EffectError, EffectRunner, EffectTasksHandle, EffectsConfig,
     HardDeleteObjects, HardDeleteUploadLedger, MethodDispatchRequest, MethodDispatchSession,
     MethodDispatchStartError, MethodDispatcher, MethodRequest, NodeMetaUploadLedger,
 };
-use crate::runtime::{CommitUrgency, FlowAddress, RuntimeEffectSink};
+use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
 
 pub(super) const SECOND_MICROS: i64 = 1_000_000;
 pub(super) const START_MICROS: i64 = 1_800_000_000 * SECOND_MICROS;
@@ -175,7 +177,7 @@ pub(super) struct RecordedCommand {
 }
 
 /// Fake Flow runtime: stamps, applies with the real apply, and publishes committed effects.
-pub(super) struct ApplyRuntime {
+pub(super) struct InMemoryFlowEffectOperations {
     pub(super) state: Arc<Mutex<MemoryState>>,
     hasher: PartitionHasher,
     clock: Arc<TokioWallClock>,
@@ -201,14 +203,14 @@ pub(super) struct ApplyRuntime {
     pub(super) transactional_rpcs: tokio::sync::watch::Sender<u32>,
 }
 
-impl ApplyRuntime {
+impl InMemoryFlowEffectOperations {
     /// Proposes and commits one command, then publishes its effects.
     pub(super) fn commit(
         &self,
         flow: &FlowAddress,
         mut command: FlowCommand,
         urgency: CommitUrgency,
-    ) -> Result<CommandReply, EffectRuntimeError> {
+    ) -> Result<CommandReply, FlowEffectOperationError> {
         if self
             .unavailable_proposals
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |budget| {
@@ -216,7 +218,7 @@ impl ApplyRuntime {
             })
             .is_ok()
         {
-            return Err(EffectRuntimeError::Unavailable {
+            return Err(FlowEffectOperationError::Unavailable {
                 detail: "injected outage".to_owned(),
             });
         }
@@ -288,13 +290,13 @@ impl ApplyRuntime {
     }
 }
 
-impl EffectRuntime for ApplyRuntime {
+impl FlowEffectOperations for InMemoryFlowEffectOperations {
     fn propose_committed<'a>(
         &'a self,
         flow: &'a FlowAddress,
         command: FlowCommand,
         urgency: CommitUrgency,
-    ) -> BoxFuture<'a, Result<CommandReply, EffectRuntimeError>> {
+    ) -> BoxFuture<'a, Result<CommandReply, FlowEffectOperationError>> {
         Box::pin(async move {
             let delay = *self.proposal_delay.lock().expect("lock");
             if !delay.is_zero() {
@@ -309,14 +311,14 @@ impl EffectRuntime for ApplyRuntime {
         flow: &'a FlowAddress,
         command: FlowCommand,
         urgency: CommitUrgency,
-    ) -> BoxFuture<'a, Result<CommandReply, EffectRuntimeError>> {
+    ) -> BoxFuture<'a, Result<CommandReply, FlowEffectOperationError>> {
         Box::pin(async move { self.commit(flow, command, urgency) })
     }
 
     fn sync_barrier<'a>(
         &'a self,
         _flow: &'a FlowAddress,
-    ) -> BoxFuture<'a, Result<(), EffectRuntimeError>> {
+    ) -> BoxFuture<'a, Result<(), FlowEffectOperationError>> {
         // Proposals commit before they return.
         Box::pin(async { Ok(()) })
     }
@@ -324,14 +326,14 @@ impl EffectRuntime for ApplyRuntime {
     fn wait_for_transactional_rpcs<'a>(
         &'a self,
         _flow: &'a FlowAddress,
-    ) -> BoxFuture<'a, Result<(), EffectRuntimeError>> {
+    ) -> BoxFuture<'a, Result<(), FlowEffectOperationError>> {
         let mut in_flight = self.transactional_rpcs.subscribe();
         Box::pin(async move {
             in_flight
                 .wait_for(|count| *count == 0)
                 .await
                 .map(drop)
-                .map_err(|_| EffectRuntimeError::NodeStopping {
+                .map_err(|_| FlowEffectOperationError::NodeStopping {
                     detail: "the test runtime dropped".to_owned(),
                 })
         })
@@ -346,7 +348,7 @@ impl EffectRuntime for ApplyRuntime {
         attempt: u32,
         task_id: Vec<u8>,
         pull_routing: PullRouting,
-    ) -> BoxFuture<'a, Result<InvocationStartOutcome, EffectRuntimeError>> {
+    ) -> BoxFuture<'a, Result<InvocationStartOutcome, FlowEffectOperationError>> {
         Box::pin(async move {
             let run = RunLocation {
                 flow_hash: self.hasher.flow_hash(flow.tenant_id, &flow.flow_id),
@@ -398,9 +400,9 @@ impl EffectRuntime for ApplyRuntime {
         &self,
         _flow: &FlowAddress,
         _include_speculative: bool,
-    ) -> Result<Box<dyn FlowStateReader + Send>, EffectRuntimeError> {
+    ) -> Result<Box<dyn FlowStateReader + Send>, FlowEffectOperationError> {
         if self.is_flow_state_unreadable.load(Ordering::SeqCst) {
-            return Err(EffectRuntimeError::Unavailable {
+            return Err(FlowEffectOperationError::Unavailable {
                 detail: "injected state reader outage".to_owned(),
             });
         }
@@ -412,7 +414,7 @@ impl EffectRuntime for ApplyRuntime {
 
     fn committed_state_reader(
         &self,
-    ) -> Result<Box<dyn FlowStateReader + Send>, EffectRuntimeError> {
+    ) -> Result<Box<dyn FlowStateReader + Send>, FlowEffectOperationError> {
         self.committed_reads.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(self.snapshot()))
     }
@@ -832,7 +834,7 @@ impl DurableState {
 /// One running node: fake runtime, effect runner, and fake Worker dispatch.
 pub(super) struct EffectHarness {
     pub(super) durable: DurableState,
-    pub(super) runtime: Arc<ApplyRuntime>,
+    pub(super) flow_operations: Arc<InMemoryFlowEffectOperations>,
     pub(super) dispatcher: Arc<FakeDispatcher>,
     pub(super) runner: EffectRunner,
     pub(super) hard_delete_objects: HardDeleteObjects,
@@ -896,7 +898,7 @@ impl EffectHarness {
                 attribute_sync_waker: attribute_sync_waker.clone(),
             },
         );
-        let runtime = Arc::new(ApplyRuntime {
+        let flow_operations = Arc::new(InMemoryFlowEffectOperations {
             state: Arc::clone(&durable.state),
             hasher: hasher.clone(),
             clock: Arc::clone(&clock),
@@ -914,10 +916,10 @@ impl EffectHarness {
             overrides: Mutex::new(Vec::new()),
             transactional_rpcs: tokio::sync::watch::Sender::new(0),
         });
-        let tasks = tasks.start(Arc::clone(&runtime) as _);
+        let tasks = tasks.start(Arc::clone(&flow_operations) as _);
         Self {
             durable,
-            runtime,
+            flow_operations,
             dispatcher,
             runner,
             hard_delete_objects,
@@ -990,7 +992,7 @@ impl EffectHarness {
             ..FlowCommand::default()
         };
         let reply = self
-            .runtime
+            .flow_operations
             .commit(&flow, command, CommitUrgency::Prompt)
             .expect("start commits");
         assert!(!is_error_reply(&reply), "start failed: {reply:?}");
@@ -1001,7 +1003,7 @@ impl EffectHarness {
         let run = self.run_location(flow_id, run_id);
         let key = run_singleton_key(run.flow_hash, run.run_id, RunTable::RunRecord);
         let bytes = self
-            .runtime
+            .flow_operations
             .snapshot()
             .get(ColumnFamily::Flow, &key)
             .expect("memory reads never fail")
@@ -1016,7 +1018,7 @@ impl EffectHarness {
         step_execution_id: &str,
     ) -> StepExecutionRecord {
         read_step_execution(
-            &self.runtime.snapshot(),
+            &self.flow_operations.snapshot(),
             self.run_location(flow_id, run_id),
             step_execution_id,
         )
@@ -1027,7 +1029,11 @@ impl EffectHarness {
     /// Lets every runnable task proceed without moving time forward much.
     pub(super) async fn settle(&self) {
         self.yield_to_tasks().await;
-        if self.runtime.state_read_gate.may_have_unconsumed_reads() {
+        if self
+            .flow_operations
+            .state_read_gate
+            .may_have_unconsumed_reads()
+        {
             // Paused time cannot auto-advance during a blocking state read, so this waits for reads.
             tokio::time::sleep(Duration::from_millis(1)).await;
             self.yield_to_tasks().await;

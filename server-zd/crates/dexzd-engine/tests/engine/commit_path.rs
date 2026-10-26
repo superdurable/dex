@@ -26,7 +26,8 @@ use dexzd_storage::RocksDbStoreOptions;
 
 use crate::harness::{
     BLOCKING_FLOW, CountingApplier, FAILING_FLOW, NONDETERMINISTIC_FLOW, PANICKING_FLOW,
-    RecordingRuntime, TestCluster, assert_frames_finish_after_their_commands, is_partition_stopped,
+    RecordingCommandAndEffectHooks, TestCluster, assert_frames_finish_after_their_commands,
+    is_partition_stopped,
 };
 
 #[tokio::test(start_paused = true)]
@@ -61,7 +62,7 @@ async fn committed_commands_are_stamped_applied_and_published_in_order() {
     assert_eq!(test.committed_count("order-flow").await, 3);
     // Shutdown joins the applier lanes, which hand each command to the runtime before its ticket.
     test.node.shutdown().await.expect("lease released");
-    let published = test.runtime.committed_command_ids("order-flow");
+    let published = test.recording_hooks.committed_command_ids("order-flow");
     let submitted: Vec<Vec<u8>> = stamped
         .into_iter()
         .map(|command| command.command_id)
@@ -74,12 +75,12 @@ async fn committed_commands_are_stamped_applied_and_published_in_order() {
 async fn tickets_resolve_only_after_the_sink_received_the_whole_frame() {
     let mut cluster = TestCluster::new();
     let config = cluster.config(LocalStoreConfig::InMemory);
-    let runtime = Arc::new(RecordingRuntime::with_gated_frame_ends());
+    let recording_hooks = Arc::new(RecordingCommandAndEffectHooks::with_gated_frame_ends());
     let test = cluster
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            runtime.clone(),
+            recording_hooks.clone(),
         )
         .await
         .expect("node starts");
@@ -87,19 +88,19 @@ async fn tickets_resolve_only_after_the_sink_received_the_whole_frame() {
         .submit("visible-flow", CommitUrgency::Prompt)
         .expect("submit succeeds");
     let mut commit = Box::pin(ticket.wait());
-    runtime.frame_end_gate.wait_until_entered().await;
+    recording_hooks.frame_end_gate.wait_until_entered().await;
     for _ in 0..10 {
         tokio::task::yield_now().await;
     }
     let is_waiting_for_the_sink = futures::poll!(&mut commit).is_pending();
     // Open before asserting, so a failure does not leave the applier thread blocked.
-    runtime.frame_end_gate.open();
+    recording_hooks.frame_end_gate.open();
     assert!(
         is_waiting_for_the_sink,
         "the ticket waits while the sink holds the frame end"
     );
     assert_eq!(
-        runtime.committed_command_ids("visible-flow"),
+        recording_hooks.committed_command_ids("visible-flow"),
         vec![command.command_id]
     );
     commit.await.expect("command commits");
@@ -152,10 +153,10 @@ async fn each_frame_finishes_after_its_last_committed_command() {
     test.commit_prompt("frame-flow", 2).await;
     // Shutdown joins the applier lanes, so every sink call has happened.
     test.node.shutdown().await.expect("lease released");
-    let frame_events = test.runtime.sink_events_of(frame_partition);
+    let frame_events = test.recording_hooks.sink_events_of(frame_partition);
     assert_eq!(frame_events.len(), 5 + 3);
     assert_eq!(assert_frames_finish_after_their_commands(&frame_events), 3);
-    let other_events = test.runtime.sink_events_of(other_partition);
+    let other_events = test.recording_hooks.sink_events_of(other_partition);
     assert_eq!(assert_frames_finish_after_their_commands(&other_events), 1);
 }
 
@@ -185,7 +186,7 @@ async fn submissions_beyond_the_unapplied_budget_are_rejected() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node starts");
@@ -230,7 +231,7 @@ async fn repeated_apply_check_stops_a_nondeterministic_partition() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node starts");
@@ -255,7 +256,7 @@ async fn speculative_outcome_check_compares_only_when_enabled() {
             .start(
                 &config,
                 Arc::new(CountingApplier::default()),
-                Arc::new(RecordingRuntime::default()),
+                Arc::new(RecordingCommandAndEffectHooks::default()),
             )
             .await
             .expect("node starts");
@@ -299,7 +300,7 @@ async fn a_speculative_mismatch_reported_by_the_runtime_stops_the_partition() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node starts");
@@ -341,7 +342,7 @@ async fn a_frame_still_applying_when_the_node_stops_is_not_written() {
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            Arc::new(RecordingRuntime::default()),
+            Arc::new(RecordingCommandAndEffectHooks::default()),
         )
         .await
         .expect("node starts");
@@ -361,12 +362,16 @@ async fn a_frame_still_applying_when_the_node_stops_is_not_written() {
         ticket.wait().await,
         Err(CommitError::NodeStopping { .. })
     ));
-    assert!(first.runtime.committed_commands().is_empty());
+    assert!(first.recording_hooks.committed_commands().is_empty());
 
     let applier = Arc::new(CountingApplier::default());
     applier.gate.open();
     let second = cluster
-        .start(&config, applier, Arc::new(RecordingRuntime::default()))
+        .start(
+            &config,
+            applier,
+            Arc::new(RecordingCommandAndEffectHooks::default()),
+        )
         .await
         .expect("node restarts");
     let replayed = second
@@ -396,7 +401,7 @@ async fn a_committed_view_keeps_the_state_it_was_opened_with() {
             .start(
                 &cluster.config(local_store),
                 Arc::new(CountingApplier::default()),
-                Arc::new(RecordingRuntime::default()),
+                Arc::new(RecordingCommandAndEffectHooks::default()),
             )
             .await
             .expect("node starts");

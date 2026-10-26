@@ -12,14 +12,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dexzd_engine::{
-    EngineNode, EngineNodeConfig, EngineNodeDependencies, EngineRuntimeHooks, EngineServices,
-    EngineStartError, LocalStoreConfig,
+    EngineCommandAndEffectHooks, EngineNode, EngineNodeConfig, EngineNodeDependencies,
+    EngineServices, EngineStartError, LocalStoreConfig,
 };
 use dexzd_log::{DecodedBatch, decode_batch};
 use dexzd_object_store::{ObjectStore, ObjectStoreOperation};
 use dexzd_storage::{RocksDbLocalStore, RocksDbStoreOptions};
 
-use crate::harness::{CountingApplier, RecordingRuntime, TestCluster, TestNode};
+use crate::harness::{CountingApplier, RecordingCommandAndEffectHooks, TestCluster, TestNode};
 
 const TAKEOVER_FLOW: &str = "takeover-flow";
 const LEASE_KEY: &str = "lease/node-a";
@@ -261,8 +261,8 @@ pub(crate) fn start_node(
     let hasher = cluster.hasher.clone();
     async move {
         let applier = Arc::new(CountingApplier::default());
-        let runtime = Arc::new(RecordingRuntime::default());
-        let factory_runtime = runtime.clone();
+        let recording_hooks = Arc::new(RecordingCommandAndEffectHooks::default());
+        let factory_recording_hooks = recording_hooks.clone();
         let lease_validity_deadline = dexzd_cluster_metadata::LeaseValidityDeadline::disarmed();
         let node = EngineNode::start(
             &config,
@@ -274,16 +274,16 @@ pub(crate) fn start_node(
                 id_source: Arc::new(dexzd_engine::SystemEngineIdSource),
                 lease_validity_deadline: lease_validity_deadline.clone(),
             },
-            move |_services: EngineServices| EngineRuntimeHooks {
-                committed_commands: factory_runtime.clone(),
-                rebuilder: factory_runtime,
+            move |_services: EngineServices| EngineCommandAndEffectHooks {
+                committed_commands: factory_recording_hooks.clone(),
+                rebuilder: factory_recording_hooks,
             },
         )
         .await?;
         Ok(TestNode {
             node,
             applier,
-            runtime,
+            recording_hooks,
             hasher,
             lease_validity_deadline,
         })

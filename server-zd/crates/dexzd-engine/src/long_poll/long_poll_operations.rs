@@ -23,11 +23,13 @@ use dexzd_protocol::dexzd::v1::{AttributeRecord, stored_value};
 use dexzd_request_validation::{ClientRequest, validate_client_request};
 use tokio::time::Instant;
 
-use crate::long_poll::WaitInterest;
-use crate::runtime::read_operations::state_rows::{
+use crate::flow_coordination::read_operations::state_rows::{
     ResolvedRun, WireValue, decode_row, is_closed_status, read_run, response_value,
 };
-use crate::runtime::{FlowAddress, FlowRuntimeRegistry, RuntimeError, grpc_code};
+use crate::flow_coordination::{
+    FlowAddress, FlowCoordinationError, FlowCoordinatorRegistry, grpc_code,
+};
+use crate::long_poll::WaitInterest;
 
 /// The Go Server's WaitForFlow message when the wait time or the client deadline ends first.
 pub const WAIT_FOR_FLOW_TIMEOUT_MESSAGE: &str =
@@ -55,7 +57,7 @@ struct RequestDeadline {
     timeout_message: &'static str,
 }
 
-impl FlowRuntimeRegistry {
+impl FlowCoordinatorRegistry {
     /// Waits until the run closes and returns its result (plan 9.7).
     ///
     /// Returns `DEADLINE_EXCEEDED` + `LONG_POLL_TIME_OUT` when the run is still running at the
@@ -64,9 +66,9 @@ impl FlowRuntimeRegistry {
         &self,
         tenant_id: TenantId,
         request: WaitForFlowRequest,
-    ) -> Result<FlowResult, RuntimeError> {
+    ) -> Result<FlowResult, FlowCoordinationError> {
         if request.flow_id.is_empty() || request.wait_time_seconds < 0 {
-            return Err(RuntimeError::invalid_argument(
+            return Err(FlowCoordinationError::invalid_argument(
                 "valid flow ID and non-negative wait time are required",
             ));
         }
@@ -105,7 +107,7 @@ impl FlowRuntimeRegistry {
         &self,
         tenant_id: TenantId,
         request: WaitForStepCompletionRequest,
-    ) -> Result<WaitForStepCompletionResponse, RuntimeError> {
+    ) -> Result<WaitForStepCompletionResponse, FlowCoordinationError> {
         validate_client_request(
             ClientRequest::WaitForStepCompletion(&request),
             &self.inner.config.validation,
@@ -116,7 +118,9 @@ impl FlowRuntimeRegistry {
             .ok()
             .filter(|number| *number > 0)
             .ok_or_else(|| {
-                RuntimeError::invalid_argument("step execution number must be a positive integer")
+                FlowCoordinationError::invalid_argument(
+                    "step execution number must be a positive integer",
+                )
             })?;
         let step_execution_id = format!("{}-{step_execution_number}", request.step_type);
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
@@ -144,12 +148,12 @@ impl FlowRuntimeRegistry {
                 match completion {
                     StepCompletionState::Completed => Ok(Some(WaitForStepCompletionResponse {})),
                     StepCompletionState::NotCompleted if is_terminal_cleanup => {
-                        Err(RuntimeError::terminal_cleanup_in_progress())
+                        Err(FlowCoordinationError::terminal_cleanup_in_progress())
                     }
                     StepCompletionState::NotCompleted => Ok(None),
                     // Go reports a wait on a closed Flow as a missing Flow.
                     StepCompletionState::EndedWithoutCompletion => {
-                        Err(RuntimeError::flow_not_found(&flow.flow_id))
+                        Err(FlowCoordinationError::flow_not_found(&flow.flow_id))
                     }
                 }
             },
@@ -166,15 +170,14 @@ impl FlowRuntimeRegistry {
         &self,
         tenant_id: TenantId,
         request: WaitForAttributeRequest,
-    ) -> Result<WaitForAttributeResponse, RuntimeError> {
+    ) -> Result<WaitForAttributeResponse, FlowCoordinationError> {
         validate_client_request(
             ClientRequest::WaitForAttribute(&request),
             &self.inner.config.validation,
         )?;
-        let attribute_match = request
-            .r#match
-            .clone()
-            .ok_or_else(|| RuntimeError::invalid_argument("attribute match is required"))?;
+        let attribute_match = request.r#match.clone().ok_or_else(|| {
+            FlowCoordinationError::invalid_argument("attribute match is required")
+        })?;
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
         let deadline = self.request_deadline(
             request.request_timeout_seconds,
@@ -189,11 +192,11 @@ impl FlowRuntimeRegistry {
             |state, context| {
                 let run = read_run(state, context, &flow, "")?;
                 if is_closed_status(run.record.status) {
-                    return Err(RuntimeError::flow_not_found(&flow.flow_id));
+                    return Err(FlowCoordinationError::flow_not_found(&flow.flow_id));
                 }
                 let is_terminal_cleanup = admission.check(&run)?;
                 let unmatched = if is_terminal_cleanup {
-                    Err(RuntimeError::terminal_cleanup_in_progress())
+                    Err(FlowCoordinationError::terminal_cleanup_in_progress())
                 } else {
                     Ok(None)
                 };
@@ -240,12 +243,12 @@ impl FlowRuntimeRegistry {
         &self,
         tenant_id: TenantId,
         request: WaitForHistoryEventRequest,
-    ) -> Result<WaitForHistoryEventResponse, RuntimeError> {
+    ) -> Result<WaitForHistoryEventResponse, FlowCoordinationError> {
         if request.flow_id.is_empty()
             || request.run_id.is_empty()
             || request.next_internal_event_id <= 0
         {
-            return Err(RuntimeError::invalid_argument(
+            return Err(FlowCoordinationError::invalid_argument(
                 "flow ID, run ID, and positive next event ID are required",
             ));
         }
@@ -284,8 +287,11 @@ impl FlowRuntimeRegistry {
         interest: WaitInterest,
         deadline: &LongPollDeadline,
         long_poll_timeout_message: &str,
-        mut check: impl FnMut(&dyn FlowStateReader, ApplyContext) -> Result<Option<T>, RuntimeError>,
-    ) -> Result<T, RuntimeError> {
+        mut check: impl FnMut(
+            &dyn FlowStateReader,
+            ApplyContext,
+        ) -> Result<Option<T>, FlowCoordinationError>,
+    ) -> Result<T, FlowCoordinationError> {
         self.check_running()?;
         let context = self.flow_context(flow);
         let registration = self.inner.waiters.register(flow, interest)?;
@@ -304,7 +310,7 @@ impl FlowRuntimeRegistry {
             }
             self.check_running()?;
             if self.inner.waiters.is_closed() {
-                return Err(RuntimeError::Unavailable {
+                return Err(FlowCoordinationError::Unavailable {
                     detail: "long poll ended because the node is stopping; retry".to_owned(),
                 });
             }
@@ -319,13 +325,13 @@ impl FlowRuntimeRegistry {
                         .as_ref()
                         .filter(|request_deadline| request_deadline.expires_at <= call_deadline);
                     return Err(if let Some(expired_request) = expired_request {
-                        RuntimeError::rejected(
+                        FlowCoordinationError::rejected(
                             grpc_code::DEADLINE_EXCEEDED,
                             ErrorSubStatus::RequestTimeout,
                             expired_request.timeout_message,
                         )
                     } else {
-                        RuntimeError::rejected(
+                        FlowCoordinationError::rejected(
                             grpc_code::DEADLINE_EXCEEDED,
                             ErrorSubStatus::LongPollTimeOut,
                             long_poll_timeout_message,
@@ -372,10 +378,10 @@ impl TerminalCleanupAdmission {
     /// Rejects a new call while a natural close waits; an admitted call still returns a match.
     ///
     /// Returns whether the run is in terminal cleanup, or the rejection of a new call.
-    fn check(&mut self, run: &ResolvedRun) -> Result<bool, RuntimeError> {
+    fn check(&mut self, run: &ResolvedRun) -> Result<bool, FlowCoordinationError> {
         let is_terminal_cleanup = run.record.pending_close.is_some();
         if !self.is_admitted && is_terminal_cleanup {
-            return Err(RuntimeError::terminal_cleanup_in_progress());
+            return Err(FlowCoordinationError::terminal_cleanup_in_progress());
         }
         self.is_admitted = true;
         Ok(is_terminal_cleanup)
@@ -390,7 +396,7 @@ fn flow_result(
     run: &ResolvedRun,
     needs_results: bool,
     is_hydrating: bool,
-) -> Result<FlowResult, RuntimeError> {
+) -> Result<FlowResult, FlowCoordinationError> {
     let close = run.record.close.clone().unwrap_or_default();
     let mut result = FlowResult {
         flow_status: run.record.status,
@@ -423,9 +429,10 @@ fn flow_result(
 fn is_attribute_matched(
     current: &Value,
     attribute_match: &AttributeMatch,
-) -> Result<bool, RuntimeError> {
-    let operator = AttributeMatchOperator::try_from(attribute_match.operator)
-        .map_err(|_| RuntimeError::invalid_argument("attribute match operator is invalid"))?;
+) -> Result<bool, FlowCoordinationError> {
+    let operator = AttributeMatchOperator::try_from(attribute_match.operator).map_err(|_| {
+        FlowCoordinationError::invalid_argument("attribute match operator is invalid")
+    })?;
     let operand = attribute_match
         .operand
         .as_ref()
@@ -479,8 +486,8 @@ fn is_equality_matched(is_equal: bool, operator: AttributeMatchOperator) -> bool
     }
 }
 
-fn attribute_precondition(message: impl Into<String>) -> RuntimeError {
-    RuntimeError::rejected(
+fn attribute_precondition(message: impl Into<String>) -> FlowCoordinationError {
+    FlowCoordinationError::rejected(
         grpc_code::FAILED_PRECONDITION,
         ErrorSubStatus::Uncategorized,
         message,
@@ -488,13 +495,17 @@ fn attribute_precondition(message: impl Into<String>) -> RuntimeError {
 }
 
 /// Maps a read-model error of a long poll to the client error Go returns.
-fn read_model_error(flow: &FlowAddress, error: ReadModelError) -> RuntimeError {
+fn read_model_error(flow: &FlowAddress, error: ReadModelError) -> FlowCoordinationError {
     match error {
-        ReadModelError::RunNotFound { .. } => RuntimeError::flow_not_found(&flow.flow_id),
-        ReadModelError::InvalidRequest { detail } => RuntimeError::invalid_argument(detail),
+        ReadModelError::RunNotFound { .. } => FlowCoordinationError::flow_not_found(&flow.flow_id),
+        ReadModelError::InvalidRequest { detail } => {
+            FlowCoordinationError::invalid_argument(detail)
+        }
         ReadModelError::State(error) => error.into(),
-        error @ ReadModelError::UnsupportedAttributeValue { .. } => RuntimeError::Internal {
-            detail: error.to_string(),
-        },
+        error @ ReadModelError::UnsupportedAttributeValue { .. } => {
+            FlowCoordinationError::Internal {
+                detail: error.to_string(),
+            }
+        }
     }
 }

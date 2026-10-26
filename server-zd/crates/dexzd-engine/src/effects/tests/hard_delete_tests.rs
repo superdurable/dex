@@ -31,7 +31,7 @@ use crate::effects::{
     EffectError, EffectsConfig, HardDeleteUploadLedger, MethodRequest, NodeMetaUploadLedger,
     decode_hard_delete_value, hard_delete_placeholder_value,
 };
-use crate::runtime::CommitUrgency;
+use crate::flow_coordination::CommitUrgency;
 
 fn hard_delete_write(key: &str, value: Value) -> AttributeWrite {
     AttributeWrite {
@@ -77,7 +77,7 @@ pub(super) async fn set_hard_delete_attribute(
         ..FlowCommand::default()
     };
     let reply = harness
-        .runtime
+        .flow_operations
         .commit(&flow, command, CommitUrgency::Prompt)
         .expect("set commits");
     assert!(!is_error_reply(&reply), "set failed: {reply:?}");
@@ -131,7 +131,9 @@ async fn result_hard_delete_writes_are_uploaded_before_the_command_and_reach_the
     });
     let execute = harness.dispatcher.next_dispatch().await;
 
-    let completed = harness.runtime.commands_matching(is_method_completed);
+    let completed = harness
+        .flow_operations
+        .commands_matching(is_method_completed);
     let Some(flow_command::Command::StepMethodCompleted(command)) = &completed[0].command.command
     else {
         panic!("expected a completion");
@@ -170,7 +172,7 @@ async fn rejected_results_delete_their_uploaded_objects() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
     let run_id = harness.start_flow(start_request("order-1"), settings());
-    harness.runtime.add_override(Box::new(|command, _| {
+    harness.flow_operations.add_override(Box::new(|command, _| {
         command
             .command
             .as_ref()
@@ -201,29 +203,31 @@ async fn rejected_results_delete_their_uploaded_objects() {
 async fn overwritten_hard_delete_objects_are_deleted_then_acknowledged() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
-    harness.runtime.add_override(Box::new(|command, state| {
-        let Some(flow_command::Command::HardDeleteObjectsDeleted(deleted)) = &command.command
-        else {
-            return None;
-        };
-        // Simulates apply: drop the pending rows and their index entries.
-        state
-            .rows
-            .retain(|(column_family, key), value| match column_family {
-                ColumnFamily::Flow => HardDeleteObjectRecord::decode(value.as_slice())
-                    .ok()
-                    .and_then(|record| record.object)
-                    .is_none_or(|object| {
-                        !deleted.object_ids.contains(&object.object_id)
-                            || !key.ends_with(object.object_id.as_bytes())
-                    }),
-                ColumnFamily::PartitionIndex => {
-                    key.get(2) != Some(&(IndexKind::HardDeletePending as u8))
-                }
-                _ => true,
-            });
-        Some(ok_reply())
-    }));
+    harness
+        .flow_operations
+        .add_override(Box::new(|command, state| {
+            let Some(flow_command::Command::HardDeleteObjectsDeleted(deleted)) = &command.command
+            else {
+                return None;
+            };
+            // Simulates apply: drop the pending rows and their index entries.
+            state
+                .rows
+                .retain(|(column_family, key), value| match column_family {
+                    ColumnFamily::Flow => HardDeleteObjectRecord::decode(value.as_slice())
+                        .ok()
+                        .and_then(|record| record.object)
+                        .is_none_or(|object| {
+                            !deleted.object_ids.contains(&object.object_id)
+                                || !key.ends_with(object.object_id.as_bytes())
+                        }),
+                    ColumnFamily::PartitionIndex => {
+                        key.get(2) != Some(&(IndexKind::HardDeletePending as u8))
+                    }
+                    _ => true,
+                });
+            Some(ok_reply())
+        }));
     let run_id = harness.start_flow(start_request("order-1"), settings());
     let first = set_hard_delete_attribute(&harness, "order-1", run_id, "secret", "v1").await;
     let second = set_hard_delete_attribute(&harness, "order-1", run_id, "secret", "v2").await;
@@ -237,7 +241,7 @@ async fn overwritten_hard_delete_objects_are_deleted_then_acknowledged() {
         object_value(&harness, "order-1", run_id, &second).await,
         Some(string_value("v2"))
     );
-    let deleted = harness.runtime.commands_matching(|command| {
+    let deleted = harness.flow_operations.commands_matching(|command| {
         matches!(command, flow_command::Command::HardDeleteObjectsDeleted(_))
     });
     let Some(flow_command::Command::HardDeleteObjectsDeleted(command)) =
@@ -252,7 +256,7 @@ async fn overwritten_hard_delete_objects_are_deleted_then_acknowledged() {
     pending_prefix.push(HARD_DELETE_PENDING_OBJECT);
     assert!(
         harness
-            .runtime
+            .flow_operations
             .snapshot()
             .rows
             .keys()
@@ -263,7 +267,7 @@ async fn overwritten_hard_delete_objects_are_deleted_then_acknowledged() {
         "HardDeleteObject",
         &current_key,
         harness
-            .runtime
+            .flow_operations
             .snapshot()
             .rows
             .get(&(ColumnFamily::Flow, current_key.clone()))
@@ -324,7 +328,9 @@ async fn transient_upload_failures_are_retried_and_the_result_still_commits() {
         execute.method_request(),
         MethodRequest::Execute(_)
     ));
-    let completed = harness.runtime.commands_matching(is_method_completed);
+    let completed = harness
+        .flow_operations
+        .commands_matching(is_method_completed);
     assert_eq!(completed.len(), 1);
     let Some(flow_command::Command::StepMethodCompleted(command)) = &completed[0].command.command
     else {
@@ -349,7 +355,7 @@ async fn server_errors_before_dispatch_fail_the_attempt_so_it_retries() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
     harness
-        .runtime
+        .flow_operations
         .busy_lock_keys
         .lock()
         .expect("lock")
@@ -374,10 +380,17 @@ async fn server_errors_before_dispatch_fail_the_attempt_so_it_retries() {
         )
         .await
         .expect("corrupt the object");
-    harness.runtime.busy_lock_keys.lock().expect("lock").clear();
+    harness
+        .flow_operations
+        .busy_lock_keys
+        .lock()
+        .expect("lock")
+        .clear();
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
     harness.settle().await;
-    let failures = harness.runtime.commands_matching(super::is_attempt_failed);
+    let failures = harness
+        .flow_operations
+        .commands_matching(super::is_attempt_failed);
     let Some(flow_command::Command::StepAttemptFailed(failure)) = &failures[0].command.command
     else {
         panic!("expected a failure");
@@ -400,7 +413,7 @@ async fn a_stalled_hard_delete_read_times_out_the_method_before_dispatch() {
     let harness = EffectHarness::with_config(durable, crate::effects::EffectsConfig::default());
     harness.rebuild_all_partitions().await;
     harness
-        .runtime
+        .flow_operations
         .busy_lock_keys
         .lock()
         .expect("lock")
@@ -414,20 +427,27 @@ async fn a_stalled_hard_delete_read_times_out_the_method_before_dispatch() {
     let run_id = harness.start_flow(request, settings());
     set_hard_delete_attribute(&harness, "order-1", run_id, "secret", "v1").await;
     object_fault.set_enabled(true);
-    harness.runtime.busy_lock_keys.lock().expect("lock").clear();
+    harness
+        .flow_operations
+        .busy_lock_keys
+        .lock()
+        .expect("lock")
+        .clear();
     // The parked start retries after one second; its hard-delete read then hangs.
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
     harness.settle().await;
     assert!(
         harness
-            .runtime
+            .flow_operations
             .commands_matching(super::is_attempt_failed)
             .is_empty()
     );
 
     tokio::time::sleep(std::time::Duration::from_secs(30)).await;
     harness.settle().await;
-    let failures = harness.runtime.commands_matching(super::is_attempt_failed);
+    let failures = harness
+        .flow_operations
+        .commands_matching(super::is_attempt_failed);
     let Some(flow_command::Command::StepAttemptFailed(failure)) = &failures[0].command.command
     else {
         panic!("expected a failure");
@@ -475,11 +495,13 @@ async fn a_result_whose_uploads_end_after_the_method_deadline_fails_and_deletes_
     harness.settle().await;
     assert!(
         harness
-            .runtime
+            .flow_operations
             .commands_matching(is_method_completed)
             .is_empty()
     );
-    let failures = harness.runtime.commands_matching(super::is_attempt_failed);
+    let failures = harness
+        .flow_operations
+        .commands_matching(super::is_attempt_failed);
     let Some(flow_command::Command::StepAttemptFailed(failure)) = &failures[0].command.command
     else {
         panic!("expected a failure");
@@ -506,7 +528,7 @@ async fn a_result_whose_uploads_end_after_the_method_deadline_fails_and_deletes_
 /// Returns the failure kinds proposed for `attempt`.
 fn attempt_failure_kinds(harness: &EffectHarness, attempt: u32) -> Vec<i32> {
     harness
-        .runtime
+        .flow_operations
         .commands_matching(is_attempt_failed)
         .into_iter()
         .filter_map(|recorded| match recorded.command.command {
@@ -618,12 +640,15 @@ async fn a_committed_result_whose_ledger_cleanup_fails_proposes_no_failure() {
     let _execute = harness.dispatcher.next_dispatch().await;
     harness.settle().await;
     assert_eq!(
-        harness.runtime.commands_matching(is_method_completed).len(),
+        harness
+            .flow_operations
+            .commands_matching(is_method_completed)
+            .len(),
         1
     );
     assert!(
         harness
-            .runtime
+            .flow_operations
             .commands_matching(is_attempt_failed)
             .is_empty(),
         "a failed ledger cleanup must not fail the committed attempt"

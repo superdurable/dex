@@ -19,11 +19,11 @@ use dexzd_cluster_metadata::{ClusterConfig, LeaseConfig, METADATA_FORMAT_VERSION
 use dexzd_engine::{
     AttributeSyncWaker, BlockingWorkPlacement, CommandApplier, CommitConfig,
     DeterministicCommandApplier, EffectDependencies, EffectRunner, EffectTasksHandle,
-    EffectsConfig, EngineIdSource, EngineLocalStore, EngineNode, EngineNodeConfig,
-    EngineNodeDependencies, EngineRuntimeHooks, EngineServices, EngineStartError,
-    FlowRuntimeDependencies, FlowRuntimeRegistry, HardDeleteObjects, LocalStoreConfig,
-    NodeMetaUploadLedger, NodeStopReason, RecoveryConfig, RuntimeConfig, SnapshotConfig,
-    default_run_settings,
+    EffectsConfig, EngineCommandAndEffectHooks, EngineIdSource, EngineLocalStore, EngineNode,
+    EngineNodeConfig, EngineNodeDependencies, EngineServices, EngineStartError,
+    FlowCoordinationConfig, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
+    HardDeleteObjects, LocalStoreConfig, NodeMetaUploadLedger, NodeStopReason, RecoveryConfig,
+    SnapshotConfig, default_run_settings,
 };
 use dexzd_keyspace::{ColumnFamily, KEY_LAYOUT_VERSION};
 use dexzd_object_store::{ObjectStore, WriteCondition};
@@ -183,7 +183,7 @@ pub(crate) struct ProcessStart {
 pub(crate) struct NodeProcess {
     pub(crate) process_label: String,
     engine: EngineNode,
-    pub(crate) registry: FlowRuntimeRegistry,
+    pub(crate) registry: FlowCoordinatorRegistry,
     effect_tasks: EffectTasksHandle,
     pub(crate) object_store: Arc<NodeObjectStore>,
     pub(crate) local_store: Arc<EngineLocalStore>,
@@ -191,8 +191,8 @@ pub(crate) struct NodeProcess {
 }
 
 /// Runtime parts the engine's factory builds, captured for the process.
-struct RuntimeParts {
-    registry: FlowRuntimeRegistry,
+struct SimulatedNodeStartupParts {
+    registry: FlowCoordinatorRegistry,
     effect_tasks: EffectTasksHandle,
     local_store: Arc<EngineLocalStore>,
 }
@@ -226,11 +226,12 @@ impl NodeProcess {
         );
         let worker_port = environment.workers.dispatcher_for(&process_label);
         let committed_log = Arc::clone(&environment.committed_log);
-        let runtime_parts: Arc<Mutex<Option<RuntimeParts>>> = Arc::new(Mutex::new(None));
+        let startup_parts: Arc<Mutex<Option<SimulatedNodeStartupParts>>> =
+            Arc::new(Mutex::new(None));
         let wall_clock: Arc<dyn WallClock> = clock.clone();
         let object_store_port: Arc<dyn ObjectStore> = object_store.clone();
         let factory_label = process_label.clone();
-        let factory_parts = Arc::clone(&runtime_parts);
+        let factory_parts = Arc::clone(&startup_parts);
         let factory_clock = Arc::clone(&wall_clock);
         let factory_store = Arc::clone(&object_store_port);
         let factory_applier: Arc<dyn CommandApplier> = Arc::new(DryRunCountingApplier {
@@ -274,9 +275,9 @@ impl NodeProcess {
                         attribute_sync_waker: AttributeSyncWaker::new(),
                     },
                 );
-                let registry = FlowRuntimeRegistry::new(
-                    &runtime_config(settings),
-                    FlowRuntimeDependencies {
+                let registry = FlowCoordinatorRegistry::new(
+                    &flow_coordination_config(settings),
+                    FlowCoordinatorDependencies {
                         hasher: partition_hasher,
                         committer: Arc::new(services.committer),
                         applier: factory_applier,
@@ -288,22 +289,23 @@ impl NodeProcess {
                     },
                 );
                 let effect_tasks = effect_tasks.start(Arc::new(registry.clone()));
-                let hooks = EngineRuntimeHooks {
+                let hooks = EngineCommandAndEffectHooks {
                     committed_commands: committed_log.sink_for(&factory_label, registry.clone()),
                     rebuilder: Arc::new(effect_runner),
                 };
                 *factory_parts
                     .lock()
-                    .expect("runtime parts lock is not poisoned") = Some(RuntimeParts {
-                    registry,
-                    effect_tasks,
-                    local_store: services.local_store,
-                });
+                    .expect("runtime parts lock is not poisoned") =
+                    Some(SimulatedNodeStartupParts {
+                        registry,
+                        effect_tasks,
+                        local_store: services.local_store,
+                    });
                 hooks
             },
         )
         .await;
-        let parts = runtime_parts
+        let parts = startup_parts
             .lock()
             .expect("runtime parts lock is not poisoned")
             .take();
@@ -440,8 +442,8 @@ fn effects_config(settings: RunSettings) -> EffectsConfig {
     }
 }
 
-fn runtime_config(settings: RunSettings) -> RuntimeConfig {
-    RuntimeConfig {
+fn flow_coordination_config(settings: RunSettings) -> FlowCoordinationConfig {
+    FlowCoordinationConfig {
         // As on the server, hard-delete values have an object store.
         validation: ValidationConfig {
             has_blob_store: true,
@@ -451,7 +453,7 @@ fn runtime_config(settings: RunSettings) -> RuntimeConfig {
         long_poll_max_wait: Duration::from_secs(10),
         rpc_default_timeout: Duration::from_secs(5),
         run_settings: settings,
-        ..RuntimeConfig::default()
+        ..FlowCoordinationConfig::default()
     }
 }
 

@@ -15,7 +15,7 @@ use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_keyspace::PartitionId;
 use tokio::sync::{OwnedSemaphorePermit, watch};
 
-use crate::runtime::{CommitError, CommitTicketSender};
+use crate::flow_coordination::{CommitError, CommitTicketSender};
 
 /// Why a node stopped serving.
 #[derive(Debug, Clone, PartialEq, Eq)]

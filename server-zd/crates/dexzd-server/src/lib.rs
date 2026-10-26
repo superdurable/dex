@@ -14,7 +14,7 @@ pub mod config;
 mod embedded_s3;
 mod metrics_server;
 mod object_stores;
-mod runtime_hooks;
+mod registry_committed_command_sink;
 mod server_logging;
 mod server_node;
 mod worker_rpc_invoker;

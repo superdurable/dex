@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use dexzd_engine::{CommitError, CommitUrgency, LocalStoreConfig, NodeStopReason};
 
-use crate::harness::{CountingApplier, RecordingRuntime, TestCluster};
+use crate::harness::{CountingApplier, RecordingCommandAndEffectHooks, TestCluster};
 
 const EXPIRED_LEASE_DETAIL: &str = "lease validity expired before renewal";
 
@@ -46,12 +46,12 @@ async fn a_command_submitted_after_the_lease_deadline_is_refused() {
 async fn a_frame_applied_after_the_lease_deadline_is_not_acknowledged() {
     let mut cluster = TestCluster::new();
     let config = cluster.config(LocalStoreConfig::InMemory);
-    let runtime = Arc::new(RecordingRuntime::with_gated_frame_ends());
+    let recording_hooks = Arc::new(RecordingCommandAndEffectHooks::with_gated_frame_ends());
     let test = cluster
         .start(
             &config,
             Arc::new(CountingApplier::default()),
-            runtime.clone(),
+            recording_hooks.clone(),
         )
         .await
         .expect("node starts");
@@ -60,16 +60,16 @@ async fn a_frame_applied_after_the_lease_deadline_is_not_acknowledged() {
     let (_, ticket) = test
         .submit("late-flow", CommitUrgency::Prompt)
         .expect("submit succeeds while the lease is valid");
-    runtime.frame_end_gate.wait_until_entered().await;
+    recording_hooks.frame_end_gate.wait_until_entered().await;
     pass_the_lease_deadline(&test.lease_validity_deadline);
-    runtime.frame_end_gate.open();
+    recording_hooks.frame_end_gate.open();
     let acknowledged = ticket.wait().await;
     assert!(
         matches!(&acknowledged, Err(CommitError::NodeStopping { detail }) if detail.contains(EXPIRED_LEASE_DETAIL)),
         "{acknowledged:?}"
     );
     assert_eq!(
-        runtime.committed_command_ids("late-flow").len(),
+        recording_hooks.committed_command_ids("late-flow").len(),
         1,
         "the command is durable and applied even though it is not acknowledged"
     );

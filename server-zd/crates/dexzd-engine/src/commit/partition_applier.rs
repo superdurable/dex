@@ -42,8 +42,8 @@ use crate::commit::commit_state::{
 use crate::commit::replay_checks::{compare_repeated_apply, compare_semantic_point_hash};
 use crate::commit::staged_state_reader::StagedStateReader;
 use crate::commit::{CommitProgress, EngineLocalStore};
+use crate::flow_coordination::{CommitError, CommittedCommand, CommittedFlowCommand};
 use crate::recovery::CommittedCommandSink;
-use crate::runtime::{CommitError, CommittedCommand, CommittedFlowCommand};
 
 #[path = "partition_applier_metrics.rs"]
 mod metrics;
