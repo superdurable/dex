@@ -94,4 +94,6 @@ An RPC without Attribute locks or `isTransactional` can query a retained termina
 
 ## Decisions
 
+Use `await client.describeFlow(flowId)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow throws `FlowNotFoundError`. The call does not wait for terminal status: use `waitForFlow` when the caller must wait, and do not loop on `describeFlow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `waitForFlow` returns immediately, and a failed result carries them in `errorType` and `errorMessage`. Do not use `describeFlow` as a `startFlow` preflight. Use `searchFlows` for indexed discovery. [Released TypeScript Client API](https://github.com/superdurable/dex/blob/sdk-typescript/v1.20.0/sdk-typescript/src/client.ts)
+
 Use `goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd`, and conditional completion helpers to express lifecycle. Do not encode control flow in mutable module globals. A Flow can have `StepList.empty()` or `withoutStartStep` when started work is driven by RPCs.

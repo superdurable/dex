@@ -332,7 +332,8 @@ impl Worker {
 
     /// Returns cumulative Step declines caused by reserved RPC capacity for this Worker.
     ///
-    /// Full-capacity rejections and unknown names are excluded. The count never resets and
+    /// The counter counts decline events. Dex may decline the same Step dispatch repeatedly
+    /// while retrying it, so read the counter as a rate. Full-capacity rejections and unknown names are excluded. The count never resets and
     /// remains available after stop. Concurrent reads are safe. Listening Workers return zero.
     /// Export the count to a monitoring counter to identify reserve pressure.
     ///

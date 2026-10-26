@@ -176,6 +176,11 @@ impl Config {
             "must be positive",
         )?;
         ensure(
+            !self.recovery.startup_read_retry_budget.is_zero(),
+            "recovery.startupReadRetryBudget",
+            "must be positive",
+        )?;
+        ensure(
             self.history.window_semantic_events > 0,
             "history.windowSemanticEvents",
             "must be positive",

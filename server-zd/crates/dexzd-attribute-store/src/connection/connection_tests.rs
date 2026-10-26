@@ -13,7 +13,7 @@ use std::sync::Arc;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, DnType, IsCa, KeyPair};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tempfile::NamedTempFile;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
@@ -139,6 +139,36 @@ async fn unreachable_database_fails_startup_with_a_redacted_retryable_error() {
     let message = error.to_string();
     assert!(message.contains("connect to Postgres"), "{message}");
     assert!(!message.contains("secret-password"), "{message}");
+}
+
+#[tokio::test]
+async fn database_errors_redact_password_spellings_echoed_by_the_server() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind the fake server");
+    let port = listener.local_addr().expect("fake server address").port();
+    let dsn = format!(
+        "postgres://dex:p%40ss-word@127.0.0.1:{port}/dex?sslmode=disable&connect_timeout=5"
+    );
+    let server = tokio::spawn(reject_one_plaintext_startup(
+        listener,
+        "SFATAL\0VFATAL\0C28P01\0Mpassword authentication failed for dex:p%40ss-word\0\
+         Dpassword p@ss-word expired; p%40ss-word is not accepted\0\0",
+    ));
+    let error =
+        connect_and_validate_error(AttributeStoreSettings::new("orders", dsn.clone(), "orders"))
+            .await;
+    server
+        .await
+        .expect("fake server task finishes")
+        .expect("fake server rejects startup");
+    assert_eq!(error.sqlstate(), Some("28P01"), "{error}");
+    for text in [error.to_string(), format!("{error:?}")] {
+        assert!(text.contains("[REDACTED]"), "{text}");
+        for secret in [dsn.as_str(), "p%40ss-word", "p@ss-word"] {
+            assert!(!text.contains(secret), "{text}");
+        }
+    }
 }
 
 #[tokio::test]
@@ -345,17 +375,33 @@ async fn serve_one_connection(
     }
     socket.write_all(b"S").await?;
     let mut tls = TlsAcceptor::from(server_config).accept(socket).await?;
-    let mut length = [0_u8; 4];
-    tls.read_exact(&mut length).await?;
-    let mut startup = vec![0_u8; usize::try_from(u32::from_be_bytes(length))? - 4];
-    tls.read_exact(&mut startup).await?;
     let fields = format!(
         "SFATAL\0VFATAL\0C{REACHED_SERVER_SQLSTATE}\0Mthe test server was reached over TLS\0\0"
     );
+    reject_startup(&mut tls, &fields).await
+}
+
+async fn reject_one_plaintext_startup(
+    listener: TcpListener,
+    fields: &'static str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let (mut socket, _) = listener.accept().await?;
+    reject_startup(&mut socket, fields).await
+}
+
+/// Reads one startup message and answers it with the ErrorResponse `fields`.
+async fn reject_startup(
+    stream: &mut (impl AsyncRead + AsyncWrite + Unpin),
+    fields: &str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut length = [0_u8; 4];
+    stream.read_exact(&mut length).await?;
+    let mut startup = vec![0_u8; usize::try_from(u32::from_be_bytes(length))? - 4];
+    stream.read_exact(&mut startup).await?;
     let mut response = vec![b'E'];
     response.extend_from_slice(&u32::try_from(fields.len() + 4)?.to_be_bytes());
     response.extend_from_slice(fields.as_bytes());
-    tls.write_all(&response).await?;
-    tls.flush().await?;
+    stream.write_all(&response).await?;
+    stream.flush().await?;
     Ok(())
 }

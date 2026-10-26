@@ -212,6 +212,7 @@ pub(crate) fn apply_attempt_failed(
             original_worker_error_type: worker_error.error_type.clone(),
             original_worker_error_status: worker_error.grpc_status,
             original_worker_error_stack_trace: worker_error.stack_trace.clone(),
+            ..ServiceErrorResponse::default()
         }),
         attempt: i32::try_from(command.attempt).unwrap_or(i32::MAX),
         pull_routing: command.pull_routing.clone(),

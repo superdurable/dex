@@ -27,20 +27,20 @@ const DEFAULT_STEP_FAILURE_SEED_COUNT: u64 = 32;
 /// Step failure policies change every trajectory, so their seeds form their own group.
 const FIRST_STEP_FAILURE_SEED: u64 = 0x5fa1_0000;
 const REGRESSION_SEEDS: &str = include_str!("../engine-regression-seeds.txt");
-/// Canonical command digests, originally from main before Step failure policies (the README lists
-/// refreshed pins); a moved regression seed stops reproducing.
+/// Canonical command digests with full-rate startup faults; a moved regression seed
+/// stops reproducing.
 const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u128)] = &[
     (
         EngineSimulationProfile::Standard,
         3856990760,
         120,
-        0x8e304369b4b1f4fc0232c79fa935dc07,
+        0x0ce8cbe54d9986053a30ca0d359f5e3a,
     ),
     (
         EngineSimulationProfile::Standard,
         3856990458,
         120,
-        0x7b480a3f15e803d2795e4204498ee7fd,
+        0x0dc2c3ab9e7649a0b35d61c1aa89e640,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -52,25 +52,25 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         FIRST_SEED,
         120,
-        0x8d3715078a243990c0a4fa8f61ef4e5e,
+        0x53f712c27d2e27eac81761d187896dd2,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 1,
         120,
-        0x070707ab938adad0eab32b0e2b706749,
+        0x88fbf1538a7a52a87fc76f4f1fc233a2,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 2,
         120,
-        0xa7e5330709eee89c7e989786b3f2c67a,
+        0xa7a76a800cf7f89ca4d4739e963916d3,
     ),
     (
         EngineSimulationProfile::RedeploysWithShortHistoryWindow,
         FIRST_REDEPLOY_SEED,
         120,
-        0x3a74ab1b3c1de958379342fdb1f4b453,
+        0xf1816654187698979ddd607f093005aa,
     ),
 ];
 
@@ -245,7 +245,7 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
             "pin the canonical command digest of regression seed {seed} {active_seconds}"
         );
     }
-    let mut moved_pins = Vec::new();
+    let mut changed_trajectories = Vec::new();
     for &(profile, seed, active_seconds, expected) in PINNED_CANONICAL_COMMAND_DIGESTS {
         let config = EngineSimulationConfig {
             active_seconds,
@@ -253,18 +253,18 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
             ..EngineSimulationConfig::default()
         };
         let summary = run_engine_seed(seed, &config).unwrap_or_else(|failure| panic!("{failure}"));
-        let actual = summary.canonical_command_digest;
-        if actual != expected {
-            moved_pins.push(format!(
-                "{profile:?} seed {seed}: 0x{actual:032x} (pinned 0x{expected:032x})"
+        if summary.canonical_command_digest != expected {
+            changed_trajectories.push(format!(
+                "{profile:?} seed {seed} {active_seconds}: expected {expected:#034x}, \
+                 observed {:#034x}",
+                summary.canonical_command_digest
             ));
         }
     }
     assert!(
-        moved_pins.is_empty(),
-        "pinned seeds changed their committed commands, so a regression seed may no longer replay \
-         its trajectory; follow \"Pinned trajectories\" in the dexzd-simulation README:\n{}",
-        moved_pins.join("\n")
+        changed_trajectories.is_empty(),
+        "canonical command trajectories changed:\n{}",
+        changed_trajectories.join("\n")
     );
 }
 
@@ -279,6 +279,15 @@ fn run_seeds(
         let config = EngineSimulationConfig {
             active_seconds,
             profile,
+            fault_probability_percent: environment_number("DEXZD_SIMULATION_FAULT_PERCENT").map(
+                |percent| {
+                    assert!(
+                        percent <= 100,
+                        "DEXZD_SIMULATION_FAULT_PERCENT must be 0..=100"
+                    );
+                    u8::try_from(percent).expect("validated fault percentage fits in u8")
+                },
+            ),
             ..EngineSimulationConfig::default()
         };
         match run_engine_seed(seed, &config) {

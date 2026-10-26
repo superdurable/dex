@@ -54,11 +54,6 @@ impl LandedLogBatches {
         batches.insert((incarnation, seq), epoch);
     }
 
-    /// Returns how many log batches landed, EpochStarts included.
-    pub(crate) fn landed_batch_count(&self) -> usize {
-        self.record_batches.len() + self.epoch_starts.len()
-    }
-
     /// Whether an EpochStart below `seq` in stream `incarnation` started an epoch newer than
     /// `epoch`.
     pub(crate) fn is_voided(&self, incarnation: u32, seq: u64, epoch: u64) -> bool {

@@ -10,6 +10,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use dexzd_apply::diagnostics::TimeTravelTargetClose;
 use dexzd_apply::{StateWrite, TransactionalRpcHold, transactional_rpc_hold};
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, parse_run_key};
 use dexzd_protocol::dex::FlowStatus;
@@ -19,6 +20,7 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
+use crate::apply_simulation::command_kind;
 use crate::invariants::{InvariantViolation, RunContext};
 use crate::memory_state::MemoryFlowState;
 use crate::state_view::{FlowView, RunView};
@@ -275,14 +277,16 @@ impl CloseBarrierCounts {
 }
 
 /// AS5: a run closes naturally only once it has no outbox entry and its command carries no
-/// in-flight transactional RPC. StopFlow, terminations, and time travel close at once. AS6: an
-/// unstamped command that consults the barrier records a pending close that nothing holds.
+/// in-flight transactional RPC. StopFlow and terminations close at once; time travel follows its
+/// restored close. Every close records whether it closed at once. AS6: an unstamped command that
+/// consults the barrier records a pending close that nothing holds.
 ///
 /// Returns the natural closes this command deferred and finalized, updating which runs an
 /// admitted transactional RPC holds.
 pub(crate) fn check_close_barrier(
     command: &FlowCommand,
     is_applied: bool,
+    time_travel_target: Option<TimeTravelTargetClose>,
     previous_records: &BTreeMap<RunId, RunRecord>,
     view: &FlowView,
     rpc_held_runs: &mut BTreeSet<RunId>,
@@ -331,9 +335,29 @@ pub(crate) fn check_close_barrier(
                 counts.finalized_after_rpcs += 1;
             }
         }
-        let is_newly_closed = previous.status == FlowStatus::Running as i32
-            && record.status != FlowStatus::Running as i32;
-        if !is_newly_closed || may_close_at_once {
+        let is_newly_closed = record.status != FlowStatus::Running as i32
+            && (previous.status == FlowStatus::Running as i32
+                || previous.current_attempt != record.current_attempt);
+        if !is_newly_closed {
+            continue;
+        }
+        let closes_without_barrier = expected_close_origin(command, time_travel_target, *run_id)?;
+        let recorded_origin = record
+            .close
+            .as_ref()
+            .and_then(|close| close.is_closed_at_once);
+        if recorded_origin != Some(closes_without_barrier) {
+            return Err(InvariantViolation::new(
+                "AS5-close-origin",
+                format!(
+                    "Flow {} run {run_id} recorded close origin {recorded_origin:?} for {}; \
+                     expected {closes_without_barrier}",
+                    command.flow_id,
+                    command_kind(command)
+                ),
+            ));
+        }
+        if closes_without_barrier {
             continue;
         }
         if command.is_transactional_rpc_in_flight {
@@ -363,6 +387,37 @@ pub(crate) fn check_close_barrier(
         }
     }
     Ok(counts)
+}
+
+/// Whether AS5 expects the command's close to skip the barrier, independently of apply's
+/// classification of a restored close.
+///
+/// Returns a violation when a TimeTravel close has no target that explains it.
+fn expected_close_origin(
+    command: &FlowCommand,
+    time_travel_target: Option<TimeTravelTargetClose>,
+    run_id: RunId,
+) -> Result<bool, InvariantViolation> {
+    if !matches!(command.command, Some(Command::TimeTravel(_))) {
+        return Ok(transactional_rpc_hold(command) == TransactionalRpcHold::ClosesAtOnce);
+    }
+    let unexplained = |detail: &str| {
+        InvariantViolation::new(
+            "AS5-close-origin",
+            format!("Flow {} run {run_id} {detail}", command.flow_id),
+        )
+    };
+    match time_travel_target {
+        // Reapplied input and a restored pending close only close naturally.
+        Some(TimeTravelTargetClose::Running) => Ok(false),
+        Some(TimeTravelTargetClose::Closed {
+            is_closed_at_once: Some(is_closed_at_once),
+        }) => Ok(is_closed_at_once),
+        Some(TimeTravelTargetClose::Closed {
+            is_closed_at_once: None,
+        }) => Err(unexplained("restored a close that has no close origin")),
+        None => Err(unexplained("closed by a TimeTravel without a valid target")),
+    }
 }
 
 /// AS3: every pending index key of the Flow names a run that still has rows.

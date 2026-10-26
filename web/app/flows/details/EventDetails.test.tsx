@@ -756,4 +756,16 @@ describe('routing context and dispatch failures', () => {
     event.payload.output = { failure: { details: { detail } } };
     expect(renderDetails(event)).toContain(expected);
   });
+  it('uses the structured dispatch reason when detail wording changes', () => {
+    const event = executeEvent(1);
+    event.type = 'StepExecuteFailed';
+    event.payload.output = { failure: { details: { detail: 'stream ended unexpectedly', dispatchTaskErrorReason: 2 } } };
+    expect(renderDetails(event)).toContain('Worker disconnected');
+  });
+  it('labels an unknown registration from its structured reason', () => {
+    const event = executeEvent(1);
+    event.type = 'StepExecuteFailed';
+    event.payload.output = { failure: { details: { detail: 'registration missing', dispatchTaskErrorReason: 3 } } };
+    expect(renderDetails(event)).toContain('Unknown Step type: dispatch timed out');
+  });
 });

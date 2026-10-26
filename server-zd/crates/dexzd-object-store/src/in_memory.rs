@@ -28,6 +28,8 @@ pub enum FaultAction {
     Proceed,
     /// Return a transient error without applying the operation.
     FailBeforeEffect,
+    /// Return a permanent error without applying the operation.
+    FailPermanently,
     /// Report a concurrent conditional-write conflict without applying the operation.
     ConditionalRequestConflict,
     /// Apply the operation, then report an unknown outcome.
@@ -132,6 +134,12 @@ impl InMemoryObjectStore {
                 key,
                 ObjectStoreErrorKind::Transient,
                 "injected failure before effect",
+            )),
+            FaultAction::FailPermanently => Err(ObjectStoreError::new(
+                operation,
+                key,
+                ObjectStoreErrorKind::Permanent,
+                "injected permanent failure",
             )),
             FaultAction::ConditionalRequestConflict => Err(ObjectStoreError::new(
                 operation,

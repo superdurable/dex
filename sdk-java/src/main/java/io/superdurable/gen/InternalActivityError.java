@@ -29,6 +29,7 @@ private static final long serialVersionUID = 0L;
   }
   private InternalActivityError() {
     serverDetail_ = "";
+    dispatchTaskErrorReason_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -152,6 +153,24 @@ private static final long serialVersionUID = 0L;
     return pullRouting_ == null ? io.superdurable.gen.PullRouting.getDefaultInstance() : pullRouting_;
   }
 
+  public static final int DISPATCH_TASK_ERROR_REASON_FIELD_NUMBER = 5;
+  private int dispatchTaskErrorReason_ = 0;
+  /**
+   * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 5;</code>
+   * @return The enum numeric value on the wire for dispatchTaskErrorReason.
+   */
+  @java.lang.Override public int getDispatchTaskErrorReasonValue() {
+    return dispatchTaskErrorReason_;
+  }
+  /**
+   * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 5;</code>
+   * @return The dispatchTaskErrorReason.
+   */
+  @java.lang.Override public io.superdurable.gen.DispatchTaskErrorReason getDispatchTaskErrorReason() {
+    io.superdurable.gen.DispatchTaskErrorReason result = io.superdurable.gen.DispatchTaskErrorReason.forNumber(dispatchTaskErrorReason_);
+    return result == null ? io.superdurable.gen.DispatchTaskErrorReason.UNRECOGNIZED : result;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -178,6 +197,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(4, getPullRouting());
     }
+    if (dispatchTaskErrorReason_ != io.superdurable.gen.DispatchTaskErrorReason.DISPATCH_TASK_ERROR_REASON_UNSPECIFIED.getNumber()) {
+      output.writeEnum(5, dispatchTaskErrorReason_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -196,6 +218,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(4, getPullRouting());
+    }
+    if (dispatchTaskErrorReason_ != io.superdurable.gen.DispatchTaskErrorReason.DISPATCH_TASK_ERROR_REASON_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(5, dispatchTaskErrorReason_);
     }
     return size;
   }
@@ -235,6 +261,7 @@ private static final long serialVersionUID = 0L;
       if (!getPullRouting()
           .equals(other.getPullRouting())) return false;
     }
+    if (dispatchTaskErrorReason_ != other.dispatchTaskErrorReason_) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -258,6 +285,8 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + PULL_ROUTING_FIELD_NUMBER;
       hash = (53 * hash) + getPullRouting().hashCode();
     }
+    hash = (37 * hash) + DISPATCH_TASK_ERROR_REASON_FIELD_NUMBER;
+    hash = (53 * hash) + dispatchTaskErrorReason_;
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -408,6 +437,7 @@ private static final long serialVersionUID = 0L;
         pullRoutingBuilder_.dispose();
         pullRoutingBuilder_ = null;
       }
+      dispatchTaskErrorReason_ = 0;
       return this;
     }
 
@@ -460,6 +490,9 @@ private static final long serialVersionUID = 0L;
             : pullRoutingBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.dispatchTaskErrorReason_ = dispatchTaskErrorReason_;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -488,6 +521,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasPullRouting()) {
         mergePullRouting(other.getPullRouting());
+      }
+      if (other.dispatchTaskErrorReason_ != 0) {
+        setDispatchTaskErrorReasonValue(other.getDispatchTaskErrorReasonValue());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -539,6 +575,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000008;
               break;
             } // case 34
+            case 40: {
+              dispatchTaskErrorReason_ = input.readEnum();
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 40
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -900,6 +941,58 @@ private static final long serialVersionUID = 0L;
         pullRouting_ = null;
       }
       return pullRoutingBuilder_;
+    }
+
+    private int dispatchTaskErrorReason_ = 0;
+    /**
+     * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 5;</code>
+     * @return The enum numeric value on the wire for dispatchTaskErrorReason.
+     */
+    @java.lang.Override public int getDispatchTaskErrorReasonValue() {
+      return dispatchTaskErrorReason_;
+    }
+    /**
+     * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 5;</code>
+     * @param value The enum numeric value on the wire for dispatchTaskErrorReason to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDispatchTaskErrorReasonValue(int value) {
+      dispatchTaskErrorReason_ = value;
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 5;</code>
+     * @return The dispatchTaskErrorReason.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.DispatchTaskErrorReason getDispatchTaskErrorReason() {
+      io.superdurable.gen.DispatchTaskErrorReason result = io.superdurable.gen.DispatchTaskErrorReason.forNumber(dispatchTaskErrorReason_);
+      return result == null ? io.superdurable.gen.DispatchTaskErrorReason.UNRECOGNIZED : result;
+    }
+    /**
+     * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 5;</code>
+     * @param value The dispatchTaskErrorReason to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setDispatchTaskErrorReason(io.superdurable.gen.DispatchTaskErrorReason value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000010;
+      dispatchTaskErrorReason_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 5;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDispatchTaskErrorReason() {
+      bitField0_ = (bitField0_ & ~0x00000010);
+      dispatchTaskErrorReason_ = 0;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.InternalActivityError)

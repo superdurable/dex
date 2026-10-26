@@ -17,7 +17,7 @@ use s3mock::{
 };
 use s3mock_server::ServerConfig;
 use tokio::net::TcpListener;
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 use super::{LeaseExpiryResponse, start_server};
 use crate::config::{Config, CredentialSource};
@@ -26,6 +26,8 @@ const BUCKET: &str = "dex-serve";
 const NODE_ID: &str = "serve-node";
 const STARTUP_BUDGET: Duration = Duration::from_secs(10);
 const RELEASE_BUDGET: Duration = Duration::from_secs(5);
+/// Well below the 30-second S3 request timeout that a stalled startup check would wait for.
+const CANCELLATION_BUDGET: Duration = Duration::from_secs(5);
 
 /// A serve start that waits for a lease another process holds can be aborted and frees its port.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -111,6 +113,69 @@ async fn an_aborted_serve_start_waiting_for_a_held_lease_releases_the_grpc_liste
     .expect("the aborted serve start releases its gRPC listener");
     drop(rebound_listener);
     object_store.shutdown().await;
+}
+
+/// A signal while the object store startup check waits on a silent endpoint cancels startup.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_signal_during_the_object_store_startup_check_cancels_startup_promptly() {
+    let directory = tempfile::tempdir().expect("test directory");
+    let silent_object_store = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("the silent object store listener binds");
+    let object_store_address = silent_object_store
+        .local_addr()
+        .expect("the silent object store listener has an address");
+    let connection_accepted = Arc::new(Notify::new());
+    let accepting = tokio::spawn({
+        let connection_accepted = connection_accepted.clone();
+        async move {
+            // Connections stay open without a response, like a stalled object store.
+            let mut open_connections = Vec::new();
+            while let Ok((connection, _)) = silent_object_store.accept().await {
+                open_connections.push(connection);
+                connection_accepted.notify_one();
+            }
+        }
+    });
+
+    let api_listen = std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|listener| listener.local_addr())
+        .expect("a free loopback port exists");
+    let mut configuration = Config::default();
+    configuration.cluster.node_id = NODE_ID.to_owned();
+    configuration.cluster.partition_count = 16;
+    configuration.object_store.endpoint = format!("http://{object_store_address}");
+    configuration.object_store.region = "us-east-1".to_owned();
+    configuration.object_store.bucket = BUCKET.to_owned();
+    configuration.object_store.force_path_style = true;
+    configuration.object_store.credentials_source = CredentialSource::Anonymous;
+    configuration.local_storage.directory = directory.path().join("store");
+    configuration.api.listen = api_listen;
+
+    let (cancellation_sender, mut cancellation) = watch::channel(false);
+    let starting = tokio::spawn(async move {
+        start_server(
+            &configuration,
+            None,
+            &mut cancellation,
+            LeaseExpiryResponse::StopNodeOnly,
+        )
+        .await
+        .map(|started| started.is_some())
+    });
+    tokio::time::timeout(STARTUP_BUDGET, connection_accepted.notified())
+        .await
+        .expect("startup connects to the object store");
+    cancellation_sender.send_replace(true);
+    let started = tokio::time::timeout(CANCELLATION_BUDGET, starting)
+        .await
+        .expect("startup stops before the object store request times out")
+        .expect("the start task completes");
+    assert!(
+        !started.expect("a cancelled startup is not a failure"),
+        "a cancelled startup does not serve"
+    );
+    accepting.abort();
 }
 
 /// Stores a lease of `NODE_ID` that another process holds for the next minute.

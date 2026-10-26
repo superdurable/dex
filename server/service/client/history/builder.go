@@ -287,7 +287,7 @@ func (b *Builder) RecordActivityCompleted(
 						finalAttempt,
 						scheduled.methodOptions,
 						scheduled.lastFailure,
-						pulldispatch.Routing(scheduled.waitInput.GetWorkerTarget(), scheduled.waitInput.GetDexTaskQueue(), waitOutput.GetServedByAppWorkerId()),
+						completedPullRouting(waitOutput.GetPullRouting(), scheduled.waitInput.GetWorkerTarget(), scheduled.waitInput.GetDexTaskQueue(), waitOutput.GetServedByAppWorkerId()),
 					),
 				},
 			},
@@ -312,7 +312,7 @@ func (b *Builder) RecordActivityCompleted(
 						finalAttempt,
 						scheduled.methodOptions,
 						scheduled.lastFailure,
-						pulldispatch.Routing(scheduled.executeInput.GetWorkerTarget(), scheduled.executeInput.GetDexTaskQueue(), executeOutput.GetServedByAppWorkerId()),
+						completedPullRouting(executeOutput.GetPullRouting(), scheduled.executeInput.GetWorkerTarget(), scheduled.executeInput.GetDexTaskQueue(), executeOutput.GetServedByAppWorkerId()),
 					),
 				},
 			},
@@ -415,7 +415,7 @@ func (b *Builder) RecordLocalWaitCompleted(
 				Context: localStepMethodEventContext(
 					response.GetLocalActivityMetadata(),
 					finalAttempt,
-					output.GetPullRouting(),
+					completedPullRouting(output.GetPullRouting(), nil, "", output.GetServedByAppWorkerId()),
 				),
 			},
 		},
@@ -440,7 +440,7 @@ func (b *Builder) RecordLocalExecuteCompleted(
 				Context: localStepMethodEventContext(
 					localMetadata,
 					finalAttempt,
-					output.GetPullRouting(),
+					completedPullRouting(output.GetPullRouting(), nil, "", output.GetServedByAppWorkerId()),
 				),
 			},
 		},
@@ -742,7 +742,7 @@ func (s *scheduledActivity) pendingStepMethodEvent(
 			finalAttempt,
 			s.methodOptions,
 			s.lastFailure,
-			pulldispatch.Routing(s.waitInput.GetWorkerTarget(), s.waitInput.GetDexTaskQueue(), ""),
+			pulldispatch.Routing(s.waitInput.GetWorkerTarget(), s.waitInput.GetDexTaskQueue(), "", dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED),
 		)
 		return newEvent(scheduledEventID, eventTime, &dexpb.FlowHistoryEvent_StepWaitForPending{
 			StepWaitForPending: payload,
@@ -759,7 +759,7 @@ func (s *scheduledActivity) pendingStepMethodEvent(
 			finalAttempt,
 			s.methodOptions,
 			s.lastFailure,
-			pulldispatch.Routing(s.executeInput.GetWorkerTarget(), s.executeInput.GetDexTaskQueue(), ""),
+			pulldispatch.Routing(s.executeInput.GetWorkerTarget(), s.executeInput.GetDexTaskQueue(), "", dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED),
 		)
 		return newEvent(scheduledEventID, eventTime, &dexpb.FlowHistoryEvent_StepExecutePending{
 			StepExecutePending: payload,
@@ -950,7 +950,17 @@ func failurePullRouting(failure *dexpb.StepMethodFailure, target *dexpb.WorkerTa
 	if failure.GetPullRouting() != nil {
 		return failure.GetPullRouting()
 	}
-	return pulldispatch.Routing(target, stickyAppWorkerID, "")
+	return pulldispatch.Routing(target, stickyAppWorkerID, "", dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED)
+}
+
+func completedPullRouting(persisted *dexpb.PullRouting, target *dexpb.WorkerTarget, stickyAppWorkerID string, servedByAppWorkerID string) *dexpb.PullRouting {
+	if persisted != nil {
+		return persisted
+	}
+	if target == nil && servedByAppWorkerID != "" {
+		return &dexpb.PullRouting{ServedByAppWorkerId: servedByAppWorkerID}
+	}
+	return pulldispatch.Routing(target, stickyAppWorkerID, servedByAppWorkerID, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED)
 }
 
 func (b *Builder) recordServingWorker(workerID string) {

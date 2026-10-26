@@ -14,6 +14,7 @@ mod log_replay;
 mod node_streams;
 mod runtime_rebuild;
 mod search_order_rebuild;
+mod startup_read_retry;
 
 pub use local_store_opening::LocalStoreConfig;
 pub use log_replay::RecoveryConfig;
@@ -29,6 +30,7 @@ pub(crate) use local_store_opening::{
 pub(crate) use log_replay::LogReplay;
 pub(crate) use node_streams::describe_lost_ownership;
 pub(crate) use search_order_rebuild::rebuild_search_order_indexes;
+pub(crate) use startup_read_retry::StartupReadRetryStore;
 
 use crate::commit::NodeStopReason;
 
@@ -135,6 +137,14 @@ pub enum EngineStartError {
     Stopped {
         /// Why it stopped.
         reason: NodeStopReason,
+    },
+    /// Startup failed and its lease release also failed.
+    #[error("startup failed: {start}; releasing its lease also failed: {detail}")]
+    FailedStartLeaseRelease {
+        /// Original startup error.
+        start: Box<EngineStartError>,
+        /// Lease release failure.
+        detail: String,
     },
     /// The configuration is invalid.
     #[error("invalid engine configuration: {detail}")]

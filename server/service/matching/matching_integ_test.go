@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -182,6 +183,40 @@ func receiveDispatch(t *testing.T, stream dexpb.MatchingService_DispatchTaskClie
 			continue
 		}
 		frames = append(frames, frame)
+	}
+}
+
+func TestMatchingReportsActualQueueSourceIntegration(t *testing.T) {
+	for _, testCase := range []struct {
+		name           string
+		workerQueue    string
+		expectedSource dexpb.PullRoutingSource
+	}{
+		{name: "same Worker through Flow type queue", workerQueue: "flow", expectedSource: dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_FLOW_TYPE_QUEUE},
+		{name: "sticky queue", workerQueue: "worker-sticky", expectedSource: dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := startTestServer(t, config.MatchingConfig{}, newTestMembership())
+			worker := registerWorker(t, server, testCase.workerQueue, "worker-sticky")
+			request := dispatchRequest("worker-sticky", "flow", 20*time.Millisecond, time.Second)
+			dispatch, err := dexpb.NewMatchingServiceClient(server.connection).DispatchTask(testStreamContext(t), request)
+			require.NoError(t, err)
+			assignment, err := worker.Recv()
+			require.NoError(t, err)
+			assigned, err := dispatch.Recv()
+			require.NoError(t, err)
+			require.NotNil(t, assigned.GetAssigned())
+			require.Equal(t, testCase.expectedSource, assigned.GetQueueSource())
+			require.NoError(t, worker.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: &dexpb.PollWorkerTaskFrame{
+				TaskId: assignment.GetTask().GetTaskId(), Output: &dexpb.PollWorkerTaskFrame_WaitFor{WaitFor: &dexpb.InvokeWaitForMethodOutput{
+					Output: &dexpb.InvokeWaitForMethodOutput_Result{Result: &dexpb.InvokeWaitForMethodResponse{}},
+				}},
+			}}}))
+			result, err := dispatch.Recv()
+			require.NoError(t, err)
+			require.Equal(t, "worker-sticky", result.GetServedByAppWorkerId())
+			require.Equal(t, testCase.expectedSource, result.GetQueueSource())
+		})
 	}
 }
 
@@ -360,6 +395,7 @@ func TestMatchingDisconnectAfterOutputIntegration(t *testing.T) {
 	require.Len(t, frames, 2)
 	require.NotNil(t, frames[0].GetWaitFor())
 	require.Equal(t, dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED, frames[1].GetDispatchError().GetReason())
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_FLOW_TYPE_QUEUE, frames[1].GetQueueSource())
 }
 
 func TestMatchingRejectAfterOutputDoesNotResumeMatchingIntegration(t *testing.T) {
@@ -424,6 +460,7 @@ func TestMatchingDisconnectAfterWaitBudgetIntegration(t *testing.T) {
 	frames := receiveDispatch(t, dispatch)
 	require.Len(t, frames, 1)
 	require.Equal(t, dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED, frames[0].GetDispatchError().GetReason())
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_FLOW_TYPE_QUEUE, frames[0].GetQueueSource())
 }
 
 func TestMatchingCapacityRejectBackoffBoundsResends(t *testing.T) {
@@ -990,8 +1027,77 @@ func TestMatchingCrossEngineStickyFallbackIntegration(t *testing.T) {
 			frames := receiveDispatch(t, dispatch)
 			require.Len(t, frames, 1)
 			require.Equal(t, "worker-fallback", frames[0].ServedByAppWorkerId)
+			require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_FLOW_TYPE_QUEUE, frames[0].GetQueueSource())
 		})
 	}
+}
+
+func TestMatchingForwardedStickyQueueSourceIntegration(t *testing.T) {
+	entryMembers := newTestMembership()
+	entry := startTestServer(t, config.MatchingConfig{}, entryMembers)
+	owner := startTestServer(t, config.MatchingConfig{}, newTestMembership())
+	entryMembers.mu.Lock()
+	entryMembers.owners["worker-sticky"] = membership.HostInfo{RPCAddress: owner.listener.Addr().String()}
+	entryMembers.mu.Unlock()
+	worker := registerWorker(t, owner, "worker-sticky", "worker-sticky")
+	dispatch, err := dexpb.NewMatchingServiceClient(entry.connection).DispatchTask(testStreamContext(t), dispatchRequest("worker-sticky", "flow", 500*time.Millisecond, time.Second))
+	require.NoError(t, err)
+	assignment, err := worker.Recv()
+	require.NoError(t, err)
+	assigned, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, assigned.GetAssigned())
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE, assigned.GetQueueSource())
+	require.NoError(t, worker.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: &dexpb.PollWorkerTaskFrame{TaskId: assignment.GetTask().GetTaskId(), Output: &dexpb.PollWorkerTaskFrame_Rpc{Rpc: &dexpb.InvokeWorkerRPCResponse{}}}}}))
+	result, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE, result.GetQueueSource())
+}
+
+func TestMatchingForwardedOwnerOmitsQueueSourceIntegration(t *testing.T) {
+	owner := startTestServer(t, config.MatchingConfig{}, newTestMembership())
+	worker := registerWorker(t, owner, "worker-sticky", "worker-sticky")
+	ctx := metadata.AppendToOutgoingContext(testStreamContext(t), forwardedHeader, "1")
+	dispatch, err := dexpb.NewMatchingServiceClient(owner.connection).DispatchTask(ctx, dispatchRequest("worker-sticky", "", 0, time.Second))
+	require.NoError(t, err)
+	assignment, err := worker.Recv()
+	require.NoError(t, err)
+	assigned, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, assigned.GetAssigned())
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED, assigned.GetQueueSource())
+	require.NoError(t, worker.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: &dexpb.PollWorkerTaskFrame{TaskId: assignment.GetTask().GetTaskId(), Output: &dexpb.PollWorkerTaskFrame_Rpc{Rpc: &dexpb.InvokeWorkerRPCResponse{}}}}}))
+	result, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED, result.GetQueueSource())
+}
+
+func TestMatchingForwardedStickyDisconnectAfterOutputKeepsQueueSourceIntegration(t *testing.T) {
+	entryMembers := newTestMembership()
+	entry := startTestServer(t, config.MatchingConfig{}, entryMembers)
+	owner := startTestServer(t, config.MatchingConfig{}, newTestMembership())
+	entryMembers.mu.Lock()
+	entryMembers.owners["worker-sticky"] = membership.HostInfo{RPCAddress: owner.listener.Addr().String()}
+	entryMembers.mu.Unlock()
+	worker := registerWorker(t, owner, "worker-sticky", "worker-sticky")
+	dispatch, err := dexpb.NewMatchingServiceClient(entry.connection).DispatchTask(testStreamContext(t), dispatchRequest("worker-sticky", "flow", 500*time.Millisecond, time.Second))
+	require.NoError(t, err)
+	assignment, err := worker.Recv()
+	require.NoError(t, err)
+	assigned, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, assigned.GetAssigned())
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE, assigned.GetQueueSource())
+	require.NoError(t, worker.Send(&dexpb.PollWorkerTaskRequest{Frame: &dexpb.PollWorkerTaskRequest_TaskFrame{TaskFrame: &dexpb.PollWorkerTaskFrame{TaskId: assignment.GetTask().GetTaskId(), Output: &dexpb.PollWorkerTaskFrame_WaitFor{WaitFor: &dexpb.InvokeWaitForMethodOutput{Output: &dexpb.InvokeWaitForMethodOutput_Heartbeat{}}}}}}))
+	progress, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, progress.GetWaitFor().GetHeartbeat())
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE, progress.GetQueueSource())
+	require.NoError(t, worker.CloseSend())
+	failed, err := dispatch.Recv()
+	require.NoError(t, err)
+	require.Equal(t, dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED, failed.GetDispatchError().GetReason())
+	require.Equal(t, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE, failed.GetQueueSource())
 }
 
 func TestMatchingStickyEmptyQueueFallsBackImmediatelyIntegration(t *testing.T) {

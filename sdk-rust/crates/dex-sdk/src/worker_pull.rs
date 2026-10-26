@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use dex_protocol::dex::poll_worker_task::Request as TaskRequest;
 use dex_protocol::dex::poll_worker_task_frame::Output;
@@ -22,7 +22,9 @@ use dex_protocol::dex::{
 };
 use tokio::sync::{Notify, mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
-use tokio::time::{Instant, sleep, sleep_until, timeout_at};
+use tokio::time::{
+    Instant, Interval, MissedTickBehavior, interval_at, sleep, sleep_until, timeout_at,
+};
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 use tonic::transport::Endpoint;
 use tonic::{Code, Status};
@@ -35,10 +37,21 @@ use crate::worker::worker_error_response;
 use crate::worker_dispatcher::WorkerDispatcher;
 use crate::{PullWorkerOptions, SdkError, SdkResult};
 
+#[cfg(test)]
+mod final_frame_lock_tests;
 mod reconnect;
+mod task_deadline;
+mod worker_error;
+mod worker_identity;
+
+use task_deadline::task_deadline;
+use worker_error::worker_error_from_status;
+use worker_identity::{generate_app_worker_id, validate_app_worker_id};
 
 const DRAINING: u8 = 1;
 const FORCED: u8 = 2;
+const BUSY_PULL_STREAM_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(20);
+const RESERVE_PRESSURE_LINGER: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy)]
 struct StopSignal {
@@ -67,6 +80,7 @@ pub(crate) struct PullWorker {
     reserved_rpc_tasks: usize,
     reserved_rpc_declines: Arc<AtomicU64>,
     idle_streams_per_queue: usize,
+    reserve_pressure_linger: Duration,
     stop_drain_timeout: Duration,
     pub(crate) registration: Arc<PullRegistration>,
     should_warn_rpc_capacity: bool,
@@ -75,6 +89,7 @@ pub(crate) struct PullWorker {
 
 struct PullState {
     streams: HashMap<u64, StreamSlot>,
+    last_reserve_decline: HashMap<String, Instant>,
     busy_tasks: usize,
     next_stream_id: u64,
     is_stopping: bool,
@@ -98,6 +113,7 @@ struct PullShared {
     reserved_rpc_tasks: usize,
     reserved_rpc_declines: Arc<AtomicU64>,
     idle_streams_per_queue: usize,
+    reserve_pressure_linger: Duration,
 }
 
 struct ActiveTask {
@@ -146,12 +162,10 @@ impl PullWorker {
         let reserved_rpc_tasks = options
             .reserved_rpc_tasks
             .unwrap_or(usize::from(max_concurrent_tasks >= 2));
-        if reserved_rpc_tasks >= max_concurrent_tasks {
-            return Err(invalid(
-                "reserved_rpc_tasks must be less than max_concurrent_tasks",
-            ));
-        }
         let idle_streams_per_queue = options.idle_streams_per_queue.unwrap_or(1);
+        let reserve_pressure_linger = options
+            .reserve_pressure_linger
+            .unwrap_or(RESERVE_PRESSURE_LINGER);
         let stop_drain_timeout = options
             .stop_drain_timeout
             .unwrap_or(Duration::from_secs(30));
@@ -159,6 +173,11 @@ impl PullWorker {
         {
             return Err(invalid(
                 "pull Worker task limit, idle stream count, and drain timeout must be positive",
+            ));
+        }
+        if reserved_rpc_tasks >= max_concurrent_tasks {
+            return Err(invalid(
+                "reserved_rpc_tasks must be less than max_concurrent_tasks",
             ));
         }
         let app_worker_id = match &options.app_worker_id {
@@ -193,6 +212,7 @@ impl PullWorker {
             should_warn_rpc_capacity: options.reserved_rpc_tasks.is_none()
                 && max_concurrent_tasks == 1,
             idle_streams_per_queue,
+            reserve_pressure_linger,
             stop_drain_timeout,
         })
     }
@@ -211,6 +231,7 @@ impl PullWorker {
             registration: Arc::clone(&self.registration),
             state: Mutex::new(PullState {
                 streams: HashMap::new(),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 0,
                 is_stopping: false,
@@ -221,6 +242,7 @@ impl PullWorker {
             reserved_rpc_tasks: self.reserved_rpc_tasks,
             reserved_rpc_declines: Arc::clone(&self.reserved_rpc_declines),
             idle_streams_per_queue: self.idle_streams_per_queue,
+            reserve_pressure_linger: self.reserve_pressure_linger,
         });
         let (stop, stop_receiver) = watch::channel(StopSignal {
             phase: 0,
@@ -240,6 +262,7 @@ impl PullWorker {
                     if change.is_err() || *shutdown.borrow() { break; }
                 }
                 () = shared.notify.notified() => {}
+                () = shared.wait_for_reserve_pressure_expiry() => {}
                 result = streams.join_next(), if !streams.is_empty() => {
                     if let Some(Err(error)) = result { tracing::error!(%error, "pull Worker stream failed"); }
                 }
@@ -290,6 +313,9 @@ impl PullWorker {
         if state.is_stopping {
             return;
         }
+        state
+            .last_reserve_decline
+            .retain(|_, decline| decline.elapsed() < shared.reserve_pressure_linger);
         for queue in &self.queues {
             let registered_idle = state
                 .streams
@@ -302,7 +328,8 @@ impl PullWorker {
                         && !slot.is_draining
                 })
                 .count();
-            let mut surplus = registered_idle.saturating_sub(self.idle_streams_per_queue);
+            let desired_idle = shared.desired_idle_streams_per_queue(&state, queue);
+            let mut surplus = registered_idle.saturating_sub(desired_idle);
             for slot in state.streams.values_mut().filter(|slot| {
                 slot.queue == *queue
                     && slot.is_registered
@@ -322,7 +349,12 @@ impl PullWorker {
                 .values()
                 .filter(|slot| slot.queue == *queue && !slot.is_busy && !slot.is_retiring)
                 .count();
-            for _ in idle..self.idle_streams_per_queue {
+            let creation_target = if state.busy_tasks == self.max_concurrent_tasks {
+                self.idle_streams_per_queue
+            } else {
+                desired_idle
+            };
+            for _ in idle..creation_target {
                 let stream_id = state.next_stream_id;
                 state.next_stream_id += 1;
                 let retirement = Arc::new(Notify::new());
@@ -469,6 +501,8 @@ impl PullStream {
         let mut supports_unknown_name_rejection = false;
         let mut is_draining = false;
         let mut active: Option<ActiveTask> = None;
+        let final_frame_sent = Arc::new(Mutex::new(false));
+        let mut keepalive_interval: Option<Interval> = None;
         loop {
             let deadline = active.as_ref().and_then(|task| task.deadline);
             tokio::select! {
@@ -506,7 +540,11 @@ impl PullStream {
                                         let cancel_code = Arc::new(AtomicI32::new(0));
                                         let task_id = task.task_id.clone();
                                         let deadline = task.deadline.as_ref().map(task_deadline);
-                                        let handler = tokio::spawn(execute_task(self.dispatcher.clone(), task, cancellation.clone(), transport_cancellation.clone(), Arc::clone(&cancel_code), sender.as_ref().expect("open Worker stream").clone()));
+                                        *final_frame_sent.lock().expect("final frame lock") = false;
+                                        let mut interval = interval_at(Instant::now() + BUSY_PULL_STREAM_KEEPALIVE_INTERVAL, BUSY_PULL_STREAM_KEEPALIVE_INTERVAL);
+                                        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                                        keepalive_interval = Some(interval);
+                                        let handler = tokio::spawn(execute_task(self.dispatcher.clone(), task, cancellation.clone(), transport_cancellation.clone(), Arc::clone(&cancel_code), sender.as_ref().expect("open Worker stream").clone(), Arc::clone(&final_frame_sent)));
                                         active = Some(ActiveTask { task_id, cancellation, transport_cancellation, cancel_code, handler, deadline });
                                         self.shared.notify.notify_one();
                                     }
@@ -518,7 +556,19 @@ impl PullStream {
                                     }
                                 }
                                 Some(ResponseFrame::Ping(_)) => {
-                                    if let Err(status) = send_control_frame(sender.as_ref().expect("open Worker stream"), RequestFrame::Pong(PollWorkerTaskPong {})).await {
+                                    // Never block the poll loop: a full outbound queue already carries upstream data.
+                                    let sent = {
+                                        let is_final_frame_sent = final_frame_sent.lock().expect("final frame lock");
+                                        if active.is_some() && *is_final_frame_sent {
+                                            Ok(())
+                                        } else {
+                                            match sender.as_ref().expect("open Worker stream").try_send(PollWorkerTaskRequest { frame: Some(RequestFrame::Pong(PollWorkerTaskPong {})) }) {
+                                                Err(mpsc::error::TrySendError::Closed(_)) => Err(Status::unavailable("Worker task stream cannot send control frame: channel closed")),
+                                                Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
+                                            }
+                                        }
+                                    };
+                                    if let Err(status) = sent {
                                         if !self.should_defer_stream_rejection(&status) {
                                             self.record_stream_result(Some(&status));
                                         }
@@ -551,12 +601,27 @@ impl PullStream {
                 }
                 result = async { (&mut active.as_mut().expect("active task").handler).await }, if active.is_some() => {
                     if let Err(error) = result { tracing::error!(%error, "pull Worker handler failed"); }
+                    keepalive_interval = None;
                     active = None;
                     let should_retire = self.shared.release(self.stream_id);
                     if should_retire || is_draining || self.stop.borrow().phase != 0 {
                         let is_reconnecting = !should_retire && is_draining && self.stop.borrow().phase == 0;
                         let result = close_poll_send_and_wait(&mut sender, &mut response_stream, &mut self.stop, self.stop_drain_timeout).await;
                         return (was_registered, is_reconnecting, result);
+                    }
+                }
+                () = async {
+                    match &mut keepalive_interval {
+                        Some(interval) => { interval.tick().await; }
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    let is_final_frame_sent = final_frame_sent.lock().expect("final frame lock");
+                    if !*is_final_frame_sent
+                        && let Err(error) = sender.as_ref().expect("open Worker stream").try_send(PollWorkerTaskRequest {
+                            frame: Some(RequestFrame::Pong(PollWorkerTaskPong {})),
+                        }) {
+                        tracing::debug!(%error, "send Worker keepalive Pong");
                     }
                 }
                 () = async { sleep_until(deadline.expect("task deadline")).await }, if deadline.is_some() => {
@@ -600,6 +665,33 @@ impl PullStream {
 }
 
 impl PullShared {
+    async fn wait_for_reserve_pressure_expiry(&self) {
+        let expiry = self
+            .state
+            .lock()
+            .expect("pull state lock")
+            .last_reserve_decline
+            .values()
+            .map(|decline| *decline + self.reserve_pressure_linger)
+            .min();
+        if let Some(expiry) = expiry {
+            sleep_until(expiry).await;
+        } else {
+            std::future::pending::<()>().await;
+        }
+    }
+
+    fn desired_idle_streams_per_queue(&self, state: &PullState, queue: &str) -> usize {
+        self.idle_streams_per_queue
+            + usize::from(
+                self.reserved_rpc_tasks > 0
+                    && state
+                        .last_reserve_decline
+                        .get(queue)
+                        .is_some_and(|decline| decline.elapsed() < self.reserve_pressure_linger),
+            )
+    }
+
     fn try_accept(&self, stream_id: u64, task: Option<&PollWorkerTask>) -> bool {
         let mut state = self.state.lock().expect("pull state lock");
         if state.is_stopping || state.busy_tasks >= self.max_concurrent_tasks {
@@ -622,7 +714,10 @@ impl PullShared {
                 _ => None,
             };
             if let Some(flow_type) = flow_type {
+                let queue = slot.queue.clone();
                 self.reserved_rpc_declines.fetch_add(1, Ordering::Relaxed);
+                state.last_reserve_decline.insert(queue, Instant::now());
+                self.notify.notify_one();
                 tracing::debug!(%flow_type, "decline Step task for reserved RPC capacity");
                 return false;
             }
@@ -654,7 +749,8 @@ impl PullShared {
                     && !slot.is_draining
             })
             .count();
-        let should_retire = idle_replacements >= self.idle_streams_per_queue;
+        let should_retire =
+            idle_replacements >= self.desired_idle_streams_per_queue(&state, &queue);
         if should_retire {
             state
                 .streams
@@ -694,6 +790,7 @@ async fn execute_task(
     transport_cancellation: InvocationCancellation,
     cancel_code: Arc<AtomicI32>,
     sender: mpsc::Sender<PollWorkerTaskRequest>,
+    final_frame_sent: Arc<Mutex<bool>>,
 ) {
     let task_id = task.task_id;
     match task.request {
@@ -709,9 +806,15 @@ async fn execute_task(
                         &cancel_code,
                     )),
                 };
-                if send_task_frame(&sender, &task_id, frame, &transport_cancellation)
-                    .await
-                    .is_err()
+                if send_task_frame(
+                    &sender,
+                    &task_id,
+                    frame,
+                    &transport_cancellation,
+                    &final_frame_sent,
+                )
+                .await
+                .is_err()
                 {
                     cancellation.cancel();
                     transport_cancellation.cancel();
@@ -730,9 +833,15 @@ async fn execute_task(
                         &cancel_code,
                     )),
                 };
-                if send_task_frame(&sender, &task_id, frame, &transport_cancellation)
-                    .await
-                    .is_err()
+                if send_task_frame(
+                    &sender,
+                    &task_id,
+                    frame,
+                    &transport_cancellation,
+                    &final_frame_sent,
+                )
+                .await
+                .is_err()
                 {
                     cancellation.cancel();
                     transport_cancellation.cancel();
@@ -750,8 +859,14 @@ async fn execute_task(
                     &cancel_code,
                 )),
             };
-            if let Err(error) =
-                send_task_frame(&sender, &task_id, frame, &transport_cancellation).await
+            if let Err(error) = send_task_frame(
+                &sender,
+                &task_id,
+                frame,
+                &transport_cancellation,
+                &final_frame_sent,
+            )
+            .await
             {
                 tracing::warn!(%error, "send Worker RPC result");
             }
@@ -767,6 +882,7 @@ async fn execute_task(
                 &task_id,
                 Output::WorkerError(error),
                 &transport_cancellation,
+                &final_frame_sent,
             )
             .await
             {
@@ -837,66 +953,26 @@ async fn send_task_frame(
     task_id: &str,
     output: Output,
     cancellation: &InvocationCancellation,
+    final_frame_sent: &Mutex<bool>,
 ) -> Result<(), Status> {
+    let is_final_frame = matches!(&output, Output::Rpc(_) | Output::WorkerError(_))
+        || matches!(&output, Output::WaitFor(value) if matches!(value.output.as_ref(), Some(dex_protocol::dex::invoke_wait_for_method_output::Output::Result(_))))
+        || matches!(&output, Output::Execute(value) if matches!(value.output.as_ref(), Some(dex_protocol::dex::invoke_execute_method_output::Output::Result(_))));
     let request = PollWorkerTaskRequest {
         frame: Some(RequestFrame::TaskFrame(PollWorkerTaskFrame {
             task_id: task_id.to_string(),
             output: Some(output),
         })),
     };
-    tokio::select! {
+    let permit = tokio::select! {
         biased;
-        result = sender.send(request) => result.map_err(|error| Status::unavailable(format!("Worker task stream cannot send task frame: {error}"))),
-        () = cancellation.cancelled() => Err(Status::cancelled("Worker task was cancelled")),
-    }
-}
-
-fn worker_error_from_status(status: Status) -> WorkerErrorResponse {
-    #[derive(prost::Message)]
-    struct RpcStatus {
-        #[prost(int32, tag = "1")]
-        code: i32,
-        #[prost(string, tag = "2")]
-        message: String,
-        #[prost(message, repeated, tag = "3")]
-        details: Vec<prost_types::Any>,
-    }
-    use prost::Message;
-    if let Ok(details) = RpcStatus::decode(status.details())
-        && let Some(worker) = details
-            .details
-            .iter()
-            .find(|detail| detail.type_url.ends_with("/dex.WorkerErrorResponse"))
-        && let Ok(mut error) = WorkerErrorResponse::decode(worker.value.as_slice())
-    {
-        error.grpc_status = status.code() as i32;
-        return error;
-    }
-    WorkerErrorResponse {
-        detail: status.message().to_string(),
-        grpc_status: status.code() as i32,
-        ..Default::default()
-    }
-}
-
-fn task_deadline(timestamp: &prost_types::Timestamp) -> Instant {
-    let current = Instant::now();
-    if timestamp.seconds < 0 || !(0..1_000_000_000).contains(&timestamp.nanos) {
-        return current;
-    }
-    let Some(deadline) = SystemTime::UNIX_EPOCH
-        .checked_add(Duration::from_secs(timestamp.seconds as u64))
-        .and_then(|time| time.checked_add(Duration::from_nanos(timestamp.nanos as u64)))
-    else {
-        return current;
+        result = sender.reserve() => result.map_err(|error| Status::unavailable(format!("Worker task stream cannot send task frame: {error}")))?,
+        () = cancellation.cancelled() => return Err(Status::cancelled("Worker task was cancelled")),
     };
-    current
-        .checked_add(
-            deadline
-                .duration_since(SystemTime::now())
-                .unwrap_or_default(),
-        )
-        .unwrap_or(current)
+    // Set the flag before enqueueing, so a later keepalive Pong never follows the final frame.
+    *final_frame_sent.lock().expect("final frame lock") |= is_final_frame;
+    permit.send(request);
+    Ok(())
 }
 
 fn is_permanent(code: Code) -> bool {
@@ -908,52 +984,6 @@ fn is_permanent(code: Code) -> bool {
             | Code::Unimplemented
             | Code::ResourceExhausted
     )
-}
-
-fn generate_app_worker_id() -> String {
-    let identity = super::worker_options::WorkerEnvironmentConfig::from_environment().identity;
-    let mut cleaned = String::new();
-    for character in identity.to_ascii_lowercase().chars() {
-        if cleaned.len() >= 54 {
-            break;
-        }
-        if character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-' {
-            cleaned.push(character);
-        } else if !cleaned.is_empty() {
-            cleaned.push('-');
-        }
-    }
-    let cleaned = cleaned.trim_matches('-');
-    let identity = if cleaned.is_empty() {
-        "worker"
-    } else {
-        cleaned
-    };
-    let random = uuid::Uuid::new_v4();
-    let mut bits = 0u64;
-    for byte in &random.as_bytes()[..5] {
-        bits = (bits << 8) | u64::from(*byte);
-    }
-    let alphabet = b"abcdefghijklmnopqrstuvwxyz234567";
-    let suffix: String = (0..8)
-        .rev()
-        .map(|index| alphabet[((bits >> (index * 5)) & 31) as usize] as char)
-        .collect();
-    format!("{identity}-{suffix}")
-}
-
-fn validate_app_worker_id(value: &str) -> SdkResult<()> {
-    if value.is_empty() || value.len() > 63 {
-        return Err(invalid("app Worker ID must contain 1-63 characters"));
-    }
-    if let Some(character) = value.chars().find(|character| {
-        !character.is_ascii_alphanumeric() && !matches!(character, '.' | '_' | '-')
-    }) {
-        return Err(invalid(format!(
-            "app Worker ID contains invalid character {character:?}"
-        )));
-    }
-    Ok(())
 }
 
 fn invalid(message: impl Into<String>) -> SdkError {
@@ -988,6 +1018,10 @@ mod tests {
     use tokio_stream::wrappers::{ReceiverStream, TcpListenerStream};
     use tonic::transport::Server;
     use tonic::{Request, Response};
+
+    mod concurrent_admission;
+    mod options;
+    mod reserve_pressure;
 
     struct ReserveCapacityFlow;
 
@@ -1474,52 +1508,6 @@ mod tests {
         (cache, directory)
     }
 
-    #[test]
-    fn validates_pull_options_and_target_conflicts() {
-        let (cache, _directory) = test_cache();
-        let registry = Registry::new()
-            .register(RegisteredFlow)
-            .expect("register Flow");
-        for options in [
-            WorkerOptions::new().pull(PullWorkerOptions::new().max_concurrent_tasks(0)),
-            WorkerOptions::new().pull(
-                PullWorkerOptions::new()
-                    .max_concurrent_tasks(2)
-                    .reserved_rpc_tasks(2),
-            ),
-            WorkerOptions::new().pull(
-                PullWorkerOptions::new()
-                    .max_concurrent_tasks(2)
-                    .reserved_rpc_tasks(3),
-            ),
-            WorkerOptions::new().pull(PullWorkerOptions::new().idle_streams_per_queue(0)),
-            WorkerOptions::new().pull(PullWorkerOptions::new().stop_drain_timeout(Duration::ZERO)),
-            WorkerOptions::new().pull(PullWorkerOptions::new().app_worker_id("bad/id")),
-            WorkerOptions::new().pull(PullWorkerOptions::new().app_worker_id("RegisteredFlow")),
-            WorkerOptions::new()
-                .pull(PullWorkerOptions::new())
-                .bind_address("127.0.0.1:8803"),
-            WorkerOptions::new()
-                .pull(PullWorkerOptions::new())
-                .worker_target(WorkerTarget::pull()),
-            WorkerOptions::new().worker_target(WorkerTarget::pull()),
-        ] {
-            assert!(matches!(
-                Worker::try_new(registry.clone(), Arc::clone(&cache), options),
-                Err(SdkError::FlowDefinition { .. })
-            ));
-        }
-        assert!(
-            Worker::try_new(
-                registry,
-                cache,
-                WorkerOptions::new().pull(PullWorkerOptions::new())
-            )
-            .is_ok()
-        );
-        assert!(WorkerTarget::pull().headless(true).validate().is_err());
-    }
-
     struct ReserveWarningSubscriber(Arc<AtomicU64>);
 
     impl tracing::Subscriber for ReserveWarningSubscriber {
@@ -1605,6 +1593,7 @@ mod tests {
                         )
                     })
                     .collect(),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 21,
                 is_stopping: false,
@@ -1615,6 +1604,7 @@ mod tests {
             reserved_rpc_tasks,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         }
     }
 
@@ -1657,34 +1647,6 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_step_admission_preserves_rpc_reserve() {
-        let shared = Arc::new(reserved_rpc_shared(1));
-        let barrier = Arc::new(std::sync::Barrier::new(20));
-        let contenders: Vec<_> = (1..=20)
-            .map(|stream_id| {
-                let shared = Arc::clone(&shared);
-                let barrier = Arc::clone(&barrier);
-                std::thread::spawn(move || {
-                    let task = PollWorkerTask {
-                        request: Some(TaskRequest::Execute(Default::default())),
-                        ..Default::default()
-                    };
-                    barrier.wait();
-                    shared.try_accept(stream_id, Some(&task))
-                })
-            })
-            .collect();
-        assert_eq!(
-            1,
-            contenders
-                .into_iter()
-                .map(|contender| usize::from(contender.join().expect("admission thread")))
-                .sum::<usize>()
-        );
-        assert_eq!(1, shared.state.lock().expect("state lock").busy_tasks);
-    }
-
-    #[test]
     fn rejects_an_assignment_when_global_capacity_is_full() {
         let shared = PullShared {
             registration: Arc::default(),
@@ -1713,6 +1675,7 @@ mod tests {
                         },
                     ),
                 ]),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 3,
                 is_stopping: false,
@@ -1723,6 +1686,7 @@ mod tests {
             reserved_rpc_tasks: 0,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         };
         assert!(shared.try_accept(1, None));
         assert!(!shared.try_accept(2, None));
@@ -1760,6 +1724,7 @@ mod tests {
                         },
                     ),
                 ]),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 1,
                 next_stream_id: 3,
                 is_stopping: false,
@@ -1770,6 +1735,7 @@ mod tests {
             reserved_rpc_tasks: 0,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         };
         shared.mark_draining(2);
         assert!(!shared.release(1));
@@ -1857,6 +1823,7 @@ mod tests {
                 "task-1",
                 Output::WorkerError(WorkerErrorResponse::default()),
                 &cancellation,
+                &Mutex::new(false),
             ),
         )
         .await
@@ -2134,6 +2101,7 @@ mod tests {
                             retirement: Arc::new(Notify::new()),
                         },
                     )]),
+                    last_reserve_decline: HashMap::new(),
                     busy_tasks: 1,
                     next_stream_id: 2,
                     is_stopping: false,
@@ -2144,6 +2112,7 @@ mod tests {
                 reserved_rpc_tasks: reserve,
                 reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
                 idle_streams_per_queue: 1,
+                reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
             });
             let (_stop, stop_receiver) = watch::channel(StopSignal {
                 phase: 0,
@@ -2350,6 +2319,7 @@ mod tests {
                         retirement: Arc::new(Notify::new()),
                     },
                 )]),
+                last_reserve_decline: HashMap::new(),
                 busy_tasks: 0,
                 next_stream_id: 2,
                 is_stopping: false,
@@ -2360,6 +2330,7 @@ mod tests {
             reserved_rpc_tasks: 0,
             reserved_rpc_declines: Arc::new(AtomicU64::new(0)),
             idle_streams_per_queue: 1,
+            reserve_pressure_linger: RESERVE_PRESSURE_LINGER,
         });
         let (_stop, stop_receiver) = watch::channel(StopSignal {
             phase: 0,
@@ -2703,6 +2674,7 @@ mod tests {
 
     enum DrainEvent {
         FinalFrame(Box<PollWorkerTaskFrame>),
+        KeepalivePong,
         HalfClosed,
         ReadError(Status),
     }
@@ -2715,6 +2687,7 @@ mod tests {
         read_delay: Duration,
         is_reconnecting: bool,
         ready: Option<mpsc::Sender<()>>,
+        record_keepalive_pongs: bool,
     }
 
     #[tonic::async_trait]
@@ -2808,6 +2781,7 @@ mod tests {
             let events = self.events.clone();
             let read_delay = self.read_delay;
             let ready = self.ready.clone();
+            let record_keepalive_pongs = self.record_keepalive_pongs;
             // The test runtime owns cancellation of this deliberately detached mock stream reader.
             let _stream_reader = tokio::spawn(async move {
                 if is_task_stream && !read_delay.is_zero() {
@@ -2841,6 +2815,14 @@ mod tests {
                                 events.send(DrainEvent::FinalFrame(Box::new(frame))).await
                             {
                                 eprintln!("record final frame: {error}");
+                                break;
+                            }
+                        }
+                        Ok(Some(PollWorkerTaskRequest {
+                            frame: Some(RequestFrame::Pong(_)),
+                        })) if record_keepalive_pongs && is_task_stream => {
+                            if let Err(error) = events.send(DrainEvent::KeepalivePong).await {
+                                eprintln!("record keepalive Pong: {error}");
                                 break;
                             }
                         }
@@ -2886,6 +2868,7 @@ mod tests {
                     read_delay: Duration::ZERO,
                     is_reconnecting: false,
                     ready: None,
+                    record_keepalive_pongs: false,
                 }))
                 .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async move {
                     while !*server_shutdown.borrow() && server_shutdown.changed().await.is_ok() {}
@@ -2942,6 +2925,7 @@ mod tests {
                 assert!(matches!(frame.output, Some(Output::Rpc(_))));
             }
             DrainEvent::HalfClosed => panic!("stream closed before final frame"),
+            DrainEvent::KeepalivePong => panic!("unexpected keepalive Pong"),
             DrainEvent::ReadError(error) => panic!("stream failed before final frame: {error}"),
         }
         let closed = timeout(Duration::from_secs(5), received.recv())
@@ -2959,22 +2943,29 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn stop_drain_delivers_large_result_after_delayed_read() {
-        delayed_read_delivers_large_result(false, false).await;
+        delayed_read_delivers_large_result(false, false, Duration::from_millis(6_100), false).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn busy_keepalive_pong_stops_before_rpc_result() {
+        delayed_read_delivers_large_result(false, false, Duration::from_millis(10), true).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn busy_reconnect_delivers_large_result_after_delayed_read() {
-        delayed_read_delivers_large_result(true, false).await;
+        delayed_read_delivers_large_result(true, false, Duration::from_millis(6_100), false).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn stop_rebounds_busy_reconnect_half_close() {
-        delayed_read_delivers_large_result(true, true).await;
+        delayed_read_delivers_large_result(true, true, Duration::from_secs(8), false).await;
     }
 
     async fn delayed_read_delivers_large_result(
         is_reconnecting: bool,
         should_stop_during_reconnect: bool,
+        read_delay: Duration,
+        expect_keepalive_pong: bool,
     ) {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -2989,13 +2980,10 @@ mod tests {
                     events,
                     assigned: Arc::new(AtomicBool::new(false)),
                     cancel_kind: None,
-                    read_delay: if should_stop_during_reconnect {
-                        Duration::from_secs(8)
-                    } else {
-                        Duration::from_millis(6_100)
-                    },
+                    read_delay,
                     is_reconnecting,
                     ready: Some(ready),
+                    record_keepalive_pongs: expect_keepalive_pong,
                 }))
                 .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async move {
                     while !*server_shutdown.borrow() && server_shutdown.changed().await.is_ok() {}
@@ -3038,6 +3026,13 @@ mod tests {
             .await
             .expect("delayed read ready")
             .expect("readiness event");
+        if expect_keepalive_pong {
+            let keepalive = timeout(Duration::from_secs(25), received.recv())
+                .await
+                .expect("busy keepalive received")
+                .expect("busy keepalive event");
+            assert!(matches!(keepalive, DrainEvent::KeepalivePong));
+        }
         if !is_reconnecting {
             stop.send_replace(true);
         }
@@ -3059,6 +3054,7 @@ mod tests {
                 assert!(frame.encoded_len() > 3_000_000);
             }
             DrainEvent::HalfClosed => panic!("stream closed before final frame"),
+            DrainEvent::KeepalivePong => panic!("keepalive followed the final frame"),
             DrainEvent::ReadError(error) => panic!("stream failed before final frame: {error}"),
         }
         let closed = timeout(Duration::from_secs(5), received.recv())
@@ -3096,6 +3092,7 @@ mod tests {
                     read_delay: Duration::ZERO,
                     is_reconnecting: false,
                     ready: None,
+                    record_keepalive_pongs: false,
                 }))
                 .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async move {
                     while !*server_shutdown.borrow() && server_shutdown.changed().await.is_ok() {}
@@ -3142,6 +3139,7 @@ mod tests {
                 assert_eq!("Cancelled", error.error_type);
             }
             DrainEvent::HalfClosed => panic!("stream closed before error frame"),
+            DrainEvent::KeepalivePong => panic!("unexpected keepalive Pong"),
             DrainEvent::ReadError(error) => panic!("stream failed before error frame: {error}"),
         }
         stop.send_replace(true);

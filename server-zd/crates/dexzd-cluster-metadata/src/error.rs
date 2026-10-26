@@ -15,6 +15,12 @@ pub enum MetadataError {
     /// Object storage could not complete an operation.
     #[error(transparent)]
     Store(#[from] ObjectStoreError),
+    /// Startup could not confirm release of an acquired lease.
+    #[error("node lease release after unfinished acquisition failed: {detail}")]
+    LeaseRelease {
+        /// The release failure and preceding startup error, if any.
+        detail: String,
+    },
     /// A stored protobuf could not be decoded.
     #[error("invalid {key} metadata: {source}")]
     Decode {

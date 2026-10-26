@@ -225,6 +225,8 @@ class AsyncWorker:
     def pull_reserved_rpc_declines(self) -> int:
         """Return cumulative Step declines caused by reserved RPC capacity.
 
+        The counter counts decline events. Dex may decline the same Step dispatch
+        repeatedly while retrying it, so read the counter as a rate.
         Full-capacity rejections and unknown names are excluded. The count never
         resets during this Worker's lifetime and stays available after stop.
         Reading it alongside handlers is safe. Listening Workers return zero.

@@ -10,12 +10,13 @@ package pulldispatch
 
 import "github.com/superdurable/dex/gen/dexpb"
 
-func Routing(target *dexpb.WorkerTarget, stickyAppWorkerID string, servedByAppWorkerID string) *dexpb.PullRouting {
+func Routing(target *dexpb.WorkerTarget, stickyAppWorkerID string, servedByAppWorkerID string, queueSource dexpb.PullRoutingSource) *dexpb.PullRouting {
 	if !target.GetIsPullMode() {
 		return nil
 	}
 	routing := &dexpb.PullRouting{StickyAppWorkerId: stickyAppWorkerID, ServedByAppWorkerId: servedByAppWorkerID}
-	if servedByAppWorkerID != "" {
+	routing.Source = queueSource
+	if routing.Source == dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED && servedByAppWorkerID != "" {
 		routing.Source = dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_FLOW_TYPE_QUEUE
 		if stickyAppWorkerID != "" && servedByAppWorkerID == stickyAppWorkerID {
 			routing.Source = dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE

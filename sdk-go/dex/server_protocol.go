@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -99,6 +101,14 @@ func (protocol *negotiatedServerProtocol) requireHardDeleteAttributeSupport(
 }
 
 func serverProtocolRequestError(sdkVersion string, err error) error {
+	// Unavailable covers connection and TLS handshake failures; other codes keep the original text.
+	if status.Code(err) == codes.Unavailable {
+		return fmt.Errorf(
+			"dex: FlowService connection failed during GetServerInfo for Go SDK version %q: %w",
+			sdkVersion,
+			err,
+		)
+	}
 	return fmt.Errorf(
 		"dex: Go SDK version %q protocol [%d,%d] is incompatible with Server version %q protocol [unknown,unknown]: GetServerInfo failed: %w",
 		sdkVersion,

@@ -22,6 +22,10 @@ Set `credential` separately in ClientOptions and WorkerOptions for an authentica
 
 With TypeScript SDK v1.16.0, use **new ApiKeyCredential({ tokenUrl, serverId, apiKey })** when the application holds an API key instead of a rotated token file. The optional **exchangeTimeoutMs** defaults to 10,000 and covers connection and response. The optional **fetch** replaces global fetch for a proxy or a test endpoint; the application owns it. The constructor makes no request and throws **TypeError** for an invalid string, URL, timeout, or fetch. The first call performs the exchange. Pass the same instance as **credential** to Client and Worker options. A second rejection of a pull stream uses the Worker's 60–90 second backoff. The credential has no close method and holds no persistent HTTP client or timer. Closing a Client or Worker leaves it usable by the others. Follow the shared [API key Credential contract](../core/operations.md#api-key-credential) for refresh, rejection retries, and redaction. [README example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.20.0/sdk-typescript/README.md)
 
+## FlowService transport
+
+TypeScript SDK v1.20.0 **ClientOptions** and **WorkerOptions** have no FlowService TLS option. Their FlowService channels use plaintext gRPC, including pull streams. The Go SDK v1.22.0 option does not apply. See [FlowService TLS](../core/operations.md#flowservice-tls). [Released options](https://github.com/superdurable/dex/blob/sdk-typescript/v1.20.0/sdk-typescript/src/options.ts)
+
 ## Connector runtime support
 
 The Connector SDK's `projectconfig.LoadFromEnvironment` loader and the generated `NewProjectConnection` API are Go-only, and no equivalent TypeScript SDK exists today. Do not invent a TypeScript loader or deserialize Dex Web's credential file into Flow state. For a TypeScript application, keep provider credentials behind an application-owned secret/runtime adapter until an official TypeScript Connector SDK exposes the same contract.
