@@ -17,10 +17,10 @@ mixed requests still return NOT_FOUND. The Go Server accepts writes while a canc
 winds down, and rejects every write after the run closes. Write what a Flow needs before stopping
 it. StopFlow and Terminate never wait for Attribute Store synchronization.
 
-InvokeRPC on a closed run returns NOT_FOUND and FLOW_NOT_EXISTS before calling a Worker. This
-includes RPCs whose handlers would only read: the request does not identify them as read-only.
-A retry with a previously committed request ID returns its recorded reply. The Go Server can
-serve read-only RPCs on closed Flows through its query path.
+From v0.1.8, a transactional or locking InvokeRPC on a closed run returns NOT_FOUND and
+FLOW_NOT_EXISTS before calling a Worker. A retry with a previously committed request ID returns its
+recorded reply. Other RPCs still run their handlers on a closed, unpurged run, so they can read it,
+and any write they return is rejected. The Go Server behaves the same way.
 
 ## Layout
 

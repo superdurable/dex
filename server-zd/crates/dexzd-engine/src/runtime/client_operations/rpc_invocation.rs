@@ -51,6 +51,11 @@ impl FlowRuntimeRegistry {
     /// A read-only RPC (no locks, not transactional, no effects) is never logged. Lock keys are
     /// taken for the whole call; any held key fails with `ABORTED`. A transactional RPC fails
     /// with `FAILED_PRECONDITION` while a natural close waits for the Attribute Sync outbox.
+    ///
+    /// Before any Worker call, a transactional or locking RPC whose request ID is already recorded
+    /// returns the recorded reply. Otherwise one on a closed run fails with `NOT_FOUND` and
+    /// `FLOW_NOT_EXISTS`. A plain RPC on a closed run still reaches its handler, so it can read
+    /// the retained run; apply rejects any write it returns.
     pub async fn invoke_rpc(
         &self,
         tenant_id: TenantId,
@@ -71,8 +76,9 @@ impl FlowRuntimeRegistry {
         let run_id = {
             let committed = self.inner.dependencies.committer.committed_view()?;
             let run = read_run(committed.as_ref(), context, &flow, &request.run_id)?;
-            if let Some(response) =
-                admit_rpc_run(committed.as_ref(), context, &flow, &run, &request)?
+            if is_transactional
+                && let Some(response) =
+                    admit_transactional_rpc_run(committed.as_ref(), context, &flow, &run, &request)?
             {
                 return Ok(response);
             }
@@ -96,11 +102,14 @@ impl FlowRuntimeRegistry {
         let is_hydrating = self.inner.config.hydrate_value_references;
         let snapshot = {
             let committed = self.inner.dependencies.committer.committed_view()?;
-            let run = read_run(committed.as_ref(), context, &flow, &run_id.to_string())?;
-            if let Some(response) =
-                admit_rpc_run(committed.as_ref(), context, &flow, &run, &request)?
-            {
-                return Ok(response);
+            if lock_guard.is_some() {
+                // A StopFlow may commit while the RPC waits for its locks and the sync barrier.
+                let run = read_run(committed.as_ref(), context, &flow, &run_id.to_string())?;
+                if let Some(response) =
+                    admit_transactional_rpc_run(committed.as_ref(), context, &flow, &run, &request)?
+                {
+                    return Ok(response);
+                }
             }
             build_rpc_snapshot(
                 committed.as_ref(),
@@ -272,7 +281,7 @@ impl FlowRuntimeRegistry {
     }
 }
 
-fn admit_rpc_run(
+fn admit_transactional_rpc_run(
     state: &dyn FlowStateReader,
     context: ApplyContext,
     flow: &FlowAddress,

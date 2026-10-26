@@ -22,7 +22,7 @@ const FLOW_ID: &str = "closed-rpc-flow";
 const FLOW_TYPE: &str = "ClosedRpcFlow";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn closed_run_rejects_rpcs_before_the_worker_and_replays_prior_request_ids() {
+async fn closed_run_rejects_transactional_rpcs_before_the_worker_and_serves_plain_rpcs() {
     let server = DevServer::start().await;
     let mut flow_client = server.flow_client();
     let mut worker = ScriptedWorker::start(server.worker_client(), FLOW_TYPE).await;
@@ -61,6 +61,7 @@ async fn closed_run_rejects_rpcs_before_the_worker_and_replays_prior_request_ids
         run_id: started.run_id.clone(),
         rpc_name: "updateOrder".to_owned(),
         request_id: "open-writing-rpc".to_owned(),
+        is_transactional: true,
         ..InvokeRpcRequest::default()
     };
     let mut writing_client = flow_client.clone();
@@ -119,16 +120,10 @@ async fn closed_run_rejects_rpcs_before_the_worker_and_replays_prior_request_ids
 
     for (name, request) in [
         (
-            "writing",
-            InvokeRpcRequest {
-                request_id: "closed-writing-rpc".to_owned(),
-                ..writing_rpc.clone()
-            },
-        ),
-        (
             "locking",
             InvokeRpcRequest {
                 request_id: "closed-locking-rpc".to_owned(),
+                is_transactional: false,
                 lock_attribute_keys: vec!["status".to_owned()],
                 ..writing_rpc.clone()
             },
@@ -137,15 +132,6 @@ async fn closed_run_rejects_rpcs_before_the_worker_and_replays_prior_request_ids
             "transactional",
             InvokeRpcRequest {
                 request_id: "closed-transactional-rpc".to_owned(),
-                is_transactional: true,
-                ..writing_rpc.clone()
-            },
-        ),
-        (
-            "read-only handler",
-            InvokeRpcRequest {
-                rpc_name: "getOrder".to_owned(),
-                request_id: "closed-reading-rpc".to_owned(),
                 ..writing_rpc.clone()
             },
         ),
@@ -160,6 +146,37 @@ async fn closed_run_rejects_rpcs_before_the_worker_and_replays_prior_request_ids
             "{name}: {status}"
         );
     }
+
+    let mut reading_client = flow_client.clone();
+    let reading_rpc = tokio::spawn(async move {
+        reading_client
+            .invoke_rpc(InvokeRpcRequest {
+                flow_id: FLOW_ID.to_owned(),
+                run_id: started.run_id.clone(),
+                rpc_name: "getOrder".to_owned(),
+                request_id: "closed-reading-rpc".to_owned(),
+                ..InvokeRpcRequest::default()
+            })
+            .await
+    });
+    let reading_task = worker.next_task().await;
+    assert!(matches!(
+        reading_task.request,
+        Some(poll_worker_task::Request::Rpc(_))
+    ));
+    worker.reply(
+        reading_task.task_id,
+        poll_worker_task_frame::Output::Rpc(InvokeWorkerRpcResponse {
+            output: Some(string_value("retained")),
+            ..InvokeWorkerRpcResponse::default()
+        }),
+    );
+    let reading_response = reading_rpc
+        .await
+        .expect("the plain RPC task finishes")
+        .expect("a plain RPC reads the retained run")
+        .into_inner();
+    assert_eq!(reading_response.output, Some(string_value("retained")));
     worker.stop().await;
     server.shutdown().await;
 }

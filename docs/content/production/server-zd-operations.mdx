@@ -491,6 +491,14 @@ Each run records the value when it starts. A new value applies only to runs that
 start after the node restarts with it. Runs that already started keep their
 recorded duration.
 
+From server-zd v0.1.8, a transactional or locking RPC on a closed run returns
+NOT_FOUND with FLOW_NOT_EXISTS before a Worker runs its handler. A retry with an
+already recorded request ID returns its earlier reply. Other RPCs still run
+their handlers on a closed run that is not yet purged, so they can read it.
+server-zd rejects any write that such a handler returns. The Go Server behaves
+the same way: it rejects transactional and locking RPCs on a closed Flow, runs
+other RPC handlers, and rejects only their writes.
+
 ## Attribute Store sync {#attribute-store}
 
 server-zd v0.1.3 or later can sync Attributes to PostgreSQL. This is the same
@@ -554,11 +562,6 @@ in server-zd.
   erase after the close. The Go Server accepts writes while a canceled or
   failed run winds down. It rejects every write after the run closes. Write what
   a Flow needs before stopping it.
-- An RPC on a closed run returns NOT_FOUND with FLOW_NOT_EXISTS before a Worker
-  runs its handler. This includes read-only handlers because the request has no
-  read-only marker. A retry with a recorded request ID returns its earlier
-  reply. The Go Server can serve read-only RPCs on closed Flows through its
-  query path.
 - Pending writes for a store that is no longer configured are dropped at once
   and counted in **dexzd_attribute_sync_dropped_entries_total**.
 

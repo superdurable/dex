@@ -418,6 +418,11 @@ server-zd 不发送服务端加密的请求头，因此使用 bucket 的默认�
 每个 run 在启动时记录这个值。新值只对节点用它重启之后启动的 run 生效。已经启动的 run
 保留自己记录的时长。
 
+从 server-zd v0.1.8 起，对已关闭 run 调用事务型或加锁的 RPC，会在 Worker 执行处理函数前返回
+NOT_FOUND 和 FLOW_NOT_EXISTS。使用已记录的请求 ID 重试时，会返回先前的结果。其他 RPC 仍会在尚未清除的
+已关闭 run 上执行处理函数，因此可以读取该 run。处理函数返回的任何写入都会被 server-zd 拒绝。Go Server
+的行为相同：它拒绝已关闭 Flow 上的事务型和加锁 RPC，执行其他 RPC 的处理函数，只拒绝其写入。
+
 ## Attribute Store 同步 {#attribute-store}
 
 server-zd v0.1.3 或更高版本可以把 Attribute 同步到 PostgreSQL。这与 Go Dex Server 的
@@ -459,9 +464,6 @@ server-zd 不同的地方。
   此例外仅适用于尚未清除的 run。该操作会删除存储的对象，但不会重新打开 run。run 的 Flow history
   会在关闭之后记录这次擦除。Go Server 在已取消或失败的 run 收尾期间接受写入，关闭后则拒绝写入。
   Flow 需要的数据请在停止之前写入。
-- 对已关闭 run 调用 RPC 会在 Worker 执行处理函数前返回 NOT_FOUND 和 FLOW_NOT_EXISTS。
-  即使处理函数只读取数据也是如此，因为请求没有只读标记。使用已记录的请求 ID 重试时，
-  会返回先前的结果。Go Server 可以通过查询路径在已关闭的 Flow 上执行只读 RPC。
 - 已不在配置中的 store 的待写入值会被立即丢弃，并计入
   **dexzd_attribute_sync_dropped_entries_total**。
 
