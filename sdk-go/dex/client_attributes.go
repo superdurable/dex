@@ -11,6 +11,7 @@ package dex
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -115,13 +116,15 @@ func (read attributeReadImpl[T]) decodeAttributeRead(value *dexpb.Value) (func()
 // GetAttributes returns the zero value with every error.
 // See Client.GetAttributes for an example.
 type AttributeReadResult struct {
-	setKeys map[string]struct{}
+	setDefinitions map[string]AttributeDef
 }
 
 // IsSet reports whether the call read attribute and found a set value.
 //
 // It returns false when attribute was not set.
 // It also returns false when attribute was not part of the call, is nil, or is an AttributeMap.
+// attribute must equal the definition passed to ReadAttribute.
+// Another definition with the same name, such as one with a different value type, reports false.
 // Use IsMapInstanceSet for an AttributeMap instance.
 //
 // Parameters:
@@ -132,13 +135,15 @@ func (result AttributeReadResult) IsSet(attribute AttributeDef) bool {
 	if nilInterface(attribute) || attribute.attributeIsMap() {
 		return false
 	}
-	return result.hasSetKey(attribute.attributeName(), "", false)
+	return result.hasSetDefinition(attribute, "")
 }
 
 // IsMapInstanceSet reports whether the call read one AttributeMap instance and found a set value.
 //
 // It returns false when the instance was not set.
 // It also returns false when the instance was not part of the call, attributeMap is nil, or attributeMap is not an AttributeMap.
+// attributeMap must equal the definition passed to ReadAttributeMapInstance.
+// Another definition with the same name, such as one with a different value type, reports false.
 //
 // Parameters:
 //   - attributeMap is the AttributeMap definition passed to ReadAttributeMapInstance.
@@ -149,16 +154,16 @@ func (result AttributeReadResult) IsMapInstanceSet(attributeMap AttributeDef, in
 	if nilInterface(attributeMap) || !attributeMap.attributeIsMap() {
 		return false
 	}
-	return result.hasSetKey(attributeMap.attributeName(), instance, true)
+	return result.hasSetDefinition(attributeMap, instance)
 }
 
-func (result AttributeReadResult) hasSetKey(name string, instance string, isMap bool) bool {
-	key, err := physicalName(name, instance, isMap)
+func (result AttributeReadResult) hasSetDefinition(definition AttributeDef, instance string) bool {
+	key, err := physicalName(definition.attributeName(), instance, definition.attributeIsMap())
 	if err != nil {
 		return false
 	}
-	_, found := result.setKeys[key]
-	return found
+	readDefinition, found := result.setDefinitions[key]
+	return found && reflect.DeepEqual(readDefinition, definition)
 }
 
 // GetAttributes reads committed Attribute values from the current or latest Flow run.
@@ -225,7 +230,8 @@ func (result AttributeReadResult) hasSetKey(name string, instance string, isMap 
 //   - A plain error for an empty flowID, no reads, a nil read or destination, an invalid instance,
 //     a duplicate read, an invalid server response, a LoadBlobs failure, or a context error.
 //
-// Every error names the Flow ID and the affected Attribute names.
+// Every error names the Flow ID.
+// An error about one read or returned value also names its Attribute or physical key.
 // Match error types with errors.As.
 func (client *Client) GetAttributes(
 	ctx context.Context,
@@ -241,7 +247,7 @@ func (client *Client) GetAttributes(
 		return AttributeReadResult{}, err
 	}
 	writeDestinations := make([]func(), 0, len(values))
-	setKeys := make(map[string]struct{}, len(values))
+	setDefinitions := make(map[string]AttributeDef, len(values))
 	for index, read := range reads {
 		value, found := values[keys[index]]
 		if !found {
@@ -253,12 +259,12 @@ func (client *Client) GetAttributes(
 				flowID, keys[index], err)
 		}
 		writeDestinations = append(writeDestinations, writeDestination)
-		setKeys[keys[index]] = struct{}{}
+		setDefinitions[keys[index]] = read.attributeReadDefinition()
 	}
 	for _, writeDestination := range writeDestinations {
 		writeDestination()
 	}
-	return AttributeReadResult{setKeys: setKeys}, nil
+	return AttributeReadResult{setDefinitions: setDefinitions}, nil
 }
 
 // validateAttributeReads returns the physical key of each read, in read order,
@@ -269,7 +275,7 @@ func (client *Client) validateAttributeReads(
 	reads []AttributeRead,
 ) ([]string, error) {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dex: GetAttributes Flow %q: %w", flowID, err)
 	}
 	if len(reads) == 0 {
 		return nil, fmt.Errorf("dex: GetAttributes Flow %q requires at least one Attribute read", flowID)
