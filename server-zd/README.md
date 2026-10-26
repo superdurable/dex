@@ -94,6 +94,16 @@ server-zd cancellation expectations below apply from the next Go SDK release con
 | ASYNC Step cancellation | An ASYNC Step has no local phase. Its handler runs once on server-zd; the Go Server runs a local invocation and then a remote one. | `TestStepCancellation` (`local-execute`, `local-timeout-fallback`) |
 | Canceled Step handlers | server-zd sends `cancel_task`, so a pull Worker cancels a running handler context even if the handler records no heartbeat. On the Go Server, a running handler observes cancellation when it records a heartbeat or writes a Stream frame. This also applies to the ASYNC `local-execute` case on server-zd. | `TestStepCancellation` (`no-heartbeat`, `local-execute`) |
 | Push Workers | Not supported. | `TestMessageSizeHydrationSplitsBlobBatchesAboveLimit` (push-only) |
+| Step timeout failure text | A Step that exhausts its retries after a timeout fails with `method timeout of <seconds>s expired`, `no heartbeat within <seconds>s`, or `retry policy total duration expired`. The Go Server reports a Temporal timeout string. | None |
+| Value size limit | A Worker result with a value larger than `max_value_bytes` fails the attempt without retry. The text is `a value of <n> bytes exceeds the <max> byte limit` or `value of <n> bytes exceeds the maximum of <max> bytes`. The Go Server has no per-run value size limit. | None |
+| Worker request size | A Step attempt whose request exceeds the Worker message limit fails with `Worker request of <n> bytes exceeds the <max> byte message limit`. The Go Server has no such check, so the gRPC call fails with its own text. | None |
+| Value references | A Worker result that echoes a value reference naming no value of the run fails the attempt without retry, with `value reference "<reference>" does not name a value of this run`. The Go Server has no value references. | None |
+| Server-side dispatch failures | `matching server is closing`, `server error: <error>`, and `dispatch ended without an outcome` are server-zd texts. The Go Server reports its own internal error text, which depends on where the failure happens. | None |
+| SubFlow options in WaitFor results | server-zd checks a SubFlow condition's start options and effective Flow configuration when it validates the WaitFor result. The attempt fails with that check's text, such as `server-zd does not support flow_start_delay_seconds > 0`. The Go Server checks the Flow configuration when it starts the SubFlow. | None |
+| Multiple invalid Attribute writes in one Worker Step result | server-zd validates each write completely before checking the next. The Go Server scans all writes for internal blob IDs before checking hard-delete values. When an earlier write has an invalid hard-delete value and a later write has an internal blob ID, server-zd reports `hard-delete attribute "<key>" must be a string, an object, or null`; the Go Server reports `worker response must not contain internal_blob_id arms`. | None |
+
+Apart from the listed differences, an exhausted Step failure closes the Flow with the Go Server's
+failure message. server-zd gives a recovery Step the same text as its error detail.
 
 The [released Go SDK compatibility workflow](../.github/workflows/server-zd-sdk-go-compatibility.yml)
 repeats this check after each server-zd release. It runs the newest `sdk-go` release's suite
@@ -274,7 +284,8 @@ store's PostgreSQL tables. These differences from the Go Server apply:
 - Synchronization is asynchronous. Step, RPC, and SetAttributes commits do not wait for the table,
   and there is no 7-second synchronous phase. Rows normally appear within a second of the commit.
   While a store is unavailable, Flows keep running and the backlog is written with the latest
-  values once it recovers. Entries still pending `syncRetryPolicy.totalDuration` after they were
+  synced values once it recovers. A later unsynced write does not replace a pending synced value.
+  Entries still pending `syncRetryPolicy.totalDuration` after they were
   first marked are dropped and counted in `dexzd_attribute_sync_dropped_entries_total`.
 - server-zd v0.1.3 closes a Flow without waiting for its synced Attributes, so rows can land
   after it completes. server-zd v0.1.4 or later waits, like the Go Server. A natural close (a
@@ -300,7 +311,8 @@ store's PostgreSQL tables. These differences from the Go Server apply:
   extends the wait.
 - StopFlow (CANCEL or FAIL), Terminate, and ID reuse termination close the run at once, even
   during cleanup; the stop discards a pending close. The run's remaining entries keep syncing
-  after the close. ResetFlow replaces a pending close with the state of the reset point.
+  after the close. ResetFlow replaces a pending close with the state of the reset point. When a
+  reset restores an unsynced Attribute over a synced one, its store row is deleted.
 - Entries of a store that is no longer configured, including when the `attributeStore` section
   is gone, are dropped at once with an error log and counted in
   `dexzd_attribute_sync_dropped_entries_total`, so their runs' closes can finish.

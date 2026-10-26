@@ -68,12 +68,57 @@ impl Default for ValidationConfig {
     }
 }
 
+impl ValidationError {
+    /// Prefixes the message with the context the Go Server adds, keeping the field path.
+    pub(crate) fn with_message_context(mut self, context: &str) -> Self {
+        self.message = format!("{context}: {}", self.message);
+        self
+    }
+}
+
 pub(crate) fn invalid(path: impl Into<String>, message: impl Into<String>) -> ValidationError {
     ValidationError {
         field_path: path.into(),
         message: message.into(),
         category: ValidationCategory::InvalidArgument,
     }
+}
+
+/// Quotes a Worker string using Go's `strconv.Quote` escape spelling.
+pub fn quote_go_string(value: &str) -> String {
+    let mut quoted = String::from("\"");
+    for character in value.chars() {
+        match character {
+            '\\' => quoted.push_str("\\\\"),
+            '"' => quoted.push_str("\\\""),
+            '\x07' => quoted.push_str("\\a"),
+            '\x08' => quoted.push_str("\\b"),
+            '\x0c' => quoted.push_str("\\f"),
+            '\n' => quoted.push_str("\\n"),
+            '\r' => quoted.push_str("\\r"),
+            '\t' => quoted.push_str("\\t"),
+            '\x0b' => quoted.push_str("\\v"),
+            // A leading "a" keeps escape_debug from escaping printable combining marks.
+            _ if character.is_control()
+                || format!("a{character}")
+                    .escape_debug()
+                    .to_string()
+                    .contains("\\u{") =>
+            {
+                let codepoint = character as u32;
+                if codepoint <= 0x7f {
+                    quoted.push_str(&format!("\\x{codepoint:02x}"));
+                } else if codepoint <= 0xffff {
+                    quoted.push_str(&format!("\\u{codepoint:04x}"));
+                } else {
+                    quoted.push_str(&format!("\\U{codepoint:08x}"));
+                }
+            }
+            _ => quoted.push(character),
+        }
+    }
+    quoted.push('"');
+    quoted
 }
 
 fn unsupported(path: impl Into<String>, feature: &str) -> ValidationError {
@@ -89,7 +134,7 @@ pub(crate) fn validate_identifier(
         if value.contains(character) {
             return Err(invalid(
                 path,
-                format!("{name} contains reserved character {character:?}"),
+                format!("{name} contains reserved character \"{character}\""),
             ));
         }
     }
@@ -169,8 +214,8 @@ pub(crate) fn validate_hard_delete_write(
             return Err(invalid(
                 path,
                 format!(
-                    "hard-delete attribute {:?} has an empty value; use null to delete it",
-                    write.key
+                    "hard-delete attribute {} has an empty value; use null to delete it",
+                    quote_go_string(&write.key)
                 ),
             ));
         }
@@ -178,8 +223,8 @@ pub(crate) fn validate_hard_delete_write(
             return Err(invalid(
                 path,
                 format!(
-                    "hard-delete attribute {:?} must be a string, an object, or null",
-                    write.key
+                    "hard-delete attribute {} must be a string, an object, or null",
+                    quote_go_string(&write.key)
                 ),
             ));
         }
@@ -191,15 +236,18 @@ pub(crate) fn validate_hard_delete_write(
     {
         return Err(invalid(
             path,
-            format!("hard-delete attribute {:?} must not be indexed", write.key),
+            format!(
+                "hard-delete attribute {} must not be indexed",
+                quote_go_string(&write.key)
+            ),
         ));
     }
     if write.sync_config.as_ref().is_some_and(|sync| sync.enabled) {
         return Err(invalid(
             path,
             format!(
-                "hard-delete attribute {:?} must not sync to an Attribute Store",
-                write.key
+                "hard-delete attribute {} must not sync to an Attribute Store",
+                quote_go_string(&write.key)
             ),
         ));
     }
@@ -247,7 +295,10 @@ pub(crate) fn validate_action_permissions(
         if !is_valid {
             return Err(invalid(
                 item_path,
-                format!("Action permission mapping {index} has invalid permission {permission:?}"),
+                format!(
+                    "Action permission mapping {index} has invalid permission {}",
+                    quote_go_string(permission)
+                ),
             ));
         }
         if mapping.equal_values.is_empty() {
@@ -339,7 +390,8 @@ pub(crate) fn validate_timeout_handler(
         execute_load_channel_map_instances: options.load_channel_map_instances.clone(),
         ..StepOptions::default()
     };
-    validate_step_options(path, Some(&mapped), config)?;
+    validate_step_options(path, Some(&mapped), config)
+        .map_err(|error| error.with_message_context("Flow timeout handler options"))?;
     // The same order as the Go Server: an unknown policy fails before its failure target.
     match ExecuteMethodFailurePolicy::try_from(options.failure_policy) {
         Ok(
@@ -391,7 +443,7 @@ pub(crate) fn validate_step_options(
                 format!("{current_path}.heartbeat_timeout_seconds"),
                 format!(
                     "heartbeat timeout must be zero or at least {}",
-                    format_duration(config.minimum_step_heartbeat_timeout)
+                    format_go_duration(config.minimum_step_heartbeat_timeout)
                 ),
             ));
         }
@@ -415,11 +467,28 @@ pub(crate) fn validate_step_options(
     Ok(())
 }
 
-fn format_duration(duration: Duration) -> String {
+/// Formats `duration` like Go's `time.Duration.String`, for example `10s` or `1m30s`.
+fn format_go_duration(duration: Duration) -> String {
     if duration.is_zero() {
-        "0s".to_owned()
-    } else {
-        format!("{duration:?}")
+        return "0s".to_owned();
+    }
+    if duration < Duration::from_secs(1) {
+        // Below one second, Rust's Debug units and digits match Go's.
+        return format!("{duration:?}");
+    }
+    let fraction = match duration.subsec_nanos() {
+        0 => String::new(),
+        nanos => format!(".{}", format!("{nanos:09}").trim_end_matches('0')),
+    };
+    let total_seconds = duration.as_secs();
+    match (
+        total_seconds / 3600,
+        total_seconds / 60 % 60,
+        total_seconds % 60,
+    ) {
+        (0, 0, seconds) => format!("{seconds}{fraction}s"),
+        (0, minutes, seconds) => format!("{minutes}m{seconds}{fraction}s"),
+        (hours, minutes, seconds) => format!("{hours}h{minutes}m{seconds}{fraction}s"),
     }
 }
 
@@ -449,14 +518,19 @@ pub(crate) fn validate_state_selections(
                     || value.matches('/').count() != 1)
             {
                 Some(format!(
-                    "state load {kind} instance {value:?} must contain one '/' after the definition name"
+                    "state load {kind} instance {} must contain one '/' after the definition name",
+                    quote_go_string(value)
                 ))
             } else if !is_map && value.contains('/') {
-                Some(format!("state load {kind} name {value:?} contains '/'"))
+                Some(format!(
+                    "state load {kind} name {} contains '/'",
+                    quote_go_string(value)
+                ))
             } else if !seen.insert(value) {
                 Some(format!(
-                    "state load {kind} {} {value:?} is duplicated",
-                    if is_map { "instance" } else { "name" }
+                    "state load {kind} {} {} is duplicated",
+                    if is_map { "instance" } else { "name" },
+                    quote_go_string(value)
                 ))
             } else {
                 None
@@ -536,13 +610,13 @@ pub(crate) fn validate_flow_config(
             if !seen.insert(name) {
                 return Err(invalid(
                     item_path,
-                    format!("duplicate Attribute Store {name:?}"),
+                    format!("duplicate Attribute Store {}", quote_go_string(name)),
                 ));
             }
             if !config.attribute_store_names.contains(name) {
                 return Err(invalid(
                     item_path,
-                    format!("unknown Attribute Store {name:?}"),
+                    format!("unknown Attribute Store {}", quote_go_string(name)),
                 ));
             }
         }

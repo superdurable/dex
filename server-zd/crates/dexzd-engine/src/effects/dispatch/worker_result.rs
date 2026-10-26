@@ -123,6 +123,7 @@ pub(crate) fn check_worker_result(
     if let Err(error) = validation {
         return WorkerResultCheck::Invalid {
             kind: StepAttemptFailureKind::InvalidResponse,
+            // Apply shows applications only the message; history and logs keep the field path.
             detail: format!("{}: {}", error.field_path, error.message),
             is_non_retryable: false,
         };

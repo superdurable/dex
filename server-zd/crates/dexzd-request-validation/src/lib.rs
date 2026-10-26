@@ -14,6 +14,6 @@ mod waiting;
 mod worker;
 
 pub use client::{ClientRequest, validate_client_request, validate_start_flow_request};
-pub use shared::{ValidationCategory, ValidationConfig, ValidationError};
+pub use shared::{ValidationCategory, ValidationConfig, ValidationError, quote_go_string};
 pub use waiting::validate_waiting_condition;
 pub use worker::{WorkerResponse, validate_worker_response};

@@ -24,6 +24,9 @@ const SNAPSHOT_UPLOAD_DELAY: Duration = Duration::from_secs(5);
 /// How long a ledger write may take while the upload is held.
 const LEDGER_WRITE_BUDGET: Duration = Duration::from_secs(2);
 
+/// Backstop for a snapshot or ledger write that never finishes.
+const TEST_LIVENESS_BOUND: Duration = Duration::from_secs(30);
+
 /// Starts a node and returns the NodeMeta services that the server wires into its upload ledger.
 async fn start_node_with_node_meta_services(
     cluster: &mut TestCluster,
@@ -104,24 +107,38 @@ async fn hard_delete_upload_records_do_not_wait_for_an_in_flight_snapshot_upload
         uploaded_at_unix_micros: 7,
     };
 
-    let in_flight_snapshot = first.node.take_snapshot();
-    let ledger_write = async {
-        cluster.faults.wait_until_delayed_operation_entered().await;
-        let ledger = ledger.clone();
-        let upload = upload.clone();
-        tokio::time::timeout(
-            LEDGER_WRITE_BUDGET,
-            tokio::task::spawn_blocking(move || ledger.record_pending_uploads(&[upload])),
-        )
+    // A snapshot that fails before its delay never releases the ledger write, so report it at once.
+    let (snapshot, ledger_write) = {
+        let mut in_flight_snapshot = std::pin::pin!(first.node.take_snapshot());
+        let mut ledger_write = std::pin::pin!(async {
+            cluster.faults.wait_until_delayed_operation_entered().await;
+            let ledger = ledger.clone();
+            let upload = upload.clone();
+            tokio::time::timeout(
+                LEDGER_WRITE_BUDGET,
+                tokio::task::spawn_blocking(move || ledger.record_pending_uploads(&[upload])),
+            )
+            .await
+        });
+        tokio::time::timeout(TEST_LIVENESS_BOUND, async {
+            tokio::select! {
+                snapshot = &mut in_flight_snapshot => {
+                    let snapshot = snapshot.expect("the snapshot succeeds");
+                    (snapshot, ledger_write.await)
+                }
+                ledger_write = &mut ledger_write => {
+                    (in_flight_snapshot.await.expect("the snapshot succeeds"), ledger_write)
+                }
+            }
+        })
         .await
+        .expect("the snapshot and ledger write finish within the test liveness bound")
     };
-    let (snapshot, ledger_write) = tokio::join!(in_flight_snapshot, ledger_write);
 
     ledger_write
         .expect("the ledger write does not wait for the snapshot upload")
         .expect("the ledger write task completes")
         .expect("the ledger write succeeds");
-    let snapshot = snapshot.expect("the snapshot succeeds");
     assert_eq!(snapshot.snapshot_number, 1);
     let node_meta = local_store
         .node_meta()

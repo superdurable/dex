@@ -327,6 +327,30 @@ class RustRulesTest(unittest.TestCase):
     def test_clippy_config(self):
         self.write("engine/clippy.toml", "allow-unwrap-in-tests = false")
         self.assert_rule("R16")
+        self.write(
+            "engine/clippy.toml",
+            "\n".join(
+                f"{name} = {str(value).lower()}"
+                for name, value in RULES.CLIPPY_CONFIG.items()
+            )
+            + '\ndisallowed-methods = [{ path = "tokio::runtime::Handle::block_on", reason = "review runtime waits" }]\n',
+        )
+        self.assertEqual(self.check(), [])
+
+    def test_clippy_config_rejects_extra_test_settings(self):
+        frozen = "\n".join(
+            f"{name} = {str(value).lower()}"
+            for name, value in RULES.CLIPPY_CONFIG.items()
+        )
+        for extra in ["allow-expect-in-tests = true", "allow-panic-in-tests = true"]:
+            self.write(
+                "engine/clippy.toml",
+                frozen
+                + '\ndisallowed-methods = [{ path = "std::thread::sleep", reason = "use the runtime clock" }]\n'
+                + extra
+                + "\n",
+            )
+            self.assert_rule("R16")
 
     def test_generated_and_test_exemptions(self):
         for directory, prefix in [

@@ -1,3 +1,6 @@
 allow-unwrap-in-tests = true
 allow-dbg-in-tests = false
 allow-print-in-tests = true
+disallowed-methods = [
+    { path = "tokio::runtime::Handle::block_on", reason = "blocking on the runtime while holding a synchronous lock can stall every worker" },
+]

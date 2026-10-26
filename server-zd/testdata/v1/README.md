@@ -35,7 +35,8 @@ Before the snapshot:
   Flow in another partition, and the parent's outbox message is acknowledged.
 - `account-sync`: a Flow that targets the `accounts` Attribute Store starts with two synced
   Attributes and one unsynced Attribute, then a SetAttributes changes a synced one. Its
-  Attribute Sync entries and pending index are pending in the snapshot.
+  Attribute Sync entries and pending index are pending in the snapshot. The entries carry the
+  last synced `plans/basic="trial"` and `status="active"` values.
 
 Then the node took a snapshot. After the snapshot:
 

@@ -11,6 +11,7 @@ use std::time::{Duration, SystemTime};
 use dexzd_protocol::dex::{
     InvokeExecuteMethodRequest, InvokeWaitForMethodRequest, InvokeWorkerRpcRequest,
 };
+use dexzd_request_validation::quote_go_string;
 
 /// The unmodified Worker request carried by a pull task.
 #[derive(Debug, Clone)]
@@ -42,4 +43,26 @@ pub struct DispatchRequest {
     pub sticky_wait: Option<Duration>,
     /// Override for the 10-second total Worker search.
     pub dispatch_wait: Option<Duration>,
+}
+
+impl DispatchRequest {
+    pub(super) fn unknown_name_detail(&self) -> String {
+        match &self.payload {
+            DispatchTaskPayload::WaitFor(value) => format!(
+                "no pull Worker registered Step {} for Flow type {}",
+                quote_go_string(&value.step_type),
+                quote_go_string(&value.flow_type)
+            ),
+            DispatchTaskPayload::Execute(value) => format!(
+                "no pull Worker registered Step {} for Flow type {}",
+                quote_go_string(&value.step_type),
+                quote_go_string(&value.flow_type)
+            ),
+            DispatchTaskPayload::Rpc(value) => format!(
+                "no pull Worker registered RPC {} for Flow type {}",
+                quote_go_string(&value.rpc_name),
+                quote_go_string(&value.flow_type)
+            ),
+        }
+    }
 }

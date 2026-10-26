@@ -11,11 +11,11 @@ use std::time::{Duration, Instant, SystemTime};
 
 use dexzd_clock::SystemWallClock;
 use dexzd_protocol::dex::{
-    self, DispatchTaskErrorReason, InvokeWaitForMethodOutput, InvokeWaitForMethodRequest,
-    InvokeWaitForMethodResponse, InvokeWorkerRpcRequest, PollWorkerTaskFrame,
-    PollWorkerTaskRegister, PollWorkerTaskReject, PollWorkerTaskRejectReason,
-    PollWorkerTaskRequest, PollWorkerTaskResponse, StepMethodHeartbeat, StepStreamWrite, Value,
-    WorkerErrorResponse, poll_worker_task_frame, poll_worker_task_request,
+    self, DispatchTaskErrorReason, InvokeExecuteMethodOutput, InvokeExecuteMethodRequest,
+    InvokeWaitForMethodOutput, InvokeWaitForMethodRequest, InvokeWaitForMethodResponse,
+    InvokeWorkerRpcRequest, PollWorkerTaskFrame, PollWorkerTaskRegister, PollWorkerTaskReject,
+    PollWorkerTaskRejectReason, PollWorkerTaskRequest, PollWorkerTaskResponse, StepMethodHeartbeat,
+    StepStreamWrite, Value, WorkerErrorResponse, poll_worker_task_frame, poll_worker_task_request,
     poll_worker_task_response, worker_task_service_client::WorkerTaskServiceClient,
     worker_task_service_server::WorkerTaskServiceServer,
 };
@@ -763,7 +763,7 @@ async fn unknown_rpc_and_worker_error_are_terminal_outcomes() {
     let mut rpc_request = request(0, "rpc-flow");
     rpc_request.payload = DispatchTaskPayload::Rpc(InvokeWorkerRpcRequest {
         flow_type: "Flow".to_owned(),
-        rpc_name: "getStatus".to_owned(),
+        rpc_name: "get\x7fStatus".to_owned(),
         ..Default::default()
     });
     rpc_request.dispatch_wait = Some(Duration::from_millis(50));
@@ -775,13 +775,15 @@ async fn unknown_rpc_and_worker_error_are_terminal_outcomes() {
             reason: PollWorkerTaskRejectReason::UnknownRpc as i32,
         },
     ));
-    assert!(matches!(
-        completed(&mut rpc).await,
-        DispatchOutcome::DispatchError {
-            reason: DispatchTaskErrorReason::UnknownName,
-            ..
-        }
-    ));
+    let outcome = completed(&mut rpc).await;
+    let DispatchOutcome::DispatchError { reason, detail } = outcome else {
+        panic!("expected unknown RPC rejection, got {outcome:?}");
+    };
+    assert_eq!(reason, DispatchTaskErrorReason::UnknownName);
+    assert_eq!(
+        detail,
+        "no pull Worker registered RPC \"get\\x7fStatus\" for Flow type \"Flow\""
+    );
     let mut error_dispatch = dispatch
         .dispatch(request(0, "error-flow"))
         .expect("dispatch starts");
@@ -800,6 +802,44 @@ async fn unknown_rpc_and_worker_error_are_terminal_outcomes() {
     assert!(
         matches!(completed(&mut error_dispatch).await, DispatchOutcome::WorkerError { app_worker_id, .. } if app_worker_id == "worker")
     );
+}
+
+#[tokio::test]
+async fn empty_step_method_frames_finish_dispatch_before_the_deadline() {
+    let dispatch = dispatch_with_config(MatchingConfig::default());
+    let server = start_server(dispatch.clone(), 0).await;
+    let mut worker = register_worker(&server.channel, registration("Flow", "worker")).await;
+    for method in ["WaitFor", "Execute"] {
+        let mut dispatch_request = request(0, method);
+        if method == "Execute" {
+            dispatch_request.payload = DispatchTaskPayload::Execute(InvokeExecuteMethodRequest {
+                flow_type: "Flow".to_owned(),
+                step_type: "WorkStep".to_owned(),
+                ..InvokeExecuteMethodRequest::default()
+            });
+        }
+        let mut handle = dispatch
+            .dispatch(dispatch_request)
+            .expect("dispatch starts");
+        let assigned = task_id(&mut worker).await;
+        let output = if method == "WaitFor" {
+            poll_worker_task_frame::Output::WaitFor(InvokeWaitForMethodOutput { output: None })
+        } else {
+            poll_worker_task_frame::Output::Execute(InvokeExecuteMethodOutput { output: None })
+        };
+        worker.send(poll_worker_task_request::Frame::TaskFrame(
+            PollWorkerTaskFrame {
+                task_id: assigned,
+                output: Some(output),
+            },
+        ));
+        let outcome = tokio::time::timeout(Duration::from_millis(500), completed(&mut handle))
+            .await
+            .expect("empty method frame finishes before timeout");
+        assert!(
+            matches!(outcome, DispatchOutcome::WorkerResult { frame, .. } if frame.output.is_some())
+        );
+    }
 }
 
 #[tokio::test]

@@ -776,7 +776,7 @@ func (client *Client) DescribeFlow(ctx context.Context, flowID string) (FlowInfo
 	if err != nil {
 		return FlowInfo{}, translateRPCError(err, "DescribeFlow", flowID, flowTargetExisting)
 	}
-	return mapFlowInfo(response)
+	return mapFlowInfo(flowID, response)
 }
 
 // SearchFlows returns one server-ordered page of Flow executions matching query.

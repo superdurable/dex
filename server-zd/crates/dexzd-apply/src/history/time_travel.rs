@@ -37,7 +37,9 @@ use crate::history::lineage::{Lineage, history_records};
 use crate::history::replay_state::{TransactionReader, absorb_writes};
 use crate::history::reset_target::{TravelTarget, resolve_target};
 use crate::history::state_rebuild::rebuild_attempt_state;
-use crate::projections::attribute_sync::{has_attribute_store_names, mark_attribute_sync_entries};
+use crate::projections::attribute_sync::{
+    has_attribute_store_names, mark_attribute_sync_entries, pending_attribute_sync_keys,
+};
 use crate::state_access::{FlowTransaction, read_flow_directory};
 use crate::steps::{
     arm_timer, configured_method_timeout_seconds, disarm_timer, invocation_retry_deadline_micros,
@@ -109,6 +111,7 @@ pub(crate) fn apply_time_travel(
     let rebuilt = rebuild_attempt_state(transaction, cursor.rows, &cursor.record, target.point)?;
     let restored_closing = restored_closing(&rebuilt.run_status, &target)?;
     let previous_rows = read_attempt_rows(transaction, cursor.rows)?;
+    let pending_sync_keys = pending_attribute_sync_keys(transaction, cursor.rows)?;
     let previous_status = run_status_of(&cursor.record);
     let was_running = cursor.record.status == FlowStatus::Running as i32;
     cancel_running_invocations(&mut cursor, &previous_rows)?;
@@ -144,10 +147,16 @@ pub(crate) fn apply_time_travel(
         &holder_rows(&restored_rows, &run_status_of(&cursor.record)),
         cursor.seq,
     )?;
-    // Remarks follow reapplied input, so a reapplied natural close waits; the reset's end
+    // Remarks precede reapplied input, so a reapplied natural close waits; the reset's end
     // re-checks it.
-    let has_pending_remarks =
-        has_synced_attributes_to_remark(&cursor.record, &previous_rows, &restored_rows)?;
+    // Marks synced Attributes of the abandoned state, so stores converge on the restored one (D16).
+    let mut remark_keys = pending_sync_keys;
+    remark_keys.extend(synced_row_keys(&previous_rows)?);
+    // Returns false without Attribute Stores, because marking then creates no entry.
+    let has_pending_remarks = has_attribute_store_names(&cursor.record)
+        && (!remark_keys.is_empty() || !synced_row_keys(&restored_rows)?.is_empty());
+    let mut pending_store_names =
+        mark_attribute_sync_entries(transaction, &mut cursor, &remark_keys, scope.now_micros)?;
     let reapplied_events = reapply_external_inputs(
         transaction,
         &mut cursor,
@@ -157,7 +166,29 @@ pub(crate) fn apply_time_travel(
     )?;
     apply_received_child_results(transaction, &mut cursor, scope, has_pending_remarks)?;
     let final_rows = read_attempt_rows(transaction, cursor.rows)?;
-    remark_synced_attributes(transaction, &mut cursor, scope, &previous_rows, &final_rows)?;
+    pending_store_names.extend(mark_attribute_sync_entries(
+        transaction,
+        &mut cursor,
+        &synced_row_keys(&final_rows)?,
+        scope.now_micros,
+    )?);
+    let mut remaining_effects = Vec::with_capacity(cursor.effects.len());
+    for effect in std::mem::take(&mut cursor.effects) {
+        match effect {
+            ApplyEffect::AttributeSyncPending {
+                run_id,
+                store_names,
+            } if run_id == cursor.run_id() => pending_store_names.extend(store_names),
+            other => remaining_effects.push(other),
+        }
+    }
+    cursor.effects = remaining_effects;
+    if !pending_store_names.is_empty() {
+        cursor.add_effect(ApplyEffect::AttributeSyncPending {
+            run_id: cursor.run_id(),
+            store_names: pending_store_names.into_iter().collect(),
+        });
+    }
     dispatch_restored_invocations(&mut cursor, &final_rows)?;
     cursor.add_event(flow_history_event::Payload::TimeTravelFork(
         TimeTravelForkHistoryEvent {
@@ -317,35 +348,6 @@ fn replace_attempt_rows(
         }
     }
     Ok(())
-}
-
-/// Whether the reset may re-mark synced Attributes of the abandoned or restored state after
-/// reapplied input.
-///
-/// Returns false when the run names no Attribute Store, because marking then creates no entry.
-fn has_synced_attributes_to_remark(
-    record: &RunRecord,
-    previous_rows: &[AttemptRow],
-    restored_rows: &[AttemptRow],
-) -> Result<bool, ApplyError> {
-    if !has_attribute_store_names(record) {
-        return Ok(false);
-    }
-    Ok(!synced_row_keys(previous_rows)?.is_empty() || !synced_row_keys(restored_rows)?.is_empty())
-}
-
-/// Marks synced Attributes of the abandoned and restored states, so stores converge on the
-/// restored one (D16).
-fn remark_synced_attributes(
-    transaction: &mut FlowTransaction<'_>,
-    cursor: &mut RunCursor,
-    scope: &CommandScope<'_>,
-    previous_rows: &[AttemptRow],
-    final_rows: &[AttemptRow],
-) -> Result<(), ApplyError> {
-    let mut keys = synced_row_keys(previous_rows)?;
-    keys.extend(synced_row_keys(final_rows)?);
-    mark_attribute_sync_entries(transaction, cursor, &keys, scope.now_micros)
 }
 
 /// Returns the keys of the Attribute rows whose last write requested synchronization.
