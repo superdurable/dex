@@ -701,3 +701,56 @@ file or directory meets its limit; stale entries fail the check.
 - Generated protobuf maps use `BTreeMap`.
 - Local tests use the in-process s3mock or the in-memory object store, never
   MinIO.
+
+### server-zd Rust conventions ported from the Server Go rules
+
+These rules restate the applicable Server Go rules for `server-zd/**`. The
+Rust table (R1–R19) still applies.
+
+- File ordering: a callee appears below its caller. Order a file as type,
+  constructor, entry method, handlers in dispatch order, sub-handlers,
+  state-changing helpers, converters, then tiny accessors.
+- One primary file per type: keep a type's inherent methods in one file. Do
+  not split them across feature-specific files.
+- Required dependencies: take each one as a non-`Option` constructor
+  parameter. Never wire a dependency after construction with a setter.
+- Bootstrap order: fix construction order instead of post-construction wiring.
+- Config injection: inject the component's config section struct. Do not pass
+  individual tunables or the whole server configuration. See R7.
+- Optional values: use `Option` only when `None` is a valid state. Never
+  silently return on an impossible `None`.
+- Config field docs: every config field has a doc comment stating its default
+  and meaning. Address fields state the protocol, the connecting party, and
+  bind versus advertise. These docs and return-value docs are exempt from the
+  R18 word limit.
+- API errors: map every API failure to a gRPC status plus a Dex
+  `ErrorSubStatus`. Bad client or Worker input is a client error, such as
+  `INVALID_ARGUMENT`, `NOT_FOUND`, or `FAILED_PRECONDITION`. Infrastructure
+  failures are `INTERNAL` or `UNAVAILABLE`.
+- Never ignore errors: see R10.
+- Trusted versus untrusted values: store rows, server-minted IDs, and
+  controlled invariants are trusted and may use `expect` with a reason. Request
+  fields and Worker payloads are untrusted. Validate them with an
+  error-returning helper; they never reach `expect`, `unwrap`, or `panic!`.
+- No defensive clones: never `clone()` "just in case". Move ownership or
+  borrow. Clone only when an algorithm needs a distinct value.
+- Crate names: use each crate's declared name. Alias with `as` only for a
+  collision or a misleading name.
+- Descriptive names: use descriptive variable names. Only `i j k n err ctx ok
+  t id r w tx rx` and closure parameters in short iterator chains may be one or
+  two letters.
+- Boolean names: boolean variables, fields, constants, and functions returning
+  `bool` use predicates such as `is_`, `has_`, `can_`, `should_`, or
+  `supports_`.
+- Existing terms: reuse the repository or public API term for a concept. Do
+  not invent a synonym.
+- Stateful closures: lift a closure into a method when it captures three or
+  more values, mutates outer state, has several call sites, or outlives one
+  statement.
+- No casual test skips: never `#[ignore]`, gate, or early-return around a
+  failing test without the user's agreement. Find the root cause and fix the
+  code or the expectation.
+- Test isolation: give each test unique Flow IDs, namespaces, and temporary
+  directories so tests run in parallel.
+- Async tests: wait with polling or paused tokio time. Use a real sleep only
+  inside the behavior under test.
