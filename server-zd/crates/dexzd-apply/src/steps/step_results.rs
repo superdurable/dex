@@ -346,7 +346,7 @@ pub(crate) fn apply_attempt_failed(
                     cursor,
                     scope,
                     crate::command_handlers::flow_close::FlowClosing::failed(
-                        FlowErrorType::WorkerApiFail,
+                        flow_error_type_for_attempt_failure(command),
                         application_text,
                     ),
                 )?;
@@ -371,6 +371,40 @@ const GO_UNEXPECTED_PULL_DISPATCH_FRAME: &str =
     "matching dispatch: rpc error: code = Internal desc = unexpected pull dispatch frame";
 /// Go Server prefix from `pullFrameError` in `pullDispatch.go` for WORKER_DISCONNECTED.
 const GO_WORKER_DISCONNECTED_PREFIX: &str = "Worker disconnected during pull dispatch";
+
+fn flow_error_type_for_attempt_failure(command: &StepAttemptFailedCommand) -> FlowErrorType {
+    let kind = StepAttemptFailureKind::try_from(command.kind)
+        .unwrap_or(StepAttemptFailureKind::Unspecified);
+    match kind {
+        StepAttemptFailureKind::DispatchError => {
+            let is_worker_dispatch_failure = [
+                DispatchTaskErrorReason::NoWorkerAvailable,
+                DispatchTaskErrorReason::WorkerDisconnected,
+                DispatchTaskErrorReason::UnknownName,
+            ]
+            .iter()
+            .any(|reason| {
+                command
+                    .server_detail
+                    .starts_with(&format!("{}: ", reason.as_str_name()))
+            });
+            if is_worker_dispatch_failure {
+                FlowErrorType::WorkerApiFail
+            } else {
+                FlowErrorType::Internal
+            }
+        }
+        StepAttemptFailureKind::InvalidResponse => FlowErrorType::Internal,
+        StepAttemptFailureKind::WorkerError
+        | StepAttemptFailureKind::MethodTimeout
+        | StepAttemptFailureKind::HeartbeatTimeout
+        | StepAttemptFailureKind::RetryDeadline
+        | StepAttemptFailureKind::RequestTooLarge
+        | StepAttemptFailureKind::ValueTooLarge
+        | StepAttemptFailureKind::UnsupportedFeature
+        | StepAttemptFailureKind::Unspecified => FlowErrorType::WorkerApiFail,
+    }
+}
 
 /// Returns the text applications see for an exhausted attempt failure, in both the Flow close
 /// message and `RecoveryErrorInfo.detail`: the Go Server's text for the same failure, or

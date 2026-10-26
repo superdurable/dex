@@ -38,11 +38,11 @@ use dexzd_protocol::dexzd::v1::{
     FlowStopCommand, FlowTimeoutTimerId, HardDeleteObjectRecord, HardDeleteObjectReference,
     HardDeleteObjectsDeletedCommand, HistoryRecord, InboxMessageCommand, OutboxAckCommand,
     OutboxRecord, OutboxRetentionTimerId, ParentFlowReference, RetentionTimerId, RunPurgeCommand,
-    RunRecord, RunSettings, StepAttemptFailedCommand, StepAttemptStartedCommand,
-    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepMethod,
-    StepMethodCompletedCommand, SubFlowResultRecord, TimeTravelCommand, TimerId, TimerRecord,
-    TimersFiredCommand, command_reply, flow_command::Command, inbox_message_command, outbox_record,
-    step_method_completed_command, timer_id,
+    RunRecord, RunSettings, StepAttemptFailedCommand, StepAttemptFailureKind,
+    StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
+    StepMethod, StepMethodCompletedCommand, SubFlowResultRecord, TimeTravelCommand, TimerId,
+    TimerRecord, TimersFiredCommand, command_reply, flow_command::Command, inbox_message_command,
+    outbox_record, step_method_completed_command, timer_id,
 };
 use prost::Message;
 
@@ -1624,6 +1624,74 @@ fn every_terminal_child_status_reports_to_parent() {
             assert!(reference.size_bytes > 100);
         }
     }
+}
+
+#[test]
+fn child_step_internal_failure_keeps_its_error_type_in_parent_result() {
+    let mut harness = Harness::new();
+    harness.start_parent();
+    let start = harness.register_sub_flow_wait(SubFlowReusePolicy::Unspecified);
+    assert_ok(&harness.deliver_start_outbox(&start, FIRST_CHILD_RUN));
+    let invocation = StepInvocationKey {
+        step_execution_id: "ChildStep-1".to_owned(),
+        method: StepMethod::Execute as i32,
+    };
+    assert_ok(&harness.apply(
+        CHILD_ID,
+        &FIRST_CHILD_RUN,
+        Command::StepAttemptStarted(StepAttemptStartedCommand {
+            invocation: Some(invocation.clone()),
+            attempt: 1,
+            task_id: [8; 16].to_vec(),
+            pull_routing: None,
+        }),
+    ));
+    assert_ok(&harness.apply(
+        CHILD_ID,
+        &FIRST_CHILD_RUN,
+        Command::StepAttemptFailed(StepAttemptFailedCommand {
+            invocation: Some(invocation),
+            attempt: 1,
+            kind: StepAttemptFailureKind::InvalidResponse as i32,
+            server_detail: "Execute frame carries no result".to_owned(),
+            is_non_retryable: true,
+            ..StepAttemptFailedCommand::default()
+        }),
+    ));
+    assert_eq!(
+        harness
+            .record(CHILD_ID, FIRST_CHILD_RUN)
+            .close
+            .unwrap()
+            .error_type,
+        FlowErrorType::Internal as i32
+    );
+    let report = harness
+        .outbox(CHILD_ID, FIRST_CHILD_RUN)
+        .pop()
+        .expect("child completion report");
+    let outbox_record::Payload::ChildCompleted(completion) = report.payload.as_ref().unwrap()
+    else {
+        panic!("child completion report expected")
+    };
+    assert_eq!(
+        completion.result.as_ref().unwrap().error_type,
+        FlowErrorType::Internal as i32
+    );
+    assert_ok(&harness.deliver_completion(&report));
+    assert_eq!(
+        harness.parent_sub_flow_result().result.unwrap().error_type,
+        FlowErrorType::Internal as i32
+    );
+    assert_eq!(
+        harness
+            .step("parent", PARENT_RUN, "StartStep-1")
+            .condition_results
+            .unwrap()
+            .sub_flow_results[0]
+            .error_type,
+        FlowErrorType::Internal as i32
+    );
 }
 
 #[test]

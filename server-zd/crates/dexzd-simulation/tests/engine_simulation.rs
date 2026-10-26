@@ -34,7 +34,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         3856990760,
         120,
-        0x8e304369b4b1f4fc0232c79fa935dc07,
+        0x4b88b421e036f0330b1a07da4355986a,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -52,19 +52,19 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         FIRST_SEED,
         120,
-        0xdb7a0d8d902476fdc0509fe00f636bcc,
+        0xa2ce51cbd865c9a7397531681e096128,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 1,
         120,
-        0xaad8deb870a7b101ece67f06569e375e,
+        0x9223399e295b0830f3e181a81c2d2a7e,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 2,
         120,
-        0xa7e5330709eee89c7e989786b3f2c67a,
+        0xc07b077c2ba15926e7db2f5bb6b22370,
     ),
     (
         EngineSimulationProfile::RedeploysWithShortHistoryWindow,
