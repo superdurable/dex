@@ -16,15 +16,15 @@ use dexzd_keyspace::row_keys::{prefix_range, run_singleton_key};
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, run_table_prefix};
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeSyncConfig, AttributeWrite, CloseDecision, CloseDecisionType,
-    FlowConfig, FlowResult, FlowStatus, InvokeExecuteMethodResponse, InvokeRpcRequest,
-    InvokeRpcResponse, InvokeWaitForMethodResponse, InvokeWorkerRpcResponse, SkipTimerRequest,
-    StartFlowRequest, StepDecision, StepOptions, SubFlowCondition, Value, WaitingCondition,
-    WaitingConditionType, WorkerTarget,
+    ErrorSubStatus, FlowConfig, FlowResult, FlowStatus, InvokeExecuteMethodResponse,
+    InvokeRpcRequest, InvokeRpcResponse, InvokeWaitForMethodResponse, InvokeWorkerRpcResponse,
+    SkipTimerRequest, StartFlowRequest, StepDecision, StepOptions, StopFlowRequest, StopType,
+    SubFlowCondition, Value, WaitingCondition, WaitingConditionType, WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChildFlowCompletedMessage,
-    ChildFlowStartMessage, CrossFlowEndpoint, FlowCommand, InboxMessageCommand, OutboxRecord,
-    RunRecord, StepAttemptStartedCommand, StepInvocationKey, StepMethod,
+    ChildFlowStartMessage, CrossFlowEndpoint, FlowCommand, FlowStopCommand, InboxMessageCommand,
+    OutboxRecord, RunRecord, StepAttemptStartedCommand, StepInvocationKey, StepMethod,
     StepMethodCompletedCommand, flow_command, inbox_message_command, outbox_record,
     step_method_completed_command,
 };
@@ -296,6 +296,42 @@ async fn a_transactional_rpc_is_rejected_once_a_proposed_close_is_in_the_overlay
     assert!(harness.rpc_invoker.invocations.lock().unwrap().is_empty());
     harness.commit_all();
     proposal.ticket.wait().await.expect("the close commits");
+}
+
+#[tokio::test(start_paused = true)]
+async fn admission_rejects_a_transactional_rpc_once_a_stop_closes_the_run_in_the_overlay() {
+    // The pre-admission check reads only committed state, so this reproduces a StopFlow racing it.
+    let (harness, run_id) = start_unsynced_run(execute_only_request()).await;
+    let stop = flow_command::Command::FlowStop(FlowStopCommand {
+        request: Some(StopFlowRequest {
+            flow_id: FLOW_ID.to_owned(),
+            stop_type: StopType::Terminate as i32,
+            ..StopFlowRequest::default()
+        }),
+    });
+    let proposal = harness
+        .registry
+        .propose(
+            flow(FLOW_ID),
+            run_command(run_id, stop),
+            CommitUrgency::Prompt,
+        )
+        .await
+        .expect("the stop is proposed");
+    assert_eq!(
+        run_record(&harness, run_id).status,
+        FlowStatus::Running as i32
+    );
+    let error = harness
+        .registry
+        .invoke_rpc(TENANT, transactional_rpc())
+        .await
+        .expect_err("admission sees the stopped run");
+    assert_eq!(error.grpc_code(), crate::runtime::grpc_code::NOT_FOUND);
+    assert_eq!(error.sub_status(), ErrorSubStatus::FlowNotExists);
+    assert!(harness.rpc_invoker.invocations.lock().unwrap().is_empty());
+    harness.commit_all();
+    proposal.ticket.wait().await.expect("the stop commits");
 }
 
 #[tokio::test(start_paused = true)]

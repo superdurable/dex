@@ -73,6 +73,14 @@ runtime with paused time, and every choice derives from one seed.
   start, stop, write, publish, delete, invoke RPCs, and read, retrying unavailable calls with
   the same request ID. They also write and delete a hard-delete Attribute, whose values live in
   object storage.
+- **Child-wait probe.** In the fixed set, one probe client per client Flow ID keeps a locking
+  `awaitChildResult` RPC in flight on each run whose WaitFor result waits for a child Flow.
+  The Worker holds that RPC until the parent's Execute is dispatched or the RPC deadline
+  passes. The child's result therefore arrives while a transactional RPC of its parent is
+  admitted, and the parent's close hold dry-runs it. Ordinary client RPCs alone produced that
+  in only a few of the 64 seeds, so the coverage check failed when unrelated changes moved the
+  trajectories. The probe draws only from its own seed, which is the simulation seed mixed
+  with a constant. The redeploy and Step failure profiles run no probe.
 - **Determinism.** The engine runs frame applies, state reads, and snapshot uploads on the
   calling task (`BlockingWorkPlacement::CallingTaskForTest`), and every engine `select!` is
   biased. Every ID the engine persists comes from one `SeededEngineIdSourceForTest` that all
@@ -141,6 +149,7 @@ outstanding work, recovered deliveries and deletions of that work, running attem
 after the quiet crash, store comparisons right after a recovery, and live runs in the final
 state. Recovered-store checks during an old-epoch overlap and checks of old-epoch stores are
 required too. Some crashes wait until two log writes are in flight or cross-Flow work is outstanding.
+The set must also dry-run a child result for an admitted transactional RPC of its parent.
 
 ### Not covered yet
 
@@ -230,10 +239,13 @@ would fail. Draw new choices only in a profile with its own seed group, as the r
 failure profiles do. When a pinned digest changes, revert each regression's fix and check that
 its seed still fails, or find a new seed. Then update the pinned value.
 
-`3856990458` and `3856990875` reproduce the failure of reads of a purging run, which omitted a
+`3856990458` and `3856990400` reproduce the failure of reads of a purging run, which omitted a
 hard-delete Attribute right after the purge deleted its object. Each fails within 120 seconds
 when the fix is reverted. `3856990760` found that failure first, but a later change to object
-storage reads moved its trajectory, so it no longer reproduces it.
+storage reads moved its trajectory, so it no longer reproduces it. `3856990875` reproduced it
+until the child-wait probe moved its trajectory.
+Combining the child-wait probe with later engine changes moved every pin again. Both active
+regression seeds still fail at the same simulated times when the fix is reverted.
 
 ### Running
 

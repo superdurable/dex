@@ -8,7 +8,7 @@
 
 //! Seeded pull Workers behind the engine's dispatch ports, without the matching layer.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -30,8 +30,8 @@ use tokio::sync::{mpsc, watch};
 use crate::engine_simulation::event_trace::EventTrace;
 use crate::engine_simulation::simulated_clients::ENGINE_FLOW_IDS;
 use crate::engine_simulation::workload::{
-    MethodCallView, execute_response, heartbeat_value, rpc_response, wait_for_response,
-    worker_error,
+    AWAIT_CHILD_RESULT_RPC_NAME, MethodCallView, execute_response, heartbeat_value, rpc_response,
+    wait_for_response, worker_error,
 };
 
 /// New Steps each run's Workers may create, so every run eventually closes.
@@ -107,6 +107,8 @@ struct WorkerPoolState {
     dispatch_history: BTreeMap<String, Vec<AttemptIdentity>>,
     returned_results: BTreeMap<AttemptIdentity, PollWorkerTaskFrame>,
     steps_left: BTreeMap<(String, String), u32>,
+    /// WaitFor results that wait for a child Flow, as (Flow ID, run ID, Step execution ID).
+    child_waits: BTreeSet<(String, String, String)>,
     behaviors: BTreeMap<WorkerBehavior, u64>,
 }
 
@@ -115,6 +117,8 @@ pub(crate) struct SimulatedWorkers {
     state: Mutex<WorkerPoolState>,
     /// True while held Workers keep their tasks; they answer once it turns false.
     hold: watch::Sender<bool>,
+    /// Bumped whenever a child wait ends, so RPCs held for it check again.
+    child_waits_ended: watch::Sender<u64>,
     trace: Arc<EventTrace>,
 }
 
@@ -129,9 +133,11 @@ impl SimulatedWorkers {
                 dispatch_history: BTreeMap::new(),
                 returned_results: BTreeMap::new(),
                 steps_left: BTreeMap::new(),
+                child_waits: BTreeSet::new(),
                 behaviors: BTreeMap::new(),
             }),
             hold: watch::Sender::new(false),
+            child_waits_ended: watch::Sender::new(0),
             trace,
         }
     }
@@ -179,6 +185,17 @@ impl SimulatedWorkers {
     ) -> Result<Box<dyn MethodDispatchSession>, MethodDispatchStartError> {
         let identity = AttemptIdentity::of(request);
         let mut state = self.lock();
+        // An Execute dispatch means the WaitFor condition, such as a child result, was met.
+        if identity.is_execute
+            && state.child_waits.remove(&(
+                identity.flow_id.clone(),
+                identity.run_id.clone(),
+                identity.step_execution_id.clone(),
+            ))
+        {
+            self.child_waits_ended
+                .send_modify(|generation| *generation += 1);
+        }
         let behavior = state.draw_behavior(&identity);
         *state.behaviors.entry(behavior).or_default() += 1;
         state
@@ -255,12 +272,61 @@ impl SimulatedWorkers {
             tokio::time::sleep_until(invocation.deadline).await;
             return outcome;
         }
+        self.hold_rpc_during_child_wait(&invocation).await;
         tokio::time::sleep(delay).await;
         outcome
+    }
+
+    /// Holds a child-wait probe RPC until its run's child wait ends or its deadline passes.
+    async fn hold_rpc_during_child_wait(&self, invocation: &WorkerRpcInvocation) {
+        if invocation.request.rpc_name != AWAIT_CHILD_RESULT_RPC_NAME {
+            return;
+        }
+        let flow_id = invocation.flow.flow_id.as_str();
+        let run_id = invocation.run_id.to_string();
+        let mut child_waits_ended = self.child_waits_ended.subscribe();
+        while self.lock().is_waiting_for_child(flow_id, &run_id) {
+            // Biased for reproducible simulation; the deadline ends the hold.
+            tokio::select! {
+                biased;
+                () = tokio::time::sleep_until(invocation.deadline) => return,
+                changed = child_waits_ended.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Returns a run of `flow_id` whose WaitFor result waits for a child Flow, if any.
+    pub(crate) fn run_waiting_for_child(&self, flow_id: &str) -> Option<String> {
+        self.lock()
+            .child_waits
+            .iter()
+            .find(|(wait_flow_id, _, _)| wait_flow_id == flow_id)
+            .map(|(_, run_id, _)| run_id.clone())
+    }
+
+    /// Forgets the child waits of a run that no longer exists or is closed.
+    pub(crate) fn end_child_waits_of_run(&self, flow_id: &str, run_id: &str) {
+        self.lock()
+            .child_waits
+            .retain(|(wait_flow_id, wait_run_id, _)| {
+                wait_flow_id != flow_id || wait_run_id != run_id
+            });
+        self.child_waits_ended
+            .send_modify(|generation| *generation += 1);
     }
 }
 
 impl WorkerPoolState {
+    fn is_waiting_for_child(&self, flow_id: &str, run_id: &str) -> bool {
+        self.child_waits
+            .iter()
+            .any(|(wait_flow_id, wait_run_id, _)| wait_flow_id == flow_id && wait_run_id == run_id)
+    }
+
     fn draw_behavior(&mut self, identity: &AttemptIdentity) -> WorkerBehavior {
         if self.is_holding {
             return WorkerBehavior::Hold;
@@ -469,10 +535,20 @@ impl WorkerPoolState {
                     attributes: &request.attributes,
                     loaded_channel_messages: &request.loaded_channel_messages,
                 };
+                let response = wait_for_response(&mut self.rng, &call);
+                if response
+                    .waiting_condition
+                    .as_ref()
+                    .is_some_and(|condition| !condition.sub_flow_conditions.is_empty())
+                {
+                    self.child_waits.insert((
+                        identity.flow_id.clone(),
+                        identity.run_id.clone(),
+                        identity.step_execution_id.clone(),
+                    ));
+                }
                 poll_worker_task_frame::Output::WaitFor(InvokeWaitForMethodOutput {
-                    output: Some(invoke_wait_for_method_output::Output::Result(
-                        wait_for_response(&mut self.rng, &call),
-                    )),
+                    output: Some(invoke_wait_for_method_output::Output::Result(response)),
                 })
             }
             MethodRequest::Execute(request) => {

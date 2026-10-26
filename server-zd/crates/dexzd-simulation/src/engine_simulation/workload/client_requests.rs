@@ -249,6 +249,26 @@ pub(crate) fn rpc_request(rng: &mut ChaCha8Rng, flow_id: &str, marker: &str) -> 
     }
 }
 
+/// RPC name of the child-wait probe, whose Worker holds it while the run waits for a child Flow.
+pub(crate) const AWAIT_CHILD_RESULT_RPC_NAME: &str = "awaitChildResult";
+
+/// A locking RPC of the child-wait probe. Its timeout ends it before the client gives up.
+pub(crate) fn await_child_result_rpc_request(
+    flow_id: &str,
+    run_id: &str,
+    marker: &str,
+) -> InvokeRpcRequest {
+    InvokeRpcRequest {
+        flow_id: flow_id.to_owned(),
+        run_id: run_id.to_owned(),
+        rpc_name: AWAIT_CHILD_RESULT_RPC_NAME.to_owned(),
+        request_id: marker.to_owned(),
+        timeout_seconds: 10,
+        lock_attribute_keys: vec!["status".to_owned()],
+        ..InvokeRpcRequest::default()
+    }
+}
+
 /// Up to `count` distinct Attribute keys, since a request may write each key once.
 fn distinct_keys(rng: &mut ChaCha8Rng, count: usize) -> Vec<String> {
     let mut keys: Vec<String> = Vec::new();
