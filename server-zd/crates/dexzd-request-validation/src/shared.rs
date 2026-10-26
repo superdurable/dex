@@ -200,13 +200,13 @@ pub(crate) fn validate_hard_delete_write(
     path: &str,
     write: &AttributeWrite,
     config: &ValidationConfig,
-    allow_missing_value: bool,
+    should_allow_missing_value: bool,
 ) -> Result<(), ValidationError> {
     if !write.is_hard_delete_on_null {
         return Ok(());
     }
     match write.value.as_ref().and_then(|value| value.kind.as_ref()) {
-        None if allow_missing_value && write.value.is_none() => {}
+        None if should_allow_missing_value && write.value.is_none() => {}
         Some(
             value::Kind::NullValue(_) | value::Kind::StringValue(_) | value::Kind::ObjValue(_),
         ) => {}
@@ -552,7 +552,7 @@ pub(crate) fn validate_flow_config(
     path: &str,
     flow_config: &FlowConfig,
     config: &ValidationConfig,
-    require_target: bool,
+    should_require_target: bool,
 ) -> Result<(), ValidationError> {
     if let Some(threshold) = flow_config.continue_as_new_threshold
         && threshold < 0
@@ -594,7 +594,7 @@ pub(crate) fn validate_flow_config(
             ),
         ));
     }
-    if require_target || flow_config.worker_target.is_some() {
+    if should_require_target || flow_config.worker_target.is_some() {
         validate_and_canonicalize_pull_worker_target(
             &format!("{path}.worker_target"),
             flow_config.worker_target.as_ref(),

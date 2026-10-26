@@ -99,7 +99,7 @@ struct ScopeKey {
 struct StoreState {
     scopes: HashMap<ScopeKey, StreamScope>,
     pending_trims: HashMap<ScopeKey, u64>,
-    closed: bool,
+    is_closed: bool,
 }
 
 #[derive(Default)]
@@ -199,7 +199,7 @@ impl StreamStore {
             .state
             .lock()
             .expect("Stream Store state mutex is not poisoned");
-        if state.closed {
+        if state.is_closed {
             return Err(StreamStoreError::Closed);
         }
         let scope = state.scopes.entry(scope_key.clone()).or_default();
@@ -300,7 +300,7 @@ impl StreamStore {
                     .state
                     .lock()
                     .expect("Stream Store state mutex is not poisoned");
-                if state.closed {
+                if state.is_closed {
                     return Err(StreamStoreError::Closed);
                 }
                 let scope = state.scopes.entry(scope_key.clone()).or_default();
@@ -358,7 +358,7 @@ impl StreamStore {
             .state
             .lock()
             .expect("Stream Store state mutex is not poisoned");
-        if state.closed {
+        if state.is_closed {
             return Err(StreamStoreError::Closed);
         }
         let entries = state
@@ -400,7 +400,7 @@ impl StreamStore {
                 .state
                 .lock()
                 .expect("Stream Store state mutex is not poisoned");
-            state.closed = true;
+            state.is_closed = true;
             for scope in state.scopes.values() {
                 for instance in scope.instances.values() {
                     instance.version_sender.send_replace(u64::MAX);
@@ -519,7 +519,7 @@ async fn run_trim_worker(
             let mut state = state
                 .lock()
                 .expect("Stream Store state mutex is not poisoned");
-            if state.closed {
+            if state.is_closed {
                 return;
             }
             let Some(target_bytes) = state.pending_trims.get(&scope_key).copied() else {

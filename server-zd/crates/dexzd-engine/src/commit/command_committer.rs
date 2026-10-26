@@ -30,7 +30,7 @@ use crate::flow_coordination::{
 pub(crate) struct LogProposal {
     pub(crate) partition: PartitionId,
     pub(crate) record: Bytes,
-    pub(crate) waits_for_commit: bool,
+    pub(crate) should_wait_for_commit: bool,
 }
 
 /// Stamps commands and submits them to the commit pipeline; shared by every Flow runtime.
@@ -167,7 +167,7 @@ impl CommandCommitter {
         let proposal = LogProposal {
             partition,
             record,
-            waits_for_commit: urgency == CommitUrgency::Prompt,
+            should_wait_for_commit: urgency == CommitUrgency::Prompt,
         };
         if inner.proposals.send(proposal).is_err() {
             let reason = inner

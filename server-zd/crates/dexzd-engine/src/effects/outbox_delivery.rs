@@ -98,7 +98,9 @@ fn read_delivery(
 ) -> Result<Option<Delivery>, EffectError> {
     let run = context.run_location(flow, run_id);
     let record: OutboxRecord = {
-        let reader = context.flow_operations.flow_state_reader(flow, false)?;
+        let reader = context
+            .flow_effect_operations
+            .flow_state_reader(flow, false)?;
         let key = outbox_key(run.flow_hash, run.run_id, message_id);
         let Some(bytes) = reader.get(ColumnFamily::Flow, &key)? else {
             return Ok(None);

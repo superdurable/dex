@@ -201,7 +201,7 @@ async fn try_start_until_answered(
     loop {
         let outcome = match read_dispatch_pull_routing(context, flow, key) {
             Ok(Some(pull_routing)) => context
-                .flow_operations
+                .flow_effect_operations
                 .try_start_invocation(
                     flow,
                     key.run_id,
@@ -212,7 +212,7 @@ async fn try_start_until_answered(
                     pull_routing,
                 )
                 .await
-                .map_err(EffectError::FlowOperations),
+                .map_err(EffectError::FlowEffectOperations),
             Ok(None) => return InvocationStartResult::Stale,
             Err(error) => Err(error),
         };
@@ -220,7 +220,9 @@ async fn try_start_until_answered(
             Ok(InvocationStartOutcome::Started) => return InvocationStartResult::Started,
             Ok(InvocationStartOutcome::LocksBusy) => return InvocationStartResult::LocksBusy,
             Ok(InvocationStartOutcome::Stale) => return InvocationStartResult::Stale,
-            Err(EffectError::FlowOperations(FlowEffectOperationError::NodeStopping { .. })) => {
+            Err(EffectError::FlowEffectOperations(FlowEffectOperationError::NodeStopping {
+                ..
+            })) => {
                 return InvocationStartResult::Stopped;
             }
             Err(error) => {
@@ -246,7 +248,9 @@ fn read_dispatch_pull_routing(
     flow: &FlowAddress,
     key: &MethodAttemptKey,
 ) -> Result<Option<PullRouting>, EffectError> {
-    let reader = context.flow_operations.flow_state_reader(flow, true)?;
+    let reader = context
+        .flow_effect_operations
+        .flow_state_reader(flow, true)?;
     let run = context.run_location(flow, key.run_id);
     let run_record = read_run_record(reader.as_ref(), run)?;
     Ok(run_record.map(|record| pull_routing(&record.sticky_app_worker_id, "")))

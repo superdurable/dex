@@ -93,7 +93,7 @@ pub(crate) enum WorkerBehavior {
 /// One timed event of a scripted dispatch; `None` waits until the dispatch is canceled.
 struct ScriptedEvent {
     /// Whether the delay starts only once the pool stops holding.
-    waits_for_release: bool,
+    should_wait_for_release: bool,
     delay: Duration,
     event: Option<DispatchEvent>,
 }
@@ -356,7 +356,7 @@ impl WorkerPoolState {
     ) -> Vec<ScriptedEvent> {
         let worker_id = format!("worker-{}", self.rng.random_range(0..3));
         let assigned = ScriptedEvent {
-            waits_for_release: false,
+            should_wait_for_release: false,
             delay: Duration::from_millis(self.rng.random_range(1..200)),
             event: Some(DispatchEvent::Assigned {
                 app_worker_id: worker_id.clone(),
@@ -383,7 +383,7 @@ impl WorkerPoolState {
                     .cloned()
                     .expect("RepeatResult is drawn only for attempts with a returned result");
                 script.push(ScriptedEvent {
-                    waits_for_release: false,
+                    should_wait_for_release: false,
                     delay: Duration::from_millis(self.rng.random_range(1..300)),
                     event: Some(DispatchEvent::Completed(DispatchOutcome::WorkerResult {
                         frame,
@@ -394,7 +394,7 @@ impl WorkerPoolState {
             WorkerBehavior::Fail => {
                 script.push(assigned);
                 script.push(ScriptedEvent {
-                    waits_for_release: false,
+                    should_wait_for_release: false,
                     delay: Duration::from_millis(self.rng.random_range(10..1_000)),
                     event: Some(DispatchEvent::Completed(DispatchOutcome::WorkerError {
                         frame: PollWorkerTaskFrame {
@@ -411,7 +411,7 @@ impl WorkerPoolState {
                 script.push(assigned);
                 self.push_heartbeats(&mut script, request, false);
                 script.push(ScriptedEvent {
-                    waits_for_release: false,
+                    should_wait_for_release: false,
                     delay: Duration::ZERO,
                     event: None,
                 });
@@ -420,19 +420,19 @@ impl WorkerPoolState {
                 script.push(assigned);
                 let delay = Duration::from_millis(self.rng.random_range(10..500));
                 let mut result = self.result_event(delay, identity, request, worker_id);
-                result.waits_for_release = true;
+                result.should_wait_for_release = true;
                 script.push(result);
             }
             WorkerBehavior::DisconnectBeforeOutput => {
                 script.push(assigned);
                 script.push(ScriptedEvent {
-                    waits_for_release: false,
+                    should_wait_for_release: false,
                     delay: Duration::from_millis(self.rng.random_range(10..2_000)),
                     event: Some(DispatchEvent::Unassigned),
                 });
                 let other_worker = format!("worker-{}", self.rng.random_range(3..6));
                 script.push(ScriptedEvent {
-                    waits_for_release: false,
+                    should_wait_for_release: false,
                     delay: Duration::from_millis(self.rng.random_range(10..500)),
                     event: Some(DispatchEvent::Assigned {
                         app_worker_id: other_worker.clone(),
@@ -445,7 +445,7 @@ impl WorkerPoolState {
                 script.push(assigned);
                 self.push_heartbeats(&mut script, request, false);
                 script.push(ScriptedEvent {
-                    waits_for_release: false,
+                    should_wait_for_release: false,
                     delay: Duration::from_millis(self.rng.random_range(10..1_000)),
                     event: Some(DispatchEvent::Completed(DispatchOutcome::DispatchError {
                         reason: DispatchTaskErrorReason::WorkerDisconnected,
@@ -460,7 +460,7 @@ impl WorkerPoolState {
             | WorkerBehavior::HeartbeatWithValue
             | WorkerBehavior::HeartbeatWithoutValue => {
                 script.push(ScriptedEvent {
-                    waits_for_release: false,
+                    should_wait_for_release: false,
                     delay: Duration::from_millis(self.rng.random_range(10..1_000)),
                     event: Some(DispatchEvent::Completed(DispatchOutcome::DispatchError {
                         reason: DispatchTaskErrorReason::NoWorkerAvailable,
@@ -506,7 +506,7 @@ impl WorkerPoolState {
                 }
             };
             script.push(ScriptedEvent {
-                waits_for_release: false,
+                should_wait_for_release: false,
                 delay: Duration::from_millis(self.rng.random_range(100..2_000)),
                 event: Some(DispatchEvent::Output(PollWorkerTaskFrame {
                     task_id: String::new(),
@@ -524,12 +524,12 @@ impl WorkerPoolState {
         request: &MethodRequest,
         worker_id: String,
     ) -> ScriptedEvent {
-        let may_start_sub_flows = ENGINE_FLOW_IDS.contains(&identity.flow_id.as_str());
+        let can_start_sub_flows = ENGINE_FLOW_IDS.contains(&identity.flow_id.as_str());
         let output = match request {
             MethodRequest::WaitFor(request) => {
                 let call = MethodCallView {
                     step_type: &request.step_type,
-                    may_start_sub_flows,
+                    can_start_sub_flows,
                     has_step_failure_policies: self.has_step_failure_policies,
                     is_execute: false,
                     attributes: &request.attributes,
@@ -554,7 +554,7 @@ impl WorkerPoolState {
             MethodRequest::Execute(request) => {
                 let call = MethodCallView {
                     step_type: &request.step_type,
-                    may_start_sub_flows,
+                    can_start_sub_flows,
                     has_step_failure_policies: self.has_step_failure_policies,
                     is_execute: true,
                     attributes: &request.attributes,
@@ -578,7 +578,7 @@ impl WorkerPoolState {
         self.returned_results
             .insert(identity.clone(), frame.clone());
         ScriptedEvent {
-            waits_for_release: false,
+            should_wait_for_release: false,
             delay,
             event: Some(DispatchEvent::Completed(DispatchOutcome::WorkerResult {
                 frame,
@@ -596,7 +596,7 @@ async fn play_script(
     mut hold: watch::Receiver<bool>,
 ) {
     for scripted in script {
-        let is_canceled_while_held = scripted.waits_for_release
+        let is_canceled_while_held = scripted.should_wait_for_release
             && tokio::select! {
                 biased;
                 changed = cancel.wait_for(|is_canceled| *is_canceled) => changed.is_ok(),

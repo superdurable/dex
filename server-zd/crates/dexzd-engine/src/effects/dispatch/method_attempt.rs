@@ -198,7 +198,7 @@ impl MethodAttempt {
         let key = self.key.clone();
         let task_id = self.task_id.clone();
         let is_hydrating = self.context.config.hydrate_before_dispatch;
-        let flow_operations = Arc::clone(&self.context.flow_operations);
+        let flow_effect_operations = Arc::clone(&self.context.flow_effect_operations);
         let flow = self.flow.clone();
         self.read_off_task(true, move |reader| {
             if is_hydrating {
@@ -211,7 +211,7 @@ impl MethodAttempt {
                 );
             }
             // Opened after `reader`, so fewer of its values still look uncommitted.
-            let open_committed = || Ok(flow_operations.flow_state_reader(&flow, false)?);
+            let open_committed = || Ok(flow_effect_operations.flow_state_reader(&flow, false)?);
             let hydration = RequestValueHydration::UncommittedValues {
                 open_committed: &open_committed,
             };
@@ -226,7 +226,7 @@ impl MethodAttempt {
     /// the read ran. A panic in `read` resumes on this task.
     async fn read_off_task<T: Send + 'static>(
         &self,
-        include_speculative: bool,
+        should_include_speculative: bool,
         read: impl FnOnce(&dyn FlowStateReader) -> Result<T, EffectError> + Send + 'static,
     ) -> Result<T, EffectError> {
         // The effect tracker owns the read and its slot until the store call returns.
@@ -236,8 +236,8 @@ impl MethodAttempt {
             .expect("the blocking read slots are never closed");
         let reader = self
             .context
-            .flow_operations
-            .flow_state_reader(&self.flow, include_speculative)?;
+            .flow_effect_operations
+            .flow_state_reader(&self.flow, should_include_speculative)?;
         let read_cancel = self.cancel.child_token();
         // When the attempt stops waiting, a read that has not started yet skips the store.
         let _cancel_unstarted_read = read_cancel.clone().drop_guard();
@@ -318,7 +318,12 @@ impl MethodAttempt {
     ///
     /// Returns [`EffectError::Stopped`] when the node stops first.
     async fn wait_for_proposed_commands(&self) -> Result<(), EffectError> {
-        match self.context.flow_operations.sync_barrier(&self.flow).await {
+        match self
+            .context
+            .flow_effect_operations
+            .sync_barrier(&self.flow)
+            .await
+        {
             Ok(()) => Ok(()),
             Err(FlowEffectOperationError::NodeStopping { .. }) => Err(EffectError::Stopped),
             Err(error) => Err(error.into()),
@@ -521,7 +526,7 @@ impl MethodAttempt {
         // A lost checkpoint only means the next attempt sees an older value.
         if let Err(error) = self
             .context
-            .flow_operations
+            .flow_effect_operations
             .propose_speculative(&self.flow, command, CommitUrgency::Batched)
             .await
         {

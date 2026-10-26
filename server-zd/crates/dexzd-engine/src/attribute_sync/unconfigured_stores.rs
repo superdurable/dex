@@ -36,13 +36,13 @@ pub(super) struct UnconfiguredStoreDrops {
 /// Returns one drop ack per pending run, by partition and store, or the read failure's description.
 /// A cancelled `stop` ends the read early with the partitions read so far.
 pub(super) async fn read_unconfigured_store_drops(
-    flow_operations: Arc<dyn FlowEffectOperations>,
+    flow_effect_operations: Arc<dyn FlowEffectOperations>,
     reads: Vec<(PartitionId, Option<BTreeSet<String>>)>,
     configured_store_names: BTreeSet<String>,
     stop: CancellationToken,
 ) -> Result<BTreeMap<PartitionId, Vec<UnconfiguredStoreDrops>>, String> {
     tokio::task::spawn_blocking(move || {
-        let reader = flow_operations
+        let reader = flow_effect_operations
             .committed_state_reader()
             .map_err(|error| error.to_string())?;
         let mut drops = BTreeMap::new();

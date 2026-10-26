@@ -180,7 +180,7 @@ pub enum EffectError {
     Storage(#[from] StorageError),
     /// The runtime could not serve a proposal or read.
     #[error(transparent)]
-    FlowOperations(#[from] FlowEffectOperationError),
+    FlowEffectOperations(#[from] FlowEffectOperationError),
     /// The hard-delete upload ledger could not be read when the effect runner started, so
     /// recovery cannot tell which uploads predate the start. Restart the node to read it again.
     #[error("reading pending hard-delete uploads at startup failed: {detail}")]
@@ -198,7 +198,7 @@ impl EffectError {
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::ObjectStore(error) => error.is_retryable(),
-            Self::FlowOperations(FlowEffectOperationError::Unavailable { .. })
+            Self::FlowEffectOperations(FlowEffectOperationError::Unavailable { .. })
             | Self::StateRead(_) => true,
             _ => false,
         }
@@ -267,7 +267,7 @@ pub struct EffectDependencies {
 pub(crate) struct EffectContext {
     pub(crate) metrics: Arc<dexzd_metrics::NodeMetrics>,
     pub(crate) config: EffectsConfig,
-    pub(crate) flow_operations: Arc<dyn FlowEffectOperations>,
+    pub(crate) flow_effect_operations: Arc<dyn FlowEffectOperations>,
     pub(crate) dispatcher: Arc<dyn MethodDispatcher>,
     pub(crate) hard_delete_objects: HardDeleteObjects,
     pub(crate) hasher: PartitionHasher,
@@ -320,9 +320,9 @@ impl EffectContext {
     ) -> Option<CommandReply> {
         let mut backoff = self.retry_backoff();
         loop {
-            let proposal = self
-                .flow_operations
-                .propose_committed(flow, command.clone(), urgency);
+            let proposal =
+                self.flow_effect_operations
+                    .propose_committed(flow, command.clone(), urgency);
             // Biased for reproducible simulation; shutdown fires once, so the proposal cannot
             // starve.
             let outcome = tokio::select! {
@@ -458,7 +458,7 @@ impl PartitionEffectRebuilder for EffectRunner {
 
 impl EffectTasks {
     /// Starts the router task with the runtime it proposes through.
-    pub fn start(self, flow_operations: Arc<dyn FlowEffectOperations>) -> EffectTasksHandle {
+    pub fn start(self, flow_effect_operations: Arc<dyn FlowEffectOperations>) -> EffectTasksHandle {
         let shutdown = CancellationToken::new();
         let tracker = TaskTracker::new();
         let startup_pending_uploads = self
@@ -477,7 +477,7 @@ impl EffectTasks {
         let context = Arc::new(EffectContext {
             metrics: self.dependencies.metrics,
             config: self.config,
-            flow_operations,
+            flow_effect_operations,
             dispatcher: self.dependencies.dispatcher,
             hard_delete_objects: self.dependencies.hard_delete_objects,
             hasher: self.dependencies.partition_hasher,

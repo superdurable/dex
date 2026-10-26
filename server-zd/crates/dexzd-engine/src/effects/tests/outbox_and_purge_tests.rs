@@ -125,7 +125,7 @@ fn seed_outbox_message(
         held_values: Vec::new(),
     };
     harness
-        .flow_operations
+        .flow_effect_operations
         .state
         .lock()
         .expect("lock")
@@ -149,15 +149,17 @@ async fn outbox_messages_are_delivered_to_the_target_then_acknowledged_despite_o
     harness.rebuild_all_partitions().await;
     let parent_run = harness.start_flow(start_request("parent"), settings());
     let child_run = harness.start_flow(start_request("child"), settings());
-    harness.flow_operations.add_override(ok_override(|command| {
-        matches!(
-            command,
-            flow_command::Command::InboxMessage(_) | flow_command::Command::OutboxAck(_)
-        )
-    }));
+    harness
+        .flow_effect_operations
+        .add_override(ok_override(|command| {
+            matches!(
+                command,
+                flow_command::Command::InboxMessage(_) | flow_command::Command::OutboxAck(_)
+            )
+        }));
     seed_outbox_message(&harness, parent_run, child_run, 0);
     harness
-        .flow_operations
+        .flow_effect_operations
         .unavailable_proposals
         .store(3, Ordering::SeqCst);
     harness.runner.handle(
@@ -169,7 +171,7 @@ async fn outbox_messages_are_delivered_to_the_target_then_acknowledged_despite_o
     harness.settle().await;
 
     let inbox = harness
-        .flow_operations
+        .flow_effect_operations
         .commands_matching(|command| matches!(command, flow_command::Command::InboxMessage(_)));
     assert_eq!(inbox.len(), 1);
     assert_eq!(inbox[0].command.flow_id, "parent");
@@ -188,7 +190,7 @@ async fn outbox_messages_are_delivered_to_the_target_then_acknowledged_despite_o
     ));
 
     let acks = harness
-        .flow_operations
+        .flow_effect_operations
         .commands_matching(|command| matches!(command, flow_command::Command::OutboxAck(_)));
     assert_eq!(acks.len(), 1);
     assert_eq!(acks[0].command.flow_id, "child");
@@ -214,7 +216,7 @@ async fn acknowledged_outbox_messages_are_not_redelivered() {
     harness.settle().await;
     assert!(
         harness
-            .flow_operations
+            .flow_effect_operations
             .commands_matching(|command| matches!(command, flow_command::Command::InboxMessage(_)))
             .is_empty()
     );
@@ -224,7 +226,7 @@ async fn acknowledged_outbox_messages_are_not_redelivered() {
 pub(super) fn mark_purging(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
     let run = harness.run_location(flow_id, run_id);
     let key = run_singleton_key(run.flow_hash, run.run_id, RunTable::RunRecord);
-    let mut state = harness.flow_operations.state.lock().expect("lock");
+    let mut state = harness.flow_effect_operations.state.lock().expect("lock");
     let bytes = state
         .rows
         .get(&(ColumnFamily::Flow, key.clone()))
@@ -248,9 +250,11 @@ pub(super) async fn put_object(harness: &EffectHarness, key: &str) {
 async fn retention_purge_deletes_the_hard_delete_prefix_then_proposes_run_purge() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
-    harness.flow_operations.add_override(ok_override(|command| {
-        matches!(command, flow_command::Command::RunPurge(_))
-    }));
+    harness
+        .flow_effect_operations
+        .add_override(ok_override(|command| {
+            matches!(command, flow_command::Command::RunPurge(_))
+        }));
     let run_id = harness.start_flow(start_request("order-1"), settings());
     let other_run = harness.start_flow(start_request("order-2"), settings());
     let owner = harness
@@ -284,7 +288,7 @@ async fn retention_purge_deletes_the_hard_delete_prefix_then_proposes_run_purge(
         .collect();
     assert_eq!(keys, vec![other_owner.object_key("kept")]);
     let purges = harness
-        .flow_operations
+        .flow_effect_operations
         .commands_matching(|command| matches!(command, flow_command::Command::RunPurge(_)));
     assert_eq!(purges.len(), 1);
     assert_eq!(purges[0].command.run_id, run_id.as_bytes().to_vec());
@@ -316,7 +320,7 @@ async fn purge_requests_for_runs_not_purging_and_speculative_external_effects_do
     harness.settle().await;
     assert!(
         harness
-            .flow_operations
+            .flow_effect_operations
             .commands_matching(|command| matches!(
                 command,
                 flow_command::Command::RunPurge(_) | flow_command::Command::InboxMessage(_)
@@ -373,7 +377,7 @@ async fn start_parent_waiting_for_a_child(
 
 fn inbox_messages(harness: &EffectHarness) -> Vec<(InboxMessageCommand, CommandReply)> {
     harness
-        .flow_operations
+        .flow_effect_operations
         .commands_matching(|command| matches!(command, flow_command::Command::InboxMessage(_)))
         .into_iter()
         .filter_map(|recorded| match recorded.command.command {
@@ -385,14 +389,14 @@ fn inbox_messages(harness: &EffectHarness) -> Vec<(InboxMessageCommand, CommandR
 
 fn outbox_acks(harness: &EffectHarness) -> Vec<RecordedCommand> {
     harness
-        .flow_operations
+        .flow_effect_operations
         .commands_matching(|command| matches!(command, flow_command::Command::OutboxAck(_)))
 }
 
 fn read_outbox_row(harness: &EffectHarness, parent_run: RunId, message_id: &[u8]) -> OutboxRecord {
     let run = harness.run_location("parent", parent_run);
     let bytes = harness
-        .flow_operations
+        .flow_effect_operations
         .snapshot()
         .get(
             ColumnFamily::Flow,
@@ -409,7 +413,7 @@ fn child_run_exists(harness: &EffectHarness, new_run_id: &[u8]) -> bool {
         RunId::from_slice(new_run_id).expect("16-byte run ID"),
     );
     harness
-        .flow_operations
+        .flow_effect_operations
         .snapshot()
         .get(
             ColumnFamily::Flow,
@@ -486,9 +490,11 @@ async fn a_redelivered_child_start_with_a_new_run_id_starts_the_child_only_once(
     let config = child_settings_config();
     let first = EffectHarness::with_config(DurableState::new(), config.clone());
     // The ack is lost: it replies OK but never reaches the parent's state.
-    first.flow_operations.add_override(ok_override(|command| {
-        matches!(command, flow_command::Command::OutboxAck(_))
-    }));
+    first
+        .flow_effect_operations
+        .add_override(ok_override(|command| {
+            matches!(command, flow_command::Command::OutboxAck(_))
+        }));
     first.rebuild_all_partitions().await;
     let parent_run = start_parent_waiting_for_a_child(&first, settings()).await;
     let first_delivery = inbox_messages(&first).remove(0).0;
@@ -522,7 +528,7 @@ async fn a_redelivered_child_start_with_a_new_run_id_starts_the_child_only_once(
 async fn receiver_errors_are_retried_without_acknowledging_and_survive_a_restart() {
     let first = EffectHarness::new();
     first
-        .flow_operations
+        .flow_effect_operations
         .add_override(unavailable_inbox_override(usize::MAX));
     first.rebuild_all_partitions().await;
     let parent_run = start_parent_waiting_for_a_child(&first, settings()).await;
@@ -548,7 +554,7 @@ async fn receiver_errors_are_retried_without_acknowledging_and_survive_a_restart
 
     let second = EffectHarness::with_config(durable, EffectsConfig::default());
     second
-        .flow_operations
+        .flow_effect_operations
         .add_override(unavailable_inbox_override(1));
     second.rebuild_all_partitions().await;
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -589,7 +595,7 @@ fn terminate_run(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
         ..FlowCommand::default()
     };
     let reply = harness
-        .flow_operations
+        .flow_effect_operations
         .commit(
             &EffectHarness::flow(flow_id),
             command,
@@ -606,7 +612,7 @@ fn run_record_if_exists(
 ) -> Option<RunRecord> {
     let run = harness.run_location(flow_id, run_id);
     harness
-        .flow_operations
+        .flow_effect_operations
         .snapshot()
         .get(
             ColumnFamily::Flow,
@@ -633,7 +639,13 @@ fn client_read_error(harness: &EffectHarness, flow_id: &str) -> Option<FlowCoord
         partition: harness.hasher.partition_of(flow_hash),
         flow_hash,
     };
-    read_run(&harness.flow_operations.snapshot(), context, &flow, "").err()
+    read_run(
+        &harness.flow_effect_operations.snapshot(),
+        context,
+        &flow,
+        "",
+    )
+    .err()
 }
 
 fn assert_hidden_from_client_reads(harness: &EffectHarness, flow_id: &str) {
@@ -650,7 +662,7 @@ fn assert_hidden_from_client_reads(harness: &EffectHarness, flow_id: &str) {
 
 fn run_purges(harness: &EffectHarness) -> Vec<RecordedCommand> {
     harness
-        .flow_operations
+        .flow_effect_operations
         .commands_matching(|command| matches!(command, flow_command::Command::RunPurge(_)))
 }
 
@@ -670,7 +682,7 @@ async fn a_pending_outbox_postpones_retention_before_any_hard_delete_object_is_d
     let harness = EffectHarness::new();
     let is_child_start_rejected = Arc::new(AtomicBool::new(true));
     harness
-        .flow_operations
+        .flow_effect_operations
         .add_override(switchable_unavailable_inbox_override(Arc::clone(
             &is_child_start_rejected,
         )));

@@ -38,12 +38,12 @@ pub(crate) async fn rebuild_partition(
         .map_err(|detail| EffectError::StartupUploadsUnreadable {
             detail: detail.clone(),
         })?;
-    let reader = context.flow_operations.committed_state_reader()?;
+    let reader = context.flow_effect_operations.committed_state_reader()?;
     context
         .hard_delete_objects
         .recover_pending_uploads(partition, startup_uploads, reader)
         .await?;
-    let reader = context.flow_operations.committed_state_reader()?;
+    let reader = context.flow_effect_operations.committed_state_reader()?;
     let mut work: BTreeMap<RunLocation, (FlowAddress, Vec<ApplyEffect>)> = BTreeMap::new();
     rebuild_invocations(reader.as_ref(), partition, &mut work)?;
     rebuild_pending_close_checks(reader.as_ref(), partition, &mut work)?;

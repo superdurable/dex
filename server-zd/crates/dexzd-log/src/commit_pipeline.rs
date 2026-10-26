@@ -156,7 +156,7 @@ impl CommitPipeline {
         &self,
         partition: u32,
         record: Bytes,
-        waits_for_commit: bool,
+        should_wait_for_commit: bool,
     ) -> Result<ProposalTicket, LogError> {
         if record.len() > MAX_RECORD_LENGTH {
             return Err(LogError::Invalid("record exceeds maximum length".into()));
@@ -181,7 +181,7 @@ impl CommitPipeline {
             id,
             partition,
             record,
-            waits_for_commit,
+            should_wait_for_commit,
             sender,
             permit,
         };
@@ -203,7 +203,7 @@ struct Proposal {
     id: u64,
     partition: u32,
     record: Bytes,
-    waits_for_commit: bool,
+    should_wait_for_commit: bool,
     sender: oneshot::Sender<Result<u64, ProposalFailure>>,
     permit: OwnedSemaphorePermit,
 }
@@ -228,7 +228,7 @@ impl PendingBatch {
 
     fn add(&mut self, proposal: Proposal) {
         self.bytes += proposal.record.len();
-        self.has_waiter |= proposal.waits_for_commit;
+        self.has_waiter |= proposal.should_wait_for_commit;
         *self
             .partition_frame_bytes
             .entry(proposal.partition)

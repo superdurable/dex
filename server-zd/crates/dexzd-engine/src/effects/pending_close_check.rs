@@ -32,7 +32,7 @@ pub(crate) async fn finalize_pending_close_after_rpcs(
         let drained = tokio::select! {
             biased;
             () = context.shutdown.cancelled() => return Err(EffectError::Stopped),
-            drained = context.flow_operations.wait_for_transactional_rpcs(flow) => drained,
+            drained = context.flow_effect_operations.wait_for_transactional_rpcs(flow) => drained,
         };
         match drained {
             Ok(()) => {}
@@ -80,7 +80,9 @@ fn has_unblocked_pending_close(
     run_id: RunId,
 ) -> Result<bool, EffectError> {
     let run = context.run_location(flow, run_id);
-    let reader = context.flow_operations.flow_state_reader(flow, false)?;
+    let reader = context
+        .flow_effect_operations
+        .flow_state_reader(flow, false)?;
     let Some(record) = read_run_record(reader.as_ref(), run)? else {
         return Ok(false);
     };

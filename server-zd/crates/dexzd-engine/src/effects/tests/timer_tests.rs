@@ -43,7 +43,7 @@ pub(super) fn seed_timer(
 ) {
     let run = harness.run_location(flow_id, run_id);
     let encoded = timer.encode_to_vec();
-    let mut state = harness.flow_operations.state.lock().expect("lock");
+    let mut state = harness.flow_effect_operations.state.lock().expect("lock");
     state.put_message(
         ColumnFamily::Flow,
         timer_key(run.flow_hash, run.run_id, &encoded),
@@ -87,7 +87,7 @@ pub(super) fn timers_fired_override() -> CommandOverride {
 
 fn fired_commands(harness: &EffectHarness) -> Vec<(Vec<u8>, Vec<TimerId>, i64)> {
     harness
-        .flow_operations
+        .flow_effect_operations
         .commands_matching(is_timers_fired)
         .into_iter()
         .filter_map(|recorded| match recorded.command.command {
@@ -111,7 +111,7 @@ async fn due_timers_fire_in_time_order_merged_per_run_and_never_early() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
     harness
-        .flow_operations
+        .flow_effect_operations
         .add_override(timers_fired_override());
     let first_run = harness.start_flow(start_request("order-1"), settings());
     let second_run = harness.start_flow(start_request("order-2"), settings());
@@ -186,7 +186,7 @@ async fn timers_beyond_the_lookahead_are_loaded_by_a_later_pass() {
     let harness = EffectHarness::with_config(super::DurableState::new(), config);
     harness.rebuild_all_partitions().await;
     harness
-        .flow_operations
+        .flow_effect_operations
         .add_override(timers_fired_override());
     let run_id = harness.start_flow(start_request("order-1"), settings());
     let base = harness.clock.now_unix_micros();
@@ -219,7 +219,7 @@ async fn a_timer_left_in_the_index_is_retried_after_the_delay_not_in_a_loop() {
     harness.rebuild_all_partitions().await;
     // Apply accepts TimersFired but this timer stays in the index.
     harness
-        .flow_operations
+        .flow_effect_operations
         .add_override(super::ok_override(is_timers_fired));
     let run_id = harness.start_flow(start_request("order-1"), settings());
     let base = harness.clock.now_unix_micros();
@@ -255,7 +255,7 @@ async fn due_timers_behind_a_full_page_of_timers_in_backoff_still_fire() {
     let harness = EffectHarness::with_config(super::DurableState::new(), config);
     harness.rebuild_all_partitions().await;
     harness
-        .flow_operations
+        .flow_effect_operations
         .add_override(timers_fired_override());
     let run_id = harness.start_flow(start_request("order-1"), settings());
     // Timers of a missing run stay in the index; each pass puts them back into backoff.

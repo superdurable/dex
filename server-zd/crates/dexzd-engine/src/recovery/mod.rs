@@ -9,14 +9,14 @@
 //! Node startup: cluster metadata, local store, log replay, and runtime rebuild hooks.
 
 mod cluster_metadata;
-mod engine_startup_hooks;
+mod engine_command_and_effect_hooks;
 mod local_store_opening;
 mod log_replay;
 mod node_streams;
 mod search_order_rebuild;
 mod startup_read_retry;
 
-pub use engine_startup_hooks::{
+pub use engine_command_and_effect_hooks::{
     CommittedCommandSink, EngineCommandAndEffectHooks, EngineServices, PartitionEffectRebuildError,
     PartitionEffectRebuilder,
 };

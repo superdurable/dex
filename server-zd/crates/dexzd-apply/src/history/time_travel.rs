@@ -130,7 +130,7 @@ pub(crate) fn apply_time_travel(
     );
     cursor.record.current_attempt = new_attempt;
     set_run_status(&mut cursor.record, &rebuilt.run_status);
-    cursor.starts_attempt = true;
+    cursor.is_starting_attempt = true;
     replace_attempt_rows(
         transaction,
         &mut cursor,

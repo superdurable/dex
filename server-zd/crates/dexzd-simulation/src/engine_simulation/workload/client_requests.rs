@@ -282,10 +282,10 @@ fn distinct_keys(rng: &mut ChaCha8Rng, count: usize) -> Vec<String> {
 }
 
 /// A write of the hard-delete Attribute: a string or an object, or null to delete it.
-fn hard_delete_write(rng: &mut ChaCha8Rng, may_delete: bool) -> AttributeWrite {
+fn hard_delete_write(rng: &mut ChaCha8Rng, can_delete: bool) -> AttributeWrite {
     let label: u32 = rng.random();
     let value = match rng.random_range(0..10) {
-        0..=2 if may_delete => null_value(),
+        0..=2 if can_delete => null_value(),
         0..=6 => Value {
             kind: Some(value::Kind::StringValue(format!("secret {label}"))),
         },

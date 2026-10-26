@@ -247,10 +247,10 @@ fn register_id<'a>(
     path: &str,
     condition_id: &'a str,
     kind: &str,
-    required: bool,
+    is_required: bool,
 ) -> Result<(), ValidationError> {
     if condition_id.is_empty() {
-        if required {
+        if is_required {
             return Err(invalid(
                 format!("{path}.condition_id"),
                 format!("{kind} condition has an empty condition_id"),

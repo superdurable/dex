@@ -69,7 +69,7 @@ pub(crate) fn advance_window(
     cursor: &mut RunCursor,
     target: WindowAdvanceTarget,
 ) -> Result<bool, ApplyError> {
-    if cursor.history_window_page_used
+    if cursor.has_used_history_window_page
         || matches!(target, WindowAdvanceTarget::SemanticPoints(0))
         || matches!(target, WindowAdvanceTarget::GarbageSeq(seq) if seq < cursor.record.window_start_seq)
     {
@@ -124,7 +124,7 @@ fn find_new_window_start(
         HISTORY_ROWS_PER_COMMAND,
         "history metadata",
     )?;
-    cursor.history_window_page_used = true;
+    cursor.has_used_history_window_page = true;
     let start_metadata_key = history_row_metadata_key(
         rows.flow_hash,
         rows.run_id,

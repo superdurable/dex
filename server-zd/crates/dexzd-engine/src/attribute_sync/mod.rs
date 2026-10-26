@@ -149,7 +149,7 @@ pub struct AttributeSyncDependencies {
     /// Writes to the configured Attribute Stores.
     pub writer: Arc<dyn AttributeSyncWriter>,
     /// Committed state reads and ack proposals.
-    pub flow_operations: Arc<dyn FlowEffectOperations>,
+    pub flow_effect_operations: Arc<dyn FlowEffectOperations>,
     /// The cluster's partition hasher.
     pub partition_hasher: PartitionHasher,
     /// Owner wall clock, compared with the committed retry window starts.

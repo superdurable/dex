@@ -38,7 +38,7 @@ pub(crate) struct AttributeStores {
 pub(crate) struct AttributeSyncStart<'a> {
     pub(crate) engine: &'a EngineNode,
     pub(crate) node_id: &'a str,
-    pub(crate) flow_operations: Arc<dyn FlowEffectOperations>,
+    pub(crate) flow_effect_operations: Arc<dyn FlowEffectOperations>,
     pub(crate) partition_hasher: PartitionHasher,
     pub(crate) clock: Arc<dyn WallClock>,
     pub(crate) metrics: Arc<dexzd_metrics::NodeMetrics>,
@@ -132,7 +132,7 @@ impl AttributeStores {
             &self.config,
             AttributeSyncDependencies {
                 writer: self.stores,
-                flow_operations: start.flow_operations,
+                flow_effect_operations: start.flow_effect_operations,
                 partition_hasher: start.partition_hasher,
                 clock: start.clock,
                 metrics: start.metrics,

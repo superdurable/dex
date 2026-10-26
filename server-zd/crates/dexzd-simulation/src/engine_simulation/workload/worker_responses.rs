@@ -96,14 +96,14 @@ pub(crate) fn recovery_step_options() -> StepOptions {
 /// Channels a Step may load by name; `queue/a` and `queue/b` belong to the `queue/` map.
 const LOADABLE_CHANNEL_NAMES: &[&str] = &["inbox", "events"];
 
-/// A retry policy; with `may_expire`, sometimes a total duration short enough to expire in a run.
-pub(crate) fn retry_policy(rng: &mut ChaCha8Rng, may_expire: bool) -> Option<RetryPolicy> {
+/// A retry policy; with `can_expire`, sometimes a total duration short enough to expire in a run.
+pub(crate) fn retry_policy(rng: &mut ChaCha8Rng, can_expire: bool) -> Option<RetryPolicy> {
     rng.random_bool(0.7).then(|| RetryPolicy {
         initial_interval_seconds: rng.random_range(1..3),
         backoff_coefficient: if rng.random_bool(0.5) { 2.0 } else { 0.0 },
         maximum_interval_seconds: if rng.random_bool(0.5) { 5 } else { 0 },
         maximum_attempts: rng.random_range(0..5),
-        total_duration_seconds: if may_expire && rng.random_bool(0.3) {
+        total_duration_seconds: if can_expire && rng.random_bool(0.3) {
             rng.random_range(1..6)
         } else {
             0
@@ -140,7 +140,7 @@ fn random_timeout_seconds(rng: &mut ChaCha8Rng) -> i32 {
 pub(crate) struct MethodCallView<'request> {
     pub(crate) step_type: &'request str,
     /// Whether the Flow may start child Flows; only clients' Flows do, so children never nest.
-    pub(crate) may_start_sub_flows: bool,
+    pub(crate) can_start_sub_flows: bool,
     /// Whether new Steps carry failure policies, as in the Step failure profile.
     pub(crate) has_step_failure_policies: bool,
     pub(crate) is_execute: bool,
@@ -295,7 +295,7 @@ fn loaded_message_deletions(
 
 fn waiting_condition(rng: &mut ChaCha8Rng, call: &MethodCallView<'_>) -> Option<WaitingCondition> {
     match rng.random_range(0..10) {
-        4 if call.may_start_sub_flows => {
+        4 if call.can_start_sub_flows => {
             let start_step_type = pick(rng, STEP_TYPES);
             Some(WaitingCondition {
                 waiting_condition_type: WaitingConditionType::AllCompleted as i32,
