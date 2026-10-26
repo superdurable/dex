@@ -23,6 +23,7 @@ var (
 	getAttributesLargeValue = dex.DefineAttribute[string]("get-attributes-large-value")
 	getAttributesQuantities = dex.DefineAttributeMap[int]("get-attributes-quantities")
 	getAttributesNote       = dex.DefineAttribute[getAttributesNoteValue]("get-attributes-note")
+	getAttributesClosedRun  = dex.DefineAttribute[string]("get-attributes-closed-run-large-value")
 )
 
 type getAttributesNoteValue struct {
@@ -46,6 +47,7 @@ func (getAttributesFlow) GetPersistenceSchema() dex.PersistenceSchema {
 		getAttributesLargeValue,
 		getAttributesQuantities,
 		getAttributesNote,
+		getAttributesClosedRun,
 	}}
 }
 
@@ -54,6 +56,7 @@ func TestGetAttributes(t *testing.T) {
 	flowID := newFlowID(t, "get-attributes")
 	secret := strings.Repeat("hard-delete-value", 64)
 	largeValue := strings.Repeat("large-value", 64)
+	closedRunValue := strings.Repeat("closed-run-large-value", 64)
 	note := getAttributesNoteValue{Text: "ship today", Priority: 2}
 	count, err := dex.InitialAttribute(getAttributesCount, 7)
 	require.NoError(t, err)
@@ -65,8 +68,10 @@ func TestGetAttributes(t *testing.T) {
 	require.NoError(t, err)
 	noteValue, err := dex.InitialAttribute(getAttributesNote, note)
 	require.NoError(t, err)
+	closedRunInitialValue, err := dex.InitialAttribute(getAttributesClosedRun, closedRunValue)
+	require.NoError(t, err)
 	_, err = integClient.StartFlow(ctx, getAttributesFlow{}, flowID, nil, dex.StartFlowOptions{
-		Attributes: []dex.InitialAttributeDef{count, mapValue, secretValue, largeInitialValue, noteValue},
+		Attributes: []dex.InitialAttributeDef{count, mapValue, secretValue, largeInitialValue, noteValue, closedRunInitialValue},
 	})
 	require.NoError(t, err)
 
@@ -116,15 +121,15 @@ func TestGetAttributes(t *testing.T) {
 	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))
 	waitForFlow(t, flowID, false)
 	decodedSecret = ""
-	decodedLargeValue = ""
+	var decodedClosedRunValue string
 	result, err = integClient.GetAttributes(ctx, flowID,
 		dex.ReadAttribute(getAttributesSecret, &decodedSecret),
-		dex.ReadAttribute(getAttributesLargeValue, &decodedLargeValue),
+		dex.ReadAttribute(getAttributesClosedRun, &decodedClosedRunValue),
 	)
 	require.NoError(t, err)
 	require.Equal(t, secret, decodedSecret)
-	require.Equal(t, largeValue, decodedLargeValue)
-	require.True(t, result.IsSet(getAttributesLargeValue))
+	require.Equal(t, closedRunValue, decodedClosedRunValue)
+	require.True(t, result.IsSet(getAttributesClosedRun))
 
 	missingFlowID := newFlowID(t, "get-attributes-missing")
 	result, err = integClient.GetAttributes(ctx, missingFlowID, dex.ReadAttribute(getAttributesCount, &decodedCount))

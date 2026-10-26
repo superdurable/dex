@@ -281,17 +281,9 @@ func (client *Client) validateAttributeReads(
 			return nil, fmt.Errorf("dex: GetAttributes Flow %q has a nil Attribute read", flowID)
 		}
 		definition := read.attributeReadDefinition()
-		registered, err := client.registry.resolveAttribute(definition, definition.attributeIsMap())
+		registered, err := client.registry.doResolveAttribute(definition, definition.attributeIsMap(), true)
 		if err != nil {
 			return nil, fmt.Errorf("dex: GetAttributes Flow %q: %w", flowID, err)
-		}
-		if registered.valueType != definition.attributeValueType() {
-			return nil, fmt.Errorf("dex: GetAttributes Flow %q: %w", flowID, newFlowDefinitionError(
-				"",
-				fmt.Sprintf("attribute %q", registered.name),
-				fmt.Errorf("value type %s does not match registered value type %s",
-					definition.attributeValueType(), registered.valueType),
-			))
 		}
 		if !read.hasAttributeReadDestination() {
 			return nil, fmt.Errorf("dex: GetAttributes Flow %q Attribute %q has a nil destination",

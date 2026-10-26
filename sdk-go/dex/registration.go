@@ -861,6 +861,14 @@ func (registry *Registry) resolveAttribute(
 	reference AttributeDef,
 	expectMap bool,
 ) (registeredAttribute, error) {
+	return registry.doResolveAttribute(reference, expectMap, false)
+}
+
+func (registry *Registry) doResolveAttribute(
+	reference AttributeDef,
+	expectMap bool,
+	shouldMatchValueType bool,
+) (registeredAttribute, error) {
 	if nilInterface(reference) {
 		return registeredAttribute{}, fmt.Errorf("dex: attribute definition is nil")
 	}
@@ -879,9 +887,17 @@ func (registry *Registry) resolveAttribute(
 		if found && registered.isMap == expectMap &&
 			reflect.DeepEqual(registered.index, reference.attributeIndex()) &&
 			registered.syncToAttributeStore == reference.attributeSyncToAttributeStore() &&
-			registered.isHardDeleteOnNull == reference.attributeIsHardDeleteOnNull() {
+			registered.isHardDeleteOnNull == reference.attributeIsHardDeleteOnNull() &&
+			(!shouldMatchValueType || registered.valueType == reference.attributeValueType()) {
 			return registered, nil
 		}
+	}
+	if shouldMatchValueType {
+		return registeredAttribute{}, newFlowDefinitionError(
+			"",
+			fmt.Sprintf("attribute %q", name),
+			fmt.Errorf("attribute with value type %s is not registered", reference.attributeValueType()),
+		)
 	}
 	return registeredAttribute{}, newFlowDefinitionError(
 		"",
