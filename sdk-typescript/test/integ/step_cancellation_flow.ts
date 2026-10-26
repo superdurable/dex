@@ -52,6 +52,13 @@ export const cancellationScenarios: readonly CancellationScenario[] = [
   "sibling-selector",
 ];
 
+const blockingExecuteScenarios: ReadonlySet<CancellationScenario> = new Set([
+  "heartbeat-execute",
+  "local-execute",
+  "local-timeout-fallback",
+  "no-heartbeat",
+]);
+
 class CancellationStart implements Step<string> {
   public readonly inputCodec = stringCodec;
 
@@ -113,7 +120,7 @@ class CancellationBlockingExecute implements Step<void> {
     this.flow.markBlockingStarted();
     try {
       if (this.flow.scenario === "no-heartbeat") {
-        await delay(7_000);
+        await delay(7_000, this.flow.isServerZD ? context.cancellationSignal : undefined);
       } else if (
         this.flow.scenario === "heartbeat-execute" ||
         this.flow.scenario === "local-timeout-fallback"
@@ -221,15 +228,28 @@ class CancellationRecovery implements Step<void> {
 class CancellationFinal implements Step<string> {
   public readonly inputCodec = stringCodec;
 
+  public constructor(private readonly flow: StepCancellationFlow) {}
+
   public getStepType(): string {
     return "TypeScriptCancellationFinal";
   }
 
-  public waitFor(_context: Context, _input: string): Wait {
+  public async waitFor(_context: Context, _input: string): Promise<Wait> {
+    // On server-zd the canceled TypeScript handler sends its late write; order it before the read.
+    if (this.flow.isServerZD && blockingExecuteScenarios.has(this.flow.scenario)) {
+      await awaitWithinTimeout(
+        this.flow.lateHandlerReturned,
+        10_000,
+        "canceled handler did not return before final Step wait",
+      );
+    }
     return Wait.until(Timer.byDuration(1_000));
   }
 
-  public execute(_context: Context, input: string): StepDecision {
+  public execute(context: Context, input: string): StepDecision {
+    if (this.flow.lateWrite.get(context) !== undefined) {
+      return forceFail("canceled execution committed its late write");
+    }
     return gracefulComplete(input);
   }
 }
@@ -320,7 +340,7 @@ export class StepCancellationFlow implements Flow<string> {
   public readonly blockingExecute = new CancellationBlockingExecute(this);
   public readonly blockingWaitFor = new CancellationBlockingWaitFor(this);
   public readonly winner = new CancellationWinner(this);
-  public readonly final = new CancellationFinal();
+  public readonly final = new CancellationFinal(this);
   public readonly firstParent = new CancellationFirstParent(this);
   public readonly secondParent = new CancellationSecondParent(this);
   public readonly selectorWinner = new CancellationSelectorWinner(this);
@@ -343,7 +363,10 @@ export class StepCancellationFlow implements Flow<string> {
   private resolveSelectorWaitsRegistered!: () => void;
   private selectorWaitCount = 0;
 
-  public constructor(public readonly scenario: CancellationScenario) {
+  public constructor(
+    public readonly scenario: CancellationScenario,
+    public readonly isServerZD: boolean,
+  ) {
     this.blockingStarted = new Promise((resolve) => { this.resolveBlockingStarted = resolve; });
     this.cancellationObserved = new Promise((resolve) => { this.resolveCancellationObserved = resolve; });
     this.lateHandlerReturned = new Promise((resolve) => { this.resolveLateHandlerReturned = resolve; });
@@ -414,6 +437,22 @@ function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
     }
     signal.addEventListener("abort", abort, { once: true });
   });
+}
+
+async function awaitWithinTimeout(
+  promise: Promise<void>,
+  milliseconds: number,
+  message: string,
+): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+  try {
+    await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function delayWithHeartbeats(context: AsyncContext, milliseconds: number): Promise<void> {

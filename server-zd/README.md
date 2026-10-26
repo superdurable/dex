@@ -75,6 +75,10 @@ of main's `sdk-go/run-e2e-tests.sh` with `DEX_INTEG_ENGINE=zd`.
 | `server-zd/v0.1.1` | `sdk-go/v1.16.0` | 53 passed, 4 skipped, 0 failed | 14 passed, 5 skipped, 0 failed |
 | `server-zd/v0.1.1` | `sdk-go/v1.15.0` | 49 passed, 1 skipped, 7 failed | 14 passed, 0 skipped, 5 failed |
 
+The [Server ZD SDK CI](../.github/workflows/server-zd-sdk-ci.yml) workflow runs the Go, Rust, Python,
+TypeScript, and Java SDK integration suites with pull Workers against server-zd on every relevant
+pull request and main push.
+
 Every `sdk-go/v1.15.0` failure is a difference listed below. Its one skip is a push-only test
 that the suite skips with pull Workers. Both versions also passed the two pull Worker tests that
 run against a real server.
