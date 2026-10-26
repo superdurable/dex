@@ -39,6 +39,7 @@ import { sdkVersion } from "./sdk-version.generated.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
 
 const debug = debuglog("dex:pull");
+const BUSY_PULL_STREAM_KEEPALIVE_MS = 20_000;
 
 interface ActiveTask {
   readonly id: string;
@@ -53,6 +54,7 @@ interface PollStream {
   task: ActiveTask | undefined;
   retryTimer: ReturnType<typeof setTimeout> | undefined;
   halfCloseTimer: ReturnType<typeof setTimeout> | undefined;
+  keepaliveTimer: ReturnType<typeof setInterval> | undefined;
   halfClosePromise: Promise<void> | undefined;
   resolveHalfClose: (() => void) | undefined;
   isRegistered: boolean;
@@ -60,6 +62,7 @@ interface PollStream {
   supportsUnknownNameRejection: boolean;
   isDisconnected: boolean;
   isHalfClosed: boolean;
+  isFinalFrameSent: boolean;
   isDraining: boolean;
   isRetiring: boolean;
   isReconnectRequested: boolean;
@@ -79,6 +82,8 @@ export class PullWorker {
   private readonly maxConcurrentTasks: number;
   private readonly reservedRpcTasks: number;
   private reservedRpcDeclineCount = 0;
+  private readonly lastReserveDeclineMs = new Map<string, number>();
+  private readonly reservePressureTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private hasWarnedRpcCapacity = false;
   private readonly idleStreamsPerQueue: number;
   private readonly stopDrainTimeoutMs: number;
@@ -96,6 +101,7 @@ export class PullWorker {
     private readonly options: PullWorkerOptions,
     credential?: Credential,
     private readonly onPermanentRejection: () => void = () => {},
+    private readonly reservePressureLingerMs = 30_000,
   ) {
     this.maxConcurrentTasks = positiveOption(options.maxConcurrentTasks, availableParallelism(), "maxConcurrentTasks");
     this.reservedRpcTasks = options.reservedRpcTasks ?? (this.maxConcurrentTasks >= 2 ? 1 : 0);
@@ -141,6 +147,8 @@ export class PullWorker {
   public async close(): Promise<void> {
     const stopDeadlineMs = this.stopDeadlineMs ??= Date.now() + this.stopDrainTimeoutMs;
     this.isStopping = true;
+    for (const timer of this.reservePressureTimers.values()) clearTimeout(timer);
+    this.reservePressureTimers.clear();
     this.registration.stopped();
     for (const poll of this.streams) {
       poll.isDraining = true;
@@ -196,11 +204,13 @@ export class PullWorker {
       for (const poll of this.streams) {
         if (poll.queue === queue && poll.task === undefined && !poll.isDraining) idleCount++;
       }
-      while (idleCount < this.idleStreamsPerQueue) {
+      const desiredIdle = this.desiredIdleStreamsPerQueue(queue);
+      const creationTarget = this.busyTaskCount === this.maxConcurrentTasks ? this.idleStreamsPerQueue : desiredIdle;
+      while (idleCount < creationTarget) {
         const poll: PollStream = {
           queue, stream: undefined, task: undefined, retryTimer: undefined,
-          halfCloseTimer: undefined, halfClosePromise: undefined, resolveHalfClose: undefined,
-          isRegistered: false, hasRecordedResult: false, supportsUnknownNameRejection: false, isDisconnected: false, isHalfClosed: false, isDraining: false, isRetiring: false,
+          halfCloseTimer: undefined, keepaliveTimer: undefined, halfClosePromise: undefined, resolveHalfClose: undefined,
+          isRegistered: false, hasRecordedResult: false, supportsUnknownNameRejection: false, isDisconnected: false, isHalfClosed: false, isFinalFrameSent: false, isDraining: false, isRetiring: false,
           isReconnectRequested: false, hasRetriedRejectedToken: false,
           backoffMs: 100, failure: undefined,
         };
@@ -211,6 +221,12 @@ export class PullWorker {
     }
   }
 
+  private desiredIdleStreamsPerQueue(queue: string): number {
+    const lastDeclineMs = this.lastReserveDeclineMs.get(queue);
+    return this.idleStreamsPerQueue + Number(this.reservedRpcTasks > 0 && lastDeclineMs !== undefined
+      && performance.now() - lastDeclineMs < this.reservePressureLingerMs);
+  }
+
   private openStream(poll: PollStream): void {
     if (this.isStopping) return;
     poll.isRegistered = false;
@@ -218,6 +234,7 @@ export class PullWorker {
     poll.supportsUnknownNameRejection = false;
     poll.isDisconnected = false;
     poll.isHalfClosed = false;
+    poll.isFinalFrameSent = false;
     poll.failure = undefined;
     poll.isDraining = false;
     poll.isReconnectRequested = false;
@@ -277,6 +294,7 @@ export class PullWorker {
         if (poll.task?.id === frame.value.taskId) poll.task.controller.abort();
         break;
       case "ping":
+        if (poll.task !== undefined && poll.isFinalFrameSent) break;
         try {
           this.send(poll, { frame: { $case: "pong", value: {} } });
         } catch (failure) {
@@ -311,8 +329,13 @@ export class PullWorker {
     const isStepTask = task.request?.$case === "waitFor" || task.request?.$case === "execute";
     if (isStepTask && this.reservedRpcTasks > 0 && this.busyTaskCount >= this.maxConcurrentTasks - this.reservedRpcTasks && unknownReason === undefined) {
       this.reservedRpcDeclineCount++;
+      this.lastReserveDeclineMs.set(poll.queue, performance.now());
+      const existingTimer = this.reservePressureTimers.get(poll.queue);
+      if (existingTimer !== undefined) clearTimeout(existingTimer);
+      this.scheduleReservePressureExpiry(poll.queue, this.reservePressureLingerMs);
       debug("decline Step task for reserved RPC capacity: %s", task.request?.value.flowType);
       this.rejectTask(poll, task.taskId, PollWorkerTaskRejectReason.POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY);
+      this.reconcile();
       return;
     }
     const controller = new AbortController();
@@ -320,10 +343,40 @@ export class PullWorker {
     const deadlineCancellation = deadlineMs === undefined
       ? undefined
       : new DeadlineCancellation(deadlineMs, controller);
+    poll.isFinalFrameSent = false;
+    poll.keepaliveTimer = setInterval(() => {
+      if (poll.isDisconnected || poll.isFinalFrameSent || poll.task === undefined) return;
+      try {
+        this.send(poll, { frame: { $case: "pong", value: {} } });
+      } catch (failure) {
+        console.error("send Worker keepalive Pong", failure);
+        this.disconnect(poll);
+      }
+    }, BUSY_PULL_STREAM_KEEPALIVE_MS);
+    poll.keepaliveTimer.unref();
     const completion = this.executeTask(poll, task, controller.signal).finally(() => this.finishTask(poll));
     poll.task = { id: task.taskId, controller, completion, deadlineCancellation };
     this.activeTasks.add(completion);
     this.busyTaskCount++;
+    this.reconcile();
+  }
+
+  private scheduleReservePressureExpiry(queue: string, delayMs: number): void {
+    const timer = setTimeout(() => this.expireReservePressure(queue), delayMs);
+    timer.unref();
+    this.reservePressureTimers.set(queue, timer);
+  }
+
+  private expireReservePressure(queue: string): void {
+    const lastDeclineMs = this.lastReserveDeclineMs.get(queue);
+    if (lastDeclineMs === undefined) return;
+    const remainingMs = this.reservePressureLingerMs - (performance.now() - lastDeclineMs);
+    if (remainingMs > 0) {
+      this.scheduleReservePressureExpiry(queue, remainingMs);
+      return;
+    }
+    this.lastReserveDeclineMs.delete(queue);
+    this.reservePressureTimers.delete(queue);
     this.reconcile();
   }
 
@@ -404,10 +457,12 @@ export class PullWorker {
   }
 
   private finishTask(poll: PollStream): void {
+    this.stopKeepalive(poll);
     const task = poll.task;
     if (task === undefined) return;
     task.deadlineCancellation?.stop();
     poll.task = undefined;
+    poll.isFinalFrameSent = false;
     this.activeTasks.delete(task.completion);
     this.busyTaskCount--;
     if (!poll.isDisconnected && !poll.isDraining && this.hasRegisteredIdleReplacements(poll)) {
@@ -426,11 +481,22 @@ export class PullWorker {
     return [...this.streams].filter((candidate) =>
       candidate !== poll && candidate.queue === poll.queue && candidate.isRegistered
       && candidate.task === undefined && !candidate.isDraining && !candidate.isDisconnected
-    ).length >= this.idleStreamsPerQueue;
+    ).length >= this.desiredIdleStreamsPerQueue(poll.queue);
   }
 
   private sendTaskFrame(poll: PollStream, frame: PollWorkerTaskFrame): void {
+    if (frame.output?.$case === "rpc" || frame.output?.$case === "workerError"
+      || frame.output?.$case === "waitFor" && frame.output.value.output?.$case === "result"
+      || frame.output?.$case === "execute" && frame.output.value.output?.$case === "result") {
+      this.stopKeepalive(poll);
+      poll.isFinalFrameSent = true;
+    }
     this.send(poll, { frame: { $case: "taskFrame", value: frame } });
+  }
+
+  private stopKeepalive(poll: PollStream): void {
+    if (poll.keepaliveTimer !== undefined) clearInterval(poll.keepaliveTimer);
+    poll.keepaliveTimer = undefined;
   }
 
   private send(poll: PollStream, request: PollWorkerTaskRequest): void {
@@ -441,6 +507,7 @@ export class PullWorker {
   }
 
   private disconnect(poll: PollStream): void {
+    this.stopKeepalive(poll);
     if (poll.isDisconnected) return;
     this.recordStreamResult(poll);
     poll.isDisconnected = true;
@@ -451,6 +518,7 @@ export class PullWorker {
   }
 
   private onStreamClosed(poll: PollStream): void {
+    this.stopKeepalive(poll);
     if (poll.isHalfClosed) {
       this.completeHalfClose(poll);
       return;
@@ -463,6 +531,7 @@ export class PullWorker {
   }
 
   private halfCloseStream(poll: PollStream): void {
+    this.stopKeepalive(poll);
     if (poll.isHalfClosed || poll.stream === undefined) return;
     poll.isDisconnected = true;
     poll.isHalfClosed = true;
@@ -501,7 +570,7 @@ export class PullWorker {
       const idleStreamCount = [...this.streams].filter((candidate) =>
         candidate !== poll && candidate.queue === poll.queue && candidate.task === undefined && !candidate.isDraining
       ).length;
-      if (poll.isRetiring || poll.isReconnectRequested && idleStreamCount >= this.idleStreamsPerQueue) {
+      if (poll.isRetiring || poll.isReconnectRequested && idleStreamCount >= this.desiredIdleStreamsPerQueue(poll.queue)) {
         this.streams.delete(poll);
       } else {
         this.scheduleReconnect(poll);

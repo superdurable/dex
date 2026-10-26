@@ -1,0 +1,25 @@
+[package]
+name = "dexzd-postgres-connection"
+description = "Shared PostgreSQL DSN and TLS connector for server-zd"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rustls.workspace = true
+rustls-native-certs.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true
+tokio-postgres-rustls.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+tempfile.workspace = true
+tokio-rustls.workspace = true
+
+[lints]
+workspace = true

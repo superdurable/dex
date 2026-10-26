@@ -162,6 +162,11 @@ message FlowCloseRecord {
   repeated StoredStepCompletionOutput results = 3;
   // True when a child already reported this close to its parent.
   bool is_reported_to_parent = 4;
+  // True when the close skipped the Attribute Sync barrier (StopFlow or termination); absent in
+  // older records.
+  optional bool is_closed_at_once = 5;
+  // FlowClosed message when it differs from the result message.
+  optional string history_message = 6;
 }
 
 message StoredStepCompletionOutput {
@@ -429,6 +434,11 @@ message AttributeSyncOutboxRecord {
   // Start of the retry window: the first marking, or the last ack that left a newer marking
   // pending.
   int64 retry_window_started_at_micros = 4;
+  // The latest synced value, or a store deletion; absent only on legacy rows.
+  oneof sync_item {
+    dex.Value value = 5;
+    bool is_delete = 6;
+  }
 }
 
 // Row of RunTable::InboxDedup, keyed by source run ID (16 bytes) and message ID (16 bytes).

@@ -27,20 +27,20 @@ const DEFAULT_STEP_FAILURE_SEED_COUNT: u64 = 32;
 /// Step failure policies change every trajectory, so their seeds form their own group.
 const FIRST_STEP_FAILURE_SEED: u64 = 0x5fa1_0000;
 const REGRESSION_SEEDS: &str = include_str!("../engine-regression-seeds.txt");
-/// Canonical command digests from main before Step failure policies; a moved regression seed
+/// Canonical command digests with full-rate startup faults; a moved regression seed
 /// stops reproducing.
 const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u128)] = &[
     (
         EngineSimulationProfile::Standard,
         3856990760,
         120,
-        0x0ce8cbe54d9986053a30ca0d359f5e3a,
+        0x8e304369b4b1f4fc0232c79fa935dc07,
     ),
     (
         EngineSimulationProfile::Standard,
         3856990458,
         120,
-        0x7b480a3f15e803d2795e4204498ee7fd,
+        0x0dc2c3ab9e7649a0b35d61c1aa89e640,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -52,25 +52,25 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         FIRST_SEED,
         120,
-        0xbdb1270b47fa4d7e9ededa5ea96f25ee,
+        0xdb7a0d8d902476fdc0509fe00f636bcc,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 1,
         120,
-        0x070707ab938adad0eab32b0e2b706749,
+        0xaad8deb870a7b101ece67f06569e375e,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 2,
         120,
-        0xa7a76a800cf7f89ca4d4739e963916d3,
+        0xa7e5330709eee89c7e989786b3f2c67a,
     ),
     (
         EngineSimulationProfile::RedeploysWithShortHistoryWindow,
         FIRST_REDEPLOY_SEED,
         120,
-        0x3a74ab1b3c1de958379342fdb1f4b453,
+        0xf1816654187698979ddd607f093005aa,
     ),
 ];
 
@@ -245,6 +245,7 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
             "pin the canonical command digest of regression seed {seed} {active_seconds}"
         );
     }
+    let mut changed_trajectories = Vec::new();
     for &(profile, seed, active_seconds, expected) in PINNED_CANONICAL_COMMAND_DIGESTS {
         let config = EngineSimulationConfig {
             active_seconds,
@@ -252,12 +253,19 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
             ..EngineSimulationConfig::default()
         };
         let summary = run_engine_seed(seed, &config).unwrap_or_else(|failure| panic!("{failure}"));
-        assert_eq!(
-            summary.canonical_command_digest, expected,
-            "{profile:?} seed {seed} changed its committed commands, so it no longer replays its \
-             trajectory"
-        );
+        if summary.canonical_command_digest != expected {
+            changed_trajectories.push(format!(
+                "{profile:?} seed {seed} {active_seconds}: expected {expected:#034x}, \
+                 observed {:#034x}",
+                summary.canonical_command_digest
+            ));
+        }
     }
+    assert!(
+        changed_trajectories.is_empty(),
+        "canonical command trajectories changed:\n{}",
+        changed_trajectories.join("\n")
+    );
 }
 
 /// Runs each seed for its active seconds; a failing seed writes its report and panics.
@@ -271,6 +279,15 @@ fn run_seeds(
         let config = EngineSimulationConfig {
             active_seconds,
             profile,
+            fault_probability_percent: environment_number("DEXZD_SIMULATION_FAULT_PERCENT").map(
+                |percent| {
+                    assert!(
+                        percent <= 100,
+                        "DEXZD_SIMULATION_FAULT_PERCENT must be 0..=100"
+                    );
+                    u8::try_from(percent).expect("validated fault percentage fits in u8")
+                },
+            ),
             ..EngineSimulationConfig::default()
         };
         match run_engine_seed(seed, &config) {

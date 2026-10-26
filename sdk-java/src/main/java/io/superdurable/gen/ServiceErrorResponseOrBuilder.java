@@ -74,4 +74,15 @@ public interface ServiceErrorResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getOriginalWorkerErrorStackTraceBytes();
+
+  /**
+   * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 7;</code>
+   * @return The enum numeric value on the wire for dispatchTaskErrorReason.
+   */
+  int getDispatchTaskErrorReasonValue();
+  /**
+   * <code>.dex.DispatchTaskErrorReason dispatch_task_error_reason = 7;</code>
+   * @return The dispatchTaskErrorReason.
+   */
+  io.superdurable.gen.DispatchTaskErrorReason getDispatchTaskErrorReason();
 }

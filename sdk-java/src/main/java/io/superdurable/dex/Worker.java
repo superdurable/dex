@@ -238,7 +238,8 @@ public final class Worker implements AutoCloseable {
     /**
      * Returns cumulative Step declines caused by reserved RPC capacity for this Worker.
      *
-     * <p>Full-capacity rejections and unknown names are excluded. The count never resets,
+     * <p>The counter counts decline events. Dex may decline the same Step dispatch repeatedly
+     * while retrying it, so read the counter as a rate. Full-capacity rejections and unknown names are excluded. The count never resets,
      * remains available after stop, and is safe to read concurrently with handlers.
      * Listening Workers return zero. Export this value to a monitoring counter:
      *

@@ -165,6 +165,7 @@ pub struct SearchConfig {
     pub builtin_scan_budget_documents: u32,
     /// Defaults to empty; required when backend is paradedb and identifies the PostgreSQL-compatible endpoint.
     /// When empty, loading may read DEX_ZD_PARADEDB_CONNECTION_STRING; serialization redacts non-empty values.
+    /// Supports sslmode, sslrootcert, sslsni, sslnegotiation, and connect_timeout; no TLS parameter preserves plaintext.
     #[serde(serialize_with = "serialize_parade_db_connection_string")]
     pub parade_db_connection_string: String,
     /// Defaults to 10; maximum ParadeDB connections held by one node.

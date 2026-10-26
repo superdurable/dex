@@ -12,8 +12,8 @@ use dexzd_apply::{ApplyOutcome, read_model::get_search_document};
 use dexzd_protocol::dex::{
     ActiveStepSearchMode, AttributeWrite, ChannelMessage, ChannelMessageDeletion, ErrorSubStatus,
     FlowConfig, FlowResetType, GetAttributesRequest, GetFlowStateRequest, InvokeRpcRequest,
-    InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, StepDurability,
-    StopFlowRequest, WorkerErrorResponse, WorkerTarget,
+    InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, StepDecision,
+    StepDurability, StepMovement, StopFlowRequest, WorkerErrorResponse, WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::flow_command;
 
@@ -727,4 +727,62 @@ async fn worker_rpc_errors_map_to_client_errors() {
         .await
         .unwrap_err();
     assert_eq!(error.sub_status(), ErrorSubStatus::FlowNotExists);
+}
+
+#[tokio::test(start_paused = true)]
+async fn malformed_worker_rpc_step_types_return_go_internal_status_on_both_routes() {
+    let harness = RuntimeHarness::new();
+    start_flow(&harness, "order-1").await.unwrap();
+    for is_transactional in [false, true] {
+        for (is_next_step, expected) in [
+            (
+                true,
+                "next step at index 0: step type contains reserved character \"/\"",
+            ),
+            (
+                false,
+                "cancel step type at index 0: step type contains reserved character \":\"",
+            ),
+        ] {
+            let decision = if is_next_step {
+                StepDecision {
+                    next_steps: vec![StepMovement {
+                        step_type: "Next/Step".to_owned(),
+                        ..StepMovement::default()
+                    }],
+                    ..StepDecision::default()
+                }
+            } else {
+                StepDecision {
+                    cancel_step_types: vec!["Old:Step".to_owned()],
+                    ..StepDecision::default()
+                }
+            };
+            harness
+                .rpc_invoker
+                .results
+                .lock()
+                .unwrap()
+                .push_back(Ok(WorkerRpcResult {
+                    response: InvokeWorkerRpcResponse {
+                        step_decision: Some(decision),
+                        ..InvokeWorkerRpcResponse::default()
+                    },
+                    app_worker_id: "worker-1".to_owned(),
+                    pull_routing: None,
+                }));
+            let mut request = rpc_request("order-1");
+            request.is_transactional = is_transactional;
+            request.request_id = format!("rpc-{is_next_step}-{is_transactional}");
+            let error = harness
+                .registry
+                .invoke_rpc(TENANT, request)
+                .await
+                .unwrap_err();
+            assert_eq!(error.grpc_code(), grpc_code::INTERNAL, "{error:?}");
+            assert_eq!(error.sub_status(), ErrorSubStatus::Uncategorized);
+            assert_eq!(error.to_string(), expected);
+        }
+    }
+    assert_eq!(harness.submitted().len(), 1);
 }

@@ -40,6 +40,8 @@ pub struct EngineSimulationConfig {
     pub calm_tail_seconds: u64,
     /// Recovery paths the seed exercises; each profile has its own seed trajectories.
     pub profile: EngineSimulationProfile,
+    /// Overrides the seed's fault rate for a targeted regression, as a percentage from 0 to 100.
+    pub fault_probability_percent: Option<u8>,
 }
 
 impl Default for EngineSimulationConfig {
@@ -48,6 +50,7 @@ impl Default for EngineSimulationConfig {
             active_seconds: 120,
             calm_tail_seconds: 60,
             profile: EngineSimulationProfile::Standard,
+            fault_probability_percent: None,
         }
     }
 }
@@ -295,10 +298,15 @@ impl fmt::Display for EngineSimulationFailure {
         )?;
         writeln!(
             formatter,
-            "reproduce with: DEXZD_SIMULATION_SEED={} DEXZD_SIMULATION_SECONDS={} cargo test -p \
+            "reproduce with: DEXZD_SIMULATION_SEED={} DEXZD_SIMULATION_SECONDS={} {}cargo test -p \
              dexzd-simulation --test engine_simulation {} -- --exact --nocapture",
             self.seed,
             self.config.active_seconds,
+            self.config
+                .fault_probability_percent
+                .map_or_else(String::new, |percent| format!(
+                    "DEXZD_SIMULATION_FAULT_PERCENT={percent} "
+                )),
             self.config.profile.test_name()
         )?;
         writeln!(formatter, "last {} events:", self.recent_events.len())?;

@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use tokio_postgres::Client;
 use tokio_postgres::types::ToSql;
 
+use crate::connection::ConnectionSettings;
 use crate::error::{AttributeStoreError, database_error};
 use crate::map_table::{MapTableSchema, go_list};
 use crate::row_key::RowKeyTemplate;
@@ -67,6 +68,7 @@ pub(crate) struct ResolvedTables {
 pub(crate) struct SchemaDescriber<'a> {
     pub(crate) client: &'a Client,
     pub(crate) settings: &'a AttributeStoreSettings,
+    pub(crate) connection_settings: &'a ConnectionSettings,
 }
 
 impl TableReference {
@@ -399,7 +401,12 @@ impl SchemaDescriber<'_> {
         operation: impl Into<String>,
         error: &tokio_postgres::Error,
     ) -> AttributeStoreError {
-        database_error(&self.settings.name, &self.settings.dsn, operation, error)
+        database_error(
+            &self.settings.name,
+            self.connection_settings,
+            operation,
+            error,
+        )
     }
 }
 

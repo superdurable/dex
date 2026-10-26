@@ -26,22 +26,24 @@ use dexzd_keyspace::{
 };
 use dexzd_protocol::dex::{
     ActionPermissionMappings, AttributeWrite, CloseDecision, CloseDecisionType, ErrorSubStatus,
-    FlowAlreadyStartedOptions, FlowResetType, FlowStartOptions, FlowStatus,
-    FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy, InvokeExecuteMethodResponse,
-    InvokeWaitForMethodResponse, Kv, ResetFlowRequest, RetryPolicy, SetAttributesRequest,
-    StartFlowRequest, StepDecision, StepMovement, StepOptions, StopFlowRequest, StopType, Value,
-    WorkerErrorResponse, WorkerTarget, flow_history_event, value,
+    ExecuteMethodFailurePolicy, FlowAlreadyStartedOptions, FlowResetType, FlowStartOptions,
+    FlowStatus, FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy,
+    InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, Kv, ResetFlowRequest, RetryPolicy,
+    SetAttributesRequest, StartFlowRequest, StepDecision, StepMethodFailure, StepMovement,
+    StepOptions, StopFlowRequest, StopType, Value, WaitForMethodFailurePolicy, WorkerErrorResponse,
+    WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeRecord, AttributesSetCommand, CommandReply, FlowCommand, FlowStartCommand,
     FlowStopCommand, FlowTimeoutTimerId, HardDeleteObjectRecord, HardDeleteObjectReference,
     HardDeleteObjectsDeletedCommand, HistoryRecord, HistoryRowMetadata, RetentionTimerId,
     RetryBackoffTimerId, RunPurgeCommand, RunRecord, RunSettings, RunStorageUsage,
-    StepAttemptFailedCommand, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
-    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
-    StepMethodCompletedCommand, StoredValue, TimeTravelCommand, TimerId, TimersFiredCommand,
-    ValueBirthRecord, ValueGarbageRecord, command_reply, flow_command::Command,
-    step_attempt_heartbeat_command, step_method_completed_command, stored_value, timer_id,
+    StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
+    StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
+    StepInvocationPhase, StepMethod, StepMethodCompletedCommand, StoredValue, TimeTravelCommand,
+    TimerId, TimersFiredCommand, ValueBirthRecord, ValueGarbageRecord, command_reply,
+    flow_command::Command, step_attempt_heartbeat_command, step_method_completed_command,
+    stored_value, timer_id,
 };
 use prost::Message;
 
@@ -735,10 +737,339 @@ fn failed_attempts_back_off_then_exhaust_and_fail_the_flow() {
         vec![("ChargeStep-1".to_owned(), StepMethod::WaitFor as i32, 2)]
     );
     harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 2);
-    harness.apply(Command::StepAttemptFailed(failure(2)));
+    let exhausted = harness.apply(Command::StepAttemptFailed(failure(2)));
     let record = harness.run_record();
     assert_eq!(record.status, FlowStatus::Failed as i32);
-    assert!(record.close.unwrap().error_message.contains("boom"));
+    assert_eq!(record.close.unwrap().error_message, "boom");
+    let history_failure = method_failures(&exhausted)
+        .pop()
+        .expect("history records the final failure");
+    assert_eq!(history_failure.attempt, 2);
+    assert_eq!(history_failure.backend_error, "boom");
+}
+
+/// An exhausted attempt failure and the text applications see for it.
+struct StepFailureTextCase {
+    kind: StepAttemptFailureKind,
+    /// The Worker error detail for a Worker error, otherwise the engine's server detail.
+    raw_detail: &'static str,
+    application_text: &'static str,
+}
+
+impl StepFailureTextCase {
+    const fn new(
+        kind: StepAttemptFailureKind,
+        raw_detail: &'static str,
+        application_text: &'static str,
+    ) -> Self {
+        Self {
+            kind,
+            raw_detail,
+            application_text,
+        }
+    }
+
+    fn final_failure(&self, method: StepMethod) -> StepAttemptFailedCommand {
+        let is_worker_error = self.kind == StepAttemptFailureKind::WorkerError;
+        StepAttemptFailedCommand {
+            invocation: Some(key("ChargeStep-1", method)),
+            attempt: 1,
+            kind: self.kind as i32,
+            worker_error: is_worker_error.then(|| WorkerErrorResponse {
+                detail: self.raw_detail.to_owned(),
+                ..WorkerErrorResponse::default()
+            }),
+            server_detail: if is_worker_error {
+                String::new()
+            } else {
+                self.raw_detail.to_owned()
+            },
+            is_non_retryable: true,
+            ..StepAttemptFailedCommand::default()
+        }
+    }
+}
+
+/// Raw details as the engine and apply write them; the expected texts are the Go Server's.
+const STEP_FAILURE_TEXT_CASES: &[StepFailureTextCase] = &[
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::WorkerError,
+        "payment declined",
+        "payment declined",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::MethodTimeout,
+        "method timeout of 1s expired",
+        "method timeout of 1s expired",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::HeartbeatTimeout,
+        "no heartbeat within 1s",
+        "no heartbeat within 1s",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::RetryDeadline,
+        "retry policy total duration expired",
+        "retry policy total duration expired",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::DispatchError,
+        "DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE: no Worker accepted the task",
+        "no Worker available for queue OrderFlow: no Worker accepted the task",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::DispatchError,
+        "DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED: Worker stream disconnected",
+        "Worker disconnected during pull dispatch: Worker stream disconnected",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::DispatchError,
+        "DISPATCH_TASK_ERROR_REASON_UNKNOWN_NAME: no pull Worker registered Step \"ChargeStep\" \
+         for Flow type \"OrderFlow\"",
+        "no pull Worker registered Step \"ChargeStep\" for Flow type \"OrderFlow\"",
+    ),
+    // The engine never reports UNSPECIFIED for a Step; it keeps server-zd's text.
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::DispatchError,
+        "DISPATCH_TASK_ERROR_REASON_UNSPECIFIED: unknown failure",
+        "DISPATCH_TASK_ERROR_REASON_UNSPECIFIED: unknown failure",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::DispatchError,
+        "server error: object storage is unavailable",
+        "server error: object storage is unavailable",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::DispatchError,
+        "matching server is closing",
+        "matching server is closing",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::DispatchError,
+        "dispatch ended without an outcome",
+        "dispatch ended without an outcome",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
+        "WaitFor frame carries no result",
+        "InvokeWaitForMethod emitted an empty output",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
+        "Execute frame carries no result",
+        "InvokeExecuteMethod emitted an empty output",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
+        "final frame does not match the dispatched method",
+        "matching dispatch: rpc error: code = Internal desc = unexpected pull dispatch frame",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
+        "step_decision: empty step decision is not supported",
+        "empty step decision is not supported",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
+        "step_decision.close_decision: close decision cannot be combined with next steps",
+        "close decision cannot be combined with next steps",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
+        "waiting_condition.waiting_condition_type: unknown waiting_condition_type 0",
+        "unknown waiting_condition_type 0",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
+        "step_decision.next_steps[0].step_type: next step at index 0: step type contains \
+         reserved character \"/\"",
+        "next step at index 0: step type contains reserved character \"/\"",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
+        "server: unavailable",
+        "server: unavailable",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
+        "waiting_condition.sub_flow_conditions[1].step_options.execute.ChannelMap[0]: SubFlow \
+         condition at index 1: Execute state load ChannelMap instance is empty",
+        "SubFlow condition at index 1: Execute state load ChannelMap instance is empty",
+    ),
+    // Apply's own rejections carry no field path, even when the Worker's reference has ": ".
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
+        "value reference \"v1: 7\" does not name a value of this run",
+        "value reference \"v1: 7\" does not name a value of this run",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
+        "the Worker result for Step execution ChargeStep-1 does not match its running method",
+        "the Worker result for Step execution ChargeStep-1 does not match its running method",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::ValueTooLarge,
+        "a value of 20 bytes exceeds the 10 byte limit",
+        "a value of 20 bytes exceeds the 10 byte limit",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::RequestTooLarge,
+        "Worker request of 20 bytes exceeds the 10 byte message limit",
+        "Worker request of 20 bytes exceeds the 10 byte message limit",
+    ),
+];
+
+#[test]
+fn exhausted_step_failure_closes_the_flow_with_the_application_text() {
+    for case in STEP_FAILURE_TEXT_CASES {
+        for method in [StepMethod::WaitFor, StepMethod::Execute] {
+            let mut harness = Harness::new("order-1");
+            let mut request = start_request("request-1");
+            request.step_options = Some(StepOptions {
+                skip_wait_for: method == StepMethod::Execute,
+                ..StepOptions::default()
+            });
+            harness.start(request);
+            harness.start_attempt("ChargeStep-1", method, 1);
+            let failed = harness.apply(Command::StepAttemptFailed(case.final_failure(method)));
+            let close = harness.run_record().close.expect("the Flow closes");
+            let label = format!("{method:?} {:?}", case.raw_detail);
+            assert_eq!(close.error_message, case.application_text, "{label}");
+            // Issue #960 tracks the Go Server's INTERNAL type for server-side failures.
+            assert_eq!(
+                close.error_type,
+                dexzd_protocol::dex::FlowErrorType::WorkerApiFail as i32,
+                "{label}"
+            );
+            let history_failure = method_failures(&failed)
+                .pop()
+                .expect("history records the final failure");
+            assert_eq!(history_failure.attempt, 1, "{label}");
+            assert_eq!(history_failure.backend_error, case.raw_detail, "{label}");
+        }
+    }
+}
+
+#[test]
+fn recovery_steps_receive_the_application_text_of_an_exhausted_failure() {
+    for case in STEP_FAILURE_TEXT_CASES {
+        let mut harness = Harness::new("order-1");
+        let mut request = start_request("request-1");
+        request.step_options = Some(StepOptions {
+            wait_for_failure_policy: WaitForMethodFailurePolicy::ProceedOnFailure as i32,
+            ..StepOptions::default()
+        });
+        harness.start(request);
+        harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+        harness.apply(Command::StepAttemptFailed(
+            case.final_failure(StepMethod::WaitFor),
+        ));
+        let recovery_error = harness
+            .step_execution("ChargeStep-1")
+            .recovery_error
+            .expect("the proceeding Step keeps the WaitFor error");
+        assert_eq!(
+            recovery_error.detail, case.application_text,
+            "WaitFor {:?}",
+            case.raw_detail
+        );
+
+        let mut harness = Harness::new("order-1");
+        let mut request = start_request("request-1");
+        request.step_options = Some(StepOptions {
+            skip_wait_for: true,
+            execute_failure_policy: ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
+            execute_failure_proceed_step_type: "RecoverStep".to_owned(),
+            execute_failure_proceed_step_options: Some(Box::new(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            })),
+            ..StepOptions::default()
+        });
+        harness.start(request);
+        harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+        harness.apply(Command::StepAttemptFailed(
+            case.final_failure(StepMethod::Execute),
+        ));
+        let recovery_error = harness
+            .step_execution("RecoverStep-1")
+            .recovery_error
+            .expect("the recovery Step carries the Execute error");
+        assert_eq!(
+            recovery_error.detail, case.application_text,
+            "Execute {:?}",
+            case.raw_detail
+        );
+    }
+}
+
+/// Returns the failures that `outcome` recorded in Step method failure events.
+fn method_failures(outcome: &ApplyOutcome) -> Vec<StepMethodFailure> {
+    history_events(outcome)
+        .into_iter()
+        .filter_map(|payload| match payload {
+            flow_history_event::Payload::StepWaitForFailed(event) => event.output,
+            flow_history_event::Payload::StepExecuteFailed(event) => event.output,
+            _ => None,
+        })
+        .filter_map(|output| output.failure)
+        .collect()
+}
+
+#[test]
+fn timeout_handler_worker_failure_uses_worker_detail() {
+    let mut harness = Harness::new("order-1");
+    let mut request = start_request("request-1");
+    request.flow_timeout_seconds = 30;
+    request.flow_start_options = Some(FlowStartOptions {
+        timeout_handler_options: Some(FlowTimeoutHandlerOptions::default()),
+        ..FlowStartOptions::default()
+    });
+    harness.start_with_timeout_policy(request, FlowTimeoutPolicy::Handler);
+    harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![TimerId {
+            run_attempt: 1,
+            kind: Some(timer_id::Kind::FlowTimeout(FlowTimeoutTimerId {})),
+        }],
+    }));
+    harness.start_attempt("sys:timeout_handler-1", StepMethod::Execute, 1);
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(key("sys:timeout_handler-1", StepMethod::Execute)),
+        attempt: 1,
+        kind: StepAttemptFailureKind::WorkerError as i32,
+        worker_error: Some(WorkerErrorResponse {
+            detail: "timeout handler failed".to_owned(),
+            ..WorkerErrorResponse::default()
+        }),
+        is_non_retryable: true,
+        ..StepAttemptFailedCommand::default()
+    }));
+    assert_eq!(
+        harness.run_record().close.unwrap().error_message,
+        "timeout handler failed"
+    );
+}
+
+#[test]
+fn worker_failure_without_detail_uses_the_go_status_message() {
+    let mut harness = Harness::new("order-1");
+    harness.start(start_request("request-1"));
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(key("ChargeStep-1", StepMethod::WaitFor)),
+        attempt: 1,
+        kind: StepAttemptFailureKind::WorkerError as i32,
+        worker_error: Some(WorkerErrorResponse {
+            grpc_status: 2,
+            ..WorkerErrorResponse::default()
+        }),
+        is_non_retryable: true,
+        ..StepAttemptFailedCommand::default()
+    }));
+    assert_eq!(
+        harness.run_record().close.unwrap().error_message,
+        "rpc error: code = Unknown desc = "
+    );
 }
 
 #[test]

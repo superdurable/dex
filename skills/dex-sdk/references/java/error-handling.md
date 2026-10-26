@@ -6,7 +6,7 @@ Separate three categories: application rejection, retryable Worker failure, and 
 
 ## Handler failures
 
-Throw an application exception only when the current method attempt should fail. Configure `waitForRetry` and `executeRetry` separately. Use `waitForFailure(WaitForFailurePolicy.PROCEED)` to continue to Execute after WaitFor exhaustion, or `onExecuteFailureProceedTo` to select a registered recovery Step. A recovery Step reads `context.getRecoveryError()` and must itself be idempotent. The Java SDK has no time-limit predicates at its v1.17.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types).
+Throw an application exception only when the current method attempt should fail. Configure `waitForRetry` and `executeRetry` separately. Use `waitForFailure(WaitForFailurePolicy.PROCEED)` to continue to Execute after WaitFor exhaustion, or `onExecuteFailureProceedTo` to select a registered recovery Step. A recovery Step reads `context.getRecoveryError()` and must itself be idempotent. The Java SDK has no time-limit predicates at its v1.20.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types).
 
 Do not catch an exception only to return success. That commits staged state and hides retry. Conversely, do not throw after an irreversible external success without an idempotency key or persisted receipt.
 
@@ -24,13 +24,17 @@ When the API promises a critical operation has completed, follow the shared [req
 
 For an idempotent start, set one stable `StartFlowOptions.Builder.requestId(...)` and use `ignoreAlreadyStarted(true)` only when a retry of that same logical request may attach to the existing run. A remaining `FlowAlreadyStartedException` means the existing Flow carries a different Request ID. Treat it as a domain conflict unless the resource-scoped coordinator contract deliberately redirects the command to that existing Flow. A different `DexServiceException` can leave start acceptance unknown; retry with the same identities or read owning domain state, never a dedicated start-deduplication table.
 
+## Flow close cleanup
+
+From Java SDK v1.20.0 or later, catch `FlowClosingException` from `io.superdurable.dex.exceptions` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released exception](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowClosingException.java)
+
 ## Query-only Get failures
 
 Follow the shared [missing query target rule](../core/error-handling.md#missing-query-targets). For a business Get confirmed to have no registration or invocation locks, no transaction, no returned durable effects, and no Server policy that runs every RPC transactionally, catch `FlowNotActiveOrNotFoundException` or `FlowNotFoundException` and return the contract's not-found result directly. Retained closed executions remain readable, so do not call WaitForFlow, describe/search/history APIs, or add a timeout probe or retry to distinguish missing from closed. Preserve other errors and any explicit retention/unavailable contract. Do not apply this translation to mutations or active-only RPC paths.
 
 ## Closed-Flow races
 
-`FlowNotActiveOrNotFoundException` says the mutation found no active target; it does not say the requested action succeeded. Catch it only where the operation contract is known. First reconcile from authoritative domain state and operation invariants. Call `describeFlow` and inspect `FlowStatus` only when an otherwise unknown terminal distinction changes the outcome:
+`FlowNotActiveOrNotFoundException` says the mutation found no active target; it does not say the requested action succeeded. Catch it only where the operation contract is known. First reconcile from authoritative domain state and operation invariants. `Client.describeFlow(flowId)` reads the current or latest run without waiting. It returns `FlowInfo` with `getFlowId()`, `getRunId()`, `getFlowType()`, `getStatus()`, and `getStartedAt()`; it has no close time. See the [released Client](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/sdk-java/src/main/java/io/superdurable/dex/Client.java) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/sdk-java/src/main/java/io/superdurable/dex/FlowInfo.java). Call `describeFlow` and inspect `FlowStatus` only when an otherwise unknown terminal distinction changes the outcome:
 
 - Treat `COMPLETED` as idempotent success only when successful completion guarantees the requested condition.
 - For any other terminal status or a subsequent `FlowNotFoundException`, record or return an explicit domain failure or unknown outcome instead of retrying a terminal fact indefinitely.
@@ -49,7 +53,7 @@ For an explicitly best-effort external `Client.writeStream`, catch `DexServiceEx
 - Test both `waitFor` and `execute` exhaustion when both are configured.
 - Never use a recovery Step as a generic exception sink.
 
-[Pinned heartbeat/cancellation source](https://github.com/superdurable/dex/blob/sdk-java/v1.17.0/examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java)
+[Pinned heartbeat/cancellation source](https://github.com/superdurable/dex/blob/sdk-java/v1.20.0/examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java -->
 ```java
 if (context.isCancellationRequested()) {

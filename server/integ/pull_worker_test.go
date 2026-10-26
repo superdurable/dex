@@ -38,20 +38,27 @@ type pushWaitForErrorWorker struct {
 	retryAfterSeconds int32
 }
 
-type pushSubFlowParentWorker struct{}
+type pushSubFlowParentWorker struct {
+	shouldFailChild bool
+	childResults    chan *dexpb.FlowResult
+}
 
-func (pushSubFlowParentWorker) InvokeWaitForMethod(
+func (w pushSubFlowParentWorker) InvokeWaitForMethod(
 	_ context.Context, request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
 	if request.GetStepType() != dispatchProbeStep {
 		return nil, status.Error(codes.FailedPrecondition, "child Step reached push Worker")
+	}
+	childOptions := &dexpb.StepOptions{SkipWaitFor: true}
+	if w.shouldFailChild {
+		childOptions.ExecuteRetryPolicy = &dexpb.RetryPolicy{MaximumAttempts: 1}
 	}
 	return &dexpb.InvokeWaitForMethodResponse{WaitingCondition: &dexpb.WaitingCondition{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 		SubFlowConditions: []*dexpb.SubFlowCondition{{
 			SubFlowType:   request.GetFlowType(),
 			StartStepType: "ChildStep",
-			StepOptions:   &dexpb.StepOptions{SkipWaitFor: true},
+			StepOptions:   childOptions,
 			Options: &dexpb.SubFlowOptions{FlowConfigOverride: &dexpb.FlowConfig{
 				WorkerTarget: &dexpb.WorkerTarget{IsPullMode: true},
 			}},
@@ -59,11 +66,16 @@ func (pushSubFlowParentWorker) InvokeWaitForMethod(
 	}}, nil
 }
 
-func (pushSubFlowParentWorker) InvokeExecuteMethod(
+func (w pushSubFlowParentWorker) InvokeExecuteMethod(
 	_ context.Context, request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
 	if request.GetStepType() != dispatchProbeStep {
 		return nil, status.Error(codes.FailedPrecondition, "child Step reached push Worker")
+	}
+	if w.childResults != nil {
+		for _, childResult := range request.GetConditionResults().GetSubFlowResults() {
+			w.childResults <- childResult
+		}
 	}
 	return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
 		CloseDecision: common.GracefulCompleteDecision(stringValue(request.GetContext().GetFlowId())),
@@ -129,6 +141,8 @@ type rawPullWorker struct {
 	cancellations           []context.CancelFunc
 	queueCancels            map[string]context.CancelFunc
 	rpcError                *dexpb.WorkerErrorResponse
+	rpcAttributeKey         string
+	rpcAsyncStep            bool
 	disconnectOnWaitFor     bool
 	spawnSubFlow            bool
 	hasInvalidSubFlowTarget bool
@@ -141,6 +155,7 @@ type rawPullWorker struct {
 	rejectedStickyTasks     chan pullTaskObservation
 	executeBehavior         pullExecuteBehavior
 	restoredHeartbeats      chan string
+	recoveryErrors          chan *dexpb.RecoveryErrorInfo
 	unknownStepType         string
 	unknownExecuteStepType  string
 	unknownRPCName          string
@@ -148,14 +163,21 @@ type rawPullWorker struct {
 }
 
 type rawPullWorkerConfig struct {
-	shouldStartSecondStep  bool
-	unknownStepType        string
-	unknownExecuteStepType string
-	unknownRPCName         string
+	shouldStartSecondStep      bool
+	shouldCaptureRecoveryError bool
+	unknownStepType            string
+	unknownExecuteStepType     string
+	unknownRPCName             string
+	rpcAttributeKey            string
+	rpcAsyncStep               bool
 }
 
 func startUnknownRejectingPullWorker(t *testing.T, address string, flowType string, workerID string, configuration rawPullWorkerConfig) *rawPullWorker {
 	return newRawPullWorkerWithExecuteBehavior(t, address, flowType, workerID, nil, false, false, false, false, false, false, false, pullExecuteDefault, configuration)
+}
+
+func startStateWritingPullWorker(t *testing.T, address string, flowType string, workerID string, attributeKey string) *rawPullWorker {
+	return newRawPullWorkerWithExecuteBehavior(t, address, flowType, workerID, nil, false, false, false, false, false, false, false, pullExecuteDefault, rawPullWorkerConfig{rpcAttributeKey: attributeKey})
 }
 
 func startHeartbeatPullWorker(t *testing.T, address string, flowType string, behavior pullExecuteBehavior) *rawPullWorker {
@@ -164,6 +186,11 @@ func startHeartbeatPullWorker(t *testing.T, address string, flowType string, beh
 
 func startRawPullWorker(t *testing.T, address string, flowType string, workerID string, rpcError *dexpb.WorkerErrorResponse) *rawPullWorker {
 	return newRawPullWorker(t, address, flowType, workerID, rpcError, false, false, false, false, false, false, false)
+}
+
+func startRecoveryPullWorker(t *testing.T, address string, flowType string, workerID string) *rawPullWorker {
+	return newRawPullWorkerWithExecuteBehavior(t, address, flowType, workerID, nil, false, false, false, false, false, false, false, pullExecuteDefault,
+		rawPullWorkerConfig{shouldCaptureRecoveryError: true})
 }
 
 func startProgressPullWorker(t *testing.T, address string, flowType string, workerID string) *rawPullWorker {
@@ -210,11 +237,16 @@ func newRawPullWorkerWithExecuteBehavior(t *testing.T, address string, flowType 
 		rejectNextStickyTask: make(chan struct{}, 1), rejectedStickyTasks: make(chan pullTaskObservation, 1),
 		restoredHeartbeats: make(chan string, 2), executeBehavior: executeBehavior,
 		rpcError: rpcError, disconnectOnWaitFor: disconnectOnWaitFor, spawnSubFlow: spawnSubFlow,
-		spawnParallel: spawnParallel, blockParallel: blockParallel, sendProgress: sendProgress, holdWaitFor: holdWaitFor,
+		rpcAttributeKey: configuration.rpcAttributeKey,
+		rpcAsyncStep:    configuration.rpcAsyncStep,
+		spawnParallel:   spawnParallel, blockParallel: blockParallel, sendProgress: sendProgress, holdWaitFor: holdWaitFor,
 		hasInvalidSubFlowTarget: hasInvalidSubFlowTarget,
 		unknownStepType:         configuration.unknownStepType, unknownExecuteStepType: configuration.unknownExecuteStepType,
 		unknownRPCName:    configuration.unknownRPCName,
 		unknownRejections: make(chan pullTaskObservation, 16),
+	}
+	if configuration.shouldCaptureRecoveryError {
+		worker.recoveryErrors = make(chan *dexpb.RecoveryErrorInfo, 1)
 	}
 	for _, queue := range []string{flowType, workerID} {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -332,6 +364,9 @@ func (w *rawPullWorker) serve(queue string, stream dexpb.WorkerTaskService_PollW
 			observation = pullTaskObservation{queue: queue, method: method, flowID: request.WaitFor.GetContext().GetFlowId(), attempt: request.WaitFor.GetContext().GetAttempt()}
 		case *dexpb.PollWorkerTask_Execute:
 			method = "execute"
+			if recoveryError := request.Execute.GetContext().GetRecoveryError(); recoveryError != nil && w.recoveryErrors != nil {
+				w.recoveryErrors <- recoveryError
+			}
 			decision := &dexpb.StepDecision{
 				CloseDecision: common.GracefulCompleteDecision(stringValue(request.Execute.GetContext().GetFlowId())),
 			}
@@ -391,8 +426,17 @@ func (w *rawPullWorker) serve(queue string, stream dexpb.WorkerTaskService_PollW
 			if w.rpcError != nil {
 				output = &dexpb.PollWorkerTaskFrame{TaskId: task.GetTaskId(), Output: &dexpb.PollWorkerTaskFrame_WorkerError{WorkerError: w.rpcError}}
 			} else {
+				rpcResponse := &dexpb.InvokeWorkerRPCResponse{Output: stringValue("pull-rpc-ok")}
+				if w.rpcAttributeKey != "" {
+					rpcResponse.UpsertAttributes = []*dexpb.AttributeWrite{{Key: w.rpcAttributeKey, Value: stringValue("written")}}
+					stepOptions := &dexpb.StepOptions{SkipWaitFor: true}
+					if w.rpcAsyncStep {
+						stepOptions.ExecuteDurabilityOverride = dexpb.StepDurability_STEP_DURABILITY_ASYNC
+					}
+					rpcResponse.StepDecision = &dexpb.StepDecision{NextSteps: []*dexpb.StepMovement{{StepType: dispatchProbeStep, StepOptions: stepOptions}}}
+				}
 				output = &dexpb.PollWorkerTaskFrame{TaskId: task.GetTaskId(), Output: &dexpb.PollWorkerTaskFrame_Rpc{
-					Rpc: &dexpb.InvokeWorkerRPCResponse{Output: stringValue("pull-rpc-ok")},
+					Rpc: rpcResponse,
 				}}
 			}
 			observation = pullTaskObservation{queue: queue, method: method, flowID: request.Rpc.GetContext().GetFlowId(), attempt: request.Rpc.GetContext().GetAttempt()}
@@ -837,6 +881,91 @@ func TestPullWorkerUnavailableTemporal(t *testing.T) {
 		t.Skip()
 	}
 	testPullWorkerUnavailable(t, service.BackendTypeTemporal)
+}
+
+func TestPullDispatchFailureTextTemporal(t *testing.T) {
+	if !*temporalIntegTest || *dexServerAddress != "" {
+		t.Skip()
+	}
+	testPullDispatchFailureText(t, service.BackendTypeTemporal)
+}
+
+func TestPullDispatchFailureTextCadence(t *testing.T) {
+	if !*cadenceIntegTest || *dexServerAddress != "" {
+		t.Skip()
+	}
+	testPullDispatchFailureText(t, service.BackendTypeCadence)
+}
+
+func testPullDispatchFailureText(t *testing.T, backend service.BackendType) {
+	const expectedDetail = "no Worker available for queue " + dispatchProbeFlowType + ": no Worker accepted the task"
+	t.Run("SubFlow child result", func(t *testing.T) {
+		runtime := startInProcessDexService(t, DexServiceTestConfig{
+			BackendType: backend,
+			Matching:    &config.MatchingConfig{DispatchWait: 300 * time.Millisecond},
+		})
+		childResults := make(chan *dexpb.FlowResult, 1)
+		pushTarget := startWorker(t, pushSubFlowParentWorker{shouldFailChild: true, childResults: childResults})
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		flowID := "pull-child-failure-" + uuid.NewString()
+		require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep, pushTarget, nil))
+		parentResult, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 25})
+		require.NoError(t, err)
+		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, parentResult.GetFlowStatus(), parentResult.GetErrorMessage())
+		select {
+		case childResult := <-childResults:
+			require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, childResult.GetFlowStatus())
+			require.Equal(t, expectedDetail, childResult.GetErrorMessage())
+		case <-ctx.Done():
+			t.Fatal("parent Worker did not receive the SubFlow child result")
+		}
+		childFlowID := "SubFlow:" + flowID + "-" + dispatchProbeStep + "-1-0"
+		closedChild, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: childFlowID, WaitTimeSeconds: 25})
+		require.NoError(t, err)
+		require.Equal(t, expectedDetail, closedChild.GetErrorMessage())
+	})
+	t.Run("recovery Step", func(t *testing.T) {
+		runtime := startInProcessDexService(t, DexServiceTestConfig{
+			BackendType: backend,
+			Matching:    &config.MatchingConfig{DispatchWait: 5 * time.Second},
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+		defer cancel()
+		flowID := "pull-recovery-failure-" + uuid.NewString()
+		stepOptions := &dexpb.StepOptions{
+			WaitForRetryPolicy:   &dexpb.RetryPolicy{MaximumAttempts: 1},
+			WaitForFailurePolicy: dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
+		}
+		require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep,
+			&dexpb.WorkerTarget{IsPullMode: true}, stepOptions))
+		summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			history, historyErr := runtime.FlowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
+				FlowId: flowID, RunId: summary.GetFlowExecutionId().GetRunId(), EstimatePageSize: 100,
+			})
+			if historyErr != nil {
+				return false
+			}
+			for _, event := range history.GetEvents() {
+				if event.GetStepWaitForFailed() != nil {
+					return true
+				}
+			}
+			return false
+		}, 20*time.Second, 100*time.Millisecond)
+		worker := startRecoveryPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-recovery-"+uuid.NewString())
+		result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 25})
+		require.NoError(t, err)
+		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus(), result.GetErrorMessage())
+		select {
+		case recoveryError := <-worker.recoveryErrors:
+			require.Equal(t, expectedDetail, recoveryError.GetDetail())
+		case <-ctx.Done():
+			t.Fatal("recovery Step did not receive a recovery error")
+		}
+	})
 }
 
 func TestPullWorkerStickyFallbackTemporal(t *testing.T) {
@@ -1783,6 +1912,7 @@ func testPullWorkerUnavailable(t *testing.T, backend service.BackendType) {
 	require.NotNil(t, failedMethod.GetContext().GetPullRouting())
 	require.Empty(t, failedMethod.GetContext().GetPullRouting().GetServedByAppWorkerId())
 	require.Contains(t, failedMethod.GetOutput().GetFailure().GetDetails().GetDetail(), "no Worker available")
+	require.Equal(t, dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE, failedMethod.GetOutput().GetFailure().GetDetails().GetDispatchTaskErrorReason())
 }
 
 func testPullWorkerDispatch(t *testing.T, backend service.BackendType) {

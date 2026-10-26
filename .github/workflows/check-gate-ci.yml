@@ -87,6 +87,7 @@ jobs:
               - 'protos/**'
               - '.github/workflows/server-zd-ci.yml'
             server_zd_sdk:
+              - 'sdk-go/**'
               - 'sdk-rust/**'
               - 'sdk-python/**'
               - 'sdk-typescript/**'
@@ -96,6 +97,8 @@ jobs:
               - 'cli/**'
               - 'web/**'
               - 'protos/**'
+              - 'go.work'
+              - 'go.work.sum'
               - '.github/workflows/server-zd-sdk-ci.yml'
             server_zd_image:
               - 'server-zd/Dockerfile'
@@ -238,11 +241,13 @@ jobs:
 
           # ci:fast-merge stops the existing Temporal/Cadence engine, SDK, CLI, Web, and examples
           # suites from blocking the merge. They still run on the pull request and on main.
+          # The SDK suites on server-zd (Server ZD SDK CI) are non-blocking too; Server ZD CI still blocks.
           if [[ "$EVENT_NAME" == "pull_request" && "$IS_FAST_MERGE" == "true" ]]; then
             non_blocking=(
               "Blob Cache Go CI"
               "Dex CLI CI"
               "Go SDK CI"
+              "Server ZD SDK CI"
               "Java SDK CI"
               "Python SDK CI"
               "Rust SDK CI"

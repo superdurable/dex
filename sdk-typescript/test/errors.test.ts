@@ -159,6 +159,7 @@ function serviceError(
     originalWorkerErrorType: "",
     originalWorkerErrorStatus: 0,
     originalWorkerErrorStackTrace: "",
+    dispatchTaskErrorReason: 0,
     ...worker,
   }).finish();
   const writer = new BinaryWriter();

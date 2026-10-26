@@ -34,6 +34,7 @@ type pullWaitForStream struct {
 	fallbackQueue         string
 	wakeNotifier          *wake.Notifier
 	servedByAppWorkerID   string
+	queueSource           dexpb.PullRoutingSource
 }
 
 func (s *pullWaitForStream) Recv() (*dexpb.InvokeWaitForMethodOutput, error) {
@@ -43,6 +44,9 @@ func (s *pullWaitForStream) Recv() (*dexpb.InvokeWaitForMethodOutput, error) {
 	}
 	if frame.GetServedByAppWorkerId() != "" {
 		s.servedByAppWorkerID = frame.GetServedByAppWorkerId()
+	}
+	if frame.GetQueueSource() != dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED {
+		s.queueSource = frame.GetQueueSource()
 	}
 	if output := frame.GetWaitFor(); output != nil {
 		if output.GetResult() != nil {
@@ -78,6 +82,7 @@ type pullExecuteStream struct {
 	fallbackQueue         string
 	wakeNotifier          *wake.Notifier
 	servedByAppWorkerID   string
+	queueSource           dexpb.PullRoutingSource
 }
 
 func (s *pullExecuteStream) Recv() (*dexpb.InvokeExecuteMethodOutput, error) {
@@ -87,6 +92,9 @@ func (s *pullExecuteStream) Recv() (*dexpb.InvokeExecuteMethodOutput, error) {
 	}
 	if frame.GetServedByAppWorkerId() != "" {
 		s.servedByAppWorkerID = frame.GetServedByAppWorkerId()
+	}
+	if frame.GetQueueSource() != dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_UNSPECIFIED {
+		s.queueSource = frame.GetQueueSource()
 	}
 	if output := frame.GetExecute(); output != nil {
 		if output.GetResult() != nil {
@@ -130,15 +138,23 @@ func pullFrameError(frame *dexpb.DispatchTaskResponse, queue string, fallbackQue
 			if notifier != nil {
 				notifier.NotifyWorkerUnavailable(queue)
 			}
-			return status.Errorf(codes.Unavailable, "no Worker available for queue %s: %s", queue, dispatchError.GetDetail())
+			return dispatchFailureStatus(codes.Unavailable, fmt.Sprintf("no Worker available for queue %s: %s", queue, dispatchError.GetDetail()), dispatchError.GetReason())
 		case dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED:
-			return status.Errorf(codes.Unavailable, "Worker disconnected during pull dispatch: %s", dispatchError.GetDetail())
+			return dispatchFailureStatus(codes.Unavailable, fmt.Sprintf("Worker disconnected during pull dispatch: %s", dispatchError.GetDetail()), dispatchError.GetReason())
 		case dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_UNKNOWN_NAME:
-			return status.Error(codes.NotFound, dispatchError.GetDetail())
+			return dispatchFailureStatus(codes.NotFound, dispatchError.GetDetail(), dispatchError.GetReason())
 		}
 		return &matchingDispatchError{err: status.Errorf(codes.Internal, "unknown dispatch failure for queue %s", queue)}
 	}
 	return &matchingDispatchError{err: status.Error(codes.Internal, "unexpected pull dispatch frame")}
+}
+
+func dispatchFailureStatus(code codes.Code, detail string, reason dexpb.DispatchTaskErrorReason) error {
+	dispatchStatus, err := status.New(code, detail).WithDetails(&dexpb.DispatchTaskError{Reason: reason})
+	if err != nil {
+		return &matchingDispatchError{err: fmt.Errorf("attach dispatch failure reason: %w", err)}
+	}
+	return dispatchStatus.Err()
 }
 
 func pullTaskRequest(

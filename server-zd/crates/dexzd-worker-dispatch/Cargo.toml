@@ -12,6 +12,7 @@ publish.workspace = true
 dexzd-clock.workspace = true
 dexzd-metrics.workspace = true
 dexzd-protocol.workspace = true
+dexzd-request-validation.workspace = true
 prometheus-client.workspace = true
 futures.workspace = true
 thiserror.workspace = true

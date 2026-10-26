@@ -15,10 +15,11 @@ use dexzd_apply::{
     apply_flow_command,
 };
 use dexzd_keyspace::row_keys::{
-    attribute_sync_outbox_key, attribute_sync_pending_index_key, prefix_range,
+    attribute_sync_outbox_key, attribute_sync_pending_index_key, prefix_range, run_named_key,
+    run_singleton_key,
 };
 use dexzd_keyspace::{
-    ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, run_prefix,
+    ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, parse_run_key, run_prefix,
     run_table_prefix,
 };
 use dexzd_protocol::dex::{
@@ -26,11 +27,13 @@ use dexzd_protocol::dex::{
     FlowStartOptions, FlowTimeoutPolicy, ResetFlowRequest, SetAttributesRequest, StartFlowRequest,
     StopFlowRequest, StopType, UpdateFlowConfigRequest, Value, WorkerTarget, value,
 };
+use dexzd_protocol::dexzd::v1::attribute_sync_outbox_record::SyncItem;
 use dexzd_protocol::dexzd::v1::{
-    AttributeSyncAckCommand, AttributeSyncOutboxRecord, AttributesSetCommand, CommandReply,
-    FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
-    HardDeleteObjectReference, RetentionTimerId, RunPurgeCommand, RunSettings, TimeTravelCommand,
-    TimerId, TimersFiredCommand, command_reply, flow_command::Command, timer_id,
+    AttributeRecord, AttributeSyncAckCommand, AttributeSyncOutboxRecord, AttributesSetCommand,
+    CommandReply, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
+    HardDeleteObjectReference, RetentionTimerId, RunPurgeCommand, RunRecord, RunSettings,
+    StoredValue, TimeTravelCommand, TimerId, TimersFiredCommand, command_reply,
+    flow_command::Command, stored_value, timer_id,
 };
 use prost::Message;
 
@@ -262,6 +265,34 @@ impl Harness {
             .collect()
     }
 
+    fn attribute(&self, attribute_key: &str) -> Option<AttributeRecord> {
+        let key = run_named_key(
+            self.context.flow_hash,
+            self.run(),
+            RunTable::Attribute,
+            attribute_key,
+        );
+        self.state
+            .rows
+            .get(&(ColumnFamily::Flow, key))
+            .map(|bytes| AttributeRecord::decode(bytes.as_slice()).expect("Attribute decodes"))
+    }
+
+    fn sync_entry(&self, store_name: &str, attribute_key: &str) -> AttributeSyncOutboxRecord {
+        let key = attribute_sync_outbox_key(
+            self.context.flow_hash,
+            self.run(),
+            store_name,
+            attribute_key,
+        );
+        let bytes = self
+            .state
+            .rows
+            .get(&(ColumnFamily::Flow, key))
+            .expect("the sync entry exists");
+        AttributeSyncOutboxRecord::decode(bytes.as_slice()).expect("entry decodes")
+    }
+
     fn has_pending_index(&self, store_name: &str) -> bool {
         self.state.rows.contains_key(&(
             ColumnFamily::PartitionIndex,
@@ -477,6 +508,179 @@ fn synced_writes_mark_every_target_store_and_coalesce_per_key() {
         harness.entries(),
         entries,
         "unsynced writes leave the outbox alone"
+    );
+}
+
+#[test]
+fn pending_sync_keeps_the_last_synced_value_after_an_unsynced_write() {
+    let mut harness = Harness::new();
+    harness.start(
+        Some(&[PRIMARY]),
+        vec![synced("status", string_value("opened"))],
+    );
+    harness.set(vec![unsynced("status", string_value("quiet"))], "quiet");
+    assert_eq!(
+        harness.sync_entry(PRIMARY, "status").sync_item,
+        Some(SyncItem::Value(string_value("opened"))),
+    );
+
+    harness.set(
+        vec![
+            synced("status", string_value("active")),
+            unsynced("status", string_value("private")),
+        ],
+        "mixed",
+    );
+    assert_eq!(
+        harness.sync_entry(PRIMARY, "status").sync_item,
+        Some(SyncItem::Value(string_value("active"))),
+    );
+
+    let large_value = string_value(&"x".repeat(4096));
+    harness.set(vec![synced("notes", large_value.clone())], "large");
+    harness.set(vec![unsynced("notes", string_value("private"))], "hidden");
+    assert_eq!(
+        harness.sync_entry(PRIMARY, "notes").sync_item,
+        Some(SyncItem::Value(large_value)),
+    );
+}
+
+#[test]
+fn time_travel_to_an_unsynced_value_marks_a_store_deletion() {
+    let mut harness = Harness::new();
+    harness.start(
+        Some(&[PRIMARY]),
+        vec![unsynced("status", string_value("draft"))],
+    );
+    harness.set(vec![synced("status", string_value("final"))], "final");
+    harness.ack(PRIMARY, u64::MAX, &[], false);
+    assert!(harness.entries().is_empty());
+
+    harness.apply(Command::TimeTravel(TimeTravelCommand {
+        request: Some(ResetFlowRequest {
+            flow_id: "account-1".to_owned(),
+            reset_type: FlowResetType::Beginning as i32,
+            reason: "test".to_owned(),
+            skip_writes_reapply: true,
+            ..ResetFlowRequest::default()
+        }),
+    }));
+    assert_eq!(
+        harness.sync_entry(PRIMARY, "status").sync_item,
+        Some(SyncItem::IsDelete(true)),
+    );
+    assert_eq!(
+        harness
+            .attribute("status")
+            .expect("draft remains")
+            .sync_config,
+        Some(AttributeSyncConfig { enabled: false }),
+    );
+}
+
+#[test]
+fn time_travel_refreshes_pending_snapshots_before_reapplying_writes() {
+    for initial_attributes in [Vec::new(), vec![unsynced("status", string_value("draft"))]] {
+        let mut harness = Harness::new();
+        harness.start(Some(&[PRIMARY, REPLICA]), initial_attributes);
+        harness.set(vec![synced("status", string_value("opened"))], "opened");
+        harness.set(vec![unsynced("status", string_value("quiet"))], "quiet");
+        let travel = harness.apply(Command::TimeTravel(TimeTravelCommand {
+            request: Some(ResetFlowRequest {
+                flow_id: "account-1".to_owned(),
+                reset_type: FlowResetType::Beginning as i32,
+                reason: "test".to_owned(),
+                skip_writes_reapply: true,
+                ..ResetFlowRequest::default()
+            }),
+        }));
+        assert_eq!(
+            pending_stores(&travel),
+            vec![vec![PRIMARY.to_owned(), REPLICA.to_owned()]],
+        );
+        for store_name in [PRIMARY, REPLICA] {
+            assert_eq!(
+                harness.sync_entry(store_name, "status").sync_item,
+                Some(SyncItem::IsDelete(true)),
+            );
+        }
+    }
+}
+
+#[test]
+fn reapplied_synced_write_retains_its_snapshot_after_an_unsynced_write() {
+    let mut harness = Harness::new();
+    harness.start(Some(&[PRIMARY]), Vec::new());
+    harness.set(vec![synced("status", string_value("opened"))], "opened");
+    harness.set(vec![unsynced("status", string_value("quiet"))], "quiet");
+    harness.apply(Command::TimeTravel(TimeTravelCommand {
+        request: Some(ResetFlowRequest {
+            flow_id: "account-1".to_owned(),
+            reset_type: FlowResetType::Beginning as i32,
+            reason: "test".to_owned(),
+            skip_writes_reapply: false,
+            ..ResetFlowRequest::default()
+        }),
+    }));
+    assert_eq!(
+        harness.sync_entry(PRIMARY, "status").sync_item,
+        Some(SyncItem::Value(string_value("opened"))),
+    );
+    assert_eq!(
+        harness
+            .attribute("status")
+            .expect("reapplied Attribute")
+            .sync_config,
+        Some(AttributeSyncConfig { enabled: false }),
+    );
+}
+
+#[test]
+fn outbox_snapshots_do_not_increase_accounted_run_state_bytes() {
+    let mut harness = Harness::new();
+    harness.start(Some(&[PRIMARY, REPLICA]), Vec::new());
+    harness.set(
+        vec![synced("status", string_value(&"x".repeat(4096)))],
+        "large-synced-value",
+    );
+    let record_key = run_singleton_key(
+        harness.context.flow_hash,
+        harness.run(),
+        RunTable::RunRecord,
+    );
+    let record_bytes = harness
+        .state
+        .rows
+        .get(&(ColumnFamily::Flow, record_key))
+        .expect("run record exists");
+    let record = RunRecord::decode(record_bytes.as_slice()).expect("run record decodes");
+    let run_key_prefix = run_prefix(harness.context.flow_hash, harness.run());
+    let mut physical_state_bytes = 0_u64;
+    let mut snapshot_bytes = 0_u64;
+    for ((column_family, key), bytes) in &harness.state.rows {
+        if *column_family != ColumnFamily::Flow || !key.starts_with(&run_key_prefix) {
+            continue;
+        }
+        let table = parse_run_key(key).expect("run key parses").table;
+        if table == RunTable::HistoryRowMetadata {
+            continue;
+        }
+        physical_state_bytes += (key.len() + bytes.len()) as u64;
+        if table == RunTable::AttributeSyncOutbox {
+            let mut entry =
+                AttributeSyncOutboxRecord::decode(bytes.as_slice()).expect("outbox entry decodes");
+            let full_size = entry.encoded_len();
+            entry.sync_item = None;
+            snapshot_bytes += (full_size - entry.encoded_len()) as u64;
+        }
+    }
+    assert!(snapshot_bytes > 8_000, "two stores carry inline snapshots");
+    assert_eq!(
+        record
+            .storage
+            .expect("storage is accounted")
+            .state_row_bytes,
+        physical_state_bytes - snapshot_bytes,
     );
 }
 
@@ -710,6 +914,77 @@ fn time_travel_remarks_rows_of_the_abandoned_and_restored_state() {
             (entry(PRIMARY, "status"), (4, travel_time)),
         ]),
         "the restored status and the abandoned plan are rewritten"
+    );
+    assert!(harness.has_pending_index(PRIMARY));
+}
+
+#[test]
+fn time_travel_reapplies_unsynced_writes_without_requesting_synchronization() {
+    let mut harness = Harness::new();
+    harness.start(
+        Some(&[PRIMARY]),
+        vec![
+            synced("status", string_value("opened")),
+            synced("plans/basic", string_value("trial")),
+            synced("region", string_value("eu")),
+        ],
+    );
+    harness.ack(PRIMARY, 1, &[], false);
+    let quiet = harness.set(
+        vec![
+            unsynced("status", string_value("quiet")),
+            unsynced("plans/basic", null_value()),
+            synced("region", null_value()),
+        ],
+        "set-1",
+    );
+    assert_eq!(pending_stores(&quiet), vec![vec![PRIMARY.to_owned()]]);
+    assert_eq!(
+        harness.entries().keys().cloned().collect::<Vec<_>>(),
+        vec![entry(PRIMARY, "region")],
+        "only the synced deletion requests synchronization"
+    );
+    harness.ack(PRIMARY, 3, &[], false);
+    assert!(harness.entries().is_empty());
+
+    let travel = harness.apply(Command::TimeTravel(TimeTravelCommand {
+        request: Some(ResetFlowRequest {
+            flow_id: "account-1".to_owned(),
+            reset_type: FlowResetType::Beginning as i32,
+            reason: "test".to_owned(),
+            skip_writes_reapply: false,
+            ..ResetFlowRequest::default()
+        }),
+    }));
+    let Some(command_reply::Reply::TimeTravel(reply)) = &travel.reply.reply else {
+        panic!("time travel applies: {:?}", travel.reply);
+    };
+    assert_eq!(reply.run_attempt, 2);
+    let travel_time = harness.now_micros;
+    let status = harness
+        .attribute("status")
+        .expect("reapply restores the status");
+    assert_eq!(
+        status.value,
+        Some(StoredValue {
+            kind: Some(stored_value::Kind::InlineValue(string_value("quiet"))),
+        })
+    );
+    assert_eq!(
+        status.sync_config,
+        Some(AttributeSyncConfig { enabled: false })
+    );
+    assert!(harness.attribute("plans/basic").is_none());
+    assert!(harness.attribute("region").is_none());
+    assert_eq!(
+        pending_stores(&travel),
+        vec![vec![PRIMARY.to_owned()]],
+        "only the reapplied synced deletion marks the outbox"
+    );
+    assert_eq!(
+        harness.entries(),
+        BTreeMap::from([(entry(PRIMARY, "region"), (5, travel_time))]),
+        "the store keeps the synced status and plan; it never receives the unsynced writes"
     );
     assert!(harness.has_pending_index(PRIMARY));
 }

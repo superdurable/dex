@@ -1073,6 +1073,46 @@ func mapFlowResult(
 	}, nil
 }
 
+func mapFlowInfo(flowID string, response *dexpb.GetFlowSummaryResponse) (FlowInfo, error) {
+	if response.GetFlowExecutionId() == nil {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing FlowExecutionId", flowID)
+	}
+	if response.GetFlowExecutionId().GetFlowId() == "" {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing FlowId", flowID)
+	}
+	if response.GetFlowExecutionId().GetRunId() == "" {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing RunId", flowID)
+	}
+	if response.GetFlowType() == "" {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing FlowType", flowID)
+	}
+	if response.GetStartTime() == nil {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing StartTime", flowID)
+	}
+	status, err := mapFlowStatus(response.GetFlowStatus())
+	if err != nil {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q has an invalid FlowStatus: %w", flowID, err)
+	}
+	if err := response.GetStartTime().CheckValid(); err != nil {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q has an invalid StartTime: %w", flowID, err)
+	}
+	closedAt := time.Time{}
+	if response.GetCloseTime() != nil {
+		if err := response.GetCloseTime().CheckValid(); err != nil {
+			return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q has an invalid CloseTime: %w", flowID, err)
+		}
+		closedAt = response.GetCloseTime().AsTime()
+	}
+	return FlowInfo{
+		FlowID:    response.GetFlowExecutionId().GetFlowId(),
+		RunID:     response.GetFlowExecutionId().GetRunId(),
+		FlowType:  response.GetFlowType(),
+		Status:    status,
+		StartedAt: response.GetStartTime().AsTime(),
+		ClosedAt:  closedAt,
+	}, nil
+}
+
 func mapSearchFlowsPage(
 	response *dexpb.SearchFlowsResponse,
 ) (SearchFlowsPage, error) {
@@ -1080,27 +1120,33 @@ func mapSearchFlowsPage(
 		return SearchFlowsPage{}, fmt.Errorf("dex: SearchFlows response is nil")
 	}
 	flows := make([]SearchFlowEntry, 0, len(response.FlowRuns))
-	for _, flow := range response.FlowRuns {
+	for entryIndex, flow := range response.FlowRuns {
 		if flow == nil {
-			return SearchFlowsPage{}, fmt.Errorf("dex: search flow entry is nil")
+			return SearchFlowsPage{}, fmt.Errorf("dex: SearchFlows entry %d is nil", entryIndex)
 		}
-		if flow.FlowId == "" || flow.RunId == "" || flow.FlowType == "" {
-			return SearchFlowsPage{}, fmt.Errorf("dex: search flow entry is incomplete")
+		if flow.FlowId == "" {
+			return SearchFlowsPage{}, fmt.Errorf("dex: SearchFlows entry %d is missing FlowId", entryIndex)
+		}
+		if flow.RunId == "" {
+			return SearchFlowsPage{}, fmt.Errorf("dex: SearchFlows entry for Flow %q is missing RunId", flow.FlowId)
+		}
+		if flow.FlowType == "" {
+			return SearchFlowsPage{}, fmt.Errorf("dex: SearchFlows entry for Flow %q is missing FlowType", flow.FlowId)
 		}
 		status, err := mapFlowStatus(flow.FlowStatus)
 		if err != nil {
-			return SearchFlowsPage{}, err
+			return SearchFlowsPage{}, fmt.Errorf("dex: SearchFlows entry for Flow %q has an invalid FlowStatus: %w", flow.FlowId, err)
 		}
 		if flow.StartTime == nil {
-			return SearchFlowsPage{}, fmt.Errorf("dex: search flow start time is missing")
+			return SearchFlowsPage{}, fmt.Errorf("dex: SearchFlows entry for Flow %q is missing StartTime", flow.FlowId)
 		}
 		if err := flow.StartTime.CheckValid(); err != nil {
-			return SearchFlowsPage{}, fmt.Errorf("dex: invalid search flow start time: %w", err)
+			return SearchFlowsPage{}, fmt.Errorf("dex: SearchFlows entry for Flow %q has an invalid StartTime: %w", flow.FlowId, err)
 		}
 		closedAt := time.Time{}
 		if flow.CloseTime != nil {
 			if err := flow.CloseTime.CheckValid(); err != nil {
-				return SearchFlowsPage{}, fmt.Errorf("dex: invalid search flow close time: %w", err)
+				return SearchFlowsPage{}, fmt.Errorf("dex: SearchFlows entry for Flow %q has an invalid CloseTime: %w", flow.FlowId, err)
 			}
 			closedAt = flow.CloseTime.AsTime()
 		}

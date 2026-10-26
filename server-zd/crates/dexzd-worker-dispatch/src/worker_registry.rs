@@ -357,7 +357,7 @@ impl WorkerDispatch {
         DispatchOutcome::DispatchError {
             reason,
             detail: if reason == DispatchTaskErrorReason::UnknownName {
-                unknown_name_detail(&request)
+                request.unknown_name_detail()
             } else {
                 "no Worker accepted the task".to_owned()
             },
@@ -965,11 +965,11 @@ fn is_final(frame: &PollWorkerTaskFrame) -> bool {
         ) => true,
         Some(poll_worker_task_frame::Output::WaitFor(output)) => matches!(
             output.output,
-            Some(dex::invoke_wait_for_method_output::Output::Result(_))
+            None | Some(dex::invoke_wait_for_method_output::Output::Result(_))
         ),
         Some(poll_worker_task_frame::Output::Execute(output)) => matches!(
             output.output,
-            Some(dex::invoke_execute_method_output::Output::Result(_))
+            None | Some(dex::invoke_execute_method_output::Output::Result(_))
         ),
         None => false,
     }
@@ -979,23 +979,6 @@ fn disconnected_outcome(detail: &str) -> DispatchOutcome {
     DispatchOutcome::DispatchError {
         reason: DispatchTaskErrorReason::WorkerDisconnected,
         detail: detail.to_owned(),
-    }
-}
-
-fn unknown_name_detail(request: &DispatchRequest) -> String {
-    match &request.payload {
-        DispatchTaskPayload::WaitFor(value) => format!(
-            "no pull Worker registered Step {:?} for Flow type {:?}",
-            value.step_type, value.flow_type
-        ),
-        DispatchTaskPayload::Execute(value) => format!(
-            "no pull Worker registered Step {:?} for Flow type {:?}",
-            value.step_type, value.flow_type
-        ),
-        DispatchTaskPayload::Rpc(value) => format!(
-            "no pull Worker registered RPC {:?} for Flow type {:?}",
-            value.rpc_name, value.flow_type
-        ),
     }
 }
 

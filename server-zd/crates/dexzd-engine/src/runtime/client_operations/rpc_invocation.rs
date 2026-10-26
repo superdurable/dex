@@ -140,9 +140,9 @@ impl FlowRuntimeRegistry {
         )
         .map_err(|error| {
             RuntimeError::rejected(
-                grpc_code::FAILED_PRECONDITION,
-                ErrorSubStatus::WorkerApiError,
-                format!("worker RPC response is invalid: {}", error.message),
+                grpc_code::INTERNAL,
+                ErrorSubStatus::Uncategorized,
+                error.message,
             )
         })?;
         if !is_transactional && !has_rpc_effects(&result.response) {

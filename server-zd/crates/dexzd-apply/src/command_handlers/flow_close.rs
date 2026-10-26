@@ -183,7 +183,7 @@ pub(crate) fn close_flow(
         hold_for_transactional_rpcs(cursor, scope);
         return Ok(());
     }
-    record_close(transaction, cursor, scope, closing)
+    record_close(transaction, cursor, scope, closing, false)
 }
 
 /// Closes at once for StopFlow and terminations, discarding a pending close; outbox entries keep syncing.
@@ -198,7 +198,7 @@ pub(crate) fn close_flow_immediately(
     }
     cursor.record.pending_close = None;
     cancel_attempt_work(transaction, cursor, scope, &closing)?;
-    record_close(transaction, cursor, scope, closing)
+    record_close(transaction, cursor, scope, closing, true)
 }
 
 /// Closes the attempt as its pending close describes.
@@ -213,7 +213,7 @@ pub(crate) fn finalize_pending_close(
         return Ok(false);
     };
     let closing = FlowClosing::from_pending_close(pending)?;
-    record_close(transaction, cursor, scope, closing)?;
+    record_close(transaction, cursor, scope, closing, false)?;
     Ok(true)
 }
 
@@ -275,6 +275,7 @@ fn should_defer_close(
 ) -> Result<bool, ApplyError> {
     match scope.close_barrier_source {
         CloseBarrierSource::Outbox => Ok(scope.command.is_transactional_rpc_in_flight
+            || scope.has_pending_time_travel_remarks
             || has_attribute_sync_entries(transaction, cursor.rows)?),
         CloseBarrierSource::RecordedHistory { has_flow_closed } => Ok(!has_flow_closed),
     }
@@ -334,13 +335,17 @@ fn record_close(
     cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
     closing: FlowClosing,
+    is_closed_at_once: bool,
 ) -> Result<(), ApplyError> {
     cursor.record.status = closing.status as i32;
     cursor.record.closed_at_micros = scope.now_micros;
     cursor.record.is_graceful_completion_requested = false;
     let close = cursor.record.close.get_or_insert_with(Default::default);
     close.error_type = closing.error_type as i32;
+    close.history_message =
+        (closing.history_message != closing.error_message).then(|| closing.history_message.clone());
     close.error_message = closing.error_message;
+    close.is_closed_at_once = Some(is_closed_at_once);
     let results: Vec<StepCompletionOutput> = close
         .results
         .iter()

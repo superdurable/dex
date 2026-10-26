@@ -285,6 +285,19 @@ fn apply_child_completed(
     let key = sub_flow_result_key(rows, &completed.child_flow_id, registration_attempt);
     let previous: Option<SubFlowResultRecord> =
         transaction.get_message(ColumnFamily::Flow, &key, "SubFlow result")?;
+    let result = completed
+        .result
+        .clone()
+        .ok_or_else(|| invalid_cross_flow_message("child completion has no Flow result"))?;
+    // Recorded reports applied live, including stale ones that older binaries accepted.
+    if !scope.is_replay
+        && previous.as_ref().is_some_and(|previous| {
+            previous.child_run_id == completed.child_run_id
+                && previous.child_run_attempt > completed.child_run_attempt
+        })
+    {
+        return Ok(HandlerResult::Rejected(ok_reply()));
+    }
     if let Some(previous) = previous.and_then(|previous| previous.result) {
         for (index, output) in previous.results.into_iter().enumerate() {
             if let Some(stored) = output.completed_step_output {
@@ -298,10 +311,6 @@ fn apply_child_completed(
             }
         }
     }
-    let result = completed
-        .result
-        .clone()
-        .ok_or_else(|| invalid_cross_flow_message("child completion has no Flow result"))?;
     let mut outputs = Vec::with_capacity(result.results.len());
     for (index, output) in result.results.into_iter().enumerate() {
         let stored = if let Some(value) = output.completed_step_output.as_ref() {

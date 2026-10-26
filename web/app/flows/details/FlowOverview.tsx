@@ -70,7 +70,9 @@ export function FlowOverview({
   onOpenStateWrite?: (kind: StateWriteKind) => void;
 }) {
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
-  const closed = events.findLast((event) => event.type === 'FlowClosed');
+  const closed = summary.flowStatus === 'Running'
+    ? undefined
+    : events.findLast((event) => event.type === 'FlowClosed');
   const startKind = started?.payload.initialStart ? 'Initial start' : 'Continued run';
   const [collapsedActiveStepIds, setCollapsedActiveStepIds] = useState<Set<string>>(
     () => new Set(),
