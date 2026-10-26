@@ -2,9 +2,9 @@
 
 ## Flow state I/O
 
-Applications read and write Flow state through typed RPCs. The Client does not
-expose direct Attribute reads or writes, Channel publication, or pending-message
-mutation. This keeps each external state transition behind a Flow-owned method.
+Applications can read committed Attributes directly with `Client.GetAttributes`.
+Typed RPCs read staged state and perform writes. The Client does not expose
+direct Attribute writes. Each external state transition stays behind a Flow-owned method.
 
 An RPC can stage `channel.Delete(ctx, messageID)`. Register that RPC with
 `dex.RPCOptions{IsTransactional: true}` when a missing ID must abort every
@@ -985,6 +985,27 @@ Flow has failed. Its `FlowInfo` contains `FlowID`, `RunID`, `FlowType`, `Status`
 the close time is unavailable. Use `WaitForFlow` when the caller needs to wait
 for a terminal result, and `SearchFlows` to find Flow IDs by query.
 
+`GetAttributes` reads selected registered Attributes in one server call, without
+dispatching a Worker. A read sees committed state, including on a closed run
+until it is purged. It does not see writes staged inside an active RPC. Pass
+`ReadAttribute` or `ReadAttributeMapInstance` for each value:
+
+```go
+orderStatus := dex.DefineAttribute[string]("order-status")
+orderQuantities := dex.DefineAttributeMap[int]("order-quantities")
+var status *string
+var quantity *int
+err := client.GetAttributes(ctx, flowID,
+	dex.ReadAttribute(orderStatus, &status),
+	dex.ReadAttributeMapInstance(orderQuantities, "line-1", &quantity),
+)
+```
+
+A nil result means that Attribute or AttributeMap instance is not set. A non-nil
+result can contain the type's zero value. The Client hydrates large and
+hard-delete values before decoding. Missing Flows and purged runs return
+`FlowNotFoundError` when reported as missing by the server.
+
 Remote FlowService failures use concrete Go error types. Match expected
 conditions with `errors.As` instead of comparing gRPC codes or sub-statuses:
 
@@ -996,7 +1017,7 @@ if errors.As(err, &inactive) {
 ```
 
 `FlowNotFoundError` is returned by operations requiring an existing Flow,
-including DescribeFlow, WaitForFlow, and TimeTravel. RPCs, timer operations,
+including DescribeFlow, GetAttributes, WaitForFlow, and TimeTravel. RPCs, timer operations,
 and step or attribute waits return `FlowNotActiveOrNotFoundError` when no active
 Flow is available.
 
