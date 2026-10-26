@@ -754,10 +754,11 @@ struct StepFailureTextCase {
     /// The Worker error detail for a Worker error, otherwise the engine's server detail.
     raw_detail: &'static str,
     application_text: &'static str,
+    expected_error_type: dexzd_protocol::dex::FlowErrorType,
 }
 
 impl StepFailureTextCase {
-    const fn new(
+    const fn worker_api_fail(
         kind: StepAttemptFailureKind,
         raw_detail: &'static str,
         application_text: &'static str,
@@ -766,6 +767,20 @@ impl StepFailureTextCase {
             kind,
             raw_detail,
             application_text,
+            expected_error_type: dexzd_protocol::dex::FlowErrorType::WorkerApiFail,
+        }
+    }
+
+    const fn internal(
+        kind: StepAttemptFailureKind,
+        raw_detail: &'static str,
+        application_text: &'static str,
+    ) -> Self {
+        Self {
+            kind,
+            raw_detail,
+            application_text,
+            expected_error_type: dexzd_protocol::dex::FlowErrorType::Internal,
         }
     }
 
@@ -792,130 +807,150 @@ impl StepFailureTextCase {
 
 /// Raw details as the engine and apply write them; the expected texts are the Go Server's.
 const STEP_FAILURE_TEXT_CASES: &[StepFailureTextCase] = &[
-    StepFailureTextCase::new(
+    StepFailureTextCase::worker_api_fail(
         StepAttemptFailureKind::WorkerError,
         "payment declined",
         "payment declined",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::worker_api_fail(
+        StepAttemptFailureKind::WorkerError,
+        "",
+        "rpc error: code = Unknown desc = ",
+    ),
+    StepFailureTextCase::worker_api_fail(
         StepAttemptFailureKind::MethodTimeout,
         "method timeout of 1s expired",
         "method timeout of 1s expired",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::worker_api_fail(
         StepAttemptFailureKind::HeartbeatTimeout,
         "no heartbeat within 1s",
         "no heartbeat within 1s",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::worker_api_fail(
         StepAttemptFailureKind::RetryDeadline,
         "retry policy total duration expired",
         "retry policy total duration expired",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::worker_api_fail(
         StepAttemptFailureKind::DispatchError,
         "DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE: no Worker accepted the task",
         "no Worker available for queue OrderFlow: no Worker accepted the task",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::worker_api_fail(
         StepAttemptFailureKind::DispatchError,
         "DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED: Worker stream disconnected",
         "Worker disconnected during pull dispatch: Worker stream disconnected",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::worker_api_fail(
         StepAttemptFailureKind::DispatchError,
         "DISPATCH_TASK_ERROR_REASON_UNKNOWN_NAME: no pull Worker registered Step \"ChargeStep\" \
          for Flow type \"OrderFlow\"",
         "no pull Worker registered Step \"ChargeStep\" for Flow type \"OrderFlow\"",
     ),
     // The engine never reports UNSPECIFIED for a Step; it keeps server-zd's text.
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::DispatchError,
         "DISPATCH_TASK_ERROR_REASON_UNSPECIFIED: unknown failure",
         "DISPATCH_TASK_ERROR_REASON_UNSPECIFIED: unknown failure",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::DispatchError,
         "server error: object storage is unavailable",
         "server error: object storage is unavailable",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::DispatchError,
         "matching server is closing",
         "matching server is closing",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::DispatchError,
         "dispatch ended without an outcome",
         "dispatch ended without an outcome",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::InvalidResponse,
         "WaitFor frame carries no result",
         "InvokeWaitForMethod emitted an empty output",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::InvalidResponse,
         "Execute frame carries no result",
         "InvokeExecuteMethod emitted an empty output",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::InvalidResponse,
         "final frame does not match the dispatched method",
         "matching dispatch: rpc error: code = Internal desc = unexpected pull dispatch frame",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::InvalidResponse,
         "step_decision: empty step decision is not supported",
         "empty step decision is not supported",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::InvalidResponse,
         "step_decision.close_decision: close decision cannot be combined with next steps",
         "close decision cannot be combined with next steps",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::InvalidResponse,
         "waiting_condition.waiting_condition_type: unknown waiting_condition_type 0",
         "unknown waiting_condition_type 0",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::InvalidResponse,
         "step_decision.next_steps[0].step_type: next step at index 0: step type contains \
          reserved character \"/\"",
         "next step at index 0: step type contains reserved character \"/\"",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::InvalidResponse,
         "server: unavailable",
         "server: unavailable",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::InvalidResponse,
         "waiting_condition.sub_flow_conditions[1].step_options.execute.ChannelMap[0]: SubFlow \
          condition at index 1: Execute state load ChannelMap instance is empty",
         "SubFlow condition at index 1: Execute state load ChannelMap instance is empty",
     ),
     // Apply's own rejections carry no field path, even when the Worker's reference has ": ".
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::InvalidResponse,
         "value reference \"v1: 7\" does not name a value of this run",
         "value reference \"v1: 7\" does not name a value of this run",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::InvalidResponse,
         "the Worker result for Step execution ChargeStep-1 does not match its running method",
         "the Worker result for Step execution ChargeStep-1 does not match its running method",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::worker_api_fail(
         StepAttemptFailureKind::ValueTooLarge,
         "a value of 20 bytes exceeds the 10 byte limit",
         "a value of 20 bytes exceeds the 10 byte limit",
     ),
-    StepFailureTextCase::new(
+    StepFailureTextCase::worker_api_fail(
+        StepAttemptFailureKind::ValueTooLarge,
+        "value of 20 bytes exceeds the maximum of 10 bytes",
+        "value of 20 bytes exceeds the maximum of 10 bytes",
+    ),
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::RequestTooLarge,
         "Worker request of 20 bytes exceeds the 10 byte message limit",
         "Worker request of 20 bytes exceeds the 10 byte message limit",
+    ),
+    StepFailureTextCase::worker_api_fail(
+        StepAttemptFailureKind::UnsupportedFeature,
+        "unsupported Worker result feature",
+        "unsupported Worker result feature",
+    ),
+    StepFailureTextCase::worker_api_fail(
+        StepAttemptFailureKind::Unspecified,
+        "unknown Step failure",
+        "unknown Step failure",
     ),
 ];
 
@@ -935,12 +970,8 @@ fn exhausted_step_failure_closes_the_flow_with_the_application_text() {
             let close = harness.run_record().close.expect("the Flow closes");
             let label = format!("{method:?} {:?}", case.raw_detail);
             assert_eq!(close.error_message, case.application_text, "{label}");
-            // Issue #960 tracks the Go Server's INTERNAL type for server-side failures.
-            assert_eq!(
-                close.error_type,
-                dexzd_protocol::dex::FlowErrorType::WorkerApiFail as i32,
-                "{label}"
-            );
+            // Issue #960 pins the Go Server's error type for each failure.
+            assert_eq!(close.error_type, case.expected_error_type as i32, "{label}");
             let history_failure = method_failures(&failed)
                 .pop()
                 .expect("history records the final failure");

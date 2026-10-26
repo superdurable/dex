@@ -2025,7 +2025,7 @@ fn exhausted_attempt_recovery_error_type_matches_failure_kind() {
         (
             StepAttemptFailureKind::RequestTooLarge,
             "",
-            "FLOW_ERROR_TYPE_WORKER_API_FAIL",
+            "FLOW_ERROR_TYPE_INTERNAL",
         ),
     ];
     for (kind, worker_error_type, expected_error_type) in cases {
@@ -2035,9 +2035,46 @@ fn exhausted_attempt_recovery_error_type_matches_failure_kind() {
             ..WorkerErrorResponse::default()
         };
         assert_eq!(
-            recovery_error_after_final_failure(kind, worker_error).error_type,
+            recovery_error_after_final_failure(kind, worker_error, "").error_type,
             expected_error_type,
             "{kind:?}"
+        );
+    }
+}
+
+#[test]
+fn worker_dispatch_recovery_error_type_matches_flow_close_classification() {
+    let cases = [
+        (
+            "DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE: no Worker accepted the task",
+            "FLOW_ERROR_TYPE_WORKER_API_FAIL",
+        ),
+        (
+            "DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED: Worker stream disconnected",
+            "FLOW_ERROR_TYPE_WORKER_API_FAIL",
+        ),
+        (
+            "DISPATCH_TASK_ERROR_REASON_UNKNOWN_NAME: no pull Worker registered the Step",
+            "FLOW_ERROR_TYPE_WORKER_API_FAIL",
+        ),
+        (
+            "DISPATCH_TASK_ERROR_REASON_UNSPECIFIED: unknown failure",
+            "FLOW_ERROR_TYPE_INTERNAL",
+        ),
+        (
+            "server error: object storage is unavailable",
+            "FLOW_ERROR_TYPE_INTERNAL",
+        ),
+    ];
+    for (server_detail, expected_error_type) in cases {
+        let recovery_error = recovery_error_after_final_failure(
+            StepAttemptFailureKind::DispatchError,
+            WorkerErrorResponse::default(),
+            server_detail,
+        );
+        assert_eq!(
+            recovery_error.error_type, expected_error_type,
+            "{server_detail}"
         );
     }
 }
@@ -2119,8 +2156,11 @@ fn worker_error_without_detail_recovers_with_the_go_status_text() {
             grpc_status,
             ..WorkerErrorResponse::default()
         };
-        let recovery_error =
-            recovery_error_after_final_failure(StepAttemptFailureKind::WorkerError, worker_error);
+        let recovery_error = recovery_error_after_final_failure(
+            StepAttemptFailureKind::WorkerError,
+            worker_error,
+            "",
+        );
         assert_eq!(recovery_error.detail, expected_detail, "{grpc_status}");
         assert_eq!(recovery_error.error_type, "UserError");
     }
@@ -2130,6 +2170,7 @@ fn worker_error_without_detail_recovers_with_the_go_status_text() {
 fn recovery_error_after_final_failure(
     kind: StepAttemptFailureKind,
     worker_error: WorkerErrorResponse,
+    server_detail: &str,
 ) -> RecoveryErrorInfo {
     let mut harness = Harness::new();
     harness.start(
@@ -2154,6 +2195,7 @@ fn recovery_error_after_final_failure(
         attempt: 1,
         kind: kind as i32,
         worker_error: Some(worker_error),
+        server_detail: server_detail.to_owned(),
         is_non_retryable: true,
         ..StepAttemptFailedCommand::default()
     }));
