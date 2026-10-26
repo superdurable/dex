@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release used by core operations guidance.
 SERVER_ZD_RELEASE = "server-zd/v0.1.6"
+SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.8"
 WORKFLOW_UPDATER_PATH = "server/service/interpreter/workflowUpdater.go"
 API_SERVICE_PATH = "server/service/api/service.go"
 TERMINAL_COORDINATOR_PATH = "server/service/interpreter/terminalCoordinator.go"
@@ -64,7 +65,7 @@ SERVER_ZD_STATEMENTS = (
         "**processCrashSafe**",
     )),
     ("server-zd/v0.1.5", "docs/content/production/server-zd-operations.mdx", (
-        "every write erases a currently stored hard-delete Attribute with null",
+        "without reopening the run",
     )),
     ("", "server-zd/crates/dexzd-worker-dispatch/src/worker_registry.rs", ("CancelTask(",)),
     ("", "server-zd/crates/dexzd-engine/src/effects/dispatch/method_attempt.rs", ("session.cancel();",)),
@@ -72,6 +73,28 @@ SERVER_ZD_STATEMENTS = (
         "is_closed_hard_delete_erase",
         "is_hard_delete_on_null",
         "request.action_permission_mappings.is_some()",
+    )),
+)
+# Statements first made by server-zd v0.1.7 and v0.1.8, checked at the latest release.
+SERVER_ZD_LATEST_STATEMENTS = (
+    ("server-zd/v0.1.7", "server-zd/README.md", (
+        "`recovery.startupReadRetryBudget` wall-clock window (default 30 seconds)",
+        "ResetFlow replaces a pending close with the state of the reset point.",
+    )),
+    ("server-zd/v0.1.8", "server-zd/README.md", (
+        "From v0.1.8, a transactional or locking InvokeRPC on a closed run returns NOT_FOUND and",
+        "A later unsynced write does not replace a pending synced value.",
+    )),
+)
+# Statements about Server v1.24.0 and SDK v1.23.0 behavior, as (tagged path, needles).
+RELEASE_1_24_STATEMENTS = (
+    ("sdk-go/README.md", (
+        "The SDK sends an upstream Pong every 20 seconds while a task runs",
+        "keeps one additional idle stream until 30",
+    )),
+    ("docs/content/production/server-operations.mdx", (
+        "Current SDKs send upstream **Pong** frames every 20",
+        "set their idle timeouts above both 20 seconds and",
     )),
 )
 # Go Server update validators that reject new requests during Flow close cleanup, with their handlers.
@@ -225,6 +248,37 @@ def require_block_text(block: str, location: str, declaration: str, needles: tup
             fail(f"{location} declaration `{declaration}` unexpectedly contains: {fragment!r}")
 
 
+REFERENCE_1_24_STATEMENTS = (
+    ("core/pull-workers.md", (
+        "From SDK v1.23.0 in all five languages, a queue that declines a Step for reserved RPC capacity keeps one additional idle stream",
+        "sends an unsolicited upstream Pong every 20 seconds while a task runs",
+        "above both 20 seconds and Server **matching.pingInterval**",
+    )),
+    ("core/error-handling.md", (
+        "With Server v1.24.0 on the Go Server, SearchFlows returns only Dex Flows",
+        "return NOT_FOUND with FLOW_NOT_EXISTS",
+        "With Server v1.24.0, a pull dispatch failure such as no available Worker carries its text",
+        "server-zd enforces this at admission from v0.1.8",
+    )),
+    ("core/read-after-write.md", ("From server-zd v0.1.8, a transactional or locking RPC on a closed run returns NOT_FOUND",)),
+    ("core/operations.md", (
+        "From server-zd v0.1.7, node start retries transient or unknown-outcome object-storage reads",
+        "**recovery.startupReadRetryBudget** (default 30 seconds)",
+        "From server-zd v0.1.8, Attribute Sync never replaces a pending synced value",
+    )),
+    ("go/go.md", ("From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity",)),
+    ("java/java.md", ("From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
+    ("python/python.md", ("From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
+    ("rust/rust.md", ("From Rust SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
+    ("typescript/typescript.md", ("From TypeScript SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
+)
+
+
+def check_release_1_24_references(references: Path) -> None:
+    for page, needles in REFERENCE_1_24_STATEMENTS:
+        require_text(references / page, *needles)
+
+
 def check_server_zd_statements(checkout: Path, current_release: str, statements) -> None:
     """Checks each server-zd statement at the release the references cite and at the bundled release."""
     for cited_release, path, needles in statements:
@@ -257,7 +311,7 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
         "client.validateFlowCall(ctx, flowID)",
         "client.service.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})",
         'translateRPCError(err, "DescribeFlow", flowID, flowTargetExisting)',
-        "return mapFlowInfo(response)",
+        "return mapFlowInfo(flowID, response)",
     )
     require_tagged_go_function_text(
         checkout, tag, "sdk-go/dex/errors.go", "func translateRPCError(",
@@ -278,15 +332,16 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
     )
     require_tagged_go_function_text(
         checkout, tag, "sdk-go/dex/proto_mapper.go",
-        "func mapFlowInfo(response *dexpb.GetFlowSummaryResponse) (FlowInfo, error) {",
-        'response.FlowExecutionId.FlowId == "" || response.FlowExecutionId.RunId == ""',
-        'response.FlowType == "" || response.StartTime == nil',
-        "mapFlowStatus(response.FlowStatus)", "response.StartTime.CheckValid()",
-        "closedAt := time.Time{}", "if response.CloseTime != nil {",
-        "response.CloseTime.CheckValid()", "closedAt = response.CloseTime.AsTime()",
-        "FlowID:    response.FlowExecutionId.FlowId", "RunID:     response.FlowExecutionId.RunId",
-        "FlowType:  response.FlowType", "Status:    status",
-        "StartedAt: response.StartTime.AsTime()", "ClosedAt:  closedAt",
+        "func mapFlowInfo(flowID string, response *dexpb.GetFlowSummaryResponse) (FlowInfo, error) {",
+        "response.GetFlowExecutionId() == nil", 'response.GetFlowExecutionId().GetFlowId() == ""',
+        'response.GetFlowExecutionId().GetRunId() == ""', 'response.GetFlowType() == ""',
+        "response.GetStartTime() == nil", "mapFlowStatus(response.GetFlowStatus())",
+        "response.GetStartTime().CheckValid()",
+        "closedAt := time.Time{}", "if response.GetCloseTime() != nil {",
+        "response.GetCloseTime().CheckValid()", "closedAt = response.GetCloseTime().AsTime()",
+        "FlowID:    response.GetFlowExecutionId().GetFlowId()", "RunID:     response.GetFlowExecutionId().GetRunId()",
+        "FlowType:  response.GetFlowType()", "Status:    status",
+        "StartedAt: response.GetStartTime().AsTime()", "ClosedAt:  closedAt",
     )
     require_text(
         references / "go" / "observability.md",
@@ -1033,7 +1088,7 @@ def check_sdk_describe_flow(checkout: Path, baselines: dict[str, str], reference
         references / "core" / "error-handling.md",
         "Java **Client.describeFlow**, Python **Client.describe_flow** or **AsyncClient.describe_flow**, "
         "TypeScript **Client.describeFlow**, or Rust **Client::describe_flow**.",
-        "Java, Python, TypeScript, and Rust already have it at their v1.20.0 baselines.",
+        "Java, Python, TypeScript, and Rust already have it at their v1.23.0 baselines.",
         "It returns the Flow ID, run ID, Flow type, status, and start time.",
         "A missing Flow returns the SDK's typed Flow-not-found error.",
     )
@@ -1079,6 +1134,7 @@ def main() -> None:
     require_revision(arguments.dex_root, cli_baseline, "Dex CLI")
     require_ancestor(arguments.dex_root, server_baseline, cli_baseline, "Dex Server baseline")
     require_tag(arguments.dex_root, SERVER_ZD_RELEASE)
+    require_tag(arguments.dex_root, SERVER_ZD_LATEST_RELEASE)
 
     require_text(
         arguments.dex_root / "cli" / "internal" / "flowviz" / "v2_directives.go",
@@ -1175,6 +1231,10 @@ def main() -> None:
         "x509.SystemCertPool()",
     )
     check_server_zd_statements(arguments.dex_root, SERVER_ZD_RELEASE, SERVER_ZD_STATEMENTS)
+    check_release_1_24_references(SDK_REFERENCES)
+    check_server_zd_statements(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, SERVER_ZD_LATEST_STATEMENTS)
+    for statement_path, statement_needles in RELEASE_1_24_STATEMENTS:
+        require_tagged_text(arguments.dex_root, server_baseline, statement_path, *statement_needles)
     check_server_zd_search_tls(arguments.dex_root, SERVER_ZD_RELEASE, SDK_REFERENCES)
     check_go_server_close_cleanup(arguments.dex_root, server_baseline)
     check_flow_summary_rpc(arguments.dex_root, server_baseline, SERVER_ZD_RELEASE)

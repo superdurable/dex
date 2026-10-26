@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.53.0 - 2026-10-26
+
+- Advance the Go SDK baseline to sdk-go/v1.24.0, Java, Python, TypeScript, and Rust to v1.23.0, and the Server and CLI to v1.24.0; refresh pinned source links. Document the v1.23.0 pull Worker changes (one extra idle stream after reserved-RPC declines, and a 20-second busy-stream Pong with the proxy idle-timeout rule) in Core and all five language references.
+- Document Server v1.24.0: Go Server SearchFlows returns only Dex Flows, DescribeFlow and GetFlowSummary return NOT_FOUND for non-Flow IDs, and pull dispatch failure text reaches SubFlow results and recovery errors.
+- Document server-zd v0.1.7 (startup read retry budget, closed-point reset, PostgreSQL error redaction) and v0.1.8 (closed-run transactional and locking RPC admission, unsynced Attribute Sync, Go-matching failure types and texts).
+- Update the Go DescribeFlow mapper checks to the v1.24.0 source and add tagged-source checks with mutation tests for the new statements. Synchronize the bundle and plugin manifests at 0.53.0.
+
 ## 0.52.0 - 2026-10-25
 
 - Add App Builder rules for connector calls: wire only happy-path branches, keep the default retry policy with an explicit call identity, fail deterministic non-retryable conditions with the force-fail Step decision (named per SDK at its pinned baseline), and test the happy path plus each wired branch with connector mock defaults. Baselines stay unchanged.
