@@ -278,6 +278,10 @@ impl SnapshotService {
                             should_prepare_snapshot_lineage,
                         )?
                     };
+                    #[expect(
+                        clippy::disallowed_methods,
+                        reason = "NodeMeta lock is released before the upload waits on the runtime"
+                    )]
                     runtime.block_on(create_store_snapshot(
                         &store,
                         &upload_store,
