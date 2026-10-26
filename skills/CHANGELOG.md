@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.51.1 - 2026-10-25
+
+- Document one-off DescribeFlow status reads for known Flows in the Go, Python, TypeScript, and Rust primitives references, and point the Go error reference to Client.DescribeFlow. Baselines stay at their 0.51.0 values.
+
 ## 0.51.0 - 2026-10-25
 
 - Advance the Go SDK baseline and pinned links to sdk-go/v1.22.0. Keep Java, Python, TypeScript, Rust, Server, and CLI at v1.20.0; their v1.23.0 releases are not yet adopted. The other Go commit updates integration test expectations for server-zd cancellation; its application behavior was already documented.

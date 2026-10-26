@@ -18,7 +18,9 @@ From Go SDK v1.20.0 or later, match `*dex.FlowClosingError` with `errors.As` whe
 
 ## StartFlow error handling
 
-Follow the shared [start-first rule and result matrix](../core/error-handling.md#start-first-reconcile-only-after-an-error). Call `Client.StartFlow` directly; do not preflight with `InvokeRPC`, `GetFlowSummary`, or search merely to avoid AlreadyStarted or retry uncertainty.
+Follow the shared [start-first rule and result matrix](../core/error-handling.md#start-first-reconcile-only-after-an-error). Call `Client.StartFlow` directly; do not preflight with `InvokeRPC`, `Client.DescribeFlow`, or search merely to avoid AlreadyStarted or retry uncertainty.
+
+For a separate one-off status read of a known Flow, use [`Client.DescribeFlow`](primitives.md#subflow-and-client).
 
 For a retry that may attach to the same logical start, pass a pointer to the stable request identity in `StartFlowOptions.RequestID` and set `AlreadyStarted: &dex.AlreadyStartedOptions{IgnoreError: true}`. Preserve both across retries; use `IDReusePolicy: dex.IDReuseDisallow` when this logical start must not create another execution after closure. An intentional new lifecycle needs its own explicit identity/reuse contract. Setting RequestID alone still permits `*dex.FlowAlreadyStartedError`; setting IgnoreError alone does not suppress a conflict with a different Request ID. A nil RequestID makes the SDK generate a fresh UUID for each separate StartFlow call, and a pointer to an empty string is invalid.
 
