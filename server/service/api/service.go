@@ -56,6 +56,7 @@ import (
 
 const (
 	defaultHistoryPageSize                 = 100
+	interpreterWorkflowType                = "Engine"
 	waitForStepCompletionUpdateIDNamespace = "wait-for-step-completion:"
 	waitForAttributeUpdateIDNamespace      = "wait-for-attribute:"
 )
@@ -1344,14 +1345,13 @@ func (s *serviceImpl) SearchFlows(
 	if req.GetPageSize() > 0 {
 		pageSize = req.GetPageSize()
 	}
-	query := req.GetQuery()
+	query := fmt.Sprintf(`WorkflowType = "%s"`, interpreterWorkflowType)
+	if strings.TrimSpace(req.GetQuery()) != "" {
+		query = fmt.Sprintf("(%s) AND (%s)", req.GetQuery(), query)
+	}
 	const currentRuns = `ExecutionStatus != "ContinuedAsNew"`
 	if !req.GetIncludeContinuedAsNew() {
-		if strings.TrimSpace(query) == "" {
-			query = currentRuns
-		} else {
-			query = fmt.Sprintf("(%s) AND (%s)", query, currentRuns)
-		}
+		query = fmt.Sprintf("(%s) AND (%s)", query, currentRuns)
 	}
 	response, err := s.client.ListWorkflow(ctx, &uclient.ListWorkflowExecutionsRequest{
 		PageSize:      pageSize,
@@ -1397,6 +1397,9 @@ func (s *serviceImpl) GetFlowSummary(
 	)
 	if err != nil {
 		return nil, s.handleError(err)
+	}
+	if description.WorkflowType != interpreterWorkflowType {
+		return nil, serviceerrors.NotFound("flow does not exist").ToGRPCError()
 	}
 	response := &dexpb.GetFlowSummaryResponse{
 		FlowExecutionId: &dexpb.FlowExecutionID{

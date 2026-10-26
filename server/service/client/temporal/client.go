@@ -486,6 +486,7 @@ func (t *temporalClient) DescribeWorkflowExecution(
 
 	return &uclient.DescribeWorkflowExecutionResponse{
 		RunId:                info.GetExecution().GetRunId(),
+		WorkflowType:         info.GetType().GetName(),
 		FirstRunId:           info.GetFirstRunId(),
 		Status:               status,
 		IndexedAttributes:    indexedAttributes,

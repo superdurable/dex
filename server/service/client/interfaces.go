@@ -107,6 +107,7 @@ type ListWorkflowExecutionsResponse struct {
 
 type DescribeWorkflowExecutionResponse struct {
 	Status               dexpb.FlowStatus
+	WorkflowType         string
 	RunId                string
 	FirstRunId           string
 	IndexedAttributes    map[string]*dexpb.Value

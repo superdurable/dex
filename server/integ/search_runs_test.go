@@ -21,9 +21,104 @@ import (
 	"github.com/superdurable/dex/integ/workflow/deadend"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/bootstrap"
+	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/ptr"
 	"go.uber.org/cadence/.gen/go/shared"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+func TestSearchFlowsExcludeInternalWorkflowTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	verifySearchFlowsExcludeInternalWorkflow(t, service.BackendTypeTemporal)
+}
+
+func TestSearchFlowsExcludeInternalWorkflowCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	verifySearchFlowsExcludeInternalWorkflow(t, service.BackendTypeCadence)
+}
+
+func verifySearchFlowsExcludeInternalWorkflow(t *testing.T, backend service.BackendType) {
+	requireGoServerSetting(t, "internal Blob Store cleanup workflows")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	configuration := DexServiceTestConfig{BackendType: backend}
+	if backend == service.BackendTypeCadence {
+		configuration.CadenceDomain = "dex-internal-search-" + uuid.NewString()
+		cadenceService, _, closeClient, err := bootstrap.BuildCadenceServiceClient(bootstrap.DefaultCadenceHostPort)
+		require.NoError(t, err)
+		defer closeClient()
+		require.NoError(t, cadenceService.RegisterDomain(ctx, &shared.RegisterDomainRequest{
+			Name:                                   ptr.Any(configuration.CadenceDomain),
+			WorkflowExecutionRetentionPeriodInDays: ptr.Any(int32(1)),
+		}))
+	}
+	runtime := startDexService(t, configuration)
+	cleanupWorkflowID := "search-cleanup-" + uuid.NewString()
+	require.NoError(t, runtime.UnifiedClient.StartBlobStoreCleanupWorkflow(
+		ctx, service.TaskQueue, cleanupWorkflowID, "", "local-store-id",
+	))
+	_, err := runtime.UnifiedClient.GetWorkflowResult(ctx, nil, cleanupWorkflowID, "")
+	require.NoError(t, err)
+
+	workflowIDField := "WorkflowId"
+	if backend == service.BackendTypeCadence {
+		workflowIDField = "WorkflowID"
+	}
+	require.Eventually(t, func() bool {
+		response, listErr := runtime.UnifiedClient.ListWorkflow(ctx, &uclient.ListWorkflowExecutionsRequest{
+			Query: fmt.Sprintf("%s = '%s'", workflowIDField, cleanupWorkflowID),
+		})
+		return listErr == nil && len(response.Executions) == 1
+	}, 30*time.Second, 200*time.Millisecond, "cleanup execution must be visible to the backend")
+
+	workerTarget := startWorker(t, basic.NewHandler())
+	flowIDs := []string{"search-flow-" + uuid.NewString(), "search-flow-" + uuid.NewString()}
+	for _, flowID := range flowIDs {
+		_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+			FlowId: flowID, FlowType: basic.FlowType, RequestId: newRequestID(),
+			StartStepType:    basic.Step1,
+			FlowStartOptions: withWorkerTarget(nil, workerTarget),
+		})
+		require.NoError(t, err)
+		_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+			FlowId: flowID, WaitTimeSeconds: 20,
+		})
+		require.NoError(t, err)
+	}
+
+	_, err = runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: cleanupWorkflowID})
+	require.Equal(t, codes.NotFound, status.Code(err))
+	require.Equal(t, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS, grpcServiceErrorResponse(t, err).GetSubStatus())
+
+	require.Eventually(t, func() bool {
+		runs, searchErr := searchRunPages(ctx, runtime.FlowClient, "", false, 1000)
+		if searchErr != nil {
+			return false
+		}
+		foundFlows := map[string]bool{}
+		for _, run := range runs {
+			if run.GetFlowId() == cleanupWorkflowID {
+				return false
+			}
+			foundFlows[run.GetFlowId()] = true
+		}
+		return foundFlows[flowIDs[0]] && foundFlows[flowIDs[1]]
+	}, 30*time.Second, 200*time.Millisecond, "empty search must return Flows without cleanup")
+
+	query := fmt.Sprintf("%s = '%s' OR %s = '%s' OR %s = '%s'",
+		workflowIDField, cleanupWorkflowID, workflowIDField, flowIDs[0], workflowIDField, flowIDs[1])
+	runs, err := searchRunPages(ctx, runtime.FlowClient, query, false, 1)
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+	for _, run := range runs {
+		require.Contains(t, flowIDs, run.GetFlowId())
+	}
+}
 
 func TestSearchRunsTemporal(t *testing.T) {
 	if !*temporalIntegTest {
