@@ -295,8 +295,11 @@ For every API, interface, class, type, method, function, field, variable, and
 constant, prefer a complete and precise domain name over a short name. The name
 must communicate its operation and subject at the call site or registration
 boundary. Do not use generic names such as `Get`, `Update`, `Manager`, `Data`,
-or `Handler` when a specific domain name is available. Brevity is not a goal;
-remove words only when the remaining name is equally precise and unambiguous.
+`Handler`, or `Runtime` when a specific domain name is available. Brevity is not
+a goal; remove words only when the remaining name is equally precise and
+unambiguous. In every language, do not introduce `normalize` or `Normalize`
+identifiers; name the concrete operation, such as `TrimWhitespace`,
+`SortSelections`, or `CanonicalizeURL`.
 
 # Go Flow and Step Type Names
 
@@ -542,7 +545,7 @@ The checker discovers Cargo manifests automatically through Cargo metadata.
 | R5 | Test-only public items end in _for_test and require cfg(test) or the test-util feature. | Rust rules checker verifies the configuration of suffixed items; review verifies naming. |
 | R6 | Register every crate in script/rust-crate-layers.json. Depend only on crates in the same or a lower layer. | Rust rules checker using Cargo metadata. |
 | R7 | Each executable has one typed configuration. Read environment settings only in configuration modules or tests. Configuration modules are config, *_config, and *_options. | Rust rules checker verifies std::env::var and std::env::var_os locations; review verifies typed ownership. |
-| R8 | Use complete domain names. Avoid utils, helpers, common, and misc modules and generic Manager, Handler, Data, or Info types. | Rust rules checker rejects generic module filenames; review checks type names. |
+| R8 | Use complete domain names. Avoid utils, helpers, common, and misc modules and generic Manager, Handler, Data, Info, or Runtime types. | Rust rules checker rejects generic module filenames; review checks type names. |
 | R9 | Represent closed sets with enums rather than repeated strings. Across crates, use non-exhaustive enums or newtypes. | Clippy match_wildcard_for_single_variants and review. |
 | R10 | Handle every error. Do not discard fallible results with let _ or .ok(); explain intentional ignores. | rustc unused_must_use and Clippy let_underscore_must_use, let_underscore_future, and unused_result_ok; review. |
 | R11 | Libraries use typed errors, such as thiserror. Generic errors such as anyhow belong only at binary boundaries. Include the operation and object in errors. | Rust rules checker rejects non-development anyhow dependencies in library crates; review checks error context. |

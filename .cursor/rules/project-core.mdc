@@ -228,8 +228,11 @@ For every API, interface, class, type, method, function, field, variable, and
 constant, prefer a complete and precise domain name over a short name. The name
 must communicate its operation and subject at the call site or registration
 boundary. Do not use generic names such as `Get`, `Update`, `Manager`, `Data`,
-or `Handler` when a specific domain name is available. Brevity is not a goal;
-remove words only when the remaining name is equally precise and unambiguous.
+`Handler`, or `Runtime` when a specific domain name is available. Brevity is not
+a goal; remove words only when the remaining name is equally precise and
+unambiguous. In every language, do not introduce `normalize` or `Normalize`
+identifiers; name the concrete operation, such as `TrimWhitespace`,
+`SortSelections`, or `CanonicalizeURL`.
 
 ## Go Flow and Step Type Names
 
