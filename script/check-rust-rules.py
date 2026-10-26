@@ -35,6 +35,7 @@ CLIPPY_CONFIG = {
     "allow-dbg-in-tests": False,
     "allow-print-in-tests": True,
 }
+NON_TEST_CLIPPY_CONFIG_KEYS = {"disallowed-methods", "disallowed-types"}
 IGNORED_DIRECTORIES = {".git", "target", "node_modules", ".venv", "vendor", "venv"}
 GENERIC_MODULES = {"utils", "helpers", "common", "misc"}
 
@@ -352,7 +353,12 @@ def check_lints(workspace, metadata, registry, root):
         )
     config = workspace / "clippy.toml"
     config_values = read_toml(config) if config.is_file() else {}
-    if any(config_values.get(key) != value for key, value in CLIPPY_CONFIG.items()):
+    test_config_values = {
+        key: value
+        for key, value in config_values.items()
+        if key not in NON_TEST_CLIPPY_CONFIG_KEYS
+    }
+    if test_config_values != CLIPPY_CONFIG:
         findings.append(
             Violation(
                 str(config.relative_to(root)),

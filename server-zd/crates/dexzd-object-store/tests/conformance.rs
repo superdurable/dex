@@ -1881,6 +1881,7 @@ async fn s3_requests_to_a_server_that_stops_reading_time_out() {
         started.elapsed() < failure_bound,
         "large put exceeded the failure bound"
     );
+    // The stall hits CreateMultipartUpload, which cannot write the key, so the failure is retryable.
     let started = std::time::Instant::now();
     let multipart_put = tokio::time::timeout(
         bound,
@@ -1895,7 +1896,7 @@ async fn s3_requests_to_a_server_that_stops_reading_time_out() {
     .expect_err("a multipart write without a response fails");
     assert_eq!(
         multipart_put.kind,
-        ObjectStoreErrorKind::OutcomeUnknown,
+        ObjectStoreErrorKind::Transient,
         "{multipart_put}"
     );
     assert!(
@@ -1942,7 +1943,7 @@ async fn s3_requests_to_a_server_that_stops_reading_time_out() {
     .expect_err("a multipart file write without a response fails");
     assert_eq!(
         multipart_file_put.kind,
-        ObjectStoreErrorKind::OutcomeUnknown,
+        ObjectStoreErrorKind::Transient,
         "{multipart_file_put}"
     );
     assert!(

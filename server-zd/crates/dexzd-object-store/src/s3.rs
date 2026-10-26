@@ -22,9 +22,7 @@ use aws_sdk_s3::types::{
 use bytes::Bytes;
 
 use crate::file_download::TemporaryDownloadFile;
-use crate::s3_error::{
-    is_conflict_error, is_precondition_error, map_multipart_stage_error, map_sdk_error, required,
-};
+use crate::s3_error::{is_conflict_error, is_precondition_error, map_sdk_error, required};
 use crate::{
     ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
     ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
@@ -286,7 +284,7 @@ impl S3ObjectStore {
             .key(&full_key)
             .send()
             .await
-            .map_err(|error| map_multipart_stage_error(key, error))?;
+            .map_err(|error| map_sdk_error(ObjectStoreOperation::Put, key, false, error))?;
         let upload_id = required(
             started.upload_id(),
             ObjectStoreOperation::Put,
@@ -340,7 +338,7 @@ impl S3ObjectStore {
                 .body(ByteStream::from(Bytes::copy_from_slice(chunk)))
                 .send()
                 .await
-                .map_err(|error| map_multipart_stage_error(key, error))?;
+                .map_err(|error| map_sdk_error(ObjectStoreOperation::Put, key, false, error))?;
             let etag = required(
                 response.e_tag(),
                 ObjectStoreOperation::Put,
@@ -373,7 +371,7 @@ impl S3ObjectStore {
             .checksum_algorithm(ChecksumAlgorithm::Crc32)
             .send()
             .await
-            .map_err(|error| map_multipart_stage_error(key, error))?;
+            .map_err(|error| map_sdk_error(ObjectStoreOperation::Put, key, false, error))?;
         let upload_id = required(
             started.upload_id(),
             ObjectStoreOperation::Put,
@@ -449,7 +447,7 @@ impl S3ObjectStore {
                 .checksum_algorithm(ChecksumAlgorithm::Crc32)
                 .send()
                 .await
-                .map_err(|error| map_multipart_stage_error(key, error))?;
+                .map_err(|error| map_sdk_error(ObjectStoreOperation::Put, key, false, error))?;
             let etag = required(
                 response.e_tag(),
                 ObjectStoreOperation::Put,

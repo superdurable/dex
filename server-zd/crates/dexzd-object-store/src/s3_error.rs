@@ -118,22 +118,6 @@ where
     )
 }
 
-pub(crate) fn map_multipart_stage_error<E>(key: &str, error: SdkError<E>) -> ObjectStoreError
-where
-    E: ProvideErrorMetadata + std::fmt::Display,
-{
-    let is_ambiguous_transport_failure = matches!(
-        error,
-        SdkError::TimeoutError(_) | SdkError::ResponseError(_) | SdkError::DispatchFailure(_)
-    );
-    map_sdk_error(
-        ObjectStoreOperation::Put,
-        key,
-        is_ambiguous_transport_failure,
-        error,
-    )
-}
-
 fn is_connect_failure(dispatch: &aws_sdk_s3::error::ConnectorError) -> bool {
     let mut source: Option<&(dyn std::error::Error + 'static)> = Some(dispatch);
     while let Some(error) = source {
