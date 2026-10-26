@@ -229,13 +229,15 @@ func compileBufferedTextStream(context dex.Context) error {
 var _ = compileBufferedTextStream
 
 var (
-	_ func(*dex.Worker, context.Context) error                               = (*dex.Worker).WaitPullRegistered
-	_ func(*dex.Worker) dex.PullRegistrationState                            = (*dex.Worker).PullRegistrationState
-	_ error                                                                  = (*dex.PullRegistrationError)(nil)
-	_ interface{ Unwrap() error }                                            = (*dex.PullRegistrationError)(nil)
-	_ func(*dex.Client, context.Context, string, ...dex.AttributeRead) error = (*dex.Client).GetAttributes
-	_ func(dex.Attribute[string], **string) dex.AttributeRead                = dex.ReadAttribute[string]
-	_ func(dex.AttributeMap[int], string, **int) dex.AttributeRead           = dex.ReadAttributeMapInstance[int]
+	_ func(*dex.Worker, context.Context) error                                                          = (*dex.Worker).WaitPullRegistered
+	_ func(*dex.Worker) dex.PullRegistrationState                                                       = (*dex.Worker).PullRegistrationState
+	_ error                                                                                             = (*dex.PullRegistrationError)(nil)
+	_ interface{ Unwrap() error }                                                                       = (*dex.PullRegistrationError)(nil)
+	_ func(*dex.Client, context.Context, string, ...dex.AttributeRead) (dex.AttributeReadResult, error) = (*dex.Client).GetAttributes
+	_ func(dex.Attribute[string], *string) dex.AttributeRead                                            = dex.ReadAttribute[string]
+	_ func(dex.AttributeMap[int], string, *int) dex.AttributeRead                                       = dex.ReadAttributeMapInstance[int]
+	_ func(dex.AttributeReadResult, dex.AttributeDef) bool                                              = dex.AttributeReadResult.IsSet
+	_ func(dex.AttributeReadResult, dex.AttributeDef, string) bool                                      = dex.AttributeReadResult.IsMapInstanceSet
 )
 
 var (

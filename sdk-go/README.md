@@ -4,7 +4,8 @@
 
 Applications can read committed Attributes directly with `Client.GetAttributes`.
 Typed RPCs read staged state and perform writes. The Client does not expose
-direct Attribute writes. Each external state transition stays behind a Flow-owned method.
+direct Attribute writes, Channel publication, or pending-message mutation. This
+keeps each external state transition behind a Flow-owned method.
 
 An RPC can stage `channel.Delete(ctx, messageID)`. Register that RPC with
 `dex.RPCOptions{IsTransactional: true}` when a missing ID must abort every
@@ -988,23 +989,35 @@ for a terminal result, and `SearchFlows` to find Flow IDs by query.
 `GetAttributes` reads selected registered Attributes in one server call, without
 dispatching a Worker. A read sees committed state, including on a closed run
 until it is purged. It does not see writes staged inside an active RPC. Pass
-`ReadAttribute` or `ReadAttributeMapInstance` for each value:
+`ReadAttribute` or `ReadAttributeMapInstance` with a `*T` destination for each
+value:
 
 ```go
 orderStatus := dex.DefineAttribute[string]("order-status")
-orderQuantities := dex.DefineAttributeMap[int]("order-quantities")
-var status *string
-var quantity *int
-err := client.GetAttributes(ctx, flowID,
+notes := dex.DefineAttributeMap[Note]("notes")
+var status string
+var note Note
+result, err := client.GetAttributes(ctx, flowID,
 	dex.ReadAttribute(orderStatus, &status),
-	dex.ReadAttributeMapInstance(orderQuantities, "line-1", &quantity),
+	dex.ReadAttributeMapInstance(notes, "n1", &note),
 )
+if err != nil {
+	return err
+}
+if !result.IsSet(orderStatus) {
+	status = "new"
+}
 ```
 
-A nil result means that Attribute or AttributeMap instance is not set. A non-nil
-result can contain the type's zero value. The Client hydrates large and
-hard-delete values before decoding. Missing Flows and purged runs return
-`FlowNotFoundError` when reported as missing by the server.
+An unset Attribute or AttributeMap instance leaves its destination unchanged.
+Most callers ignore the returned `AttributeReadResult`; use `IsSet` or
+`IsMapInstanceSet` when an unset value must be told apart from a stored zero
+value. Destinations are written only after every value decodes, so an error
+never leaves partial writes. The servers resolve hard-delete values, and the
+Client resolves large-value references through LoadBlobs before decoding. An
+unregistered definition, or one whose value type differs from the registered
+definition, returns `*FlowDefinitionError`. A missing Flow or a run being purged
+returns `*FlowNotFoundError`, and a decode failure returns `*ValueMappingError`.
 
 Remote FlowService failures use concrete Go error types. Match expected
 conditions with `errors.As` instead of comparing gRPC codes or sub-statuses:

@@ -22,7 +22,13 @@ var (
 	getAttributesSecret     = dex.DefineAttribute[string]("get-attributes-secret", dex.HardDeleteOnNull())
 	getAttributesLargeValue = dex.DefineAttribute[string]("get-attributes-large-value")
 	getAttributesQuantities = dex.DefineAttributeMap[int]("get-attributes-quantities")
+	getAttributesNote       = dex.DefineAttribute[getAttributesNoteValue]("get-attributes-note")
 )
+
+type getAttributesNoteValue struct {
+	Text     string `json:"text"`
+	Priority int    `json:"priority"`
+}
 
 type getAttributesFlow struct {
 	dex.FlowDefaults
@@ -39,6 +45,7 @@ func (getAttributesFlow) GetPersistenceSchema() dex.PersistenceSchema {
 		getAttributesSecret,
 		getAttributesLargeValue,
 		getAttributesQuantities,
+		getAttributesNote,
 	}}
 }
 
@@ -47,7 +54,8 @@ func TestGetAttributes(t *testing.T) {
 	flowID := newFlowID(t, "get-attributes")
 	secret := strings.Repeat("hard-delete-value", 64)
 	largeValue := strings.Repeat("large-value", 64)
-	count, err := dex.InitialAttribute(getAttributesCount, 0)
+	note := getAttributesNoteValue{Text: "ship today", Priority: 2}
+	count, err := dex.InitialAttribute(getAttributesCount, 7)
 	require.NoError(t, err)
 	mapValue, err := dex.InitialAttributeMapValue(getAttributesQuantities, "line-1", 0)
 	require.NoError(t, err)
@@ -55,46 +63,87 @@ func TestGetAttributes(t *testing.T) {
 	require.NoError(t, err)
 	largeInitialValue, err := dex.InitialAttribute(getAttributesLargeValue, largeValue)
 	require.NoError(t, err)
+	noteValue, err := dex.InitialAttribute(getAttributesNote, note)
+	require.NoError(t, err)
 	_, err = integClient.StartFlow(ctx, getAttributesFlow{}, flowID, nil, dex.StartFlowOptions{
-		Attributes: []dex.InitialAttributeDef{count, mapValue, secretValue, largeInitialValue},
+		Attributes: []dex.InitialAttributeDef{count, mapValue, secretValue, largeInitialValue, noteValue},
 	})
 	require.NoError(t, err)
 
-	var decodedCount *int
-	var decodedMapValue *int
-	var decodedSecret *string
-	var decodedLargeValue *string
-	var unsetCount *int
-	err = integClient.GetAttributes(ctx, flowID,
+	require.False(t, dex.AttributeReadResult{}.IsSet(getAttributesCount))
+	require.False(t, dex.AttributeReadResult{}.IsMapInstanceSet(getAttributesQuantities, "line-1"))
+
+	decodedCount := -1
+	decodedMapValue := -1
+	var decodedSecret string
+	var decodedLargeValue string
+	var decodedNote getAttributesNoteValue
+	unsetCount := -1
+	unsetMapValue := -1
+	result, err := integClient.GetAttributes(ctx, flowID,
 		dex.ReadAttribute(getAttributesCount, &decodedCount),
 		dex.ReadAttributeMapInstance(getAttributesQuantities, "line-1", &decodedMapValue),
 		dex.ReadAttribute(getAttributesSecret, &decodedSecret),
 		dex.ReadAttribute(getAttributesLargeValue, &decodedLargeValue),
+		dex.ReadAttribute(getAttributesNote, &decodedNote),
 		dex.ReadAttribute(getAttributesUnset, &unsetCount),
+		dex.ReadAttributeMapInstance(getAttributesQuantities, "line-2", &unsetMapValue),
 	)
 	require.NoError(t, err)
-	require.Equal(t, 0, *decodedCount)
-	require.Equal(t, 0, *decodedMapValue)
-	require.Equal(t, secret, *decodedSecret)
-	require.Equal(t, largeValue, *decodedLargeValue)
-	require.Nil(t, unsetCount)
+	require.Equal(t, 7, decodedCount)
+	require.Equal(t, 0, decodedMapValue)
+	require.Equal(t, secret, decodedSecret)
+	require.Equal(t, largeValue, decodedLargeValue)
+	require.Equal(t, note, decodedNote)
+	require.Equal(t, -1, unsetCount)
+	require.Equal(t, -1, unsetMapValue)
+	require.True(t, result.IsSet(getAttributesCount))
+	require.True(t, result.IsSet(getAttributesNote))
+	require.True(t, result.IsMapInstanceSet(getAttributesQuantities, "line-1"))
+	require.False(t, result.IsSet(getAttributesUnset))
+	require.False(t, result.IsMapInstanceSet(getAttributesQuantities, "line-2"))
+	require.False(t, result.IsSet(getAttributesQuantities))
+	require.False(t, result.IsMapInstanceSet(getAttributesCount, "line-1"))
+
+	duplicateCount := -1
+	_, err = integClient.GetAttributes(ctx, flowID,
+		dex.ReadAttribute(getAttributesCount, &duplicateCount),
+		dex.ReadAttribute(getAttributesCount, &duplicateCount),
+	)
+	require.ErrorContains(t, err, "duplicate Attribute read")
+	require.Equal(t, -1, duplicateCount)
 
 	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))
 	waitForFlow(t, flowID, false)
-	decodedSecret = nil
-	err = integClient.GetAttributes(ctx, flowID, dex.ReadAttribute(getAttributesSecret, &decodedSecret))
+	decodedSecret = ""
+	decodedLargeValue = ""
+	result, err = integClient.GetAttributes(ctx, flowID,
+		dex.ReadAttribute(getAttributesSecret, &decodedSecret),
+		dex.ReadAttribute(getAttributesLargeValue, &decodedLargeValue),
+	)
 	require.NoError(t, err)
-	require.Equal(t, secret, *decodedSecret)
+	require.Equal(t, secret, decodedSecret)
+	require.Equal(t, largeValue, decodedLargeValue)
+	require.True(t, result.IsSet(getAttributesLargeValue))
 
 	missingFlowID := newFlowID(t, "get-attributes-missing")
-	err = integClient.GetAttributes(ctx, missingFlowID, dex.ReadAttribute(getAttributesCount, &decodedCount))
+	result, err = integClient.GetAttributes(ctx, missingFlowID, dex.ReadAttribute(getAttributesCount, &decodedCount))
 	var missingFlow *dex.FlowNotFoundError
 	require.ErrorAs(t, err, &missingFlow)
 	require.ErrorContains(t, err, missingFlowID)
 	require.ErrorContains(t, err, getAttributesCount.AttributeName())
+	require.False(t, result.IsSet(getAttributesCount))
 
+	var definitionError *dex.FlowDefinitionError
 	unregisteredAttribute := dex.DefineAttribute[int]("get-attributes-unregistered")
-	err = integClient.GetAttributes(ctx, flowID, dex.ReadAttribute(unregisteredAttribute, &decodedCount))
+	_, err = integClient.GetAttributes(ctx, flowID, dex.ReadAttribute(unregisteredAttribute, &decodedCount))
+	require.ErrorAs(t, err, &definitionError)
 	require.ErrorContains(t, err, flowID)
 	require.ErrorContains(t, err, unregisteredAttribute.AttributeName())
+
+	mismatchedCount := dex.DefineAttribute[string](getAttributesCount.AttributeName())
+	var mismatchedValue string
+	_, err = integClient.GetAttributes(ctx, flowID, dex.ReadAttribute(mismatchedCount, &mismatchedValue))
+	require.ErrorAs(t, err, &definitionError)
+	require.ErrorContains(t, err, getAttributesCount.AttributeName())
 }
