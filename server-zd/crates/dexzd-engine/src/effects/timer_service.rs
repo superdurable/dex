@@ -211,7 +211,10 @@ impl PartitionTimerService {
         now: Instant,
     ) -> Result<Vec<(Vec<u8>, TimerIndexEntry)>, EffectError> {
         let limit = self.context.config.timer_load_limit;
-        let reader = self.context.flow_operations.committed_state_reader()?;
+        let reader = self
+            .context
+            .flow_effect_operations
+            .committed_state_reader()?;
         let mut start = partition_index_prefix(self.partition, IndexKind::Timer);
         let end = timer_index_start_key(self.partition, horizon_micros.saturating_add(1));
         let mut entries = Vec::new();
@@ -253,7 +256,10 @@ impl PartitionTimerService {
         timers: Vec<TimerId>,
     ) -> Result<(), EffectError> {
         let run_record = {
-            let reader = self.context.flow_operations.committed_state_reader()?;
+            let reader = self
+                .context
+                .flow_effect_operations
+                .committed_state_reader()?;
             read_run_record(reader.as_ref(), run)?
         };
         let Some(run_record) = run_record else {

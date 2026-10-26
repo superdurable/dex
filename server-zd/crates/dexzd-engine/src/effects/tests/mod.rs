@@ -399,7 +399,7 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
     fn flow_state_reader(
         &self,
         _flow: &FlowAddress,
-        _include_speculative: bool,
+        _should_include_speculative: bool,
     ) -> Result<Box<dyn FlowStateReader + Send>, FlowEffectOperationError> {
         if self.is_flow_state_unreadable.load(Ordering::SeqCst) {
             return Err(FlowEffectOperationError::Unavailable {
@@ -834,7 +834,7 @@ impl DurableState {
 /// One running node: fake runtime, effect runner, and fake Worker dispatch.
 pub(super) struct EffectHarness {
     pub(super) durable: DurableState,
-    pub(super) flow_operations: Arc<InMemoryFlowEffectOperations>,
+    pub(super) flow_effect_operations: Arc<InMemoryFlowEffectOperations>,
     pub(super) dispatcher: Arc<FakeDispatcher>,
     pub(super) runner: EffectRunner,
     pub(super) hard_delete_objects: HardDeleteObjects,
@@ -898,7 +898,7 @@ impl EffectHarness {
                 attribute_sync_waker: attribute_sync_waker.clone(),
             },
         );
-        let flow_operations = Arc::new(InMemoryFlowEffectOperations {
+        let flow_effect_operations = Arc::new(InMemoryFlowEffectOperations {
             state: Arc::clone(&durable.state),
             hasher: hasher.clone(),
             clock: Arc::clone(&clock),
@@ -916,10 +916,10 @@ impl EffectHarness {
             overrides: Mutex::new(Vec::new()),
             transactional_rpcs: tokio::sync::watch::Sender::new(0),
         });
-        let tasks = tasks.start(Arc::clone(&flow_operations) as _);
+        let tasks = tasks.start(Arc::clone(&flow_effect_operations) as _);
         Self {
             durable,
-            flow_operations,
+            flow_effect_operations,
             dispatcher,
             runner,
             hard_delete_objects,
@@ -992,7 +992,7 @@ impl EffectHarness {
             ..FlowCommand::default()
         };
         let reply = self
-            .flow_operations
+            .flow_effect_operations
             .commit(&flow, command, CommitUrgency::Prompt)
             .expect("start commits");
         assert!(!is_error_reply(&reply), "start failed: {reply:?}");
@@ -1003,7 +1003,7 @@ impl EffectHarness {
         let run = self.run_location(flow_id, run_id);
         let key = run_singleton_key(run.flow_hash, run.run_id, RunTable::RunRecord);
         let bytes = self
-            .flow_operations
+            .flow_effect_operations
             .snapshot()
             .get(ColumnFamily::Flow, &key)
             .expect("memory reads never fail")
@@ -1018,7 +1018,7 @@ impl EffectHarness {
         step_execution_id: &str,
     ) -> StepExecutionRecord {
         read_step_execution(
-            &self.flow_operations.snapshot(),
+            &self.flow_effect_operations.snapshot(),
             self.run_location(flow_id, run_id),
             step_execution_id,
         )
@@ -1030,7 +1030,7 @@ impl EffectHarness {
     pub(super) async fn settle(&self) {
         self.yield_to_tasks().await;
         if self
-            .flow_operations
+            .flow_effect_operations
             .state_read_gate
             .may_have_unconsumed_reads()
         {

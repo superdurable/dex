@@ -116,13 +116,13 @@ pub trait FlowEffectOperations: Send + Sync + 'static {
     ) -> BoxFuture<'a, Result<InvocationStartOutcome, FlowEffectOperationError>>;
 
     /// Returns a read view of `flow`'s state, including uncommitted speculative commands when
-    /// `include_speculative` is true.
+    /// `should_include_speculative` is true.
     ///
     /// Returns [`FlowEffectOperationError`] when the local store cannot open a view.
     fn flow_state_reader(
         &self,
         flow: &FlowAddress,
-        include_speculative: bool,
+        should_include_speculative: bool,
     ) -> Result<Box<dyn FlowStateReader + Send>, FlowEffectOperationError>;
 
     /// Returns a consistent read view of committed state of every partition.

@@ -68,7 +68,7 @@ async fn propose_until_accepted(
             .propose(
                 u32::from(proposal.partition.0),
                 proposal.record.clone(),
-                proposal.waits_for_commit,
+                proposal.should_wait_for_commit,
             )
             .await
         {

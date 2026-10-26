@@ -133,14 +133,19 @@ pub struct AttributeSyncRetryPolicy {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttributeSyncConfig {
     /// Configured Attribute Store names, possibly none; entries of other stores are dropped.
+    /// No default; the server supplies its configured Attribute Store names.
     pub store_names: Vec<String>,
     /// Most Attributes of one run written in one transaction; values below 1 count as 1.
+    /// No default; the server supplies its configured batch size.
     pub batch_size: usize,
     /// Backoff and drop deadline of failed writes.
+    /// No default; the server supplies its configured retry policy.
     pub retry_policy: AttributeSyncRetryPolicy,
     /// Longest a write transaction stays open; the writer enforces it.
+    /// No default; the server supplies its configured transaction timeout.
     pub transaction_timeout: Duration,
     /// Lease validity reserved beyond the transaction timeout before a write may start.
+    /// No default; the server derives this from lease timing.
     pub lease_margin: Duration,
 }
 
@@ -149,7 +154,7 @@ pub struct AttributeSyncDependencies {
     /// Writes to the configured Attribute Stores.
     pub writer: Arc<dyn AttributeSyncWriter>,
     /// Committed state reads and ack proposals.
-    pub flow_operations: Arc<dyn FlowEffectOperations>,
+    pub flow_effect_operations: Arc<dyn FlowEffectOperations>,
     /// The cluster's partition hasher.
     pub partition_hasher: PartitionHasher,
     /// Owner wall clock, compared with the committed retry window starts.

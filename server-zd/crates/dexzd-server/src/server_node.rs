@@ -436,7 +436,7 @@ struct ServerNode {
     attribute_sync: AttributeSyncService,
 }
 
-/// What the engine's runtime factory builds; captured so the node can own it after start.
+/// What the engine's command and effect hooks factory builds; captured so the node can own it after start.
 struct ServerNodeStartupParts {
     registry: FlowCoordinatorRegistry,
     effect_tasks: EffectTasksHandle,
@@ -637,7 +637,7 @@ impl ServerNode {
         let attribute_sync = attribute_stores.start(AttributeSyncStart {
             engine: &engine,
             node_id: &config.cluster.node_id,
-            flow_operations: Arc::new(registry.clone()),
+            flow_effect_operations: Arc::new(registry.clone()),
             partition_hasher,
             clock: clock.clone(),
             metrics: metrics.clone(),

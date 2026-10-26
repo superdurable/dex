@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize, Serializer};
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApiConfig {
     /// Defaults to 0.0.0.0:8801; bind address for the plaintext public gRPC services.
+    /// Flow clients and Workers connect here. The node also writes it to the manifest as
+    /// its internal address for other nodes, so bind a routable address in multi-node setups.
     pub listen: SocketAddr,
     /// Defaults to 32 MiB; maximum incoming and outgoing gRPC message size, above maxValueBytes for envelope headroom.
     pub grpc_max_message_bytes: u64,
@@ -166,6 +168,7 @@ pub struct SearchConfig {
     /// Defaults to empty; required when backend is paradedb and identifies the PostgreSQL-compatible endpoint.
     /// When empty, loading may read DEX_ZD_PARADEDB_CONNECTION_STRING; serialization redacts non-empty values.
     /// Supports sslmode, sslrootcert, sslsni, sslnegotiation, and connect_timeout; no TLS parameter preserves plaintext.
+    /// The server connects to this PostgreSQL address; it does not bind or advertise it.
     #[serde(serialize_with = "serialize_parade_db_connection_string")]
     pub parade_db_connection_string: String,
     /// Defaults to 10; maximum ParadeDB connections held by one node.

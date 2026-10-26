@@ -47,7 +47,7 @@ pub(super) struct AckBatchResult {
 /// Proposes acks from a background task, so writes of later partitions need not wait for commits.
 #[derive(Clone)]
 pub(super) struct AckProposer {
-    pub(super) flow_operations: Arc<dyn FlowEffectOperations>,
+    pub(super) flow_effect_operations: Arc<dyn FlowEffectOperations>,
     pub(super) stop: CancellationToken,
     pub(super) retry_policy: AttributeSyncRetryPolicy,
 }
@@ -106,7 +106,7 @@ impl AckProposer {
     ) -> Option<command_reply::Reply> {
         let mut delay = self.retry_policy.initial_interval;
         loop {
-            let proposal = self.flow_operations.propose_committed(
+            let proposal = self.flow_effect_operations.propose_committed(
                 flow,
                 command.clone(),
                 CommitUrgency::Batched,

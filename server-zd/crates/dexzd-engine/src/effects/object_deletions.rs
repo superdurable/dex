@@ -36,7 +36,9 @@ pub(crate) async fn delete_pending_hard_delete_objects(
     };
     loop {
         let object_ids = {
-            let reader = context.flow_operations.flow_state_reader(flow, false)?;
+            let reader = context
+                .flow_effect_operations
+                .flow_state_reader(flow, false)?;
             let mut prefix =
                 run_table_prefix(run.flow_hash, run.run_id, RunTable::HardDeleteObject);
             prefix.push(HARD_DELETE_PENDING_OBJECT);
@@ -97,7 +99,9 @@ pub(crate) async fn purge_run(
 ) -> Result<(), EffectError> {
     let run = context.run_location(flow, run_id);
     let is_purging = {
-        let reader = context.flow_operations.flow_state_reader(flow, false)?;
+        let reader = context
+            .flow_effect_operations
+            .flow_state_reader(flow, false)?;
         read_run_record(reader.as_ref(), run)?.is_some_and(|record| record.is_purging)
     };
     if !is_purging {

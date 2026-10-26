@@ -16,7 +16,7 @@ use crate::commit::{CommandCommitter, EngineLocalStore};
 use crate::engine_id_source::EngineIdSource;
 use crate::flow_coordination::CommittedFlowCommand;
 
-/// Engine services handed to the runtime factory before the log is replayed.
+/// Engine services handed to the command and effect hooks factory before the log is replayed.
 pub struct EngineServices {
     /// Submits commands; returns [`crate::CommitError::Unavailable`] until the log is replayed.
     pub committer: CommandCommitter,
@@ -31,7 +31,7 @@ pub struct EngineServices {
     pub id_source: Arc<dyn EngineIdSource>,
 }
 
-/// What the runtime factory returns: where committed commands go and how partitions rebuild.
+/// What the command and effect hooks factory returns: where committed commands go and how partitions rebuild.
 pub struct EngineCommandAndEffectHooks {
     /// Receives every committed command, including commands replayed during recovery.
     pub committed_commands: Arc<dyn CommittedCommandSink>,
@@ -39,7 +39,7 @@ pub struct EngineCommandAndEffectHooks {
     pub rebuilder: Arc<dyn PartitionEffectRebuilder>,
 }
 
-/// Receives committed commands in log order per partition; the Flow runtime registry implements it.
+/// Receives committed commands in log order per partition; the Flow coordinator registry implements it.
 pub trait CommittedCommandSink: Send + Sync + 'static {
     /// Handles one applied command without blocking.
     ///

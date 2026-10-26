@@ -14,7 +14,7 @@ use dexzd_protocol::dexzd::v1::LogPosition;
 
 use crate::server_node::CommittedSearchFrames;
 
-/// Forwards every committed command from the commit pipeline to the Flow runtime registry.
+/// Forwards every committed command from the commit pipeline to the Flow coordinator registry.
 pub(crate) struct RegistryCommittedCommandSink {
     registry: FlowCoordinatorRegistry,
     /// Receives search document changes first, so read-your-writes waits cover a woken waiter's frame.

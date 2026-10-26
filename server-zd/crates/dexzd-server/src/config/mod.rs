@@ -78,6 +78,7 @@ pub struct Config {
     /// Search backend and query budgets. Defaults to builtin search.
     pub search: SearchConfig,
     /// Flow, speculative state, wait, and deduplication limits.
+    /// Defaults to the values in [`LimitsConfig::default`].
     pub limits: LimitsConfig,
     /// PostgreSQL Attribute synchronization with the Go Dex Server's keys. Defaults to no stores.
     pub attribute_store: AttributeStoreConfig,

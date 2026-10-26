@@ -46,8 +46,10 @@ pub struct LeaseConfig {
     /// Lease duration; defaults to ten seconds.
     pub duration: Duration,
     /// Additional wait after an old lease expires before takeover.
+    /// Defaults to one second.
     pub takeover_grace: Duration,
     /// Return immediately when another live process holds the lease.
+    /// Defaults to false.
     pub fail_fast: bool,
     /// Defaults to false; when true, takes over a held lease at once. Set only when its holder provably stopped.
     pub should_take_over_held_lease: bool,
@@ -538,7 +540,6 @@ impl PendingLease {
             },
         }
     }
-
     async fn release_after_cancellation(self) -> Result<(), MetadataError> {
         self.release_explicitly()
             .await
@@ -650,7 +651,6 @@ impl LeaseOwner {
         }
         released
     }
-
     async fn write_release(&self) -> Result<(), MetadataError> {
         let mut current_lease = self.lease.clone();
         let mut current_etag = self.etag.clone();

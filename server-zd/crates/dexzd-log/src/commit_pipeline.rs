@@ -29,12 +29,19 @@ use crate::stream_recovery::validate_batch_identity;
 
 #[derive(Clone, Debug)]
 pub struct CommitPipelineConfig {
+    /// Defaults to 20 ms; maximum time an unsealed batch waits for more records.
     pub batch_window: Duration,
+    /// Defaults to 4 MiB; target serialized bytes before a batch seals.
     pub target_batch_bytes: usize,
+    /// Defaults to 10000; maximum records in one batch.
     pub max_batch_records: usize,
+    /// Defaults to 4; maximum concurrent batch writes.
     pub max_in_flight: usize,
+    /// Defaults to 64 MiB; maximum bytes awaiting admission or commit.
     pub max_pending_bytes: u32,
+    /// Defaults to 1 s; maximum wait for admission capacity.
     pub admission_timeout: Duration,
+    /// Defaults to 10 s; deadline for a batch at the head of the pipeline.
     pub head_deadline: Duration,
 }
 
@@ -156,7 +163,7 @@ impl CommitPipeline {
         &self,
         partition: u32,
         record: Bytes,
-        waits_for_commit: bool,
+        should_wait_for_commit: bool,
     ) -> Result<ProposalTicket, LogError> {
         if record.len() > MAX_RECORD_LENGTH {
             return Err(LogError::Invalid("record exceeds maximum length".into()));
@@ -181,7 +188,7 @@ impl CommitPipeline {
             id,
             partition,
             record,
-            waits_for_commit,
+            should_wait_for_commit,
             sender,
             permit,
         };
@@ -203,7 +210,7 @@ struct Proposal {
     id: u64,
     partition: u32,
     record: Bytes,
-    waits_for_commit: bool,
+    should_wait_for_commit: bool,
     sender: oneshot::Sender<Result<u64, ProposalFailure>>,
     permit: OwnedSemaphorePermit,
 }
@@ -228,7 +235,7 @@ impl PendingBatch {
 
     fn add(&mut self, proposal: Proposal) {
         self.bytes += proposal.record.len();
-        self.has_waiter |= proposal.waits_for_commit;
+        self.has_waiter |= proposal.should_wait_for_commit;
         *self
             .partition_frame_bytes
             .entry(proposal.partition)

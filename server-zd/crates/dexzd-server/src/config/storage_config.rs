@@ -47,6 +47,7 @@ impl fmt::Debug for ObjectStoreCredentials {
 pub struct ObjectStoreConfig {
     /// Defaults to empty; use AWS endpoint resolution, or set an HTTP(S) base URL for an S3-compatible store.
     /// Dev mode sets 127.0.0.1:0 until startup replaces it with the bound embedded S3 address.
+    /// The server connects to this endpoint; it does not advertise it.
     pub endpoint: String,
     /// Defaults to us-east-1; region used for bucket lookup and request signing.
     pub region: String,
@@ -85,6 +86,7 @@ impl Default for ObjectStoreConfig {
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObjectStoreLocationConfig {
     /// Defaults to empty; uses AWS endpoint resolution for this destination when omitted.
+    /// The server connects to this HTTP(S) endpoint; it does not bind or advertise it.
     pub endpoint: String,
     /// Defaults to us-east-1; region for this hard-delete destination's requests.
     pub region: String,

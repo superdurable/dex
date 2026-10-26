@@ -631,16 +631,16 @@ impl FlowCoordinatorRegistry {
     }
 
     /// Returns a read view of a Flow's committed state, plus its uncommitted commands when
-    /// `include_speculative` is true. The view is a snapshot and holds no lock.
+    /// `should_include_speculative` is true. The view is a snapshot and holds no lock.
     ///
     /// Returns an error when the committed view cannot be opened.
     pub fn flow_state_reader(
         &self,
         flow: &FlowAddress,
-        include_speculative: bool,
+        should_include_speculative: bool,
     ) -> Result<Box<dyn FlowStateReader + Send>, FlowCoordinationError> {
         self.check_running()?;
-        let lease = include_speculative
+        let lease = should_include_speculative
             .then(|| self.inner.lease_existing(flow))
             .flatten();
         let Some(lease) = lease else {

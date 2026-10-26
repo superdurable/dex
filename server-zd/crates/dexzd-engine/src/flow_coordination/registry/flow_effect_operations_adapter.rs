@@ -143,9 +143,9 @@ impl FlowEffectOperations for FlowCoordinatorRegistry {
     fn flow_state_reader(
         &self,
         flow: &FlowAddress,
-        include_speculative: bool,
+        should_include_speculative: bool,
     ) -> Result<Box<dyn FlowStateReader + Send>, FlowEffectOperationError> {
-        FlowCoordinatorRegistry::flow_state_reader(self, flow, include_speculative)
+        FlowCoordinatorRegistry::flow_state_reader(self, flow, should_include_speculative)
             .map_err(flow_effect_operation_error)
     }
 

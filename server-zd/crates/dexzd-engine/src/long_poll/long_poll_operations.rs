@@ -394,7 +394,7 @@ fn flow_result(
     state: &dyn FlowStateReader,
     context: ApplyContext,
     run: &ResolvedRun,
-    needs_results: bool,
+    should_include_results: bool,
     is_hydrating: bool,
 ) -> Result<FlowResult, FlowCoordinationError> {
     let close = run.record.close.clone().unwrap_or_default();
@@ -404,7 +404,7 @@ fn flow_result(
         error_type: close.error_type,
         error_message: close.error_message,
     };
-    if needs_results && run.record.status == FlowStatus::Completed as i32 {
+    if should_include_results && run.record.status == FlowStatus::Completed as i32 {
         for output in close.results {
             let value = match output.completed_step_output.as_ref() {
                 Some(stored) => {

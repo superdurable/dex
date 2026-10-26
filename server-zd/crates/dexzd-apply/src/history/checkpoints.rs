@@ -24,7 +24,7 @@ pub(crate) fn pending_step_methods(
     transaction: &FlowTransaction<'_>,
     cursor: &RunCursor,
 ) -> Result<Vec<HistoryStepMethodPending>, ApplyError> {
-    let first_pending: Vec<&StepInvocationKey> = if cursor.starts_attempt {
+    let first_pending: Vec<&StepInvocationKey> = if cursor.is_starting_attempt {
         cursor.fork_pending_invocations.iter().collect()
     } else {
         cursor
@@ -78,7 +78,7 @@ pub(crate) fn after_command(
         .written_bytes_since_checkpoint
         .saturating_add(written_bytes);
     let settings = record.settings.unwrap_or_default();
-    let is_attempt_start = cursor.starts_attempt || record.last_checkpoint_seq == 0;
+    let is_attempt_start = cursor.is_starting_attempt || record.last_checkpoint_seq == 0;
     let has_enough_commands = settings.checkpoint_max_commands > 0
         && record.commands_since_checkpoint >= settings.checkpoint_max_commands;
     // A shrunk state lowers the bar; appends alone never catch up with the current size.

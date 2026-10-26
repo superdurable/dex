@@ -61,8 +61,8 @@ pub(crate) struct RunCursor {
     events: Vec<flow_history_event::Payload>,
     pub(crate) effects: Vec<ApplyEffect>,
     /// Set by TimeTravel: the command starts a new attempt and writes its start checkpoint.
-    pub(crate) starts_attempt: bool,
-    pub(crate) history_window_page_used: bool,
+    pub(crate) is_starting_attempt: bool,
+    pub(crate) has_used_history_window_page: bool,
     /// Set by TimeTravel: input it reapplied, recorded so later travels reapply it again.
     pub(crate) reapplied_inputs: Vec<FlowCommand>,
     /// Set by TimeTravel: first-attempt method calls that reapply or child results made pending.
@@ -140,8 +140,8 @@ impl RunCursor {
             indexed_attribute_writes: Vec::new(),
             events: Vec::new(),
             effects: Vec::new(),
-            starts_attempt: false,
-            history_window_page_used: false,
+            is_starting_attempt: false,
+            has_used_history_window_page: false,
             reapplied_inputs: Vec::new(),
             fork_pending_invocations: Vec::new(),
         }

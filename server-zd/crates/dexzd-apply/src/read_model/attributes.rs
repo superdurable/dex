@@ -34,16 +34,16 @@ pub struct AttributesRead {
     pub hard_delete_attributes: Vec<HardDeleteAttribute>,
 }
 
-/// Reads selected Attributes in key order; `all_keys` includes AttributeMap instances.
+/// Reads selected Attributes in key order; `should_include_all_keys` includes AttributeMap instances.
 pub fn get_attributes(
     reader: &dyn FlowStateReader,
     flow_hash: FlowHash,
     run_id: RunId,
     keys: &[String],
-    all_keys: bool,
+    should_include_all_keys: bool,
 ) -> Result<AttributesRead, ReadModelError> {
     let view = RunView::open(reader, flow_hash, run_id)?;
-    let selected: BTreeSet<String> = if all_keys {
+    let selected: BTreeSet<String> = if should_include_all_keys {
         view.rows
             .attributes(&view.transaction)?
             .into_iter()

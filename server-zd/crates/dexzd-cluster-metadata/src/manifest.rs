@@ -23,10 +23,13 @@ const MANIFEST_KEY: &str = "manifest";
 #[derive(Debug, Clone)]
 pub struct NodeConfig {
     /// Stable node ID.
+    /// No default; the caller supplies this manifest identity.
     pub node_id: String,
     /// Incarnation of the node's log stream.
+    /// No default; the caller supplies the current log incarnation.
     pub incarnation: u32,
     /// Address used by other nodes to forward requests.
+    /// No default; the server writes its `api.listen` address here for other nodes to dial.
     pub internal_address: String,
 }
 

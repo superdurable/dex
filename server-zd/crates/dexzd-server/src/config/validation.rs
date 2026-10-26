@@ -423,8 +423,12 @@ impl Config {
     }
 }
 
-fn ensure(condition: bool, field: &'static str, message: &'static str) -> Result<(), ConfigError> {
-    if condition {
+fn ensure(
+    is_condition_met: bool,
+    field: &'static str,
+    message: &'static str,
+) -> Result<(), ConfigError> {
+    if is_condition_met {
         Ok(())
     } else {
         Err(ConfigError::Invalid {

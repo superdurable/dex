@@ -44,7 +44,7 @@ impl S3ObjectStore {
         key: &str,
         operation: ObjectStoreOperation,
         error: SdkError<E>,
-        retried_after_listing: bool,
+        has_retried_after_listing: bool,
     ) -> ObjectStoreResult<OptionalReadError>
     where
         E: ProvideErrorMetadata + std::fmt::Display,
@@ -59,12 +59,12 @@ impl S3ObjectStore {
         let mapped = map_sdk_error(operation, key, false, error);
         if status == Some(404)
             && code.as_deref() != Some("NoSuchBucket")
-            && (retried_after_listing
+            && (has_retried_after_listing
                 || (operation == ObjectStoreOperation::Get && code.as_deref() == Some("NoSuchKey")))
         {
             return Ok(OptionalReadError::Absent);
         }
-        if retried_after_listing {
+        if has_retried_after_listing {
             return Ok(OptionalReadError::Failed(mapped));
         }
         if code.as_deref() == Some("NoSuchBucket") || !matches!(status, Some(403 | 404)) {
@@ -127,7 +127,7 @@ impl S3ObjectStore {
                 "range start exceeds end",
             ));
         }
-        let mut retried_after_listing = false;
+        let mut has_retried_after_listing = false;
         let response = loop {
             let mut request = self
                 .read_client
@@ -155,12 +155,12 @@ impl S3ObjectStore {
                             key,
                             ObjectStoreOperation::Get,
                             error,
-                            retried_after_listing,
+                            has_retried_after_listing,
                         )
                         .await?
                     {
                         OptionalReadError::Absent => return Ok(None),
-                        OptionalReadError::Retry => retried_after_listing = true,
+                        OptionalReadError::Retry => has_retried_after_listing = true,
                         OptionalReadError::Failed(mapped) => return Err(mapped),
                     }
                 }

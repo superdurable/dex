@@ -56,21 +56,29 @@ const FINAL_ADVANCE_BUDGET: Duration = Duration::from_secs(1);
 #[derive(Debug, Clone)]
 pub struct EngineNodeConfig {
     /// This node's identity in the manifest and its log stream.
+    /// No default; the caller supplies this section.
     pub node: NodeConfig,
     /// Immutable cluster settings, checked against the cluster object.
+    /// No default; the caller supplies this section.
     pub cluster: ClusterConfig,
     /// Node lease timing.
+    /// No default; the caller supplies this section.
     pub lease: LeaseConfig,
     /// Local state store.
+    /// No default; the caller supplies this section.
     pub local_store: LocalStoreConfig,
     /// Commit path.
+    /// No default; the caller supplies this section.
     pub commit: CommitConfig,
     /// Snapshots and log cleanup.
+    /// No default; the caller supplies this section.
     pub snapshots: SnapshotConfig,
     /// Log replay read-ahead and compaction after a bulk replay.
+    /// No default; the caller supplies this section.
     pub recovery: crate::recovery::RecoveryConfig,
     /// Where frame applies, applied-position writes, and snapshot uploads run.
     /// [`BlockingWorkPlacement::BlockingThreadPool`] in production.
+    /// No default; the caller chooses the execution placement.
     pub blocking_work: BlockingWorkPlacement,
 }
 

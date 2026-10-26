@@ -35,12 +35,16 @@ use crate::invariants::InvariantViolation;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EngineSimulationConfig {
     /// Seconds with clients, faults, crashes, and clock jumps.
+    /// Defaults to 120 seconds.
     pub active_seconds: u64,
     /// Seconds of calm after the active phase: no clients, faults, or crashes.
+    /// Defaults to 60 seconds.
     pub calm_tail_seconds: u64,
     /// Recovery paths the seed exercises; each profile has its own seed trajectories.
+    /// Defaults to the standard profile.
     pub profile: EngineSimulationProfile,
     /// Overrides the seed's fault rate for a targeted regression, as a percentage from 0 to 100.
+    /// Defaults to `None`, using the seed's fault rate.
     pub fault_probability_percent: Option<u8>,
 }
 

@@ -78,18 +78,25 @@ impl std::fmt::Debug for S3Credentials {
 #[derive(Debug, Clone)]
 pub struct S3ObjectStoreConfig {
     /// S3 endpoint override, or `None` for the region's AWS endpoint.
+    /// Defaults to `None`; the server connects by HTTP(S), rather than binding or advertising this address.
     pub endpoint: Option<String>,
     /// AWS region used for endpoint selection and request signing.
+    /// No default; the caller supplies the AWS region.
     pub region: String,
     /// Existing bucket holding all objects.
+    /// No default; the caller supplies the bucket.
     pub bucket: String,
     /// Prefix prepended to every relative key. An absent trailing slash is added.
+    /// Defaults to an empty prefix.
     pub key_prefix: String,
     /// Whether to put the bucket in the URL path.
+    /// Defaults to false.
     pub force_path_style: bool,
     /// Credentials provider.
+    /// Defaults to the AWS provider chain.
     pub credentials: S3Credentials,
     /// SDK operation timeout, including retries, and maximum wait between streamed body chunks.
+    /// Defaults to 30 seconds.
     pub request_timeout: Duration,
     /// Bodies at least this size use multipart upload; files over 16 MiB also use multipart. Default 8 MiB.
     pub multipart_threshold: usize,
@@ -632,7 +639,7 @@ impl ObjectStore for S3ObjectStore {
     }
 
     async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
-        let mut retried_after_listing = false;
+        let mut has_retried_after_listing = false;
         let response = loop {
             match self
                 .read_client
@@ -648,12 +655,12 @@ impl ObjectStore for S3ObjectStore {
                         key,
                         ObjectStoreOperation::Get,
                         error,
-                        retried_after_listing,
+                        has_retried_after_listing,
                     )
                     .await?
                 {
                     OptionalReadError::Absent => return Ok(None),
-                    OptionalReadError::Retry => retried_after_listing = true,
+                    OptionalReadError::Retry => has_retried_after_listing = true,
                     OptionalReadError::Failed(mapped) => return Err(mapped),
                 },
             }
@@ -676,7 +683,7 @@ impl ObjectStore for S3ObjectStore {
     }
 
     async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
-        let mut retried_after_listing = false;
+        let mut has_retried_after_listing = false;
         let response = loop {
             match self
                 .read_client
@@ -692,12 +699,12 @@ impl ObjectStore for S3ObjectStore {
                         key,
                         ObjectStoreOperation::Head,
                         error,
-                        retried_after_listing,
+                        has_retried_after_listing,
                     )
                     .await?
                 {
                     OptionalReadError::Absent => return Ok(None),
-                    OptionalReadError::Retry => retried_after_listing = true,
+                    OptionalReadError::Retry => has_retried_after_listing = true,
                     OptionalReadError::Failed(mapped) => return Err(mapped),
                 },
             }
