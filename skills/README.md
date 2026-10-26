@@ -188,7 +188,7 @@ reliably discover `0.25.5`. Upgrade to `0.25.5` manually once. Starting with
 `0.25.5`, each new session checks GitHub's latest formal release and can remind
 you about a future `0.25.6` or later release.
 
-Codex and Claude Code run the check at session start. Cursor warms the cache
+Claude Code runs the check at session start. Cursor warms the cache
 when a workspace opens and reads it when a session starts. A result is cached
 for 15 minutes. When the cache has expired, the GitHub request waits at most
 about one second and uses ETag revalidation. Until you upgrade, every new Dex
@@ -202,13 +202,10 @@ or upgrades the Plugin automatically. Standalone Skills use the same
 best-effort version comparison from their packaged reference, but they have no
 Plugin lifecycle hook and are never updated automatically by Dex.
 
-Codex asks you to review and trust the hook when a hook-enabled release is first
-enabled. Because `0.25.6` adds clearer review metadata, upgrading from `0.25.5`
-requires one more review; later hook-definition changes may do the same. The
-review description states that the hook reads public GitHub release metadata
-only and never installs updates. Claude Code and Cursor use their own plugin
-hooks; disable the hook in the client's hook settings, or disable the plugin,
-to turn it off. If hooks are disabled, untrusted, blocked by enterprise policy,
+Codex has no automatic check; the loaded Dex skill runs the fallback check,
+and Codex installs Plugin updates from the marketplace. Claude Code and
+Cursor use their own plugin hooks; disable the hook in the client's hook
+settings, or disable the plugin, to turn it off. If hooks are disabled, untrusted, blocked by enterprise policy,
 missing a Node runtime, or unsupported in the current cloud environment, the
 loaded Dex skill falls back to one best-effort release check. All hook and
 fallback failures are silent and never block the requested work.

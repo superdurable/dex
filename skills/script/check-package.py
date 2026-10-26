@@ -29,7 +29,6 @@ BASELINE_FILES = (
 )
 VERSION_CHECK_SCRIPT = ROOT / "hooks" / "version-check.mjs"
 HOOK_CONFIGS = {
-    "codex": ROOT / "hooks" / "codex.json",
     "claude": ROOT / "hooks" / "claude.json",
     "cursor": ROOT / "hooks" / "cursor.json",
 }
@@ -759,7 +758,6 @@ def command_hook(config: dict, event: str, matcher: str, path: Path) -> dict:
 
 def check_hook_configs(manifests: dict) -> None:
     expected_paths = {
-        "codex": "./hooks/codex.json",
         "claude": "./hooks/claude.json",
         "cursor": "./hooks/cursor.json",
     }
@@ -779,7 +777,6 @@ def check_hook_configs(manifests: dict) -> None:
         "releases/latest",
         "CACHE_TTL_MS = 15 * 60 * 1000",
         "HTTP_TIMEOUT_MS = 1000",
-        "PLUGIN_DATA",
         "CLAUDE_PLUGIN_DATA",
         'allowNetwork: client !== "cursor" || refreshOnly',
         "additionalContext",
@@ -795,23 +792,6 @@ def check_hook_configs(manifests: dict) -> None:
     ):
         if forbidden in script:
             fail(f"version check hook must not install or update: {forbidden}")
-
-    codex_path = HOOK_CONFIGS["codex"]
-    codex = load_json(codex_path)
-    if codex.get("description") != (
-        "Checks GitHub for a newer stable Dex Skills version. "
-        "Reads public release metadata only and never installs updates."
-    ):
-        fail("Codex hook review description must explain its read-only version check")
-    codex_hook = command_hook(codex, "SessionStart", "startup|clear", codex_path)
-    if codex_hook.get("type") != "command":
-        fail("Codex SessionStart hook must be a command hook")
-    if codex_hook.get("command") != 'node "${PLUGIN_ROOT}/hooks/version-check.mjs" --client codex':
-        fail("Codex hook must run the shared version script with the Codex client")
-    if codex_hook.get("timeout") != 2:
-        fail("Codex hook timeout must be two seconds")
-    if codex_hook.get("statusMessage") != "Checking for Dex Skills updates":
-        fail("Codex hook status message must identify the version check")
 
     claude_path = HOOK_CONFIGS["claude"]
     claude = load_json(claude_path)
@@ -847,7 +827,7 @@ def check_hook_configs(manifests: dict) -> None:
     if cursor_workspace.get("timeout") != 2 or cursor_session.get("timeout") != 2:
         fail("Cursor hook timeouts must be two seconds")
     for forbidden in ("resume", "compact", "SessionEnd", "sessionEnd"):
-        if forbidden in json.dumps({"codex": codex, "claude": claude, "cursor": cursor}):
+        if forbidden in json.dumps({"claude": claude, "cursor": cursor}):
             fail(f"version hooks must not run on {forbidden}")
 
 

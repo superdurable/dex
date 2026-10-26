@@ -1,7 +1,8 @@
 # Dex Skills version check
 
 Use the plugin lifecycle hook result before doing any Skill-level network work.
-The hook injects private session context beginning with
+Codex has no automatic check, so its sessions always use the fallback below.
+The Claude Code and Cursor hooks inject private session context beginning with
 `Dex Skills lifecycle version check` and one of these states:
 
 - `status=current`: do not check again and do not mention the version to the
