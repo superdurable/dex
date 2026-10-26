@@ -318,7 +318,7 @@ func TestWebServerReadsStream(t *testing.T) {
 	}
 }
 
-func TestWebServerScopesSearchesToEngineWorkflows(t *testing.T) {
+func TestWebServerForwardsSearchQueries(t *testing.T) {
 	service := &flowService{
 		searchRequests: make(chan *dexpb.SearchFlowsRequest, 2),
 	}
@@ -333,17 +333,17 @@ func TestWebServerScopesSearchesToEngineWorkflows(t *testing.T) {
 		{
 			name:      "empty query",
 			body:      `{"pageSize":10}`,
-			wantQuery: `WorkflowType = "Engine"`,
+			wantQuery: "",
 		},
 		{
 			name:      "user query",
 			body:      `{"query":"ExecutionStatus = \"Running\"","pageSize":10}`,
-			wantQuery: `(ExecutionStatus = "Running") AND (WorkflowType = "Engine")`,
+			wantQuery: `ExecutionStatus = "Running"`,
 		},
 		{
 			name:                  "include earlier runs",
 			body:                  `{"query":"FlowType = 'CheckoutFlow' OR FlowType = 'RefundFlow'","includeContinuedAsNew":true,"pageSize":1,"nextPageToken":"next"}`,
-			wantQuery:             `(FlowType = 'CheckoutFlow' OR FlowType = 'RefundFlow') AND (WorkflowType = "Engine")`,
+			wantQuery:             `FlowType = 'CheckoutFlow' OR FlowType = 'RefundFlow'`,
 			includeContinuedAsNew: true,
 		},
 	}

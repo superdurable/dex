@@ -247,7 +247,7 @@ func (w *workflowProvider) NewInterpreterContinueAsNewError(
 	if !ok {
 		panic("cannot convert to temporal workflow context")
 	}
-	return workflow.NewContinueAsNewError(wfCtx, w.it.Engine, input)
+	return workflow.NewContinueAsNewError(wfCtx, InterpreterWorkflowType, input)
 }
 
 func (w *workflowProvider) UpsertSearchAttributes(

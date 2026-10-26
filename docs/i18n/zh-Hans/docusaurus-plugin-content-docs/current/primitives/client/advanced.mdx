@@ -155,7 +155,7 @@ object、bytes、null、blob-backed、非有限浮点、跨类型比较和无效
 
 ## 查看 Flow
 
-**DescribeFlow** 读取 current 或 latest run 的 IDs、Flow type、status 和 start time。Go SDK 还会返回可用的 close time。它不会等待 Flow 结束。只读 RPC 返回非终态业务状态后，可以用它做一次状态检查。Flow 不存在时会返回有类型的 Flow-not-found 错误。
+**DescribeFlow** 读取 current 或 latest run 的 IDs、Flow type、status 和 start time。Go SDK 还会返回可用的 close time。它不会等待 Flow 结束。只读 RPC 返回非终态业务状态后，可以用它做一次状态检查。ID 不存在或不属于 Flow 时，会返回有类型的 Flow-not-found 错误。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
 <SdkSnippet lang="python">
@@ -192,7 +192,7 @@ let info = client.describe_flow("order-123")?;
 
 ## 搜索 Flow
 
-**SearchFlows** 返回匹配 visibility query 的一页 Flow runs。search 用来寻找 Flow instance；**DescribeFlow** 用于查看一个已知 Flow ID。要继续搜索，传回 page token。
+**SearchFlows** 返回匹配 visibility query 的一页 Flow runs，并排除服务器内部的 execution。search 用来寻找 Flow instance；**DescribeFlow** 用于查看一个已知 Flow ID。要继续搜索，传回 page token。
 
 翻页时保持查询不变。
 

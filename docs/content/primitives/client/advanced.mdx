@@ -170,7 +170,7 @@ Object, bytes, null, blob-backed, non-finite floating-point, cross-type, and inv
 
 ## Describe a Flow
 
-**DescribeFlow** reads the current or latest run's IDs, Flow type, status, and start time. The Go SDK also returns the close time when available. It does not wait for the Flow to finish. Use it for a one-off status check after a read-only RPC returns a non-terminal business state. A missing Flow returns a typed Flow-not-found error.
+**DescribeFlow** reads the current or latest run's IDs, Flow type, status, and start time. The Go SDK also returns the close time when available. It does not wait for the Flow to finish. Use it for a one-off status check after a read-only RPC returns a non-terminal business state. A missing ID or an ID that does not belong to a Flow returns a typed Flow-not-found error.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
 <SdkSnippet lang="python">
@@ -212,7 +212,7 @@ let info = client.describe_flow("order-123")?;
 
 ## Search Flows
 
-**SearchFlows** returns one page of Flow runs matching a visibility query. Search finds Flow instances; **DescribeFlow** describes one known Flow ID. Pass the returned page token to continue a search.
+**SearchFlows** returns one page of Flow runs matching a visibility query. Internal server executions are excluded. Search finds Flow instances; **DescribeFlow** describes one known Flow ID. Pass the returned page token to continue a search.
 
 Keep the query unchanged across pages.
 
