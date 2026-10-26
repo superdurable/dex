@@ -98,8 +98,12 @@ pub fn quote_go_string(value: &str) -> String {
             '\r' => quoted.push_str("\\r"),
             '\t' => quoted.push_str("\\t"),
             '\x0b' => quoted.push_str("\\v"),
+            // A leading "a" keeps escape_debug from escaping printable combining marks.
             _ if character.is_control()
-                || character.escape_debug().to_string().starts_with("\\u{") =>
+                || format!("a{character}")
+                    .escape_debug()
+                    .to_string()
+                    .contains("\\u{") =>
             {
                 let codepoint = character as u32;
                 if codepoint <= 0x7f {

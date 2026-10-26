@@ -1470,3 +1470,14 @@ fn start_flow_rejections_use_the_go_server_text() {
         );
     }
 }
+
+#[test]
+fn quote_go_string_matches_go_quote_for_combining_marks_and_controls() {
+    use dexzd_request_validation::quote_go_string;
+    assert_eq!(quote_go_string("e\u{301}"), "\"e\u{301}\"");
+    assert_eq!(quote_go_string("नमस्ते"), "\"नमस्ते\"");
+    assert_eq!(quote_go_string("\u{301}"), "\"\u{301}\"");
+    assert_eq!(quote_go_string("a\u{7f}b"), "\"a\\x7fb\"");
+    assert_eq!(quote_go_string("\u{200b}"), "\"\\u200b\"");
+    assert_eq!(quote_go_string("tab\t\"q\""), "\"tab\\t\\\"q\\\"\"");
+}
