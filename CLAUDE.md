@@ -33,6 +33,27 @@ resolves that issue. The whole description follows the No Downstream Product
 Information rule. See
 `.cursor/rules/pull-requests.mdc` and `.github/pull_request_template.md`.
 
+## Issue Labels
+
+Label every new issue when you open it:
+
+- Exactly one type: `type:bug`, `type:feature`, `type:enhancement`,
+  `type:test`, `type:docs`, `type:chore` (CI, build, release, tooling), or
+  `type:tech-debt`.
+- Exactly one priority: `P0` (blocks a release or users now), `P1` (do next),
+  `P2` (normal), or `P3` (low).
+- At least one area: `area:server-zd`, `area:server`, `area:sdk-go`,
+  `area:sdk-python`, `area:sdk-java`, `area:sdk-typescript`, `area:sdk-rust`,
+  `area:cli`, `area:web`, `area:docs`, `area:examples`, `area:skills`,
+  `area:s3mock`, `area:ci`, or `area:protos`.
+- Exactly one size: `size:S` (a day or less), `size:M` (a few days), or
+  `size:L` (a week or more, or needs design).
+- Add `codex-ready` when the issue is self-contained and needs no decision.
+  Add `needs-decision` when it needs an owner decision first.
+
+Pass them with `gh issue create --label`. Update the labels when the scope or
+priority changes. See `.cursor/rules/issue-labels.mdc`.
+
 ## Agent Rule Synchronization
 
 Keep the Cursor (`.cursor/rules/`), Codex (`AGENTS.md`), and Claude
