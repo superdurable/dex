@@ -28,8 +28,7 @@ import (
 )
 
 const (
-	maxRequestBytes               = 1 << 20
-	engineWorkflowVisibilityQuery = `WorkflowType = "Engine"`
+	maxRequestBytes = 1 << 20
 	// Finish before common 60-second proxy timeouts.
 	historyEventLongPollTimeout = 50 * time.Second
 )
@@ -168,7 +167,7 @@ func (h *handler) searchFlows(response http.ResponseWriter, request *http.Reques
 	}
 	result, err := h.client.SearchFlows(request.Context(), &dexpb.SearchFlowsRequest{
 		IncludeContinuedAsNew: body.IncludeContinuedAsNew,
-		Query:                 engineWorkflowSearchQuery(body.Query),
+		Query:                 body.Query,
 		PageSize:              body.PageSize,
 		NextPageToken:         body.NextPageToken,
 	})
@@ -184,13 +183,6 @@ func (h *handler) searchFlows(response http.ResponseWriter, request *http.Reques
 		Flows:         flows,
 		NextPageToken: result.GetNextPageToken(),
 	})
-}
-
-func engineWorkflowSearchQuery(query string) string {
-	if strings.TrimSpace(query) == "" {
-		return engineWorkflowVisibilityQuery
-	}
-	return fmt.Sprintf("(%s) AND (%s)", query, engineWorkflowVisibilityQuery)
 }
 
 func (h *handler) getFlowSummary(response http.ResponseWriter, request *http.Request) {

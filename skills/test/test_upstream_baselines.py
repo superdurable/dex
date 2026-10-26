@@ -1368,5 +1368,198 @@ class ServerZdStatementsTest(unittest.TestCase):
         self.assertIn(f"Required release tag {self.CITED_TAG} is unavailable", str(raised.exception))
 
 
+class FlowServiceTlsTest(unittest.TestCase):
+    GO_TAG = "sdk-go/v1.22.0"
+    SDK_TAGS = {
+        "go": GO_TAG,
+        "java": "sdk-java/v1.20.0",
+        "python": "sdk-python/v1.20.0",
+        "typescript": "sdk-typescript/v1.20.0",
+        "rust": "sdk-rust/v1.20.0",
+    }
+    TAGGED_PATHS = {
+        GO_TAG: (
+            "sdk-go/dex/flow_service_tls.go", "sdk-go/dex/client.go", "sdk-go/dex/worker.go",
+            "sdk-go/dex/message_size.go", "sdk-go/dex/server_protocol.go",
+            "sdk-go/dex/credential_api_key.go", "sdk-go/dex/credential_integration_test.go",
+            "sdk-go/integ/tls_transport_test.go",
+        ),
+        "sdk-java/v1.20.0": (
+            "sdk-java/src/main/java/io/superdurable/dex/Client.java",
+            "sdk-java/src/main/java/io/superdurable/dex/Worker.java",
+            "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
+            "sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java",
+        ),
+        "sdk-python/v1.20.0": (
+            "sdk-python/dex/_credential_transport.py", "sdk-python/dex/_pull_worker.py",
+            "sdk-python/dex/client_options.py", "sdk-python/dex/worker_options.py",
+        ),
+        "sdk-typescript/v1.20.0": ("sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts",
+                                      "sdk-typescript/src/options.ts"),
+        "sdk-rust/v1.20.0": (
+            "sdk-rust/crates/dex-sdk/src/client.rs", "sdk-rust/crates/dex-sdk/src/worker.rs",
+            "sdk-rust/crates/dex-sdk/src/client_options.rs", "sdk-rust/crates/dex-sdk/src/worker_options.rs",
+        ),
+        "server/v1.20.0": ("server/config/config.go", "server/service/api/routers.go",
+                            "server/cmd/server/dex/dex.go"),
+        "server-zd/v0.1.6": (
+            "server-zd/crates/dexzd-server/src/config/service_config.rs", "server-zd/README.md",
+            "server-zd/crates/dexzd-server/src/server_node.rs",
+        ),
+    }
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.sources = {}
+        for tag, paths in self.TAGGED_PATHS.items():
+            self.sources[tag] = tagged_sources(tag, *paths)
+            self.repository.commit_and_tag(tag, self.sources[tag])
+        self.references = copy_references(
+            self.repository.root, "core/operations.md", "core/getting-started.md", "core/pull-workers.md",
+            "go/go.md", *(f"{language}/{language}.md" for language in ("java", "python", "typescript", "rust")),
+        )
+
+    def check(self):
+        CHECKER.check_flow_service_tls(self.repository.root, self.GO_TAG, self.SDK_TAGS, self.references)
+
+    def mutate_tag(self, tag: str, path: str, old: str, new: str):
+        mutated = replace_once(self.sources[tag][path], old, new)
+        self.repository.commit_and_tag(tag, {path: mutated})
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn(path, str(raised.exception))
+
+    def test_real_tagged_sources_and_references_pass(self):
+        self.check()
+
+    def test_plaintext_default_must_remain_nil_only(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/flow_service_tls.go",
+                        "if options == nil {\n\t\treturn insecure.NewCredentials(), nil",
+                        "if options != nil {\n\t\treturn insecure.NewCredentials(), nil")
+
+    def test_client_must_pass_tls_options_to_dialer(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/client.go",
+                        "flowServiceAddress, options.Credential, options.FlowServiceTLS",
+                        "flowServiceAddress, options.Credential, nil")
+
+    def test_client_option_type_must_match_reference(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/client.go",
+                        "FlowServiceTLS *FlowServiceTLSOptions", "FlowServiceTLS any")
+
+    def test_worker_must_pass_tls_options_to_dialer(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/worker.go",
+                        "flowServiceAddress, options.Credential, options.FlowServiceTLS",
+                        "flowServiceAddress, options.Credential, nil")
+
+    def test_worker_service_listener_must_stay_separate(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/worker.go",
+                        "grpc.NewServer(messageLimits.workerServiceServerOptions()...)",
+                        "grpc.NewServer(grpc.Creds(credentials.NewTLS(config)))")
+
+    def test_ca_bundle_must_be_parsed(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/flow_service_tls.go",
+                        "if !rootCAs.AppendCertsFromPEM(options.AdditionalRootCAsPEM) {",
+                        "if false {")
+
+    def test_go_tls_options_must_not_gain_client_certificate_field(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/flow_service_tls.go",
+                        "\tServerName string\n}", "\tServerName string\n\tClientCertificate tls.Certificate\n}")
+
+    def test_server_name_must_reach_tls_config(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/flow_service_tls.go",
+                        "ServerName: options.ServerName", "ServerName: address")
+
+    def test_tls_transport_must_keep_certificate_verification(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/flow_service_tls.go",
+                        "return credentials.NewTLS(tlsConfig), nil",
+                        "tlsConfig.InsecureSkipVerify = true\n\treturn credentials.NewTLS(tlsConfig), nil")
+
+    def test_tls_transport_must_keep_port_bounds(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/flow_service_tls.go",
+                        "portNumber < 1 || portNumber > 65535", "portNumber < 0")
+
+    def test_credential_must_share_selected_transport(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/message_size.go",
+                        "credentialDialOptions(credential)...", "credentialDialOptions(nil)...")
+
+    def test_target_authority_test_must_preserve_ipv6(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/credential_integration_test.go",
+                        'name: "IPv6 literal", address: ipv6Address, wantAuthority: ipv6Address',
+                        'name: "IPv6 literal", address: ipv6Address, wantAuthority: "::1"')
+
+    def test_api_key_credential_must_reach_tls_flow_service(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/credential_integration_test.go",
+                        'name: "API key", credential: apiKeyCredential',
+                        'name: "API key", credential: nil')
+
+    def test_api_key_http_client_must_remain_separate(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/credential_api_key.go",
+                        "return apiKeyHTTPClientOption{httpClient: httpClient}",
+                        "return apiKeyHTTPClientOption{httpClient: nil}")
+
+    def test_pull_stream_must_carry_credentials_over_tls(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/credential_integration_test.go",
+                        'Credential:         staticTestCredential("pull-token")',
+                        'Credential:         nil')
+
+    def test_connection_failure_must_not_be_reported_as_protocol_incompatibility(self):
+        self.mutate_tag(self.GO_TAG, "sdk-go/dex/server_protocol.go",
+                        "if status.Code(err) == codes.Unavailable {", "if status.Code(err) == codes.Unimplemented {")
+
+    def test_java_transport_must_match_baseline(self):
+        self.mutate_tag("sdk-java/v1.20.0", "sdk-java/src/main/java/io/superdurable/dex/Client.java",
+                        ".usePlaintext()", ".useTransportSecurity()")
+
+    def test_java_options_must_not_add_tls_without_reference_update(self):
+        self.mutate_tag("sdk-java/v1.20.0", "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
+                        "private final Credential credential;", "private final Credential credential;\n    private final Object tlsConfig;")
+
+    def test_python_pull_transport_must_match_baseline(self):
+        self.mutate_tag("sdk-python/v1.20.0", "sdk-python/dex/_pull_worker.py",
+                        "return grpc.aio.insecure_channel(server_address)", "return grpc.aio.secure_channel(server_address)")
+
+    def test_typescript_transport_must_match_baseline(self):
+        self.mutate_tag("sdk-typescript/v1.20.0", "sdk-typescript/src/client.ts",
+                        "credentials.createInsecure()", "credentials.createSsl()")
+
+    def test_rust_default_transport_must_match_baseline(self):
+        self.mutate_tag("sdk-rust/v1.20.0", "sdk-rust/crates/dex-sdk/src/client.rs",
+                        'format!("http://{address}")', 'format!("https://{address}")')
+
+    def test_server_zd_listener_must_remain_plaintext(self):
+        self.mutate_tag("server-zd/v0.1.6", "server-zd/crates/dexzd-server/src/config/service_config.rs",
+                        "bind address for the plaintext public gRPC services", "bind address for the TLS public gRPC services")
+
+    def test_go_server_must_not_add_native_tls_without_reference_update(self):
+        self.mutate_tag("server/v1.20.0", "server/service/api/routers.go",
+                        "if publicEnabled && !authCfg.IsEnabled() {\n\t\tserver.grpcServer = grpc.NewServer(append(",
+                        "if publicEnabled && !authCfg.IsEnabled() {\n\t\tserver.grpcServer = grpc.NewServer(grpc.Creds(credentials.NewTLS(config)), append(")
+
+    def test_dex_web_must_keep_separate_plaintext_transport(self):
+        self.mutate_tag("server/v1.20.0", "server/cmd/server/dex/dex.go",
+                        "grpc.WithTransportCredentials(insecure.NewCredentials())",
+                        "grpc.WithTransportCredentials(credentials.NewTLS(config))")
+
+    def test_server_zd_must_not_add_native_tls_without_reference_update(self):
+        self.mutate_tag("server-zd/v0.1.6", "server-zd/crates/dexzd-server/src/server_node.rs",
+                        "tonic::transport::Server::builder()", "tonic::transport::Server::builder().tls_config(config)")
+
+    def test_core_must_name_both_go_options(self):
+        mutate_page(self, self.check, self.references / "core/operations.md",
+                    "WorkerOptions.FlowServiceTLS", "WorkerOptions.TransportTLS")
+
+    def test_core_must_keep_plaintext_default(self):
+        mutate_page(self, self.check, self.references / "core/operations.md",
+                    "Nil keeps plaintext", "Nil enables TLS")
+
+    def test_go_reference_must_keep_exact_option_type(self):
+        mutate_page(self, self.check, self.references / "go/go.md",
+                    "AdditionalRootCAsPEM []byte", "AdditionalRootCAsPEM string")
+
+    def test_language_reference_must_keep_absent_option_boundary(self):
+        mutate_page(self, self.check, self.references / "java/java.md",
+                    "no FlowService TLS option", "a FlowService TLS option")
+
+
 if __name__ == "__main__":
     unittest.main()

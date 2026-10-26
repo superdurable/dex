@@ -44,6 +44,7 @@ func TestDescribeFlow(t *testing.T) {
 	require.Equal(t, dex.FlowCompleted, completedInfo.Status)
 	require.False(t, completedInfo.StartedAt.IsZero())
 	require.False(t, completedInfo.ClosedAt.IsZero())
+	require.False(t, completedInfo.ClosedAt.Before(completedInfo.StartedAt))
 
 	failedFlowID := newFlowID(t, "describe-failed")
 	failedRunID, err := integClient.StartFlow(ctx, forceFailFlow{}, failedFlowID, struct{}{}, dex.StartFlowOptions{})
@@ -57,6 +58,7 @@ func TestDescribeFlow(t *testing.T) {
 	require.Equal(t, dex.FlowFailed, failedInfo.Status)
 	require.False(t, failedInfo.StartedAt.IsZero())
 	require.False(t, failedInfo.ClosedAt.IsZero())
+	require.False(t, failedInfo.ClosedAt.Before(failedInfo.StartedAt))
 
 	_, err = integClient.DescribeFlow(ctx, newFlowID(t, "describe-missing"))
 	var missing *dex.FlowNotFoundError

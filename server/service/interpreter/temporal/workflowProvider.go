@@ -191,6 +191,9 @@ func temporalRecoveryError(
 	if activityError.GetWorkerGrpcStatus() != 0 || workerError != nil {
 		detail := workerError.GetDetail()
 		if detail == "" {
+			detail = activityError.GetServerDetail()
+		}
+		if detail == "" {
 			detail = backendDetail
 		}
 		errorType := workerError.GetErrorType()
@@ -244,7 +247,7 @@ func (w *workflowProvider) NewInterpreterContinueAsNewError(
 	if !ok {
 		panic("cannot convert to temporal workflow context")
 	}
-	return workflow.NewContinueAsNewError(wfCtx, w.it.Engine, input)
+	return workflow.NewContinueAsNewError(wfCtx, InterpreterWorkflowType, input)
 }
 
 func (w *workflowProvider) UpsertSearchAttributes(

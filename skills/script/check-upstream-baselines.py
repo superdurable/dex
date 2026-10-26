@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 import argparse
+import re
 import subprocess
 from pathlib import Path
 
@@ -203,6 +204,17 @@ def python_class_source(source: str, declaration: str, location: str) -> str:
     return "\n".join(lines[start:end])
 
 
+def python_function_source(source: str, declaration: str, location: str) -> str:
+    lines = source.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith(declaration)]
+    if len(starts) != 1:
+        fail(f"{location} must declare `{declaration}` exactly once; found {len(starts)}")
+    start = starts[0]
+    end = next((index for index in range(start + 1, len(lines))
+                if lines[index] and not lines[index][0].isspace() and not lines[index].startswith(")")), len(lines))
+    return "\n".join(lines[start:end])
+
+
 def require_block_text(block: str, location: str, declaration: str, needles: tuple[str, ...], forbidden: tuple[str, ...] = ()) -> None:
     """Requires every needle and no forbidden lowercase fragment in one extracted declaration block."""
     for needle in needles:
@@ -315,6 +327,201 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
         checkout, tag, "docs/content/primitives/client/advanced.mdx",
         "The Go SDK also returns the close time when available.",
     )
+
+
+def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str, str], references: Path) -> None:
+    tls_path = "sdk-go/dex/flow_service_tls.go"
+    for path, declaration in (("sdk-go/dex/client.go", "type ClientOptions struct {"),
+                              ("sdk-go/dex/worker.go", "type WorkerOptions struct {")):
+        require_tagged_go_function_text(checkout, go_tag, path, declaration,
+                                        "FlowServiceTLS *FlowServiceTLSOptions")
+    tls_source = git(checkout, "show", f"refs/tags/{go_tag}:{tls_path}")
+    tls_options = go_function_source(tls_source, "type FlowServiceTLSOptions struct {", f"{go_tag}:{tls_path}")
+    fields = re.findall(r"^\t([A-Z][A-Za-z0-9]*)\s+([^\n]+)$", tls_options, re.MULTILINE)
+    if fields != [("AdditionalRootCAsPEM", "[]byte"), ("ServerName", "string")]:
+        fail(f"{go_tag}:{tls_path} has unexpected FlowServiceTLSOptions fields: {fields}")
+    transport_function = go_function_source(tls_source, "func flowServiceTransportCredentials(", f"{go_tag}:{tls_path}")
+    require_block_text(
+        transport_function, f"{go_tag}:{tls_path}", "func flowServiceTransportCredentials(", (
+        "if options == nil {\n\t\treturn insecure.NewCredentials(), nil",
+        'strings.EqualFold(scheme, "dns")', 'strings.ContainsAny(endpoint, "/?#")',
+        'resolver.Get(strings.ToLower(scheme)) != nil',
+        'host, port, err := net.SplitHostPort(targetAddress)',
+        'portNumber < 1 || portNumber > 65535',
+        'options.ServerName != "" && !isValidFlowServiceTLSName(options.ServerName)',
+        'tls.Config{MinVersion: tls.VersionTLS12, ServerName: options.ServerName}',
+        'if len(options.AdditionalRootCAsPEM) > 0 {\n\t\trootCAs, err := x509.SystemCertPool()',
+        'if !rootCAs.AppendCertsFromPEM(options.AdditionalRootCAsPEM) {',
+        'tlsConfig.RootCAs = rootCAs', 'return credentials.NewTLS(tlsConfig), nil',
+        ), ("insecureskipverify", "tlsconfig.certificates"),
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, tls_path, "func isValidFlowServiceTLSName(",
+        'name != ""', 'net.ParseIP(name) != nil',
+    )
+    for path, declaration, needle in (
+        ("sdk-go/dex/client.go", "func NewClient(",
+         "messageLimits.flowServiceDialOptions(flowServiceAddress, options.Credential, options.FlowServiceTLS)"),
+        ("sdk-go/dex/worker.go", "func NewWorker(",
+         "messageLimits.flowServiceDialOptions(flowServiceAddress, options.Credential, options.FlowServiceTLS)"),
+        ("sdk-go/dex/message_size.go", "func (limits grpcMessageLimits) flowServiceDialOptions(",
+         "grpc.WithTransportCredentials(transportCredentials)"),
+        ("sdk-go/dex/worker.go", "func (worker *Worker) Start()", "worker.flowService.GetServerInfo("),
+    ):
+        require_tagged_go_function_text(checkout, go_tag, path, declaration, needle)
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/worker.go", "func NewWorker(",
+        "grpc.NewServer(messageLimits.workerServiceServerOptions()...)",
+        "newPullWorker(registry, service, flowConn, *options.Pull, currentGoSDKVersion())",
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/message_size.go", "func (limits grpcMessageLimits) flowServiceDialOptions(",
+        "flowServiceTransportCredentials(address, tlsOptions)", "credentialDialOptions(credential)...",
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/server_protocol.go", "func serverProtocolRequestError(",
+        'if status.Code(err) == codes.Unavailable {',
+        'FlowService connection failed during GetServerInfo',
+        'protocol [%d,%d] is incompatible with Server version',
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/integ/tls_transport_test.go",
+        "func TestFlowServiceTLSRejectsServerWithoutHTTP2ALPN(",
+        'nextProtos: []string{"http/1.1"}', 'want: "missing selected ALPN property"',
+    )
+    credential_tests = "sdk-go/dex/credential_integration_test.go"
+    require_tagged_go_function_text(
+        checkout, go_tag, credential_tests, "func TestFlowServiceTLSSendsTargetAuthority(",
+        'name: "IPv6 literal", address: ipv6Address, wantAuthority: ipv6Address',
+        'wantAuthority: "localhost:" + ipv4Port',
+        'serverName: "localhost", wantAuthority: "localhost"',
+        'require.Equal(t, testCase.wantAuthority, authorities[len(authorities)-1])',
+        'require.Equal(t, testCase.wantTLSServerName, tlsServerNames[len(tlsServerNames)-1])',
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, credential_tests, "func TestClientCredentialsReachFlowServiceOverTLS(",
+        'name: "API key", credential: apiKeyCredential', 'FlowServiceTLS: &FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM}',
+        'require.Equal(t, testCase.want, received[len(received)-1])',
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, credential_tests, "func TestWorkerCredentialReachesPullStreamOverTLS(",
+        'FlowServiceTLS:     &FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM}',
+        'Credential:         staticTestCredential("pull-token")',
+        'recorder.received(dexpb.WorkerTaskService_PollWorkerTask_FullMethodName)',
+    )
+    require_section_text(
+        references / "core" / "operations.md", "#### FlowService TLS",
+        "Go SDK v1.22.0", "ClientOptions.FlowServiceTLS", "WorkerOptions.FlowServiceTLS",
+        "pointer to **dex.FlowServiceTLSOptions**", "Nil keeps plaintext",
+        "a non-nil empty option verifies with system roots", "version 1.2 or newer",
+        "ALPN **h2**", "never falls back to plaintext",
+        "dns://authority/host:port", "port from 1 through 65535",
+        "default certificate name and SNI", "HTTP/2 **:authority**",
+        "FlowServiceTLSOptions.AdditionalRootCAsPEM", "FlowServiceTLSOptions.ServerName",
+        "matching IP SAN", "IPv6 endpoint", "no client-certificate or private-key field",
+        "NewClient", "NewWorker", "gRPC **Unavailable**", "APIKeyCredential",
+        "Go Server's **api.port**", "server-zd v0.1.6's **api.listen**",
+        "dexcli", "Dex Web's **web.flowServiceTarget**",
+        "Java", "Python", "TypeScript", "Rust", "no FlowService TLS option",
+        "default FlowService connections use plaintext",
+    )
+    require_section_text(references / "go" / "go.md", "## FlowService TLS",
+                         "ClientOptions.FlowServiceTLS", "WorkerOptions.FlowServiceTLS",
+                         "*dex.FlowServiceTLSOptions", "AdditionalRootCAsPEM []byte", "ServerName string",
+                         "Nil keeps plaintext", "does not accept client certificates")
+    require_text(references / "core" / "getting-started.md",
+                 "Go Client and Worker each select **FlowServiceTLS**", "operations.md#flowservice-tls")
+    require_text(references / "core" / "pull-workers.md",
+                 "WorkerOptions.FlowServiceTLS", "ClientOptions.FlowServiceTLS",
+                 "pull task streams use the Worker's FlowService connection")
+    require_text(ROOT / "dex-sdk" / "SKILL.md", "Go FlowService TLS", "references/core/operations.md#public-api-authentication")
+    for language in ("java", "python", "typescript", "rust"):
+        require_section_text(references / language / f"{language}.md", "## FlowService transport",
+                             "v1.20.0", "ClientOptions", "WorkerOptions", "no FlowService TLS option", "plaintext")
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/credential_api_key.go", "func WithAPIKeyHTTPClient(",
+        "return apiKeyHTTPClientOption{httpClient: httpClient}",
+    )
+    for language, paths in (
+        ("java", ("sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
+                  "sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java")),
+        ("python", ("sdk-python/dex/client_options.py", "sdk-python/dex/worker_options.py")),
+        ("typescript", ("sdk-typescript/src/options.ts",)),
+        ("rust", ("sdk-rust/crates/dex-sdk/src/client_options.rs",
+                  "sdk-rust/crates/dex-sdk/src/worker_options.rs")),
+    ):
+        for path in paths:
+            source = git(checkout, "show", f"refs/tags/{sdk_baselines[language]}:{path}").lower()
+            if any(term in source for term in ("tls", "ssl", "certificate", "transportsecurity")):
+                fail(f"{sdk_baselines[language]}:{path} adds a TLS option; update the language reference")
+    java_client_path = "sdk-java/src/main/java/io/superdurable/dex/Client.java"
+    java_client_source = git(checkout, "show", f"refs/tags/{sdk_baselines['java']}:{java_client_path}")
+    java_client_constructor = rust_function_source(
+        java_client_source[java_client_source.index("    public Client(\n"):],
+        "    public Client(", f"{sdk_baselines['java']}:{java_client_path}",
+    )
+    require_block_text(java_client_constructor, f"{sdk_baselines['java']}:{java_client_path}", "Client constructor",
+                       ("ManagedChannelBuilder.forTarget(options.getServerAddress())\n                .usePlaintext()",))
+    java_worker_path = "sdk-java/src/main/java/io/superdurable/dex/Worker.java"
+    require_tagged_rust_function_text(
+        checkout, sdk_baselines["java"], java_worker_path,
+        "    private static ManagedChannel createOutboundChannel(",
+        "ManagedChannelBuilder.forTarget(address).usePlaintext().build()",
+    )
+    python_transport_path = "sdk-python/dex/_credential_transport.py"
+    python_transport = git(checkout, "show", f"refs/tags/{sdk_baselines['python']}:{python_transport_path}")
+    for declaration, needle in (
+        ("def sync_channel(", "channel = grpc.insecure_channel(server_address)"),
+        ("def async_channel(", "return grpc.aio.insecure_channel(server_address)"),
+    ):
+        python_function = python_function_source(python_transport, declaration, f"{sdk_baselines['python']}:{python_transport_path}")
+        require_block_text(python_function, f"{sdk_baselines['python']}:{python_transport_path}", declaration, (needle,))
+    python_pull_path = "sdk-python/dex/_pull_worker.py"
+    python_pull = git(checkout, "show", f"refs/tags/{sdk_baselines['python']}:{python_pull_path}")
+    pull_channel = python_function_source(python_pull, "def outbound_worker_task_channel(",
+                                       f"{sdk_baselines['python']}:{python_pull_path}")
+    require_block_text(pull_channel, f"{sdk_baselines['python']}:{python_pull_path}",
+                       "outbound_worker_task_channel", ("return grpc.aio.insecure_channel(server_address)",))
+    for path, class_name in (("sdk-typescript/src/client.ts", "Client"),
+                             ("sdk-typescript/src/worker.ts", "Worker")):
+        source = git(checkout, "show", f"refs/tags/{sdk_baselines['typescript']}:{path}")
+        class_source = source.split(f"export class {class_name} {{", 1)[1].split("\n}\n", 1)[0]
+        constructor = rust_function_source(class_source, "  public constructor(",
+                                           f"{sdk_baselines['typescript']}:{path}")
+        require_block_text(constructor, f"{sdk_baselines['typescript']}:{path}",
+                           f"{class_name} constructor", ("new FlowServiceClient(", "credentials.createInsecure()"))
+    for path in ("sdk-rust/crates/dex-sdk/src/client.rs", "sdk-rust/crates/dex-sdk/src/worker.rs"):
+        require_tagged_rust_function_text(checkout, sdk_baselines["rust"], path,
+                                          "fn endpoint_address(", 'format!("http://{address}")')
+    require_tagged_text(checkout, (ROOT / "DEX_SERVER_BASELINE").read_text().strip(),
+                        "server/config/config.go", "Port is the TCP port for FlowService", "(plaintext gRPC)",
+                        "FlowServiceTarget is the plaintext FlowService gRPC target")
+    server_tag = (ROOT / "DEX_SERVER_BASELINE").read_text().strip()
+    require_tagged_go_function_text(
+        checkout, server_tag, "server/cmd/server/dex/dex.go",
+        "func newApplication(cfg *config.Config, services serviceSelection)",
+        "grpc.WithTransportCredentials(insecure.NewCredentials())",
+        "grpc.WithPerRPCCredentials(perRPCCredential)",
+        "cfg.GetWebFlowServiceTargetWithDefault()",
+    )
+    server_source = go_function_source(
+        git(checkout, "show", f"refs/tags/{server_tag}:server/service/api/routers.go"),
+        "func NewServerWithMatchingAccess(", f"{server_tag}:server/service/api/routers.go",
+    )
+    require_block_text(server_source, f"{server_tag}:server/service/api/routers.go", "func NewServerWithMatchingAccess(",
+                       ("grpc.NewServer(", "RegisterFlowServiceServer(server.grpcServer, handler)"),
+                       ("grpc.creds(",))
+    require_tagged_text(checkout, SERVER_ZD_RELEASE, "server-zd/crates/dexzd-server/src/config/service_config.rs",
+                        "bind address for the plaintext public gRPC services")
+    require_tagged_text(checkout, SERVER_ZD_RELEASE, "server-zd/README.md",
+                        "`api.listen` serves plaintext gRPC", "Terminate TLS in front of the server")
+    zd_path = "server-zd/crates/dexzd-server/src/server_node.rs"
+    zd_file = git(checkout, "show", f"refs/tags/{SERVER_ZD_RELEASE}:{zd_path}")
+    zd_grpc_impl = zd_file.split("impl GrpcServer {", 1)[1].split("impl Drop for GrpcServer {", 1)[0]
+    zd_source = rust_function_source(zd_grpc_impl, "    async fn start(", f"{SERVER_ZD_RELEASE}:{zd_path}")
+    require_block_text(zd_source, f"{SERVER_ZD_RELEASE}:{zd_path}", "GrpcServer::start",
+                       ("listener: TcpListener", "tonic::transport::Server::builder()", ".serve_with_incoming_shutdown("),
+                       (".tls_config(",))
 
 
 def check_flow_summary_rpc(checkout: Path, server_tag: str, server_zd_tag: str) -> None:
@@ -1000,6 +1207,7 @@ def main() -> None:
     check_sdk_flow_closing_errors(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_go_describe_flow(arguments.dex_root, go_sdk_baseline, SDK_REFERENCES)
     check_sdk_describe_flow(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
+    check_flow_service_tls(arguments.dex_root, go_sdk_baseline, sdk_baselines, SDK_REFERENCES)
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,

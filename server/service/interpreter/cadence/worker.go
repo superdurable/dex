@@ -29,7 +29,12 @@ import (
 	"go.uber.org/cadence/activity"
 	"go.uber.org/cadence/encoded"
 	"go.uber.org/cadence/worker"
+	"go.uber.org/cadence/workflow"
 )
+
+// InterpreterWorkflowType is the persisted Cadence workflow type of every Flow run.
+// It keeps the name Cadence derived from the unaliased Engine method.
+const InterpreterWorkflowType = "github.com/superdurable/dex/service/interpreter/cadence.(*InterpreterWorker).Engine"
 
 type InterpreterWorker struct {
 	service        workflowserviceclient.Interface
@@ -142,7 +147,9 @@ func (iw *InterpreterWorker) doStart(disableStickyCache bool) error {
 	iw.worker = worker.New(iw.service, iw.domain, iw.tasklist, options)
 	worker.EnableVerboseLogging(iw.cfg.Interpreter.VerboseDebug)
 
-	iw.worker.RegisterWorkflow(iw.Engine)
+	iw.worker.RegisterWorkflowWithOptions(iw.Engine, workflow.RegisterOptions{
+		Name: InterpreterWorkflowType,
+	})
 	iw.worker.RegisterWorkflow(iw.BlobStoreCleanup)
 	iw.worker.RegisterActivityWithOptions(iw.activities.IWaitForM, activity.RegisterOptions{
 		Name: service.WaitForMethodActivityType,

@@ -32,6 +32,9 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+// InterpreterWorkflowType is the persisted Temporal workflow type of every Flow run.
+const InterpreterWorkflowType = "Engine"
+
 type InterpreterWorker struct {
 	temporalClient client.Client
 	worker         worker.Worker
@@ -148,6 +151,7 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) error {
 	worker.EnableVerboseLogging(iw.cfg.Interpreter.VerboseDebug)
 
 	iw.worker.RegisterWorkflowWithOptions(iw.Engine, workflow.RegisterOptions{
+		Name:             InterpreterWorkflowType,
 		FlowTypeProvider: interpreterWorkflowFlowType,
 	})
 	iw.worker.RegisterWorkflow(iw.BlobStoreCleanup)
