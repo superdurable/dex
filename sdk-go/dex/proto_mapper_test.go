@@ -363,9 +363,39 @@ func TestFlowInfoMappingRejectsIncompleteSummaries(t *testing.T) {
 			expectedError: "is missing FlowExecutionId",
 		},
 		{
+			name: "missing Flow ID",
+			response: &dexpb.GetFlowSummaryResponse{
+				FlowExecutionId: &dexpb.FlowExecutionID{RunId: "run-1"},
+				FlowType:        "OrderFlow",
+				FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+				StartTime:       startTime,
+			},
+			expectedError: "is missing FlowId",
+		},
+		{
+			name: "missing run ID",
+			response: &dexpb.GetFlowSummaryResponse{
+				FlowExecutionId: &dexpb.FlowExecutionID{FlowId: "order-123"},
+				FlowType:        "OrderFlow",
+				FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+				StartTime:       startTime,
+			},
+			expectedError: "is missing RunId",
+		},
+		{
+			name: "missing Flow type",
+			response: &dexpb.GetFlowSummaryResponse{
+				FlowExecutionId: executionID,
+				FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+				StartTime:       startTime,
+			},
+			expectedError: "is missing FlowType",
+		},
+		{
 			name: "nil start time",
 			response: &dexpb.GetFlowSummaryResponse{
 				FlowExecutionId: executionID,
+				FlowType:        "OrderFlow",
 				FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_RUNNING,
 			},
 			expectedError: "is missing StartTime",
@@ -374,6 +404,7 @@ func TestFlowInfoMappingRejectsIncompleteSummaries(t *testing.T) {
 			name: "unknown status",
 			response: &dexpb.GetFlowSummaryResponse{
 				FlowExecutionId: executionID,
+				FlowType:        "OrderFlow",
 				FlowStatus:      dexpb.FlowStatus(99),
 				StartTime:       startTime,
 			},
@@ -383,6 +414,7 @@ func TestFlowInfoMappingRejectsIncompleteSummaries(t *testing.T) {
 			name: "invalid start time",
 			response: &dexpb.GetFlowSummaryResponse{
 				FlowExecutionId: executionID,
+				FlowType:        "OrderFlow",
 				FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_RUNNING,
 				StartTime:       invalidTime,
 			},
@@ -392,6 +424,7 @@ func TestFlowInfoMappingRejectsIncompleteSummaries(t *testing.T) {
 			name: "invalid close time",
 			response: &dexpb.GetFlowSummaryResponse{
 				FlowExecutionId: executionID,
+				FlowType:        "OrderFlow",
 				FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
 				StartTime:       startTime,
 				CloseTime:       invalidTime,
@@ -408,11 +441,12 @@ func TestFlowInfoMappingRejectsIncompleteSummaries(t *testing.T) {
 	}
 }
 
-func TestFlowInfoMappingAcceptsEmptyFlowType(t *testing.T) {
+func TestFlowInfoMappingMapsCompleteSummary(t *testing.T) {
 	startedAt := time.Unix(100, 0).UTC()
 	closedAt := startedAt.Add(time.Minute)
 	info, err := mapFlowInfo("order-123", &dexpb.GetFlowSummaryResponse{
 		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: "order-123", RunId: "run-1"},
+		FlowType:        "OrderFlow",
 		FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
 		StartTime:       timestamppb.New(startedAt),
 		CloseTime:       timestamppb.New(closedAt),
@@ -421,7 +455,7 @@ func TestFlowInfoMappingAcceptsEmptyFlowType(t *testing.T) {
 	require.Equal(t, FlowInfo{
 		FlowID:    "order-123",
 		RunID:     "run-1",
-		FlowType:  "",
+		FlowType:  "OrderFlow",
 		Status:    FlowCompleted,
 		StartedAt: startedAt,
 		ClosedAt:  closedAt,
@@ -444,6 +478,7 @@ func TestSearchFlowsPageMappingRejectsIncompleteEntries(t *testing.T) {
 			name: "missing Flow ID",
 			entry: &dexpb.SearchFlowsResponseEntry{
 				RunId:      "run-2",
+				FlowType:   "OrderFlow",
 				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
 				StartTime:  startTime,
 			},
@@ -453,16 +488,28 @@ func TestSearchFlowsPageMappingRejectsIncompleteEntries(t *testing.T) {
 			name: "missing run ID",
 			entry: &dexpb.SearchFlowsResponseEntry{
 				FlowId:     "order-456",
+				FlowType:   "OrderFlow",
 				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
 				StartTime:  startTime,
 			},
 			expectedError: `dex: SearchFlows entry for Flow "order-456" is missing RunId`,
 		},
 		{
+			name: "missing Flow type",
+			entry: &dexpb.SearchFlowsResponseEntry{
+				FlowId:     "order-456",
+				RunId:      "run-2",
+				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+				StartTime:  startTime,
+			},
+			expectedError: `dex: SearchFlows entry for Flow "order-456" is missing FlowType`,
+		},
+		{
 			name: "unknown status",
 			entry: &dexpb.SearchFlowsResponseEntry{
 				FlowId:     "order-456",
 				RunId:      "run-2",
+				FlowType:   "OrderFlow",
 				FlowStatus: dexpb.FlowStatus(99),
 				StartTime:  startTime,
 			},
@@ -473,6 +520,7 @@ func TestSearchFlowsPageMappingRejectsIncompleteEntries(t *testing.T) {
 			entry: &dexpb.SearchFlowsResponseEntry{
 				FlowId:     "order-456",
 				RunId:      "run-2",
+				FlowType:   "OrderFlow",
 				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
 			},
 			expectedError: `dex: SearchFlows entry for Flow "order-456" is missing StartTime`,
@@ -482,6 +530,7 @@ func TestSearchFlowsPageMappingRejectsIncompleteEntries(t *testing.T) {
 			entry: &dexpb.SearchFlowsResponseEntry{
 				FlowId:     "order-456",
 				RunId:      "run-2",
+				FlowType:   "OrderFlow",
 				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
 				StartTime:  invalidTime,
 			},
@@ -492,6 +541,7 @@ func TestSearchFlowsPageMappingRejectsIncompleteEntries(t *testing.T) {
 			entry: &dexpb.SearchFlowsResponseEntry{
 				FlowId:     "order-456",
 				RunId:      "run-2",
+				FlowType:   "OrderFlow",
 				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
 				StartTime:  startTime,
 				CloseTime:  invalidTime,
@@ -516,7 +566,7 @@ func TestSearchFlowsPageMappingRejectsIncompleteEntries(t *testing.T) {
 	}
 }
 
-func TestSearchFlowsPageMappingAcceptsEmptyFlowType(t *testing.T) {
+func TestSearchFlowsPageMappingMapsCompleteEntries(t *testing.T) {
 	startedAt := time.Unix(100, 0).UTC()
 	closedAt := startedAt.Add(time.Minute)
 	page, err := mapSearchFlowsPage(&dexpb.SearchFlowsResponse{
@@ -529,8 +579,9 @@ func TestSearchFlowsPageMappingAcceptsEmptyFlowType(t *testing.T) {
 				StartTime:  timestamppb.New(startedAt),
 			},
 			{
-				FlowId:     "cleanup-1",
+				FlowId:     "order-456",
 				RunId:      "run-2",
+				FlowType:   "OrderFlow",
 				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
 				StartTime:  timestamppb.New(startedAt),
 				CloseTime:  timestamppb.New(closedAt),
@@ -550,9 +601,9 @@ func TestSearchFlowsPageMappingAcceptsEmptyFlowType(t *testing.T) {
 				IndexedAttributes: map[string]Value{},
 			},
 			{
-				FlowID:            "cleanup-1",
+				FlowID:            "order-456",
 				RunID:             "run-2",
-				FlowType:          "",
+				FlowType:          "OrderFlow",
 				Status:            FlowCompleted,
 				StartedAt:         startedAt,
 				ClosedAt:          closedAt,

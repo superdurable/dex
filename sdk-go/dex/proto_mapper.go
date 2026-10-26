@@ -1077,6 +1077,15 @@ func mapFlowInfo(flowID string, response *dexpb.GetFlowSummaryResponse) (FlowInf
 	if response.GetFlowExecutionId() == nil {
 		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing FlowExecutionId", flowID)
 	}
+	if response.GetFlowExecutionId().GetFlowId() == "" {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing FlowId", flowID)
+	}
+	if response.GetFlowExecutionId().GetRunId() == "" {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing RunId", flowID)
+	}
+	if response.GetFlowType() == "" {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing FlowType", flowID)
+	}
 	if response.GetStartTime() == nil {
 		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing StartTime", flowID)
 	}
@@ -1120,6 +1129,9 @@ func mapSearchFlowsPage(
 		}
 		if flow.RunId == "" {
 			return SearchFlowsPage{}, fmt.Errorf("dex: SearchFlows entry for Flow %q is missing RunId", flow.FlowId)
+		}
+		if flow.FlowType == "" {
+			return SearchFlowsPage{}, fmt.Errorf("dex: SearchFlows entry for Flow %q is missing FlowType", flow.FlowId)
 		}
 		status, err := mapFlowStatus(flow.FlowStatus)
 		if err != nil {
