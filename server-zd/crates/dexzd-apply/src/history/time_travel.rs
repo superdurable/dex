@@ -345,7 +345,14 @@ fn remark_synced_attributes(
 ) -> Result<(), ApplyError> {
     let mut keys = synced_row_keys(previous_rows)?;
     keys.extend(synced_row_keys(final_rows)?);
-    mark_attribute_sync_entries(transaction, cursor, &keys, scope.now_micros)
+    let store_names = mark_attribute_sync_entries(transaction, cursor, &keys, scope.now_micros)?;
+    if !store_names.is_empty() {
+        cursor.add_effect(ApplyEffect::AttributeSyncPending {
+            run_id: cursor.run_id(),
+            store_names: store_names.into_iter().collect(),
+        });
+    }
+    Ok(())
 }
 
 /// Returns the keys of the Attribute rows whose last write requested synchronization.

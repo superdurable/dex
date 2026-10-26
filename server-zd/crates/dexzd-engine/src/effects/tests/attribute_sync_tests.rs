@@ -21,12 +21,13 @@ use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId, RunId};
 use dexzd_metrics::{AttributeSyncFailureKind, NodeMetrics};
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeSyncConfig as WriteSyncConfig, AttributeWrite, CloseDecision,
-    CloseDecisionType, FlowConfig, FlowStartOptions, FlowStatus, IdReusePolicy,
-    InvokeExecuteMethodResponse, SetAttributesRequest, StepDecision, StepOptions, Value,
+    CloseDecisionType, FlowConfig, FlowResetType, FlowStartOptions, FlowStatus, IdReusePolicy,
+    InvokeExecuteMethodResponse, ResetFlowRequest, SetAttributesRequest, StepDecision, StepOptions,
+    Value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributeSyncOutboxRecord, AttributesSetCommand, FlowCommand,
-    StepInvocationKey, StepMethod, StepMethodCompletedCommand, flow_command,
+    StepInvocationKey, StepMethod, StepMethodCompletedCommand, TimeTravelCommand, flow_command,
     step_method_completed_command,
 };
 use futures::future::BoxFuture;
@@ -1300,6 +1301,143 @@ async fn entries_committed_before_the_projector_starts_are_synced_by_the_startup
         .collect();
     assert_eq!(written_flow_ids, flow_ids);
     assert_eq!(fixture.acks().len(), flow_ids.len());
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unsynced_write_after_a_pending_synced_write_does_not_reach_the_store() {
+    let harness = EffectHarness::new();
+    let run_id = start_synced_flow(
+        &harness,
+        "unsynced-after-pending",
+        &[STORE],
+        vec![synced("Status", Some(string_value("opened")))],
+    );
+    let flow = EffectHarness::flow("unsynced-after-pending");
+    let command = FlowCommand {
+        flow_id: "unsynced-after-pending".to_owned(),
+        run_id: run_id.as_bytes().to_vec(),
+        command: Some(flow_command::Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                flow_id: "unsynced-after-pending".to_owned(),
+                run_id: run_id.to_string(),
+                attributes: vec![unsynced("Status", string_value("quiet"))],
+                ..SetAttributesRequest::default()
+            }),
+            ..AttributesSetCommand::default()
+        })),
+        ..FlowCommand::default()
+    };
+    let reply = harness
+        .runtime
+        .commit(&flow, command, CommitUrgency::Prompt)
+        .expect("unsynced write commits");
+    assert!(!is_error_reply(&reply));
+    harness.settle().await;
+
+    let fixture = ProjectorFixture::start_on(
+        harness,
+        sync_config(),
+        Duration::from_secs(365 * 24 * 3600),
+        AttributeSyncWaker::new(),
+    );
+    fixture
+        .wait_until("the pending entry is acknowledged", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    let writes = fixture.store.committed_writes();
+    assert_eq!(writes.len(), 1, "{writes:?}");
+    assert_eq!(
+        writes[0].items,
+        vec![item("Status", Some(string_value("opened")))],
+    );
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn time_travel_to_an_unsynced_value_deletes_the_store_row() {
+    const FLOW_ID: &str = "reset-to-unsynced";
+    let harness = EffectHarness::new();
+    let run_id = start_synced_flow(
+        &harness,
+        FLOW_ID,
+        &[STORE],
+        vec![unsynced("Status", string_value("draft"))],
+    );
+    let flow = EffectHarness::flow(FLOW_ID);
+    let set_command = FlowCommand {
+        flow_id: FLOW_ID.to_owned(),
+        run_id: run_id.as_bytes().to_vec(),
+        command: Some(flow_command::Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                flow_id: FLOW_ID.to_owned(),
+                run_id: run_id.to_string(),
+                attributes: vec![synced("Status", Some(string_value("final")))],
+                ..SetAttributesRequest::default()
+            }),
+            ..AttributesSetCommand::default()
+        })),
+        ..FlowCommand::default()
+    };
+    let reply = harness
+        .runtime
+        .commit(&flow, set_command, CommitUrgency::Prompt)
+        .expect("synced write commits");
+    assert!(!is_error_reply(&reply));
+    let ack_command = FlowCommand {
+        flow_id: FLOW_ID.to_owned(),
+        run_id: run_id.as_bytes().to_vec(),
+        command: Some(flow_command::Command::AttributeSyncAck(
+            AttributeSyncAckCommand {
+                store_name: STORE.to_owned(),
+                acked_seq: u64::MAX,
+                attribute_keys: Vec::new(),
+                is_dropped: false,
+            },
+        )),
+        ..FlowCommand::default()
+    };
+    let reply = harness
+        .runtime
+        .commit(&flow, ack_command, CommitUrgency::Prompt)
+        .expect("sync ack commits");
+    assert!(!is_error_reply(&reply));
+    let reset_command = FlowCommand {
+        flow_id: FLOW_ID.to_owned(),
+        run_id: run_id.as_bytes().to_vec(),
+        command: Some(flow_command::Command::TimeTravel(TimeTravelCommand {
+            request: Some(ResetFlowRequest {
+                flow_id: FLOW_ID.to_owned(),
+                reset_type: FlowResetType::Beginning as i32,
+                reason: "test".to_owned(),
+                skip_writes_reapply: true,
+                ..ResetFlowRequest::default()
+            }),
+        })),
+        ..FlowCommand::default()
+    };
+    let reply = harness
+        .runtime
+        .commit(&flow, reset_command, CommitUrgency::Prompt)
+        .expect("reset commits");
+    assert!(!is_error_reply(&reply));
+    harness.settle().await;
+
+    let fixture = ProjectorFixture::start_on(
+        harness,
+        sync_config(),
+        Duration::from_secs(365 * 24 * 3600),
+        AttributeSyncWaker::new(),
+    );
+    fixture
+        .wait_until("the reset entry is acknowledged", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    let writes = fixture.store.committed_writes();
+    assert_eq!(writes.len(), 1, "{writes:?}");
+    assert_eq!(writes[0].items, vec![item("Status", None)]);
     fixture.shutdown().await;
 }
 

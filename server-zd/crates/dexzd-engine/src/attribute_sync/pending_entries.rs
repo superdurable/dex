@@ -21,6 +21,7 @@ use dexzd_keyspace::{ColumnFamily, PartitionId, RunId, RunTable, TenantId, flow_
 use dexzd_protocol::dex::{Value, value};
 use dexzd_protocol::dexzd::v1::{
     AttributeRecord, AttributeSyncOutboxRecord, FlowDirectoryRecord, RunRecord,
+    attribute_sync_outbox_record::SyncItem,
 };
 
 use super::AttributeSyncItem;
@@ -42,9 +43,9 @@ pub(super) struct PendingRunEntries {
     pub(super) flow: FlowAddress,
     /// Every pending entry, in key order.
     pub(super) entries: Vec<PendingEntry>,
-    /// Latest committed values to write, in key order.
+    /// Synced values to write, in key order.
     ///
-    /// Entries without an item are superseded by a newer run or hold hard-delete values.
+    /// Entries without an item are superseded, hold hard-delete values, or have legacy unsynced values.
     pub(super) items: Vec<AttributeSyncItem>,
     /// Set when a stored value reference cannot be loaded; the entries are dropped.
     pub(super) unreadable_value_detail: Option<String>,
@@ -167,28 +168,53 @@ fn read_run_entries(
     newer_runs: &[DirectoryRun],
 ) -> Result<PendingRunEntries, EffectError> {
     let prefix = attribute_sync_outbox_store_prefix(run.flow_hash, run.run_id, store_name);
-    let entries: Vec<PendingEntry> = scan_all(reader, ColumnFamily::Flow, &prefix)?
+    let records: Vec<AttributeSyncOutboxRecord> = scan_all(reader, ColumnFamily::Flow, &prefix)?
         .into_iter()
-        .map(|(key, bytes)| {
-            let record: AttributeSyncOutboxRecord =
-                decode_row("AttributeSyncOutbox", &key, &bytes)?;
-            Ok(PendingEntry {
-                attribute_key: record.attribute_key,
-                written_seq: record.written_seq,
-                retry_window_started_at_micros: record.retry_window_started_at_micros,
-            })
-        })
+        .map(|(key, bytes)| decode_row("AttributeSyncOutbox", &key, &bytes))
         .collect::<Result<_, EffectError>>()?;
-    let mut keys_to_write = Vec::with_capacity(entries.len());
-    for entry in &entries {
-        if !is_written_by_newer_run(reader, &entry.attribute_key, store_name, newer_runs)? {
-            keys_to_write.push(entry.attribute_key.clone());
+    let mut synced_items = BTreeMap::new();
+    let mut legacy_keys = Vec::new();
+    for record in &records {
+        if is_written_by_newer_run(reader, &record.attribute_key, store_name, newer_runs)? {
+            continue;
+        }
+        match &record.sync_item {
+            Some(SyncItem::Value(value)) => {
+                synced_items.insert(
+                    record.attribute_key.clone(),
+                    AttributeSyncItem {
+                        key: record.attribute_key.clone(),
+                        value: Some(value.clone()),
+                    },
+                );
+            }
+            Some(SyncItem::IsDelete(_)) => {
+                synced_items.insert(
+                    record.attribute_key.clone(),
+                    AttributeSyncItem {
+                        key: record.attribute_key.clone(),
+                        value: None,
+                    },
+                );
+            }
+            None => legacy_keys.push(record.attribute_key.clone()),
         }
     }
-    let (items, unreadable_value_detail) = match read_latest_values(reader, run, &keys_to_write)? {
-        Ok(items) => (items, None),
+    let (items, unreadable_value_detail) = match read_latest_values(reader, run, &legacy_keys)? {
+        Ok(items) => {
+            synced_items.extend(items.into_iter().map(|item| (item.key.clone(), item)));
+            (synced_items.into_values().collect(), None)
+        }
         Err(detail) => (Vec::new(), Some(detail)),
     };
+    let entries = records
+        .into_iter()
+        .map(|record| PendingEntry {
+            attribute_key: record.attribute_key,
+            written_seq: record.written_seq,
+            retry_window_started_at_micros: record.retry_window_started_at_micros,
+        })
+        .collect();
     Ok(PendingRunEntries {
         run,
         flow: flow.clone(),
@@ -264,6 +290,14 @@ fn read_latest_values(
         .collect();
     let mut items = Vec::with_capacity(keys.len());
     for key in keys {
+        let attribute_key = run_named_key(run.flow_hash, run.run_id, RunTable::Attribute, key);
+        if let Some(bytes) = reader.get(ColumnFamily::Flow, &attribute_key)? {
+            let record: AttributeRecord = decode_row("Attribute", &attribute_key, &bytes)?;
+            // Legacy entries lack snapshots; never project their unsynced current values.
+            if !record.sync_config.is_some_and(|config| config.enabled) {
+                continue;
+            }
+        }
         // Request validation rejects syncing hard-delete Attributes; a later one is left unwritten.
         if hard_delete_keys.contains(key) {
             continue;
