@@ -394,12 +394,13 @@ fn flow_error_type_for_attempt_failure(command: &StepAttemptFailedCommand) -> Fl
                 FlowErrorType::Internal
             }
         }
-        StepAttemptFailureKind::InvalidResponse => FlowErrorType::Internal,
+        StepAttemptFailureKind::InvalidResponse | StepAttemptFailureKind::RequestTooLarge => {
+            FlowErrorType::Internal
+        }
         StepAttemptFailureKind::WorkerError
         | StepAttemptFailureKind::MethodTimeout
         | StepAttemptFailureKind::HeartbeatTimeout
         | StepAttemptFailureKind::RetryDeadline
-        | StepAttemptFailureKind::RequestTooLarge
         | StepAttemptFailureKind::ValueTooLarge
         | StepAttemptFailureKind::UnsupportedFeature
         | StepAttemptFailureKind::Unspecified => FlowErrorType::WorkerApiFail,
@@ -493,33 +494,27 @@ fn recovery_error(
     worker_error: &WorkerErrorResponse,
     detail: String,
 ) -> RecoveryErrorInfo {
-    let kind = dexzd_protocol::dexzd::v1::StepAttemptFailureKind::try_from(command.kind)
-        .unwrap_or(dexzd_protocol::dexzd::v1::StepAttemptFailureKind::Unspecified);
+    let kind = StepAttemptFailureKind::try_from(command.kind)
+        .unwrap_or(StepAttemptFailureKind::Unspecified);
     let error_type = match kind {
-        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::WorkerError => {
+        StepAttemptFailureKind::WorkerError => {
             if worker_error.error_type.is_empty() {
                 "FLOW_ERROR_TYPE_WORKER_API_FAIL"
             } else {
                 &worker_error.error_type
             }
         }
-        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::MethodTimeout => "StartToClose",
-        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::HeartbeatTimeout => "Heartbeat",
-        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::RetryDeadline => "ScheduleToClose",
-        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::DispatchError => {
-            "FLOW_ERROR_TYPE_INTERNAL"
+        StepAttemptFailureKind::MethodTimeout => "StartToClose",
+        StepAttemptFailureKind::HeartbeatTimeout => "Heartbeat",
+        StepAttemptFailureKind::RetryDeadline => "ScheduleToClose",
+        StepAttemptFailureKind::DispatchError
+        | StepAttemptFailureKind::InvalidResponse
+        | StepAttemptFailureKind::RequestTooLarge => {
+            flow_error_type_for_attempt_failure(command).as_str_name()
         }
-        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::InvalidResponse => {
-            "FLOW_ERROR_TYPE_INTERNAL"
-        }
-        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::UnsupportedFeature => {
-            "UnsupportedFeature"
-        }
-        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::ValueTooLarge => "ValueTooLarge",
-        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::RequestTooLarge => {
-            "FLOW_ERROR_TYPE_WORKER_API_FAIL"
-        }
-        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::Unspecified => "UnknownStepFailure",
+        StepAttemptFailureKind::UnsupportedFeature => "UnsupportedFeature",
+        StepAttemptFailureKind::ValueTooLarge => "ValueTooLarge",
+        StepAttemptFailureKind::Unspecified => "UnknownStepFailure",
     };
     RecoveryErrorInfo {
         detail,

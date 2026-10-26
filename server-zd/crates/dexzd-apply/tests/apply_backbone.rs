@@ -937,7 +937,7 @@ const STEP_FAILURE_TEXT_CASES: &[StepFailureTextCase] = &[
         "value of 20 bytes exceeds the maximum of 10 bytes",
         "value of 20 bytes exceeds the maximum of 10 bytes",
     ),
-    StepFailureTextCase::worker_api_fail(
+    StepFailureTextCase::internal(
         StepAttemptFailureKind::RequestTooLarge,
         "Worker request of 20 bytes exceeds the 10 byte message limit",
         "Worker request of 20 bytes exceeds the 10 byte message limit",
