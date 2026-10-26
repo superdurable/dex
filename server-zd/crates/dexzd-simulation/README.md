@@ -216,7 +216,13 @@ environment variables as the fixed set, without the regression seeds.
 `engine-regression-seeds.txt`, the first three fixed-set seeds, and the first redeploy-profile
 seed. Each seed's `canonical_command_digest` must equal its pinned value. The digest chains
 xxh3-128 over every committed command, in the order the shadow accepted them. The pinned values
-record the expected trajectories for the current startup fault model.
+record the expected trajectories for the current startup fault model. Four pins that are not active
+regression seeds, `3856990760`, `FIRST_SEED`, `FIRST_SEED + 1`, and `FIRST_SEED + 2`, were
+refreshed when an exhausted Step failure started closing its Flow with the Go Server's failure text.
+A child Flow's failure message reaches its parent as the `error_message` of a committed
+`InboxMessage` command. Only those bytes changed, so the trajectories stayed the same. The two
+active regression seeds kept their digests. A failing run prints each moved pin's observed digest
+in hex.
 
 Any change that moves a regression seed's trajectory can make the seed stop reproducing its
 failure. An engine change can do that as well as a workload change. Without the pins, no test

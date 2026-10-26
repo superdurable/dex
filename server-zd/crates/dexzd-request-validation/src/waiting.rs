@@ -12,7 +12,7 @@ use dexzd_protocol::dex::{FlowConfig, SubFlowReusePolicy, WaitingCondition, Wait
 
 use crate::shared::{
     ValidationCategory, ValidationConfig, ValidationError, apply_flow_config_override, invalid,
-    validate_attribute_writes, validate_blob_value, validate_flow_config,
+    quote_go_string, validate_attribute_writes, validate_blob_value, validate_flow_config,
     validate_flow_timeout_policy, validate_identifier, validate_start_options,
     validate_step_options, validate_timeout_handler,
 };
@@ -55,8 +55,9 @@ fn do_validate_waiting_condition(
             return Err(invalid(
                 format!("{path}.duration_seconds"),
                 format!(
-                    "timer condition {:?} has negative duration_seconds {}",
-                    timer.condition_id, timer.duration_seconds
+                    "timer condition {} has negative duration_seconds {}",
+                    quote_go_string(&timer.condition_id),
+                    timer.duration_seconds
                 ),
             ));
         }
@@ -64,8 +65,8 @@ fn do_validate_waiting_condition(
             return Err(invalid(
                 format!("{path}.firing_unix_timestamp_seconds"),
                 format!(
-                    "timer condition {:?} sets server-owned firing_unix_timestamp_seconds",
-                    timer.condition_id
+                    "timer condition {} sets server-owned firing_unix_timestamp_seconds",
+                    quote_go_string(&timer.condition_id)
                 ),
             ));
         }
@@ -83,8 +84,8 @@ fn do_validate_waiting_condition(
             return Err(invalid(
                 format!("{path}.channel_name"),
                 format!(
-                    "channel condition {:?} has an empty channel_name",
-                    channel.condition_id
+                    "channel condition {} has an empty channel_name",
+                    quote_go_string(&channel.condition_id)
                 ),
             ));
         }
@@ -94,8 +95,8 @@ fn do_validate_waiting_condition(
             return Err(invalid(
                 format!("{path}.at_least"),
                 format!(
-                    "channel condition {:?} has negative at_least {at_least}",
-                    channel.condition_id
+                    "channel condition {} has negative at_least {at_least}",
+                    quote_go_string(&channel.condition_id)
                 ),
             ));
         }
@@ -104,8 +105,8 @@ fn do_validate_waiting_condition(
                 return Err(invalid(
                     format!("{path}.at_most"),
                     format!(
-                        "channel condition {:?} has negative at_most {at_most}",
-                        channel.condition_id
+                        "channel condition {} has negative at_most {at_most}",
+                        quote_go_string(&channel.condition_id)
                     ),
                 ));
             }
@@ -113,8 +114,8 @@ fn do_validate_waiting_condition(
                 return Err(invalid(
                     format!("{path}.at_most"),
                     format!(
-                        "channel condition {:?} has at_most {at_most} < at_least {}",
-                        channel.condition_id,
+                        "channel condition {} has at_most {at_most} < at_least {}",
+                        quote_go_string(&channel.condition_id),
                         channel.at_least.unwrap_or_default()
                     ),
                 ));
@@ -136,16 +137,19 @@ fn do_validate_waiting_condition(
                 format!("SubFlow condition at index {index} requires Flow and starting Step types"),
             ));
         }
+        let context = format!("SubFlow condition at index {index}");
         validate_identifier(
             &format!("{path}.start_step_type"),
             "step type",
             &subflow.start_step_type,
-        )?;
+        )
+        .map_err(|error| error.with_message_context(&context))?;
         validate_step_options(
             &format!("{path}.step_options"),
             subflow.step_options.as_ref(),
             config,
-        )?;
+        )
+        .map_err(|error| error.with_message_context(&context))?;
         if subflow.sub_flow_index != index as i32 {
             return Err(invalid(
                 format!("{path}.sub_flow_index"),
@@ -161,14 +165,16 @@ fn do_validate_waiting_condition(
                 &format!("{options_path}.flow_timeout_policy"),
                 options.flow_timeout_seconds,
                 options.flow_timeout_policy,
-            )?;
+            )
+            .map_err(|error| error.with_message_context(&context))?;
             validate_timeout_handler(
                 &format!("{options_path}.timeout_handler_options"),
                 options.flow_timeout_seconds,
                 timeout_policy,
                 options.timeout_handler_options.as_ref(),
                 config,
-            )?;
+            )
+            .map_err(|error| error.with_message_context(&context))?;
             if options.flow_start_delay_seconds < 0 {
                 return Err(invalid(
                     format!("{options_path}.flow_start_delay_seconds"),
@@ -255,7 +261,7 @@ fn register_id<'a>(
     if !declared.insert(condition_id) {
         return Err(invalid(
             format!("{path}.condition_id"),
-            format!("duplicate condition_id {condition_id:?}"),
+            format!("duplicate condition_id {}", quote_go_string(condition_id)),
         ));
     }
     Ok(())
@@ -286,7 +292,8 @@ fn validate_combinations(
                 return Err(invalid(
                     id_path,
                     format!(
-                        "condition_combination at index {index} references undeclared condition_id {condition_id:?}"
+                        "condition_combination at index {index} references undeclared condition_id {}",
+                        quote_go_string(condition_id)
                     ),
                 ));
             }
@@ -294,7 +301,8 @@ fn validate_combinations(
                 return Err(invalid(
                     id_path,
                     format!(
-                        "condition_combination at index {index} has duplicate condition_id {condition_id:?}"
+                        "condition_combination at index {index} has duplicate condition_id {}",
+                        quote_go_string(condition_id)
                     ),
                 ));
             }

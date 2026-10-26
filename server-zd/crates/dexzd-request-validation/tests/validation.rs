@@ -1053,6 +1053,44 @@ fn waiting_condition_ids_and_server_owned_timer_state_are_rejected() {
 }
 
 #[test]
+fn worker_validation_quotes_non_printable_strings_like_go() {
+    let config = config();
+    for (condition_id, quoted) in [
+        ("del\x7f", "\"del\\x7f\""),
+        ("bell\x07", "\"bell\\a\""),
+        ("null\x00", "\"null\\x00\""),
+        ("zero\u{200b}width", "\"zero\\u200bwidth\""),
+        ("control\u{0080}", "\"control\\u0080\""),
+        ("private\u{e000}", "\"private\\ue000\""),
+    ] {
+        let response = InvokeWaitForMethodResponse {
+            waiting_condition: Some(WaitingCondition {
+                waiting_condition_type: dex::WaitingConditionType::AllCompleted as i32,
+                timer_conditions: vec![TimerCondition {
+                    condition_id: condition_id.to_owned(),
+                    duration_seconds: -1,
+                    ..TimerCondition::default()
+                }],
+                ..WaitingCondition::default()
+            }),
+            ..InvokeWaitForMethodResponse::default()
+        };
+        let error = validate_worker_response(
+            WorkerResponse::WaitFor {
+                response: Some(&response),
+                parent_flow_config: &config.default_flow_config,
+            },
+            &config,
+        )
+        .expect_err("negative timer duration is invalid");
+        assert_eq!(
+            error.message,
+            format!("timer condition {quoted} has negative duration_seconds -1")
+        );
+    }
+}
+
+#[test]
 fn subflow_inherits_parent_effective_flow_config() {
     let mut config = ValidationConfig::default();
     config.attribute_store_names.insert("parent-store".into());
@@ -1207,4 +1245,239 @@ fn recovery_step_type_rejects_reserved_characters() {
         "step type contains reserved character",
         ValidationCategory::RetryableWorkerResponse,
     );
+}
+
+/// Returns the message and field path of a rejected input.
+fn rejection(result: Result<(), ValidationError>) -> (String, String) {
+    let error = result.expect_err("must reject invalid input");
+    (error.message, error.field_path)
+}
+
+fn next_step(step_type: &str, step_options: Option<StepOptions>) -> StepMovement {
+    StepMovement {
+        step_type: step_type.into(),
+        step_options,
+        ..StepMovement::default()
+    }
+}
+
+#[test]
+fn worker_step_decision_rejections_use_the_go_server_text() {
+    let config = config();
+    let short_heartbeat = StepOptions {
+        heartbeat_timeout_seconds: 1,
+        ..StepOptions::default()
+    };
+    let cases = [
+        (
+            StepDecision {
+                next_steps: vec![next_step("Next/Step", None)],
+                ..StepDecision::default()
+            },
+            "next step at index 0: step type contains reserved character \"/\"",
+            "step_decision.next_steps[0].step_type",
+        ),
+        (
+            StepDecision {
+                next_steps: vec![
+                    next_step("NextStep", None),
+                    next_step("NextStep", Some(short_heartbeat)),
+                ],
+                ..StepDecision::default()
+            },
+            "next step at index 1: heartbeat timeout must be zero or at least 10s",
+            "step_decision.next_steps[1].step_options.heartbeat_timeout_seconds",
+        ),
+        (
+            StepDecision {
+                next_steps: vec![next_step("NextStep", None)],
+                cancel_step_types: vec!["Old:Step".into()],
+                ..StepDecision::default()
+            },
+            "cancel step type at index 0: step type contains reserved character \":\"",
+            "step_decision.cancel_step_types[0]",
+        ),
+        (
+            StepDecision {
+                next_steps: vec![next_step("NextStep", None)],
+                cancel_sibling_step_types: vec!["Old$Step".into()],
+                ..StepDecision::default()
+            },
+            "cancel sibling step type at index 0: step type contains reserved character \"$\"",
+            "step_decision.cancel_sibling_step_types[0]",
+        ),
+    ];
+    for (decision, message, field_path) in cases {
+        let execute = InvokeExecuteMethodResponse {
+            step_decision: Some(decision.clone()),
+            ..InvokeExecuteMethodResponse::default()
+        };
+        assert_eq!(
+            rejection(validate_worker_response(
+                WorkerResponse::Execute(Some(&execute)),
+                &config
+            )),
+            (message.to_owned(), field_path.to_owned())
+        );
+    }
+    let rpc = InvokeWorkerRpcResponse {
+        step_decision: Some(StepDecision {
+            next_steps: vec![next_step("Next/Step", None)],
+            ..StepDecision::default()
+        }),
+        ..InvokeWorkerRpcResponse::default()
+    };
+    assert_eq!(
+        rejection(validate_worker_response(
+            WorkerResponse::Rpc(Some(&rpc)),
+            &config
+        ))
+        .0,
+        "next step at index 0: step type contains reserved character \"/\""
+    );
+}
+
+/// Changes one field of an otherwise valid SubFlow condition.
+type SubFlowConditionChange = fn(&mut SubFlowCondition);
+
+#[test]
+fn worker_subflow_condition_rejections_use_the_go_server_text() {
+    let config = config();
+    let subflow_waiting = |configure: SubFlowConditionChange| {
+        let mut condition = SubFlowCondition {
+            sub_flow_type: "ChildFlow".into(),
+            start_step_type: "StartStep".into(),
+            ..SubFlowCondition::default()
+        };
+        configure(&mut condition);
+        WaitingCondition {
+            waiting_condition_type: dex::WaitingConditionType::AllCompleted as i32,
+            sub_flow_conditions: vec![condition],
+            ..WaitingCondition::default()
+        }
+    };
+    let cases: [(SubFlowConditionChange, &str, &str); 4] = [
+        (
+            |condition| condition.start_step_type = "Start/Step".into(),
+            "SubFlow condition at index 0: step type contains reserved character \"/\"",
+            "waiting_condition.sub_flow_conditions[0].start_step_type",
+        ),
+        (
+            |condition| {
+                condition.step_options = Some(StepOptions {
+                    execute_load_channel_map_instances: vec![" ".into()],
+                    ..StepOptions::default()
+                });
+            },
+            "SubFlow condition at index 0: Execute state load ChannelMap instance is empty",
+            "waiting_condition.sub_flow_conditions[0].step_options.execute.ChannelMap[0]",
+        ),
+        (
+            |condition| {
+                condition.options = Some(SubFlowOptions {
+                    flow_timeout_seconds: -1,
+                    ..SubFlowOptions::default()
+                });
+            },
+            "SubFlow condition at index 0: flow timeout must be non-negative",
+            "waiting_condition.sub_flow_conditions[0].options.flow_timeout_policy",
+        ),
+        (
+            |condition| {
+                condition.options = Some(SubFlowOptions {
+                    flow_timeout_seconds: 10,
+                    flow_timeout_policy: dex::FlowTimeoutPolicy::Handler as i32,
+                    timeout_handler_options: Some(FlowTimeoutHandlerOptions {
+                        heartbeat_timeout_seconds: 1,
+                        ..FlowTimeoutHandlerOptions::default()
+                    }),
+                    ..SubFlowOptions::default()
+                });
+            },
+            "SubFlow condition at index 0: Flow timeout handler options: heartbeat timeout must \
+             be zero or at least 10s",
+            "waiting_condition.sub_flow_conditions[0].options.timeout_handler_options\
+             .heartbeat_timeout_seconds",
+        ),
+    ];
+    for (configure, message, field_path) in cases {
+        let waiting = subflow_waiting(configure);
+        assert_eq!(
+            rejection(validate_waiting_condition(
+                Some(&waiting),
+                &config.default_flow_config,
+                &config
+            )),
+            (message.to_owned(), field_path.to_owned())
+        );
+    }
+}
+
+#[test]
+fn start_flow_rejections_use_the_go_server_text() {
+    let config = config();
+    let mut request = start_request();
+    request.start_step_type = "Start/Step".into();
+    assert_eq!(
+        rejection(validate_client_request(
+            ClientRequest::StartFlow(&request),
+            &config
+        ))
+        .0,
+        "step type contains reserved character \"/\""
+    );
+
+    let mut request = start_request();
+    request.flow_timeout_seconds = 10;
+    request.flow_timeout_policy = dex::FlowTimeoutPolicy::Handler as i32;
+    request.flow_start_options = Some(FlowStartOptions {
+        timeout_handler_options: Some(FlowTimeoutHandlerOptions {
+            heartbeat_timeout_seconds: 1,
+            ..FlowTimeoutHandlerOptions::default()
+        }),
+        ..FlowStartOptions::default()
+    });
+    assert_eq!(
+        rejection(validate_client_request(
+            ClientRequest::StartFlow(&request),
+            &config
+        ))
+        .0,
+        "Flow timeout handler options: heartbeat timeout must be zero or at least 10s"
+    );
+
+    let durations = [
+        (Duration::from_millis(500), "500ms"),
+        (Duration::from_millis(1500), "1.5s"),
+        (Duration::from_secs(90), "1m30s"),
+        (Duration::from_secs(3600), "1h0m0s"),
+    ];
+    for (minimum, go_text) in durations {
+        let mut minimum_config = config.clone();
+        minimum_config.minimum_step_heartbeat_timeout = minimum;
+        let mut request = start_request();
+        request.step_options = Some(StepOptions {
+            heartbeat_timeout_seconds: -1,
+            ..StepOptions::default()
+        });
+        assert_eq!(
+            rejection(validate_client_request(
+                ClientRequest::StartFlow(&request),
+                &minimum_config
+            ))
+            .0,
+            format!("heartbeat timeout must be zero or at least {go_text}")
+        );
+    }
+}
+
+#[test]
+fn quote_go_string_matches_go_quote_for_combining_marks_and_controls() {
+    use dexzd_request_validation::quote_go_string;
+    assert_eq!(quote_go_string("e\u{301}"), "\"e\u{301}\"");
+    assert_eq!(quote_go_string("नमस्ते"), "\"नमस्ते\"");
+    assert_eq!(quote_go_string("\u{301}"), "\"\u{301}\"");
+    assert_eq!(quote_go_string("a\u{7f}b"), "\"a\\x7fb\"");
+    assert_eq!(quote_go_string("\u{200b}"), "\"\\u200b\"");
+    assert_eq!(quote_go_string("tab\t\"q\""), "\"tab\\t\\\"q\\\"\"");
 }

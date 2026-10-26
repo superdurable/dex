@@ -588,6 +588,10 @@ async fn invalid_worker_responses_fail_the_attempt_and_retry() {
         StepAttemptFailureKind::InvalidResponse as i32
     );
     assert!(!failures[0].1);
+    assert_eq!(
+        failures[0].2,
+        "upsert_attributes[0].value: worker response must not contain internal_blob_id arms"
+    );
     assert!(
         harness
             .runtime
