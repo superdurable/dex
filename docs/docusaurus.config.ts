@@ -33,8 +33,8 @@ const companyProductNavigation = {
 const config: Config = {
   title: 'Super Durable Docs',
   tagline: 'Durable Execution for backend engineering',
-  // The query makes browsers that cached the Branch D icon at this path fetch the new mark; bump it when the mark changes.
-  favicon: 'img/brand/dex-mark.svg?v=pipe-d',
+  // The query makes browsers that cached an earlier icon at this path fetch the new one; bump it when the icon changes.
+  favicon: 'img/brand/favicon.svg?v=pipe-d-tile',
 
   future: {
     v4: true,
