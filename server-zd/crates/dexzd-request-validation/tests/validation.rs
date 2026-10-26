@@ -1053,6 +1053,44 @@ fn waiting_condition_ids_and_server_owned_timer_state_are_rejected() {
 }
 
 #[test]
+fn worker_validation_quotes_non_printable_strings_like_go() {
+    let config = config();
+    for (condition_id, quoted) in [
+        ("del\x7f", "\"del\\x7f\""),
+        ("bell\x07", "\"bell\\a\""),
+        ("null\x00", "\"null\\x00\""),
+        ("zero\u{200b}width", "\"zero\\u200bwidth\""),
+        ("control\u{0080}", "\"control\\u0080\""),
+        ("private\u{e000}", "\"private\\ue000\""),
+    ] {
+        let response = InvokeWaitForMethodResponse {
+            waiting_condition: Some(WaitingCondition {
+                waiting_condition_type: dex::WaitingConditionType::AllCompleted as i32,
+                timer_conditions: vec![TimerCondition {
+                    condition_id: condition_id.to_owned(),
+                    duration_seconds: -1,
+                    ..TimerCondition::default()
+                }],
+                ..WaitingCondition::default()
+            }),
+            ..InvokeWaitForMethodResponse::default()
+        };
+        let error = validate_worker_response(
+            WorkerResponse::WaitFor {
+                response: Some(&response),
+                parent_flow_config: &config.default_flow_config,
+            },
+            &config,
+        )
+        .expect_err("negative timer duration is invalid");
+        assert_eq!(
+            error.message,
+            format!("timer condition {quoted} has negative duration_seconds -1")
+        );
+    }
+}
+
+#[test]
 fn subflow_inherits_parent_effective_flow_config() {
     let mut config = ValidationConfig::default();
     config.attribute_store_names.insert("parent-store".into());

@@ -887,6 +887,11 @@ const STEP_FAILURE_TEXT_CASES: &[StepFailureTextCase] = &[
     ),
     StepFailureTextCase::new(
         StepAttemptFailureKind::InvalidResponse,
+        "server: unavailable",
+        "server: unavailable",
+    ),
+    StepFailureTextCase::new(
+        StepAttemptFailureKind::InvalidResponse,
         "waiting_condition.sub_flow_conditions[1].step_options.execute.ChannelMap[0]: SubFlow \
          condition at index 1: Execute state load ChannelMap instance is empty",
         "SubFlow condition at index 1: Execute state load ChannelMap instance is empty",

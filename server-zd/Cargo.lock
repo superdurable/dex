@@ -1472,6 +1472,7 @@ dependencies = [
  "dexzd-clock",
  "dexzd-metrics",
  "dexzd-protocol",
+ "dexzd-request-validation",
  "futures",
  "prometheus-client",
  "thiserror",

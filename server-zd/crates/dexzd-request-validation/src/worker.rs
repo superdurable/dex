@@ -15,9 +15,9 @@ use dexzd_protocol::dex::{
 };
 
 use crate::shared::{
-    ValidationCategory, ValidationConfig, ValidationError, invalid, validate_action_permissions,
-    validate_blob_value, validate_hard_delete_write, validate_identifier, validate_kv_blob_values,
-    validate_step_options,
+    ValidationCategory, ValidationConfig, ValidationError, invalid, quote_go_string,
+    validate_action_permissions, validate_blob_value, validate_hard_delete_write,
+    validate_identifier, validate_kv_blob_values, validate_step_options,
 };
 use crate::waiting::validate_waiting_condition;
 
@@ -300,7 +300,10 @@ fn validate_close_decision(
                 if !seen.insert(channel) {
                     return Err(invalid(
                         path,
-                        format!("duplicate conditional close channel {channel:?}"),
+                        format!(
+                            "duplicate conditional close channel {}",
+                            quote_go_string(channel)
+                        ),
                     ));
                 }
             }

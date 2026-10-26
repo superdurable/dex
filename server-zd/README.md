@@ -96,9 +96,10 @@ server-zd cancellation expectations below apply from the next Go SDK release con
 | Value references | A Worker result that echoes a value reference naming no value of the run fails the attempt without retry, with `value reference "<reference>" does not name a value of this run`. The Go Server has no value references. | None |
 | Server-side dispatch failures | `matching server is closing`, `server error: <error>`, and `dispatch ended without an outcome` are server-zd texts. The Go Server reports its own internal error text, which depends on where the failure happens. | None |
 | SubFlow options in WaitFor results | server-zd checks a SubFlow condition's start options and effective Flow configuration when it validates the WaitFor result. The attempt fails with that check's text, such as `server-zd does not support flow_start_delay_seconds > 0`. The Go Server checks the Flow configuration when it starts the SubFlow. | None |
+| Multiple invalid Attribute writes in one Worker Step result | server-zd validates each write completely before checking the next. The Go Server scans all writes for internal blob IDs before checking hard-delete values. When an earlier write has an invalid hard-delete value and a later write has an internal blob ID, server-zd reports `hard-delete attribute "<key>" must be a string, an object, or null`; the Go Server reports `worker response must not contain internal_blob_id arms`. | None |
 
-Every other exhausted Step failure fails the Flow with the Go Server's failure message. server-zd
-gives a recovery Step the same text as its error detail.
+Apart from the listed differences, an exhausted Step failure closes the Flow with the Go Server's
+failure message. server-zd gives a recovery Step the same text as its error detail.
 
 The [released Go SDK compatibility workflow](../.github/workflows/server-zd-sdk-go-compatibility.yml)
 repeats this check after each server-zd release. It runs the newest `sdk-go` release's suite

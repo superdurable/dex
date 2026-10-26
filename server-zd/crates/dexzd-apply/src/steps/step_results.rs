@@ -423,12 +423,30 @@ fn go_dispatch_failure_text(server_detail: &str, flow_type: &str) -> Option<Stri
 }
 
 /// Returns the message of an engine validation detail, `<field path>: <message>`, or `None` when
-/// `server_detail` does not start with a field path.
+/// `server_detail` does not start with a known validator field path.
 ///
 /// The validation message already matches the Go Server's text; the field path is server-zd's.
 fn validation_message(server_detail: &str) -> Option<&str> {
     let (field_path, message) = server_detail.split_once(": ")?;
-    let is_field_path = !field_path.is_empty()
+    let has_validation_root = [
+        "response",
+        "output",
+        "waiting_condition",
+        "step_decision",
+        "upsert_attributes",
+        "record_events",
+        "upsert_step_exe_locals",
+        "publish_to_channel",
+        "delete_from_channel",
+        "action_permission_mappings",
+    ]
+    .iter()
+    .any(|root| {
+        field_path == *root
+            || field_path.starts_with(&format!("{root}."))
+            || field_path.starts_with(&format!("{root}["))
+    });
+    let is_field_path = has_validation_root
         && field_path
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'[' | b']'));
