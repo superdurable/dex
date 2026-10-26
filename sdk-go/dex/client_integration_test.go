@@ -158,6 +158,8 @@ type clientTestFlowService struct {
 	writeStreamRequests   []*dexpb.WriteStreamRequest
 	readStreamRequest     *dexpb.ReadStreamRequest
 	listStreamRequest     *dexpb.ListStreamMessagesRequest
+	getAttributesRequest  *dexpb.GetAttributesRequest
+	loadBlobsRequestCount int
 }
 
 func (service *clientTestFlowService) WriteStream(
@@ -237,12 +239,16 @@ func (service *clientTestFlowService) LoadBlobs(
 	_ context.Context,
 	request *dexpb.LoadBlobsRequest,
 ) (*dexpb.LoadBlobsResponse, error) {
+	service.loadBlobsRequestCount++
 	values := make(map[string]*dexpb.Value, len(request.Entries))
 	for _, entry := range request.Entries {
 		value := entry.GetBlobValue()
 		blobID, found, err := getBlobID(value)
 		if err != nil {
 			return nil, err
+		}
+		if found && blobID.value == clientTestUnavailableBlobID {
+			return nil, status.Error(codes.Unavailable, "blob store unavailable")
 		}
 		if found {
 			if blobID.isObjectOrString {

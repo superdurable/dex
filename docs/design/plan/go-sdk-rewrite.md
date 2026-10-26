@@ -1375,6 +1375,24 @@ Local validation errors remain ordinary Go errors. Encoding and decoding errors
 use `*dex.ValueMappingError`. Only errors received from FlowService become
 `*dex.ServiceError` or a concrete service error wrapping it.
 
+### Direct Attribute reads
+
+`Client.GetAttributes(ctx, flowID, reads ...AttributeRead)` returns
+`(AttributeReadResult, error)` and reads selected committed Attribute values
+from the current or latest run. `ReadAttribute` selects a registered Attribute
+and a `*T` destination. `ReadAttributeMapInstance` selects one registered
+AttributeMap instance with the same destination shape. An unset value leaves
+its destination unchanged. `AttributeReadResult.IsSet` and `IsMapInstanceSet`
+report which reads found a set value; the zero result reports none. The Client
+validates every read against the Registry (`*FlowDefinitionError` for an
+unregistered definition or a value-type mismatch) and rejects duplicate reads.
+It sends one GetAttributes request with all physical keys, resolves large-value
+references with LoadBlobs, decodes every value, and writes destinations only
+after every decode succeeds. The servers resolve hard-delete values. It does not
+dispatch a Worker. A closed run remains readable until purged. Reads inside an
+RPC can see that invocation's staged writes; this Client call reads committed
+state only. A missing Flow or a run being purged returns `*FlowNotFoundError`.
+
 The Client builds each non-wait protobuf request once. gRPC's pre-commit
 transparent retry therefore reuses the same request and request ID. Durable
 Step and Attribute waits automatically reattach after a transport long-poll
