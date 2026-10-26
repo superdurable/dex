@@ -59,14 +59,19 @@ pub enum CredentialAuthenticatorConfig {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JwtAuthenticatorConfig {
     /// Exact `iss` claim, an HTTPS URL or plain HTTP on loopback; OIDC discovery starts here.
+    /// No default; the caller supplies the issuer URL.
     pub issuer: String,
     /// Accepted `aud` values; a token must name at least one.
+    /// No default; the caller supplies accepted audiences.
     pub audiences: Vec<String>,
     /// Key set URL; `None` reads `jwks_uri` from the issuer's OpenID configuration.
+    /// No default; the caller supplies a URL or `None` for discovery.
     pub jwks_url: Option<String>,
     /// Permits a plain HTTP `jwks_url` on a host that is not loopback.
+    /// No default; the caller chooses whether plain HTTP is allowed.
     pub allow_insecure_jwks_url: bool,
     /// PEM bundle added to the system roots for discovery and key set requests.
+    /// No default; the caller supplies a PEM path or `None` for system roots.
     pub ca_file: Option<PathBuf>,
 }
 

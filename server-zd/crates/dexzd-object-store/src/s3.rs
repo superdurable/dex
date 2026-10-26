@@ -78,18 +78,25 @@ impl std::fmt::Debug for S3Credentials {
 #[derive(Debug, Clone)]
 pub struct S3ObjectStoreConfig {
     /// S3 endpoint override, or `None` for the region's AWS endpoint.
+    /// Defaults to `None`; the server connects by HTTP(S), rather than binding or advertising this address.
     pub endpoint: Option<String>,
     /// AWS region used for endpoint selection and request signing.
+    /// No default; the caller supplies the AWS region.
     pub region: String,
     /// Existing bucket holding all objects.
+    /// No default; the caller supplies the bucket.
     pub bucket: String,
     /// Prefix prepended to every relative key. An absent trailing slash is added.
+    /// Defaults to an empty prefix.
     pub key_prefix: String,
     /// Whether to put the bucket in the URL path.
+    /// Defaults to false.
     pub force_path_style: bool,
     /// Credentials provider.
+    /// Defaults to the AWS provider chain.
     pub credentials: S3Credentials,
     /// SDK operation timeout, including retries, and maximum wait between streamed body chunks.
+    /// Defaults to 30 seconds.
     pub request_timeout: Duration,
     /// Bodies at least this size use multipart upload; files over 16 MiB also use multipart. Default 8 MiB.
     pub multipart_threshold: usize,

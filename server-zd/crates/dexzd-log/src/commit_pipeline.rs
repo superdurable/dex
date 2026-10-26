@@ -29,12 +29,19 @@ use crate::stream_recovery::validate_batch_identity;
 
 #[derive(Clone, Debug)]
 pub struct CommitPipelineConfig {
+    /// Defaults to 20 ms; maximum time an unsealed batch waits for more records.
     pub batch_window: Duration,
+    /// Defaults to 4 MiB; target serialized bytes before a batch seals.
     pub target_batch_bytes: usize,
+    /// Defaults to 10000; maximum records in one batch.
     pub max_batch_records: usize,
+    /// Defaults to 4; maximum concurrent batch writes.
     pub max_in_flight: usize,
+    /// Defaults to 64 MiB; maximum bytes awaiting admission or commit.
     pub max_pending_bytes: u32,
+    /// Defaults to 1 s; maximum wait for admission capacity.
     pub admission_timeout: Duration,
+    /// Defaults to 10 s; deadline for a batch at the head of the pipeline.
     pub head_deadline: Duration,
 }
 

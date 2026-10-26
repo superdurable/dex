@@ -46,8 +46,10 @@ pub struct ValidationConfig {
     /// Default Flow configuration applied before a StartFlow override.
     pub default_flow_config: FlowConfig,
     /// Configured Attribute Store names available to Flows.
+    /// Defaults to an empty set.
     pub attribute_store_names: HashSet<String>,
     /// Whether hard-delete Attribute writes have blob storage.
+    /// Defaults to false.
     pub has_blob_store: bool,
 }
 

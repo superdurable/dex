@@ -50,6 +50,7 @@ pub enum AuthenticatorKind {
 #[serde(deny_unknown_fields)]
 pub struct AuthenticatorConfig {
     /// Required; `jwt` or `staticTokens`. Immutable after startup.
+    /// No default; each authenticator declares its kind.
     pub kind: AuthenticatorKind,
     /// Defaults to empty, which is invalid for jwt; the exact `iss` claim, an HTTPS URL or plain
     /// HTTP on `localhost` or a loopback IP. Each issuer may appear once. Without `jwksURL`, keys
