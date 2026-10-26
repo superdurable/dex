@@ -237,7 +237,7 @@ class CancellationFinal implements Step<string> {
   public async waitFor(_context: Context, _input: string): Promise<Wait> {
     // On server-zd the canceled TypeScript handler sends its late write; order it before the read.
     if (this.flow.isServerZD && blockingExecuteScenarios.has(this.flow.scenario)) {
-      await rejectAfter(
+      await awaitWithinTimeout(
         this.flow.lateHandlerReturned,
         10_000,
         "canceled handler did not return before final Step wait",
@@ -439,7 +439,7 @@ function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-async function rejectAfter(
+async function awaitWithinTimeout(
   promise: Promise<void>,
   milliseconds: number,
   message: string,

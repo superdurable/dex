@@ -1,5 +1,6 @@
 name: Server ZD SDK CI
 
+# server/** is not a trigger: zd-mode dexcli dev runs no Go Server code beyond server/gen/dexpb (protos/**).
 on:
   push:
     branches: [main]
@@ -42,7 +43,6 @@ concurrency:
   cancel-in-progress: true
 
 # The CARGO_* and RUST* values match the Server ZD CI ParadeDB job, so its main cache restores here.
-# server/** is not a trigger: zd-mode dexcli dev runs no Go Server code beyond server/gen/dexpb (protos/**).
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
