@@ -6,12 +6,13 @@ mode="${1:-quick}"
 if [[ "$mode" == prod ]]; then exec "$repo_root/benchmark/prod/run-prod.sh"; fi
 if [[ "$mode" != quick ]]; then echo "usage: $0 quick|prod" >&2; exit 2; fi
 
+max_load="${DEXBENCH_MAX_LOAD:-$(getconf _NPROCESSORS_ONLN)}"
 wait_for_load() {
   local load
   while :; do
     load="$(uptime | sed -E 's/.*load averages?: ([0-9.]+).*/\1/')"
-    if awk -v load="$load" 'BEGIN { exit !(load < 24) }'; then return; fi
-    echo "waiting for 1-minute load below 24 (now $load)" >&2
+    if awk -v load="$load" -v limit="$max_load" 'BEGIN { exit !(load < limit) }'; then return; fi
+    echo "waiting for 1-minute load below $max_load (now $load)" >&2
     sleep 15
   done
 }
@@ -23,7 +24,7 @@ workers="${DEXBENCH_WORKERS:-0}"
 steps="${DEXBENCH_STEPS:-10}"
 scenarios="${DEXBENCH_SCENARIOS:-start-complete,sequential-steps,async-steps,rpc,attribute-read,channel-wake,attribute-write,recovery}"
 targets="${DEXBENCH_TARGETS:-temporal,zd}"
-output_dir="${DEXBENCH_OUT:-$repo_root/benchmark/results/$(date -u +%Y-%m-%d)-$mode-$(hostname -s)}"
+output_dir="${DEXBENCH_OUT:-$repo_root/benchmark/results/$(date -u +%Y-%m-%d)-$mode-${DEXBENCH_HOST_LABEL:-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)}}"
 run_dir="$(mktemp -d)"
 benchmark_binary="$repo_root/benchmark/bin/dexbench"
 current_pid=""
@@ -61,14 +62,7 @@ export DEXBENCH_GIT_COMMIT
 export DEXBENCH_DISK_PATH="$output_dir"
 
 wait_for_server() {
-  local attempts
-  for ((attempts=0; attempts<180; attempts++)); do
-    if "$benchmark_binary" probe >/dev/null 2>&1; then return 0; fi
-    if ! kill -0 "$current_pid" 2>/dev/null; then echo "server exited during startup" >&2; return 1; fi
-    sleep 1
-  done
-  echo "server did not listen on port 8801" >&2
-  return 1
+  "$benchmark_binary" wait-ready --pid "$current_pid" --timeout 180s "$@"
 }
 
 stop_server() {
@@ -77,31 +71,45 @@ stop_server() {
   current_pid=""
 }
 
-run_target() {
-  local target="$1"
-  local server_pid="$current_pid"
-  local metrics_argument=()
-  local version="unknown"
+# Every scenario variant and concurrency step gets a newly started server with empty state.
+start_quick_server() {
+  local target="$1" state_dir="$2"
+  mkdir -p "$state_dir"
+  case "$target" in
+    temporal)
+      nice -n 10 "$dexcli_binary" dev --engine temporal --open=false --dex-port 8801 --web-port 8802 \
+        --sqlite-db-filename "$state_dir/temporal.sqlite" --blob-store-dir "$state_dir/go-blobs" >"$state_dir/server.log" 2>&1 &
+      ;;
+    zd)
+      cat > "$state_dir/zd-quick.yaml" <<'YAML'
+metrics:
+  listen: "127.0.0.1:9901"
+YAML
+      nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
+        --zd-binary "$zd_binary" --zd-data-dir "$state_dir/zd-data" --zd-config "$state_dir/zd-quick.yaml" >"$state_dir/server.log" 2>&1 &
+      ;;
+    *) echo "unknown target: $target" >&2; exit 2 ;;
+  esac
+  current_pid=$!
+  if ! wait_for_server; then tail -50 "$state_dir/server.log" >&2; return 1; fi
+}
+
+run_step() {
+  local target="$1" variant="$2" step_concurrency="$3"
+  local metrics_argument=() version
   if [[ "$target" == zd ]]; then
-    server_pid="$(pgrep -n -x dex-server-zd || true)"
     metrics_argument=(--metrics-url http://127.0.0.1:9901/metrics)
-    version="$($zd_binary --version 2>/dev/null || echo unknown)"
+    version="$("$zd_binary" --version 2>/dev/null || echo unknown)"
   else
-    version="$($dexcli_binary --version 2>/dev/null || echo unknown)"
-  fi
-  local pid_argument=()
-  if [[ -n "$server_pid" ]]; then pid_argument=(--server-pid "$server_pid"); fi
-  local extra_resource=()
-  if [[ "$target" == temporal ]]; then
-    temporal_pid="$(pgrep -n -x temporal || true)"
-    if [[ -n "$temporal_pid" ]]; then extra_resource=(--resource-pids "$temporal_pid"); fi
+    version="$("$dexcli_binary" --version 2>/dev/null || echo unknown)"
   fi
   wait_for_load
+  # The dexcli PID is the sampling root, so its children (Temporal, server-zd, s3mock) are included.
   DEXBENCH_SERVER_VERSION="$version" nice -n 10 "$benchmark_binary" run \
     --address 127.0.0.1:8801 --target "$target" --engine "$target" \
-    --duration "$duration" --warmup "$warmup" --concurrency "$concurrency" \
-    --workers "$workers" --steps "$steps" --scenarios "$normal_scenarios" --mode quick \
-    --out "$output_dir" ${pid_argument[@]+"${pid_argument[@]}"} ${metrics_argument[@]+"${metrics_argument[@]}"} ${extra_resource[@]+"${extra_resource[@]}"}
+    --duration "$duration" --warmup "$warmup" --concurrency "$step_concurrency" \
+    --workers "$workers" --steps "$steps" --scenarios "$variant" --mode quick \
+    --out "$output_dir" --server-pid "$current_pid" ${metrics_argument[@]+"${metrics_argument[@]}"}
 }
 
 normal_scenarios=""
@@ -113,32 +121,25 @@ for scenario in "${requested_scenarios[@]}"; do
   if [[ -n "$normal_scenarios" ]]; then normal_scenarios+=","; fi
   normal_scenarios+="$scenario"
 done
+variants=()
+if [[ -n "$normal_scenarios" ]]; then
+  while IFS= read -r variant; do variants+=("$variant"); done < <("$benchmark_binary" variants --scenarios "$normal_scenarios")
+fi
 
 IFS=, read -ra requested_targets <<< "$targets"
+IFS=, read -ra requested_concurrency <<< "$concurrency"
 for target in "${requested_targets[@]}"; do
   target="${target//[[:space:]]/}"
-  if [[ -z "$normal_scenarios" ]]; then continue; fi
-  wait_for_load
-  case "$target" in
-    temporal)
-      nice -n 10 "$dexcli_binary" dev --engine temporal --open=false --dex-port 8801 --web-port 8802 \
-        --sqlite-db-filename "$run_dir/temporal.sqlite" --blob-store-dir "$run_dir/go-blobs" >"$run_dir/temporal-server.log" 2>&1 &
-      current_pid=$!
-      ;;
-    zd)
-      cat > "$run_dir/zd-quick.yaml" <<'YAML'
-metrics:
-  listen: "127.0.0.1:9901"
-YAML
-      nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
-        --zd-binary "$zd_binary" --zd-data-dir "$run_dir/zd-data" --zd-config "$run_dir/zd-quick.yaml" >"$run_dir/zd-server.log" 2>&1 &
-      current_pid=$!
-      ;;
-    *) echo "unknown target: $target" >&2; exit 2 ;;
-  esac
-  wait_for_server
-  run_target "$target"
-  stop_server
+  for variant in ${variants[@]+"${variants[@]}"}; do
+    for step_concurrency in "${requested_concurrency[@]}"; do
+      step_dir="$run_dir/$target-$variant-c$step_concurrency"
+      wait_for_load
+      start_quick_server "$target" "$step_dir"
+      run_step "$target" "$variant" "$step_concurrency"
+      stop_server
+      rm -rf "$step_dir"
+    done
+  done
 done
 
 if [[ "$has_recovery" == 1 && "$targets" == *zd* ]]; then
@@ -174,6 +175,7 @@ YAML
     wait_for_load
     nice -n 10 "$benchmark_binary" seed-recovery --size-mb "$size" > "$run_dir/recovery-$size-seed.txt"
     stop_server
+    # Removing local state makes this a cold-node restart that replays from object storage.
     rm -rf "$data_dir/store"
     wait_for_load
     start_ns="$(python3 -c 'import time; print(time.time_ns())')"
@@ -181,9 +183,7 @@ YAML
       --zd-binary "$zd_binary" --zd-data-dir "$data_dir" --zd-config "$run_dir/zd-recovery.yaml" \
       >>"$run_dir/recovery-$size-server.log" 2>&1 &
     current_pid=$!
-    wait_for_server
-    end_ns="$(python3 -c 'import time; print(time.time_ns())')"
-    elapsed="$(python3 -c 'import sys; print((int(sys.argv[2])-int(sys.argv[1]))/1e9)' "$start_ns" "$end_ns")"
+    elapsed="$(wait_for_server --started-unix-nano "$start_ns")"
     version="$($zd_binary --version 2>/dev/null || echo unknown)"
     DEXBENCH_SERVER_VERSION="$version" "$benchmark_binary" record-recovery --size-mb "$size" \
       --elapsed-seconds "$elapsed" --mode quick --out "$output_dir/zd-recovery-${size}mb.json"

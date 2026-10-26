@@ -97,7 +97,6 @@ func (flow rpcFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.GetCounter, nil),
 		dex.DefineRPC(flow.IncrementCounter, &dex.RPCOptions{LockAttributes: []dex.AttributeLock{dex.LockAttribute(benchmarkRPCCounter)}}),
-		dex.DefineRPC(flow.PublishWake, nil),
 	}
 }
 
@@ -125,13 +124,6 @@ func (rpcFlow) IncrementCounter(ctx dex.Context, _ dex.None) (*dex.RPCResult[int
 	return &dex.RPCResult[int64]{Output: value}, nil
 }
 
-func (rpcFlow) PublishWake(ctx dex.Context, publishedAtUnixNano int64) (*dex.RPCResult[dex.None], error) {
-	if err := benchmarkWakeChannel.Publish(ctx, publishedAtUnixNano); err != nil {
-		return nil, err
-	}
-	return &dex.RPCResult[dex.None]{Output: nil}, nil
-}
-
 type rpcWaitStep struct{ dex.StepDefaults }
 
 func (rpcWaitStep) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
@@ -146,7 +138,76 @@ func (rpcWaitStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, erro
 	if len(values) != 1 {
 		return dex.ForceFail("expected one wake message"), nil
 	}
-	return dex.GracefulComplete(time.Now().UnixNano() - values[0]), nil
+	return dex.GracefulComplete(nil), nil
+}
+
+type wakeInput struct {
+	Client   int
+	Sequence int64
+}
+
+type wakeSignal struct {
+	sequence  int64
+	startedAt time.Time
+}
+
+// wakeSignals reports Execute start times to the in-process client that published the wake.
+type wakeSignals struct {
+	channels []chan wakeSignal
+}
+
+func newWakeSignals(clients int) *wakeSignals {
+	signals := &wakeSignals{channels: make([]chan wakeSignal, clients)}
+	for index := range signals.channels {
+		signals.channels[index] = make(chan wakeSignal, 8)
+	}
+	return signals
+}
+
+func (signals *wakeSignals) notify(input wakeInput, startedAt time.Time) {
+	if input.Client < 0 || input.Client >= len(signals.channels) {
+		return
+	}
+	select {
+	case signals.channels[input.Client] <- wakeSignal{sequence: input.Sequence, startedAt: startedAt}:
+	default:
+		// A retried Execute can report twice; the client discards stale sequences.
+	}
+}
+
+type wakeFlow struct {
+	dex.FlowDefaults
+	signals *wakeSignals
+}
+
+func (flow *wakeFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(wakeWaitStep{signals: flow.signals})}
+}
+
+func (*wakeFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{benchmarkWakeChannel}}
+}
+
+type wakeWaitStep struct {
+	dex.StepDefaults
+	signals *wakeSignals
+}
+
+func (wakeWaitStep) WaitFor(_ dex.Context, _ wakeInput) (*dex.Wait, error) {
+	return dex.Until(benchmarkWakeChannel.ForOne()), nil
+}
+
+func (step wakeWaitStep) Execute(ctx dex.Context, input wakeInput) (*dex.StepDecision, error) {
+	startedAt := time.Now()
+	step.signals.notify(input, startedAt)
+	values, err := benchmarkWakeChannel.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(values) != 1 {
+		return dex.ForceFail("expected one wake message"), nil
+	}
+	return dex.GracefulComplete(nil), nil
 }
 
 type attributeFlow struct{ dex.FlowDefaults }

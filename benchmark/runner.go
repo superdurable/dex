@@ -31,20 +31,26 @@ import (
 )
 
 type Runner struct {
-	config        Config
-	client        *dex.Client
-	connection    *grpc.ClientConn
-	service       dexpb.FlowServiceClient
-	worker        *dex.Worker
-	workerResult  chan error
-	cache         *blobcache.Cache
-	completion    completionFlow
-	chain         *chainFlow
-	rpc           rpcFlow
-	attribute     attributeFlow
-	stepLatencies latencyCollector
-	nextFlowID    atomic.Int64
-	runPrefix     string
+	config               Config
+	client               *dex.Client
+	connection           *grpc.ClientConn
+	service              dexpb.FlowServiceClient
+	worker               *dex.Worker
+	workerResult         chan error
+	cache                *blobcache.Cache
+	cacheDir             string
+	completion           completionFlow
+	chain                *chainFlow
+	rpc                  rpcFlow
+	attribute            attributeFlow
+	wake                 *wakeFlow
+	stepLatencies        latencyCollector
+	nextFlowID           atomic.Int64
+	nextWakeSequence     atomic.Int64
+	blobsLoaded          atomic.Int64
+	runPrefix            string
+	expectedReadValues   map[string]string
+	expectedBytesPerRead int64
 }
 
 func NewRunner(config Config) (*Runner, error) {
@@ -53,7 +59,14 @@ func NewRunner(config Config) (*Runner, error) {
 	}
 	runner := &Runner{config: config, workerResult: make(chan error, 1), runPrefix: fmt.Sprintf("bench-%d", time.Now().UnixNano())}
 	runner.chain = &chainFlow{latencies: &runner.stepLatencies, isAsync: config.Scenario == "async-steps"}
-	registry, err := dex.NewRegistry([]dex.Flow{runner.completion, runner.chain, runner.rpc, runner.attribute})
+	runner.wake = &wakeFlow{signals: newWakeSignals(config.Concurrency)}
+	runner.expectedReadValues = make(map[string]string, len(benchmarkReadAttributes))
+	for index, attribute := range benchmarkReadAttributes {
+		value := benchmarkReadValue(index, config.AttributeBytes)
+		runner.expectedReadValues[attribute.AttributeName()] = value
+		runner.expectedBytesPerRead += int64(len(value))
+	}
+	registry, err := dex.NewRegistry([]dex.Flow{runner.completion, runner.chain, runner.rpc, runner.attribute, runner.wake})
 	if err != nil {
 		return nil, err
 	}
@@ -61,9 +74,10 @@ func NewRunner(config Config) (*Runner, error) {
 	if err != nil {
 		return nil, err
 	}
+	runner.cacheDir = cacheDir
 	cache, err := blobcache.New(&blobcache.Config{Dir: cacheDir, MaxBytes: 256 << 20, Logger: slog.Default()})
 	if err != nil {
-		os.RemoveAll(cacheDir)
+		removeDirectory(cacheDir)
 		return nil, err
 	}
 	runner.cache = cache
@@ -72,14 +86,14 @@ func NewRunner(config Config) (*Runner, error) {
 		Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: config.WorkerPool, ReservedRPCTasks: ptr.Any(0)},
 	})
 	if err != nil {
-		runner.closeCache(cacheDir)
+		runner.closeCache()
 		return nil, err
 	}
 	runner.worker = worker
 	client, err := dex.NewClient(registry, cache, dex.ClientOptions{FlowServiceAddress: config.Address, WorkerTarget: worker.WorkerTarget()})
 	if err != nil {
 		runner.stopWorker()
-		runner.closeCache(cacheDir)
+		runner.closeCache()
 		return nil, err
 	}
 	runner.client = client
@@ -100,25 +114,28 @@ func NewRunner(config Config) (*Runner, error) {
 	return runner, nil
 }
 
+func benchmarkReadValue(index, size int) string {
+	return fmt.Sprintf("%02d-%s", index, strings.Repeat("x", size))
+}
+
 func (runner *Runner) Run(ctx context.Context) (Result, error) {
 	config := runner.config
-	result := Result{SchemaVersion: 1, StartedAt: time.Now().UTC(), Config: config, Machine: machineInfo(), Errors: map[string]int64{}, SDKVersion: sdkVersion(), ServerVersion: os.Getenv("DEXBENCH_SERVER_VERSION")}
+	result := Result{SchemaVersion: 2, StartedAt: time.Now().UTC(), Config: config, Machine: machineInfo(), Errors: map[string]int64{}, UnmeasuredErrors: map[string]int64{}, SDKVersion: sdkVersion(), ServerVersion: os.Getenv("DEXBENCH_SERVER_VERSION")}
 	result.Machine.InstanceType = config.InstanceType
 	result.Machine.Region = config.Region
 	if result.ServerVersion == "" {
 		result.ServerVersion = "unknown"
 	}
-	pid, err := serverPID(config)
+	persistentFlowIDs, err := runner.startPersistentFlows(ctx)
+	defer runner.stopPersistentFlows(persistentFlowIDs, &result)
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("setup: %w", err)
 	}
-	if pid != 0 {
-		result.Config.ServerPID = pid
-	}
-	if err := runner.runWindow(ctx, time.Duration(config.WarmupSeconds*float64(time.Second)), false, &result); err != nil {
+	if err := runner.runWindow(ctx, time.Duration(config.WarmupSeconds*float64(time.Second)), false, persistentFlowIDs, &result); err != nil {
 		return result, fmt.Errorf("warmup: %w", err)
 	}
 	runner.stepLatencies.take()
+	runner.blobsLoaded.Store(0)
 	metricsContext, cancelMetrics := context.WithTimeout(ctx, 5*time.Second)
 	beforeMetrics, err := scrapeMetrics(metricsContext, config.MetricsURL)
 	cancelMetrics()
@@ -127,17 +144,18 @@ func (runner *Runner) Run(ctx context.Context) (Result, error) {
 	}
 	sampleContext, stopSampling := context.WithCancel(ctx)
 	sampleResult := make(chan []ResourceSample, 1)
-	processIDs := append([]int(nil), config.ResourcePIDs...)
-	if pid != 0 {
-		processIDs = append(processIDs, pid)
+	rootPIDs := append([]int(nil), config.ResourcePIDs...)
+	if config.ServerPID > 0 {
+		rootPIDs = append(rootPIDs, config.ServerPID)
 	}
-	if len(processIDs) != 0 {
-		go sampleResources(sampleContext, processIDs, sampleResult)
+	if len(rootPIDs) != 0 || len(config.ResourceCgroups) != 0 {
+		result.CPUMethod = resourceSamplingMethod()
+		go sampleResources(sampleContext, newResourceSampler(rootPIDs, config.ResourceCgroups), sampleResult)
 	} else {
 		sampleResult <- nil
 	}
 	start := time.Now()
-	runErr := runner.runWindow(ctx, time.Duration(config.DurationSeconds*float64(time.Second)), true, &result)
+	runErr := runner.runWindow(ctx, time.Duration(config.DurationSeconds*float64(time.Second)), true, persistentFlowIDs, &result)
 	actualDuration := time.Since(start)
 	stopSampling()
 	result.Resources = <-sampleResult
@@ -151,115 +169,125 @@ func (runner *Runner) Run(ctx context.Context) (Result, error) {
 	stepSamples := runner.stepLatencies.take()
 	result.StepSamples = len(stepSamples)
 	result.StepLatency = calculatePercentiles(stepSamples)
-	if runErr != nil {
-		return result, runErr
+	result.BlobsLoaded = runner.blobsLoaded.Load()
+	if strings.HasPrefix(config.Scenario, "attribute-read") {
+		result.VerifiedBytes = runner.expectedBytesPerRead
 	}
-	return result, nil
+	return result, runErr
 }
 
-func (runner *Runner) runWindow(ctx context.Context, duration time.Duration, isMeasured bool, result *Result) error {
+func (runner *Runner) usesPersistentFlows() bool {
+	return strings.HasPrefix(runner.config.Scenario, "rpc-") || strings.HasPrefix(runner.config.Scenario, "attribute-")
+}
+
+// startPersistentFlows starts one Flow per client before warmup, so warmup and measurement share them.
+func (runner *Runner) startPersistentFlows(ctx context.Context) ([]string, error) {
+	flowIDs := make([]string, runner.config.Concurrency)
+	if !runner.usesPersistentFlows() {
+		return flowIDs, nil
+	}
+	for index := range flowIDs {
+		callContext, cancel := context.WithTimeout(ctx, runner.operationTimeout())
+		flowID := runner.newFlowID()
+		err := runner.startPersistentFlow(callContext, flowID)
+		cancel()
+		if err != nil {
+			return flowIDs, fmt.Errorf("start persistent Flow for client %d: %w", index, err)
+		}
+		flowIDs[index] = flowID
+	}
+	return flowIDs, nil
+}
+
+func (runner *Runner) stopPersistentFlows(flowIDs []string, result *Result) {
+	for _, flowID := range flowIDs {
+		if flowID == "" {
+			continue
+		}
+		stopContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := runner.client.StopFlow(stopContext, flowID, dex.StopOptions{}); err != nil {
+			result.UnmeasuredErrors["cleanup: "+err.Error()]++
+		}
+		cancel()
+	}
+}
+
+func (runner *Runner) operationTimeout() time.Duration {
+	return time.Duration(runner.config.TimeoutSeconds * float64(time.Second))
+}
+
+func (runner *Runner) runWindow(ctx context.Context, duration time.Duration, isMeasured bool, flowIDs []string, result *Result) error {
 	if duration <= 0 {
 		return nil
 	}
-	var deadline time.Time
-	startWindow := make(chan struct{})
-	var readyWorkers sync.WaitGroup
-	readyWorkers.Add(runner.config.Concurrency)
 	var waitGroup sync.WaitGroup
 	var mutex sync.Mutex
 	latencies := make([]time.Duration, 0)
 	var successes int64
 	var attempts int64
-	for workerIndex := 0; workerIndex < runner.config.Concurrency; workerIndex++ {
+	started := time.Now()
+	deadline := started.Add(duration)
+	for clientIndex := 0; clientIndex < runner.config.Concurrency; clientIndex++ {
 		waitGroup.Add(1)
 		go func(index int) {
 			defer waitGroup.Done()
-			isReady := false
-			defer func() {
-				if !isReady {
-					readyWorkers.Done()
-				}
-			}()
-			var rpcFlowID string
-			if strings.HasPrefix(runner.config.Scenario, "rpc-") || strings.HasPrefix(runner.config.Scenario, "attribute-") {
-				callContext, cancel := context.WithTimeout(ctx, time.Duration(runner.config.TimeoutSeconds*float64(time.Second)))
-				rpcFlowID = runner.newFlowID()
-				err := runner.startPersistentFlow(callContext, rpcFlowID)
-				cancel()
-				if err != nil {
-					mutex.Lock()
-					result.Errors["setup: "+err.Error()]++
-					mutex.Unlock()
-					return
-				}
-				defer func() {
-					stopContext, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-					if err := runner.client.StopFlow(stopContext, rpcFlowID, dex.StopOptions{}); err != nil {
-						mutex.Lock()
-						result.Errors["cleanup: "+err.Error()]++
-						mutex.Unlock()
-					}
-					stopCancel()
-				}()
-			}
-			isReady = true
-			readyWorkers.Done()
-			<-startWindow
 			for time.Now().Before(deadline) && ctx.Err() == nil {
-				operationContext, cancel := context.WithTimeout(ctx, time.Duration(runner.config.TimeoutSeconds*float64(time.Second)))
-				started := time.Now()
-				latency, err := runner.runOperation(operationContext, rpcFlowID)
+				operationContext, cancel := context.WithTimeout(ctx, runner.operationTimeout())
+				operationStarted := time.Now()
+				latency, err := runner.runOperation(operationContext, index, flowIDs[index])
 				cancel()
-				if isMeasured {
-					mutex.Lock()
-					attempts++
-					if err != nil {
-						result.Errors[err.Error()]++
-					} else {
-						successes++
-						if latency == 0 {
-							latency = time.Since(started)
-						}
-						latencies = append(latencies, latency)
-					}
-					mutex.Unlock()
-				} else if err != nil {
-					mutex.Lock()
-					result.Errors["warmup: "+err.Error()]++
-					mutex.Unlock()
+				if latency == 0 {
+					latency = time.Since(operationStarted)
 				}
+				mutex.Lock()
+				switch {
+				case !isMeasured && err != nil:
+					result.UnmeasuredErrors["warmup: "+err.Error()]++
+				case isMeasured && err != nil:
+					attempts++
+					result.Errors[err.Error()]++
+				case isMeasured:
+					attempts++
+					successes++
+					latencies = append(latencies, latency)
+				}
+				mutex.Unlock()
 			}
-		}(workerIndex)
+		}(clientIndex)
 	}
-	readyWorkers.Wait()
-	deadline = time.Now().Add(duration)
-	close(startWindow)
 	waitGroup.Wait()
+	elapsed := time.Since(started)
 	if isMeasured {
 		result.Attempts = attempts
 		result.Successes = successes
 		result.Latency = calculatePercentiles(latencies)
-		result.ThroughputUnit = "flows"
+		result.MeasuredSeconds = elapsed.Seconds()
+		result.ThroughputUnit = throughputUnit(runner.config.Scenario)
 		factor := int64(1)
 		if runner.config.Scenario == "sequential-steps" || runner.config.Scenario == "async-steps" {
-			result.ThroughputUnit = "steps"
 			factor = int64(runner.config.Steps)
 		}
-		if strings.HasPrefix(runner.config.Scenario, "rpc-") {
-			result.ThroughputUnit = "rpcs"
-		}
-		if strings.HasPrefix(runner.config.Scenario, "attribute-read") {
-			result.ThroughputUnit = "reads"
-		}
-		if strings.HasPrefix(runner.config.Scenario, "attribute-write") {
-			result.ThroughputUnit = "writes"
-		}
-		if runner.config.Scenario == "channel-wake" {
-			result.ThroughputUnit = "wakes"
-		}
-		result.ThroughputPerSecond = float64(successes*factor) / duration.Seconds()
+		// Operations that finish after the deadline still count, so divide by elapsed time.
+		result.ThroughputPerSecond = float64(successes*factor) / elapsed.Seconds()
 	}
 	return ctx.Err()
+}
+
+func throughputUnit(scenario string) string {
+	switch {
+	case scenario == "sequential-steps" || scenario == "async-steps":
+		return "steps"
+	case strings.HasPrefix(scenario, "rpc-"):
+		return "rpcs"
+	case strings.HasPrefix(scenario, "attribute-read"):
+		return "reads"
+	case strings.HasPrefix(scenario, "attribute-write"):
+		return "writes"
+	case scenario == "channel-wake":
+		return "wakes"
+	default:
+		return "flows"
+	}
 }
 
 func (runner *Runner) startPersistentFlow(ctx context.Context, flowID string) error {
@@ -273,7 +301,7 @@ func (runner *Runner) startPersistentFlow(ctx context.Context, flowID string) er
 	}
 	initialAttributes := make([]dex.InitialAttributeDef, 0, len(benchmarkReadAttributes))
 	for index, attribute := range benchmarkReadAttributes {
-		value := fmt.Sprintf("%02d-%s", index, strings.Repeat("x", runner.config.AttributeBytes))
+		value := benchmarkReadValue(index, runner.config.AttributeBytes)
 		initialAttribute, err := dex.InitialAttribute(attribute, value)
 		if err != nil {
 			return err
@@ -291,85 +319,171 @@ func (runner *Runner) startPersistentFlow(ctx context.Context, flowID string) er
 	return err
 }
 
-func (runner *Runner) runOperation(ctx context.Context, rpcFlowID string) (time.Duration, error) {
-	flowID := runner.newFlowID()
+func (runner *Runner) runOperation(ctx context.Context, clientIndex int, persistentFlowID string) (time.Duration, error) {
 	switch runner.config.Scenario {
 	case "start-complete":
+		flowID := runner.newFlowID()
 		if _, err := runner.client.StartFlow(ctx, runner.completion, flowID, nil, dex.StartFlowOptions{}); err != nil {
 			return 0, err
 		}
-		result, err := runner.client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{})
-		if err != nil {
-			return 0, err
-		}
-		if result.Status != dex.FlowCompleted {
-			return 0, fmt.Errorf("Flow status %v", result.Status)
-		}
+		return 0, runner.waitForCompletion(ctx, flowID)
 	case "sequential-steps", "async-steps":
+		flowID := runner.newFlowID()
 		input := chainInput{Remaining: runner.config.Steps}
 		if _, err := runner.client.StartFlow(ctx, runner.chain, flowID, input, dex.StartFlowOptions{}); err != nil {
 			return 0, err
 		}
-		result, err := runner.client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{})
-		if err != nil {
-			return 0, err
-		}
-		if result.Status != dex.FlowCompleted {
-			return 0, fmt.Errorf("Flow status %v", result.Status)
-		}
+		return 0, runner.waitForCompletion(ctx, flowID)
 	case "rpc-plain":
 		var output int64
-		return 0, runner.client.InvokeRPC(ctx, rpcFlowID, runner.rpc.GetCounter, nil, &output)
+		return 0, runner.client.InvokeRPC(ctx, persistentFlowID, runner.rpc.GetCounter, nil, &output)
 	case "rpc-locking":
 		var output int64
-		return 0, runner.client.InvokeRPC(ctx, rpcFlowID, runner.rpc.IncrementCounter, nil, &output)
+		return 0, runner.client.InvokeRPC(ctx, persistentFlowID, runner.rpc.IncrementCounter, nil, &output)
 	case "channel-wake":
-		initialCounter, err := dex.InitialAttribute(benchmarkRPCCounter, int64(0))
-		if err != nil {
-			return 0, err
-		}
-		if _, err := runner.client.StartFlow(ctx, runner.rpc, flowID, nil, dex.StartFlowOptions{Attributes: []dex.InitialAttributeDef{initialCounter}}); err != nil {
-			return 0, err
-		}
-		publishedAt := time.Now().UnixNano()
-		if err := runner.client.InvokeRPC(ctx, flowID, runner.rpc.PublishWake, publishedAt, nil); err != nil {
-			return 0, err
-		}
-		result, err := runner.client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{NeedsResults: true})
-		if err != nil {
-			return 0, err
-		}
-		if result.Status != dex.FlowCompleted {
-			return 0, fmt.Errorf("Flow status %v", result.Status)
-		}
-		var elapsedNanoseconds int64
-		if err := result.DecodeSingleOutput(&elapsedNanoseconds); err != nil {
-			return 0, err
-		}
-		return time.Duration(elapsedNanoseconds), nil
+		return runner.wakeWaitingFlow(ctx, clientIndex)
 	case "attribute-read-rpc":
 		var bytesRead int64
-		return 0, runner.client.InvokeRPC(ctx, rpcFlowID, runner.attribute.ReadAttributes, nil, &bytesRead)
-	case "attribute-read-direct":
-		response, err := runner.service.GetAttributes(ctx, &dexpb.GetAttributesRequest{FlowId: rpcFlowID, AllKeys: true})
-		if err != nil {
+		if err := runner.client.InvokeRPC(ctx, persistentFlowID, runner.attribute.ReadAttributes, nil, &bytesRead); err != nil {
 			return 0, err
 		}
-		if len(response.GetAttributes()) != len(benchmarkReadAttributes) {
-			return 0, fmt.Errorf("read %d attributes, expected %d", len(response.GetAttributes()), len(benchmarkReadAttributes))
+		if bytesRead != runner.expectedBytesPerRead {
+			return 0, fmt.Errorf("RPC read %d bytes, expected %d", bytesRead, runner.expectedBytesPerRead)
 		}
+		return 0, nil
+	case "attribute-read-direct":
+		return 0, runner.readAttributesDirect(ctx, persistentFlowID)
 	case "attribute-write-local", "attribute-write-sync":
 		value := &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: time.Now().UnixNano()}}
 		write := &dexpb.AttributeWrite{Key: benchmarkWriteAttribute.AttributeName(), Value: value}
 		if runner.config.Scenario == "attribute-write-sync" {
 			write.SyncConfig = &dexpb.AttributeSyncConfig{Enabled: true}
 		}
-		_, err := runner.service.SetAttributes(ctx, &dexpb.SetAttributesRequest{FlowId: rpcFlowID, Attributes: []*dexpb.AttributeWrite{write}, RequestId: runner.newFlowID()})
+		_, err := runner.service.SetAttributes(ctx, &dexpb.SetAttributesRequest{FlowId: persistentFlowID, Attributes: []*dexpb.AttributeWrite{write}, RequestId: runner.newFlowID()})
 		return 0, err
 	default:
 		return 0, fmt.Errorf("unknown scenario %s", runner.config.Scenario)
 	}
-	return 0, nil
+}
+
+func (runner *Runner) waitForCompletion(ctx context.Context, flowID string) error {
+	result, err := runner.client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{})
+	if err != nil {
+		return err
+	}
+	if result.Status != dex.FlowCompleted {
+		return fmt.Errorf("Flow status %v", result.Status)
+	}
+	return nil
+}
+
+// wakeWaitingFlow times PublishToChannel until the waiting Step's Execute starts.
+// Starting the Flow and confirming it waits are not timed.
+func (runner *Runner) wakeWaitingFlow(ctx context.Context, clientIndex int) (time.Duration, error) {
+	flowID := runner.newFlowID()
+	sequence := runner.nextWakeSequence.Add(1)
+	if _, err := runner.client.StartFlow(ctx, runner.wake, flowID, wakeInput{Client: clientIndex, Sequence: sequence}, dex.StartFlowOptions{}); err != nil {
+		return 0, err
+	}
+	if err := runner.waitUntilStepWaiting(ctx, flowID); err != nil {
+		return 0, err
+	}
+	message := &dexpb.ChannelMessage{ChannelName: benchmarkWakeChannel.ChannelName(), Value: &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: sequence}}}
+	publishedAt := time.Now()
+	if _, err := runner.service.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{FlowId: flowID, Messages: []*dexpb.ChannelMessage{message}}); err != nil {
+		return 0, err
+	}
+	signals := runner.wake.signals.channels[clientIndex]
+	for {
+		select {
+		case <-ctx.Done():
+			return 0, fmt.Errorf("wait for woken Step: %w", ctx.Err())
+		case signal := <-signals:
+			if signal.sequence != sequence {
+				continue
+			}
+			latency := signal.startedAt.Sub(publishedAt)
+			if err := runner.waitForCompletion(ctx, flowID); err != nil {
+				return 0, err
+			}
+			return latency, nil
+		}
+	}
+}
+
+func (runner *Runner) waitUntilStepWaiting(ctx context.Context, flowID string) error {
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		state, err := runner.service.GetFlowState(ctx, &dexpb.GetFlowStateRequest{FlowId: flowID})
+		if err != nil {
+			return fmt.Errorf("get Flow state: %w", err)
+		}
+		for _, execution := range state.GetActiveStepExecutions() {
+			if execution.GetPhase() == dexpb.ActiveStepPhase_ACTIVE_STEP_PHASE_WAITING {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for waiting Step: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+// readAttributesDirect reads like an uncached client: GetAttributes, then one LoadBlobs for every reference.
+func (runner *Runner) readAttributesDirect(ctx context.Context, flowID string) error {
+	response, err := runner.service.GetAttributes(ctx, &dexpb.GetAttributesRequest{FlowId: flowID, AllKeys: true})
+	if err != nil {
+		return err
+	}
+	values := make(map[string]string, len(runner.expectedReadValues))
+	pendingKeys := map[string]string{}
+	var entries []*dexpb.LoadBlobRequestEntry
+	for _, attribute := range response.GetAttributes() {
+		if _, isRead := runner.expectedReadValues[attribute.GetKey()]; !isRead {
+			continue
+		}
+		switch kind := attribute.GetValue().GetKind().(type) {
+		case *dexpb.Value_StringValue:
+			values[attribute.GetKey()] = kind.StringValue
+		case *dexpb.Value_InternalBlobIdForStringValue:
+			pendingKeys[kind.InternalBlobIdForStringValue] = attribute.GetKey()
+			entries = append(entries, &dexpb.LoadBlobRequestEntry{FlowId: flowID, BlobValue: attribute.GetValue()})
+		default:
+			return fmt.Errorf("Attribute %s has unexpected value kind %T", attribute.GetKey(), kind)
+		}
+	}
+	if len(entries) != 0 {
+		loaded, err := runner.service.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Entries: entries})
+		if err != nil {
+			return fmt.Errorf("load blobs: %w", err)
+		}
+		for blobID, key := range pendingKeys {
+			value, found := loaded.GetValues()[blobID]
+			if !found {
+				return fmt.Errorf("LoadBlobs omitted blob for Attribute %s", key)
+			}
+			stringValue, isString := value.GetKind().(*dexpb.Value_StringValue)
+			if !isString {
+				return fmt.Errorf("LoadBlobs returned %T for Attribute %s", value.GetKind(), key)
+			}
+			values[key] = stringValue.StringValue
+		}
+		runner.blobsLoaded.Add(int64(len(entries)))
+	}
+	var bytesRead int64
+	for key, expected := range runner.expectedReadValues {
+		if values[key] != expected {
+			return fmt.Errorf("Attribute %s returned %d bytes that differ from the %d bytes written", key, len(values[key]), len(expected))
+		}
+		bytesRead += int64(len(values[key]))
+	}
+	if bytesRead != runner.expectedBytesPerRead {
+		return fmt.Errorf("direct read %d bytes, expected %d", bytesRead, runner.expectedBytesPerRead)
+	}
+	return nil
 }
 
 func (runner *Runner) SeedRecovery(ctx context.Context, targetBytes uint64) (uint64, error) {
@@ -425,6 +539,9 @@ func (runner *Runner) Close() error {
 	if runner.cache != nil {
 		combined = errors.Join(combined, runner.cache.Close())
 	}
+	if runner.cacheDir != "" {
+		combined = errors.Join(combined, os.RemoveAll(runner.cacheDir))
+	}
 	return combined
 }
 
@@ -439,42 +556,21 @@ func (runner *Runner) stopWorker() {
 	}
 }
 
-func (runner *Runner) closeCache(directory string) {
+func (runner *Runner) closeCache() {
 	if err := runner.cache.Close(); err != nil {
 		slog.Error("close cache", "error", err)
 	}
+	removeDirectory(runner.cacheDir)
+}
+
+func removeDirectory(directory string) {
 	if err := os.RemoveAll(directory); err != nil {
-		slog.Error("remove cache", "error", err)
+		slog.Error("remove directory", "directory", directory, "error", err)
 	}
 }
 
 func (runner *Runner) newFlowID() string {
 	return fmt.Sprintf("%s-%d", runner.runPrefix, runner.nextFlowID.Add(1))
-}
-
-func sampleResources(ctx context.Context, processIDs []int, output chan<- []ResourceSample) {
-	var samples []ResourceSample
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			output <- samples
-			return
-		case <-ticker.C:
-			combined := ResourceSample{At: time.Now().UTC()}
-			for _, processID := range processIDs {
-				sample, err := sampleProcess(processID)
-				if err != nil {
-					slog.Warn("sample server process", "pid", processID, "error", err)
-					continue
-				}
-				combined.CPUPercent += sample.CPUPercent
-				combined.RSSBytes += sample.RSSBytes
-			}
-			samples = append(samples, combined)
-		}
-	}
 }
 
 func sdkVersion() string {

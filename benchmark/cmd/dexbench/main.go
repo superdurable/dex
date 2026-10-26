@@ -13,10 +13,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/superdurable/dex/benchmark"
@@ -47,6 +49,10 @@ func execute(args []string) error {
 		return recordRecovery(args[1:])
 	case "probe":
 		return probe(args[1:])
+	case "wait-ready":
+		return waitReady(args[1:])
+	case "variants":
+		return printVariants(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -68,7 +74,11 @@ func probe(args []string) error {
 			fmt.Fprintln(os.Stderr, closeErr)
 		}
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	return checkHealth(connection, time.Second)
+}
+
+func checkHealth(connection *grpc.ClientConn, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	response, err := healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{Service: "dex.FlowService"})
 	if err != nil {
@@ -78,6 +88,106 @@ func probe(args []string) error {
 		return fmt.Errorf("FlowService health is %s", response.GetStatus())
 	}
 	return nil
+}
+
+// waitReady polls FlowService health at a fixed interval. Each attempt dials a new connection,
+// so gRPC reconnect backoff cannot quantize the measured readiness time.
+func waitReady(args []string) error {
+	flags := flag.NewFlagSet("wait-ready", flag.ContinueOnError)
+	var address string
+	var interval, timeout time.Duration
+	var processID int
+	var startedUnixNano int64
+	flags.StringVar(&address, "address", "127.0.0.1:8801", "Dex FlowService address")
+	flags.DurationVar(&interval, "interval", 10*time.Millisecond, "poll interval")
+	flags.DurationVar(&timeout, "timeout", 5*time.Minute, "maximum wait")
+	flags.IntVar(&processID, "pid", 0, "server process that must stay alive while waiting")
+	flags.Int64Var(&startedUnixNano, "started-unix-nano", 0, "when set, print seconds from this time until ready")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		if isReady(address, interval) {
+			if startedUnixNano > 0 {
+				fmt.Printf("%.6f\n", time.Since(time.Unix(0, startedUnixNano)).Seconds())
+			}
+			return nil
+		}
+		if processID > 0 && syscall.Kill(processID, 0) != nil {
+			return fmt.Errorf("server process %d exited during startup", processID)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("FlowService at %s was not ready within %s", address, timeout)
+		}
+		time.Sleep(interval)
+	}
+}
+
+func isReady(address string, interval time.Duration) bool {
+	dialTimeout := max(interval, 50*time.Millisecond)
+	tcpConnection, err := net.DialTimeout("tcp", address, dialTimeout)
+	if err != nil {
+		return false
+	}
+	if err := tcpConnection.Close(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
+	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return false
+	}
+	defer func() {
+		if closeErr := connection.Close(); closeErr != nil {
+			fmt.Fprintln(os.Stderr, closeErr)
+		}
+	}()
+	return checkHealth(connection, time.Second) == nil
+}
+
+func printVariants(args []string) error {
+	flags := flag.NewFlagSet("variants", flag.ContinueOnError)
+	var scenarios, attributeStoreName string
+	flags.StringVar(&scenarios, "scenarios", "", "comma-separated scenarios")
+	flags.StringVar(&attributeStoreName, "attribute-store-name", "", "PostgreSQL Attribute Store name for synchronized writes")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	variants, err := expandScenarios(scenarios, attributeStoreName)
+	if err != nil {
+		return err
+	}
+	for _, variant := range variants {
+		fmt.Println(variant)
+	}
+	return nil
+}
+
+func expandScenarios(scenarios, attributeStoreName string) ([]string, error) {
+	var variants []string
+	for _, requested := range strings.Split(scenarios, ",") {
+		selected := []string{strings.TrimSpace(requested)}
+		switch selected[0] {
+		case "":
+			continue
+		case "rpc":
+			selected = []string{"rpc-plain", "rpc-locking"}
+		case "attribute-read":
+			selected = []string{"attribute-read-rpc", "attribute-read-direct"}
+		case "attribute-write":
+			selected = []string{"attribute-write-local"}
+			if attributeStoreName != "" {
+				selected = append(selected, "attribute-write-sync")
+			}
+		}
+		for _, scenario := range selected {
+			if !isKnownScenario(scenario) {
+				return nil, fmt.Errorf("unknown scenario %q", scenario)
+			}
+			variants = append(variants, scenario)
+		}
+	}
+	return variants, nil
 }
 
 func seedRecovery(args []string) error {
@@ -152,6 +262,7 @@ func run(args []string) error {
 	var isShort bool
 	var concurrencyValues string
 	var resourcePIDs string
+	var resourceCgroups string
 	flags.StringVar(&config.Address, "address", "127.0.0.1:8801", "Dex FlowService address")
 	flags.StringVar(&config.Target, "target", "zd", "target name")
 	flags.StringVar(&config.Engine, "engine", "zd", "server engine")
@@ -168,9 +279,9 @@ func run(args []string) error {
 	flags.StringVar(&config.Region, "region", os.Getenv("AWS_REGION"), "server region")
 	flags.StringVar(&config.InstanceType, "instance-type", os.Getenv("DEXBENCH_INSTANCE_TYPE"), "host instance type")
 	flags.StringVar(&config.GitCommit, "git-commit", os.Getenv("DEXBENCH_GIT_COMMIT"), "SDK checkout commit")
-	flags.IntVar(&config.ServerPID, "server-pid", 0, "server PID for CPU and RSS")
-	flags.StringVar(&config.ServerProcess, "server-process", "", "server executable name for CPU and RSS")
-	flags.StringVar(&resourcePIDs, "resource-pids", "", "additional comma-separated process IDs to sample")
+	flags.IntVar(&config.ServerPID, "server-pid", 0, "root server PID; its whole process tree is sampled for CPU and RSS")
+	flags.StringVar(&resourcePIDs, "resource-pids", "", "additional comma-separated root process IDs; each root's process tree is sampled")
+	flags.StringVar(&resourceCgroups, "resource-cgroups", "", "comma-separated cgroup v2 directories to sample, such as Docker container cgroups")
 	flags.StringVar(&config.MetricsURL, "metrics-url", "", "server-zd /metrics URL")
 	flags.StringVar(&outputDirectory, "out", "results", "result directory")
 	flags.BoolVar(&isShort, "short", false, "ten-second low-concurrency smoke mode")
@@ -193,51 +304,42 @@ func run(args []string) error {
 		}
 		config.ResourcePIDs = append(config.ResourcePIDs, processID)
 	}
+	for _, value := range strings.Split(resourceCgroups, ",") {
+		if directory := strings.TrimSpace(value); directory != "" {
+			config.ResourceCgroups = append(config.ResourceCgroups, directory)
+		}
+	}
 	requestedWorkerPool := config.WorkerPool
+	variants, err := expandScenarios(scenarios, config.AttributeStoreName)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(outputDirectory, 0o755); err != nil {
 		return err
 	}
-	for _, requested := range strings.Split(scenarios, ",") {
-		selected := []string{strings.TrimSpace(requested)}
-		if selected[0] == "rpc" {
-			selected = []string{"rpc-plain", "rpc-locking"}
-		}
-		if selected[0] == "attribute-read" {
-			selected = []string{"attribute-read-rpc", "attribute-read-direct"}
-		}
-		if selected[0] == "attribute-write" {
-			selected = []string{"attribute-write-local"}
-			if config.AttributeStoreName != "" {
-				selected = append(selected, "attribute-write-sync")
+	for _, scenario := range variants {
+		for _, requestedConcurrency := range strings.Split(concurrencyValues, ",") {
+			concurrency, err := strconv.Atoi(strings.TrimSpace(requestedConcurrency))
+			if err != nil || concurrency < 1 {
+				return fmt.Errorf("invalid concurrency %q", requestedConcurrency)
 			}
-		}
-		for _, scenario := range selected {
-			if !isKnownScenario(scenario) {
-				return fmt.Errorf("unknown scenario %q", scenario)
+			config.Concurrency = concurrency
+			config.Scenario = scenario
+			config.WorkerPool = requestedWorkerPool
+			if config.WorkerPool == 0 {
+				config.WorkerPool = concurrency
 			}
-			for _, requestedConcurrency := range strings.Split(concurrencyValues, ",") {
-				concurrency, err := strconv.Atoi(strings.TrimSpace(requestedConcurrency))
-				if err != nil || concurrency < 1 {
-					return fmt.Errorf("invalid concurrency %q", requestedConcurrency)
-				}
-				config.Concurrency = concurrency
-				config.Scenario = scenario
-				config.WorkerPool = requestedWorkerPool
-				if config.WorkerPool == 0 {
-					config.WorkerPool = concurrency
-				}
-				runner, err := benchmark.NewRunner(config)
-				if err != nil {
-					return err
-				}
-				result, runErr := runner.Run(context.Background())
-				closeErr := runner.Close()
-				path := filepath.Join(outputDirectory, fmt.Sprintf("%s-%s-c%d-%s.json", config.Target, scenario, concurrency, time.Now().UTC().Format("20060102T150405Z")))
-				writeErr := benchmark.WriteResult(path, result)
-				fmt.Fprintln(os.Stderr, path)
-				if combined := errors.Join(runErr, closeErr, writeErr); combined != nil {
-					return fmt.Errorf("scenario %s: %w", scenario, combined)
-				}
+			runner, err := benchmark.NewRunner(config)
+			if err != nil {
+				return err
+			}
+			result, runErr := runner.Run(context.Background())
+			closeErr := runner.Close()
+			path := filepath.Join(outputDirectory, fmt.Sprintf("%s-%s-c%d-%s.json", config.Target, scenario, concurrency, time.Now().UTC().Format("20060102T150405Z")))
+			writeErr := benchmark.WriteResult(path, result)
+			fmt.Fprintln(os.Stderr, path)
+			if combined := errors.Join(runErr, closeErr, writeErr); combined != nil {
+				return fmt.Errorf("scenario %s: %w", scenario, combined)
 			}
 		}
 	}

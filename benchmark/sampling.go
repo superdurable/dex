@@ -72,40 +72,6 @@ func machineInfo() MachineInfo {
 
 func MachineDetails() MachineInfo { return machineInfo() }
 
-func serverPID(config Config) (int, error) {
-	if config.ServerPID > 0 {
-		return config.ServerPID, nil
-	}
-	if config.ServerProcess == "" {
-		return 0, nil
-	}
-	output, err := exec.Command("pgrep", "-n", "-x", config.ServerProcess).Output()
-	if err != nil {
-		return 0, fmt.Errorf("find server process %s: %w", config.ServerProcess, err)
-	}
-	return strconv.Atoi(strings.TrimSpace(string(output)))
-}
-
-func sampleProcess(pid int) (ResourceSample, error) {
-	output, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "%cpu=,rss=").Output()
-	if err != nil {
-		return ResourceSample{}, fmt.Errorf("sample process %d: %w", pid, err)
-	}
-	fields := strings.Fields(string(output))
-	if len(fields) != 2 {
-		return ResourceSample{}, fmt.Errorf("unexpected ps output for %d: %q", pid, output)
-	}
-	cpu, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil {
-		return ResourceSample{}, err
-	}
-	rss, err := strconv.ParseUint(fields[1], 10, 64)
-	if err != nil {
-		return ResourceSample{}, err
-	}
-	return ResourceSample{At: time.Now().UTC(), CPUPercent: cpu, RSSBytes: rss * 1024}, nil
-}
-
 func scrapeMetrics(ctx context.Context, address string) (map[string]float64, error) {
 	if address == "" {
 		return nil, nil
@@ -153,7 +119,7 @@ func metricDifference(before, after map[string]float64, duration time.Duration) 
 	if after == nil {
 		return nil
 	}
-	metrics := &ObjectStoreMetrics{RequestsPerMinute: map[string]float64{}, CommitLatencyBuckets: map[string]float64{}}
+	metrics := &ObjectStoreMetrics{RequestsPerMinute: map[string]float64{}, RequestsPerMinuteByOperation: map[string]float64{}, CommitLatencyBuckets: map[string]float64{}}
 	for name, final := range after {
 		delta := final - before[name]
 		if delta < 0 {
@@ -162,6 +128,7 @@ func metricDifference(before, after map[string]float64, duration time.Duration) 
 		switch {
 		case strings.HasPrefix(name, "dexzd_object_store_requests"):
 			metrics.RequestsPerMinute[name] = delta / duration.Minutes()
+			metrics.RequestsPerMinuteByOperation[metricLabel(name, "operation")] += delta / duration.Minutes()
 		case strings.HasPrefix(name, "dexzd_object_store_request_errors"):
 			metrics.RequestErrors += int64(delta)
 		case strings.HasPrefix(name, "dexzd_commit_latency_seconds_bucket"):
@@ -173,4 +140,18 @@ func metricDifference(before, after map[string]float64, duration time.Duration) 
 		}
 	}
 	return metrics
+}
+
+func metricLabel(series, label string) string {
+	marker := label + "=\""
+	start := strings.Index(series, marker)
+	if start < 0 {
+		return "unlabeled"
+	}
+	value := series[start+len(marker):]
+	end := strings.IndexByte(value, '"')
+	if end < 0 {
+		return "unlabeled"
+	}
+	return value[:end]
 }

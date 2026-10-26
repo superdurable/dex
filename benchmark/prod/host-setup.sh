@@ -6,8 +6,13 @@ if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
   exit 1
 fi
 
+if [[ ! -f /etc/docker/daemon.json ]]; then
+  echo "run benchmark/prod/mount-nvme.sh first so Docker data lands on instance-store NVMe" >&2
+  exit 1
+fi
+
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg jq git python3 python3-yaml tar xz-utils
+sudo apt-get install -y ca-certificates curl gnupg jq git python3 python3-yaml tar xz-utils tmux
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 sudo chmod a+r /etc/apt/keyrings/docker.gpg
@@ -41,7 +46,7 @@ wait_for_load() {
   local load
   while :; do
     load="$(uptime | sed -E 's/.*load averages?: ([0-9.]+).*/\1/')"
-    if awk -v load="$load" 'BEGIN { exit !(load < 24) }'; then return; fi
+    if awk -v load="$load" -v limit="${DEXBENCH_MAX_LOAD:-$(getconf _NPROCESSORS_ONLN)}" 'BEGIN { exit !(load < limit) }'; then return; fi
     sleep 15
   done
 }

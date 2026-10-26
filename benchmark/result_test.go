@@ -47,7 +47,7 @@ func TestReportSortsAndSumsErrors(t *testing.T) {
 
 func TestResultJSONRoundTrip(t *testing.T) {
 	path := t.TempDir() + "/result.json"
-	want := Result{SchemaVersion: 1, Config: Config{Scenario: "attribute-read-direct", Target: "zd", Concurrency: 32}, Attempts: 12, Successes: 11, Errors: map[string]int64{"timeout": 1}}
+	want := Result{SchemaVersion: 2, Config: Config{Scenario: "attribute-read-direct", Target: "zd", Concurrency: 32}, Attempts: 12, Successes: 11, Errors: map[string]int64{"timeout": 1}}
 	if err := WriteResult(path, want); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestReportShowsRecoveryLogSizes(t *testing.T) {
 		{Config: Config{Scenario: "recovery", Target: "zd", RecoveryTargetMB: 100}, RecoveryLogBytes: 101 << 20, RecoverySeconds: 3.5},
 	}
 	got := RenderReport(results)
-	if !strings.Contains(got, "| 100 | 101.00 | zd | 3.50 | 0 |") || !strings.Contains(got, "| 500 | 499.00 | zd | 12.50 | 0 |") {
+	if !strings.Contains(got, "| 100 | 101.00 | zd | 3.500 | 0.000 | 0 |") || !strings.Contains(got, "| 500 | 499.00 | zd | 12.500 | 0.000 | 0 |") {
 		t.Fatalf("missing recovery sizes: %s", got)
 	}
 }
