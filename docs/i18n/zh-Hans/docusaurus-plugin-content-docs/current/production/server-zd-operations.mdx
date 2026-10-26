@@ -459,6 +459,9 @@ server-zd 不同的地方。
   此例外仅适用于尚未清除的 run。该操作会删除存储的对象，但不会重新打开 run。run 的 Flow history
   会在关闭之后记录这次擦除。Go Server 在已取消或失败的 run 收尾期间接受写入，关闭后则拒绝写入。
   Flow 需要的数据请在停止之前写入。
+- 对已关闭 run 调用 RPC 会在 Worker 执行处理函数前返回 NOT_FOUND 和 FLOW_NOT_EXISTS。
+  即使处理函数只读取数据也是如此，因为请求没有只读标记。使用已记录的请求 ID 重试时，
+  会返回先前的结果。Go Server 可以通过查询路径在已关闭的 Flow 上执行只读 RPC。
 - 已不在配置中的 store 的待写入值会被立即丢弃，并计入
   **dexzd_attribute_sync_dropped_entries_total**。
 

@@ -11,15 +11,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_apply::{ApplyContext, FlowStateReader};
-use dexzd_keyspace::row_keys::channel_name_prefix;
-use dexzd_keyspace::{RunId, RunTable, TenantId};
+use dexzd_keyspace::row_keys::{RequestKind, channel_name_prefix, request_dedup_key};
+use dexzd_keyspace::{ColumnFamily, RunId, RunTable, TenantId};
 use dexzd_protocol::dex::{
-    ChannelInfo, ChannelMessage, ChannelValues, Context, ErrorSubStatus, InvokeRpcRequest,
-    InvokeRpcResponse, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse, Kv,
+    ChannelInfo, ChannelMessage, ChannelValues, Context, ErrorSubStatus, FlowStatus,
+    InvokeRpcRequest, InvokeRpcResponse, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse, Kv,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributeRecord, ChannelMessageRecord, ChannelMetaRecord, RpcCommittedCommand, command_reply,
-    flow_command,
+    AttributeRecord, ChannelMessageRecord, ChannelMetaRecord, RequestDedupRecord,
+    RpcCommittedCommand, command_reply, flow_command,
 };
 use dexzd_request_validation::{
     ClientRequest, WorkerResponse, validate_client_request, validate_worker_response,
@@ -30,8 +30,8 @@ use crate::runtime::client_operations::hard_delete_uploads::hard_delete_referenc
 use crate::runtime::client_operations::request_fingerprint::request_fingerprint;
 use crate::runtime::client_operations::unstamped_flow_command;
 use crate::runtime::read_operations::state_rows::{
-    ResolvedRun, WireValue, hydrate_value_reference, load_complete_value, read_run, response_value,
-    scan_run_rows,
+    ResolvedRun, WireValue, decode_row, hydrate_value_reference, load_complete_value, read_run,
+    response_value, scan_run_rows,
 };
 use crate::runtime::{
     FlowAddress, FlowRuntimeRegistry, RpcInvokeError, RuntimeError, WorkerRpcInvocation,
@@ -70,7 +70,13 @@ impl FlowRuntimeRegistry {
         lock_keys.dedup();
         let run_id = {
             let committed = self.inner.dependencies.committer.committed_view()?;
-            read_run(committed.as_ref(), context, &flow, &request.run_id)?.run_id
+            let run = read_run(committed.as_ref(), context, &flow, &request.run_id)?;
+            if let Some(response) =
+                admit_rpc_run(committed.as_ref(), context, &flow, &run, &request)?
+            {
+                return Ok(response);
+            }
+            run.run_id
         };
         // The Go Server rejects these workflow updates during cleanup, and waits for admitted ones.
         let rpc_admission = if is_transactional {
@@ -90,6 +96,12 @@ impl FlowRuntimeRegistry {
         let is_hydrating = self.inner.config.hydrate_value_references;
         let snapshot = {
             let committed = self.inner.dependencies.committer.committed_view()?;
+            let run = read_run(committed.as_ref(), context, &flow, &run_id.to_string())?;
+            if let Some(response) =
+                admit_rpc_run(committed.as_ref(), context, &flow, &run, &request)?
+            {
+                return Ok(response);
+            }
             build_rpc_snapshot(
                 committed.as_ref(),
                 context,
@@ -257,6 +269,60 @@ impl FlowRuntimeRegistry {
             &stored_output,
         )?;
         Ok(InvokeRpcResponse { output })
+    }
+}
+
+fn admit_rpc_run(
+    state: &dyn FlowStateReader,
+    context: ApplyContext,
+    flow: &FlowAddress,
+    run: &ResolvedRun,
+    request: &InvokeRpcRequest,
+) -> Result<Option<InvokeRpcResponse>, RuntimeError> {
+    if let Some(response) = replay_recorded_rpc(state, context, run, request)? {
+        return Ok(Some(response));
+    }
+    if run.record.status != FlowStatus::Running as i32 {
+        return Err(RuntimeError::flow_not_found(&flow.flow_id));
+    }
+    Ok(None)
+}
+
+fn replay_recorded_rpc(
+    state: &dyn FlowStateReader,
+    context: ApplyContext,
+    run: &ResolvedRun,
+    request: &InvokeRpcRequest,
+) -> Result<Option<InvokeRpcResponse>, RuntimeError> {
+    let key = request_dedup_key(
+        context.flow_hash,
+        run.run_id,
+        RequestKind::InvokeRpc,
+        &request.request_id,
+    );
+    let recorded: Option<RequestDedupRecord> =
+        decode_row(state, ColumnFamily::Flow, &key, "RPC request dedup")?;
+    let Some(recorded) = recorded else {
+        return Ok(None);
+    };
+    if recorded.request_fingerprint != request_fingerprint(request) {
+        return Err(RuntimeError::invalid_argument(format!(
+            "request ID {} was already used for a different request",
+            request.request_id
+        )));
+    }
+    match recorded.reply.and_then(|reply| reply.reply) {
+        Some(command_reply::Reply::Rpc(reply)) => {
+            let output = match reply.output {
+                Some(stored) => load_complete_value(state, context.flow_hash, run.run_id, &stored)?,
+                None => None,
+            };
+            Ok(Some(InvokeRpcResponse { output }))
+        }
+        Some(command_reply::Reply::Error(error)) => Err(RuntimeError::from_reply(&error)),
+        other => Err(RuntimeError::Internal {
+            detail: format!("RPC dedup entry has an unexpected reply: {other:?}"),
+        }),
     }
 }
 

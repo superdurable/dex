@@ -15,6 +15,7 @@ mod failure_policies;
 mod flow_controls;
 mod hard_delete_closed;
 mod harness;
+mod rpc_closed_run;
 mod streams;
 mod time_travel;
 mod value_hydration;

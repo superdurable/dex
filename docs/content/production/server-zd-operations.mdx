@@ -554,6 +554,11 @@ in server-zd.
   erase after the close. The Go Server accepts writes while a canceled or
   failed run winds down. It rejects every write after the run closes. Write what
   a Flow needs before stopping it.
+- An RPC on a closed run returns NOT_FOUND with FLOW_NOT_EXISTS before a Worker
+  runs its handler. This includes read-only handlers because the request has no
+  read-only marker. A retry with a recorded request ID returns its earlier
+  reply. The Go Server can serve read-only RPCs on closed Flows through its
+  query path.
 - Pending writes for a store that is no longer configured are dropped at once
   and counted in **dexzd_attribute_sync_dropped_entries_total**.
 
