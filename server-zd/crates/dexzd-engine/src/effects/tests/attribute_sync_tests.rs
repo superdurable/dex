@@ -16,8 +16,8 @@ use std::time::Duration;
 
 use dexzd_apply::{ApplyEffect, FlowStateReader};
 use dexzd_cluster_metadata::LeaseStatus;
-use dexzd_keyspace::row_keys::attribute_sync_outbox_key;
-use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId, RunId};
+use dexzd_keyspace::row_keys::{attribute_sync_outbox_key, run_named_key};
+use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId, RunId, RunTable};
 use dexzd_metrics::{AttributeSyncFailureKind, NodeMetrics};
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeSyncConfig as WriteSyncConfig, AttributeWrite, CloseDecision,
@@ -1438,6 +1438,190 @@ async fn time_travel_to_an_unsynced_value_deletes_the_store_row() {
     let writes = fixture.store.committed_writes();
     assert_eq!(writes.len(), 1, "{writes:?}");
     assert_eq!(writes[0].items, vec![item("Status", None)]);
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn time_travel_refreshes_a_pending_entry_when_the_restored_attribute_is_missing() {
+    assert_pending_reset_store_row(Vec::new(), "reset-pending-missing", true, None).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn time_travel_refreshes_a_pending_entry_when_the_restored_attribute_is_unsynced() {
+    assert_pending_reset_store_row(
+        vec![unsynced("Status", string_value("draft"))],
+        "reset-pending-unsynced",
+        true,
+        None,
+    )
+    .await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn time_travel_reapplies_a_synced_snapshot_before_a_later_unsynced_write() {
+    assert_pending_reset_store_row(
+        Vec::new(),
+        "reset-reapply-pending",
+        false,
+        Some(string_value("opened")),
+    )
+    .await;
+}
+
+async fn assert_pending_reset_store_row(
+    initial_attributes: Vec<AttributeWrite>,
+    flow_id: &str,
+    skip_writes_reapply: bool,
+    expected_value: Option<Value>,
+) {
+    let harness = EffectHarness::new();
+    let run_id = start_synced_flow(&harness, flow_id, &[STORE], initial_attributes);
+    let flow = EffectHarness::flow(flow_id);
+    for (value, sync_enabled) in [("opened", true), ("quiet", false)] {
+        let write = if sync_enabled {
+            synced("Status", Some(string_value(value)))
+        } else {
+            unsynced("Status", string_value(value))
+        };
+        let reply = harness
+            .runtime
+            .commit(
+                &flow,
+                FlowCommand {
+                    flow_id: flow_id.to_owned(),
+                    run_id: run_id.as_bytes().to_vec(),
+                    command: Some(flow_command::Command::AttributesSet(AttributesSetCommand {
+                        request: Some(SetAttributesRequest {
+                            flow_id: flow_id.to_owned(),
+                            run_id: run_id.to_string(),
+                            attributes: vec![write],
+                            ..SetAttributesRequest::default()
+                        }),
+                        ..AttributesSetCommand::default()
+                    })),
+                    ..FlowCommand::default()
+                },
+                CommitUrgency::Prompt,
+            )
+            .expect("Attribute write commits");
+        assert!(!is_error_reply(&reply));
+    }
+    let reply = harness
+        .runtime
+        .commit(
+            &flow,
+            FlowCommand {
+                flow_id: flow_id.to_owned(),
+                run_id: run_id.as_bytes().to_vec(),
+                command: Some(flow_command::Command::TimeTravel(TimeTravelCommand {
+                    request: Some(ResetFlowRequest {
+                        flow_id: flow_id.to_owned(),
+                        reset_type: FlowResetType::Beginning as i32,
+                        reason: "test".to_owned(),
+                        skip_writes_reapply,
+                        ..ResetFlowRequest::default()
+                    }),
+                })),
+                ..FlowCommand::default()
+            },
+            CommitUrgency::Prompt,
+        )
+        .expect("reset commits");
+    assert!(!is_error_reply(&reply));
+    harness.settle().await;
+    let fixture = ProjectorFixture::start_on(
+        harness,
+        sync_config(),
+        Duration::from_secs(365 * 24 * 3600),
+        AttributeSyncWaker::new(),
+    );
+    fixture
+        .wait_until("the reset entry is acknowledged", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    let writes = fixture.store.committed_writes();
+    assert_eq!(writes.len(), 1, "{writes:?}");
+    assert_eq!(writes[0].items, vec![item("Status", expected_value)]);
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn legacy_pending_entries_read_only_synced_current_values() {
+    const FLOW_ID: &str = "legacy-pending-entries";
+    let harness = EffectHarness::new();
+    let run_id = start_synced_flow(
+        &harness,
+        FLOW_ID,
+        &[STORE],
+        vec![
+            synced("Synced", Some(string_value("ready"))),
+            synced("Unsynced", Some(string_value("old"))),
+            synced("Missing", Some(string_value("old"))),
+        ],
+    );
+    let reply = harness
+        .runtime
+        .commit(
+            &EffectHarness::flow(FLOW_ID),
+            FlowCommand {
+                flow_id: FLOW_ID.to_owned(),
+                run_id: run_id.as_bytes().to_vec(),
+                command: Some(flow_command::Command::AttributesSet(AttributesSetCommand {
+                    request: Some(SetAttributesRequest {
+                        flow_id: FLOW_ID.to_owned(),
+                        run_id: run_id.to_string(),
+                        attributes: vec![unsynced("Unsynced", string_value("private"))],
+                        ..SetAttributesRequest::default()
+                    }),
+                    ..AttributesSetCommand::default()
+                })),
+                ..FlowCommand::default()
+            },
+            CommitUrgency::Prompt,
+        )
+        .expect("unsynced write commits");
+    assert!(!is_error_reply(&reply));
+    let run = harness.run_location(FLOW_ID, run_id);
+    {
+        let mut state = harness.runtime.state.lock().expect("lock");
+        state.rows.remove(&(
+            ColumnFamily::Flow,
+            run_named_key(run.flow_hash, run.run_id, RunTable::Attribute, "Missing"),
+        ));
+        for attribute_key in ["Synced", "Unsynced", "Missing"] {
+            let key = attribute_sync_outbox_key(run.flow_hash, run.run_id, STORE, attribute_key);
+            let bytes = state
+                .rows
+                .get_mut(&(ColumnFamily::Flow, key))
+                .expect("pending entry exists");
+            let mut entry =
+                AttributeSyncOutboxRecord::decode(bytes.as_slice()).expect("pending entry decodes");
+            entry.sync_item = None;
+            *bytes = entry.encode_to_vec();
+        }
+    }
+    harness.settle().await;
+    let fixture = ProjectorFixture::start_on(
+        harness,
+        sync_config(),
+        Duration::from_secs(365 * 24 * 3600),
+        AttributeSyncWaker::new(),
+    );
+    fixture
+        .wait_until("legacy entries are acknowledged", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    let writes = fixture.store.committed_writes();
+    assert_eq!(writes.len(), 1, "{writes:?}");
+    assert_eq!(
+        writes[0].items,
+        vec![
+            item("Missing", None),
+            item("Synced", Some(string_value("ready")))
+        ],
+    );
     fixture.shutdown().await;
 }
 

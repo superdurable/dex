@@ -227,6 +227,26 @@ pub(crate) fn has_attribute_sync_entries(
         .is_empty())
 }
 
+/// Returns the Attribute keys with pending entries across every store of the run.
+pub(crate) fn pending_attribute_sync_keys(
+    transaction: &FlowTransaction<'_>,
+    rows: RunRows,
+) -> Result<BTreeSet<String>, ApplyError> {
+    let prefix = run_table_prefix(rows.flow_hash, rows.run_id, RunTable::AttributeSyncOutbox);
+    let (start, end) = prefix_range(&prefix);
+    let entries: Vec<(Vec<u8>, AttributeSyncOutboxRecord)> = transaction.scan_messages(
+        ColumnFamily::Flow,
+        &start,
+        &end,
+        usize::MAX,
+        OUTBOX_ROW_KIND,
+    )?;
+    Ok(entries
+        .into_iter()
+        .map(|(_, entry)| entry.attribute_key)
+        .collect())
+}
+
 /// Deletes the pending index keys of a purged run; the range delete removes its entries.
 pub(crate) fn remove_attribute_sync_indexes(
     transaction: &mut FlowTransaction<'_>,
