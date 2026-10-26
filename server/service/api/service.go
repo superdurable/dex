@@ -1360,13 +1360,13 @@ func (s *serviceImpl) SearchFlows(
 }
 
 // buildFlowSearchQuery restricts the caller's query to Flow runs and keeps a trailing ORDER BY clause last.
-func buildFlowSearchQuery(callerQuery string, interpreterWorkflowType string, includeContinuedAsNew bool) string {
+func buildFlowSearchQuery(callerQuery string, interpreterWorkflowType string, shouldIncludeContinuedAsNew bool) string {
 	predicate, orderByClause := splitTrailingOrderByClause(callerQuery)
 	query := fmt.Sprintf(`WorkflowType = "%s"`, interpreterWorkflowType)
 	if predicate != "" {
 		query = fmt.Sprintf("(%s) AND (%s)", predicate, query)
 	}
-	if !includeContinuedAsNew {
+	if !shouldIncludeContinuedAsNew {
 		query = fmt.Sprintf(`(%s) AND (ExecutionStatus != "ContinuedAsNew")`, query)
 	}
 	if orderByClause != "" {

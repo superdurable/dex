@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Temporal SQL visibility rejects ORDER BY, so integration tests cannot cover it locally.
+// ORDER BY support depends on the visibility store, so integration tests cannot cover it portably.
 func TestBuildFlowSearchQueryKeepsOrderByLast(t *testing.T) {
 	testCases := []struct {
 		name                  string
