@@ -29,7 +29,7 @@ pub struct NodeConfig {
     /// No default; the caller supplies the current log incarnation.
     pub incarnation: u32,
     /// Address used by other nodes to forward requests.
-    /// No default; the caller advertises this gRPC address in the manifest for other nodes; it is not a bind address.
+    /// No default; the server writes its `api.listen` address here for other nodes to dial.
     pub internal_address: String,
 }
 

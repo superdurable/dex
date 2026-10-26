@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize, Serializer};
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApiConfig {
     /// Defaults to 0.0.0.0:8801; bind address for the plaintext public gRPC services.
-    /// Flow clients and Workers connect here; this address is not advertised to them.
+    /// Flow clients and Workers connect here. The node also writes it to the manifest as
+    /// its internal address for other nodes, so bind a routable address in multi-node setups.
     pub listen: SocketAddr,
     /// Defaults to 32 MiB; maximum incoming and outgoing gRPC message size, above maxValueBytes for envelope headroom.
     pub grpc_max_message_bytes: u64,

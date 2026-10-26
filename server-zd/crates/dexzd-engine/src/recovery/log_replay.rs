@@ -33,7 +33,7 @@ pub struct RecoveryConfig {
     /// its first retryable failure.
     pub startup_read_retry_budget: Duration,
     /// Read-ahead of log batches while startup replays them.
-    /// No default; the server supplies its configured read-ahead limits.
+    /// Defaults to `LogReadAheadConfig::default()`; the server passes its configured limits.
     pub log_read_ahead: LogReadAheadConfig,
     /// Defaults to 16 MiB; replayed record bytes that start a background compaction.
     /// `u64::MAX` disables it.
