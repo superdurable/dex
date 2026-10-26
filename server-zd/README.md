@@ -80,6 +80,10 @@ of main's `sdk-go/run-e2e-tests.sh` with `DEX_INTEG_ENGINE=zd`.
 | `server-zd/v0.1.1` | `sdk-go/v1.16.0` | 53 passed, 4 skipped, 0 failed | 14 passed, 5 skipped, 0 failed |
 | `server-zd/v0.1.1` | `sdk-go/v1.15.0` | 49 passed, 1 skipped, 7 failed | 14 passed, 0 skipped, 5 failed |
 
+The [Server ZD SDK CI](../.github/workflows/server-zd-sdk-ci.yml) workflow runs the Go, Rust, Python,
+TypeScript, and Java SDK integration suites with pull Workers against server-zd on every relevant
+pull request and main push.
+
 Every `sdk-go/v1.15.0` failure is a difference listed below. Its one skip is a push-only test
 that the suite skips with pull Workers. Both versions also passed the two pull Worker tests that
 run against a real server.
@@ -100,15 +104,17 @@ server-zd cancellation expectations below apply from the next Go SDK release con
 | Canceled Step handlers | server-zd sends `cancel_task`, so a pull Worker cancels a running handler context even if the handler records no heartbeat. On the Go Server, a running handler observes cancellation when it records a heartbeat or writes a Stream frame. This also applies to the ASYNC `local-execute` case on server-zd. | `TestStepCancellation` (`no-heartbeat`, `local-execute`) |
 | Push Workers | Not supported. | `TestMessageSizeHydrationSplitsBlobBatchesAboveLimit` (push-only) |
 | Step timeout failure text | A Step that exhausts its retries after a timeout fails with `method timeout of <seconds>s expired`, `no heartbeat within <seconds>s`, or `retry policy total duration expired`. The Go Server reports a Temporal timeout string. | None |
-| Value size limit | A Worker result with a value larger than `max_value_bytes` fails the attempt without retry. The text is `a value of <n> bytes exceeds the <max> byte limit` or `value of <n> bytes exceeds the maximum of <max> bytes`. The Go Server has no per-run value size limit. | None |
-| Worker request size | A Step attempt whose request exceeds the Worker message limit fails with `Worker request of <n> bytes exceeds the <max> byte message limit`. The Go Server has no such check, so the gRPC call fails with its own text. | None |
-| Value references | A Worker result that echoes a value reference naming no value of the run fails the attempt without retry, with `value reference "<reference>" does not name a value of this run`. The Go Server has no value references. | None |
-| Server-side dispatch failures | `matching server is closing`, `server error: <error>`, and `dispatch ended without an outcome` are server-zd texts. The Go Server reports its own internal error text, which depends on where the failure happens. | None |
+| Value size limit | A Worker result with a value larger than `max_value_bytes` fails the attempt without retry and uses `WORKER_API_FAIL`. Its text is `a value of <n> bytes exceeds the <max> byte limit` or `value of <n> bytes exceeds the maximum of <max> bytes`. A Step attempt that exceeds `max_run_state_bytes` likewise fails without retry and closes the Flow with `WORKER_API_FAIL`; its text is `run state of <n> bytes exceeds the maximum of <max> bytes`. The Go Server has no per-run value size limit, so no matching error type exists. | None |
+| Worker request size | A Step attempt whose request exceeds the Worker message limit fails with `INTERNAL` and `Worker request of <n> bytes exceeds the <max> byte message limit`. The Go Server also uses `INTERNAL` for the pull dispatch send failure, though its error text differs. | None |
+| Value references | A Worker result that echoes a value reference naming no value of the run fails the attempt without retry, with `INTERNAL` and `value reference "<reference>" does not name a value of this run`. The Go Server has no value references, so no matching failure exists. | None |
+| Rejected apply result | A Worker result for the wrong running method fails with `INTERNAL`. The Go Server does not have an equivalent apply-time method check; its pull dispatch rejects a wrong final frame earlier. | None |
+| Unproduced failure kinds | `UNSUPPORTED_FEATURE` and `UNSPECIFIED` have no engine producer. A committed command with either kind keeps `WORKER_API_FAIL`; the Go Server has no matching failure to classify. | None |
+| Server-side dispatch failures | `matching server is closing`, `server error: <error>`, and `dispatch ended without an outcome` are server-zd texts with `INTERNAL`. The Go Server reports its own internal error text, which depends on where the failure happens. | None |
 | SubFlow options in WaitFor results | server-zd checks a SubFlow condition's start options and effective Flow configuration when it validates the WaitFor result. The attempt fails with that check's text, such as `server-zd does not support flow_start_delay_seconds > 0`. The Go Server checks the Flow configuration when it starts the SubFlow. | None |
 | Multiple invalid Attribute writes in one Worker Step result | server-zd validates each write completely before checking the next. The Go Server scans all writes for internal blob IDs before checking hard-delete values. When an earlier write has an invalid hard-delete value and a later write has an internal blob ID, server-zd reports `hard-delete attribute "<key>" must be a string, an object, or null`; the Go Server reports `worker response must not contain internal_blob_id arms`. | None |
 
 Apart from the listed differences, an exhausted Step failure closes the Flow with the Go Server's
-failure message. server-zd gives a recovery Step the same text as its error detail.
+failure message and error type. server-zd gives a recovery Step the same text as its error detail.
 
 The [released Go SDK compatibility workflow](../.github/workflows/server-zd-sdk-go-compatibility.yml)
 repeats this check after each server-zd release. It runs the newest `sdk-go` release's suite

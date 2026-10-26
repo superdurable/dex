@@ -11,7 +11,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use std::sync::LazyLock;
 
@@ -56,6 +56,16 @@ impl CancellationScenario {
             Self::SiblingSelector => "sibling-selector",
         }
     }
+
+    pub(crate) fn cancels_blocking_execute(self) -> bool {
+        match self {
+            Self::HeartbeatExecute
+            | Self::LocalExecute
+            | Self::LocalTimeoutFallback
+            | Self::NoHeartbeat => true,
+            Self::HeartbeatWaitFor | Self::GlobalSelector | Self::SiblingSelector => false,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -86,6 +96,7 @@ impl Event {
 
 pub(crate) struct CancellationState {
     pub(crate) scenario: CancellationScenario,
+    pub(crate) is_server_zd: bool,
     pub(crate) blocking_started: Event,
     pub(crate) cancellation_observed: Event,
     pub(crate) late_handler_returned: Event,
@@ -100,9 +111,10 @@ pub(crate) struct CancellationState {
 }
 
 impl CancellationState {
-    pub(crate) fn new(scenario: CancellationScenario) -> Arc<Self> {
+    pub(crate) fn new(scenario: CancellationScenario, is_server_zd: bool) -> Arc<Self> {
         Arc::new(Self {
             scenario,
+            is_server_zd,
             blocking_started: Event::default(),
             cancellation_observed: Event::default(),
             late_handler_returned: Event::default(),
@@ -115,6 +127,13 @@ impl CancellationState {
             blocking_invocations: AtomicU32::new(0),
             selector_wait_count: AtomicU32::new(0),
         })
+    }
+
+    fn record_cancellation(&self, context: &Context) {
+        self.handler_canceled.store(true, Ordering::SeqCst);
+        self.context_reported_cancellation
+            .store(context.is_cancelled(), Ordering::SeqCst);
+        self.cancellation_observed.set();
     }
 }
 
@@ -141,7 +160,7 @@ impl StepCancellationWorkflow {
             blocking_wait_for: CancellationBlockingWaitFor(Arc::clone(&state)),
             winner: CancellationWinner(Arc::clone(&state)),
             recovery: CancellationRecovery(Arc::clone(&state)),
-            final_step: CancellationFinal,
+            final_step: CancellationFinal(Arc::clone(&state)),
             first_parent: CancellationFirstParent(Arc::clone(&state)),
             second_parent: CancellationSecondParent(Arc::clone(&state)),
             selector_winner: CancellationSelectorWinner(Arc::clone(&state)),
@@ -216,7 +235,18 @@ impl Step for CancellationBlockingExecute {
             .fetch_add(1, Ordering::SeqCst);
         self.state.blocking_started.set();
         if self.state.scenario == CancellationScenario::NoHeartbeat {
-            thread::sleep(Duration::from_secs(7));
+            if self.state.is_server_zd {
+                // Polling observes cancel_task without recording a heartbeat.
+                let deadline = Instant::now() + Duration::from_secs(7);
+                while !context.is_cancelled() && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                if context.is_cancelled() {
+                    self.state.record_cancellation(context);
+                }
+            } else {
+                thread::sleep(Duration::from_secs(7));
+            }
         } else {
             wait_for_stream_cancellation(context, &self.state)?;
         }
@@ -291,11 +321,7 @@ fn wait_for_stream_cancellation(
         }
         thread::sleep(Duration::from_millis(100));
     }
-    state.handler_canceled.store(true, Ordering::SeqCst);
-    state
-        .context_reported_cancellation
-        .store(context.is_cancelled(), Ordering::SeqCst);
-    state.cancellation_observed.set();
+    state.record_cancellation(context);
     Ok(())
 }
 
@@ -321,7 +347,10 @@ impl Step for CancellationWinner {
             }
             thread::sleep(Duration::from_secs(1));
         }
-        let decision = StepDecision::go_to(&CancellationFinal, self.0.scenario.name().to_string());
+        let decision = StepDecision::go_to(
+            &CancellationFinal(Arc::clone(&self.0)),
+            self.0.scenario.name().to_string(),
+        );
         if self.0.scenario == CancellationScenario::HeartbeatWaitFor {
             return Ok(decision.cancel_step(&CancellationBlockingWaitFor(Arc::clone(&self.0))));
         }
@@ -344,16 +373,31 @@ impl Step for CancellationRecovery {
     }
 }
 
-struct CancellationFinal;
+struct CancellationFinal(Arc<CancellationState>);
 
 impl Step for CancellationFinal {
     type Input = String;
 
     fn wait_for(&self, _context: &mut Context, _input: String) -> HandlerResult<Wait> {
+        // On server-zd the canceled Rust handler sends its late write; order it before the read.
+        if self.0.is_server_zd
+            && self.0.scenario.cancels_blocking_execute()
+            && !self.0.late_handler_returned.wait(Duration::from_secs(10))
+        {
+            return Err(HandlerError::new(
+                "StepCancellationFailure",
+                "canceled handler did not return before final Step wait",
+            ));
+        }
         Ok(Wait::until(Timer::by_duration(Duration::from_secs(1))))
     }
 
-    fn execute(&self, _context: &mut Context, input: String) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
+        if LATE_WRITE.get(context)?.is_some() {
+            return Ok(StepDecision::force_fail(
+                "canceled execution committed its late write",
+            ));
+        }
         Ok(StepDecision::graceful_complete(input))
     }
 }
@@ -407,7 +451,10 @@ impl Step for CancellationSelectorWinner {
                 "selector Steps did not reach waiting",
             ));
         }
-        let decision = StepDecision::go_to(&CancellationFinal, self.0.scenario.name().to_string());
+        let decision = StepDecision::go_to(
+            &CancellationFinal(Arc::clone(&self.0)),
+            self.0.scenario.name().to_string(),
+        );
         if self.0.scenario == CancellationScenario::GlobalSelector {
             return Ok(decision.cancel_step(&CancellationSelectorWaiting(Arc::clone(&self.0))));
         }

@@ -125,6 +125,7 @@ Cover:
 - summary/display reads before, during, and after terminal completion;
 - terminal-readable entity snapshots through typed `Get*` RPCs after closure, following the SDK's [terminal entity read scenario](../../dex-sdk/references/core/testing.md#terminal-entity-reads) and [terminal read RPC rule](../../dex-sdk/references/core/error-handling.md#terminal-read-rpc-rule);
 - connector Trigger Flow/RPC routing and correlation when used.
+- connector Steps: the happy path and each branch a requirement wires, using the connector mock package's default answers. Do not test unwired branches; see [Connector branches](connector-architecture.md#connector-branches-retries-and-deterministic-failure).
 - RPC-to-Connector-Step routing when an application RPC requests provider work;
 - application integration against any uncommitted local connector `replace`,
   plus the matching connector module's provider and real-Dex tests.
