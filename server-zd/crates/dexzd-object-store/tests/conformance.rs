@@ -1827,6 +1827,7 @@ async fn s3_requests_to_a_server_that_stops_reading_time_out() {
     config.endpoint = Some(format!("http://{address}"));
     config.force_path_style = true;
     config.request_timeout = std::time::Duration::from_secs(1);
+    config.multipart_threshold = 5 * 1024 * 1024;
     config.credentials = S3Credentials::Static {
         access_key_id: "s3mock".to_owned(),
         secret_access_key: "s3mock".to_owned(),
@@ -1836,6 +1837,8 @@ async fn s3_requests_to_a_server_that_stops_reading_time_out() {
         .await
         .expect("the stalled store is configured");
     let bound = std::time::Duration::from_secs(10);
+    let failure_bound = std::time::Duration::from_secs(3);
+    let started = std::time::Instant::now();
     let small_put = tokio::time::timeout(
         bound,
         store.put(
@@ -1852,7 +1855,12 @@ async fn s3_requests_to_a_server_that_stops_reading_time_out() {
         ObjectStoreErrorKind::OutcomeUnknown,
         "{small_put}"
     );
+    assert!(
+        started.elapsed() < failure_bound,
+        "small put exceeded the failure bound"
+    );
     // Larger than the loopback socket buffers, so the client stalls while sending the body.
+    let started = std::time::Instant::now();
     let large_put = tokio::time::timeout(
         bound,
         store.put(
@@ -1868,6 +1876,78 @@ async fn s3_requests_to_a_server_that_stops_reading_time_out() {
         large_put.kind,
         ObjectStoreErrorKind::OutcomeUnknown,
         "{large_put}"
+    );
+    assert!(
+        started.elapsed() < failure_bound,
+        "large put exceeded the failure bound"
+    );
+    let started = std::time::Instant::now();
+    let multipart_put = tokio::time::timeout(
+        bound,
+        store.put(
+            "multipart",
+            Bytes::from(vec![7; 6 * 1024 * 1024]),
+            WriteCondition::CreateOnly,
+        ),
+    )
+    .await
+    .expect("a multipart write without a response ends")
+    .expect_err("a multipart write without a response fails");
+    assert_eq!(
+        multipart_put.kind,
+        ObjectStoreErrorKind::OutcomeUnknown,
+        "{multipart_put}"
+    );
+    assert!(
+        started.elapsed() < failure_bound,
+        "multipart put exceeded the failure bound"
+    );
+    let directory = TempDir::new().expect("the stalled upload fixture directory is available");
+    let small_file = directory.path().join("small-upload");
+    tokio::fs::write(&small_file, b"body")
+        .await
+        .expect("the small upload fixture is written");
+    let started = std::time::Instant::now();
+    let small_file_put = tokio::time::timeout(
+        bound,
+        store.put_file("small-file", &small_file, WriteCondition::CreateOnly),
+    )
+    .await
+    .expect("a file write without a response ends")
+    .expect_err("a file write without a response fails");
+    assert_eq!(
+        small_file_put.kind,
+        ObjectStoreErrorKind::OutcomeUnknown,
+        "{small_file_put}"
+    );
+    assert!(
+        started.elapsed() < failure_bound,
+        "small file put exceeded the failure bound"
+    );
+    let multipart_file = directory.path().join("multipart-upload");
+    tokio::fs::write(&multipart_file, vec![7; 6 * 1024 * 1024])
+        .await
+        .expect("the multipart upload fixture is written");
+    let started = std::time::Instant::now();
+    let multipart_file_put = tokio::time::timeout(
+        bound,
+        store.put_file(
+            "multipart-file",
+            &multipart_file,
+            WriteCondition::CreateOnly,
+        ),
+    )
+    .await
+    .expect("a multipart file write without a response ends")
+    .expect_err("a multipart file write without a response fails");
+    assert_eq!(
+        multipart_file_put.kind,
+        ObjectStoreErrorKind::OutcomeUnknown,
+        "{multipart_file_put}"
+    );
+    assert!(
+        started.elapsed() < failure_bound,
+        "multipart file put exceeded the failure bound"
     );
     let head = tokio::time::timeout(bound, store.head("small"))
         .await

@@ -115,7 +115,11 @@ async fn hard_delete_upload_records_do_not_wait_for_an_in_flight_snapshot_upload
         )
         .await
     };
-    let (snapshot, ledger_write) = tokio::join!(in_flight_snapshot, ledger_write);
+    let (snapshot, ledger_write) = tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::join!(in_flight_snapshot, ledger_write)
+    })
+    .await
+    .expect("the snapshot and ledger write finish even if the upload fails before its delay");
 
     ledger_write
         .expect("the ledger write does not wait for the snapshot upload")

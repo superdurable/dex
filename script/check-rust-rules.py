@@ -351,7 +351,8 @@ def check_lints(workspace, metadata, registry, root):
             )
         )
     config = workspace / "clippy.toml"
-    if not config.is_file() or read_toml(config) != CLIPPY_CONFIG:
+    config_values = read_toml(config) if config.is_file() else {}
+    if any(config_values.get(key) != value for key, value in CLIPPY_CONFIG.items()):
         findings.append(
             Violation(
                 str(config.relative_to(root)),
