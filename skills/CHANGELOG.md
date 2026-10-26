@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.53.1 - 2026-10-26
+
+- Remove the Codex SessionStart version-check hook. Codex trusts hooks by their resolved versioned path, so every release triggered a new "hook modified" prompt. Codex now relies on the skills' fallback version check; the Claude Code and Cursor hooks are unchanged. Baselines stay unchanged.
+
 ## 0.53.0 - 2026-10-26
 
 - Advance the Go SDK baseline to sdk-go/v1.24.0, Java, Python, TypeScript, and Rust to v1.23.0, and the Server and CLI to v1.24.0; refresh pinned source links. Document the v1.23.0 pull Worker changes (one extra idle stream after reserved-RPC declines, and a 20-second busy-stream Pong with the proxy idle-timeout rule) in Core and all five language references.

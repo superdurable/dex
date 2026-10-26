@@ -113,11 +113,6 @@ export function cachePathForClient(
   platform = process.platform,
   homeDirectory = os.homedir(),
 ) {
-  if (client === "codex") {
-    return environment.PLUGIN_DATA
-      ? path.join(environment.PLUGIN_DATA, "version-check.json")
-      : null;
-  }
   if (client === "claude") {
     return environment.CLAUDE_PLUGIN_DATA
       ? path.join(environment.CLAUDE_PLUGIN_DATA, "version-check.json")
@@ -325,7 +320,7 @@ export function renderHookOutput(client, result, { refreshOnly = false } = {}) {
   if (client === "cursor") {
     return { additional_context: context };
   }
-  if (client === "codex" || client === "claude") {
+  if (client === "claude") {
     return {
       hookSpecificOutput: {
         hookEventName: "SessionStart",
@@ -350,14 +345,14 @@ function parseArguments(argumentsList) {
       throw new Error(`unknown argument: ${argument}`);
     }
   }
-  if (!new Set(["codex", "claude", "cursor"]).has(client)) {
-    throw new Error("--client must be codex, claude, or cursor");
+  if (!new Set(["claude", "cursor"]).has(client)) {
+    throw new Error("--client must be claude or cursor");
   }
   return { client, refreshOnly };
 }
 
 export async function run(argumentsList = process.argv.slice(2)) {
-  let client = "codex";
+  let client = "claude";
   let refreshOnly = false;
   let result = { state: "unavailable" };
   try {

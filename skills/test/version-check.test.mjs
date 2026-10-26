@@ -153,10 +153,6 @@ test("timeouts, GitHub failures, invalid responses, and missing cache fail open"
 
 test("client cache directories use only their documented storage", () => {
   assert.equal(
-    cachePathForClient("codex", { PLUGIN_DATA: "/codex-data" }, "linux", "/home/me"),
-    path.join("/codex-data", "version-check.json"),
-  );
-  assert.equal(
     cachePathForClient("claude", { CLAUDE_PLUGIN_DATA: "/claude-data" }, "linux", "/home/me"),
     path.join("/claude-data", "version-check.json"),
   );
@@ -172,7 +168,7 @@ test("all clients emit the exact private context schema", () => {
     installedVersion: "0.25.5",
     latestVersion: "0.25.6",
   };
-  for (const client of ["codex", "claude"]) {
+  for (const client of ["claude"]) {
     const output = renderHookOutput(client, outdated);
     assert.deepEqual(Object.keys(output), ["hookSpecificOutput"]);
     assert.equal(output.hookSpecificOutput.hookEventName, "SessionStart");
@@ -186,7 +182,7 @@ test("all clients emit the exact private context schema", () => {
 });
 
 test("current and unavailable states never create a visible update notice", () => {
-  const current = renderHookOutput("codex", {
+  const current = renderHookOutput("claude", {
     state: "current",
     installedVersion: "0.25.5",
     latestVersion: "0.25.5",

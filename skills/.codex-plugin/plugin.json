@@ -1,6 +1,6 @@
 {
   "name": "superdurable-dex",
-  "version": "0.53.0",
+  "version": "0.53.1",
   "description": "Build Dex process products in a repository-backed coding workspace.",
   "author": {
     "name": "Super Durable",
@@ -18,7 +18,6 @@
     "coding-agent"
   ],
   "skills": "./",
-  "hooks": "./hooks/codex.json",
   "interface": {
     "displayName": "Dex",
     "shortDescription": "Build Dex apps in a coding workspace",
