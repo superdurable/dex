@@ -161,6 +161,11 @@ export DEXBENCH_NVME_DIR=/mnt/nvme/work
 benchmark/prod/run-prod.sh 2>&1 | tee "$HOME/dexbench-prod.log"
 ```
 
+Set `DEXBENCH_TEMPORAL_VISIBILITY=sql` to run Temporal without Elasticsearch.
+Temporal then keeps visibility records in its own PostgreSQL. The default,
+`elasticsearch`, uses Temporal advanced visibility. Run the two settings into
+separate result directories with `DEXBENCH_OUT`.
+
 Without tmux, use
 `nohup benchmark/prod/run-prod.sh > "$HOME/dexbench-prod.log" 2>&1 &`.
 

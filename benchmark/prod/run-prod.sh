@@ -51,6 +51,18 @@ if [[ "$(findmnt -no SOURCE -T "$docker_root")" != "$nvme_source" ]]; then
   exit 1
 fi
 compose=("${docker_command[@]}" compose --env-file "$repo_root/server/docker-compose/.env" -f "$repo_root/server/docker-compose/integ-dependencies.yml" -f "$repo_root/server/docker-compose/attribute-store-dependencies.yml")
+# elasticsearch uses Temporal advanced visibility; sql keeps visibility in Temporal's PostgreSQL without Elasticsearch.
+temporal_visibility="${DEXBENCH_TEMPORAL_VISIBILITY:-elasticsearch}"
+temporal_services=(postgresql elasticsearch temporal)
+case "$temporal_visibility" in
+  elasticsearch) ;;
+  sql)
+    temporal_services=(postgresql temporal)
+    printf 'services:\n  temporal:\n    depends_on: !override\n      - postgresql\n    environment:\n      - ENABLE_ES=false\n' > "$run_dir/temporal-sql-visibility.yml"
+    compose+=(-f "$run_dir/temporal-sql-visibility.yml")
+    ;;
+  *) echo "DEXBENCH_TEMPORAL_VISIBILITY must be elasticsearch or sql" >&2; exit 2 ;;
+esac
 
 cleanup() {
   if [[ -n "$current_pid" ]]; then kill "$current_pid" 2>/dev/null || true; wait "$current_pid" 2>/dev/null || true; fi
@@ -86,6 +98,7 @@ temporal_version="$(sed -n 's/^TEMPORAL_VERSION=//p' "$repo_root/server/docker-c
 printf 'temporal_image=temporalio/auto-setup:%s\npostgresql=%s\nelasticsearch=%s\n' "$temporal_version" \
   "$(sed -n 's/^POSTGRESQL_VERSION=//p' "$repo_root/server/docker-compose/.env")" \
   "$(sed -n 's/^ELASTICSEARCH_VERSION=//p' "$repo_root/server/docker-compose/.env")" >> "$output_dir/host.txt"
+printf 'temporal_visibility=%s\n' "$temporal_visibility" >> "$output_dir/host.txt"
 
 wait_for_server() {
   "$benchmark_binary" wait-ready --pid "$current_pid" --timeout 300s "$@"
@@ -202,7 +215,7 @@ start_zd() {
 start_temporal() {
   local step_dir="$1"
   "${compose[@]}" rm -s -f -v temporal elasticsearch postgresql >/dev/null 2>&1 || true
-  "${compose[@]}" up -d postgresql elasticsearch temporal
+  "${compose[@]}" up -d "${temporal_services[@]}"
   for ((attempts=0; attempts<300; attempts++)); do
     if temporal operator namespace describe --namespace default --address 127.0.0.1:7233 >/dev/null 2>&1; then break; fi
     sleep 1
@@ -250,10 +263,12 @@ for target in "${requested_targets[@]}"; do
         temporal)
           start_temporal "$step_dir"
           cgroups="$attribute_cgroup"
-          for container in temporal temporal-postgresql elasticsearch; do
+          temporal_containers=(temporal temporal-postgresql)
+          if [[ "$temporal_visibility" == elasticsearch ]]; then temporal_containers+=(elasticsearch); fi
+          for container in "${temporal_containers[@]}"; do
             cgroups+=",$(container_cgroup "$container")"
           done
-          version="$(sed -n 's/^server=//p' "$install_root/releases.txt") with temporalio/auto-setup:$temporal_version"
+          version="$(sed -n 's/^server=//p' "$install_root/releases.txt") with temporalio/auto-setup:$temporal_version, $temporal_visibility visibility"
           run_step "$target" "$variant" "$step_concurrency" "$version" "$cgroups"
           stop_temporal
           ;;
