@@ -132,6 +132,10 @@ async fn accept_connections(
                         continue;
                     }
                 };
+                // Without TCP_NODELAY, Nagle plus delayed ACK stalls small replies for about 40 ms.
+                if let Err(error) = stream.set_nodelay(true) {
+                    tracing::warn!(%error, %peer_address, "failed to set TCP_NODELAY on a connection");
+                }
                 let store = Arc::clone(&store);
                 let controls = Arc::clone(&controls);
                 let service = service_fn(move |request| handle_request(Arc::clone(&store), Arc::clone(&controls), request));
