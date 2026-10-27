@@ -330,7 +330,13 @@ impl GrpcServer {
                 ))
                 .serve_with_incoming_shutdown(
                     futures::stream::unfold(listener, |listener| async move {
-                        let accepted = listener.accept().await.map(|(stream, _)| stream);
+                        let accepted = listener.accept().await.map(|(stream, _)| {
+                            // Without TCP_NODELAY, Nagle plus delayed ACK stalls small replies for about 40 ms.
+                            if let Err(error) = stream.set_nodelay(true) {
+                                tracing::warn!(%error, "failed to set TCP_NODELAY on a gRPC connection");
+                            }
+                            stream
+                        });
                         Some((accepted, listener))
                     }),
                     async move { stopped.cancelled().await },
