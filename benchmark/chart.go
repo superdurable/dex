@@ -96,8 +96,6 @@ func RenderChartHTML(results []Result) string {
 			comparisonBars(comparisons, p99Ratio)))
 		page.WriteString(ratioChartSection("Operations per CPU core", "How many times more work server-zd does for each second of server CPU.",
 			comparisonBars(comparisons, cpuEfficiencyRatio)))
-		page.WriteString(ratioChartSection("Peak memory", "How many times less resident memory the server-zd process tree uses.",
-			comparisonBars(comparisons, memoryRatio)))
 		page.WriteString(ratioChartSection("Operations per GiB of memory", "How many times more operations per second server-zd sustains for each GiB of peak resident memory.",
 			comparisonBars(comparisons, memoryEfficiencyRatio)))
 		page.WriteString("</section>\n")
@@ -173,12 +171,6 @@ func cpuEfficiencyRatio(comparison scenarioComparison) (float64, string, bool) {
 	return safeRatio(zd, temporal), fmt.Sprintf("%s vs %s per core-second", formatTick(zd), formatTick(temporal)), temporalOK && zdOK
 }
 
-func memoryRatio(comparison scenarioComparison) (float64, string, bool) {
-	temporal, temporalOK := peakRSSMiB(comparison.temporal)
-	zd, zdOK := peakRSSMiB(comparison.zd)
-	return safeRatio(temporal, zd), fmt.Sprintf("%s vs %s MiB", formatTick(zd), formatTick(temporal)), temporalOK && zdOK
-}
-
 // memoryEfficiencyRatio normalizes peak memory by the work done, since a faster target holds more Flows at once.
 func memoryEfficiencyRatio(comparison scenarioComparison) (float64, string, bool) {
 	temporal, temporalOK := operationsPerGiB(comparison.temporal)
@@ -236,7 +228,6 @@ func headlineTiles(comparisons []scenarioComparison) string {
 		{formatRatio(throughput[0].ratio), "peak throughput advantage", throughput[0].label},
 		{formatRatio(medianRatio(throughput)), "median throughput ratio", "across all scenarios"},
 		{formatRatio(medianRatio(comparisonBars(comparisons, cpuEfficiencyRatio))), "median work per CPU core", "server-zd vs Go Server"},
-		{formatRatio(medianRatio(comparisonBars(comparisons, memoryRatio))), "median memory saving", "peak RSS, lower is better"},
 		{formatRatio(medianRatio(comparisonBars(comparisons, memoryEfficiencyRatio))), "median work per GiB", "throughput per GiB of peak RSS"},
 		{fmt.Sprintf("%d / %d", wins, len(throughput)), "scenarios with higher throughput", "at the highest shared concurrency"},
 	}
