@@ -1,0 +1,56 @@
+{
+  "schema_version": 2,
+  "started_at": "2026-10-27T08:44:47.664016034Z",
+  "config": {
+    "address": "",
+    "target": "zd",
+    "engine": "zd",
+    "scenario": "recovery",
+    "duration_seconds": 0,
+    "warmup_seconds": 0,
+    "concurrency": 1,
+    "worker_pool": 0,
+    "steps": 0,
+    "timeout_seconds": 0,
+    "metrics_url": "http://127.0.0.1:9901/metrics",
+    "attribute_bytes": 0,
+    "mode": "prod",
+    "region": "us-west-2",
+    "instance_type": "m6id.2xlarge",
+    "git_commit": "1a0e819357b400b4359fe1de29dd7f1e47f6c7b3",
+    "recovery_target_mb": 1000
+  },
+  "server_version": "server-zd/v0.1.9",
+  "sdk_version": "in-repo (../sdk-go)",
+  "machine": {
+    "cpu_model": "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz",
+    "cores": 8,
+    "ram_bytes": 33084850176,
+    "os": "linux",
+    "architecture": "amd64",
+    "free_disk_bytes": 437410902016,
+    "instance_type": "m6id.2xlarge",
+    "region": "us-west-2"
+  },
+  "attempts": 1,
+  "successes": 1,
+  "errors": {},
+  "measured_seconds": 0,
+  "throughput_per_second": 0.007504130310843739,
+  "throughput_unit": "recoveries",
+  "latency": {
+    "p50_ms": 133259.94600000003,
+    "p90_ms": 133259.94600000003,
+    "p99_ms": 133259.94600000003,
+    "max_ms": 133259.94600000003
+  },
+  "step_latency": {
+    "p50_ms": 0,
+    "p90_ms": 0,
+    "p99_ms": 0,
+    "max_ms": 0
+  },
+  "recovery_log_bytes": 1051074592,
+  "recovery_seconds": 133.259946,
+  "server_reported_recovery_seconds": 132.876201481
+}
