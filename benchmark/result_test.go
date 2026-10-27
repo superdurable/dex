@@ -87,7 +87,7 @@ func TestChartPlotsBothTargetsAndThroughputRatio(t *testing.T) {
 		{Config: Config{Target: "zd", Scenario: "recovery", RecoveryTargetMB: 100}, RecoverySeconds: 1.5},
 	}
 	page := RenderChartHTML(results)
-	for _, expected := range []string{"<h2>rpc-plain</h2>", "<b>2.50×</b>", "Throughput (rpcs/s)", `polyline class="line temporal"`, `polyline class="line zd"`, "<h2>recovery</h2>"} {
+	for _, expected := range []string{"<h3>rpc-plain</h3>", `<div class="value">2.5×</div>`, "Throughput (rpcs/s)", `polyline class="line temporal"`, `polyline class="line zd"`, "<h3>recovery (server-zd only)</h3>"} {
 		if !strings.Contains(page, expected) {
 			t.Errorf("chart page is missing %q", expected)
 		}
