@@ -1,0 +1,10 @@
+cpu_model= Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz
+cpu_count=8
+ram_bytes=33084850176
+free_disk_kb=431341192
+instance_type=m6id.2xlarge
+region=us-west-2
+temporal_image=temporalio/auto-setup:1.25
+postgresql=13
+elasticsearch=7.17.27
+temporal_visibility=sql
