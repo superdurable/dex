@@ -9,6 +9,7 @@
 package benchmark
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -91,5 +92,17 @@ func TestChartPlotsBothTargetsAndThroughputRatio(t *testing.T) {
 		if !strings.Contains(page, expected) {
 			t.Errorf("chart page is missing %q", expected)
 		}
+	}
+}
+
+func TestMemoryEfficiencyRatioNormalizesPeakRSSByThroughput(t *testing.T) {
+	// The faster target uses more memory but sustains more operations per GiB.
+	comparison := scenarioComparison{
+		temporal: Result{Successes: 1, ThroughputPerSecond: 20, Resources: []ResourceSample{{RSSBytes: 400 << 20}}},
+		zd:       Result{Successes: 1, ThroughputPerSecond: 600, Resources: []ResourceSample{{RSSBytes: 300 << 20}, {RSSBytes: 500 << 20}}},
+	}
+	ratio, _, ok := memoryEfficiencyRatio(comparison)
+	if !ok || math.Abs(ratio-24) > 1e-9 {
+		t.Fatalf("memoryEfficiencyRatio = %v, %v; want 24, true", ratio, ok)
 	}
 }

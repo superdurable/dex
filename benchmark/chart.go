@@ -53,6 +53,7 @@ var chartMetrics = []chartMetric{
 	{title: "p99 latency", unit: "ms", value: func(result Result) (float64, bool) { return result.Latency.P99, result.Successes > 0 }},
 	{title: "Mean server CPU", unit: "%", value: meanCPUPercent},
 	{title: "Peak server RSS", unit: "MiB", value: peakRSSMiB},
+	{title: "Throughput per GiB of peak RSS", unit: "/s per GiB", value: operationsPerGiB},
 }
 
 // RenderChartHTML returns a self-contained HTML page: headline numbers, per-scenario speedup charts, then details.
@@ -97,6 +98,8 @@ func RenderChartHTML(results []Result) string {
 			comparisonBars(comparisons, cpuEfficiencyRatio)))
 		page.WriteString(ratioChartSection("Peak memory", "How many times less resident memory the server-zd process tree uses.",
 			comparisonBars(comparisons, memoryRatio)))
+		page.WriteString(ratioChartSection("Operations per GiB of memory", "How many times more operations per second server-zd sustains for each GiB of peak resident memory.",
+			comparisonBars(comparisons, memoryEfficiencyRatio)))
 		page.WriteString("</section>\n")
 	}
 	page.WriteString(`<h2 class="part">Details by scenario</h2><div class="legend">`)
@@ -176,6 +179,21 @@ func memoryRatio(comparison scenarioComparison) (float64, string, bool) {
 	return safeRatio(temporal, zd), fmt.Sprintf("%s vs %s MiB", formatTick(zd), formatTick(temporal)), temporalOK && zdOK
 }
 
+// memoryEfficiencyRatio normalizes peak memory by the work done, since a faster target holds more Flows at once.
+func memoryEfficiencyRatio(comparison scenarioComparison) (float64, string, bool) {
+	temporal, temporalOK := operationsPerGiB(comparison.temporal)
+	zd, zdOK := operationsPerGiB(comparison.zd)
+	return safeRatio(zd, temporal), fmt.Sprintf("%s vs %s/s per GiB", formatTick(zd), formatTick(temporal)), temporalOK && zdOK
+}
+
+func operationsPerGiB(result Result) (float64, bool) {
+	rss, ok := peakRSSMiB(result)
+	if !ok || rss <= 0 || result.ThroughputPerSecond <= 0 {
+		return 0, false
+	}
+	return result.ThroughputPerSecond / (rss / 1024), true
+}
+
 func operationsPerCPUSecond(result Result) (float64, bool) {
 	cpu, ok := meanCPUPercent(result)
 	if !ok || cpu <= 0 || result.ThroughputPerSecond <= 0 {
@@ -219,6 +237,7 @@ func headlineTiles(comparisons []scenarioComparison) string {
 		{formatRatio(medianRatio(throughput)), "median throughput ratio", "across all scenarios"},
 		{formatRatio(medianRatio(comparisonBars(comparisons, cpuEfficiencyRatio))), "median work per CPU core", "server-zd vs Go Server"},
 		{formatRatio(medianRatio(comparisonBars(comparisons, memoryRatio))), "median memory saving", "peak RSS, lower is better"},
+		{formatRatio(medianRatio(comparisonBars(comparisons, memoryEfficiencyRatio))), "median work per GiB", "throughput per GiB of peak RSS"},
 		{fmt.Sprintf("%d / %d", wins, len(throughput)), "scenarios with higher throughput", "at the highest shared concurrency"},
 	}
 	var output strings.Builder
