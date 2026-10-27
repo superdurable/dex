@@ -11,7 +11,7 @@ wait_for_load() {
   local load
   while :; do
     load="$(uptime | sed -E 's/.*load averages?: ([0-9.]+).*/\1/')"
-    if awk -v load="$load" -v limit="$max_load" 'BEGIN { exit !(load < limit) }'; then return; fi
+    if awk -v current_load="$load" -v limit="$max_load" 'BEGIN { exit !(current_load < limit) }'; then return; fi
     echo "waiting for 1-minute load below $max_load (now $load)" >&2
     sleep 15
   done

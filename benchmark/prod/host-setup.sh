@@ -46,7 +46,7 @@ wait_for_load() {
   local load
   while :; do
     load="$(uptime | sed -E 's/.*load averages?: ([0-9.]+).*/\1/')"
-    if awk -v load="$load" -v limit="${DEXBENCH_MAX_LOAD:-$(getconf _NPROCESSORS_ONLN)}" 'BEGIN { exit !(load < limit) }'; then return; fi
+    if awk -v current_load="$load" -v limit="${DEXBENCH_MAX_LOAD:-$(getconf _NPROCESSORS_ONLN)}" 'BEGIN { exit !(current_load < limit) }'; then return; fi
     sleep 15
   done
 }
