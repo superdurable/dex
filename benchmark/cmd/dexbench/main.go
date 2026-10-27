@@ -36,13 +36,15 @@ func main() {
 
 func execute(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: dexbench run [flags] | report FILE...")
+		return fmt.Errorf("usage: dexbench run [flags] | report FILE... | chart FILE...")
 	}
 	switch args[0] {
 	case "run":
 		return run(args[1:])
 	case "report":
 		return report(args[1:])
+	case "chart":
+		return chart(args[1:])
 	case "seed-recovery":
 		return seedRecovery(args[1:])
 	case "record-recovery":
@@ -349,16 +351,36 @@ func report(paths []string) error {
 	if len(paths) == 0 {
 		return fmt.Errorf("usage: dexbench report FILE...")
 	}
+	results, err := readResults(paths)
+	if err != nil {
+		return err
+	}
+	fmt.Print(benchmark.RenderReport(results))
+	return nil
+}
+
+func chart(paths []string) error {
+	if len(paths) == 0 {
+		return fmt.Errorf("usage: dexbench chart FILE...")
+	}
+	results, err := readResults(paths)
+	if err != nil {
+		return err
+	}
+	fmt.Print(benchmark.RenderChartHTML(results))
+	return nil
+}
+
+func readResults(paths []string) ([]benchmark.Result, error) {
 	results := make([]benchmark.Result, 0, len(paths))
 	for _, path := range paths {
 		result, err := benchmark.ReadResult(path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		results = append(results, result)
 	}
-	fmt.Print(benchmark.RenderReport(results))
-	return nil
+	return results, nil
 }
 
 func isKnownScenario(scenario string) bool {

@@ -298,4 +298,5 @@ if [[ "$has_recovery" == 1 && "$targets" == *zd* ]]; then
 fi
 
 "$benchmark_binary" report "$output_dir"/*.json > "$output_dir/report.md"
+"$benchmark_binary" chart "$output_dir"/*.json > "$output_dir/charts.html"
 echo "results: $output_dir"

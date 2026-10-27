@@ -195,6 +195,7 @@ fi
 
 if compgen -G "$output_dir/*.json" >/dev/null; then
   "$benchmark_binary" report "$output_dir"/*.json > "$output_dir/report.md"
+  "$benchmark_binary" chart "$output_dir"/*.json > "$output_dir/charts.html"
 else
   printf 'No scenarios produced results.\n' > "$output_dir/report.md"
 fi

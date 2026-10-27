@@ -79,3 +79,17 @@ func TestReportShowsRecoveryLogSizes(t *testing.T) {
 		t.Fatalf("missing recovery sizes: %s", got)
 	}
 }
+
+func TestChartPlotsBothTargetsAndThroughputRatio(t *testing.T) {
+	results := []Result{
+		{Config: Config{Target: "temporal", Scenario: "rpc-plain", Concurrency: 8}, Successes: 1, ThroughputPerSecond: 100, ThroughputUnit: "rpcs"},
+		{Config: Config{Target: "zd", Scenario: "rpc-plain", Concurrency: 8}, Successes: 1, ThroughputPerSecond: 250, ThroughputUnit: "rpcs"},
+		{Config: Config{Target: "zd", Scenario: "recovery", RecoveryTargetMB: 100}, RecoverySeconds: 1.5},
+	}
+	page := RenderChartHTML(results)
+	for _, expected := range []string{"<h2>rpc-plain</h2>", "<b>2.50×</b>", "Throughput (rpcs/s)", `polyline class="line temporal"`, `polyline class="line zd"`, "<h2>recovery</h2>"} {
+		if !strings.Contains(page, expected) {
+			t.Errorf("chart page is missing %q", expected)
+		}
+	}
+}

@@ -7,7 +7,8 @@ comparison. Prod mode uses a dedicated EC2 host, PostgreSQL-backed Temporal,
 and real S3. Use prod results for performance conclusions.
 
 Each run writes one JSON file per scenario, target, and concurrency, plus
-`report.md` and `host.txt`. The default directory is
+`report.md`, `charts.html`, and `host.txt`. `charts.html` is a self-contained
+page that plots both targets against concurrency for each scenario. The default directory is
 `benchmark/results/<YYYY-MM-DD>-<mode>-<host label>/`. The host label is the
 instance type in prod mode and `<os>-<arch>` in quick mode; set
 `DEXBENCH_HOST_LABEL` to override it. The temporary server data and logs are
@@ -79,6 +80,7 @@ GiB free, and skips recovery below 2 GiB.
 ```bash
 benchmark/run.sh quick
 benchmark/bin/dexbench report benchmark/results/<run-directory>/*.json
+benchmark/bin/dexbench chart benchmark/results/<run-directory>/*.json > charts.html
 ```
 
 For a short local smoke of all scenarios on ZD, use the command below. It only
