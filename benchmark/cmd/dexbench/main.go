@@ -233,9 +233,7 @@ func recordRecovery(args []string) error {
 	flags.IntVar(&config.RecoveryTargetMB, "size-mb", 100, "target command payload size in MiB")
 	flags.Float64Var(&elapsedSeconds, "elapsed-seconds", 0, "restart to serving seconds")
 	flags.StringVar(&config.MetricsURL, "metrics-url", "http://127.0.0.1:9901/metrics", "server-zd metrics URL")
-	flags.StringVar(&config.Mode, "mode", "quick", "quick or prod")
-	flags.StringVar(&config.Region, "region", os.Getenv("AWS_REGION"), "server region")
-	flags.StringVar(&config.InstanceType, "instance-type", os.Getenv("DEXBENCH_INSTANCE_TYPE"), "host instance type")
+	flags.StringVar(&config.Mode, "mode", "quick", "run mode label")
 	flags.StringVar(&config.GitCommit, "git-commit", os.Getenv("DEXBENCH_GIT_COMMIT"), "SDK checkout commit")
 	flags.StringVar(&outputPath, "out", "", "JSON result path")
 	if err := flags.Parse(args); err != nil {
@@ -267,7 +265,7 @@ func run(args []string) error {
 	flags.StringVar(&config.Address, "address", "127.0.0.1:8801", "Dex FlowService address")
 	flags.StringVar(&config.Target, "target", "zd", "target name")
 	flags.StringVar(&config.Engine, "engine", "zd", "server engine")
-	flags.StringVar(&scenarios, "scenarios", "start-complete,sequential-steps,async-steps,rpc,attribute-read,channel-wake,attribute-write", "comma-separated scenarios")
+	flags.StringVar(&scenarios, "scenarios", "start-complete,sequential-steps,rpc,attribute-read,channel-wake,attribute-write", "comma-separated scenarios")
 	flags.Float64Var(&config.DurationSeconds, "duration", 180, "measurement seconds per scenario")
 	flags.Float64Var(&config.WarmupSeconds, "warmup", 30, "warmup seconds per scenario")
 	flags.Float64Var(&config.TimeoutSeconds, "timeout", 30, "timeout seconds per operation")
@@ -276,9 +274,7 @@ func run(args []string) error {
 	flags.IntVar(&config.Steps, "steps", 10, "Steps per chain Flow")
 	flags.IntVar(&config.AttributeBytes, "attribute-bytes", 16384, "bytes per read Attribute")
 	flags.StringVar(&config.AttributeStoreName, "attribute-store-name", "", "PostgreSQL Attribute Store name for synchronized writes")
-	flags.StringVar(&config.Mode, "mode", "quick", "quick or prod")
-	flags.StringVar(&config.Region, "region", os.Getenv("AWS_REGION"), "server region")
-	flags.StringVar(&config.InstanceType, "instance-type", os.Getenv("DEXBENCH_INSTANCE_TYPE"), "host instance type")
+	flags.StringVar(&config.Mode, "mode", "quick", "run mode label")
 	flags.StringVar(&config.GitCommit, "git-commit", os.Getenv("DEXBENCH_GIT_COMMIT"), "SDK checkout commit")
 	flags.IntVar(&config.ServerPID, "server-pid", 0, "root server PID; its whole process tree is sampled for CPU and RSS")
 	flags.StringVar(&resourcePIDs, "resource-pids", "", "additional comma-separated root process IDs; each root's process tree is sampled")
@@ -385,7 +381,7 @@ func readResults(paths []string) ([]benchmark.Result, error) {
 
 func isKnownScenario(scenario string) bool {
 	switch scenario {
-	case "start-complete", "sequential-steps", "async-steps", "rpc-plain", "rpc-locking", "channel-wake", "attribute-read-rpc", "attribute-read-direct", "attribute-write-local", "attribute-write-sync":
+	case "start-complete", "sequential-steps", "rpc-plain", "rpc-locking", "channel-wake", "attribute-read-rpc", "attribute-read-direct", "attribute-write-local", "attribute-write-sync":
 		return true
 	default:
 		return false

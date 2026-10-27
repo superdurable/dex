@@ -46,8 +46,6 @@ type Config struct {
 	AttributeStoreName string   `json:"attribute_store_name,omitempty"`
 	AttributeBytes     int      `json:"attribute_bytes"`
 	Mode               string   `json:"mode"`
-	Region             string   `json:"region,omitempty"`
-	InstanceType       string   `json:"instance_type,omitempty"`
 	GitCommit          string   `json:"git_commit,omitempty"`
 	RecoveryTargetMB   int      `json:"recovery_target_mb,omitempty"`
 }
@@ -59,8 +57,6 @@ type MachineInfo struct {
 	OS            string `json:"os"`
 	Architecture  string `json:"architecture"`
 	FreeDiskBytes uint64 `json:"free_disk_bytes"`
-	InstanceType  string `json:"instance_type,omitempty"`
-	Region        string `json:"region,omitempty"`
 }
 
 // ResourceSample covers one sampling interval. CPUPercent is 100 per fully used core.
@@ -192,7 +188,7 @@ func RenderReport(results []Result) string {
 	var previousConcurrency int
 	var temporal *Result
 	for _, result := range results {
-		isStepScenario := result.Config.Scenario == "sequential-steps" || result.Config.Scenario == "async-steps"
+		isStepScenario := result.Config.Scenario == "sequential-steps"
 		if result.Config.Scenario != previousScenario {
 			if previousScenario != "" {
 				output.WriteString("\n")
@@ -297,7 +293,5 @@ func RecoveryResult(ctx context.Context, config Config, elapsedSeconds float64) 
 		RecoverySeconds: elapsedSeconds, RecoveryLogBytes: uint64(replayedBytes),
 	}
 	result.ServerRecoverySeconds = metrics["dexzd_recovery_last_duration_seconds"]
-	result.Machine.InstanceType = config.InstanceType
-	result.Machine.Region = config.Region
 	return result, nil
 }

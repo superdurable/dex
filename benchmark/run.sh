@@ -3,8 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-quick}"
-if [[ "$mode" == prod ]]; then exec "$repo_root/benchmark/prod/run-prod.sh"; fi
-if [[ "$mode" != quick ]]; then echo "usage: $0 quick|prod" >&2; exit 2; fi
+if [[ "$mode" != quick ]]; then echo "usage: $0 [quick]" >&2; exit 2; fi
 
 max_load="${DEXBENCH_MAX_LOAD:-$(getconf _NPROCESSORS_ONLN)}"
 wait_for_load() {
@@ -23,7 +22,7 @@ warmup="${DEXBENCH_WARMUP:-15}"
 concurrency="${DEXBENCH_CONCURRENCY:-1,32}"
 workers="${DEXBENCH_WORKERS:-0}"
 steps="${DEXBENCH_STEPS:-10}"
-scenarios="${DEXBENCH_SCENARIOS:-start-complete,sequential-steps,async-steps,rpc,attribute-read,channel-wake,attribute-write,recovery}"
+scenarios="${DEXBENCH_SCENARIOS:-start-complete,sequential-steps,rpc,attribute-read,channel-wake,attribute-write,recovery}"
 targets="${DEXBENCH_TARGETS:-temporal,zd}"
 output_dir="${DEXBENCH_OUT:-$repo_root/benchmark/results/$(date -u +%Y-%m-%d)-$mode-${DEXBENCH_HOST_LABEL:-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)}}"
 run_dir="$(mktemp -d)"

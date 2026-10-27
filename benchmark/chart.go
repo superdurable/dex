@@ -345,9 +345,6 @@ func chartSubtitle(results []Result) string {
 	}
 	machine := results[0].Machine
 	host := fmt.Sprintf("%s, %d cores, %.0f GiB RAM", machine.CPUModel, machine.Cores, float64(machine.RAMBytes)/float64(1<<30))
-	if machine.InstanceType != "" {
-		host = machine.InstanceType + " · " + host
-	}
 	var parts []string
 	for _, target := range chartTargets {
 		if version, ok := versions[target]; ok {

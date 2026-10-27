@@ -59,7 +59,7 @@ func NewRunner(config Config) (*Runner, error) {
 		return nil, fmt.Errorf("address, positive concurrency, worker pool, steps, duration, and timeout are required")
 	}
 	runner := &Runner{config: config, workerResult: make(chan error, 1), runPrefix: fmt.Sprintf("bench-%d", time.Now().UnixNano())}
-	runner.chain = &chainFlow{latencies: &runner.stepLatencies, isAsync: config.Scenario == "async-steps"}
+	runner.chain = &chainFlow{latencies: &runner.stepLatencies}
 	runner.wake = &wakeFlow{signals: newWakeSignals(config.Concurrency)}
 	runner.expectedReadValues = make(map[string]string, len(benchmarkReadAttributes))
 	for index, attribute := range benchmarkReadAttributes {
@@ -123,8 +123,6 @@ func benchmarkReadValue(index, size int) string {
 func (runner *Runner) Run(ctx context.Context) (Result, error) {
 	config := runner.config
 	result := Result{SchemaVersion: 2, StartedAt: time.Now().UTC(), Config: config, Machine: machineInfo(), Errors: map[string]int64{}, UnmeasuredErrors: map[string]int64{}, SDKVersion: sdkVersion(), ServerVersion: os.Getenv("DEXBENCH_SERVER_VERSION")}
-	result.Machine.InstanceType = config.InstanceType
-	result.Machine.Region = config.Region
 	if result.ServerVersion == "" {
 		result.ServerVersion = "unknown"
 	}
@@ -270,7 +268,7 @@ func (runner *Runner) runWindow(ctx context.Context, duration time.Duration, isM
 		result.MeasuredSeconds = elapsed.Seconds()
 		result.ThroughputUnit = throughputUnit(runner.config.Scenario)
 		factor := int64(1)
-		if runner.config.Scenario == "sequential-steps" || runner.config.Scenario == "async-steps" {
+		if runner.config.Scenario == "sequential-steps" {
 			factor = int64(runner.config.Steps)
 		}
 		// Operations that finish after the deadline still count, so divide by elapsed time.
@@ -281,7 +279,7 @@ func (runner *Runner) runWindow(ctx context.Context, duration time.Duration, isM
 
 func throughputUnit(scenario string) string {
 	switch {
-	case scenario == "sequential-steps" || scenario == "async-steps":
+	case scenario == "sequential-steps":
 		return "steps"
 	case strings.HasPrefix(scenario, "rpc-"):
 		return "rpcs"
@@ -333,7 +331,7 @@ func (runner *Runner) runOperation(ctx context.Context, clientIndex int, persist
 			return 0, err
 		}
 		return 0, runner.waitForCompletion(ctx, flowID)
-	case "sequential-steps", "async-steps":
+	case "sequential-steps":
 		flowID := runner.newFlowID()
 		input := chainInput{Remaining: runner.config.Steps}
 		if _, err := runner.client.StartFlow(ctx, runner.chain, flowID, input, dex.StartFlowOptions{}); err != nil {

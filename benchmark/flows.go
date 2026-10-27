@@ -54,11 +54,10 @@ type chainInput struct {
 type chainFlow struct {
 	dex.FlowDefaults
 	latencies *latencyCollector
-	isAsync   bool
 }
 
 func (flow *chainFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(chainStep{latencies: flow.latencies, isAsync: flow.isAsync})}
+	return []dex.StepDef{dex.DefineStartStep(chainStep{latencies: flow.latencies})}
 }
 
 func (*chainFlow) GetPersistenceSchema() dex.PersistenceSchema { return dex.PersistenceSchema{} }
@@ -66,13 +65,9 @@ func (*chainFlow) GetPersistenceSchema() dex.PersistenceSchema { return dex.Pers
 type chainStep struct {
 	dex.StepDefaultsNoWaitFor[chainInput]
 	latencies *latencyCollector
-	isAsync   bool
 }
 
-func (step chainStep) GetStepOptions() *dex.StepOptions {
-	if step.isAsync {
-		return &dex.StepOptions{ExecuteDurability: dex.StepDurabilityAsync}
-	}
+func (chainStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
 }
 

@@ -1,16 +1,5 @@
 Latency percentiles cover successful operations only. Errors counts failed measured operations, including timeouts. Load is closed-loop, so p99 and max understate queueing delay at saturation. CPU % is 100 per fully used core. channel-wake latency runs from PublishToChannel to Step Execute start; its throughput also includes the untimed Flow start and wait confirmation.
 
-## async-steps
-
-| Concurrency | Target | Successes | Errors | Throughput | Flow p50 ms | Flow p99 ms | Step p50 ms | Step p90 ms | Step p99 ms | Step max ms | CPU % mean | RSS MiB max |
-| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | temporal | 601 | 0 | 100.08 steps/s | 99.87 | 125.02 | 2.67 | 3.33 | 5.29 | 25.33 | 81.3 | 331.1 |
-| 4 | temporal | 1569 | 0 | 261.21 steps/s | 151.70 | 214.88 | 3.04 | 4.72 | 7.72 | 45.94 | 161.9 | 390.1 |
-| 8 | temporal | 1884 | 0 | 313.24 steps/s | 251.68 | 374.41 | 3.01 | 4.95 | 8.39 | 73.77 | 178.3 | 412.4 |
-| 16 | temporal | 1861 | 0 | 308.70 steps/s | 507.17 | 816.53 | 3.14 | 5.11 | 8.67 | 45.78 | 180.9 | 412.2 |
-| 32 | temporal | 1813 | 0 | 299.03 steps/s | 695.41 | 2940.64 | 3.26 | 5.24 | 9.04 | 44.50 | 181.4 | 418.0 |
-| 64 | temporal | 1066 | 0 | 173.81 steps/s | 2091.26 | 9659.09 | 3.07 | 4.70 | 8.14 | 18.67 | 109.3 | 390.9 |
-
 ## attribute-read-direct
 
 | Concurrency | Target | Successes | Errors | Throughput | p50 ms | p90 ms | p99 ms | max ms | CPU % mean | RSS MiB max |
