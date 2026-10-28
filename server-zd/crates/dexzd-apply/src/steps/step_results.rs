@@ -735,7 +735,7 @@ pub(crate) fn apply_method_completed(
                 cursor,
                 &mut step,
                 &effects,
-                scope.now_micros,
+                scope,
             )? {
                 return Ok(StepCommandOutcome::RejectedResult(rejection));
             }
@@ -762,7 +762,7 @@ pub(crate) fn apply_method_completed(
                 cursor,
                 &mut step,
                 &effects,
-                scope.now_micros,
+                scope,
             )? {
                 return Ok(StepCommandOutcome::RejectedResult(rejection));
             }

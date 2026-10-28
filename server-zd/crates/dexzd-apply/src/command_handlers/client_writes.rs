@@ -160,7 +160,7 @@ pub(crate) fn apply_attributes_set(
         &request.attributes,
         &command.hard_delete_objects,
         request.action_permission_mappings.as_ref(),
-        scope.now_micros,
+        scope,
         !is_closed,
     )? {
         return Ok(HandlerResult::Rejected(error_reply(

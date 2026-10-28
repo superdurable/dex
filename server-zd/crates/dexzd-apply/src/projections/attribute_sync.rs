@@ -48,8 +48,12 @@ pub(crate) fn mark_attribute_sync_entries(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     attribute_keys: &BTreeSet<String>,
-    now_micros: i64,
+    scope: &CommandScope<'_>,
 ) -> Result<BTreeSet<String>, ApplyError> {
+    // Rebuild output keeps only attempt-scoped rows, so outbox marks would be discarded; transient references may already be collected.
+    if scope.is_history_rebuild() {
+        return Ok(BTreeSet::new());
+    }
     let store_names = attribute_store_names(&cursor.record);
     if attribute_keys.is_empty() || store_names.is_empty() {
         return Ok(BTreeSet::new());
@@ -96,7 +100,7 @@ pub(crate) fn mark_attribute_sync_entries(
                     store_name: store_name.clone(),
                     attribute_key: attribute_key.clone(),
                     written_seq: cursor.seq,
-                    retry_window_started_at_micros: now_micros,
+                    retry_window_started_at_micros: scope.now_micros,
                     sync_item: Some(sync_item.clone()),
                 },
             };

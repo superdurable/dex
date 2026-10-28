@@ -182,7 +182,7 @@ pub(crate) fn start_run(
         &options.attributes,
         start.hard_delete_objects,
         None,
-        scope.now_micros,
+        scope,
         true,
     )? {
         return Ok(HandlerResult::Rejected(error_reply(

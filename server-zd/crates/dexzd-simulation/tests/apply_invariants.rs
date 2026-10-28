@@ -199,6 +199,9 @@ fn regression_seed_cases() -> Vec<(u64, usize)> {
 const REGRESSION_MAIN_COMMAND_DIGESTS: &[(u64, usize, u128)] = &[
     (1592590336, 1000, 0xe9cb6eef0a8b7772f86dcfc7af4cb693),
     (476371529, 488, 0xb16f8f1acba62cbb5fd5e41703d3b7ed),
+    (161503589, 1000, 0xac626a2824d3f7ca78f4538b93d5a70d),
+    (879068896, 1000, 0x624c9139e157691bf3de009be00bd09b),
+    (4200525811, 1000, 0x00a553fb26d89d8b59a369dcb88cf740),
 ];
 
 #[test]

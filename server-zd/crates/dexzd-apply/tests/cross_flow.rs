@@ -18,10 +18,11 @@ use dexzd_keyspace::row_keys::{
     attempt_record_key, checkpoint_key, flow_list_index_key, hard_delete_pending_key,
     history_record_key, outbox_key, prefix_range, retention_index_key, run_item_index_key,
     run_named_key, run_singleton_key, tenant_run_index_key, timer_index_key, timer_key,
+    value_row_key,
 };
 use dexzd_keyspace::{
-    ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, flow_directory_key,
-    parse_run_key, run_prefix, run_table_prefix,
+    ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, ValueId, ValueReference,
+    flow_directory_key, parse_run_key, run_prefix, run_table_prefix,
 };
 use dexzd_protocol::dex::{
     ActiveStepSearchMode, AttributeStoreNames, AttributeSyncConfig, AttributeWrite, CloseDecision,
@@ -42,7 +43,7 @@ use dexzd_protocol::dexzd::v1::{
     StepAttemptStartedCommand, StepExecutionPhase, StepExecutionRecord, StepInvocationKey,
     StepMethod, StepMethodCompletedCommand, SubFlowResultRecord, TimeTravelCommand, TimerId,
     TimerRecord, TimersFiredCommand, command_reply, flow_command::Command, inbox_message_command,
-    outbox_record, step_method_completed_command, timer_id,
+    outbox_record, step_method_completed_command, stored_value, timer_id,
 };
 use prost::Message;
 
@@ -277,6 +278,28 @@ impl Harness {
                 ..StepMethodCompletedCommand::default()
             }),
         )
+    }
+
+    fn set_parent_attribute(&mut self, attribute_key: &str, text: &str, request_id: &str) {
+        assert_ok(&self.apply(
+            "parent",
+            &PARENT_RUN,
+            Command::AttributesSet(AttributesSetCommand {
+                request: Some(SetAttributesRequest {
+                    attributes: vec![AttributeWrite {
+                        key: attribute_key.to_owned(),
+                        value: Some(Value {
+                            kind: Some(value::Kind::StringValue(text.to_owned())),
+                        }),
+                        ..AttributeWrite::default()
+                    }],
+                    request_id: request_id.to_owned(),
+                    ..SetAttributesRequest::default()
+                }),
+                request_fingerprint: request_id.as_bytes().to_vec(),
+                ..AttributesSetCommand::default()
+            }),
+        ));
     }
 
     fn deliver_child_start(
@@ -821,6 +844,182 @@ fn child_start_accepts_values_admitted_by_parent_with_a_larger_limit() {
         Some(command_reply::Reply::Error(error)) if error.grpc_code == 3
     ));
     assert!(later_write.writes.is_empty());
+}
+
+#[test]
+fn time_travel_replays_child_starts_after_their_referenced_values_are_collected() {
+    for is_attribute_input in [false, true] {
+        let mut harness = Harness::new();
+        harness.start_parent_with_settings(
+            0,
+            None,
+            RunSettings {
+                history_window_semantic_events: 1,
+                history_prune_chunk_semantic_events: 1,
+                checkpoint_max_commands: 10_000,
+                checkpoint_min_written_bytes: 1 << 20,
+                ..settings()
+            },
+        );
+        let source_value = Value {
+            kind: Some(value::Kind::StringValue("x".repeat(300))),
+        };
+        harness.set_parent_attribute("source", &"x".repeat(300), "source");
+        let fork = harness.apply(
+            "parent",
+            &PARENT_RUN,
+            Command::TimeTravel(TimeTravelCommand {
+                request: Some(ResetFlowRequest {
+                    reset_type: FlowResetType::Beginning as i32,
+                    ..ResetFlowRequest::default()
+                }),
+            }),
+        );
+        assert!(matches!(
+            fork.reply.reply,
+            Some(command_reply::Reply::TimeTravel(_))
+        ));
+        let parent_hash = harness.parent_context().flow_hash;
+        let source_key = run_named_key(
+            parent_hash,
+            RunId(PARENT_RUN),
+            RunTable::Attribute,
+            "source",
+        );
+        let source_bytes = harness
+            .state
+            .get(ColumnFamily::Flow, &source_key)
+            .expect("memory reads")
+            .expect("source was reapplied");
+        let source = AttributeRecord::decode(source_bytes.as_slice()).expect("source decodes");
+        let Some(stored_value::Kind::TableValue(reference)) =
+            source.value.and_then(|value| value.kind)
+        else {
+            panic!("the source uses the value table");
+        };
+        let stored_id = reference.value_id.expect("source has a value ID");
+        let value_id = ValueId {
+            run_seq: stored_id.run_seq,
+            index_in_command: stored_id.index_in_command,
+        };
+        let reference = Value {
+            kind: Some(value::Kind::InternalBlobIdForStringValue(
+                ValueReference {
+                    run_id: RunId(PARENT_RUN),
+                    value_id,
+                }
+                .to_string(),
+            )),
+        };
+        let mut condition = SubFlowCondition {
+            condition_id: "child".to_owned(),
+            sub_flow_type: "ChildFlow".to_owned(),
+            start_step_type: "ChildStep".to_owned(),
+            ..SubFlowCondition::default()
+        };
+        if is_attribute_input {
+            condition.options = Some(SubFlowOptions {
+                attributes: vec![AttributeWrite {
+                    key: "child-input".to_owned(),
+                    value: Some(reference),
+                    ..AttributeWrite::default()
+                }],
+                ..SubFlowOptions::default()
+            });
+        } else {
+            condition.step_input = Some(reference);
+        }
+        assert_ok(&harness.submit_sub_flow_wait(condition));
+        let arm_seq = harness.record("parent", PARENT_RUN).next_run_seq - 1;
+        let original_outbox = harness.outbox("parent", PARENT_RUN);
+        let [start] = original_outbox.as_slice() else {
+            panic!("one child start is pending");
+        };
+        let Some(outbox_record::Payload::ChildStart(message)) = start.payload.as_ref() else {
+            panic!("child start payload exists");
+        };
+        let condition = message.condition.as_ref().expect("child condition exists");
+        let complete_value = if is_attribute_input {
+            condition
+                .options
+                .as_ref()
+                .expect("child options exist")
+                .attributes[0]
+                .value
+                .as_ref()
+        } else {
+            condition.step_input.as_ref()
+        };
+        assert_eq!(complete_value, Some(&source_value));
+        harness.set_parent_attribute("source", "replacement", "replace");
+        for index in 0..2 {
+            harness.set_parent_attribute("progress", "tick", &format!("tick-{index}"));
+        }
+        let value_key = value_row_key(parent_hash, RunId(PARENT_RUN), RunTable::Value, value_id);
+        assert!(
+            !harness
+                .state
+                .rows
+                .contains_key(&(ColumnFamily::Value, value_key))
+        );
+        let target_seq = harness.record("parent", PARENT_RUN).next_run_seq - 1;
+        let checkpoints = harness.parent_checkpoints();
+        let checkpoint_seq = checkpoints
+            .iter()
+            .filter(|&&(attempt, seq)| attempt == 2 && seq <= target_seq)
+            .map(|&(_, seq)| seq)
+            .max()
+            .expect("target has a checkpoint");
+        assert!(
+            checkpoint_seq < arm_seq,
+            "rebuild must replay the child start: {checkpoints:?}"
+        );
+        let (target_time, target_hash) = harness.parent_semantic_point();
+        let diagnostic = time_travel_target_hash(
+            &harness.parent_context(),
+            &harness.state,
+            &harness.parent_time_travel_command(2, target_time),
+        );
+        let traveled = harness.apply(
+            "parent",
+            &PARENT_RUN,
+            Command::TimeTravel(TimeTravelCommand {
+                request: Some(ResetFlowRequest {
+                    reset_type: FlowResetType::HistoryEventTime as i32,
+                    history_event_time: (i128::from(target_time) * 1000).to_string(),
+                    skip_writes_reapply: true,
+                    ..ResetFlowRequest::default()
+                }),
+            }),
+        );
+        assert!(matches!(
+            traveled.reply.reply,
+            Some(command_reply::Reply::TimeTravel(_))
+        ));
+        assert_eq!(
+            diagnostic
+                .expect("target rebuild succeeds")
+                .expect("target exists")
+                .state_hash,
+            target_hash
+        );
+        let restored = harness.step("parent", PARENT_RUN, "StartStep-1");
+        assert_eq!(restored.phase, StepExecutionPhase::Waiting as i32);
+        assert_eq!(
+            restored
+                .wait
+                .expect("child wait restored")
+                .sub_flow_child_ids,
+            vec![CHILD_ID]
+        );
+        assert_eq!(harness.outbox("parent", PARENT_RUN), original_outbox);
+        assert!(
+            !traveled
+                .effects
+                .iter()
+                .any(|effect| matches!(effect, ApplyEffect::OutboxMessagesWritten { .. }))
+        );
+    }
 }
 
 #[test]

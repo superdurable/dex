@@ -24,6 +24,7 @@ use dexzd_protocol::dexzd::v1::{
     StoredValue, stored_value,
 };
 
+use crate::command_handlers::CommandScope;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::projections::{attribute_sync, work_queue_permissions};
 use crate::state_access::FlowTransaction;
@@ -46,7 +47,7 @@ pub(crate) fn apply_attribute_writes(
     writes: &[AttributeWrite],
     hard_delete_objects: &[HardDeleteObjectReference],
     permission_mappings: Option<&ActionPermissionMappings>,
-    now_micros: i64,
+    scope: &CommandScope<'_>,
     should_wake_waiters: bool,
 ) -> Result<Result<Vec<String>, ValueRejection>, ApplyError> {
     let projected_write = permission_mappings
@@ -74,7 +75,7 @@ pub(crate) fn apply_attribute_writes(
             transaction,
             cursor,
             &synced_keys,
-            now_micros,
+            scope,
         )?);
         if (!write.is_hard_delete_on_null || is_null_value(write.value.as_ref()))
             && write
@@ -95,7 +96,7 @@ pub(crate) fn apply_attribute_writes(
             transaction,
             cursor,
             &synced_keys,
-            now_micros,
+            scope,
         )?);
         cursor.indexed_attribute_writes.push(write.clone());
         changed_keys.push(write.key);
@@ -487,7 +488,7 @@ pub(crate) fn apply_method_effects(
     cursor: &mut RunCursor,
     step: &mut dexzd_protocol::dexzd::v1::StepExecutionRecord,
     effects: &MethodEffects<'_>,
-    now_micros: i64,
+    scope: &CommandScope<'_>,
 ) -> Result<Result<(), ValueRejection>, ApplyError> {
     if let Err(rejection) = apply_attribute_writes(
         transaction,
@@ -495,7 +496,7 @@ pub(crate) fn apply_method_effects(
         effects.writes,
         effects.hard_delete_objects,
         effects.permission_mappings,
-        now_micros,
+        scope,
         true,
     )? {
         return Ok(Err(rejection));
@@ -546,7 +547,7 @@ pub(crate) fn apply_method_effects(
     crate::steps::wait_conditions::on_channels_changed(
         transaction,
         cursor,
-        now_micros,
+        scope.now_micros,
         &changed_channels,
     )?;
     Ok(Ok(()))

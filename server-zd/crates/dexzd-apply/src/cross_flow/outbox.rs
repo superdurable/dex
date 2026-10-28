@@ -49,6 +49,10 @@ pub(crate) fn start_child_flows(
     }
     validate_child_start_conditions(cursor.record.flow_config.as_ref(), sub_flow_conditions)
         .map_err(|detail| ApplyError::InvariantViolation { detail })?;
+    // Rebuild output discards run-scoped outbox writes; transient references may already be collected.
+    if scope.is_history_rebuild() {
+        return Ok(Ok(()));
+    }
     let (mut attribute_offset, references) = match scope.command.command.as_ref() {
         Some(flow_command::Command::StepMethodCompleted(command)) => {
             match command.response.as_ref() {
