@@ -65,6 +65,7 @@ pub struct CommandGenerator {
     rng: ChaCha8Rng,
     now_micros: i64,
     sent_results: Vec<FlowCommand>,
+    last_command_was_redelivered_result: bool,
     flow_ids: &'static [&'static str],
     stream: CommandStream,
     closed_erase_phase: ClosedErasePhase,
@@ -136,6 +137,7 @@ impl CommandGenerator {
             rng: ChaCha8Rng::seed_from_u64(seed),
             now_micros: START_MICROS,
             sent_results: Vec::new(),
+            last_command_was_redelivered_result: false,
             flow_ids: FLOW_IDS,
             stream: CommandStream::Main,
             closed_erase_phase: ClosedErasePhase::Start,
@@ -468,6 +470,7 @@ impl CommandGenerator {
     }
 
     fn realize(&mut self, flow_id: &str, proposal: Proposal<'_>) -> FlowCommand {
+        self.last_command_was_redelivered_result = false;
         let is_synced = self.stream == CommandStream::AttributeSync;
         let is_step_failure_stream = self.stream == CommandStream::StepFailure;
         let rng = &mut self.rng;
@@ -522,7 +525,7 @@ impl CommandGenerator {
             }
             Proposal::StartAttempt(call) => {
                 let body = worker_model::start_attempt(rng, &call);
-                self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body)
+                self.invocation_envelope(flow_id, &call, body)
             }
             Proposal::WorkerOutcome(call) => {
                 let body = match rng.random_range(0..10) {
@@ -530,13 +533,13 @@ impl CommandGenerator {
                     6..=7 => worker_model::fail(rng, &call, is_step_failure_stream),
                     _ => worker_model::heartbeat(rng, &call),
                 };
-                let command = self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body);
+                let command = self.invocation_envelope(flow_id, &call, body);
                 self.remember_result(&command);
                 command
             }
             Proposal::StaleAttempt(call) => {
                 let body = worker_model::stale_attempt_command(rng, &call, is_step_failure_stream);
-                self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body)
+                self.invocation_envelope(flow_id, &call, body)
             }
             Proposal::FireTimer {
                 run_id,
@@ -551,14 +554,33 @@ impl CommandGenerator {
                 self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
             }
             Proposal::RedeliverResult => {
+                self.last_command_was_redelivered_result = true;
                 let index = rng.random_range(0..self.sent_results.len());
                 let previous = self.sent_results[index].clone();
                 let body = previous
                     .command
                     .expect("remembered results are generated with a body");
-                self.envelope(&previous.flow_id, previous.run_id, body)
+                let mut command = self.envelope(&previous.flow_id, previous.run_id, body);
+                command.expected_run_attempt = previous.expected_run_attempt;
+                command
             }
         }
+    }
+
+    fn invocation_envelope(
+        &mut self,
+        flow_id: &str,
+        call: &Call<'_>,
+        body: Command,
+    ) -> FlowCommand {
+        let mut command = self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body);
+        command.expected_run_attempt = call
+            .run
+            .record
+            .as_ref()
+            .expect("a dispatched invocation belongs to an existing run")
+            .current_attempt;
+        command
     }
 
     fn envelope(&mut self, flow_id: &str, run_id: Vec<u8>, body: Command) -> FlowCommand {
@@ -587,5 +609,10 @@ impl CommandGenerator {
             self.sent_results.remove(0);
         }
         self.sent_results.push(command.clone());
+    }
+
+    /// Reports whether the last successful [`Self::next_command`] selected a remembered Worker result for redelivery; false before generation.
+    pub fn last_command_was_redelivered_result(&self) -> bool {
+        self.last_command_was_redelivered_result
     }
 }

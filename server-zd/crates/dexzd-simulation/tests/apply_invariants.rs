@@ -196,16 +196,18 @@ fn regression_seed_cases() -> Vec<(u64, usize)> {
         .collect()
 }
 
-/// Main-stream digests of every regression seed line, recorded when each line was added.
+/// Main-stream digests of every regression seed line, recorded with the corrected Worker run-attempt stamps.
 ///
 /// A model change that moves these trajectories would silently drop the regressions they
 /// reproduce; keep new commands in a separate stream instead.
 const REGRESSION_MAIN_COMMAND_DIGESTS: &[(u64, usize, u128)] = &[
-    (1592590336, 1000, 0xe9cb6eef0a8b7772f86dcfc7af4cb693),
-    (476371529, 488, 0xb16f8f1acba62cbb5fd5e41703d3b7ed),
-    (161503589, 1000, 0xac626a2824d3f7ca78f4538b93d5a70d),
-    (879068896, 1000, 0x624c9139e157691bf3de009be00bd09b),
-    (4200525811, 1000, 0x00a553fb26d89d8b59a369dcb88cf740),
+    (1592590336, 1000, 0xc032c65b7d382887abdb54a8dc10081e),
+    (476371529, 488, 0x8b041bf31f0cfdc8d4d2c992310b77c4),
+    (161503589, 1000, 0xfdc6f5e9d426965dd1e11bcdeaf2a302),
+    (879068896, 1000, 0xea49266404f93f45f426b531b7598e71),
+    (4200525811, 1000, 0xa6ab3ea1393afe48be232c77e6ec689d),
+    (10906685018, 1000, 0x9cb23e3676fd45b3fb97bccfddcc508a),
+    (2204788261, 1000, 0x11803384e2deeecaa00e6f5b733bef50),
 ];
 
 #[test]
@@ -216,6 +218,7 @@ fn regression_seeds_keep_their_main_command_trajectories() {
         REGRESSION_MAIN_COMMAND_DIGESTS.len(),
         "pin the main-stream digest of every regression seed line"
     );
+    let mut moved_trajectories = Vec::new();
     for (seed, command_count) in cases {
         let Some((_, _, expected)) =
             REGRESSION_MAIN_COMMAND_DIGESTS
@@ -228,12 +231,18 @@ fn regression_seeds_keep_their_main_command_trajectories() {
         };
         let summary = run_seed(seed, command_count, |failure| panic!("{failure}"))
             .unwrap_or_else(|failure| panic!("{failure}"));
-        assert_eq!(
-            summary.main_command_digest, *expected,
-            "regression seed {seed} changed its main-stream commands, so it no longer \
-             reproduces its regression"
-        );
+        if summary.main_command_digest != *expected {
+            moved_trajectories.push(format!(
+                "({seed}, {command_count}, 0x{:032x})",
+                summary.main_command_digest
+            ));
+        }
     }
+    assert!(
+        moved_trajectories.is_empty(),
+        "regression seeds changed their main-stream commands, so they may no longer reproduce \
+         their regressions: {moved_trajectories:#?}"
+    );
 }
 
 #[test]
@@ -255,6 +264,72 @@ fn the_same_seed_proposes_and_applies_the_same_commands() {
     let (second_trace, second_state) = run();
     assert!(first_trace == second_trace, "the command traces differ");
     assert!(first_state == second_state, "the final states differ");
+}
+
+#[test]
+fn worker_commands_keep_their_dispatched_run_attempt_on_redelivery() {
+    for seed in [10906685018, 2204788261] {
+        let mut rejected_redeliveries = 0;
+        let mut accepted_redeliveries = 0;
+        for mut generator in [
+            CommandGenerator::new(seed),
+            CommandGenerator::step_failure_stream(seed),
+        ] {
+            let mut checker = ApplyChecker::new();
+            for _ in 0..1000 {
+                let command = generator.next_command(&checker).expect("state decodes");
+                let is_redelivered_result = generator.last_command_was_redelivered_result();
+                let is_worker_command = matches!(
+                    command.command,
+                    Some(
+                        Command::StepAttemptStarted(_)
+                            | Command::StepAttemptHeartbeat(_)
+                            | Command::StepAttemptFailed(_)
+                            | Command::StepMethodCompleted(_)
+                    )
+                );
+                let is_abandoned_result = if is_worker_command {
+                    assert_ne!(command.expected_run_attempt, 0, "{command:?}");
+                    let view = checker
+                        .view(&command.flow_id, RunSelection::All)
+                        .expect("state decodes");
+                    let run_id = RunId::from_slice(&command.run_id).expect("worker run ID");
+                    view.runs[&run_id]
+                        .record
+                        .as_ref()
+                        .expect("worker run exists")
+                        .current_attempt
+                        != command.expected_run_attempt
+                } else {
+                    false
+                };
+                let outcome = checker
+                    .apply_and_check(&command)
+                    .unwrap_or_else(|violation| panic!("{violation}"));
+                if is_abandoned_result {
+                    assert!(is_redelivered_result, "seed {seed}: {command:?}");
+                    assert!(outcome.writes.is_empty());
+                    assert!(matches!(
+                        outcome.reply.reply,
+                        Some(command_reply::Reply::Error(_))
+                    ));
+                    rejected_redeliveries += 1;
+                } else if is_redelivered_result
+                    && matches!(outcome.reply.reply, Some(command_reply::Reply::Ok(_)))
+                {
+                    accepted_redeliveries += 1;
+                }
+            }
+        }
+        assert!(
+            rejected_redeliveries > 0,
+            "seed {seed}: no result crossed a reset"
+        );
+        assert!(
+            accepted_redeliveries > 0,
+            "seed {seed}: no same-attempt redelivery was accepted"
+        );
+    }
 }
 
 #[test]

@@ -36,6 +36,51 @@ seeded mutant that drops a rebuilt grant and must fail the permission oracle.
 Collected mapping inputs and large permission sets are covered by deterministic
 `dexzd-apply` regressions.
 
+Worker invocation commands carry the run attempt that dispatched them. Redelivering a result
+preserves that stamp across resets, so apply rejects results from abandoned run attempts just
+as it does for real Workers. Removing or replacing the stamp can make an old result write an
+Attribute while another Step holds its lock, falsely reporting L2. The regression seeds
+`10906685018` and `2204788261` cover this model correction from issue #1041.
+Before the correction, `10906685018` reproduced on main and server-zd v0.1.9.
+Seed `2204788261` reproduced on PR #1019's branch head `fdecef2b`, but does not
+reproduce on main. Both seeds remain pinned at 1,000 commands.
+
+Correcting Worker stamps intentionally refreshed the existing trajectory digests.
+One-off local mutation checks observed the following failures with the corrected model:
+
+| Isolated mutation | Seed | Detector |
+| --- | --- | --- |
+| Apply `testdata/seeded-bugs/immediate-reclaim.patch`. | `1592590336` | `I1-window-value-reference` |
+| Apply `testdata/seeded-bugs/retry-stale-snapshot.patch`, handling a rejected rebuild as no prior snapshot. | `1592590336` | `S5-fresh-snapshot` |
+| Remove the `scope.is_history_rebuild()` early return from `mark_attribute_sync_entries`. | `161503589`, `879068896` | `apply-error`: synced Attribute has no live value |
+| Remove `\|\| scope.is_replay` from both request-deduplication guards in `command_handlers/client_writes.rs`. | `879068896` | `apply-error`: replayed command rejected |
+
+The retry mutant also handles the inner `rebuild_attempt_state` result: add
+`let Ok(rebuilt) = rebuilt else { return Ok(None); };` before reading `rebuilt.rows`
+in `prior_method_snapshot`. This adapts the old patch to the current rebuild
+signature. Each mutation was applied alone in a scratch copy. From that copy's
+`server-zd/`, the checks ran the following commands with an optimized dev profile
+and a shared scratch Cargo target:
+
+```bash
+export CARGO_PROFILE_DEV_OPT_LEVEL=1
+export CARGO_TARGET_DIR=/tmp/zd-1041-mutant-target
+export DEXZD_SIMULATION_COMMANDS=1000
+# Run once for each of immediate-reclaim and retry-stale-snapshot.
+DEXZD_SIMULATION_SEED=1592590336 cargo test -p dexzd-simulation --test apply_invariants apply_keeps_every_invariant_over_random_command_sequences -- --exact --nocapture
+# Run both with the history-rebuild Attribute Sync guard removed.
+DEXZD_SIMULATION_SEED=161503589 cargo test -p dexzd-simulation --test apply_invariants apply_keeps_every_invariant_over_random_command_sequences -- --exact --nocapture
+DEXZD_SIMULATION_SEED=879068896 cargo test -p dexzd-simulation --test apply_invariants apply_keeps_every_invariant_over_random_command_sequences -- --exact --nocapture
+# Run with the replay request-deduplication guards removed.
+DEXZD_SIMULATION_SEED=879068896 cargo test -p dexzd-simulation --test apply_invariants apply_keeps_every_invariant_over_random_command_sequences -- --exact --nocapture
+```
+
+These observations are local evidence, not new CI acceptance cases. The two inline
+mutations are not checked-in patches, and the seeded-bug acceptance runner does not
+enforce them. The old cases `476371529` and `4200525811` remain deterministic
+trajectory checks; the local checks above do not establish CI mutation coverage
+for their former failures.
+
 ```bash
 cargo test -p dexzd-simulation                                   # fixed seed set
 DEXZD_SIMULATION_SEEDS=500 DEXZD_SIMULATION_COMMANDS=1000 cargo test -p dexzd-simulation
