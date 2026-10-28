@@ -25,13 +25,13 @@ use dexzd_keyspace::{
     parse_run_key, run_prefix, run_table_prefix,
 };
 use dexzd_protocol::dex::{
-    ActionPermissionMappings, AttributeWrite, CloseDecision, CloseDecisionType, ErrorSubStatus,
-    ExecuteMethodFailurePolicy, FlowAlreadyStartedOptions, FlowResetType, FlowStartOptions,
-    FlowStatus, FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy,
-    InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, Kv, ResetFlowRequest, RetryPolicy,
-    SetAttributesRequest, StartFlowRequest, StepDecision, StepMethodFailure, StepMovement,
-    StepOptions, StopFlowRequest, StopType, Value, WaitForMethodFailurePolicy, WorkerErrorResponse,
-    WorkerTarget, flow_history_event, value,
+    ActionPermissionMappings, AttributeWrite, CloseDecision, CloseDecisionType,
+    DispatchTaskErrorReason, ErrorSubStatus, ExecuteMethodFailurePolicy, FlowAlreadyStartedOptions,
+    FlowResetType, FlowStartOptions, FlowStatus, FlowTimeoutHandlerOptions, FlowTimeoutPolicy,
+    IdReusePolicy, InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, Kv, ResetFlowRequest,
+    RetryPolicy, SetAttributesRequest, StartFlowRequest, StepDecision, StepMethodFailure,
+    StepMovement, StepOptions, StopFlowRequest, StopType, Value, WaitForMethodFailurePolicy,
+    WorkerErrorResponse, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeRecord, AttributesSetCommand, CommandReply, FlowCommand, FlowStartCommand,
@@ -977,6 +977,62 @@ fn exhausted_step_failure_closes_the_flow_with_the_application_text() {
                 .expect("history records the final failure");
             assert_eq!(history_failure.attempt, 1, "{label}");
             assert_eq!(history_failure.backend_error, case.raw_detail, "{label}");
+        }
+    }
+}
+
+#[test]
+fn dispatch_failure_history_carries_the_structured_reason_and_go_detail() {
+    let cases = [
+        (
+            "DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE: no Worker accepted the task",
+            DispatchTaskErrorReason::NoWorkerAvailable,
+            "no Worker available for queue OrderFlow: no Worker accepted the task",
+        ),
+        (
+            "DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED: Worker stream disconnected",
+            DispatchTaskErrorReason::WorkerDisconnected,
+            "Worker disconnected during pull dispatch: Worker stream disconnected",
+        ),
+        (
+            "DISPATCH_TASK_ERROR_REASON_UNKNOWN_NAME: no pull Worker registered the Step",
+            DispatchTaskErrorReason::UnknownName,
+            "no pull Worker registered the Step",
+        ),
+        (
+            "server error: object storage is unavailable",
+            DispatchTaskErrorReason::Unspecified,
+            "server error: object storage is unavailable",
+        ),
+    ];
+    for (server_detail, expected_reason, expected_detail) in cases {
+        for method in [StepMethod::WaitFor, StepMethod::Execute] {
+            let mut harness = Harness::new("order-1");
+            let mut request = start_request("request-1");
+            request.step_options = Some(StepOptions {
+                skip_wait_for: method == StepMethod::Execute,
+                ..StepOptions::default()
+            });
+            harness.start(request);
+            harness.start_attempt("ChargeStep-1", method, 1);
+            let failed = harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+                invocation: Some(key("ChargeStep-1", method)),
+                attempt: 1,
+                kind: StepAttemptFailureKind::DispatchError as i32,
+                server_detail: server_detail.to_owned(),
+                is_non_retryable: true,
+                ..StepAttemptFailedCommand::default()
+            }));
+            let label = format!("{method:?} {server_detail:?}");
+            let details = method_failures(&failed)
+                .pop()
+                .and_then(|failure| failure.details)
+                .expect("history records the final failure details");
+            assert_eq!(
+                details.dispatch_task_error_reason, expected_reason as i32,
+                "{label}"
+            );
+            assert_eq!(details.detail, expected_detail, "{label}");
         }
     }
 }

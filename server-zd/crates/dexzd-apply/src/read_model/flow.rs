@@ -238,7 +238,7 @@ fn active_step_state(view: &RunView<'_>, step: &StepExecutionRecord) -> ActiveSt
                     status: if wait.timer_statuses.get(index).copied()
                         == Some(ConditionStatus::Completed as i32)
                     {
-                        InternalTimerStatus::Fired as i32
+                        completed_timer_status(step, index) as i32
                     } else {
                         InternalTimerStatus::Pending as i32
                     },
@@ -295,7 +295,7 @@ fn completed_conditions(
         .map(|(index, _)| {
             (
                 i32::try_from(index).unwrap_or(i32::MAX),
-                InternalTimerStatus::Fired as i32,
+                completed_timer_status(step, index) as i32,
             )
         })
         .collect();
@@ -334,4 +334,12 @@ fn completed_conditions(
         completed_timer_conditions,
         completed_sub_flow_results,
     })
+}
+
+fn completed_timer_status(step: &StepExecutionRecord, index: usize) -> InternalTimerStatus {
+    if u32::try_from(index).is_ok_and(|index| step.skipped_timer_indexes.contains(&index)) {
+        InternalTimerStatus::Skipped
+    } else {
+        InternalTimerStatus::Fired
+    }
 }

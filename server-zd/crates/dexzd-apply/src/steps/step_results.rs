@@ -199,6 +199,7 @@ pub(crate) fn apply_attempt_failed(
         return Ok(StepCommandOutcome::Ignored(ok_reply()));
     };
     let worker_error = command.worker_error.clone().unwrap_or_default();
+    let dispatch_reason = dispatch_failure_reason(command);
     let failure = StepMethodFailure {
         backend_error: if command.server_detail.is_empty() {
             worker_error.detail.clone()
@@ -206,13 +207,16 @@ pub(crate) fn apply_attempt_failed(
             command.server_detail.clone()
         },
         details: Some(ServiceErrorResponse {
-            detail: command.server_detail.clone(),
+            detail: (dispatch_reason != DispatchTaskErrorReason::Unspecified)
+                .then(|| go_dispatch_failure_text(&command.server_detail, &cursor.record.flow_type))
+                .flatten()
+                .unwrap_or_else(|| command.server_detail.clone()),
+            dispatch_task_error_reason: dispatch_reason as i32,
             sub_status: ErrorSubStatus::WorkerApiError as i32,
             original_worker_error_detail: worker_error.detail.clone(),
             original_worker_error_type: worker_error.error_type.clone(),
             original_worker_error_status: worker_error.grpc_status,
             original_worker_error_stack_trace: worker_error.stack_trace.clone(),
-            ..ServiceErrorResponse::default()
         }),
         attempt: i32::try_from(command.attempt).unwrap_or(i32::MAX),
         pull_routing: command.pull_routing.clone(),
@@ -435,6 +439,19 @@ fn application_failure_text(
         },
         _ => raw_detail.to_owned(),
     }
+}
+
+/// Returns the reason named by a dispatch failure's `<reason name>: <detail>` server detail, or
+/// `Unspecified` for another failure kind or an unrecognized prefix.
+fn dispatch_failure_reason(command: &StepAttemptFailedCommand) -> DispatchTaskErrorReason {
+    if command.kind != StepAttemptFailureKind::DispatchError as i32 {
+        return DispatchTaskErrorReason::Unspecified;
+    }
+    command
+        .server_detail
+        .split_once(": ")
+        .and_then(|(reason, _)| DispatchTaskErrorReason::from_str_name(reason))
+        .unwrap_or(DispatchTaskErrorReason::Unspecified)
 }
 
 /// Returns the Go Server's text for an engine dispatch failure, `<reason name>: <detail>`, or
