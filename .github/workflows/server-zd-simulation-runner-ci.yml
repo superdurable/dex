@@ -1,0 +1,36 @@
+name: Server ZD Simulation Runner CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "script/server-zd-simulation-run.py"
+      - "script/test_server_zd_simulation_run.py"
+      - ".github/workflows/server-zd-simulation-nightly.yml"
+      - ".github/workflows/server-zd-simulation-runner-ci.yml"
+      - "Makefile"
+  pull_request:
+    paths:
+      - "script/server-zd-simulation-run.py"
+      - "script/test_server_zd_simulation_run.py"
+      - ".github/workflows/server-zd-simulation-nightly.yml"
+      - ".github/workflows/server-zd-simulation-runner-ci.yml"
+      - "Makefile"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-zd-simulation-runner-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runner-tests:
+    name: Runner integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test nightly process supervision
+        run: make server-zd-simulation-runner-test

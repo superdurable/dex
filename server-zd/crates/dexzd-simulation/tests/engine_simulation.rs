@@ -275,6 +275,10 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
 }
 
 /// Runs each seed for its active seconds; a failing seed writes its report and panics.
+#[expect(
+    clippy::print_stdout,
+    reason = "nightly timeouts need per-seed progress"
+)]
 fn run_seeds(
     seeds: &BTreeMap<u64, u64>,
     profile: EngineSimulationProfile,
@@ -297,7 +301,10 @@ fn run_seeds(
             ..EngineSimulationConfig::default()
         };
         match run_engine_seed(seed, &config) {
-            Ok(summary) => total.merge(&summary),
+            Ok(summary) => {
+                total.merge(&summary);
+                println!("simulation completed seed: {seed}");
+            }
             Err(failure) => {
                 write_failure_report(failure_directory.as_ref(), &failure);
                 panic!("{failure}");
