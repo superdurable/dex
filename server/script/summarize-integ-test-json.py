@@ -24,10 +24,13 @@ MAX_DETAIL_CHARACTERS = 300
 INTEG_DIRECTORY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "integ")
 
 def read_test_events(json_paths):
+    """Returns test results, test outputs, package failure lines, and the JSON files without a package result."""
     results = {}
     outputs = {}
     package_failures = []
+    incomplete_package_paths = []
     for json_path in json_paths:
+        has_package_result = False
         with open(json_path, encoding="utf-8") as json_file:
             for line in json_file:
                 if not line.startswith("{"):
@@ -35,6 +38,8 @@ def read_test_events(json_paths):
                 event = json.loads(line)
                 test_name = event.get("Test")
                 if not test_name:
+                    if event.get("Action") in ("pass", "fail"):
+                        has_package_result = True
                     package_output = event.get("Output", "")
                     if PACKAGE_FAILURE_PATTERN.search(package_output):
                         package_failures.append(f"{json_path}: {package_output.strip()}")
@@ -46,7 +51,9 @@ def read_test_events(json_paths):
                     results.setdefault(test_name, "incomplete")
                 elif action in ("pass", "fail", "skip"):
                     results[test_name] = action
-    return results, outputs, package_failures
+        if not has_package_result:
+            incomplete_package_paths.append(json_path)
+    return results, outputs, package_failures, incomplete_package_paths
 
 
 def read_expected_tests(expected_test_paths):
@@ -133,14 +140,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--expected-tests", action="append", default=[],
-        help="file listing one expected top-level test per line; unreported tests count as not-run",
+        help="file listing one expected top-level test per line; required; unreported tests count as not-run and fail the summary",
     )
     parser.add_argument("json_paths", nargs="+", help="go test -json output files")
     arguments = parser.parse_args()
-    results, outputs, package_failures = read_test_events(arguments.json_paths)
+    results, outputs, package_failures, incomplete_package_paths = read_test_events(arguments.json_paths)
+    expected_tests = read_expected_tests(arguments.expected_tests)
     top_level_tests = sorted(name for name in results if "/" not in name)
     classified_tests = {name: classify_test(name, results, outputs) for name in top_level_tests}
-    for test_name in read_expected_tests(arguments.expected_tests) - set(top_level_tests):
+    for test_name in expected_tests - set(top_level_tests):
         classified_tests[test_name] = ("not-run", "no test events; the partition ended before this test started")
     top_level_tests = sorted(classified_tests)
     counts = Counter(result for result, _ in classified_tests.values())
@@ -160,7 +168,25 @@ def main():
     for test_name in top_level_tests:
         result, detail = classified_tests[test_name]
         print(f"| {test_name} | {result} | {escape_markdown_cell(detail)} |")
-    return 0
+    summary_errors = find_summary_errors(expected_tests, counts, incomplete_package_paths)
+    for summary_error in summary_errors:
+        print(f"error: {summary_error}", file=sys.stderr)
+    return 1 if summary_errors else 0
+
+
+def find_summary_errors(expected_tests, counts, incomplete_package_paths):
+    """Returns why the run is not a complete, passing run; an empty list means it is."""
+    summary_errors = []
+    if not expected_tests:
+        summary_errors.append("no expected tests; pass --expected-tests with a non-empty test list")
+    if not counts:
+        summary_errors.append("no test events")
+    for result in ("fail", "incomplete", "not-run"):
+        if counts.get(result, 0):
+            summary_errors.append(f"{result}: {counts[result]} tests")
+    for json_path in incomplete_package_paths:
+        summary_errors.append(f"{json_path}: no package pass or fail event; go test did not complete")
+    return summary_errors
 
 if __name__ == "__main__":
     sys.exit(main())

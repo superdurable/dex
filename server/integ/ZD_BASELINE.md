@@ -15,8 +15,8 @@ failure has one classification.
 
 | Result | Tests |
 | --- | --- |
-| pass | 95 |
-| skip | 231 |
+| pass | 94 |
+| skip | 232 |
 | fail | 0 |
 | not run | 0 |
 | total | 326 |
@@ -28,9 +28,11 @@ failure has one classification.
 | behavior-difference | 4 |
 | zd-bug | 2 |
 
-The counts cover 231 skipped tests and one passing test with a skipped subtest
-(**TestReadBehindSlowEngineTaskTemporal**). **TestBinaryTemporalOnlyScenarioSkipsBeforePolling**
-counts as a pass because its skipped subtest is the asserted behavior.
+The classifications cover 231 skipped tests and one passing test with a skipped
+subtest (**TestReadBehindSlowEngineTaskTemporal**). The summarizer counts
+**TestBinaryTemporalOnlyScenarioSkipsBeforePolling** as a skip because its only
+subtest skips. That skip is the asserted behavior of this harness self-test, so
+the test has no classification.
 
 The CI run has no failures because binary mode skips every scenario that it
 cannot run. To find what those skips hide, the Temporal-only guards were
@@ -196,7 +198,7 @@ checks Go Server configuration.
 | TestBinaryDexLauncherEarlyExit | pass |  |  |
 | TestBinaryDexLauncherKillsUnresponsiveProcess | pass |  |  |
 | TestBinaryDexLauncherReadinessTimeout | pass |  |  |
-| TestBinaryTemporalOnlyScenarioSkipsBeforePolling | pass |  | Harness self-test; its subtest skip is the asserted behavior. |
+| TestBinaryTemporalOnlyScenarioSkipsBeforePolling | skip |  | Harness self-test; its subtest skip is the asserted behavior, so it has no classification. |
 | TestChannelMessageQueueCadence | skip | go-server-only | Skip reason: `channel_message_queue_test.go:48: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestChannelMessageQueueTemporal | pass |  |  |
 | TestChannelMultivalueCadence | skip | go-server-only | Skip reason: `channel_multivalue_test.go:60: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |

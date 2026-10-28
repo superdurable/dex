@@ -133,9 +133,24 @@ jobs:
           merge-multiple: true
       - name: Write summary
         run: |
+          # A missing artifact would drop its partition's tests from the summary.
           expected_test_arguments=()
-          for expected_tests_path in zd-integ-json/*.tests.txt; do
+          json_paths=()
+          missing_paths=()
+          for partition in 0 1 2 3 4; do
+            expected_tests_path="zd-integ-json/zd-integ-$partition.tests.txt"
+            json_path="zd-integ-json/zd-integ-$partition.json"
+            for partition_path in "$expected_tests_path" "$json_path"; do
+              if [[ ! -s "$partition_path" ]]; then
+                missing_paths+=("$partition_path")
+              fi
+            done
             expected_test_arguments+=(--expected-tests "$expected_tests_path")
+            json_paths+=("$json_path")
           done
-          python3 server/script/summarize-integ-test-json.py "${expected_test_arguments[@]}" zd-integ-json/*.json |
+          if ((${#missing_paths[@]} > 0)); then
+            printf 'Missing partition artifacts: %s\n' "${missing_paths[*]}" | tee -a "$GITHUB_STEP_SUMMARY" >&2
+            exit 1
+          fi
+          python3 server/script/summarize-integ-test-json.py "${expected_test_arguments[@]}" "${json_paths[@]}" |
             tee -a "$GITHUB_STEP_SUMMARY"
