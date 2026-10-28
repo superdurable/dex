@@ -104,7 +104,7 @@ pub(crate) struct RegistryInner {
     pub(crate) dependencies: FlowCoordinatorDependencies,
     pub(crate) waiters: WaiterRegistry,
     // A crash before result commit can re-invoke the Worker; in-flight admission is not persisted.
-    pub(crate) rpc_requests: RpcRequestTable,
+    pub(crate) rpc_requests: Arc<RpcRequestTable>,
     coordinators: Mutex<BTreeMap<FlowAddress, Arc<FlowCoordinator>>>,
     uncommitted_bytes: AtomicUsize,
     capacity_released: Notify,
@@ -129,7 +129,7 @@ impl FlowCoordinatorRegistry {
                     config.max_long_poll_waiters_per_flow,
                 ),
                 dependencies,
-                rpc_requests: RpcRequestTable::default(),
+                rpc_requests: Arc::new(RpcRequestTable::new(config.max_in_flight_rpcs_per_node)),
                 coordinators: Mutex::new(BTreeMap::new()),
                 uncommitted_bytes: AtomicUsize::new(0),
                 capacity_released: Notify::new(),
@@ -408,11 +408,23 @@ impl FlowCoordinatorRegistry {
     }
 
     /// Ends every long poll with `Unavailable` and rejects new ones, for a graceful stop.
-    ///
-    /// In-flight RPC tasks are also cancelled.
     pub fn close_long_polls(&self) {
         self.inner.waiters.close();
-        self.inner.rpc_requests.stopped.cancel();
+    }
+
+    /// Rejects new shared RPC tasks while admitted tasks drain.
+    pub fn close_rpc_admission(&self) {
+        self.inner.rpc_requests.close();
+    }
+
+    /// Cancels shared RPC tasks and rejects new ones after the drain window.
+    pub fn cancel_rpc_tasks(&self) {
+        self.inner.rpc_requests.stop();
+    }
+
+    /// Waits for closed RPC admission and every admitted task to finish, including panic cleanup.
+    pub async fn wait_for_rpc_tasks(&self) {
+        self.inner.rpc_requests.wait().await;
     }
 
     /// Returns a token that is cancelled when the registry halts.

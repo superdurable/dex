@@ -111,6 +111,7 @@ limits:
   maxBlockingStateReads: 64
   maxLongPollWaitersPerNode: 100000
   maxLongPollWaitersPerFlow: 1000
+  maxInFlightRpcsPerNode: 1000
   maxRequestIdsPerRun: 1000
   maxFlowIdBytes: 1000
 attributeStore:

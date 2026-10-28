@@ -314,6 +314,13 @@ impl NodeProcess {
             Err(error) => {
                 if let Some(parts) = parts {
                     parts.registry.close_long_polls();
+                    parts.registry.cancel_rpc_tasks();
+                    tokio::time::timeout(
+                        Duration::from_secs(1),
+                        parts.registry.wait_for_rpc_tasks(),
+                    )
+                    .await
+                    .expect("cancelled RPC tasks stop within their shutdown budget");
                     parts.effect_tasks.shutdown().await;
                 }
                 return Err(error);
@@ -356,8 +363,14 @@ impl NodeProcess {
         } = self;
         object_store.cut_off();
         registry.close_long_polls();
+        registry.cancel_rpc_tasks();
         drop(engine);
-        let effect_shutdown = tokio::spawn(effect_tasks.shutdown());
+        let effect_shutdown = tokio::spawn(async move {
+            tokio::time::timeout(Duration::from_secs(1), registry.wait_for_rpc_tasks())
+                .await
+                .expect("cancelled RPC tasks stop within their shutdown budget");
+            effect_tasks.shutdown().await;
+        });
         tasks.push(effect_shutdown);
     }
 }

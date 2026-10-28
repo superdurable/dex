@@ -16,6 +16,9 @@ use dexzd_protocol::dex::{
     poll_worker_task_frame,
 };
 use tonic::transport::Channel;
+use tonic_health::pb::HealthCheckRequest;
+use tonic_health::pb::health_check_response::ServingStatus;
+use tonic_health::pb::health_client::HealthClient;
 
 use crate::harness::{DevServer, ScriptedWorker, service_error, start_pull_flow, wait_for_result};
 use crate::string_value;
@@ -28,6 +31,8 @@ async fn concurrent_rpc_request_ids_share_one_worker_result() {
         let first_request = request.clone();
         let first = tokio::spawn(async move { first_client.invoke_rpc(first_request).await });
         let task = worker.next_task().await;
+        let mut idle_worker =
+            ScriptedWorker::start(server.worker_client(), "RequestDedupFlow").await;
         assert!(matches!(
             task.request,
             Some(poll_worker_task::Request::Rpc(_))
@@ -36,7 +41,13 @@ async fn concurrent_rpc_request_ids_share_one_worker_result() {
         let mut second_client = server.flow_client();
         let second_request = request.clone();
         let second = tokio::spawn(async move { second_client.invoke_rpc(second_request).await });
-        assert_duplicate_stays_pending(&mut server.flow_client(), &mut worker, &request).await;
+        assert_duplicate_stays_pending(
+            &mut server.flow_client(),
+            &mut worker,
+            &mut idle_worker,
+            &request,
+        )
+        .await;
         worker.reply(
             task.task_id,
             poll_worker_task_frame::Output::Rpc(InvokeWorkerRpcResponse {
@@ -44,12 +55,12 @@ async fn concurrent_rpc_request_ids_share_one_worker_result() {
                 ..InvokeWorkerRpcResponse::default()
             }),
         );
-        let first_response = without_worker_call(&mut worker, first)
+        let first_response = without_worker_call(&mut worker, &mut idle_worker, first)
             .await
             .expect("first caller joins")
             .expect("first RPC succeeds")
             .into_inner();
-        let second_response = without_worker_call(&mut worker, second)
+        let second_response = without_worker_call(&mut worker, &mut idle_worker, second)
             .await
             .expect("second caller joins")
             .expect("second RPC succeeds")
@@ -62,16 +73,22 @@ async fn concurrent_rpc_request_ids_share_one_worker_result() {
         };
         let changed = without_worker_call(
             &mut worker,
+            &mut idle_worker,
             server.flow_client().invoke_rpc(changed_request),
         )
         .await
         .expect_err("reusing a request ID with changed input is rejected");
         assert_eq!(changed.code(), tonic::Code::InvalidArgument);
-        let replay = without_worker_call(&mut worker, server.flow_client().invoke_rpc(request))
-            .await
-            .expect("completed request replays")
-            .into_inner();
+        let replay = without_worker_call(
+            &mut worker,
+            &mut idle_worker,
+            server.flow_client().invoke_rpc(request),
+        )
+        .await
+        .expect("completed request replays")
+        .into_inner();
         assert_eq!(replay, first_response);
+        idle_worker.stop().await;
         worker.stop().await;
         server.shutdown().await;
     }
@@ -84,8 +101,10 @@ async fn first_rpc_caller_disconnect_preserves_the_worker_call() {
     let first_request = request.clone();
     let first = tokio::spawn(async move { first_client.invoke_rpc(first_request).await });
     let task = worker.next_task().await;
+    let mut idle_worker = ScriptedWorker::start(server.worker_client(), "RequestDedupFlow").await;
     let changed = without_worker_call(
         &mut worker,
+        &mut idle_worker,
         server.flow_client().invoke_rpc(InvokeRpcRequest {
             input: Some(string_value("changed while in flight")),
             ..request.clone()
@@ -102,7 +121,13 @@ async fn first_rpc_caller_disconnect_preserves_the_worker_call() {
             .is_cancelled()
     );
 
-    assert_duplicate_stays_pending(&mut server.flow_client(), &mut worker, &request).await;
+    assert_duplicate_stays_pending(
+        &mut server.flow_client(),
+        &mut worker,
+        &mut idle_worker,
+        &request,
+    )
+    .await;
     worker.reply(
         task.task_id,
         poll_worker_task_frame::Output::Rpc(InvokeWorkerRpcResponse {
@@ -110,11 +135,16 @@ async fn first_rpc_caller_disconnect_preserves_the_worker_call() {
             ..InvokeWorkerRpcResponse::default()
         }),
     );
-    let response = without_worker_call(&mut worker, server.flow_client().invoke_rpc(request))
-        .await
-        .expect("retry observes the original result")
-        .into_inner();
+    let response = without_worker_call(
+        &mut worker,
+        &mut idle_worker,
+        server.flow_client().invoke_rpc(request),
+    )
+    .await
+    .expect("retry observes the original result")
+    .into_inner();
     assert_eq!(response.output, Some(string_value("survived disconnect")));
+    idle_worker.stop().await;
     worker.stop().await;
     server.shutdown().await;
 }
@@ -123,26 +153,29 @@ async fn first_rpc_caller_disconnect_preserves_the_worker_call() {
 async fn rpc_worker_deadline_is_shared_with_concurrent_duplicates() {
     let (server, mut worker, mut request) = start_rpc_flow("shared-rpc-deadline", false).await;
     request.timeout_seconds = 2;
+    let mut idle_worker = ScriptedWorker::start(server.worker_client(), "RequestDedupFlow").await;
     let mut first_client = server.flow_client();
-    let first_request = request.clone();
-    let first = tokio::spawn(async move { first_client.invoke_rpc(first_request).await });
-    let task = worker.next_task().await;
-    assert!(matches!(
-        task.request,
-        Some(poll_worker_task::Request::Rpc(_))
-    ));
     let mut second_client = server.flow_client();
-    let second = second_client.invoke_rpc(request);
-    let (first, second) =
-        without_worker_call(&mut worker, async { tokio::join!(first, second) }).await;
-    let first = first
-        .expect("first caller joins")
-        .expect_err("Worker deadline expires");
+    let callers = async {
+        tokio::join!(
+            first_client.invoke_rpc(request.clone()),
+            second_client.invoke_rpc(request)
+        )
+    };
+    tokio::pin!(callers);
+    tokio::select! {
+        result = &mut callers => panic!("both RPCs wait for the Worker: {result:?}"),
+        task = worker.next_task() => assert!(matches!(task.request, Some(poll_worker_task::Request::Rpc(_)))),
+        task = idle_worker.next_task() => assert!(matches!(task.request, Some(poll_worker_task::Request::Rpc(_)))),
+    }
+    let (first, second) = without_worker_call(&mut worker, &mut idle_worker, callers).await;
+    let first = first.expect_err("Worker deadline expires");
     let second = second.expect_err("duplicate shares the deadline");
     assert_eq!(first.code(), tonic::Code::DeadlineExceeded);
     assert_eq!(first.code(), second.code());
     assert_eq!(first.message(), second.message());
     assert_eq!(service_error(&first), service_error(&second));
+    idle_worker.stop().await;
     worker.stop().await;
     server.shutdown().await;
 }
@@ -154,10 +187,17 @@ async fn rpc_worker_error_is_shared_but_a_later_retry_invokes_the_worker() {
     let first_request = request.clone();
     let first = tokio::spawn(async move { first_client.invoke_rpc(first_request).await });
     let task = worker.next_task().await;
+    let mut idle_worker = ScriptedWorker::start(server.worker_client(), "RequestDedupFlow").await;
     let mut second_client = server.flow_client();
     let second_request = request.clone();
     let second = tokio::spawn(async move { second_client.invoke_rpc(second_request).await });
-    assert_duplicate_stays_pending(&mut server.flow_client(), &mut worker, &request).await;
+    assert_duplicate_stays_pending(
+        &mut server.flow_client(),
+        &mut worker,
+        &mut idle_worker,
+        &request,
+    )
+    .await;
     let worker_error = WorkerErrorResponse {
         error_type: "OrderRejected".to_owned(),
         detail: "order cannot be updated".to_owned(),
@@ -167,11 +207,11 @@ async fn rpc_worker_error_is_shared_but_a_later_retry_invokes_the_worker() {
         task.task_id,
         poll_worker_task_frame::Output::WorkerError(worker_error.clone()),
     );
-    let first = without_worker_call(&mut worker, first)
+    let first = without_worker_call(&mut worker, &mut idle_worker, first)
         .await
         .expect("first caller joins")
         .expect_err("Worker rejects the RPC");
-    let second = without_worker_call(&mut worker, second)
+    let second = without_worker_call(&mut worker, &mut idle_worker, second)
         .await
         .expect("second caller joins")
         .expect_err("duplicate shares the Worker error");
@@ -188,15 +228,15 @@ async fn rpc_worker_error_is_shared_but_a_later_retry_invokes_the_worker() {
 
     let mut retry_client = server.flow_client();
     let retry = tokio::spawn(async move { retry_client.invoke_rpc(request).await });
-    let task = worker.next_task().await;
-    worker.reply(
-        task.task_id,
-        poll_worker_task_frame::Output::Rpc(InvokeWorkerRpcResponse::default()),
-    );
+    tokio::select! {
+        task = worker.next_task() => worker.reply(task.task_id, poll_worker_task_frame::Output::Rpc(InvokeWorkerRpcResponse::default())),
+        task = idle_worker.next_task() => idle_worker.reply(task.task_id, poll_worker_task_frame::Output::Rpc(InvokeWorkerRpcResponse::default())),
+    }
     retry
         .await
         .expect("retry caller joins")
         .expect("retry succeeds");
+    idle_worker.stop().await;
     worker.stop().await;
     server.shutdown().await;
 }
@@ -232,6 +272,52 @@ async fn non_transactional_rpc_request_ids_invoke_the_worker_independently() {
     worker.stop().await;
     second_worker.stop().await;
     server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn node_shutdown_commits_a_worker_reply_during_the_drain() {
+    let (server, mut worker, request) = start_rpc_flow("draining-rpc", false).await;
+    let mut health = HealthClient::new(server.channel());
+    let mut health_updates = health
+        .watch(HealthCheckRequest {
+            service: String::new(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        health_updates.message().await.unwrap().unwrap().status,
+        ServingStatus::Serving as i32
+    );
+    let mut client = server.flow_client();
+    let caller = tokio::spawn(async move { client.invoke_rpc(request).await });
+    let task = worker.next_task().await;
+    let shutdown = tokio::spawn(server.shutdown());
+    let status = tokio::time::timeout(Duration::from_secs(2), health_updates.message())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(status.status, ServingStatus::NotServing as i32);
+    drop(health_updates);
+    worker.reply(
+        task.task_id,
+        poll_worker_task_frame::Output::Rpc(InvokeWorkerRpcResponse {
+            output: Some(string_value("committed during drain")),
+            ..InvokeWorkerRpcResponse::default()
+        }),
+    );
+    let response = caller
+        .await
+        .unwrap()
+        .expect("admitted RPC finishes during shutdown")
+        .into_inner();
+    assert_eq!(
+        response.output,
+        Some(string_value("committed during drain"))
+    );
+    shutdown.await.expect("shutdown joins");
+    worker.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -303,11 +389,12 @@ async fn start_rpc_flow(
 async fn assert_duplicate_stays_pending(
     client: &mut FlowServiceClient<Channel>,
     worker: &mut ScriptedWorker,
+    idle_worker: &mut ScriptedWorker,
     request: &InvokeRpcRequest,
 ) {
     let mut request = tonic::Request::new(request.clone());
     request.set_timeout(Duration::from_secs(1));
-    let response = without_worker_call(worker, client.invoke_rpc(request)).await;
+    let response = without_worker_call(worker, idle_worker, client.invoke_rpc(request)).await;
     let status = response.expect_err("duplicate waits until its own transport deadline");
     assert!(
         matches!(
@@ -318,11 +405,16 @@ async fn assert_duplicate_stays_pending(
     );
 }
 
-async fn without_worker_call<T>(worker: &mut ScriptedWorker, future: impl Future<Output = T>) -> T {
+async fn without_worker_call<T>(
+    worker: &mut ScriptedWorker,
+    idle_worker: &mut ScriptedWorker,
+    future: impl Future<Output = T>,
+) -> T {
     tokio::time::timeout(Duration::from_secs(10), async {
         tokio::select! {
             result = future => result,
             task = worker.next_task() => panic!("duplicate invoked the Worker: {task:?}"),
+            task = idle_worker.next_task() => panic!("duplicate invoked the idle Worker: {task:?}"),
         }
     })
     .await

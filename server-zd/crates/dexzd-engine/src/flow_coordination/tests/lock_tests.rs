@@ -158,6 +158,8 @@ async fn rpc_conflicts_with_another_rpc_until_the_worker_finishes_after_the_call
         .unwrap_err();
     assert_aborted(&error);
 
+    let unrelated_gate = Arc::new(Notify::new());
+    *harness.rpc_invoker.gate.lock().unwrap() = Some(Arc::clone(&unrelated_gate));
     let mut unrelated = Box::pin(harness.registry.invoke_rpc(
         TENANT,
         InvokeRpcRequest {
@@ -171,7 +173,6 @@ async fn rpc_conflicts_with_another_rpc_until_the_worker_finishes_after_the_call
     }
 
     drop(holder);
-    drop(unrelated);
     let error = harness
         .registry
         .invoke_rpc(
@@ -185,7 +186,7 @@ async fn rpc_conflicts_with_another_rpc_until_the_worker_finishes_after_the_call
         .unwrap_err();
     assert_aborted(&error);
     *harness.rpc_invoker.gate.lock().unwrap() = None;
-    gate.notify_waiters();
+    gate.notify_one();
     let response = harness
         .drive(
             harness
@@ -195,6 +196,15 @@ async fn rpc_conflicts_with_another_rpc_until_the_worker_finishes_after_the_call
         .await
         .unwrap();
     assert_eq!(response.output, Some(string_value("first")));
+    harness
+        .rpc_invoker
+        .results
+        .lock()
+        .unwrap()
+        .push_back(Ok(output_result("unrelated")));
+    unrelated_gate.notify_one();
+    let unrelated_response = harness.drive(unrelated).await.unwrap();
+    assert_eq!(unrelated_response.output, Some(string_value("unrelated")));
     harness
         .rpc_invoker
         .results

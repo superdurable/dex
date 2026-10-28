@@ -248,8 +248,10 @@ Combining the child-wait probe with later engine changes moved every pin again. 
 regression seeds still fail at the same simulated times when the fix is reverted.
 
 Registry-owned RPC tasks change the scheduling of transactional and locking calls. Four pins
-were refreshed for that change. With the purging-read fix reverted, both active regression
-seeds still detect omitted hard-delete Attributes within 120 simulated seconds.
+were refreshed for that change. Bounding the whole RPC task by its deadline moved
+`FIRST_SEED + 1` again; restoring the earlier Worker-only deadline restores that pin.
+With the purging-read fix reverted, both active regression seeds still detect omitted
+hard-delete Attributes at 37.873 and 44.106 simulated seconds.
 
 ### Running
 

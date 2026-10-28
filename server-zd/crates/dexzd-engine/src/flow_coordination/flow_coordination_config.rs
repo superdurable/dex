@@ -44,8 +44,10 @@ pub struct FlowCoordinationConfig {
     pub long_poll_default_wait: Duration,
     /// Upper bound of any requested long-poll wait time. Default 60 s.
     pub long_poll_max_wait: Duration,
-    /// Worker call timeout of an RPC that sets `timeout_seconds` to 0. Default 60 s.
+    /// Timeout when `timeout_seconds` is 0. Default 60 s; bounds the entire shared RPC task.
     pub rpc_default_timeout: Duration,
+    /// Maximum concurrent shared RPC tasks per node. Default 1,000; new request IDs fail with ResourceExhausted beyond it.
+    pub max_in_flight_rpcs_per_node: usize,
     /// Largest encoded RPC request sent to a Worker. Default 32 MiB, from
     /// `api.grpcMaxMessageBytes`. Larger requests fail with `ResourceExhausted` before dispatch.
     pub max_worker_rpc_request_bytes: usize,
@@ -74,6 +76,7 @@ impl Default for FlowCoordinationConfig {
             long_poll_default_wait: Duration::from_secs(60),
             long_poll_max_wait: Duration::from_secs(60),
             rpc_default_timeout: Duration::from_secs(60),
+            max_in_flight_rpcs_per_node: 1_000,
             max_worker_rpc_request_bytes: 32 * 1024 * 1024,
             hydrate_value_references: false,
             run_settings: default_run_settings(),

@@ -28,7 +28,7 @@ use prost::Message;
 
 use crate::flow_coordination::client_operations::hard_delete_uploads::hard_delete_references;
 use crate::flow_coordination::client_operations::request_fingerprint::request_fingerprint;
-use crate::flow_coordination::client_operations::rpc_requests::RpcResultSender;
+use crate::flow_coordination::client_operations::rpc_requests::RpcRequestGuard;
 use crate::flow_coordination::client_operations::unstamped_flow_command;
 use crate::flow_coordination::read_operations::state_rows::{
     ResolvedRun, WireValue, decode_row, hydrate_value_reference, load_complete_value, read_run,
@@ -66,32 +66,60 @@ impl FlowCoordinatorRegistry {
         )?;
         self.check_running()?;
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
+        let is_transactional = request.is_transactional || !request.lock_attribute_keys.is_empty();
         let run_id = {
             let committed = self.inner.dependencies.committer.committed_view()?;
-            read_run(
+            let run = read_run(
                 committed.as_ref(),
                 self.flow_context(&flow),
                 &flow,
                 &request.run_id,
-            )?
-            .run_id
+            )?;
+            if is_transactional
+                && let Some(response) = replay_recorded_rpc(
+                    committed.as_ref(),
+                    self.flow_context(&flow),
+                    run.run_id,
+                    &request,
+                )?
+            {
+                return Ok(response);
+            }
+            run.run_id
         };
-        let is_transactional = request.is_transactional || !request.lock_attribute_keys.is_empty();
         if !is_transactional {
-            return self.invoke_rpc_once(flow, run_id, request).await;
+            return self
+                .invoke_rpc_once(flow, run_id, request, is_transactional, None)
+                .await;
         }
-        let (mut result, sender) = self.inner.rpc_requests.join_or_insert(
+        let deadline = self.rpc_deadline(&request);
+        let admission = self.inner.rpc_requests.join_or_insert(
             &flow,
             run_id,
             &request.request_id,
             request_fingerprint(&request),
-        )?;
-        if let Some(sender) = sender {
-            let task = self
-                .inner
-                .rpc_requests
-                .tasks
-                .spawn(self.clone().run_shared_rpc(flow, run_id, request, sender));
+        );
+        let (mut result, guard) = match admission {
+            Ok(admission) => admission,
+            Err(error) => {
+                // A commit can land between the snapshot and a conflicting in-flight admission.
+                let committed = self.inner.dependencies.committer.committed_view()?;
+                if let Some(response) = replay_recorded_rpc(
+                    committed.as_ref(),
+                    self.flow_context(&flow),
+                    run_id,
+                    &request,
+                )? {
+                    return Ok(response);
+                }
+                return Err(error);
+            }
+        };
+        if let Some(guard) = guard {
+            let task = tokio::spawn(
+                self.clone()
+                    .run_shared_rpc(flow, run_id, request, deadline, guard),
+            );
             // The registry tracks this task; individual callers own only their result subscriptions.
             drop(task);
         }
@@ -111,21 +139,23 @@ impl FlowCoordinatorRegistry {
         flow: FlowAddress,
         run_id: RunId,
         request: InvokeRpcRequest,
-        sender: RpcResultSender,
+        deadline: tokio::time::Instant,
+        guard: RpcRequestGuard,
     ) {
-        let request_id = request.request_id.clone();
         let halted = self.halted();
+        let operation = tokio::time::timeout_at(
+            deadline,
+            self.invoke_rpc_once(flow, run_id, request, true, Some(deadline)),
+        );
         let result = tokio::select! {
             biased;
             () = self.inner.rpc_requests.stopped.cancelled() => Err(FlowCoordinationError::NodeStopping {
                 detail: "node stopped while an RPC was in flight".to_owned(),
             }),
+            result = operation => result.unwrap_or_else(|_| Err(rpc_invoke_error(RpcInvokeError::DeadlineExceeded))),
             () = halted.cancelled() => Err(self.check_running().expect_err("halted")),
-            result = self.invoke_rpc_once(flow.clone(), run_id, request) => result,
         };
-        self.inner
-            .rpc_requests
-            .finish(flow, run_id, request_id, sender, result);
+        guard.finish(result);
     }
 
     async fn invoke_rpc_once(
@@ -133,10 +163,11 @@ impl FlowCoordinatorRegistry {
         flow: FlowAddress,
         run_id: RunId,
         request: InvokeRpcRequest,
+        is_transactional: bool,
+        deadline: Option<tokio::time::Instant>,
     ) -> Result<InvokeRpcResponse, FlowCoordinationError> {
         self.check_running()?;
         let context = self.flow_context(&flow);
-        let is_transactional = request.is_transactional || !request.lock_attribute_keys.is_empty();
         let lease = self.lease(&flow);
         let mut lock_keys = request.lock_attribute_keys.clone();
         lock_keys.sort();
@@ -205,12 +236,7 @@ impl FlowCoordinatorRegistry {
                 ),
             ));
         }
-        let timeout = if request.timeout_seconds > 0 {
-            std::time::Duration::from_secs(u64::from(request.timeout_seconds.unsigned_abs()))
-        } else {
-            self.inner.config.rpc_default_timeout
-        };
-        let deadline = tokio::time::Instant::now() + timeout;
+        let deadline = deadline.unwrap_or_else(|| self.rpc_deadline(&request));
         let call = self
             .inner
             .dependencies
@@ -260,6 +286,15 @@ impl FlowCoordinatorRegistry {
         drop(lock_guard);
         drop(rpc_admission);
         output
+    }
+
+    fn rpc_deadline(&self, request: &InvokeRpcRequest) -> tokio::time::Instant {
+        let timeout = if request.timeout_seconds > 0 {
+            std::time::Duration::from_secs(u64::from(request.timeout_seconds.unsigned_abs()))
+        } else {
+            self.inner.config.rpc_default_timeout
+        };
+        tokio::time::Instant::now() + timeout
     }
 
     async fn complete_rpc_snapshot(

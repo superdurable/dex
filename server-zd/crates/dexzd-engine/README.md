@@ -16,12 +16,30 @@ Every Attribute-carrying command passes the same hard-delete reference check bef
 
 Transactional and locking RPCs share one node-owned task for each tenant, Flow,
 resolved run, and request ID. Concurrent identical requests receive the same result
-or error. A caller disconnect or transport deadline ends only that caller's wait;
-the Worker call continues until its RPC deadline or node shutdown. Conflicting
-payloads retain the existing fingerprint rejection.
+or error. A duplicate locking RPC waits for the original result instead of returning
+ABORTED for the original call's locks. Conflicting payloads retain the existing
+fingerprint rejection. A committed reply takes precedence over an in-flight entry.
+
+A caller disconnect or transport deadline ends only that caller's wait. It does
+not release the RPC's locks or let natural Flow close proceed. The shared task's
+RPC deadline starts at admission and covers snapshot reads, Worker execution,
+uploads, and commit waiting. It uses timeout_seconds, or api.defaultRpcTimeout
+(default 60 seconds) when zero. There is no separate configured maximum RPC timeout.
+Registry halt also ends the task. Graceful shutdown allows admitted tasks to finish
+and commit during the four-second drain, then cancels remaining tasks and awaits
+their cleanup. This includes tasks whose callers already disconnected.
+
+limits.maxInFlightRpcsPerNode bounds shared tasks across the node (default 1,000).
+At capacity, a new request ID returns RESOURCE_EXHAUSTED; matching duplicates
+still join an admitted task, and committed replies still replay. Tasks release
+their slots, locks, and natural-close holds on success, error, deadline, halt,
+shutdown cancellation, or panic. A panic returns INTERNAL to current waiters and
+does not leave the request ID stuck.
 
 Completed successful replies use the persisted request deduplication records.
 In-flight admission and errors are not persisted. A node crash before the result
-commits can invoke the Worker again on retry. Durable admission, resumable Worker
-calls, and persisted error replay require a separate recovery design. Plain RPCs
-continue to use the non-transactional path without in-flight deduplication.
+commits can invoke the Worker again on retry. A deadline or cancellation after a
+command was submitted can still leave a committed result; retry with the same
+request ID to retrieve it. Durable admission, resumable Worker calls, and persisted
+error replay require a separate recovery design. Plain RPCs continue to use the
+non-transactional path without in-flight deduplication.
