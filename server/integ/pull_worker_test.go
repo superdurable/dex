@@ -498,7 +498,8 @@ func (w *rawPullWorker) sendHeldWaitForHeartbeats(ctx context.Context, stream de
 func (w *rawPullWorker) sendPeriodicExecuteHeartbeats(stream dexpb.WorkerTaskService_PollWorkerTaskClient, taskID string) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	for heartbeatCount := 0; heartbeatCount < 4; heartbeatCount++ {
+	// Heartbeat past the heartbeat timeout so only the heartbeats keep the attempt alive.
+	for heartbeatCount := 0; heartbeatCount < int(pullStepHeartbeatTimeout()/time.Second)+2; heartbeatCount++ {
 		<-ticker.C
 		frame := &dexpb.PollWorkerTaskFrame{TaskId: taskID, Output: &dexpb.PollWorkerTaskFrame_Execute{
 			Execute: &dexpb.InvokeExecuteMethodOutput{Output: &dexpb.InvokeExecuteMethodOutput_Heartbeat{Heartbeat: &dexpb.StepMethodHeartbeat{}}},
@@ -737,6 +738,7 @@ func TestPullWorkerHeartbeatTimeoutCadence(t *testing.T) {
 
 func testPullWorkerHeartbeatTimeout(t *testing.T, backend service.BackendType) {
 	t.Helper()
+	heartbeatTimeout := pullStepHeartbeatTimeout()
 	for _, testCase := range []struct {
 		name     string
 		behavior pullExecuteBehavior
@@ -746,16 +748,17 @@ func testPullWorkerHeartbeatTimeout(t *testing.T, backend service.BackendType) {
 		{name: "periodic_worker_heartbeat", behavior: pullExecutePeriodicHeartbeat},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			runtime := startInProcessDexService(t, DexServiceTestConfig{
-				BackendType: backend,
-				Matching:    &config.MatchingConfig{DispatchWait: 6 * time.Second, StickyWait: 100 * time.Millisecond},
+			runtime := startPullDispatchService(t, DexServiceTestConfig{
+				BackendType:    backend,
+				Matching:       &config.MatchingConfig{DispatchWait: heartbeatTimeout + 4*time.Second, StickyWait: 100 * time.Millisecond},
+				MaxWaitSeconds: 30,
 			})
 			worker := startHeartbeatPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, testCase.behavior)
-			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 23*time.Second+heartbeatTimeout)
 			defer cancel()
 			flowID := "pull-heartbeat-" + uuid.NewString()
 			stepOptions := &dexpb.StepOptions{
-				SkipWaitFor: true, HeartbeatTimeoutSeconds: 2,
+				SkipWaitFor: true, HeartbeatTimeoutSeconds: int32(heartbeatTimeout / time.Second),
 				ExecuteRetryPolicy: &dexpb.RetryPolicy{InitialIntervalSeconds: 1, MaximumIntervalSeconds: 1, MaximumAttempts: 2},
 			}
 			require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep,
@@ -769,8 +772,8 @@ func testPullWorkerHeartbeatTimeout(t *testing.T, backend service.BackendType) {
 				second := waitForPullTask(t, replacement, flowID)
 				require.Equal(t, "execute", second.method)
 				require.Equal(t, int32(2), second.attempt)
-				require.GreaterOrEqual(t, time.Since(startedAt), 1500*time.Millisecond)
-				require.Less(t, time.Since(startedAt), 8*time.Second)
+				require.GreaterOrEqual(t, time.Since(startedAt), heartbeatTimeout-500*time.Millisecond)
+				require.Less(t, time.Since(startedAt), heartbeatTimeout+6*time.Second)
 				if testCase.behavior == pullExecuteCheckpointFirst {
 					require.Equal(t, "pull-checkpoint", <-replacement.restoredHeartbeats)
 				}
@@ -785,20 +788,21 @@ func testPullWorkerHeartbeatTimeout(t *testing.T, backend service.BackendType) {
 		})
 	}
 	t.Run("unassigned_wait", func(t *testing.T) {
-		runtime := startInProcessDexService(t, DexServiceTestConfig{
-			BackendType: backend,
-			Matching:    &config.MatchingConfig{DispatchWait: 6 * time.Second, StickyWait: 100 * time.Millisecond},
+		runtime := startPullDispatchService(t, DexServiceTestConfig{
+			BackendType:    backend,
+			Matching:       &config.MatchingConfig{DispatchWait: heartbeatTimeout + 4*time.Second, StickyWait: 100 * time.Millisecond},
+			MaxWaitSeconds: 30,
 		})
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second+heartbeatTimeout)
 		defer cancel()
 		flowID := "pull-unassigned-" + uuid.NewString()
 		require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep,
 			&dexpb.WorkerTarget{IsPullMode: true}, &dexpb.StepOptions{
-				SkipWaitFor: true, HeartbeatTimeoutSeconds: 2,
+				SkipWaitFor: true, HeartbeatTimeoutSeconds: int32(heartbeatTimeout / time.Second),
 				ExecuteRetryPolicy: &dexpb.RetryPolicy{MaximumAttempts: 1},
 			}))
 		select {
-		case <-time.After(3500 * time.Millisecond):
+		case <-time.After(heartbeatTimeout + 1500*time.Millisecond):
 		case <-ctx.Done():
 			t.Fatal("timed out while waiting to register Worker")
 		}
@@ -813,7 +817,7 @@ func testPullWorkerHeartbeatTimeout(t *testing.T, backend service.BackendType) {
 
 func testPullWorkerCancellation(t *testing.T, backend service.BackendType) {
 	t.Helper()
-	runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{}})
+	runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{}})
 	worker := startCancelPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "cancel-worker-"+uuid.NewString())
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -900,7 +904,9 @@ func TestPullDispatchFailureTextCadence(t *testing.T) {
 func testPullDispatchFailureText(t *testing.T, backend service.BackendType) {
 	const expectedDetail = "no Worker available for queue " + dispatchProbeFlowType + ": no Worker accepted the task"
 	t.Run("SubFlow child result", func(t *testing.T) {
-		runtime := startInProcessDexService(t, DexServiceTestConfig{
+		// The parent Flow runs on a push Worker; server-zd supports only pull Workers (C18).
+		requireGoServerSetting(t, "push Workers")
+		runtime := startPullDispatchService(t, DexServiceTestConfig{
 			BackendType: backend,
 			Matching:    &config.MatchingConfig{DispatchWait: 300 * time.Millisecond},
 		})
@@ -926,7 +932,7 @@ func testPullDispatchFailureText(t *testing.T, backend service.BackendType) {
 		require.Equal(t, expectedDetail, closedChild.GetErrorMessage())
 	})
 	t.Run("recovery Step", func(t *testing.T) {
-		runtime := startInProcessDexService(t, DexServiceTestConfig{
+		runtime := startPullDispatchService(t, DexServiceTestConfig{
 			BackendType: backend,
 			Matching:    &config.MatchingConfig{DispatchWait: 5 * time.Second},
 		})
@@ -1088,7 +1094,6 @@ func TestPullSubFlowRejectsInvalidTargetTemporal(t *testing.T) {
 	if !*temporalIntegTest || *dexServerAddress != "" {
 		t.Skip()
 	}
-	requireGoServerSetting(t, "Go Server internals")
 	testPullSubFlowRejectsInvalidTarget(t, service.BackendTypeTemporal)
 }
 
@@ -1101,11 +1106,9 @@ func TestPullSubFlowRejectsInvalidTargetCadence(t *testing.T) {
 
 func testPullSubFlowRejectsInvalidTarget(t *testing.T, backend service.BackendType) {
 	t.Helper()
-	cfg := createTestConfig(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{}})
-	runtime := startPullRuntime(t, &cfg, bootstrap.Services{API: true, Interpreter: true, Matching: true})
-	connection := newDexClientConnectionWithCredential(t, runtime.publicAddress, "", config.DefaultGrpcMaxMessageBytes)
-	flowClient := dexpb.NewFlowServiceClient(connection)
-	startInvalidSubFlowPullWorker(t, runtime.publicAddress, dispatchProbeFlowType, "invalid-subflow-"+uuid.NewString())
+	runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{}})
+	flowClient := runtime.FlowClient
+	startInvalidSubFlowPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "invalid-subflow-"+uuid.NewString())
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	flowID := "invalid-subflow-" + uuid.NewString()
@@ -1115,7 +1118,7 @@ func testPullSubFlowRejectsInvalidTarget(t *testing.T, backend service.BackendTy
 	result, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 25})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, result.GetFlowStatus())
-	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE, result.GetErrorType())
+	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE, result.GetErrorType(), result.GetErrorMessage())
 	require.Equal(t, "SubFlow start rejected: pull worker_target cannot specify address", result.GetErrorMessage())
 	require.Less(t, time.Since(startedAt), 10*time.Second)
 }
@@ -1177,7 +1180,7 @@ func testPullParallelLastWrite(t *testing.T, backend service.BackendType) {
 
 func testPullSubFlowStartsWithoutStickyQueue(t *testing.T, backend service.BackendType) {
 	t.Helper()
-	runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{}})
+	runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{}})
 	workerID := "pull-subflow-worker-" + uuid.NewString()
 	worker := startSubFlowPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, workerID)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1186,7 +1189,7 @@ func testPullSubFlowStartsWithoutStickyQueue(t *testing.T, backend service.Backe
 	require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep,
 		&dexpb.WorkerTarget{IsPullMode: true}, nil))
 	require.Equal(t, dispatchProbeFlowType, waitForPullTask(t, worker, flowID).queue)
-	waitForDexTaskQueue(t, ctx, runtime.UnifiedClient, flowID, workerID)
+	waitForFlowStickyWorker(t, ctx, runtime, flowID, workerID)
 	childFlowID := "SubFlow:" + flowID + "-" + dispatchProbeStep + "-1-0"
 	childTask := waitForPullTask(t, worker, childFlowID)
 	require.Equal(t, "execute", childTask.method)
@@ -1339,7 +1342,7 @@ func testPullWorkerQueueSurvivesContinueAsNew(t *testing.T, backend service.Back
 
 func testPullWorkerDisconnect(t *testing.T, backend service.BackendType) {
 	t.Helper()
-	runtime := startInProcessDexService(t, DexServiceTestConfig{
+	runtime := startPullDispatchService(t, DexServiceTestConfig{
 		BackendType: backend,
 		Matching:    &config.MatchingConfig{DispatchWait: 2 * time.Second, StickyWait: 100 * time.Millisecond},
 	})
@@ -1412,11 +1415,15 @@ func testPullWorkerAppearsDuringRetries(t *testing.T, backend service.BackendTyp
 	recorder := &wakeRecorder{}
 	wakeServer := httptest.NewServer(recorder)
 	t.Cleanup(wakeServer.Close)
-	runtime := startInProcessDexService(t, DexServiceTestConfig{
+	testConfig := DexServiceTestConfig{
 		BackendType: backend,
 		Matching:    &config.MatchingConfig{DispatchWait: 100 * time.Millisecond, StickyWait: 50 * time.Millisecond},
-		Wake:        &config.WakeConfig{URL: wakeServer.URL, Budget: 5 * time.Second},
-	})
+	}
+	// server-zd has no Worker wake hook; binary mode waits past the first failed dispatch instead.
+	if !isServerZDBinaryMode() {
+		testConfig.Wake = &config.WakeConfig{URL: wakeServer.URL, Budget: 5 * time.Second}
+	}
+	runtime := startPullDispatchService(t, testConfig)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	flowID := "pull-retry-" + uuid.NewString()
@@ -1424,7 +1431,15 @@ func testPullWorkerAppearsDuringRetries(t *testing.T, backend service.BackendTyp
 		&dexpb.WorkerTarget{IsPullMode: true},
 		&dexpb.StepOptions{WaitForRetryPolicy: &dexpb.RetryPolicy{MaximumAttempts: 5, InitialIntervalSeconds: 1}},
 	))
-	require.Eventually(t, func() bool { return recorder.count("wake") > 0 }, 10*time.Second, 50*time.Millisecond)
+	if isServerZDBinaryMode() {
+		select {
+		case <-time.After(1500 * time.Millisecond):
+		case <-ctx.Done():
+			t.Fatal("timed out while waiting for a failed dispatch")
+		}
+	} else {
+		require.Eventually(t, func() bool { return recorder.count("wake") > 0 }, 10*time.Second, 50*time.Millisecond)
+	}
 	worker := startRawPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-retry-worker-"+uuid.NewString(), nil)
 	require.Equal(t, "wait_for", waitForPullTask(t, worker, flowID).method)
 	_, err := runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
@@ -1488,7 +1503,6 @@ func TestPullUnknownRPCBoundedFailureTemporal(t *testing.T) {
 	if !*temporalIntegTest || *dexServerAddress != "" {
 		t.Skip()
 	}
-	requireGoServerSetting(t, "Go Server internals")
 	testPullUnknownRPCBoundedFailure(t, service.BackendTypeTemporal)
 }
 
@@ -1523,7 +1537,7 @@ func testPullUnknownRPCBoundedFailure(t *testing.T, backend service.BackendType)
 func invokeUnknownPullRPC(t *testing.T, backend service.BackendType, isTransactional bool, rejectsUnknownName bool) (codes.Code, string) {
 	t.Helper()
 	dispatchWait := 700 * time.Millisecond
-	runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{
+	runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{
 		DispatchWait: dispatchWait, StickyWait: 100 * time.Millisecond, LocalDispatchWait: dispatchWait, LocalStickyWait: 100 * time.Millisecond,
 	}})
 	workerID := "pull-unknown-rpc-" + uuid.NewString()
@@ -1568,7 +1582,7 @@ func invokeUnknownPullRPC(t *testing.T, backend service.BackendType, isTransacti
 func testPullUnknownNameRedispatch(t *testing.T, backend service.BackendType) {
 	t.Helper()
 	t.Run("Step", func(t *testing.T) {
-		runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: 5 * time.Second, LocalDispatchWait: 5 * time.Second, StickyWait: 2 * time.Second}})
+		runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: 5 * time.Second, LocalDispatchWait: 5 * time.Second, StickyWait: 2 * time.Second}})
 		oldWorker := startUnknownRejectingPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-old-"+uuid.NewString(), rawPullWorkerConfig{unknownStepType: dispatchProbeStep})
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -1591,7 +1605,7 @@ func testPullUnknownNameRedispatch(t *testing.T, backend service.BackendType) {
 	})
 	t.Run("RPC and sticky fallback", func(t *testing.T) {
 		stickyWait := 4 * time.Second
-		runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: 5 * time.Second, StickyWait: stickyWait}})
+		runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: 5 * time.Second, StickyWait: stickyWait}})
 		oldWorkerID := "pull-old-" + uuid.NewString()
 		oldWorker := startUnknownRejectingPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, oldWorkerID, rawPullWorkerConfig{unknownRPCName: "getProbe"})
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1599,7 +1613,7 @@ func testPullUnknownNameRedispatch(t *testing.T, backend service.BackendType) {
 		flowID := "pull-unknown-rpc-" + uuid.NewString()
 		require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep, &dexpb.WorkerTarget{IsPullMode: true}, nil))
 		require.Equal(t, int32(1), waitForPullTask(t, oldWorker, flowID).attempt)
-		waitForDexTaskQueue(t, ctx, runtime.UnifiedClient, flowID, oldWorkerID)
+		waitForFlowStickyWorker(t, ctx, runtime, flowID, oldWorkerID)
 		newWorker := startRawPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-new-"+uuid.NewString(), nil)
 		startedAt := time.Now()
 		response, err := runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{RequestId: newRequestID(), FlowId: flowID, RpcName: "getProbe", TimeoutSeconds: 15})
@@ -1619,7 +1633,7 @@ func testPullUnknownNameRedispatch(t *testing.T, backend service.BackendType) {
 	})
 	t.Run("sticky Step", func(t *testing.T) {
 		stickyWait := 10 * time.Second
-		runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: 12 * time.Second, StickyWait: stickyWait}})
+		runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: 12 * time.Second, StickyWait: stickyWait}})
 		oldWorkerID := "pull-old-" + uuid.NewString()
 		oldWorker := startUnknownRejectingPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, oldWorkerID, rawPullWorkerConfig{unknownExecuteStepType: dispatchProbeStep})
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1627,7 +1641,7 @@ func testPullUnknownNameRedispatch(t *testing.T, backend service.BackendType) {
 		flowID := "pull-unknown-sticky-step-" + uuid.NewString()
 		require.NoError(t, startDispatchProbe(ctx, runtime.FlowClient, flowID, dispatchProbeStep, &dexpb.WorkerTarget{IsPullMode: true}, nil))
 		require.Equal(t, int32(1), waitForPullTask(t, oldWorker, flowID).attempt)
-		waitForDexTaskQueue(t, ctx, runtime.UnifiedClient, flowID, oldWorkerID)
+		waitForFlowStickyWorker(t, ctx, runtime, flowID, oldWorkerID)
 		newWorker := startRawPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-new-"+uuid.NewString(), nil)
 		startedAt := time.Now()
 		_, err := runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{FlowId: flowID, Messages: []*dexpb.ChannelMessage{{ChannelName: dispatchProbeChannel}}})
@@ -1648,7 +1662,7 @@ func testPullUnknownNameRedispatch(t *testing.T, backend service.BackendType) {
 	})
 	t.Run("bounded failure", func(t *testing.T) {
 		dispatchWait := 700 * time.Millisecond
-		runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: dispatchWait, StickyWait: 100 * time.Millisecond, LocalDispatchWait: dispatchWait, LocalStickyWait: 100 * time.Millisecond}})
+		runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: dispatchWait, StickyWait: 100 * time.Millisecond, LocalDispatchWait: dispatchWait, LocalStickyWait: 100 * time.Millisecond}})
 		oldWorker := startUnknownRejectingPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-old-"+uuid.NewString(), rawPullWorkerConfig{unknownStepType: dispatchProbeStep})
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -1661,7 +1675,7 @@ func testPullUnknownNameRedispatch(t *testing.T, backend service.BackendType) {
 		require.Len(t, oldWorker.unknownRejections, 1)
 	})
 	t.Run("legacy Worker error", func(t *testing.T) {
-		runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: time.Second, StickyWait: 100 * time.Millisecond}})
+		runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: time.Second, StickyWait: 100 * time.Millisecond}})
 		oldWorker := startRawPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, "pull-legacy-"+uuid.NewString(), &dexpb.WorkerErrorResponse{Detail: "RPC is not registered: getProbe", GrpcStatus: int32(codes.NotFound)})
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -1761,7 +1775,7 @@ func TestPullTransactionalRPCShortBudgetTemporal(t *testing.T) {
 	if !*temporalIntegTest || *dexServerAddress != "" {
 		t.Skip()
 	}
-	runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal, Matching: &config.MatchingConfig{}})
+	runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal, Matching: &config.MatchingConfig{}})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	flowID := "pull-short-rpc-" + uuid.NewString()
@@ -1787,7 +1801,7 @@ func TestPullTransactionalRPCTimeoutReleasesLockTemporal(t *testing.T) {
 	if !*temporalIntegTest || *dexServerAddress != "" {
 		t.Skip()
 	}
-	runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal, Matching: &config.MatchingConfig{}})
+	runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal, Matching: &config.MatchingConfig{}})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	flowID := "pull-rpc-lock-" + uuid.NewString()
@@ -1816,7 +1830,7 @@ func TestPullTransactionalRPCTimeoutReleasesLockTemporal(t *testing.T) {
 
 func testPullRPCDispatchRespectsCallerDeadline(t *testing.T, backend service.BackendType) {
 	t.Helper()
-	runtime := startInProcessDexService(t, DexServiceTestConfig{
+	runtime := startPullDispatchService(t, DexServiceTestConfig{
 		BackendType: backend,
 		Matching:    &config.MatchingConfig{DispatchWait: 5 * time.Second, StickyWait: time.Second},
 	})
@@ -1828,7 +1842,7 @@ func testPullRPCDispatchRespectsCallerDeadline(t *testing.T, backend service.Bac
 		FlowTimeoutSeconds: 120, FlowStartOptions: withWorkerTarget(nil, &dexpb.WorkerTarget{IsPullMode: true}),
 	})
 	require.NoError(t, err)
-	waitForDexTaskQueue(t, ctx, runtime.UnifiedClient, flowID, "")
+	waitForFlowStickyWorker(t, ctx, runtime, flowID, "")
 	for _, isTransactional := range []bool{false, true} {
 		callCtx, cancelCall := context.WithTimeout(ctx, 400*time.Millisecond)
 		startedAt := time.Now()
@@ -1881,7 +1895,7 @@ func testPullWorkerErrorMatchesPush(t *testing.T, backend service.BackendType) {
 
 func testPullWorkerUnavailable(t *testing.T, backend service.BackendType) {
 	t.Helper()
-	runtime := startInProcessDexService(t, DexServiceTestConfig{
+	runtime := startPullDispatchService(t, DexServiceTestConfig{
 		BackendType: backend,
 		Matching:    &config.MatchingConfig{DispatchWait: 100 * time.Millisecond, StickyWait: 50 * time.Millisecond},
 	})
@@ -1911,8 +1925,8 @@ func testPullWorkerUnavailable(t *testing.T, backend service.BackendType) {
 	require.NotNil(t, failedMethod)
 	require.NotNil(t, failedMethod.GetContext().GetPullRouting())
 	require.Empty(t, failedMethod.GetContext().GetPullRouting().GetServedByAppWorkerId())
-	require.Contains(t, failedMethod.GetOutput().GetFailure().GetDetails().GetDetail(), "no Worker available")
 	require.Equal(t, dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE, failedMethod.GetOutput().GetFailure().GetDetails().GetDispatchTaskErrorReason())
+	require.Contains(t, failedMethod.GetOutput().GetFailure().GetDetails().GetDetail(), "no Worker available")
 }
 
 func testPullWorkerDispatch(t *testing.T, backend service.BackendType) {
@@ -1973,6 +1987,26 @@ func testPullWorkerDispatch(t *testing.T, backend service.BackendType) {
 	require.NoError(t, err)
 }
 
+// pullStepHeartbeatTimeout returns the shortest Step heartbeat timeout each server accepts; server-zd requires 10s.
+func pullStepHeartbeatTimeout() time.Duration {
+	if isServerZDBinaryMode() {
+		return 10 * time.Second
+	}
+	return 2 * time.Second
+}
+
+// startPullDispatchService starts the in-process Go Server, or server-zd in binary mode, for raw pull Workers.
+func startPullDispatchService(t *testing.T, testConfig DexServiceTestConfig) *integRuntime {
+	t.Helper()
+	if !isServerZDBinaryMode() {
+		return startInProcessDexService(t, testConfig)
+	}
+	runtime := startBinaryDexService(t, testConfig)
+	// Raw pull Workers register their own queues, so bypass the adapter that startWorker registers.
+	runtime.FlowClient = runtime.FlowClient.(*pullWorkerFlowClient).FlowServiceClient
+	return runtime
+}
+
 func waitForPullTask(t *testing.T, worker *rawPullWorker, flowID string) pullTaskObservation {
 	t.Helper()
 	for {
@@ -1987,6 +2021,20 @@ func waitForPullTask(t *testing.T, worker *rawPullWorker, flowID string) pullTas
 			t.Fatal("timed out waiting for pull task")
 		}
 	}
+}
+
+// waitForFlowStickyWorker waits until the Flow's sticky Worker is workerID; empty means none.
+func waitForFlowStickyWorker(t *testing.T, ctx context.Context, runtime *integRuntime, flowID string, workerID string) {
+	t.Helper()
+	if !isServerZDBinaryMode() {
+		waitForDexTaskQueue(t, ctx, runtime.UnifiedClient, flowID, workerID)
+		return
+	}
+	// server-zd has no Temporal task queue query; GetFlowState reports the sticky Worker instead.
+	require.Eventually(t, func() bool {
+		state, err := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{FlowId: flowID})
+		return err == nil && state.GetStickyAppWorkerId() == workerID
+	}, 10*time.Second, 50*time.Millisecond)
 }
 
 func waitForDexTaskQueue(

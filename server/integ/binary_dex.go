@@ -323,12 +323,11 @@ func binaryAuthConfig(settings *config.AuthConfig) map[string]any {
 	return map[string]any{"authenticators": authenticators}
 }
 
+// binaryMatchingConfig omits the local* settings: server-zd has no ASYNC local phase (C2).
 func binaryMatchingConfig(settings *config.MatchingConfig) map[string]any {
 	configuration := make(map[string]any)
 	for name, duration := range map[string]time.Duration{
-		"dispatchWait": settings.DispatchWait, "stickyWait": settings.StickyWait,
-		"localDispatchWait": settings.LocalDispatchWait, "localStickyWait": settings.LocalStickyWait,
-		"localExecutionReserve": settings.LocalExecutionReserve, "pingInterval": settings.PingInterval,
+		"dispatchWait": settings.DispatchWait, "stickyWait": settings.StickyWait, "pingInterval": settings.PingInterval,
 	} {
 		if duration != 0 {
 			configuration[name] = duration.String()
