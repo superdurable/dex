@@ -246,6 +246,7 @@ pub(crate) struct FakeRpcInvoker {
     pub(crate) invocations: Mutex<Vec<WorkerRpcInvocation>>,
     pub(crate) entered: Notify,
     pub(crate) gate: Mutex<Option<Arc<Notify>>>,
+    pub(crate) should_panic: std::sync::atomic::AtomicBool,
 }
 
 impl RpcWorkerInvoker for FakeRpcInvoker {
@@ -260,6 +261,10 @@ impl RpcWorkerInvoker for FakeRpcInvoker {
             if let Some(gate) = gate {
                 gate.notified().await;
             }
+            assert!(
+                !self.should_panic.load(Ordering::SeqCst),
+                "scripted RPC panic"
+            );
             self.results.lock().unwrap().pop_front().unwrap_or(Err(
                 RpcInvokeError::NoWorkerAvailable {
                     detail: "no scripted result".to_owned(),
@@ -531,8 +536,9 @@ impl FlowCoordinationHarness {
 
 impl Drop for FlowCoordinationHarness {
     fn drop(&mut self) {
-        // Pending tickets resolve as dropped; nothing else runs in the background.
+        // Pending tickets resolve as dropped; shared RPC tasks are cancelled with the harness.
         self.registry.close_long_polls();
+        self.registry.cancel_rpc_tasks();
     }
 }
 

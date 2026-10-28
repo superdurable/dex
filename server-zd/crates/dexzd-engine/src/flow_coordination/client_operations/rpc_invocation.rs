@@ -9,6 +9,7 @@
 //! InvokeRPC: read-only, non-transactional, and transactional paths (plan 9.4).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Duration;
 
 use dexzd_apply::{ApplyContext, FlowStateReader};
 use dexzd_keyspace::row_keys::{RequestKind, channel_name_prefix, request_dedup_key};
@@ -28,6 +29,7 @@ use prost::Message;
 
 use crate::flow_coordination::client_operations::hard_delete_uploads::hard_delete_references;
 use crate::flow_coordination::client_operations::request_fingerprint::request_fingerprint;
+use crate::flow_coordination::client_operations::rpc_requests::RpcRequestGuard;
 use crate::flow_coordination::client_operations::unstamped_flow_command;
 use crate::flow_coordination::read_operations::state_rows::{
     ResolvedRun, WireValue, decode_row, hydrate_value_reference, load_complete_value, read_run,
@@ -38,6 +40,9 @@ use crate::flow_coordination::{
     FlowAddress, FlowCoordinationError, FlowCoordinatorRegistry, RpcInvokeError,
     WorkerRpcInvocation, WorkerRpcResult, grpc_code,
 };
+
+// Commit outcomes may be unknown at this bound; it is independent of the Worker's RPC timeout.
+const RPC_COMMIT_PROCESSING_BUDGET: Duration = Duration::from_secs(60);
 
 /// An RPC snapshot whose hard-delete Attribute values are still to be read.
 struct RpcSnapshot {
@@ -65,23 +70,112 @@ impl FlowCoordinatorRegistry {
         )?;
         self.check_running()?;
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
-        let context = self.flow_context(&flow);
         let is_transactional = request.is_transactional || !request.lock_attribute_keys.is_empty();
-        let lease = self.lease(&flow);
-        let mut lock_keys = request.lock_attribute_keys.clone();
-        lock_keys.sort();
-        lock_keys.dedup();
         let run_id = {
             let committed = self.inner.dependencies.committer.committed_view()?;
-            let run = read_run(committed.as_ref(), context, &flow, &request.run_id)?;
+            let run = read_run(
+                committed.as_ref(),
+                self.flow_context(&flow),
+                &flow,
+                &request.run_id,
+            )?;
             if is_transactional
-                && let Some(response) =
-                    admit_transactional_rpc_run(committed.as_ref(), context, &flow, &run, &request)?
+                && let Some(response) = replay_recorded_rpc(
+                    committed.as_ref(),
+                    self.flow_context(&flow),
+                    run.run_id,
+                    &request,
+                )?
             {
                 return Ok(response);
             }
             run.run_id
         };
+        if !is_transactional {
+            return self
+                .invoke_rpc_once(flow, run_id, request, is_transactional)
+                .await;
+        }
+        let admission = self.inner.rpc_requests.join_or_insert(
+            &flow,
+            run_id,
+            &request.request_id,
+            request_fingerprint(&request),
+        );
+        let (mut result, guard) = match admission {
+            Ok(admission) => admission,
+            Err(error) => {
+                // A commit can land between the snapshot and a conflicting in-flight admission.
+                let committed = self.inner.dependencies.committer.committed_view()?;
+                if let Some(response) = replay_recorded_rpc(
+                    committed.as_ref(),
+                    self.flow_context(&flow),
+                    run_id,
+                    &request,
+                )? {
+                    return Ok(response);
+                }
+                return Err(error);
+            }
+        };
+        if let Some(guard) = guard {
+            let task = tokio::spawn(self.clone().run_shared_rpc(flow, run_id, request, guard));
+            // The registry tracks this task; individual callers own only their result subscriptions.
+            drop(task);
+        }
+        result
+            .wait_for(Option::is_some)
+            .await
+            .map_err(|_| FlowCoordinationError::NodeStopping {
+                detail: "RPC task ended without a result".to_owned(),
+            })?
+            .as_ref()
+            .expect("wait_for observed a result")
+            .clone()
+    }
+
+    async fn run_shared_rpc(
+        self,
+        flow: FlowAddress,
+        run_id: RunId,
+        request: InvokeRpcRequest,
+        guard: RpcRequestGuard,
+    ) {
+        let halted = self.halted();
+        let operation = self.invoke_rpc_once(flow, run_id, request, true);
+        let result = tokio::select! {
+            biased;
+            () = self.inner.rpc_requests.stopped.cancelled() => Err(FlowCoordinationError::NodeStopping {
+                detail: "node stopped while an RPC was in flight".to_owned(),
+            }),
+            result = operation => result,
+            () = halted.cancelled() => Err(self.check_running().expect_err("halted")),
+        };
+        guard.finish(result);
+    }
+
+    async fn invoke_rpc_once(
+        &self,
+        flow: FlowAddress,
+        run_id: RunId,
+        request: InvokeRpcRequest,
+        is_transactional: bool,
+    ) -> Result<InvokeRpcResponse, FlowCoordinationError> {
+        self.check_running()?;
+        let context = self.flow_context(&flow);
+        let lease = self.lease(&flow);
+        let mut lock_keys = request.lock_attribute_keys.clone();
+        lock_keys.sort();
+        lock_keys.dedup();
+        if is_transactional {
+            let committed = self.inner.dependencies.committer.committed_view()?;
+            let run = read_run(committed.as_ref(), context, &flow, &run_id.to_string())?;
+            if let Some(response) =
+                admit_transactional_rpc_run(committed.as_ref(), context, &flow, &run, &request)?
+            {
+                return Ok(response);
+            }
+        }
         // The Go Server rejects these workflow updates during cleanup, and waits for admitted ones.
         let rpc_admission = if is_transactional {
             let admission = self.admit_transactional_rpc(&flow, run_id, |committed| {
@@ -137,12 +231,7 @@ impl FlowCoordinatorRegistry {
                 ),
             ));
         }
-        let timeout = if request.timeout_seconds > 0 {
-            std::time::Duration::from_secs(u64::from(request.timeout_seconds.unsigned_abs()))
-        } else {
-            self.inner.config.rpc_default_timeout
-        };
-        let deadline = tokio::time::Instant::now() + timeout;
+        let deadline = self.rpc_worker_deadline(&request);
         let call = self
             .inner
             .dependencies
@@ -186,12 +275,30 @@ impl FlowCoordinatorRegistry {
             }
             return Ok(InvokeRpcResponse { output });
         }
-        let output = self
-            .commit_rpc(&flow, &run, request, result, is_transactional)
-            .await;
+        let commit = self.commit_rpc(&flow, &run, request, result, is_transactional);
+        let output = if is_transactional {
+            tokio::time::timeout(RPC_COMMIT_PROCESSING_BUDGET, commit)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(FlowCoordinationError::Unavailable {
+                        detail: "RPC commit processing exceeded its server budget; the outcome is unknown and retrying may run the RPC again".to_owned(),
+                    })
+                })
+        } else {
+            commit.await
+        };
         drop(lock_guard);
         drop(rpc_admission);
         output
+    }
+
+    fn rpc_worker_deadline(&self, request: &InvokeRpcRequest) -> tokio::time::Instant {
+        let timeout = if request.timeout_seconds > 0 {
+            std::time::Duration::from_secs(u64::from(request.timeout_seconds.unsigned_abs()))
+        } else {
+            self.inner.config.rpc_default_timeout
+        };
+        tokio::time::Instant::now() + timeout
     }
 
     async fn complete_rpc_snapshot(

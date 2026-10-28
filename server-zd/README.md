@@ -22,6 +22,9 @@ FLOW_NOT_EXISTS before calling a Worker. A retry with a previously committed req
 recorded reply. Other RPCs still run their handlers on a closed, unpurged run, so they can read it,
 and any write they return is rejected. The Go Server behaves the same way.
 
+See [RPC request IDs](crates/dexzd-engine/README.md#rpc-request-ids) for concurrent calls,
+Worker timeouts, and retry limits.
+
 ## Layout
 
 | Crate | Role |

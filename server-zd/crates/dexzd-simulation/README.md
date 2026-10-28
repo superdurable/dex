@@ -284,13 +284,8 @@ environment variables as the fixed set, without the regression seeds.
 `engine-regression-seeds.txt`, the first three fixed-set seeds, and the first redeploy-profile
 seed. Each seed's `canonical_command_digest` must equal its pinned value. The digest chains
 xxh3-128 over every committed command, in the order the shadow accepted them. The pinned values
-record the expected trajectories for the current startup fault model. Four pins that are not active
-regression seeds, `3856990760`, `FIRST_SEED`, `FIRST_SEED + 1`, and `FIRST_SEED + 2`, were
-refreshed when an exhausted Step failure started closing its Flow with the Go Server's failure text.
-A child Flow's failure message reaches its parent as the `error_message` of a committed
-`InboxMessage` command. Only those bytes changed, so the trajectories stayed the same. The two
-active regression seeds kept their digests. A failing run prints each moved pin's observed digest
-in hex.
+record the expected trajectories for the current startup fault model. A failing run prints
+each moved pin's observed digest in hex.
 
 Any change that moves a regression seed's trajectory can make the seed stop reproducing its
 failure. An engine change can do that as well as a workload change. Without the pins, no test
@@ -298,13 +293,37 @@ would fail. Draw new choices only in a profile with its own seed group, as the r
 failure profiles do. When a pinned digest changes, revert each regression's fix and check that
 its seed still fails, or find a new seed. Then update the pinned value.
 
-`3856990458` and `3856990400` reproduce the failure of reads of a purging run, which omitted a
-hard-delete Attribute right after the purge deleted its object. Each fails within 120 seconds
-when the fix is reverted. `3856990760` found that failure first, but a later change to object
-storage reads moved its trajectory, so it no longer reproduces it. `3856990875` reproduced it
-until the child-wait probe moved its trajectory.
-Combining the child-wait probe with later engine changes moved every pin again. Both active
-regression seeds still fail at the same simulated times when the fix is reverted.
+Compared with origin/main, registry-owned RPC tasks change the scheduling of transactional
+and locking calls and move these four canonical command digests:
+
+| Seed | origin/main digest | Shared-task digest | Reason |
+| --- | --- | --- | --- |
+| `3856990760` | `0x5b3d26b91932b21d1a113838268dcd37` | `0xb3846383ad09a6ba3b952f2353f99a56` | Registry-owned RPC scheduling changes the committed command trajectory. |
+| `3856990458` | `0xc2a4d6531e76296c726795dc814eddf3` | `0x39600634930d1b6fdef7cbf68a81aa7a` | Registry-owned RPC scheduling moves this active regression's trajectory; it still detects its original bug. |
+| `FIRST_SEED` | `0x10e0829e1ba46444c44ad7041423d80c` | `0x7b28b4171cc337626f7207ba1f84368b` | Registry-owned RPC scheduling changes the committed command trajectory. |
+| `FIRST_SEED + 1` | `0x1347dc41d197451ccdf01ca70dfdf0b7` | `0x6bed232add732552fbd5859d0fab1cb4` | Registry-owned RPC scheduling changes the committed command trajectory while preserving main's full Worker timeout after snapshot reads. |
+
+The other four pins equal origin/main: `3856990875`, `3856990400`, `FIRST_SEED + 2`,
+and the first redeploy-profile seed. `FIRST_SEED` is `3856990208`.
+
+`3856990458` and `3856990400` are the active regressions for reads of a purging run
+omitting a hard-delete Attribute after its object is deleted. `3856990760` first found
+that bug, but object-storage read changes moved its trajectory so it no longer reproduces
+it. `3856990875` reproduced it until the child-wait probe moved its trajectory. Both remain
+pinned historical trajectories.
+
+Verification against origin/main at `15765352f` and this branch restored the pre-fix
+hard-delete read method from before #847 and removed the purging-run rejection in disposable
+source copies. Both active seeds still detect the original omitted-Attribute bug at the
+same simulated time on each revision:
+
+| Seed | Original bug | origin/main detection | Shared-task detection |
+| --- | --- | --- | --- |
+| `3856990458` | GetAttributes omits a purging run's hard-delete Attribute after object deletion. | 37.873 seconds | 37.873 seconds |
+| `3856990400` | GetAttributes omits a purging run's hard-delete Attribute after object deletion. | 44.106 seconds | 44.106 seconds |
+
+Main's original pins pass before reverting the fix. The shared-task pins and all engine
+simulation profiles pass with the fix present.
 
 ### Running
 

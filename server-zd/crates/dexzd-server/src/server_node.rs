@@ -70,7 +70,8 @@ use search_projection::{ParadeDbSearch, SearchProjection};
 
 /// Part of the budget for open calls, so the engine still stops cleanly after a stuck call.
 const GRPC_DRAIN_BUDGET: Duration = Duration::from_secs(4);
-/// Shutdown budgets of the later steps; with the gRPC drain they total 14.5 seconds.
+/// Shutdown budgets of the later steps; with the gRPC drain they total 15 seconds.
+const RPC_TASKS_STOP_BUDGET: Duration = Duration::from_millis(500);
 const EFFECT_TASKS_STOP_BUDGET: Duration = Duration::from_secs(2);
 /// Also bounds the Attribute Sync projector, which stops at the same time.
 const SEARCH_PROJECTION_STOP_BUDGET: Duration = Duration::from_secs(1);
@@ -82,6 +83,7 @@ const STREAM_STORE_CLOSE_BUDGET: Duration = Duration::from_secs(1);
 const EMBEDDED_S3_MINIMUM_STOP_BUDGET: Duration = Duration::from_secs(1);
 /// Embedded S3 stops last and may use whatever the earlier steps left of this total.
 const SHUTDOWN_BUDGET: Duration = GRPC_DRAIN_BUDGET
+    .saturating_add(RPC_TASKS_STOP_BUDGET)
     .saturating_add(EFFECT_TASKS_STOP_BUDGET)
     .saturating_add(SEARCH_PROJECTION_STOP_BUDGET)
     .saturating_add(ENGINE_STOP_BUDGET)
@@ -130,7 +132,7 @@ impl RunningServer {
         self.metrics_address
     }
 
-    /// Stops gracefully within 14.5 seconds and returns how serving ended.
+    /// Stops gracefully within 15 seconds and returns how serving ended.
     ///
     /// Returns [`ServerError::NodeStopped`] when the node had already stopped for another reason,
     /// such as a lost lease, and [`ServerError::ShutdownIncomplete`] when a shutdown step overran
@@ -595,6 +597,7 @@ impl ServerNode {
             Err(source) => {
                 if let Some(parts) = parts {
                     parts.registry.close_long_polls();
+                    stop_rpc_tasks(&parts.registry).await;
                     parts.effect_tasks.shutdown().await;
                 }
                 close_stream_store(&stream_store).await;
@@ -628,6 +631,7 @@ impl ServerNode {
                 Ok(search_backend) => (Some(search_backend), None),
                 Err(error) => {
                     registry.close_long_polls();
+                    stop_rpc_tasks(&registry).await;
                     effect_tasks.shutdown().await;
                     if let Err(release_error) = engine.shutdown().await {
                         tracing::error!(
@@ -756,20 +760,40 @@ impl ServerNode {
         grpc.health.set_not_serving().await;
         dispatch.shutdown();
         registry.close_long_polls();
+        registry.close_rpc_admission();
         grpc.stop.cancel();
-        if !grpc.task.is_finished() {
-            match tokio::time::timeout(GRPC_DRAIN_BUDGET, &mut grpc.task).await {
-                Ok(Ok(Ok(()))) => {}
-                Ok(Ok(Err(error))) => {
-                    tracing::warn!(%error, "gRPC server stopped with an error");
-                }
-                Ok(Err(error)) => tracing::warn!(%error, "gRPC server task failed"),
-                Err(_) => {
-                    tracing::warn!("open gRPC calls did not finish in time; closing them");
-                    grpc.task.abort();
-                }
-            }
+        let drain = async {
+            tokio::join!(
+                async {
+                    if !grpc.task.is_finished() {
+                        match (&mut grpc.task).await {
+                            Ok(Ok(())) => {}
+                            Ok(Err(error)) => {
+                                tracing::warn!(%error, "gRPC server stopped with an error")
+                            }
+                            Err(error) => tracing::warn!(%error, "gRPC server task failed"),
+                        }
+                    }
+                },
+                registry.wait_for_rpc_tasks(),
+            );
+        };
+        if tokio::time::timeout(GRPC_DRAIN_BUDGET, drain)
+            .await
+            .is_err()
+        {
+            tracing::warn!("open calls did not finish in time; closing them");
+            registry.cancel_rpc_tasks();
+            grpc.task.abort();
         }
+        registry.cancel_rpc_tasks();
+        teardown
+            .run(
+                "RPC tasks",
+                RPC_TASKS_STOP_BUDGET,
+                registry.wait_for_rpc_tasks(),
+            )
+            .await;
         teardown
             .run(
                 "effect tasks",
@@ -837,6 +861,16 @@ fn builtin_search_backend(
     Ok(Arc::new(backend))
 }
 
+async fn stop_rpc_tasks(registry: &FlowCoordinatorRegistry) {
+    registry.cancel_rpc_tasks();
+    if tokio::time::timeout(RPC_TASKS_STOP_BUDGET, registry.wait_for_rpc_tasks())
+        .await
+        .is_err()
+    {
+        tracing::warn!("RPC tasks did not stop within their shutdown budget");
+    }
+}
+
 async fn close_stream_store(stream_store: &StreamStore) {
     if let Err(error) = stream_store.close().await {
         tracing::warn!(%error, "Stream Store did not close cleanly");
@@ -887,7 +921,7 @@ mod tests {
 
     #[test]
     fn the_step_budgets_total_the_documented_shutdown_budget() {
-        assert_eq!(SHUTDOWN_BUDGET, Duration::from_millis(14_500));
+        assert_eq!(SHUTDOWN_BUDGET, Duration::from_secs(15));
     }
 
     #[tokio::test(start_paused = true)]

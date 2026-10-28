@@ -626,6 +626,9 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         ("limits.maxLongPollWaitersPerFlow", |config| {
             config.limits.max_long_poll_waiters_per_flow = 100_001
         }),
+        ("limits.maxInFlightRpcsPerNode", |config| {
+            config.limits.max_in_flight_rpcs_per_node = 0
+        }),
         ("limits.maxRequestIdsPerRun", |config| {
             config.limits.max_request_ids_per_run = 0
         }),

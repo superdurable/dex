@@ -449,10 +449,37 @@ async fn sigterm_during_recovery_exits_zero_and_releases_the_lease() {
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     let primary_endpoint = primary.endpoint();
     let directory = TempDir::new().expect("a temporary test directory can be created");
+    // An empty log needs no object read, so create a recoverable log before delaying reads.
+    let bootstrap_address = free_loopback_address();
+    let bootstrap_config = directory.path().join("bootstrap.yaml");
+    ServeConfig {
+        primary_endpoint: &primary_endpoint,
+        hard_delete_endpoint: None,
+        listen: bootstrap_address,
+        local_directory: &directory.path().join("bootstrap-store"),
+        lease_duration: HELD_LEASE_DURATION,
+        fail_if_held: true,
+        parade_db: None,
+    }
+    .write(&bootstrap_config);
+    let mut bootstrap_process = ServeProcess::spawn(
+        &bootstrap_config,
+        bootstrap_address,
+        directory.path().join("bootstrap.log"),
+    );
+    bootstrap_process.wait_until_serving().await;
+    let bootstrap_status = bootstrap_process.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(
+        bootstrap_status.code(),
+        Some(0),
+        "{}",
+        bootstrap_process.log()
+    );
+    assert!(primary.has_object_under(PRIMARY_BUCKET, &format!("{PRIMARY_PREFIX}/log/")));
     // Only recovery reads the log, after the lease is taken, so slow reads hold startup there.
     primary
         .set_fault_rules(&format!(
-            r#"[{{"operation":"GetObject","key_prefix":"{PRIMARY_PREFIX}/log/","action":{{"type":"delay","milliseconds":5000}}}}]"#
+            r#"[{{"operation":"GetObject","key_prefix":"{PRIMARY_PREFIX}/log/","action":{{"type":"delay","milliseconds":60000}}}}]"#
         ))
         .await;
     let first_address = free_loopback_address();
@@ -472,14 +499,6 @@ async fn sigterm_during_recovery_exits_zero_and_releases_the_lease() {
         first_address,
         directory.path().join("first.log"),
     );
-    let lease_prefix = format!("{PRIMARY_PREFIX}/lease/");
-    tokio::time::timeout(SEARCH_BUDGET, async {
-        while !primary.has_object_under(PRIMARY_BUCKET, &lease_prefix) {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the node takes its lease");
     tokio::time::timeout(SEARCH_BUDGET, async {
         while !first.log().contains("engine node recovering") {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -487,6 +506,11 @@ async fn sigterm_during_recovery_exits_zero_and_releases_the_lease() {
     })
     .await
     .expect("the node enters recovery");
+    assert!(
+        first.log().contains("epoch=2"),
+        "the recovering process acquired a new lease epoch: {}",
+        first.log()
+    );
     let first_status = first.terminate(SHUTDOWN_BUDGET).await;
     let first_log = first.log();
     assert_eq!(first_status.code(), Some(0), "{first_log}");
@@ -498,7 +522,7 @@ async fn sigterm_during_recovery_exits_zero_and_releases_the_lease() {
         first_log.contains("released the node lease after an unfinished start"),
         "{first_log}"
     );
-    primary.set_fault_rules("[]").await;
+    primary.clear_fault_rules().await;
 
     let second_address = free_loopback_address();
     let second_config = directory.path().join("second.yaml");

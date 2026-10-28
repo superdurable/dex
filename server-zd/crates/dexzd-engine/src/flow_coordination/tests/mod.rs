@@ -19,4 +19,5 @@ mod model_applier;
 mod overlay_tests;
 mod read_operation_tests;
 mod registry_tests;
+mod rpc_request_tests;
 mod test_support;

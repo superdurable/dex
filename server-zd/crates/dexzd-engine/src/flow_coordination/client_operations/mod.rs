@@ -9,8 +9,9 @@
 //! Client write operations: validate, build the command, propose it, and wait for its commit.
 
 mod hard_delete_uploads;
-mod request_fingerprint;
+pub(super) mod request_fingerprint;
 mod rpc_invocation;
+pub(super) mod rpc_requests;
 
 use dexzd_keyspace::{RunId, TenantId};
 use dexzd_protocol::dex::{

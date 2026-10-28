@@ -410,6 +410,11 @@ impl Config {
             "must be positive and no greater than the node limit",
         )?;
         ensure(
+            self.limits.max_in_flight_rpcs_per_node > 0,
+            "limits.maxInFlightRpcsPerNode",
+            "must be positive",
+        )?;
+        ensure(
             self.limits.max_request_ids_per_run > 0,
             "limits.maxRequestIdsPerRun",
             "must be positive",

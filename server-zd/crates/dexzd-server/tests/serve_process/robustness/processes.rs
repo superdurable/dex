@@ -33,7 +33,7 @@ use crate::{NODE_ID, PRIMARY_BUCKET, PRIMARY_PREFIX};
 const LOG_TAIL_LINES: usize = 150;
 const READINESS_SERVICE_NAMES: [&str; 3] = ["", "dex.FlowService", "dex.WorkerTaskService"];
 const STARTUP_BUDGET: Duration = Duration::from_secs(30);
-/// Exceeds the server's 14.5 s shutdown total, with slack for a loaded machine.
+/// Exceeds the server's 15 s shutdown total, with slack for a loaded machine.
 pub(crate) const PROCESS_SHUTDOWN_BUDGET: Duration = Duration::from_secs(20);
 /// Bounds one readiness probe; a process binds its port before it holds the lease.
 const READINESS_PROBE_TIMEOUT: Duration = Duration::from_secs(2);

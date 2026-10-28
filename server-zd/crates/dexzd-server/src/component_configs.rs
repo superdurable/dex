@@ -171,6 +171,10 @@ impl ComponentConfigs {
             long_poll_default_wait: max_wait,
             long_poll_max_wait: max_wait,
             rpc_default_timeout: config.api.default_rpc_timeout,
+            max_in_flight_rpcs_per_node: to_usize(
+                "limits.maxInFlightRpcsPerNode",
+                u64::from(config.limits.max_in_flight_rpcs_per_node),
+            )?,
             max_worker_rpc_request_bytes: grpc_max_message_bytes,
             hydrate_value_references: config.values.hydrate_before_dispatch,
             run_settings,

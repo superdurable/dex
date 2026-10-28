@@ -244,6 +244,8 @@ pub struct LimitsConfig {
     pub max_long_poll_waiters_per_node: u32,
     /// Defaults to 1000; maximum concurrent long-poll waiters attached to one Flow.
     pub max_long_poll_waiters_per_flow: u32,
+    /// Defaults to 1000; maximum shared transactional or locking RPC tasks per node, including disconnected callers.
+    pub max_in_flight_rpcs_per_node: u32,
     /// Defaults to 1000; number of recent request IDs retained for deduplication within one run.
     pub max_request_ids_per_run: u32,
     /// Defaults to 1000 UTF-8 bytes; maximum application-created Flow ID length.
@@ -261,6 +263,7 @@ impl Default for LimitsConfig {
             max_blocking_state_reads: 64,
             max_long_poll_waiters_per_node: 100_000,
             max_long_poll_waiters_per_flow: 1_000,
+            max_in_flight_rpcs_per_node: 1_000,
             max_request_ids_per_run: 1_000,
             max_flow_id_bytes: 1_000,
         }
