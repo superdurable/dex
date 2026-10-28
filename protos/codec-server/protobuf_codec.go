@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/gen/dexpb"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 	"google.golang.org/protobuf/proto"
