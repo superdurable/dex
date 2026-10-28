@@ -1,6 +1,7 @@
 go 1.26.0
 
 use (
+	./benchmark
 	./cli
 	./examples/go
 	./protos/codec-server
