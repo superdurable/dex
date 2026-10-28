@@ -4,8 +4,8 @@ This report records how the whole `server/integ` suite behaves when it runs in
 binary mode against `dex-server-zd`. Every test has a result. Every skip and
 failure has one classification.
 
-- CI run: [Server Integration against server-zd #40651394980](https://github.com/superdurable/dex/actions/runs/40651394980)
-  on commit `1ded72748`, five partitions, debug `dex-server-zd`, PostgreSQL 17,
+- CI run: [Server Integration against server-zd #40724119425](https://github.com/superdurable/dex/actions/runs/40724119425)
+  on commit `046ad95fb`, five partitions, debug `dex-server-zd`, PostgreSQL 17,
   and Redis 7.
 - Command: `make -C server zdIntegTests dexServerZDBinary=<dex-server-zd> totalPartitions=5 partitionNum=<n>`.
 - Regenerate the result table from the uploaded `zd-integ-json-*` artifacts with
