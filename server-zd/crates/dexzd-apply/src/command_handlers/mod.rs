@@ -55,19 +55,34 @@ pub(crate) fn apply_command(
     Ok(apply_in_scope(context, state, &scope)?.0)
 }
 
-/// Replays a recorded command without recording history. Returns its writes, or `None` when rejected.
+/// Replays without recording history; returns writes or a rejection when required permission projection bytes were collected.
 pub(crate) fn apply_replayed_command(
     context: &ApplyContext,
     state: &dyn FlowStateReader,
     command: &FlowCommand,
     behavior_version: BehaviorVersion,
     has_flow_closed: bool,
-) -> Result<Option<Vec<crate::StateWrite>>, ApplyError> {
+) -> Result<Result<Vec<crate::StateWrite>, CommandReply>, ApplyError> {
     let mut scope = CommandScope::new(command, behavior_version);
     scope.is_replay = true;
     scope.close_barrier_source = CloseBarrierSource::RecordedHistory { has_flow_closed };
+    let transaction = FlowTransaction::new(state, *context);
+    let cursor =
+        RunCursor::open(&transaction, &scope)?.map_err(|reply| ApplyError::InvariantViolation {
+            detail: format!("opening a replayed command was rejected: {reply:?}"),
+        })?;
+    if let Some(reply) =
+        flow_data::permission_mapping_rebuild_rejection(&transaction, cursor.rows, command)?
+    {
+        return Ok(Err(reply));
+    }
     let (outcome, is_applied) = apply_in_scope(context, state, &scope)?;
-    Ok(is_applied.then_some(outcome.writes))
+    if !is_applied {
+        return Err(ApplyError::InvariantViolation {
+            detail: format!("replaying the command at seq {} was rejected", cursor.seq),
+        });
+    }
+    Ok(Ok(outcome.writes))
 }
 
 /// Applies the scope's command; the flag tells whether it was applied or rejected.

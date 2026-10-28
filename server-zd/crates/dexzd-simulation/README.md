@@ -22,6 +22,14 @@ WaitFor and Execute failure policies, recovery targets, and retry total duration
 seconds. Workers there also report `RETRY_DEADLINE` failures. SearchOrder rows must match the
 search documents (SO1).
 
+The Attribute Sync stream also attaches permission mappings to its plain
+Attribute batches. They compare post-batch values and accumulate one inline
+permission, preserving the main stream's pinned trajectories. Coverage counts
+require an applied mapping batch. Collected mapping inputs and large permission
+sets are covered by deterministic `dexzd-apply` regressions. Randomizing those
+cases would also need a model for unreconstructable targets and their expected
+`FAILED_PRECONDITION` replies.
+
 ```bash
 cargo test -p dexzd-simulation                                   # fixed seed set
 DEXZD_SIMULATION_SEEDS=500 DEXZD_SIMULATION_COMMANDS=1000 cargo test -p dexzd-simulation

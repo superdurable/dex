@@ -107,6 +107,10 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
     );
     println!("simulation coverage: {total:#?}");
     assert!(
+        total.permission_mapping_commands > 0,
+        "no permission mapping command applied: {total:#?}"
+    );
+    assert!(
         total.closed_run_erases > 0,
         "no closed-run erase applied: {total:#?}"
     );

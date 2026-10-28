@@ -94,7 +94,7 @@ pub enum TimeTravelTargetClose {
     },
 }
 
-/// Hashes a TimeTravel target's reconstructed state; returns `None` when no valid target exists.
+/// Hashes a TimeTravel target's reconstructed state; returns `None` when no valid target exists or permission projection bytes were collected.
 pub fn time_travel_target_hash(
     context: &ApplyContext,
     state: &dyn FlowStateReader,
@@ -117,7 +117,7 @@ pub fn time_travel_target_hash(
 
 /// Reads the close of a TimeTravel target's rebuilt state, without apply's close classification.
 ///
-/// Returns `None` when no valid target exists.
+/// Returns `None` when no valid target exists or permission projection bytes were collected.
 pub fn time_travel_target_close(
     context: &ApplyContext,
     state: &dyn FlowStateReader,
@@ -139,7 +139,7 @@ pub fn time_travel_target_close(
 /// Resolves the command's TimeTravel target and rebuilds the attempt state there.
 ///
 /// Returns the run's cursor, the target point, and the rebuilt state, or `None` when the command
-/// is not a TimeTravel with a valid target.
+/// is not a TimeTravel with a valid target or permission projection bytes were collected.
 fn rebuild_time_travel_target(
     transaction: &FlowTransaction<'_>,
     command: &FlowCommand,
@@ -165,7 +165,11 @@ fn rebuild_time_travel_target(
     else {
         return Ok(None);
     };
-    let rebuilt = rebuild_attempt_state(transaction, cursor.rows, &cursor.record, target.point)?;
+    let Ok(rebuilt) =
+        rebuild_attempt_state(transaction, cursor.rows, &cursor.record, target.point)?
+    else {
+        return Ok(None);
+    };
     Ok(Some((cursor, target.point, rebuilt)))
 }
 

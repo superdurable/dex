@@ -41,6 +41,8 @@ pub struct SimulationSummary {
     pub closed_run_erases: usize,
     /// Time-travel rebuilds that replayed a closed-run erase.
     pub closed_run_erase_replays: usize,
+    /// Applied Attribute batches carrying permission mappings in the Attribute Sync stream.
+    pub permission_mapping_commands: usize,
     /// Natural closes deferred for the Attribute Sync outbox, and pending closes finalized.
     pub close_barrier: CloseBarrierCounts,
 }
@@ -57,6 +59,7 @@ impl SimulationSummary {
         self.final_row_count += other.final_row_count;
         self.closed_run_erases += other.closed_run_erases;
         self.closed_run_erase_replays += other.closed_run_erase_replays;
+        self.permission_mapping_commands += other.permission_mapping_commands;
         for (kind, count) in &other.applied_by_kind {
             *self.applied_by_kind.entry(kind).or_default() += count;
         }
@@ -241,7 +244,19 @@ fn apply_and_count(
     };
     *counts.entry(kind).or_default() += 1;
     summary.commands += 1;
-    Ok(!outcome.writes.is_empty() && !is_error_reply)
+    let is_applied = !outcome.writes.is_empty() && !is_error_reply;
+    if is_applied
+        && let Some(Command::AttributesSet(command)) = &command.command
+        && command.request.as_ref().is_some_and(|request| {
+            request
+                .action_permission_mappings
+                .as_ref()
+                .is_some_and(|mappings| !mappings.mappings.is_empty())
+        })
+    {
+        summary.permission_mapping_commands += 1;
+    }
+    Ok(is_applied)
 }
 
 /// Chains `command`'s encoding onto `previous`, so the digest pins a whole command sequence.

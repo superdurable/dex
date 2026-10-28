@@ -17,17 +17,20 @@ use dexzd_keyspace::row_keys::{
 };
 use dexzd_keyspace::{ColumnFamily, IndexKind};
 use dexzd_protocol::dex::{
-    ActionPermissionMappings, AttributeWrite, ChannelMessage, ChannelMessageDeletion, Value, value,
+    ActionPermissionMappings, AttributeWrite, ChannelMessage, ChannelMessageDeletion,
+    ErrorSubStatus, Value, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributeRecord, ChannelMessageRecord, HardDeleteObjectRecord, HardDeleteObjectReference,
-    StoredValue, stored_value,
+    AttributeRecord, ChannelMessageRecord, CommandReply, FlowCommand, HardDeleteObjectRecord,
+    HardDeleteObjectReference, StoredValue, flow_command::Command, step_method_completed_command,
+    stored_value,
 };
 
 use crate::command_handlers::CommandScope;
+use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::projections::{attribute_sync, work_queue_permissions};
-use crate::state_access::FlowTransaction;
+use crate::state_access::{FlowTransaction, RunRows};
 use crate::values::{
     ValueHolder, ValueRejection, is_null_value, load_stored_value, release_stored_value,
     store_value,
@@ -335,6 +338,87 @@ fn stored_attribute_value(
         return Ok(None);
     };
     load_stored_value(transaction, cursor.rows, stored)
+}
+
+pub(crate) fn permission_mapping_rebuild_rejection(
+    transaction: &FlowTransaction<'_>,
+    rows: RunRows,
+    command: &FlowCommand,
+) -> Result<Option<CommandReply>, ApplyError> {
+    let Some((writes, mappings)) = permission_mapping_batch(command) else {
+        return Ok(None);
+    };
+    // Permission grants accumulate, so rebuilding needs the pre-batch set and each unchanged mapping input.
+    let attribute_keys = std::iter::once(work_queue_permissions::ATTRIBUTE_KEY).chain(
+        mappings
+            .mappings
+            .iter()
+            .filter(|mapping| {
+                !writes
+                    .iter()
+                    .any(|write| write.key == mapping.attribute_key)
+            })
+            .map(|mapping| mapping.attribute_key.as_str()),
+    );
+    for attribute_key in attribute_keys {
+        let Some(attribute) = rows.attribute(transaction, attribute_key)? else {
+            continue;
+        };
+        let Some(stored) = attribute.value.as_ref() else {
+            continue;
+        };
+        let Some(stored_value::Kind::TableValue(reference)) = stored.kind.as_ref() else {
+            continue;
+        };
+        if reference.value_id.is_none() {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "permission projection Attribute {attribute_key:?} has no table value ID"
+                ),
+            });
+        }
+        if load_stored_value(transaction, rows, stored)?.is_none() {
+            return Ok(Some(error_reply(
+                grpc_code::FAILED_PRECONDITION,
+                ErrorSubStatus::Uncategorized,
+                format!(
+                    "the TimeTravel target cannot be reconstructed because a stored value for \
+                     permission projection Attribute {attribute_key:?} was collected"
+                ),
+            )));
+        }
+    }
+    Ok(None)
+}
+
+fn permission_mapping_batch(
+    command: &FlowCommand,
+) -> Option<(&[AttributeWrite], &ActionPermissionMappings)> {
+    let (writes, mappings) = match command.command.as_ref()? {
+        Command::AttributesSet(command) => {
+            let request = command.request.as_ref()?;
+            (&request.attributes, &request.action_permission_mappings)
+        }
+        Command::RpcCommitted(command) => {
+            let response = command.response.as_ref()?;
+            (
+                &response.upsert_attributes,
+                &response.action_permission_mappings,
+            )
+        }
+        Command::StepMethodCompleted(command) => match command.response.as_ref()? {
+            step_method_completed_command::Response::WaitFor(response) => (
+                &response.upsert_attributes,
+                &response.action_permission_mappings,
+            ),
+            step_method_completed_command::Response::Execute(response) => (
+                &response.upsert_attributes,
+                &response.action_permission_mappings,
+            ),
+        },
+        _ => return None,
+    };
+    Some((writes, mappings.as_ref()?))
 }
 
 fn values_equal(left: &Value, right: &Value) -> bool {
