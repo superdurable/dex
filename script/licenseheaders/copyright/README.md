@@ -20,5 +20,7 @@ GOWORK=off go run . -rootDir ../../.. -verifyOnly
 ```
 
 The implementation and license classifications are preserved from the original
-Server tool. Git history supplies rename and copy lineage from the legacy cutoff;
-CI must fetch the full repository history.
+Server tool. Git history supplies rename and copy lineage from the legacy cutoff,
+so CI must fetch the full repository history. The tool's own `main.go` keeps its
+`mixed` classification through `reviewed_mixed_paths` in `../policy.json`,
+because the repository-wide diff exceeds Git's default rename limit.
