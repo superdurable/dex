@@ -55,10 +55,6 @@ func TestWaitForAttributeTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestWaitForAttributeTimeout(t)
 		smallWaitForFastTest()
-		doTestWaitForAttributeInternalHandlerTimeout(t)
-		smallWaitForFastTest()
-		doTestWaitForAttributeTransportTimeoutAndReattach(t)
-		smallWaitForFastTest()
 		doTestWaitForAttributeCancel(t)
 		smallWaitForFastTest()
 		doTestWaitForAttributeNotFound(t)
@@ -66,6 +62,15 @@ func TestWaitForAttributeTemporal(t *testing.T) {
 		doTestWaitForAttributeClosed(t)
 		smallWaitForFastTest()
 		doTestWaitForAttributeConcurrent(t)
+		smallWaitForFastTest()
+		// These cover Temporal Update handlers, Update counters, Continue-As-New (C3), and two Servers
+		// sharing one Flow, which binary mode cannot start.
+		if isServerZDBinaryMode() {
+			continue
+		}
+		doTestWaitForAttributeInternalHandlerTimeout(t)
+		smallWaitForFastTest()
+		doTestWaitForAttributeTransportTimeoutAndReattach(t)
 		smallWaitForFastTest()
 		doTestWaitForAttributeAcrossContinueAsNew(t)
 		smallWaitForFastTest()
@@ -193,8 +198,7 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
-	require.NoError(t, err)
+	runID := describeFlowRunID(t, ctx, runtime, flowId)
 	nonEqualRequestID := "wait-for-attribute:" + waitForAttributeKey + ">5"
 	nonEqualResponse := make(chan *dexpb.WaitForAttributeResponse, 1)
 	nonEqualError := make(chan error, 1)
@@ -211,17 +215,7 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 		nonEqualResponse <- matchedResponse
 		nonEqualError <- waitErr
 	}()
-	require.Eventually(t, func() bool {
-		accepted, _ := countTemporalUpdateEvents(
-			t,
-			ctx,
-			runtime,
-			flowId,
-			description.RunId,
-			nonEqualRequestID,
-		)
-		return accepted == 1
-	}, 5*time.Second, 50*time.Millisecond)
+	waitForAttributeWaiterAccepted(t, ctx, runtime, flowId, runID, nonEqualRequestID)
 	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		RequestId: newRequestID(),
 		FlowId:    flowId,
@@ -387,8 +381,7 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 	defer cancel()
 
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
-	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
-	require.NoError(t, err)
+	runID := describeFlowRunID(t, ctx, runtime, flowId)
 	defaultUpdateID := "wait-for-attribute:" + waitForAttributeKey + "==\"never-set\""
 
 	waitRequest := &dexpb.WaitForAttributeRequest{
@@ -399,7 +392,7 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 		),
 		RequestTimeoutSeconds: 1,
 	}
-	_, err = flowClient.WaitForAttribute(ctx, waitRequest)
+	_, err := flowClient.WaitForAttribute(ctx, waitRequest)
 	require.Error(t, err)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 	errResp := grpcServiceErrorResponse(t, err)
@@ -409,21 +402,23 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 		errResp.GetSubStatus(),
 	)
 	require.Equal(t, "attribute request timed out", errResp.GetDetail())
-	counts := inspectTemporalUpdateHistory(
-		t,
-		ctx,
-		runtime,
-		flowId,
-		description.RunId,
-		defaultUpdateID,
-	)
-	require.Equal(t, 1, counts.accepted)
-	require.Zero(t, counts.completed)
-	require.Zero(t, counts.oneSecondTimerStarted)
-	require.Zero(t, counts.oneSecondTimerCanceled)
-	require.Eventually(t, func() bool {
-		return !time.Now().Before(counts.acceptedAt.Add(time.Second))
-	}, 2*time.Second, 10*time.Millisecond)
+	if !isServerZDBinaryMode() {
+		counts := inspectTemporalUpdateHistory(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			runID,
+			defaultUpdateID,
+		)
+		require.Equal(t, 1, counts.accepted)
+		require.Zero(t, counts.completed)
+		require.Zero(t, counts.oneSecondTimerStarted)
+		require.Zero(t, counts.oneSecondTimerCanceled)
+		require.Eventually(t, func() bool {
+			return !time.Now().Before(counts.acceptedAt.Add(time.Second))
+		}, 2*time.Second, 10*time.Millisecond)
+	}
 
 	waitRequest.RequestTimeoutSeconds = 10
 	responseChannel := make(chan *dexpb.WaitForAttributeResponse, 1)
@@ -443,18 +438,20 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, <-errorChannel)
 	require.True(t, proto.Equal(stringValue("never-set"), (<-responseChannel).GetMatchedValue()))
-	counts = inspectTemporalUpdateHistory(
-		t,
-		ctx,
-		runtime,
-		flowId,
-		description.RunId,
-		defaultUpdateID,
-	)
-	require.Equal(t, 1, counts.accepted)
-	require.Equal(t, 1, counts.completed)
-	require.Zero(t, counts.oneSecondTimerStarted)
-	require.Zero(t, counts.oneSecondTimerCanceled)
+	if !isServerZDBinaryMode() {
+		counts := inspectTemporalUpdateHistory(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			runID,
+			defaultUpdateID,
+		)
+		require.Equal(t, 1, counts.accepted)
+		require.Equal(t, 1, counts.completed)
+		require.Zero(t, counts.oneSecondTimerStarted)
+		require.Zero(t, counts.oneSecondTimerCanceled)
+	}
 
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }
@@ -632,8 +629,7 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 	defer cancel()
 
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
-	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
-	require.NoError(t, err)
+	runID := describeFlowRunID(t, ctx, runtime, flowId)
 	requestID := uuid.NewString()
 
 	done := make(chan error, 1)
@@ -650,17 +646,7 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 		done <- waitErr
 	}()
 
-	require.Eventually(t, func() bool {
-		accepted, _ := countTemporalUpdateEvents(
-			t,
-			ctx,
-			runtime,
-			flowId,
-			description.RunId,
-			requestID,
-		)
-		return accepted == 1
-	}, 5*time.Second, 50*time.Millisecond)
+	waitForAttributeWaiterAccepted(t, ctx, runtime, flowId, runID, requestID)
 	cancel()
 
 	select {
@@ -742,8 +728,7 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
 	expectedValue := stringValue("wait-for-attribute-concurrent")
 	requestId := uuid.NewString()
-	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
-	require.NoError(t, err)
+	runID := describeFlowRunID(t, ctx, runtime, flowId)
 
 	var waitGroup sync.WaitGroup
 	errors := make([]error, 2)
@@ -766,19 +751,9 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 		}(index)
 	}
 
-	require.Eventually(t, func() bool {
-		accepted, _ := countTemporalUpdateEvents(
-			t,
-			ctx,
-			runtime,
-			flowId,
-			description.RunId,
-			requestId,
-		)
-		return accepted == 1
-	}, 5*time.Second, 50*time.Millisecond)
+	waitForAttributeWaiterAccepted(t, ctx, runtime, flowId, runID, requestId)
 
-	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+	_, err := flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		RequestId: newRequestID(),
 		FlowId:    flowId,
 		Attributes: []*dexpb.AttributeWrite{
@@ -794,16 +769,18 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 	for _, response := range responses {
 		require.True(t, proto.Equal(expectedValue, response.GetMatchedValue()))
 	}
-	accepted, completed := countTemporalUpdateEvents(
-		t,
-		ctx,
-		runtime,
-		flowId,
-		description.RunId,
-		requestId,
-	)
-	require.Equal(t, 1, accepted)
-	require.Equal(t, 1, completed)
+	if !isServerZDBinaryMode() {
+		accepted, completed := countTemporalUpdateEvents(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			runID,
+			requestId,
+		)
+		require.Equal(t, 1, accepted)
+		require.Equal(t, 1, completed)
+	}
 
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }
@@ -1034,6 +1011,26 @@ func doTestWaitForAttributeCadenceUnimplemented(t *testing.T) {
 		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
+}
+
+// waitForAttributeWaiterAccepted waits until Temporal accepts the waiter's Update.
+// server-zd has no Update history and checks the current value when a waiter arrives, so it returns at once.
+func waitForAttributeWaiterAccepted(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	runID string,
+	requestID string,
+) {
+	t.Helper()
+	if isServerZDBinaryMode() {
+		return
+	}
+	require.Eventually(t, func() bool {
+		accepted, _ := countTemporalUpdateEvents(t, ctx, runtime, flowID, runID, requestID)
+		return accepted == 1
+	}, 5*time.Second, 50*time.Millisecond)
 }
 
 func equalAttributeMatch(

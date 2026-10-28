@@ -469,6 +469,19 @@ func describeFlowStatus(t *testing.T, ctx context.Context, runtime *integRuntime
 	return description.Status
 }
 
+// describeFlowRunID returns the current run ID from Temporal, or through GetFlowSummary in binary mode.
+func describeFlowRunID(t *testing.T, ctx context.Context, runtime *integRuntime, flowID string) string {
+	t.Helper()
+	if isServerZDBinaryMode() {
+		summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+		require.NoError(t, err)
+		return summary.GetFlowExecutionId().GetRunId()
+	}
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowID, "", nil)
+	require.NoError(t, err)
+	return description.RunId
+}
+
 // readFlowConfig returns the run's FlowConfig from the Temporal debug dump, or through GetFlowState in binary mode.
 func readFlowConfig(ctx context.Context, runtime *integRuntime, flowID string) (*dexpb.FlowConfig, error) {
 	if isServerZDBinaryMode() {
