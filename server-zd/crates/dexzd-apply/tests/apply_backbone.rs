@@ -2097,7 +2097,7 @@ fn a_held_lock_blocks_other_attempts_and_waiters_start_in_fifo_order() {
 }
 
 #[test]
-fn a_failed_attempt_releases_its_lock_during_backoff_and_requeues_behind_waiters() {
+fn a_failed_attempt_retains_its_lock_during_backoff_and_pending() {
     let mut harness = Harness::new("order-1");
     start_three_locking_steps(&mut harness);
     harness.start_attempt("LockStep-1", StepMethod::Execute, 1);
@@ -2112,19 +2112,16 @@ fn a_failed_attempt_releases_its_lock_during_backoff_and_requeues_behind_waiters
         ..StepAttemptFailedCommand::default()
     }));
     assert!(
-        failed
+        !failed
             .effects
             .iter()
             .any(|effect| matches!(effect, ApplyEffect::LocksReleased { .. }))
     );
-    let second = harness.start_attempt("LockStep-2", StepMethod::Execute, 1);
-    assert!(
-        second
-            .effects
-            .iter()
-            .any(|effect| matches!(effect, ApplyEffect::InvocationStarted { .. })),
-        "another Step takes the lock while LockStep-1 backs off"
-    );
+    assert!(is_aborted(&harness.start_attempt(
+        "LockStep-2",
+        StepMethod::Execute,
+        1
+    )));
     harness.apply(Command::TimersFired(TimersFiredCommand {
         timers: vec![TimerId {
             run_attempt: 1,
@@ -2134,14 +2131,27 @@ fn a_failed_attempt_releases_its_lock_during_backoff_and_requeues_behind_waiters
             })),
         }],
     }));
-    harness.complete_execute("LockStep-2", 1, StepDecision::default());
+    assert!(is_aborted(&harness.start_attempt(
+        "LockStep-2",
+        StepMethod::Execute,
+        1
+    )));
+    let retry = harness.start_attempt("LockStep-1", StepMethod::Execute, 2);
     assert!(
-        is_aborted(&harness.start_attempt("LockStep-1", StepMethod::Execute, 2)),
-        "the retry queued behind LockStep-3, which became pending earlier"
+        retry
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, ApplyEffect::InvocationStarted { .. }))
     );
-    let third = harness.start_attempt("LockStep-3", StepMethod::Execute, 1);
+    harness.complete_execute("LockStep-1", 2, StepDecision::default());
+    assert!(is_aborted(&harness.start_attempt(
+        "LockStep-3",
+        StepMethod::Execute,
+        1
+    )));
+    let second = harness.start_attempt("LockStep-2", StepMethod::Execute, 1);
     assert!(
-        third
+        second
             .effects
             .iter()
             .any(|effect| matches!(effect, ApplyEffect::InvocationStarted { .. }))

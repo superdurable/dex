@@ -11,9 +11,10 @@ Callers provide a consistent `FlowStateReader` snapshot for each read.
 Each logical WaitFor or Execute call, including the Flow timeout handler, loads
 its state snapshot after acquiring its first attempt's locks. Retries reuse its
 Attributes, Channel messages, Channel infos, and selections. The serialized Step
-invocation retains that snapshot through backoff, lock waits, and node restart.
-Value pins transfer to each retry and release when the method ends; time travel
-rebuilds pins for retained snapshots in running, backoff, and pending invocations.
+invocation retains that snapshot and its locks through backoff, pending retries,
+and node restart. Conflicting RPCs fail immediately while those locks are held.
+Locks release when the logical method ends. Value pins transfer to each retry
+and release when the method ends; time travel rebuilds pins for retained snapshots in running, backoff, and pending invocations.
 
 ## Value and storage accounting
 

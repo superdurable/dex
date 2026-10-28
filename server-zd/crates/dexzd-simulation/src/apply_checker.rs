@@ -15,8 +15,8 @@ use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, ValueId, parse_run_key,
 };
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, RunRecord, StepInvocationKey, ValueRecord, command_reply, flow_command::Command,
-    inbox_message_command, stored_value,
+    FlowCommand, MethodSnapshotRecord, RunRecord, StepInvocationKey, ValueRecord, command_reply,
+    flow_command::Command, inbox_message_command, stored_value,
 };
 use prost::Message;
 
@@ -164,6 +164,7 @@ impl ApplyChecker {
         } else {
             None
         };
+        let retained_snapshot = self.retained_snapshot(command)?;
         self.state.commit(&outcome.writes);
         self.applied_commands += 1;
         self.redecoded_state
@@ -190,7 +191,7 @@ impl ApplyChecker {
         )?;
         self.record_window_point_spans(&view, pruned_points);
         if is_applied {
-            self.check_command_effects(command, &outcome, &view)?;
+            self.check_command_effects(command, &outcome, &view, retained_snapshot.as_ref())?;
         }
         check_flow(&command.flow_id, &view, &self.memory)?;
         check_window_value_content(
@@ -354,11 +355,36 @@ impl ApplyChecker {
         Ok(())
     }
 
+    fn retained_snapshot(
+        &self,
+        command: &FlowCommand,
+    ) -> Result<Option<MethodSnapshotRecord>, InvariantViolation> {
+        let Some(Command::StepAttemptStarted(started)) = &command.command else {
+            return Ok(None);
+        };
+        let Some(key) = &started.invocation else {
+            return Ok(None);
+        };
+        let run_id = RunId::from_slice(&command.run_id)
+            .map_err(|error| InvariantViolation::new("apply-error", error.to_string()))?;
+        let view = self.view(
+            &command.flow_id,
+            RunSelection::Only(&BTreeSet::from([run_id])),
+        )?;
+        Ok(view
+            .runs
+            .get(&run_id)
+            .and_then(|run| run.step_executions.get(&key.step_execution_id))
+            .and_then(|step| step.invocation.as_ref())
+            .and_then(|invocation| invocation.snapshot.clone()))
+    }
+
     fn check_command_effects(
         &mut self,
         command: &FlowCommand,
         outcome: &ApplyOutcome,
         view: &FlowView,
+        retained_snapshot: Option<&MethodSnapshotRecord>,
     ) -> Result<(), InvariantViolation> {
         match &command.command {
             Some(Command::FlowStart(_)) => {
@@ -394,7 +420,21 @@ impl ApplyChecker {
                     .as_ref()
                     .map(|invocation| invocation.step_execution_id.as_str())
                     .unwrap_or_default();
-                check_fresh_snapshot(run, step_execution_id)?;
+                if let Some(retained_snapshot) = retained_snapshot {
+                    let snapshot = run
+                        .step_executions
+                        .get(step_execution_id)
+                        .and_then(|step| step.invocation.as_ref())
+                        .and_then(|invocation| invocation.snapshot.as_ref());
+                    if snapshot != Some(retained_snapshot) {
+                        return Err(InvariantViolation::new(
+                            "S5-retained-snapshot",
+                            format!("retry of {step_execution_id} changed its first snapshot"),
+                        ));
+                    }
+                } else {
+                    check_fresh_snapshot(run, step_execution_id)?;
+                }
             }
             Some(Command::TimeTravel(_))
                 if matches!(

@@ -46,13 +46,13 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         3856990875,
         120,
-        0x01ce581ebe0a0fdeb9a4a9113235bc13,
+        0xa64613f7311c3b91222fbf2a7fac22c4,
     ),
     (
         EngineSimulationProfile::Standard,
         3856990400,
         120,
-        0xf734970d2a49ba3211ae7df6a57635f9,
+        0x6ee377cede7d2f1b7389822a41bd8d5c,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -70,13 +70,13 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         FIRST_SEED + 2,
         120,
-        0x2ce89b4992bfc340317e04f99fa08bf1,
+        0xa7e850ed63837411819f49a38e199a23,
     ),
     (
         EngineSimulationProfile::RedeploysWithShortHistoryWindow,
         FIRST_REDEPLOY_SEED,
         120,
-        0xe7153e9c49d2cd40575a73f72640829c,
+        0xa330eed649fe9012242114b785ee5ac3,
     ),
 ];
 

@@ -994,7 +994,7 @@ async fn a_restored_running_attempt_is_redispatched_after_its_original_dispatch_
 }
 
 #[tokio::test(start_paused = true)]
-async fn an_unreadable_attempt_state_times_out_the_method_and_releases_its_locks() {
+async fn an_unreadable_attempt_state_times_out_the_method_and_retains_its_locks_for_retry() {
     let harness = EffectHarness::new();
     harness.rebuild_all_partitions().await;
     // Like the production runtime, a start reads state, so the outage begins once it commits.
@@ -1044,12 +1044,12 @@ async fn an_unreadable_attempt_state_times_out_the_method_and_releases_its_locks
     );
     assert_eq!(harness.dispatcher.dispatch_count.load(Ordering::SeqCst), 0);
     assert!(
-        published_effects().iter().any(|effect| matches!(
+        !published_effects().iter().any(|effect| matches!(
             effect,
             ApplyEffect::LocksReleased { run_id: released, lock_keys }
                 if *released == run_id && lock_keys == &["inventory".to_owned()]
         )),
-        "the timed-out attempt releases its locks"
+        "the timed-out method retains its locks for retry"
     );
     harness.shutdown().await;
 }

@@ -208,6 +208,7 @@ const REGRESSION_MAIN_COMMAND_DIGESTS: &[(u64, usize, u128)] = &[
     (4200525811, 1000, 0xa6ab3ea1393afe48be232c77e6ec689d),
     (10906685018, 1000, 0x9cb23e3676fd45b3fb97bccfddcc508a),
     (2204788261, 1000, 0x11803384e2deeecaa00e6f5b733bef50),
+    (476371563, 580, 0x0551efb42300e6d2651c4fc0d1e584dc),
 ];
 
 #[test]
@@ -494,7 +495,7 @@ fn table_value_id(stored: &StoredValue) -> Option<ValueId> {
 #[test]
 fn pinned_snapshot_value_survives_window_advance_and_final_holder_release() {
     let mut checker = ApplyChecker::new();
-    let mut generator = CommandGenerator::new(FIRST_SEED + 3);
+    let mut generator = CommandGenerator::new(FIRST_SEED + 11);
     let mut pinned_value: Option<(RunId, ValueId, Vec<u8>)> = None;
     for _ in 0..DEFAULT_COMMANDS_PER_SEED {
         let command = generator.next_command(&checker).expect("state decodes");

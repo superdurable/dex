@@ -7,20 +7,32 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use dexzd_apply::FlowStateReader;
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, run_key};
-use dexzd_protocol::dex::{ErrorSubStatus, InvokeRpcRequest, InvokeWorkerRpcResponse};
-use dexzd_protocol::dexzd::v1::{LockRecord, LockWaiterRecord, StepInvocationKey, StepMethod};
+use dexzd_protocol::dex::{
+    AttributeWrite, ErrorSubStatus, InvokeExecuteMethodResponse, InvokeRpcRequest,
+    InvokeWorkerRpcResponse, RetryPolicy, StepOptions, WorkerErrorResponse,
+};
+use dexzd_protocol::dexzd::v1::{
+    FlowCommand, LockRecord, LockWaiterRecord, RetryBackoffTimerId, StepAttemptFailedCommand,
+    StepAttemptFailureKind, StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey,
+    StepInvocationPhase, StepMethod, StepMethodCompletedCommand, TimerId, TimersFiredCommand,
+    flow_command::Command, step_method_completed_command, timer_id,
+};
 use prost::Message;
 use tokio::sync::Notify;
 
 use crate::flow_coordination::tests::fixtures::{
-    TENANT, flow, locking_attempt_command, locking_invocation, start_flow, string_value,
+    TENANT, flow, locking_attempt_command, locking_invocation, set_attribute_request, start_flow,
+    start_request, string_value,
 };
 use crate::flow_coordination::tests::test_support::FlowCoordinationHarness;
 use crate::flow_coordination::{
-    CommitUrgency, FlowCoordinationError, PendingInvocation, WorkerRpcResult, grpc_code,
+    CommitUrgency, FlowCoordinationConfig, FlowCoordinationError, PendingInvocation,
+    WorkerRpcResult, grpc_code,
 };
 
 fn rpc_request(flow_id: &str, lock_keys: &[&str]) -> InvokeRpcRequest {
@@ -426,4 +438,215 @@ async fn equal_sequence_waiters_start_in_queue_order() {
         .await
         .unwrap();
     assert!(started.is_some());
+}
+
+#[tokio::test(start_paused = true)]
+async fn retry_backoff_rejects_writing_rpcs_and_retains_the_snapshot_after_restart() {
+    let harness = FlowCoordinationHarness::new();
+    harness
+        .applier
+        .uses_real_apply
+        .store(true, Ordering::SeqCst);
+    let mut request = start_request("order-1");
+    request.step_options = Some(StepOptions {
+        skip_wait_for: true,
+        execute_lock_attribute_keys: vec!["counter".to_owned()],
+        execute_retry_policy: Some(RetryPolicy {
+            maximum_attempts: 3,
+            ..RetryPolicy::default()
+        }),
+        ..StepOptions::default()
+    });
+    request.flow_start_options.as_mut().unwrap().attributes = vec![AttributeWrite {
+        key: "counter".to_owned(),
+        value: Some(string_value("1")),
+        ..AttributeWrite::default()
+    }];
+    let started = harness
+        .drive(harness.registry.start_flow(TENANT, request))
+        .await
+        .unwrap();
+    let run_id = started.run_id.parse().unwrap();
+    let invocation = waiter_invocation("InitStep-1");
+    propose_retry_command(
+        &harness,
+        run_id,
+        Command::StepAttemptStarted(StepAttemptStartedCommand {
+            invocation: Some(invocation.clone()),
+            attempt: 1,
+            task_id: vec![1; 16],
+            pull_routing: None,
+        }),
+    )
+    .await;
+    let first_snapshot = read_retry_step(&harness, run_id)
+        .invocation
+        .unwrap()
+        .snapshot
+        .unwrap();
+    propose_retry_command(
+        &harness,
+        run_id,
+        Command::StepAttemptFailed(StepAttemptFailedCommand {
+            invocation: Some(invocation.clone()),
+            attempt: 1,
+            kind: StepAttemptFailureKind::WorkerError as i32,
+            worker_error: Some(WorkerErrorResponse::default()),
+            ..StepAttemptFailedCommand::default()
+        }),
+    )
+    .await;
+    assert_eq!(
+        read_retry_step(&harness, run_id).invocation.unwrap().phase,
+        StepInvocationPhase::Backoff as i32
+    );
+
+    let restarted = FlowCoordinationHarness::with_store(
+        &FlowCoordinationConfig::default(),
+        harness.store.clone(),
+    );
+    restarted
+        .applier
+        .uses_real_apply
+        .store(true, Ordering::SeqCst);
+    for owner in [&harness, &restarted] {
+        let mut result = output_result("updated");
+        result.response.upsert_attributes = vec![AttributeWrite {
+            key: "counter".to_owned(),
+            value: Some(string_value("3")),
+            ..AttributeWrite::default()
+        }];
+        owner
+            .rpc_invoker
+            .results
+            .lock()
+            .unwrap()
+            .push_back(Ok(result));
+        let error = owner
+            .drive(
+                owner
+                    .registry
+                    .invoke_rpc(TENANT, rpc_request("order-1", &["counter"])),
+            )
+            .await
+            .unwrap_err();
+        assert_aborted(&error);
+        assert!(owner.rpc_invoker.invocations.lock().unwrap().is_empty());
+    }
+    restarted
+        .drive(restarted.registry.set_attributes(
+            TENANT,
+            set_attribute_request("order-1", "note", string_value("late")),
+        ))
+        .await
+        .unwrap();
+    propose_retry_command(
+        &restarted,
+        run_id,
+        Command::TimersFired(TimersFiredCommand {
+            timers: vec![TimerId {
+                run_attempt: 1,
+                kind: Some(timer_id::Kind::RetryBackoff(RetryBackoffTimerId {
+                    invocation: Some(invocation.clone()),
+                    next_attempt: 2,
+                })),
+            }],
+        }),
+    )
+    .await;
+    assert!(
+        restarted
+            .registry
+            .can_start_invocation(
+                &flow("order-1"),
+                &pending(run_id, &invocation, &["counter".to_owned()], u64::MAX)
+            )
+            .unwrap()
+    );
+    propose_retry_command(
+        &restarted,
+        run_id,
+        Command::StepAttemptStarted(StepAttemptStartedCommand {
+            invocation: Some(invocation.clone()),
+            attempt: 2,
+            task_id: vec![2; 16],
+            pull_routing: None,
+        }),
+    )
+    .await;
+    assert_eq!(
+        read_retry_step(&restarted, run_id)
+            .invocation
+            .unwrap()
+            .snapshot,
+        Some(first_snapshot)
+    );
+    propose_retry_command(
+        &restarted,
+        run_id,
+        Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(invocation),
+            attempt: 2,
+            response: Some(step_method_completed_command::Response::Execute(
+                InvokeExecuteMethodResponse {
+                    upsert_attributes: vec![AttributeWrite {
+                        key: "counter".to_owned(),
+                        value: Some(string_value("2")),
+                        ..AttributeWrite::default()
+                    }],
+                    ..InvokeExecuteMethodResponse::default()
+                },
+            )),
+            ..StepMethodCompletedCommand::default()
+        }),
+    )
+    .await;
+    restarted
+        .drive(
+            restarted
+                .registry
+                .invoke_rpc(TENANT, rpc_request("order-1", &["counter"])),
+        )
+        .await
+        .unwrap();
+    assert_eq!(restarted.rpc_invoker.invocations.lock().unwrap().len(), 1);
+}
+
+async fn propose_retry_command(harness: &FlowCoordinationHarness, run_id: RunId, body: Command) {
+    let proposal = harness
+        .registry
+        .propose(
+            flow("order-1"),
+            FlowCommand {
+                flow_id: "order-1".to_owned(),
+                run_id: run_id.as_bytes().to_vec(),
+                tenant_id: TENANT.0,
+                command: Some(body),
+                ..FlowCommand::default()
+            },
+            CommitUrgency::Prompt,
+        )
+        .await
+        .unwrap();
+    harness.commit_all();
+    proposal.ticket.wait().await.unwrap();
+}
+
+fn read_retry_step(harness: &FlowCoordinationHarness, run_id: RunId) -> StepExecutionRecord {
+    let context = harness.registry.flow_context(&flow("order-1"));
+    let bytes = harness
+        .store
+        .view()
+        .get(
+            ColumnFamily::Flow,
+            &run_key(
+                context.flow_hash,
+                run_id,
+                RunTable::StepExecution,
+                b"InitStep-1",
+            ),
+        )
+        .unwrap()
+        .unwrap();
+    StepExecutionRecord::decode(bytes.as_slice()).unwrap()
 }

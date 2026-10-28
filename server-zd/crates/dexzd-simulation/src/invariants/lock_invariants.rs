@@ -56,7 +56,13 @@ pub(crate) fn check_invocations(
             continue;
         };
         let is_running = invocation.phase == StepInvocationPhase::Running as i32;
-        if is_running != invocation.snapshot.is_some() {
+        let has_snapshot = invocation.snapshot.is_some();
+        let can_retain_snapshot = invocation.attempt > 1
+            && matches!(
+                StepInvocationPhase::try_from(invocation.phase),
+                Ok(StepInvocationPhase::Backoff | StepInvocationPhase::Pending)
+            );
+        if (is_running && !has_snapshot) || (has_snapshot && !is_running && !can_retain_snapshot) {
             return Err(InvariantViolation::new(
                 INVOCATION,
                 format!(
@@ -103,7 +109,9 @@ pub(crate) fn check_invocations(
             let phase = StepInvocationPhase::try_from(invocation.phase);
             let is_consistent = match phase {
                 Ok(StepInvocationPhase::Running) => holds && !waits,
+                Ok(StepInvocationPhase::Pending) if has_snapshot => holds && !waits,
                 Ok(StepInvocationPhase::Pending) => waits && !holds,
+                Ok(StepInvocationPhase::Backoff) if has_snapshot => holds && !waits,
                 _ => !holds && !waits,
             };
             if !is_consistent {
@@ -134,17 +142,17 @@ pub(crate) fn check_locks(
         }
         if let Some(holder) = &lock.holder {
             let invocation = current_invocation(run, holder);
-            let is_running_holder = invocation.is_some_and(|invocation| {
-                invocation.phase == StepInvocationPhase::Running as i32
+            let is_snapshot_holder = invocation.is_some_and(|invocation| {
+                invocation.snapshot.is_some()
                     && invocation.attempt == lock.holder_attempt
                     && invocation.lock_keys.contains(lock_key)
             });
-            if !is_running_holder {
+            if !is_snapshot_holder {
                 return Err(InvariantViolation::new(
                     HOLDER,
                     format!(
                         "{context} lock {lock_key} is held by {holder:?} attempt {}, which is not \
-                         a running attempt that declared it (invocation {:?})",
+                         a snapshot-bearing invocation that declared it (invocation {:?})",
                         lock.holder_attempt,
                         invocation.map(|invocation| (invocation.phase, invocation.attempt))
                     ),
@@ -183,7 +191,7 @@ pub(crate) fn check_locks(
     Ok(())
 }
 
-/// L2: a running holder of a guarded key read its current value; only holders write it.
+/// L2: a holder of a guarded key read its current value; only holders write it.
 pub(crate) fn check_guarded_attributes(
     context: &RunContext<'_>,
     run: &RunView,
@@ -195,9 +203,6 @@ pub(crate) fn check_guarded_attributes(
         let Some(snapshot) = &invocation.snapshot else {
             continue;
         };
-        if invocation.phase != StepInvocationPhase::Running as i32 {
-            continue;
-        }
         for guarded_key in GUARDED_ATTRIBUTE_KEYS {
             if !invocation.lock_keys.iter().any(|key| key == guarded_key) {
                 continue;
@@ -226,7 +231,7 @@ pub(crate) fn check_guarded_attributes(
     Ok(())
 }
 
-/// S5: a just-started attempt's snapshot equals the one its Step options select from committed rows.
+/// S5: a method's first snapshot equals the one its Step options select from committed rows.
 pub fn check_fresh_snapshot(
     run: &RunView,
     step_execution_id: &str,

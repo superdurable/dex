@@ -7,9 +7,12 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use super::*;
-use dexzd_protocol::dex::{ChannelMessage, DeleteChannelMessageRequest, PublishToChannelRequest};
+use dexzd_protocol::dex::{
+    ChannelMessage, ChannelMessageDeletion, DeleteChannelMessageRequest, PublishToChannelRequest,
+};
 use dexzd_protocol::dexzd::v1::{
-    ChannelMessageDeleteCommand, ChannelPublishCommand, MethodSnapshotRecord,
+    ChannelMessageDeleteCommand, ChannelMessageRecord, ChannelPublishCommand, LockRecord,
+    MethodSnapshotRecord,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -48,6 +51,11 @@ impl RetrySnapshotHarness {
         request.flow_start_options = Some(FlowStartOptions {
             timeout_handler_options: Some(FlowTimeoutHandlerOptions {
                 retry_policy,
+                lock_attribute_keys: if matches!(retry_method, RetryMethod::TimeoutHandler) {
+                    vec!["coordination".to_owned()]
+                } else {
+                    Vec::new()
+                },
                 load_attribute_map_instances: attribute_map_instances.clone(),
                 load_channel_names: channel_names.clone(),
                 load_channel_map_instances: channel_map_instances.clone(),
@@ -56,6 +64,16 @@ impl RetrySnapshotHarness {
             ..FlowStartOptions::default()
         });
         request.step_options = Some(StepOptions {
+            wait_for_lock_attribute_keys: if matches!(retry_method, RetryMethod::WaitFor) {
+                vec!["coordination".to_owned()]
+            } else {
+                Vec::new()
+            },
+            execute_lock_attribute_keys: if matches!(retry_method, RetryMethod::Execute) {
+                vec!["coordination".to_owned()]
+            } else {
+                Vec::new()
+            },
             wait_for_retry_policy: retry_policy,
             execute_retry_policy: retry_policy,
             wait_for_load_attribute_map_instances: attribute_map_instances.clone(),
@@ -213,11 +231,32 @@ impl RetrySnapshotHarness {
             .expect("the method has an invocation");
         assert_eq!(invocation.phase, phase as i32);
         assert_eq!(invocation.snapshot.as_ref(), Some(&self.first_snapshot));
+        let lock = self.lock().expect("the logical method retains its lock");
+        assert_eq!(lock.holder, Some(key(self.step_execution_id, self.method)));
+        assert_eq!(lock.holder_attempt, invocation.attempt);
+        assert!(lock.waiters.is_empty());
         assert_eq!(self.harness.holder_count(self.attribute_value_id), 1);
         assert_eq!(self.harness.holder_count(self.channel_value_id), 1);
     }
 
+    fn lock(&self) -> Option<LockRecord> {
+        self.harness
+            .state
+            .get(
+                ColumnFamily::Flow,
+                &run_named_key(
+                    self.harness.context.flow_hash,
+                    self.harness.harness_run_id(),
+                    RunTable::LockTable,
+                    "coordination",
+                ),
+            )
+            .expect("the lock row is readable")
+            .map(|bytes| LockRecord::decode(bytes.as_slice()).expect("the lock row decodes"))
+    }
+
     fn assert_snapshot_released(&self) {
+        assert!(self.lock().is_none_or(|lock| lock.holder.is_none()));
         assert_eq!(self.harness.holder_count(self.attribute_value_id), 0);
         assert_eq!(self.harness.holder_count(self.channel_value_id), 0);
     }
@@ -231,6 +270,22 @@ fn timeout_handler_and_step_retries_keep_their_snapshot_across_restart() {
         RetryMethod::Execute,
     ] {
         let mut fixture = RetrySnapshotHarness::new(retry_method);
+        fixture
+            .harness
+            .apply(Command::StepAttemptHeartbeat(StepAttemptHeartbeatCommand {
+                invocation: Some(key(fixture.step_execution_id, fixture.method)),
+                attempt: 1,
+                checkpoint: Some(step_attempt_heartbeat_command::Checkpoint::Value(
+                    string_value(&"h".repeat(500)),
+                )),
+            }));
+        let checkpoint = fixture
+            .harness
+            .step_execution(fixture.step_execution_id)
+            .invocation
+            .unwrap()
+            .heartbeat_checkpoint;
+        let checkpoint_value_id = table_value_id(checkpoint.as_ref());
         fixture.mutate_state();
         for attempt in 1..3 {
             fixture.fail(attempt);
@@ -243,6 +298,16 @@ fn timeout_handler_and_step_retries_keep_their_snapshot_across_restart() {
                 .harness
                 .start_attempt(fixture.step_execution_id, fixture.method, attempt + 1);
             fixture.assert_snapshot(StepInvocationPhase::Running);
+            assert_eq!(
+                fixture
+                    .harness
+                    .step_execution(fixture.step_execution_id)
+                    .invocation
+                    .unwrap()
+                    .heartbeat_checkpoint,
+                checkpoint
+            );
+            assert_eq!(fixture.harness.holder_count(checkpoint_value_id), 1);
         }
         match fixture.method {
             StepMethod::WaitFor => {
@@ -274,6 +339,7 @@ fn timeout_handler_and_step_retries_keep_their_snapshot_across_restart() {
             }
             StepMethod::Unspecified => panic!("fixture uses a concrete method"),
         }
+        assert_eq!(fixture.harness.holder_count(checkpoint_value_id), 0);
     }
 }
 
@@ -413,6 +479,11 @@ fn flow_stop_releases_retry_snapshots_while_pending_or_running() {
                 .harness
                 .start_attempt(fixture.step_execution_id, fixture.method, 2);
         }
+        fixture.assert_snapshot(if should_start_retry {
+            StepInvocationPhase::Running
+        } else {
+            StepInvocationPhase::Pending
+        });
         fixture.harness.apply(Command::FlowStop(FlowStopCommand {
             request: Some(StopFlowRequest {
                 stop_type: StopType::Cancel as i32,
@@ -436,6 +507,7 @@ fn sibling_decisions_release_timeout_handler_retry_snapshots() {
         fixture
             .harness
             .start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+        fixture.assert_snapshot(StepInvocationPhase::Backoff);
         let decision = if should_close_flow {
             StepDecision {
                 close_decision: Some(CloseDecision {
@@ -538,6 +610,77 @@ fn retry_snapshots_keep_values_readable_after_the_history_window_advances() {
             None
         );
     }
+}
+
+#[test]
+fn retry_deletion_of_a_message_consumed_by_another_step_keeps_later_messages() {
+    let mut fixture = RetrySnapshotHarness::new(RetryMethod::TimeoutHandler);
+    fixture
+        .harness
+        .set_attribute("report", string_value(&"b".repeat(500)), "late-report");
+    fixture.fail(1);
+    publish(&mut fixture.harness, "commands", "late-command", "late");
+    fixture
+        .harness
+        .start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    let deletion = ChannelMessageDeletion {
+        channel_name: "commands".to_owned(),
+        message_id: "first-command".to_owned(),
+    };
+    fixture
+        .harness
+        .apply(Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(key("ChargeStep-1", StepMethod::WaitFor)),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::WaitFor(
+                InvokeWaitForMethodResponse {
+                    delete_from_channel: vec![deletion.clone()],
+                    ..InvokeWaitForMethodResponse::default()
+                },
+            )),
+            ..StepMethodCompletedCommand::default()
+        }));
+    fixture.assert_snapshot(StepInvocationPhase::Backoff);
+    fixture.fire_retry(2);
+    fixture
+        .harness
+        .start_attempt(fixture.step_execution_id, fixture.method, 2);
+    fixture.assert_snapshot(StepInvocationPhase::Running);
+    let completed =
+        fixture
+            .harness
+            .apply(Command::StepMethodCompleted(StepMethodCompletedCommand {
+                invocation: Some(key(fixture.step_execution_id, fixture.method)),
+                attempt: 2,
+                response: Some(step_method_completed_command::Response::Execute(
+                    InvokeExecuteMethodResponse {
+                        delete_from_channel: vec![deletion],
+                        ..InvokeExecuteMethodResponse::default()
+                    },
+                )),
+                ..StepMethodCompletedCommand::default()
+            }));
+    assert!(!matches!(
+        completed.reply.reply,
+        Some(command_reply::Reply::Error(_))
+    ));
+    let messages: Vec<ChannelMessageRecord> = fixture
+        .harness
+        .state
+        .rows
+        .iter()
+        .filter(|((family, key), _)| {
+            *family == ColumnFamily::Flow
+                && parse_run_key(key).is_ok_and(|parsed| parsed.table == RunTable::ChannelMessage)
+        })
+        .map(|(_, bytes)| {
+            ChannelMessageRecord::decode(bytes.as_slice()).expect("the message row decodes")
+        })
+        .filter(|message| message.channel_name == "commands")
+        .collect();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].message_id, "late-command");
+    fixture.assert_snapshot_released();
 }
 
 fn publish(harness: &mut Harness, channel_name: &str, message_id: &str, text: &str) {

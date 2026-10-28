@@ -10,7 +10,8 @@ The first stage tests `dexzd-apply` without the engine. A seeded model of client
 and pull Workers proposes commands. `ApplyChecker` applies each command twice on the committed
 state and once on a re-decoded twin, requires identical outcomes, and then checks the state
 invariants: lock holders and FIFO waiter order (L1, L3, L4), lost updates on guarded keys (L2),
-fresh snapshots (S5), one result per attempt (S2), value holder sets and garbage rows (I1),
+fresh first snapshots and retained retry snapshots (S5), one result per attempt (S2),
+value holder sets and garbage rows (I1),
 history event order, the timer index, and agreement of the Flow directory and run records.
 Attribute Sync outbox checks cover unacknowledged changes keeping their entries (AS1), acks
 deleting only the entries they cover (AS2), and the pending index matching the entries (AS3).
@@ -92,7 +93,9 @@ After shrinking, it prints the shortest sequence found that `replay_commands` re
 
 The fixed test runs 64 seeds of 400 commands, plus every case in `regression-seeds.txt`.
 Each line in that file contains a decimal seed and the command count needed to reach its failure.
-The checked-in seed also runs for 1,000 commands. Nightly runs set `DEXZD_SIMULATION_BASE_SEED`
+The baseline seed also runs for 1,000 commands. The replay-deduplication regression uses
+seed `476371563` for 580 commands; reverting the replay-deduplication fix fails at command 579.
+Nightly runs set `DEXZD_SIMULATION_BASE_SEED`
 to a printed random starting seed, then use `DEXZD_SIMULATION_SEEDS` consecutive seeds and
 `DEXZD_SIMULATION_COMMANDS` commands per seed. The single-seed override runs only that seed.
 Manual runs accept 1–1,000 random seeds and 1–2,000 commands per seed, with at most 500,000
@@ -187,7 +190,8 @@ directory invariants hold on the committed history. The engine simulation adds t
    Recovered processes must deliver each interrupted outbox row and delete each interrupted
    hard-delete object from storage. After a crash at a quiet point, the successor dispatches
    every attempt that was running again. After a calm tail, every due timer has fired, no
-   method call is unfinished, and no outbox row or hard-delete object is left waiting.
+   runnable method call is unfinished, and no outbox row or hard-delete object is left waiting.
+   Pending calls blocked by a lock holder whose retry is scheduled in the future may remain pending.
 
 The log itself is checked too. Copies of one log position must hold the same commands, and a
 partition never applies a new frame below one it already applied. No process applies a frame
@@ -293,37 +297,24 @@ would fail. Draw new choices only in a profile with its own seed group, as the r
 failure profiles do. When a pinned digest changes, revert each regression's fix and check that
 its seed still fails, or find a new seed. Then update the pinned value.
 
-Compared with origin/main, registry-owned RPC tasks change the scheduling of transactional
-and locking calls and move these four canonical command digests:
+`3856990458` and `3856990400` originally reproduced the failure of reads of a purging run,
+which omitted a hard-delete Attribute right after the purge deleted its object. Each failed
+within 120 seconds when the fix was reverted. `3856990760` found that failure first, but a later change to object
+storage reads moved its trajectory, so it no longer reproduces it. `3856990875` reproduced it
+until the child-wait probe moved its trajectory.
+Combining the child-wait probe with later engine changes moved every pin again.
+Retaining method snapshots and locks across retries subsequently moved all eight pinned digests.
+The four engine regression seeds now serve as historical baseline cases; they no longer detect
+#847 after this lock-retention change, including when extended to 600 simulated seconds.
+The deterministic `dexzd-engine` tests in `effects::tests::outbox_and_purge_tests` preserve
+that coverage:
 
-| Seed | origin/main digest | Shared-task digest | Reason |
-| --- | --- | --- | --- |
-| `3856990760` | `0x5b3d26b91932b21d1a113838268dcd37` | `0xb3846383ad09a6ba3b952f2353f99a56` | Registry-owned RPC scheduling changes the committed command trajectory. |
-| `3856990458` | `0xc2a4d6531e76296c726795dc814eddf3` | `0x39600634930d1b6fdef7cbf68a81aa7a` | Registry-owned RPC scheduling moves this active regression's trajectory; it still detects its original bug. |
-| `FIRST_SEED` | `0x10e0829e1ba46444c44ad7041423d80c` | `0x7b28b4171cc337626f7207ba1f84368b` | Registry-owned RPC scheduling changes the committed command trajectory. |
-| `FIRST_SEED + 1` | `0x1347dc41d197451ccdf01ca70dfdf0b7` | `0x6bed232add732552fbd5859d0fab1cb4` | Registry-owned RPC scheduling changes the committed command trajectory while preserving main's full Worker timeout after snapshot reads. |
+- `a_crash_after_the_purge_decision_before_object_deletion_purges_after_restart`
+- `a_crash_during_object_deletion_purges_after_restart`
+- `a_crash_after_object_deletion_before_run_purge_commits_purges_after_restart`
 
-The other four pins equal origin/main: `3856990875`, `3856990400`, `FIRST_SEED + 2`,
-and the first redeploy-profile seed. `FIRST_SEED` is `3856990208`.
-
-`3856990458` and `3856990400` are the active regressions for reads of a purging run
-omitting a hard-delete Attribute after its object is deleted. `3856990760` first found
-that bug, but object-storage read changes moved its trajectory so it no longer reproduces
-it. `3856990875` reproduced it until the child-wait probe moved its trajectory. Both remain
-pinned historical trajectories.
-
-Verification against origin/main at `15765352f` and this branch restored the pre-fix
-hard-delete read method from before #847 and removed the purging-run rejection in disposable
-source copies. Both active seeds still detect the original omitted-Attribute bug at the
-same simulated time on each revision:
-
-| Seed | Original bug | origin/main detection | Shared-task detection |
-| --- | --- | --- | --- |
-| `3856990458` | GetAttributes omits a purging run's hard-delete Attribute after object deletion. | 37.873 seconds | 37.873 seconds |
-| `3856990400` | GetAttributes omits a purging run's hard-delete Attribute after object deletion. | 44.106 seconds | 44.106 seconds |
-
-Main's original pins pass before reverting the fix. The shared-task pins and all engine
-simulation profiles pass with the fix present.
+All three fail when the purging-run guard in `read_run` is removed and pass with it present.
+Restoring randomized #847 detection is separate follow-up work.
 
 ### Running
 
