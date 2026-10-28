@@ -70,7 +70,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       targets: ${{ steps.targets.outputs.targets }}
-      base_seed: ${{ steps.targets.outputs.base_seed }}
       apply_shards: ${{ steps.shards.outputs.apply_shards }}
       engine_shards: ${{ steps.shards.outputs.engine_shards }}
     steps:
@@ -83,8 +82,10 @@ jobs:
         shell: bash
         run: |
           # Artifact names reject slashes, and the label names each job's artifacts.
-          head_target=$(jq -cn --arg label "${GITHUB_REF_NAME//\//-}" --arg ref "$GITHUB_SHA" \
-            '{label: $label, ref: $ref}')
+          head_seed=$(od -An -N4 -tu4 /dev/urandom | tr -d '[:space:]')
+          release_seed=$(( $(od -An -N4 -tu4 /dev/urandom | tr -d '[:space:]') + 8589934592 ))
+          head_target=$(jq -cn --argjson base_seed "$head_seed" --arg label "${GITHUB_REF_NAME//\//-}" --arg ref "$GITHUB_SHA" \
+            '{label: $label, ref: $ref, base_seed: $base_seed}')
           # Pre-release tags never count, as with the image release's latest tag.
           release_tag=$(git tag --list 'server-zd/v*' --sort=v:refname |
             sed -nE '/^server-zd\/v[0-9]+\.[0-9]+\.[0-9]+$/p' | tail -n 1)
@@ -93,14 +94,11 @@ jobs:
             targets="[$head_target]"
           else
             echo "Latest stable server-zd release tag: $release_tag"
-            targets=$(jq -cn --argjson head "$head_target" --arg ref "$release_tag" \
-              '[$head, {label: "latest-release", ref: $ref}]')
+            targets=$(jq -cn --argjson head "$head_target" --arg ref "$release_tag" --argjson base_seed "$release_seed" \
+              '[$head, {label: "latest-release", ref: $ref, base_seed: $base_seed}]')
           fi
           echo "targets=$targets" >> "$GITHUB_OUTPUT"
-          base_seed=$(od -An -N4 -tu4 /dev/urandom | tr -d '[:space:]')
-          echo "base_seed=$base_seed" >> "$GITHUB_OUTPUT"
-      - name: Check nightly process supervision and seed partitioning
-        run: python3 script/test_server_zd_simulation_run.py
+          echo "Simulation targets and base seeds: $targets"
       - name: Partition seed ranges without dropping seeds
         id: shards
         env:
@@ -156,11 +154,6 @@ jobs:
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: server-zd
-          shared-key: server-zd-test
-          save-if: false
       - name: Validate apply simulation budget
         shell: bash
         run: |
@@ -174,7 +167,7 @@ jobs:
           fi
       - name: Choose random base seed
         run: |
-          base_seed=$(( ${{ needs.simulation-refs.outputs.base_seed }} + ${{ matrix.shard.offset }} ))
+          base_seed=$(( ${{ matrix.target.base_seed }} + ${{ matrix.shard.offset }} ))
           echo "DEXZD_SIMULATION_SEEDS=${{ matrix.shard.count }}" >> "$GITHUB_ENV"
           echo "DEXZD_SIMULATION_BASE_SEED=$base_seed" >> "$GITHUB_ENV"
           echo "Base seed: $base_seed"
@@ -185,7 +178,7 @@ jobs:
           DEXZD_SIMULATION_FAILURE_DIR: ${{ runner.temp }}/dexzd-simulation-failures
         run: |
           python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --prepare-progress
-          python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --timeout 1500 --log "$RUNNER_TEMP/dexzd-simulation-build.log" -- \
+          python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --build --timeout 1500 --log "$RUNNER_TEMP/dexzd-simulation-build.log" -- \
             cargo test --locked -p dexzd-simulation --test apply_invariants --no-run
           python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --timeout 3000 --log "$RUNNER_TEMP/dexzd-simulation.log" -- \
             cargo test --locked -p dexzd-simulation --test apply_invariants apply_keeps_every_invariant_over_random_command_sequences -- --exact --nocapture
@@ -197,6 +190,7 @@ jobs:
             echo "## Apply simulation (${{ matrix.target.label }}: ${{ matrix.target.ref }})"
             echo "Base seed: ${DEXZD_SIMULATION_BASE_SEED:-not selected}; shard ${{ matrix.shard.index }}"
             echo "Seed count: $DEXZD_SIMULATION_SEEDS; commands per seed: $DEXZD_SIMULATION_COMMANDS"
+            echo "Build result: ${{ steps.apply.outputs.build_result || 'not completed' }}; elapsed seconds: ${{ steps.apply.outputs.build_elapsed_seconds }}"
             echo "Result: ${{ steps.apply.outputs.result || steps.apply.outcome }}"
             echo "Elapsed seconds: ${{ steps.apply.outputs.elapsed_seconds }}; last completed seed: ${{ steps.apply.outputs.last_completed_seed || 'none' }}"
             echo
@@ -302,11 +296,6 @@ jobs:
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: server-zd
-          shared-key: server-zd-test
-          save-if: false
       - name: Validate engine simulation budget
         shell: bash
         run: |
@@ -321,7 +310,7 @@ jobs:
           fi
       - name: Choose random base seed
         run: |
-          base_seed=$(( ${{ needs.simulation-refs.outputs.base_seed }} + ${{ matrix.shard.offset }} ))
+          base_seed=$(( ${{ matrix.target.base_seed }} + ${{ matrix.shard.offset }} ))
           echo "DEXZD_SIMULATION_SEEDS=${{ matrix.shard.count }}" >> "$GITHUB_ENV"
           echo "DEXZD_SIMULATION_BASE_SEED=$base_seed" >> "$GITHUB_ENV"
           echo "Base seed: $base_seed"
@@ -332,7 +321,7 @@ jobs:
           DEXZD_SIMULATION_FAILURE_DIR: ${{ runner.temp }}/dexzd-engine-simulation-failures
         run: |
           python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --prepare-progress
-          python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --timeout 1500 --log "$RUNNER_TEMP/dexzd-engine-simulation-build.log" -- \
+          python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --build --timeout 1500 --log "$RUNNER_TEMP/dexzd-engine-simulation-build.log" -- \
             cargo test --locked -p dexzd-simulation --test engine_simulation --no-run
           python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --timeout 3300 --log "$RUNNER_TEMP/dexzd-engine-simulation.log" -- \
             cargo test --locked -p dexzd-simulation --test engine_simulation the_engine_keeps_every_invariant_through_faults_and_crashes -- --exact --nocapture
@@ -344,6 +333,7 @@ jobs:
             echo "## Engine simulation (${{ matrix.target.label }}: ${{ matrix.target.ref }})"
             echo "Base seed: ${DEXZD_SIMULATION_BASE_SEED:-not selected}; shard ${{ matrix.shard.index }}"
             echo "Seed count: $DEXZD_SIMULATION_SEEDS; simulated seconds per seed: $DEXZD_SIMULATION_SECONDS"
+            echo "Build result: ${{ steps.engine.outputs.build_result || 'not completed' }}; elapsed seconds: ${{ steps.engine.outputs.build_elapsed_seconds }}"
             echo "Result: ${{ steps.engine.outputs.result || steps.engine.outcome }}"
             echo "Elapsed seconds: ${{ steps.engine.outputs.elapsed_seconds }}; last completed seed: ${{ steps.engine.outputs.last_completed_seed || 'none' }}"
             grep -m1 '^twin comparisons:' "$RUNNER_TEMP/dexzd-engine-simulation.log" || true
@@ -404,11 +394,6 @@ jobs:
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: server-zd
-          shared-key: server-zd-test
-          save-if: false
       - name: Validate redeploy profile budget
         shell: bash
         run: |
@@ -444,7 +429,7 @@ jobs:
           DEXZD_SIMULATION_FAILURE_DIR: ${{ runner.temp }}/dexzd-redeploy-simulation-failures
         run: |
           python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --prepare-progress
-          python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --timeout 1500 --log "$RUNNER_TEMP/dexzd-redeploy-simulation-build.log" -- \
+          python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --build --timeout 1500 --log "$RUNNER_TEMP/dexzd-redeploy-simulation-build.log" -- \
             cargo test --locked -p dexzd-simulation --test engine_simulation --no-run
           python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --timeout 3300 --log "$RUNNER_TEMP/dexzd-redeploy-simulation.log" -- \
             cargo test --locked -p dexzd-simulation --test engine_simulation redeploys_with_a_short_history_window_keep_every_invariant -- --exact --nocapture
@@ -456,6 +441,7 @@ jobs:
             echo "## Engine simulation redeploy profile (${{ matrix.target.label }}: ${{ matrix.target.ref }})"
             echo "Base seed: ${DEXZD_SIMULATION_BASE_SEED:-not selected}"
             echo "Seed count: $DEXZD_SIMULATION_SEEDS; simulated seconds per seed: $DEXZD_SIMULATION_SECONDS"
+            echo "Build result: ${{ steps.redeploy.outputs.build_result || 'not completed' }}; elapsed seconds: ${{ steps.redeploy.outputs.build_elapsed_seconds }}"
             echo "Result: ${{ steps.redeploy.outputs.result || steps.redeploy.outcome }}"
             echo "Elapsed seconds: ${{ steps.redeploy.outputs.elapsed_seconds }}; last completed seed: ${{ steps.redeploy.outputs.last_completed_seed || 'none' }}"
             echo
@@ -515,11 +501,6 @@ jobs:
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: server-zd
-          shared-key: server-zd-test
-          save-if: false
       - name: Validate Step failure profile budget
         shell: bash
         run: |
@@ -555,7 +536,7 @@ jobs:
           DEXZD_SIMULATION_FAILURE_DIR: ${{ runner.temp }}/dexzd-step-failure-simulation-failures
         run: |
           python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --prepare-progress
-          python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --timeout 1500 --log "$RUNNER_TEMP/dexzd-step-failure-simulation-build.log" -- \
+          python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --build --timeout 1500 --log "$RUNNER_TEMP/dexzd-step-failure-simulation-build.log" -- \
             cargo test --locked -p dexzd-simulation --test engine_simulation --no-run
           python3 "$GITHUB_WORKSPACE/.nightly-harness/script/server-zd-simulation-run.py" --timeout 3300 --log "$RUNNER_TEMP/dexzd-step-failure-simulation.log" -- \
             cargo test --locked -p dexzd-simulation --test engine_simulation step_failure_policies_keep_every_invariant -- --exact --nocapture
@@ -567,6 +548,7 @@ jobs:
             echo "## Engine simulation Step failure profile (${{ matrix.target.label }}: ${{ matrix.target.ref }})"
             echo "Base seed: ${DEXZD_SIMULATION_BASE_SEED:-not selected}"
             echo "Seed count: $DEXZD_SIMULATION_SEEDS; simulated seconds per seed: $DEXZD_SIMULATION_SECONDS"
+            echo "Build result: ${{ steps.step_failure.outputs.build_result || 'not completed' }}; elapsed seconds: ${{ steps.step_failure.outputs.build_elapsed_seconds }}"
             echo "Result: ${{ steps.step_failure.outputs.result || steps.step_failure.outcome }}"
             echo "Elapsed seconds: ${{ steps.step_failure.outputs.elapsed_seconds }}; last completed seed: ${{ steps.step_failure.outputs.last_completed_seed || 'none' }}"
             echo

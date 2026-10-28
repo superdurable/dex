@@ -13,6 +13,10 @@ GENERATED_CODE_PATHS := \
 release-tooling-test: ## Verify changed-component selection and release preflight
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s script/release -p '*_test.py'
 
+.PHONY: server-zd-simulation-runner-test
+server-zd-simulation-runner-test: ## Verify nightly process supervision and seed partitioning
+	PYTHONDONTWRITEBYTECODE=1 python3 script/test_server_zd_simulation_run.py
+
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
 

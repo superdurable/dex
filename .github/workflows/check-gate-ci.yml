@@ -90,6 +90,12 @@ jobs:
               - 's3mock/**'
               - 'protos/**'
               - '.github/workflows/server-zd-ci.yml'
+            server_zd_simulation_runner:
+              - 'script/server-zd-simulation-run.py'
+              - 'script/test_server_zd_simulation_run.py'
+              - '.github/workflows/server-zd-simulation-nightly.yml'
+              - '.github/workflows/server-zd-simulation-runner-ci.yml'
+              - 'Makefile'
             server_zd_sdk:
               - 'sdk-go/**'
               - 'sdk-rust/**'
@@ -180,6 +186,7 @@ jobs:
           FILTER_EXAMPLES_RUST: ${{ steps.filter.outputs.examples_rust }}
           FILTER_S3MOCK: ${{ steps.filter.outputs.s3mock }}
           FILTER_SERVER_ZD: ${{ steps.filter.outputs.server_zd }}
+          FILTER_SERVER_ZD_SIMULATION_RUNNER: ${{ steps.filter.outputs.server_zd_simulation_runner }}
           FILTER_SERVER_ZD_SDK: ${{ steps.filter.outputs.server_zd_sdk }}
           FILTER_SERVER_ZD_IMAGE: ${{ steps.filter.outputs.server_zd_image }}
           FILTER_SERVER_ZD_BINARY: ${{ steps.filter.outputs.server_zd_binary }}
@@ -215,6 +222,7 @@ jobs:
               "S3mock CI"
               "Server CI"
               "Server ZD CI"
+              "Server ZD Simulation Runner CI"
               "Server ZD SDK CI"
               "Server All-in-One CI"
               "Web CI"
@@ -233,6 +241,7 @@ jobs:
             [[ "$FILTER_EXAMPLES_RUST" == "true" ]] && expected+=("Rust examples CI")
             [[ "$FILTER_S3MOCK" == "true" ]] && expected+=("S3mock CI")
             [[ "$FILTER_SERVER_ZD" == "true" ]] && expected+=("Server ZD CI")
+            [[ "$FILTER_SERVER_ZD_SIMULATION_RUNNER" == "true" ]] && expected+=("Server ZD Simulation Runner CI")
             [[ "$FILTER_SERVER_ZD_SDK" == "true" ]] && expected+=("Server ZD SDK CI")
             [[ "$FILTER_SERVER_ZD_IMAGE" == "true" ]] && expected+=("Server ZD image release")
             [[ "$FILTER_SERVER_ZD_BINARY" == "true" ]] && expected+=("Server ZD binary release")
