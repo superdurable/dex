@@ -42,25 +42,28 @@ func testAttributeIndexSync(t *testing.T, backendType service.BackendType) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	listed, err := runtime.UnifiedClient.ListAttributeIndexes(ctx)
-	require.NoError(t, err)
-	require.Equal(
-		t,
-		dexpb.IndexType_INDEX_TYPE_KEYWORD,
-		listed[service.SearchAttributeDexWorkflowType],
-	)
-	require.Equal(
-		t,
-		dexpb.IndexType_INDEX_TYPE_KEYWORD,
-		listed[service.SearchAttributeDexParentFlowID],
-	)
-	require.Equal(
-		t,
-		runtime.UnifiedClient.NormalizeAttributeIndexType(dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY),
-		listed[service.SearchAttributeActiveStepTypes],
-	)
+	// Temporal search attributes back the Go Server indexes; server-zd keeps its own index catalog.
+	if !isServerZDBinaryMode() {
+		listed, err := runtime.UnifiedClient.ListAttributeIndexes(ctx)
+		require.NoError(t, err)
+		require.Equal(
+			t,
+			dexpb.IndexType_INDEX_TYPE_KEYWORD,
+			listed[service.SearchAttributeDexWorkflowType],
+		)
+		require.Equal(
+			t,
+			dexpb.IndexType_INDEX_TYPE_KEYWORD,
+			listed[service.SearchAttributeDexParentFlowID],
+		)
+		require.Equal(
+			t,
+			runtime.UnifiedClient.NormalizeAttributeIndexType(dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY),
+			listed[service.SearchAttributeActiveStepTypes],
+		)
+	}
 
-	_, err = flowClient.SyncAttributeIndexes(ctx, &dexpb.SyncAttributeIndexRequest{})
+	_, err := flowClient.SyncAttributeIndexes(ctx, &dexpb.SyncAttributeIndexRequest{})
 	require.NoError(t, err)
 
 	indexName := "DexIntegAttributeIndex_" + uuid.NewString()
@@ -70,13 +73,15 @@ func testAttributeIndexSync(t *testing.T, backendType service.BackendType) {
 	_, err = flowClient.SyncAttributeIndexes(ctx, request)
 	require.NoError(t, err)
 
-	listed, err = runtime.UnifiedClient.ListAttributeIndexes(ctx)
-	require.NoError(t, err)
-	require.Equal(
-		t,
-		runtime.UnifiedClient.NormalizeAttributeIndexType(dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY),
-		listed[indexName],
-	)
+	if !isServerZDBinaryMode() {
+		listed, err := runtime.UnifiedClient.ListAttributeIndexes(ctx)
+		require.NoError(t, err)
+		require.Equal(
+			t,
+			runtime.UnifiedClient.NormalizeAttributeIndexType(dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY),
+			listed[indexName],
+		)
+	}
 
 	immediateCtx, cancelImmediate := context.WithTimeout(ctx, time.Second)
 	_, err = flowClient.SyncAttributeIndexes(immediateCtx, request)

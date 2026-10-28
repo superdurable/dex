@@ -167,6 +167,5 @@ func TestPullWaitForAttributeSuccessTemporal(t *testing.T) {
 		t.Skip()
 	}
 	usePullWorkersForTest(t)
-	requireTemporalOnly(t)
 	doTestWaitForAttributeSuccess(t)
 }

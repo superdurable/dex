@@ -48,17 +48,12 @@ func TestWaitForAttributeTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	requireTemporalOnly(t)
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestWaitForAttributeSuccess(t)
 		smallWaitForFastTest()
 		doTestWaitForAttributeOperators(t)
 		smallWaitForFastTest()
 		doTestWaitForAttributeTimeout(t)
-		smallWaitForFastTest()
-		doTestWaitForAttributeInternalHandlerTimeout(t)
-		smallWaitForFastTest()
-		doTestWaitForAttributeTransportTimeoutAndReattach(t)
 		smallWaitForFastTest()
 		doTestWaitForAttributeCancel(t)
 		smallWaitForFastTest()
@@ -67,6 +62,15 @@ func TestWaitForAttributeTemporal(t *testing.T) {
 		doTestWaitForAttributeClosed(t)
 		smallWaitForFastTest()
 		doTestWaitForAttributeConcurrent(t)
+		smallWaitForFastTest()
+		// These cover Temporal Update handlers, Update counters, Continue-As-New (C3), and two Servers
+		// sharing one Flow, which binary mode cannot start.
+		if isServerZDBinaryMode() {
+			continue
+		}
+		doTestWaitForAttributeInternalHandlerTimeout(t)
+		smallWaitForFastTest()
+		doTestWaitForAttributeTransportTimeoutAndReattach(t)
 		smallWaitForFastTest()
 		doTestWaitForAttributeAcrossContinueAsNew(t)
 		smallWaitForFastTest()
@@ -194,8 +198,7 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
-	require.NoError(t, err)
+	runID := describeFlowRunID(t, ctx, runtime, flowId)
 	nonEqualRequestID := "wait-for-attribute:" + waitForAttributeKey + ">5"
 	nonEqualResponse := make(chan *dexpb.WaitForAttributeResponse, 1)
 	nonEqualError := make(chan error, 1)
@@ -212,17 +215,7 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 		nonEqualResponse <- matchedResponse
 		nonEqualError <- waitErr
 	}()
-	require.Eventually(t, func() bool {
-		accepted, _ := countTemporalUpdateEvents(
-			t,
-			ctx,
-			runtime,
-			flowId,
-			description.RunId,
-			nonEqualRequestID,
-		)
-		return accepted == 1
-	}, 5*time.Second, 50*time.Millisecond)
+	waitForAttributeWaiterAccepted(t, ctx, runtime, flowId, runID, nonEqualRequestID)
 	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		RequestId: newRequestID(),
 		FlowId:    flowId,
@@ -388,8 +381,7 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 	defer cancel()
 
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
-	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
-	require.NoError(t, err)
+	runID := describeFlowRunID(t, ctx, runtime, flowId)
 	defaultUpdateID := "wait-for-attribute:" + waitForAttributeKey + "==\"never-set\""
 
 	waitRequest := &dexpb.WaitForAttributeRequest{
@@ -400,7 +392,7 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 		),
 		RequestTimeoutSeconds: 1,
 	}
-	_, err = flowClient.WaitForAttribute(ctx, waitRequest)
+	_, err := flowClient.WaitForAttribute(ctx, waitRequest)
 	require.Error(t, err)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 	errResp := grpcServiceErrorResponse(t, err)
@@ -410,21 +402,23 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 		errResp.GetSubStatus(),
 	)
 	require.Equal(t, "attribute request timed out", errResp.GetDetail())
-	counts := inspectTemporalUpdateHistory(
-		t,
-		ctx,
-		runtime,
-		flowId,
-		description.RunId,
-		defaultUpdateID,
-	)
-	require.Equal(t, 1, counts.accepted)
-	require.Zero(t, counts.completed)
-	require.Zero(t, counts.oneSecondTimerStarted)
-	require.Zero(t, counts.oneSecondTimerCanceled)
-	require.Eventually(t, func() bool {
-		return !time.Now().Before(counts.acceptedAt.Add(time.Second))
-	}, 2*time.Second, 10*time.Millisecond)
+	if !isServerZDBinaryMode() {
+		counts := inspectTemporalUpdateHistory(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			runID,
+			defaultUpdateID,
+		)
+		require.Equal(t, 1, counts.accepted)
+		require.Zero(t, counts.completed)
+		require.Zero(t, counts.oneSecondTimerStarted)
+		require.Zero(t, counts.oneSecondTimerCanceled)
+		require.Eventually(t, func() bool {
+			return !time.Now().Before(counts.acceptedAt.Add(time.Second))
+		}, 2*time.Second, 10*time.Millisecond)
+	}
 
 	waitRequest.RequestTimeoutSeconds = 10
 	responseChannel := make(chan *dexpb.WaitForAttributeResponse, 1)
@@ -444,18 +438,20 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, <-errorChannel)
 	require.True(t, proto.Equal(stringValue("never-set"), (<-responseChannel).GetMatchedValue()))
-	counts = inspectTemporalUpdateHistory(
-		t,
-		ctx,
-		runtime,
-		flowId,
-		description.RunId,
-		defaultUpdateID,
-	)
-	require.Equal(t, 1, counts.accepted)
-	require.Equal(t, 1, counts.completed)
-	require.Zero(t, counts.oneSecondTimerStarted)
-	require.Zero(t, counts.oneSecondTimerCanceled)
+	if !isServerZDBinaryMode() {
+		counts := inspectTemporalUpdateHistory(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			runID,
+			defaultUpdateID,
+		)
+		require.Equal(t, 1, counts.accepted)
+		require.Equal(t, 1, counts.completed)
+		require.Zero(t, counts.oneSecondTimerStarted)
+		require.Zero(t, counts.oneSecondTimerCanceled)
+	}
 
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }
@@ -626,42 +622,46 @@ func doTestWaitForAttributeInternalHandlerTimeout(t *testing.T) {
 
 func doTestWaitForAttributeCancel(t *testing.T) {
 	workerTarget := startWorker(t, signal.NewHandler())
-	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType: service.BackendTypeTemporal,
+		// One waiter slot lets a probe observe server-zd waiter registration.
+		ServerZDMaxLongPollWaiters: 1,
+	})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
-	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
-	require.NoError(t, err)
+	runID := describeFlowRunID(t, ctx, runtime, flowId)
 	requestID := uuid.NewString()
 
 	done := make(chan error, 1)
 	go func() {
-		_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
-			FlowId: flowId,
-			Match: equalAttributeMatch(
-				waitForAttributeKey,
-				stringValue("never-set"),
-			),
-			RequestTimeoutSeconds: 30,
-			RequestId:             requestID,
-		})
-		done <- waitErr
+		for {
+			_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+				FlowId: flowId,
+				Match: equalAttributeMatch(
+					waitForAttributeKey,
+					stringValue("never-set"),
+				),
+				RequestTimeoutSeconds: 30,
+				RequestId:             requestID,
+			})
+			// A probe can hold the only server-zd waiter slot for one state read.
+			if isServerZDBinaryMode() && status.Code(waitErr) == codes.ResourceExhausted {
+				continue
+			}
+			done <- waitErr
+			return
+		}
 	}()
 
-	require.Eventually(t, func() bool {
-		accepted, _ := countTemporalUpdateEvents(
-			t,
-			ctx,
-			runtime,
-			flowId,
-			description.RunId,
-			requestID,
-		)
-		return accepted == 1
-	}, 5*time.Second, 50*time.Millisecond)
+	if isServerZDBinaryMode() {
+		requireServerZDWaiterProbeCode(t, flowClient, codes.ResourceExhausted, done)
+	} else {
+		waitForAttributeWaiterAccepted(t, ctx, runtime, flowId, runID, requestID)
+	}
 	cancel()
 
 	select {
@@ -669,6 +669,10 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 		require.Equal(t, codes.Canceled, status.Code(err))
 	case <-time.After(10 * time.Second):
 		t.Fatal("WaitForAttribute did not return after cancel")
+	}
+	if isServerZDBinaryMode() {
+		// The cancelled waiter must release its server-zd slot.
+		requireServerZDWaiterProbeCode(t, flowClient, codes.NotFound, nil)
 	}
 
 	stopParkedWaitForAttributeFlow(t, context.Background(), flowClient, flowId)
@@ -743,8 +747,7 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
 	expectedValue := stringValue("wait-for-attribute-concurrent")
 	requestId := uuid.NewString()
-	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
-	require.NoError(t, err)
+	runID := describeFlowRunID(t, ctx, runtime, flowId)
 
 	var waitGroup sync.WaitGroup
 	errors := make([]error, 2)
@@ -767,19 +770,9 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 		}(index)
 	}
 
-	require.Eventually(t, func() bool {
-		accepted, _ := countTemporalUpdateEvents(
-			t,
-			ctx,
-			runtime,
-			flowId,
-			description.RunId,
-			requestId,
-		)
-		return accepted == 1
-	}, 5*time.Second, 50*time.Millisecond)
+	waitForAttributeWaiterAccepted(t, ctx, runtime, flowId, runID, requestId)
 
-	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+	_, err := flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		RequestId: newRequestID(),
 		FlowId:    flowId,
 		Attributes: []*dexpb.AttributeWrite{
@@ -795,16 +788,18 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 	for _, response := range responses {
 		require.True(t, proto.Equal(expectedValue, response.GetMatchedValue()))
 	}
-	accepted, completed := countTemporalUpdateEvents(
-		t,
-		ctx,
-		runtime,
-		flowId,
-		description.RunId,
-		requestId,
-	)
-	require.Equal(t, 1, accepted)
-	require.Equal(t, 1, completed)
+	if !isServerZDBinaryMode() {
+		accepted, completed := countTemporalUpdateEvents(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			runID,
+			requestId,
+		)
+		require.Equal(t, 1, accepted)
+		require.Equal(t, 1, completed)
+	}
 
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }
@@ -1035,6 +1030,58 @@ func doTestWaitForAttributeCadenceUnimplemented(t *testing.T) {
 		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
+}
+
+// requireServerZDWaiterProbeCode probes a missing Flow: RESOURCE_EXHAUSTED means a waiter holds the slot; NOT_FOUND means free.
+func requireServerZDWaiterProbeCode(
+	t *testing.T,
+	flowClient dexpb.FlowServiceClient,
+	expectedCode codes.Code,
+	waiterDone <-chan error,
+) {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for {
+		probeCtx, cancelProbe := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := flowClient.WaitForAttribute(probeCtx, &dexpb.WaitForAttributeRequest{
+			FlowId:                "wait-for-attribute-probe-" + uuid.NewString(),
+			Match:                 equalAttributeMatch(waitForAttributeKey, stringValue("probe")),
+			RequestTimeoutSeconds: 1,
+		})
+		cancelProbe()
+		probeCode := status.Code(err)
+		require.Contains(t, []codes.Code{codes.NotFound, codes.ResourceExhausted}, probeCode, "probe error: %v", err)
+		if probeCode == expectedCode {
+			return
+		}
+		select {
+		case err := <-waiterDone:
+			require.FailNow(t, "WaitForAttribute returned before cancel", "%v", err)
+		case <-deadline:
+			require.FailNow(t, "server-zd waiter probe never returned the expected code", "%v", expectedCode)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+// waitForAttributeWaiterAccepted waits until Temporal accepts the waiter's Update.
+// server-zd has no Update history and checks the current value when a waiter arrives, so it returns at once.
+func waitForAttributeWaiterAccepted(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	runID string,
+	requestID string,
+) {
+	t.Helper()
+	if isServerZDBinaryMode() {
+		return
+	}
+	require.Eventually(t, func() bool {
+		accepted, _ := countTemporalUpdateEvents(t, ctx, runtime, flowID, runID, requestID)
+		return accepted == 1
+	}, 5*time.Second, 50*time.Millisecond)
 }
 
 func equalAttributeMatch(

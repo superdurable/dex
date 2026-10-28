@@ -20,15 +20,43 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/integ/workflow/basic"
 	"github.com/superdurable/dex/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestStartDelayTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	// C8: server-zd rejects a Flow start delay.
-	requireGoServerSetting(t, "Flow start delay")
+	if isServerZDBinaryMode() {
+		doTestStartDelayRejected(t)
+		return
+	}
 	doTestStartDelay(t, service.BackendTypeTemporal, nil)
+}
+
+// doTestStartDelayRejected checks that server-zd rejects a Flow start delay (C8).
+func doTestStartDelayRejected(t *testing.T) {
+	workerTarget := startWorker(t, basic.NewHandler())
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	flowID := basic.FlowType + "-" + uuid.NewString()
+	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           basic.FlowType,
+		FlowTimeoutSeconds: 100,
+		StartStepType:      basic.Step1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			FlowStartDelaySeconds: 10,
+		}, workerTarget),
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.ErrorContains(t, err, "server-zd does not support flow_start_delay_seconds > 0")
+	_, err = runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+	require.Equal(t, codes.NotFound, status.Code(err))
 }
 
 func TestStartDelayCadence(t *testing.T) {

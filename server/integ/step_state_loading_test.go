@@ -25,6 +25,8 @@ import (
 const (
 	stepStateLoadingFlowType   = "step-state-loading"
 	stepStateLoadingRootStep   = "root"
+	stepStateLoadingGateStep   = "gate"
+	stepStateLoadingGate       = "gate"
 	stepStateLoadingFinishStep = "finish"
 	stepStateLoadingCommands   = "commands"
 	stepStateLoadingFinish     = "finish"
@@ -51,12 +53,16 @@ func (h *stepStateLoadingHandler) InvokeWaitForMethod(
 	if request.GetFlowType() != stepStateLoadingFlowType {
 		return nil, status.Errorf(codes.InvalidArgument, "unexpected Flow type %q", request.GetFlowType())
 	}
-	if request.GetStepType() == stepStateLoadingFinishStep {
+	if request.GetStepType() == stepStateLoadingFinishStep || request.GetStepType() == stepStateLoadingGateStep {
+		channelName := stepStateLoadingFinish
+		if request.GetStepType() == stepStateLoadingGateStep {
+			channelName = stepStateLoadingGate
+		}
 		return &dexpb.InvokeWaitForMethodResponse{
 			WaitingCondition: &dexpb.WaitingCondition{
 				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				ChannelConditions: []*dexpb.ChannelCondition{{
-					ChannelName: stepStateLoadingFinish,
+					ChannelName: channelName,
 				}},
 			},
 		}, nil
@@ -102,6 +108,13 @@ func (h *stepStateLoadingHandler) InvokeExecuteMethod(
 			},
 		}, nil
 	}
+	if request.GetStepType() == stepStateLoadingGateStep {
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{NextSteps: []*dexpb.StepMovement{{
+				StepType: stepStateLoadingRootStep, StepOptions: stepStateLoadingRootStepOptions(),
+			}}},
+		}, nil
+	}
 	if request.GetStepType() != stepStateLoadingRootStep {
 		return nil, status.Errorf(codes.InvalidArgument, "unexpected Step type %q", request.GetStepType())
 	}
@@ -132,8 +145,6 @@ func TestStepStateLoadingTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	// C8: server-zd rejects the Flow start delay that orders this scenario.
-	requireGoServerSetting(t, "Flow start delay")
 	for iteration := 0; iteration < *repeatIntegTest; iteration++ {
 		doTestStepStateLoading(t, service.BackendTypeTemporal)
 	}
@@ -157,20 +168,13 @@ func doTestStepStateLoading(t *testing.T, backendType service.BackendType) {
 	defer cancel()
 
 	flowID := stepStateLoadingFlowType + "-" + uuid.NewString()
-	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+	startRequest := &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             flowID,
 		FlowType:           stepStateLoadingFlowType,
 		FlowTimeoutSeconds: 45,
 		StartStepType:      stepStateLoadingRootStep,
-		StepOptions: &dexpb.StepOptions{
-			WaitForLoadAttributeMapInstances: []string{"attribute-map/one"},
-			WaitForLoadChannelNames:          []string{stepStateLoadingCommands},
-			WaitForLoadChannelMapInstances:   []string{"channel-map/"},
-			ExecuteLoadAttributeMapInstances: []string{"attribute-map/two"},
-			ExecuteLoadChannelNames:          []string{stepStateLoadingCommands},
-			ExecuteLoadChannelMapInstances:   []string{"channel-map/one"},
-		},
+		StepOptions:        stepStateLoadingRootStepOptions(),
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowStartDelaySeconds: 3,
 			Attributes: []*dexpb.AttributeWrite{
@@ -179,10 +183,25 @@ func doTestStepStateLoading(t *testing.T, backendType service.BackendType) {
 				{Key: "attribute-map/two", Value: stringValue("two")},
 			},
 		}, workerTarget),
-	})
+	}
+	if isServerZDBinaryMode() {
+		// server-zd rejects a Flow start delay (C8); a gate Step holds the root Step until the messages exist.
+		startRequest.FlowStartOptions.FlowStartDelaySeconds = 0
+		startRequest.StartStepType = stepStateLoadingGateStep
+		startRequest.StepOptions = nil
+	}
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
 	publishStepStateLoadingMessages(t, ctx, runtime, flowID, startResponse.GetRunId())
+	if isServerZDBinaryMode() {
+		_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+			FlowId:   flowID,
+			RunId:    startResponse.GetRunId(),
+			Messages: []*dexpb.ChannelMessage{{ChannelName: stepStateLoadingGate}},
+		})
+		require.NoError(t, err)
+	}
 	waitForRequest := receiveStepWaitForRequest(t, ctx, handler.waitForRequests)
 	requireStepWaitForState(t, waitForRequest)
 	executeRequest := receiveStepExecuteRequest(t, ctx, handler.executeRequests)
@@ -209,6 +228,17 @@ func doTestStepStateLoading(t *testing.T, backendType service.BackendType) {
 	require.Len(t, result.GetResults(), 1)
 	require.Equal(t, "complete", result.GetResults()[0].GetCompletedStepOutput().GetStringValue())
 	requireStepDeletionHistory(t, ctx, runtime, flowID, startResponse.GetRunId())
+}
+
+func stepStateLoadingRootStepOptions() *dexpb.StepOptions {
+	return &dexpb.StepOptions{
+		WaitForLoadAttributeMapInstances: []string{"attribute-map/one"},
+		WaitForLoadChannelNames:          []string{stepStateLoadingCommands},
+		WaitForLoadChannelMapInstances:   []string{"channel-map/"},
+		ExecuteLoadAttributeMapInstances: []string{"attribute-map/two"},
+		ExecuteLoadChannelNames:          []string{stepStateLoadingCommands},
+		ExecuteLoadChannelMapInstances:   []string{"channel-map/one"},
+	}
 }
 
 func publishStepStateLoadingMessages(

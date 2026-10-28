@@ -97,7 +97,7 @@ func doTestChannelMultivalueExactN(
 	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, results[0].GetConditionStatus())
 	requireStringValues(t, results[0].GetValues(), "m0", "m1", "m2")
 
-	leftover := channelReceivedFromDump(t, runtime, flowId, channel_multivalue.ChannelName)
+	leftover := channelReceivedValues(t, runtime, flowId, channel_multivalue.ChannelName)
 	requireStringValues(t, leftover, "m3", "m4")
 }
 
@@ -164,7 +164,7 @@ func doTestChannelMultivalueAtMostCapped(
 	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, results[0].GetConditionStatus())
 	requireStringValues(t, results[0].GetValues(), "m0", "m1", "m2")
 
-	leftover := channelReceivedFromDump(t, runtime, flowId, channel_multivalue.ChannelName)
+	leftover := channelReceivedValues(t, runtime, flowId, channel_multivalue.ChannelName)
 	requireStringValues(t, leftover, "m3", "m4")
 }
 
@@ -237,7 +237,7 @@ func doTestChannelMultivalueAnyNoPremature(
 	require.Equal(t, "b", completed[0].GetConditionId())
 	requireStringValues(t, completed[0].GetValues(), "win")
 
-	leftover := channelReceivedFromDump(t, runtime, flowId, channel_multivalue.ChannelName)
+	leftover := channelReceivedValues(t, runtime, flowId, channel_multivalue.ChannelName)
 	requireStringValues(t, leftover, "keep0", "keep1")
 }
 
@@ -276,9 +276,7 @@ func doTestChannelMultivalueCanBuffered(t *testing.T, backendType service.Backen
 	)
 	publishChannelStrings(t, ctx, runtime.FlowClient, flowId, channel_multivalue.ChannelName, "b0", "b1")
 	require.Eventually(t, func() bool {
-		dump := queryChannelDump(t, runtime, flowId)
-		received := dump.GetSnapshot().GetChannelReceived()[channel_multivalue.ChannelName]
-		return received != nil && len(received.GetMessages()) >= 2
+		return len(channelReceivedValues(t, runtime, flowId, channel_multivalue.ChannelName)) >= 2
 	}, 15*time.Second, 100*time.Millisecond)
 
 	publishChannelStrings(t, ctx, runtime.FlowClient, flowId, channel_multivalue.ChannelName, "b2")
@@ -429,13 +427,25 @@ func requireStringValues(t *testing.T, values []*dexpb.Value, expected ...string
 	}
 }
 
-func channelReceivedFromDump(
+func channelReceivedValues(
 	t *testing.T,
 	runtime *integRuntime,
 	flowId string,
 	channelName string,
 ) []*dexpb.Value {
 	t.Helper()
+	if isServerZDBinaryMode() {
+		// The debug dump is a Temporal query; GetChannelMessages returns the same unconsumed messages.
+		response, err := runtime.FlowClient.GetChannelMessages(context.Background(), &dexpb.GetChannelMessagesRequest{
+			FlowId: flowId, ChannelName: channelName,
+		})
+		require.NoError(t, err)
+		values := make([]*dexpb.Value, 0, len(response.GetMessages()))
+		for _, message := range response.GetMessages() {
+			values = append(values, message.GetValue())
+		}
+		return values
+	}
 	dump := queryChannelDump(t, runtime, flowId)
 	received := dump.GetSnapshot().GetChannelReceived()[channelName]
 	if received == nil {

@@ -26,10 +26,19 @@ push mode can classify the same transport error as a Server error. The
 Worker-address switching scenario remains push-only.
 
 Binary mode applies the harness's 12-second WaitForFlow limit in its client and
-adds SYNC durability to StartFlow requests. The Go Server's 2-second minimum
-Step heartbeat timeout has no binary equivalent; tests that rely on it start
-the in-process Go Server and are skipped in binary mode. The Step cancellation
-scenario uses a 10-second heartbeat timeout in binary mode instead.
+adds SYNC durability to StartFlow requests. server-zd requires a Step heartbeat
+timeout of at least 10 seconds, so the pull heartbeat and Step cancellation
+scenarios use 10 seconds in binary mode instead of the Go Server's 2 seconds.
+
+The raw pull Worker scenarios start the Server through
+**startPullDispatchService**, which launches `dex-server-zd` in binary mode and
+passes the **matching** dispatch and sticky waits to it. Assertions on Go
+Server matching internals, Temporal queries, Temporal history, and the Go Blob
+Store run only against the Go Server; binary mode reads the same state through
+**GetFlowState**, **GetFlowSummary**, **GetChannelMessages**, and
+**GetHistoryEvents** where server-zd exposes it. **S3TestThreshold** maps to
+**values.wireInlineThresholdBytes**, set to the encoded length of a `json` object
+Value with a payload of exactly that many bytes.
 
 Each launch registers the custom search attributes that the Temporal dev server
 predefines, such as **CustomKeywordField** and **CustomDatetimeField**, through

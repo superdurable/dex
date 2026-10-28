@@ -140,7 +140,7 @@ func testTerminalActiveExecuteProducerDrain(t *testing.T, backendType service.Ba
 	workerTarget := startWorker(t, handler)
 	testConfig := DexServiceTestConfig{
 		BackendType:                            backendType,
-		UseTemporalSynchronousUpdateForAllRPCs: true,
+		UseTemporalSynchronousUpdateForAllRPCs: !isServerZDBinaryMode(),
 	}
 	hasInProcessGoServer := *dexServerBinary == "" && *dexServerAddress == ""
 	if backendType == service.BackendTypeTemporal && hasInProcessGoServer {
@@ -208,7 +208,7 @@ func testTerminalWaitingConditionProducerDrain(
 	workerTarget := startWorker(t, handler)
 	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:                            backendType,
-		UseTemporalSynchronousUpdateForAllRPCs: true,
+		UseTemporalSynchronousUpdateForAllRPCs: !isServerZDBinaryMode(),
 	})
 	flowID := terminalProducerDrainFlowType + "-" + conditionKind + "-" + uuid.NewString()
 	cleanupTerminalProducerDrainFlow(t, runtime.FlowClient, flowID)

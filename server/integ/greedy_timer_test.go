@@ -13,6 +13,7 @@ package integ
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"testing"
 	"time"
 
@@ -104,13 +105,19 @@ func doTestGreedyTimerFlowCustomConfig(
 	})
 	require.NoError(t, err)
 
-	time.Sleep(time.Second)
+	firstStepExecutionID := greedy_timer.ScheduleTimerState + "-1"
+	pendingTimerStatus := dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING
+	requireStepTimerStatusEventually(t, ctx, runtime, flowId, firstStepExecutionID, "duration-30", pendingTimerStatus)
 
-	firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)
-	assertions.Len(firingUserTimers, 1)
-	singleTimerScheduled := firingUserTimers[0]
+	// Greedy timers limit Temporal timers; server-zd keeps timers in its own log, so binary mode skips these counts.
+	singleTimerScheduled := int64(0)
+	if !isServerZDBinaryMode() {
+		firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)
+		assertions.Len(firingUserTimers, 1)
+		singleTimerScheduled = firingUserTimers[0]
+	}
 
-	scheduleTimerAndAssertExpectedScheduled(t, flowClient, unifiedClient, flowId, 20, 1)
+	scheduleTimerAndAssertExpectedScheduled(t, runtime, flowId, greedy_timer.ScheduleTimerState+"-2", 20, 1)
 
 	_, err = flowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
 		FlowId:           flowId,
@@ -119,12 +126,16 @@ func doTestGreedyTimerFlowCustomConfig(
 	})
 	require.NoError(t, err)
 
-	time.Sleep(time.Second)
-
-	firingUserTimers = queryFiringUserTimers(t, ctx, unifiedClient, flowId)
-	assertions.Len(firingUserTimers, 1)
-	assertions.LessOrEqual(singleTimerScheduled, firingUserTimers[0])
-	scheduleTimerAndAssertExpectedScheduled(t, flowClient, unifiedClient, flowId, 5, 2)
+	if !isServerZDBinaryMode() {
+		requireStepTimerStatusEventually(
+			t, ctx, runtime, flowId, firstStepExecutionID, "duration-15",
+			dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED,
+		)
+		firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)
+		assertions.Len(firingUserTimers, 1)
+		assertions.LessOrEqual(singleTimerScheduled, firingUserTimers[0])
+	}
+	scheduleTimerAndAssertExpectedScheduled(t, runtime, flowId, greedy_timer.ScheduleTimerState+"-3", 5, 2)
 
 	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
@@ -141,9 +152,9 @@ func doTestGreedyTimerFlowCustomConfig(
 
 func scheduleTimerAndAssertExpectedScheduled(
 	t *testing.T,
-	flowClient dexpb.FlowServiceClient,
-	unifiedClient uclient.UnifiedClient,
+	runtime *integRuntime,
 	flowId string,
+	stepExecutionID string,
 	duration int64,
 	noMoreThan int,
 ) {
@@ -155,7 +166,7 @@ func scheduleTimerAndAssertExpectedScheduled(
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+	_, err = runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 		RequestId:      newRequestID(),
 		FlowId:         flowId,
 		RpcName:        greedy_timer.SubmitDurationsRPC,
@@ -164,10 +175,41 @@ func scheduleTimerAndAssertExpectedScheduled(
 	})
 	require.NoError(t, err)
 
-	time.Sleep(time.Second)
+	requireStepTimerStatusEventually(
+		t, ctx, runtime, flowId, stepExecutionID, "duration-"+strconv.FormatInt(duration, 10),
+		dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
+	)
+	if isServerZDBinaryMode() {
+		return
+	}
 
-	firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)
+	firingUserTimers := queryFiringUserTimers(t, ctx, runtime.UnifiedClient, flowId)
 	assertions.LessOrEqual(len(firingUserTimers), noMoreThan)
+}
+
+// requireStepTimerStatusEventually polls Step timers until the timer condition reports the status.
+func requireStepTimerStatusEventually(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	stepExecutionID string,
+	timerConditionID string,
+	expectedStatus dexpb.InternalTimerStatus,
+) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		timerInfos, err := queryCurrentTimerInfos(ctx, runtime, flowID)
+		if err != nil {
+			return false
+		}
+		for _, timer := range timerInfos.GetStepExecutionCurrentTimerInfos()[stepExecutionID].GetTimers() {
+			if timer.GetConditionId() == timerConditionID {
+				return timer.GetStatus() == expectedStatus
+			}
+		}
+		return false
+	}, 10*time.Second, 100*time.Millisecond)
 }
 
 func queryFiringUserTimers(

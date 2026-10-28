@@ -33,6 +33,7 @@ import (
 	"go.uber.org/cadence/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/prototext"
 )
 
 const (
@@ -136,7 +137,10 @@ func doTestHardDeleteAttributes(
 		hardDeleteAttributes.SecretKey: hardDeleteAttributes.StepSecret,
 	})
 	requireHardDeleteAttribute(t, ctx, flowClient, flowID, hardDeleteAttributes.SecretKey, hardDeleteAttributes.StepSecret)
-	require.Len(t, hardDeleteObjectFiles(t, blobDirectory, flowID), 2)
+	// server-zd keeps hard-delete objects in its own object store, not the Go local Blob directory (C4, C5).
+	if !isServerZDBinaryMode() {
+		require.Len(t, hardDeleteObjectFiles(t, blobDirectory, flowID), 2)
+	}
 
 	const hardDeleteBlobID = "local-store-id|hd/0123456789"
 	loadResponse, err := flowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
@@ -147,8 +151,13 @@ func doTestHardDeleteAttributes(
 			}},
 		}},
 	})
-	require.NoError(t, err)
-	require.NotContains(t, loadResponse.GetValues(), hardDeleteBlobID)
+	if isServerZDBinaryMode() {
+		// server-zd rejects a Go Blob ID; neither Server lets LoadBlobs read a hard-delete object.
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+	} else {
+		require.NoError(t, err)
+		require.NotContains(t, loadResponse.GetValues(), hardDeleteBlobID)
+	}
 
 	for _, isTransactional := range []bool{true, false} {
 		selector, nextSecret := hardDeleteSignalRPCSelector, hardDeleteSignalRPCSecret
@@ -183,20 +192,27 @@ func doTestHardDeleteAttributes(
 		hardDeleteAttributes.PlainKey:  hardDeleteAttributes.PlainAttribute,
 	})
 	requireHardDeleteAttributeAbsent(t, ctx, flowClient, flowID, hardDeleteAttributes.SecretKey)
-	require.Empty(t, hardDeleteObjectFiles(t, blobDirectory, flowID))
+	if !isServerZDBinaryMode() {
+		require.Empty(t, hardDeleteObjectFiles(t, blobDirectory, flowID))
+	}
 
 	setHardDeleteAttribute(t, ctx, flowClient, flowID,
 		hardDeleteAttributes.HardDeleteStringWrite(hardDeleteAttributes.SecretKey, hardDeleteAPISecretAfterDelete))
 	requireHardDeleteAttribute(t, ctx, flowClient, flowID, hardDeleteAttributes.SecretKey, hardDeleteAPISecretAfterDelete)
 	setHardDeleteAttribute(t, ctx, flowClient, flowID, hardDeleteAttributes.HardDeleteNullWrite(hardDeleteAttributes.SecretKey))
 	requireHardDeleteAttributeAbsent(t, ctx, flowClient, flowID, hardDeleteAttributes.SecretKey)
-	require.Empty(t, hardDeleteObjectFiles(t, blobDirectory, flowID))
+	if !isServerZDBinaryMode() {
+		require.Empty(t, hardDeleteObjectFiles(t, blobDirectory, flowID))
+	}
 
 	setHardDeleteAttribute(t, ctx, flowClient, flowID,
 		hardDeleteAttributes.HardDeleteStringWrite(hardDeleteAttributes.SecretKey, hardDeleteContinuedSecret))
 	requireHardDeleteAttribute(t, ctx, flowClient, flowID, hardDeleteAttributes.SecretKey, hardDeleteContinuedSecret)
-	_, err = flowClient.TriggerContinueAsNew(ctx, &dexpb.TriggerContinueAsNewRequest{FlowId: flowID})
-	require.NoError(t, err)
+	// server-zd never continues a run as new (C3).
+	if !isServerZDBinaryMode() {
+		_, err = flowClient.TriggerContinueAsNew(ctx, &dexpb.TriggerContinueAsNewRequest{FlowId: flowID})
+		require.NoError(t, err)
+	}
 	requireHardDeleteAttribute(t, ctx, flowClient, flowID, hardDeleteAttributes.SecretKey, hardDeleteContinuedSecret)
 	setHardDeleteAttribute(t, ctx, flowClient, flowID, hardDeleteAttributes.HardDeleteNullWrite(hardDeleteAttributes.SecretKey))
 	requireHardDeleteAttributeAbsent(t, ctx, flowClient, flowID, hardDeleteAttributes.SecretKey)
@@ -209,8 +225,10 @@ func doTestHardDeleteAttributes(
 		hardDeleteAttributes.PlainKey:  hardDeleteAttributes.PlainAttribute,
 	})
 
-	require.Empty(t, hardDeleteObjectFiles(t, blobDirectory, flowID))
-	requireNoSecretInBlobFiles(t, blobDirectory)
+	if !isServerZDBinaryMode() {
+		require.Empty(t, hardDeleteObjectFiles(t, blobDirectory, flowID))
+		requireNoSecretInBlobFiles(t, blobDirectory)
+	}
 	historyText := flowHistoryText(t, ctx, runtime, flowID)
 	require.Contains(t, historyText, hardDeleteAttributes.PlainAttribute, "history text must expose inline payloads")
 	for _, secret := range hardDeleteSecrets {
@@ -649,10 +667,35 @@ func requireNoSecretInBlobFiles(t *testing.T, directory string) {
 // flowHistoryText renders every run of a Flow so tests can search for leaked payload bytes.
 func flowHistoryText(t *testing.T, ctx context.Context, runtime *integRuntime, flowID string) string {
 	t.Helper()
+	if isServerZDBinaryMode() {
+		return dexHistoryText(t, ctx, runtime.FlowClient, flowID)
+	}
 	if runtime.UnifiedClient.GetBackendType() == service.BackendTypeTemporal {
 		return temporalHistoryText(t, ctx, runtime.UnifiedClient.GetApiService().(workflowservice.WorkflowServiceClient), flowID)
 	}
 	return cadenceHistoryText(t, ctx, runtime.UnifiedClient.GetApiService().(client.Client), flowID)
+}
+
+// dexHistoryText renders the Dex history events of the current run, which is the only run on server-zd.
+func dexHistoryText(t *testing.T, ctx context.Context, flowClient dexpb.FlowServiceClient, flowID string) string {
+	t.Helper()
+	summary, err := flowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+	require.NoError(t, err)
+	var builder strings.Builder
+	var pageToken []byte
+	for {
+		response, err := flowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
+			FlowId: flowID, RunId: summary.GetFlowExecutionId().GetRunId(), NextPageToken: pageToken,
+		})
+		require.NoError(t, err)
+		for _, event := range response.GetEvents() {
+			builder.WriteString(prototext.Format(event))
+		}
+		pageToken = response.GetNextPageToken()
+		if len(pageToken) == 0 {
+			return builder.String()
+		}
+	}
 }
 
 // cadenceHistoryText renders the current run plus every closed run, including continued-as-new runs.

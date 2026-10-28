@@ -130,25 +130,28 @@ func TestSetSearchAttributes(t *testing.T) {
 	}
 
 	// Describe reads Temporal indexed fields, not workflow persistence.
-	desc, err := runtime.UnifiedClient.DescribeWorkflowExecution(
-		ctx,
-		flowId,
-		"",
-		map[string]dexpb.IndexType{
-			persistence.TestSearchAttributeIntKey:          dexpb.IndexType_INDEX_TYPE_INT,
-			persistence.TestSearchAttributeKeywordKey:      dexpb.IndexType_INDEX_TYPE_KEYWORD,
-			persistence.TestSearchAttributeKeywordArrayKey: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
-			service.SearchAttributeDexWorkQueuePermissions: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
-		},
-	)
-	require.NoError(t, err)
-	for _, want := range expected {
-		if want.GetKey() == "action-status" {
-			continue
+	// server-zd has no Temporal indexed fields; SearchFlows above covers its index.
+	if !isServerZDBinaryMode() {
+		desc, describeErr := runtime.UnifiedClient.DescribeWorkflowExecution(
+			ctx,
+			flowId,
+			"",
+			map[string]dexpb.IndexType{
+				persistence.TestSearchAttributeIntKey:          dexpb.IndexType_INDEX_TYPE_INT,
+				persistence.TestSearchAttributeKeywordKey:      dexpb.IndexType_INDEX_TYPE_KEYWORD,
+				persistence.TestSearchAttributeKeywordArrayKey: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+				service.SearchAttributeDexWorkQueuePermissions: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+			},
+		)
+		require.NoError(t, describeErr)
+		for _, want := range expected {
+			if want.GetKey() == "action-status" {
+				continue
+			}
+			got, ok := desc.IndexedAttributes[want.GetKey()]
+			require.True(t, ok, "missing backend indexed attribute %s", want.GetKey())
+			require.True(t, proto.Equal(got, want.GetValue()), "backend mismatch for %s", want.GetKey())
 		}
-		got, ok := desc.IndexedAttributes[want.GetKey()]
-		require.True(t, ok, "missing backend indexed attribute %s", want.GetKey())
-		require.True(t, proto.Equal(got, want.GetValue()), "backend mismatch for %s", want.GetKey())
 	}
 
 	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
@@ -193,23 +196,25 @@ func TestSetSearchAttributes(t *testing.T) {
 		)
 	}, 10*time.Second, 20*time.Millisecond)
 
-	require.Eventually(t, func() bool {
-		description, describeErr := runtime.UnifiedClient.DescribeWorkflowExecution(
-			ctx,
-			flowId,
-			"",
-			map[string]dexpb.IndexType{
-				service.SearchAttributeDexWorkQueuePermissions: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
-			},
-		)
-		if describeErr != nil {
-			return false
-		}
-		return proto.Equal(
-			description.IndexedAttributes[service.SearchAttributeDexWorkQueuePermissions],
-			jsonObjValue([]string{"refund.approve"}),
-		)
-	}, 10*time.Second, 20*time.Millisecond)
+	if !isServerZDBinaryMode() {
+		require.Eventually(t, func() bool {
+			description, describeErr := runtime.UnifiedClient.DescribeWorkflowExecution(
+				ctx,
+				flowId,
+				"",
+				map[string]dexpb.IndexType{
+					service.SearchAttributeDexWorkQueuePermissions: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+				},
+			)
+			if describeErr != nil {
+				return false
+			}
+			return proto.Equal(
+				description.IndexedAttributes[service.SearchAttributeDexWorkQueuePermissions],
+				jsonObjValue([]string{"refund.approve"}),
+			)
+		}, 10*time.Second, 20*time.Millisecond)
+	}
 
 	require.Eventually(t, func() bool {
 		result, searchErr := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{

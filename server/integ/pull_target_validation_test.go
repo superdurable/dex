@@ -37,7 +37,7 @@ func TestPullWorkerTargetValidationCadence(t *testing.T) {
 
 func testPullWorkerTargetValidation(t *testing.T, backend service.BackendType) {
 	t.Helper()
-	runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend})
+	runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	for _, target := range []*dexpb.WorkerTarget{

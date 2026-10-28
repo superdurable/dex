@@ -45,8 +45,11 @@ func TestFlowTimeoutTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestFlowTimeoutRetry(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
-		doTestFlowTimeoutRetryAfterContinueAsNew(t, service.BackendTypeTemporal)
-		smallWaitForFastTest()
+		// server-zd never continues a run as new (C3).
+		if !isServerZDBinaryMode() {
+			doTestFlowTimeoutRetryAfterContinueAsNew(t, service.BackendTypeTemporal)
+			smallWaitForFastTest()
+		}
 		doTestFlowTimeoutHandler(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
 		doTestFlowTimeoutHandlerExecutionOptions(t, service.BackendTypeTemporal, false)
@@ -226,6 +229,10 @@ func doTestFlowTimeout(
 			"timed out after 1 seconds",
 		)
 	}
+	// The terminal event listener runs inside the in-process Go Server.
+	if isServerZDBinaryMode() {
+		return
+	}
 	select {
 	case terminalEvent := <-terminalEvents:
 		require.Equal(t, expectedEventType, terminalEvent.EventType)
@@ -284,6 +291,12 @@ func doTestFlowTimeoutRetry(t *testing.T, backendType service.BackendType) {
 			},
 		}, workerTarget),
 	})
+	if isServerZDBinaryMode() {
+		// server-zd rejects a Flow retry policy instead of restarting the Flow.
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+		require.ErrorContains(t, err, "server-zd does not support Flow retry_policy")
+		return
+	}
 	require.NoError(t, err)
 
 	waitRequest := &dexpb.WaitForFlowRequest{
@@ -395,22 +408,25 @@ func doTestFlowTimeoutHandler(t *testing.T, backendType service.BackendType) {
 	require.NoError(t, err)
 
 	waitForTimeoutHandlerTimer(t, ctx, runtime, flowID)
-	assertFlowTimeoutDebugState(t, ctx, runtime, flowID)
-	deadline := flowTimeoutDeadline(t, ctx, runtime, flowID)
-	_, err = runtime.FlowClient.TriggerContinueAsNew(
-		ctx,
-		&dexpb.TriggerContinueAsNewRequest{
-			FlowId: flowID,
-			RunId:  startResponse.GetRunId(),
-		},
-	)
-	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		currentRunID, queryErr := currentFlowRunID(ctx, runtime, flowID)
-		return queryErr == nil && currentRunID != startResponse.GetRunId()
-	}, 10*time.Second, 100*time.Millisecond)
-	waitForTimeoutHandlerTimer(t, ctx, runtime, flowID)
-	require.Equal(t, deadline, flowTimeoutDeadline(t, ctx, runtime, flowID))
+	// server-zd lists no timeout Step timer and never continues a run as new (C3).
+	if !isServerZDBinaryMode() {
+		assertFlowTimeoutDebugState(t, ctx, runtime, flowID)
+		deadline := flowTimeoutDeadline(t, ctx, runtime, flowID)
+		_, err = runtime.FlowClient.TriggerContinueAsNew(
+			ctx,
+			&dexpb.TriggerContinueAsNewRequest{
+				FlowId: flowID,
+				RunId:  startResponse.GetRunId(),
+			},
+		)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			currentRunID, queryErr := currentFlowRunID(ctx, runtime, flowID)
+			return queryErr == nil && currentRunID != startResponse.GetRunId()
+		}, 10*time.Second, 100*time.Millisecond)
+		waitForTimeoutHandlerTimer(t, ctx, runtime, flowID)
+		require.Equal(t, deadline, flowTimeoutDeadline(t, ctx, runtime, flowID))
+	}
 
 	_, err = runtime.FlowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
 		FlowId:              flowID,
@@ -500,7 +516,7 @@ func doTestFlowTimeoutHandlerExecutionOptions(
 	require.NoError(t, err)
 
 	firstRequest := receiveTimeoutExecuteRequest(t, ctx, workerHandler.executeRequests)
-	requireTimeoutHandlerState(t, firstRequest)
+	requireTimeoutHandlerState(t, firstRequest, 1)
 	if !shouldRecover {
 		_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 			FlowId: flowID,
@@ -513,7 +529,7 @@ func doTestFlowTimeoutHandlerExecutionOptions(
 		require.NoError(t, err)
 	}
 	secondRequest := receiveTimeoutExecuteRequest(t, ctx, workerHandler.executeRequests)
-	requireTimeoutHandlerState(t, secondRequest)
+	requireTimeoutHandlerState(t, secondRequest, 1)
 	require.Equal(
 		t,
 		firstRequest.GetLoadedChannelMessages()["timeout-commands"].GetMessages()[0].GetMessageId(),
@@ -562,17 +578,21 @@ func receiveTimeoutExecuteRequest(
 	}
 }
 
-func requireTimeoutHandlerState(t *testing.T, request *dexpb.InvokeExecuteMethodRequest) {
+func requireTimeoutHandlerState(
+	t *testing.T,
+	request *dexpb.InvokeExecuteMethodRequest,
+	expectedCommandMessages int,
+) {
 	t.Helper()
 	require.Equal(t, service.FlowTimeoutStepType, request.GetStepType())
 	require.ElementsMatch(t, []string{"ordinary", "timeout-map/one"}, attributeKeys(request.GetAttributes()))
 	require.Equal(t, []string{"timeout-map/one"}, request.GetLoadedAttributeMapInstances())
 	require.Equal(t, []string{"timeout-commands"}, request.GetLoadedChannelNames())
 	require.Equal(t, []string{"timeout-channel-map/"}, request.GetLoadedChannelMapInstances())
-	require.Len(t, request.GetLoadedChannelMessages()["timeout-commands"].GetMessages(), 1)
+	require.Len(t, request.GetLoadedChannelMessages()["timeout-commands"].GetMessages(), expectedCommandMessages)
 	require.Len(t, request.GetLoadedChannelMessages()["timeout-channel-map/one"].GetMessages(), 1)
 	require.Len(t, request.GetLoadedChannelMessages()["timeout-channel-map/two"].GetMessages(), 1)
-	require.Equal(t, int32(1), request.GetChannelInfos()["timeout-commands"].GetSize())
+	require.Equal(t, int32(expectedCommandMessages), request.GetChannelInfos()["timeout-commands"].GetSize())
 }
 
 func requireTimeoutHandlerDeletionHistory(
@@ -790,6 +810,10 @@ func waitForTimeoutHandlerTimer(
 	flowID string,
 ) {
 	t.Helper()
+	// server-zd keeps the Flow timeout outside Step state until it fires; StartFlow has already committed it.
+	if isServerZDBinaryMode() {
+		return
+	}
 	probe := timeoutHandlerTimerProbe{ctx: ctx, runtime: runtime, flowID: flowID}
 	require.Eventually(t, probe.isReady, 10*time.Second, 100*time.Millisecond)
 }
@@ -801,14 +825,8 @@ func flowTimeoutDeadline(
 	flowID string,
 ) int64 {
 	t.Helper()
-	timerInfos := &dexpb.GetCurrentTimerInfosQueryResponse{}
-	require.NoError(t, runtime.UnifiedClient.QueryWorkflow(
-		ctx,
-		timerInfos,
-		flowID,
-		"",
-		service.GetCurrentTimerInfosQueryType,
-	))
+	timerInfos, err := queryCurrentTimerInfos(ctx, runtime, flowID)
+	require.NoError(t, err)
 	timers := timerInfos.GetStepExecutionCurrentTimerInfos()[service.FlowTimeoutStepExecutionID]
 	require.NotNil(t, timers)
 	require.Len(t, timers.GetTimers(), 1)
@@ -867,14 +885,7 @@ func assertFlowTimeoutDebugState(
 }
 
 func (p timeoutHandlerTimerProbe) isReady() bool {
-	timerInfos := &dexpb.GetCurrentTimerInfosQueryResponse{}
-	queryErr := p.runtime.UnifiedClient.QueryWorkflow(
-		p.ctx,
-		timerInfos,
-		p.flowID,
-		"",
-		service.GetCurrentTimerInfosQueryType,
-	)
+	timerInfos, queryErr := queryCurrentTimerInfos(p.ctx, p.runtime, p.flowID)
 	if queryErr != nil {
 		return false
 	}

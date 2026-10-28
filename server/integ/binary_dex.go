@@ -30,6 +30,7 @@ import (
 	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,6 +41,14 @@ type binaryDexProcess struct {
 }
 
 var binaryDexTerminationGracePeriod = 10 * time.Second
+
+// serverZDWireInlineThresholdBytes returns the encoded length of a JSON obj_value with that payload length.
+func serverZDWireInlineThresholdBytes(goPayloadThresholdBytes int) int {
+	return proto.Size(&dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+		Encoding: "json",
+		Payload:  make([]byte, goPayloadThresholdBytes),
+	}}})
+}
 
 type temporalOnlyUnifiedClient struct {
 	uclient.UnifiedClient
@@ -143,9 +152,6 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 	if len(testConfig.DefaultHeaders) > 0 {
 		return nil, "default Worker headers"
 	}
-	if testConfig.S3TestThreshold > 0 {
-		return nil, "S3 Blob Store"
-	}
 	if testConfig.S3KeyPrefix != "" {
 		return nil, "S3 key prefix"
 	}
@@ -191,8 +197,15 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 	if len(apiConfig) > 0 {
 		configuration["api"] = apiConfig
 	}
+	// server-zd keeps large values in its log; its wire threshold plays the Go Blob Store threshold's role (C5).
 	if testConfig.LocalBlobThreshold > 0 {
-		configuration["values"] = map[string]any{"wireInlineThresholdBytes": testConfig.LocalBlobThreshold}
+		configuration["values"] = map[string]any{
+			"wireInlineThresholdBytes": serverZDWireInlineThresholdBytes(testConfig.LocalBlobThreshold),
+		}
+	} else if testConfig.S3TestThreshold > 0 {
+		configuration["values"] = map[string]any{
+			"wireInlineThresholdBytes": serverZDWireInlineThresholdBytes(testConfig.S3TestThreshold),
+		}
 	}
 	if testConfig.LazyLoading != nil {
 		valuesConfig, ok := configuration["values"].(map[string]any)
@@ -206,6 +219,12 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 		matchingConfig := binaryMatchingConfig(testConfig.Matching)
 		if len(matchingConfig) > 0 {
 			configuration["matching"] = matchingConfig
+		}
+	}
+	if testConfig.ServerZDMaxLongPollWaiters > 0 {
+		configuration["limits"] = map[string]any{
+			"maxLongPollWaitersPerNode": testConfig.ServerZDMaxLongPollWaiters,
+			"maxLongPollWaitersPerFlow": testConfig.ServerZDMaxLongPollWaiters,
 		}
 	}
 	configuration["streamStore"] = binaryStreamStoreConfig(testConfig.StreamStore)
@@ -323,12 +342,11 @@ func binaryAuthConfig(settings *config.AuthConfig) map[string]any {
 	return map[string]any{"authenticators": authenticators}
 }
 
+// binaryMatchingConfig omits the local* settings: server-zd has no ASYNC local phase (C2).
 func binaryMatchingConfig(settings *config.MatchingConfig) map[string]any {
 	configuration := make(map[string]any)
 	for name, duration := range map[string]time.Duration{
-		"dispatchWait": settings.DispatchWait, "stickyWait": settings.StickyWait,
-		"localDispatchWait": settings.LocalDispatchWait, "localStickyWait": settings.LocalStickyWait,
-		"localExecutionReserve": settings.LocalExecutionReserve, "pingInterval": settings.PingInterval,
+		"dispatchWait": settings.DispatchWait, "stickyWait": settings.StickyWait, "pingInterval": settings.PingInterval,
 	} {
 		if duration != 0 {
 			configuration[name] = duration.String()
@@ -455,6 +473,43 @@ func requireGoServerSetting(t *testing.T, setting string) {
 
 func isServerZDBinaryMode() bool {
 	return *dexServerBinary != ""
+}
+
+// describeFlowStatus reads the current run's status from Temporal, or through GetFlowSummary in binary mode.
+func describeFlowStatus(t *testing.T, ctx context.Context, runtime *integRuntime, flowID string) dexpb.FlowStatus {
+	t.Helper()
+	if isServerZDBinaryMode() {
+		summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+		require.NoError(t, err)
+		return summary.GetFlowStatus()
+	}
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowID, "", nil)
+	require.NoError(t, err)
+	return description.Status
+}
+
+// describeFlowRunID returns the current run ID from Temporal, or through GetFlowSummary in binary mode.
+func describeFlowRunID(t *testing.T, ctx context.Context, runtime *integRuntime, flowID string) string {
+	t.Helper()
+	if isServerZDBinaryMode() {
+		summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+		require.NoError(t, err)
+		return summary.GetFlowExecutionId().GetRunId()
+	}
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowID, "", nil)
+	require.NoError(t, err)
+	return description.RunId
+}
+
+// readFlowConfig returns the run's FlowConfig from the Temporal debug dump, or through GetFlowState in binary mode.
+func readFlowConfig(ctx context.Context, runtime *integRuntime, flowID string) (*dexpb.FlowConfig, error) {
+	if isServerZDBinaryMode() {
+		state, err := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{FlowId: flowID})
+		return state.GetFlowConfig(), err
+	}
+	var dump dexpb.DebugDumpResponse
+	err := runtime.UnifiedClient.QueryWorkflow(ctx, &dump, flowID, "", service.DebugDumpQueryType)
+	return dump.GetConfig(), err
 }
 
 func requireTemporalOnly(t *testing.T) {

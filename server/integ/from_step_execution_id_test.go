@@ -249,6 +249,10 @@ func collectStepLineage(
 	firstRunID string,
 ) map[string]string {
 	t.Helper()
+	if isServerZDBinaryMode() {
+		// server-zd never continues a run as new (C3); its Dex history events carry the lineage.
+		return collectHistoryEventLineage(t, ctx, runtime.FlowClient, flowID, firstRunID)
+	}
 	lineage := map[string]string{}
 	visitedRunIDs := map[string]struct{}{}
 	runID := firstRunID
@@ -267,6 +271,38 @@ func collectStepLineage(
 		}
 	}
 	return lineage
+}
+
+func collectHistoryEventLineage(
+	t *testing.T,
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
+	flowID string,
+	runID string,
+) map[string]string {
+	t.Helper()
+	lineage := map[string]string{}
+	var pageToken []byte
+	for {
+		response, err := flowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
+			FlowId: flowID, RunId: runID, NextPageToken: pageToken,
+		})
+		require.NoError(t, err)
+		for _, event := range response.GetEvents() {
+			for _, eventContext := range []*dexpb.StepMethodEventContext{
+				event.GetStepWaitForCompleted().GetContext(), event.GetStepExecuteCompleted().GetContext(),
+			} {
+				if eventContext == nil {
+					continue
+				}
+				recordStepLineage(t, lineage, eventContext.GetStepExecutionId(), eventContext.GetFromStepExecutionId())
+			}
+		}
+		pageToken = response.GetNextPageToken()
+		if len(pageToken) == 0 {
+			return lineage
+		}
+	}
 }
 
 func collectTemporalRunLineage(

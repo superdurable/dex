@@ -103,6 +103,10 @@ func (h *handler) InvokeExecuteMethod(
 		return nil, status.Errorf(codes.Internal, "LoadBlobs step input: %v", err)
 	}
 	h.invokeHistory.Store(request.GetStepType()+"_execute_input", resolved)
+	h.invokeHistory.Store(
+		request.GetStepType()+"_execute_input_is_reference",
+		common.BlobIdFromValue(request.GetStepInput()) != "",
+	)
 
 	if request.GetStepType() == State1 {
 		return &dexpb.InvokeExecuteMethodResponse{

@@ -128,9 +128,7 @@ func doTestAnyCommandCombinationFlow(
 
 	publishSignal()
 
-	descResp, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
-	require.NoError(t, err)
-	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_RUNNING, descResp.Status)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_RUNNING, describeFlowStatus(t, ctx, runtime, flowId))
 
 	_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId: flowId,
@@ -155,10 +153,9 @@ func doTestAnyCommandCombinationFlow(
 	require.NoError(t, err)
 
 	if flowConfig == nil {
-		time.Sleep(time.Second)
-		descResp, err = runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
-		require.NoError(t, err)
-		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, descResp.Status)
+		require.Eventually(t, func() bool {
+			return describeFlowStatus(t, ctx, runtime, flowId) == dexpb.FlowStatus_FLOW_STATUS_COMPLETED
+		}, 10*time.Second, 100*time.Millisecond)
 	} else {
 		respWait, waitErr := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 			FlowId:          flowId,

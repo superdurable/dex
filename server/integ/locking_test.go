@@ -80,7 +80,6 @@ func doTestLockingWorkflow(
 	backendType service.BackendType,
 	flowConfig *dexpb.FlowConfig,
 ) {
-	requireTemporalOnly(t)
 	workerHandler := locking.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
 	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
@@ -147,7 +146,13 @@ func doTestLockingWorkflow(
 			if rpcErr != nil {
 				if status.Code(rpcErr) == codes.Aborted {
 					errResp := grpcServiceErrorResponse(t, rpcErr)
-					assertions.Equal("one or more attribute keys are locked", errResp.GetDetail())
+					expectedDetail := "one or more attribute keys are locked"
+					if isServerZDBinaryMode() {
+						// zd-bug #1002: server-zd names the locked key in the lock-conflict detail.
+						expectedDetail = "RPC lock conflict: attribute key " + locking.TestSearchAttributeIntKey +
+							" is locked by a running Step"
+					}
+					assertions.Equal(expectedDetail, errResp.GetDetail())
 					assertions.Equal(
 						dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 						errResp.GetSubStatus(),
@@ -174,20 +179,13 @@ func doTestLockingWorkflow(
 			return initialHistory["S2_waitFor"] == int64(s2StartsDecides) &&
 				initialHistory["S2_execute"] == int64(s2StartsDecides)
 		}, 60*time.Second, 100*time.Millisecond)
-		description, describeErr := runtime.UnifiedClient.DescribeWorkflowExecution(
-			ctx,
-			flowId,
-			"",
-			nil,
-		)
-		require.NoError(t, describeErr)
-		resetSourceRunID = description.RunId
+		resetSourceRunID = describeFlowRunID(t, ctx, runtime, flowId)
 		require.Eventually(t, func() bool {
 			isCompleted, historyErr := hasStepExecuteCompletedHistory(
 				ctx,
 				flowClient,
 				flowId,
-				description.RunId,
+				resetSourceRunID,
 				fmt.Sprintf("%s-%d", locking.State2, s2StartsDecides),
 			)
 			return historyErr == nil && isCompleted
@@ -235,7 +233,8 @@ func doTestLockingWorkflow(
 	expectedRPCInvokes := int32(2 * rpcIncrease)
 	expectedS2Invokes := int64(2 * s2StartsDecides)
 	expectedStateWaitingWaitForInvokes := int64(2)
-	shouldReapplyRPC := backendType == service.BackendTypeTemporal && flowConfig == nil
+	// Temporal reset reapplies RPC writes made after the reset point; server-zd reset discards them.
+	shouldReapplyRPC := backendType == service.BackendTypeTemporal && flowConfig == nil && !isServerZDBinaryMode()
 	if backendType == service.BackendTypeTemporal {
 		resetRequest.ResetType = dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID
 		resetRequest.RunId = resetSourceRunID

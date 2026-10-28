@@ -192,6 +192,7 @@ func (h *handler) storeStepInputData(
 		return nil
 	}
 	h.invokeData.Store(stepType+"_input_data", inputData)
+	h.invokeData.Store(stepType+"_input_is_reference", common.BlobIdFromValue(stepInput) != "")
 	log.Printf(
 		"%s WaitUntil: Received input data (length: %d): %s",
 		stepType,

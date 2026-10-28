@@ -89,9 +89,10 @@ func TestDeadEndFlowCadenceContinueAsNew(t *testing.T) {
 func doTestSynchronousUpdateRequestID(t *testing.T) {
 	workerHandler := deadend.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
+	// server-zd has no Temporal Update delivery; its RPCs still deduplicate by request ID.
 	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:                            service.BackendTypeTemporal,
-		UseTemporalSynchronousUpdateForAllRPCs: true,
+		UseTemporalSynchronousUpdateForAllRPCs: !isServerZDBinaryMode(),
 	})
 	flowClient := runtime.FlowClient
 
@@ -115,24 +116,29 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 	require.Equal(t, "request ID is required", grpcServiceErrorResponse(t, err).GetDetail())
 	require.Zero(t, workerHandler.GetRPCInvokes())
-	require.Eventually(t, func() bool {
-		var dump dexpb.DebugDumpResponse
-		queryErr := runtime.UnifiedClient.QueryWorkflow(
-			ctx,
-			&dump,
-			flowId,
-			startResponse.GetRunId(),
-			service.DebugDumpQueryType,
-		)
-		return queryErr == nil &&
-			dump.GetConfig().GetWorkerTarget().GetAddress() == workerTarget.GetAddress()
-	}, 10*time.Second, 20*time.Millisecond)
+	// The debug dump is a Temporal query; server-zd applies the start before StartFlow returns.
+	if !isServerZDBinaryMode() {
+		require.Eventually(t, func() bool {
+			var dump dexpb.DebugDumpResponse
+			queryErr := runtime.UnifiedClient.QueryWorkflow(
+				ctx,
+				&dump,
+				flowId,
+				startResponse.GetRunId(),
+				service.DebugDumpQueryType,
+			)
+			return queryErr == nil &&
+				dump.GetConfig().GetWorkerTarget().GetAddress() == workerTarget.GetAddress()
+		}, 10*time.Second, 20*time.Millisecond)
+	}
 
 	requestId := uuid.NewString()
 	request := &dexpb.InvokeRPCRequest{
 		FlowId:    flowId,
 		RpcName:   deadend.RPCWriteData,
 		RequestId: requestId,
+		// Update delivery runs every RPC once per request ID; server-zd does so for transactional RPCs.
+		IsTransactional: isServerZDBinaryMode(),
 	}
 	var waitGroup sync.WaitGroup
 	waitGroup.Add(2)
@@ -149,27 +155,31 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 		require.NoError(t, requestErr)
 	}
 	require.Equal(t, responses[0], responses[1])
+	concurrentInvokes := workerHandler.GetRPCInvokes()
+	require.Equal(t, int32(1), concurrentInvokes)
 
 	retryResponse, err := flowClient.InvokeRPC(ctx, request)
 	require.NoError(t, err)
 	require.Equal(t, responses[0], retryResponse)
-	require.Equal(t, int32(1), workerHandler.GetRPCInvokes())
+	require.Equal(t, concurrentInvokes, workerHandler.GetRPCInvokes())
 
-	accepted, completed := countTemporalUpdateEvents(
-		t,
-		ctx,
-		runtime,
-		flowId,
-		startResponse.GetRunId(),
-		requestId,
-	)
-	require.Equal(t, 1, accepted)
-	require.Equal(t, 1, completed)
+	if !isServerZDBinaryMode() {
+		accepted, completed := countTemporalUpdateEvents(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			startResponse.GetRunId(),
+			requestId,
+		)
+		require.Equal(t, 1, accepted)
+		require.Equal(t, 1, completed)
+	}
 
 	request.RequestId = uuid.NewString()
 	_, err = flowClient.InvokeRPC(ctx, request)
 	require.NoError(t, err)
-	require.Equal(t, int32(2), workerHandler.GetRPCInvokes())
+	require.Equal(t, concurrentInvokes+1, workerHandler.GetRPCInvokes())
 
 	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{FlowId: flowId})
 	require.NoError(t, err)
