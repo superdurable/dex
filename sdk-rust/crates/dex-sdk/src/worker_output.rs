@@ -16,7 +16,6 @@ use dex_protocol::dex::{
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_stream::Stream;
-use tonic::Status;
 
 use crate::context::InvocationCancellation;
 use crate::{HandlerError, HandlerResult};
@@ -134,15 +133,11 @@ impl<Output> WorkerInvocation<Output> {
         }
     }
 
-    pub(crate) fn into_stream(
-        self,
-        map_error: fn(HandlerError) -> Status,
-    ) -> WorkerResponseStream<Output> {
+    pub(crate) fn into_stream(self) -> WorkerResponseStream<Output> {
         WorkerResponseStream {
             receiver: self.receiver,
             cancellation: self.cancellation,
             producer: self.producer,
-            map_error,
         }
     }
 }
@@ -151,17 +146,13 @@ pub(crate) struct WorkerResponseStream<Output> {
     receiver: mpsc::Receiver<HandlerResult<Output>>,
     cancellation: InvocationCancellation,
     producer: JoinHandle<()>,
-    map_error: fn(HandlerError) -> Status,
 }
 
 impl<Output> Stream for WorkerResponseStream<Output> {
-    type Item = Result<Output, Status>;
+    type Item = HandlerResult<Output>;
 
     fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let map_error = self.map_error;
-        Pin::new(&mut self.receiver)
-            .poll_recv(context)
-            .map(|output| output.map(|result| result.map_err(map_error)))
+        Pin::new(&mut self.receiver).poll_recv(context)
     }
 }
 
@@ -223,8 +214,7 @@ mod tests {
 
         let cancellation = InvocationCancellation::new();
         let producer = tokio::spawn(std::future::pending());
-        let stream = WorkerInvocation::new(receiver, cancellation.clone(), producer)
-            .into_stream(|error| Status::unknown(error.to_string()));
+        let stream = WorkerInvocation::new(receiver, cancellation.clone(), producer).into_stream();
         drop(stream);
 
         assert!(cancellation.is_cancelled());

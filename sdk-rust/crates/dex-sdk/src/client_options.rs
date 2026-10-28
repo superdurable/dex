@@ -8,25 +8,23 @@
 
 use std::sync::Arc;
 
-use crate::{Credential, WorkerTarget};
+use crate::Credential;
 
 #[derive(Clone, Debug)]
-/// Configures how a [`crate::Client`] reaches Dex and identifies application workers.
+/// Configures how a [`crate::Client`] reaches Dex.
 ///
-/// [`ClientOptions::new`] connects to `127.0.0.1:8801` over plaintext gRPC and supplies no default
-/// worker target. A per-Flow [`crate::FlowConfig`] can override the target.
+/// [`ClientOptions::new`] connects to `127.0.0.1:8801` over plaintext gRPC and requires no
+/// inbound Worker endpoint. All Flows use pull Workers.
 pub struct ClientOptions {
     server_address: String,
-    worker_target: Option<WorkerTarget>,
     credential: Option<Arc<dyn Credential>>,
 }
 
 impl ClientOptions {
-    /// Creates options with the local Dex server default and no worker target.
+    /// Creates options with the local Dex server default and pull Worker routing.
     pub fn new() -> Self {
         Self {
             server_address: "127.0.0.1:8801".to_string(),
-            worker_target: None,
             credential: None,
         }
     }
@@ -34,15 +32,6 @@ impl ClientOptions {
     /// Sets the plaintext gRPC `host:port` used for every client request.
     pub fn server_address(mut self, value: impl Into<String>) -> Self {
         self.server_address = value.into();
-        self
-    }
-
-    /// Sets the Worker target advertised by newly started Flows.
-    ///
-    /// Use [`WorkerTarget::pull`](crate::WorkerTarget::pull) with a pull Worker. An invalid pull
-    /// combination returns [`crate::SdkError::FlowDefinition`] from [`crate::Client::try_new`].
-    pub fn worker_target(mut self, value: WorkerTarget) -> Self {
-        self.worker_target = Some(value);
         self
     }
 
@@ -58,10 +47,6 @@ impl ClientOptions {
 
     pub(crate) fn server_address_value(&self) -> &str {
         &self.server_address
-    }
-
-    pub(crate) fn worker_target_value(&self) -> Option<&WorkerTarget> {
-        self.worker_target.as_ref()
     }
 
     pub(crate) fn credential_value(&self) -> Option<Arc<dyn Credential>> {

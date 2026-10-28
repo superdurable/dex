@@ -27,14 +27,14 @@ use common::{
 };
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::server::build_router;
-use dex_examples_rust::shared::{WorkerMode, example_pull_worker_options};
+use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
 use dex_sdk::{
     BlobCache, BlobCacheConfig, Client, ClientOptions, SdkResult, Worker, WorkerOptions,
     WorkerTarget,
 };
 use tempfile::TempDir;
-use worker_harness::{await_pull_registration, read_worker_mode};
+use worker_harness::await_pull_registration;
 
 struct FlowSmokeEnvironment {
     _client: Arc<Client>,
@@ -50,8 +50,6 @@ impl FlowSmokeEnvironment {
     fn start() -> Self {
         let server_address =
             std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
-        let worker_port = available_worker_port();
-        let worker_address = format!("127.0.0.1:{worker_port}");
         let cache_directory = tempfile::tempdir().expect("create Rust flow smoke cache directory");
         let cache = Arc::new(
             BlobCache::open(
@@ -61,11 +59,6 @@ impl FlowSmokeEnvironment {
             .expect("open Rust flow smoke cache"),
         );
         let polling_jobs = Arc::new(FakeJobService::default());
-        let worker_mode = read_worker_mode();
-        let worker_target = match worker_mode {
-            WorkerMode::Push => WorkerTarget::new(worker_address.clone()),
-            WorkerMode::Pull => WorkerTarget::pull(),
-        };
         let client = Arc::new(
             Client::try_new(
                 create_example_registry(Arc::clone(&polling_jobs))
@@ -73,19 +66,13 @@ impl FlowSmokeEnvironment {
                 Arc::clone(&cache),
                 ClientOptions::new()
                     .server_address(&server_address)
-                    .worker_target(worker_target.clone()),
+                    .worker_target(WorkerTarget::pull()),
             )
             .expect("create Rust flow smoke Client"),
         );
-        let worker_options = match worker_mode {
-            WorkerMode::Push => WorkerOptions::new()
-                .server_address(&server_address)
-                .bind_address(&worker_address)
-                .worker_target(worker_target),
-            WorkerMode::Pull => WorkerOptions::new()
-                .server_address(&server_address)
-                .pull(example_pull_worker_options()),
-        };
+        let worker_options = WorkerOptions::new()
+            .server_address(&server_address)
+            .pull(example_pull_worker_options());
         let worker = Arc::new(
             Worker::try_new(
                 create_worker_registry(Arc::clone(&client), Arc::clone(&polling_jobs))
@@ -100,13 +87,10 @@ impl FlowSmokeEnvironment {
             .name("dex-rust-flow-smoke-worker".to_string())
             .spawn(move || thread_worker.start())
             .expect("start Rust flow smoke Worker thread");
-        match worker_mode {
-            WorkerMode::Push => await_worker(worker_port, &worker_thread),
-            WorkerMode::Pull => await_pull_registration(&worker),
-        }
+        await_pull_registration(&worker);
         client.health_check().expect("Dex health check");
 
-        let http_port = available_worker_port();
+        let http_port = available_http_port();
         let router = build_router(Arc::clone(&client), polling_jobs);
         let server_thread = thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -533,26 +517,12 @@ fn run_flow_smoke_entry(http_client: &FlowSmokeHttpClient, entry: &FlowSmokeEntr
     assert_flow_smoke_no_unexpected_failures(entry, &result.flow_id, &result.run_id);
 }
 
-fn available_worker_port() -> u16 {
+fn available_http_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .expect("bind ephemeral port")
         .local_addr()
         .expect("read ephemeral port")
         .port()
-}
-
-fn await_worker(worker_port: u16, worker_thread: &JoinHandle<SdkResult<()>>) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if worker_thread.is_finished() {
-            panic!("Worker exited before becoming ready");
-        }
-        if TcpStream::connect(format!("127.0.0.1:{worker_port}")).is_ok() {
-            return;
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-    panic!("Worker did not become ready");
 }
 
 fn await_http(http_port: u16) {

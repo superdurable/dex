@@ -15,7 +15,6 @@
 mod worker_harness;
 
 use std::collections::BTreeMap;
-use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -59,14 +58,14 @@ use dex_examples_rust::products::subscription::{
     CANCEL_SUBSCRIPTION, DESCRIBE_SUBSCRIPTION, SubscriptionFlow, SubscriptionRequest,
     SubscriptionState, UPDATE_SUBSCRIPTION_CHARGE,
 };
-use dex_examples_rust::shared::{WorkerMode, example_pull_worker_options};
+use dex_examples_rust::shared::example_pull_worker_options;
 use dex_sdk::{
     AttributeMatch, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkError,
     SdkResult, StepExecutionId, StopFlowOptions, TimerId, WaitForAttributeOptions,
     WaitForStepCompletionOptions, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
-use worker_harness::{await_pull_registration, read_worker_mode};
+use worker_harness::await_pull_registration;
 
 struct DexEnvironment {
     client: Client,
@@ -84,8 +83,6 @@ impl DexEnvironment {
             create_example_registry(Arc::clone(&polling_jobs)).expect("register Rust examples");
         let server_address =
             std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
-        let worker_port = available_worker_port();
-        let worker_address = format!("127.0.0.1:{worker_port}");
         let cache_directory = tempfile::tempdir().expect("create Rust examples cache directory");
         let cache = Arc::new(
             BlobCache::open(
@@ -94,15 +91,9 @@ impl DexEnvironment {
             )
             .expect("open Rust examples cache"),
         );
-        let worker_mode = read_worker_mode();
-        let worker_options = match worker_mode {
-            WorkerMode::Push => WorkerOptions::new()
-                .server_address(&server_address)
-                .bind_address(&worker_address),
-            WorkerMode::Pull => WorkerOptions::new()
-                .server_address(&server_address)
-                .pull(example_pull_worker_options()),
-        };
+        let worker_options = WorkerOptions::new()
+            .server_address(&server_address)
+            .pull(example_pull_worker_options());
         let worker = Arc::new(
             Worker::try_new(registry.clone(), Arc::clone(&cache), worker_options)
                 .expect("create Rust examples Worker"),
@@ -112,10 +103,7 @@ impl DexEnvironment {
             .name("dex-rust-examples-worker".to_string())
             .spawn(move || thread_worker.start())
             .expect("start Rust examples Worker thread");
-        match worker_mode {
-            WorkerMode::Push => await_worker(worker_port, &worker_thread),
-            WorkerMode::Pull => await_pull_registration(&worker),
-        }
+        await_pull_registration(&worker);
         let client = Client::try_new(
             registry,
             Arc::clone(&cache),
@@ -969,27 +957,4 @@ fn unique_flow_id(prefix: &str) -> String {
         .expect("current time after Unix epoch")
         .as_nanos();
     format!("rust-examples-{prefix}-{}-{timestamp}", std::process::id())
-}
-
-fn available_worker_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .expect("bind an available Worker port")
-        .local_addr()
-        .expect("read available Worker port")
-        .port()
-}
-
-fn await_worker(worker_port: u16, worker_thread: &JoinHandle<SdkResult<()>>) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        assert!(
-            !worker_thread.is_finished(),
-            "Rust examples Worker exited before becoming ready"
-        );
-        if TcpStream::connect(("127.0.0.1", worker_port)).is_ok() {
-            return;
-        }
-        thread::yield_now();
-    }
-    panic!("Rust examples Worker did not become ready");
 }

@@ -8,7 +8,6 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
-use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -16,8 +15,8 @@ use std::time::{Duration, Instant};
 use dex_protocol::dex::{ServerEngine, flow_service_client::FlowServiceClient};
 use dex_sdk::{
     BlobCache, BlobCacheConfig, Client, ClientOptions, Context, Flow, GrpcCode, HandlerResult,
-    PullWorkerOptions, Registry, SdkResult, Step, StepDecision, StepExecutionId, StepList, TimerId,
-    Worker, WorkerOptions,
+    Registry, SdkResult, Step, StepDecision, StepExecutionId, StepList, TimerId, Worker,
+    WorkerOptions,
 };
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
@@ -66,26 +65,14 @@ pub(crate) struct DexDevTestEnvironment {
 
 impl DexDevTestEnvironment {
     pub(crate) fn start(registry: SdkResult<Registry>) -> Self {
-        Self::start_with_mode(registry, is_pull_mode())
-    }
-    pub(crate) fn start_push(registry: SdkResult<Registry>) -> Self {
-        Self::start_with_mode(registry, false)
-    }
-
-    fn start_with_mode(registry: SdkResult<Registry>, is_pull_mode: bool) -> Self {
-        let registry = registry.expect("register integration test Flow");
-        let registry = if is_pull_mode {
-            registry
-                .register(PullWorkerReadyFlow {
-                    step: PullWorkerReadyStep,
-                })
-                .expect("register pull Worker readiness Flow")
-        } else {
-            registry
-        };
+        let registry = registry
+            .expect("register integration test Flow")
+            .register(PullWorkerReadyFlow {
+                step: PullWorkerReadyStep,
+            })
+            .expect("register pull Worker readiness Flow");
         let server_address =
             std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
-        let worker_port = (!is_pull_mode).then(available_port);
         let cache_directory = tempfile::tempdir().expect("create Rust SDK test cache directory");
         let cache = Arc::new(
             BlobCache::open(
@@ -94,17 +81,10 @@ impl DexDevTestEnvironment {
             )
             .expect("open Rust SDK test cache"),
         );
-        let mut worker_options = WorkerOptions::new().server_address(&server_address);
-        if is_pull_mode {
-            worker_options = worker_options.pull(PullWorkerOptions::new());
-        } else {
-            let worker_address = format!("127.0.0.1:{}", worker_port.expect("push Worker port"));
-            worker_options = worker_options.bind_address(worker_address);
-        }
         let worker = Arc::new(Worker::new(
             registry.clone(),
             Arc::clone(&cache),
-            worker_options,
+            WorkerOptions::new().server_address(&server_address),
         ));
         let worker_failure = Arc::new(Mutex::new(None));
         let thread_worker = Arc::clone(&worker);
@@ -117,34 +97,27 @@ impl DexDevTestEnvironment {
                 }
             })
             .expect("start Rust integration Worker thread");
-        if let Some(worker_port) = worker_port {
-            await_worker(worker_port, &worker_failure);
-        }
         let client = Client::new(
             registry,
             Arc::clone(&cache),
-            ClientOptions::new()
-                .server_address(server_address)
-                .worker_target(worker.worker_target().clone()),
+            ClientOptions::new().server_address(server_address),
         );
         client.health_check().expect("Dex server health check");
-        if is_pull_mode {
-            let readiness_flow_id = flow_id("rust-pull-worker-ready");
-            client
-                .start_flow(
-                    &PullWorkerReadyFlow {
-                        step: PullWorkerReadyStep,
-                    },
-                    &readiness_flow_id,
-                    (),
-                )
-                .expect("start pull Worker readiness Flow");
-            let readiness_result: String = client
-                .wait_for_flow_with_timeout(&readiness_flow_id, Duration::from_secs(30))
-                .and_then(|result| result.single_output())
-                .expect("pull Worker became ready");
-            assert_eq!("ready", readiness_result);
-        }
+        let readiness_flow_id = flow_id("rust-pull-worker-ready");
+        client
+            .start_flow(
+                &PullWorkerReadyFlow {
+                    step: PullWorkerReadyStep,
+                },
+                &readiness_flow_id,
+                (),
+            )
+            .expect("start pull Worker readiness Flow");
+        let readiness_result: String = client
+            .wait_for_flow_with_timeout(&readiness_flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output())
+            .expect("pull Worker became ready");
+        assert_eq!("ready", readiness_result);
         Self {
             client,
             worker,
@@ -178,14 +151,6 @@ pub(crate) fn flow_id(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::new_v4())
 }
 
-pub(crate) fn is_pull_mode() -> bool {
-    match std::env::var("DEX_INTEG_WORKER_MODE").as_deref() {
-        Ok("pull") => true,
-        Ok("push") | Err(std::env::VarError::NotPresent) => false,
-        Ok(mode) => panic!("invalid DEX_INTEG_WORKER_MODE: {mode}"),
-        Err(error) => panic!("cannot read DEX_INTEG_WORKER_MODE: {error}"),
-    }
-}
 pub(crate) fn skip_timer_when_pending(
     client: &Client,
     flow_id: &str,
@@ -209,28 +174,6 @@ pub(crate) fn skip_timer_when_pending(
             Err(error) => panic!("timer did not become pending: {error}"),
         }
     }
-}
-
-fn available_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .expect("bind an available Worker port")
-        .local_addr()
-        .expect("read available Worker port")
-        .port()
-}
-
-fn await_worker(worker_port: u16, failure: &Mutex<Option<String>>) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if let Some(failure) = failure.lock().expect("worker failure lock").as_ref() {
-            panic!("Rust integration Worker failed: {failure}");
-        }
-        if TcpStream::connect(("127.0.0.1", worker_port)).is_ok() {
-            return;
-        }
-        thread::yield_now();
-    }
-    panic!("Rust integration Worker did not become ready");
 }
 
 struct PullWorkerReadyFlow {

@@ -17,8 +17,8 @@ use dex_protocol::dex::poll_worker_task_request::Frame as RequestFrame;
 use dex_protocol::dex::poll_worker_task_response::Frame as ResponseFrame;
 use dex_protocol::dex::worker_task_service_client::WorkerTaskServiceClient;
 use dex_protocol::dex::{
-    PollWorkerTask, PollWorkerTaskFrame, PollWorkerTaskPong, PollWorkerTaskRegister,
-    PollWorkerTaskReject, PollWorkerTaskRejectReason, PollWorkerTaskRequest, WorkerErrorResponse,
+    PollWorkerTask, PollWorkerTaskPong, PollWorkerTaskRegister, PollWorkerTaskReject,
+    PollWorkerTaskRejectReason, PollWorkerTaskRequest, WorkerErrorResponse,
 };
 use tokio::sync::{Notify, mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
@@ -33,7 +33,6 @@ use crate::Credential;
 use crate::context::InvocationCancellation;
 use crate::credential::{CredentialChannel, CredentialInterceptor};
 use crate::pull_registration::PullRegistration;
-use crate::worker::worker_error_response;
 use crate::worker_dispatcher::WorkerDispatcher;
 use crate::{PullWorkerOptions, SdkError, SdkResult};
 
@@ -41,11 +40,13 @@ use crate::{PullWorkerOptions, SdkError, SdkResult};
 mod final_frame_lock_tests;
 mod reconnect;
 mod task_deadline;
+mod task_frame_sender;
 mod worker_error;
 mod worker_identity;
 
 use task_deadline::task_deadline;
-use worker_error::worker_error_from_status;
+use task_frame_sender::TaskFrameSender;
+use worker_error::worker_error_response;
 use worker_identity::{generate_app_worker_id, validate_app_worker_id};
 
 const DRAINING: u8 = 1;
@@ -120,9 +121,24 @@ struct ActiveTask {
     task_id: String,
     cancellation: InvocationCancellation,
     transport_cancellation: InvocationCancellation,
+    progress_cancellation: InvocationCancellation,
     cancel_code: Arc<AtomicI32>,
     handler: JoinHandle<()>,
+    final_frame_sent: Arc<Mutex<bool>>,
     deadline: Option<Instant>,
+}
+
+impl ActiveTask {
+    fn cancel(&self, cancellation_code: Code, should_cancel_transport: bool) {
+        let _is_final_frame_sent = self.final_frame_sent.lock().expect("final frame lock");
+        self.cancel_code
+            .store(cancellation_code as i32, Ordering::Release);
+        self.progress_cancellation.cancel();
+        self.cancellation.cancel();
+        if should_cancel_transport {
+            self.transport_cancellation.cancel();
+        }
+    }
 }
 
 struct StreamRegistration {
@@ -501,7 +517,7 @@ impl PullStream {
         let mut supports_unknown_name_rejection = false;
         let mut is_draining = false;
         let mut active: Option<ActiveTask> = None;
-        let final_frame_sent = Arc::new(Mutex::new(false));
+        let mut final_frame_sent = Arc::new(Mutex::new(false));
         let mut keepalive_interval: Option<Interval> = None;
         loop {
             let deadline = active.as_ref().and_then(|task| task.deadline);
@@ -537,22 +553,23 @@ impl PullStream {
                                     } else {
                                         let cancellation = InvocationCancellation::new();
                                         let transport_cancellation = InvocationCancellation::new();
+                                        let progress_cancellation = InvocationCancellation::new();
                                         let cancel_code = Arc::new(AtomicI32::new(0));
                                         let task_id = task.task_id.clone();
                                         let deadline = task.deadline.as_ref().map(task_deadline);
-                                        *final_frame_sent.lock().expect("final frame lock") = false;
+                                        final_frame_sent = Arc::new(Mutex::new(false));
                                         let mut interval = interval_at(Instant::now() + BUSY_PULL_STREAM_KEEPALIVE_INTERVAL, BUSY_PULL_STREAM_KEEPALIVE_INTERVAL);
                                         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
                                         keepalive_interval = Some(interval);
-                                        let handler = tokio::spawn(execute_task(self.dispatcher.clone(), task, cancellation.clone(), transport_cancellation.clone(), Arc::clone(&cancel_code), sender.as_ref().expect("open Worker stream").clone(), Arc::clone(&final_frame_sent)));
-                                        active = Some(ActiveTask { task_id, cancellation, transport_cancellation, cancel_code, handler, deadline });
+                                        let frame_sender = TaskFrameSender::new(task_id.clone(), sender.as_ref().expect("open Worker stream").clone(), transport_cancellation.clone(), progress_cancellation.clone(), Arc::clone(&cancel_code), Arc::clone(&final_frame_sent));
+                                        let handler = tokio::spawn(execute_task(self.dispatcher.clone(), task, cancellation.clone(), Arc::clone(&cancel_code), frame_sender));
+                                        active = Some(ActiveTask { task_id, cancellation, transport_cancellation, progress_cancellation, cancel_code, handler, final_frame_sent: Arc::clone(&final_frame_sent), deadline });
                                         self.shared.notify.notify_one();
                                     }
                                 }
                                 Some(ResponseFrame::CancelTask(cancel)) => {
                                     if let Some(task) = &active && task.task_id == cancel.task_id {
-                                        task.cancel_code.store(Code::Cancelled as i32, Ordering::Release);
-                                        task.cancellation.cancel();
+                                        task.cancel(Code::Cancelled, false);
                                     }
                                 }
                                 Some(ResponseFrame::Ping(_)) => {
@@ -626,8 +643,7 @@ impl PullStream {
                 }
                 () = async { sleep_until(deadline.expect("task deadline")).await }, if deadline.is_some() => {
                     if let Some(task) = &mut active {
-                        task.cancel_code.store(Code::DeadlineExceeded as i32, Ordering::Release);
-                        task.cancellation.cancel();
+                        task.cancel(Code::DeadlineExceeded, false);
                         task.deadline = None;
                     }
                 }
@@ -639,9 +655,7 @@ impl PullStream {
                     if change.is_err() || self.stop.borrow().phase != 0 {
                         is_draining = true;
                         if self.stop.borrow().phase >= FORCED && let Some(task) = &active {
-                            task.cancel_code.store(Code::Cancelled as i32, Ordering::Release);
-                            task.cancellation.cancel();
-                            task.transport_cancellation.cancel();
+                            task.cancel(Code::Cancelled, true);
                         }
                         if active.is_none() { return (was_registered, false, Ok(())); }
                     }
@@ -652,10 +666,7 @@ impl PullStream {
 
     async fn cancel_and_wait(&self, active: &mut Option<ActiveTask>) {
         if let Some(task) = active.take() {
-            task.cancel_code
-                .store(Code::Cancelled as i32, Ordering::Release);
-            task.cancellation.cancel();
-            task.transport_cancellation.cancel();
+            task.cancel(Code::Cancelled, true);
             if let Err(error) = task.handler.await {
                 tracing::error!(%error, "pull Worker handler failed");
             }
@@ -787,64 +798,41 @@ async fn execute_task(
     dispatcher: WorkerDispatcher,
     task: PollWorkerTask,
     cancellation: InvocationCancellation,
-    transport_cancellation: InvocationCancellation,
     cancel_code: Arc<AtomicI32>,
-    sender: mpsc::Sender<PollWorkerTaskRequest>,
-    final_frame_sent: Arc<Mutex<bool>>,
+    frame_sender: TaskFrameSender,
 ) {
-    let task_id = task.task_id;
     match task.request {
         Some(TaskRequest::WaitFor(request)) => {
             let mut output = dispatcher
                 .invoke_wait_for_with_cancellation(request, cancellation.clone())
-                .into_stream(crate::worker::worker_status);
+                .into_stream();
             while let Some(result) = output.next().await {
                 let frame = match result {
                     Ok(value) => Output::WaitFor(value),
-                    Err(status) => Output::WorkerError(with_cancel_status(
-                        worker_error_from_status(status),
+                    Err(error) => Output::WorkerError(with_cancel_status(
+                        worker_error_response(error),
                         &cancel_code,
                     )),
                 };
-                if send_task_frame(
-                    &sender,
-                    &task_id,
-                    frame,
-                    &transport_cancellation,
-                    &final_frame_sent,
-                )
-                .await
-                .is_err()
-                {
+                if frame_sender.send(frame).await.is_err() {
                     cancellation.cancel();
-                    transport_cancellation.cancel();
                 }
             }
         }
         Some(TaskRequest::Execute(request)) => {
             let mut output = dispatcher
                 .invoke_execute_with_cancellation(request, cancellation.clone())
-                .into_stream(crate::worker::worker_status);
+                .into_stream();
             while let Some(result) = output.next().await {
                 let frame = match result {
                     Ok(value) => Output::Execute(value),
-                    Err(status) => Output::WorkerError(with_cancel_status(
-                        worker_error_from_status(status),
+                    Err(error) => Output::WorkerError(with_cancel_status(
+                        worker_error_response(error),
                         &cancel_code,
                     )),
                 };
-                if send_task_frame(
-                    &sender,
-                    &task_id,
-                    frame,
-                    &transport_cancellation,
-                    &final_frame_sent,
-                )
-                .await
-                .is_err()
-                {
+                if frame_sender.send(frame).await.is_err() {
                     cancellation.cancel();
-                    transport_cancellation.cancel();
                 }
             }
         }
@@ -859,15 +847,7 @@ async fn execute_task(
                     &cancel_code,
                 )),
             };
-            if let Err(error) = send_task_frame(
-                &sender,
-                &task_id,
-                frame,
-                &transport_cancellation,
-                &final_frame_sent,
-            )
-            .await
-            {
+            if let Err(error) = frame_sender.send(frame).await {
                 tracing::warn!(%error, "send Worker RPC result");
             }
         }
@@ -877,15 +857,7 @@ async fn execute_task(
                 grpc_status: Code::InvalidArgument as i32,
                 ..Default::default()
             };
-            if let Err(error) = send_task_frame(
-                &sender,
-                &task_id,
-                Output::WorkerError(error),
-                &transport_cancellation,
-                &final_frame_sent,
-            )
-            .await
-            {
+            if let Err(error) = frame_sender.send(Output::WorkerError(error)).await {
                 tracing::warn!(%error, "send Worker task error");
             }
         }
@@ -948,33 +920,6 @@ fn with_cancel_status(
     error
 }
 
-async fn send_task_frame(
-    sender: &mpsc::Sender<PollWorkerTaskRequest>,
-    task_id: &str,
-    output: Output,
-    cancellation: &InvocationCancellation,
-    final_frame_sent: &Mutex<bool>,
-) -> Result<(), Status> {
-    let is_final_frame = matches!(&output, Output::Rpc(_) | Output::WorkerError(_))
-        || matches!(&output, Output::WaitFor(value) if matches!(value.output.as_ref(), Some(dex_protocol::dex::invoke_wait_for_method_output::Output::Result(_))))
-        || matches!(&output, Output::Execute(value) if matches!(value.output.as_ref(), Some(dex_protocol::dex::invoke_execute_method_output::Output::Result(_))));
-    let request = PollWorkerTaskRequest {
-        frame: Some(RequestFrame::TaskFrame(PollWorkerTaskFrame {
-            task_id: task_id.to_string(),
-            output: Some(output),
-        })),
-    };
-    let permit = tokio::select! {
-        biased;
-        result = sender.reserve() => result.map_err(|error| Status::unavailable(format!("Worker task stream cannot send task frame: {error}")))?,
-        () = cancellation.cancelled() => return Err(Status::cancelled("Worker task was cancelled")),
-    };
-    // Set the flag before enqueueing, so a later keepalive Pong never follows the final frame.
-    *final_frame_sent.lock().expect("final frame lock") |= is_final_frame;
-    permit.send(request);
-    Ok(())
-}
-
 fn is_permanent(code: Code) -> bool {
     matches!(
         code,
@@ -998,7 +943,7 @@ mod tests {
     use crate::value_hydrator::ValueHydrator;
     use crate::{
         BlobCache, BlobCacheConfig, Context, FileCredential, Flow, HandlerError, HandlerResult,
-        Registry, Rpc, RpcList, RpcResult, Worker, WorkerOptions, WorkerTarget,
+        Registry, Rpc, RpcList, RpcResult, Worker, WorkerOptions,
     };
     use dex_protocol::dex::flow_service_client::FlowServiceClient;
     use dex_protocol::dex::worker_task_service_server::{
@@ -1006,7 +951,7 @@ mod tests {
     };
     use dex_protocol::dex::{
         Context as ProtoContext, InvokeWaitForMethodRequest, InvokeWorkerRpcRequest,
-        PollWorkerTaskCancelTask, PollWorkerTaskPing, PollWorkerTaskReconnect,
+        PollWorkerTaskCancelTask, PollWorkerTaskFrame, PollWorkerTaskPing, PollWorkerTaskReconnect,
         PollWorkerTaskRegistered, PollWorkerTaskResponse,
     };
     use prost::Message;
@@ -1021,6 +966,7 @@ mod tests {
 
     mod concurrent_admission;
     mod options;
+    mod output_lifecycle;
     mod reserve_pressure;
 
     struct ReserveCapacityFlow;
@@ -1462,7 +1408,7 @@ mod tests {
     }
 
     #[test]
-    fn registration_wait_reports_start_failure_and_non_pull_worker() {
+    fn registration_wait_reports_start_failure() {
         let (cache, _directory) = test_cache();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1483,12 +1429,6 @@ mod tests {
             .expect_err("wait failed");
         assert_eq!(failure.to_string(), waiting.to_string());
         worker.stop();
-        let listener = Worker::try_new(Registry::new(), cache, WorkerOptions::new())
-            .expect("listening Worker");
-        assert!(runtime.block_on(listener.wait_pull_registered()).is_err());
-        assert!(!listener.pull_registration_state().is_ready);
-        assert!(listener.pull_registration_state().queues.is_empty());
-        listener.stop();
     }
 
     struct RegisteredFlow;
@@ -1745,22 +1685,17 @@ mod tests {
     }
 
     #[test]
-    fn maps_push_worker_failure_fields_into_pull_frame() {
-        let status = crate::worker::worker_status(HandlerError::retry_after(
+    fn maps_handler_failure_fields_into_pull_frame() {
+        let error = worker_error_response(HandlerError::retry_after(
             7,
             "PaymentDeclined",
             "card declined",
         ));
-        let error = worker_error_from_status(status);
         assert_eq!(Code::Unknown as i32, error.grpc_status);
         assert_eq!("card declined", error.detail);
         assert_eq!("PaymentDeclined", error.error_type);
         assert_eq!(7, error.retry_after_seconds);
-        assert!(
-            error
-                .stack_trace
-                .contains("maps_push_worker_failure_fields")
-        );
+        assert!(error.stack_trace.contains("maps_handler_failure_fields"));
         let cancelled_reason = AtomicI32::new(Code::Cancelled as i32);
         let cancelled_error = with_cancel_status(error.clone(), &cancelled_reason);
         assert_eq!(Code::Cancelled as i32, cancelled_error.grpc_status);
@@ -1776,8 +1711,6 @@ mod tests {
             Code::DeadlineExceeded as i32,
             with_cancel_status(error, &deadline_reason).grpc_status
         );
-        let cancelled = worker_error_from_status(Status::cancelled("cancelled"));
-        assert_eq!(Code::Cancelled as i32, cancelled.grpc_status);
     }
 
     #[test]
@@ -1818,13 +1751,15 @@ mod tests {
         cancellation.cancel();
         let result = timeout(
             Duration::from_secs(1),
-            send_task_frame(
-                &sender,
-                "task-1",
-                Output::WorkerError(WorkerErrorResponse::default()),
-                &cancellation,
-                &Mutex::new(false),
-            ),
+            TaskFrameSender::new(
+                "task-1".to_string(),
+                sender,
+                cancellation,
+                InvocationCancellation::new(),
+                Arc::new(AtomicI32::new(0)),
+                Arc::new(Mutex::new(false)),
+            )
+            .send(Output::WorkerError(WorkerErrorResponse::default())),
         )
         .await
         .expect("send stopped");

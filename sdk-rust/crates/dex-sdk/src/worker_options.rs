@@ -11,80 +11,6 @@ use std::time::Duration;
 
 use crate::Credential;
 
-#[derive(Clone, Debug)]
-/// Selects how Dex dispatches work to an application Worker.
-///
-/// Use [`Self::new`] for a listening Worker or [`Self::pull`] for outbound polling. The address
-/// is advertised, not bound locally. Headless targets must be direct `host:port` addresses;
-/// non-headless targets may use resolver-supported gRPC target syntax. A pull target has an empty
-/// address and is not headless. Invalid combinations return [`crate::SdkError::FlowDefinition`]
-/// when a Client or Worker is constructed or a Flow configuration is sent.
-pub struct WorkerTarget {
-    address: String,
-    headless: bool,
-    pull: bool,
-}
-
-impl WorkerTarget {
-    /// Creates a non-headless target at `address`.
-    pub fn new(address: impl Into<String>) -> Self {
-        Self {
-            address: address.into(),
-            headless: false,
-            pull: false,
-        }
-    }
-
-    /// Selects server task queues for a pull Worker.
-    ///
-    /// Advertise this target through [`crate::ClientOptions::worker_target`] or a
-    /// [`crate::FlowConfig`] override when the Worker uses [`WorkerOptions::pull`].
-    /// A pull target has no address and cannot be headless.
-    ///
-    /// ```
-    /// use dex_sdk::WorkerTarget;
-    /// let target = WorkerTarget::pull();
-    /// assert!(target.is_pull());
-    /// ```
-    pub fn pull() -> Self {
-        Self {
-            address: String::new(),
-            headless: false,
-            pull: true,
-        }
-    }
-
-    /// Enables direct headless routing when `value` is `true`.
-    pub fn headless(mut self, value: bool) -> Self {
-        self.headless = value;
-        self
-    }
-
-    /// Returns the advertised gRPC target address, or an empty string for pull mode.
-    pub fn address(&self) -> &str {
-        &self.address
-    }
-
-    /// Returns whether Dex should bypass service discovery; pull mode always returns false.
-    pub fn is_headless(&self) -> bool {
-        self.headless
-    }
-
-    /// Returns whether Dex dispatches through the server's Worker task queues.
-    pub fn is_pull(&self) -> bool {
-        self.pull
-    }
-
-    pub(crate) fn validate(&self) -> Result<(), crate::SdkError> {
-        if self.pull && (!self.address.is_empty() || self.headless) {
-            return Err(crate::SdkError::FlowDefinition {
-                message: "pull mode cannot be combined with address or headless mode".to_string(),
-            });
-        }
-        Ok(())
-    }
-}
-
 /// Configures outbound polling for a Worker.
 ///
 /// Pass this to [`WorkerOptions::pull`]. The Worker polls its sticky queue and each registered
@@ -104,7 +30,7 @@ impl WorkerTarget {
 /// let worker = Worker::try_new(registry.clone(), cache.clone(),
 ///     WorkerOptions::new().pull(PullWorkerOptions::new().max_concurrent_tasks(8)))?;
 /// let client = Client::try_new(registry, cache,
-///     ClientOptions::new().worker_target(worker.worker_target().clone()))?;
+///     ClientOptions::new())?;
 /// // Run worker.start() on a dedicated thread; call worker.stop() during shutdown.
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -211,16 +137,13 @@ impl PullWorkerOptions {
 }
 
 #[derive(Clone, Debug)]
-/// Configures a listening or outbound-polling [`crate::Worker`] and its Dex connection.
+/// Configures a pull [`crate::Worker`] and its outbound Dex connection.
 ///
-/// Defaults bind WorkerService on `0.0.0.0:8803`, connect to Dex at `127.0.0.1:8801`, derive an
-/// advertised target from the listener, and allow two minutes for Attribute-index synchronization.
-/// Set [`Self::pull`] to poll outbound without a listener.
+/// Defaults connect to Dex at `127.0.0.1:8801`, use [`PullWorkerOptions::default`], and allow
+/// two minutes for Attribute-index synchronization. Workers need only an outbound connection.
 pub struct WorkerOptions {
-    bind_address: Option<String>,
     server_address: String,
-    worker_target: Option<WorkerTarget>,
-    pull: Option<PullWorkerOptions>,
+    pull: PullWorkerOptions,
     attribute_index_sync_timeout: Duration,
     credential: Option<Arc<dyn Credential>>,
 }
@@ -229,19 +152,11 @@ impl WorkerOptions {
     /// Creates Worker options with local development defaults.
     pub fn new() -> Self {
         Self {
-            bind_address: None,
             server_address: "127.0.0.1:8801".to_string(),
-            worker_target: None,
-            pull: None,
+            pull: PullWorkerOptions::default(),
             attribute_index_sync_timeout: Duration::from_secs(120),
             credential: None,
         }
-    }
-
-    /// Sets the local plaintext WorkerService listener address.
-    pub fn bind_address(mut self, value: impl Into<String>) -> Self {
-        self.bind_address = Some(value.into());
-        self
     }
 
     /// Sets the plaintext Dex FlowService `host:port` used by the Worker.
@@ -260,20 +175,14 @@ impl WorkerOptions {
         self
     }
 
-    /// Overrides the WorkerService target advertised to Dex.
-    pub fn worker_target(mut self, value: WorkerTarget) -> Self {
-        self.worker_target = Some(value);
-        self
-    }
-
-    /// Enables outbound polling without binding a WorkerService listener.
+    /// Configures pull capacity, queue registration, and graceful shutdown.
     ///
-    /// The returned Worker advertises [`WorkerTarget::pull`]. Supplying a bind address or
-    /// advertised target with pull mode causes [`crate::Worker::try_new`] to return
-    /// [`crate::SdkError::FlowDefinition`].
-    /// See [`PullWorkerOptions`] for the defaults and a complete Worker and Client example.
+    /// Every Worker uses pull; this builder overrides [`PullWorkerOptions::default`].
+    /// Takes ownership of `value` and returns these Worker options with its settings applied.
+    /// [`crate::Worker::try_new`] validates capacity, identity, and timeout settings.
+    /// See [`PullWorkerOptions`] for defaults and a complete Worker and Client example.
     pub fn pull(mut self, value: PullWorkerOptions) -> Self {
-        self.pull = Some(value);
+        self.pull = value;
         self
     }
 
@@ -286,24 +195,12 @@ impl WorkerOptions {
         self
     }
 
-    pub(crate) fn bind_address_value(&self) -> &str {
-        self.bind_address.as_deref().unwrap_or("0.0.0.0:8803")
-    }
-
-    pub(crate) fn has_bind_address(&self) -> bool {
-        self.bind_address.is_some()
-    }
-
-    pub(crate) fn pull_value(&self) -> Option<&PullWorkerOptions> {
-        self.pull.as_ref()
+    pub(crate) fn pull_value(&self) -> &PullWorkerOptions {
+        &self.pull
     }
 
     pub(crate) fn server_address_value(&self) -> &str {
         &self.server_address
-    }
-
-    pub(crate) fn worker_target_value(&self) -> Option<&WorkerTarget> {
-        self.worker_target.as_ref()
     }
 
     pub(crate) fn attribute_index_sync_timeout_value(&self) -> Duration {

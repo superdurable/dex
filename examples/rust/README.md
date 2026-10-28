@@ -5,7 +5,7 @@
 Runnable Rust examples for Dex Flows, Steps, and application patterns.
 
 This application mirrors the examples shared by the Java, Python, and TypeScript
-applications. It intentionally depends on the published `dex-sdk = "=1.2.1"`
+applications. It intentionally depends on the published `dex-sdk = "=1.15.0"`
 crate without a repository path override.
 
 RPC and mutation calls can return `SdkError::FlowNotActiveOrNotFound` when the Flow is missing
@@ -49,14 +49,14 @@ Use a fresh local store and a new port after changing an example's index schema.
 Application searches must constrain `FlowType` and parenthesize caller filters.
 The sample search endpoints enforce their Flow type.
 
-The Worker connects to `127.0.0.1:8801`, listens on `127.0.0.1:8803`, serves HTTP
-on `127.0.0.1:8080`, and stores large payload blobs under
-`/tmp/dex-rust-examples-blobs`. Override these with `DEX_SERVER_ADDRESS`,
-`DEX_WORKER_BIND_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, and `DEX_BLOB_CACHE_DIR`.
+The pull Worker connects to `127.0.0.1:8801` and needs only an outbound
+connection to the Dex Server. The application serves HTTP on `127.0.0.1:8080`
+and stores large payload blobs under `/tmp/dex-rust-examples-blobs`. Override
+these with `DEX_SERVER_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, and
+`DEX_BLOB_CACHE_DIR`.
 
-Set `DEX_EXAMPLES_WORKER_MODE` to `push` (default) to listen on the Worker bind
-address. Set it to `pull` to connect to Dex as a pull Worker. Pull mode ignores
-the bind address and starts Flows with the pull Worker target.
+The examples explicitly configure pull routing for their published SDK version.
+The next minor SDK release removes target selectors and defaults to pull.
 
 ## Products
 
@@ -122,9 +122,8 @@ The integration script starts the current checkout's `dexcli dev`, then starts
 and verifies Money Transfer, Engagement, Microservice, Subscription,
 Deal DSL, and Failure Recovery Flows through the published Rust SDK.
 
-Set `DEX_EXAMPLES_WORKER_MODE=pull` to run the same tests with pull Workers.
-Set `DEX_INTEG_ENGINE=zd` to run them against server-zd. That mode defaults to
-pull Workers. Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
+All tests use pull Workers. Set `DEX_INTEG_ENGINE=zd` to run them against
+server-zd. Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running
 after E2E tests for manual HTTP exploration.

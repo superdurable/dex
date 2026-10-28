@@ -37,7 +37,7 @@ fn test_wait_for_origin_stack_trace() {
             "expected construction-site frame, got {stack_trace}"
         );
         assert!(
-            !stack_trace.contains("worker_status"),
+            !stack_trace.contains("worker_error_response"),
             "expected construction-site stack, not wrap-site: {stack_trace}"
         );
     }

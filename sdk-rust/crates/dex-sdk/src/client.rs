@@ -44,7 +44,7 @@ use crate::{
     Registry, RetryPolicy, Rpc, RpcInvokeOptions, SdkError, SdkResult, SearchFlowEntry,
     SearchFlowsOptions, SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability,
     StepExecutionId, StopFlowOptions, Stream, StreamMessage, StreamMessagesPage, TimeTravelOptions,
-    TimerId, Value, WaitForAttributeOptions, WaitForStepCompletionOptions, WorkerTarget,
+    TimerId, Value, WaitForAttributeOptions, WaitForStepCompletionOptions,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -71,7 +71,6 @@ pub struct Client {
     registry: Registry,
     service: FlowServiceClient<CredentialChannel>,
     hydrator: ValueHydrator,
-    options: ClientOptions,
     negotiated_protocol_version: NegotiatedServerProtocolVersion,
 }
 
@@ -92,17 +91,13 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns [`SdkError::Service`] if runtime or endpoint initialization fails, or
-    /// [`SdkError::FlowDefinition`] for an invalid Worker target. The transport connects lazily,
+    /// Returns [`SdkError::Service`] if runtime or endpoint initialization fails. The transport connects lazily,
     /// so server availability is checked by the first operation.
     pub fn try_new(
         registry: Registry,
         blob_cache: Arc<BlobCache>,
         options: ClientOptions,
     ) -> SdkResult<Self> {
-        if let Some(target) = options.worker_target_value() {
-            target.validate()?;
-        }
         let runtime = Runtime::new().map_err(service_error)?;
         let endpoint = Endpoint::from_shared(endpoint_address(options.server_address_value()))
             .map_err(service_error)?;
@@ -119,12 +114,11 @@ impl Client {
             registry,
             service,
             hydrator,
-            options,
             negotiated_protocol_version: NegotiatedServerProtocolVersion::default(),
         })
     }
 
-    /// Starts a registered Flow with server-default options.
+    /// Starts a registered Flow on pull Workers with other options using server defaults.
     ///
     /// Returns the server-assigned run ID. `input` is encoded for the registered starting Step.
     ///
@@ -143,6 +137,7 @@ impl Client {
 
     /// Starts a registered Flow with explicit lifecycle, retry, and initial persistence options.
     ///
+    /// Always selects pull Workers, overriding any server-configured push target.
     /// Returns the server-assigned run ID. A missing request ID is replaced with a generated UUID.
     /// When the options contain an initial value for a hard-delete Attribute, the Client first
     /// requests the Server protocol version once and reuses the result for later calls.
@@ -859,7 +854,8 @@ impl Client {
 
     /// Replaces mutable runtime configuration fields on an active Flow.
     ///
-    /// Unset fields retain server-defined behavior.
+    /// Leaves the Worker target unset, preserving the active Flow target.
+    /// Other unset fields also retain the active Flow setting.
     pub fn update_flow_config(&self, flow_id: &str, config: FlowConfig) -> SdkResult<()> {
         let flow_config = self.map_flow_config(Some(&config))?;
         self.call_empty(
@@ -1141,12 +1137,7 @@ impl Client {
             self.require_hard_delete_attribute_support("start_flow", &write.key)?;
         }
         let config = options.config_override.as_ref();
-        let flow_config_override =
-            if config.is_some() || self.options.worker_target_value().is_some() {
-                Some(self.map_flow_config(config)?)
-            } else {
-                None
-            };
+        let flow_config_override = Some(map_pull_flow_config(config)?);
         #[expect(
             clippy::needless_update,
             reason = "The test preserves forward-compatible construction of SDK options."
@@ -1213,7 +1204,7 @@ impl Client {
     }
 
     fn map_flow_config(&self, config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {
-        map_flow_config(config, self.options.worker_target_value())
+        map_flow_config(config)
     }
 
     fn call_empty<Response, Future, Call>(
@@ -1235,16 +1226,18 @@ impl Client {
     }
 }
 
-pub(crate) fn map_flow_config(
-    config: Option<&FlowConfig>,
-    default_target: Option<&WorkerTarget>,
-) -> SdkResult<ProtoFlowConfig> {
-    let target = config
-        .and_then(|config| config.worker_target.as_ref())
-        .or(default_target);
-    if let Some(target) = target {
-        target.validate()?;
-    }
+pub(crate) fn map_pull_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {
+    Ok(ProtoFlowConfig {
+        worker_target: Some(ProtoWorkerTarget {
+            address: String::new(),
+            is_headless_address: false,
+            is_pull_mode: true,
+        }),
+        ..map_flow_config(config)?
+    })
+}
+
+pub(crate) fn map_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {
     Ok(ProtoFlowConfig {
         active_step_search_mode: config
             .and_then(|config| config.active_step_search_mode)
@@ -1274,7 +1267,7 @@ pub(crate) fn map_flow_config(
                     StepDurability::Async => ProtoStepDurability::Async,
                 }) as i32
             }),
-        worker_target: target.map(map_worker_target),
+        worker_target: None,
         attribute_store_names: config.and_then(|config| {
             config
                 .attribute_store_names
@@ -1294,14 +1287,6 @@ pub(crate) fn map_flow_retry(retry: RetryPolicy) -> SdkResult<FlowRetryPolicy> {
         maximum_attempts: i32::try_from(retry.maximum_attempts.unwrap_or_default())
             .map_err(|_| invalid("maximum attempts exceed int32"))?,
     })
-}
-
-fn map_worker_target(target: &WorkerTarget) -> ProtoWorkerTarget {
-    ProtoWorkerTarget {
-        address: target.address().to_string(),
-        is_headless_address: target.is_headless(),
-        is_pull_mode: target.is_pull(),
-    }
 }
 
 pub(crate) fn map_flow_status(status: i32) -> SdkResult<FlowStatus> {
@@ -1512,18 +1497,14 @@ mod tests {
 
     #[test]
     fn attribute_store_names_preserve_protocol_presence() {
-        let absent = map_flow_config(Some(&FlowConfig::new()), None).expect("map absent config");
-        let named = map_flow_config(
-            Some(
-                &FlowConfig::new()
-                    .attribute_store_names(vec!["profiles".to_owned(), "audit".to_owned()]),
-            ),
-            None,
-        )
+        let absent = map_flow_config(Some(&FlowConfig::new())).expect("map absent config");
+        let named = map_flow_config(Some(
+            &FlowConfig::new()
+                .attribute_store_names(vec!["profiles".to_owned(), "audit".to_owned()]),
+        ))
         .expect("map named config");
-        let disabled =
-            map_flow_config(Some(&FlowConfig::new().attribute_store_names(vec![])), None)
-                .expect("map disabled config");
+        let disabled = map_flow_config(Some(&FlowConfig::new().attribute_store_names(vec![])))
+            .expect("map disabled config");
 
         assert_eq!(absent.attribute_store_names, None);
         assert_eq!(
@@ -1780,3 +1761,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "client_pull_routing_tests.rs"]
+mod pull_routing_tests;
