@@ -14,7 +14,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"sync"
 	"testing"
@@ -33,10 +32,6 @@ import (
 )
 
 var integClient *dex.Client
-
-var integWorkerTargetAddress string
-
-var isPullWorkerMode bool
 
 var integrationServerEngine = sync.OnceValues(fetchIntegrationServerEngine)
 
@@ -73,16 +68,6 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 		return nil, errors.Join(err, os.RemoveAll(cacheDir))
 	}
 	workerOptions := dex.WorkerOptions{FlowServiceAddress: flowServiceAddress()}
-	if isPullWorkerMode {
-		workerOptions.Pull = &dex.PullWorkerOptions{}
-	} else {
-		workerPort, portErr := integrationWorkerPort()
-		if portErr != nil {
-			return nil, errors.Join(portErr, cache.Close(), os.RemoveAll(cacheDir))
-		}
-		workerOptions.BindAddress = net.JoinHostPort("127.0.0.1", workerPort)
-		workerOptions.WorkerTarget = dex.WorkerTarget{Address: net.JoinHostPort(workerHost(), workerPort)}
-	}
 	worker, err := dex.NewWorker(registry, cache, workerOptions)
 	if err != nil {
 		return nil, errors.Join(err, cache.Close(), os.RemoveAll(cacheDir))
@@ -93,7 +78,6 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	}()
 	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
 		FlowServiceAddress: flowServiceAddress(),
-		WorkerTarget:       worker.WorkerTarget(),
 	})
 	if err != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -107,10 +91,8 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 		worker:       worker,
 		workerResult: workerResult,
 	}
-	if !isPullWorkerMode {
-		if err := environment.waitUntilReady(); err != nil {
-			return nil, errors.Join(err, environment.Close())
-		}
+	if err := environment.waitUntilReady(); err != nil {
+		return nil, errors.Join(err, environment.Close())
 	}
 	return environment, nil
 }
@@ -118,26 +100,7 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 func (environment *integrationEnvironment) waitUntilReady() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		connection, err := net.DialTimeout(
-			"tcp",
-			environment.worker.WorkerTarget().Address,
-			100*time.Millisecond,
-		)
-		if err == nil {
-			return connection.Close()
-		}
-		select {
-		case workerErr := <-environment.workerResult:
-			environment.workerResult <- workerErr
-			return fmt.Errorf("start integration Worker: %w", workerErr)
-		case <-ticker.C:
-		case <-ctx.Done():
-			return fmt.Errorf("wait for integration Worker: %w", ctx.Err())
-		}
-	}
+	return environment.worker.WaitPullRegistered(ctx)
 }
 
 func (environment *integrationEnvironment) Close() error {
@@ -152,19 +115,12 @@ func (environment *integrationEnvironment) Close() error {
 }
 
 func TestMain(tests *testing.M) {
-	workerMode := os.Getenv("DEX_INTEG_WORKER_MODE")
-	if workerMode != "" && workerMode != "push" && workerMode != "pull" {
-		fmt.Fprintf(os.Stderr, "invalid DEX_INTEG_WORKER_MODE %q: expected push or pull\n", workerMode)
-		os.Exit(2)
-	}
-	isPullWorkerMode = workerMode == "pull"
 	environment, err := newIntegrationEnvironment()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	integClient = environment.client
-	integWorkerTargetAddress = environment.worker.WorkerTarget().Address
 	exitCode := tests.Run()
 	if err := environment.Close(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -289,35 +245,9 @@ func waitForUncompletedFlow(
 	return result
 }
 
-func availablePort() (string, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", err
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	if err := listener.Close(); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%d", port), nil
-}
-
 func flowServiceAddress() string {
 	if address := os.Getenv("DEX_FLOW_SERVICE_ADDRESS"); address != "" {
 		return address
 	}
 	return "127.0.0.1:8801"
-}
-
-func workerHost() string {
-	if host := os.Getenv("DEX_WORKER_HOST"); host != "" {
-		return host
-	}
-	return "127.0.0.1"
-}
-
-func integrationWorkerPort() (string, error) {
-	if port := os.Getenv("DEX_WORKER_PORT"); port != "" {
-		return port, nil
-	}
-	return availablePort()
 }

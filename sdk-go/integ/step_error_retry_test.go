@@ -104,13 +104,6 @@ func TestStepErrorBeforeFirstCommandUsesConfiguredAttempts(t *testing.T) {
 			ctx := integrationContext(t)
 			flowID := newFlowID(t, "step-error-retry-"+kind)
 			options := dex.StartFlowOptions{}
-			if !isPullWorkerMode {
-				// A headless target enables endpoint failover, which must not repeat handler errors.
-				options.ConfigOverride = &dex.FlowConfig{WorkerTarget: &dex.WorkerTarget{
-					Address:  integWorkerTargetAddress,
-					Headless: true,
-				}}
-			}
 			started := time.Now()
 			_, err := integClient.StartFlow(ctx, stepErrorRetryFlow{}, flowID, kind, options)
 			require.NoError(t, err)

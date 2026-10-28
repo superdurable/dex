@@ -478,12 +478,7 @@ func mapFlowRetryPolicy(
 
 func mapFlowConfig(config *FlowConfig) (*dexpb.FlowConfig, error) {
 	if config == nil {
-		return nil, nil
-	}
-	if config.WorkerTarget != nil {
-		if err := validateWorkerTarget(*config.WorkerTarget); err != nil {
-			return nil, fmt.Errorf("dex: invalid Worker target: %w", err)
-		}
+		config = &FlowConfig{}
 	}
 	searchMode, err := mapOptionalActiveStepSearchMode(config.ActiveStepSearchMode)
 	if err != nil {
@@ -502,20 +497,9 @@ func mapFlowConfig(config *FlowConfig) (*dexpb.FlowConfig, error) {
 		ContinueAsNewThreshold:       config.ContinueAsNewThreshold,
 		ContinueAsNewPageSizeInBytes: config.ContinueAsNewPageSizeBytes,
 		StepDurability:               durability,
-		WorkerTarget:                 mapWorkerTarget(config.WorkerTarget),
+		WorkerTarget:                 &dexpb.WorkerTarget{IsPullMode: true},
 		AttributeStoreNames:          attributeStoreNames,
 	}, nil
-}
-
-func mapWorkerTarget(target *WorkerTarget) *dexpb.WorkerTarget {
-	if target == nil {
-		return nil
-	}
-	return &dexpb.WorkerTarget{
-		Address:           target.Address,
-		IsHeadlessAddress: target.Headless,
-		IsPullMode:        target.Pull,
-	}
 }
 
 func mapWait(wait *Wait) (*dexpb.WaitingCondition, error) {

@@ -186,7 +186,7 @@ The Go SDK is being rewritten around the current Dex `Flow`, `Step`,
 `Attribute`, `Channel`, `Stream`, `WaitFor`, and `Execute` contracts.
 
 The rewrite provides the public model, value/protobuf mapping, immutable
-registration, application-hosted WorkerService, and typed FlowService Client.
+registration, application-hosted pull Workers, and typed FlowService Client.
 
 ## License
 
@@ -492,10 +492,10 @@ same registered names.
 Registration is assembled once from each Flow's final durable type, steps,
 persistence schema, and exported RPC methods. It rejects empty or duplicate
 names, multiple starting steps, invalid indexes, undeclared locks, and
-incompatible execute-failure targets before WorkerService starts.
+incompatible execute-failure targets before the Worker starts.
 
 `Worker.Start` aggregates every registered Indexed Attribute and synchronizes
-the physical index names with Dex Server before opening its listener. Existing
+the physical index names with Dex Server before opening task streams. Existing
 indexes return immediately; a synchronization failure or the default two-minute
 deadline fails startup. Indexed AttributeMaps must declare a fixed index key.
 
@@ -607,16 +607,14 @@ if err != nil {
 }
 
 worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
-	BindAddress: ":8803",
-	Logger:      logger,
+	Logger: logger,
 })
 if err != nil {
 	return err
 }
 
 client, err := dex.NewClient(registry, cache, dex.ClientOptions{
-	WorkerTarget: worker.WorkerTarget(),
-	Logger:       logger,
+	Logger: logger,
 })
 if err != nil {
 	return err
@@ -628,19 +626,12 @@ if err := worker.Start(); err != nil {
 }
 ```
 
-`BindAddress` is the local plaintext listener. When
-`WorkerOptions.WorkerTarget.Address` is empty, the advertised target derives
-from it; wildcard hosts become `localhost`. Set an explicit target when Dex
-reaches the Worker through different DNS, a load balancer, or a headless
-address. `WorkerTarget()` returns the resolved value for
-`FlowConfig.WorkerTarget`.
-
-For outbound pull mode, set `WorkerOptions.Pull` and connect to the Dex server
-through `FlowServiceAddress`. The Worker opens task streams and does not listen.
-`Credential` also authenticates these streams. Advertise `worker.WorkerTarget()`
-through `ClientOptions.WorkerTarget`, or set
-`StartFlowOptions.ConfigOverride.WorkerTarget` for one Flow. A SubFlow can select
-pull mode through `SubFlowOptions.ConfigOverride.WorkerTarget`.
+Workers receive tasks over outbound pull streams to `FlowServiceAddress`.
+They need only an outbound connection to the Dex Server. Every Client start and
+SubFlow uses pull routing automatically; no Worker target is configured.
+`Credential` authenticates the startup calls, task streams, and blob hydration.
+Set `WorkerOptions.Pull` to tune capacity, identity, registration, or shutdown.
+Nil uses the same pull defaults.
 
 ```go
 worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
@@ -656,7 +647,6 @@ if err != nil {
 }
 client, err := dex.NewClient(registry, cache, dex.ClientOptions{
 	FlowServiceAddress: "dex.example:8801",
-	WorkerTarget: worker.WorkerTarget(),
 })
 if err != nil {
 	return err
@@ -705,16 +695,14 @@ another Step attempt. The rejecting Worker is excluded from that dispatch.
 If no capable Worker accepts before the dispatch wait ends, the Step follows
 its failure and retry policy; an RPC caller receives the named error. This
 reassignment requires a Dex Server that supports it. Against older Servers, the
-Worker returns the not-registered error as before. Push mode keeps its existing
-missing-name error behavior.
+Worker returns the not-registered error as before.
 
 The generated Worker ID uses the first nonempty value from `DEX_WORKER_INSTANCE`, `POD_NAME`,
 `HOSTNAME`, or the system hostname, plus a random suffix. An `AppWorkerID`
 override must identify one Worker process uniquely and change when that process
 restarts. It must contain 1-63 ASCII letters, digits, dots, underscores, or
-hyphens, and must not equal a registered Flow type. Pull and an advertised
-address cannot be combined. The Worker reconnects after stream failures and
-drains in-flight tasks before a server-directed reconnect. It logs permanent
+hyphens, and must not equal a registered Flow type. The Worker reconnects after
+stream failures and drains in-flight tasks before a server-directed reconnect. It logs permanent
 registration failures and retries them after at least one minute. `Start`
 returns startup synchronization errors, not later poll stream errors.
 An older server without pull support produces one explicit error log and is retried.
@@ -761,8 +749,8 @@ limit the gRPC messages the Client or Worker receives. Zero uses
 `dex.DefaultGrpcMaxMessageBytes` (32 MiB), which matches the Dex server's
 default `api.grpcMaxMessageBytes`, and keeps gRPC's unlimited send limit, so
 the server bounds what the SDK sends. A positive value limits both directions;
-negative values are invalid. The Worker applies the limit to its WorkerService
-listener, which receives Step and RPC invocations, and to its FlowService
+negative values are invalid. The Worker applies the limit to its outbound task
+streams, which receive Step and RPC invocations, and to its FlowService
 connection. Every hop applies the smaller limit of its two ends, so raise the
 server and SDK limits together. Keep the limit above the largest application
 value by an explicit margin for the message envelope; the default leaves 16 MiB
@@ -815,7 +803,6 @@ distinguish reserve pressure from full-capacity rejections. The count excludes
 full-capacity rejections and unknown names. It counts decline events, including
 repeated declines of the same Step dispatch while Dex retries it. Read its rate
 to assess reserve pressure. It never resets and remains available after shutdown.
-Listening Workers return zero.
 
 ## FlowService TLS
 
@@ -847,7 +834,6 @@ if err != nil {
 client, err := dex.NewClient(registry, cache, dex.ClientOptions{
 	FlowServiceAddress: "dex.example.com:443",
 	FlowServiceTLS: tlsOptions,
-	WorkerTarget: worker.WorkerTarget(),
 })
 if err != nil {
 	return err
@@ -936,10 +922,6 @@ client, err := dex.NewClient(registry, cache, dex.ClientOptions{Credential: cred
   starts no long-lived goroutine and needs no `Close`. An exchange goroutine
   ends within one exchange timeout when the HTTP transport honors request
   context cancellation, as the default transport does.
-
-`ClientOptions.WorkerTarget` is the default advertised target for StartFlow.
-A per-call `ConfigOverride.WorkerTarget` takes precedence. UpdateFlowConfig does
-not inherit the Client default.
 
 StartFlow uses the starting step retained by Registry. Its input must match
 that step's input type, and its step options come from the registered Step.
@@ -1144,12 +1126,9 @@ runs the migrated iWF Go SDK scenarios through the public Dex SDK. It also
 visualizes `integ/webv2approval` and `integ/webv2reply` into a Flow rendering
 directory and checks that Dex Web v2 lists, searches, displays, edits, acts
 on, and starts both Flows under the names the Worker registers.
-`DEX_INTEG_DEX_PORT`, `DEX_INTEG_WEB_PORT`, and `DEX_INTEG_WORKER_PORT` pin
-the Dex gRPC, Dex Web, and integration Worker ports; each defaults to a free
-port.
-Set `DEX_INTEG_WORKER_MODE=pull` to run the integration suite with a pull Worker
-and pull Client target. The default is `push`. Each script run starts a fresh
-`dexcli dev` environment.
+`DEX_INTEG_DEX_PORT` and `DEX_INTEG_WEB_PORT` pin the Dex gRPC and Dex Web
+ports; each defaults to a free port. Each script run starts a fresh `dexcli dev`
+environment with pull Workers. Set `DEX_INTEG_ENGINE=zd` to test server-zd.
 
 `integTests` runs `./integ` against a Dex you start yourself. Start it with
 `dexcli dev -flow-rendering-dir` pointing at the two visualized fixtures, and
@@ -1184,9 +1163,9 @@ The detailed design and later phase boundaries are in the
 
 Worker startup calls `GetServerInfo`, negotiates the highest version in the
 intersection of the Server and Go SDK protocol intervals, synchronizes Attribute
-indexes, and then binds WorkerService. The initial SDK interval is `[1,1]`.
+indexes, and then opens task streams. The initial SDK interval is `[1,1]`.
 Missing server information, invalid or disjoint intervals, and RPC failures stop
-startup before binding. The negotiated protocol is retained for future
+startup before polling. The negotiated protocol is retained for future
 protocol-specific paths.
 
 The diagnostic SDK version comes from Go build information for the

@@ -65,9 +65,6 @@ func (step pullKeepaliveStep) Execute(ctx dex.Context, input string) (*dex.StepD
 }
 
 func TestPullSDKKeepaliveThroughDataIdleProxy(t *testing.T) {
-	if !isPullWorkerMode {
-		t.Skip("pull Worker mode only")
-	}
 	proxyAddress, proxy := startKeepaliveDataIdleProxy(t, flowServiceAddress(), "pullKeepaliveFlow", 25*time.Second)
 	stepEntered := make(chan struct{}, 1)
 	rpcEntered := make(chan struct{}, 1)
@@ -94,7 +91,7 @@ func TestPullSDKKeepaliveThroughDataIdleProxy(t *testing.T) {
 	require.NoError(t, worker.WaitPullRegistered(operationContext))
 	clientRegistry, err := dex.NewRegistry([]dex.Flow{pullKeepaliveFlow{}})
 	require.NoError(t, err)
-	client, err := dex.NewClient(clientRegistry, newPullSDKCache(t), dex.ClientOptions{FlowServiceAddress: flowServiceAddress(), WorkerTarget: &dex.WorkerTarget{Pull: true}})
+	client, err := dex.NewClient(clientRegistry, newPullSDKCache(t), dex.ClientOptions{FlowServiceAddress: flowServiceAddress()})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	flowID := newFlowID(t, "pull-keepalive")

@@ -70,7 +70,7 @@ jobs:
         run: make unitTests
 
   e2e:
-    name: End-to-end tests (${{ matrix.engine }})
+    name: End-to-end tests (pull, ${{ matrix.engine }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

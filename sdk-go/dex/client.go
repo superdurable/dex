@@ -43,8 +43,6 @@ type ClientOptions struct {
 	// FlowServiceTLS enables TLS for this Client's FlowService connection. Nil uses plaintext.
 	// See FlowServiceTLSOptions for trust roots, server name, and a complete example.
 	FlowServiceTLS *FlowServiceTLSOptions
-	// WorkerTarget is advertised by StartFlow unless overridden. Default: nil.
-	WorkerTarget *WorkerTarget
 	// Logger defaults to the shared BlobCache logger.
 	Logger Logger
 	// Credential is sent as a bearer credential with every FlowService call. Default: nil sends none.
@@ -73,13 +71,12 @@ type ClientOptions struct {
 //	runID, err := client.StartFlow(ctx, orderFlow, "order-42", orderInput,
 //		dex.StartFlowOptions{})
 type Client struct {
-	registry     *Registry
-	cache        *blobcache.Cache
-	service      dexpb.FlowServiceClient
-	hydrator     valueHydrator
-	connection   *grpc.ClientConn
-	workerTarget *WorkerTarget
-	logger       Logger
+	registry   *Registry
+	cache      *blobcache.Cache
+	service    dexpb.FlowServiceClient
+	hydrator   valueHydrator
+	connection *grpc.ClientConn
+	logger     Logger
 	// serverProtocol is negotiated lazily because only hard-delete writes depend on it.
 	serverProtocol negotiatedServerProtocol
 
@@ -92,7 +89,7 @@ type Client struct {
 // registry supplies the validated definitions and cache hydrates large values. The
 // Client connects lazily to ClientOptions.FlowServiceAddress, which defaults to
 // localhost:8801. It panics when registry or cache is nil. It returns an error when
-// an address, worker target, FlowServiceTLS, or GrpcMaxMessageBytes is invalid, or the gRPC client
+// an address, FlowServiceTLS, or GrpcMaxMessageBytes is invalid, or the gRPC client
 // cannot be created.
 // The caller owns the returned Client and must call Close.
 func NewClient(
@@ -106,7 +103,7 @@ func NewClient(
 	if cache == nil {
 		panic("dex.NewClient requires BlobCache")
 	}
-	flowServiceAddress, workerTarget, err := resolveClientOptions(options)
+	flowServiceAddress, err := resolveClientOptions(options)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +126,6 @@ func NewClient(
 		registry,
 		cache,
 		connection,
-		workerTarget,
 		resolveLogger(options.Logger, cache.Logger()),
 	), nil
 }
@@ -138,41 +134,31 @@ func newClient(
 	registry *Registry,
 	cache *blobcache.Cache,
 	connection *grpc.ClientConn,
-	workerTarget *WorkerTarget,
 	logger Logger,
 ) *Client {
 	logger = resolveLogger(logger, cache.Logger())
 	service := dexpb.NewFlowServiceClient(connection)
 	return &Client{
-		registry:     registry,
-		cache:        cache,
-		service:      service,
-		hydrator:     newValueHydrator(service, cache, logger, connection.Target()),
-		connection:   connection,
-		workerTarget: workerTarget,
-		logger:       logger,
+		registry:   registry,
+		cache:      cache,
+		service:    service,
+		hydrator:   newValueHydrator(service, cache, logger, connection.Target()),
+		connection: connection,
+		logger:     logger,
 	}
 }
 
-func resolveClientOptions(options ClientOptions) (string, *WorkerTarget, error) {
+func resolveClientOptions(options ClientOptions) (string, error) {
 	flowServiceAddress := strings.TrimSpace(options.FlowServiceAddress)
 	if flowServiceAddress == "" {
 		flowServiceAddress = defaultFlowServiceTarget
 	}
 	if options.FlowServiceTLS == nil {
-		if err := validatePlaintextTarget(flowServiceAddress, false); err != nil {
-			return "", nil, fmt.Errorf("dex: invalid FlowService address: %w", err)
+		if err := validatePlaintextTarget(flowServiceAddress); err != nil {
+			return "", fmt.Errorf("dex: invalid FlowService address: %w", err)
 		}
 	}
-	if options.WorkerTarget == nil {
-		return flowServiceAddress, nil, nil
-	}
-	workerTarget := *options.WorkerTarget
-	workerTarget.Address = strings.TrimSpace(workerTarget.Address)
-	if err := validateWorkerTarget(workerTarget); err != nil {
-		return "", nil, fmt.Errorf("dex: invalid Client Worker target: %w", err)
-	}
-	return flowServiceAddress, &workerTarget, nil
+	return flowServiceAddress, nil
 }
 
 // Close closes the owned FlowService connection.
@@ -551,11 +537,7 @@ func (client *Client) resolveStartFlowOptions(
 		return StartFlowOptions{}, err
 	}
 	resolved.Attributes = attributes
-	config, err := client.resolveStartFlowConfig(options.ConfigOverride)
-	if err != nil {
-		return StartFlowOptions{}, err
-	}
-	resolved.ConfigOverride = config
+	resolved.ConfigOverride = options.ConfigOverride
 	return resolved, nil
 }
 
@@ -649,27 +631,6 @@ func validateInitialAttributes(
 		resolved = append(resolved, concrete)
 	}
 	return resolved, nil
-}
-
-func (client *Client) resolveStartFlowConfig(config *FlowConfig) (*FlowConfig, error) {
-	if config == nil && client.workerTarget == nil {
-		return nil, nil
-	}
-	resolved := FlowConfig{}
-	if config != nil {
-		resolved = *config
-	}
-	if resolved.WorkerTarget == nil && client.workerTarget != nil {
-		target := *client.workerTarget
-		resolved.WorkerTarget = &target
-	} else if resolved.WorkerTarget != nil {
-		target := *resolved.WorkerTarget
-		if err := validateWorkerTarget(target); err != nil {
-			return nil, fmt.Errorf("dex: invalid StartFlow Worker target: %w", err)
-		}
-		resolved.WorkerTarget = &target
-	}
-	return &resolved, nil
 }
 
 func resolveStartRequestID(override *string) (string, error) {

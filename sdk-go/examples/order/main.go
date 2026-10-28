@@ -164,16 +164,14 @@ func main() {
 		}
 	}()
 	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
-		BindAddress: ":8803",
-		Logger:      logger,
+		Logger: logger,
 	})
 	if err != nil {
 		logger.Error("create order Worker", "error", err)
 		os.Exit(1)
 	}
 	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
-		WorkerTarget: worker.WorkerTarget(),
-		Logger:       logger,
+		Logger: logger,
 	})
 	if err != nil {
 		logger.Error("create order Client", "error", err)
@@ -193,7 +191,7 @@ func main() {
 	defer stopSignals()
 	go stopOrderWorker(ctx, worker, logger)
 
-	logger.Info("starting order Worker", "target", worker.WorkerTarget().Address)
+	logger.Info("starting order Worker")
 	if err := worker.Start(); err != nil {
 		logger.Error("run order Worker", "error", err)
 		os.Exit(1)

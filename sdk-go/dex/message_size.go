@@ -69,11 +69,3 @@ func (limits grpcMessageLimits) flowServiceDialOptions(address string, credentia
 		credentialDialOptions(credential)...,
 	), nil
 }
-
-func (limits grpcMessageLimits) workerServiceServerOptions() []grpc.ServerOption {
-	serverOptions := []grpc.ServerOption{grpc.MaxRecvMsgSize(limits.receiveBytes)}
-	if limits.sendBytes > 0 {
-		serverOptions = append(serverOptions, grpc.MaxSendMsgSize(limits.sendBytes))
-	}
-	return serverOptions
-}

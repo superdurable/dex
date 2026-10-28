@@ -9,12 +9,9 @@
 package integ
 
 import (
-	"context"
 	"fmt"
-	"net"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
@@ -135,37 +132,12 @@ func TestMessageSizeDefaultLimitCarriesValuesAboveGrpcDefault(t *testing.T) {
 	}
 	requireMessageSizeOutputs(t, waitForFlow(t, flowID, true), textBytes)
 
-	smallClient := newMessageSizeClient(t, grpcDefaultReceiveLimitBytes, nil)
+	smallClient := newMessageSizeClient(t, grpcDefaultReceiveLimitBytes)
 	_, err = smallClient.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{NeedsResults: true})
 	var tooLarge *dex.BlobMessageTooLargeError
 	require.ErrorAs(t, err, &tooLarge)
 	require.Equal(t, flowID, tooLarge.FlowID)
 	require.NotEmpty(t, tooLarge.BlobID)
-}
-
-func TestMessageSizeHydrationSplitsBlobBatchesAboveLimit(t *testing.T) {
-	// C18: the whole test drives a push Worker listener, which server-zd rejects.
-	skipIfServerZD(t, "push Workers")
-	if isPullWorkerMode {
-		t.Skip("push-only Worker listener message-size limit")
-	}
-	ctx := integrationContext(t)
-	limitBytes := grpcDefaultReceiveLimitBytes
-	worker := startMessageSizeWorker(t, limitBytes)
-	client := newMessageSizeClient(t, limitBytes, worker.WorkerTarget())
-	flowID := newFlowID(t, "message-size-split")
-	_, err := client.StartFlow(ctx, messageSizeFlow{}, flowID, nil, dex.StartFlowOptions{})
-	require.NoError(t, err)
-
-	textBytes := map[string]int{}
-	for _, name := range messageSizeTextNames {
-		textBytes[name] = limitBytes * 3 / 8
-		require.NoError(t, client.InvokeRPC(ctx, flowID, messageSizeFlow{}.GenerateText,
-			messageSizeTextInput{Name: name, Bytes: textBytes[name]}, nil))
-	}
-	result, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{NeedsResults: true})
-	require.NoError(t, err)
-	requireMessageSizeOutputs(t, result, textBytes)
 }
 
 func requireMessageSizeOutputs(t *testing.T, result dex.FlowResult, textBytes map[string]int) {
@@ -198,43 +170,13 @@ func newMessageSizeRegistry(t *testing.T) *dex.Registry {
 	return registry
 }
 
-func newMessageSizeClient(t *testing.T, limitBytes int, workerTarget *dex.WorkerTarget) *dex.Client {
+func newMessageSizeClient(t *testing.T, limitBytes int) *dex.Client {
 	t.Helper()
 	client, err := dex.NewClient(newMessageSizeRegistry(t), newUncachedMessageSizeCache(t), dex.ClientOptions{
 		FlowServiceAddress:  flowServiceAddress(),
-		WorkerTarget:        workerTarget,
 		GrpcMaxMessageBytes: limitBytes,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	return client
-}
-
-func startMessageSizeWorker(t *testing.T, limitBytes int) *dex.Worker {
-	t.Helper()
-	port, err := availablePort()
-	require.NoError(t, err)
-	worker, err := dex.NewWorker(newMessageSizeRegistry(t), newUncachedMessageSizeCache(t), dex.WorkerOptions{
-		BindAddress:         net.JoinHostPort("127.0.0.1", port),
-		FlowServiceAddress:  flowServiceAddress(),
-		WorkerTarget:        dex.WorkerTarget{Address: net.JoinHostPort(workerHost(), port)},
-		GrpcMaxMessageBytes: limitBytes,
-	})
-	require.NoError(t, err)
-	workerResult := make(chan error, 1)
-	go func() { workerResult <- worker.Start() }()
-	t.Cleanup(func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		require.NoError(t, worker.Stop(stopCtx))
-		require.NoError(t, <-workerResult)
-	})
-	require.Eventually(t, func() bool {
-		connection, err := net.DialTimeout("tcp", worker.WorkerTarget().Address, 100*time.Millisecond)
-		if err != nil {
-			return false
-		}
-		return connection.Close() == nil
-	}, time.Minute, 250*time.Millisecond)
-	return worker
 }

@@ -210,7 +210,7 @@ func newHardDeleteTestClient(t *testing.T, serverProtocolVersion uint32) (*Clien
 		}),
 	)
 	require.NoError(t, err)
-	client := newClient(registry, cache, connection, &WorkerTarget{Address: "worker.test:8803"}, nil)
+	client := newClient(registry, cache, connection, nil)
 	t.Cleanup(func() {
 		require.NoError(t, client.Close())
 		server.Stop()

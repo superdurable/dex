@@ -191,8 +191,8 @@ func TestClientCredentialsReachFlowServiceOverTLS(t *testing.T) {
 		})
 	}
 	worker, err := newWorkerForTest(t, []Flow{&registrationFlow{flowType: "tls-credential-worker"}}, WorkerOptions{
-		BindAddress: unusedWorkerAddress(t), FlowServiceAddress: address,
-		FlowServiceTLS: &FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM}, Credential: staticTestCredential("worker-token"),
+		FlowServiceAddress: address,
+		FlowServiceTLS:     &FlowServiceTLSOptions{AdditionalRootCAsPEM: caPEM}, Credential: staticTestCredential("worker-token"),
 	})
 	require.NoError(t, err)
 	workerResult := make(chan error, 1)
@@ -369,7 +369,6 @@ func TestWorkerSendsCredentialWithStartupCalls(t *testing.T) {
 	credential, err := FileCredential(tokenPath)
 	require.NoError(t, err)
 	worker, err := newWorkerForTest(t, []Flow{&registrationFlow{flowType: "credential-worker"}}, WorkerOptions{
-		BindAddress:        unusedWorkerAddress(t),
 		FlowServiceAddress: address,
 		Credential:         credential,
 	})

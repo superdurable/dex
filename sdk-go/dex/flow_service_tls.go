@@ -29,8 +29,8 @@ import (
 // FlowServiceAddress host is the default certificate name and SNI. Without
 // ServerName, HTTP/2 :authority is the address host and port, as with plaintext.
 // An IPv6 address keeps its brackets in :authority. The TLS settings
-// apply only to FlowService, not to a Worker's listening WorkerService or an
-// APIKeyCredential token endpoint.
+// apply to the outbound FlowService and Worker task connections. Configure the
+// APIKeyCredential token endpoint separately.
 // With TLS, FlowServiceAddress accepts only host:port, dns:///host:port,
 // or dns://authority/host:port (with an explicit DNS resolver authority).
 // The DNS resolver authority never becomes the certificate name or :authority.
@@ -55,7 +55,6 @@ import (
 //		}
 //		client, err := dex.NewClient(registry, cache, dex.ClientOptions{
 //			FlowServiceAddress: "dex.example.com:443", FlowServiceTLS: tlsOptions,
-//			WorkerTarget: worker.WorkerTarget(),
 //		})
 //		if err != nil {
 //			return errors.Join(err, worker.Stop(context.Background()))

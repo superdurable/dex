@@ -30,7 +30,6 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
@@ -556,7 +555,7 @@ func (flow *workerBlockingFlow) Block(
 	}
 }
 
-func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
+func TestWorkerTaskDispatchesWaitExecuteAndRPC(t *testing.T) {
 	client, closeService := newWorkerTestClient(t, nil)
 	defer closeService()
 
@@ -870,7 +869,7 @@ type workerActionProjectionResult struct {
 
 func invokeWorkerActionProjection(
 	t *testing.T,
-	client dexpb.WorkerServiceClient,
+	client *workerDispatchTestClient,
 	method string,
 	mode string,
 	attributes []*dexpb.KV,
@@ -1144,7 +1143,7 @@ func TestInvocationContextExposesRecoveryError(t *testing.T) {
 	}, invocation.RecoveryError())
 }
 
-func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
+func TestWorkerTaskMapsErrorsAndDiscardsResponses(t *testing.T) {
 	client, closeService := newWorkerTestClient(t, nil)
 	defer closeService()
 
@@ -1297,68 +1296,20 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 	}
 }
 
-func TestWorkerLifecycleAndTargetDefaults(t *testing.T) {
+func TestWorkerLifecycleDefaults(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
-	concrete, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
-		BindAddress: "127.0.0.1:9900",
-		Logger:      logger,
-	})
+	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{Logger: logger})
 	require.NoError(t, err)
-	require.Same(t, logger, concrete.logger)
-	require.Equal(t, "127.0.0.1:9900", concrete.WorkerTarget().Address)
-	require.NoError(t, concrete.Stop(context.Background()))
-
-	wildcard, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{BindAddress: ":8804"})
-	require.NoError(t, err)
-	require.Equal(t, "localhost:8804", wildcard.WorkerTarget().Address)
-	require.NoError(t, wildcard.Stop(context.Background()))
-	require.Error(t, wildcard.Start())
-
-	address := unusedWorkerAddress(t)
-	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
-		BindAddress: address,
-		WorkerTarget: WorkerTarget{
-			Address:  "worker.example:8803",
-			Headless: true,
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, &WorkerTarget{Address: "worker.example:8803", Headless: true}, worker.WorkerTarget())
-	startResult := make(chan error, 1)
-	go func() {
-		startResult <- worker.Start()
-	}()
-
-	conn, err := grpc.NewClient(
-		address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, conn.Close()) }()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err = dexpb.NewWorkerServiceClient(conn).InvokeWorkerRPC(
-		ctx,
-		workerRPCRequest(t, workerTestInput{OrderID: "order-1"}),
-		grpc.WaitForReady(true),
-	)
-	require.NoError(t, err)
+	require.Same(t, logger, worker.logger)
+	require.NotNil(t, worker.pull)
 	require.NoError(t, worker.Stop(context.Background()))
-	require.NoError(t, <-startResult)
 	require.NoError(t, worker.Stop(context.Background()))
-	stoppedCtx, cancelStopped := context.WithCancel(context.Background())
-	cancelStopped()
-	require.NoError(t, worker.Stop(stoppedCtx))
-
-	_, err = newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{WorkerTarget: WorkerTarget{Address: "https://worker"}})
-	require.ErrorContains(t, err, "plaintext")
-	_, err = newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{BindAddress: ":0"})
-	require.ErrorContains(t, err, "1-65535")
+	require.Error(t, worker.Start())
 	_, err = newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{AttributeIndexSyncTimeout: -time.Second})
 	require.ErrorContains(t, err, "sync timeout must be positive")
 }
 
-func TestWorkerSynchronizesAttributeIndexesBeforeListening(t *testing.T) {
+func TestWorkerSynchronizesAttributeIndexesBeforePolling(t *testing.T) {
 	indexedStatus := DefineAttribute[string](
 		"status",
 		Indexed(AttributeIndex{Type: IndexKeyword, IndexKey: "WorkerTestStatus"}),
@@ -1369,11 +1320,8 @@ func TestWorkerSynchronizesAttributeIndexesBeforeListening(t *testing.T) {
 			indexedStatus,
 		}},
 	}
-	address := unusedWorkerAddress(t)
 	flowService := &workerSyncFlowService{
-		probeAddress: address,
-		received:     make(chan *dexpb.SyncAttributeIndexRequest, 1),
-		wasListening: make(chan bool, 1),
+		received: make(chan *dexpb.SyncAttributeIndexRequest, 1),
 		serverInfo: &dexpb.ServerInfo{
 			ServerVersion:                   "test",
 			MinimumSupportedProtocolVersion: 1,
@@ -1382,7 +1330,6 @@ func TestWorkerSynchronizesAttributeIndexesBeforeListening(t *testing.T) {
 	}
 	flowServiceAddress := startWorkerFlowService(t, flowService)
 	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{
-		BindAddress:        address,
 		FlowServiceAddress: flowServiceAddress,
 	})
 	require.NoError(t, err)
@@ -1393,23 +1340,15 @@ func TestWorkerSynchronizesAttributeIndexesBeforeListening(t *testing.T) {
 	require.Equal(t, map[string]dexpb.IndexType{
 		"WorkerTestStatus": dexpb.IndexType_INDEX_TYPE_KEYWORD,
 	}, request.AttributeIndexes)
-	require.False(t, <-flowService.wasListening)
 	require.Equal(t, uint32(2), worker.serverProtocol.version.Load())
 	require.Equal(t, "dev", worker.sdkVersion)
 	require.Equal(t, []string{"GetServerInfo", "SyncAttributeIndexes"}, flowService.recordedCalls())
-	require.Eventually(t, func() bool {
-		connection, dialErr := net.DialTimeout("tcp", address, 50*time.Millisecond)
-		if dialErr != nil {
-			return false
-		}
-		require.NoError(t, connection.Close())
-		return true
-	}, 5*time.Second, 10*time.Millisecond)
+
 	require.NoError(t, worker.Stop(context.Background()))
 	require.NoError(t, <-startResult)
 }
 
-func TestWorkerProtocolFailureKeepsIndexesUnsynchronizedAndPortClosed(t *testing.T) {
+func TestWorkerProtocolFailureKeepsIndexesUnsynchronized(t *testing.T) {
 	testCases := []struct {
 		name              string
 		serverInfo        *dexpb.ServerInfo
@@ -1463,14 +1402,12 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronizedAndPortClosed(t *testing
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			address := unusedWorkerAddress(t)
 			flowService := &workerSyncFlowService{
 				serverInfo:        testCase.serverInfo,
 				serverInfoFailure: testCase.serverInfoFailure,
 			}
 			flowServiceAddress := startWorkerFlowService(t, flowService)
 			worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
-				BindAddress:        address,
 				FlowServiceAddress: flowServiceAddress,
 			})
 			require.NoError(t, err)
@@ -1483,22 +1420,15 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronizedAndPortClosed(t *testing
 				require.NotContains(t, err.Error(), "incompatible")
 			}
 			require.Equal(t, []string{"GetServerInfo"}, flowService.recordedCalls())
-			connection, dialErr := net.DialTimeout("tcp", address, 50*time.Millisecond)
-			if connection != nil {
-				require.NoError(t, connection.Close())
-			}
-			require.Error(t, dialErr)
 		})
 	}
 }
 
-func TestWorkerAttributeIndexSyncFailureKeepsPortClosed(t *testing.T) {
-	address := unusedWorkerAddress(t)
+func TestWorkerAttributeIndexSyncFailure(t *testing.T) {
 	flowServiceAddress := startWorkerFlowService(t, &workerSyncFlowService{
 		attributeFailure: status.Error(codes.PermissionDenied, "denied"),
 	})
 	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
-		BindAddress:        address,
 		FlowServiceAddress: flowServiceAddress,
 	})
 	require.NoError(t, err)
@@ -1506,11 +1436,6 @@ func TestWorkerAttributeIndexSyncFailureKeepsPortClosed(t *testing.T) {
 	require.ErrorContains(t, err, "sync attribute indexes")
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 
-	connection, dialErr := net.DialTimeout("tcp", address, 50*time.Millisecond)
-	if dialErr == nil {
-		require.NoError(t, connection.Close())
-	}
-	require.Error(t, dialErr)
 }
 
 func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
@@ -1632,26 +1557,11 @@ func TestWorkerHydrationReportsEveryOmittedBlobAndValue(t *testing.T) {
 		flowService.omitValue(blobID)
 	}
 	flowServiceAddress := startWorkerFlowService(t, flowService)
-	address := unusedWorkerAddress(t)
-	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
-		BindAddress: address, FlowServiceAddress: "  " + flowServiceAddress + "  ", Logger: logger,
-	})
+	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{FlowServiceAddress: "  " + flowServiceAddress + "  ", Logger: logger})
 	require.NoError(t, err)
-	startResult := make(chan error, 1)
-	go func() { startResult <- worker.Start() }()
-	t.Cleanup(func() {
-		require.NoError(t, worker.Stop(context.Background()))
-		require.NoError(t, <-startResult)
-	})
-	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	defer func() { require.NoError(t, connection.Close()) }()
-	client := dexpb.NewWorkerServiceClient(connection)
-	require.Eventually(t, func() bool {
-		worker.lifecycleMu.Lock()
-		defer worker.lifecycleMu.Unlock()
-		return worker.state == workerRunning
-	}, 5*time.Second, 10*time.Millisecond)
+	defer func() { require.NoError(t, worker.Stop(context.Background())) }()
+	client, closeService := newWorkerClientForFlows(t, []Flow{workerFlow}, worker.pull.service.hydrator)
+	defer closeService()
 
 	for _, method := range []string{"WaitFor", "Execute", "RPC", "Timeout"} {
 		t.Run(method, func(t *testing.T) {
@@ -1795,9 +1705,7 @@ type workerBlobFlowService struct {
 
 type workerSyncFlowService struct {
 	dexpb.UnimplementedFlowServiceServer
-	probeAddress      string
 	received          chan *dexpb.SyncAttributeIndexRequest
-	wasListening      chan bool
 	serverInfo        *dexpb.ServerInfo
 	serverInfoFailure error
 	attributeFailure  error
@@ -1832,16 +1740,6 @@ func (service *workerSyncFlowService) SyncAttributeIndexes(
 	service.callsMu.Lock()
 	service.calls = append(service.calls, "SyncAttributeIndexes")
 	service.callsMu.Unlock()
-	if service.probeAddress != "" {
-		connection, dialErr := net.DialTimeout("tcp", service.probeAddress, 50*time.Millisecond)
-		listening := dialErr == nil
-		if connection != nil {
-			if err := connection.Close(); err != nil {
-				return nil, err
-			}
-		}
-		service.wasListening <- listening
-	}
 	if service.received != nil {
 		service.received <- request
 	}
@@ -1949,33 +1847,6 @@ func TestWorkerConcurrentInvocationsAreIsolated(t *testing.T) {
 	}
 }
 
-func TestWorkerStopDrainsAndForceCancels(t *testing.T) {
-	t.Run("graceful drain", func(t *testing.T) {
-		flow := &workerBlockingFlow{entered: make(chan struct{}), release: make(chan struct{})}
-		worker, client, startResult := startBlockingWorker(t, flow)
-		rpcResult := invokeBlockingRPC(t, client)
-		requireBlockingRPCEntered(t, flow.entered, rpcResult)
-		stopResult := make(chan error, 1)
-		go func() { stopResult <- worker.Stop(context.Background()) }()
-		close(flow.release)
-		require.NoError(t, <-rpcResult)
-		require.NoError(t, <-stopResult)
-		require.NoError(t, <-startResult)
-	})
-
-	t.Run("force cancel", func(t *testing.T) {
-		flow := &workerBlockingFlow{entered: make(chan struct{}), release: make(chan struct{})}
-		worker, client, startResult := startBlockingWorker(t, flow)
-		rpcResult := invokeBlockingRPC(t, client)
-		requireBlockingRPCEntered(t, flow.entered, rpcResult)
-		stopCtx, cancel := context.WithCancel(context.Background())
-		cancel()
-		require.ErrorIs(t, worker.Stop(stopCtx), context.Canceled)
-		require.Error(t, <-rpcResult)
-		require.NoError(t, <-startResult)
-	})
-}
-
 func TestWorkerRegisteredDecisionMapping(t *testing.T) {
 	registered, err := NewRegistry([]Flow{workerFlow})
 	require.NoError(t, err)
@@ -2066,104 +1937,10 @@ func startWorkerFlowService(
 	return listener.Addr().String()
 }
 
-type workerBlockingTestResources struct {
-	test       *testing.T
-	worker     *Worker
-	connection *grpc.ClientConn
-}
-
-func startBlockingWorker(
-	t *testing.T,
-	flow Flow,
-) (*Worker, dexpb.WorkerServiceClient, <-chan error) {
-	address := unusedWorkerAddress(t)
-	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{
-		BindAddress:               address,
-		AttributeIndexSyncTimeout: 5 * time.Second,
-	})
-	require.NoError(t, err)
-	startResult := make(chan error, 1)
-	go func() { startResult <- worker.Start() }()
-	conn, err := grpc.NewClient(
-		address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	resources := &workerBlockingTestResources{test: t, worker: worker, connection: conn}
-	t.Cleanup(resources.close)
-	conn.Connect()
-	readinessTimeout := time.NewTimer(5 * time.Second)
-	defer readinessTimeout.Stop()
-	readinessPoll := time.NewTicker(10 * time.Millisecond)
-	defer readinessPoll.Stop()
-	for conn.GetState() != connectivity.Ready {
-		select {
-		case err := <-startResult:
-			t.Fatalf("Worker.Start returned before serving blocking RPCs: %v", err)
-		case <-readinessTimeout.C:
-			t.Fatal("timed out waiting for blocking Worker gRPC readiness")
-		case <-readinessPoll.C:
-		}
-	}
-	return worker, dexpb.NewWorkerServiceClient(conn), startResult
-}
-
-func (resources *workerBlockingTestResources) close() {
-	require.NoError(resources.test, resources.connection.Close())
-	stopCtx, cancelStop := context.WithCancel(context.Background())
-	cancelStop()
-	stopErr := resources.worker.Stop(stopCtx)
-	if stopErr != nil && !errors.Is(stopErr, context.Canceled) {
-		require.NoError(resources.test, stopErr)
-	}
-}
-
-func requireBlockingRPCEntered(t *testing.T, entered <-chan struct{}, rpcResult <-chan error) {
-	t.Helper()
-	timeout := time.NewTimer(5 * time.Second)
-	defer timeout.Stop()
-	select {
-	case <-entered:
-	case err := <-rpcResult:
-		t.Fatalf("blocking RPC returned before its handler entered: %v", err)
-	case <-timeout.C:
-		t.Fatal("timed out waiting for blocking RPC handler to enter")
-	}
-}
-
-func invokeBlockingRPC(
-	t *testing.T,
-	client dexpb.WorkerServiceClient,
-) <-chan error {
-	t.Helper()
-	rpcCtx, cancelRPC := context.WithTimeout(context.Background(), 5*time.Second)
-	t.Cleanup(cancelRPC)
-	result := make(chan error, 1)
-	input, err := encodeValue(struct{}{})
-	if err != nil {
-		result <- err
-		return result
-	}
-	go func() {
-		_, err := client.InvokeWorkerRPC(
-			rpcCtx,
-			&dexpb.InvokeWorkerRPCRequest{
-				Context:  workerRPCContext(),
-				FlowType: "workerBlockingFlow",
-				RpcName:  "Block",
-				Input:    input,
-			},
-			grpc.WaitForReady(true),
-		)
-		result <- err
-	}()
-	return result
-}
-
 func newWorkerTestClient(
 	t *testing.T,
 	hydrator valueHydrator,
-) (dexpb.WorkerServiceClient, func()) {
+) (*workerDispatchTestClient, func()) {
 	return newWorkerClientForFlows(t, []Flow{workerFlow}, hydrator)
 }
 
@@ -2171,7 +1948,7 @@ func newWorkerClientForFlows(
 	t *testing.T,
 	flows []Flow,
 	hydrator valueHydrator,
-) (dexpb.WorkerServiceClient, func()) {
+) (*workerDispatchTestClient, func()) {
 	return newWorkerClientForServerProtocol(t, flows, hydrator, maximumSupportedServerProtocolVersion)
 }
 
@@ -2180,7 +1957,7 @@ func newWorkerClientForServerProtocol(
 	flows []Flow,
 	hydrator valueHydrator,
 	serverProtocolVersion uint32,
-) (dexpb.WorkerServiceClient, func()) {
+) (*workerDispatchTestClient, func()) {
 	serverProtocol := &negotiatedServerProtocol{}
 	serverProtocol.version.Store(serverProtocolVersion)
 	if hydrator == nil {
@@ -2188,34 +1965,12 @@ func newWorkerClientForServerProtocol(
 	}
 	registered, err := NewRegistry(flows)
 	require.NoError(t, err)
-	listener := bufconn.Listen(1 << 20)
-	grpcServer := grpc.NewServer()
-	dexpb.RegisterWorkerServiceServer(
-		grpcServer,
-		newWorkerService(registered, hydrator, nil, serverProtocol),
-	)
-	serveResult := make(chan error, 1)
-	go func() {
-		serveResult <- grpcServer.Serve(listener)
-	}()
-	conn, err := grpc.NewClient(
-		"passthrough:///worker-test",
-		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
-			return listener.Dial()
-		}),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	return dexpb.NewWorkerServiceClient(conn), func() {
-		grpcServer.Stop()
-		require.NoError(t, conn.Close())
-		requireServeStopped(t, <-serveResult)
-	}
+	return &workerDispatchTestClient{service: newWorkerService(registered, hydrator, nil, serverProtocol)}, func() {}
 }
 
 func invokeWaitForResult(
 	t *testing.T,
-	client dexpb.WorkerServiceClient,
+	client *workerDispatchTestClient,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) *dexpb.InvokeWaitForMethodResponse {
 	outputs, err := collectWaitForOutputs(client, request)
@@ -2235,7 +1990,7 @@ func invokeWaitForResult(
 
 func invokeExecuteResult(
 	t *testing.T,
-	client dexpb.WorkerServiceClient,
+	client *workerDispatchTestClient,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) *dexpb.InvokeExecuteMethodResponse {
 	outputs, err := collectExecuteOutputs(client, request)
@@ -2254,7 +2009,7 @@ func invokeExecuteResult(
 }
 
 func invokeWaitForError(
-	client dexpb.WorkerServiceClient,
+	client *workerDispatchTestClient,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) error {
 	_, err := collectWaitForOutputs(client, request)
@@ -2262,7 +2017,7 @@ func invokeWaitForError(
 }
 
 func invokeExecuteError(
-	client dexpb.WorkerServiceClient,
+	client *workerDispatchTestClient,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) error {
 	_, err := collectExecuteOutputs(client, request)
@@ -2270,7 +2025,7 @@ func invokeExecuteError(
 }
 
 func collectWaitForOutputs(
-	client dexpb.WorkerServiceClient,
+	client *workerDispatchTestClient,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) ([]*dexpb.InvokeWaitForMethodOutput, error) {
 	stream, err := client.InvokeWaitForMethod(context.Background(), request)
@@ -2291,7 +2046,7 @@ func collectWaitForOutputs(
 }
 
 func collectExecuteOutputs(
-	client dexpb.WorkerServiceClient,
+	client *workerDispatchTestClient,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) ([]*dexpb.InvokeExecuteMethodOutput, error) {
 	stream, err := client.InvokeExecuteMethod(context.Background(), request)
@@ -2481,10 +2236,51 @@ func requireWorkerErrorDetail(
 	return details
 }
 
-func unusedWorkerAddress(t *testing.T) string {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	address := listener.Addr().String()
-	require.NoError(t, listener.Close())
-	return address
+type workerDispatchTestClient struct {
+	service *workerService
+}
+
+type workerDispatchTestStream[Output any] struct {
+	grpc.ClientStream
+	ctx     context.Context
+	outputs []*Output
+	err     error
+}
+
+func (stream *workerDispatchTestStream[Output]) Context() context.Context { return stream.ctx }
+
+func (stream *workerDispatchTestStream[Output]) Send(output *Output) error {
+	stream.outputs = append(stream.outputs, output)
+	return nil
+}
+
+func (stream *workerDispatchTestStream[Output]) Recv() (*Output, error) {
+	if len(stream.outputs) == 0 {
+		if stream.err != nil {
+			return nil, stream.err
+		}
+		return nil, io.EOF
+	}
+	output := stream.outputs[0]
+	stream.outputs = stream.outputs[1:]
+	return output, nil
+}
+
+func (client *workerDispatchTestClient) InvokeWaitForMethod(ctx context.Context, request *dexpb.InvokeWaitForMethodRequest, _ ...grpc.CallOption) (result grpc.ServerStreamingClient[dexpb.InvokeWaitForMethodOutput], err error) {
+	stream := &workerDispatchTestStream[dexpb.InvokeWaitForMethodOutput]{ctx: ctx}
+	defer func() { stream.err = finishWorkerCall(client.service.logger, recover(), stream.err); result = stream }()
+	stream.err = client.service.invokeWaitForMethod(request, newWaitForOutputStream(stream))
+	return stream, nil
+}
+
+func (client *workerDispatchTestClient) InvokeExecuteMethod(ctx context.Context, request *dexpb.InvokeExecuteMethodRequest, _ ...grpc.CallOption) (result grpc.ServerStreamingClient[dexpb.InvokeExecuteMethodOutput], err error) {
+	stream := &workerDispatchTestStream[dexpb.InvokeExecuteMethodOutput]{ctx: ctx}
+	defer func() { stream.err = finishWorkerCall(client.service.logger, recover(), stream.err); result = stream }()
+	stream.err = client.service.invokeExecuteMethod(request, newExecuteOutputStream(stream))
+	return stream, nil
+}
+
+func (client *workerDispatchTestClient) InvokeWorkerRPC(ctx context.Context, request *dexpb.InvokeWorkerRPCRequest, _ ...grpc.CallOption) (response *dexpb.InvokeWorkerRPCResponse, err error) {
+	defer func() { err = finishWorkerCall(client.service.logger, recover(), err) }()
+	return client.service.invokeWorkerRPC(ctx, request)
 }

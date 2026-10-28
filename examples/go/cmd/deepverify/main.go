@@ -155,10 +155,9 @@ func newVerifyClient() (*dex.Client, func(), error) {
 		return nil, nil, err
 	}
 	flowAddr := envOr("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801")
-	workerAddr := envOr("DEX_WORKER_TARGET", "127.0.0.1:8803")
 	client, err = dex.NewClient(registry, cache, dex.ClientOptions{
+		WorkerTarget:       &dex.WorkerTarget{Pull: true},
 		FlowServiceAddress: flowAddr,
-		WorkerTarget:       &dex.WorkerTarget{Address: workerAddr},
 	})
 	if err != nil {
 		_ = cache.Close()

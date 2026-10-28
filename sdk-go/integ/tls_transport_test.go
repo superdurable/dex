@@ -230,7 +230,7 @@ func TestFlowServiceTLSWithPullWorkerAndLargeValue(t *testing.T) {
 	})
 	require.NoError(t, worker.WaitPullRegistered(integrationContext(t)))
 	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
-		FlowServiceAddress: address, FlowServiceTLS: tlsOptions, WorkerTarget: worker.WorkerTarget(),
+		FlowServiceAddress: address, FlowServiceTLS: tlsOptions,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })

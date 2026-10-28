@@ -156,11 +156,6 @@ func TestWorkerWaitPullRegisteredCancellationAndStop(t *testing.T) {
 	require.Error(t, worker.WaitPullRegistered(nil))
 	require.NoError(t, worker.Stop(context.Background()))
 	require.ErrorContains(t, worker.WaitPullRegistered(context.Background()), "stopped before registration")
-	pushWorker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{})
-	require.NoError(t, err)
-	require.ErrorContains(t, pushWorker.WaitPullRegistered(context.Background()), "requires a pull Worker")
-	require.Equal(t, PullRegistrationState{}, pushWorker.PullRegistrationState())
-	require.NoError(t, pushWorker.Stop(context.Background()))
 }
 
 func TestWorkerPullRegistrationStateDoesNotFlap(t *testing.T) {

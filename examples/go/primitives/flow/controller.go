@@ -102,12 +102,6 @@ func startExampleFlowRequest(
 	return flowID, nil
 }
 
-func rerouteActiveFlow(ctx context.Context, client *sdk.Client, flowID string) error {
-	return client.UpdateFlowConfig(ctx, flowID, sdk.FlowConfig{
-		WorkerTarget: &sdk.WorkerTarget{Address: "worker-canary:8803"},
-	})
-}
-
 func (controller *controller) start(request *gin.Context) {
 	flowID, found := httputil.RequiredQuery(request, "workflowId")
 	if !found {
