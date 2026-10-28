@@ -101,9 +101,9 @@ jobs:
           path: server-zd-bin
       - name: Server integration tests against server-zd
         run: |
-          chmod +x "$GITHUB_WORKSPACE/server/server-zd-bin/dex-server-zd"
+          chmod +x "$GITHUB_WORKSPACE/server-zd-bin/dex-server-zd"
           make zdIntegTests \
-            dexServerZDBinary="$GITHUB_WORKSPACE/server/server-zd-bin/dex-server-zd" \
+            dexServerZDBinary="$GITHUB_WORKSPACE/server-zd-bin/dex-server-zd" \
             totalPartitions=5 partitionNum=${{ matrix.partition }} \
             zdIntegTestJSON="$RUNNER_TEMP/zd-integ-${{ matrix.partition }}.json"
       - name: Upload test events
