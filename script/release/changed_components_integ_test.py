@@ -16,6 +16,7 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).with_name("changed_components.py")
 DOCKER_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-release.yml"
+WEB_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-web-release.yml"
 CLI_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/cli-release.yml"
 CHANGED_COMPONENTS_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-changed-components.yml"
 COMPONENT_KEYS = ("go", "rust", "java", "python", "typescript", "server", "web", "cli")
@@ -207,6 +208,12 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn("startsWith(github.event.release.tag_name, 'server/v')", workflow)
         self.assertIn('image_tag="${RELEASE_TAG#server/}"', workflow)
         self.assertNotIn("server-v", workflow)
+
+    def test_docker_web_release_uses_web_path_tag(self) -> None:
+        workflow = WEB_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("startsWith(github.event.release.tag_name, 'web/v')", workflow)
+        self.assertIn('image_tag="${RELEASE_TAG#web/}"', workflow)
+        self.assertNotIn("server/v", workflow)
 
     def test_release_workflows_maintain_breaking_changes_section(self) -> None:
         coordinated_workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")

@@ -429,7 +429,7 @@ func (h *v2Handler) loadSummaries(
 			defer cancelCall()
 			values, err := h.invokeView(callContext, flows[index].FlowID, view)
 			if err != nil {
-				flows[index].SummaryError = err.Error()
+				flows[index].SummaryError = publicGRPCErrorMessage(err, "Summary")
 				return
 			}
 			flows[index].Summary = values

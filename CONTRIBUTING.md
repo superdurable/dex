@@ -218,6 +218,7 @@ Server baselines may use either current `server/vX.Y.Z` tags or historical `serv
 
 | Component | Tag format | Example | What it publishes |
 |-----------|------------|---------|-------------------|
+| Dex Web / Docker | `web/vX.Y.Z` | `web/v0.1.0` | Docker Hub `superdurable/dex-web:v0.1.0` |
 | Server / Docker | `server/vX.Y.Z` | `server/v1.0.0` | Docker Hub `dex-server:v1.0.0` |
 | Server ZD / Docker and binaries | `server-zd/vX.Y.Z` | `server-zd/v0.1.0` | Docker Hub `dex-server-zd:X.Y.Z` through [image release](.github/workflows/server-zd-image-release.yml), plus Linux amd64, Linux arm64, and macOS arm64 archives and `checksums.txt` through [binary release](.github/workflows/server-zd-binary-release.yml) (version from the tag) |
 | Python SDK | `sdk-python/vX.Y.Z` | `sdk-python/v0.1.0` | PyPI [`dex-python-sdk`](https://pypi.org/project/dex-python-sdk/) via [`.github/workflows/sdk-python-publish.yml`](.github/workflows/sdk-python-publish.yml) (version from the tag) |

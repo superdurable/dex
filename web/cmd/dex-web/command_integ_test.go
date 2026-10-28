@@ -152,10 +152,47 @@ func TestStandaloneBridgeWithTLSAndRotatingBearerToken(t *testing.T) {
 		case <-ticker.C:
 		}
 	}
+	if err := os.Remove(tokenPath); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		response, err := http.Post(httpServer.URL+"/api/flows/search", "application/json", strings.NewReader(`{"pageSize":1}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, readErr := io.ReadAll(response.Body)
+		if err := response.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if response.StatusCode == http.StatusBadGateway {
+			if strings.Contains(string(body), tokenPath) || !strings.Contains(string(body), "SearchFlows failed") {
+				t.Fatalf("credential failure response: %s", body)
+			}
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("deleted credential did not fail RPC")
+		case <-ticker.C:
+		}
+	}
 }
 
 func TestStandaloneCommandEnvironmentFlagsAndShutdown(t *testing.T) {
-	t.Setenv("DEX_WEB_PORT", "19002")
+	t.Setenv("DEX_WEB_PORT", "tcp://10.0.0.1:8802")
+	t.Setenv("DEX_WEB_SERVICE_HOST", "10.0.0.1")
+	t.Setenv("DEX_WEB_HTTP_PORT", "tcp://10.0.0.2:8802")
+	t.Setenv("DEX_WEB_UNRELATED", "ignored")
+	t.Setenv("DEX_WEB_HTTP_PORT_NUMBER", "19002")
+	t.Setenv("DEX_WEB_FLOW_RENDERING_DIRECTORY", "definitions")
+	defaults, err := parseCommandConfig(nil, io.Discard)
+	if err != nil || defaults.web.Port != 19002 || defaults.web.FlowRenderingDirectory != "definitions" {
+		t.Fatalf("environment config: %+v, %v", defaults, err)
+	}
+	t.Setenv("DEX_WEB_FLOW_RENDERING_DIRECTORY", "")
 	t.Setenv("DEX_WEB_START_FLOW_WORKER_TARGET_PULL", "true")
 	cfg, err := parseCommandConfig([]string{"--port", "19003"}, io.Discard)
 	if err != nil || cfg.web.Port != 19003 || !cfg.web.IsStartFlowWorkerTargetPull {

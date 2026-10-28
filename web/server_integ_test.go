@@ -49,6 +49,87 @@ type flowService struct {
 	setRequests        chan *dexpb.SetAttributesRequest
 }
 
+func TestWebServerProtectsUnsafeAPIRequests(t *testing.T) {
+	service := &flowService{stopRequests: make(chan *dexpb.StopFlowRequest, 1)}
+	harness := newHarness(t, service)
+	for _, scenario := range []struct {
+		name        string
+		contentType string
+		origin      string
+		fetchSite   string
+		statusCode  int
+	}{
+		{"cross-site simple POST", "text/plain", "https://attacker.example", "cross-site", http.StatusForbidden},
+		{"simple POST without browser headers", "text/plain", "", "", http.StatusUnsupportedMediaType},
+		{"missing content type", "", "", "", http.StatusUnsupportedMediaType},
+		{"cross-site JSON", "application/json", "https://attacker.example", "", http.StatusForbidden},
+		{"same-site is not same-origin", "application/json", "", "same-site", http.StatusForbidden},
+		{"cross-site fetch with matching origin", "application/json", harness.http.URL, "cross-site", http.StatusForbidden},
+		{"same-origin fetch with foreign origin", "application/json", "https://attacker.example", "same-origin", http.StatusForbidden},
+		{"null origin", "application/json", "null", "", http.StatusForbidden},
+		{"same-origin browser", "application/json; charset=utf-8", harness.http.URL, "same-origin", http.StatusOK},
+		{"origin without fetch metadata", "application/json", harness.http.URL, "", http.StatusOK},
+		{"fetch metadata without origin", "application/json", "", "same-origin", http.StatusOK},
+		{"non-browser JSON", "application/json", "", "", http.StatusOK},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			request, err := http.NewRequest(http.MethodPost, harness.http.URL+"/api/flows/stop",
+				strings.NewReader(`{"flowId":"checkout-1","stopType":1}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Header.Set("Content-Type", scenario.contentType)
+			request.Header.Set("Origin", scenario.origin)
+			request.Header.Set("Sec-Fetch-Site", scenario.fetchSite)
+			response, err := harness.http.Client().Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := readBody(t, response)
+			if err := response.Body.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if response.StatusCode != scenario.statusCode {
+				t.Fatalf("status=%d body=%s", response.StatusCode, body)
+			}
+			if scenario.statusCode == http.StatusOK {
+				select {
+				case <-service.stopRequests:
+				default:
+					t.Fatal("same-origin stop did not reach FlowService")
+				}
+			} else if len(service.stopRequests) != 0 {
+				t.Fatal("rejected request reached FlowService")
+			}
+		})
+	}
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/v2/start"},
+		{http.MethodPut, "/api/flows/attributes"},
+		{http.MethodDelete, "/api/flows/channels/messages"},
+	} {
+		request, err := http.NewRequest(route.method, harness.http.URL+route.path, strings.NewReader(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "https://attacker.example")
+		response, err := harness.http.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := response.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s: status=%d", route.path, response.StatusCode)
+		}
+	}
+}
+
 func TestWebServerWritesLiveFlowState(t *testing.T) {
 	service := &flowService{
 		publishRequests: make(chan *dexpb.PublishToChannelRequest, 1),

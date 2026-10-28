@@ -39,18 +39,27 @@ make -C web build
 Open [http://127.0.0.1:8802](http://127.0.0.1:8802). The binary serves the
 embedded SPA, `/api/`, `/healthz`, and `/readyz`. It connects to an existing Dex
 FlowService; it does not start a Dex Server. SIGINT and SIGTERM allow ten seconds
-for HTTP requests to finish before the process exits.
+for HTTP requests to finish before the process exits. `/healthz` is liveness;
+`/readyz` is readiness and calls FlowService with the configured credential on
+every probe. A FlowService outage must not trigger liveness restarts.
+
+Dex Web has no end-user authentication. Anyone who can reach its HTTP port can
+read and mutate Flows with the configured FlowService credential. Protect the
+port with network policies or an authenticating reverse proxy before exposing
+it beyond a trusted local machine.
 
 Every setting below accepts a flag or an environment variable. Flags override
 environment values. Settings are immutable after startup, except for token-file
-contents, which are checked for rotation at most once per second.
+contents, which are checked for rotation at most once per second. Unlisted
+environment variables are ignored, including Kubernetes service-link variables
+such as `DEX_WEB_PORT` and `DEX_WEB_SERVICE_HOST`.
 
 | Flag | Environment variable | Default |
 | --- | --- | --- |
 | `--bind-address` | `DEX_WEB_BIND_ADDRESS` | `127.0.0.1` |
-| `--port` | `DEX_WEB_PORT` | `8802` |
+| `--port` | `DEX_WEB_HTTP_PORT_NUMBER` | `8802` |
 | `--flow-service-address` | `DEX_WEB_FLOW_SERVICE_ADDRESS` | `127.0.0.1:8801` |
-| `--flow-rendering-dir` | `DEX_WEB_FLOW_RENDERING_DIR` | empty |
+| `--flow-rendering-dir` | `DEX_WEB_FLOW_RENDERING_DIRECTORY` | empty |
 | `--start-flow-worker-target-headless` | `DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS` | `false` |
 | `--start-flow-worker-target-pull` | `DEX_WEB_START_FLOW_WORKER_TARGET_PULL` | `false` |
 | `--tls` | `DEX_WEB_TLS` | `false` |
@@ -68,7 +77,13 @@ ignored. A missing or empty file fails startup. If it becomes empty or unreadabl
 later, RPCs fail until the file is restored. Credentials stay in the Go process
 and are never sent to the browser. This matches the existing embedded Web path;
 API key exchange is not part of that path. An external credential agent can
-supply short-lived tokens through the rotating file.
+supply short-lived tokens through the rotating file. Use `--tls` when sending a
+credential to a remote FlowService to protect the bearer token in transit.
+
+Unsafe `/api/` requests require `Content-Type: application/json`. Browser requests
+must come from the same origin; Dex Web checks `Sec-Fetch-Site` and compares
+`Origin` with the HTTP request scheme and Host. Forwarded headers do not override
+these checks.
 
 ```bash
 ./web/dex-web --flow-service-address dex.example.com:443 --tls \

@@ -470,7 +470,7 @@ func TestV2SummaryLoadingBoundsConcurrencyAndIsolatesFailures(t *testing.T) {
 			return nil, ctx.Err()
 		}
 		if request.GetFlowId() == "failure" {
-			return nil, status.Error(codes.Internal, "row failed")
+			return nil, status.Error(codes.Unauthenticated, "read credential file /private/secret-token: no such file")
 		}
 		return &dexpb.InvokeRPCResponse{Output: jsonDexValue(`{"charge-reference":"ok"}`)}, nil
 	}
@@ -505,6 +505,9 @@ func TestV2SummaryLoadingBoundsConcurrencyAndIsolatesFailures(t *testing.T) {
 	}
 	if maximum.Load() != v2RPCConcurrency {
 		t.Fatalf("maximum summary concurrency = %d", maximum.Load())
+	}
+	if strings.Contains(flows[9].SummaryError, "/private/secret-token") {
+		t.Fatalf("Summary leaked a credential path: %s", flows[9].SummaryError)
 	}
 	if flows[9].SummaryError == "" {
 		t.Fatalf("failed row did not retain its error: %+v", flows[9])

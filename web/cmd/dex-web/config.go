@@ -86,7 +86,18 @@ func (defaults *commandEnvironmentDefaults) applyDefault(option *flag.Flag) {
 	if option.Name == "version" {
 		return
 	}
-	environmentName := "DEX_WEB_" + strings.ToUpper(strings.ReplaceAll(option.Name, "-", "_"))
+	environmentName := map[string]string{
+		"bind-address":                      "DEX_WEB_BIND_ADDRESS",
+		"port":                              "DEX_WEB_HTTP_PORT_NUMBER",
+		"flow-service-address":              "DEX_WEB_FLOW_SERVICE_ADDRESS",
+		"flow-rendering-dir":                "DEX_WEB_FLOW_RENDERING_DIRECTORY",
+		"start-flow-worker-target-headless": "DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS",
+		"start-flow-worker-target-pull":     "DEX_WEB_START_FLOW_WORKER_TARGET_PULL",
+		"tls":                               "DEX_WEB_TLS",
+		"tls-ca-file":                       "DEX_WEB_TLS_CA_FILE",
+		"tls-server-name":                   "DEX_WEB_TLS_SERVER_NAME",
+		"flow-service-credential-file":      "DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE",
+	}[option.Name]
 	if value, exists := os.LookupEnv(environmentName); exists {
 		if err := defaults.flags.Set(option.Name, value); err != nil {
 			defaults.err = fmt.Errorf("%s: %w", environmentName, err)
