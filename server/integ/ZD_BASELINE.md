@@ -4,8 +4,8 @@ This report records how the whole `server/integ` suite behaves when it runs in
 binary mode against `dex-server-zd`. Every test has a result. Every skip and
 failure has one classification.
 
-- CI run: [Server Integration against server-zd #40728045943](https://github.com/superdurable/dex/actions/runs/40728045943)
-  on commit `c672d9266`, five partitions, debug `dex-server-zd`, PostgreSQL 17,
+- CI run: [Server Integration against server-zd #40738057920](https://github.com/superdurable/dex/actions/runs/40738057920)
+  on commit `4da24c222`, five partitions, debug `dex-server-zd`, PostgreSQL 17,
   and Redis 7.
 - Command: `make -C server zdIntegTests dexServerZDBinary=<dex-server-zd> totalPartitions=5 partitionNum=<n>`.
 - Regenerate the result table from the uploaded `zd-integ-json-*` artifacts with
@@ -42,7 +42,7 @@ skips into assertions. A forced run, with the
 Temporal-only guards disabled locally, supplied the evidence for zd-bugs 1 and 2. The
 other zd-bugs come from the ported tests themselves. #1011 fixed zd-bug 1, so
 **TestHardDeleteAttributeSubFlowTemporal** now runs in binary mode and passes.
-The counts include that change; a local binary-mode run confirmed it.
+The counts include that change.
 
 ## Classifications
 
@@ -316,20 +316,20 @@ checks Go Server configuration.
 | TestGreedyAnyTimerSignalFlowCadenceContinueAsNew | skip | go-server-only | Skip reason: `any_timer_signal_test.go:106: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestGreedyAnyTimerSignalFlowTemporal | pass |  |  |
 | TestGreedyAnyTimerSignalFlowTemporalContinueAsNew | pass |  |  |
-| TestGreedyTimerFlowBaseCadence | skip | go-server-only | Skip reason: `greedy_timer_test.go:40: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestGreedyTimerFlowBaseCadenceContinueAsNew | skip | go-server-only | Skip reason: `greedy_timer_test.go:60: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
+| TestGreedyTimerFlowBaseCadence | skip | go-server-only | Skip reason: `greedy_timer_test.go:41: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
+| TestGreedyTimerFlowBaseCadenceContinueAsNew | skip | go-server-only | Skip reason: `greedy_timer_test.go:61: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestGreedyTimerFlowBaseTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestGreedyTimerFlowBaseTemporalContinueAsNew | skip | go-server-only | Skip reason: `greedy_timer_test.go:80: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
+| TestGreedyTimerFlowBaseTemporalContinueAsNew | skip | go-server-only | Skip reason: `greedy_timer_test.go:81: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
 | TestGreedyTimerFlowCadence | skip | go-server-only | Skip reason: `timer_test.go:82: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestGreedyTimerFlowCadenceContinueAsNew | skip | go-server-only | Skip reason: `timer_test.go:102: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestGreedyTimerFlowTemporal | pass | zd-bug | Harness gap fixed. Passes; its timer status pins zd-bug 6 (#1007, skipped timer reported as fired) and the reset difference. |
 | TestGreedyTimerFlowTemporalContinueAsNew | skip | go-server-only | Skip reason: `timer_test.go:117: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
-| TestHardDeleteAttributeBlobCacheTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:453: Temporal-only assertion`. Go Server Blob cache directory with S3 (C5). |
-| TestHardDeleteAttributeCleanupTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:496: Temporal-only assertion`. Go Server hard-delete object cleanup in its local Blob directory; a forced run panics on a nil Go Blob Store. |
-| TestHardDeleteAttributeRequiresBlobStoreTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:389: server-zd does not support disabled Blob Store`. Go Server Blob Store switch; server-zd always stores values in its log (C5). |
+| TestHardDeleteAttributeBlobCacheTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:462: Temporal-only assertion`. Go Server Blob cache directory with S3 (C5). |
+| TestHardDeleteAttributeCleanupTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:505: Temporal-only assertion`. Go Server hard-delete object cleanup in its local Blob directory; a forced run panics on a nil Go Blob Store. |
+| TestHardDeleteAttributeRequiresBlobStoreTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:398: server-zd does not support disabled Blob Store`. Go Server Blob Store switch; server-zd always stores values in its log (C5). |
 | TestHardDeleteAttributeResetCadence | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:248: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestHardDeleteAttributeResetTemporal | pass |  |  |
-| TestHardDeleteAttributeStepWriteRequiresBlobStoreTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:413: Temporal-only assertion`. Go Server disabled Blob Store rejection (C5). |
+| TestHardDeleteAttributeStepWriteRequiresBlobStoreTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:422: Temporal-only assertion`. Go Server disabled Blob Store rejection (C5). |
 | TestHardDeleteAttributeSubFlowCadence | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:306: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestHardDeleteAttributeSubFlowTemporal | pass |  | zd-bug 1 (#1001) fixed by #1011; runs against dex-server-zd. |
 | TestHardDeleteAttributeValidationTemporal | pass |  |  |
@@ -553,7 +553,7 @@ checks Go Server configuration.
 | TestUpdateWorkerTargetCadence | skip | go-server-only | Skip reason: `worker_target_update_test.go:35: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestUpdateWorkerTargetTemporal | skip | go-server-only | Skip reason: `worker_target_update_test.go:41: requires push Workers: switching addresses between Workers for one Flow type`. Push Worker address switching; server-zd supports only pull Workers (C18). |
 | TestWaitForAttributeBlobBackedTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestWaitForAttributeCadence | skip | go-server-only | Skip reason: `wait_for_attribute_test.go:89: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
+| TestWaitForAttributeCadence | skip | go-server-only | Skip reason: `wait_for_attribute_test.go:86: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestWaitForAttributeTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
 | TestWaitForStateCompletionCadence | skip | go-server-only | Skip reason: `wait_for_state_completion_test.go:71: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestWaitForStateCompletionTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
