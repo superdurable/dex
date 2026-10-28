@@ -55,7 +55,6 @@ func StartPullGreeting(cache *blobcache.Cache, serverAddress string) (*GreetingF
 	}
 	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
 		FlowServiceAddress: serverAddress,
-		WorkerTarget:       worker.WorkerTarget(),
 	})
 	if err != nil {
 		return nil, nil, nil, nil, errors.Join(err, worker.Stop(context.Background()))

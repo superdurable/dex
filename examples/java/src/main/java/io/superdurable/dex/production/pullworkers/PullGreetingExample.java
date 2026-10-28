@@ -24,7 +24,6 @@ import io.superdurable.dex.PullWorkerOptions;
 import io.superdurable.dex.Registry;
 import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
-import io.superdurable.dex.WorkerTarget;
 
 import java.time.Duration;
 import java.util.List;
@@ -47,8 +46,7 @@ public final class PullGreetingExample {
                         .reservedRpcTasks(1)
                         .build())
                 .build());
-        final Client client = new Client(registry, cache,
-                new ClientOptions(serverAddress, WorkerTarget.pull()));
+        final Client client = new Client(registry, cache, new ClientOptions(serverAddress));
         final CompletableFuture<Void> workerResult = new CompletableFuture<>();
         final Thread workerThread = new Thread(() -> {
             try {

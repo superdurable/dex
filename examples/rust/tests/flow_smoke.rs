@@ -31,7 +31,6 @@ use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
 use dex_sdk::{
     BlobCache, BlobCacheConfig, Client, ClientOptions, SdkResult, Worker, WorkerOptions,
-    WorkerTarget,
 };
 use tempfile::TempDir;
 use worker_harness::await_pull_registration;
@@ -64,9 +63,7 @@ impl FlowSmokeEnvironment {
                 create_example_registry(Arc::clone(&polling_jobs))
                     .expect("register Rust client examples"),
                 Arc::clone(&cache),
-                ClientOptions::new()
-                    .server_address(&server_address)
-                    .worker_target(WorkerTarget::pull()),
+                ClientOptions::new().server_address(&server_address),
             )
             .expect("create Rust flow smoke Client"),
         );

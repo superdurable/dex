@@ -84,7 +84,6 @@ func newDealDSLServer(ctx context.Context) (*dealDSLServer, error) {
 		return nil, errors.Join(err, cache.Close())
 	}
 	client, err := sdk.NewClient(flowRegistry, cache, sdk.ClientOptions{
-		WorkerTarget:       worker.WorkerTarget(),
 		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
 	})
 	if err != nil {

@@ -25,7 +25,6 @@ import io.superdurable.dex.PullWorkerOptions;
 import io.superdurable.dex.Registry;
 import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
-import io.superdurable.dex.WorkerTarget;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -70,7 +69,7 @@ public class DexConfig {
         return new Client(
                 registry,
                 blobCache,
-                new ClientOptions(serverAddress, WorkerTarget.pull()));
+                new ClientOptions(serverAddress));
     }
 
     @Component

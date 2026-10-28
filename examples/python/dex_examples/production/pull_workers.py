@@ -85,10 +85,7 @@ async def start_pull_greeting(
     client = AsyncClient(
         registry,
         cache,
-        ClientOptions(
-            server_address=server_address,
-            worker_target=worker.worker_target,
-        ),
+        ClientOptions(server_address=server_address),
     )
     try:
         await worker.wait_pull_registered(timeout=30)

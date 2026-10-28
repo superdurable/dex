@@ -88,9 +88,7 @@ pub fn start_pull_greeting(
     let client = Client::try_new(
         registry,
         cache,
-        ClientOptions::new()
-            .server_address(server_address)
-            .worker_target(worker.worker_target().clone()),
+        ClientOptions::new().server_address(server_address),
     )?;
     let startup_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

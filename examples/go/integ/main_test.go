@@ -79,7 +79,6 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 		workerResult <- worker.Start()
 	}()
 	client, err = dex.NewClient(registry, cache, dex.ClientOptions{
-		WorkerTarget:       worker.WorkerTarget(),
 		FlowServiceAddress: flowServiceAddress(),
 	})
 	if err != nil {

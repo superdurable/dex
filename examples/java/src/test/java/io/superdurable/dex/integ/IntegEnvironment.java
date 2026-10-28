@@ -26,7 +26,6 @@ import io.superdurable.dex.Registry;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
-import io.superdurable.dex.WorkerTarget;
 import io.superdurable.dex.WaitForAttributeOptions;
 import io.superdurable.dex.shared.MyDependencyService;
 import io.superdurable.dex.products.engagement.EngagementFlow;
@@ -179,7 +178,7 @@ final class IntegEnvironment implements AutoCloseable {
         final Client client = new Client(
                 registry,
                 blobCache,
-                new ClientOptions(serverAddress, WorkerTarget.pull()));
+                new ClientOptions(serverAddress));
         return new IntegEnvironment(
                 cacheDirectory,
                 blobCache,

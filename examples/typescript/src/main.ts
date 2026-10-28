@@ -85,7 +85,6 @@ export async function startSampleServer(): Promise<SampleServer> {
   const worker = await startExampleWorker(registry, blobCache, env.serverAddress);
   const client = new Client(registry, blobCache, {
     serverAddress: env.serverAddress,
-    workerTarget: { pull: true },
   });
   setClient(client);
 

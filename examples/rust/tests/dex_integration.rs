@@ -107,9 +107,7 @@ impl DexEnvironment {
         let client = Client::try_new(
             registry,
             Arc::clone(&cache),
-            ClientOptions::new()
-                .server_address(server_address)
-                .worker_target(worker.worker_target().clone()),
+            ClientOptions::new().server_address(server_address),
         )
         .expect("create Rust examples Client");
         client.health_check().expect("Dex health check");
