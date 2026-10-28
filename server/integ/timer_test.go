@@ -24,7 +24,6 @@ import (
 	"github.com/superdurable/dex/integ/workflow/timer"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
-	"google.golang.org/protobuf/proto"
 )
 
 func TestTimerFlowTemporal(t *testing.T) {
@@ -327,10 +326,12 @@ func assertTimerQueryResponseEqual(
 				expectedInfo.GetFiringUnixTimestampSeconds() - actualInfo.GetFiringUnixTimestampSeconds(),
 			))
 			assertions.True(abs <= 1)
-			// Compare a copy so polling never rewrites the expected firing time.
-			expectedWithActualTimestamp := proto.Clone(expectedInfo).(*dexpb.TimerInfo)
-			expectedWithActualTimestamp.FiringUnixTimestampSeconds = actualInfo.GetFiringUnixTimestampSeconds()
-			assertions.Equal(expectedWithActualTimestamp, actualInfo)
+			// Compare a new value so polling never rewrites the expected firing time.
+			assertions.Equal(&dexpb.TimerInfo{
+				ConditionId:                expectedInfo.GetConditionId(),
+				FiringUnixTimestampSeconds: actualInfo.GetFiringUnixTimestampSeconds(),
+				Status:                     expectedInfo.GetStatus(),
+			}, actualInfo)
 		}
 	}
 }
