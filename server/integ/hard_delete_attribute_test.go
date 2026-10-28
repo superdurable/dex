@@ -319,7 +319,9 @@ func doTestHardDeleteAttributeSubFlow(t *testing.T, backendType service.BackendT
 	require.NoError(t, err)
 
 	for _, flowID := range []string{parentFlowID, childFlowID} {
-		events, _ := getAllWebHistoryEvents(t, ctx, flowClient, flowID, "")
+		summary, err := flowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+		require.NoError(t, err)
+		events, _ := getAllWebHistoryEvents(t, ctx, flowClient, flowID, summary.GetFlowExecutionId().GetRunId())
 		require.NotEmpty(t, events)
 		for _, event := range events {
 			require.NotContains(t, event.String(), hardDeleteAttributes.SubFlowSecret)
