@@ -31,6 +31,7 @@ from dex import (
     StartFlowOptions,
     Step,
     StepDecision,
+    StepDurability,
     StepList,
     StepOutput,
     Stream,
@@ -39,7 +40,6 @@ from dex import (
     SubFlowOptions,
     Worker,
     WorkerOptions,
-    WorkerTarget,
     graceful_complete,
     heartbeat,
     rpc,
@@ -173,13 +173,12 @@ def compile_lifecycle(client: Client, worker: Worker) -> None:
         pass
 
 
-pull_target: WorkerTarget = WorkerTarget(pull=True)
 pull_worker_options: WorkerOptions = WorkerOptions(
     pull=PullWorkerOptions(max_concurrent_tasks=8, idle_streams_per_queue=1)
 )
 pull_start_options: StartFlowOptions = StartFlowOptions(
-    config_override=FlowConfig(worker_target=pull_target)
+    config_override=FlowConfig(step_durability=StepDurability.SYNC)
 )
 pull_subflow_options: SubFlowOptions = SubFlowOptions(
-    config_override=FlowConfig(worker_target=pull_target)
+    config_override=FlowConfig(step_durability=StepDurability.SYNC)
 )

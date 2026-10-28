@@ -7,59 +7,18 @@
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from dex.credential import Credential
-
-
-class _ImplicitBindAddress(str):
-    pass
-
-
-_DEFAULT_BIND_ADDRESS = _ImplicitBindAddress(":8803")
-
-
-@dataclass(frozen=True)
-class WorkerTarget:
-    """Select a listening endpoint or outbound pull queues for a Flow.
-
-    Use ``WorkerTarget(pull=True)`` with a pull Worker. A listening Worker
-    advertises its address instead. Client defaults and Flow overrides accept
-    the same target.
-
-    Attributes:
-        address: A plaintext gRPC target. Headless targets must use ``host:port``.
-        headless: Whether Dex should connect directly without service discovery.
-            Defaults to ``False``.
-        pull: Whether Dex dispatches through Worker task queues. Defaults to
-            ``False``. Cannot be combined with an address or headless mode.
-
-    Raises:
-        ValueError: If pull mode is combined with an address or headless mode.
-
-    Examples:
-        >>> target = WorkerTarget(pull=True)
-        >>> client_options = ClientOptions(worker_target=target)
-    """
-
-    address: str = ""
-    headless: bool = False
-    pull: bool = False
-
-    def __post_init__(self) -> None:
-        if self.pull and (self.address or self.headless):
-            raise ValueError(
-                "pull mode cannot be combined with address or headless mode"
-            )
 
 
 @dataclass(frozen=True)
 class PullWorkerOptions:
     """Configure outbound task polling for a Worker or AsyncWorker.
 
-    Pass this to ``WorkerOptions(pull=PullWorkerOptions())`` and advertise
-    ``worker.worker_target`` to a Client. Each stream runs one task at a time.
+    Pass this to ``WorkerOptions(pull=PullWorkerOptions())``. Each stream runs
+    one task at a time.
     Handlers may run concurrently and must synchronize shared state.
 
     Attributes:
@@ -111,8 +70,6 @@ class PullWorkerOptions:
     Examples:
         >>> pull = PullWorkerOptions(max_concurrent_tasks=8, reserved_rpc_tasks=2)
         >>> worker = Worker(registry, cache, WorkerOptions(pull=pull))
-        >>> worker.worker_target == WorkerTarget(pull=True)
-        True
     """
 
     max_concurrent_tasks: int = 0
@@ -154,20 +111,17 @@ class WorkerOptions:
     """Configure Worker networking, pull polling, and startup synchronization.
 
     ``attribute_index_sync_timeout`` is the RPC deadline used before the Worker
-    opens its listener. It defaults to two minutes and must be positive.
+    opens its outbound task streams. It defaults to two minutes and must be
+    positive.
 
     Attributes:
-        bind_address: The local plaintext WorkerService listener in ``host:port``
-            form. Defaults to ``":8803"``.
-        worker_target: The endpoint advertised to Dex. ``None`` derives an address
-            from ``bind_address``.
         server_address: The Dex FlowService target used for startup synchronization
             and blob hydration. Defaults to ``"localhost:8801"``.
         attribute_index_sync_timeout: Maximum duration for startup Attribute index
             synchronization. Defaults to two minutes and must be positive.
-        pull: Outbound polling options. ``None`` keeps the listening WorkerService
-            mode. Pull mode uses ``server_address`` and cannot advertise an
-            address or configure a custom bind address.
+        pull: Outbound polling options. Defaults to ``PullWorkerOptions()``.
+            ``None`` is invalid because push Workers are no longer supported.
+            Workers connect to ``server_address`` without an inbound listener.
         credential: Supplies the current bearer token for FlowService calls and
             each pull stream open. ``None`` sends no authorization metadata.
             Token errors fail calls before Dex is contacted. Protect the plaintext
@@ -176,26 +130,15 @@ class WorkerOptions:
             lookup to 30 seconds. Synchronous token lookup must return promptly.
     """
 
-    bind_address: str = _DEFAULT_BIND_ADDRESS
-    worker_target: WorkerTarget | None = None
     server_address: str = "localhost:8801"
     attribute_index_sync_timeout: timedelta = timedelta(minutes=2)
-    pull: PullWorkerOptions | None = None
+    pull: PullWorkerOptions = field(default_factory=PullWorkerOptions)
     credential: Credential | None = None
 
     def __post_init__(self) -> None:
+        if self.pull is None:
+            raise ValueError(
+                "push Workers are no longer supported; use PullWorkerOptions() instead of pull=None"
+            )
         if self.attribute_index_sync_timeout <= timedelta(0):
             raise ValueError("attribute_index_sync_timeout must be positive")
-        if self.pull is not None and (
-            self.bind_address is not _DEFAULT_BIND_ADDRESS
-            or self.worker_target is not None
-        ):
-            raise ValueError(
-                "pull Worker cannot configure bind_address or worker_target"
-            )
-        if (
-            self.pull is None
-            and self.worker_target is not None
-            and self.worker_target.pull
-        ):
-            raise ValueError("WorkerTarget.pull requires WorkerOptions.pull")

@@ -12,7 +12,7 @@ job board execute serially without blocking the other board. `Title` uses the
 searchable. `LastUpdateTimeMillis` uses `int1`.
 
 The Worker synchronizes these Indexed Attributes automatically before opening
-its listener.
+its outbound task streams.
 
 With the sample server running:
 

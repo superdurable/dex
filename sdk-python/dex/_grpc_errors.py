@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import traceback
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 import grpc
 from google.protobuf import any_pb2
@@ -162,23 +162,6 @@ def _worker_code(details: pb.ServiceErrorResponse | None) -> grpc.StatusCode | N
             if code.value[0] == details.original_worker_error_status
         ),
         grpc.StatusCode.UNKNOWN,
-    )
-
-
-def abort_worker_error(
-    context: grpc.ServicerContext,
-    error: BaseException,
-) -> None:
-    context.abort_with_status(rpc_status.to_status(_worker_error_status(error)))
-
-
-async def async_abort_worker_error(
-    context: grpc.aio.ServicerContext[Any, Any],
-    error: BaseException,
-) -> None:
-    # types-grpcio on 3.11 omits aio abort_with_status; runtime provides it.
-    await cast(Any, context).abort_with_status(
-        rpc_status.to_status(_worker_error_status(error))
     )
 
 

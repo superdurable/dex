@@ -15,19 +15,6 @@ case "$DEX_INTEG_ENGINE" in
   temporal|zd) ;;
   *) echo "DEX_INTEG_ENGINE must be temporal or zd" >&2; exit 2 ;;
 esac
-default_worker_mode=push
-if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
-  default_worker_mode=pull
-fi
-worker_mode="${DEX_INTEG_WORKER_MODE:-$default_worker_mode}"
-case "$worker_mode" in
-  push|pull) ;;
-  *) echo "DEX_INTEG_WORKER_MODE must be push or pull" >&2; exit 2 ;;
-esac
-if [[ "$DEX_INTEG_ENGINE" == zd && "$worker_mode" == push ]]; then
-  echo "DEX_INTEG_WORKER_MODE=push is not supported with DEX_INTEG_ENGINE=zd" >&2
-  exit 2
-fi
 
 pytest_args=(-q)
 if [[ "${1:-}" == "--coverage" ]]; then
@@ -121,5 +108,4 @@ fi
 
 cd "$script_dir"
 DEX_SERVER_ADDRESS="$dex_address" \
-  DEX_INTEG_WORKER_MODE="$worker_mode" \
   uv run --frozen pytest "${pytest_args[@]}" "${test_paths[@]}"

@@ -711,6 +711,9 @@ class WorkerDispatcher:
             mapped.flow_config_override.CopyFrom(
                 self._map_sub_flow_config(options.config_override)
             )
+        mapped.flow_config_override.worker_target.CopyFrom(
+            pb.WorkerTarget(is_pull_mode=True)
+        )
         return mapped
 
     def _result_attribute_writes(
@@ -761,14 +764,7 @@ class WorkerDispatcher:
                 StepDurability.SYNC: pb.STEP_DURABILITY_SYNC,
                 StepDurability.ASYNC: pb.STEP_DURABILITY_ASYNC,
             }[config.step_durability]
-        if config.worker_target is not None:
-            mapped.worker_target.CopyFrom(
-                pb.WorkerTarget(
-                    address=config.worker_target.address,
-                    is_headless_address=config.worker_target.headless,
-                    is_pull_mode=config.worker_target.pull,
-                )
-            )
+        mapped.worker_target.CopyFrom(pb.WorkerTarget(is_pull_mode=True))
         if config.attribute_store_names is not None:
             mapped.attribute_store_names.CopyFrom(
                 pb.AttributeStoreNames(names=config.attribute_store_names)

@@ -42,11 +42,7 @@ async def main() -> None:
         await start_cron_schedule(app_state)
 
         host, port = parse_http_address(config.http_address)
-        worker_description = (
-            "pull worker"
-            if config.worker_mode.is_pull
-            else f"worker {app_state.worker.worker_target.address}"
-        )
+        worker_description = "pull Worker"
         print(
             f"Dex Python examples listening on http://{config.http_address} "
             f"({worker_description})"

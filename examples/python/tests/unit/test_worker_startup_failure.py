@@ -28,7 +28,6 @@ import dex_examples.app as async_app_module
 import sync_examples.app as sync_app_module
 from dex_examples.app import ExampleApp
 from dex_examples.config import ExamplesConfig
-from dex_examples.shared.worker_mode import WorkerMode
 from sync_examples.app import SyncExampleApp
 from sync_examples.config import SyncExamplesConfig
 
@@ -95,11 +94,8 @@ def _new_async_app(server_address: str, tmp_path: Path) -> ExampleApp:
     return ExampleApp(
         ExamplesConfig(
             server_address=server_address,
-            worker_bind_address="127.0.0.1:0",
-            worker_target=None,
             http_address="127.0.0.1:0",
             blob_cache_dir=tmp_path / "blob-cache",
-            worker_mode=WorkerMode.PULL,
         )
     )
 
@@ -108,11 +104,8 @@ def _new_sync_app(server_address: str, tmp_path: Path) -> SyncExampleApp:
     return SyncExampleApp(
         SyncExamplesConfig(
             server_address=server_address,
-            worker_bind_address="127.0.0.1:0",
-            worker_target=None,
             http_address="127.0.0.1:0",
             blob_cache_dir=tmp_path / "blob-cache",
-            worker_mode=WorkerMode.PULL,
         )
     )
 

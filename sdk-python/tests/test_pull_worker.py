@@ -12,9 +12,9 @@ import asyncio
 import logging
 import re
 import threading
-from contextlib import ExitStack
 from collections.abc import AsyncIterator, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Coroutine, cast
 from unittest.mock import AsyncMock, patch
@@ -24,23 +24,26 @@ import pytest
 from google.protobuf import timestamp_pb2
 
 from dex import (
+    AsyncClient,
     AsyncWorker,
     BlobCache,
-    PullRegistrationError,
+    Client,
+    Context,
     Flow,
     FlowConfig,
-    Context,
+    PullRegistrationError,
     PullWorkerOptions,
     RPCResult,
+    StartFlowOptions,
     Step,
     StepDecision,
     StepList,
+    SubFlowOptions,
     Wait,
     Worker,
     WorkerOptions,
-    WorkerTarget,
-    retry_after,
     graceful_complete,
+    retry_after,
     rpc,
 )
 from dex._pull_worker import PullStream, PullWorkerRuntime, generate_app_worker_id
@@ -48,7 +51,6 @@ from dex._worker_dispatcher import WorkerDispatcher
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
-
 
 _UNKNOWN_TASK_REASON = PullWorkerRuntime.unknown_task_reason
 
@@ -60,24 +62,7 @@ def accept_mock_worker_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_pull_options_and_targets_validate_conflicts() -> None:
-    assert WorkerTarget(pull=True).address == ""
-    for target in (
-        {"pull": True, "address": "localhost:8803"},
-        {"pull": True, "headless": True},
-    ):
-        with pytest.raises(ValueError, match="pull mode cannot be combined"):
-            WorkerTarget(**target)
-    with pytest.raises(ValueError, match="bind_address"):
-        WorkerOptions(bind_address="localhost:8803", pull=PullWorkerOptions())
-    with pytest.raises(ValueError, match="bind_address"):
-        WorkerOptions(bind_address=":8803", pull=PullWorkerOptions())
-    with pytest.raises(ValueError, match="worker_target"):
-        WorkerOptions(
-            worker_target=WorkerTarget("localhost:8803"), pull=PullWorkerOptions()
-        )
-    with pytest.raises(ValueError, match="requires"):
-        WorkerOptions(worker_target=WorkerTarget(pull=True))
+def test_pull_options_validate_capacity() -> None:
     for option in (
         {"max_concurrent_tasks": -1},
         {"idle_streams_per_queue": -1},
@@ -90,11 +75,80 @@ def test_pull_options_and_targets_validate_conflicts() -> None:
             PullWorkerOptions(**option)
 
 
-def test_subflow_pull_override_maps_to_protocol() -> None:
-    mapped = WorkerDispatcher._map_sub_flow_config(
-        FlowConfig(worker_target=WorkerTarget(pull=True))
+@pytest.mark.parametrize("client_type", [Client, AsyncClient])
+def test_default_flow_and_subflow_config_use_pull_protocol(
+    client_type: type[Client] | type[AsyncClient],
+) -> None:
+    asyncio.run(_default_flow_and_subflow_config_use_pull_protocol(client_type))
+
+
+async def _default_flow_and_subflow_config_use_pull_protocol(
+    client_type: type[Client] | type[AsyncClient],
+) -> None:
+    flow = Flow[None]()
+    registry = Registry([flow])
+    client = client_type(registry, cast(BlobCache, object()))
+    start = client._map_start_options(
+        registry._flow_for_instance(flow), StartFlowOptions()
     )
-    assert mapped.worker_target.is_pull_mode
+    expected_target = pb.WorkerTarget(is_pull_mode=True)
+    assert start.flow_config_override.worker_target == expected_target
+    for config in (None, FlowConfig(continue_as_new_threshold=500)):
+        sub_flow = client._mappings._map_sub_flow_options(
+            registry._flow_for_instance(flow), SubFlowOptions(config_override=config)
+        )
+        assert sub_flow.flow_config_override.worker_target == expected_target
+    assert (
+        WorkerDispatcher._map_sub_flow_config(FlowConfig()).worker_target
+        == expected_target
+    )
+    assert WorkerOptions().pull == PullWorkerOptions()
+    if isinstance(client, AsyncClient):
+        await client.close()
+    else:
+        client.close()
+
+
+@pytest.mark.parametrize("client_type", [Client, AsyncClient])
+@pytest.mark.parametrize(
+    "config", [FlowConfig(), FlowConfig(continue_as_new_threshold=500)]
+)
+def test_update_flow_config_leaves_worker_target_unset(
+    client_type: type[Client] | type[AsyncClient],
+    config: FlowConfig,
+) -> None:
+    asyncio.run(_update_flow_config_leaves_worker_target_unset(client_type, config))
+
+
+async def _update_flow_config_leaves_worker_target_unset(
+    client_type: type[Client] | type[AsyncClient],
+    config: FlowConfig,
+) -> None:
+    client = client_type(Registry([]), cast(BlobCache, object()))
+    try:
+        with patch.object(client, "_call") as call:
+            if isinstance(client, AsyncClient):
+                await client.update_flow_config("existing-flow", config)
+            else:
+                client.update_flow_config("existing-flow", config)
+            request = call.call_args.args[1]
+            assert isinstance(request, pb.UpdateFlowConfigRequest)
+            assert not request.flow_config.HasField("worker_target")
+            if config.continue_as_new_threshold is not None:
+                assert request.flow_config.HasField("continue_as_new_threshold")
+                assert request.flow_config.continue_as_new_threshold == 500
+    finally:
+        if isinstance(client, AsyncClient):
+            await client.close()
+        else:
+            client.close()
+
+
+def test_worker_options_reject_removed_push_selector() -> None:
+    with pytest.raises(
+        ValueError, match=r"use PullWorkerOptions\(\) instead of pull=None"
+    ):
+        WorkerOptions(pull=cast(Any, None))
 
 
 def test_sync_stop_rejects_event_loop_thread() -> None:
@@ -496,6 +550,121 @@ class FakeCall:
         self.is_canceled = True
 
 
+@pytest.mark.parametrize("state", ["cancelled", "completed", "reused"])
+@pytest.mark.parametrize("method", ["wait_for", "execute"])
+@pytest.mark.parametrize("output_kind", ["heartbeat", "stream_write"])
+def test_pull_stream_rejects_late_step_output(
+    state: str,
+    method: str,
+    output_kind: str,
+) -> None:
+    asyncio.run(_pull_stream_rejects_late_step_output(state, method, output_kind))
+
+
+async def _pull_stream_rejects_late_step_output(
+    state: str,
+    method: str,
+    output_kind: str,
+) -> None:
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        None,
+        PullWorkerOptions(),
+        "localhost:8801",
+        None,
+    )
+    stream = PullStream(runtime, None, "late-output-worker")
+    call = FakeCall([])
+    stream._call = call
+    stream.task_id = "original-task"
+    stream.is_busy = True
+    stream._active.set()
+    output = pb.PollWorkerTaskFrame(task_id="original-task")
+    getattr(getattr(output, method), output_kind).SetInParent()
+    await stream._send_frame(output)
+    assert len(call.requests) == 1
+    if state == "cancelled":
+        stream.cancel_handler()
+    elif state == "completed":
+        result = pb.PollWorkerTaskFrame(task_id="original-task")
+        getattr(result, method).result.SetInParent()
+        await stream._send_frame(result)
+    else:
+        stream.task_id = "next-task"
+    previous_requests = list(call.requests)
+    await stream._send_frame(output)
+    assert call.requests == previous_requests
+
+
+@pytest.mark.parametrize("output_kind", ["wait_for", "execute", "rpc", "worker_error"])
+@pytest.mark.parametrize("is_reused", [False, True])
+def test_pull_stream_allows_one_final_after_cancel(
+    output_kind: str, is_reused: bool
+) -> None:
+    asyncio.run(_pull_stream_allows_one_final_after_cancel(output_kind, is_reused))
+
+
+async def _pull_stream_allows_one_final_after_cancel(
+    output_kind: str, is_reused: bool
+) -> None:
+    runtime = PullWorkerRuntime(
+        Registry([]), None, PullWorkerOptions(), "localhost:8801", None
+    )
+    stream = PullStream(runtime, None, "final-after-cancel-worker")
+    call = FakeCall([])
+    stream._call = call
+    stream.task_id = "original-task"
+    stream._active.set()
+    stream.cancel_handler()
+    frame = pb.PollWorkerTaskFrame(task_id="original-task")
+    output = getattr(frame, output_kind)
+    if output_kind in ("wait_for", "execute"):
+        output.result.SetInParent()
+    else:
+        output.SetInParent()
+    if is_reused:
+        stream.task_id = "next-task"
+        stream._active.set()
+    await stream._send_frame(frame)
+    await stream._send_frame(frame)
+    await stream._send_error("original-task", RuntimeError("late failure"))
+    assert call.requests == (
+        [] if is_reused else [pb.PollWorkerTaskRequest(task_frame=frame)]
+    )
+
+
+def test_pull_stream_preserves_execute_output_order() -> None:
+    asyncio.run(_pull_stream_preserves_execute_output_order())
+
+
+async def _pull_stream_preserves_execute_output_order() -> None:
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        None,
+        PullWorkerOptions(),
+        "localhost:8801",
+        None,
+    )
+    stream = PullStream(runtime, None, "ordered-output-worker")
+    call = FakeCall([])
+    stream._call = call
+    stream.task_id = "execute-task"
+    stream.is_busy = True
+    stream._active.set()
+    for output_kind in ("heartbeat", "stream_write", "heartbeat", "result"):
+        frame = pb.PollWorkerTaskFrame(task_id="execute-task")
+        getattr(frame.execute, output_kind).SetInParent()
+        await stream._send_frame(frame)
+    assert [
+        request.task_frame.execute.WhichOneof("output") for request in call.requests
+    ] == [
+        "heartbeat",
+        "stream_write",
+        "heartbeat",
+        "result",
+    ]
+
+
 class FakeStub:
     def __init__(self, call: FakeCall) -> None:
         self.call = call
@@ -536,11 +705,11 @@ async def _register_pong_and_idle_reconnect() -> None:
     assert call.is_canceled
 
 
-def test_worker_error_frame_preserves_push_error_details() -> None:
-    asyncio.run(_worker_error_frame_preserves_push_error_details())
+def test_worker_error_frame_preserves_worker_error_details() -> None:
+    asyncio.run(_worker_error_frame_preserves_worker_error_details())
 
 
-async def _worker_error_frame_preserves_push_error_details() -> None:
+async def _worker_error_frame_preserves_worker_error_details() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         None,
@@ -1156,9 +1325,10 @@ async def _task_deadline_cancels_handler_and_clears_timer() -> None:
 
 
 class SyncCancelDispatcher:
-    def __init__(self) -> None:
+    def __init__(self, should_return_result: bool = False) -> None:
         self.started = threading.Event()
         self.gate = threading.Event()
+        self.should_return_result = should_return_result
 
     def invoke_rpc(
         self, request: pb.InvokeWorkerRPCRequest, is_active: Callable[[], bool]
@@ -1166,15 +1336,22 @@ class SyncCancelDispatcher:
         self.started.set()
         while is_active():
             self.gate.wait(timeout=0.01)
+        if self.should_return_result:
+            return pb.InvokeWorkerRPCResponse()
         raise RuntimeError("Worker task canceled")
 
 
-def test_sync_handler_cancellation_reports_cancelled() -> None:
-    asyncio.run(_sync_handler_cancellation_reports_cancelled())
+@pytest.mark.parametrize("should_return_result", [False, True])
+def test_sync_handler_cancellation_sends_final_frame(
+    should_return_result: bool,
+) -> None:
+    asyncio.run(_sync_handler_cancellation_sends_final_frame(should_return_result))
 
 
-async def _sync_handler_cancellation_reports_cancelled() -> None:
-    dispatcher = SyncCancelDispatcher()
+async def _sync_handler_cancellation_sends_final_frame(
+    should_return_result: bool,
+) -> None:
+    dispatcher = SyncCancelDispatcher(should_return_result)
     with ThreadPoolExecutor(max_workers=1) as executor:
         runtime = PullWorkerRuntime(
             Registry([]),
@@ -1183,9 +1360,12 @@ async def _sync_handler_cancellation_reports_cancelled() -> None:
             "localhost:8801",
             executor,
         )
+        runtime._loop = asyncio.get_running_loop()
         runtime._stopping = asyncio.Event()
         stream = PullStream(runtime, None, "sync-cancel-worker")
-        with patch.object(stream, "_send", new_callable=AsyncMock) as send_mock:
+        call = FakeCall([])
+        stream._call = call
+        try:
             await stream._start_task(
                 pb.PollWorkerTask(task_id="sync", rpc=pb.InvokeWorkerRPCRequest())
             )
@@ -1193,13 +1373,22 @@ async def _sync_handler_cancellation_reports_cancelled() -> None:
             stream.cancel_handler()
             assert stream.handler_task is not None
             await asyncio.wait_for(stream.handler_task, timeout=1)
+        finally:
+            stream.cancel_handler()
             await stream._finish_handler()
-        errors = [
-            request.args[0].task_frame.worker_error
-            for request in send_mock.await_args_list
-            if request.args[0].WhichOneof("frame") == "task_frame"
+        frames = [
+            request.task_frame
+            for request in call.requests
+            if request.WhichOneof("frame") == "task_frame"
         ]
-        assert errors[0].grpc_status == grpc.StatusCode.CANCELLED.value[0]
+        assert len(frames) == 1
+        assert frames[0].task_id == "sync"
+        if should_return_result:
+            assert frames[0].HasField("rpc")
+        else:
+            assert (
+                frames[0].worker_error.grpc_status == grpc.StatusCode.CANCELLED.value[0]
+            )
 
 
 def test_stop_drains_handler_before_timeout() -> None:

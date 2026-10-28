@@ -63,7 +63,7 @@ class PullRegistrationState:
     Obtain snapshots with ``worker.pull_registration_state()``. After every queue
     has registered once, transient failures, reconnects, and stop keep readiness.
     A permanent error with no registered stream makes ``is_ready`` false until
-    re-registration. A listening Worker returns ``False`` and an empty tuple.
+    re-registration.
 
     Attributes:
         is_ready: Whether all queues registered once and no queue is permanently

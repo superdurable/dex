@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from enum import Enum
 
 from dex.step import StepDurability
-from dex.worker_options import WorkerTarget
 
 
 class ActiveStepSearchMode(Enum):
@@ -33,8 +32,8 @@ class ActiveStepSearchMode(Enum):
 class FlowConfig:
     """Override server behavior for one Flow execution.
 
-    Every ``None`` field uses the registered or server default. Config may be set
-    at start time or replaced on an active Flow through the Client.
+    At start time, every ``None`` field uses the registered or server default.
+    Client configuration updates preserve existing values for ``None`` fields.
 
     Attribute Store projection is asynchronous. Failures never roll back Flow
     Attributes, and already queued projections retain their original target.
@@ -46,7 +45,6 @@ class FlowConfig:
         continue_as_new_page_size_bytes: Optional positive history page-size budget
             in bytes used by continue-as-new decisions.
         step_durability: Optional default durability for Step handlers.
-        worker_target: Optional Worker endpoint for later handler calls.
         attribute_store_names: Optional Server-configured Attribute Store names.
             ``None`` leaves the field absent; an empty list disables future projections.
     """
@@ -55,5 +53,4 @@ class FlowConfig:
     continue_as_new_threshold: int | None = None
     continue_as_new_page_size_bytes: int | None = None
     step_durability: StepDurability | None = None
-    worker_target: WorkerTarget | None = None
     attribute_store_names: list[str] | None = None

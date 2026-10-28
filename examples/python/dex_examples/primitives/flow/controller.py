@@ -16,6 +16,10 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from dex_examples.app import ExampleApp
+from dex_examples.shared.query import required_int_query, required_query, started_flow
+from quart import Blueprint, Response
+
 from dex import (
     AsyncClient,
     FlowConfig,
@@ -24,12 +28,7 @@ from dex import (
     RetryPolicy,
     StartFlowOptions,
     StepDurability,
-    WorkerTarget,
 )
-from quart import Blueprint, Response
-
-from dex_examples.app import ExampleApp
-from dex_examples.shared.query import required_int_query, required_query, started_flow
 
 from .example_flow import ExampleFlow, status
 
@@ -69,13 +68,6 @@ async def start_example_flow_request(
     ).with_attribute(status, "queued")
     await client.start_flow(example_flow, flow_id, input_num, options)
     return flow_id
-
-
-async def reroute_active_flow(client: AsyncClient, flow_id: str) -> None:
-    await client.update_flow_config(
-        flow_id,
-        FlowConfig(worker_target=WorkerTarget("worker-canary:8803")),
-    )
 
 
 def create_flow_blueprint(app_state: ExampleApp) -> Blueprint:

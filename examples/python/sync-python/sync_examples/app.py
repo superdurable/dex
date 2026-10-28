@@ -15,9 +15,7 @@
 from __future__ import annotations
 
 import logging
-import socket
 import threading
-import time
 from typing import Any, Callable
 
 from dex import (
@@ -28,7 +26,6 @@ from dex import (
     Registry,
     Worker,
     WorkerOptions,
-    WorkerTarget,
     open_blob_cache,
 )
 
@@ -41,7 +38,7 @@ from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.money_transfer.money_transfer_flow import MoneyTransferFlow
 from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
 from dex_examples.shared.my_dependency_service import MyDependencyService
-from dex_examples.shared.worker_mode import (
+from dex_examples.shared.worker_options import (
     PULL_REGISTRATION_TIMEOUT_SECONDS,
     new_example_pull_worker_options,
 )
@@ -81,7 +78,9 @@ class SyncExampleApp:
         self.blob_cache = open_blob_cache(
             BlobCacheConfig(str(config.blob_cache_dir), 1 << 30)
         )
-        self.worker = Worker(self.registry, self.blob_cache, _new_worker_options(config))
+        self.worker = Worker(
+            self.registry, self.blob_cache, _new_worker_options(config)
+        )
         self._client = Client(
             self.registry,
             self.blob_cache,
@@ -118,12 +117,7 @@ class SyncExampleApp:
                 daemon=True,
             )
             self._worker_thread.start()
-            if self.config.worker_mode.is_pull:
-                self.worker.wait_pull_registered(
-                    timeout=PULL_REGISTRATION_TIMEOUT_SECONDS
-                )
-                return
-            _await_worker(self.worker.worker_target.address)
+            self.worker.wait_pull_registered(timeout=PULL_REGISTRATION_TIMEOUT_SECONDS)
         except BaseException:
             try:
                 self.close()
@@ -164,6 +158,7 @@ class SyncExampleApp:
                 close_errors.append(error)
         _raise_first_close_error(close_errors)
 
+
 _logger = logging.getLogger(__name__)
 
 
@@ -175,30 +170,7 @@ def _raise_first_close_error(close_errors: list[Exception]) -> None:
 
 
 def _new_worker_options(config: SyncExamplesConfig) -> WorkerOptions:
-    if config.worker_mode.is_pull:
-        return WorkerOptions(
-            server_address=config.server_address,
-            pull=new_example_pull_worker_options(),
-        )
     return WorkerOptions(
-        bind_address=config.worker_bind_address,
         server_address=config.server_address,
-        worker_target=(
-            WorkerTarget(config.worker_target)
-            if config.worker_target
-            else None
-        ),
+        pull=new_example_pull_worker_options(),
     )
-
-
-def _await_worker(address: str) -> None:
-    host, _, port_text = address.rpartition(":")
-    port = int(port_text)
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection((host or "127.0.0.1", port), timeout=0.1):
-                return
-        except OSError:
-            time.sleep(0.01)
-    raise RuntimeError("Worker did not become ready")

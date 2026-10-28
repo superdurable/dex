@@ -805,6 +805,21 @@ class PullStream:
         async with self._send_lock:
             if request.HasField("task_frame"):
                 frame = request.task_frame
+                is_progress_frame = (
+                    frame.HasField("wait_for")
+                    and frame.wait_for.WhichOneof("output")
+                    in ("heartbeat", "stream_write")
+                    or frame.HasField("execute")
+                    and frame.execute.WhichOneof("output")
+                    in ("heartbeat", "stream_write")
+                )
+                if (
+                    frame.task_id != self.task_id
+                    or self._is_final_frame_sent
+                    or not self._active.is_set()
+                    and is_progress_frame
+                ):
+                    return
                 if (
                     frame.HasField("rpc")
                     or frame.HasField("worker_error")

@@ -107,7 +107,7 @@ class Client:
         Args:
             registry: The Flow Registry used for call validation and codecs.
             blob_cache: An open cache used to hydrate large response values.
-            options: Service address, default Worker target, and bearer credential;
+            options: Service address and bearer credential;
                 ``None`` uses defaults and sends no authorization metadata.
         """
         self.registry = registry
@@ -1030,10 +1030,11 @@ class Client:
                 raise
 
     def update_flow_config(self, flow_id: str, config: FlowConfig) -> None:
-        """Replace mutable configuration for an active Flow.
+        """Update specified mutable configuration fields for an active Flow.
 
         The update affects later decisions and does not recall work already
-        dispatched.
+        dispatched. Unspecified fields and the existing Worker target remain
+        unchanged. An empty ``FlowConfig()`` leaves all configuration unchanged.
 
         Args:
             flow_id: The non-empty active Flow ID.
@@ -1185,13 +1186,12 @@ class Client:
             _apply_attribute_store_sync(write, definition)
             _apply_hard_delete_on_null(write, definition)
             mapped.attributes.append(write)
-        if (
-            options.config_override is not None
-            or self.options.worker_target is not None
-        ):
-            mapped.flow_config_override.CopyFrom(
-                self._map_flow_config(options.config_override)
-            )
+        mapped.flow_config_override.CopyFrom(
+            self._map_flow_config(options.config_override)
+        )
+        mapped.flow_config_override.worker_target.CopyFrom(
+            pb.WorkerTarget(is_pull_mode=True)
+        )
         return mapped
 
     def _map_flow_config(self, config: FlowConfig | None) -> pb.FlowConfig:
@@ -1228,19 +1228,6 @@ class Client:
                 mapped.attribute_store_names.CopyFrom(
                     pb.AttributeStoreNames(names=config.attribute_store_names)
                 )
-        target = (
-            config.worker_target
-            if config is not None and config.worker_target is not None
-            else self.options.worker_target
-        )
-        if target is not None:
-            mapped.worker_target.CopyFrom(
-                pb.WorkerTarget(
-                    address=target.address,
-                    is_headless_address=target.headless,
-                    is_pull_mode=target.pull,
-                )
-            )
         return mapped
 
     @staticmethod

@@ -16,8 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import socket
-import time
 from typing import Any, Callable
 
 from dex import (
@@ -28,7 +26,6 @@ from dex import (
     Flow,
     Registry,
     WorkerOptions,
-    WorkerTarget,
     open_blob_cache,
 )
 
@@ -50,10 +47,18 @@ from dex_examples.patterns.interruptible.interruptible_execution_flow import (
 from dex_examples.patterns.intervention.manual_recovery_flow import (
     ManualRecoveryFlow,
 )
-from dex_examples.patterns.parallel.await_parallel_steps_flow import AwaitParallelStepsFlow
-from dex_examples.patterns.parallel.dynamic_parallel_steps_flow import DynamicParallelStepsFlow
-from dex_examples.patterns.parallel.first_win_parallel_steps_flow import FirstWinParallelStepsFlow
-from dex_examples.patterns.parallel.static_parallel_steps_flow import StaticParallelStepsFlow
+from dex_examples.patterns.parallel.await_parallel_steps_flow import (
+    AwaitParallelStepsFlow,
+)
+from dex_examples.patterns.parallel.dynamic_parallel_steps_flow import (
+    DynamicParallelStepsFlow,
+)
+from dex_examples.patterns.parallel.first_win_parallel_steps_flow import (
+    FirstWinParallelStepsFlow,
+)
+from dex_examples.patterns.parallel.static_parallel_steps_flow import (
+    StaticParallelStepsFlow,
+)
 from dex_examples.patterns.parallel_subflows.advanced_long_live_parent_flow import (
     AdvancedLongLiveParentFlow,
 )
@@ -123,11 +128,13 @@ from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.job_post.job_post_flow import JobPostingFlow
 from dex_examples.products.microservices.orchestration_flow import OrchestrationFlow
 from dex_examples.products.money_transfer.money_transfer_flow import MoneyTransferFlow
-from dex_examples.products.order_processing.order_processing_flow import OrderProcessingFlow
+from dex_examples.products.order_processing.order_processing_flow import (
+    OrderProcessingFlow,
+)
 from dex_examples.products.signup.user_signup_flow import UserOnboardingFlow
 from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
 from dex_examples.shared.my_dependency_service import MyDependencyService
-from dex_examples.shared.worker_mode import (
+from dex_examples.shared.worker_options import (
     PULL_REGISTRATION_TIMEOUT_SECONDS,
     new_example_pull_worker_options,
 )
@@ -311,12 +318,9 @@ class ExampleApp:
         try:
             await self.mcp_registry.start()
             self._worker_task = asyncio.create_task(self.worker.start())
-            if self.config.worker_mode.is_pull:
-                await self.worker.wait_pull_registered(
-                    timeout=PULL_REGISTRATION_TIMEOUT_SECONDS
-                )
-                return
-            await _await_worker(self.worker.worker_target.address, self._worker_task)
+            await self.worker.wait_pull_registered(
+                timeout=PULL_REGISTRATION_TIMEOUT_SECONDS
+            )
         except BaseException:
             try:
                 await self.close()
@@ -372,6 +376,7 @@ class ExampleApp:
         except Exception:
             _logger.exception("Worker task failed")
 
+
 _logger = logging.getLogger(__name__)
 
 
@@ -383,35 +388,7 @@ def _raise_first_close_error(close_errors: list[Exception]) -> None:
 
 
 def _new_worker_options(config: ExamplesConfig) -> WorkerOptions:
-    if config.worker_mode.is_pull:
-        return WorkerOptions(
-            server_address=config.server_address,
-            pull=new_example_pull_worker_options(),
-        )
     return WorkerOptions(
-        bind_address=config.worker_bind_address,
         server_address=config.server_address,
-        worker_target=(
-            WorkerTarget(config.worker_target)
-            if config.worker_target
-            else None
-        ),
+        pull=new_example_pull_worker_options(),
     )
-
-
-async def _await_worker(address: str, worker_task: asyncio.Task[None]) -> None:
-    host, _, port_text = address.rpartition(":")
-    port = int(port_text)
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        if worker_task.done():
-            error = worker_task.exception()
-            if error is not None:
-                raise RuntimeError("AsyncWorker failed") from error
-            raise RuntimeError("AsyncWorker stopped before becoming ready")
-        try:
-            with socket.create_connection((host or "127.0.0.1", port), timeout=0.1):
-                return
-        except OSError:
-            await asyncio.sleep(0.01)
-    raise RuntimeError("AsyncWorker did not become ready")

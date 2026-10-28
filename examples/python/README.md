@@ -4,8 +4,8 @@ These examples target the published Dex Python SDK version pinned in
 [`pyproject.toml`](./pyproject.toml)
 (`import dex`). Requires Python 3.11+.
 
-The primary sample process hosts one asyncio `AsyncWorker` on `127.0.0.1:8803` and a
-Quart HTTP controller on `127.0.0.1:8080`. Controllers and nested parent/child Steps
+The primary sample process runs one asyncio `AsyncWorker` with outbound pull
+streams and a Quart HTTP controller on `127.0.0.1:8080`. Controllers and nested parent/child Steps
 use `AsyncClient`. One Registry and disk BlobCache are shared by Worker and Client.
 
 For the sync `Client` / `Worker` surface (Flask), see [`sync-python/`](./sync-python/).
@@ -52,14 +52,9 @@ Application searches must constrain `FlowType` and parenthesize caller filters.
 The sample search endpoints enforce their Flow type.
 
 Defaults connect to Dex at `localhost:8801`. Override with
-`DEX_FLOW_SERVICE_ADDRESS`, `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`,
-`DEX_EXAMPLES_HTTP_ADDRESS`, `DEX_BLOB_CACHE_DIR`.
-
-`DEX_EXAMPLES_WORKER_MODE` selects how the Worker receives tasks. `push`
-(default) listens on the Worker bind address. `pull` connects to Dex as a pull
-Worker, ignores the bind address and target, and starts Flows with the pull
-Worker target. The sync examples in [`sync-python/`](./sync-python/) read the
-same variable.
+`DEX_FLOW_SERVICE_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, or `DEX_BLOB_CACHE_DIR`.
+Workers use pull streams and need only an outbound connection to the Dex Server.
+The sync examples in [`sync-python/`](./sync-python/) use the same behavior.
 
 ## Verify
 
@@ -71,17 +66,16 @@ make e2eTests
 The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running
 after E2E tests for manual HTTP exploration.
 
-Set `DEX_EXAMPLES_WORKER_MODE=pull` to run the same tests with pull Workers.
-Set `DEX_INTEG_ENGINE=zd` to run them against server-zd. That mode defaults to
-pull Workers. Set `DEX_SERVER_ZD_BINARY` to reuse a
+The tests always use pull Workers. Set `DEX_INTEG_ENGINE=zd` to run them
+against server-zd. Set `DEX_SERVER_ZD_BINARY` to reuse a
 built `dex-server-zd`. `run-e2e-tests.sh` and `run-integ-tests.sh` both accept
 these variables.
 
-In pull mode, run the async tests (`tests/`) and the sync tests
+Run the async tests (`tests/`) and the sync tests
 (`sync-python/sync_tests/`) in separate pytest processes. Both suites register
 some of the same Flow types. Dex routes pull tasks by Flow type, so a task can
 reach the async Worker while its event loop is idle during the sync tests. The
-test scripts already run them separately in pull mode.
+test scripts already run them separately.
 
 ## Products
 
