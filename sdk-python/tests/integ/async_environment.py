@@ -12,8 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import socket
-import time
 from tempfile import TemporaryDirectory
 from typing import Any
 
@@ -23,20 +21,15 @@ from dex import (
     BlobCacheConfig,
     ClientOptions,
     Flow,
-    PullWorkerOptions,
     Registry,
     WorkerOptions,
     open_blob_cache,
 )
 
-from .environment import integ_worker_mode
-
 
 class AsyncDexDevTestEnvironment:
     def __init__(self, *flows: Flow[Any], allow_async_handlers: bool = False) -> None:
         self._server_address = os.environ.get("DEX_SERVER_ADDRESS", "127.0.0.1:8801")
-        is_pull_worker_mode = integ_worker_mode() == "pull"
-        self._worker_port = None if is_pull_worker_mode else _available_port()
         self._registry = Registry(flows, allow_async_handlers=allow_async_handlers)
         self._cache_directory = TemporaryDirectory(
             prefix="dex-python-async-integration-cache-"
@@ -50,16 +43,7 @@ class AsyncDexDevTestEnvironment:
         self._worker = AsyncWorker(
             self._registry,
             self._cache,
-            (
-                WorkerOptions(
-                    server_address=self._server_address, pull=PullWorkerOptions()
-                )
-                if is_pull_worker_mode
-                else WorkerOptions(
-                    bind_address=f"127.0.0.1:{self._worker_port}",
-                    server_address=self._server_address,
-                )
-            ),
+            WorkerOptions(server_address=self._server_address),
         )
         self._worker_task: asyncio.Task[None] | None = None
         self._client: AsyncClient | None = None
@@ -72,12 +56,11 @@ class AsyncDexDevTestEnvironment:
 
     async def __aenter__(self) -> AsyncDexDevTestEnvironment:
         self._worker_task = asyncio.create_task(self._worker.start())
-        if self._worker_port is not None:
-            await _await_worker(self._worker_port, self._worker_task)
+        await self._worker.wait_pull_registered(timeout=30)
         self._client = AsyncClient(
             self._registry,
             self._cache,
-            ClientOptions(self._server_address, self._worker.worker_target),
+            ClientOptions(self._server_address),
         )
         return self
 
@@ -98,25 +81,3 @@ class AsyncDexDevTestEnvironment:
                 self._worker_task.cancel()
         self._cache.close()
         self._cache_directory.cleanup()
-
-
-async def _await_worker(port: int, worker_task: asyncio.Task[None]) -> None:
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        if worker_task.done():
-            error = worker_task.exception()
-            if error is not None:
-                raise RuntimeError("Python AsyncWorker failed") from error
-            raise RuntimeError("Python AsyncWorker stopped before becoming ready")
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.1):
-                return
-        except OSError:
-            await asyncio.sleep(0.01)
-    raise RuntimeError("Python AsyncWorker did not become ready")
-
-
-def _available_port() -> int:
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        return int(listener.getsockname()[1])

@@ -107,7 +107,7 @@ class AsyncClient:
         Args:
             registry: The Flow Registry used for validation and codecs.
             blob_cache: An open cache used for asynchronous hydration.
-            options: Service address, default Worker target, and bearer credential;
+            options: Service address and bearer credential;
                 ``None`` uses defaults and sends no authorization metadata.
         """
         self.registry = registry
@@ -1040,6 +1040,11 @@ class AsyncClient:
     async def update_flow_config(self, flow_id: str, config: FlowConfig) -> None:
         """Replace mutable configuration for an active Flow.
 
+        Every update routes future handler calls to pull Workers. Use
+        ``FlowConfig()`` to migrate an active Flow's Worker routing while
+        preserving its other configuration fields. Already dispatched work
+        is unaffected.
+
         Args:
             flow_id: The non-empty active Flow ID.
             config: New optional fields applied to later decisions.
@@ -1193,13 +1198,9 @@ class AsyncClient:
             _apply_attribute_store_sync(write, definition)
             _apply_hard_delete_on_null(write, definition)
             mapped.attributes.append(write)
-        if (
-            options.config_override is not None
-            or self.options.worker_target is not None
-        ):
-            mapped.flow_config_override.CopyFrom(
-                self._map_flow_config(options.config_override)
-            )
+        mapped.flow_config_override.CopyFrom(
+            self._map_flow_config(options.config_override)
+        )
         return mapped
 
     def _map_flow_config(self, config: FlowConfig | None) -> pb.FlowConfig:
@@ -1236,19 +1237,7 @@ class AsyncClient:
                 mapped.attribute_store_names.CopyFrom(
                     pb.AttributeStoreNames(names=config.attribute_store_names)
                 )
-        target = (
-            config.worker_target
-            if config is not None and config.worker_target is not None
-            else self.options.worker_target
-        )
-        if target is not None:
-            mapped.worker_target.CopyFrom(
-                pb.WorkerTarget(
-                    address=target.address,
-                    is_headless_address=target.headless,
-                    is_pull_mode=target.pull,
-                )
-            )
+        mapped.worker_target.CopyFrom(pb.WorkerTarget(is_pull_mode=True))
         return mapped
 
     @staticmethod

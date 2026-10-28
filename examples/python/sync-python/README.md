@@ -20,8 +20,8 @@ Six Flows:
 | Parent–child | `/patterns/parent-child` | sync `Client` inside `Step.execute` |
 | Interruptible | `/patterns/interruptible` | interrupt RPC |
 
-Defaults: Worker `127.0.0.1:8804`, HTTP `127.0.0.1:8081` (does not clash with
-the async app on `8803` / `8080`).
+Defaults: HTTP `127.0.0.1:8081` (the async app uses `8080`). The Worker uses
+pull streams and needs only an outbound connection to the Dex Server.
 
 ## Run
 
@@ -35,11 +35,8 @@ uv sync --locked
 uv run --frozen python sync-python/main.py
 ```
 
-Env overrides: `DEX_FLOW_SERVICE_ADDRESS`, `DEX_SYNC_WORKER_BIND_ADDRESS`,
-`DEX_SYNC_WORKER_TARGET`, `DEX_SYNC_EXAMPLES_HTTP_ADDRESS`,
-`DEX_SYNC_BLOB_CACHE_DIR`, `DEX_EXAMPLES_WORKER_MODE` (`push` by default, or
-`pull` to connect to Dex as a pull Worker and ignore the Worker bind address
-and target).
+Env overrides: `DEX_FLOW_SERVICE_ADDRESS`, `DEX_SYNC_EXAMPLES_HTTP_ADDRESS`,
+and `DEX_SYNC_BLOB_CACHE_DIR`.
 
 ## Verify
 

@@ -12,9 +12,9 @@ import asyncio
 import logging
 import re
 import threading
-from contextlib import ExitStack
 from collections.abc import AsyncIterator, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Coroutine, cast
 from unittest.mock import AsyncMock, patch
@@ -24,23 +24,25 @@ import pytest
 from google.protobuf import timestamp_pb2
 
 from dex import (
+    AsyncClient,
     AsyncWorker,
     BlobCache,
-    PullRegistrationError,
+    Client,
+    Context,
     Flow,
     FlowConfig,
-    Context,
+    PullRegistrationError,
     PullWorkerOptions,
     RPCResult,
+    StartFlowOptions,
     Step,
     StepDecision,
     StepList,
     Wait,
     Worker,
     WorkerOptions,
-    WorkerTarget,
-    retry_after,
     graceful_complete,
+    retry_after,
     rpc,
 )
 from dex._pull_worker import PullStream, PullWorkerRuntime, generate_app_worker_id
@@ -48,7 +50,6 @@ from dex._worker_dispatcher import WorkerDispatcher
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
-
 
 _UNKNOWN_TASK_REASON = PullWorkerRuntime.unknown_task_reason
 
@@ -60,24 +61,7 @@ def accept_mock_worker_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_pull_options_and_targets_validate_conflicts() -> None:
-    assert WorkerTarget(pull=True).address == ""
-    for target in (
-        {"pull": True, "address": "localhost:8803"},
-        {"pull": True, "headless": True},
-    ):
-        with pytest.raises(ValueError, match="pull mode cannot be combined"):
-            WorkerTarget(**target)
-    with pytest.raises(ValueError, match="bind_address"):
-        WorkerOptions(bind_address="localhost:8803", pull=PullWorkerOptions())
-    with pytest.raises(ValueError, match="bind_address"):
-        WorkerOptions(bind_address=":8803", pull=PullWorkerOptions())
-    with pytest.raises(ValueError, match="worker_target"):
-        WorkerOptions(
-            worker_target=WorkerTarget("localhost:8803"), pull=PullWorkerOptions()
-        )
-    with pytest.raises(ValueError, match="requires"):
-        WorkerOptions(worker_target=WorkerTarget(pull=True))
+def test_pull_options_validate_capacity() -> None:
     for option in (
         {"max_concurrent_tasks": -1},
         {"idle_streams_per_queue": -1},
@@ -90,11 +74,34 @@ def test_pull_options_and_targets_validate_conflicts() -> None:
             PullWorkerOptions(**option)
 
 
-def test_subflow_pull_override_maps_to_protocol() -> None:
-    mapped = WorkerDispatcher._map_sub_flow_config(
-        FlowConfig(worker_target=WorkerTarget(pull=True))
+@pytest.mark.parametrize("client_type", [Client, AsyncClient])
+def test_default_flow_and_subflow_config_use_pull_protocol(
+    client_type: type[Client] | type[AsyncClient],
+) -> None:
+    asyncio.run(_default_flow_and_subflow_config_use_pull_protocol(client_type))
+
+
+async def _default_flow_and_subflow_config_use_pull_protocol(
+    client_type: type[Client] | type[AsyncClient],
+) -> None:
+    flow = Flow[None]()
+    registry = Registry([flow])
+    client = client_type(registry, cast(BlobCache, object()))
+    start = client._map_start_options(
+        registry._flow_for_instance(flow), StartFlowOptions()
     )
-    assert mapped.worker_target.is_pull_mode
+    expected_target = pb.WorkerTarget(is_pull_mode=True)
+    assert start.flow_config_override.worker_target == expected_target
+    assert client._map_flow_config(FlowConfig()).worker_target == expected_target
+    assert (
+        WorkerDispatcher._map_sub_flow_config(FlowConfig()).worker_target
+        == expected_target
+    )
+    assert WorkerOptions().pull == PullWorkerOptions()
+    if isinstance(client, AsyncClient):
+        await client.close()
+    else:
+        client.close()
 
 
 def test_sync_stop_rejects_event_loop_thread() -> None:
@@ -536,11 +543,11 @@ async def _register_pong_and_idle_reconnect() -> None:
     assert call.is_canceled
 
 
-def test_worker_error_frame_preserves_push_error_details() -> None:
-    asyncio.run(_worker_error_frame_preserves_push_error_details())
+def test_worker_error_frame_preserves_worker_error_details() -> None:
+    asyncio.run(_worker_error_frame_preserves_worker_error_details())
 
 
-async def _worker_error_frame_preserves_push_error_details() -> None:
+async def _worker_error_frame_preserves_worker_error_details() -> None:
     runtime = PullWorkerRuntime(
         Registry([]),
         None,

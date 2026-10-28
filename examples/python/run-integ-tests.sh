@@ -34,19 +34,6 @@ if [[ "$DEX_INTEG_ENGINE" != temporal && "$DEX_INTEG_ENGINE" != zd ]]; then
   echo "DEX_INTEG_ENGINE must be temporal or zd" >&2
   exit 2
 fi
-default_worker_mode=push
-if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
-  default_worker_mode=pull
-fi
-export DEX_EXAMPLES_WORKER_MODE="${DEX_EXAMPLES_WORKER_MODE:-$default_worker_mode}"
-if [[ "$DEX_EXAMPLES_WORKER_MODE" != push && "$DEX_EXAMPLES_WORKER_MODE" != pull ]]; then
-  echo "DEX_EXAMPLES_WORKER_MODE must be push or pull" >&2
-  exit 2
-fi
-if [[ "$DEX_INTEG_ENGINE" == zd && "$DEX_EXAMPLES_WORKER_MODE" == push ]]; then
-  echo "DEX_EXAMPLES_WORKER_MODE=push is not supported with DEX_INTEG_ENGINE=zd" >&2
-  exit 2
-fi
 if [[ -n "${DEX_SERVER_ZD_BINARY:-}" && "$DEX_SERVER_ZD_BINARY" == */* ]]; then
   DEX_SERVER_ZD_BINARY="$(cd "$(dirname "$DEX_SERVER_ZD_BINARY")" && pwd)/$(basename "$DEX_SERVER_ZD_BINARY")"
 fi

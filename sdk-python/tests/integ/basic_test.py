@@ -19,7 +19,6 @@ from dex import (
     StartFlowOptions,
     StepExecutionId,
     WaitForStepCompletionOptions,
-    WorkerTarget,
 )
 
 from .abnormal_exit_flow import AbnormalExitFlow
@@ -51,7 +50,6 @@ def compile_empty_and_model_inputs(client: Client) -> None:
 def compile_failure_policy_and_config_override(client: Client) -> None:
     config = FlowConfig(
         active_step_search_mode=ActiveStepSearchMode.ALL,
-        worker_target=WorkerTarget("worker:8803"),
     )
     options = StartFlowOptions(config_override=config)
     client.start_flow(

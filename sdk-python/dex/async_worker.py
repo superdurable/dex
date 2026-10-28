@@ -14,10 +14,9 @@ from types import TracebackType
 import grpc
 from google.protobuf import empty_pb2
 
-from dex._credential_transport import AsyncCredentialRunner, async_channel
 from dex._async_value_hydrator import AsyncValueHydrator
 from dex._async_worker_dispatcher import AsyncWorkerDispatcher
-from dex._async_worker_service import AsyncWorkerService
+from dex._credential_transport import AsyncCredentialRunner, async_channel
 from dex._pull_worker import PullWorkerRuntime, resolve_app_worker_id
 from dex._server_protocol import (
     NegotiatedServerProtocol,
@@ -31,15 +30,15 @@ from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
 from dex.pull_registration import PullRegistrationState
-from dex.worker_options import WorkerOptions, WorkerTarget
+from dex.worker_options import WorkerOptions
 
 
 class AsyncWorker:
-    """Host asynchronous Step and RPC handlers through a listener or pull streams.
+    """Host asynchronous Step and RPC handlers through outbound pull streams.
 
     A Worker is one-shot. Await ``start`` in a background task because it waits for
-    termination, and await ``stop`` or ``close`` during shutdown. Set
-    ``WorkerOptions.pull`` to poll Dex without a listener. Application handlers
+    termination, and await ``stop`` or ``close`` during shutdown. Workers need
+    only an outbound connection to the Dex Server. Application handlers
     may overlap on the event loop and must avoid blocking operations.
 
     Attributes:
@@ -60,7 +59,7 @@ class AsyncWorker:
         blob_cache: BlobCache,
         options: WorkerOptions | None = None,
     ) -> None:
-        """Construct an AsyncWorker without starting its listener or pull streams.
+        """Construct an AsyncWorker without starting its outbound pull streams.
 
         Args:
             registry: A Registry created with ``allow_async_handlers=True``.
@@ -69,16 +68,12 @@ class AsyncWorker:
                 ``None`` uses defaults and sends no authorization metadata.
 
         Raises:
-            ValueError: If a target, bind address, or pull Worker ID is invalid.
+            ValueError: If the pull Worker ID is invalid.
         """
         self.registry = registry
         self.blob_cache = blob_cache
         self.options = options or WorkerOptions()
-        app_worker_id = (
-            resolve_app_worker_id(registry, self.options.pull)
-            if self.options.pull is not None
-            else None
-        )
+        app_worker_id = resolve_app_worker_id(registry, self.options.pull)
         self._state = "created"
         self._credential_runner = (
             AsyncCredentialRunner(self.options.credential)
@@ -100,49 +95,22 @@ class AsyncWorker:
             AsyncValueHydrator(self._flow_service, blob_cache),
             self._server_protocol,
         )
-        self._server = None
         self._has_start_called = False
-        self._pull = None
-        if self.options.pull is not None:
-            self._pull = PullWorkerRuntime(
-                registry,
-                dispatcher,
-                self.options.pull,
-                self.options.server_address,
-                None,
-                app_worker_id,
-                self._credential_runner,
-            )
-        else:
-            self._server = grpc.aio.server()
-            dex_pb2_grpc.add_WorkerServiceServicer_to_server(  # type: ignore[no-untyped-call]
-                AsyncWorkerService(dispatcher),
-                self._server,
-            )
-        self._bound_port = 0
-        self._worker_target = (
-            WorkerTarget(pull=True)
-            if self._pull is not None
-            else self.options.worker_target
-            or WorkerTarget(self._target_address(self.options.bind_address, 0))
+        self._pull = PullWorkerRuntime(
+            registry,
+            dispatcher,
+            self.options.pull,
+            self.options.server_address,
+            None,
+            app_worker_id,
+            self._credential_runner,
         )
         self._stopped = asyncio.Event()
-
-    @property
-    def worker_target(self) -> WorkerTarget:
-        """Return the effective Worker target advertised to Dex.
-
-        Pull mode returns ``WorkerTarget(pull=True)`` without binding a port.
-
-        Returns:
-            The WorkerTarget, including the actual port after binding.
-        """
-        return self._worker_target
 
     async def __aenter__(self) -> AsyncWorker:
         """Return this Worker for asynchronous context-manager use.
 
-        Entering does not start the listener.
+        Entering does not start outbound task streams.
 
         Returns:
             This AsyncWorker instance.
@@ -167,14 +135,14 @@ class AsyncWorker:
     async def start(self) -> None:
         """Negotiate protocol, synchronize Attribute indexes, and serve.
 
-        ``start`` may be awaited exactly once. It contacts FlowService before binding
-        and completes only after ``stop`` terminates the listener or pull streams.
+        ``start`` may be awaited exactly once. It contacts FlowService before opening outbound task streams
+        and completes only after ``stop`` terminates those streams.
         Permanent pull stream rejections raise PullRegistrationError when
         stop_on_permanent_stream_rejection is enabled; otherwise streams retry.
 
         Raises:
             PullRegistrationError: A permanent stream rejection stops this Worker.
-            RuntimeError: If lifecycle state, index synchronization, or binding fails.
+            RuntimeError: If lifecycle state is invalid or index synchronization fails.
         """
         if self._has_start_called:
             raise RuntimeError("Worker can only start once")
@@ -186,10 +154,9 @@ class AsyncWorker:
             start_error = failure
             raise
         finally:
-            if self._pull is not None:
-                self._pull.registration.finish_start(start_error)
-                if self._state == "running":
-                    await self.stop()
+            self._pull.registration.finish_start(start_error)
+            if self._state == "running":
+                await self.stop()
 
     async def wait_pull_registered(self, timeout: float | None = None) -> None:
         """Wait until every pull queue has registered at least once.
@@ -208,7 +175,7 @@ class AsyncWorker:
             PullRegistrationError: A queue is permanently rejected before readiness.
             TimeoutError: The timeout expires.
             asyncio.CancelledError: The calling task is canceled; the Worker keeps running.
-            RuntimeError: This is a listening Worker, or it stops before readiness.
+            RuntimeError: The Worker stops before readiness.
             BaseException: The original startup failure, if start fails.
 
         Examples:
@@ -217,8 +184,6 @@ class AsyncWorker:
             >>> await worker.wait_pull_registered(timeout=30)
             >>> is_ready = worker.pull_registration_state().is_ready
         """
-        if self._pull is None:
-            raise RuntimeError("wait_pull_registered requires a pull Worker")
         await self._pull.registration.wait_async(timeout)
 
     @property
@@ -229,16 +194,16 @@ class AsyncWorker:
         repeatedly while retrying it, so read the counter as a rate.
         Full-capacity rejections and unknown names are excluded. The count never
         resets during this Worker's lifetime and stays available after stop.
-        Reading it alongside handlers is safe. Listening Workers return zero.
+        Reading it alongside handlers is safe.
         Export this value to a monitoring counter to identify reserve pressure.
 
         Returns:
-            The cumulative reserve-decline count, or zero for a listening Worker.
+            The cumulative reserve-decline count.
 
         Examples:
             >>> declines = worker.pull_reserved_rpc_declines
         """
-        return 0 if self._pull is None else self._pull.reserved_rpc_declines
+        return self._pull.reserved_rpc_declines
 
     def pull_registration_state(self) -> PullRegistrationState:
         """Return an immutable snapshot of pull queue registrations.
@@ -250,13 +215,9 @@ class AsyncWorker:
         for an example.
 
         Returns:
-            Current per-queue state, or an empty nonready state in listening mode.
+            Current per-queue state.
         """
-        return (
-            PullRegistrationState()
-            if self._pull is None
-            else self._pull.registration.snapshot()
-        )
+        return self._pull.registration.snapshot()
 
     async def _start(self) -> None:
         if self._state != "created":
@@ -302,27 +263,8 @@ class AsyncWorker:
             await self._close_failed_start_channel()
             self._stopped.set()
             raise RuntimeError("cannot synchronize Attribute indexes") from failure
-        if self._pull is None:
-            assert self._server is not None
-            self._bound_port = self._server.add_insecure_port(self.options.bind_address)
-            if self._bound_port == 0:
-                self._state = "stopped"
-                await self._close_failed_start_channel()
-                self._stopped.set()
-                raise RuntimeError(
-                    f"cannot bind Python AsyncWorker to {self.options.bind_address}"
-                )
-            if self.options.worker_target is None:
-                self._worker_target = WorkerTarget(
-                    self._target_address(self.options.bind_address, self._bound_port)
-                )
         self._state = "running"
-        if self._pull is not None:
-            await self._pull.run()
-        else:
-            assert self._server is not None
-            await self._server.start()
-            await self._server.wait_for_termination()
+        await self._pull.run()
         self._stopped.set()
 
     async def stop(self) -> None:
@@ -334,16 +276,11 @@ class AsyncWorker:
         Half-closed pull streams wait for server EOF until the remaining drain
         deadline before the channel closes.
         """
-        if self._pull is not None:
-            self._pull.registration.record_stopping()
+        self._pull.registration.record_stopping()
         if self._state in ("stopped", "closed"):
             return
         self._state = "stopping"
-        if self._pull is not None:
-            await self._pull.stop()
-        else:
-            assert self._server is not None
-            await self._server.stop(grace=5)
+        await self._pull.stop()
         try:
             await self._flow_channel.close(None)
         finally:
@@ -372,14 +309,3 @@ class AsyncWorker:
         finally:
             if self._credential_runner is not None:
                 self._credential_runner.close()
-
-    @staticmethod
-    def _target_address(bind_address: str, bound_port: int) -> str:
-        host, separator, port = bind_address.rpartition(":")
-        if not separator or not port:
-            raise ValueError("Worker bind address requires a port")
-        if bound_port == 0:
-            bound_port = int(port)
-        if host in ("", "0.0.0.0", "::", "[::]"):
-            host = "localhost"
-        return f"{host}:{bound_port}"

@@ -124,7 +124,7 @@ from dex.timer import Timer
 from dex.wait import Wait
 from dex.wait_options import WaitForAttributeOptions, WaitForStepCompletionOptions
 from dex.worker import Worker
-from dex.worker_options import PullWorkerOptions, WorkerOptions, WorkerTarget
+from dex.worker_options import PullWorkerOptions, WorkerOptions
 
 __all__ = [
     "BOOL",
@@ -226,7 +226,6 @@ __all__ = [
     "Worker",
     "WorkerInvocationError",
     "WorkerOptions",
-    "WorkerTarget",
     "PullWorkerOptions",
     "PullRegistrationError",
     "PullRegistrationState",

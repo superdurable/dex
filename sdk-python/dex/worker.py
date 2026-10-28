@@ -30,21 +30,20 @@ from dex._server_protocol import (
 from dex._value_hydrator import ValueHydrator
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
-from dex._worker_service import WorkerService
 from dex.blob_cache import BlobCache
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
 from dex.pull_registration import PullRegistrationState
-from dex.worker_options import WorkerOptions, WorkerTarget
+from dex.worker_options import WorkerOptions
 
 
 class Worker:
-    """Host synchronous Step and RPC handlers through a listener or pull streams.
+    """Host synchronous Step and RPC handlers through outbound pull streams.
 
     A Worker is one-shot. Call ``start`` on a dedicated thread because it blocks,
-    then call ``stop`` or ``close`` during shutdown. Set ``WorkerOptions.pull``
-    to poll Dex without a listener. Handlers run concurrently in a bounded
+    then call ``stop`` or ``close`` during shutdown. Workers need only an
+    outbound connection to the Dex Server. Handlers run concurrently in a bounded
     thread pool and must synchronize shared application state.
 
     Attributes:
@@ -56,8 +55,7 @@ class Worker:
         >>> worker = Worker(registry, cache)
         >>> thread = threading.Thread(target=worker.start, daemon=True)
         >>> thread.start()
-        >>> worker.worker_target.address
-        'localhost:8803'
+        >>> worker.wait_pull_registered(timeout=30)
         >>> worker.stop()
     """
 
@@ -67,7 +65,7 @@ class Worker:
         blob_cache: BlobCache,
         options: WorkerOptions | None = None,
     ) -> None:
-        """Construct a Worker without starting its listener or pull streams.
+        """Construct a Worker without starting its outbound pull streams.
 
         Args:
             registry: A Registry created for synchronous handlers.
@@ -76,21 +74,17 @@ class Worker:
                 ``None`` uses defaults and sends no authorization metadata.
 
         Raises:
-            ValueError: If a target, bind address, or pull Worker ID is invalid.
+            ValueError: If the pull Worker ID is invalid.
         """
         self.registry = registry
         self.blob_cache = blob_cache
         self.options = options or WorkerOptions()
         self._credential_runner = (
             AsyncCredentialRunner(self.options.credential)
-            if self.options.pull is not None and self.options.credential is not None
+            if self.options.credential is not None
             else None
         )
-        app_worker_id = (
-            resolve_app_worker_id(registry, self.options.pull)
-            if self.options.pull is not None
-            else None
-        )
+        app_worker_id = resolve_app_worker_id(registry, self.options.pull)
         self._lock = threading.Lock()
         self._state = "created"
         self._flow_channel = sync_channel(
@@ -108,43 +102,20 @@ class Worker:
             ValueHydrator(self._flow_service, blob_cache),
             self._server_protocol,
         )
-        concurrency = (
-            self.options.pull.max_concurrent_tasks or os.cpu_count() or 1
-            if self.options.pull is not None
-            else max(2, min(32, os.cpu_count() or 2))
-        )
+        concurrency = self.options.pull.max_concurrent_tasks or os.cpu_count() or 1
         self._executor = ThreadPoolExecutor(
             max_workers=concurrency,
             thread_name_prefix="dex-python-handler",
         )
-        self._server = None
         self._has_start_called = False
-        self._pull = None
-        if self.options.pull is not None:
-            self._pull = PullWorkerRuntime(
-                registry,
-                dispatcher,
-                self.options.pull,
-                self.options.server_address,
-                self._executor,
-                app_worker_id,
-                self._credential_runner,
-            )
-        else:
-            self._server = grpc.server(
-                self._executor,
-                maximum_concurrent_rpcs=concurrency,
-            )
-            dex_pb2_grpc.add_WorkerServiceServicer_to_server(  # type: ignore[no-untyped-call]
-                WorkerService(dispatcher),
-                self._server,
-            )
-        self._bound_port = 0
-        self._worker_target = (
-            WorkerTarget(pull=True)
-            if self._pull is not None
-            else self.options.worker_target
-            or WorkerTarget(self._target_address(self.options.bind_address, 0))
+        self._pull = PullWorkerRuntime(
+            registry,
+            dispatcher,
+            self.options.pull,
+            self.options.server_address,
+            self._executor,
+            app_worker_id,
+            self._credential_runner,
         )
 
     def __enter__(self) -> Worker:
@@ -156,19 +127,6 @@ class Worker:
             This Worker instance.
         """
         return self
-
-    @property
-    def worker_target(self) -> WorkerTarget:
-        """Return the effective Worker target advertised to Dex.
-
-        Before ``start``, an ephemeral bind port may not yet be resolved. After
-        binding, the property contains the actual selected port. Pull mode returns
-        ``WorkerTarget(pull=True)`` before and after start.
-
-        Returns:
-            The advertised WorkerTarget.
-        """
-        return self._worker_target
 
     def __exit__(
         self,
@@ -189,14 +147,14 @@ class Worker:
         """Negotiate protocol, synchronize Attribute indexes, and serve.
 
         ``start`` may be called exactly once. It first contacts FlowService using the
-        configured synchronization timeout, then starts a listener or outbound
+        configured synchronization timeout, then starts outbound
         pull streams and waits until ``stop`` finishes. Permanent stream rejections
         raise PullRegistrationError when stop_on_permanent_stream_rejection is
         enabled; otherwise streams retry.
 
         Raises:
             PullRegistrationError: A permanent stream rejection stops this Worker.
-            RuntimeError: If lifecycle state, index synchronization, or binding fails.
+            RuntimeError: If lifecycle state is invalid or index synchronization fails.
         """
         with self._lock:
             if self._has_start_called or self._state != "created":
@@ -209,10 +167,9 @@ class Worker:
             start_error = failure
             raise
         finally:
-            if self._pull is not None:
-                self._pull.registration.finish_start(start_error)
-                if self._state == "running":
-                    self.stop()
+            self._pull.registration.finish_start(start_error)
+            if self._state == "running":
+                self.stop()
 
     def wait_pull_registered(self, timeout: float | None = None) -> None:
         """Wait until every pull queue has registered at least once.
@@ -230,7 +187,7 @@ class Worker:
         Raises:
             PullRegistrationError: A queue is permanently rejected before readiness.
             TimeoutError: The timeout expires.
-            RuntimeError: This is a listening Worker, or it stops before readiness.
+            RuntimeError: The Worker stops before readiness.
             BaseException: The original startup failure, if start fails.
 
         Examples:
@@ -239,8 +196,6 @@ class Worker:
             >>> worker.wait_pull_registered(timeout=30)
             >>> is_ready = worker.pull_registration_state().is_ready
         """
-        if self._pull is None:
-            raise RuntimeError("wait_pull_registered requires a pull Worker")
         self._pull.registration.wait(timeout)
 
     @property
@@ -251,16 +206,16 @@ class Worker:
         repeatedly while retrying it, so read the counter as a rate.
         Full-capacity rejections and unknown names are excluded. The count never
         resets during this Worker's lifetime and stays available after stop.
-        Reading it alongside handlers is safe. Listening Workers return zero.
+        Reading it alongside handlers is safe.
         Export this value to a monitoring counter to identify reserve pressure.
 
         Returns:
-            The cumulative reserve-decline count, or zero for a listening Worker.
+            The cumulative reserve-decline count.
 
         Examples:
             >>> declines = worker.pull_reserved_rpc_declines
         """
-        return 0 if self._pull is None else self._pull.reserved_rpc_declines
+        return self._pull.reserved_rpc_declines
 
     def pull_registration_state(self) -> PullRegistrationState:
         """Return an immutable snapshot of pull queue registrations.
@@ -272,13 +227,9 @@ class Worker:
         for an example.
 
         Returns:
-            Current per-queue state, or an empty nonready state in listening mode.
+            Current per-queue state.
         """
-        return (
-            PullRegistrationState()
-            if self._pull is None
-            else self._pull.registration.snapshot()
-        )
+        return self._pull.registration.snapshot()
 
     def _start(self) -> None:
         with self._lock:
@@ -325,38 +276,13 @@ class Worker:
                 self._flow_channel.close()
                 self._executor.shutdown(wait=True, cancel_futures=True)
                 raise RuntimeError("cannot synchronize Attribute indexes") from failure
-            if self._pull is None:
-                assert self._server is not None
-                self._bound_port = self._server.add_insecure_port(
-                    self.options.bind_address
-                )
-                if self._bound_port == 0:
-                    self._state = "stopped"
-                    self._flow_channel.close()
-                    self._executor.shutdown(wait=True, cancel_futures=True)
-                    raise RuntimeError(
-                        f"cannot bind Python Worker to {self.options.bind_address}"
-                    )
-                if self.options.worker_target is None:
-                    self._worker_target = WorkerTarget(
-                        self._target_address(
-                            self.options.bind_address, self._bound_port
-                        )
-                    )
             self._state = "running"
-            if self._server is not None:
-                self._server.start()
-        if self._pull is not None:
-            asyncio.run(self._pull.run())
-        else:
-            assert self._server is not None
-            self._server.wait_for_termination()
+        asyncio.run(self._pull.run())
 
     def stop(self) -> None:
         """Drain handlers and release Worker resources.
 
-        Calls before ``start`` and repeated calls after shutdown are safe. Remaining
-        listening-mode handler futures are canceled after five seconds. Pull mode
+        Calls before ``start`` and repeated calls after shutdown are safe. Shutdown
         drains for ``PullWorkerOptions.stop_drain_timeout`` (30 seconds by default),
         then requests cancellation and waits for every handler to return. A
         synchronous handler must check ``Context.is_cancellation_requested`` to
@@ -371,19 +297,15 @@ class Worker:
         with self._lock:
             if self._state in ("stopped", "closed"):
                 return
-            if self._pull is not None and self._pull.is_loop_thread():
+            if self._pull.is_loop_thread():
                 raise RuntimeError(
                     "pull Worker.stop() must be called from another thread"
                 )
             was_created = self._state == "created"
             self._state = "stopping"
-        if self._pull is not None:
-            self._pull.registration.record_stopping()
-            if not was_created:
-                self._pull.stop_threadsafe()
-        else:
-            assert self._server is not None
-            self._server.stop(grace=5).wait(timeout=10)
+        self._pull.registration.record_stopping()
+        if not was_created:
+            self._pull.stop_threadsafe()
         self._flow_channel.close()
         self._executor.shutdown(wait=True, cancel_futures=True)
         if self._credential_runner is not None:
@@ -405,14 +327,3 @@ class Worker:
                 self._credential_runner.close()
             with self._lock:
                 self._state = "closed"
-
-    @staticmethod
-    def _target_address(bind_address: str, bound_port: int) -> str:
-        host, separator, port = bind_address.rpartition(":")
-        if not separator or not port:
-            raise ValueError("Worker bind address requires a port")
-        if bound_port == 0:
-            bound_port = int(port)
-        if host in ("", "0.0.0.0", "::", "[::]"):
-            host = "localhost"
-        return f"{host}:{bound_port}"

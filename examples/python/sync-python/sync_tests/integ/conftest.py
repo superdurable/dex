@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import os
-import socket
 import time
 from collections.abc import Callable, Iterator
 from datetime import timedelta
@@ -25,7 +24,6 @@ from uuid import uuid4
 
 import pytest
 from dex import Client, DexServiceError
-from dex_examples.shared.worker_mode import read_worker_mode_from_environment
 
 from sync_examples.app import SyncExampleApp
 from sync_examples.config import SyncExamplesConfig
@@ -41,22 +39,15 @@ def sync_app(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SyncExampleAp
         server_address=os.environ.get(
             "DEX_FLOW_SERVICE_ADDRESS", DEFAULT_SERVER_ADDRESS
         ),
-        worker_bind_address=_available_worker_address(),
-        worker_target=None,
         http_address="127.0.0.1:0",
         blob_cache_dir=tmp_path_factory.mktemp("dex-sync-examples-blob-cache"),
-        worker_mode=read_worker_mode_from_environment(),
     )
     app = SyncExampleApp(config)
     try:
-        if config.worker_mode.is_pull:
-            # Pull registration fails without a server, so probe first to keep the skip.
-            is_server_ready = _server_is_ready(app.client)
-            if is_server_ready:
-                app.start_worker()
-        else:
+        # Pull registration fails without a server, so probe first to keep the skip.
+        is_server_ready = _server_is_ready(app.client)
+        if is_server_ready:
             app.start_worker()
-            is_server_ready = _server_is_ready(app.client)
         if not is_server_ready:
             pytest.skip(
                 "no Dex server at "
@@ -100,10 +91,3 @@ def _server_is_ready(client: Client) -> bool:
         except DexServiceError:
             time.sleep(POLL_INTERVAL_SECONDS)
     return False
-
-
-def _available_worker_address() -> str:
-    with socket.socket() as worker_socket:
-        worker_socket.bind(("127.0.0.1", 0))
-        host, port = worker_socket.getsockname()
-    return f"{host}:{port}"

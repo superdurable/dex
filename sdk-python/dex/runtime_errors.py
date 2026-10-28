@@ -149,7 +149,7 @@ class FlowNotActiveOrNotFoundError(DexServiceError):
 
 
 class WorkerInvocationError(DexServiceError):
-    """Expose both FlowService and nested WorkerService failure details.
+    """Expose both FlowService and nested Worker handler failure details.
 
     Attributes:
         code: The outer FlowService gRPC status.

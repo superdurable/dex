@@ -11,9 +11,7 @@
 from __future__ import annotations
 
 import os
-import socket
 import threading
-import time
 from tempfile import TemporaryDirectory
 from types import TracebackType
 from typing import Any
@@ -23,7 +21,6 @@ from dex import (
     Client,
     ClientOptions,
     Flow,
-    PullWorkerOptions,
     Registry,
     Worker,
     WorkerOptions,
@@ -32,10 +29,8 @@ from dex import (
 
 
 class DexDevTestEnvironment:
-    def __init__(self, *flows: Flow[Any], worker_mode: str | None = None) -> None:
+    def __init__(self, *flows: Flow[Any]) -> None:
         server_address = os.environ.get("DEX_SERVER_ADDRESS", "127.0.0.1:8801")
-        is_pull_worker_mode = (worker_mode or integ_worker_mode()) == "pull"
-        worker_port = None if is_pull_worker_mode else _available_port()
         registry = Registry(flows)
         self._cache_directory = TemporaryDirectory(
             prefix="dex-python-integration-cache-"
@@ -49,14 +44,7 @@ class DexDevTestEnvironment:
         self._worker = Worker(
             registry,
             self._cache,
-            (
-                WorkerOptions(server_address=server_address, pull=PullWorkerOptions())
-                if is_pull_worker_mode
-                else WorkerOptions(
-                    bind_address=f"127.0.0.1:{worker_port}",
-                    server_address=server_address,
-                )
-            ),
+            WorkerOptions(server_address=server_address),
         )
         self._failure: BaseException | None = None
         self._thread = threading.Thread(
@@ -64,12 +52,11 @@ class DexDevTestEnvironment:
             name="dex-python-integration-worker",
         )
         self._thread.start()
-        if worker_port is not None:
-            _await_worker(worker_port, self)
+        self._worker.wait_pull_registered(timeout=30)
         self.client = Client(
             registry,
             self._cache,
-            ClientOptions(server_address, self._worker.worker_target),
+            ClientOptions(server_address),
         )
 
     def __enter__(self) -> DexDevTestEnvironment:
@@ -96,31 +83,3 @@ class DexDevTestEnvironment:
             self._worker.start()
         except BaseException as error:
             self._failure = error
-
-
-def integ_worker_mode() -> str:
-    worker_mode = os.environ.get("DEX_INTEG_WORKER_MODE", "push")
-    if worker_mode not in ("push", "pull"):
-        raise ValueError("DEX_INTEG_WORKER_MODE must be push or pull")
-    return worker_mode
-
-
-def _available_port() -> int:
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        return int(listener.getsockname()[1])
-
-
-def _await_worker(port: int, environment: DexDevTestEnvironment) -> None:
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        if environment._failure is not None:
-            raise RuntimeError(
-                "Python integration Worker failed"
-            ) from environment._failure
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.1):
-                return
-        except OSError:
-            time.sleep(0.01)
-    raise RuntimeError("Python integration Worker did not become ready")

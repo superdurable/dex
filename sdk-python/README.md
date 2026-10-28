@@ -79,14 +79,17 @@ retain up to four idle credential threads. Sync token lookup must return
 promptly. By default, no authorization metadata is sent. Dex uses plaintext
 gRPC, so protect the network path that carries the token.
 
-## Pull mode
+## Workers
 
-Set `WorkerOptions.pull` to run a `Worker` or `AsyncWorker` with outbound task
-streams. The Worker connects to the Dex server through `server_address` and
-does not open a listener. Advertise `worker.worker_target` through
-`ClientOptions.worker_target`. A single Flow can override the Client default
-with `StartFlowOptions(config_override=FlowConfig(worker_target=...))`; a
-SubFlow can use `SubFlowOptions` with the same `FlowConfig` override.
+Workers receive tasks through outbound pull streams. `Worker` and `AsyncWorker`
+need only an outbound connection to the Dex Server at `server_address`. Configure
+capacity and shutdown with `WorkerOptions.pull`; its default is
+`PullWorkerOptions()`. Clients and Flows use pull routing automatically.
+
+To migrate an active Flow that still stores a push Worker target, call
+`client.update_flow_config(flow_id, FlowConfig())` with the new SDK. Await this
+call with AsyncClient. The update routes future handler calls to pull Workers,
+preserves other configuration fields, and leaves already dispatched work alone.
 
 ```python
 import threading
@@ -102,10 +105,11 @@ worker = Worker(
 )
 worker_thread = threading.Thread(target=worker.start)
 worker_thread.start()
+worker.wait_pull_registered(timeout=30)
 client = Client(
     registry,
     cache,
-    ClientOptions(server_address="dex.example:8801", worker_target=worker.worker_target),
+    ClientOptions(server_address="dex.example:8801"),
 )
 try:
     client.start_flow(flow, flow_id, input_value)
@@ -144,10 +148,7 @@ The generated `app_worker_id` uses the first nonempty `DEX_WORKER_INSTANCE`,
 `POD_NAME`, `HOSTNAME`, or system hostname, plus eight random base32 characters.
 An override must uniquely identify one Worker process and change after restart.
 It must contain 1-63 ASCII letters, digits, dots, underscores, or hyphens and
-must not equal a registered Flow type. Pull mode cannot configure a bind address
-or an advertised address or headless target. Use `WorkerTarget(pull=True)` for
-Client defaults or Flow overrides when the Worker target is not directly in
-scope.
+must not equal a registered Flow type.
 
 Pull streams reconnect after failures. A server-directed reconnect waits for
 an active task to finish, then waits up to `stop_drain_timeout` for the server
@@ -170,7 +171,7 @@ Worker ID queue to register at least once. Timeout raises `TimeoutError`;
 async cancellation cancels only that wait. Startup failures reach waiters.
 A permanent rejection before readiness raises `PullRegistrationError`, whose
 `queue` and `error` identify the rejected queue and original transport error.
-Listening mode and stop before readiness raise `RuntimeError`.
+Stopping before readiness raises `RuntimeError`.
 
 Use `worker.pull_registration_state()` for subsequent readiness probes. Its
 immutable `queues` expose `queue`, `has_registered_stream`, and
@@ -224,7 +225,6 @@ to distinguish reserve pressure from full-capacity rejections. The count exclude
 full-capacity rejections and unknown names. It counts decline events, including
 repeated declines of the same Step dispatch while Dex retries it. Read its rate
 to assess reserve pressure. It never resets and remains available after shutdown.
-Listening Workers return zero.
 
 ## Flow state I/O
 
@@ -382,7 +382,7 @@ explicit codec only for a custom encoding or a type Registry cannot derive.
 partitions them by definition type.
 
 `Worker` and `AsyncWorker` synchronize all registered Indexed Attributes with
-Dex Server before opening their listener. Existing indexes return immediately;
+Dex Server before opening outbound task streams. Existing indexes return immediately;
 failure or the default two-minute deadline aborts startup. An indexed
 `AttributeMap` must provide one fixed `index_key`.
 
@@ -778,8 +778,8 @@ environment:
 ./run-integration-tests.sh
 ```
 
-Set `DEX_INTEG_WORKER_MODE=pull` to run the suite with pull Workers instead of
-listening Workers. The default is `push`.
+The suite always uses pull Workers. Set `DEX_INTEG_ENGINE=zd` to test against
+server-zd, or leave it unset to use the Temporal-backed server.
 
 ### Measure integration coverage
 
@@ -852,9 +852,9 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md#releases-monorepo-tags) for monorepo ta
 ## Server protocol compatibility
 
 Both `Worker` and `AsyncWorker` call `GetServerInfo`, negotiate the highest
-common protocol, synchronize Attribute indexes, and only then bind
-WorkerService. The initial Python SDK interval is `[1,1]`. Missing information,
-invalid or disjoint intervals, and RPC failures stop startup before binding.
+common protocol, synchronize Attribute indexes, and only then open outbound
+task streams. The initial Python SDK interval is `[1,1]`. Missing information,
+invalid or disjoint intervals, and RPC failures stop startup before polling.
 The current Python SDK interval is `[1,3]`. Protocol 3 adds hard-delete
 Attributes. Workers record the negotiated version at startup and reject each
 handler result that contains a hard-delete Attribute write when it is below 3.

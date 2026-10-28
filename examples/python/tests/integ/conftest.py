@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import socket
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import timedelta
@@ -37,7 +36,6 @@ from dex import AsyncClient, DexServiceError, FlowNotFoundError, FlowStatus
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import ExamplesConfig
-from dex_examples.shared.worker_mode import read_worker_mode_from_environment
 
 DEFAULT_SERVER_ADDRESS = "127.0.0.1:8801"
 
@@ -63,27 +61,19 @@ def skip_when_server_zd(feature: str) -> None:
 async def example_app(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> AsyncIterator[ExampleApp]:
-    """Boots one ExampleApp with every Flow on an ephemeral Worker port."""
+    """Boots one ExampleApp with every Flow on outbound pull streams."""
     config = ExamplesConfig(
         server_address=server_address(),
-        # Reserve first so the readiness probe targets the Worker's actual port.
-        worker_bind_address=_available_worker_address(),
-        worker_target=None,
         http_address="127.0.0.1:0",
         blob_cache_dir=tmp_path_factory.mktemp("dex-examples-blob-cache"),
-        worker_mode=read_worker_mode_from_environment(),
         agent_mcp_config=_agent_mcp_config(tmp_path_factory),
     )
     app = ExampleApp(config)
     try:
-        if config.worker_mode.is_pull:
-            # Pull registration fails without a server, so probe first to keep the skip.
-            is_server_ready = await server_is_ready(app.client)
-            if is_server_ready:
-                await app.start_worker()
-        else:
+        # Pull registration fails without a server, so probe first to keep the skip.
+        is_server_ready = await server_is_ready(app.client)
+        if is_server_ready:
             await app.start_worker()
-            is_server_ready = await server_is_ready(app.client)
         if not is_server_ready:
             pytest.skip(
                 "no Dex server at "
@@ -139,13 +129,6 @@ async def server_is_ready(client: AsyncClient) -> bool:
         except DexServiceError:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
     return False
-
-
-def _available_worker_address() -> str:
-    with socket.socket() as worker_socket:
-        worker_socket.bind(("127.0.0.1", 0))
-        host, port = worker_socket.getsockname()
-    return f"{host}:{port}"
 
 
 async def wait_until(

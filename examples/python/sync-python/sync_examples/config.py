@@ -21,10 +21,6 @@ from pathlib import Path
 
 from dex import StartFlowOptions
 
-from dex_examples.shared.worker_mode import (
-    WorkerMode,
-    read_worker_mode_from_environment,
-)
 
 DEFAULT_TIMEOUT = timedelta(hours=1)
 
@@ -32,22 +28,13 @@ DEFAULT_TIMEOUT = timedelta(hours=1)
 @dataclass(frozen=True)
 class SyncExamplesConfig:
     server_address: str
-    worker_bind_address: str
-    worker_target: str | None
     http_address: str
     blob_cache_dir: Path
-    worker_mode: WorkerMode
 
     @staticmethod
     def from_env() -> SyncExamplesConfig:
         return SyncExamplesConfig(
-            server_address=os.environ.get(
-                "DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801"
-            ),
-            worker_bind_address=os.environ.get(
-                "DEX_SYNC_WORKER_BIND_ADDRESS", "127.0.0.1:8804"
-            ),
-            worker_target=os.environ.get("DEX_SYNC_WORKER_TARGET") or None,
+            server_address=os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801"),
             http_address=os.environ.get(
                 "DEX_SYNC_EXAMPLES_HTTP_ADDRESS", "127.0.0.1:8081"
             ),
@@ -57,7 +44,6 @@ class SyncExamplesConfig:
                     "/tmp/dex-examples-python-sync-blob-cache",
                 )
             ),
-            worker_mode=read_worker_mode_from_environment(),
         )
 
 
