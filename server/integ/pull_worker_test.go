@@ -1961,16 +1961,6 @@ func testPullWorkerUnavailable(t *testing.T, backend service.BackendType) {
 	require.NotNil(t, failedMethod.GetContext().GetPullRouting())
 	require.Empty(t, failedMethod.GetContext().GetPullRouting().GetServedByAppWorkerId())
 	failureDetails := failedMethod.GetOutput().GetFailure().GetDetails()
-	// zd-bug #1008 guard, delete once fixed: server-zd writes the reason name into the detail, not the reason field.
-	if isServerZDBinaryMode() {
-		require.Equal(t, "DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE: no Worker accepted the task", failureDetails.GetDetail())
-		require.Equal(
-			t,
-			dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_UNSPECIFIED,
-			failureDetails.GetDispatchTaskErrorReason(),
-		)
-		return
-	}
 	require.Equal(t, dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE, failureDetails.GetDispatchTaskErrorReason())
 	require.Contains(t, failureDetails.GetDetail(), "no Worker available")
 }

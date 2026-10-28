@@ -156,12 +156,7 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 	}
 	require.Equal(t, responses[0], responses[1])
 	concurrentInvokes := workerHandler.GetRPCInvokes()
-	expectedConcurrentInvokes := int32(1)
-	// zd-bug #1005 guard, delete once fixed: concurrent RPCs with one request ID can each reach the Worker.
-	if isServerZDBinaryMode() && concurrentInvokes == 2 {
-		expectedConcurrentInvokes = 2
-	}
-	require.Equal(t, expectedConcurrentInvokes, concurrentInvokes)
+	require.Equal(t, int32(1), concurrentInvokes)
 
 	retryResponse, err := flowClient.InvokeRPC(ctx, request)
 	require.NoError(t, err)

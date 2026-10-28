@@ -137,11 +137,6 @@ func doTestTimerFlow(
 	require.NoError(t, err)
 
 	assertions := assert.New(t)
-	skippedTimerStatus := dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
-	// zd-bug #1007 guard, delete once fixed: GetFlowState reports a skipped timer as fired.
-	if isServerZDBinaryMode() {
-		skippedTimerStatus = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED
-	}
 	resetTimerStatus := dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	if isServerZDBinaryMode() {
 		// Temporal reset reapplies later SkipTimer signals; server-zd reset discards them.
@@ -181,7 +176,7 @@ func doTestTimerFlow(
 	})
 	require.NoError(t, err)
 
-	timer2.Status = skippedTimerStatus
+	timer2.Status = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	requireTimerInfosEventually(t, ctx, runtime, flowId, expectedTimerInfos)
 
 	_, err = flowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
@@ -191,7 +186,7 @@ func doTestTimerFlow(
 	})
 	require.NoError(t, err)
 
-	timer3.Status = skippedTimerStatus
+	timer3.Status = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	requireTimerInfosEventually(t, ctx, runtime, flowId, expectedTimerInfos)
 
 	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
