@@ -25,7 +25,6 @@ set -euo pipefail
 postgres_port="${DEAL_DSL_POSTGRES_PORT:-15432}"
 dex_port="${DEAL_DSL_DEX_PORT:-20801}"
 dex_web_port="${DEAL_DSL_DEX_WEB_PORT:-20802}"
-worker_port="${DEAL_DSL_WORKER_PORT:-20803}"
 api_port="${DEAL_DSL_API_PORT:-20804}"
 dex_address="127.0.0.1:${dex_port}"
 api_address="127.0.0.1:${api_port}"
@@ -102,8 +101,6 @@ fi
 
 DEAL_DSL_POSTGRES_URL="$postgres_url" \
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-DEX_WORKER_BIND_ADDRESS="127.0.0.1:${worker_port}" \
-DEX_WORKER_TARGET="127.0.0.1:${worker_port}" \
 DEX_EXAMPLES_HTTP_ADDRESS="$api_address" \
 DEX_BLOB_CACHE_DIR="$test_dir/blob-cache" \
   ./dex-deal-dsl >>"$app_log" 2>&1 &

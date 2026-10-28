@@ -278,10 +278,6 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 			ActiveStepSearchMode: &searchMode,
 			StepDurability:       &durability,
 			AttributeStoreNames:  []string{"reporting", "audit"},
-			WorkerTarget: &WorkerTarget{
-				Address:  "worker:7233",
-				Headless: true,
-			},
 		},
 	})
 	require.NoError(t, err)
@@ -293,7 +289,8 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	require.True(t, options.Attributes[1].GetSyncConfig().GetEnabled())
 	require.NotNil(t, options.FlowConfigOverride.ActiveStepSearchMode)
 	require.NotNil(t, options.FlowConfigOverride.StepDurability)
-	require.True(t, options.FlowConfigOverride.WorkerTarget.IsHeadlessAddress)
+	require.False(t, options.FlowConfigOverride.WorkerTarget.IsHeadlessAddress)
+	require.True(t, options.FlowConfigOverride.WorkerTarget.IsPullMode)
 	require.Equal(t, []string{"reporting", "audit"}, options.FlowConfigOverride.GetAttributeStoreNames().GetNames())
 	require.NotNil(t, options.FlowConfigOverride.AttributeStoreNames)
 
@@ -306,7 +303,7 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 
 	_, _, empty, err := mapStartFlowOptions(StartFlowOptions{})
 	require.NoError(t, err)
-	require.Nil(t, empty.FlowConfigOverride)
+	require.Equal(t, &dexpb.WorkerTarget{IsPullMode: true}, empty.FlowConfigOverride.WorkerTarget)
 }
 
 func TestClientOptionMapping(t *testing.T) {

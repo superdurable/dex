@@ -187,9 +187,7 @@ func TestDexWebV2ServesGoFlowsWithoutTypeOverrides(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, status)
 
-		if isPullWorkerMode {
-			web.requirePullStateRouting(t, flowID)
-		}
+		web.requirePullStateRouting(t, flowID)
 		web.approveDecision(t, testFlow, flowID)
 		require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID, false).Status)
 	}
@@ -199,11 +197,7 @@ func TestDexWebV2ServesGoFlowsWithoutTypeOverrides(t *testing.T) {
 		startRequest := map[string]any{
 			"flowType": flows[0].flowType, "flowId": webStartedFlowID, "input": flows[0].input,
 		}
-		if isPullWorkerMode {
-			startRequest["workerTargetPull"] = true
-		} else {
-			startRequest["workerTargetAddress"] = integWorkerTargetAddress
-		}
+		startRequest["workerTargetPull"] = true
 		status, err := web.sendJSON(http.MethodPost, "/api/v2/start", startRequest, nil)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, status)
@@ -315,12 +309,10 @@ func (web *dexWebV2Client) historyStepTypes(t *testing.T, flowID string) []strin
 			stepContext, _ := event.Payload["context"].(map[string]any)
 			if stepType, isString := stepContext["stepType"].(string); isString && stepType != "" {
 				stepTypes = append(stepTypes, stepType)
-				if isPullWorkerMode {
-					routing, hasRouting := stepContext["pullRouting"].(map[string]any)
-					require.True(t, hasRouting, "missing routing for %s", stepType)
-					require.NotEmpty(t, routing["servedByAppWorkerId"])
-					require.Contains(t, []any{float64(1), float64(2)}, routing["source"])
-				}
+				routing, hasRouting := stepContext["pullRouting"].(map[string]any)
+				require.True(t, hasRouting, "missing routing for %s", stepType)
+				require.NotEmpty(t, routing["servedByAppWorkerId"])
+				require.Contains(t, []any{float64(1), float64(2)}, routing["source"])
 			}
 		}
 		if page.NextPageToken == "" {

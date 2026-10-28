@@ -335,11 +335,7 @@ func TestPublicContractsCompile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if worker.WorkerTarget().Address != "localhost:8803" {
-		t.Fatal("worker target was not derived from the bind address")
-	}
 	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
-		WorkerTarget:        worker.WorkerTarget(),
 		Logger:              logger,
 		GrpcMaxMessageBytes: dex.DefaultGrpcMaxMessageBytes,
 	})
@@ -385,7 +381,6 @@ func TestPublicContractsCompile(t *testing.T) {
 	if err := worker.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	pullTarget := dex.WorkerTarget{Pull: true}
 	pullOptions := dex.PullWorkerOptions{
 		MaxConcurrentTasks:             2,
 		IdleStreamsPerQueue:            1,
@@ -396,10 +391,7 @@ func TestPublicContractsCompile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !pullWorker.WorkerTarget().Pull {
-		t.Fatal("pull Worker target was not advertised")
-	}
-	pullClient, err := dex.NewClient(registry, cache, dex.ClientOptions{WorkerTarget: &pullTarget})
+	pullClient, err := dex.NewClient(registry, cache, dex.ClientOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

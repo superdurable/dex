@@ -135,6 +135,7 @@ func mapStartFlowOptions(
 	if err != nil {
 		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
+	config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true}
 	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(options.TimeoutHandlerOptions)
 	if err != nil {
 		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
@@ -478,12 +479,7 @@ func mapFlowRetryPolicy(
 
 func mapFlowConfig(config *FlowConfig) (*dexpb.FlowConfig, error) {
 	if config == nil {
-		return nil, nil
-	}
-	if config.WorkerTarget != nil {
-		if err := validateWorkerTarget(*config.WorkerTarget); err != nil {
-			return nil, fmt.Errorf("dex: invalid Worker target: %w", err)
-		}
+		config = &FlowConfig{}
 	}
 	searchMode, err := mapOptionalActiveStepSearchMode(config.ActiveStepSearchMode)
 	if err != nil {
@@ -502,20 +498,8 @@ func mapFlowConfig(config *FlowConfig) (*dexpb.FlowConfig, error) {
 		ContinueAsNewThreshold:       config.ContinueAsNewThreshold,
 		ContinueAsNewPageSizeInBytes: config.ContinueAsNewPageSizeBytes,
 		StepDurability:               durability,
-		WorkerTarget:                 mapWorkerTarget(config.WorkerTarget),
 		AttributeStoreNames:          attributeStoreNames,
 	}, nil
-}
-
-func mapWorkerTarget(target *WorkerTarget) *dexpb.WorkerTarget {
-	if target == nil {
-		return nil
-	}
-	return &dexpb.WorkerTarget{
-		Address:           target.Address,
-		IsHeadlessAddress: target.Headless,
-		IsPullMode:        target.Pull,
-	}
 }
 
 func mapWait(wait *Wait) (*dexpb.WaitingCondition, error) {
@@ -794,6 +778,7 @@ func mapSubFlowOptions(
 	if err != nil {
 		return nil, err
 	}
+	config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true}
 	reusePolicy, err := mapSubFlowReusePolicy(options.ReusePolicy)
 	if err != nil {
 		return nil, err

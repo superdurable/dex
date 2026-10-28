@@ -253,10 +253,6 @@ func updateOrderConfig(
 		dex.FlowConfig{
 			ContinueAsNewThreshold: ptr.Any(int32(100)),
 			StepDurability:         ptr.Any(dex.StepDurabilityAsync),
-			WorkerTarget: &dex.WorkerTarget{
-				Address:  "worker:7234",
-				Headless: false,
-			},
 		},
 	)
 }

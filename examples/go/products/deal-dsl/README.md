@@ -128,8 +128,8 @@ make bins
 ./dex-deal-dsl
 ```
 
-The binary uses the same default HTTP (`127.0.0.1:8080`) and Worker
-(`127.0.0.1:8803`) ports as `dex-samples`. Override `DEAL_DSL_POSTGRES_URL`
+The binary uses the same default HTTP port (`127.0.0.1:8080`) as `dex-samples`
+and runs a pull Worker with only an outbound Dex connection. Override `DEAL_DSL_POSTGRES_URL`
 when Postgres is not `postgres://deal_dsl:deal_dsl@127.0.0.1:15432/deal_dsl?sslmode=disable`.
 
 Or run the demo script, which starts PostgreSQL, Dex, and `dex-deal-dsl`
@@ -172,7 +172,7 @@ runtime data, and provide the shared condition-message form.
 ## Tests
 
 `make e2eTests` runs the same comprehensive flow against real Dex, Temporal,
-WorkerService, FlowService, PostgreSQL, REST handlers, and indexed search. That
+pull Worker task streams, FlowService, PostgreSQL, REST handlers, and indexed search. That
 path starts Deal DSL PostgreSQL only for these tests, not for the default
 `dex-samples` suite.
 

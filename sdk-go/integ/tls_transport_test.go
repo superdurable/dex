@@ -93,7 +93,8 @@ func startTLSFlowServiceProxyWithConfig(t *testing.T, bindAddress string, nextPr
 		require.NoError(t, listener.Close())
 		proxy.mu.Lock()
 		for connection := range proxy.connections {
-			if err := connection.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			// Rejected peers may already be closed; teardown closes sockets without sending TLS close alerts.
+			if err := connection.(*tls.Conn).NetConn().Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 				t.Errorf("close TLS proxy connection: %v", err)
 			}
 		}
@@ -229,7 +230,7 @@ func TestFlowServiceTLSWithPullWorkerAndLargeValue(t *testing.T) {
 	})
 	require.NoError(t, worker.WaitPullRegistered(integrationContext(t)))
 	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
-		FlowServiceAddress: address, FlowServiceTLS: tlsOptions, WorkerTarget: worker.WorkerTarget(),
+		FlowServiceAddress: address, FlowServiceTLS: tlsOptions,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })

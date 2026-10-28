@@ -24,7 +24,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -35,7 +34,6 @@ import (
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/examples/go/products/deal-dsl"
 	"github.com/superdurable/dex/examples/go/server/httputil"
-	"github.com/superdurable/dex/examples/go/shared/workermode"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -49,8 +47,6 @@ type dealDSLServer struct {
 	dealFlow       *dealdsl.DealDSLFlow
 	dealRepository dealdsl.Repository
 	httpServer     *http.Server
-	workerAddress  string
-	workerMode     workermode.WorkerMode
 	workerResult   chan error
 	httpResult     chan error
 }
@@ -81,20 +77,15 @@ func newDealDSLServer(ctx context.Context) (*dealDSLServer, error) {
 		database.Close()
 		return nil, errors.Join(fmt.Errorf("register Deal DSL flow: %w", err), cache.Close())
 	}
-	workerMode, err := workermode.ReadWorkerModeFromEnvironment()
-	if err != nil {
-		database.Close()
-		return nil, errors.Join(err, cache.Close())
-	}
-	workerOptions := newDealDSLWorkerOptions(workerMode)
+	workerOptions := newDealDSLWorkerOptions()
 	worker, err := sdk.NewWorker(flowRegistry, cache, workerOptions)
 	if err != nil {
 		database.Close()
 		return nil, errors.Join(err, cache.Close())
 	}
 	client, err := sdk.NewClient(flowRegistry, cache, sdk.ClientOptions{
-		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
 		WorkerTarget:       worker.WorkerTarget(),
+		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
 	})
 	if err != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -109,8 +100,6 @@ func newDealDSLServer(ctx context.Context) (*dealDSLServer, error) {
 		database:       database,
 		dealFlow:       dealFlow,
 		dealRepository: dealRepository,
-		workerAddress:  workerOptions.BindAddress,
-		workerMode:     workerMode,
 		workerResult:   make(chan error, 1),
 		httpResult:     make(chan error, 1),
 	}
@@ -177,50 +166,9 @@ func (server *dealDSLServer) serve(ctx context.Context) error {
 }
 
 func (server *dealDSLServer) waitForWorker(ctx context.Context) error {
-	if server.workerMode.IsPull() {
-		registrationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		return server.worker.WaitPullRegistered(registrationCtx)
-	}
-	address, err := localWorkerAddress(server.workerAddress)
-	if err != nil {
-		return err
-	}
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		connection, dialErr := net.DialTimeout("tcp", address, 100*time.Millisecond)
-		if dialErr == nil {
-			if closeErr := connection.Close(); closeErr != nil {
-				return fmt.Errorf("close Worker readiness connection: %w", closeErr)
-			}
-			return nil
-		}
-		select {
-		case workerErr := <-server.workerResult:
-			if workerErr == nil {
-				return errors.New("Worker stopped before becoming ready")
-			}
-			return workerErr
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
-}
-
-func localWorkerAddress(bindAddress string) (string, error) {
-	host, port, err := net.SplitHostPort(bindAddress)
-	if err != nil {
-		return "", fmt.Errorf("parse Worker bind address: %w", err)
-	}
-	switch host {
-	case "", "0.0.0.0":
-		host = "127.0.0.1"
-	case "::":
-		host = "::1"
-	}
-	return net.JoinHostPort(host, port), nil
+	registrationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return server.worker.WaitPullRegistered(registrationCtx)
 }
 
 func (server *dealDSLServer) close() error {
@@ -234,21 +182,11 @@ func (server *dealDSLServer) close() error {
 	return errors.Join(httpErr, workerErr, clientErr, cacheErr)
 }
 
-func newDealDSLWorkerOptions(workerMode workermode.WorkerMode) sdk.WorkerOptions {
-	if workerMode.IsPull() {
-		return sdk.WorkerOptions{
-			FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
-			Pull:               workermode.NewExamplePullWorkerOptions(),
-		}
-	}
-	workerOptions := sdk.WorkerOptions{
-		BindAddress:        environmentOr("DEX_WORKER_BIND_ADDRESS", "127.0.0.1:8803"),
+func newDealDSLWorkerOptions() sdk.WorkerOptions {
+	return sdk.WorkerOptions{
 		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
+		Pull:               &sdk.PullWorkerOptions{MaxConcurrentTasks: 64},
 	}
-	if target := os.Getenv("DEX_WORKER_TARGET"); target != "" {
-		workerOptions.WorkerTarget.Address = target
-	}
-	return workerOptions
 }
 
 func environmentOr(name string, fallback string) string {

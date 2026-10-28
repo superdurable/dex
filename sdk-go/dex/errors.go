@@ -355,7 +355,7 @@ func (e *FlowNotActiveOrNotFoundError) Unwrap() error {
 	return e.ServiceError
 }
 
-// WorkerInvocationError reports a WorkerService or user-handler failure.
+// WorkerInvocationError reports a Worker task or user-handler failure.
 type WorkerInvocationError struct {
 	// ServiceError contains the outer Dex service failure.
 	*ServiceError
@@ -412,7 +412,7 @@ func (e *RequestTimeoutError) Unwrap() error {
 	return e.ServiceError
 }
 
-// WorkerError preserves the original WorkerService failure.
+// WorkerError preserves the original Worker task failure.
 type WorkerError struct {
 	// Code is the original Worker gRPC status.
 	Code codes.Code

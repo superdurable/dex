@@ -24,7 +24,6 @@ import (
 const timeoutHandlerStepType = "sys:timeout_handler"
 
 type workerService struct {
-	dexpb.UnimplementedWorkerServiceServer
 	registry       *Registry
 	hydrator       valueHydrator
 	logger         Logger
@@ -52,18 +51,6 @@ func newWorkerService(
 		logger:         resolveLogger(logger, nil),
 		serverProtocol: serverProtocol,
 	}
-}
-
-func (service *workerService) InvokeWaitForMethod(
-	request *dexpb.InvokeWaitForMethodRequest,
-	stream dexpb.WorkerService_InvokeWaitForMethodServer,
-) (err error) {
-	defer func() {
-		if finalErr := finishWorkerCall(service.logger, recover(), err); finalErr != nil {
-			err = finalErr
-		}
-	}()
-	return service.invokeWaitForMethod(request, newWaitForOutputStream(stream))
 }
 
 func (service *workerService) invokeWaitForMethod(
@@ -157,18 +144,6 @@ func (service *workerService) invokeWaitForMethod(
 		DeleteFromChannel:        invocation.deletions,
 		ActionPermissionMappings: actionPermissionMappings,
 	})
-}
-
-func (service *workerService) InvokeExecuteMethod(
-	request *dexpb.InvokeExecuteMethodRequest,
-	stream dexpb.WorkerService_InvokeExecuteMethodServer,
-) (err error) {
-	defer func() {
-		if finalErr := finishWorkerCall(service.logger, recover(), err); finalErr != nil {
-			err = finalErr
-		}
-	}()
-	return service.invokeExecuteMethod(request, newExecuteOutputStream(stream))
 }
 
 func (service *workerService) invokeExecuteMethod(
@@ -347,19 +322,6 @@ func (service *workerService) invokeTimeoutHandler(
 		DeleteFromChannel:        invocation.deletions,
 		ActionPermissionMappings: actionPermissionMappings,
 	})
-}
-
-func (service *workerService) InvokeWorkerRPC(
-	ctx context.Context,
-	request *dexpb.InvokeWorkerRPCRequest,
-) (response *dexpb.InvokeWorkerRPCResponse, err error) {
-	defer func() {
-		if finalErr := finishWorkerCall(service.logger, recover(), err); finalErr != nil {
-			response = nil
-			err = finalErr
-		}
-	}()
-	return service.invokeWorkerRPC(ctx, request)
 }
 
 func (service *workerService) invokeWorkerRPC(

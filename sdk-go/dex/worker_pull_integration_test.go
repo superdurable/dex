@@ -186,7 +186,6 @@ func TestWorkerPullTaskFramesAndReconnect(t *testing.T) {
 	address, server := startPullTestServer(t)
 	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 1, AppWorkerID: "worker-test-12345678"}})
 	require.NoError(t, err)
-	require.Equal(t, &WorkerTarget{Pull: true}, worker.WorkerTarget())
 	started := make(chan error, 1)
 	go func() { started <- worker.Start() }()
 	first := awaitPullRegistration(t, server)
@@ -242,13 +241,15 @@ func TestWorkerPullTaskFramesAndReconnect(t *testing.T) {
 	queueStream = awaitPullIdleQueueStream(t, worker, server, flowType)
 	executeRequest := workerExecuteRequest(t, workerTestInput{OrderID: "order-1", Mode: "execute-progress"})
 	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Task{Task: &dexpb.PollWorkerTask{TaskId: "execute-1", Request: &dexpb.PollWorkerTask_Execute{Execute: executeRequest}}}}))
-	for {
-		frame := awaitPullFrame(t, queueStream).GetTaskFrame()
-		require.NotNil(t, frame)
-		if frame.GetExecute().GetResult() != nil {
-			break
-		}
-	}
+	heartbeatFrame := awaitPullFrame(t, queueStream).GetTaskFrame()
+	require.Equal(t, "execute-1", heartbeatFrame.GetTaskId())
+	require.NotNil(t, heartbeatFrame.GetExecute().GetHeartbeat())
+	streamWriteFrame := awaitPullFrame(t, queueStream).GetTaskFrame()
+	require.Equal(t, "execute-1", streamWriteFrame.GetTaskId())
+	require.NotNil(t, streamWriteFrame.GetExecute().GetStreamWrite())
+	resultFrame := awaitPullFrame(t, queueStream).GetTaskFrame()
+	require.Equal(t, "execute-1", resultFrame.GetTaskId())
+	require.NotNil(t, resultFrame.GetExecute().GetResult())
 	awaitPullTaskCompletion(t, worker)
 	queueStream = awaitPullIdleQueueStream(t, worker, server, flowType)
 	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Task{Task: &dexpb.PollWorkerTask{TaskId: "rpc-1", Request: &dexpb.PollWorkerTask_Rpc{Rpc: workerRPCRequest(t, workerTestInput{OrderID: "order-1"})}}}}))
@@ -324,31 +325,26 @@ func TestWorkerPullLegacyRegistrationReturnsUnknownTaskErrors(t *testing.T) {
 	require.NoError(t, <-started)
 }
 
-func TestWorkerPullGeneratedIdentityAndTargetValidation(t *testing.T) {
+func TestWorkerPullGeneratedIdentityAndDefaultRouting(t *testing.T) {
 	t.Setenv("DEX_WORKER_INSTANCE", "Pod.Name_42")
 	appWorkerID, err := generateAppWorkerID()
 	require.NoError(t, err)
 	require.Regexp(t, regexp.MustCompile(`^pod-name-42-[a-z2-7]{8}$`), appWorkerID)
-	require.NoError(t, validateWorkerTarget(WorkerTarget{Pull: true}))
-	require.Error(t, validateWorkerTarget(WorkerTarget{Pull: true, Address: "localhost:8803"}))
-	require.Error(t, validateWorkerTarget(WorkerTarget{Pull: true, Headless: true}))
 	require.Error(t, validateAppWorkerID("bad/id"))
-	_, err = newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{WorkerTarget: WorkerTarget{Pull: true}})
-	require.ErrorContains(t, err, "WorkerOptions.Pull")
 	_, err = newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{Pull: &PullWorkerOptions{StopDrainTimeout: -time.Second}})
 	require.ErrorContains(t, err, "StopDrainTimeout")
-	_, _, startOptions, err := mapStartFlowOptions(StartFlowOptions{ConfigOverride: &FlowConfig{WorkerTarget: &WorkerTarget{Pull: true}}})
+	_, _, startOptions, err := mapStartFlowOptions(StartFlowOptions{})
 	require.NoError(t, err)
 	require.True(t, startOptions.FlowConfigOverride.WorkerTarget.IsPullMode)
 	registry, err := NewRegistry([]Flow{workerFlow})
 	require.NoError(t, err)
 	registered, found := registry.lookupFlow(GetFinalFlowType(workerFlow))
 	require.True(t, found)
-	subFlowOptions, err := mapSubFlowOptions(registered, SubFlowOptions{ConfigOverride: &FlowConfig{WorkerTarget: &WorkerTarget{Pull: true}}})
+	subFlowOptions, err := mapSubFlowOptions(registered, SubFlowOptions{})
 	require.NoError(t, err)
 	require.True(t, subFlowOptions.FlowConfigOverride.WorkerTarget.IsPullMode)
-	_, err = mapFlowConfig(&FlowConfig{WorkerTarget: &WorkerTarget{Pull: true, Address: "worker:8803"}})
-	require.Error(t, err)
+	require.Empty(t, startOptions.FlowConfigOverride.WorkerTarget.Address)
+	require.False(t, startOptions.FlowConfigOverride.WorkerTarget.IsHeadlessAddress)
 }
 
 func TestWorkerPullCancelCapacityAndStopDrain(t *testing.T) {

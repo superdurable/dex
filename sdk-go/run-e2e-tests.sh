@@ -31,19 +31,6 @@ if [[ "$DEX_INTEG_ENGINE" != temporal && "$DEX_INTEG_ENGINE" != zd ]]; then
   echo "DEX_INTEG_ENGINE must be temporal or zd" >&2
   exit 2
 fi
-default_worker_mode=push
-if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
-  default_worker_mode=pull
-fi
-worker_mode="${DEX_INTEG_WORKER_MODE:-$default_worker_mode}"
-if [[ "$worker_mode" != push && "$worker_mode" != pull ]]; then
-  echo "DEX_INTEG_WORKER_MODE must be push or pull" >&2
-  exit 2
-fi
-if [[ "$DEX_INTEG_ENGINE" == zd && "$worker_mode" == push ]]; then
-  echo "DEX_INTEG_WORKER_MODE=push is not supported with DEX_INTEG_ENGINE=zd" >&2
-  exit 2
-fi
 
 available_port() {
   python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
@@ -58,7 +45,6 @@ cd "$script_dir"
 
 dex_port="${DEX_INTEG_DEX_PORT:-$(available_port)}"
 web_port="${DEX_INTEG_WEB_PORT:-$(available_port)}"
-worker_port="${DEX_INTEG_WORKER_PORT:-$(available_port)}"
 dex_address="127.0.0.1:${dex_port}"
 log_file="/tmp/test-go-sdk-phase5-e2e-services.log"
 test_dir=$(mktemp -d)
@@ -149,9 +135,6 @@ fi
 
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
 DEX_WEB_ADDRESS="127.0.0.1:${web_port}" \
-DEX_WORKER_HOST=127.0.0.1 \
-DEX_WORKER_PORT="$worker_port" \
-DEX_INTEG_WORKER_MODE="$worker_mode" \
   run_go_test -count=1 -race -v ./integ -run "${DEX_GO_INTEG_TEST_PATTERN:-.}"
 
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \

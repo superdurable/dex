@@ -544,6 +544,19 @@ func clientTestMissingFlowError() error {
 	)
 }
 
+func TestClientUpdateFlowConfigPreservesWorkerTarget(t *testing.T) {
+	client, service := newClientIntegration(t)
+	for _, config := range []FlowConfig{
+		{},
+		{ContinueAsNewThreshold: ptr.Any(int32(100))},
+		{AttributeStoreNames: []string{"reporting"}},
+	} {
+		require.NoError(t, client.UpdateFlowConfig(context.Background(), "existing-flow", config))
+		require.NotNil(t, service.updateConfigRequest.FlowConfig)
+		require.Nil(t, service.updateConfigRequest.FlowConfig.WorkerTarget)
+	}
+}
+
 func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	client, service := newClientIntegration(t)
 	ctx := context.Background()
@@ -565,7 +578,7 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	require.Equal(t, int32(0), service.startRequest.FlowTimeoutSeconds)
 	require.Equal(t, "clientTestFlow", service.startRequest.FlowType)
 	require.Equal(t, "clientTestStep", service.startRequest.StartStepType)
-	require.Equal(t, "worker.test:8803", service.startRequest.FlowStartOptions.FlowConfigOverride.WorkerTarget.Address)
+	require.True(t, service.startRequest.FlowStartOptions.FlowConfigOverride.WorkerTarget.IsPullMode)
 	require.True(t, service.startRequest.FlowStartOptions.Attributes[0].GetSyncConfig().GetEnabled())
 
 	var matchedStatus string
@@ -681,21 +694,12 @@ func TestClientConstructionAndLocalValidation(t *testing.T) {
 	defer func() { require.NoError(t, cache.Close()) }()
 	require.Panics(t, func() { _, _ = NewClient(nil, cache, ClientOptions{}) })
 	require.Panics(t, func() { _, _ = NewClient(registry, nil, ClientOptions{}) })
-	_, err = NewClient(registry, cache, ClientOptions{
-		WorkerTarget: &WorkerTarget{Address: "https://worker"},
-	})
-	require.ErrorContains(t, err, "plaintext")
-
-	target := &WorkerTarget{Address: "worker.test:8803"}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	client, err := NewClient(registry, cache, ClientOptions{
-		WorkerTarget: target,
-		Logger:       logger,
+		Logger: logger,
 	})
 	require.NoError(t, err)
 	require.Same(t, logger, client.logger)
-	target.Address = "mutated:8803"
-	require.Equal(t, "worker.test:8803", client.workerTarget.Address)
 	require.NoError(t, client.Close())
 	cached, err := cache.Put("still-owned", []byte("payload"))
 	require.NoError(t, err)
@@ -1153,7 +1157,6 @@ func newClientIntegration(t *testing.T) (*Client, *clientTestFlowService) {
 		registry,
 		cache,
 		connection,
-		&WorkerTarget{Address: "worker.test:8803"},
 		nil,
 	)
 	t.Cleanup(func() {

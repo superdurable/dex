@@ -131,7 +131,7 @@ func (asyncHeartbeatStep) Execute(
 	}
 	// C2: server-zd persists ASYNC heartbeat checkpoints from the first attempt.
 	isServerZD := serverEngine == dexpb.ServerEngine_SERVER_ENGINE_ZD
-	shouldFindHeartbeat := (isServerZD && ctx.Attempt() > 1) || (isPullWorkerMode && ctx.Attempt() > 2)
+	shouldFindHeartbeat := (isServerZD && ctx.Attempt() > 1) || (ctx.Attempt() > 2)
 	expectedCheckpoint := "unchanged"
 	if shouldFindHeartbeat {
 		expectedCheckpoint = fmt.Sprintf("attempt-%d", ctx.Attempt()-1)

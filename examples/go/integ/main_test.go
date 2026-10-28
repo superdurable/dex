@@ -24,7 +24,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http/httptest"
 	"os"
 	"strconv"
@@ -37,7 +36,6 @@ import (
 	exampleserver "github.com/superdurable/dex/examples/go/cmd/server/dex"
 	"github.com/superdurable/dex/examples/go/registry"
 	"github.com/superdurable/dex/examples/go/shared/service"
-	"github.com/superdurable/dex/examples/go/shared/workermode"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -49,14 +47,12 @@ var (
 )
 
 type integrationEnvironment struct {
-	cache         *blobcache.Cache
-	cacheDir      string
-	client        *dex.Client
-	apiServer     *httptest.Server
-	worker        *dex.Worker
-	workerAddress string
-	workerMode    workermode.WorkerMode
-	workerResult  chan error
+	cache        *blobcache.Cache
+	cacheDir     string
+	client       *dex.Client
+	apiServer    *httptest.Server
+	worker       *dex.Worker
+	workerResult chan error
 }
 
 func newIntegrationEnvironment() (*integrationEnvironment, error) {
@@ -74,15 +70,7 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	if err != nil {
 		return nil, errors.Join(err, os.RemoveAll(cacheDir))
 	}
-	workerMode, err := workermode.ReadWorkerModeFromEnvironment()
-	if err != nil {
-		return nil, errors.Join(err, cache.Close(), os.RemoveAll(cacheDir))
-	}
-	workerPort, err := availablePort()
-	if err != nil {
-		return nil, errors.Join(err, cache.Close(), os.RemoveAll(cacheDir))
-	}
-	worker, err := dex.NewWorker(registry, cache, integrationWorkerOptions(workerMode, workerPort))
+	worker, err := dex.NewWorker(registry, cache, integrationWorkerOptions())
 	if err != nil {
 		return nil, errors.Join(err, cache.Close(), os.RemoveAll(cacheDir))
 	}
@@ -91,8 +79,8 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 		workerResult <- worker.Start()
 	}()
 	client, err = dex.NewClient(registry, cache, dex.ClientOptions{
-		FlowServiceAddress: flowServiceAddress(),
 		WorkerTarget:       worker.WorkerTarget(),
+		FlowServiceAddress: flowServiceAddress(),
 	})
 	if err != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -101,14 +89,12 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	}
 	apiServer := httptest.NewServer(exampleserver.NewRouter(client))
 	environment := &integrationEnvironment{
-		cache:         cache,
-		cacheDir:      cacheDir,
-		client:        client,
-		apiServer:     apiServer,
-		worker:        worker,
-		workerAddress: net.JoinHostPort("127.0.0.1", workerPort),
-		workerMode:    workerMode,
-		workerResult:  workerResult,
+		cache:        cache,
+		cacheDir:     cacheDir,
+		client:       client,
+		apiServer:    apiServer,
+		worker:       worker,
+		workerResult: workerResult,
 	}
 	integClient = client
 	if err := environment.waitUntilReady(); err != nil {
@@ -120,43 +106,13 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 func (environment *integrationEnvironment) waitUntilReady() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if environment.workerMode.IsPull() {
-		if err := environment.worker.WaitPullRegistered(ctx); err != nil {
-			return fmt.Errorf("wait for pull Worker registration: %w", err)
-		}
-		return nil
-	}
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		connection, err := net.DialTimeout("tcp", environment.workerAddress, 100*time.Millisecond)
-		if err == nil {
-			if closeErr := connection.Close(); closeErr != nil {
-				return fmt.Errorf("close Worker readiness connection: %w", closeErr)
-			}
-			return nil
-		}
-		select {
-		case <-ticker.C:
-		case <-ctx.Done():
-			return fmt.Errorf("wait for Worker readiness: %w", ctx.Err())
-		}
-	}
+	return environment.worker.WaitPullRegistered(ctx)
 }
 
-func integrationWorkerOptions(workerMode workermode.WorkerMode, workerPort string) dex.WorkerOptions {
-	if workerMode.IsPull() {
-		return dex.WorkerOptions{
-			FlowServiceAddress: flowServiceAddress(),
-			Pull:               workermode.NewExamplePullWorkerOptions(),
-		}
-	}
+func integrationWorkerOptions() dex.WorkerOptions {
 	return dex.WorkerOptions{
-		BindAddress:        net.JoinHostPort("127.0.0.1", workerPort),
 		FlowServiceAddress: flowServiceAddress(),
-		WorkerTarget: dex.WorkerTarget{
-			Address: net.JoinHostPort(workerHost(), workerPort),
-		},
+		Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: 64},
 	}
 }
 
@@ -220,28 +176,9 @@ func skipWhenServerZD(t *testing.T, feature string) {
 	}
 }
 
-func availablePort() (string, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", err
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	if err := listener.Close(); err != nil {
-		return "", err
-	}
-	return strconv.Itoa(port), nil
-}
-
 func flowServiceAddress() string {
 	if address := os.Getenv("DEX_FLOW_SERVICE_ADDRESS"); address != "" {
 		return address
 	}
 	return "127.0.0.1:8801"
-}
-
-func workerHost() string {
-	if host := os.Getenv("DEX_WORKER_HOST"); host != "" {
-		return host
-	}
-	return "127.0.0.1"
 }

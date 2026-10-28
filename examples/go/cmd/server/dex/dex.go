@@ -24,7 +24,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -75,19 +74,16 @@ import (
 	"github.com/superdurable/dex/examples/go/registry"
 	"github.com/superdurable/dex/examples/go/server/httputil"
 	"github.com/superdurable/dex/examples/go/shared/service"
-	"github.com/superdurable/dex/examples/go/shared/workermode"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
 
 type sampleServer struct {
-	client        *sdk.Client
-	worker        *sdk.Worker
-	cache         *blobcache.Cache
-	httpServer    *http.Server
-	workerAddress string
-	workerMode    workermode.WorkerMode
-	workerResult  chan error
-	httpResult    chan error
+	client       *sdk.Client
+	worker       *sdk.Worker
+	cache        *blobcache.Cache
+	httpServer   *http.Server
+	workerResult chan error
+	httpResult   chan error
 }
 
 func Run(ctx context.Context) error {
@@ -112,18 +108,14 @@ func newSampleServer() (*sampleServer, error) {
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("register example flows: %w", err), cache.Close())
 	}
-	workerMode, err := workermode.ReadWorkerModeFromEnvironment()
-	if err != nil {
-		return nil, errors.Join(err, cache.Close())
-	}
-	workerOptions := newWorkerOptions(workerMode)
+	workerOptions := newWorkerOptions()
 	worker, err := sdk.NewWorker(flowRegistry, cache, workerOptions)
 	if err != nil {
 		return nil, errors.Join(err, cache.Close())
 	}
 	client, err = sdk.NewClient(flowRegistry, cache, sdk.ClientOptions{
-		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
 		WorkerTarget:       worker.WorkerTarget(),
+		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
 	})
 	if err != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -131,13 +123,11 @@ func newSampleServer() (*sampleServer, error) {
 		return nil, errors.Join(err, worker.Stop(stopCtx), cache.Close())
 	}
 	server := &sampleServer{
-		client:        client,
-		worker:        worker,
-		cache:         cache,
-		workerAddress: workerOptions.BindAddress,
-		workerMode:    workerMode,
-		workerResult:  make(chan error, 1),
-		httpResult:    make(chan error, 1),
+		client:       client,
+		worker:       worker,
+		cache:        cache,
+		workerResult: make(chan error, 1),
+		httpResult:   make(chan error, 1),
 	}
 	server.httpServer = &http.Server{
 		Addr:    environmentOr("DEX_EXAMPLES_HTTP_ADDRESS", "127.0.0.1:8080"),
@@ -146,21 +136,11 @@ func newSampleServer() (*sampleServer, error) {
 	return server, nil
 }
 
-func newWorkerOptions(workerMode workermode.WorkerMode) sdk.WorkerOptions {
-	if workerMode.IsPull() {
-		return sdk.WorkerOptions{
-			FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
-			Pull:               workermode.NewExamplePullWorkerOptions(),
-		}
-	}
-	workerOptions := sdk.WorkerOptions{
-		BindAddress:        environmentOr("DEX_WORKER_BIND_ADDRESS", "127.0.0.1:8803"),
+func newWorkerOptions() sdk.WorkerOptions {
+	return sdk.WorkerOptions{
 		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
+		Pull:               &sdk.PullWorkerOptions{MaxConcurrentTasks: 64},
 	}
-	if target := os.Getenv("DEX_WORKER_TARGET"); target != "" {
-		workerOptions.WorkerTarget.Address = target
-	}
-	return workerOptions
 }
 
 func environmentOr(name string, fallback string) string {
@@ -248,50 +228,9 @@ func (server *sampleServer) Run(ctx context.Context) error {
 }
 
 func (server *sampleServer) waitForWorker(ctx context.Context) error {
-	if server.workerMode.IsPull() {
-		registrationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		return server.worker.WaitPullRegistered(registrationCtx)
-	}
-	address, err := localWorkerAddress(server.workerAddress)
-	if err != nil {
-		return err
-	}
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		connection, dialErr := net.DialTimeout("tcp", address, 100*time.Millisecond)
-		if dialErr == nil {
-			if closeErr := connection.Close(); closeErr != nil {
-				return fmt.Errorf("close Worker readiness connection: %w", closeErr)
-			}
-			return nil
-		}
-		select {
-		case workerErr := <-server.workerResult:
-			if workerErr == nil {
-				return errors.New("Worker stopped before becoming ready")
-			}
-			return workerErr
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
-}
-
-func localWorkerAddress(bindAddress string) (string, error) {
-	host, port, err := net.SplitHostPort(bindAddress)
-	if err != nil {
-		return "", fmt.Errorf("parse Worker bind address: %w", err)
-	}
-	switch host {
-	case "", "0.0.0.0":
-		host = "127.0.0.1"
-	case "::":
-		host = "::1"
-	}
-	return net.JoinHostPort(host, port), nil
+	registrationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return server.worker.WaitPullRegistered(registrationCtx)
 }
 
 func (server *sampleServer) close() error {

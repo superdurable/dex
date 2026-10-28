@@ -1,11 +1,13 @@
 # Dex Go examples
 
-These examples target `github.com/superdurable/dex/sdk-go v1.10.1`.
+These examples target `github.com/superdurable/dex/sdk-go v1.15.0` and use pull
+Workers. The explicit pull target remains necessary for that published SDK.
+Remove it when upgrading to the minor release that makes pull Workers the only mode.
 
 `dex.None` marks a nil-only Step, RPC, or Channel payload. Calls pass `nil`.
 
-The sample process hosts one gRPC Worker on `127.0.0.1:8803` and an HTTP controller
-on `127.0.0.1:8080`. One Registry and disk BlobCache are shared by its Worker and
+The sample process runs one outbound pull Worker and an HTTP controller on
+`127.0.0.1:8080`. One Registry and disk BlobCache are shared by its Worker and
 Client.
 
 ## Layout
@@ -40,7 +42,7 @@ make bins
 ```
 
 The Worker synchronizes all registered Indexed Attributes with Dex before it
-opens its listener; no backend CLI registration is required.
+opens task streams; no backend CLI registration is required.
 
 The examples share namespace-level slots by index type: `keyword1`,
 `text1`, `int1`, and numbered later slots such as `keyword2`.
@@ -48,7 +50,7 @@ Application searches must constrain `FlowType` and parenthesize caller filters.
 The sample search endpoints enforce their Flow type.
 
 Because that sync happens first, changing a Flow type's Indexed Attributes while
-a store already holds runs of that Flow type can stop the Worker before it binds.
+a store already holds runs of that Flow type can stop the Worker before it registers.
 The symptom is silence: the process stays alive, logs nothing after Gin's startup
 banner, and never opens `DEX_EXAMPLES_HTTP_ADDRESS`, so every request fails to
 connect rather than returning an error. Adding, removing or retyping a
@@ -61,22 +63,19 @@ reconcile:
 dexcli dev -dex-port 8901 -web-port 8902   # a new port means a new store directory
 ```
 
-If the Worker binds there and not against the original store, the schema change
+If the Worker registers there and not against the original store, the schema change
 is the cause and not the code. Existing runs stay in the old store, so keep the
 old port if you need them.
 
 The defaults connect to Dex at `localhost:8801`. These environment variables override the local addresses:
 
 - `DEX_FLOW_SERVICE_ADDRESS`: Dex gRPC target.
-- `DEX_WORKER_BIND_ADDRESS`: WorkerService bind address.
-- `DEX_WORKER_TARGET`: address advertised to Dex when it differs from the bind address.
 - `DEX_EXAMPLES_HTTP_ADDRESS`: HTTP controller bind address.
 - `DEX_BLOB_CACHE_DIR`: shared Client/Worker blob-cache directory.
-- `DEX_EXAMPLES_WORKER_MODE`: `push` (default) listens on the Worker bind
-  address. `pull` connects to Dex as a pull Worker, ignores the bind address and
-  target, and starts Flows with the pull Worker target.
 
-When Dex runs in Docker, set `DEX_WORKER_TARGET=host.docker.internal:8803`.
+Workers need only an outbound connection to Dex. They do not expose a callback
+port. Remove `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`, and
+`DEX_EXAMPLES_WORKER_MODE` from existing setups; pull routing is automatic.
 
 `make bins` also builds `./dex-deal-dsl`. That binary is not required for
 the default samples server.
@@ -84,7 +83,7 @@ the default samples server.
 ## Deal DSL
 
 [Deal DSL](./products/deal-dsl) is a separate process. It uses the same
-default HTTP (`127.0.0.1:8080`) and Worker (`127.0.0.1:8803`) ports as
+default HTTP port (`127.0.0.1:8080`) as
 `dex-samples`, and it requires PostgreSQL:
 
 ```bash
@@ -95,7 +94,7 @@ make bins
 ```
 
 Override `DEAL_DSL_POSTGRES_URL` when Postgres is not on
-`127.0.0.1:15432`. The demo script uses different HTTP/Worker ports; see
+`127.0.0.1:15432`. The demo script uses a different HTTP port; see
 [products/deal-dsl/README.md](./products/deal-dsl/README.md).
 
 ## Error handling
@@ -127,9 +126,9 @@ Web running after tests for manual exploration:
 ./run-e2e-tests.sh --keep-running
 ```
 
-Set `DEX_EXAMPLES_WORKER_MODE=pull` to run the same tests with pull Workers.
-Set `DEX_INTEG_ENGINE=zd` to run them against server-zd. That mode defaults to
-pull Workers. Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
+The integration suites always use pull Workers.
+Set `DEX_INTEG_ENGINE=zd` to run them against server-zd.
+Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 `make e2eTests` also runs Deal DSL against its own binary-equivalent Worker
 and PostgreSQL. That Postgres is started only for those tests.

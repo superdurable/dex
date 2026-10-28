@@ -75,8 +75,8 @@ adding aliases.
   and Attribute waits accept an optional override; otherwise the server derives
   a stable logical ID. Locking RPC and durable waits use these IDs as Temporal
   synchronous-update IDs.
-- `WorkerTarget` belongs to `FlowConfig` and may describe a normal or headless
-  plaintext gRPC target. `ClientOptions` may provide its StartFlow default.
+- StartFlow and SubFlow always set the wire Worker target to pull mode.
+  UpdateFlowConfig omits that field to preserve the existing Flow target.
 - Large string/object `Value` arms may contain blob IDs. Phase 4 wires the
   existing cache into hydration; cache storage policy remains independently
   designed.
@@ -542,7 +542,7 @@ N/A: no in-repo web UI.
 ### Public worker surface
 
 Phase 4 adds one application-hosted worker. It references the shared Phase 3
-Registry and owns the generated WorkerService gRPC server:
+Registry and receives tasks through outbound pull streams:
 
 ```go
 type Logger interface {
@@ -553,8 +553,7 @@ type Logger interface {
 }
 
 type WorkerOptions struct {
-	BindAddress        string
-	WorkerTarget       WorkerTarget
+	Pull               *PullWorkerOptions
 	FlowServiceAddress string
 	FlowServiceTLS     *FlowServiceTLSOptions
 	AttributeIndexSyncTimeout time.Duration
@@ -596,42 +595,31 @@ func NewWorker(
 	options WorkerOptions,
 ) (*Worker, error)
 
-func (worker *Worker) WorkerTarget() *WorkerTarget
+func (worker *Worker) WaitPullRegistered(ctx context.Context) error
 func (worker *Worker) Start() error
 func (worker *Worker) Stop(ctx context.Context) error
 ```
 
 `NewWorker` requires the already validated Registry and BlobCache. Passing nil
 for either required dependency panics. It returns option errors before opening
-a listener and retains no duplicate flow, step, RPC, or schema lookup.
+a connection and retains no duplicate flow, step, RPC, or schema lookup.
 
-An empty `BindAddress` uses `:8803`. It controls only the local plaintext gRPC
-listener. `WorkerTarget` is the server-reachable target normally supplied once
-through `ClientOptions.WorkerTarget`. A StartFlow config may override it, and
-`UpdateFlowConfig` may change it for an existing run.
-
-An empty `WorkerTarget.Address` derives from `BindAddress`. A concrete bind host
-and port are copied. An unspecified bind host such as `:8803`, `0.0.0.0:8803`,
-or `[::]:8803` becomes `localhost:8803`, because a wildcard is not a dialable
-advertised host. `WorkerTarget.Headless` is preserved. This default is intended
-for a Worker and Dex server with matching local network reachability;
-deployments with containers, pods, load balancers, or DNS must set the
-advertised address explicitly.
+Workers always use pull mode. A nil `WorkerOptions.Pull` uses the default
+capacity, registration, and shutdown settings. There is no local Worker
+listener or advertised-address option. StartFlow and SubFlow always send a
+FlowConfig with `WorkerTarget.is_pull_mode=true`, an empty address, and a false
+headless flag. UpdateFlowConfig leaves the Worker target absent so an unrelated
+configuration update preserves the Flow's existing target on either server.
 
 `ClientOptions.Credential` and `WorkerOptions.Credential` attach a bearer
 credential to every FlowService call. A Dex server with authentication enabled
 requires it on every public API call.
 
-Pull Workers set `WorkerOptions.Pull` with `MaxConcurrentTasks`,
-`IdleStreamsPerQueue`, optional `AppWorkerID`, and `StopDrainTimeout`. They connect outbound through
-`FlowServiceAddress`, using the same `Credential`, without opening the local
-listener. `Worker.WorkerTarget()` returns `{Pull: true}`. A Client or per-Flow
-`FlowConfig.WorkerTarget` can advertise that value; `StartFlowOptions` and
-`SubFlowOptions` both carry the per-Flow override through `ConfigOverride`.
-`WorkerTarget.Pull` and `WorkerTarget.Address` are mutually exclusive. The SDK
-maps pull mode to `WorkerTarget.is_pull_mode`, keeps one task per stream, and
-polls the sticky Worker ID queue plus each registered Flow type queue. A Flow
-type must be unique within one Dex server for pull routing.
+`WorkerOptions.Pull` tunes `MaxConcurrentTasks`, `IdleStreamsPerQueue`, optional
+`AppWorkerID`, and `StopDrainTimeout`. Workers connect outbound through
+`FlowServiceAddress`, using the same `Credential`. The SDK keeps one task per
+stream and polls the sticky Worker ID queue plus each registered Flow type
+queue. A Flow type must be unique within one Dex server for pull routing.
 Go SDK 1.13.0 adds `Worker.WaitPullRegistered(context.Context) error` for
 startup gating and `Worker.PullRegistrationState() PullRegistrationState` for
 probes. Concurrent waiters use notifications. Every queue must register once
@@ -681,61 +669,12 @@ each exchange goroutine ends within one exchange timeout. Other `Credential`
 implementations keep per-RPC credentials and get neither the retry nor the
 immediate reconnection.
 
-`Worker.WorkerTarget()` returns a fresh copy of the resolved target for
-`ClientOptions`. It does not mutate a caller-owned option value.
+An empty `FlowServiceAddress` uses `localhost:8801`. Before polling, the Worker
+uses this target to negotiate the protocol and synchronize the Registry's
+Indexed Attributes. It also uses the target for task streams and private
+`LoadBlobs` calls. The synchronization deadline defaults to two minutes when `AttributeIndexSyncTimeout` is zero.
 
-The bind address and WorkerTarget are not required to match. Given the shared
-`registry` and `cache`, a Worker may bind every local interface while Dex dials
-a headless Kubernetes service:
-
-```go
-worker, err := dex.NewWorker(
-	registry,
-	cache,
-	dex.WorkerOptions{
-		BindAddress: "0.0.0.0:8803",
-		WorkerTarget: dex.WorkerTarget{
-			Address:  "orders-worker.default.svc.cluster.local:8803",
-			Headless: true,
-		},
-	},
-)
-if err != nil {
-	return err
-}
-
-client, err := dex.NewClient(
-	registry,
-	cache,
-	dex.ClientOptions{
-		WorkerTarget: worker.WorkerTarget(),
-	},
-)
-if err != nil {
-	return err
-}
-
-runID, err := client.StartFlow(
-	ctx,
-	Orders,
-	"order-1",
-	OrderInput{},
-	dex.StartFlowOptions{},
-)
-```
-
-`WorkerTarget.Headless` describes how the server resolves the advertised
-target; it does not change the local listener. The Worker resolves the empty
-address default but never automatically registers or updates the target for a
-flow. Client applies its configured default only when StartFlow assembles the
-new run's FlowConfig.
-
-An empty `FlowServiceAddress` uses `localhost:8801`. Before binding, the Worker
-uses this plaintext target to synchronize the Registry's Indexed Attributes.
-It also uses the target for private `LoadBlobs` calls. The synchronization
-deadline defaults to two minutes when `AttributeIndexSyncTimeout` is zero.
-
-`GrpcMaxMessageBytes` limits received messages on the WorkerService listener and
+`GrpcMaxMessageBytes` limits received messages on outbound task streams and
 on the private FlowService connection. Zero uses `DefaultGrpcMaxMessageBytes`
 (32 MiB, the Dex server default) and keeps gRPC's unlimited send limit; a
 positive value also limits sent messages. Negative values are invalid. When a
@@ -750,18 +689,18 @@ close it. The Worker owns and closes only its private FlowService connection.
 the shared BlobCache logger, which defaults to `slog.Default`. A Worker override
 applies to Worker lifecycle, hydration, cache, and recovered-panic logs.
 
-`Start` synchronizes Indexed Attributes, binds the configured address, serves WorkerService, and blocks. It may
-be called once. A normal `Stop` makes `Start` return nil; bind and serve failures
-are returned. The Worker does not install signal handlers or start itself in a
-goroutine.
+`Start` negotiates the protocol, synchronizes Indexed Attributes, then polls
+for tasks and blocks. It may be called once. A normal `Stop` makes `Start`
+return nil; startup and terminal polling failures are returned. The Worker does
+not install signal handlers or start itself in a goroutine.
 
 `Stop` is idempotent. It stops accepting calls and waits for in-flight handlers.
-If `ctx` expires first, it force-stops the gRPC server, cancels in-flight RPC
-contexts, and returns `ctx.Err()`. Calling `Stop` before `Start` succeeds and
+If `ctx` expires first, it cancels task streams and in-flight handler contexts,
+and returns `ctx.Err()`. Calling `Stop` before `Start` succeeds and
 prevents a later start. A Worker is one-shot and cannot restart after stopping.
 
 The public `Worker` does not implement generated request methods. An unexported
-server value implements `dexpb.WorkerServiceServer`, so application code never
+dispatcher validates and executes incoming tasks, so application code never
 uses `dexpb` to host or invoke the worker.
 
 ### Runtime structure
@@ -772,9 +711,9 @@ The Worker references shared definitions and cache while owning its transport:
 Worker
   registry                 shared immutable Phase 3 descriptors
   blob cache               shared caller-owned storage
-  workerService            generated gRPC adapter
+  workerService            shared task dispatcher
   valueHydrator            shared cache + private FlowService LoadBlobs client
-  grpcServer / listener    plaintext WorkerService transport
+  pullWorker               outbound task streams and registration
   lifecycle state          start, drain, force-stop, terminal error
 ```
 
@@ -1080,8 +1019,8 @@ mapping.
 Phase 4 does not implement:
 
 - public FlowService Client methods or request-ID retries;
-- automatic WorkerTarget registration or service discovery;
-- TLS WorkerService or FlowService transport;
+- advertised Worker addresses or service discovery;
+- inbound Worker listeners;
 - public gRPC request/response types or a custom service registrar;
 - custom value codecs or codec registries; or
 - blob-cache eviction, recovery, or capacity changes.
@@ -1098,22 +1037,22 @@ Phase 4 does not implement:
 5. Blob-backed request values hydrate through private LoadBlobs and the shared
    caller-owned cache before application decode.
 6. Graceful and forced shutdown have deterministic, race-free behavior.
-7. The Worker exposes its resolved target for flow options without making
-   Client calls or updating flows automatically.
+7. The Worker receives tasks through outbound streams without configuring
+   Client targets or updating existing Flow routing.
 8. No public Client transport or mutable registration API is added.
 
 ### Tests
 
-Phase 4 adds in-process WorkerService integration tests using a real gRPC
-server and client. Package-internal tests may use generated stubs; application
-examples and external contract tests still do not import `dexpb`.
+Phase 4 tests shared task dispatch in memory and pull transport through real
+gRPC streams with an in-process fake server. Package-internal tests may use
+generated stubs; application examples and external contract tests still do not import `dexpb`.
 
 Cover these scenarios:
 
 1. Registry construction rejects invalid registration; Worker construction
-   rejects nil dependencies and invalid target configuration. Empty target
-   addresses derive from concrete and wildcard bind addresses, and Stop leaves
-   the caller-owned cache usable.
+   rejects nil dependencies and invalid pull options. Nil pull options use
+   defaults, and Stop leaves the caller-owned cache usable. Polling starts only
+   after protocol negotiation and Attribute index synchronization succeed.
 2. `Start`/`Stop` lifecycle is one-shot, idempotent, and deadline-bounded.
 3. WaitFor dispatch decodes typed input and maps attributes, locals, events,
    channel publishes, timers, combinations, and immediate execution.
@@ -1146,7 +1085,7 @@ make -C blob-cache-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase4-blobcach
 make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase4-copyright.log
 ```
 
-`workerIntegTests` runs the WorkerService integration package with `-race`.
+`workerIntegTests` runs shared dispatch and pull transport tests with `-race`.
 
 The default Temporal-backed end-to-end suite remains Phase 5 because Phase 4
 does not yet provide the public Client calls needed to start and drive runs.
@@ -1261,8 +1200,7 @@ client, err := dex.NewClient(
 	registry,
 	cache,
 	dex.ClientOptions{
-		WorkerTarget: worker.WorkerTarget(),
-		Logger:       logger,
+		Logger: logger,
 	},
 )
 if err != nil {
@@ -1290,7 +1228,6 @@ internal response hydrator:
 type ClientOptions struct {
 	FlowServiceAddress  string
 	FlowServiceTLS      *FlowServiceTLSOptions
-	WorkerTarget        *WorkerTarget
 	Logger              Logger
 	Credential          Credential
 	GrpcMaxMessageBytes int
@@ -1314,7 +1251,7 @@ pool; `ServerName` defaults to the address host. An empty `ServerName` keeps the
 target's `host:port` as the HTTP/2 `:authority`; a nonempty one is sent as the
 `:authority` without a port. Invalid PEM fails construction.
 The same option applies to the Worker's FlowService connection, including pull
-task streams and blob hydration. The listening WorkerService stays plaintext.
+task streams and blob hydration.
 Existing Credentials work with either transport. The other SDKs will gain the
 option in a later release. The SDK does not expose generated clients,
 `grpc.ClientConn`, or arbitrary dial options.
@@ -1323,17 +1260,8 @@ option in a later release. The SDK does not expose generated clients,
 uses `DefaultGrpcMaxMessageBytes` (32 MiB) and keeps gRPC's unlimited send
 limit; a positive value also limits sent messages. Negative values are invalid.
 
-`WorkerTarget` is the default advertised target for every StartFlow call made
-by the Client. Nil omits the default. A non-nil value requires a non-empty
-Address and is copied during Client construction, including Headless, so later
-caller mutation cannot change Client behavior.
-
 `Logger` overrides logging for this Client and its hydrator. Nil inherits the
 shared BlobCache logger; a nil cache logger defaults to `slog.Default`.
-
-This follows the iWF Go SDK's client-level
-[`WorkerUrl`](https://github.com/indeedeng/iwf-golang-sdk/blob/main/iwf/client_options.go)
-pattern while retaining Dex's typed Headless setting.
 
 `grpc.NewClient` is lazy, so `NewClient` validates the target and constructs the
 connection but does not assert server readiness. `HealthCheck` is the explicit
@@ -1348,8 +1276,7 @@ encoded values, response values, and hydration pointer list. Closing a Client
 concurrently with a call may terminate that call through gRPC cancellation.
 
 Client construction does not construct a Worker or make a FlowService call.
-Applications normally pass `worker.WorkerTarget()` once through ClientOptions.
-The target is advertised only when StartFlow sends a new run request.
+StartFlow always selects pull routing. No Client Worker target is configured.
 
 ### Common call pipeline and current-run targeting
 
@@ -1432,11 +1359,11 @@ Registry descriptor. The Flow type must have been included in `NewRegistry`;
 the Client reuses its schema, starting-step selection, input type, and immutable
 step defaults. It does not reevaluate steps, persistence, or RPC methods.
 
-StartFlow clones `StartFlowOptions.ConfigOverride` before mapping it. A non-nil
-per-call `ConfigOverride.WorkerTarget` wins. Otherwise the Client's default
-WorkerTarget is inserted, creating a FlowConfig when necessary. If neither is
-set, the request omits WorkerTarget. Other per-call FlowConfig fields are
-preserved, and UpdateFlowConfig never inherits the Client default.
+StartFlow maps `StartFlowOptions.ConfigOverride` without mutating it and always
+sets the wire Worker target to pull mode, including when the override is nil.
+SubFlow uses the same routing. Other configuration fields retain their
+presence. UpdateFlowConfig omits the Worker target and preserves existing
+routing, including for a Flow started through another SDK.
 
 When a starting step is declared:
 
@@ -1473,9 +1400,7 @@ if err != nil {
 client, err := dex.NewClient(
 	registry,
 	cache,
-	dex.ClientOptions{
-		WorkerTarget: worker.WorkerTarget(),
-	},
+	dex.ClientOptions{},
 )
 if err != nil {
 	return err
@@ -1656,8 +1581,8 @@ suite built entirely on Flow, Step, Worker, Client, Attribute, and Channel.
 Legacy tests are not adapted through compatibility aliases.
 
 The migrated suite creates one Registry and BlobCache, passes both to a real Go
-Worker and Client, and closes the cache after both consumers. The Worker uses a
-dynamically allocated local port and advertises its reachable WorkerTarget.
+Worker and Client, and closes the cache after both consumers. The suite waits
+for `Worker.WaitPullRegistered` before starting Flows.
 Every test uses a unique flow ID. Polling and long-poll APIs replace sleeps used
 for convergence.
 
@@ -1711,13 +1636,12 @@ Those surfaces require separate product and security design.
 Phase 5 adds real-gRPC Client integration tests with an in-process fake
 FlowService. These exercise transport branches that do not need Temporal:
 
-1. NewRegistry atomic validation; NewClient required dependencies, address and
-   WorkerTarget validation, defensive option copying, concurrent calls,
-   idempotent Close, calls after Close, and a cache usable after Close.
+1. NewRegistry atomic validation; NewClient required dependencies and address
+   validation, concurrent calls, idempotent Close, calls after Close, and a cache usable after Close.
 2. StartFlow registry reuse without reevaluating steps, persistence, or RPC
    methods; starting/no-start flows, nil/incompatible input, step defaults,
-   optional durations, initial attributes, Client WorkerTarget injection,
-   per-call precedence and omission, and request-ID override/generation.
+   optional durations, initial attributes, unconditional pull targets for
+   starts, target omission for config updates, and request-ID override/generation.
 3. Direct bound RPC identity, IN/OUT validation, locking and non-locking request
    IDs, lock mapping, output hydration, and Worker error conversion.
 4. Wait time rounding, immediate checks, default execution number, existing
@@ -1764,13 +1688,13 @@ five SDK targets and uploads Temporal/Dex logs on an E2E failure.
 - Keep this plan linked from [`docs/README.md`](../../README.md) and mark all
   five phases implemented only after the exit gate passes.
 - Update [`sdk-go/README.md`](../../../sdk-go/README.md) with Registry and cache
-  construction, Client-level WorkerTarget defaults, current-run targeting,
+  construction, automatic pull routing, current-run targeting,
   request-ID ownership, starting-step behavior, hydration, errors, concurrency,
   and Close.
 - Update [`sdk-go/CONTRIBUTION.md`](../../../sdk-go/CONTRIBUTION.md) with Client
   integration and Temporal end-to-end commands and environment prerequisites.
 - Update the Go examples to construct one Registry and BlobCache, pass both to
-  Client and Worker, configure WorkerTarget once on Client, close them in
+  Client and Worker, wait for pull registration, close them in
   ownership order, and demonstrate every Client API including initial
   attributes.
 - Update [`blob-cache-go/blobcache/README.md`](../../../blob-cache-go/blobcache/README.md)
@@ -2736,11 +2660,6 @@ internal Phase 2 hydration seam.
 ### Client option structs
 
 ```go
-type WorkerTarget struct {
-	Address  string
-	Headless bool
-}
-
 type ActiveStepSearchMode uint8
 
 const (
@@ -2756,7 +2675,6 @@ type FlowConfig struct {
 	ContinueAsNewThreshold     *int32
 	ContinueAsNewPageSizeBytes *int32
 	StepDurability             *StepDurability
-	WorkerTarget               *WorkerTarget
 }
 
 type StartFlowOptions struct {
@@ -2889,9 +2807,8 @@ Pointer fields in `FlowConfig` preserve proto presence for partial overrides.
 `AttributeStoreNames == nil` omits the target override, while an empty non-nil
 slice disables synchronization for future enabled writes. Every enabled Attribute
 write is projected to every selected Store.
-`WorkerTarget` is configured through `FlowConfig`, not as a separate StartFlow
-argument. Phase 5 adds `ClientOptions.WorkerTarget` as the default inserted into
-that FlowConfig.
+Worker routing is not an application-configurable field. StartFlow and SubFlow
+set the wire pull target; UpdateFlowConfig leaves it unset.
 
 `StartFlowOptions.Timeout == nil` means no Dex soft Flow timeout. A positive
 timeout uses `TimeoutHandler` when the registered Flow implements

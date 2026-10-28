@@ -40,19 +40,6 @@ if [[ "$DEX_INTEG_ENGINE" != temporal && "$DEX_INTEG_ENGINE" != zd ]]; then
   echo "DEX_INTEG_ENGINE must be temporal or zd" >&2
   exit 2
 fi
-default_worker_mode=push
-if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
-  default_worker_mode=pull
-fi
-export DEX_EXAMPLES_WORKER_MODE="${DEX_EXAMPLES_WORKER_MODE:-$default_worker_mode}"
-if [[ "$DEX_EXAMPLES_WORKER_MODE" != push && "$DEX_EXAMPLES_WORKER_MODE" != pull ]]; then
-  echo "DEX_EXAMPLES_WORKER_MODE must be push or pull" >&2
-  exit 2
-fi
-if [[ "$DEX_INTEG_ENGINE" == zd && "$DEX_EXAMPLES_WORKER_MODE" == push ]]; then
-  echo "DEX_EXAMPLES_WORKER_MODE=push is not supported with DEX_INTEG_ENGINE=zd" >&2
-  exit 2
-fi
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
@@ -182,7 +169,6 @@ fi
 cd "$script_dir"
 common_test_env=(
   DEX_FLOW_SERVICE_ADDRESS="$default_dex_address"
-  DEX_WORKER_HOST=127.0.0.1
   DEX_EXAMPLES_ENTITY_STORE_COMPOSE_PROJECT="$entity_store_project"
   DEX_EXAMPLES_ENTITY_STORE_COMPOSE_FILE="$entity_store_dir/docker-compose.yml"
   GOCACHE="${GOCACHE:-$test_dir/gocache}"
@@ -234,7 +220,6 @@ fi
 deal_dsl_status=0
 env \
 DEX_FLOW_SERVICE_ADDRESS="$deal_dsl_dex_address" \
-DEX_WORKER_HOST=127.0.0.1 \
 GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}" \
 GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}" \
 GOWORK=off \

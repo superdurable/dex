@@ -12,7 +12,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"time"
 
@@ -69,9 +68,7 @@ func run() error {
 		}
 	}()
 	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
-		BindAddress:        "0.0.0.0:8803",
 		FlowServiceAddress: "127.0.0.1:8801",
-		WorkerTarget:       dex.WorkerTarget{Address: "host.docker.internal:8803"},
 	})
 	if err != nil {
 		return err
@@ -85,12 +82,13 @@ func run() error {
 			log.Printf("stop worker: %v", err)
 		}
 	}()
-	if err := waitForWorker(workerResult); err != nil {
-		return err
+	registrationContext, cancelRegistration := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelRegistration()
+	if err := worker.WaitPullRegistered(registrationContext); err != nil {
+		return fmt.Errorf("register pull Worker: %w", err)
 	}
 	firstClient, err := dex.NewClient(registry, cache, dex.ClientOptions{
 		FlowServiceAddress: "127.0.0.1:8801",
-		WorkerTarget:       &dex.WorkerTarget{Address: "host.docker.internal:8803"},
 	})
 	if err != nil {
 		return err
@@ -138,24 +136,4 @@ func run() error {
 	}
 	fmt.Println("Flow started through replica 1 and completed through replica 2")
 	return nil
-}
-
-func waitForWorker(workerResult <-chan error) error {
-	deadline := time.NewTimer(10 * time.Second)
-	defer deadline.Stop()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		connection, err := net.DialTimeout("tcp", "127.0.0.1:8803", 100*time.Millisecond)
-		if err == nil {
-			return connection.Close()
-		}
-		select {
-		case workerError := <-workerResult:
-			return fmt.Errorf("worker failed to start: %w", workerError)
-		case <-deadline.C:
-			return fmt.Errorf("worker did not start: %w", err)
-		case <-ticker.C:
-		}
-	}
 }
