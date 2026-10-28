@@ -102,6 +102,9 @@ jobs:
             runner: ubuntu-24.04-arm
             image: quay.io/pypa/manylinux_2_28_aarch64
           - os: darwin
+            arch: amd64
+            runner: macos-15-intel
+          - os: darwin
             arch: arm64
             runner: macos-latest
     env:
@@ -340,8 +343,8 @@ jobs:
           set -euo pipefail
           cd dist
           archives=(./*.tar.gz)
-          [[ "${#archives[@]}" -eq 3 ]] || {
-            echo "Expected three binary archives, found ${#archives[@]}" >&2
+          [[ "${#archives[@]}" -eq 4 ]] || {
+            echo "Expected four binary archives, found ${#archives[@]}" >&2
             exit 1
           }
           sha256sum -- "${archives[@]}" > checksums.txt
@@ -354,10 +357,11 @@ jobs:
         run: |
           set -euo pipefail
           assets=(dist/*.tar.gz dist/checksums.txt)
-          [[ "${#assets[@]}" -eq 4 ]]
+          [[ "${#assets[@]}" -eq 5 ]]
           expected_archives=(
             "dist/dex-server-zd_v${VERSION}_linux_amd64.tar.gz"
             "dist/dex-server-zd_v${VERSION}_linux_arm64.tar.gz"
+            "dist/dex-server-zd_v${VERSION}_darwin_amd64.tar.gz"
             "dist/dex-server-zd_v${VERSION}_darwin_arm64.tar.gz"
           )
           for archive in "${expected_archives[@]}"; do
