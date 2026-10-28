@@ -58,17 +58,20 @@ func doTestStartFlowWithoutStartOptions(t *testing.T, backendType service.Backen
 	})
 	require.NoError(t, err)
 
-	response, err := runtime.UnifiedClient.DescribeWorkflowExecution(
-		ctx,
-		flowId,
-		"",
-		map[string]dexpb.IndexType{
-			service.SearchAttributeDexWorkflowType: dexpb.IndexType_INDEX_TYPE_KEYWORD,
-		},
-	)
-	require.NoError(t, err)
-	attribute := response.IndexedAttributes[service.SearchAttributeDexWorkflowType]
-	require.Equal(t, basic.FlowType, attribute.GetStringValue())
+	// This reads the Flow type through Temporal DescribeWorkflowExecution, which server-zd lacks.
+	if !isServerZDBinaryMode() {
+		response, err := runtime.UnifiedClient.DescribeWorkflowExecution(
+			ctx,
+			flowId,
+			"",
+			map[string]dexpb.IndexType{
+				service.SearchAttributeDexWorkflowType: dexpb.IndexType_INDEX_TYPE_KEYWORD,
+			},
+		)
+		require.NoError(t, err)
+		attribute := response.IndexedAttributes[service.SearchAttributeDexWorkflowType]
+		require.Equal(t, basic.FlowType, attribute.GetStringValue())
+	}
 
 	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
