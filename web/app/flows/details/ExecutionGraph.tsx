@@ -41,9 +41,8 @@ interface StepNodeData extends Record<string, unknown> {
 
 type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Pending' | 'Completed' | 'Failed' | 'Canceled' | 'Not started';
 
-const graphEdgeColor = '#78909c';
-const previousStepColor = '#3f78a8';
-const nextStepColor = '#c16f24';
+const graphEdgeColor = 'var(--mark)';
+const connectedStepColor = 'var(--ink-dim)';
 
 function waitingCondition(node: StepGraphNode): Record<string, unknown> {
   const output = node.waitFor?.payload.output;
@@ -341,7 +340,7 @@ export function ExecutionGraph({
     const isIncoming = selection.incomingEdgeIDs.has(edge.id);
     const isOutgoing = selection.outgoingEdgeIDs.has(edge.id);
     const isSubFlow = nodeByID.get(edge.target)?.kind === 'subflow';
-    const color = isIncoming ? previousStepColor : isOutgoing ? nextStepColor : graphEdgeColor;
+    const color = isIncoming || isOutgoing ? connectedStepColor : graphEdgeColor;
     return {
       ...edge,
       className: isSubFlow
@@ -470,7 +469,7 @@ export function ExecutionGraph({
             onSelectEvent(model.execute ?? model.pendingExecute ?? model.waitFor ?? model.pendingWaitFor ?? null);
           }}
         >
-          <Background gap={22} size={1} color="#dfe7e5" />
+          <Background gap={22} size={1} color="var(--line-faint)" />
           <Controls position="top-right" />
           <div className={`graph-minimap-shell${isMiniMapExpanded ? ' expanded' : ''}`}>
             {isMiniMapExpanded && (
