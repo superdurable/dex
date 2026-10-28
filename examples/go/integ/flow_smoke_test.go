@@ -46,7 +46,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name:                       "products/money-transfer",
+			name: "products/money-transfer",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{
 					"amount":      {"100"},
@@ -65,7 +65,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name:                       "products/order-processing",
+			name: "products/order-processing",
 			trigger: func(t *testing.T) (string, string) {
 				flowID, runID := triggerFlowSmokeHTTP(t, http.MethodGet, "/products/order-processing/start", nil, nil)
 				return flowID, runID
@@ -121,7 +121,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			flags: flowSmokeFlags{noStartStep: true},
 		},
 		{
-			name:                       "patterns/polling",
+			name: "patterns/polling",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "pattern-polling")}}
 				return triggerFlowSmokeHTTP(
@@ -161,7 +161,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name:                       "patterns/entity-store",
+			name: "patterns/entity-store",
 			trigger: func(t *testing.T) (string, string) {
 				userID := smokeWorkflowID(t, "entity-store")
 				body := entitystore.UserProfileRequest{
@@ -191,7 +191,8 @@ func flowSmokeCatalog() []flowSmokeEntry {
 				}
 				return flowID, runID
 			},
-			flags: flowSmokeFlags{noStartStep: true},
+			flags:              flowSmokeFlags{noStartStep: true},
+			verifyAfterTrigger: requireEntityStoreSmokeUserProfileRow,
 		},
 		{
 			name: "patterns/sequentially-chunked-attribute-map",
@@ -220,7 +221,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			flags: flowSmokeFlags{noStartStep: true},
 		},
 		{
-			name:                       "patterns/manual-recovery",
+			name: "patterns/manual-recovery",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "manual-recovery")}}
 				return triggerFlowSmokeHTTP(
@@ -274,7 +275,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 		parallelSmokeEntry("await"),
 		parallelSmokeEntry("first-win"),
 		{
-			name:                       "patterns/recovery",
+			name: "patterns/recovery",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{
 					"workflowId": {smokeWorkflowID(t, "recovery")},
@@ -389,7 +390,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name:                       "primitives/step/options-override",
+			name: "primitives/step/options-override",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{
 					"workflowId": {smokeWorkflowID(t, "primitive-step-options-override")},
@@ -540,6 +541,9 @@ func TestFlowSmokeAllRegisteredFlowsViaController(t *testing.T) {
 			requireFlowSmokeIDs(t, entry.name, flowID)
 			assertFlowSmokeStartStep(t, entry, flowID, runID)
 			assertFlowSmokeNoUnexpectedFailures(t, entry, flowID, runID)
+			if entry.verifyAfterTrigger != nil {
+				entry.verifyAfterTrigger(t, flowID)
+			}
 		})
 	}
 }

@@ -183,6 +183,8 @@ cd "$script_dir"
 common_test_env=(
   DEX_FLOW_SERVICE_ADDRESS="$default_dex_address"
   DEX_WORKER_HOST=127.0.0.1
+  DEX_EXAMPLES_ENTITY_STORE_COMPOSE_PROJECT="$entity_store_project"
+  DEX_EXAMPLES_ENTITY_STORE_COMPOSE_FILE="$entity_store_dir/docker-compose.yml"
   GOCACHE="${GOCACHE:-$test_dir/gocache}"
   GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}"
   GOWORK=off
