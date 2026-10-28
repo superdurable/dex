@@ -15,8 +15,8 @@ failure has one classification.
 
 | Result | Tests |
 | --- | --- |
-| pass | 148 |
-| skip | 178 |
+| pass | 149 |
+| skip | 177 |
 | fail | 0 |
 | not run | 0 |
 | total | 326 |
@@ -24,7 +24,7 @@ failure has one classification.
 | Classification | Tests |
 | --- | --- |
 | go-server-only | 176 |
-| zd-bug | 8 |
+| zd-bug | 7 |
 | behavior-difference | 7 |
 | harness-gap | 1 |
 
@@ -40,13 +40,17 @@ were classified go-server-only, because they cover application-visible
 behavior. It fixes the harness gaps for 26 more and turns 2 behavior-difference
 skips into assertions. A forced run, with the
 Temporal-only guards disabled locally, supplied the evidence for zd-bugs 1 and 2. The
-other zd-bugs come from the ported tests themselves.
+other zd-bugs come from the ported tests themselves. #1011 fixed zd-bug 1, so
+**TestHardDeleteAttributeSubFlowTemporal** now runs in binary mode and passes.
+The counts include that change; a local binary-mode run confirmed it.
 
 ## Classifications
 
 - **zd-bug**: server-zd behaves wrongly. A guard names the bug and pins the
   current server-zd result, so the test fails once server-zd changes. The
-  bug 5 guard accepts both the current and the fixed result.
+  bug 5 guard accepts both the current and the fixed result. The guards for
+  bugs 4 to 7 are each one block marked `zd-bug #<issue> guard, delete once
+  fixed`. Deleting the block restores the Go Server assertion.
 - **behavior-difference**: a documented server-zd difference. Binary mode
   asserts the server-zd behavior.
 - **go-server-only**: the test covers Temporal, Cadence, push Workers, Go Server
@@ -59,12 +63,12 @@ guards already cite.
 
 ## zd-bug
 
-1. **TestHardDeleteAttributeSubFlowTemporal** (high severity, #1001): a SubFlow
+1. Fixed by #1011. **TestHardDeleteAttributeSubFlowTemporal** (high severity, #1001): a SubFlow
    started with a hard-delete Attribute in **SubFlowOptions.Attributes** stops
    the whole server node. Apply fails with
    `apply invariant violated: hard-delete write of "secret" has no uploaded object`,
-   and the log ends with `dex-server-zd stopping after a failure`. The test stays
-   in **temporalOnlyScenarioTests** until the issue is fixed.
+   and the log ends with `dex-server-zd stopping after a failure`. The test now
+   runs in binary mode and passes.
 2. **TestLockingWorkflowTemporal** (low severity, #1002): an RPC that conflicts
    with a lock held by a running Step returns `ABORTED` with the expected
    sub-status, but its detail is
@@ -327,7 +331,7 @@ checks Go Server configuration.
 | TestHardDeleteAttributeResetTemporal | pass |  |  |
 | TestHardDeleteAttributeStepWriteRequiresBlobStoreTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:413: Temporal-only assertion`. Go Server disabled Blob Store rejection (C5). |
 | TestHardDeleteAttributeSubFlowCadence | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:306: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestHardDeleteAttributeSubFlowTemporal | skip | zd-bug | Skip reason: `hard_delete_attribute_test.go:313: Temporal-only assertion`. Stays in temporalOnlyScenarioTests: zd-bug 1 (#1001) stops the server-zd node. |
+| TestHardDeleteAttributeSubFlowTemporal | pass |  | zd-bug 1 (#1001) fixed by #1011; runs against dex-server-zd. |
 | TestHardDeleteAttributeValidationTemporal | pass |  |  |
 | TestHardDeleteAttributesCadence | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:69: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestHardDeleteAttributesTemporal | pass | behavior-difference | Passes; skips the Go Blob directory checks (C4, C5) and asserts that LoadBlobs rejects a Go Blob ID. Dex history is checked for secrets. |
