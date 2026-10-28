@@ -782,8 +782,9 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 
 Point a Registry, Worker, and Client at **dexcli** (**127.0.0.1:8801**). Construct the Flow with the service, then register it.
 
-This local example uses a listening Worker. See [Pull Workers](/production/pull-workers)
-for outbound Worker connections in production.
+The Worker opens outbound task streams to **dexcli** and needs no inbound port.
+See [Pull Workers](/production/pull-workers) for capacity, readiness, and
+production setup.
 
 <SdkTabs
   examples={{
@@ -809,23 +810,15 @@ for outbound Worker connections in production.
         self.blob_cache = open_blob_cache(
             BlobCacheConfig(str(config.blob_cache_dir), 1 << 30)
         )
-        worker_options = WorkerOptions(
-            bind_address=config.worker_bind_address,
-            server_address=config.server_address,
-            worker_target=(
-                WorkerTarget(config.worker_target)
-                if config.worker_target
-                else None
-            ),
+        self.worker = AsyncWorker(
+            self.registry,
+            self.blob_cache,
+            WorkerOptions(server_address=config.server_address),
         )
-        self.worker = AsyncWorker(self.registry, self.blob_cache, worker_options)
         self._client = AsyncClient(
             self.registry,
             self.blob_cache,
-            ClientOptions(
-                server_address=config.server_address,
-                worker_target=self.worker.worker_target,
-            ),
+            ClientOptions(server_address=config.server_address),
         )
 ```
 
@@ -839,20 +832,14 @@ for outbound Worker connections in production.
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("register example flows: %w", err), cache.Close())
 	}
-	workerOptions := sdk.WorkerOptions{
-		BindAddress:        environmentOr("DEX_WORKER_BIND_ADDRESS", "127.0.0.1:8803"),
+	worker, err := sdk.NewWorker(flowRegistry, cache, sdk.WorkerOptions{
 		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
-	}
-	if target := os.Getenv("DEX_WORKER_TARGET"); target != "" {
-		workerOptions.WorkerTarget.Address = target
-	}
-	worker, err := sdk.NewWorker(flowRegistry, cache, workerOptions)
+	})
 	if err != nil {
 		return nil, errors.Join(err, cache.Close())
 	}
 	client, err = sdk.NewClient(flowRegistry, cache, sdk.ClientOptions{
 		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
-		WorkerTarget:       worker.WorkerTarget(),
 	})
 ```
 
@@ -868,28 +855,18 @@ for outbound Worker connections in production.
     public Worker worker(
             final Registry registry,
             final BlobCache blobCache,
-            @Value("${dex.server-address}") final String serverAddress,
-            @Value("${dex.worker-bind-address}") final String workerBindAddress,
-            @Value("${dex.worker-target:}") final String workerTarget) {
-        final WorkerOptions.Builder options = WorkerOptions.newBuilder()
-                .bindAddress(workerBindAddress)
-                .serverAddress(serverAddress);
-        if (workerTarget != null && !workerTarget.trim().isEmpty()) {
-            options.workerTarget(new WorkerTarget(workerTarget, false));
-        }
-        return new Worker(registry, blobCache, options.build());
+            @Value("${dex.server-address}") final String serverAddress) {
+        return new Worker(registry, blobCache, WorkerOptions.newBuilder()
+                .serverAddress(serverAddress)
+                .build());
     }
 
     @Bean(destroyMethod = "close")
     public Client client(
             final Registry registry,
             final BlobCache blobCache,
-            final Worker worker,
             @Value("${dex.server-address}") final String serverAddress) {
-        return new Client(
-                registry,
-                blobCache,
-                new ClientOptions(serverAddress, worker.getWorkerTarget()));
+        return new Client(registry, blobCache, new ClientOptions(serverAddress));
     }
 ```
 
@@ -906,17 +883,9 @@ export const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyServi
     directory: env.blobCacheDir,
     maxBytes: 1 << 30,
   });
-  const worker = new Worker(registry, blobCache, {
-    bindAddress: env.workerBindAddress,
-    serverAddress: env.serverAddress,
-    ...(env.workerTarget !== undefined
-      ? { workerTarget: { address: env.workerTarget } }
-      : {}),
-  });
-  await worker.start();
+  const worker = await startExampleWorker(registry, blobCache, env.serverAddress);
   const client = new Client(registry, blobCache, {
     serverAddress: env.serverAddress,
-    workerTarget: worker.workerTarget,
   });
   setClient(client);
 ```
@@ -929,26 +898,27 @@ export const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyServi
   <SdkSnippet lang="rust">
 
 ```rust
-    let registry = create_example_registry()?;
-    let worker = Worker::try_new(
-        registry.clone(),
-        Arc::clone(&cache),
-        WorkerOptions::new()
-            .server_address(server_address.clone())
-            .bind_address(worker_bind_address.clone()),
-    )?;
-    let worker_target = worker.worker_target().clone();
-    let worker_handle = thread::spawn(move || worker.start());
-
     let client = Arc::new(Client::try_new(
-        registry,
+        create_example_registry(Arc::clone(&polling_jobs))?,
         Arc::clone(&cache),
-        ClientOptions::new()
-            .server_address(server_address)
-            .worker_target(worker_target),
+        ClientOptions::new().server_address(config.server_address.clone()),
     )?);
+    let worker = Arc::new(Worker::try_new(
+        create_worker_registry(Arc::clone(&client), Arc::clone(&polling_jobs))?,
+        Arc::clone(&cache),
+        WorkerOptions::new().server_address(&config.server_address),
+    )?);
+    let running_worker = Arc::clone(&worker);
+    let worker_handle = thread::spawn(move || running_worker.start());
+    if let Err(error) = wait_for_pull_registration(&worker).await {
+        worker.stop();
+        if let Err(stop_error) = worker_handle.join().expect("worker thread panicked") {
+            eprintln!("pull Worker stopped with an error: {stop_error}");
+        }
+        return Err(error);
+    }
 
-    let router = build_router(client);
+    let router = build_router(client, polling_jobs);
 ```
 
 </SdkSnippet>

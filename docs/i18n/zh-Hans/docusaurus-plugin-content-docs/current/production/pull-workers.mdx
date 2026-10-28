@@ -5,24 +5,22 @@ sidebar_label: Pull Workers
 
 # 拉取模式 Worker
 
-拉取模式 Worker 主动向 Dex Server 建立任务 stream，不监听入站调用。Worker 无法开放入站端口、
-位于 NAT 或防火墙后，或需要简化网络规则时，可选用拉取模式。如果 Worker 在内存中保存了
-后续调用会用到的状态，也可以利用黏性路由。
+每个 Dex Worker 都是拉取模式 Worker。它主动向 Dex Server 建立任务 stream，从不监听入站调用。
+Worker 只需要能出站连接 Dex Server，因此可以位于 NAT 或防火墙后，无需开放入站端口。
+如果 Worker 在内存中保存了后续调用会用到的状态，也可以利用黏性路由。
 
-## 启用拉取模式
+## 启动 Worker
 
-设置 Worker 的 pull 选项和 Dex Server 地址。不要同时设置 bind address 或发布监听地址。
-SDK 会从 Worker 提供拉取模式的 **WorkerTarget**。将它设为 Client 默认目标，或通过
-**StartFlowOptions** 和 **FlowConfig.WorkerTarget** 为单个 Flow 选择它。SubFlow 可通过
-**SubFlowOptions** 和相同的 **FlowConfig** override 选择它。Client 在单独的进程中运行时，
-也可以直接使用拉取模式 **WorkerTarget**。
+设置 Worker 的 Dex Server 地址。pull 选项是可选的，用于调整任务容量、注册和关闭行为。
+Client 只需要 Dex Server 地址。Dex 将所有 Flow、SubFlow、Step 和 RPC 调用发送给拉取模式
+Worker，因此无需配置 Worker 地址或目标。
 
-所有五种 SDK 都提供 pull 选项和目标。以下示例使用拉取模式 Worker 处理一个
-Greeting Flow。Step 写入问候语，问候语 RPC 读取它。启动细节见
+以下示例使用拉取模式 Worker 处理一个 Greeting Flow。Step 写入问候语，问候语 RPC 读取它。
+启动细节见
 [Go](https://github.com/superdurable/dex/blob/main/sdk-go/README.md#running-a-worker)、
-[Python](https://github.com/superdurable/dex/blob/main/sdk-python/README.md#pull-mode)、
-[Java](https://github.com/superdurable/dex/blob/main/sdk-java/README.md#pull-mode)、
-[TypeScript](https://github.com/superdurable/dex/blob/main/sdk-typescript/README.md#pull-mode) 和
+[Python](https://github.com/superdurable/dex/blob/main/sdk-python/README.md#workers)、
+[Java](https://github.com/superdurable/dex/blob/main/sdk-java/README.md#pull-workers)、
+[TypeScript](https://github.com/superdurable/dex/blob/main/sdk-typescript/README.md#workers) 和
 [Rust](https://github.com/superdurable/dex/blob/main/sdk-rust/README.md#pull-mode)
 SDK 的 README。
 
@@ -59,10 +57,7 @@ async def start_pull_greeting(
     client = AsyncClient(
         registry,
         cache,
-        ClientOptions(
-            server_address=server_address,
-            worker_target=worker.worker_target,
-        ),
+        ClientOptions(server_address=server_address),
     )
     try:
         await worker.wait_pull_registered(timeout=30)
@@ -109,7 +104,6 @@ func StartPullGreeting(cache *blobcache.Cache, serverAddress string) (*GreetingF
 	}
 	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
 		FlowServiceAddress: serverAddress,
-		WorkerTarget:       worker.WorkerTarget(),
 	})
 	if err != nil {
 		return nil, nil, nil, nil, errors.Join(err, worker.Stop(context.Background()))
@@ -179,8 +173,7 @@ public final class PullGreetingExample {
                         .reservedRpcTasks(1)
                         .build())
                 .build());
-        final Client client = new Client(registry, cache,
-                new ClientOptions(serverAddress, worker.getWorkerTarget()));
+        final Client client = new Client(registry, cache, new ClientOptions(serverAddress));
         final CompletableFuture<Void> workerResult = new CompletableFuture<>();
         final Thread workerThread = new Thread(() -> {
             try {
@@ -265,10 +258,7 @@ export async function startPullGreeting(
     }
     throw failure;
   }
-  const client = new Client(registry, cache, {
-    serverAddress,
-    workerTarget: worker.workerTarget,
-  });
+  const client = new Client(registry, cache, { serverAddress });
   return { flow, worker, client };
 }
 
@@ -303,9 +293,7 @@ pub fn start_pull_greeting(
     let client = Client::try_new(
         registry,
         cache,
-        ClientOptions::new()
-            .server_address(server_address)
-            .worker_target(worker.worker_target().clone()),
+        ClientOptions::new().server_address(server_address),
     )?;
     let startup_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -472,7 +460,7 @@ Dex 在 matching dispatch 等待时间内寻找可用 Worker。如果没有 Work
 如果在 dispatch 等待时间内没有可处理任务的 Worker，Step 会按其失败和重试策略
 收到注明 Step 或 RPC 名称的错误；RPC 调用方会在最多等待常规 dispatch 等待时间
 （10 秒）后直接收到该错误。此重新分配需要支持它的 Dex Server 版本。面对旧版
-Server，Worker 与之前一样返回未注册错误。推送模式 Worker 仍返回原有的未注册名称错误。
+Server，Worker 与之前一样返回未注册错误。
 
 任务至少投递一次。如果 Worker 在 Dex 收到任何输出前断开连接，同一个调用可能再次分配。
 外部副作用应具备幂等性，例如使用 Flow ID 和 Step execution ID 作为幂等键。
@@ -546,7 +534,7 @@ Go 为 **PullReservedRPCDeclines()**，Java 为 **getPullReservedRpcDeclines()**
 TypeScript 为 **pullReservedRpcDeclines**，Python 为 **pull_reserved_rpc_declines**，
 Rust 为 **pull_reserved_rpc_declines()**。满载拒绝和未知名称不会增加此计数。
 该计数统计拒绝事件；Dex 重试同一次 Step 分发时，可能多次拒绝它，因此应观察计数的变化速率。
-计数从不重置，关闭后仍可读取，监听模式 Worker 返回零。日志配置请参阅各 SDK 的 README。
+计数从不重置，关闭后仍可读取。日志配置请参阅各 SDK 的 README。
 
 上面的启动示例将任务上限设为八，并显式为 RPC 预留一个槽位，与默认值一致。
 下面的诊断函数返回注册就绪状态和累计预留拒绝计数，供监控使用。
