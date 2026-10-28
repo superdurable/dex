@@ -1,4 +1,4 @@
-.PHONY: docs-check fmt integration-test lint pull-integration-test test unit-test
+.PHONY: docs-check fmt integration-test lint test unit-test
 
 docs-check:
 	RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps -p dex-sdk -p dex-blob-cache
@@ -15,9 +15,6 @@ test:
 
 integration-test:
 	./run-integration-tests.sh
-
-pull-integration-test:
-	DEX_INTEG_WORKER_MODE=pull ./run-integration-tests.sh
 
 unit-test:
 	cargo test --locked -p dex-sdk --lib --test compile_contracts --test error_contracts

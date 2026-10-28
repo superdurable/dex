@@ -4,6 +4,13 @@
 
 Strongly typed Rust client and worker APIs for durable Dex Flows.
 
+## Workers
+
+Workers use pull task streams and need only an outbound connection to the Dex
+Server. `WorkerOptions::new()` uses pull defaults; `WorkerOptions::pull` tunes
+capacity and lifecycle through `PullWorkerOptions`. Clients route Flows and
+SubFlows to pull Workers automatically.
+
 ## API key credentials
 
 When Dex requires access tokens and an application holds an API key, create an

@@ -13,7 +13,6 @@ use std::time::Duration;
 use dex_sdk::{
     ActiveStepSearchMode, Client, Flow, FlowConfig, FlowErrorType, FlowStatus, GrpcCode,
     IdReusePolicy, Registry, SdkError, SdkResult, StartFlowOptions, StepExecutionId, StepList,
-    WorkerTarget,
 };
 
 use crate::basic_abnormal_exit_workflow::BasicAbnormalExitWorkflow;
@@ -381,9 +380,7 @@ fn compile_empty_and_model_inputs(client: &Client) -> SdkResult<()> {
     reason = "Integration fixtures implement schema variants exercised by selected test targets."
 )]
 fn compile_failure_policy_and_config_override(client: &Client) -> SdkResult<()> {
-    let config = FlowConfig::new()
-        .active_step_search_mode(ActiveStepSearchMode::All)
-        .worker_target(WorkerTarget::new("worker:8803"));
+    let config = FlowConfig::new().active_step_search_mode(ActiveStepSearchMode::All);
     let options = StartFlowOptions::new().config_override(config.clone());
     client.start_flow_with_options(
         &BasicProceedOnWaitFailureWorkflow::new(),

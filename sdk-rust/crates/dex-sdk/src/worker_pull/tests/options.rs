@@ -9,7 +9,7 @@
 use super::*;
 
 #[test]
-fn validates_pull_options_and_target_conflicts() {
+fn validates_pull_options() {
     let (cache, _directory) = test_cache();
     let registry = Registry::new()
         .register(RegisteredFlow)
@@ -29,13 +29,6 @@ fn validates_pull_options_and_target_conflicts() {
         WorkerOptions::new().pull(PullWorkerOptions::new().stop_drain_timeout(Duration::ZERO)),
         WorkerOptions::new().pull(PullWorkerOptions::new().app_worker_id("bad/id")),
         WorkerOptions::new().pull(PullWorkerOptions::new().app_worker_id("RegisteredFlow")),
-        WorkerOptions::new()
-            .pull(PullWorkerOptions::new())
-            .bind_address("127.0.0.1:8803"),
-        WorkerOptions::new()
-            .pull(PullWorkerOptions::new())
-            .worker_target(WorkerTarget::pull()),
-        WorkerOptions::new().worker_target(WorkerTarget::pull()),
     ] {
         assert!(matches!(
             Worker::try_new(registry.clone(), Arc::clone(&cache), options),
@@ -62,5 +55,4 @@ fn validates_pull_options_and_target_conflicts() {
         )
         .is_ok()
     );
-    assert!(WorkerTarget::pull().headless(true).validate().is_err());
 }

@@ -12,15 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use dex_examples_rust::shared::{
-    PULL_REGISTRATION_TIMEOUT, WORKER_MODE_ENVIRONMENT_VARIABLE, WorkerMode,
-};
+use dex_examples_rust::shared::PULL_REGISTRATION_TIMEOUT;
 use dex_sdk::Worker;
-
-pub(crate) fn read_worker_mode() -> WorkerMode {
-    let value = std::env::var(WORKER_MODE_ENVIRONMENT_VARIABLE).ok();
-    WorkerMode::parse(value.as_deref()).expect("valid DEX_EXAMPLES_WORKER_MODE")
-}
 
 pub(crate) fn await_pull_registration(worker: &Worker) {
     let runtime = tokio::runtime::Builder::new_current_thread()

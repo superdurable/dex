@@ -20,7 +20,7 @@ use axum::{
 };
 use dex_sdk::{
     Client, FlowConfig, FlowTimeoutPolicy, IdReusePolicy, RetryPolicy, SdkResult, StartFlowOptions,
-    StepDurability, WorkerTarget,
+    StepDurability,
 };
 use serde::Deserialize;
 use std::time::Duration;
@@ -80,13 +80,6 @@ pub fn start_example_flow_request(
         .initial_attribute(&STATUS, "queued".to_owned());
     client.start_flow_with_options(example_flow, flow_id, input_num, options)?;
     Ok(flow_id.to_owned())
-}
-
-pub fn reroute_active_flow(client: &Client, flow_id: &str) -> SdkResult<()> {
-    client.update_flow_config(
-        flow_id,
-        FlowConfig::new().worker_target(WorkerTarget::new("worker-canary:8803")),
-    )
 }
 
 async fn start(

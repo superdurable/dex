@@ -111,13 +111,6 @@ impl WorkerDispatcher {
         }
     }
 
-    pub(crate) fn invoke_wait_for(
-        &self,
-        request: InvokeWaitForMethodRequest,
-    ) -> WorkerInvocation<InvokeWaitForMethodOutput> {
-        self.invoke_wait_for_with_cancellation(request, InvocationCancellation::new())
-    }
-
     pub(crate) fn invoke_wait_for_with_cancellation(
         &self,
         request: InvokeWaitForMethodRequest,
@@ -207,13 +200,6 @@ impl WorkerDispatcher {
             })
         })
         .await
-    }
-
-    pub(crate) fn invoke_execute(
-        &self,
-        request: InvokeExecuteMethodRequest,
-    ) -> WorkerInvocation<InvokeExecuteMethodOutput> {
-        self.invoke_execute_with_cancellation(request, InvocationCancellation::new())
     }
 
     pub(crate) fn invoke_execute_with_cancellation(
@@ -379,14 +365,6 @@ impl WorkerDispatcher {
             })
         })
         .await
-    }
-
-    pub(crate) async fn invoke_rpc(
-        &self,
-        request: InvokeWorkerRpcRequest,
-    ) -> HandlerResult<InvokeWorkerRpcResponse> {
-        self.invoke_rpc_with_cancellation(request, InvocationCancellation::new())
-            .await
     }
 
     pub(crate) async fn invoke_rpc_with_cancellation(
@@ -1422,12 +1400,10 @@ fn map_sub_flow_options(
             .transpose()
             .map_err(handler_error)?,
         attributes,
-        flow_config_override: options
-            .config_override
-            .as_ref()
-            .map(|config| crate::client::map_flow_config(Some(config), None))
-            .transpose()
-            .map_err(handler_error)?,
+        flow_config_override: Some(
+            crate::client::map_flow_config(options.config_override.as_ref())
+                .map_err(handler_error)?,
+        ),
         timeout_handler_options: map_flow_timeout_handler_options(
             target,
             flow_timeout_seconds,

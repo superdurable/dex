@@ -16,7 +16,7 @@ if [[ "${1:-}" == "--coverage" ]]; then
   shift
 fi
 if [[ "$#" -ne 0 ]]; then
-  echo "usage: $0 [--coverage] (DEX_INTEG_WORKER_MODE=push|pull)" >&2
+  echo "usage: $0 [--coverage]" >&2
   exit 2
 fi
 export DEX_INTEG_ENGINE="${DEX_INTEG_ENGINE:-temporal}"
@@ -24,20 +24,6 @@ if [[ "$DEX_INTEG_ENGINE" != temporal && "$DEX_INTEG_ENGINE" != zd ]]; then
   echo "DEX_INTEG_ENGINE must be temporal or zd" >&2
   exit 2
 fi
-if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
-  export DEX_INTEG_WORKER_MODE="${DEX_INTEG_WORKER_MODE-pull}"
-else
-  export DEX_INTEG_WORKER_MODE="${DEX_INTEG_WORKER_MODE-push}"
-fi
-if [[ "$DEX_INTEG_WORKER_MODE" != "push" && "$DEX_INTEG_WORKER_MODE" != "pull" ]]; then
-  echo "DEX_INTEG_WORKER_MODE must be push or pull" >&2
-  exit 2
-fi
-if [[ "$DEX_INTEG_ENGINE" == zd && "$DEX_INTEG_WORKER_MODE" == push ]]; then
-  echo "DEX_INTEG_WORKER_MODE=push is not supported with DEX_INTEG_ENGINE=zd" >&2
-  exit 2
-fi
-
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
 dex_port="${DEX_INTEG_DEX_PORT:-18821}"

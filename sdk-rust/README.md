@@ -350,11 +350,10 @@ on such a rejection before or after readiness. The default is false, retrying in
 `start()` returns the service error after draining within the configured timeout
 and waiting for cancelled handlers to return. Calling `stop()` afterward remains safe.
 
-Set `WorkerOptions::pull` to open outbound task streams instead of a WorkerService
-listener. Advertise `worker.worker_target().clone()` through
-`ClientOptions::worker_target`, or use `FlowConfig::worker_target` in a
-`StartFlowOptions` or `SubFlowOptions` override for one Flow. Pull mode cannot
-be combined with a bind address or an advertised listening target.
+Workers use outbound task streams and need only an outbound connection to the
+Dex Server. `WorkerOptions::new()` uses pull defaults. Set `WorkerOptions::pull`
+to customize concurrency, queue streams, and shutdown. Clients and SubFlows
+always use pull routing.
 
 ```rust
 let worker = Worker::try_new(
@@ -370,8 +369,7 @@ let client = Client::try_new(
     registry,
     cache,
     ClientOptions::new()
-        .server_address("dex.example:8801")
-        .worker_target(worker.worker_target().clone()),
+        .server_address("dex.example:8801"),
 )?;
 ```
 
@@ -458,7 +456,6 @@ full-capacity rejections. The count excludes full-capacity rejections and unknow
 names. It counts decline events, including repeated declines of the same Step
 dispatch while Dex retries it. Read its rate to assess reserve pressure. It never
 resets and remains available after shutdown.
-Listening Workers return zero.
 
 ### Step progress and Streams
 
@@ -638,14 +635,12 @@ Run the SDK integration suite against a fresh local `dexcli dev` stack:
 
 ```bash
 ./run-integration-tests.sh
-DEX_INTEG_WORKER_MODE=pull ./run-integration-tests.sh
+DEX_INTEG_ENGINE=zd ./run-integration-tests.sh
 ```
 
 The script creates its own Dex environment, ports, and BlobCache directory,
-then removes the temporary state. `DEX_INTEG_WORKER_MODE` defaults to `push`.
-In pull mode, the shared Worker polls Dex and the shared Client targets its
-pull queues. Each Worker synchronizes its registered Indexed Attributes before
-serving; failure or the default two-minute deadline aborts startup.
+then removes the temporary state. Both engines use pull Workers. Each Worker
+synchronizes its registered Indexed Attributes before serving; failure or the default two-minute deadline aborts startup.
 
 ### Measure integration coverage
 
@@ -663,8 +658,8 @@ data. Test sources and dependencies are excluded from the report by
 
 The LCOV report is written to `coverage/lcov.info`, and the browser report
 starts at `coverage/html/index.html`. CI uploads the LCOV report with the
-mode-specific `sdk-rust-integration-push` or `sdk-rust-integration-pull` flag
-and retains each report as a mode-specific Actions artifact.
+engine-specific `sdk-rust-integration-temporal` or `sdk-rust-integration-zd` flag
+and retains each report as an engine-specific Actions artifact.
 
 ## Releases
 
@@ -680,9 +675,9 @@ restricted to `main` and requires the `CRATES_IO_TOKEN` repository secret.
 ## Server protocol compatibility
 
 Worker startup calls `GetServerInfo`, negotiates the highest common protocol,
-synchronizes Attribute indexes, and then binds WorkerService or starts pull polling. The initial Rust
+synchronizes Attribute indexes, and then starts pull polling. The initial Rust
 SDK interval is `[1,1]`. Missing information, invalid or disjoint intervals, and
-RPC failures stop startup before binding. The negotiated protocol is retained
+RPC failures stop startup before polling. The negotiated protocol is retained
 for future protocol-specific paths.
 
 The diagnostic SDK version is compiled from Cargo package metadata. Release

@@ -98,6 +98,6 @@ pub use value::Value;
 pub use wait::{Condition, ConditionCombination, Wait};
 pub use wait_options::{WaitForAttributeOptions, WaitForStepCompletionOptions};
 pub use worker::Worker;
-pub use worker_options::{PullWorkerOptions, WorkerOptions, WorkerTarget};
+pub use worker_options::{PullWorkerOptions, WorkerOptions};
 
 pub(crate) use value::short_type_name;

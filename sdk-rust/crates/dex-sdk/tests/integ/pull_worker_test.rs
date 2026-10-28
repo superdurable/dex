@@ -18,8 +18,7 @@ use dex_sdk::{
     StepOptions, StopFlowOptions, Wait, Worker, WorkerOptions,
 };
 
-use crate::basic_workflow::BasicWorkflow;
-use crate::support::{DexDevTestEnvironment, flow_id, skip_if_server_zd};
+use crate::support::flow_id;
 
 const GET_WORKER: Rpc<(), String> = Rpc::new("get_worker");
 
@@ -457,9 +456,7 @@ fn pull_worker_test_end_to_end() {
             .register(PullProbeFlow::new("client"))
             .expect("register client probe"),
         Arc::clone(&cache),
-        ClientOptions::new()
-            .server_address(&server_address)
-            .worker_target(worker_a.worker.worker_target().clone()),
+        ClientOptions::new().server_address(&server_address),
     );
     client.health_check().expect("Dex health check");
 
@@ -516,23 +513,6 @@ fn pull_worker_test_end_to_end() {
         Err(mpsc::TryRecvError::Empty)
     ));
 
-    // C18: server-zd rejects push Worker targets.
-    if !skip_if_server_zd("push Workers") {
-        let push =
-            DexDevTestEnvironment::start_push(Registry::new().register(BasicWorkflow::new()));
-        let push_id = flow_id("rust-push-alongside-pull");
-        push.client
-            .start_flow(&BasicWorkflow::new(), &push_id, 0)
-            .expect("start push Flow");
-        assert_eq!(
-            2,
-            push.client
-                .wait_for_flow_with_timeout(&push_id, Duration::from_secs(30))
-                .expect("complete push Flow")
-                .single_output::<i32>()
-                .expect("push result")
-        );
-    }
     drop(worker_b);
     drop(client);
     cache.close().expect("close pull cache");
@@ -582,9 +562,7 @@ fn pull_worker_test_reassigns_unregistered_rpc() {
             .register(new_flow.clone())
             .expect("register client Flow"),
         Arc::clone(&cache),
-        ClientOptions::new()
-            .server_address(&server_address)
-            .worker_target(old_worker.worker.worker_target().clone()),
+        ClientOptions::new().server_address(&server_address),
     );
     client.health_check().expect("Dex health check");
     let id = flow_id("rust-pull-unknown");
@@ -664,9 +642,7 @@ fn pull_worker_test_reassigns_unregistered_start_step() {
             ))
             .expect("register client Flow"),
         Arc::clone(&cache),
-        ClientOptions::new()
-            .server_address(&server_address)
-            .worker_target(old_worker.worker.worker_target().clone()),
+        ClientOptions::new().server_address(&server_address),
     );
     client.health_check().expect("Dex health check");
     let id = flow_id("rust-pull-unknown-step");
@@ -741,9 +717,7 @@ fn pull_worker_test_cancel_and_forced_stop() {
             ))
             .expect("register client Flow"),
         Arc::clone(&cache),
-        ClientOptions::new()
-            .server_address(&server_address)
-            .worker_target(worker.worker.worker_target().clone()),
+        ClientOptions::new().server_address(&server_address),
     );
     client.health_check().expect("Dex health check");
 

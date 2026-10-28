@@ -7,6 +7,7 @@ on:
       - "sdk-rust/**"
       - "cli/**"
       - "server/**"
+      - "server-zd/**"
       - "protos/**"
       - "web/**"
       - "codecov.yml"
@@ -16,6 +17,7 @@ on:
       - "sdk-rust/**"
       - "cli/**"
       - "server/**"
+      - "server-zd/**"
       - "protos/**"
       - "web/**"
       - "codecov.yml"
@@ -72,15 +74,18 @@ jobs:
         run: cargo test --workspace --locked
 
   integration:
-    name: Integration coverage (${{ matrix.worker-mode }})
+    name: Integration coverage (pull, ${{ matrix.engine }})
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        worker-mode: [push, pull]
+        engine: [temporal, zd]
     env:
-      DEX_INTEG_WORKER_MODE: ${{ matrix.worker-mode }}
+      DEX_INTEG_ENGINE: ${{ matrix.engine }}
+      DEX_SERVER_ZD_BINARY: ${{ matrix.engine == 'zd' && format('{0}/server-zd/target/debug/dex-server-zd', github.workspace) || '' }}
+      CARGO_INCREMENTAL: "0"
+      CARGO_BUILD_JOBS: "4"
     permissions:
       contents: read
       id-token: write
@@ -102,9 +107,23 @@ jobs:
             server/go.sum
             web/go.sum
       - name: Install Temporal CLI runtime for dexcli dev
+        if: matrix.engine == 'temporal'
         uses: temporalio/setup-temporal@v0
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for RocksDB
+        if: matrix.engine == 'zd'
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.engine == 'zd'
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-paradedb
+          save-if: false
+      - name: Build dex-server-zd
+        if: matrix.engine == 'zd'
+        working-directory: server-zd
+        run: cargo build --locked -p dexzd-server --bin dex-server-zd
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Run integration coverage
@@ -115,20 +134,20 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
           files: ./sdk-rust/coverage/lcov.info
-          flags: sdk-rust-integration-${{ matrix.worker-mode }}
-          name: sdk-rust-integration-${{ matrix.worker-mode }}
+          flags: sdk-rust-integration-${{ matrix.engine }}
+          name: sdk-rust-integration-${{ matrix.engine }}
           use_oidc: true
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: sdk-rust-integration-coverage-${{ matrix.worker-mode }}
+          name: sdk-rust-integration-coverage-${{ matrix.engine }}
           path: sdk-rust/coverage/
           if-no-files-found: ignore
       - name: Upload service logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: sdk-rust-integration-services-${{ matrix.worker-mode }}
+          name: sdk-rust-integration-services-${{ matrix.engine }}
           path: /tmp/test-rust-sdk-integration-services.log
           if-no-files-found: ignore

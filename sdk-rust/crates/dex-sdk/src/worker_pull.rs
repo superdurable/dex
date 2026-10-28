@@ -33,7 +33,6 @@ use crate::Credential;
 use crate::context::InvocationCancellation;
 use crate::credential::{CredentialChannel, CredentialInterceptor};
 use crate::pull_registration::PullRegistration;
-use crate::worker::worker_error_response;
 use crate::worker_dispatcher::WorkerDispatcher;
 use crate::{PullWorkerOptions, SdkError, SdkResult};
 
@@ -45,7 +44,7 @@ mod worker_error;
 mod worker_identity;
 
 use task_deadline::task_deadline;
-use worker_error::worker_error_from_status;
+use worker_error::worker_error_response;
 use worker_identity::{generate_app_worker_id, validate_app_worker_id};
 
 const DRAINING: u8 = 1;
@@ -797,12 +796,12 @@ async fn execute_task(
         Some(TaskRequest::WaitFor(request)) => {
             let mut output = dispatcher
                 .invoke_wait_for_with_cancellation(request, cancellation.clone())
-                .into_stream(crate::worker::worker_status);
+                .into_stream();
             while let Some(result) = output.next().await {
                 let frame = match result {
                     Ok(value) => Output::WaitFor(value),
-                    Err(status) => Output::WorkerError(with_cancel_status(
-                        worker_error_from_status(status),
+                    Err(error) => Output::WorkerError(with_cancel_status(
+                        worker_error_response(error),
                         &cancel_code,
                     )),
                 };
@@ -824,12 +823,12 @@ async fn execute_task(
         Some(TaskRequest::Execute(request)) => {
             let mut output = dispatcher
                 .invoke_execute_with_cancellation(request, cancellation.clone())
-                .into_stream(crate::worker::worker_status);
+                .into_stream();
             while let Some(result) = output.next().await {
                 let frame = match result {
                     Ok(value) => Output::Execute(value),
-                    Err(status) => Output::WorkerError(with_cancel_status(
-                        worker_error_from_status(status),
+                    Err(error) => Output::WorkerError(with_cancel_status(
+                        worker_error_response(error),
                         &cancel_code,
                     )),
                 };
@@ -998,7 +997,7 @@ mod tests {
     use crate::value_hydrator::ValueHydrator;
     use crate::{
         BlobCache, BlobCacheConfig, Context, FileCredential, Flow, HandlerError, HandlerResult,
-        Registry, Rpc, RpcList, RpcResult, Worker, WorkerOptions, WorkerTarget,
+        Registry, Rpc, RpcList, RpcResult, Worker, WorkerOptions,
     };
     use dex_protocol::dex::flow_service_client::FlowServiceClient;
     use dex_protocol::dex::worker_task_service_server::{
@@ -1462,7 +1461,7 @@ mod tests {
     }
 
     #[test]
-    fn registration_wait_reports_start_failure_and_non_pull_worker() {
+    fn registration_wait_reports_start_failure() {
         let (cache, _directory) = test_cache();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1483,12 +1482,6 @@ mod tests {
             .expect_err("wait failed");
         assert_eq!(failure.to_string(), waiting.to_string());
         worker.stop();
-        let listener = Worker::try_new(Registry::new(), cache, WorkerOptions::new())
-            .expect("listening Worker");
-        assert!(runtime.block_on(listener.wait_pull_registered()).is_err());
-        assert!(!listener.pull_registration_state().is_ready);
-        assert!(listener.pull_registration_state().queues.is_empty());
-        listener.stop();
     }
 
     struct RegisteredFlow;
@@ -1745,22 +1738,17 @@ mod tests {
     }
 
     #[test]
-    fn maps_push_worker_failure_fields_into_pull_frame() {
-        let status = crate::worker::worker_status(HandlerError::retry_after(
+    fn maps_handler_failure_fields_into_pull_frame() {
+        let error = worker_error_response(HandlerError::retry_after(
             7,
             "PaymentDeclined",
             "card declined",
         ));
-        let error = worker_error_from_status(status);
         assert_eq!(Code::Unknown as i32, error.grpc_status);
         assert_eq!("card declined", error.detail);
         assert_eq!("PaymentDeclined", error.error_type);
         assert_eq!(7, error.retry_after_seconds);
-        assert!(
-            error
-                .stack_trace
-                .contains("maps_push_worker_failure_fields")
-        );
+        assert!(error.stack_trace.contains("maps_handler_failure_fields"));
         let cancelled_reason = AtomicI32::new(Code::Cancelled as i32);
         let cancelled_error = with_cancel_status(error.clone(), &cancelled_reason);
         assert_eq!(Code::Cancelled as i32, cancelled_error.grpc_status);
@@ -1776,8 +1764,6 @@ mod tests {
             Code::DeadlineExceeded as i32,
             with_cancel_status(error, &deadline_reason).grpc_status
         );
-        let cancelled = worker_error_from_status(Status::cancelled("cancelled"));
-        assert_eq!(Code::Cancelled as i32, cancelled.grpc_status);
     }
 
     #[test]

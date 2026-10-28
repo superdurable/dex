@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use crate::{StepDurability, WorkerTarget};
+use crate::StepDurability;
 
 #[derive(Clone, Debug, Default)]
 /// Overrides runtime behavior for one Flow.
@@ -19,7 +19,6 @@ pub struct FlowConfig {
     pub(crate) continue_as_new_threshold: Option<u32>,
     pub(crate) continue_as_new_page_size_bytes: Option<u32>,
     pub(crate) step_durability: Option<StepDurability>,
-    pub(crate) worker_target: Option<WorkerTarget>,
 }
 
 impl FlowConfig {
@@ -61,15 +60,6 @@ impl FlowConfig {
     /// Sets the default persistence durability for Step handler writes.
     pub fn step_durability(mut self, value: StepDurability) -> Self {
         self.step_durability = Some(value);
-        self
-    }
-
-    /// Routes future Step and RPC invocations to this Worker target.
-    ///
-    /// Use [`WorkerTarget::pull`] for a pull Worker. Invalid combinations return
-    /// [`crate::SdkError::FlowDefinition`] when the configuration is sent.
-    pub fn worker_target(mut self, value: WorkerTarget) -> Self {
-        self.worker_target = Some(value);
         self
     }
 }

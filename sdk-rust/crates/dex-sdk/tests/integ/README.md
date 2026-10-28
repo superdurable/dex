@@ -31,12 +31,11 @@ Run all scenarios against an isolated `dexcli dev` stack from `sdk-rust`:
 
 ```bash
 ./run-integration-tests.sh
-DEX_INTEG_WORKER_MODE=pull ./run-integration-tests.sh
+DEX_INTEG_ENGINE=zd ./run-integration-tests.sh
 ```
 
-`DEX_INTEG_WORKER_MODE` defaults to `push`. Each run starts a fresh Dex stack;
-the pull setting applies to the shared Worker and Client in both integration
-targets. The explicit pull Worker E2E scenarios run in either mode.
+Each run starts a fresh Dex stack. All shared Workers and Clients use pull
+routing in both integration targets, including the Worker E2E scenarios.
 
 To collect production `dex-sdk` coverage from only these integration targets,
 install `cargo-llvm-cov` and run `./run-integration-tests.sh --coverage`.
