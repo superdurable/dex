@@ -41,9 +41,9 @@ interface StepNodeData extends Record<string, unknown> {
 
 type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Pending' | 'Completed' | 'Failed' | 'Canceled' | 'Not started';
 
-const graphEdgeColor = '#78909c';
-const previousStepColor = '#3f78a8';
-const nextStepColor = '#c16f24';
+const graphEdgeColor = 'var(--mark)';
+const previousStepColor = 'var(--accent)';
+const nextStepColor = 'var(--busy)';
 
 function waitingCondition(node: StepGraphNode): Record<string, unknown> {
   const output = node.waitFor?.payload.output;
@@ -470,7 +470,7 @@ export function ExecutionGraph({
             onSelectEvent(model.execute ?? model.pendingExecute ?? model.waitFor ?? model.pendingWaitFor ?? null);
           }}
         >
-          <Background gap={22} size={1} color="#dfe7e5" />
+          <Background gap={22} size={1} color="var(--line)" />
           <Controls position="top-right" />
           <div className={`graph-minimap-shell${isMiniMapExpanded ? ' expanded' : ''}`}>
             {isMiniMapExpanded && (
