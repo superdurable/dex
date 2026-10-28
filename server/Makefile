@@ -267,6 +267,14 @@ zdAttributeSyncIntegTests:
 	$(if $(dexServerZDBinary),,$(error dexServerZDBinary must name a dex-server-zd binary))
 	@GOWORK=off go test -v -tags=attributestore_integration ./integ -run '^Test(MongoDB)?AttributeSync' -timeout 15m -dex-server-binary=$(abspath $(dexServerZDBinary)) -dex-server-engine=zd
 
+# Requires a dex-server-zd binary, PostgreSQL on 127.0.0.1:55432, and Redis on 127.0.0.1:6379, such as
+# `make zdIntegTests dexServerZDBinary=../server-zd/target/debug/dex-server-zd totalPartitions=5 partitionNum=0`.
+# Runs one partition of the whole suite in binary mode and writes `go test -json` events to zdIntegTestJSON.
+zdIntegTestJSON ?= /tmp/test-zd-integ-$(partitionNum).json
+zdIntegTests:
+	$(if $(dexServerZDBinary),,$(error dexServerZDBinary must name a dex-server-zd binary))
+	$Q ./script/run-zd-integ-tests.sh $(abspath $(dexServerZDBinary)) $(totalPartitions) $(partitionNum) $(abspath $(zdIntegTestJSON))
+
 # Requires MongoDB and covers both workflow backends in label-gated CI.
 mongodbAttributeStoreIntegTests: prepareIntegrationCoverage
 	@GOWORK=off go test $(integrationCoverageFlags) -v -tags=attributestore_integration ./service/common/attributestore -run '^TestMongoDBAttributeStoreIntegration$$' -timeout 5m $(integrationCoverageArgs)
