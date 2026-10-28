@@ -422,7 +422,8 @@ PULL_ONLY_FORBIDDEN_OPTIONS = {
 PULL_ONLY_REFERENCE_STATEMENTS = (
     ("core/pull-workers.md", ("From SDK v1.25.0 in all five languages, every Worker is a pull Worker",
                               "UpdateFlowConfig does not change a Flow's Worker routing",
-                              "a Flow started with a Worker address by an earlier SDK keeps that address")),
+                              "a Flow started with a Worker address by an earlier SDK keeps that address",
+                              "drop that option on SDK v1.25.0")),
     ("go/go.md", ("From Go SDK v1.25.0, every Worker is a pull Worker",)),
     ("java/java.md", ("From Java SDK v1.25.0, every Worker is a pull Worker",)),
     ("python/python.md", ("From Python SDK v1.25.0, every Worker is a pull Worker",)),
