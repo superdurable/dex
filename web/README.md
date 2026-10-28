@@ -80,10 +80,26 @@ API key exchange is not part of that path. An external credential agent can
 supply short-lived tokens through the rotating file. Use `--tls` when sending a
 credential to a remote FlowService to protect the bearer token in transit.
 
-Unsafe `/api/` requests require `Content-Type: application/json`. Browser requests
-must come from the same origin; Dex Web checks `Sec-Fetch-Site` and compares
-`Origin` with the HTTP request scheme and Host. Forwarded headers do not override
-these checks.
+POST, PUT, PATCH, and DELETE requests under `/api/` require
+`Content-Type: application/json`; a missing or different media type returns HTTP
+415. Cross-origin browser requests return HTTP 403. These requirements apply to
+standalone Dex Web, the Go Server's embedded Web, and `dexcli dev`, including
+Flow search. Non-browser clients without `Origin` and `Sec-Fetch-Site` headers
+are accepted when they send JSON. When using `curl -d`, add
+`-H 'Content-Type: application/json'`.
+
+Dex Web uses Go's `net/http.CrossOriginProtection`. Browsers sending
+`Sec-Fetch-Site: same-origin` work behind TLS-terminating and Host-rewriting
+proxies without trusted-origin configuration. Proxies must preserve browser
+fetch metadata. For older clients without fetch metadata, the Origin host must
+match the request Host, so configure the proxy to preserve the public Host.
+Forwarded headers do not override these checks.
+
+This protection does not prevent DNS rebinding. A configurable Host allowlist is
+a follow-up; restrict accepted hostnames at the reverse proxy and keep direct
+access to Dex Web's port limited to trusted clients. Masked FlowService errors
+retain their original diagnostics in server-side logs while browser responses
+use a generic message.
 
 ```bash
 ./web/dex-web --flow-service-address dex.example.com:443 --tls \

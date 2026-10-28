@@ -129,15 +129,14 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 }
 
 func protectAPIRequests(next http.Handler) http.Handler {
+	crossOriginProtection := http.NewCrossOriginProtection()
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if !strings.HasPrefix(request.URL.Path, "/api/") ||
 			request.Method == http.MethodGet || request.Method == http.MethodHead || request.Method == http.MethodOptions {
 			next.ServeHTTP(response, request)
 			return
 		}
-		fetchSite := request.Header.Get("Sec-Fetch-Site")
-		if (fetchSite != "" && fetchSite != "same-origin") ||
-			(request.Header.Get("Origin") != "" && !hasStrictConnectorOrigin(request)) {
+		if err := crossOriginProtection.Check(request); err != nil {
 			api.WriteError(response, http.StatusForbidden, "API requests must be same-origin", nil)
 			return
 		}

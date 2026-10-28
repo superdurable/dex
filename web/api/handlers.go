@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
@@ -537,6 +538,7 @@ func publicGRPCErrorMessage(err error, operation string) string {
 	message := statusError.Message()
 	switch statusError.Code() {
 	case codes.Unknown, codes.Internal, codes.Unavailable, codes.Unauthenticated, codes.PermissionDenied:
+		slog.Error("Dex Web FlowService request failed", "operation", operation, "grpc_code", statusError.Code().String(), "error", err)
 		message = operation + " failed"
 	}
 	if message == "" {

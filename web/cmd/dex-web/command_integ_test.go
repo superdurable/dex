@@ -9,10 +9,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/pem"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -57,6 +59,10 @@ func (s *authenticatedFlowService) SearchFlows(ctx context.Context, _ *dexpb.Sea
 }
 
 func TestStandaloneBridgeWithTLSAndRotatingBearerToken(t *testing.T) {
+	var diagnosticLog bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&diagnosticLog, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
 	certificateServer := httptest.NewTLSServer(http.NotFoundHandler())
 	defer certificateServer.Close()
 	certificate := certificateServer.TLS.Certificates[0]
@@ -170,6 +176,11 @@ func TestStandaloneBridgeWithTLSAndRotatingBearerToken(t *testing.T) {
 		if response.StatusCode == http.StatusBadGateway {
 			if strings.Contains(string(body), tokenPath) || !strings.Contains(string(body), "SearchFlows failed") {
 				t.Fatalf("credential failure response: %s", body)
+			}
+			if !strings.Contains(diagnosticLog.String(), tokenPath) ||
+				!strings.Contains(diagnosticLog.String(), `"operation":"SearchFlows"`) ||
+				!strings.Contains(diagnosticLog.String(), "no such file") {
+				t.Fatalf("missing server-side credential diagnostic: %s", &diagnosticLog)
 			}
 			break
 		}

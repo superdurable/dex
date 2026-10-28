@@ -57,26 +57,33 @@ func TestWebServerProtectsUnsafeAPIRequests(t *testing.T) {
 		contentType string
 		origin      string
 		fetchSite   string
+		host        string
 		statusCode  int
 	}{
-		{"cross-site simple POST", "text/plain", "https://attacker.example", "cross-site", http.StatusForbidden},
-		{"simple POST without browser headers", "text/plain", "", "", http.StatusUnsupportedMediaType},
-		{"missing content type", "", "", "", http.StatusUnsupportedMediaType},
-		{"cross-site JSON", "application/json", "https://attacker.example", "", http.StatusForbidden},
-		{"same-site is not same-origin", "application/json", "", "same-site", http.StatusForbidden},
-		{"cross-site fetch with matching origin", "application/json", harness.http.URL, "cross-site", http.StatusForbidden},
-		{"same-origin fetch with foreign origin", "application/json", "https://attacker.example", "same-origin", http.StatusForbidden},
-		{"null origin", "application/json", "null", "", http.StatusForbidden},
-		{"same-origin browser", "application/json; charset=utf-8", harness.http.URL, "same-origin", http.StatusOK},
-		{"origin without fetch metadata", "application/json", harness.http.URL, "", http.StatusOK},
-		{"fetch metadata without origin", "application/json", "", "same-origin", http.StatusOK},
-		{"non-browser JSON", "application/json", "", "", http.StatusOK},
+		{"cross-site simple POST", "text/plain", "https://attacker.example", "cross-site", "", http.StatusForbidden},
+		{"simple POST without browser headers", "text/plain", "", "", "", http.StatusUnsupportedMediaType},
+		{"missing content type", "", "", "", "", http.StatusUnsupportedMediaType},
+		{"cross-site JSON", "application/json", "https://attacker.example", "", "", http.StatusForbidden},
+		{"same-site is not same-origin", "application/json", "", "same-site", "", http.StatusForbidden},
+		{"cross-site fetch with matching origin", "application/json", harness.http.URL, "cross-site", "", http.StatusForbidden},
+		{"same-origin through TLS and Host-rewriting proxy", "application/json", "https://public.example", "same-origin", "internal:8802", http.StatusOK},
+		{"TLS proxy without fetch metadata", "application/json", "https://public.example", "", "public.example", http.StatusOK},
+		{"Host-rewriting proxy without fetch metadata", "application/json", "https://public.example", "", "internal:8802", http.StatusForbidden},
+		{"direct navigation fetch metadata", "application/json", "", "none", "", http.StatusOK},
+		{"null origin", "application/json", "null", "", "", http.StatusForbidden},
+		{"same-origin browser", "application/json; charset=utf-8", harness.http.URL, "same-origin", "", http.StatusOK},
+		{"origin without fetch metadata", "application/json", harness.http.URL, "", "", http.StatusOK},
+		{"fetch metadata without origin", "application/json", "", "same-origin", "", http.StatusOK},
+		{"non-browser JSON", "application/json", "", "", "", http.StatusOK},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			request, err := http.NewRequest(http.MethodPost, harness.http.URL+"/api/flows/stop",
 				strings.NewReader(`{"flowId":"checkout-1","stopType":1}`))
 			if err != nil {
 				t.Fatal(err)
+			}
+			if scenario.host != "" {
+				request.Host = scenario.host
 			}
 			request.Header.Set("Content-Type", scenario.contentType)
 			request.Header.Set("Origin", scenario.origin)
