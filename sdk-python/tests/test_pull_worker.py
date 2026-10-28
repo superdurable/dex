@@ -596,6 +596,43 @@ async def _pull_stream_rejects_late_step_output(
     assert call.requests == previous_requests
 
 
+@pytest.mark.parametrize("output_kind", ["wait_for", "execute", "rpc", "worker_error"])
+@pytest.mark.parametrize("is_reused", [False, True])
+def test_pull_stream_allows_one_final_after_cancel(
+    output_kind: str, is_reused: bool
+) -> None:
+    asyncio.run(_pull_stream_allows_one_final_after_cancel(output_kind, is_reused))
+
+
+async def _pull_stream_allows_one_final_after_cancel(
+    output_kind: str, is_reused: bool
+) -> None:
+    runtime = PullWorkerRuntime(
+        Registry([]), None, PullWorkerOptions(), "localhost:8801", None
+    )
+    stream = PullStream(runtime, None, "final-after-cancel-worker")
+    call = FakeCall([])
+    stream._call = call
+    stream.task_id = "original-task"
+    stream._active.set()
+    stream.cancel_handler()
+    frame = pb.PollWorkerTaskFrame(task_id="original-task")
+    output = getattr(frame, output_kind)
+    if output_kind in ("wait_for", "execute"):
+        output.result.SetInParent()
+    else:
+        output.SetInParent()
+    if is_reused:
+        stream.task_id = "next-task"
+        stream._active.set()
+    await stream._send_frame(frame)
+    await stream._send_frame(frame)
+    await stream._send_error("original-task", RuntimeError("late failure"))
+    assert call.requests == (
+        [] if is_reused else [pb.PollWorkerTaskRequest(task_frame=frame)]
+    )
+
+
 def test_pull_stream_preserves_execute_output_order() -> None:
     asyncio.run(_pull_stream_preserves_execute_output_order())
 
@@ -1288,9 +1325,10 @@ async def _task_deadline_cancels_handler_and_clears_timer() -> None:
 
 
 class SyncCancelDispatcher:
-    def __init__(self) -> None:
+    def __init__(self, should_return_result: bool = False) -> None:
         self.started = threading.Event()
         self.gate = threading.Event()
+        self.should_return_result = should_return_result
 
     def invoke_rpc(
         self, request: pb.InvokeWorkerRPCRequest, is_active: Callable[[], bool]
@@ -1298,15 +1336,22 @@ class SyncCancelDispatcher:
         self.started.set()
         while is_active():
             self.gate.wait(timeout=0.01)
+        if self.should_return_result:
+            return pb.InvokeWorkerRPCResponse()
         raise RuntimeError("Worker task canceled")
 
 
-def test_sync_handler_cancellation_reports_cancelled() -> None:
-    asyncio.run(_sync_handler_cancellation_reports_cancelled())
+@pytest.mark.parametrize("should_return_result", [False, True])
+def test_sync_handler_cancellation_sends_final_frame(
+    should_return_result: bool,
+) -> None:
+    asyncio.run(_sync_handler_cancellation_sends_final_frame(should_return_result))
 
 
-async def _sync_handler_cancellation_reports_cancelled() -> None:
-    dispatcher = SyncCancelDispatcher()
+async def _sync_handler_cancellation_sends_final_frame(
+    should_return_result: bool,
+) -> None:
+    dispatcher = SyncCancelDispatcher(should_return_result)
     with ThreadPoolExecutor(max_workers=1) as executor:
         runtime = PullWorkerRuntime(
             Registry([]),
@@ -1315,9 +1360,12 @@ async def _sync_handler_cancellation_reports_cancelled() -> None:
             "localhost:8801",
             executor,
         )
+        runtime._loop = asyncio.get_running_loop()
         runtime._stopping = asyncio.Event()
         stream = PullStream(runtime, None, "sync-cancel-worker")
-        with patch.object(stream, "_send", new_callable=AsyncMock) as send_mock:
+        call = FakeCall([])
+        stream._call = call
+        try:
             await stream._start_task(
                 pb.PollWorkerTask(task_id="sync", rpc=pb.InvokeWorkerRPCRequest())
             )
@@ -1325,13 +1373,22 @@ async def _sync_handler_cancellation_reports_cancelled() -> None:
             stream.cancel_handler()
             assert stream.handler_task is not None
             await asyncio.wait_for(stream.handler_task, timeout=1)
+        finally:
+            stream.cancel_handler()
             await stream._finish_handler()
-        errors = [
-            request.args[0].task_frame.worker_error
-            for request in send_mock.await_args_list
-            if request.args[0].WhichOneof("frame") == "task_frame"
+        frames = [
+            request.task_frame
+            for request in call.requests
+            if request.WhichOneof("frame") == "task_frame"
         ]
-        assert errors[0].grpc_status == grpc.StatusCode.CANCELLED.value[0]
+        assert len(frames) == 1
+        assert frames[0].task_id == "sync"
+        if should_return_result:
+            assert frames[0].HasField("rpc")
+        else:
+            assert (
+                frames[0].worker_error.grpc_status == grpc.StatusCode.CANCELLED.value[0]
+            )
 
 
 def test_stop_drains_handler_before_timeout() -> None:
