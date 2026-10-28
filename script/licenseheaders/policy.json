@@ -45,6 +45,7 @@
     "examples/typescript": "apache-2.0"
   },
   "reviewed_mixed_paths": [
+    "script/licenseheaders/copyright/main.go",
     "sdk-go/dex/blobcache/concurrency_test.go",
     "sdk-go/dex/client_integration_test.go",
     "sdk-go/dex/errors_test.go",

@@ -68,3 +68,4 @@ sdk-typescript/coverage/
 *.log
 test.log
 server/all-in-one/bin/
+script/licenseheaders/copyright/copyright

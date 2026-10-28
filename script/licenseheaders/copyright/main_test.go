@@ -108,7 +108,7 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 func copyTestTemplates(t *testing.T, repositoryRoot string) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)
-	sourceDir := filepath.Join(filepath.Dir(currentFile), "..", "..", "..", "..", "script", "licenseheaders")
+	sourceDir := filepath.Join(filepath.Dir(currentFile), "..")
 	destinationDir := filepath.Join(repositoryRoot, "script", "licenseheaders")
 	require.NoError(t, os.MkdirAll(destinationDir, 0o755))
 	for _, fileName := range []string{

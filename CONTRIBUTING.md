@@ -149,8 +149,12 @@ make copyright-check   # verify classifications, body hashes, and headers
 
 Skip generated trees (`**/gen/**`, `*.pb.go`, `*_pb.go`, `*.gen.*`). Prefer
 `make copyright` over hand-copying when adding files. It upgrades a modified
-`legacy-only` file to `mixed` without replacing its legacy notice. CI runs
-`make copyright-check` via [`.github/workflows/copyright-ci.yml`](.github/workflows/copyright-ci.yml).
+`legacy-only` file to `mixed` without replacing its legacy notice.
+
+The standalone Go tool lives in
+[`script/licenseheaders/copyright/`](script/licenseheaders/copyright/).
+Run `make copyright-test` to test its classification and rendering behavior.
+CI runs `make copyright-check` via [`.github/workflows/copyright-ci.yml`](.github/workflows/copyright-ci.yml).
 
 Files absent from the cutoff manifest use the new header. File-level renames
 and copies with at least 20% similarity retain source lineage; non-new copies
