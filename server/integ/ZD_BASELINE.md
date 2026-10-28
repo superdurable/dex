@@ -36,7 +36,9 @@ The CI run has no failures because binary mode skips every scenario that it
 cannot run. To find what those skips hide, the Temporal-only guards were
 disabled locally on macOS with a temporary patch, and each guarded test ran in
 its own process. These "forced runs" supply the evidence for the zd-bug and
-harness-gap rows. The patch is not part of this change.
+harness-gap rows. The patch is not part of this change. Most guarded tests use
+**require**, so a forced run stops at its first failure and does not exercise
+the assertions after it.
 
 ## Classifications
 
@@ -50,18 +52,23 @@ guards already cite.
 
 ## zd-bug
 
-1. **TestHardDeleteAttributeSubFlowTemporal**: a SubFlow started with a
-   hard-delete Attribute in **SubFlowOptions.Attributes** stops the server
-   node. The forced run logs
+1. **TestHardDeleteAttributeSubFlowTemporal** (high severity): a SubFlow
+   started with a hard-delete Attribute in **SubFlowOptions.Attributes** stops
+   the whole server node. Apply fails with
    `apply invariant violated: hard-delete write of "secret" has no uploaded object`,
-   then `dex-server-zd stopping after a failure`. The test then times out at
-   `hard_delete_attribute_test.go:313`.
-2. **TestLockingWorkflowTemporal**: an RPC that conflicts with a lock held by a
-   running Step returns `ABORTED` with the expected sub-status, but its detail is
+   and the log ends with `dex-server-zd stopping after a failure`. The test then
+   times out at `hard_delete_attribute_test.go:313`. To reproduce, delete the
+   test's entry from **temporalOnlyScenarioTests** and run it in binary mode.
+2. **TestLockingWorkflowTemporal** (low severity): an RPC that conflicts with a
+   lock held by a running Step returns `ABORTED` with the expected sub-status,
+   but its detail is
    `RPC lock conflict: attribute key CustomIntField is locked by a running Step`.
    The Go Server returns `one or more attribute keys are locked`
-   (`locking_test.go:150`). If the new text is intended, record it as a
-   behavior difference and assert per engine.
+   (`locking_test.go:150`). The SDKs classify this error by code and sub-status,
+   not by text. To reproduce, delete the test's entry from
+   **temporalOnlyScenarioTests** and bypass **requireTemporalOnly** at
+   `locking_test.go:83`. If the new text is intended, record it as a behavior
+   difference and assert per engine.
 
 Candidates from the forced **TestWebAPITemporal** run need triage before they
 become issues:
@@ -90,16 +97,18 @@ Open, with proposed fixes:
 - **Temporal-only assertions inside product scenarios** (13 tests): timer,
   greedy timer, signal, SubFlow condition, WaitForAttribute, search attribute,
   Attribute index, Step lineage, wait-for-Step-completion, read-behind, and
-  command-combination scenarios pass on server-zd until they call
+  command-combination scenarios first fail on server-zd when they call
   **QueryWorkflow**, **DescribeWorkflowExecution**, **GetApiService**, or
-  **ListAttributeIndexes**. Guard those assertions with
-  **isServerZDBinaryMode** and remove the tests from
-  **temporalOnlyScenarioTests**, as this change does for the create-flow test.
+  **ListAttributeIndexes**. The assertions after that call were not exercised,
+  so these are not yet small fixes. Guard the Temporal-only assertions with
+  **isServerZDBinaryMode**, remove the tests from
+  **temporalOnlyScenarioTests**, as this change does for the create-flow test,
+  and triage what the rest of each test finds.
 - **TestChannelMultivalueTemporal** reads channel contents from the Temporal
   debug dump. Read them through **GetChannelMessages** or **GetFlowState** in
   binary mode.
-- **TestFlowTimeoutTemporal** passes its Flow timeout assertions and fails only
-  on the Go Server in-process terminal event listener
+- **TestFlowTimeoutTemporal** passes the Flow timeout assertions of its first
+  scenario, then fails at the Go Server in-process terminal event listener
   (`wf_timeout_test.go:233`). Guard that assertion in binary mode.
 - **S3TestThreshold** (10 tests): binary mode skips every test that sets it.
   server-zd keeps large values in its log, and **values.wireInlineThresholdBytes**
@@ -117,10 +126,11 @@ Open, with proposed fixes:
 - **TestStepStateLoadingTemporal**: the scenario orders its Steps with a start
   delay (C8). Order it with a WaitFor timer in binary mode.
 - **TestHardDeleteAttributesTemporal**: the forced run passes the API and Worker
-  assertions and fails at `hard_delete_attribute_test.go:139`, which counts
-  files in the Go Server local Blob directory. server-zd stores hard-delete
-  objects in its object store (C4, C5). Skip only the Go Blob directory
-  assertions in binary mode.
+  assertions, then first fails at `hard_delete_attribute_test.go:139`, which
+  counts files in the Go Server local Blob directory. server-zd stores
+  hard-delete objects in its object store (C4, C5). Skip the Go Blob directory
+  assertions in binary mode. The next **LoadBlobs** call uses a Go-format Blob
+  ID and probably needs an engine-specific expectation too.
 - **TestMongoDBAttributeSyncTemporal**: server-zd supports only PostgreSQL
   Attribute Stores (C26). Keep the guarded skip until server-zd adds MongoDB.
 
@@ -153,7 +163,7 @@ checks Go Server configuration.
 | TestAnyCommandCloseFlowTemporalContinueAsNew | pass |  |  |
 | TestAnyCommandCombinationFlowCadence | skip | go-server-only | Skip reason: `any_command_combination_test.go:53: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestAnyCommandCombinationFlowCadenceContinueAsNew | skip | go-server-only | Skip reason: `any_command_combination_test.go:63: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestAnyCommandCombinationFlowTemporal | skip | harness-gap | Skip reason: `any_command_combination_test.go:82: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call DescribeWorkflowExecution. Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestAnyCommandCombinationFlowTemporal | skip | harness-gap | Skip reason: `any_command_combination_test.go:82: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call DescribeWorkflowExecution; later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestAnyCommandCombinationFlowTemporalContinueAsNew | skip | go-server-only | Skip reason: `any_command_combination_test.go:82: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
 | TestAnyCommandCompletedCadence | skip | go-server-only | Skip reason: `command_thread_completion_test.go:68: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestAnyCommandCompletedTemporal | pass |  |  |
@@ -164,7 +174,7 @@ checks Go Server configuration.
 | TestAsyncRetryBudgetCadence | skip | go-server-only | Skip reason: `async_retry_budget_test.go:126: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestAsyncRetryBudgetTemporal | skip | go-server-only | Skip reason: `all 6 subtests skipped: async_retry_budget_test.go:342: Temporal-only assertion`. Tests the Temporal local-activity retry budget of ASYNC Steps (C2); a forced run panics on the missing Temporal client. |
 | TestAttributeIndexSyncCadence | skip | go-server-only | Skip reason: `attribute_index_sync_test.go:34: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestAttributeIndexSyncTemporal | skip | harness-gap | Skip reason: `attribute_index_sync_test.go:40: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call ListAttributeIndexes (Temporal search attributes). Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestAttributeIndexSyncTemporal | skip | harness-gap | Skip reason: `attribute_index_sync_test.go:40: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call ListAttributeIndexes (Temporal search attributes); later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestAttributeSyncCadence | skip | go-server-only | Skip reason: `attribute_sync_integ_test.go:45: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestAttributeSyncFlowTimeoutCadence | skip | go-server-only | Skip reason: `attribute_sync_integ_test.go:73: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestAttributeSyncFlowTimeoutTemporal | pass |  |  |
@@ -209,7 +219,7 @@ checks Go Server configuration.
 | TestFlowForceFailTemporal | pass |  |  |
 | TestFlowIDWithTenantPrefixPassesThroughTemporal | skip | go-server-only | Skip reason: `flow_id_passthrough_test.go:87: Temporal-only assertion`. Starts the interpreter workflow directly through Temporal (StartInterpreterWorkflow). |
 | TestFlowTimeoutCadence | skip | go-server-only | Skip reason: `wf_timeout_test.go:69: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestFlowTimeoutTemporal | skip | harness-gap | Skip reason: `wf_timeout_test.go:102: Temporal-only assertion`. Whole test skipped in binary mode; a forced run passes the Flow timeout assertions and fails only on the Go Server in-process terminal event listener (wf_timeout_test.go:233). Proposed fix: guard the event-listener assertion in binary mode. |
+| TestFlowTimeoutTemporal | skip | harness-gap | Skip reason: `wf_timeout_test.go:102: Temporal-only assertion`. Whole test skipped in binary mode. A forced run passes the Flow timeout assertions of its first scenario, then fails at the Go Server in-process terminal event listener (wf_timeout_test.go:233); later scenarios were not exercised. Proposed fix: guard the event-listener assertion in binary mode. |
 | TestFlowWaitForTimeoutCadence | skip | go-server-only | Skip reason: `get_with_wait_timeout_test.go:39: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestFlowWaitForTimeoutTemporal | pass |  |  |
 | TestForceCompleteIfChannelsEmptyCountsCommittedConsumptionCadence | skip | go-server-only | Skip reason: `conditional_close_committed_consumption_test.go:83: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
@@ -226,11 +236,11 @@ checks Go Server configuration.
 | TestGreedyAnyTimerSignalFlowTemporalContinueAsNew | pass |  |  |
 | TestGreedyTimerFlowBaseCadence | skip | go-server-only | Skip reason: `greedy_timer_test.go:40: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestGreedyTimerFlowBaseCadenceContinueAsNew | skip | go-server-only | Skip reason: `greedy_timer_test.go:60: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestGreedyTimerFlowBaseTemporal | skip | harness-gap | Skip reason: `greedy_timer_test.go:80: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call QueryWorkflow (timer infos). Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestGreedyTimerFlowBaseTemporal | skip | harness-gap | Skip reason: `greedy_timer_test.go:80: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call QueryWorkflow (timer infos); later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestGreedyTimerFlowBaseTemporalContinueAsNew | skip | go-server-only | Skip reason: `greedy_timer_test.go:80: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
 | TestGreedyTimerFlowCadence | skip | go-server-only | Skip reason: `timer_test.go:82: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestGreedyTimerFlowCadenceContinueAsNew | skip | go-server-only | Skip reason: `timer_test.go:102: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestGreedyTimerFlowTemporal | skip | harness-gap | Skip reason: `timer_test.go:115: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call QueryWorkflow (timer infos). Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestGreedyTimerFlowTemporal | skip | harness-gap | Skip reason: `timer_test.go:115: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call QueryWorkflow (timer infos); later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestGreedyTimerFlowTemporalContinueAsNew | skip | go-server-only | Skip reason: `timer_test.go:115: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
 | TestHardDeleteAttributeBlobCacheTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:435: Temporal-only assertion`. Go Server Blob cache directory with S3 (C5). |
 | TestHardDeleteAttributeCleanupTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:478: Temporal-only assertion`. Go Server hard-delete object cleanup in its local Blob directory; a forced run panics on a nil Go Blob Store. |
@@ -239,10 +249,10 @@ checks Go Server configuration.
 | TestHardDeleteAttributeResetTemporal | pass |  |  |
 | TestHardDeleteAttributeStepWriteRequiresBlobStoreTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:395: Temporal-only assertion`. Go Server disabled Blob Store rejection (C5). |
 | TestHardDeleteAttributeSubFlowCadence | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:288: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestHardDeleteAttributeSubFlowTemporal | skip | zd-bug | Skip reason: `hard_delete_attribute_test.go:295: Temporal-only assertion`. A forced run halts the dex-server-zd node: starting a SubFlow whose SubFlowOptions.Attributes include a hard-delete Attribute fails apply with "apply invariant violated: hard-delete write of \"secret\" has no uploaded object", and the server exits. |
+| TestHardDeleteAttributeSubFlowTemporal | skip | zd-bug | Skip reason: `hard_delete_attribute_test.go:295: Temporal-only assertion`. Skipped as a Temporal-only scenario. Removing it from temporalOnlyScenarioTests reproduces a node halt: starting a SubFlow whose SubFlowOptions.Attributes include a hard-delete Attribute fails apply with "apply invariant violated: hard-delete write of \"secret\" has no uploaded object", and dex-server-zd exits. High severity: one Flow start stops the whole node. |
 | TestHardDeleteAttributeValidationTemporal | pass |  |  |
 | TestHardDeleteAttributesCadence | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:68: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestHardDeleteAttributesTemporal | skip | behavior-difference | Skip reason: `all 4 subtests skipped: hard_delete_attribute_test.go:98: Temporal-only assertion`. A forced run passes the API and Worker assertions and fails at hard_delete_attribute_test.go:139, which counts objects in the Go Server local Blob directory; server-zd stores hard-delete objects in its object store (C4, C5). Proposed change: skip the Go Blob directory assertions in binary mode. |
+| TestHardDeleteAttributesTemporal | skip | behavior-difference | Skip reason: `all 4 subtests skipped: hard_delete_attribute_test.go:98: Temporal-only assertion`. A forced run passes the API and Worker assertions, then first fails at hard_delete_attribute_test.go:139, which counts files in the Go Server local Blob directory; later assertions were not exercised. server-zd stores hard-delete objects in its object store (C4, C5). Proposed change: skip the Go Blob directory assertions in binary mode, and check the following LoadBlobs call, which uses a Go-format Blob ID. |
 | TestHeadersFlowCadence | skip | go-server-only | Skip reason: `headers_test.go:53: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestHeadersFlowTemporal | skip | go-server-only | Skip reason: `headers_test.go:74: server-zd does not support default Worker headers`. Go Server headers sent to push Workers. |
 | TestIgnoreAlreadyStartedFlowCadence | skip | go-server-only | Skip reason: `wf_ignore_already_started_test.go:49: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
@@ -259,7 +269,7 @@ checks Go Server configuration.
 | TestLocalTimeoutFallbackCancellationTemporal | skip | go-server-only | Skip reason: `step_cancellation_test.go:75: server-zd does not support ASYNC local phase`. Temporal local-activity phase of ASYNC Steps; server-zd has none (C2). |
 | TestLockingWorkflowCadence | skip | go-server-only | Skip reason: `locking_test.go:56: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestLockingWorkflowCadenceContinueAsNew | skip | go-server-only | Skip reason: `locking_test.go:66: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestLockingWorkflowTemporal | skip | zd-bug | Skip reason: `locking_test.go:83: Temporal-only assertion`. A forced run fails at locking_test.go:150: the lock-conflict error detail is "RPC lock conflict: attribute key CustomIntField is locked by a running Step", not "one or more attribute keys are locked" (sub-status matches). Also skipped as a Temporal-only scenario. |
+| TestLockingWorkflowTemporal | skip | zd-bug | Skip reason: `locking_test.go:83: Temporal-only assertion`. Skipped as a Temporal-only scenario. A forced run (remove it from temporalOnlyScenarioTests and bypass requireTemporalOnly at locking_test.go:83) fails at locking_test.go:150: the lock-conflict detail is "RPC lock conflict: attribute key CustomIntField is locked by a running Step", not "one or more attribute keys are locked". Code ABORTED and the sub-status match, and SDKs classify by those. Low severity. |
 | TestLockingWorkflowTemporalContinueAsNew | skip | go-server-only | Skip reason: `locking_test.go:83: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
 | TestMongoDBAttributeSyncCadence | skip | go-server-only | Skip reason: `attribute_sync_integ_test.go:59: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestMongoDBAttributeSyncTemporal | skip | behavior-difference | Skip reason: `attribute_sync_integ_test.go:345: server-zd does not support mongodb Attribute Store`. server-zd supports only PostgreSQL Attribute Stores (C26). Proposed change: none; keep the guarded skip until server-zd adds the store type. |
@@ -307,7 +317,7 @@ checks Go Server configuration.
 | TestPullUnknownNameRedispatchTemporal | skip | go-server-only | Skip reason: `all 5 subtests skipped: pull_worker_test.go:1571: server-zd does not support Go Server internals`. Starts the in-process Go Server to test its pull matching and dispatch internals; server-zd dispatch is covered by server-zd tests. |
 | TestPullUnknownRPCBoundedFailureCadence | skip | go-server-only | Skip reason: `pull_worker_test.go:1497: if !*cadenceIntegTest \|\| *dexServerAddress != ""`. Cadence backend; server-zd has no Cadence. |
 | TestPullUnknownRPCBoundedFailureTemporal | skip | go-server-only | Skip reason: `pull_worker_test.go:1491: server-zd does not support Go Server internals`. Starts the in-process Go Server to test its pull matching and dispatch internals; server-zd dispatch is covered by server-zd tests. |
-| TestPullWaitForAttributeSuccessTemporal | skip | harness-gap | Skip reason: `pull_adapter_test.go:170: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call DescribeWorkflowExecution. Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestPullWaitForAttributeSuccessTemporal | skip | harness-gap | Skip reason: `pull_adapter_test.go:170: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call DescribeWorkflowExecution; later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestPullWorkerAllInOneCadence | skip | go-server-only | Skip reason: `pull_worker_test.go:637: if !*cadenceIntegTest \|\| *dexServerAddress != ""`. Cadence backend; server-zd has no Cadence. |
 | TestPullWorkerAllInOneTemporal | skip | go-server-only | Skip reason: `pull_worker_test.go:631: server-zd does not support Go Server internals`. Starts the in-process Go Server to test its pull matching and dispatch internals; server-zd dispatch is covered by server-zd tests. |
 | TestPullWorkerAppearsDuringRetriesCadence | skip | go-server-only | Skip reason: `pull_worker_test.go:994: if !*cadenceIntegTest \|\| *dexServerAddress != ""`. Cadence backend; server-zd has no Cadence. |
@@ -342,7 +352,7 @@ checks Go Server configuration.
 | TestPushParentRoutesSubFlowToPullWorkerTemporal | skip | go-server-only | Skip reason: `pull_worker_test.go:1059: server-zd does not support Go Server internals`. Starts the in-process Go Server to test its pull matching and dispatch internals; server-zd dispatch is covered by server-zd tests. |
 | TestQueuedStepCancellationAcrossContinueAsNewCadence | skip | go-server-only | Skip reason: `step_cancellation_test.go:51: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestQueuedStepCancellationAcrossContinueAsNewTemporal | skip | go-server-only | Skip reason: `step_cancellation_test.go:45: server-zd does not support Continue-As-New`. Continue-As-New; server-zd never continues a run as new (C3). |
-| TestReadBehindSlowEngineTaskTemporal | pass | harness-gap | Skip reason: `1 of 3 subtests skipped: slow_engine_task_read_test.go:188: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call QueryWorkflow. Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestReadBehindSlowEngineTaskTemporal | pass | harness-gap | Skip reason: `1 of 3 subtests skipped: slow_engine_task_read_test.go:188: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call QueryWorkflow; later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestResetByStateIdWorkflowCadence | skip | go-server-only | Skip reason: `reset_by_state_id_test.go:39: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestResetByStateIdWorkflowTemporal | pass |  |  |
 | TestRpcExternalStorageLockingTemporal | skip | harness-gap | Skip reason: `all 2 subtests skipped: rpc_external_storage_test.go:175: Temporal-only assertion`. S3TestThreshold test; see the S3 threshold harness gap. |
@@ -394,10 +404,10 @@ checks Go Server configuration.
 | TestServerInfoCadence | skip | go-server-only | Skip reason: `server_info_test.go:31: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestServerInfoTemporal | pass |  |  |
 | TestSetDataAttributesTemporal | pass |  |  |
-| TestSetSearchAttributes | skip | harness-gap | Skip reason: `set_search_attributes_test.go:37: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call DescribeWorkflowExecution (search attributes). Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestSetSearchAttributes | skip | harness-gap | Skip reason: `set_search_attributes_test.go:37: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call DescribeWorkflowExecution (search attributes); later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestSignalWorkflowCadence | skip | go-server-only | Skip reason: `signal_test.go:52: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestSignalWorkflowCadenceContinueAsNew | skip | go-server-only | Skip reason: `signal_test.go:62: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestSignalWorkflowTemporal | skip | harness-gap | Skip reason: `signal_test.go:75: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call QueryWorkflow. Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestSignalWorkflowTemporal | skip | harness-gap | Skip reason: `signal_test.go:75: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call QueryWorkflow; later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestSignalWorkflowTemporalContinueAsNew | skip | go-server-only | Skip reason: `signal_test.go:75: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
 | TestSkipStartFlowCadence | skip | go-server-only | Skip reason: `skip_start_test.go:48: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestSkipStartFlowCadenceContinueAsNew | skip | go-server-only | Skip reason: `skip_start_test.go:58: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
@@ -422,7 +432,7 @@ checks Go Server configuration.
 | TestStepCancellationCadence | skip | go-server-only | Skip reason: `step_cancellation_test.go:35: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestStepCancellationTemporal | pass |  |  |
 | TestStepLineageCadence | skip | go-server-only | Skip reason: `from_step_execution_id_test.go:53: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestStepLineageTemporal | skip | harness-gap | Skip reason: `all 3 subtests skipped: from_step_execution_id_test.go:83: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call GetApiService. Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestStepLineageTemporal | skip | harness-gap | Skip reason: `all 3 subtests skipped: from_step_execution_id_test.go:83: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call GetApiService; later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestStepStateLoadingCadence | skip | go-server-only | Skip reason: `step_state_loading_test.go:144: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestStepStateLoadingTemporal | skip | behavior-difference | Skip reason: `step_state_loading_test.go:136: server-zd does not support Flow start delay`. The scenario orders its Steps with a Flow start delay, which server-zd rejects with InvalidArgument (C8). Proposed change: order the scenario with a WaitFor timer in binary mode so the Step state loading assertions run. |
 | TestStreamAPITemporal | pass |  |  |
@@ -444,7 +454,7 @@ checks Go Server configuration.
 | TestStreamStoreTrimWatermarks | pass |  |  |
 | TestStreamStoreTrimmedSourceCanWriteAgain | pass |  |  |
 | TestSubFlowConditionCadence | skip | go-server-only | Skip reason: `subflow_test.go:57: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestSubFlowConditionTemporal | skip | harness-gap | Skip reason: `all 2 subtests skipped: subflow_test.go:90: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call DescribeWorkflowExecution. Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestSubFlowConditionTemporal | skip | harness-gap | Skip reason: `all 2 subtests skipped: subflow_test.go:90: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call DescribeWorkflowExecution; later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestSynchronousUpdateRequestIDTemporal | skip | go-server-only | Skip reason: `deadend_test.go:92: Temporal-only assertion`. Temporal Update request IDs. |
 | TestTemporalAuthAPIKeyFileStartupValidation | pass |  |  |
 | TestTemporalAuthClientCertificateRotation | skip | go-server-only | Skip reason: `temporal_auth_test.go:117: server-zd does not support Temporal client authentication`. Temporal client TLS and API key settings. |
@@ -456,15 +466,15 @@ checks Go Server configuration.
 | TestTerminalProducerDrainTemporal | skip | go-server-only | Skip reason: `all 3 subtests skipped: terminal_producer_drain_test.go:150: server-zd does not support Temporal synchronous RPC updates`. Temporal Update-based RPC delivery. |
 | TestTimerFlowCadence | skip | go-server-only | Skip reason: `timer_test.go:41: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestTimerFlowCadenceContinueAsNew | skip | go-server-only | Skip reason: `timer_test.go:61: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestTimerFlowTemporal | skip | harness-gap | Skip reason: `timer_test.go:115: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call QueryWorkflow (timer infos). Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestTimerFlowTemporal | skip | harness-gap | Skip reason: `timer_test.go:115: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call QueryWorkflow (timer infos); later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestTimerFlowTemporalContinueAsNew | skip | go-server-only | Skip reason: `timer_test.go:115: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
 | TestUpdateWorkerTargetCadence | skip | go-server-only | Skip reason: `worker_target_update_test.go:35: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestUpdateWorkerTargetTemporal | skip | go-server-only | Skip reason: `worker_target_update_test.go:41: requires push Workers: switching addresses between Workers for one Flow type`. Push Worker address switching; server-zd supports only pull Workers (C18). |
 | TestWaitForAttributeBlobBackedTemporal | skip | harness-gap | Skip reason: `wait_for_attribute_test.go:92: server-zd does not support S3 Blob Store`. S3TestThreshold test; see the S3 threshold harness gap. |
 | TestWaitForAttributeCadence | skip | go-server-only | Skip reason: `wait_for_attribute_test.go:82: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestWaitForAttributeTemporal | skip | harness-gap | Skip reason: `wait_for_attribute_test.go:51: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call DescribeWorkflowExecution. Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestWaitForAttributeTemporal | skip | harness-gap | Skip reason: `wait_for_attribute_test.go:51: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call DescribeWorkflowExecution; later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestWaitForStateCompletionCadence | skip | go-server-only | Skip reason: `wait_for_state_completion_test.go:67: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestWaitForStateCompletionTemporal | skip | harness-gap | Skip reason: `wait_for_state_completion_test.go:84: Temporal-only assertion`. Whole test skipped in binary mode; a forced run fails only on the Temporal client call GetApiService. Proposed fix: guard that assertion with isServerZDBinaryMode and remove the test from temporalOnlyScenarioTests. |
+| TestWaitForStateCompletionTemporal | skip | harness-gap | Skip reason: `wait_for_state_completion_test.go:84: Temporal-only assertion`. Whole test skipped in binary mode. A forced run first fails at the Temporal client call GetApiService; later assertions were not exercised. Proposed fix: guard Temporal-only assertions with isServerZDBinaryMode, remove the test from temporalOnlyScenarioTests, and triage what the rest of the test finds. |
 | TestWaitUntilSearchAttributesOptimizationWorkflowTemporal | skip | go-server-only | Skip reason: `wait_until_search_attributes_optimization_test.go:72: Temporal-only assertion`. Exercises the Go Server package default Flow configuration. |
 | TestWaitUntilSearchAttributesWorkflowTemporal | skip | go-server-only | Skip reason: `wait_until_search_attributes_test.go:67: server-zd does not support built-in default Flow configuration`. Exercises the Go Server package default Flow configuration. |
 | TestWebAPICadence | skip | go-server-only | Skip reason: `web_api_test.go:48: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
