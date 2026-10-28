@@ -36,6 +36,18 @@ seeded mutant that drops a rebuilt grant and must fail the permission oracle.
 Collected mapping inputs and large permission sets are covered by deterministic
 `dexzd-apply` regressions.
 
+Worker invocation commands carry the run attempt that dispatched them. Redelivering a result
+preserves that stamp across resets, so apply rejects results from abandoned run attempts just
+as it does for real Workers. Removing or replacing the stamp can make an old result write an
+Attribute while another Step holds its lock, falsely reporting L2. The regression seeds
+`10906685018` and `2204788261` cover this model correction from issue #1041.
+
+Correcting Worker stamps intentionally refreshed the existing trajectory digests. Mutation
+checks for this correction caught premature value reclamation and stale retry snapshots with
+`1592590336`, Attribute Sync during history rebuild with `161503589` and `879068896`, and
+request deduplication during replay with `879068896`. The old cases `476371529` and `4200525811`
+remain deterministic trajectory checks; the other pinned cases cover their former failures.
+
 ```bash
 cargo test -p dexzd-simulation                                   # fixed seed set
 DEXZD_SIMULATION_SEEDS=500 DEXZD_SIMULATION_COMMANDS=1000 cargo test -p dexzd-simulation

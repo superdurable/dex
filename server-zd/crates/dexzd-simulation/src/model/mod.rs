@@ -522,7 +522,7 @@ impl CommandGenerator {
             }
             Proposal::StartAttempt(call) => {
                 let body = worker_model::start_attempt(rng, &call);
-                self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body)
+                self.invocation_envelope(flow_id, &call, body)
             }
             Proposal::WorkerOutcome(call) => {
                 let body = match rng.random_range(0..10) {
@@ -530,13 +530,13 @@ impl CommandGenerator {
                     6..=7 => worker_model::fail(rng, &call, is_step_failure_stream),
                     _ => worker_model::heartbeat(rng, &call),
                 };
-                let command = self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body);
+                let command = self.invocation_envelope(flow_id, &call, body);
                 self.remember_result(&command);
                 command
             }
             Proposal::StaleAttempt(call) => {
                 let body = worker_model::stale_attempt_command(rng, &call, is_step_failure_stream);
-                self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body)
+                self.invocation_envelope(flow_id, &call, body)
             }
             Proposal::FireTimer {
                 run_id,
@@ -556,9 +556,27 @@ impl CommandGenerator {
                 let body = previous
                     .command
                     .expect("remembered results are generated with a body");
-                self.envelope(&previous.flow_id, previous.run_id, body)
+                let mut command = self.envelope(&previous.flow_id, previous.run_id, body);
+                command.expected_run_attempt = previous.expected_run_attempt;
+                command
             }
         }
+    }
+
+    fn invocation_envelope(
+        &mut self,
+        flow_id: &str,
+        call: &Call<'_>,
+        body: Command,
+    ) -> FlowCommand {
+        let mut command = self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body);
+        command.expected_run_attempt = call
+            .run
+            .record
+            .as_ref()
+            .expect("a dispatched invocation belongs to an existing run")
+            .current_attempt;
+        command
     }
 
     fn envelope(&mut self, flow_id: &str, run_id: Vec<u8>, body: Command) -> FlowCommand {

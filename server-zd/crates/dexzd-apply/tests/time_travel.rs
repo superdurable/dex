@@ -1828,6 +1828,99 @@ fn results_stamped_with_an_abandoned_run_attempt_are_rejected() {
 }
 
 #[test]
+fn redelivered_results_cannot_overwrite_another_steps_guarded_snapshot_after_reset() {
+    let mut harness = Harness::new();
+    harness.start(StartFlowRequest {
+        start_step_type: "SeedStep".to_owned(),
+        step_options: skip_wait_for(),
+        ..start_request()
+    });
+    harness.start_attempt("SeedStep-1", StepMethod::Execute, 1);
+    let mut first_decision = next_steps(&["WriterStep"]);
+    first_decision.next_steps[0]
+        .step_options
+        .as_mut()
+        .unwrap()
+        .execute_lock_attribute_keys = vec!["counter".to_owned()];
+    harness.complete_execute("SeedStep-1", 1, first_decision);
+    harness.start_attempt("WriterStep-1", StepMethod::Execute, 1);
+    let mut delivered = harness.command(Command::StepMethodCompleted(StepMethodCompletedCommand {
+        invocation: Some(key("WriterStep-1", StepMethod::Execute)),
+        attempt: 1,
+        response: Some(step_method_completed_command::Response::Execute(
+            InvokeExecuteMethodResponse {
+                upsert_attributes: vec![AttributeWrite {
+                    key: "counter".to_owned(),
+                    value: Some(Value {
+                        kind: Some(value::Kind::IntValue(1)),
+                    }),
+                    ..AttributeWrite::default()
+                }],
+                ..InvokeExecuteMethodResponse::default()
+            },
+        )),
+        ..StepMethodCompletedCommand::default()
+    }));
+    delivered.expected_run_attempt = harness.run_record().current_attempt;
+    let outcome = apply_flow_command(&harness.context, &harness.state, &delivered).unwrap();
+    assert!(is_ok(&outcome.reply));
+    harness.state.commit(&outcome);
+
+    let (run_attempt, _) = harness.travel_to(reset(FlowResetType::Beginning));
+    assert_eq!(run_attempt, 2);
+    harness.start_attempt("SeedStep-1", StepMethod::Execute, 1);
+    let mut replacement_decision = next_steps(&["WriterStep", "HolderStep"]);
+    replacement_decision.next_steps[1]
+        .step_options
+        .as_mut()
+        .unwrap()
+        .execute_lock_attribute_keys = vec!["counter".to_owned()];
+    harness.complete_execute("SeedStep-1", 1, replacement_decision);
+    harness.start_attempt("HolderStep-1", StepMethod::Execute, 1);
+    harness.start_attempt("WriterStep-1", StepMethod::Execute, 1);
+    let holder = harness.step("HolderStep-1").invocation.unwrap();
+    assert_eq!(holder.lock_keys, ["counter"]);
+    assert!(holder.snapshot.unwrap().attributes.is_empty());
+    assert!(harness.attribute_keys().is_empty());
+    assert!(
+        harness
+            .step("WriterStep-1")
+            .invocation
+            .unwrap()
+            .lock_keys
+            .is_empty()
+    );
+
+    delivered.proposed_at_micros = harness.now_micros + 1000;
+    let fenced = apply_flow_command(&harness.context, &harness.state, &delivered).unwrap();
+    assert_eq!(error_code(&fenced.reply), Some(FAILED_PRECONDITION));
+    assert!(fenced.writes.is_empty());
+    assert!(fenced.effects.is_empty());
+
+    // Removing the owner's fence reproduces the simulation's impossible cross-reset delivery.
+    delivered.expected_run_attempt = 0;
+    let unfenced = apply_flow_command(&harness.context, &harness.state, &delivered).unwrap();
+    assert!(is_ok(&unfenced.reply));
+    harness.state.commit(&unfenced);
+    assert_eq!(
+        attribute(&harness, "counter").value.unwrap().kind,
+        Some(stored_value::Kind::InlineValue(Value {
+            kind: Some(value::Kind::IntValue(1)),
+        }))
+    );
+    assert!(
+        harness
+            .step("HolderStep-1")
+            .invocation
+            .unwrap()
+            .snapshot
+            .unwrap()
+            .attributes
+            .is_empty()
+    );
+}
+
+#[test]
 fn only_the_latest_run_of_a_flow_id_can_time_travel() {
     let mut harness = Harness::new();
     harness.start(start_request());
