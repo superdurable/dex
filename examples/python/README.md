@@ -73,8 +73,7 @@ after E2E tests for manual HTTP exploration.
 
 Set `DEX_EXAMPLES_WORKER_MODE=pull` to run the same tests with pull Workers.
 Set `DEX_INTEG_ENGINE=zd` to run them against server-zd. That mode defaults to
-pull Workers, does not start the entity store, and skips samples that use
-Attribute Store sync. Set `DEX_SERVER_ZD_BINARY` to reuse a
+pull Workers. Set `DEX_SERVER_ZD_BINARY` to reuse a
 built `dex-server-zd`. `run-e2e-tests.sh` and `run-integ-tests.sh` both accept
 these variables.
 

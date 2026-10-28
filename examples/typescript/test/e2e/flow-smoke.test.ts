@@ -133,7 +133,6 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     },
     {
       name: "patterns/entity-store",
-      serverZdUnsupportedFeature: "Attribute Store sync",
       trigger: async () => {
         const userId = newFlowId("entity-store");
         const result = await triggerPost(context, "/patterns/entity-store/profile", {

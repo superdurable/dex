@@ -108,18 +108,15 @@ if [[ "$DEX_INTEG_ENGINE" == zd && -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
   DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
 
-# server-zd does not support Attribute Store sync, so zd runs skip the entity store.
+docker compose -p "$compose_project" \
+  -f "$entity_store_dir/docker-compose.yml" up --detach --wait
+entity_store_started=true
 if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
   dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
 else
-  docker compose -p "$compose_project" \
-    -f "$entity_store_dir/docker-compose.yml" up --detach --wait
-  entity_store_started=true
-  dev_args=(
-    -attribute-store-config "$entity_store_dir/attribute-store.yaml"
-    -sqlite-db-filename "$test_dir/temporal.db"
-  )
+  dev_args=(-sqlite-db-filename "$test_dir/temporal.db")
 fi
+dev_args+=(-attribute-store-config "$entity_store_dir/attribute-store.yaml")
 
 "$binary_dir/dexcli" dev \
   "${dev_args[@]}" \
@@ -147,7 +144,6 @@ if ! $dex_ready; then
   exit 1
 fi
 
-# The Makefile excludes the samples server-zd does not support when DEX_INTEG_ENGINE=zd.
 cd "$script_dir"
 export DEXCLI_PATH="$binary_dir/dexcli"
 DEX_SERVER_ADDRESS="$dex_address" make integTests

@@ -116,16 +116,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# server-zd does not support Attribute Store sync, so zd runs skip the entity store.
-if [[ "$DEX_INTEG_ENGINE" == temporal ]]; then
-  ENTITY_STORE_POSTGRES_PORT="$entity_store_postgres_port" docker compose -p "$entity_store_project" \
-    -f "$entity_store_dir/docker-compose.yml" up --detach --wait
-  entity_store_started=true
+ENTITY_STORE_POSTGRES_PORT="$entity_store_postgres_port" docker compose -p "$entity_store_project" \
+  -f "$entity_store_dir/docker-compose.yml" up --detach --wait
+entity_store_started=true
 
-  entity_store_config="$test_dir/entity-store.yaml"
-  sed "s/localhost:55432/localhost:${entity_store_postgres_port}/" \
-    "$entity_store_dir/attribute-store.yaml" >"$entity_store_config"
-fi
+entity_store_config="$test_dir/entity-store.yaml"
+sed "s/localhost:55432/localhost:${entity_store_postgres_port}/" \
+  "$entity_store_dir/attribute-store.yaml" >"$entity_store_config"
 
 if [[ ! -f "$repo_root/web/assets/dist/index.html" ]]; then
   (
@@ -148,15 +145,11 @@ if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
   default_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/default-zd")
   deal_dsl_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/deal-dsl-zd")
 else
-  default_dev_args=(
-    -attribute-store-config "$entity_store_config"
-    -sqlite-db-filename "$test_dir/default-temporal.db"
-  )
-  deal_dsl_dev_args=(
-    -attribute-store-config "$entity_store_config"
-    -sqlite-db-filename "$test_dir/deal-dsl-temporal.db"
-  )
+  default_dev_args=(-sqlite-db-filename "$test_dir/default-temporal.db")
+  deal_dsl_dev_args=(-sqlite-db-filename "$test_dir/deal-dsl-temporal.db")
 fi
+default_dev_args+=(-attribute-store-config "$entity_store_config")
+deal_dsl_dev_args+=(-attribute-store-config "$entity_store_config")
 
 "$binary_dir/dexcli" dev \
   "${default_dev_args[@]}" \
@@ -190,6 +183,8 @@ cd "$script_dir"
 common_test_env=(
   DEX_FLOW_SERVICE_ADDRESS="$default_dex_address"
   DEX_WORKER_HOST=127.0.0.1
+  DEX_EXAMPLES_ENTITY_STORE_COMPOSE_PROJECT="$entity_store_project"
+  DEX_EXAMPLES_ENTITY_STORE_COMPOSE_FILE="$entity_store_dir/docker-compose.yml"
   GOCACHE="${GOCACHE:-$test_dir/gocache}"
   GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}"
   GOWORK=off

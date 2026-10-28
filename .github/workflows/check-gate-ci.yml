@@ -69,15 +69,19 @@ jobs:
             examples_go:
               - 'examples/go/**'
               - '.github/workflows/examples-go-ci.yml'
+              - 'examples/entity-store/**'
             examples_java:
               - 'examples/java/**'
               - '.github/workflows/examples-java-ci.yml'
+              - 'examples/entity-store/**'
             examples_python:
               - 'examples/python/**'
               - '.github/workflows/examples-python-ci.yml'
+              - 'examples/entity-store/**'
             examples_rust:
               - 'examples/rust/**'
               - '.github/workflows/examples-rust-ci.yml'
+              - 'examples/entity-store/**'
             s3mock:
               - 's3mock/**'
               - '.github/workflows/s3mock-ci.yml'
@@ -112,6 +116,7 @@ jobs:
             examples_typescript:
               - 'examples/typescript/**'
               - '.github/workflows/examples-typescript-ci.yml'
+              - 'examples/entity-store/**'
             generated_code:
               - 'protos/**'
               - 'server/gen/dexpb/**'

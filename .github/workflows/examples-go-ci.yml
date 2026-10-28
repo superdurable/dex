@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "examples/go/**"
+      - "examples/entity-store/**"
       - ".github/workflows/examples-go-ci.yml"
   pull_request:
     paths:
       - "examples/go/**"
+      - "examples/entity-store/**"
       - ".github/workflows/examples-go-ci.yml"
   workflow_dispatch:
 
@@ -68,13 +70,43 @@ jobs:
         run: make unitTests
 
   e2e:
-    name: End-to-end tests
+    name: End-to-end tests (${{ matrix.engine }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [temporal, zd]
+    env:
+      DEX_INTEG_ENGINE: ${{ matrix.engine }}
+      DEX_SERVER_ZD_BINARY: ${{ matrix.engine == 'zd' && format('{0}/server-zd/target/debug/dex-server-zd', github.workspace) || '' }}
+      # These CARGO_* and RUST* values match Server ZD CI, so its main cache restores here.
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+      RUSTUP_TOOLCHAIN: "1.97.1"
+      CARGO_BUILD_JOBS: "4"
     defaults:
       run:
         working-directory: examples/go
     steps:
       - uses: actions/checkout@v7
+      - name: Install Rust
+        if: matrix.engine == 'zd'
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for RocksDB
+        if: matrix.engine == 'zd'
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.engine == 'zd'
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-paradedb
+          # Restore-only: the Server ZD CI ParadeDB job owns this key.
+          save-if: false
+      - name: Build dex-server-zd
+        if: matrix.engine == 'zd'
+        working-directory: server-zd
+        run: cargo build --locked -p dexzd-server --bin dex-server-zd
       - uses: actions/setup-go@v7
         with:
           go-version-file: cli/go.mod
@@ -85,6 +117,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Install Temporal CLI runtime for dexcli dev
+        if: matrix.engine == 'temporal'
         uses: temporalio/setup-temporal@v0
       - name: End-to-end tests
         run: make e2eTests
@@ -92,6 +125,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: go-examples-e2e-services
+          name: go-examples-e2e-services-${{ matrix.engine }}
           path: /tmp/test-go-examples-e2e-services.log
           if-no-files-found: ignore
