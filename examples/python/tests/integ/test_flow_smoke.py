@@ -144,7 +144,6 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             "patterns/entity-store",
             lambda c: _entity_store_trigger(c, new_id),
             flags=FlowSmokeFlags(no_start_step=True),
-            server_zd_unsupported_feature="Attribute Store sync",
         ),
         FlowSmokeEntry(
             "patterns/sequentially-chunked-attribute-map",

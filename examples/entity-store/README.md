@@ -1,10 +1,8 @@
 # PostgreSQL Entity Store example
 
 This shared setup demonstrates the Entity Store pattern in the Go, Java, Python,
-and TypeScript examples. One `UserProfileFlow` owns each profile, while the Dex
+Rust, and TypeScript examples. One `UserProfileFlow` owns each profile, while the Dex
 Server asynchronously projects opted-in Attributes to PostgreSQL.
-
-Rust is intentionally not included because its example has not been implemented.
 
 ## Start PostgreSQL and Dex
 
@@ -19,6 +17,16 @@ Compose starts PostgreSQL 17 and creates `public.user_profiles` on
 `localhost:55432`. `dexcli dev` starts the local Dex environment and loads the
 Server store named `entityStore` from `attribute-store.yaml`.
 
+The same file works with server-zd:
+
+```bash
+dexcli dev --engine zd --attribute-store-config ./attribute-store.yaml
+```
+
+server-zd also needs the `dexzd_attribute_sync_fencing` table in each synced
+database. `postgres/init.sql` creates it, and the Go Server ignores it. See
+[Fencing table](https://docs.superdurable.io/production/server-zd-operations#attribute-store-fencing-table).
+
 Start any one language example according to its README, then create and update a
 profile through that example's HTTP server:
 
@@ -32,7 +40,7 @@ curl -X POST http://localhost:8080/patterns/entity-store/profile/update \
   -d '{"userId":"user-42","displayName":"Ada Byron","email":"ada.byron@example.com","marketingOptIn":false,"credits":180,"weight":60.25,"lastLoggedInTime":"2026-08-12T09:45:00Z","metadata":{"source":"example","tags":["computing","history"]}}'
 ```
 
-All four examples default to port `8080`; run one language application at a time
+All five examples default to port `8080`; run one language application at a time
 or override its HTTP address.
 
 ## Observe the projection

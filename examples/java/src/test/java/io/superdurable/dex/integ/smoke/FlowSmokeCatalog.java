@@ -256,7 +256,6 @@ final class FlowSmokeCatalog {
                                     "POST", "/patterns/entity-store/profile", Map.of(), body);
                     final String flowId = result.flowId.isEmpty() ? userId : result.flowId;
                     return new FlowSmokeTriggerResult(flowId, result.runId);
-                })
-                .withServerZDUnsupportedFeature("Attribute Store sync");
+                });
     }
 }

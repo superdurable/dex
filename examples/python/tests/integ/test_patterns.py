@@ -46,7 +46,6 @@ from tests.integ.conftest import (
     LONG_WAIT_TIMEOUT,
     WAIT_TIMEOUT,
     flow_status_or_none,
-    skip_when_server_zd,
     wait_until,
 )
 
@@ -280,7 +279,6 @@ async def test_entity_store_profile_lifecycle(
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    skip_when_server_zd("Attribute Store sync")
     flow_id = new_flow_id("entity-store")
     profile = UserProfile(
         "Ada Lovelace",

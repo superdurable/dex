@@ -162,7 +162,6 @@ func flowSmokeCatalog() []flowSmokeEntry {
 		},
 		{
 			name:                       "patterns/entity-store",
-			serverZDUnsupportedFeature: "Attribute Store sync",
 			trigger: func(t *testing.T) (string, string) {
 				userID := smokeWorkflowID(t, "entity-store")
 				body := entitystore.UserProfileRequest{

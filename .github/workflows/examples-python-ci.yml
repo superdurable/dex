@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "examples/python/**"
+      - "examples/entity-store/**"
       - ".github/workflows/examples-python-ci.yml"
   pull_request:
     paths:
       - "examples/python/**"
+      - "examples/entity-store/**"
       - ".github/workflows/examples-python-ci.yml"
   workflow_dispatch:
 
@@ -21,13 +23,43 @@ concurrency:
 
 jobs:
   integ:
-    name: Install + integ tests
+    name: Install + integ tests (${{ matrix.engine }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [temporal, zd]
+    env:
+      DEX_INTEG_ENGINE: ${{ matrix.engine }}
+      DEX_SERVER_ZD_BINARY: ${{ matrix.engine == 'zd' && format('{0}/server-zd/target/debug/dex-server-zd', github.workspace) || '' }}
+      # These CARGO_* and RUST* values match Server ZD CI, so its main cache restores here.
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+      RUSTUP_TOOLCHAIN: "1.97.1"
+      CARGO_BUILD_JOBS: "4"
     defaults:
       run:
         working-directory: examples/python
     steps:
       - uses: actions/checkout@v7
+      - name: Install Rust
+        if: matrix.engine == 'zd'
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for RocksDB
+        if: matrix.engine == 'zd'
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.engine == 'zd'
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-paradedb
+          # Restore-only: the Server ZD CI ParadeDB job owns this key.
+          save-if: false
+      - name: Build dex-server-zd
+        if: matrix.engine == 'zd'
+        working-directory: server-zd
+        run: cargo build --locked -p dexzd-server --bin dex-server-zd
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -41,6 +73,7 @@ jobs:
             server/go.sum
             web/go.sum
       - name: Install Temporal CLI runtime for dexcli dev
+        if: matrix.engine == 'temporal'
         uses: temporalio/setup-temporal@v0
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -92,6 +125,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: python-examples-integ-services
+          name: python-examples-integ-services-${{ matrix.engine }}
           path: /tmp/test-python-examples-integ-services.log
           if-no-files-found: ignore

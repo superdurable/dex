@@ -22,3 +22,13 @@ CREATE TABLE user_profiles (
     last_logged_in_time TIMESTAMPTZ,
     metadata JSONB
 );
+
+-- server-zd requires this fencing table in every synced database; the Go Server ignores it.
+CREATE TABLE dexzd_attribute_sync_fencing (
+  store_name text NOT NULL,
+  cluster_id text NOT NULL,
+  scope text NOT NULL,
+  fencing_token bigint NOT NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (store_name, cluster_id, scope)
+);

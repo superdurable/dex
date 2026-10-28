@@ -93,12 +93,9 @@ trap cleanup EXIT
   GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
 )
 : >"$log_file"
-# server-zd does not support Attribute Store sync, so zd runs skip the entity store.
-if [[ "$DEX_INTEG_ENGINE" == temporal ]]; then
-  docker compose -p "$compose_project" \
-    -f "$entity_store_dir/docker-compose.yml" up --detach --wait
-  entity_store_started=true
-fi
+docker compose -p "$compose_project" \
+  -f "$entity_store_dir/docker-compose.yml" up --detach --wait
+entity_store_started=true
 if [[ "$DEX_INTEG_ENGINE" == zd && -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
   (cd "$repo_root" && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
   DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
@@ -106,11 +103,9 @@ fi
 if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
   dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
 else
-  dev_args=(
-    -attribute-store-config "$entity_store_dir/attribute-store.yaml"
-    -sqlite-db-filename "$test_dir/temporal.db"
-  )
+  dev_args=(-sqlite-db-filename "$test_dir/temporal.db")
 fi
+dev_args+=(-attribute-store-config "$entity_store_dir/attribute-store.yaml")
 
 "$binary_dir/dexcli" dev \
   "${dev_args[@]}" \
