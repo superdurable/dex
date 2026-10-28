@@ -41,10 +41,6 @@ func TestWaitForStateCompletionTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestWaitForStateCompletionTimeout(t)
 		smallWaitForFastTest()
-		doTestWaitForStateCompletionInternalHandlerTimeout(t)
-		smallWaitForFastTest()
-		doTestWaitForStateCompletionAcrossContinueAsNew(t)
-		smallWaitForFastTest()
 		doTestWaitForStateCompletionCancel(t)
 		smallWaitForFastTest()
 		doTestWaitForStateCompletionNotFound(t)
@@ -54,6 +50,14 @@ func TestWaitForStateCompletionTemporal(t *testing.T) {
 		doTestWaitForStateCompletionConcurrent(t)
 		smallWaitForFastTest()
 		doTestWaitForStateCompletionInvalidArgs(t)
+		smallWaitForFastTest()
+		// These cover Temporal Update handlers, Update counters, and Continue-As-New (C3).
+		if isServerZDBinaryMode() {
+			continue
+		}
+		doTestWaitForStateCompletionInternalHandlerTimeout(t)
+		smallWaitForFastTest()
+		doTestWaitForStateCompletionAcrossContinueAsNew(t)
 		smallWaitForFastTest()
 		doTestWaitForStateCompletionCounterSuccess(t)
 		smallWaitForFastTest()
@@ -189,21 +193,23 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 		errResp.GetSubStatus(),
 	)
 	require.Equal(t, "step completion request timed out", errResp.GetDetail())
-	counts := inspectTemporalUpdateHistory(
-		t,
-		ctx,
-		runtime,
-		flowId,
-		startResponse.GetRunId(),
-		requestID,
-	)
-	require.Equal(t, 1, counts.accepted)
-	require.Zero(t, counts.completed)
-	require.Zero(t, counts.oneSecondTimerStarted)
-	require.Zero(t, counts.oneSecondTimerCanceled)
-	require.Eventually(t, func() bool {
-		return !time.Now().Before(counts.acceptedAt.Add(time.Second))
-	}, 2*time.Second, 10*time.Millisecond)
+	if !isServerZDBinaryMode() {
+		counts := inspectTemporalUpdateHistory(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			startResponse.GetRunId(),
+			requestID,
+		)
+		require.Equal(t, 1, counts.accepted)
+		require.Zero(t, counts.completed)
+		require.Zero(t, counts.oneSecondTimerStarted)
+		require.Zero(t, counts.oneSecondTimerCanceled)
+		require.Eventually(t, func() bool {
+			return !time.Now().Before(counts.acceptedAt.Add(time.Second))
+		}, 2*time.Second, 10*time.Millisecond)
+	}
 
 	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:                flowId,
@@ -213,18 +219,20 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 		RequestId:             requestID,
 	})
 	require.NoError(t, err)
-	counts = inspectTemporalUpdateHistory(
-		t,
-		ctx,
-		runtime,
-		flowId,
-		startResponse.GetRunId(),
-		requestID,
-	)
-	require.Equal(t, 1, counts.accepted)
-	require.Equal(t, 1, counts.completed)
-	require.Zero(t, counts.oneSecondTimerStarted)
-	require.Zero(t, counts.oneSecondTimerCanceled)
+	if !isServerZDBinaryMode() {
+		counts := inspectTemporalUpdateHistory(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			startResponse.GetRunId(),
+			requestID,
+		)
+		require.Equal(t, 1, counts.accepted)
+		require.Equal(t, 1, counts.completed)
+		require.Zero(t, counts.oneSecondTimerStarted)
+		require.Zero(t, counts.oneSecondTimerCanceled)
+	}
 
 	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
@@ -486,16 +494,18 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 	for waitIndex, waitErr := range waitErrors {
 		require.NoError(t, waitErr, "waiter %d failed", waitIndex)
 	}
-	accepted, completed := countTemporalUpdateEvents(
-		t,
-		ctx,
-		runtime,
-		flowId,
-		startResponse.GetRunId(),
-		"wait-for-step-completion:"+wait_for_state_completion.State2+"-1",
-	)
-	require.Equal(t, 1, accepted)
-	require.Equal(t, 1, completed)
+	if !isServerZDBinaryMode() {
+		accepted, completed := countTemporalUpdateEvents(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			startResponse.GetRunId(),
+			"wait-for-step-completion:"+wait_for_state_completion.State2+"-1",
+		)
+		require.Equal(t, 1, accepted)
+		require.Equal(t, 1, completed)
+	}
 
 	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
