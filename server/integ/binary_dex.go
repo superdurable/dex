@@ -456,6 +456,19 @@ func isServerZDBinaryMode() bool {
 	return *dexServerBinary != ""
 }
 
+// describeFlowStatus reads the current run's status from Temporal, or through GetFlowSummary in binary mode.
+func describeFlowStatus(t *testing.T, ctx context.Context, runtime *integRuntime, flowID string) dexpb.FlowStatus {
+	t.Helper()
+	if isServerZDBinaryMode() {
+		summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+		require.NoError(t, err)
+		return summary.GetFlowStatus()
+	}
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowID, "", nil)
+	require.NoError(t, err)
+	return description.Status
+}
+
 func requireTemporalOnly(t *testing.T) {
 	t.Helper()
 	if *dexServerBinary != "" {

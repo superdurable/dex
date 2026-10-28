@@ -106,9 +106,13 @@ func doTestGreedyTimerFlowCustomConfig(
 
 	time.Sleep(time.Second)
 
-	firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)
-	assertions.Len(firingUserTimers, 1)
-	singleTimerScheduled := firingUserTimers[0]
+	// Greedy timers limit Temporal timers; server-zd keeps timers in its own log, so binary mode skips these counts.
+	singleTimerScheduled := int64(0)
+	if !isServerZDBinaryMode() {
+		firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)
+		assertions.Len(firingUserTimers, 1)
+		singleTimerScheduled = firingUserTimers[0]
+	}
 
 	scheduleTimerAndAssertExpectedScheduled(t, flowClient, unifiedClient, flowId, 20, 1)
 
@@ -121,9 +125,11 @@ func doTestGreedyTimerFlowCustomConfig(
 
 	time.Sleep(time.Second)
 
-	firingUserTimers = queryFiringUserTimers(t, ctx, unifiedClient, flowId)
-	assertions.Len(firingUserTimers, 1)
-	assertions.LessOrEqual(singleTimerScheduled, firingUserTimers[0])
+	if !isServerZDBinaryMode() {
+		firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)
+		assertions.Len(firingUserTimers, 1)
+		assertions.LessOrEqual(singleTimerScheduled, firingUserTimers[0])
+	}
 	scheduleTimerAndAssertExpectedScheduled(t, flowClient, unifiedClient, flowId, 5, 2)
 
 	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
@@ -164,6 +170,9 @@ func scheduleTimerAndAssertExpectedScheduled(
 	})
 	require.NoError(t, err)
 
+	if isServerZDBinaryMode() {
+		return
+	}
 	time.Sleep(time.Second)
 
 	firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)

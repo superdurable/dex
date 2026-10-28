@@ -72,7 +72,6 @@ func doTestSignalWorkflow(
 	backendType service.BackendType,
 	flowConfig *dexpb.FlowConfig,
 ) {
-	requireTemporalOnly(t)
 	assertions := assert.New(t)
 
 	workerHandler := signal.NewHandler()
