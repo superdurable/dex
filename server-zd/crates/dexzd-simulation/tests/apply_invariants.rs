@@ -90,7 +90,10 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         match run_seed(seed, command_count, |failure| {
             write_failure_report(failure_directory.as_ref(), failure);
         }) {
-            Ok(summary) => total.merge(&summary),
+            Ok(summary) => {
+                total.merge(&summary);
+                println!("simulation completed seed: {seed}");
+            }
             Err(failure) => {
                 write_failure_report(failure_directory.as_ref(), &failure);
                 failing_seeds.push(seed);

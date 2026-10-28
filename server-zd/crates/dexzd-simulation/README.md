@@ -283,16 +283,37 @@ report holds the violation, the reproduction command, and the last 400 trace eve
 
 ### Nightly
 
-The nightly job picks a random 32-bit base seed and runs 250 seeds of 300 simulated seconds.
-That budget takes about 16 minutes on a recent laptop and leaves room for a runner three times
-slower. Manual runs accept 64–1,000 seeds and 60–1,200 seconds per seed, with at most 75,000
-simulated seconds in total. Every run needs at least 64 seeds because the coverage assertions
-still apply. The test stops at the first failing seed and has a 55-minute command limit. The
-job uploads the log and any failure report even when the command fails. Its summary lists each
-failing seed's reproduction command and the `twin comparisons:` line.
+The nightly workflow picks a random 32-bit base seed and partitions consecutive seed ranges
+without overlaps or omissions. Its apply jobs run 500 random seeds of 1,000 commands across
+five shards of 100 seeds. Its standard engine jobs run 250 random seeds of 300 simulated
+seconds across three shards of 83, 83, and 84 seeds. Each shard also runs the checked-in
+regression cases and retains the suite's coverage assertions. Manual inputs still specify the
+total seed budget: apply shards contain at most 100 seeds, and engine shards remain at least
+64 seeds. Manual engine runs accept 64–1,000 seeds and 60–1,200 seconds per seed, with at
+most 75,000 simulated seconds in total.
+
+Nightly test builds use `CARGO_PROFILE_DEV_OPT_LEVEL=1`. This optimizes the simulation and its
+dependencies while retaining the test profile's debug assertions and overflow checks. Compilation has a separate 25-minute command limit, followed by the
+apply suite's 50-minute limit or each engine suite's 55-minute limit. The job limit is 90 minutes,
+leaving time for setup and artifact uploads. Sharding preserves the total random workload;
+regression cases run in every shard, so regression coverage increases.
+
+Every successful seed prints `simulation completed seed: <seed>`. The workflow uses the
+runner from its own commit for both refs. For releases predating this output, the runner adds
+only this print to the successful test-loop branch before compiling; unknown test layouts fail
+explicitly. No production source, seed trajectory, or coverage assertion is changed.
+
+The command runner records wall time and distinguishes `timeout`, `invariant failure`, and
+`command failure` from `success`. On timeout it kills the command's process group and prints
+the base seed and last completed seed, or `none` if no seed finished. A timeout during failure
+shrinking still preserves the original invariant report in the failure artifact. The summary
+includes the shard base seed, seed count, elapsed seconds, last completed seed, failing seeds'
+reproduction commands, and the standard engine's `twin comparisons:` line. Build and test logs
+are uploaded even when a command fails. Run `python3 script/test_server_zd_simulation_run.py`
+from the repository root to check process supervision, release instrumentation, and seed partitioning.
 
 A separate nightly job runs the redeploy profile with its own random base seed: 48 seeds of 300
-simulated seconds, about 12 minutes on a recent laptop. Its seeds cost more than the fixed set's
+simulated seconds. Its seeds can cost more than the fixed set's
 because lost-store starts replay the whole log. Manual runs accept 16–1,000 seeds and 60–600
 seconds per seed, with at most 20,000 simulated seconds in total. The job has the same
 55-minute command limit, failure reports, and summary as the fixed set's job.
