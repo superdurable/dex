@@ -14,7 +14,9 @@ use dexzd_apply::StateWrite;
 use dexzd_engine::{EngineLocalStore, HardDeleteObjectOwner};
 use dexzd_keyspace::row_keys::HARD_DELETE_PENDING_OBJECT;
 use dexzd_keyspace::{ColumnFamily, RunTable, TenantId, parse_run_key};
-use dexzd_protocol::dexzd::v1::{OutboxRecord, RunRecord, StepInvocationPhase, StepMethod};
+use dexzd_protocol::dexzd::v1::{
+    OutboxRecord, RunRecord, StepInvocationPhase, StepInvocationRecord, StepMethod,
+};
 use dexzd_storage::{
     CanonicalizedStoreField, InMemoryLocalStore, LocalReadView, LocalStore, ScanDirection,
     StateComparisonError, compare_store_views,
@@ -28,7 +30,7 @@ use crate::engine_simulation::simulated_workers::AttemptIdentity;
 use crate::invariants::{CheckerMemory, InvariantViolation, check_flow};
 use crate::memory_state::MemoryFlowState;
 use crate::row_decoding::hex;
-use crate::state_view::{FlowView, RunSelection};
+use crate::state_view::{FlowView, RunSelection, RunView};
 
 /// Holder encoding of the values a run pinned when it started (plan D12).
 const GENESIS_HOLDER: [u8; 1] = [0x01];
@@ -289,8 +291,8 @@ pub(crate) fn check_running_attempts_redispatched(
     }
 }
 
-/// Liveness after the calm tail: no overdue timer, no unfinished method call, no undelivered
-/// outbox message, and no hard-delete object waiting for deletion.
+/// Liveness after the calm tail: no overdue timer, no unfinished method call unless blocked
+/// by future backoff, no undelivered outbox message, and no hard-delete object waiting for deletion.
 pub(crate) fn check_drained(
     shadow: &ApplyChecker,
     now_unix_micros: i64,
@@ -351,7 +353,8 @@ pub(crate) fn check_drained(
                 if matches!(
                     phase,
                     Ok(StepInvocationPhase::Pending | StepInvocationPhase::Running)
-                ) {
+                ) && !is_waiting_for_future_retry(run, invocation, now_unix_micros)
+                {
                     return Err(InvariantViolation::new(
                         "method-call-not-finished",
                         format!(
@@ -365,6 +368,25 @@ pub(crate) fn check_drained(
         }
     }
     Ok(())
+}
+
+fn is_waiting_for_future_retry(
+    run: &RunView,
+    invocation: &StepInvocationRecord,
+    now_unix_micros: i64,
+) -> bool {
+    invocation.phase == StepInvocationPhase::Pending as i32
+        && invocation.lock_keys.iter().any(|lock_key| {
+            run.locks
+                .get(lock_key)
+                .and_then(|lock| lock.holder.as_ref())
+                .and_then(|holder| run.step_executions.get(&holder.step_execution_id))
+                .and_then(|step| step.invocation.as_ref())
+                .is_some_and(|holder| {
+                    holder.phase == StepInvocationPhase::Backoff as i32
+                        && holder.backoff_fires_at_micros > now_unix_micros
+                })
+        })
 }
 
 /// Returns the number of runs the shadow holds.

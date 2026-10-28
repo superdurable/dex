@@ -8,8 +8,8 @@
 
 //! Method calls of Step executions and their Attribute locks (plan section 8.3).
 //!
-//! Locks are held only while an attempt runs. Waiting calls queue FIFO per key by the seq at
-//! which they became pending; apply re-checks what the owner proposed.
+//! Locks are held across every retry of one logical method call. Waiting calls queue FIFO
+//! per key by the seq at which they became pending; apply re-checks what the owner proposed.
 
 use dexzd_protocol::dex::{StepDurability, StepOptions};
 use dexzd_protocol::dexzd::v1::{
@@ -20,7 +20,7 @@ use dexzd_protocol::dexzd::v1::{
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::state_access::FlowTransaction;
 use crate::steps::invocation_retry_deadline_micros;
-use crate::values::{ValueHolder, release_stored_value};
+use crate::values::{ValueHolder, hold_stored_value, release_stored_value};
 use crate::{ApplyEffect, ApplyError};
 
 /// How a running attempt ended.
@@ -28,6 +28,8 @@ use crate::{ApplyEffect, ApplyError};
 pub(crate) enum InvocationEnd {
     /// The Worker returned a result or an error.
     Finished,
+    /// The method will retry with its first snapshot.
+    Retry,
     /// The Step was canceled, the Flow closed, or time travel abandoned the attempt; the
     /// Worker should stop.
     Canceled,
@@ -65,10 +67,12 @@ pub(crate) fn make_invocation_pending(
     let key = invocation_key(step, method);
     for lock_key in &lock_keys {
         let mut lock = cursor.rows.lock(transaction, lock_key)?;
-        lock.waiters.push(LockWaiterRecord {
-            invocation: Some(key.clone()),
-            pending_since_seq: cursor.seq,
-        });
+        if lock.holder.as_ref() != Some(&key) {
+            lock.waiters.push(LockWaiterRecord {
+                invocation: Some(key.clone()),
+                pending_since_seq: cursor.seq,
+            });
+        }
         cursor.rows.put_lock(transaction, lock_key, &lock);
     }
     let mut previous = step.invocation.take();
@@ -76,6 +80,11 @@ pub(crate) fn make_invocation_pending(
         .as_mut()
         .filter(|invocation| invocation.method != method as i32)
     {
+        if other_method.snapshot.is_some() {
+            return Err(ApplyError::InvariantViolation {
+                detail: "method switch retained the previous method's snapshot".to_owned(),
+            });
+        }
         release_heartbeat_checkpoint(transaction, cursor, &step.step_execution_id, other_method)?;
         previous = None;
     }
@@ -84,8 +93,7 @@ pub(crate) fn make_invocation_pending(
         .map(|invocation| invocation.effective_durability)
         .filter(|durability| *durability != StepDurability::Unspecified as i32)
         .unwrap_or_else(|| effective_method_durability(cursor, step, method));
-    // A retry waits for its locks again, unlike Go, which holds them across retries; that
-    // wait counts.
+    // Retries retain their locks, so only the first acquisition delays the retry deadline.
     let retry_started_at_micros = previous
         .as_ref()
         .filter(|_| attempt > 1)
@@ -102,6 +110,9 @@ pub(crate) fn make_invocation_pending(
         last_failure: previous
             .as_ref()
             .and_then(|invocation| invocation.last_failure.clone()),
+        snapshot: previous
+            .as_mut()
+            .and_then(|invocation| invocation.snapshot.take()),
         heartbeat_checkpoint: previous.and_then(|invocation| invocation.heartbeat_checkpoint),
         ..StepInvocationRecord::default()
     });
@@ -157,8 +168,8 @@ pub(crate) fn release_heartbeat_checkpoint(
     release_stored_value(transaction, cursor.rows, &checkpoint, &holder, cursor.seq)
 }
 
-/// Whether the owner may start this pending attempt: every lock key is free and this call is
-/// the oldest waiter on each key.
+/// Whether the owner may start this pending attempt: every lock key is retained, or free
+/// with this call first.
 pub(crate) fn can_take_locks(
     transaction: &FlowTransaction<'_>,
     cursor: &RunCursor,
@@ -172,7 +183,7 @@ pub(crate) fn can_take_locks(
             .first()
             .and_then(|waiter| waiter.invocation.as_ref())
             .is_some_and(|waiter| waiter == key);
-        if lock.holder.is_some() || !is_first_waiter {
+        if lock.holder.as_ref() != Some(key) && (lock.holder.is_some() || !is_first_waiter) {
             return Ok(false);
         }
     }
@@ -242,9 +253,10 @@ pub(crate) fn configured_method_timeout_seconds(options: Option<&StepOptions>, m
     })
 }
 
-/// Ends the running or pending attempt of the Step's current method: releases its locks and
-/// lock queue entries, unpins its snapshot, and for running attempts that were canceled tells
-/// the Worker to stop. Leaves `step.invocation` in place for the caller to update or clear.
+/// Ends the running or pending attempt of the Step's current method: retains locks on retry,
+/// otherwise releases locks and lock queue entries, transfers snapshot pins on retry or
+/// unpins otherwise, and for running attempts that were canceled tells the Worker to stop. Leaves `step.invocation` in place
+/// for the caller to update or clear.
 pub(crate) fn end_running_attempt(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -262,7 +274,9 @@ pub(crate) fn end_running_attempt(
     for lock_key in &invocation.lock_keys {
         let mut lock = cursor.rows.lock(transaction, lock_key)?;
         let was_holder = lock.holder.as_ref() == Some(&key);
-        if was_holder {
+        if was_holder && end == InvocationEnd::Retry {
+            lock.holder_attempt = invocation.attempt + 1;
+        } else if was_holder {
             lock.holder = None;
             lock.holder_attempt = 0;
             released_keys.push(lock_key.clone());
@@ -278,17 +292,29 @@ pub(crate) fn end_running_attempt(
             method: invocation.method,
             attempt: invocation.attempt,
         };
-        for attribute in &snapshot.attributes {
-            if let Some(stored) = &attribute.value {
-                release_stored_value(transaction, cursor.rows, stored, &pin, cursor.seq)?;
+        let next_pin = (end == InvocationEnd::Retry).then(|| ValueHolder::AttemptSnapshot {
+            step_execution_id: step.step_execution_id.clone(),
+            method: invocation.method,
+            attempt: invocation.attempt + 1,
+        });
+        let stored_values = snapshot
+            .attributes
+            .iter()
+            .filter_map(|attribute| attribute.value.as_ref())
+            .chain(snapshot.loaded_channel_messages.iter().flat_map(|channel| {
+                channel
+                    .messages
+                    .iter()
+                    .filter_map(|message| message.value.as_ref())
+            }));
+        for stored in stored_values {
+            if let Some(next_pin) = &next_pin {
+                hold_stored_value(transaction, cursor.rows, stored, next_pin)?;
             }
+            release_stored_value(transaction, cursor.rows, stored, &pin, cursor.seq)?;
         }
-        for channel in &snapshot.loaded_channel_messages {
-            for message in &channel.messages {
-                if let Some(stored) = &message.value {
-                    release_stored_value(transaction, cursor.rows, stored, &pin, cursor.seq)?;
-                }
-            }
+        if next_pin.is_some() {
+            invocation.snapshot = Some(snapshot);
         }
     }
     let run_id = cursor.run_id();

@@ -10,7 +10,8 @@ The first stage tests `dexzd-apply` without the engine. A seeded model of client
 and pull Workers proposes commands. `ApplyChecker` applies each command twice on the committed
 state and once on a re-decoded twin, requires identical outcomes, and then checks the state
 invariants: lock holders and FIFO waiter order (L1, L3, L4), lost updates on guarded keys (L2),
-fresh snapshots (S5), one result per attempt (S2), value holder sets and garbage rows (I1),
+fresh first snapshots and retained retry snapshots (S5), one result per attempt (S2),
+value holder sets and garbage rows (I1),
 history event order, the timer index, and agreement of the Flow directory and run records.
 Attribute Sync outbox checks cover unacknowledged changes keeping their entries (AS1), acks
 deleting only the entries they cover (AS2), and the pending index matching the entries (AS3).
@@ -39,47 +40,36 @@ Collected mapping inputs and large permission sets are covered by deterministic
 Worker invocation commands carry the run attempt that dispatched them. Redelivering a result
 preserves that stamp across resets, so apply rejects results from abandoned run attempts just
 as it does for real Workers. Removing or replacing the stamp can make an old result write an
-Attribute while another Step holds its lock, falsely reporting L2. The regression seeds
-`10906685018` and `2204788261` cover this model correction from issue #1041.
-Before the correction, `10906685018` reproduced on main and server-zd v0.1.9.
-Seed `2204788261` reproduced on PR #1019's branch head `fdecef2b`, but does not
-reproduce on main. Both seeds remain pinned at 1,000 commands.
+Attribute while another Step holds its lock, falsely reporting L2. Seeds `10906685018` and
+`2204788261` preserve the model correction from #1041, merged in #1043. Both remain pinned at
+1,000 commands. Reverting the invocation and redelivery stamps makes `2204788261` fail
+L2 at command 984. Seed `10906685018` completes without an invariant failure after retry
+retention; it remains a historical case. The current per-seed mutation results follow.
 
-Correcting Worker stamps intentionally refreshed the existing trajectory digests.
-One-off local mutation checks observed the following failures with the corrected model:
+The rebase onto `ec585c0e5` preserves every seed from main and the retry-retention branch.
+Isolated mutations run in scratch source copies with fresh compilation of the changed crate.
+A completed seed followed by a suite-wide coverage assertion does not count as mutant detection.
 
-| Isolated mutation | Seed | Detector |
+| Isolated mutation | Seed | Current detector |
 | --- | --- | --- |
-| Apply `testdata/seeded-bugs/immediate-reclaim.patch`. | `1592590336` | `I1-window-value-reference` |
-| Apply `testdata/seeded-bugs/retry-stale-snapshot.patch`, handling a rejected rebuild as no prior snapshot. | `1592590336` | `S5-fresh-snapshot` |
-| Remove the `scope.is_history_rebuild()` early return from `mark_attribute_sync_entries`. | `161503589`, `879068896` | `apply-error`: synced Attribute has no live value |
-| Remove `\|\| scope.is_replay` from both request-deduplication guards in `command_handlers/client_writes.rs`. | `879068896` | `apply-error`: replayed command rejected |
+| Apply `testdata/seeded-bugs/immediate-reclaim.patch`. | `1592590336` | `I1-window-value-reference`, command 207. |
+| Apply `testdata/seeded-bugs/retry-fresh-snapshot.patch`. | `1592590336`, `161503589` | `S5-retained-snapshot`, commands 35 and 254. |
+| Remove the history-rebuild return from `mark_attribute_sync_entries`. | `879068896` | `apply-error`: synced Attribute has no live value, command 265. |
+| Remove `\|\| scope.is_replay` from both request-deduplication guards in `command_handlers/client_writes.rs`. | `879068896` | `apply-error`: replayed command rejected, command 265. |
 
-The retry mutant also handles the inner `rebuild_attempt_state` result: add
-`let Ok(rebuilt) = rebuilt else { return Ok(None); };` before reading `rebuilt.rows`
-in `prior_method_snapshot`. This adapts the old patch to the current rebuild
-signature. Each mutation was applied alone in a scratch copy. From that copy's
-`server-zd/`, the checks ran the following commands with an optimized dev profile
-and a shared scratch Cargo target:
+Seeds `161503589` and `4200525811` complete all 1,000 commands without detecting the
+Attribute Sync mutant after lock retention; they remain historical cases for that defect.
+Likewise, `476371529` (488 commands) and `476371563` (580 commands) complete without detecting
+the replay-deduplication mutant after the Worker fence merge. Seed `879068896` supplies active
+detection for both defects. No historical seed was removed.
 
-```bash
-export CARGO_PROFILE_DEV_OPT_LEVEL=1
-export CARGO_TARGET_DIR=/tmp/zd-1041-mutant-target
-export DEXZD_SIMULATION_COMMANDS=1000
-# Run once for each of immediate-reclaim and retry-stale-snapshot.
-DEXZD_SIMULATION_SEED=1592590336 cargo test -p dexzd-simulation --test apply_invariants apply_keeps_every_invariant_over_random_command_sequences -- --exact --nocapture
-# Run both with the history-rebuild Attribute Sync guard removed.
-DEXZD_SIMULATION_SEED=161503589 cargo test -p dexzd-simulation --test apply_invariants apply_keeps_every_invariant_over_random_command_sequences -- --exact --nocapture
-DEXZD_SIMULATION_SEED=879068896 cargo test -p dexzd-simulation --test apply_invariants apply_keeps_every_invariant_over_random_command_sequences -- --exact --nocapture
-# Run with the replay request-deduplication guards removed.
-DEXZD_SIMULATION_SEED=879068896 cargo test -p dexzd-simulation --test apply_invariants apply_keeps_every_invariant_over_random_command_sequences -- --exact --nocapture
-```
-
-These observations are local evidence, not new CI acceptance cases. The two inline
-mutations are not checked-in patches, and the seeded-bug acceptance runner does not
-enforce them. The old cases `476371529` and `4200525811` remain deterministic
-trajectory checks; the local checks above do not establish CI mutation coverage
-for their former failures.
+The deterministic `dexzd-apply` tests
+`time_travel_replays_synced_references_after_their_values_are_collected` and
+`time_travel_replays_child_starts_after_their_referenced_values_are_collected` fail when their
+respective recorded-history rebuild skips are removed and pass with the skips present.
+[Issue #1033](https://github.com/superdurable/dex/issues/1033) tracks the remaining randomized
+Attribute Sync and purging-read coverage gaps. The inline mutations above are local evidence;
+the checked-in acceptance runner enforces only its patch set.
 
 ```bash
 cargo test -p dexzd-simulation                                   # fixed seed set
@@ -92,7 +82,10 @@ After shrinking, it prints the shortest sequence found that `replay_commands` re
 
 The fixed test runs 64 seeds of 400 commands, plus every case in `regression-seeds.txt`.
 Each line in that file contains a decimal seed and the command count needed to reach its failure.
-The checked-in seed also runs for 1,000 commands. Nightly runs set `DEXZD_SIMULATION_BASE_SEED`
+The baseline seed also runs for 1,000 commands. The historical replay-deduplication case
+`476371563` keeps its original 580-command budget.
+
+Nightly runs set `DEXZD_SIMULATION_BASE_SEED`
 to a printed random starting seed, then use `DEXZD_SIMULATION_SEEDS` consecutive seeds and
 `DEXZD_SIMULATION_COMMANDS` commands per seed. The single-seed override runs only that seed.
 Manual runs accept 1–1,000 random seeds and 1–2,000 commands per seed, with at most 500,000
@@ -187,7 +180,8 @@ directory invariants hold on the committed history. The engine simulation adds t
    Recovered processes must deliver each interrupted outbox row and delete each interrupted
    hard-delete object from storage. After a crash at a quiet point, the successor dispatches
    every attempt that was running again. After a calm tail, every due timer has fired, no
-   method call is unfinished, and no outbox row or hard-delete object is left waiting.
+   runnable method call is unfinished, and no outbox row or hard-delete object is left waiting.
+   Pending calls blocked by a lock holder whose retry is scheduled in the future may remain pending.
 
 The log itself is checked too. Copies of one log position must hold the same commands, and a
 partition never applies a new frame below one it already applied. No process applies a frame
@@ -216,7 +210,7 @@ These section 13.1 items need later stages:
 
 - Byte-identical snapshots across dispatches of one attempt, and Step input, locals, and
   condition results unchanged across attempts (section 8.1). The shadow checks only fresh
-  snapshots (S5).
+  and retained retry snapshots (S5).
 - Eventual progress of lock waiters beyond the calm-tail check (section 8.3).
 - Time travel rebuilds and their hashes (section 8.4); clients do not call ResetFlow, so the
   replay checks verify no time-travel target.
@@ -293,37 +287,72 @@ would fail. Draw new choices only in a profile with its own seed group, as the r
 failure profiles do. When a pinned digest changes, revert each regression's fix and check that
 its seed still fails, or find a new seed. Then update the pinned value.
 
-Compared with origin/main, registry-owned RPC tasks change the scheduling of transactional
-and locking calls and move these four canonical command digests:
+### Retry-retention digest changes
 
-| Seed | origin/main digest | Shared-task digest | Reason |
-| --- | --- | --- | --- |
-| `3856990760` | `0x5b3d26b91932b21d1a113838268dcd37` | `0xb3846383ad09a6ba3b952f2353f99a56` | Registry-owned RPC scheduling changes the committed command trajectory. |
-| `3856990458` | `0xc2a4d6531e76296c726795dc814eddf3` | `0x39600634930d1b6fdef7cbf68a81aa7a` | Registry-owned RPC scheduling moves this active regression's trajectory; it still detects its original bug. |
-| `FIRST_SEED` | `0x10e0829e1ba46444c44ad7041423d80c` | `0x7b28b4171cc337626f7207ba1f84368b` | Registry-owned RPC scheduling changes the committed command trajectory. |
-| `FIRST_SEED + 1` | `0x1347dc41d197451ccdf01ca70dfdf0b7` | `0x6bed232add732552fbd5859d0fab1cb4` | Registry-owned RPC scheduling changes the committed command trajectory while preserving main's full Worker timeout after snapshot reads. |
+These pins compare with origin/main at `ec585c0e5` (including #1035, #1037, #1038, and #1043).
+Retaining the first snapshot and Attribute locks changes retry admission, later generated
+commands, and committed state. The Worker run-attempt fence remains unchanged.
 
-The other four pins equal origin/main: `3856990875`, `3856990400`, `FIRST_SEED + 2`,
-and the first redeploy-profile seed. `FIRST_SEED` is `3856990208`.
+| Apply seed | origin/main digest | Retained-retry digest |
+| --- | --- | --- |
+| `1592590336` | `0xc032c65b7d382887abdb54a8dc10081e` | `0x4fb6408e5e32919ad0567b5eed0cc872` |
+| `476371529` | `0x8b041bf31f0cfdc8d4d2c992310b77c4` | `0x838f5ba3e0a5356ad35de3feff79ff99` |
+| `161503589` | `0xfdc6f5e9d426965dd1e11bcdeaf2a302` | `0xa0684ec415cb310ece0515713d408b0f` |
+| `879068896` | `0xea49266404f93f45f426b531b7598e71` | `0x8c0b6b1491fd0397842baeca3b9b2745` |
+| `4200525811` | `0xa6ab3ea1393afe48be232c77e6ec689d` | `0x522ddc406868c11b874c16a005508739` |
+| `10906685018` | `0x9cb23e3676fd45b3fb97bccfddcc508a` | `0x15d90c44d1efee98606154f91fdbf8a2` |
+| `2204788261` | `0x11803384e2deeecaa00e6f5b733bef50` | `0x91dfe62ca78c3335086f17473a88ccda` |
+| `476371563` | not on main | `0x556ef4870181627f6cd2e95a145dec13` |
 
-`3856990458` and `3856990400` are the active regressions for reads of a purging run
-omitting a hard-delete Attribute after its object is deleted. `3856990760` first found
-that bug, but object-storage read changes moved its trajectory so it no longer reproduces
-it. `3856990875` reproduced it until the child-wait probe moved its trajectory. Both remain
-pinned historical trajectories.
+All seven existing apply pins move because retry snapshots and lock ownership change the
+main command stream. The additional `476371563` case preserves the PR’s historical
+replay-deduplication trajectory; its pin also reflects the merged Worker fence.
 
-Verification against origin/main at `15765352f` and this branch restored the pre-fix
-hard-delete read method from before #847 and removed the purging-run rejection in disposable
-source copies. Both active seeds still detect the original omitted-Attribute bug at the
-same simulated time on each revision:
+| Engine seed | origin/main digest | Retained-retry digest |
+| --- | --- | --- |
+| `3856990760` | `0xb3846383ad09a6ba3b952f2353f99a56` | `0x7ca5c261cc5b5ee764b84d104bfbf44f` |
+| `3856990458` | `0x39600634930d1b6fdef7cbf68a81aa7a` | `0x777396ff113b66f0ff11ae9bc7cd6e56` |
+| `3856990875` | `0x01ce581ebe0a0fdeb9a4a9113235bc13` | `0xa64613f7311c3b91222fbf2a7fac22c4` |
+| `3856990400` | `0xf734970d2a49ba3211ae7df6a57635f9` | `0x5c90f8f67a995cf5a9e21f54884d72e3` |
+| `FIRST_SEED` | `0x7b28b4171cc337626f7207ba1f84368b` | `0x35042b471c77b18ee1855f1943097b62` |
+| `FIRST_SEED + 1` | `0x6bed232add732552fbd5859d0fab1cb4` | `0x2f362294c24ff4114b49b849915acb25` |
+| `FIRST_SEED + 2` | `0x2ce89b4992bfc340317e04f99fa08bf1` | `0x5f472247b17d81d110915823a6682038` |
+| `FIRST_REDEPLOY_SEED` | `0xe7153e9c49d2cd40575a73f72640829c` | `0xa330eed649fe9012242114b785ee5ac3` |
 
-| Seed | Original bug | origin/main detection | Shared-task detection |
-| --- | --- | --- | --- |
-| `3856990458` | GetAttributes omits a purging run's hard-delete Attribute after object deletion. | 37.873 seconds | 37.873 seconds |
-| `3856990400` | GetAttributes omits a purging run's hard-delete Attribute after object deletion. | 44.106 seconds | 44.106 seconds |
+`FIRST_SEED` is `3856990208`; `FIRST_REDEPLOY_SEED` is `1323171840`.
 
-Main's original pins pass before reverting the fix. The shared-task pins and all engine
-simulation profiles pass with the fix present.
+All eight engine pins move because retained locks change Step/RPC admission and retry
+snapshots change later Worker inputs. Main’s registry-owned RPC tasks, shared deadlines,
+in-flight deduplication, and timeout-after-snapshot-read behavior are preserved.
+
+The v1 format pin changes from `cfefd5e7feabc7ad189a1a84cf9adab5` to
+`2bdc08183cd17d874252abb5985d4a1c`. The merged generator keeps field 18 and dispatch
+reasons from #1037. Retained retry locks change the accounting in the `order-sync` RunRecord
+and the snapshot store hash and manifest. Log objects and the workload remain unchanged.
+The fixture README is preserved. Full-log replay, snapshot restore, and byte reproduction
+verify the regenerated fixture under the pre-1.0 policy.
+
+`3856990458` and `3856990400` originally reproduced the failure of reads of a purging run,
+which omitted a hard-delete Attribute right after the purge deleted its object. Each failed
+within 120 seconds when the fix was reverted. `3856990760` found that failure first, but a later change to object
+storage reads moved its trajectory, so it no longer reproduces it. `3856990875` reproduced it
+until the child-wait probe moved its trajectory.
+Combining the child-wait probe with later engine changes moved every pin again.
+Retaining method snapshots and locks across retries subsequently moved all eight pinned digests.
+The four engine regression seeds now serve as historical baseline cases. Fresh checks of
+`3856990760`, `3856990458`, `3856990875`, and `3856990400` restored the pre-#847
+hard-delete read method and removed the purging-run rejection. All four pass at both 120
+and 600 simulated seconds after lock retention, including the two detectors reverified in #1038.
+The deterministic `dexzd-engine` tests in `effects::tests::outbox_and_purge_tests` preserve
+that coverage:
+
+- `a_crash_after_the_purge_decision_before_object_deletion_purges_after_restart`
+- `a_crash_during_object_deletion_purges_after_restart`
+- `a_crash_after_object_deletion_before_run_purge_commits_purges_after_restart`
+
+All three fail when the purging-run guard in `read_run` is removed and pass with it present.
+Restoring randomized #847 detection is tracked in
+[issue #1033](https://github.com/superdurable/dex/issues/1033).
 
 ### Running
 

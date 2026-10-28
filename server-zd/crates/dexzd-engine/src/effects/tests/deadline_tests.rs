@@ -231,8 +231,8 @@ async fn start_with_a_held_state_read(harness: &EffectHarness) -> super::OpenSta
     held_reads
 }
 
-/// Asserts that only the first attempt failed, by method timeout before any dispatch, releasing
-/// its lock.
+/// Asserts that only the first attempt failed, by method timeout before any dispatch, retaining
+/// its lock for retry.
 fn assert_the_first_attempt_timed_out_before_dispatch(harness: &EffectHarness) {
     let failures = harness.flow_effect_operations.commands_matching(|command| {
         matches!(command, flow_command::Command::StepAttemptFailed(_))
@@ -251,7 +251,7 @@ fn assert_the_first_attempt_timed_out_before_dispatch(harness: &EffectHarness) {
         .published_effects
         .lock()
         .expect("lock");
-    assert!(published_effects.iter().any(|effect| matches!(
+    assert!(!published_effects.iter().any(|effect| matches!(
         effect,
         ApplyEffect::LocksReleased { lock_keys, .. } if lock_keys == &["inventory".to_owned()]
     )));

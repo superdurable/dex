@@ -132,7 +132,14 @@ pub(crate) fn apply_attempt_started(
         )));
     }
     let method = StepMethod::try_from(key.method).unwrap_or(StepMethod::Execute);
-    let snapshot = compute_attempt_snapshot(transaction, cursor, &step, method, command.attempt)?;
+    let snapshot = match step
+        .invocation
+        .as_mut()
+        .and_then(|invocation| invocation.snapshot.take())
+    {
+        Some(snapshot) => snapshot,
+        None => compute_attempt_snapshot(transaction, cursor, &step, method, command.attempt)?,
+    };
     start_attempt(
         transaction,
         cursor,
@@ -261,7 +268,11 @@ pub(crate) fn apply_attempt_failed(
             scope.now_micros,
         )?;
     }
-    end_running_attempt(transaction, cursor, &mut step, InvocationEnd::Finished)?;
+    let end = match decision {
+        RetryDecision::RetryAt { .. } => InvocationEnd::Retry,
+        RetryDecision::Exhausted => InvocationEnd::Finished,
+    };
+    end_running_attempt(transaction, cursor, &mut step, end)?;
     match decision {
         RetryDecision::RetryAt { fires_at_micros } => {
             let next_attempt = command.attempt + 1;
@@ -270,7 +281,6 @@ pub(crate) fn apply_attempt_failed(
                 invocation.attempt = next_attempt;
                 invocation.backoff_fires_at_micros = fires_at_micros;
                 invocation.last_failure = Some(failure);
-                invocation.snapshot = None;
             }
             arm_retry_timer(transaction, cursor, &key, next_attempt, fires_at_micros);
             cursor.rows.put_step_execution(transaction, &step);

@@ -1,0 +1,32 @@
+diff --git a/server-zd/crates/dexzd-apply/src/steps/step_results.rs b/server-zd/crates/dexzd-apply/src/steps/step_results.rs
+--- a/server-zd/crates/dexzd-apply/src/steps/step_results.rs
++++ b/server-zd/crates/dexzd-apply/src/steps/step_results.rs
+@@ -124,7 +124,27 @@
+         .as_mut()
+         .and_then(|invocation| invocation.snapshot.take())
+     {
+-        Some(snapshot) => snapshot,
++        Some(snapshot) => {
++            let pin = ValueHolder::AttemptSnapshot {
++                step_execution_id: step.step_execution_id.clone(),
++                method: key.method,
++                attempt: command.attempt,
++            };
++            for stored in snapshot
++                .attributes
++                .iter()
++                .filter_map(|attribute| attribute.value.as_ref())
++                .chain(snapshot.loaded_channel_messages.iter().flat_map(|channel| {
++                    channel
++                        .messages
++                        .iter()
++                        .filter_map(|message| message.value.as_ref())
++                }))
++            {
++                release_stored_value(transaction, cursor.rows, stored, &pin, cursor.seq)?;
++            }
++            compute_attempt_snapshot(transaction, cursor, &step, method, command.attempt)?
++        }
+         None => compute_attempt_snapshot(transaction, cursor, &step, method, command.attempt)?,
+     };
+     start_attempt(

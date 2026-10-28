@@ -55,7 +55,7 @@ impl RpcLockTable {
 pub(crate) enum LockBlocker {
     /// An RPC holds the key.
     Rpc,
-    /// A running Step attempt holds the key (committed or speculative).
+    /// A logical Step method holds the key (committed or speculative).
     Step,
     /// An earlier pending invocation waits for the key.
     EarlierWaiter,
@@ -98,7 +98,10 @@ pub(crate) fn find_invocation_lock_blocker(
         let Some(record) = read_lock_record(state, flow_hash, run_id, lock_key)? else {
             continue;
         };
-        if has_holder(&record) && record.holder.as_ref() != Some(invocation) {
+        if record.holder.as_ref() == Some(invocation) {
+            continue;
+        }
+        if has_holder(&record) {
             return Ok(Some((lock_key.clone(), LockBlocker::Step)));
         }
         // Apply starts only the first queued waiter, so queue position breaks sequence ties.

@@ -6,8 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The snapshot an attempt reads (plan section 8.1, C17): recomputed at every attempt start,
-//! after the attempt took its locks, and pinned until the attempt ends.
+//! The snapshot an attempt reads (plan section 8.1, C17): computed at the first attempt start,
+//! after the attempt took its locks, and pinned until the method ends.
 
 use std::collections::BTreeMap;
 

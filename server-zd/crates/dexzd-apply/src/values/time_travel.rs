@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use dexzd_keyspace::{RunTable, ValueId};
 use dexzd_protocol::dexzd::v1::{
     AttributeRecord, ChannelMessageRecord, CheckpointRow, RunRecord, StepExecutionRecord,
-    StepInvocationPhase, StoredValue, SubFlowResultRecord,
+    StoredValue, SubFlowResultRecord,
 };
 use prost::Message;
 
@@ -163,9 +163,7 @@ fn collect_step_holders(assignments: &mut HolderAssignments, step: &StepExecutio
                 method: invocation.method,
             },
         );
-        if invocation.phase == StepInvocationPhase::Running as i32
-            && let Some(snapshot) = &invocation.snapshot
-        {
+        if let Some(snapshot) = &invocation.snapshot {
             let pin = ValueHolder::AttemptSnapshot {
                 step_execution_id,
                 method: invocation.method,

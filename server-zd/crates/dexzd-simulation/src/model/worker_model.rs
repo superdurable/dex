@@ -51,17 +51,17 @@ impl Call<'_> {
         }
     }
 
-    /// Whether the owner may start the pending attempt: each lock is free and this call is
-    /// its oldest waiter.
+    /// Whether the owner may start the pending attempt: each lock is retained, or free with this call first.
     pub(crate) fn can_take_locks(&self) -> bool {
         let key = self.key();
         self.invocation.lock_keys.iter().all(|lock_key| {
             self.run.locks.get(lock_key).is_some_and(|lock| {
-                lock.holder.is_none()
-                    && lock
-                        .waiters
-                        .first()
-                        .is_some_and(|waiter| waiter.invocation.as_ref() == Some(&key))
+                lock.holder.as_ref() == Some(&key)
+                    || (lock.holder.is_none()
+                        && lock
+                            .waiters
+                            .first()
+                            .is_some_and(|waiter| waiter.invocation.as_ref() == Some(&key)))
             })
         })
     }

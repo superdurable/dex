@@ -201,13 +201,14 @@ git -C "$repository_root" worktree remove --force "$baseline_worktree"
 detected_count=0
 gap_count=0
 detections=()
-for name in wall-clock hash-map-iteration immediate-reclaim retry-stale-snapshot \
+for name in wall-clock hash-map-iteration immediate-reclaim retry-fresh-snapshot \
   ack-before-persist skip-epoch-check speculative-read-leak; do
   case "$name" in
     wall-clock) suite=apply; expected_invariants=(A2-apply-twice) ;;
-    hash-map-iteration) suite=apply; expected_invariants=(A2-apply-twice A2-apply-redecoded) ;;
+    # Matching HashMap permutations can pass A2 before snapshot-order checks fail.
+    hash-map-iteration) suite=apply; expected_invariants=(A2-apply-twice A2-apply-redecoded S5-fresh-snapshot S5-retained-snapshot) ;;
     immediate-reclaim) suite=apply; expected_invariants=(I1-window-value-reference) ;;
-    retry-stale-snapshot) suite=apply; expected_invariants=(S5-fresh-snapshot) ;;
+    retry-fresh-snapshot) suite=apply; expected_invariants=(S5-retained-snapshot) ;;
     ack-before-persist) suite=engine; expected_invariants=(acknowledged-write-lost) ;;
     skip-epoch-check) suite=redeploy; expected_invariants=(voided-batch-applied) ;;
     speculative-read-leak) suite=engine; expected_invariants=(speculative-read) ;;
