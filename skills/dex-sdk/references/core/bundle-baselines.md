@@ -25,7 +25,7 @@ keeps one extra idle pull stream after a reserved-RPC decline and sends a
 busy-stream Pong every 20 seconds in all five SDKs. Server v1.24.0 limits Go
 Server SearchFlows to Dex Flows and carries pull dispatch failure text into
 SubFlow results. v1.25.0 removes listening Workers from every SDK, so every
-Worker is a pull Worker. The server-zd guidance covers v0.1.3 through v0.1.8.
+Worker is a pull Worker. The server-zd guidance covers v0.1.3 through v0.1.10.
 Each SDK and its language examples use that language's exact tag. **DEX_BASELINE**
 is the Go SDK pin, not a shared version for every language.
 The example dependency manifests in all five languages select SDK v1.15.0.

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release used by core operations guidance.
 SERVER_ZD_RELEASE = "server-zd/v0.1.6"
-SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.8"
+SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.10"
 WORKFLOW_UPDATER_PATH = "server/service/interpreter/workflowUpdater.go"
 API_SERVICE_PATH = "server/service/api/service.go"
 TERMINAL_COORDINATOR_PATH = "server/service/interpreter/terminalCoordinator.go"
@@ -75,7 +75,7 @@ SERVER_ZD_STATEMENTS = (
         "request.action_permission_mappings.is_some()",
     )),
 )
-# Statements first made by server-zd v0.1.7 and v0.1.8, checked at the latest release.
+# Statements first made by server-zd v0.1.7 through v0.1.10, checked at the latest release.
 SERVER_ZD_LATEST_STATEMENTS = (
     ("server-zd/v0.1.7", "server-zd/README.md", (
         "`recovery.startupReadRetryBudget` wall-clock window (default 30 seconds)",
@@ -85,6 +85,33 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "From v0.1.8, a transactional or locking InvokeRPC on a closed run returns NOT_FOUND and",
         "A later unsynced write does not replace a pending synced value.",
     )),
+    ("server-zd/v0.1.10", "server-zd/crates/dexzd-apply/README.md", (
+        "Each logical WaitFor or Execute call, including the Flow timeout handler, loads",
+        "Retries reuse its\nAttributes, Channel messages, Channel infos, and selections.",
+        "Conflicting RPCs fail immediately while those locks are held.",
+        "Locks release when the logical method ends.",
+        "TimeTravel returns `FAILED_PRECONDITION` without changing state.",
+    )),
+    ("server-zd/v0.1.10", "server-zd/crates/dexzd-engine/README.md", (
+        "## SubFlow hard-delete Attributes",
+        "Concurrent identical requests receive the\nsame result or error.",
+        "The RPC timeout starts at the Worker\ninvocation",
+        "Exceeding it returns UNAVAILABLE with an\nunknown outcome",
+        "A retry may run the RPC again.",
+        "A node crash before the result commits can invoke\nthe Worker again on retry.",
+        "generate a fresh request ID for each explicit\nRPC invocation and expose no override.",
+    )),
+    ("server-zd/v0.1.10", "server-zd/crates/dexzd-apply/src/read_model/flow.rs", (
+        "InternalTimerStatus::Skipped",
+    )),
+    ("server-zd/v0.1.10", "server-zd/crates/dexzd-apply/src/steps/step_results.rs", (
+        "dispatch_task_error_reason: dispatch_reason as i32,",
+    )),
+)
+# Go Server documentation of first-attempt snapshot reuse, checked at the Server baseline.
+RETRY_SNAPSHOT_SERVER_STATEMENT = (
+    "docs/content/primitives/step/step-options.mdx",
+    "A retry of one **Execute** call reuses the [state snapshot](#selective-state-loading) loaded for its first attempt",
 )
 # Statements about Server v1.24.0 and SDK v1.23.0 behavior, as (tagged path, needles).
 RELEASE_1_24_STATEMENTS = (
@@ -265,7 +292,25 @@ REFERENCE_1_24_STATEMENTS = (
         "From server-zd v0.1.7, node start retries transient or unknown-outcome object-storage reads",
         "**recovery.startupReadRetryBudget** (default 30 seconds)",
         "From server-zd v0.1.8, Attribute Sync never replaces a pending synced value",
+        "server-zd v0.1.10 changes these application-visible behaviors:",
+        "From server-zd v0.1.10, time travel returns FAILED_PRECONDITION",
+        "GetFlowState reports a skipped Timer as SKIPPED",
     )),
+    ("core/step-options.md", (
+        "A retry of one logical method call reuses the state snapshot loaded for its first attempt.",
+        "From server-zd v0.1.10, every WaitFor, Execute, and Flow timeout handler retry reuses that snapshot",
+        "Its Attribute locks stay held through retry backoff",
+    )),
+    ("core/read-after-write.md", (
+        "Every SDK generates a fresh request ID for each RPC invocation and exposes no override.",
+        "From server-zd v0.1.10, concurrent transactional or locking RPCs that share a request ID run the Worker handler once",
+        "the call returns UNAVAILABLE and the outcome is unknown",
+    )),
+    ("core/data-handling.md", (
+        "From server-zd v0.1.10, that holder can be a Step method in retry backoff",
+        "a hard-delete Attribute needs v0.1.10 or later",
+    )),
+    ("core/bundle-baselines.md", ("The server-zd guidance covers v0.1.3 through v0.1.10.",)),
     ("go/go.md", ("From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity",)),
     ("java/java.md", ("From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
     ("python/python.md", ("From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
@@ -1327,6 +1372,7 @@ def main() -> None:
     check_server_zd_statements(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, SERVER_ZD_LATEST_STATEMENTS)
     for statement_path, statement_needles in RELEASE_1_24_STATEMENTS:
         require_tagged_text(arguments.dex_root, server_baseline, statement_path, *statement_needles)
+    require_tagged_text(arguments.dex_root, server_baseline, *RETRY_SNAPSHOT_SERVER_STATEMENT)
     check_server_zd_search_tls(arguments.dex_root, SERVER_ZD_RELEASE, SDK_REFERENCES)
     check_go_server_close_cleanup(arguments.dex_root, server_baseline)
     check_flow_summary_rpc(arguments.dex_root, server_baseline, SERVER_ZD_RELEASE)

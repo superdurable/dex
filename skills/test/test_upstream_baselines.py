@@ -1368,6 +1368,35 @@ class ServerZdStatementsTest(unittest.TestCase):
         self.assertIn(f"Required release tag {self.CITED_TAG} is unavailable", str(raised.exception))
 
 
+class ServerZdLatestStatementsTest(unittest.TestCase):
+    TAG = "server-zd/v0.1.10"
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.statements = tuple(
+            statement for statement in CHECKER.SERVER_ZD_LATEST_STATEMENTS if statement[0] == self.TAG
+        )
+        self.sources = tagged_sources(self.TAG, *dict.fromkeys(path for _, path, _ in self.statements))
+        self.repository.commit_and_tag(self.TAG, self.sources)
+
+    def check(self):
+        CHECKER.check_server_zd_statements(self.repository.root, self.TAG, self.statements)
+
+    def test_real_tagged_sources_pass(self):
+        self.check()
+
+    def test_each_tagged_statement_must_be_enforced(self):
+        for _, path, needles in self.statements:
+            for needle in needles:
+                with self.subTest(path=path, needle=needle):
+                    mutated = replace_once(self.sources[path], needle, needle[:-1] + "?")
+                    self.repository.commit_and_tag(self.TAG, {path: mutated})
+                    with self.assertRaises(SystemExit) as raised:
+                        self.check()
+                    self.assertIn(f"{self.TAG}:{path} is missing required text", str(raised.exception))
+                    self.repository.commit_and_tag(self.TAG, {path: self.sources[path]})
+
+
 class Release124ReferencesTest(unittest.TestCase):
     def setUp(self):
         self.references = CHECKER.SDK_REFERENCES
