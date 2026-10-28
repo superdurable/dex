@@ -141,7 +141,7 @@ func TestBinaryTemporalOnlyScenarioSkipsBeforePolling(t *testing.T) {
 	t.Cleanup(func() { *dexServerBinary = previousBinary })
 	conditionRan := false
 	passed := t.Run("Temporal-only scenario", func(t *testing.T) {
-		requireTemporalOnlyScenarioName(t, "TestDeadEndFlowTemporal")
+		requireTemporalOnlyScenarioName(t, "TestDeadEndFlowTemporalContinueAsNew")
 		conditionRan = true
 	})
 	require.True(t, passed)

@@ -80,7 +80,6 @@ func doTestCreateWithoutStartingStep(
 	workerTarget := startWorker(t, workerHandler)
 	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
-	unifiedClient := runtime.UnifiedClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -98,14 +97,17 @@ func doTestCreateWithoutStartingStep(
 	})
 	require.NoError(t, err)
 
-	debug := &dexpb.DebugDumpResponse{}
-	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
-	require.NoError(t, err)
-	require.True(t, proto.Equal(&dexpb.StepExecutionCounterInfo{
-		StepTypeStartedCount:            map[string]int32{},
-		StepTypeCurrentlyExecutingCount: map[string]int32{},
-		TotalCurrentlyExecutingCount:    0,
-	}, debug.GetSnapshot().GetCounterInfo()))
+	// The debug dump is a Temporal workflow query; server-zd has no equivalent.
+	if !isServerZDBinaryMode() {
+		debug := &dexpb.DebugDumpResponse{}
+		err = runtime.UnifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
+		require.NoError(t, err)
+		require.True(t, proto.Equal(&dexpb.StepExecutionCounterInfo{
+			StepTypeStartedCount:            map[string]int32{},
+			StepTypeCurrentlyExecutingCount: map[string]int32{},
+			TotalCurrentlyExecutingCount:    0,
+		}, debug.GetSnapshot().GetCounterInfo()))
+	}
 
 	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 		RequestId:      newRequestID(),

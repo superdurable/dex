@@ -46,6 +46,19 @@ cd server
 go test ./integ -dex-server-binary=/path/to/dex-server-zd -dex-server-engine=zd -run 'TestBasicFlowTemporal'
 ```
 
+The whole suite runs in binary mode, one partition at a time. Attribute Sync
+tests need PostgreSQL on `127.0.0.1:55432`, and Stream Store tests need Redis on
+`127.0.0.1:6379`. The target prints a per-test summary and keeps the
+`go test -json` events:
+
+```shell
+make zdIntegTests dexServerZDBinary=../server-zd/target/debug/dex-server-zd totalPartitions=5 partitionNum=0
+```
+
+The **Server Integration against server-zd** workflow runs all five partitions
+and does not block merges yet. [ZD_BASELINE.md](./ZD_BASELINE.md) classifies
+every skip and failure.
+
 Attribute Sync integration uses isolated MySQL and PostgreSQL services:
 
 ```shell

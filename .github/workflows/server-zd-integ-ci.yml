@@ -1,0 +1,160 @@
+name: Server Integration against server-zd
+
+# Runs the whole server/integ suite in binary mode against dex-server-zd.
+# It does not gate merges yet; see server/integ/ZD_BASELINE.md for the expected results.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "server-zd/**"
+      - "protos/**"
+      - ".github/workflows/server-zd-integ-ci.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - "server-zd/**"
+      - "protos/**"
+      - ".github/workflows/server-zd-integ-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-zd-integ-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-server-zd:
+    name: Build dex-server-zd
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Matches the Server ZD CI ParadeDB job, so its main cache restores here.
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+      RUSTUP_TOOLCHAIN: "1.97.1"
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for the RocksDB bindings
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-paradedb
+          save-if: false
+      - name: Build dex-server-zd
+        working-directory: server-zd
+        run: cargo build -p dexzd-server --bin dex-server-zd
+      - name: Upload dex-server-zd
+        uses: actions/upload-artifact@v7
+        with:
+          name: dex-server-zd
+          path: server-zd/target/debug/dex-server-zd
+          if-no-files-found: error
+          retention-days: 1
+
+  zd-integ:
+    name: Server integration against server-zd (partition ${{ matrix.partition }})
+    needs: build-server-zd
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [0, 1, 2, 3, 4]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: dex
+          POSTGRES_USER: dex
+          POSTGRES_PASSWORD: dex
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U dex -d dex"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      # The Stream Store tests read Redis directly, matching docker-compose/integ-dependencies.yml.
+      - name: Start Redis
+        run: docker run -d --name redis -p 6379:6379 redis:7-alpine redis-server --maxmemory-policy noeviction
+      - name: Download dex-server-zd
+        uses: actions/download-artifact@v7
+        with:
+          name: dex-server-zd
+          path: server-zd-bin
+      - name: Server integration tests against server-zd
+        run: |
+          chmod +x "$GITHUB_WORKSPACE/server-zd-bin/dex-server-zd"
+          make zdIntegTests \
+            dexServerZDBinary="$GITHUB_WORKSPACE/server-zd-bin/dex-server-zd" \
+            totalPartitions=5 partitionNum=${{ matrix.partition }} \
+            zdIntegTestJSON="$RUNNER_TEMP/zd-integ-${{ matrix.partition }}.json"
+      - name: Upload test events
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: zd-integ-json-${{ matrix.partition }}
+          path: |
+            ${{ runner.temp }}/zd-integ-${{ matrix.partition }}.json
+            ${{ runner.temp }}/zd-integ-${{ matrix.partition }}.tests.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  zd-integ-summary:
+    name: Summarize server integration against server-zd
+    needs: zd-integ
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test the summarizer
+        run: python3 server/script/summarize_integ_test_json_test.py
+      - name: Download test events
+        uses: actions/download-artifact@v7
+        with:
+          pattern: zd-integ-json-*
+          path: zd-integ-json
+          merge-multiple: true
+      - name: Write summary
+        run: |
+          # The default run shell has no pipefail; tee would hide the summarizer's exit status.
+          set -o pipefail
+          # A missing artifact would drop its partition's tests from the summary.
+          expected_test_arguments=()
+          json_paths=()
+          missing_paths=()
+          for partition in 0 1 2 3 4; do
+            expected_tests_path="zd-integ-json/zd-integ-$partition.tests.txt"
+            json_path="zd-integ-json/zd-integ-$partition.json"
+            for partition_path in "$expected_tests_path" "$json_path"; do
+              if [[ ! -s "$partition_path" ]]; then
+                missing_paths+=("$partition_path")
+              fi
+            done
+            expected_test_arguments+=(--expected-tests "$expected_tests_path")
+            json_paths+=("$json_path")
+          done
+          if ((${#missing_paths[@]} > 0)); then
+            printf 'Missing partition artifacts: %s\n' "${missing_paths[*]}" | tee -a "$GITHUB_STEP_SUMMARY" >&2
+            exit 1
+          fi
+          python3 server/script/summarize-integ-test-json.py "${expected_test_arguments[@]}" "${json_paths[@]}" |
+            tee -a "$GITHUB_STEP_SUMMARY"
