@@ -544,6 +544,19 @@ func clientTestMissingFlowError() error {
 	)
 }
 
+func TestClientUpdateFlowConfigPreservesWorkerTarget(t *testing.T) {
+	client, service := newClientIntegration(t)
+	for _, config := range []FlowConfig{
+		{},
+		{ContinueAsNewThreshold: ptr.Any(int32(100))},
+		{AttributeStoreNames: []string{"reporting"}},
+	} {
+		require.NoError(t, client.UpdateFlowConfig(context.Background(), "existing-flow", config))
+		require.NotNil(t, service.updateConfigRequest.FlowConfig)
+		require.Nil(t, service.updateConfigRequest.FlowConfig.WorkerTarget)
+	}
+}
+
 func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	client, service := newClientIntegration(t)
 	ctx := context.Background()
@@ -896,7 +909,7 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 		ContinueAsNewThreshold: ptr.Any(int32(100)),
 		AttributeStoreNames:    []string{"reporting", "audit"},
 	}))
-	require.True(t, service.updateConfigRequest.FlowConfig.WorkerTarget.IsPullMode)
+	require.Nil(t, service.updateConfigRequest.FlowConfig.WorkerTarget)
 	require.Equal(t, []string{"reporting", "audit"}, service.updateConfigRequest.FlowConfig.GetAttributeStoreNames().GetNames())
 	require.NoError(t, client.WaitForStepCompletion(
 		ctx,

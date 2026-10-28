@@ -92,7 +92,7 @@ func NewRunner(config Config) (*Runner, error) {
 		return nil, err
 	}
 	runner.worker = worker
-	client, err := dex.NewClient(registry, cache, dex.ClientOptions{FlowServiceAddress: config.Address, WorkerTarget: worker.WorkerTarget()})
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{FlowServiceAddress: config.Address})
 	if err != nil {
 		runner.stopWorker()
 		runner.closeCache()

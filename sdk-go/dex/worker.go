@@ -36,7 +36,7 @@ const (
 type WorkerOptions struct {
 	// Pull configures task capacity, registration, and shutdown. Nil uses PullWorkerOptions defaults.
 	Pull *PullWorkerOptions
-	// FlowServiceAddress is the Dex gRPC endpoint used for startup synchronization and blob hydration. Default: "localhost:8801".
+	// FlowServiceAddress is the Dex gRPC endpoint used for startup synchronization, task streams, and blob hydration. Default: "localhost:8801".
 	// With FlowServiceTLS, use host:port, dns:///host:port, or dns://authority/host:port, such as "dex.example.com:443".
 	// Startup synchronization registers Attribute indexes.
 	FlowServiceAddress string
@@ -328,7 +328,6 @@ func validatePlaintextTarget(address string) error {
 	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
 		return fmt.Errorf("target %q must use plaintext gRPC", address)
 	}
-
 	return nil
 }
 
@@ -337,8 +336,9 @@ func validatePlaintextTarget(address string) error {
 // Start may be called exactly once. Before serving, it negotiates a Server
 // protocol, synchronizes Attribute indexes, and waits up to
 // WorkerOptions.AttributeIndexSyncTimeout for each startup request.
-// It returns nil after a normal Stop, or an error for synchronization, polling, or invalid lifecycle state failures. Call Start on a dedicated goroutine
-// when the application must continue doing other work.
+// It returns nil after a normal Stop, or an error for synchronization, polling,
+// or invalid lifecycle state failures. Call Start on a dedicated goroutine when
+// the application must continue doing other work.
 // Poll stream failures are retried while the Worker runs; registration failures
 // are logged with a longer retry delay unless PullWorkerOptions.StopOnPermanentStreamRejection is enabled.
 func (worker *Worker) Start() (startErr error) {

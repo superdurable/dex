@@ -388,7 +388,7 @@ type HealthInfo struct {
 //
 // flow must be registered with the Client's Registry, flowID must be non-empty,
 // and input must match the Flow's starting Step input type. options controls the
-// request ID, timeout, worker target, initial attributes, and Flow configuration;
+// request ID, timeout, initial attributes, and Flow configuration;
 // omitted values use the registered Flow defaults. The method returns after the
 // server accepts the Flow, not after the Flow completes.
 //
@@ -900,9 +900,10 @@ func resolveTimerID(timer TimerID) (string, *int32, error) {
 	return timer.ConditionID, timer.Index, nil
 }
 
-// UpdateFlowConfig replaces the mutable configuration of an active Flow.
+// UpdateFlowConfig updates the supplied mutable configuration fields of an active Flow.
 //
-// config is validated and serialized before the request. The update applies to
+// config is validated and serialized before the request. Omitted fields keep their
+// existing values, including the Worker target. The update applies to
 // later Flow decisions; work already dispatched is not recalled. The method
 // returns validation, inactive-Flow, context, transport, or server errors.
 func (client *Client) UpdateFlowConfig(

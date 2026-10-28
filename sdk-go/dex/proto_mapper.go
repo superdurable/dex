@@ -135,6 +135,7 @@ func mapStartFlowOptions(
 	if err != nil {
 		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
+	config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true}
 	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(options.TimeoutHandlerOptions)
 	if err != nil {
 		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
@@ -497,7 +498,6 @@ func mapFlowConfig(config *FlowConfig) (*dexpb.FlowConfig, error) {
 		ContinueAsNewThreshold:       config.ContinueAsNewThreshold,
 		ContinueAsNewPageSizeInBytes: config.ContinueAsNewPageSizeBytes,
 		StepDurability:               durability,
-		WorkerTarget:                 &dexpb.WorkerTarget{IsPullMode: true},
 		AttributeStoreNames:          attributeStoreNames,
 	}, nil
 }
@@ -778,6 +778,7 @@ func mapSubFlowOptions(
 	if err != nil {
 		return nil, err
 	}
+	config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true}
 	reusePolicy, err := mapSubFlowReusePolicy(options.ReusePolicy)
 	if err != nil {
 		return nil, err

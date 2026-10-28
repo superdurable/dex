@@ -985,9 +985,25 @@ func (stream *pullStream) closeSend() {
 	}
 }
 
+func (stream *pullStream) sendStepFrame(ctx context.Context, frame *dexpb.PollWorkerTaskFrame) error {
+	stream.sendMu.Lock()
+	defer stream.sendMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if stream.isFinalFrameSent {
+		return errInvalidInvocationContext
+	}
+	return stream.sendTaskFrameLocked(frame)
+}
+
 func (stream *pullStream) sendTaskFrame(frame *dexpb.PollWorkerTaskFrame) error {
 	stream.sendMu.Lock()
 	defer stream.sendMu.Unlock()
+	return stream.sendTaskFrameLocked(frame)
+}
+
+func (stream *pullStream) sendTaskFrameLocked(frame *dexpb.PollWorkerTaskFrame) error {
 	if stream.isSendClosed {
 		return io.ErrClosedPipe
 	}
@@ -1006,7 +1022,7 @@ type pullWaitForSender struct {
 
 func (sender *pullWaitForSender) Context() context.Context { return sender.ctx }
 func (sender *pullWaitForSender) Send(output *dexpb.InvokeWaitForMethodOutput) error {
-	return sender.stream.sendTaskFrame(&dexpb.PollWorkerTaskFrame{TaskId: sender.taskID, Output: &dexpb.PollWorkerTaskFrame_WaitFor{WaitFor: output}})
+	return sender.stream.sendStepFrame(sender.ctx, &dexpb.PollWorkerTaskFrame{TaskId: sender.taskID, Output: &dexpb.PollWorkerTaskFrame_WaitFor{WaitFor: output}})
 }
 
 type pullExecuteSender struct {
@@ -1017,5 +1033,5 @@ type pullExecuteSender struct {
 
 func (sender *pullExecuteSender) Context() context.Context { return sender.ctx }
 func (sender *pullExecuteSender) Send(output *dexpb.InvokeExecuteMethodOutput) error {
-	return sender.stream.sendTaskFrame(&dexpb.PollWorkerTaskFrame{TaskId: sender.taskID, Output: &dexpb.PollWorkerTaskFrame_Execute{Execute: output}})
+	return sender.stream.sendStepFrame(sender.ctx, &dexpb.PollWorkerTaskFrame{TaskId: sender.taskID, Output: &dexpb.PollWorkerTaskFrame_Execute{Execute: output}})
 }

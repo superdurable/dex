@@ -241,13 +241,15 @@ func TestWorkerPullTaskFramesAndReconnect(t *testing.T) {
 	queueStream = awaitPullIdleQueueStream(t, worker, server, flowType)
 	executeRequest := workerExecuteRequest(t, workerTestInput{OrderID: "order-1", Mode: "execute-progress"})
 	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Task{Task: &dexpb.PollWorkerTask{TaskId: "execute-1", Request: &dexpb.PollWorkerTask_Execute{Execute: executeRequest}}}}))
-	for {
-		frame := awaitPullFrame(t, queueStream).GetTaskFrame()
-		require.NotNil(t, frame)
-		if frame.GetExecute().GetResult() != nil {
-			break
-		}
-	}
+	heartbeatFrame := awaitPullFrame(t, queueStream).GetTaskFrame()
+	require.Equal(t, "execute-1", heartbeatFrame.GetTaskId())
+	require.NotNil(t, heartbeatFrame.GetExecute().GetHeartbeat())
+	streamWriteFrame := awaitPullFrame(t, queueStream).GetTaskFrame()
+	require.Equal(t, "execute-1", streamWriteFrame.GetTaskId())
+	require.NotNil(t, streamWriteFrame.GetExecute().GetStreamWrite())
+	resultFrame := awaitPullFrame(t, queueStream).GetTaskFrame()
+	require.Equal(t, "execute-1", resultFrame.GetTaskId())
+	require.NotNil(t, resultFrame.GetExecute().GetResult())
 	awaitPullTaskCompletion(t, worker)
 	queueStream = awaitPullIdleQueueStream(t, worker, server, flowType)
 	require.NoError(t, queueStream.send(&dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Task{Task: &dexpb.PollWorkerTask{TaskId: "rpc-1", Request: &dexpb.PollWorkerTask_Rpc{Rpc: workerRPCRequest(t, workerTestInput{OrderID: "order-1"})}}}}))

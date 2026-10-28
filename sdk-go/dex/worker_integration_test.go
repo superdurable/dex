@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"net"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1304,6 +1305,9 @@ func TestWorkerLifecycleDefaults(t *testing.T) {
 	require.NotNil(t, worker.pull)
 	require.NoError(t, worker.Stop(context.Background()))
 	require.NoError(t, worker.Stop(context.Background()))
+	cancelledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.NoError(t, worker.Stop(cancelledContext))
 	require.Error(t, worker.Start())
 	_, err = newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{AttributeIndexSyncTimeout: -time.Second})
 	require.ErrorContains(t, err, "sync timeout must be positive")
@@ -1320,15 +1324,18 @@ func TestWorkerSynchronizesAttributeIndexesBeforePolling(t *testing.T) {
 			indexedStatus,
 		}},
 	}
+	syncRelease := make(chan struct{}, 1)
+	t.Cleanup(func() { close(syncRelease) })
 	flowService := &workerSyncFlowService{
-		received: make(chan *dexpb.SyncAttributeIndexRequest, 1),
+		syncRelease: syncRelease,
+		received:    make(chan *dexpb.SyncAttributeIndexRequest, 1),
 		serverInfo: &dexpb.ServerInfo{
 			ServerVersion:                   "test",
 			MinimumSupportedProtocolVersion: 1,
 			CurrentProtocolVersion:          2,
 		},
 	}
-	flowServiceAddress := startWorkerFlowService(t, flowService)
+	flowServiceAddress := startWorkerFlowService(t, flowService, &workerStartupTaskService{flowService: flowService})
 	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{
 		FlowServiceAddress: flowServiceAddress,
 	})
@@ -1336,13 +1343,25 @@ func TestWorkerSynchronizesAttributeIndexesBeforePolling(t *testing.T) {
 	startResult := make(chan error, 1)
 	go func() { startResult <- worker.Start() }()
 
-	request := <-flowService.received
+	var request *dexpb.SyncAttributeIndexRequest
+	select {
+	case request = <-flowService.received:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Worker did not synchronize Attribute indexes")
+	}
+	require.Never(t, func() bool {
+		return slices.Contains(flowService.recordedCalls(), "PollWorkerTask")
+	}, 100*time.Millisecond, time.Millisecond)
 	require.Equal(t, map[string]dexpb.IndexType{
 		"WorkerTestStatus": dexpb.IndexType_INDEX_TYPE_KEYWORD,
 	}, request.AttributeIndexes)
 	require.Equal(t, uint32(2), worker.serverProtocol.version.Load())
 	require.Equal(t, "dev", worker.sdkVersion)
 	require.Equal(t, []string{"GetServerInfo", "SyncAttributeIndexes"}, flowService.recordedCalls())
+	syncRelease <- struct{}{}
+	require.Eventually(t, func() bool {
+		return slices.Contains(flowService.recordedCalls(), "PollWorkerTask")
+	}, 5*time.Second, time.Millisecond)
 
 	require.NoError(t, worker.Stop(context.Background()))
 	require.NoError(t, <-startResult)
@@ -1406,7 +1425,7 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronized(t *testing.T) {
 				serverInfo:        testCase.serverInfo,
 				serverInfoFailure: testCase.serverInfoFailure,
 			}
-			flowServiceAddress := startWorkerFlowService(t, flowService)
+			flowServiceAddress := startWorkerFlowService(t, flowService, &workerStartupTaskService{flowService: flowService})
 			worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
 				FlowServiceAddress: flowServiceAddress,
 			})
@@ -1425,9 +1444,10 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronized(t *testing.T) {
 }
 
 func TestWorkerAttributeIndexSyncFailure(t *testing.T) {
-	flowServiceAddress := startWorkerFlowService(t, &workerSyncFlowService{
+	flowService := &workerSyncFlowService{
 		attributeFailure: status.Error(codes.PermissionDenied, "denied"),
-	})
+	}
+	flowServiceAddress := startWorkerFlowService(t, flowService, &workerStartupTaskService{flowService: flowService})
 	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
 		FlowServiceAddress: flowServiceAddress,
 	})
@@ -1435,7 +1455,7 @@ func TestWorkerAttributeIndexSyncFailure(t *testing.T) {
 	err = worker.Start()
 	require.ErrorContains(t, err, "sync attribute indexes")
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
-
+	require.Equal(t, []string{"GetServerInfo", "SyncAttributeIndexes"}, flowService.recordedCalls())
 }
 
 func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
@@ -1547,6 +1567,36 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	require.Equal(t, "loaded-blob-1", uncached.GetStringValue())
 	require.Contains(t, logOutput.String(), "read blob cache")
 	require.Contains(t, logOutput.String(), "write blob cache")
+}
+
+func TestWorkerHydrationSplitsBlobBatchesAboveLimit(t *testing.T) {
+	flowService := &workerBlobFlowService{}
+	for _, blobID := range []string{"first", "second", "third"} {
+		flowService.setValue(blobID, mustEncodeWorkerTestValue(t, strings.Repeat(blobID, 120)))
+	}
+	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
+		FlowServiceAddress:  startWorkerFlowService(t, flowService),
+		GrpcMaxMessageBytes: 1024,
+	})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, worker.Stop(context.Background())) }()
+	client, closeWorker := newWorkerTestClient(t, worker.pull.service.hydrator)
+	defer closeWorker()
+	request := workerRPCRequest(t, workerTestInput{Mode: "pending"})
+	request.LoadedChannelNames = []string{"commands"}
+	request.LoadedChannelMessages = map[string]*dexpb.ChannelValues{
+		"commands": {Messages: []*dexpb.ChannelMessage{
+			{MessageId: "first-message", Value: workerTestStringBlob("first")},
+			{MessageId: "second-message", Value: workerTestStringBlob("second")},
+			{MessageId: "third-message", Value: workerTestStringBlob("third")},
+		}},
+	}
+	response, err := client.InvokeWorkerRPC(context.Background(), request)
+	require.NoError(t, err)
+	var output workerTestOutput
+	require.NoError(t, decodeValue(response.Output, &output))
+	require.Equal(t, workerTestOutput{Before: 3, After: 3}, output)
+	require.Equal(t, 5, flowService.callCount())
 }
 
 func TestWorkerHydrationReportsEveryOmittedBlobAndValue(t *testing.T) {
@@ -1705,6 +1755,7 @@ type workerBlobFlowService struct {
 
 type workerSyncFlowService struct {
 	dexpb.UnimplementedFlowServiceServer
+	syncRelease       <-chan struct{}
 	received          chan *dexpb.SyncAttributeIndexRequest
 	serverInfo        *dexpb.ServerInfo
 	serverInfoFailure error
@@ -1734,7 +1785,7 @@ func (service *workerSyncFlowService) GetServerInfo(
 }
 
 func (service *workerSyncFlowService) SyncAttributeIndexes(
-	_ context.Context,
+	ctx context.Context,
 	request *dexpb.SyncAttributeIndexRequest,
 ) (*dexpb.SyncAttributeIndexResponse, error) {
 	service.callsMu.Lock()
@@ -1743,10 +1794,32 @@ func (service *workerSyncFlowService) SyncAttributeIndexes(
 	if service.received != nil {
 		service.received <- request
 	}
+	if service.syncRelease != nil {
+		select {
+		case <-service.syncRelease:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	if service.attributeFailure != nil {
 		return nil, service.attributeFailure
 	}
 	return &dexpb.SyncAttributeIndexResponse{}, nil
+}
+
+type workerStartupTaskService struct {
+	dexpb.UnimplementedWorkerTaskServiceServer
+	flowService *workerSyncFlowService
+}
+
+func (service *workerStartupTaskService) PollWorkerTask(
+	stream grpc.BidiStreamingServer[dexpb.PollWorkerTaskRequest, dexpb.PollWorkerTaskResponse],
+) error {
+	service.flowService.callsMu.Lock()
+	service.flowService.calls = append(service.flowService.calls, "PollWorkerTask")
+	service.flowService.callsMu.Unlock()
+	<-stream.Context().Done()
+	return stream.Context().Err()
 }
 
 func (service *workerSyncFlowService) recordedCalls() []string {
@@ -1917,12 +1990,16 @@ func newWorkerForTest(
 func startWorkerFlowService(
 	t *testing.T,
 	service dexpb.FlowServiceServer,
+	taskServices ...dexpb.WorkerTaskServiceServer,
 ) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	grpcServer := grpc.NewServer()
 	dexpb.RegisterFlowServiceServer(grpcServer, service)
+	for _, taskService := range taskServices {
+		dexpb.RegisterWorkerTaskServiceServer(grpcServer, taskService)
+	}
 	serveResult := make(chan error, 1)
 	go func() {
 		serveResult <- grpcServer.Serve(listener)
