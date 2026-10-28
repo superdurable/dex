@@ -108,7 +108,11 @@ pub(crate) fn apply_time_travel(
     } else {
         Vec::new()
     };
-    let rebuilt = rebuild_attempt_state(transaction, cursor.rows, &cursor.record, target.point)?;
+    let rebuilt =
+        match rebuild_attempt_state(transaction, cursor.rows, &cursor.record, target.point)? {
+            Ok(rebuilt) => rebuilt,
+            Err(reply) => return Ok(HandlerResult::Rejected(reply)),
+        };
     let restored_closing = restored_closing(&rebuilt.run_status, &target)?;
     let previous_rows = read_attempt_rows(transaction, cursor.rows)?;
     let pending_sync_keys = pending_attribute_sync_keys(transaction, cursor.rows)?;
@@ -652,6 +656,12 @@ fn reapply_external_inputs(
                 HandlerResult::Rejected(reply) => {
                     return Err(ApplyError::InvariantViolation {
                         detail: format!("time travel could not reapply recorded input: {reply:?}"),
+                    });
+                }
+                HandlerResult::RebuildUnavailable(_) => {
+                    return Err(ApplyError::InvariantViolation {
+                        detail: "reapplied input used recorded-history projection semantics"
+                            .to_owned(),
                     });
                 }
             }

@@ -163,11 +163,7 @@ pub(crate) fn apply_attributes_set(
         scope,
         !is_closed,
     )? {
-        return Ok(HandlerResult::Rejected(error_reply(
-            grpc_code::INVALID_ARGUMENT,
-            ErrorSubStatus::Uncategorized,
-            rejection.message(),
-        )));
+        return Ok(HandlerResult::from(rejection));
     }
     cursor.add_event(flow_history_event::Payload::RpcExecutionCompleted(
         RpcExecutionCompletedEvent {

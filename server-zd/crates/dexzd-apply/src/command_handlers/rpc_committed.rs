@@ -103,7 +103,7 @@ pub(crate) fn apply_rpc_committed(
         scope,
         true,
     )? {
-        return Ok(reject_value(rejection));
+        return Ok(HandlerResult::from(rejection));
     }
     apply_channel_deletions(transaction, &mut cursor, &response.delete_from_channel)?;
     let changed_channels =

@@ -17,3 +17,12 @@ The run state limit covers Flow state rows and live and superseded values. Histo
 Attribute Sync snapshots contain complete values and do not retain value-table rows. Historical replay rebuilds attempt state without marking the run-scoped sync outbox: intermediate references before the retained window may already be collected. Time travel marks the restored state and records synced writes from reapplied input against live values.
 
 SubFlow child-start messages also carry complete values without retaining value-table rows. Historical rebuild skips their run-scoped outbox writes while restoring the wait identities. Live child starts still resolve every referenced input and Attribute value.
+
+Permission mappings accumulate grants in the attempt-scoped
+`DexWorkQueuePermissions` Attribute. History stores the original commands, so
+rebuilding must replay their mappings rather than recompute grants from only the
+final Attribute values. A rebuild can start at a checkpoint before the retained
+window. If a required permission or mapping Attribute value was collected,
+TimeTravel returns `FAILED_PRECONDITION` without changing state. Target diagnostics
+return no reconstructable target for the same case. Live projection and reapplied
+input retain their existing behavior.

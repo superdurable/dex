@@ -27,6 +27,7 @@ use prost::Message;
 use crate::command_handlers::CommandScope;
 use crate::command_handlers::command_replies::{error_reply, grpc_code, ok_reply};
 use crate::command_handlers::flow_close::{FlowClosing, close_flow};
+use crate::command_handlers::flow_data::{FlowDataRejection, PermissionRebuildUnavailable};
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::projections::history_events;
 use crate::state_access::FlowTransaction;
@@ -52,8 +53,20 @@ pub(crate) enum StepCommandOutcome {
     /// The Worker's result is invalid in a way only apply can see; apply it as a non-retryable
     /// failure of the attempt instead.
     RejectedResult(ValueRejection),
+    RebuildUnavailable(PermissionRebuildUnavailable),
     /// The result is missing or belongs to the other method; also a non-retryable failure.
     MismatchedResult(String),
+}
+
+impl From<FlowDataRejection> for StepCommandOutcome {
+    fn from(rejection: FlowDataRejection) -> Self {
+        match rejection {
+            FlowDataRejection::Value(rejection) => Self::RejectedResult(rejection),
+            FlowDataRejection::RebuildUnavailable(unavailable) => {
+                Self::RebuildUnavailable(unavailable)
+            }
+        }
+    }
 }
 
 fn stale_reply(detail: &str) -> CommandReply {
@@ -754,7 +767,7 @@ pub(crate) fn apply_method_completed(
                 &effects,
                 scope,
             )? {
-                return Ok(StepCommandOutcome::RejectedResult(rejection));
+                return Ok(rejection.into());
             }
             step.wait_for_pull_routing = command.pull_routing.clone();
             wait_conditions::register_wait(
@@ -781,7 +794,7 @@ pub(crate) fn apply_method_completed(
                 &effects,
                 scope,
             )? {
-                return Ok(StepCommandOutcome::RejectedResult(rejection));
+                return Ok(rejection.into());
             }
             apply_step_decision(
                 transaction,

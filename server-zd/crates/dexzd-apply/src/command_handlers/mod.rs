@@ -43,6 +43,13 @@ pub(crate) enum HandlerResult {
     Applied(HandlerOutput),
     /// The command changed nothing; discard the transaction.
     Rejected(CommandReply),
+    RebuildUnavailable(flow_data::PermissionRebuildUnavailable),
+}
+
+enum CommandDisposition {
+    Applied,
+    Rejected,
+    RebuildUnavailable,
 }
 
 pub(crate) fn apply_command(
@@ -55,27 +62,35 @@ pub(crate) fn apply_command(
     Ok(apply_in_scope(context, state, &scope)?.0)
 }
 
-/// Replays a recorded command without recording history. Returns its writes, or `None` when rejected.
+/// Replays a recorded command without recording history.
+///
+/// Returns a rejection when required projection bytes were collected; other rejected replays are invariant violations.
 pub(crate) fn apply_replayed_command(
     context: &ApplyContext,
     state: &dyn FlowStateReader,
     command: &FlowCommand,
     behavior_version: BehaviorVersion,
     has_flow_closed: bool,
-) -> Result<Option<Vec<crate::StateWrite>>, ApplyError> {
+) -> Result<Result<Vec<crate::StateWrite>, CommandReply>, ApplyError> {
     let mut scope = CommandScope::new(command, behavior_version);
     scope.is_replay = true;
     scope.close_barrier_source = CloseBarrierSource::RecordedHistory { has_flow_closed };
-    let (outcome, is_applied) = apply_in_scope(context, state, &scope)?;
-    Ok(is_applied.then_some(outcome.writes))
+    let (outcome, disposition) = apply_in_scope(context, state, &scope)?;
+    match disposition {
+        CommandDisposition::Applied => Ok(Ok(outcome.writes)),
+        CommandDisposition::RebuildUnavailable => Ok(Err(outcome.reply)),
+        CommandDisposition::Rejected => Err(ApplyError::InvariantViolation {
+            detail: format!("replaying command {:?} was rejected", command.command_id),
+        }),
+    }
 }
 
-/// Applies the scope's command; the flag tells whether it was applied or rejected.
+/// Applies the scope's command; the disposition distinguishes rejection from unavailable reconstruction.
 fn apply_in_scope(
     context: &ApplyContext,
     state: &dyn FlowStateReader,
     scope: &CommandScope<'_>,
-) -> Result<(ApplyOutcome, bool), ApplyError> {
+) -> Result<(ApplyOutcome, CommandDisposition), ApplyError> {
     let command = scope.command;
     if let Err(detail) = crate::validate_hard_delete_command(command) {
         return Ok((
@@ -84,7 +99,7 @@ fn apply_in_scope(
                 ErrorSubStatus::Uncategorized,
                 detail.to_string(),
             )),
-            false,
+            CommandDisposition::Rejected,
         ));
     }
     let behavior_version = scope.behavior_version;
@@ -127,7 +142,12 @@ fn apply_in_scope(
                         failure_scope.close_barrier_source = scope.close_barrier_source;
                         let cursor = match with_run(&transaction, &failure_scope)? {
                             Ok(cursor) => cursor,
-                            Err(reply) => return Ok((ApplyOutcome::rejected(reply), false)),
+                            Err(reply) => {
+                                return Ok((
+                                    ApplyOutcome::rejected(reply),
+                                    CommandDisposition::Rejected,
+                                ));
+                            }
                         };
                         match apply_step_command(
                             &mut transaction,
@@ -198,13 +218,22 @@ fn apply_in_scope(
                             ErrorSubStatus::Uncategorized,
                             detail,
                         )),
-                        false,
+                        CommandDisposition::Rejected,
                     ));
                 }
             }
-            (output.into_outcome(transaction.into_writes()), true)
+            (
+                output.into_outcome(transaction.into_writes()),
+                CommandDisposition::Applied,
+            )
         }
-        HandlerResult::Rejected(reply) => (ApplyOutcome::rejected(reply), false),
+        HandlerResult::Rejected(reply) => {
+            (ApplyOutcome::rejected(reply), CommandDisposition::Rejected)
+        }
+        HandlerResult::RebuildUnavailable(unavailable) => (
+            ApplyOutcome::rejected(unavailable.into_reply()),
+            CommandDisposition::RebuildUnavailable,
+        ),
     })
 }
 

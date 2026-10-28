@@ -12,7 +12,7 @@ use dexzd_keyspace::ColumnFamily;
 use dexzd_keyspace::row_keys::checkpoint_key;
 use dexzd_protocol::dex::flow_history_event;
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRecord, CheckpointRunStatus, FlowCommand, HistoryRecord, RunRecord,
+    CheckpointRecord, CheckpointRunStatus, CommandReply, FlowCommand, HistoryRecord, RunRecord,
     TimersFiredCommand, flow_command::Command,
 };
 
@@ -36,12 +36,14 @@ pub(crate) struct RebuiltAttempt {
 }
 
 /// Rebuilds the attempt state at `point` on top of what `transaction` reads.
+///
+/// Returns a rejection if required permission projection bytes were collected, or an error for other state failures.
 pub(crate) fn rebuild_attempt_state(
     transaction: &FlowTransaction<'_>,
     rows: RunRows,
     record: &RunRecord,
     point: HistoryPoint,
-) -> Result<RebuiltAttempt, ApplyError> {
+) -> Result<Result<RebuiltAttempt, CommandReply>, ApplyError> {
     let checkpoint_seq = required_attempt_record(transaction, rows, point.attempt)?
         .checkpoint_seqs
         .iter()
@@ -85,24 +87,26 @@ pub(crate) fn rebuild_attempt_state(
         if history_record.attempt != point.attempt {
             continue;
         }
-        replay_command(&mut replay_state, &context, &history_record)?;
+        if let Err(reply) = replay_command(&mut replay_state, &context, &history_record)? {
+            return Ok(Err(reply));
+        }
     }
     let replay_transaction = FlowTransaction::new(&replay_state, context);
     let rebuilt_rows = read_attempt_rows(&replay_transaction, rows)?;
     let run_status = run_status_of(&replay_state.run_record()?);
-    Ok(RebuiltAttempt {
+    Ok(Ok(RebuiltAttempt {
         rows: rebuilt_rows,
         run_status,
-    })
+    }))
 }
 
 fn replay_command(
     replay_state: &mut ReplayState<'_>,
     context: &ApplyContext,
     history_record: &HistoryRecord,
-) -> Result<(), ApplyError> {
+) -> Result<Result<(), CommandReply>, ApplyError> {
     let Some(command) = replayed_command(history_record)? else {
-        return Ok(());
+        return Ok(Ok(()));
     };
     replay_state.prepare_command(history_record.seq)?;
     let behavior_version = BehaviorVersion::from_command(command.behavior_version)?;
@@ -113,15 +117,12 @@ fn replay_command(
         behavior_version,
         has_flow_closed(history_record),
     )?;
-    let Some(writes) = replayed else {
-        return Err(ApplyError::InvariantViolation {
-            detail: format!(
-                "replaying the command at seq {} was rejected",
-                history_record.seq
-            ),
-        });
+    let writes = match replayed {
+        Ok(writes) => writes,
+        Err(reply) => return Ok(Err(reply)),
     };
-    replay_state.commit(writes)
+    replay_state.commit(writes)?;
+    Ok(Ok(()))
 }
 
 /// The command to replay for a history record, or `None` when it changes only run-scoped state.

@@ -10,12 +10,12 @@
 
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dex::{
-    AttributeStoreNames, AttributeWrite, ChannelMessage, DeleteChannelMessageRequest,
-    ExecuteMethodFailurePolicy, FlowAlreadyStartedOptions, FlowConfig, FlowResetType,
-    FlowStartOptions, FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy,
-    InvokeRpcRequest, InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest,
-    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StopFlowRequest,
-    UpdateFlowConfigRequest, WorkerTarget,
+    ActionPermissionMapping, ActionPermissionMappings, AttributeStoreNames, AttributeWrite,
+    ChannelMessage, DeleteChannelMessageRequest, ExecuteMethodFailurePolicy,
+    FlowAlreadyStartedOptions, FlowConfig, FlowResetType, FlowStartOptions,
+    FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy, InvokeRpcRequest,
+    InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, SetAttributesRequest,
+    SkipTimerRequest, StartFlowRequest, StopFlowRequest, UpdateFlowConfigRequest, WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
@@ -226,6 +226,17 @@ pub(crate) fn set_attributes(rng: &mut ChaCha8Rng, is_synced: bool) -> Command {
         });
     }
     let request = SetAttributesRequest {
+        action_permission_mappings: is_synced.then(|| ActionPermissionMappings {
+            mappings: attributes
+                .iter()
+                .filter(|write| !write.is_hard_delete_on_null)
+                .map(|write| ActionPermissionMapping {
+                    attribute_key: write.key.clone(),
+                    equal_values: write.value.iter().cloned().collect(),
+                    required_permission: "write".to_owned(),
+                })
+                .collect(),
+        }),
         attributes,
         request_id: request_id(rng, "set"),
         ..SetAttributesRequest::default()

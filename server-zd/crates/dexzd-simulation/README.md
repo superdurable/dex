@@ -22,6 +22,20 @@ WaitFor and Execute failure policies, recovery targets, and retry total duration
 seconds. Workers there also report `RETRY_DEADLINE` failures. SearchOrder rows must match the
 search documents (SO1).
 
+The Attribute Sync stream also attaches permission mappings to its plain
+Attribute batches. They compare post-batch values and accumulate one inline
+permission, preserving the main stream's pinned trajectories. Coverage counts
+require an applied mapping batch; they do not count projected permission writes or
+verify permission preservation. The apply stream has no stored mapping inputs or
+permission rebuild oracle, and the engine workload generates no permission mappings.
+[Issue #1016](https://github.com/superdurable/dex/issues/1016) tracks those gaps:
+varied grants across batches, mappings to stored Attributes outside the batch,
+recorded-versus-rebuilt semantic-point hashes, and expected rejections for collected
+inputs. The follow-up also includes permission mappings in the engine workload and a
+seeded mutant that drops a rebuilt grant and must fail the permission oracle.
+Collected mapping inputs and large permission sets are covered by deterministic
+`dexzd-apply` regressions.
+
 ```bash
 cargo test -p dexzd-simulation                                   # fixed seed set
 DEXZD_SIMULATION_SEEDS=500 DEXZD_SIMULATION_COMMANDS=1000 cargo test -p dexzd-simulation
