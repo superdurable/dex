@@ -93,6 +93,10 @@ fn rpc_invoke_options_builders_and_client_calls_compile() {
 
 #[test]
 fn pull_worker_options_compile() {
+    let _start_options = dex_sdk::StartFlowOptions::new()
+        .config_override(dex_sdk::FlowConfig::new().step_durability(dex_sdk::StepDurability::Sync));
+    let _sub_flow_options = dex_sdk::SubFlowOptions::new()
+        .config_override(dex_sdk::FlowConfig::new().step_durability(dex_sdk::StepDurability::Sync));
     let _worker_options = dex_sdk::WorkerOptions::new().pull(
         dex_sdk::PullWorkerOptions::new()
             .max_concurrent_tasks(8)

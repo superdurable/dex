@@ -103,23 +103,21 @@ impl DexDevTestEnvironment {
             ClientOptions::new().server_address(server_address),
         );
         client.health_check().expect("Dex server health check");
-        {
-            let readiness_flow_id = flow_id("rust-pull-worker-ready");
-            client
-                .start_flow(
-                    &PullWorkerReadyFlow {
-                        step: PullWorkerReadyStep,
-                    },
-                    &readiness_flow_id,
-                    (),
-                )
-                .expect("start pull Worker readiness Flow");
-            let readiness_result: String = client
-                .wait_for_flow_with_timeout(&readiness_flow_id, Duration::from_secs(30))
-                .and_then(|result| result.single_output())
-                .expect("pull Worker became ready");
-            assert_eq!("ready", readiness_result);
-        }
+        let readiness_flow_id = flow_id("rust-pull-worker-ready");
+        client
+            .start_flow(
+                &PullWorkerReadyFlow {
+                    step: PullWorkerReadyStep,
+                },
+                &readiness_flow_id,
+                (),
+            )
+            .expect("start pull Worker readiness Flow");
+        let readiness_result: String = client
+            .wait_for_flow_with_timeout(&readiness_flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output())
+            .expect("pull Worker became ready");
+        assert_eq!("ready", readiness_result);
         Self {
             client,
             worker,

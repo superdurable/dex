@@ -77,8 +77,7 @@ impl Worker {
     /// # Errors
     ///
     /// Returns [`SdkError::FlowDefinition`] for invalid Worker options, or Service for runtime
-    /// and endpoint initialization failures. The Dex
-    /// connection is lazy.
+    /// and endpoint initialization failures. The Dex connection is lazy.
     pub fn try_new(
         registry: Registry,
         blob_cache: Arc<BlobCache>,

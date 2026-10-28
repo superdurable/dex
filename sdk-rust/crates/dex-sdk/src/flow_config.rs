@@ -11,8 +11,11 @@ use crate::StepDurability;
 #[derive(Clone, Debug, Default)]
 /// Overrides runtime behavior for one Flow.
 ///
-/// Omitted fields use Dex server defaults. Pass a value to [`crate::StartFlowOptions::config_override`]
-/// for one execution or to [`crate::Client::update_flow_config`] for an active Flow.
+/// StartFlow, SubFlow, and [`crate::Client::update_flow_config`] always select pull Workers, even
+/// when no override is supplied. Other omitted fields use server defaults for StartFlow, inherit
+/// the parent configuration for SubFlow, and retain the active Flow setting for updates.
+/// Pass a value to [`crate::StartFlowOptions::config_override`] for one execution or to
+/// [`crate::Client::update_flow_config`] for an active Flow.
 pub struct FlowConfig {
     pub(crate) active_step_search_mode: Option<ActiveStepSearchMode>,
     pub(crate) attribute_store_names: Option<Vec<String>>,
@@ -22,7 +25,7 @@ pub struct FlowConfig {
 }
 
 impl FlowConfig {
-    /// Creates a config with every field delegated to server defaults.
+    /// Creates a config that selects pull Workers and leaves other settings unchanged or inherited.
     pub fn new() -> Self {
         Self::default()
     }

@@ -118,7 +118,7 @@ impl Client {
         })
     }
 
-    /// Starts a registered Flow with server-default options.
+    /// Starts a registered Flow on pull Workers with other options using server defaults.
     ///
     /// Returns the server-assigned run ID. `input` is encoded for the registered starting Step.
     ///
@@ -137,6 +137,7 @@ impl Client {
 
     /// Starts a registered Flow with explicit lifecycle, retry, and initial persistence options.
     ///
+    /// Always selects pull Workers, overriding any server-configured push target.
     /// Returns the server-assigned run ID. A missing request ID is replaced with a generated UUID.
     /// When the options contain an initial value for a hard-delete Attribute, the Client first
     /// requests the Server protocol version once and reuses the result for later calls.
@@ -853,7 +854,8 @@ impl Client {
 
     /// Replaces mutable runtime configuration fields on an active Flow.
     ///
-    /// Unset fields retain server-defined behavior.
+    /// Always sets the Worker target to pull, including for a Flow previously routed to push Workers.
+    /// Other unset fields retain the active Flow setting.
     pub fn update_flow_config(&self, flow_id: &str, config: FlowConfig) -> SdkResult<()> {
         let flow_config = self.map_flow_config(Some(&config))?;
         self.call_empty(
@@ -1752,3 +1754,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "client_pull_routing_tests.rs"]
+mod pull_routing_tests;

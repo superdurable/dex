@@ -31,7 +31,8 @@ pub enum SubFlowReusePolicy {
 #[derive(Clone)]
 /// Configures one durable SubFlow Condition.
 ///
-/// The SubFlow inherits its parent's effective Flow configuration. Dex generates its Flow ID and
+/// The SubFlow always selects pull Workers, overriding any parent push target. Other omitted
+/// configuration fields inherit the parent's effective settings. Dex generates its Flow ID and
 /// request ID. Builder methods preserve normal Flow start defaults when omitted.
 pub struct SubFlowOptions {
     pub(crate) timeout: Option<Duration>,

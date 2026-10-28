@@ -1895,3 +1895,7 @@ mod tests {
         assert!(write.is_hard_delete_on_null);
     }
 }
+
+#[cfg(test)]
+#[path = "worker_dispatcher_pull_routing_tests.rs"]
+mod pull_routing_tests;
