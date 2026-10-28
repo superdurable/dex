@@ -248,8 +248,11 @@ Combining the child-wait probe with later engine changes moved every pin again. 
 regression seeds still fail at the same simulated times when the fix is reverted.
 
 Registry-owned RPC tasks change the scheduling of transactional and locking calls. Four pins
-were refreshed for that change. Bounding the whole RPC task by its deadline moved
-`FIRST_SEED + 1` again; restoring the earlier Worker-only deadline restores that pin.
+were refreshed for that change. Starting the shared RPC deadline at admission moved
+`FIRST_SEED + 1` again; starting it at the Worker invocation restores its earlier digest.
+The first trace difference is a child-wait probe timing out at 28.125 instead of 28.117
+simulated seconds: its eight-millisecond snapshot read no longer consumes its ten-second
+Worker timeout. The other seven pins, including both active regression seeds, are unchanged.
 With the purging-read fix reverted, both active regression seeds still detect omitted
 hard-delete Attributes at 37.873 and 44.106 simulated seconds.
 

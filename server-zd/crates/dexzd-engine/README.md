@@ -14,36 +14,48 @@ Every Attribute-carrying command passes the same hard-delete reference check bef
 
 ## RPC request IDs
 
-Transactional and locking RPCs share one node-owned task for each tenant, Flow,
-resolved run, and request ID. Concurrent identical requests receive the same result
-or error. A duplicate locking RPC waits for the original result instead of returning
-ABORTED for the original call's locks. Conflicting payloads retain the existing
+While a shared task is active, transactional and locking RPCs share one node-owned task for
+each tenant, Flow, resolved run, and request ID. Concurrent identical requests receive the
+same result or error. A duplicate locking RPC waits for the original result instead of
+returning ABORTED for the original call's locks. Conflicting payloads retain the existing
 fingerprint rejection. A committed reply takes precedence over an in-flight entry.
 
-A caller disconnect or transport deadline ends only that caller's wait. It does
-not release the RPC's locks or let natural Flow close proceed. The shared task's
-RPC deadline starts at admission and covers lock synchronization, snapshot reads,
-and Worker execution. It uses timeout_seconds, or api.defaultRpcTimeout
-(default 60 seconds) when zero. It stops applying once the handler succeeds;
-proposal and commit can finish after this deadline and return the committed result.
-An independent 60-second server budget bounds uploads, proposal, commit waiting,
-and result processing. Exceeding it returns UNAVAILABLE with an unknown outcome,
-releases the shared task, and allows retry with the same request ID.
-Registry halt also ends the task. Graceful shutdown allows admitted tasks to finish
-and commit during the four-second drain, then cancels remaining tasks and awaits
-their cleanup. This includes tasks whose callers already disconnected.
+A caller disconnect or transport deadline ends only that caller's wait. It does not release
+the RPC's locks or let natural Flow close proceed. The RPC timeout starts at the Worker
+invocation, after admission, lock synchronization, and snapshot reads. Earlier waits retain
+their existing bounds and do not consume the Worker timeout. The Worker gets the full
+positive timeout_seconds, otherwise api.defaultRpcTimeout (default 60 seconds). A handler
+that exceeds its timeout returns DEADLINE_EXCEEDED without proposing a commit. Proposal and
+commit can finish after the Worker deadline and return the committed result.
 
-limits.maxInFlightRpcsPerNode bounds shared tasks across the node (default 1,000).
-At capacity, a new request ID returns RESOURCE_EXHAUSTED; matching duplicates
-still join an admitted task, and committed replies still replay. Tasks release
-their slots, locks, and natural-close holds on success, error, deadline, halt,
-shutdown cancellation, or panic. A panic returns INTERNAL to current waiters and
-does not leave the request ID stuck.
+An independent 60-second server budget, named RPC_COMMIT_PROCESSING_BUDGET, bounds uploads,
+proposal, commit waiting, and result processing. Exceeding it returns UNAVAILABLE with an
+unknown outcome and releases the shared task. A retry may run the RPC again. An already
+submitted command may still commit after the budget expires.
 
-Completed successful replies use the persisted request deduplication records.
-In-flight admission and errors are not persisted. A node crash before the result
-commits can invoke the Worker again on retry. Exceeding the server budget or
-cancelling a task after command submission can still leave a committed result;
-retry with the same request ID to retrieve it. Durable admission, resumable Worker calls, and persisted
-error replay require a separate recovery design. Plain RPCs continue to use the
-non-transactional path without in-flight deduplication.
+Registry halt also ends the task. Graceful shutdown allows admitted tasks to finish and
+commit during the four-second drain, then cancels remaining tasks and awaits their cleanup.
+This includes tasks whose callers already disconnected.
+
+limits.maxInFlightRpcsPerNode bounds shared tasks across the node (default 1,000). At
+capacity, a new request ID returns RESOURCE_EXHAUSTED; matching duplicates still join an
+admitted task, and committed replies still replay. Tasks release their slots, locks, and
+natural-close holds on success, error, deadline, halt, shutdown cancellation, or panic. A
+panic returns INTERNAL to current waiters and does not leave the request ID stuck.
+
+Completed successful replies use the persisted request deduplication records. In-flight
+admission and errors are not persisted. A node crash before the result commits can invoke
+the Worker again on retry. Exceeding the server budget or cancelling a task after command
+submission leaves the outcome unknown, and a retry may run the RPC again.
+
+The Go, Java, Python, TypeScript, and Rust SDKs generate a fresh request ID for each explicit
+RPC invocation and expose no override. Retrying through these APIs may run the RPC again;
+[issue #1039](https://github.com/superdurable/dex/issues/1039) tracks stable RPC request IDs
+in the SDKs. Low-level FlowService callers can supply a stable request_id. Reusing that ID
+replays a retained committed reply, but a retry before an earlier command commits may invoke
+the Worker again, even on the same node. If both commands commit, persisted deduplication
+applies the first committed command's effects and returns its reply for both commands.
+
+Durable admission, resumable Worker calls, and persisted error replay require a separate
+recovery design. Plain RPCs continue to use the non-transactional path without in-flight
+deduplication.
