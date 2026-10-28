@@ -55,12 +55,13 @@ in the same or a lower layer.
 ## Release binaries
 
 Each published `server-zd/vX.Y.Z` GitHub Release includes native `dex-server-zd` archives for
-Linux amd64, Linux arm64, and macOS arm64:
+Linux amd64, Linux arm64, macOS amd64, and macOS arm64:
 
 | Platform | Archive |
 | --- | --- |
 | Linux amd64 | `dex-server-zd_vX.Y.Z_linux_amd64.tar.gz` |
 | Linux arm64 | `dex-server-zd_vX.Y.Z_linux_arm64.tar.gz` |
+| macOS amd64 | `dex-server-zd_vX.Y.Z_darwin_amd64.tar.gz` |
 | macOS arm64 | `dex-server-zd_vX.Y.Z_darwin_arm64.tar.gz` |
 
 Each archive contains `dex-server-zd`, `LICENSE.md`, `LEGACY_NOTICES.md`, and `LICENSES/`.
