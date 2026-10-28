@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,8 +55,7 @@ func requireEntityStoreSmokeUserProfileRow(t *testing.T, userID string) {
 		"example",
 	}, "|")
 
-	var lastRow, lastError string
-	isRowSynced := func() bool {
+	checkRowSynced := func(collect *assert.CollectT) {
 		command := exec.Command(
 			"docker", "compose", "-p", composeProject, "-f", composeFile,
 			"exec", "-T", "entity-postgres",
@@ -63,15 +63,13 @@ func requireEntityStoreSmokeUserProfileRow(t *testing.T, userID string) {
 			"-v", "ON_ERROR_STOP=1", "-At", "-F", "|", "-c", query,
 		)
 		output, err := command.CombinedOutput()
-		if err != nil {
-			lastError = err.Error() + ": " + string(output)
-			return false
+		if !assert.NoError(collect, err, "psql output: %s", output) {
+			return
 		}
-		lastRow = strings.TrimSpace(string(output))
-		return lastRow == expectedRow
+		assert.Equal(collect, expectedRow, strings.TrimSpace(string(output)),
+			"user_profiles row for %s", userID)
 	}
-	require.Eventually(t, isRowSynced, 30*time.Second, 200*time.Millisecond,
-		"user_profiles row for %s did not sync; expected %q, last row %q, last error %q",
-		userID, expectedRow, lastRow, lastError)
-	t.Logf("entity-store row assertion passed: user_id=%s row=%s", userID, lastRow)
+	require.EventuallyWithT(t, checkRowSynced, 30*time.Second, 200*time.Millisecond,
+		"user_profiles row for %s did not sync", userID)
+	t.Logf("entity-store row assertion passed: user_id=%s row=%s", userID, expectedRow)
 }
