@@ -449,9 +449,11 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
       address: "", isHeadlessAddress: false, isPullMode: true,
     });
     await client.updateFlowConfig("flow-1", {});
-    assert.deepEqual(requests.updateFlowConfig?.flowConfig?.workerTarget, {
-      address: "", isHeadlessAddress: false, isPullMode: true,
-    });
+    assert.ok(requests.updateFlowConfig?.flowConfig);
+    assert.equal(requests.updateFlowConfig.flowConfig.workerTarget, undefined);
+    await client.updateFlowConfig("flow-1", { continueAsNewThreshold: 123 });
+    assert.equal(requests.updateFlowConfig.flowConfig.workerTarget, undefined);
+    assert.equal(requests.updateFlowConfig.flowConfig.continueAsNewThreshold, 123);
     assert.equal(requests.start?.flowType, "TestFlow");
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.start?.stepOptions?.heartbeatTimeoutSeconds, 2);

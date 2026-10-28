@@ -168,11 +168,10 @@ uses of `Worker.workerTarget`, `WorkerTarget`, and `PullWorkerTarget`.
 Workers always pull tasks and need only an outbound connection to the Dex Server.
 Keep `WorkerOptions.pull` when customizing capacity or shutdown.
 
-For an active Flow created with a Worker address by an older SDK, start a pull
-Worker with the same Flow and Step types, then call
-`await client.updateFlowConfig(flowId, {})` to route later tasks to pull Workers.
-Already dispatched work is not recalled. Drain the old Worker before removing
-its listener.
+`Client.updateFlowConfig` preserves an active Flow's existing Worker target,
+including when its configuration is empty. For an active Flow created with a
+Worker address by an older SDK, keep the old Worker available until the Flow
+finishes or migrate its target separately before removing the listener.
 
 ### Workers
 

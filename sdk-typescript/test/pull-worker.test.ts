@@ -16,8 +16,9 @@ import {
   type ServerDuplexStream,
 } from "@grpc/grpc-js";
 
-import { Registry, StepList, Worker, PullRegistrationError, retryAfter, type PullWorkerOptions, type BlobCache, type Flow } from "../src/index.js";
+import { Registry, StepList, Stream, Worker, PullRegistrationError, gracefulComplete, retryAfter, stringCodec, type AsyncContext, type Step, type StepDecision, type PullWorkerOptions, type BlobCache, type Flow } from "../src/index.js";
 import {
+  Context as ProtoContext,
   FlowServiceService,
   type FlowServiceServer,
   InvokeExecuteMethodRequest,
@@ -34,6 +35,8 @@ import {
 } from "../src/gen/dex.js";
 import { workerErrorResponse } from "../src/grpc-status.js";
 import { PullWorker } from "../src/pull-worker.js";
+import type { StepOutputEmitter } from "../src/invocation-context.js";
+import { encodeValue, type ValueHydrator } from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
 
 type TaskStream = ServerDuplexStream<PollWorkerTaskRequest, PollWorkerTaskResponse>;
@@ -661,6 +664,141 @@ test("pull WaitFor sends heartbeat and stream write before its final result", as
   }
 });
 
+for (const method of ["waitFor", "execute"] as const) {
+  test(`pull ${method} rejects late progress after cancellation, completion, and stream reassignment`, async () => {
+    const harness = await startHarness();
+    class RetainedOutputDispatcher {
+      public readonly outputs: StepOutputEmitter[] = [];
+      public readonly signals: AbortSignal[] = [];
+      public release!: () => void;
+      private gate = this.resetGate();
+
+      public resetGate(): Promise<void> {
+        this.gate = new Promise<void>((resolve) => { this.release = resolve; });
+        return this.gate;
+      }
+
+      public async invokeWaitFor(_request: unknown, signal: AbortSignal, output: StepOutputEmitter) {
+        this.outputs.push(output);
+        this.signals.push(signal);
+        await this.gate;
+        return {};
+      }
+
+      public async invokeExecute(request: unknown, signal: AbortSignal, output: StepOutputEmitter) {
+        return this.invokeWaitFor(request, signal, output);
+      }
+    }
+    const dispatcher = new RetainedOutputDispatcher();
+    const worker = harness.workerWithDispatcher(dispatcher as unknown as WorkerDispatcher);
+    const task = (taskId: string): PollWorkerTaskResponse => ({ frame: { $case: "task", value: {
+      taskId, deadline: undefined,
+      request: method === "waitFor"
+        ? { $case: "waitFor", value: InvokeWaitForMethodRequest.create({ flowType: "TestFlow", stepType: "TestStep" }) }
+        : { $case: "execute", value: InvokeExecuteMethodRequest.create({ flowType: "TestFlow", stepType: "TestStep" }) },
+    } } });
+    const assertInactive = (output: StepOutputEmitter) => {
+      assert.throws(() => output.writeStream({ streamName: "progress", streamCapacityBytes: 1024n, value: undefined }),
+        /no longer active/);
+      assert.throws(() => void output.recordHeartbeat(undefined), /no longer active/);
+    };
+    try {
+      worker.start();
+      const stream = await harness.nextStream();
+      stream.call.write(registered(false));
+      stream.call.write(task("cancelled"));
+      await until(() => dispatcher.outputs.length === 1);
+      stream.call.write({ frame: { $case: "cancelTask", value: { taskId: "cancelled" } } });
+      await until(() => dispatcher.signals[0]!.aborted);
+      assertInactive(dispatcher.outputs[0]!);
+      dispatcher.release();
+      await stream.frame("taskFrame");
+      await until(() => Reflect.get(worker, "busyTaskCount") === 0);
+      assertInactive(dispatcher.outputs[0]!);
+
+      dispatcher.resetGate();
+      stream.call.write(task("reassigned"));
+      await until(() => dispatcher.outputs.length === 2);
+      assertInactive(dispatcher.outputs[0]!);
+      await dispatcher.outputs[1]!.recordHeartbeat(undefined);
+      await stream.frame("taskFrame", 2);
+      dispatcher.release();
+      await stream.frame("taskFrame", 3);
+      await until(() => Reflect.get(worker, "busyTaskCount") === 0);
+      assertInactive(dispatcher.outputs[1]!);
+      stream.call.write({ frame: { $case: "ping", value: {} } });
+      await stream.frame("pong");
+      assert.deepEqual(stream.frames.flatMap((request) => request.frame?.$case === "taskFrame"
+        ? [request.frame.value.taskId] : []), ["cancelled", "reassigned", "reassigned"]);
+    } finally {
+      dispatcher.release();
+      await worker.close();
+      await harness.close();
+    }
+  });
+}
+
+test("pull Execute streams ordered progress, exactly one result, and failure after progress", async () => {
+  class StreamingPullStep implements Step<string> {
+    public readonly inputCodec = stringCodec;
+    public readonly progress = new Stream("progress", stringCodec, 1024);
+    public completedContext: AsyncContext | undefined;
+
+    public getStepType(): string { return "StreamingPullStep"; }
+
+    public async execute(context: AsyncContext, input: string): Promise<StepDecision> {
+      this.completedContext = context;
+      await context.recordHeartbeat({ input });
+      if (input === "failure") throw new Error("handler failed after progress");
+      this.progress.write(context, "execute-1");
+      await context.recordHeartbeat(undefined);
+      this.progress.write(context, "execute-2");
+      return gracefulComplete(input);
+    }
+  }
+  const step = new StreamingPullStep();
+  const flow: Flow<string> = {
+    getFlowType: () => "StreamingPullFlow",
+    getSteps: () => StepList.startStep(step),
+    getPersistenceSchema: () => ({ streams: [step.progress] }),
+  };
+  const hydrator = { hydrateAll: async (_flowId: string, values: readonly unknown[]) => values } as ValueHydrator;
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, () => 3);
+  const harness = await startHarness();
+  const worker = harness.workerWithDispatcher(dispatcher);
+  try {
+    worker.start();
+    const stream = await harness.nextStream();
+    stream.call.write(registered(false));
+    for (const input of ["success", "failure"]) {
+      stream.call.write({ frame: { $case: "task", value: {
+        taskId: input, deadline: undefined,
+        request: { $case: "execute", value: InvokeExecuteMethodRequest.create({
+          context: ProtoContext.create({ flowId: `stream-${input}`, stepExecutionId: "step-1" }),
+          flowType: flow.getFlowType(), stepType: step.getStepType(), stepInput: encodeValue(stringCodec, input),
+        }) },
+      } } });
+      await stream.frame("taskFrame", input === "success" ? 5 : 7);
+      await until(() => Reflect.get(worker, "busyTaskCount") === 0);
+      assert.throws(() => step.progress.write(step.completedContext!, "late"), /no longer active/);
+      assert.throws(() => void step.completedContext!.recordHeartbeat("late"), /no longer active/);
+    }
+    stream.call.write({ frame: { $case: "ping", value: {} } });
+    await stream.frame("pong");
+    const frames = stream.frames.flatMap((request) => request.frame?.$case === "taskFrame" ? [request.frame.value] : []);
+    assert.deepEqual(frames.map((frame) => frame.taskId), ["success", "success", "success", "success", "success", "failure", "failure"]);
+    assert.deepEqual(frames.map((frame) => frame.output?.$case === "execute"
+      ? frame.output.value.output?.$case : frame.output?.$case),
+    ["heartbeat", "streamWrite", "heartbeat", "streamWrite", "result", "heartbeat", "workerError"]);
+    assert.equal(frames[2]?.output?.$case === "execute" && frames[2].output.value.output?.$case === "heartbeat"
+      && frames[2].output.value.output.value.value, undefined);
+    assert.equal(frames[6]?.output?.$case === "workerError" && frames[6].output.value.grpcStatus, status.UNKNOWN);
+  } finally {
+    await worker.close();
+    await harness.close();
+  }
+});
+
 for (const shouldReconnect of [false, true]) {
   test(`close preserves a large final result after ${shouldReconnect ? "busy Reconnect" : "normal completion"}`, async () => {
     const harness = await startHarness();
@@ -1022,7 +1160,7 @@ for (const hasRegistered of [false, true]) {
 
 test("registration wait handles startup failure, cancellation, timeout, and default Workers", async () => {
   const worker = new Worker(new Registry([]), {} as BlobCache, {
-    serverAddress: "127.0.0.1:1", attributeIndexSyncTimeoutMs: 100, pull: {},
+    serverAddress: "127.0.0.1:1", attributeIndexSyncTimeoutMs: 100,
   });
   let registrationFailure: unknown;
   let registrationFailureMessage: string | undefined;
@@ -1036,7 +1174,7 @@ test("registration wait handles startup failure, cancellation, timeout, and defa
     registrationFailureMessage.includes("127.0.0.1:1"));
   await waiting;
   await worker.close();
-  const pending = new Worker(new Registry([]), {} as BlobCache, { pull: {} });
+  const pending = new Worker(new Registry([]), {} as BlobCache);
   const controller = new AbortController();
   const cancelled = assert.rejects(pending.waitPullRegistered({ signal: controller.signal }), { name: "AbortError" });
   controller.abort();
@@ -1046,5 +1184,4 @@ test("registration wait handles startup failure, cancellation, timeout, and defa
   const stopped = assert.rejects(pending.waitPullRegistered(), /stopped before registration/);
   await pending.close();
   await stopped;
-
 });

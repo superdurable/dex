@@ -414,10 +414,11 @@ export class PullWorker {
   }
 
   private async executeTask(poll: PollStream, task: PollWorkerTask, signal: AbortSignal): Promise<void> {
+    let emitter: PullStepOutputEmitter | undefined;
     try {
       switch (task.request?.$case) {
         case "waitFor": {
-          const emitter = new PullStepOutputEmitter(poll, task.taskId, "waitFor", (frame) => this.sendTaskFrame(poll, frame));
+          emitter = new PullStepOutputEmitter(poll, task.taskId, "waitFor", signal, (frame) => this.sendTaskFrame(poll, frame));
           const result = await this.dispatcher.invokeWaitFor(task.request.value, signal, emitter);
           this.sendTaskFrame(poll, { taskId: task.taskId, output: {
             $case: "waitFor", value: InvokeWaitForMethodOutput.create({ output: { $case: "result", value: result } }),
@@ -425,7 +426,7 @@ export class PullWorker {
           break;
         }
         case "execute": {
-          const emitter = new PullStepOutputEmitter(poll, task.taskId, "execute", (frame) => this.sendTaskFrame(poll, frame));
+          emitter = new PullStepOutputEmitter(poll, task.taskId, "execute", signal, (frame) => this.sendTaskFrame(poll, frame));
           const result = await this.dispatcher.invokeExecute(task.request.value, signal, emitter);
           this.sendTaskFrame(poll, { taskId: task.taskId, output: {
             $case: "execute", value: InvokeExecuteMethodOutput.create({ output: { $case: "result", value: result } }),
@@ -453,6 +454,8 @@ export class PullWorker {
           this.disconnect(poll);
         }
       }
+    } finally {
+      emitter?.close();
     }
   }
 
@@ -643,12 +646,19 @@ export class PullWorker {
 }
 
 class PullStepOutputEmitter implements StepOutputEmitter {
+  private isActive = true;
+
   public constructor(
     private readonly poll: PollStream,
     private readonly taskID: string,
     private readonly method: "waitFor" | "execute",
+    private readonly signal: AbortSignal,
     private readonly sendFrame: (frame: PollWorkerTaskFrame) => void,
   ) {}
+
+  public close(): void {
+    this.isActive = false;
+  }
 
   public recordHeartbeat(value: Value | undefined): Promise<void> {
     this.sendOutput({ $case: "heartbeat", value: { value } });
@@ -660,6 +670,7 @@ class PullStepOutputEmitter implements StepOutputEmitter {
   }
 
   private sendOutput(output: InvokeWaitForMethodOutput["output"]): void {
+    if (!this.isActive || this.signal.aborted) throw new Error("Worker task is no longer active");
     if (this.poll.isDisconnected) throw new Error("Worker task stream is closed");
     const value = this.method === "waitFor"
       ? { $case: "waitFor" as const, value: InvokeWaitForMethodOutput.create({ output }) }

@@ -197,7 +197,10 @@ export class Client {
         flowStartDelaySeconds: seconds(options.startDelayMs),
         retryPolicy: mapFlowRetryPolicy(options.retryPolicy),
         attributes: initialAttributeWrites,
-        flowConfigOverride: mapFlowConfig(options.configOverride),
+        flowConfigOverride: {
+          ...mapFlowConfig(options.configOverride),
+          workerTarget: { address: "", isHeadlessAddress: false, isPullMode: true },
+        },
         flowAlreadyStartedOptions: {
           ignoreAlreadyStartedError: options.ignoreAlreadyStarted ?? false,
         },
@@ -1053,9 +1056,9 @@ export class Client {
   }
 
   /**
-   * Replaces mutable configuration for an active Flow.
+   * Updates mutable configuration for an active Flow.
    * The update affects later decisions and does not recall dispatched work.
-   * Every update routes later tasks through pull Workers, including when config is empty.
+   * Updates preserve the existing Worker target, including when config is empty.
    * @param flowId - Non-empty active Flow ID.
    * @param config - New optional Flow configuration fields.
    */
@@ -1373,7 +1376,7 @@ function mapFlowConfig(
     continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
     stepDurability:
       config?.stepDurability === undefined ? undefined : mapDurability(config.stepDurability),
-    workerTarget: { address: "", isHeadlessAddress: false, isPullMode: true },
+    workerTarget: undefined,
   };
 }
 
