@@ -90,16 +90,24 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "Retries reuse its\nAttributes, Channel messages, Channel infos, and selections.",
         "Conflicting RPCs fail immediately while those locks are held.",
         "Locks release when the logical method ends.",
+        "If a required permission or mapping Attribute value was collected,",
         "TimeTravel returns `FAILED_PRECONDITION` without changing state.",
     )),
     ("server-zd/v0.1.10", "server-zd/crates/dexzd-engine/README.md", (
         "## SubFlow hard-delete Attributes",
+        "While a shared task is active, transactional and locking RPCs share one node-owned task",
         "Concurrent identical requests receive the\nsame result or error.",
+        "Conflicting payloads retain the existing\nfingerprint rejection.",
         "The RPC timeout starts at the Worker\ninvocation",
-        "Exceeding it returns UNAVAILABLE with an\nunknown outcome",
+        "Exceeding it returns UNAVAILABLE with an\nunknown outcome and releases the shared task.",
+        "An already\nsubmitted command may still commit after the budget expires.",
         "A retry may run the RPC again.",
         "A node crash before the result commits can invoke\nthe Worker again on retry.",
         "generate a fresh request ID for each explicit\nRPC invocation and expose no override.",
+    )),
+    ("server-zd/v0.1.10", "server-zd/crates/dexzd-engine/src/flow_coordination/client_operations/rpc_requests.rs", (
+        "if pending.fingerprint != fingerprint {",
+        "request ID {request_id} was already used for a different request",
     )),
     ("server-zd/v0.1.10", "server-zd/crates/dexzd-apply/src/read_model/flow.rs", (
         "InternalTimerStatus::Skipped",
@@ -112,6 +120,13 @@ SERVER_ZD_LATEST_STATEMENTS = (
 RETRY_SNAPSHOT_SERVER_STATEMENT = (
     "docs/content/primitives/step/step-options.mdx",
     "A retry of one **Execute** call reuses the [state snapshot](#selective-state-loading) loaded for its first attempt",
+)
+# Go Server code that holds a method's Attribute locks across its activity retries.
+RETRY_LOCK_SERVER_STATEMENT = (
+    "server/service/interpreter/workflowImpl.go",
+    "lockAttributeKeys := options.GetWaitForLockAttributeKeys()",
+    "lockAttributeKeys := options.GetExecuteLockAttributeKeys()",
+    "persistenceManager.UnlockKeys(lockAttributeKeys)",
 )
 # Statements about Server v1.24.0 and SDK v1.23.0 behavior, as (tagged path, needles).
 RELEASE_1_24_STATEMENTS = (
@@ -293,21 +308,28 @@ REFERENCE_1_24_STATEMENTS = (
         "**recovery.startupReadRetryBudget** (default 30 seconds)",
         "From server-zd v0.1.8, Attribute Sync never replaces a pending synced value",
         "server-zd v0.1.10 changes these application-visible behaviors:",
-        "From server-zd v0.1.10, time travel returns FAILED_PRECONDITION",
+        "From server-zd v0.1.10, time travel returns FAILED_PRECONDITION when rebuilding the target point needs a permission or permission-mapping Attribute value",
+        "carry identical payloads run the Worker handler once while their shared in-flight task is active",
+        "as the Go Server already does for WaitFor and Execute",
         "GetFlowState reports a skipped Timer as SKIPPED",
     )),
     ("core/step-options.md", (
-        "A retry of one logical method call reuses the state snapshot loaded for its first attempt.",
-        "From server-zd v0.1.10, every WaitFor, Execute, and Flow timeout handler retry reuses that snapshot",
-        "Its Attribute locks stay held through retry backoff",
+        "On the Go Server, and on server-zd from v0.1.10, a retry of one logical method call reuses the state snapshot",
+        "On the Go Server, WaitFor and Execute retries reuse that snapshot and keep its Attribute locks.",
+        "From server-zd v0.1.10, every WaitFor, Execute, and Flow timeout handler retry does the same",
+        "On both servers, the Attribute locks stay held through retry backoff",
     )),
     ("core/read-after-write.md", (
         "Every SDK generates a fresh request ID for each RPC invocation and exposes no override.",
-        "From server-zd v0.1.10, concurrent transactional or locking RPCs that share a request ID run the Worker handler once",
+        "share a request ID and carry identical payloads run the Worker handler once",
+        "A request that reuses the ID with a different payload fails with INVALID_ARGUMENT.",
+        "This holds only while the shared in-flight task is active.",
         "the call returns UNAVAILABLE and the outcome is unknown",
+        "another invocation with the same request ID can run the handler again while the first command may still commit",
     )),
     ("core/data-handling.md", (
-        "From server-zd v0.1.10, that holder can be a Step method in retry backoff",
+        "That holder can be a Step method in retry backoff.",
+        "on the Go Server and on server-zd from v0.1.10",
         "a hard-delete Attribute needs v0.1.10 or later",
     )),
     ("core/bundle-baselines.md", ("The server-zd guidance covers v0.1.3 through v0.1.10.",)),
@@ -1373,6 +1395,7 @@ def main() -> None:
     for statement_path, statement_needles in RELEASE_1_24_STATEMENTS:
         require_tagged_text(arguments.dex_root, server_baseline, statement_path, *statement_needles)
     require_tagged_text(arguments.dex_root, server_baseline, *RETRY_SNAPSHOT_SERVER_STATEMENT)
+    require_tagged_text(arguments.dex_root, server_baseline, *RETRY_LOCK_SERVER_STATEMENT)
     check_server_zd_search_tls(arguments.dex_root, SERVER_ZD_RELEASE, SDK_REFERENCES)
     check_go_server_close_cleanup(arguments.dex_root, server_baseline)
     check_flow_summary_rpc(arguments.dex_root, server_baseline, SERVER_ZD_RELEASE)

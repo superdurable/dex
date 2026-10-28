@@ -376,10 +376,10 @@ When a Step is canceled by another Step's decision, an RPC decision, StopFlow, F
 
 server-zd v0.1.10 changes these application-visible behaviors:
 
-- Step and Flow timeout handler retries reuse the first attempt's state snapshot and keep its Attribute locks until the method call ends. A writing RPC that needs one of those locks during retry backoff gets a lock-conflict error. See [StepOptions](step-options.md#understand-the-shared-attempt-budget).
-- Time travel can fail with FAILED_PRECONDITION when the target point can no longer be rebuilt because retained data was already collected. The Flow state is unchanged. See [safe recovery](#safe-recovery).
+- Step and Flow timeout handler retries reuse the first attempt's state snapshot and keep its Attribute locks until the method call ends, as the Go Server already does for WaitFor and Execute. A writing RPC that needs one of those locks during retry backoff gets a lock-conflict error. See [StepOptions](step-options.md#understand-the-shared-attempt-budget).
+- Time travel can fail with FAILED_PRECONDITION when rebuilding the target point needs a permission or permission-mapping Attribute value that retention already collected. The Flow state is unchanged. See [safe recovery](#safe-recovery).
 - A SubFlow started with hard-delete initial Attributes works.
-- Concurrent transactional or locking RPCs that share a request ID run the Worker handler once. See [RPC retries](read-after-write.md#confirmation-and-retries).
+- Concurrent transactional or locking RPCs that share a request ID and carry identical payloads run the Worker handler once while their shared in-flight task is active. A different payload under the same ID fails with INVALID_ARGUMENT. After the server's commit budget releases the task, another invocation can run the handler while the first command may still commit. See [RPC retries](read-after-write.md#confirmation-and-retries).
 - GetFlowState reports a skipped Timer as SKIPPED instead of fired. A Step method failure caused by dispatch, such as no available Worker, a disconnected Worker, or a missing Step or RPC registration, carries a structured dispatch reason in its failure details, as on the Go Server.
 
 server-zd v0.1.9 removed a fixed latency of about 40 ms from small requests such as commits, RPCs, and Step completions. See the [server-zd v0.1.10 release](https://github.com/superdurable/dex/releases/tag/server-zd/v0.1.10).
@@ -438,7 +438,7 @@ Before a mutation:
 
 Time travel is appropriate after deploying a code fix when replaying from a safe Step boundary will not duplicate an unprotected side effect. Preserve the original business resource, Flow ID, and operation identity; capture the exact diagnostic run and Step method before mutation. Reconcile provider objects and previously accepted writes first. Do not replace the account or resource merely to avoid its failed history. If a safe boundary cannot be established, design an explicit recovery or compensation Step instead.
 
-From server-zd v0.1.10, time travel returns FAILED_PRECONDITION when rebuilding the target point needs data that retention already collected. The Flow state is unchanged. Choose a later reset point. Earlier releases could restore that point with missing permissions.
+From server-zd v0.1.10, time travel returns FAILED_PRECONDITION when rebuilding the target point needs a permission or permission-mapping Attribute value that retention already collected. The Flow state is unchanged. Choose a later reset point. Earlier releases could restore that point with missing permissions.
 
 A time-travel reset cannot invent a missing method boundary or rewrite the original Start options. A failure before the first Execute may have no Execute reset point. Do not silently replace it with a fresh Flow. If a corrected start is needed, obtain authorization for that recovery, prove the old execution is closed, reconcile effects, and preserve the intended Flow ID and logical request identity under the exact reuse policy. Closed-execution reuse is not cross-run request deduplication; application admission must protect external effects. Where a recorded WaitFor boundary is appropriate, select that method explicitly and decide whether replaying later writes is safe before choosing `--skip-writes-reapply`.
 

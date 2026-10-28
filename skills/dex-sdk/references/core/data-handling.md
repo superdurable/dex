@@ -127,7 +127,7 @@ Inside a handler, map size and instance-key enumeration include buffered writes 
 
 AttributeMap locks are scoped to one instance. Lock the exact instance when parallel Steps or RPCs perform a read-modify-write on the same value; unrelated instances can remain concurrent.
 
-An RPC lock-conflict error means another holder owns the lock now. From server-zd v0.1.10, that holder can be a Step method in retry backoff, because retries keep their locks until the method call ends. Retry the RPC with bounded backoff; see [retry snapshots and locks](step-options.md#understand-the-shared-attempt-budget).
+An RPC lock-conflict error means another holder owns the lock now. That holder can be a Step method in retry backoff. Retries keep their locks until the method call ends on the Go Server and on server-zd from v0.1.10. Retry the RPC with bounded backoff; see [retry snapshots and locks](step-options.md#understand-the-shared-attempt-budget).
 
 #### Whole-map coordination
 
