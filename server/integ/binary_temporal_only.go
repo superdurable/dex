@@ -39,7 +39,6 @@ var temporalOnlyScenarioTests = map[string]struct{}{
 	"TestHardDeleteAttributeStepWriteRequiresBlobStoreTemporal": {},
 	"TestHardDeleteAttributeSubFlowCadence":                     {},
 	"TestHardDeleteAttributesCadence":                           {},
-	"TestHardDeleteAttributesTemporal":                          {},
 	"TestLargeDataAttributesTemporalContinueAsNew":              {},
 	"TestLockingWorkflowCadence":                                {},
 	"TestLockingWorkflowCadenceContinueAsNew":                   {},
