@@ -11,7 +11,7 @@ The selected SDK source is authoritative. Baseline snippets are evidence only fo
 
 ## Server protocol compatibility
 
-The Go Worker obtains its diagnostic artifact version from Go build information. On startup it calls `GetServerInfo`, negotiates the highest common protocol, synchronizes Attribute indexes, and then binds WorkerService. A missing RPC, invalid interval, or disjoint interval fails startup before the listener opens. Upgrade a legacy Server first; stop running Workers before a breaking Server upgrade because they do not renegotiate.
+The Go Worker obtains its diagnostic artifact version from Go build information. On startup it calls `GetServerInfo`, negotiates the highest common protocol, synchronizes Attribute indexes, and then opens its pull task streams. A missing RPC, invalid interval, or disjoint interval fails startup before any task stream opens. Upgrade a legacy Server first; stop running Workers before a breaking Server upgrade because they do not renegotiate.
 
 ## Default Flow and Step type names
 
@@ -35,14 +35,6 @@ Additive fields with defaults are usually safer. Removing registered Steps, chan
 
 Deploy a Worker able to serve old and new runs, then move traffic deliberately. Updating a process does not replace durable execution state.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.24.0/examples/go/primitives/flow/controller.go)
-<!-- dex-source: examples/go/primitives/flow/controller.go -->
-```go
-func rerouteActiveFlow(ctx context.Context, client *sdk.Client, flowID string) error {
-	return client.UpdateFlowConfig(ctx, flowID, sdk.FlowConfig{
-		WorkerTarget: &sdk.WorkerTarget{Address: "worker-canary:8803"},
-	})
-}
-```
+UpdateFlowConfig changes only the supplied Flow configuration fields. From Go SDK v1.25.0 it does not change a Flow's Worker routing; every Flow routes to pull Workers. Roll out new Worker code by deploying pull Workers that can serve both old and new runs.
 
 Choose ID reuse and already-started behavior as product semantics. Test active and closed prior runs. Before rollout, start representative Flows on old code, stop at durable boundaries, replace the Worker, and complete them on new code. Include maps, Channels, Timer, RPC, retry, and timeout handler.

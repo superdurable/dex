@@ -20,7 +20,7 @@ For an idempotent start, set one stable `StartFlowOptions.requestId` and `ignore
 
 For an explicitly best-effort external `client.writeStream`, log sanitized identity and discard only an `instanceof DexServiceError` failure. Rethrow other values so codec, definition, and programming defects remain visible.
 
-[Pinned example error classification](https://github.com/superdurable/dex/blob/sdk-typescript/v1.23.0/examples/typescript/src/service-errors.ts)
+[Pinned example error classification](https://github.com/superdurable/dex/blob/sdk-typescript/v1.25.0/examples/typescript/src/service-errors.ts)
 <!-- dex-source: examples/typescript/src/service-errors.ts -->
 ```typescript
 export function isFlowAlreadyStarted(error: unknown): boolean {
@@ -39,11 +39,11 @@ The runnable examples classify with the exported concrete errors and treat `Flow
 
 ## Flow close cleanup
 
-From TypeScript SDK v1.20.0 or later, narrow the caught value with `instanceof FlowClosingError` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error](https://github.com/superdurable/dex/blob/sdk-typescript/v1.23.0/sdk-typescript/src/errors.ts)
+From TypeScript SDK v1.20.0 or later, narrow the caught value with `instanceof FlowClosingError` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error](https://github.com/superdurable/dex/blob/sdk-typescript/v1.25.0/sdk-typescript/src/errors.ts)
 
 ## Closed-Flow races
 
-Follow the shared [closed-Flow race rule](../core/error-handling.md#closed-flow-races). `FlowNotActiveOrNotFoundError` from a mutation says it found no active target; it does not say the requested action succeeded. First reconcile from authoritative domain state and operation invariants. Call `await client.describeFlow(flowId)` only when an otherwise unknown terminal distinction changes the outcome. It reads the current or latest run without waiting. It resolves to `FlowInfo` with `flowId`, `runId`, `flowType`, `status`, and `startedAt`; it has no close time. Treat status `"completed"` as idempotent success only when successful completion guarantees the requested condition. For another terminal status or a `FlowNotFoundError`, return an explicit domain failure or unknown outcome. An incomplete server summary rejects with `TypeError`. If the Flow still appears running, query its domain state before a bounded, idempotent retry. [Released Client](https://github.com/superdurable/dex/blob/sdk-typescript/v1.23.0/sdk-typescript/src/client.ts) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-typescript/v1.23.0/sdk-typescript/src/options.ts)
+Follow the shared [closed-Flow race rule](../core/error-handling.md#closed-flow-races). `FlowNotActiveOrNotFoundError` from a mutation says it found no active target; it does not say the requested action succeeded. First reconcile from authoritative domain state and operation invariants. Call `await client.describeFlow(flowId)` only when an otherwise unknown terminal distinction changes the outcome. It reads the current or latest run without waiting. It resolves to `FlowInfo` with `flowId`, `runId`, `flowType`, `status`, and `startedAt`; it has no close time. Treat status `"completed"` as idempotent success only when successful completion guarantees the requested condition. For another terminal status or a `FlowNotFoundError`, return an explicit domain failure or unknown outcome. An incomplete server summary rejects with `TypeError`. If the Flow still appears running, query its domain state before a bounded, idempotent retry. [Released Client](https://github.com/superdurable/dex/blob/sdk-typescript/v1.25.0/sdk-typescript/src/client.ts) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-typescript/v1.25.0/sdk-typescript/src/options.ts)
 
 ## Query-only Get failures
 

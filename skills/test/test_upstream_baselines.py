@@ -894,7 +894,7 @@ class SdkDescribeFlowTest(unittest.TestCase):
     def test_core_reference_must_not_present_describe_as_go_only(self):
         mutate_page(
             self, self.check, self.references / "core" / "error-handling.md",
-            "Java, Python, TypeScript, and Rust already have it at their v1.23.0 baselines.",
+            "Java, Python, TypeScript, and Rust already have it at their v1.25.0 baselines.",
             "Only the Go SDK has it.",
         )
 
@@ -1386,13 +1386,13 @@ class Release124ReferencesTest(unittest.TestCase):
 
 
 class FlowServiceTlsTest(unittest.TestCase):
-    GO_TAG = "sdk-go/v1.24.0"
+    GO_TAG = "sdk-go/v1.25.0"
     SDK_TAGS = {
         "go": GO_TAG,
-        "java": "sdk-java/v1.23.0",
-        "python": "sdk-python/v1.23.0",
-        "typescript": "sdk-typescript/v1.23.0",
-        "rust": "sdk-rust/v1.23.0",
+        "java": "sdk-java/v1.25.0",
+        "python": "sdk-python/v1.25.0",
+        "typescript": "sdk-typescript/v1.25.0",
+        "rust": "sdk-rust/v1.25.0",
     }
     TAGGED_PATHS = {
         GO_TAG: (
@@ -1401,23 +1401,23 @@ class FlowServiceTlsTest(unittest.TestCase):
             "sdk-go/dex/credential_api_key.go", "sdk-go/dex/credential_integration_test.go",
             "sdk-go/integ/tls_transport_test.go",
         ),
-        "sdk-java/v1.23.0": (
+        "sdk-java/v1.25.0": (
             "sdk-java/src/main/java/io/superdurable/dex/Client.java",
             "sdk-java/src/main/java/io/superdurable/dex/Worker.java",
             "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
             "sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java",
         ),
-        "sdk-python/v1.23.0": (
+        "sdk-python/v1.25.0": (
             "sdk-python/dex/_credential_transport.py", "sdk-python/dex/_pull_worker.py",
             "sdk-python/dex/client_options.py", "sdk-python/dex/worker_options.py",
         ),
-        "sdk-typescript/v1.23.0": ("sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts",
+        "sdk-typescript/v1.25.0": ("sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts",
                                       "sdk-typescript/src/options.ts"),
-        "sdk-rust/v1.23.0": (
+        "sdk-rust/v1.25.0": (
             "sdk-rust/crates/dex-sdk/src/client.rs", "sdk-rust/crates/dex-sdk/src/worker.rs",
             "sdk-rust/crates/dex-sdk/src/client_options.rs", "sdk-rust/crates/dex-sdk/src/worker_options.rs",
         ),
-        "server/v1.24.0": ("server/config/config.go", "server/service/api/routers.go",
+        "server/v1.25.0": ("server/config/config.go", "server/service/api/routers.go",
                             "server/cmd/server/dex/dex.go"),
         "server-zd/v0.1.6": (
             "server-zd/crates/dexzd-server/src/config/service_config.rs", "server-zd/README.md",
@@ -1468,10 +1468,10 @@ class FlowServiceTlsTest(unittest.TestCase):
                         "flowServiceAddress, options.Credential, options.FlowServiceTLS",
                         "flowServiceAddress, options.Credential, nil")
 
-    def test_worker_service_listener_must_stay_separate(self):
+    def test_worker_must_not_open_an_inbound_listener(self):
         self.mutate_tag(self.GO_TAG, "sdk-go/dex/worker.go",
-                        "grpc.NewServer(messageLimits.workerServiceServerOptions()...)",
-                        "grpc.NewServer(grpc.Creds(credentials.NewTLS(config)))")
+                        "\tpull, err := newPullWorker(",
+                        "\tlistener := grpc.NewServer()\n\t_ = listener\n\tpull, err := newPullWorker(")
 
     def test_ca_bundle_must_be_parsed(self):
         self.mutate_tag(self.GO_TAG, "sdk-go/dex/flow_service_tls.go",
@@ -1524,23 +1524,23 @@ class FlowServiceTlsTest(unittest.TestCase):
                         "if status.Code(err) == codes.Unavailable {", "if status.Code(err) == codes.Unimplemented {")
 
     def test_java_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-java/v1.23.0", "sdk-java/src/main/java/io/superdurable/dex/Client.java",
+        self.mutate_tag("sdk-java/v1.25.0", "sdk-java/src/main/java/io/superdurable/dex/Client.java",
                         ".usePlaintext()", ".useTransportSecurity()")
 
     def test_java_options_must_not_add_tls_without_reference_update(self):
-        self.mutate_tag("sdk-java/v1.23.0", "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
+        self.mutate_tag("sdk-java/v1.25.0", "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
                         "private final Credential credential;", "private final Credential credential;\n    private final Object tlsConfig;")
 
     def test_python_pull_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-python/v1.23.0", "sdk-python/dex/_pull_worker.py",
+        self.mutate_tag("sdk-python/v1.25.0", "sdk-python/dex/_pull_worker.py",
                         "return grpc.aio.insecure_channel(server_address)", "return grpc.aio.secure_channel(server_address)")
 
     def test_typescript_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-typescript/v1.23.0", "sdk-typescript/src/client.ts",
+        self.mutate_tag("sdk-typescript/v1.25.0", "sdk-typescript/src/client.ts",
                         "credentials.createInsecure()", "credentials.createSsl()")
 
     def test_rust_default_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-rust/v1.23.0", "sdk-rust/crates/dex-sdk/src/client.rs",
+        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/client.rs",
                         'format!("http://{address}")', 'format!("https://{address}")')
 
     def test_server_zd_listener_must_remain_plaintext(self):
@@ -1548,12 +1548,12 @@ class FlowServiceTlsTest(unittest.TestCase):
                         "bind address for the plaintext public gRPC services", "bind address for the TLS public gRPC services")
 
     def test_go_server_must_not_add_native_tls_without_reference_update(self):
-        self.mutate_tag("server/v1.24.0", "server/service/api/routers.go",
+        self.mutate_tag("server/v1.25.0", "server/service/api/routers.go",
                         "if publicEnabled && !authCfg.IsEnabled() {\n\t\tserver.grpcServer = grpc.NewServer(append(",
                         "if publicEnabled && !authCfg.IsEnabled() {\n\t\tserver.grpcServer = grpc.NewServer(grpc.Creds(credentials.NewTLS(config)), append(")
 
     def test_dex_web_must_keep_separate_plaintext_transport(self):
-        self.mutate_tag("server/v1.24.0", "server/cmd/server/dex/dex.go",
+        self.mutate_tag("server/v1.25.0", "server/cmd/server/dex/dex.go",
                         "grpc.WithTransportCredentials(insecure.NewCredentials())",
                         "grpc.WithTransportCredentials(credentials.NewTLS(config))")
 
@@ -1576,6 +1576,92 @@ class FlowServiceTlsTest(unittest.TestCase):
     def test_language_reference_must_keep_absent_option_boundary(self):
         mutate_page(self, self.check, self.references / "java/java.md",
                     "no FlowService TLS option", "a FlowService TLS option")
+
+
+class PullOnlyWorkersTest(unittest.TestCase):
+    SDK_TAGS = {
+        "go": "sdk-go/v1.25.0",
+        "java": "sdk-java/v1.25.0",
+        "python": "sdk-python/v1.25.0",
+        "typescript": "sdk-typescript/v1.25.0",
+        "rust": "sdk-rust/v1.25.0",
+    }
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.sources = {}
+        for language, tag in self.SDK_TAGS.items():
+            paths = {path for path, _ in CHECKER.PULL_ONLY_SOURCES[language]}
+            paths |= {path for path, _ in CHECKER.PULL_ONLY_FORBIDDEN_OPTIONS[language]}
+            paths |= {path for path, _, _ in CHECKER.PULL_ONLY_ROUTING_FUNCTIONS.get(language, ())}
+            self.sources[tag] = tagged_sources(tag, *sorted(paths))
+            self.repository.commit_and_tag(tag, self.sources[tag])
+        self.references = copy_references(
+            self.repository.root, *(page for page, _ in CHECKER.PULL_ONLY_REFERENCE_STATEMENTS)
+        )
+
+    def check(self):
+        CHECKER.check_pull_only_workers(self.repository.root, self.SDK_TAGS, self.references)
+
+    def mutate_tag(self, tag: str, path: str, old: str, new: str):
+        mutated = replace_once(self.sources[tag][path], old, new)
+        self.repository.commit_and_tag(tag, {path: mutated})
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn(path, str(raised.exception))
+
+    def test_real_tagged_sources_and_references_pass(self):
+        self.check()
+
+    def test_go_start_and_sub_flow_must_each_route_to_pull_workers(self):
+        tag, path = "sdk-go/v1.25.0", "sdk-go/dex/proto_mapper.go"
+        source = self.sources[tag][path]
+        pull_false = CHECKER.GO_PULL_ROUTING.replace("IsPullMode: true", "IsPullMode: false")
+        for function in ("mapStartFlowOptions", "mapSubFlowOptions"):
+            with self.subTest(function=function):
+                mutated = replace_in_function(source, f"func {function}(", CHECKER.GO_PULL_ROUTING, pull_false)
+                self.repository.commit_and_tag(tag, {path: mutated})
+                with self.assertRaises(SystemExit) as raised:
+                    self.check()
+                self.assertIn(path, str(raised.exception))
+                self.assertIn(function, str(raised.exception))
+        self.repository.commit_and_tag(tag, {path: source})
+        self.check()
+
+    def test_rust_pull_flow_config_must_set_pull_mode(self):
+        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/client.rs",
+                        "is_pull_mode: true,", "is_pull_mode: false,")
+
+    def test_rust_start_flow_must_use_pull_flow_config(self):
+        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/client.rs",
+                        "Some(map_pull_flow_config(config)?)", "Some(map_flow_config(config)?)")
+
+    def test_rust_sub_flow_must_use_pull_flow_config(self):
+        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/worker_dispatcher.rs",
+                        "crate::client::map_pull_flow_config(options.config_override.as_ref())",
+                        "crate::client::map_flow_config(options.config_override.as_ref())")
+
+    def test_go_bind_address_must_stay_removed(self):
+        self.mutate_tag("sdk-go/v1.25.0", "sdk-go/dex/worker.go",
+                        "\tPull *PullWorkerOptions\n", "\tPull *PullWorkerOptions\n\tBindAddress string\n")
+
+    def test_python_worker_target_option_must_stay_removed(self):
+        self.mutate_tag("sdk-python/v1.25.0", "sdk-python/dex/client_options.py",
+                        "class ClientOptions", "worker_target = None\n\n\nclass ClientOptions")
+
+    def test_typescript_bind_address_must_stay_removed(self):
+        self.mutate_tag("sdk-typescript/v1.25.0", "sdk-typescript/src/options.ts",
+                        "export interface WorkerOptions {", "export interface WorkerOptions {\n  bindAddress?: string;")
+
+    def test_rust_pull_default_must_remain(self):
+        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/worker_options.rs",
+                        "pull: PullWorkerOptions::default(),", "pull: PullWorkerOptions::disabled(),")
+
+    def test_each_reference_statement_must_be_enforced(self):
+        for page, needles in CHECKER.PULL_ONLY_REFERENCE_STATEMENTS:
+            for needle in needles:
+                with self.subTest(page=page, needle=needle):
+                    mutate_page(self, self.check, self.references / page, needle, needle[:-1] + "?")
 
 
 if __name__ == "__main__":

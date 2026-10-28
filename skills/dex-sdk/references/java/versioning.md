@@ -4,13 +4,13 @@ An open Flow can execute code after a deployment. Treat Flow type names, Step ty
 
 ## Server protocol compatibility
 
-Published Java SDK JARs expose a diagnostic implementation version. Worker startup calls `GetServerInfo`, negotiates the highest common protocol, synchronizes Attribute indexes, and then binds WorkerService. A missing RPC, invalid interval, or disjoint interval fails before binding. Upgrade a legacy Server first, and stop running Workers before a breaking Server release because they do not renegotiate.
+Published Java SDK JARs expose a diagnostic implementation version. Worker startup calls `GetServerInfo`, negotiates the highest common protocol, synchronizes Attribute indexes, and then opens its pull task streams. A missing RPC, invalid interval, or disjoint interval fails before any task stream opens. Upgrade a legacy Server first, and stop running Workers before a breaking Server release because they do not renegotiate.
 
 ## Before changing code
 
 1. Inspect the application's resolved `io.superdurable:dex-sdk` version.
 2. Verify APIs against that tag/commit, not this handbook alone.
-3. Inventory open Flows by Flow type and Worker target/version.
+3. Inventory open Flows by Flow type and Worker version.
 4. Classify the change as additive, behavior-changing, or incompatible.
 
 Additive changes are safest when old paths never reference the new Step or field. Renaming a Step class changes its default registered type; override `getStepType()` with the old stable name or retain the old Step while open executions can reference it. Removing a Step, persistence definition, or RPC can break an open Flow waiting to invoke it. Keep the serialized field name stable when renaming a Java DTO member, and test decoding of persisted old values with the configured codec.
@@ -18,7 +18,7 @@ Additive changes are safest when old paths never reference the new Step or field
 ## Deployment strategies
 
 - Keep old and new Flow implementations registered while old executions drain.
-- Introduce a new Flow type or Worker target for incompatible behavior.
+- Introduce a new Flow type for incompatible behavior.
 - Persist a business version Attribute at Flow start and branch decisions from that durable value.
 - Route only new Flows to the new version, then remove old code after proving no running, waiting, retrying, or recoverable Flow needs it.
 - Test an old-open/new-worker case against a real Server.

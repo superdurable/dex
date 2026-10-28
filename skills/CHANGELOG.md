@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.54.0 - 2026-10-28
+
+- Advance all five SDK baselines, the Server baseline, and the CLI baseline to their published v1.25.0 tags; refresh pinned source links. Synchronize the bundle and plugin manifests at 0.54.0.
+- Document SDK v1.25.0 pull-only Workers in Core and all five language references: every Worker opens outbound task streams and never listens, Worker and Client need only the Dex Server address, StartFlow and SubFlow always route to pull Workers, and UpdateFlowConfig does not change Worker routing. List each SDK's removed WorkerTarget, bind address, and Worker target options, and explain that active Flows started with a Worker address by an earlier SDK keep it.
+- Remove listening Worker, bind address, headless target, and Worker target canary guidance from Core, the language references, and App Builder. Replace the TypeScript and Rust bootstrap excerpts with the released SDK README examples, and tell Dex Web users to select Pull Worker for v1.25.0 Workers.
+- Replace the Go WorkerService listener check with tagged pull-only source checks in every SDK, including the Go StartFlow and SubFlow mappings and Rust pull routing, and add mutation tests for each path. Move the Java, Python, TypeScript, and Rust handbook baselines to v1.25.0. The server-zd fixes in this Dex release are not yet in a server-zd release, so they stay undocumented.
+
 ## 0.53.1 - 2026-10-26
 
 - Remove the Codex SessionStart version-check hook. Codex trusts hooks by their resolved versioned path, so every release triggered a new "hook modified" prompt. Codex now relies on the skills' fallback version check; the Claude Code and Cursor hooks are unchanged. Baselines stay unchanged.

@@ -8,7 +8,7 @@ Durability resolves from the WaitFor or Execute override, then the FlowConfig de
 
 When most handlers are short and idempotent, set the FlowConfig default to **ASYNC** at Flow start. Let ordinary handlers inherit it. Explicitly override a method to **SYNC** when it is more likely than not to exceed five seconds. LLM calls and other known long-running provider calls usually belong in this category.
 
-Five seconds is a classification heuristic, not a timeout or SLA. Seven seconds is the limit it protects: for listening Workers, the ASYNC local phase permits at most about seven seconds and three attempts; for pull Workers, it permits one attempt. The heuristic leaves operating margin inside that limit. Classification does not need to be exact. ShortRunning work is allowed to exceed the estimate and fall back normally. If more than half of real calls fall back, classify the method as long-running because the local optimization is no longer useful.
+Five seconds is a classification heuristic, not a timeout or SLA. Seven seconds is the limit it protects: the ASYNC local phase permits at most about seven seconds and one attempt. The heuristic leaves operating margin inside that limit. Classification does not need to be exact. ShortRunning work is allowed to exceed the estimate and fall back normally. If more than half of real calls fall back, classify the method as long-running because the local optimization is no longer useful.
 
 Fallback starts a regular execution, but the method's durability remains **ASYNC**. Do not describe fallback as switching durability to SYNC.
 

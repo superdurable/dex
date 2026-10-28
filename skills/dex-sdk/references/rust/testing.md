@@ -4,29 +4,35 @@ Prefer integration tests against a real Dex Server. Unit tests can validate pure
 
 ## Test harness
 
-Start `dexcli dev`, build the same Registry used by production, create a temporary BlobCache, bind the Worker to a free address, and run it on a dedicated thread. Construct a Client with the same Worker target. Stop and join the Worker and close the cache during teardown.
+Start `dexcli dev`, build the same Registry used by production, create a temporary BlobCache, and run the Worker on a dedicated thread. Construct the Worker and Client with the same Dex Server address. Stop and join the Worker and close the cache during teardown.
 
-[Integration source](https://github.com/superdurable/dex/blob/sdk-rust/v1.23.0/examples/rust/tests/dex_integration.rs)
-<!-- dex-source: examples/rust/tests/dex_integration.rs -->
+[Released Worker and Client setup](https://github.com/superdurable/dex/blob/sdk-rust/v1.25.0/sdk-rust/README.md#pull-mode)
+<!-- dex-source: sdk-rust/README.md -->
 ```rust
+let worker = Worker::try_new(
+    registry.clone(),
+    cache.clone(),
+    WorkerOptions::new()
+        .server_address("dex.example:8801")
+        .pull(PullWorkerOptions::new()
+            .max_concurrent_tasks(8)
+            .idle_streams_per_queue(1)),
+)?;
 let client = Client::try_new(
     registry,
-    Arc::clone(&cache),
+    cache,
     ClientOptions::new()
-        .server_address(server_address)
-        .worker_target(worker.worker_target().clone()),
-)
-.expect("create Rust examples Client");
-client.health_check().expect("Dex health check");
+        .server_address("dex.example:8801"),
+)?;
 ```
 
-Use `tempfile::TempDir` for BlobCache isolation and ask the OS for a free Worker port. Do not share a fixed Flow ID across tests.
+Use `tempfile::TempDir` for BlobCache isolation. Do not share a fixed Flow ID across tests.
 
 ## Deadline polling
 
 Poll observable Dex state until a short deadline. Do not use a fixed sleep as the assertion mechanism; scheduling and retries are asynchronous.
 
-[Integration source](https://github.com/superdurable/dex/blob/sdk-rust/v1.23.0/examples/rust/tests/dex_integration.rs)
+[Integration source](https://github.com/superdurable/dex/blob/sdk-rust/v1.25.0/examples/rust/tests/dex_integration.rs)
 <!-- dex-source: examples/rust/tests/dex_integration.rs -->
 ```rust
 fn await_engagement_status(&self, flow_id: &str, expected: &str) -> EngagementStatus {
