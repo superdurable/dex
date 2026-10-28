@@ -650,7 +650,7 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
             null_value(),
         ] {
             let mut harness = Harness::with_settings(RunSettings {
-                history_window_semantic_events: 1,
+                history_window_semantic_events: 2,
                 history_prune_chunk_semantic_events: 1,
                 ..settings()
             });
@@ -701,7 +701,7 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
                 ],
                 "replace",
             );
-            for index in 0..2 {
+            for index in 0..3 {
                 harness.set(
                     vec![unsynced("progress", string_value("tick"))],
                     &format!("tick-{index}"),
@@ -714,6 +714,15 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
                     .contains_key(&(ColumnFamily::Value, value_key))
             );
             let target_time = harness.now_micros;
+            harness.set(
+                vec![synced(attribute_key, string_value("abandoned"))],
+                "abandon",
+            );
+            for store_name in [PRIMARY, REPLICA] {
+                harness.ack(store_name, 8, &[], false);
+            }
+            assert!(harness.entries().is_empty());
+            assert_eq!(harness.pending_index_count(), 0);
             let traveled = harness.apply(Command::TimeTravel(TimeTravelCommand {
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::HistoryEventTime as i32,
@@ -732,10 +741,9 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
                 SyncItem::Value(replacement)
             };
             for store_name in [PRIMARY, REPLICA] {
-                assert_eq!(
-                    harness.sync_entry(store_name, attribute_key).sync_item,
-                    Some(expected.clone())
-                );
+                let entry = harness.sync_entry(store_name, attribute_key);
+                assert_eq!(entry.written_seq, 11);
+                assert_eq!(entry.sync_item, Some(expected.clone()));
             }
         }
     }

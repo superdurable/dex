@@ -25,7 +25,7 @@ use dexzd_protocol::dexzd::v1::{
 use crate::command_handlers::command_replies::ok_reply;
 use crate::command_handlers::flow_close::finalize_pending_close_if_ready;
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
-use crate::command_handlers::{CloseBarrierSource, CommandScope, HandlerResult};
+use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::state_access::{FlowTransaction, RunRows};
 use crate::values::load_stored_value;
 use crate::{ApplyEffect, ApplyError};
@@ -50,11 +50,8 @@ pub(crate) fn mark_attribute_sync_entries(
     attribute_keys: &BTreeSet<String>,
     scope: &CommandScope<'_>,
 ) -> Result<BTreeSet<String>, ApplyError> {
-    // Rebuilds replay transient references whose bytes may be pruned; only the restored state updates the run-scoped outbox.
-    if matches!(
-        scope.close_barrier_source,
-        CloseBarrierSource::RecordedHistory { .. }
-    ) {
+    // Rebuild output keeps only attempt-scoped rows, so outbox marks would be discarded; transient references may already be collected.
+    if scope.is_history_rebuild() {
         return Ok(BTreeSet::new());
     }
     let store_names = attribute_store_names(&cursor.record);

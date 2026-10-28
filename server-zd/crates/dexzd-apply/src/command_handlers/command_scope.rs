@@ -51,6 +51,13 @@ impl<'command> CommandScope<'command> {
         }
     }
 
+    pub(crate) fn is_history_rebuild(&self) -> bool {
+        matches!(
+            self.close_barrier_source,
+            CloseBarrierSource::RecordedHistory { .. }
+        )
+    }
+
     pub(crate) fn flow_id(&self) -> &str {
         &self.command.flow_id
     }
