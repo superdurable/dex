@@ -24,8 +24,8 @@ failure has one classification.
 | Classification | Tests |
 | --- | --- |
 | go-server-only | 176 |
-| zd-bug | 7 |
-| behavior-difference | 7 |
+| zd-bug | 2 |
+| behavior-difference | 11 |
 | harness-gap | 1 |
 
 The classification counts cover every row that has a classification: skipped
@@ -42,15 +42,15 @@ skips into assertions. A forced run, with the
 Temporal-only guards disabled locally, supplied the evidence for zd-bugs 1 and 2. The
 other zd-bugs come from the ported tests themselves. #1011 fixed zd-bug 1, so
 **TestHardDeleteAttributeSubFlowTemporal** now runs in binary mode and passes.
-The counts include that change.
+#1037, #1038, and #1019 fixed zd-bugs 4 to 7. Their guards are deleted, so
+both engines run the Go Server assertions. The counts include these changes.
 
 ## Classifications
 
 - **zd-bug**: server-zd behaves wrongly. A guard names the bug and pins the
-  current server-zd result, so the test fails once server-zd changes. The
-  bug 5 guard accepts both the current and the fixed result. The guards for
-  bugs 4 to 7 are each one block marked `zd-bug #<issue> guard, delete once
-  fixed`. Deleting the block restores the Go Server assertion.
+  current server-zd result, so the test fails once server-zd changes. Only
+  the guards for bugs 2 and 3 remain. When a bug is fixed, its guard is
+  deleted and binary mode runs the Go Server assertion.
 - **behavior-difference**: a documented server-zd difference. Binary mode
   asserts the server-zd behavior.
 - **go-server-only**: the test covers Temporal, Cadence, push Workers, Go Server
@@ -83,27 +83,31 @@ guards already cite.
    as `FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE` with
    `SubFlow start rejected: pull worker_target cannot specify address`. The
    error comes from Worker code, so INTERNAL misleads the application.
-4. **TestPullWorkerUnavailableTemporal** (low severity, #1008): when no Worker accepts a
+4. Fixed by #1037. **TestPullWorkerUnavailableTemporal** (low severity, #1008): when no Worker accepts a
    WaitFor task, the **StepWaitForFailed** event has
    **DispatchTaskErrorReason** `UNSPECIFIED`, and its detail is
    `DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE: no Worker accepted the task`.
    The Go Server sets the reason field and the detail
    `no Worker available for queue DispatchProbeFlow: no Worker accepted the task`.
-   The Flow error message already matches.
-5. **TestSynchronousUpdateRequestIDTemporal** (medium severity, #1005): two concurrent
+   The Flow error message already matches. The guard is deleted, and binary
+   mode asserts the Go Server reason and detail.
+5. Fixed by #1038. **TestSynchronousUpdateRequestIDTemporal** (medium severity, #1005): two concurrent
    transactional **InvokeRPC** calls with the same request ID can both reach the
    Worker. Three local runs invoked the Worker twice. A later retry with that
    request ID replays the recorded response. A client that retries after its own
-   timeout while the first call still runs can run the RPC twice.
-6. **TestTimerFlowTemporal** and **TestGreedyTimerFlowTemporal** (low
-   severity, #1007): **GetFlowState** reports a timer skipped through **SkipTimer** as
+   timeout while the first call still runs can run the RPC twice. The guard is
+   deleted, and binary mode expects one Worker invocation.
+6. Fixed by #1037. **TestTimerFlowTemporal** and
+   **TestGreedyTimerFlowTemporal** (low severity, #1007): **GetFlowState** reports a timer skipped through **SkipTimer** as
    `INTERNAL_TIMER_STATUS_FIRED`, never `INTERNAL_TIMER_STATUS_SKIPPED`
    (`dexzd-apply/src/read_model/flow.rs` maps every completed timer to fired).
-7. **TestFlowTimeoutTemporal** (medium severity, #1006): a retry of the Flow timeout
+   The guard is deleted, and binary mode expects a skipped status.
+7. Fixed by #1019. **TestFlowTimeoutTemporal** (medium severity, #1006): a retry of the Flow timeout
    handler reloads its selected Channels. A message published between the
    attempts appears in the second attempt. The Step options documentation says a
    retry reuses the state snapshot loaded for its first attempt
-   (`docs/content/primitives/step/step-options.mdx`).
+   (`docs/content/primitives/step/step-options.mdx`). The guard is deleted, and
+   binary mode expects the retry to see only the first message.
 
 Candidates from the forced **TestWebAPITemporal** run are tracked in #1003.
 
@@ -167,7 +171,8 @@ Open:
 - **TestSubFlowConditionTemporal**: a SubFlow request ID is
   `<run ID>:<run attempt>:<Step execution ID>:<condition index>`. The Go Server
   uses `<run ID><Step execution ID>`. A reset increments the run attempt.
-- **TestTimerFlowTemporal** and **TestLockingWorkflowTemporal**: Temporal reset
+- **TestTimerFlowTemporal**, **TestGreedyTimerFlowTemporal**, and
+  **TestLockingWorkflowTemporal**: Temporal reset
   reapplies the **SkipTimer** and RPC writes made after the reset point. A
   server-zd reset discards them. Binary mode skips the timers again after the
   reset and expects no RPC reapply.
@@ -301,7 +306,7 @@ checks Go Server configuration.
 | TestFlowForceFailTemporal | pass |  |  |
 | TestFlowIDWithTenantPrefixPassesThroughTemporal | skip | go-server-only | Skip reason: `flow_id_passthrough_test.go:87: Temporal-only assertion`. Starts the interpreter workflow directly through Temporal (StartInterpreterWorkflow). |
 | TestFlowTimeoutCadence | skip | go-server-only | Skip reason: `wf_timeout_test.go:72: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestFlowTimeoutTemporal | pass | zd-bug | Harness gap fixed. Passes; its timeout handler retry pins zd-bug 7 (#1006, retry reloads Channels). |
+| TestFlowTimeoutTemporal | pass | behavior-difference | Harness gap fixed. Passes; asserts that server-zd rejects the Flow retry policy. zd-bug 7 (#1006) fixed by #1019, so the timeout handler retry runs the Go Server assertion. |
 | TestFlowWaitForTimeoutCadence | skip | go-server-only | Skip reason: `get_with_wait_timeout_test.go:39: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestFlowWaitForTimeoutTemporal | pass |  |  |
 | TestForceCompleteIfChannelsEmptyCountsCommittedConsumptionCadence | skip | go-server-only | Skip reason: `conditional_close_committed_consumption_test.go:83: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
@@ -322,7 +327,7 @@ checks Go Server configuration.
 | TestGreedyTimerFlowBaseTemporalContinueAsNew | skip | go-server-only | Skip reason: `greedy_timer_test.go:81: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
 | TestGreedyTimerFlowCadence | skip | go-server-only | Skip reason: `timer_test.go:82: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestGreedyTimerFlowCadenceContinueAsNew | skip | go-server-only | Skip reason: `timer_test.go:102: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestGreedyTimerFlowTemporal | pass | zd-bug | Harness gap fixed. Passes; its timer status pins zd-bug 6 (#1007, skipped timer reported as fired) and the reset difference. |
+| TestGreedyTimerFlowTemporal | pass | behavior-difference | Harness gap fixed. Passes; asserts the reset difference. zd-bug 6 (#1007) fixed by #1037, so the skipped timer status runs the Go Server assertion. |
 | TestGreedyTimerFlowTemporalContinueAsNew | skip | go-server-only | Skip reason: `timer_test.go:117: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
 | TestHardDeleteAttributeBlobCacheTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:462: Temporal-only assertion`. Go Server Blob cache directory with S3 (C5). |
 | TestHardDeleteAttributeCleanupTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:505: Temporal-only assertion`. Go Server hard-delete object cleanup in its local Blob directory; a forced run panics on a nil Go Blob Store. |
@@ -429,7 +434,7 @@ checks Go Server configuration.
 | TestPullWorkerTargetValidationCadence | skip | go-server-only | Skip reason: `pull_target_validation_test.go:33: if !*cadenceIntegTest \|\| *dexServerAddress != ""`. Cadence backend; server-zd has no Cadence. |
 | TestPullWorkerTargetValidationTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
 | TestPullWorkerUnavailableCadence | skip | go-server-only | Skip reason: `pull_worker_test.go:1711: if !*cadenceIntegTest \|\| *dexServerAddress != ""`. Cadence backend; server-zd has no Cadence. |
-| TestPullWorkerUnavailableTemporal | pass | zd-bug | Ported from go-server-only. Passes; its StepWaitForFailed check pins zd-bug 4 (#1008, no structured dispatch reason). |
+| TestPullWorkerUnavailableTemporal | pass |  | Ported from go-server-only. zd-bug 4 (#1008) fixed by #1037; runs the Go Server StepWaitForFailed assertion against dex-server-zd. |
 | TestPushParentRoutesSubFlowToPullWorkerCadence | skip | go-server-only | Skip reason: `pull_worker_test.go:1070: if !*cadenceIntegTest \|\| *dexServerAddress != ""`. Cadence backend; server-zd has no Cadence. |
 | TestPushParentRoutesSubFlowToPullWorkerTemporal | skip | go-server-only | Push parent Worker (C18). SubFlows from pull Workers are covered by TestPullSubFlowStartsWithoutStickyQueueTemporal. |
 | TestQueuedStepCancellationAcrossContinueAsNewCadence | skip | go-server-only | Skip reason: `step_cancellation_test.go:51: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
@@ -537,7 +542,7 @@ checks Go Server configuration.
 | TestStreamStoreTrimmedSourceCanWriteAgain | pass |  |  |
 | TestSubFlowConditionCadence | skip | go-server-only | Skip reason: `subflow_test.go:57: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestSubFlowConditionTemporal | pass | behavior-difference | Harness gap fixed. Passes; server-zd SubFlow request IDs add the run attempt and condition index. |
-| TestSynchronousUpdateRequestIDTemporal | pass | zd-bug | Ported from go-server-only with transactional RPCs. Passes; its invoke count pins zd-bug 5 (#1005, concurrent duplicate request IDs). |
+| TestSynchronousUpdateRequestIDTemporal | pass | behavior-difference | Ported from go-server-only with transactional RPCs. zd-bug 5 (#1005) fixed by #1038, so binary mode expects one Worker invocation. |
 | TestTemporalAuthAPIKeyFileStartupValidation | pass |  |  |
 | TestTemporalAuthClientCertificateRotation | skip | go-server-only | Skip reason: `temporal_auth_test.go:117: server-zd does not support Temporal client authentication`. Temporal client TLS and API key settings. |
 | TestTemporalAuthCustomCAAndServerName | skip | go-server-only | Skip reason: `temporal_auth_test.go:97: server-zd does not support Temporal client authentication`. Temporal client TLS and API key settings. |
@@ -548,7 +553,7 @@ checks Go Server configuration.
 | TestTerminalProducerDrainTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
 | TestTimerFlowCadence | skip | go-server-only | Skip reason: `timer_test.go:41: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestTimerFlowCadenceContinueAsNew | skip | go-server-only | Skip reason: `timer_test.go:61: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestTimerFlowTemporal | pass | zd-bug | Harness gap fixed. Passes; its timer status pins zd-bug 6 (#1007, skipped timer reported as fired) and the reset difference. |
+| TestTimerFlowTemporal | pass | behavior-difference | Harness gap fixed. Passes; asserts the reset difference. zd-bug 6 (#1007) fixed by #1037, so the skipped timer status runs the Go Server assertion. |
 | TestTimerFlowTemporalContinueAsNew | skip | go-server-only | Skip reason: `timer_test.go:117: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
 | TestUpdateWorkerTargetCadence | skip | go-server-only | Skip reason: `worker_target_update_test.go:35: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestUpdateWorkerTargetTemporal | skip | go-server-only | Skip reason: `worker_target_update_test.go:41: requires push Workers: switching addresses between Workers for one Flow type`. Push Worker address switching; server-zd supports only pull Workers (C18). |
