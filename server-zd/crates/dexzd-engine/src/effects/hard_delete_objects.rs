@@ -21,7 +21,8 @@ use dexzd_keyspace::{
 use dexzd_object_store::{ObjectStore, WriteCondition, WriteOutcome};
 use dexzd_protocol::dex::{AttributeWrite, Value, value};
 use dexzd_protocol::dexzd::v1::{
-    HardDeleteObjectRecord, HardDeleteObjectReference, PendingHardDeleteUpload,
+    HardDeleteObjectRecord, HardDeleteObjectReference, OutboxRecord, PendingHardDeleteUpload,
+    outbox_record,
 };
 use dexzd_storage::{LocalStore, WriteBatch};
 use futures::future::BoxFuture;
@@ -536,6 +537,18 @@ fn is_object_referenced(
         if record
             .object
             .is_some_and(|object| object.object_id == object_id)
+        {
+            return Ok(true);
+        }
+    }
+    let prefix = run_table_prefix(run.flow_hash, run.run_id, RunTable::Outbox);
+    for (key, value) in scan_all(reader, ColumnFamily::Flow, &prefix)? {
+        let record: OutboxRecord = decode_row("Outbox", &key, &value)?;
+        if let Some(outbox_record::Payload::ChildStart(start)) = record.payload
+            && start
+                .hard_delete_objects
+                .iter()
+                .any(|object| object.object_id == object_id)
         {
             return Ok(true);
         }

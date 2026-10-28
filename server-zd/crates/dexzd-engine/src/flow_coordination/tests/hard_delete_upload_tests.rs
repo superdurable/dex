@@ -584,3 +584,32 @@ async fn apply_stores_uploaded_hard_delete_values_that_get_attributes_reads_back
         ]
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn admission_rejects_raw_hard_delete_writes_before_submission_without_halting() {
+    let harness = blob_store_harness();
+    let command = FlowCommand {
+        flow_id: "admission-test".to_owned(),
+        command: Some(flow_command::Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                attributes: vec![hard_delete_write("secret", string_value("unuploaded"))],
+                ..SetAttributesRequest::default()
+            }),
+            ..AttributesSetCommand::default()
+        })),
+        ..FlowCommand::default()
+    };
+    let error = harness
+        .registry
+        .propose(
+            flow("admission-test"),
+            command,
+            crate::flow_coordination::CommitUrgency::Prompt,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.grpc_code(), grpc_code::INVALID_ARGUMENT);
+    assert!(harness.submitted().is_empty());
+    assert!(harness.applier.applied.lock().unwrap().is_empty());
+    assert!(!harness.registry.halted().is_cancelled());
+}

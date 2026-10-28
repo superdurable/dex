@@ -77,6 +77,16 @@ fn apply_in_scope(
     scope: &CommandScope<'_>,
 ) -> Result<(ApplyOutcome, bool), ApplyError> {
     let command = scope.command;
+    if let Err(detail) = crate::validate_hard_delete_command(command) {
+        return Ok((
+            ApplyOutcome::rejected(error_reply(
+                grpc_code::INVALID_ARGUMENT,
+                ErrorSubStatus::Uncategorized,
+                detail.to_string(),
+            )),
+            false,
+        ));
+    }
     let behavior_version = scope.behavior_version;
     let Some(body) = &command.command else {
         return Err(ApplyError::InvariantViolation {

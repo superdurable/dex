@@ -10,9 +10,9 @@
 //! validation, and the per-run value size limit.
 
 use dexzd_protocol::dex::{
-    FlowConfig, InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, Kv, PollWorkerTaskFrame,
-    PullRouting, Value, invoke_execute_method_output, invoke_wait_for_method_output,
-    poll_worker_task_frame, value,
+    AttributeWrite, FlowConfig, InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, Kv,
+    PollWorkerTaskFrame, PullRouting, Value, invoke_execute_method_output,
+    invoke_wait_for_method_output, poll_worker_task_frame, value,
 };
 use dexzd_protocol::dexzd::v1::{
     HardDeleteObjectReference, StepAttemptFailureKind, StepInvocationKey, StepMethod,
@@ -20,6 +20,7 @@ use dexzd_protocol::dexzd::v1::{
 };
 use dexzd_request_validation::{ValidationConfig, WorkerResponse, validate_worker_response};
 
+use crate::effects::{EffectError, HardDeleteObjectOwner, HardDeleteObjects, HardDeleteUploads};
 use crate::engine_id_source::EngineIdSource;
 
 /// A Worker method result that passed every check.
@@ -30,6 +31,26 @@ pub(crate) enum MethodResult {
 }
 
 impl MethodResult {
+    pub(crate) async fn upload_attributes(
+        &mut self,
+        objects: &HardDeleteObjects,
+        owner: HardDeleteObjectOwner,
+    ) -> Result<HardDeleteUploads, EffectError> {
+        let mut writes: Vec<_> = self
+            .attribute_writes_mut()
+            .map(|write| AttributeWrite {
+                value: write.value.take(),
+                is_hard_delete_on_null: write.is_hard_delete_on_null,
+                ..AttributeWrite::default()
+            })
+            .collect();
+        let result = objects.upload_attribute_writes(owner, &mut writes).await;
+        for (write, uploaded) in self.attribute_writes_mut().zip(writes) {
+            write.value = uploaded.value;
+        }
+        result
+    }
+
     /// Builds the command that records this result.
     pub(crate) fn into_command(
         self,
@@ -62,6 +83,22 @@ impl MethodResult {
         };
         for publication in publications {
             publication.message_id = id_source.channel_message_id().hyphenated().to_string();
+        }
+    }
+
+    fn attribute_writes_mut(&mut self) -> Box<dyn Iterator<Item = &mut AttributeWrite> + '_> {
+        match self {
+            Self::WaitFor(response) => Box::new(
+                response.upsert_attributes.iter_mut().chain(
+                    response
+                        .waiting_condition
+                        .iter_mut()
+                        .flat_map(|condition| &mut condition.sub_flow_conditions)
+                        .filter_map(|condition| condition.options.as_mut())
+                        .flat_map(|options| &mut options.attributes),
+                ),
+            ),
+            Self::Execute(response) => Box::new(response.upsert_attributes.iter_mut()),
         }
     }
 }
@@ -163,6 +200,21 @@ fn result_values(result: &MethodResult) -> Box<dyn Iterator<Item = &Value> + '_>
                 .upsert_attributes
                 .iter()
                 .filter_map(|write| write.value.as_ref())
+                .chain(
+                    response
+                        .waiting_condition
+                        .iter()
+                        .flat_map(|condition| &condition.sub_flow_conditions)
+                        .flat_map(|condition| {
+                            condition.step_input.iter().chain(
+                                condition
+                                    .options
+                                    .iter()
+                                    .flat_map(|options| &options.attributes)
+                                    .filter_map(|write| write.value.as_ref()),
+                            )
+                        }),
+                )
                 .chain(key_values(&response.upsert_step_exe_locals))
                 .chain(key_values(&response.record_events))
                 .chain(

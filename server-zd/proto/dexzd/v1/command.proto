@@ -232,6 +232,7 @@ message StepMethodCompletedCommand {
   }
   // Worker that produced the result; becomes the run's sticky Worker.
   string app_worker_id = 5;
+  // Write indices span response Attributes, then each SubFlow's initial Attributes in order.
   repeated HardDeleteObjectReference hard_delete_objects = 6;
   dex.PullRouting pull_routing = 7;
 }
@@ -318,6 +319,8 @@ message ChildFlowStartMessage {
   dex.FlowConfig flow_config = 3;
   string request_id = 4;
   ParentFlowReference parent = 5;
+  // Parent-owned staging objects in outbox; child-owned objects in inbox.
+  repeated HardDeleteObjectReference hard_delete_objects = 6;
 }
 
 // Completion report of a child Flow, written into the child's outbox by apply.

@@ -235,6 +235,14 @@ impl Harness {
     }
 
     fn submit_sub_flow_wait(&mut self, condition: SubFlowCondition) -> ApplyOutcome {
+        self.submit_sub_flow_wait_with_objects(condition, Vec::new())
+    }
+
+    fn submit_sub_flow_wait_with_objects(
+        &mut self,
+        condition: SubFlowCondition,
+        hard_delete_objects: Vec<HardDeleteObjectReference>,
+    ) -> ApplyOutcome {
         let invocation = StepInvocationKey {
             step_execution_id: "StartStep-1".to_owned(),
             method: StepMethod::WaitFor as i32,
@@ -265,6 +273,7 @@ impl Harness {
                         ..InvokeWaitForMethodResponse::default()
                     },
                 )),
+                hard_delete_objects,
                 ..StepMethodCompletedCommand::default()
             }),
         )
@@ -306,6 +315,7 @@ impl Harness {
                         }),
                         request_id: request_id.to_owned(),
                         parent: Some(parent),
+                        hard_delete_objects: Vec::new(),
                     },
                 )),
                 new_run_id: new_run_id.to_vec(),
@@ -1372,6 +1382,7 @@ fn running_attach_reports_to_both_parent_attempts() {
                     }),
                     request_id: "second".to_owned(),
                     parent: Some(attached_parent),
+                    hard_delete_objects: Vec::new(),
                 },
             )),
             new_run_id: SECOND_CHILD_RUN.to_vec(),
@@ -2830,4 +2841,116 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
     let attempt = AttemptRecord::decode(attempt_bytes.as_slice()).expect("attempt decodes");
     assert_eq!(attempt.parent_seq, fork_seq);
     assert_eq!(harness.attempt_rows("parent", PARENT_RUN), after_travel);
+}
+
+#[test]
+fn sub_flow_hard_delete_objects_are_persisted_delivered_and_erased_after_recovery() {
+    let mut harness = Harness::new();
+    harness.start_parent();
+    let reference = HardDeleteObjectReference {
+        object_id: "staged-secret".to_owned(),
+        write_index: 0,
+        size_bytes: 19,
+        is_string_value: true,
+    };
+    assert_ok(&harness.submit_sub_flow_wait_with_objects(
+        SubFlowCondition {
+            sub_flow_type: "ChildFlow".to_owned(),
+            start_step_type: "ChildStep".to_owned(),
+            options: Some(SubFlowOptions {
+                attributes: vec![AttributeWrite {
+                    key: "secret".to_owned(),
+                    value: Some(Value { kind: None }),
+                    is_hard_delete_on_null: true,
+                    ..AttributeWrite::default()
+                }],
+                ..SubFlowOptions::default()
+            }),
+            ..SubFlowCondition::default()
+        },
+        vec![reference.clone()],
+    ));
+    let message = harness.outbox("parent", PARENT_RUN).remove(0);
+    let encoded = message.encode_to_vec();
+    let restored = OutboxRecord::decode(encoded.as_slice()).unwrap();
+    let Some(outbox_record::Payload::ChildStart(mut start)) = restored.payload else {
+        panic!("child start");
+    };
+    assert_eq!(start.hard_delete_objects, vec![reference]);
+    start.hard_delete_objects[0].object_id = "child-secret".to_owned();
+    let source = start.parent.as_ref().unwrap().parent.clone();
+    let inbox = InboxMessageCommand {
+        message_id: restored.message_id.clone(),
+        source,
+        payload: Some(inbox_message_command::Payload::ChildStart(start)),
+        new_run_id: FIRST_CHILD_RUN.to_vec(),
+        settings: Some(settings()),
+    };
+    assert_ok(&harness.apply(CHILD_ID, &[], Command::InboxMessage(inbox.clone())));
+    assert_ok(&harness.apply(CHILD_ID, &[], Command::InboxMessage(inbox)));
+    let child_hash = harness.hasher.flow_hash(TenantId::DEFAULT, CHILD_ID);
+    let attribute_key = run_named_key(
+        child_hash,
+        RunId(FIRST_CHILD_RUN),
+        RunTable::Attribute,
+        "secret",
+    );
+    let attribute: AttributeRecord = AttributeRecord::decode(
+        harness
+            .state
+            .rows
+            .get(&(ColumnFamily::Flow, attribute_key.clone()))
+            .unwrap()
+            .as_slice(),
+    )
+    .unwrap();
+    assert!(attribute.is_hard_delete_on_null);
+    let Some(dexzd_protocol::dexzd::v1::stored_value::Kind::HardDeleteObject(object)) =
+        attribute.value.unwrap().kind
+    else {
+        panic!("hard-delete object");
+    };
+    assert_eq!(object.object_id, "child-secret");
+    assert_ok(&harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::OutboxAck(OutboxAckCommand {
+            message_ids: vec![restored.message_id],
+        }),
+    ));
+    let parent_hash = harness.hasher.flow_hash(TenantId::DEFAULT, "parent");
+    assert!(harness.state.rows.contains_key(&(
+        ColumnFamily::Flow,
+        hard_delete_pending_key(parent_hash, RunId(PARENT_RUN), "staged-secret")
+    )));
+    assert_ok(&harness.apply(
+        CHILD_ID,
+        &FIRST_CHILD_RUN,
+        Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                flow_id: CHILD_ID.to_owned(),
+                request_id: "erase-secret".to_owned(),
+                attributes: vec![AttributeWrite {
+                    key: "secret".to_owned(),
+                    value: Some(Value {
+                        kind: Some(value::Kind::NullValue(0)),
+                    }),
+                    is_hard_delete_on_null: true,
+                    ..AttributeWrite::default()
+                }],
+                ..SetAttributesRequest::default()
+            }),
+            ..AttributesSetCommand::default()
+        }),
+    ));
+    assert!(
+        !harness
+            .state
+            .rows
+            .contains_key(&(ColumnFamily::Flow, attribute_key))
+    );
+    assert!(harness.state.rows.contains_key(&(
+        ColumnFamily::Flow,
+        hard_delete_pending_key(child_hash, RunId(FIRST_CHILD_RUN), "child-secret")
+    )));
 }

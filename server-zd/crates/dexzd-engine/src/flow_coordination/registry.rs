@@ -534,6 +534,8 @@ impl FlowCoordinatorRegistry {
             return Ok(Admission::Decided(None));
         };
         let command = self.resolve_child_start(command);
+        dexzd_apply::validate_hard_delete_command(&command)
+            .map_err(|error| FlowCoordinationError::invalid_argument(error.to_string()))?;
         let other_transactional_rpcs = coordinator
             .transactional_rpc_count()
             .saturating_sub(u32::from(is_admitted_rpc_commit));
