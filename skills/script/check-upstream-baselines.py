@@ -384,6 +384,72 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
     )
 
 
+# Pull-only Worker statements, checked at each language's baseline tag.
+PULL_ONLY_SOURCES = {
+    "go": (
+        ("sdk-go/dex/proto_mapper.go", ("config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true}",)),
+        ("sdk-go/dex/worker.go", ("Pull *PullWorkerOptions",)),
+    ),
+    "java": (
+        ("sdk-java/src/main/java/io/superdurable/dex/Client.java", (".setIsPullMode(true)",)),
+        ("sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java",
+         ("private PullWorkerOptions pull = PullWorkerOptions.newBuilder().build();",)),
+    ),
+    "python": (
+        ("sdk-python/dex/client.py", ("pb.WorkerTarget(is_pull_mode=True)",)),
+        ("sdk-python/dex/worker_options.py", ("pull: PullWorkerOptions = field(default_factory=PullWorkerOptions)",)),
+    ),
+    "typescript": (
+        ("sdk-typescript/src/client.ts", ('workerTarget: { address: "", isHeadlessAddress: false, isPullMode: true }',)),
+        ("sdk-typescript/src/worker.ts", ('options.pull ?? {}',)),
+    ),
+    "rust": (
+        ("sdk-rust/crates/dex-sdk/src/client.rs", ("worker_target: Some(ProtoWorkerTarget {",)),
+        ("sdk-rust/crates/dex-sdk/src/worker_options.rs", ("pull: PullWorkerOptions::default(),",)),
+    ),
+}
+PULL_ONLY_FORBIDDEN_OPTIONS = {
+    "go": (("sdk-go/dex/worker.go", ("BindAddress", "WorkerTarget *WorkerTarget")),
+           ("sdk-go/dex/client.go", ("WorkerTarget *WorkerTarget",))),
+    "java": (("sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java", ("bindAddress", "workerTarget")),
+             ("sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java", ("workerTarget",))),
+    "python": (("sdk-python/dex/worker_options.py", ("bind_address", "worker_target")),
+               ("sdk-python/dex/client_options.py", ("worker_target",))),
+    "typescript": (("sdk-typescript/src/options.ts", ("bindAddress", "workerTarget")),),
+    "rust": (("sdk-rust/crates/dex-sdk/src/worker_options.rs", ("bind_address", "worker_target")),
+             ("sdk-rust/crates/dex-sdk/src/client_options.rs", ("worker_target",))),
+}
+PULL_ONLY_REFERENCE_STATEMENTS = (
+    ("core/pull-workers.md", ("From SDK v1.25.0 in all five languages, every Worker is a pull Worker",
+                              "UpdateFlowConfig does not change a Flow's Worker routing",
+                              "a Flow started with a Worker address by an earlier SDK keeps that address")),
+    ("go/go.md", ("From Go SDK v1.25.0, every Worker is a pull Worker",)),
+    ("java/java.md", ("From Java SDK v1.25.0, every Worker is a pull Worker",)),
+    ("python/python.md", ("From Python SDK v1.25.0, every Worker is a pull Worker",)),
+    ("typescript/typescript.md", ("From TypeScript SDK v1.25.0, every Worker is a pull Worker",)),
+    ("rust/rust.md", ("From Rust SDK v1.25.0, every Worker is a pull Worker",)),
+)
+
+
+def check_pull_only_workers(checkout: Path, sdk_baselines: dict[str, str], references: Path) -> None:
+    for language, files in PULL_ONLY_SOURCES.items():
+        tag = sdk_baselines[language]
+        for path, needles in files:
+            source = git(checkout, "show", f"refs/tags/{tag}:{path}")
+            for needle in needles:
+                if needle not in source:
+                    fail(f"{tag}:{path} is missing pull-only text: {needle!r}")
+    for language, files in PULL_ONLY_FORBIDDEN_OPTIONS.items():
+        tag = sdk_baselines[language]
+        for path, terms in files:
+            source = git(checkout, "show", f"refs/tags/{tag}:{path}")
+            for term in terms:
+                if term in source:
+                    fail(f"{tag}:{path} exposes {term!r}; update the pull-only references")
+    for page, needles in PULL_ONLY_REFERENCE_STATEMENTS:
+        require_text(references / page, *needles)
+
+
 def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str, str], references: Path) -> None:
     tls_path = "sdk-go/dex/flow_service_tls.go"
     for path, declaration in (("sdk-go/dex/client.go", "type ClientOptions struct {"),
@@ -426,9 +492,14 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
         require_tagged_go_function_text(checkout, go_tag, path, declaration, needle)
     require_tagged_go_function_text(
         checkout, go_tag, "sdk-go/dex/worker.go", "func NewWorker(",
-        "grpc.NewServer(messageLimits.workerServiceServerOptions()...)",
-        "newPullWorker(registry, service, flowConn, *options.Pull, currentGoSDKVersion())",
+        "newPullWorker(registry, service, flowConn, pullOptions, currentGoSDKVersion())",
     )
+    new_worker = go_function_source(
+        git(checkout, "show", f"refs/tags/{go_tag}:sdk-go/dex/worker.go"), "func NewWorker(",
+        f"{go_tag}:sdk-go/dex/worker.go",
+    )
+    if "grpc.NewServer(" in new_worker:
+        fail(f"{go_tag}:sdk-go/dex/worker.go NewWorker opens an inbound listener; update the pull-only references")
     require_tagged_go_function_text(
         checkout, go_tag, "sdk-go/dex/message_size.go", "func (limits grpcMessageLimits) flowServiceDialOptions(",
         "flowServiceTransportCredentials(address, tlsOptions)", "credentialDialOptions(credential)...",
@@ -1268,6 +1339,7 @@ def main() -> None:
     check_go_describe_flow(arguments.dex_root, go_sdk_baseline, SDK_REFERENCES)
     check_sdk_describe_flow(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_flow_service_tls(arguments.dex_root, go_sdk_baseline, sdk_baselines, SDK_REFERENCES)
+    check_pull_only_workers(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,

@@ -8,7 +8,7 @@ Read the package manifest and lockfile first. Preserve the installed SDK version
 
 ## Server protocol compatibility
 
-Server-to-SDK compatibility is based on inclusive protocol intervals, not artifact version ordering. Worker startup calls `GetServerInfo`, chooses the highest version in the interval intersection, synchronizes Attribute indexes, and only then binds WorkerService. A new SDK can use an older Server when it retains the old protocol. A new Server can use an older SDK while their intervals still overlap.
+Server-to-SDK compatibility is based on inclusive protocol intervals, not artifact version ordering. Worker startup calls `GetServerInfo`, chooses the highest version in the interval intersection, synchronizes Attribute indexes, and only then opens its pull task streams. A new SDK can use an older Server when it retains the old protocol. A new Server can use an older SDK while their intervals still overlap.
 
 Upgrade a Server that lacks `GetServerInfo` before deploying Workers with this check. Treat `UNIMPLEMENTED`, invalid intervals, and disjoint intervals as startup failures. A breaking Server release raises its minimum protocol; stop running Workers before the Server upgrade because they do not renegotiate in place.
 

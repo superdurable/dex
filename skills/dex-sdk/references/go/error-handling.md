@@ -14,7 +14,7 @@ For an explicitly best-effort external `Client.WriteStream`, an `errors.As` matc
 
 ## Flow close cleanup
 
-From Go SDK v1.20.0 or later, match `*dex.FlowClosingError` with `errors.As` when a cleanup-sensitive Client call is rejected. Its `ServiceError.SubStatus` is `dex.ErrorSubStatusFlowClosing`, and the service code is FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether to retry or take another action. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.24.0/sdk-go/dex/errors.go)
+From Go SDK v1.20.0 or later, match `*dex.FlowClosingError` with `errors.As` when a cleanup-sensitive Client call is rejected. Its `ServiceError.SubStatus` is `dex.ErrorSubStatusFlowClosing`, and the service code is FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether to retry or take another action. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.25.0/sdk-go/dex/errors.go)
 
 ## StartFlow error handling
 
@@ -58,9 +58,9 @@ Before non-idempotent external work, use an idempotency key derived from durable
 
 Use Execute/WaitFor failure policies for automatic recovery, operator Channels for manual recovery, and a timeout handler for Flow-deadline semantics. Compensation must be idempotent and identify the original commit.
 
-A recovery path reads the final failure with **ctx.RecoveryError()**. It returns nil outside a recovery path. With Go SDK v1.17.0, recognize Dex time limits with **IsMethodTimeout()**, **IsHeartbeatTimeout()**, and **IsRetryTotalDurationExceeded()** on that value. Do not compare **ErrorType** with a fixed string, because each Dex backend spells these error types differently. The methods are nil-safe, so call them before the nil check. Keep a final branch for every other failure, which keeps the Worker's reported **ErrorType** and **Detail**. Read the documented false cases in [recovery error types](../core/error-handling.md#recovery-error-types): a Worker API failure recorded before the method timeout, a retry total duration that ends between attempts, and backend differences. The [released API documentation](https://github.com/superdurable/dex/blob/sdk-go/v1.24.0/sdk-go/dex/context.go) includes a complete recovery Step for an Execute failure route. The README shows a timeout-handler recovery Step:
+A recovery path reads the final failure with **ctx.RecoveryError()**. It returns nil outside a recovery path. With Go SDK v1.17.0, recognize Dex time limits with **IsMethodTimeout()**, **IsHeartbeatTimeout()**, and **IsRetryTotalDurationExceeded()** on that value. Do not compare **ErrorType** with a fixed string, because each Dex backend spells these error types differently. The methods are nil-safe, so call them before the nil check. Keep a final branch for every other failure, which keeps the Worker's reported **ErrorType** and **Detail**. Read the documented false cases in [recovery error types](../core/error-handling.md#recovery-error-types): a Worker API failure recorded before the method timeout, a retry total duration that ends between attempts, and backend differences. The [released API documentation](https://github.com/superdurable/dex/blob/sdk-go/v1.25.0/sdk-go/dex/context.go) includes a complete recovery Step for an Execute failure route. The README shows a timeout-handler recovery Step:
 
-[Pinned SDK README](https://github.com/superdurable/dex/blob/sdk-go/v1.24.0/sdk-go/README.md)
+[Pinned SDK README](https://github.com/superdurable/dex/blob/sdk-go/v1.25.0/sdk-go/README.md)
 <!-- dex-source: sdk-go/README.md -->
 ```go
 type timeoutRecoveryStep struct {

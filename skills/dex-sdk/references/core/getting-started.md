@@ -21,7 +21,7 @@ Build the smallest end-to-end path in this order:
 2. Make the Step return a terminal decision with a typed output.
 3. Define the Flow's Step list.
 4. Register the Flow in the application registry.
-5. Create one Worker using that registry and a reachable bind/advertise address.
+5. Create one pull Worker using that registry and the Dex Server address.
 6. Create one Client using the same registry and blob/payload configuration.
 7. Start the Worker before accepting application requests.
 8. Read [error handling](error-handling.md) and the language error page; define stable request identity, duplicate-start behavior, uncertain acceptance reconciliation, and local-defect handling.
@@ -38,7 +38,7 @@ Add Attributes, Channels, RPCs, Streams, or SubFlows only when the first path ru
 - Dex Web inspects Flow state and Step progress.
 - The application owns its HTTP, messaging, database, and third-party integrations.
 
-The Worker must be reachable from Dex Server. A bind address controls where the Worker listens; an advertised target controls the address Dex Server calls. These differ when containers, proxies, or load balancers are involved.
+Every Worker is a [pull Worker](pull-workers.md): it opens outbound task streams to Dex Server and does not listen for incoming calls. The Worker and the Client each need only the Dex Server address. No Worker address, bind address, or target is configured.
 
 ## Configuration checks
 
@@ -57,6 +57,6 @@ Before debugging code, verify:
 
 - Quick start: https://docs.superdurable.io/quick-start
 - Primitive overview: https://docs.superdurable.io/primitives
-- Baseline runnable examples: https://github.com/superdurable/dex/tree/sdk-go/v1.24.0/examples
+- Baseline runnable examples: https://github.com/superdurable/dex/tree/sdk-go/v1.25.0/examples
 
 When a local Dex checkout is available, copy API usage from its runnable **examples/** files rather than from prose or memory.

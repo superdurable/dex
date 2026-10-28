@@ -85,15 +85,11 @@ Each Flow keeps one stored value per Attribute key and overwrites it in place. U
 - Removing the hard-delete option from a definition leaves the stored value in place until Dex removes the Flow. Delete the value through the hard-delete definition first.
 - A value remains until it is deleted, or until retention removes the Flow. Delete the secret as soon as the Flow no longer needs it. Blob Store backups and bucket versioning outside Dex can keep copies, so configure them separately when deleted secrets must not survive.
 
-## Combine caching with headless Worker locality
+## Combine caching with sticky Worker routing
 
-For a headless Worker target, Dex resolves individual Worker endpoints and prefers the endpoint that most recently handled the same Flow ID. Repeated Steps and RPCs for one Flow therefore tend to reach a Worker whose BlobCache is already warm.
+Dex first offers a Flow's work to the pull Worker process that last served it, then falls back to any Worker registered for the Flow type. Repeated Steps and RPCs for one Flow therefore tend to reach a Worker whose BlobCache is already warm. Sticky routing does not promise the same process; see [pull Workers](pull-workers.md).
 
-Configure a target as headless only when its **host:port** resolves to individual Worker replicas, such as a Kubernetes headless Service. A normal load-balanced target does not give Dex direct control over replica selection.
-
-Sticky routing is a performance hint, not a placement guarantee. Dex may select another Worker after a transport failure, endpoint removal, routing-entry eviction, or server restart. The replacement Worker loads each missing blob once and warms its own cache. Never keep Flow correctness state only in Worker memory or its cache.
-
-With Server v1.15.0, a headless Worker handler error is returned without trying another endpoint, regardless of its status code or whether it arrives before the first streamed result. Step handler errors follow the configured Step failure and retry policy; genuine transport failures still use endpoint failover. This prevents hidden repeated handler calls within one Step attempt. Keep effects idempotent because later Step attempts can still repeat them. [Released failover behavior](https://github.com/superdurable/dex/blob/server/v1.24.0/server/service/common/workerclient/routed_worker_client.go)
+Sticky routing is a performance hint, not a placement guarantee. Dex may select another Worker after the previous Worker restarts, disconnects, or stays busy past the sticky wait. The replacement Worker loads each missing blob once and warms its own cache. Never keep Flow correctness state only in Worker memory or its cache.
 
 For API/MCP agents that do not need a code sandbox, this combination is often sufficient:
 

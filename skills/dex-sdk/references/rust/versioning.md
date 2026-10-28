@@ -2,7 +2,7 @@
 
 Start by inspecting the application's `Cargo.toml` and `Cargo.lock`. The pinned Dex baseline examples use a published exact crate version, but the installed version is authoritative for an existing application.
 
-[Pinned manifest](https://github.com/superdurable/dex/blob/sdk-rust/v1.23.0/examples/rust/Cargo.toml)
+[Pinned manifest](https://github.com/superdurable/dex/blob/sdk-rust/v1.25.0/examples/rust/Cargo.toml)
 <!-- dex-source: examples/rust/Cargo.toml -->
 ```toml
 dex-sdk = "=1.15.0"
@@ -10,7 +10,7 @@ dex-sdk = "=1.15.0"
 
 ## Server protocol compatibility
 
-Rust Workers compile their diagnostic version from Cargo package metadata. Startup calls `GetServerInfo`, negotiates the highest common protocol, synchronizes Attribute indexes, and then binds WorkerService. A missing RPC, invalid interval, or disjoint interval fails before binding. Upgrade a legacy Server first, and stop running Workers before a breaking Server release because they do not renegotiate.
+Rust Workers compile their diagnostic version from Cargo package metadata. Startup calls `GetServerInfo`, negotiates the highest common protocol, synchronizes Attribute indexes, and then opens its pull task streams. A missing RPC, invalid interval, or disjoint interval fails before any task stream opens. Upgrade a legacy Server first, and stop running Workers before a breaking Server release because they do not renegotiate.
 
 ## Evidence order
 

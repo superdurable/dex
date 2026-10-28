@@ -11,7 +11,7 @@ Use the package name recorded by the project's lockfile if distribution metadata
 
 ## Server protocol compatibility
 
-Python Workers read their diagnostic version from distribution metadata. Both sync and async Worker startup call `GetServerInfo`, negotiate the highest common protocol, synchronize Attribute indexes, and then bind WorkerService. A missing RPC, invalid interval, or disjoint interval fails before binding. Upgrade a legacy Server first, and stop running Workers before a breaking Server release because they do not renegotiate.
+Python Workers read their diagnostic version from distribution metadata. Both sync and async Worker startup call `GetServerInfo`, negotiate the highest common protocol, synchronize Attribute indexes, and then open their pull task streams. A missing RPC, invalid interval, or disjoint interval fails before any task stream opens. Upgrade a legacy Server first, and stop running Workers before a breaking Server release because they do not renegotiate.
 
 ## Open Flows
 
@@ -21,16 +21,8 @@ Dataclass field additions with defaults are safer than removals/type changes. Ne
 
 ## Rollout and policies
 
-Deploy a Worker capable of old/new runs, then update Worker target deliberately. Choose ID reuse and ignore-already-started as business semantics. Test active and closed prior IDs.
+Deploy a Worker capable of old/new runs before replacing the previous Workers. Choose ID reuse and ignore-already-started as business semantics. Test active and closed prior IDs.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.23.0/examples/python/dex_examples/primitives/flow/controller.py)
-<!-- dex-source: examples/python/dex_examples/primitives/flow/controller.py -->
-```python
-async def reroute_active_flow(client: AsyncClient, flow_id: str) -> None:
-    await client.update_flow_config(
-        flow_id,
-        FlowConfig(worker_target=WorkerTarget("worker-canary:8803")),
-    )
-```
+UpdateFlowConfig changes only the supplied Flow configuration fields. From Python SDK v1.25.0 it does not change a Flow's Worker routing; every Flow routes to pull Workers. Roll out new Worker code by deploying pull Workers that can serve both old and new runs.
 
 Upgrade-test open runs across Worker replacement at map, Channel, Timer, RPC, retry, and timeout-handler boundaries. Run both async and sync surfaces if both are deployed.
