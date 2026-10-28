@@ -2473,47 +2473,56 @@ fn a_closed_run_accepts_only_hard_delete_erases_and_deduplicates_them() {
         assert!(is_error(&rejected.reply, 5));
         assert!(rejected.writes.is_empty());
     }
-    for command in [
-        AttributesSetCommand {
-            request: Some(SetAttributesRequest {
-                action_permission_mappings: Some(ActionPermissionMappings::default()),
-                attributes: vec![AttributeWrite {
-                    key: "retained".to_owned(),
-                    value: Some(Value {
-                        kind: Some(value::Kind::NullValue(0)),
-                    }),
-                    ..AttributeWrite::default()
+    for (expected_code, command) in [
+        (
+            5,
+            AttributesSetCommand {
+                request: Some(SetAttributesRequest {
+                    action_permission_mappings: Some(ActionPermissionMappings::default()),
+                    attributes: vec![AttributeWrite {
+                        key: "retained".to_owned(),
+                        value: Some(Value {
+                            kind: Some(value::Kind::NullValue(0)),
+                        }),
+                        ..AttributeWrite::default()
+                    }],
+                    ..SetAttributesRequest::default()
+                }),
+                ..AttributesSetCommand::default()
+            },
+        ),
+        (
+            3,
+            AttributesSetCommand {
+                request: Some(SetAttributesRequest {
+                    attributes: vec![AttributeWrite {
+                        key: "retained".to_owned(),
+                        value: Some(Value {
+                            kind: Some(value::Kind::NullValue(0)),
+                        }),
+                        ..AttributeWrite::default()
+                    }],
+                    ..SetAttributesRequest::default()
+                }),
+                hard_delete_objects: vec![HardDeleteObjectReference {
+                    write_index: 0,
+                    object_id: "unexpected-object".to_owned(),
+                    size_bytes: 1,
+                    is_string_value: true,
                 }],
-                ..SetAttributesRequest::default()
-            }),
-            ..AttributesSetCommand::default()
-        },
-        AttributesSetCommand {
-            request: Some(SetAttributesRequest {
-                attributes: vec![AttributeWrite {
-                    key: "retained".to_owned(),
-                    value: Some(Value {
-                        kind: Some(value::Kind::NullValue(0)),
-                    }),
-                    ..AttributeWrite::default()
-                }],
-                ..SetAttributesRequest::default()
-            }),
-            hard_delete_objects: vec![HardDeleteObjectReference {
-                write_index: 0,
-                object_id: "unexpected-object".to_owned(),
-                size_bytes: 1,
-                is_string_value: true,
-            }],
-            ..AttributesSetCommand::default()
-        },
-        AttributesSetCommand {
-            request: Some(SetAttributesRequest::default()),
-            ..AttributesSetCommand::default()
-        },
+                ..AttributesSetCommand::default()
+            },
+        ),
+        (
+            5,
+            AttributesSetCommand {
+                request: Some(SetAttributesRequest::default()),
+                ..AttributesSetCommand::default()
+            },
+        ),
     ] {
         let rejected = harness.apply(Command::AttributesSet(command));
-        assert!(is_error(&rejected.reply, 5));
+        assert!(is_error(&rejected.reply, expected_code));
         assert!(rejected.writes.is_empty());
     }
     assert!(harness.attribute("plain").is_some());

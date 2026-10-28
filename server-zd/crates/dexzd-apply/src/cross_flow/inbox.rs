@@ -180,7 +180,7 @@ fn apply_child_start(
         settings: &admitted_start_settings,
         resolved_timeout_policy,
         flow_config: config,
-        hard_delete_objects: &[],
+        hard_delete_objects: &start.hard_delete_objects,
         parent: Some(parent.clone()),
     };
     let mut result = start_run(transaction, scope, &run_start)?;

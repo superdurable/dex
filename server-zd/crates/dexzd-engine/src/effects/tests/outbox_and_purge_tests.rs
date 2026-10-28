@@ -19,13 +19,15 @@ use dexzd_object_store::{
     WriteCondition,
 };
 use dexzd_protocol::dex::{
-    FlowResult, FlowStatus, InvokeWaitForMethodResponse, StepOptions, StopFlowRequest, StopType,
-    SubFlowCondition, Value, WaitingCondition, WaitingConditionType,
+    AttributeWrite, FlowResult, FlowStartOptions, FlowStatus, InvokeWaitForMethodResponse,
+    SetAttributesRequest, StepOptions, StopFlowRequest, StopType, SubFlowCondition, SubFlowOptions,
+    SubFlowReusePolicy, Value, WaitingCondition, WaitingConditionType,
 };
 use dexzd_protocol::dexzd::v1::{
-    ChildFlowCompletedMessage, CommandErrorReply, CommandReply, CrossFlowEndpoint, FlowCommand,
-    FlowStopCommand, InboxMessageCommand, OutboxRecord, RunRecord, RunSettings, command_reply,
-    flow_command, inbox_message_command, outbox_record,
+    AttributesSetCommand, ChildFlowCompletedMessage, CommandErrorReply, CommandReply,
+    CrossFlowEndpoint, FlowCommand, FlowStopCommand, InboxMessageCommand, OutboxRecord,
+    PendingHardDeleteUpload, RunRecord, RunSettings, command_reply, flow_command,
+    inbox_message_command, outbox_record,
 };
 use prost::Message;
 use tokio::sync::Notify;
@@ -35,7 +37,10 @@ use super::{
     DurableState, EffectHarness, RecordedCommand, is_error_reply, ok_override, ok_reply, settings,
     start_request, string_value,
 };
-use crate::effects::{EffectsConfig, decode_hard_delete_value};
+use crate::effects::{
+    EffectsConfig, HardDeleteUploadLedger, MethodRequest, NodeMetaUploadLedger,
+    decode_hard_delete_value,
+};
 use crate::flow_coordination::read_operations::state_rows::read_run;
 use crate::flow_coordination::{CommitUrgency, FlowCoordinationEffectSink, FlowCoordinationError};
 
@@ -90,6 +95,36 @@ impl FaultInjector for PurgeStepGate {
         }
         self.entered.notify_one();
         FaultAction::FailBeforeEffect
+    }
+}
+
+struct DeliveryReadFault {
+    reader_failures: Arc<AtomicUsize>,
+    remaining_rejections: AtomicUsize,
+}
+
+impl DeliveryReadFault {
+    fn new(reader_failures: Arc<AtomicUsize>, should_reject_first: bool) -> Self {
+        Self {
+            reader_failures,
+            remaining_rejections: AtomicUsize::new(usize::from(should_reject_first)),
+        }
+    }
+
+    fn intercept_inbox(&self, command: &FlowCommand) -> Option<CommandReply> {
+        if !matches!(
+            command.command,
+            Some(flow_command::Command::InboxMessage(_))
+        ) {
+            return None;
+        }
+        self.reader_failures.store(1, Ordering::SeqCst);
+        self.remaining_rejections
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                remaining.checked_sub(1)
+            })
+            .is_ok()
+            .then(unavailable_reply)
     }
 }
 
@@ -854,4 +889,390 @@ async fn a_crash_after_object_deletion_before_run_purge_commits_purges_after_res
 #[tokio::test(start_paused = true)]
 async fn a_crash_after_run_purge_commits_leaves_no_purge_work() {
     assert_purge_recovers_after_a_crash(PurgeCrashPoint::AfterRunPurgeCommit).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn sub_flow_hard_delete_attributes_survive_recovery_before_delivery_and_after_a_lost_ack() {
+    for (should_block_delivery, should_erase_staging, should_attach) in [
+        (true, false, false),
+        (false, false, false),
+        (true, true, false),
+        (true, false, true),
+    ] {
+        let first = EffectHarness::new();
+        if should_block_delivery {
+            first
+                .flow_effect_operations
+                .add_override(unavailable_inbox_override(usize::MAX));
+        } else {
+            first
+                .flow_effect_operations
+                .add_override(ok_override(|command| {
+                    matches!(command, flow_command::Command::OutboxAck(_))
+                }));
+        }
+        first.rebuild_all_partitions().await;
+        let parent_run = first.start_flow(start_request("parent"), settings());
+        first
+            .dispatcher
+            .next_dispatch()
+            .await
+            .complete_wait_for(InvokeWaitForMethodResponse {
+                upsert_attributes: vec![AttributeWrite {
+                    key: "parent-secret".to_owned(),
+                    value: Some(string_value("parent-only-secret")),
+                    is_hard_delete_on_null: true,
+                    ..AttributeWrite::default()
+                }],
+                waiting_condition: Some(WaitingCondition {
+                    waiting_condition_type: WaitingConditionType::AllCompleted as i32,
+                    sub_flow_conditions: vec![SubFlowCondition {
+                        sub_flow_type: "ChildFlow".to_owned(),
+                        start_step_type: "ChildStep".to_owned(),
+                        step_options: Some(StepOptions {
+                            skip_wait_for: true,
+                            ..StepOptions::default()
+                        }),
+                        options: Some(SubFlowOptions {
+                            attributes: vec![
+                                AttributeWrite {
+                                    key: "plain".to_owned(),
+                                    value: Some(string_value("plain-value")),
+                                    ..AttributeWrite::default()
+                                },
+                                AttributeWrite {
+                                    key: "secret".to_owned(),
+                                    value: Some(string_value("child-only-secret")),
+                                    is_hard_delete_on_null: true,
+                                    ..AttributeWrite::default()
+                                },
+                            ],
+                            reuse_policy: if should_attach {
+                                SubFlowReusePolicy::Attach as i32
+                            } else {
+                                SubFlowReusePolicy::default() as i32
+                            },
+                            ..SubFlowOptions::default()
+                        }),
+                        ..SubFlowCondition::default()
+                    }],
+                    ..WaitingCondition::default()
+                }),
+                ..InvokeWaitForMethodResponse::default()
+            });
+        first.settle().await;
+        let attached_run = if should_attach {
+            let mut request = start_request(CHILD_FLOW_ID);
+            request.flow_type = "ChildFlow".to_owned();
+            request.start_step_type = "ChildStep".to_owned();
+            request.flow_start_options = Some(FlowStartOptions {
+                attributes: vec![AttributeWrite {
+                    key: "plain".to_owned(),
+                    value: Some(string_value("plain-value")),
+                    ..AttributeWrite::default()
+                }],
+                ..FlowStartOptions::default()
+            });
+            request.step_options = Some(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            });
+            let run_id = first.start_flow(request, settings());
+            set_hard_delete_attribute(&first, CHILD_FLOW_ID, run_id, "secret", "child-only-secret")
+                .await;
+            Some(run_id)
+        } else {
+            None
+        };
+        let message = inbox_messages(&first).remove(0).0;
+        let outbox = read_outbox_row(&first, parent_run, &message.message_id);
+        let Some(outbox_record::Payload::ChildStart(start)) = outbox.payload else {
+            panic!("expected child start");
+        };
+        assert_eq!(start.hard_delete_objects.len(), 1);
+        assert_eq!(start.hard_delete_objects[0].write_index, 1);
+        let parent_owner = first
+            .hard_delete_objects
+            .owner_of(&EffectHarness::flow("parent"), parent_run);
+        let staging_key = parent_owner.object_key(&start.hard_delete_objects[0].object_id);
+        let ledger = NodeMetaUploadLedger::new(
+            first.durable.local_store.clone(),
+            Arc::new(std::sync::Mutex::new(())),
+        );
+        ledger
+            .record_pending_uploads(&[PendingHardDeleteUpload {
+                object_key: staging_key.clone(),
+                uploaded_at_unix_micros: 1,
+            }])
+            .unwrap();
+        for recorded in first.flow_effect_operations.commands_matching(|_| true) {
+            let encoded = recorded.command.encode_to_vec();
+            assert!(
+                !encoded
+                    .windows(b"child-only-secret".len())
+                    .any(|bytes| bytes == b"child-only-secret"),
+                "neither command stream stores the child secret"
+            );
+        }
+        if should_erase_staging {
+            first
+                .durable
+                .objects
+                .delete_many(std::slice::from_ref(&staging_key))
+                .await
+                .unwrap();
+        }
+        let durable = first.durable.clone();
+        first.shutdown().await;
+
+        let second = EffectHarness::with_config(durable, EffectsConfig::default());
+        second.rebuild_all_partitions().await;
+        let child_dispatch = second.dispatcher.next_dispatch().await;
+        let MethodRequest::Execute(request) = child_dispatch.method_request() else {
+            panic!("expected child Execute");
+        };
+        let secret = request
+            .attributes
+            .iter()
+            .find(|attribute| attribute.key == "secret");
+        if should_erase_staging {
+            assert!(
+                secret.is_none(),
+                "redelivery cannot revive an erased staging object"
+            );
+        } else {
+            assert_eq!(
+                secret.expect("child secret survives recovery").value,
+                Some(string_value("child-only-secret"))
+            );
+        }
+        assert!(
+            request
+                .attributes
+                .iter()
+                .any(|attribute| attribute.key == "plain"
+                    && attribute.value == Some(string_value("plain-value")))
+        );
+        second.settle().await;
+        assert!(
+            second
+                .durable
+                .objects
+                .get(&staging_key)
+                .await
+                .unwrap()
+                .is_none(),
+            "acknowledged staging objects are deleted"
+        );
+        let delivered = if should_block_delivery {
+            inbox_messages(&second).remove(0).0
+        } else {
+            message
+        };
+        let child_run =
+            attached_run.unwrap_or_else(|| RunId::from_slice(&delivered.new_run_id).unwrap());
+        let child_owner = second
+            .hard_delete_objects
+            .owner_of(&EffectHarness::flow(CHILD_FLOW_ID), child_run);
+        let child_flow_prefix = format!(
+            "hard-delete/{:016x}/{:016x}/",
+            child_owner.tenant_id.0, child_owner.flow_hash.0
+        );
+        let remaining = second
+            .durable
+            .objects
+            .list(&child_flow_prefix, None, 100)
+            .await
+            .unwrap();
+        let expected_objects = if should_erase_staging { 0 } else { 1 };
+        assert_eq!(
+            remaining.objects.len(),
+            expected_objects,
+            "only the started run owns an object"
+        );
+        if let Some(object) = remaining.objects.first() {
+            assert!(object.key.starts_with(&child_owner.object_key_prefix()));
+        }
+        let reply = second
+            .flow_effect_operations
+            .commit(
+                &EffectHarness::flow(CHILD_FLOW_ID),
+                FlowCommand {
+                    flow_id: CHILD_FLOW_ID.to_owned(),
+                    run_id: child_run.as_bytes().to_vec(),
+                    command: Some(flow_command::Command::AttributesSet(AttributesSetCommand {
+                        request: Some(SetAttributesRequest {
+                            flow_id: CHILD_FLOW_ID.to_owned(),
+                            request_id: "erase-child-secret".to_owned(),
+                            attributes: vec![AttributeWrite {
+                                key: "secret".to_owned(),
+                                value: Some(Value {
+                                    kind: Some(dexzd_protocol::dex::value::Kind::NullValue(0)),
+                                }),
+                                is_hard_delete_on_null: true,
+                                ..AttributeWrite::default()
+                            }],
+                            ..SetAttributesRequest::default()
+                        }),
+                        ..AttributesSetCommand::default()
+                    })),
+                    ..FlowCommand::default()
+                },
+                CommitUrgency::Prompt,
+            )
+            .unwrap();
+        assert!(!is_error_reply(&reply));
+        second.settle().await;
+        assert!(
+            second
+                .durable
+                .objects
+                .list(&child_flow_prefix, None, 100)
+                .await
+                .unwrap()
+                .objects
+                .is_empty(),
+            "child erase removes the only child-owned object, including redelivery uploads"
+        );
+        second.shutdown().await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn legacy_raw_sub_flow_outbox_is_delivered_without_halting_or_logging_the_secret() {
+    assert_legacy_delivery_recovers(false, false).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn child_commit_is_acknowledged_when_finishing_uploads_cannot_read_state() {
+    assert_legacy_delivery_recovers(true, false).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn rejected_child_delivery_retries_when_finishing_uploads_cannot_read_state() {
+    assert_legacy_delivery_recovers(true, true).await;
+}
+
+async fn assert_legacy_delivery_recovers(should_fail_finish: bool, should_reject_first: bool) {
+    let first = EffectHarness::new();
+    first
+        .flow_effect_operations
+        .add_override(unavailable_inbox_override(usize::MAX));
+    first.rebuild_all_partitions().await;
+    let parent_run = start_parent_waiting_for_a_child(&first, settings()).await;
+    let message = inbox_messages(&first).remove(0).0;
+    let mut legacy = read_outbox_row(&first, parent_run, &message.message_id);
+    let Some(outbox_record::Payload::ChildStart(start)) = legacy.payload.as_mut() else {
+        panic!("expected child start");
+    };
+    start.condition.as_mut().unwrap().options = Some(SubFlowOptions {
+        attributes: vec![AttributeWrite {
+            key: "secret".to_owned(),
+            value: Some(string_value("legacy-child-secret")),
+            is_hard_delete_on_null: true,
+            ..AttributeWrite::default()
+        }],
+        ..SubFlowOptions::default()
+    });
+    assert!(
+        start.hard_delete_objects.is_empty(),
+        "legacy field 6 is empty"
+    );
+    let parent_location = first.run_location("parent", parent_run);
+    first
+        .flow_effect_operations
+        .state
+        .lock()
+        .unwrap()
+        .put_message(
+            ColumnFamily::Flow,
+            outbox_key(parent_location.flow_hash, parent_run, &message.message_id),
+            &legacy,
+        );
+    let durable = first.durable.clone();
+    first.shutdown().await;
+
+    let second = EffectHarness::with_config(durable, EffectsConfig::default());
+    if should_fail_finish {
+        let reader_failures = second
+            .flow_effect_operations
+            .flow_state_reader_failures
+            .clone();
+        let fault = DeliveryReadFault::new(reader_failures, should_reject_first);
+        second
+            .flow_effect_operations
+            .add_override(Box::new(move |command, _| fault.intercept_inbox(command)));
+    }
+    second.rebuild_all_partitions().await;
+    let child_dispatch = second.dispatcher.next_dispatch().await;
+    let MethodRequest::Execute(request) = child_dispatch.method_request() else {
+        panic!("expected child Execute");
+    };
+    assert_eq!(request.attributes[0].key, "secret");
+    assert_eq!(
+        request.attributes[0].value,
+        Some(string_value("legacy-child-secret"))
+    );
+    second.settle().await;
+    let inbox = inbox_messages(&second);
+    assert_eq!(inbox.len(), if should_reject_first { 2 } else { 1 });
+    let (delivered, reply) = inbox.last().unwrap();
+    assert_eq!(reply, &ok_reply());
+    let Some(inbox_message_command::Payload::ChildStart(start)) = delivered.payload.as_ref() else {
+        panic!("expected child start");
+    };
+    assert_eq!(start.hard_delete_objects.len(), 1);
+    assert_eq!(start.hard_delete_objects[0].write_index, 0);
+    let child_run = RunId::from_slice(&delivered.new_run_id).unwrap();
+    assert!(child_run_exists(&second, &delivered.new_run_id));
+    let child_owner = second
+        .hard_delete_objects
+        .owner_of(&EffectHarness::flow(CHILD_FLOW_ID), child_run);
+    let child_key = child_owner.object_key(&start.hard_delete_objects[0].object_id);
+    assert_eq!(
+        hard_delete_value(&second, &child_key).await,
+        Some(string_value("legacy-child-secret"))
+    );
+    assert_eq!(
+        outbox_acks(&second).len(),
+        1,
+        "cleanup read errors cannot suppress acknowledgment"
+    );
+    assert_ne!(
+        read_outbox_row(&second, parent_run, &message.message_id).acknowledged_at_micros,
+        0
+    );
+    for recorded in second.flow_effect_operations.commands_matching(|_| true) {
+        assert!(
+            !recorded
+                .command
+                .encode_to_vec()
+                .windows(b"legacy-child-secret".len())
+                .any(|bytes| bytes == b"legacy-child-secret")
+        );
+    }
+    if should_fail_finish {
+        second
+            .hard_delete_objects
+            .recover_pending_uploads(
+                second.partition_of(CHILD_FLOW_ID),
+                &second.hard_delete_objects.pending_uploads().unwrap(),
+                Box::new(second.flow_effect_operations.snapshot()),
+            )
+            .await
+            .unwrap();
+        let child_flow_prefix = format!(
+            "hard-delete/{:016x}/{:016x}/",
+            child_owner.tenant_id.0, child_owner.flow_hash.0
+        );
+        let remaining = second
+            .durable
+            .objects
+            .list(&child_flow_prefix, None, 100)
+            .await
+            .unwrap();
+        assert_eq!(remaining.objects.len(), 1);
+        assert_eq!(remaining.objects[0].key, child_key);
+    }
+    second.shutdown().await;
 }

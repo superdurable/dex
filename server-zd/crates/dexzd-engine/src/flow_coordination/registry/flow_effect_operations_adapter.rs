@@ -31,6 +31,7 @@ impl FlowEffectOperations for FlowCoordinatorRegistry {
         urgency: CommitUrgency,
     ) -> BoxFuture<'a, Result<CommandReply, FlowEffectOperationError>> {
         Box::pin(async move {
+            validate_effect_hard_delete_command(self, &command)?;
             let proposal = self
                 .propose(flow.clone(), command, urgency)
                 .await
@@ -47,6 +48,7 @@ impl FlowEffectOperations for FlowCoordinatorRegistry {
         urgency: CommitUrgency,
     ) -> BoxFuture<'a, Result<CommandReply, FlowEffectOperationError>> {
         Box::pin(async move {
+            validate_effect_hard_delete_command(self, &command)?;
             let proposal = self
                 .propose(flow.clone(), command, urgency)
                 .await
@@ -155,6 +157,49 @@ impl FlowEffectOperations for FlowCoordinatorRegistry {
         self.check_running().map_err(flow_effect_operation_error)?;
         Ok(self.inner.dependencies.committer.committed_view()?)
     }
+}
+
+fn validate_effect_hard_delete_command(
+    registry: &FlowCoordinatorRegistry,
+    command: &FlowCommand,
+) -> Result<(), FlowEffectOperationError> {
+    if let Err(error) = dexzd_apply::validate_hard_delete_command(command) {
+        let (command_name, references) = match command.command.as_ref() {
+            Some(flow_command::Command::FlowStart(start)) => {
+                ("FlowStart", &start.hard_delete_objects)
+            }
+            Some(flow_command::Command::AttributesSet(set)) => {
+                ("AttributesSet", &set.hard_delete_objects)
+            }
+            Some(flow_command::Command::RpcCommitted(rpc)) => {
+                ("RpcCommitted", &rpc.hard_delete_objects)
+            }
+            Some(flow_command::Command::StepMethodCompleted(step)) => {
+                ("StepMethodCompleted", &step.hard_delete_objects)
+            }
+            Some(flow_command::Command::InboxMessage(inbox)) => {
+                let Some(dexzd_protocol::dexzd::v1::inbox_message_command::Payload::ChildStart(
+                    start,
+                )) = inbox.payload.as_ref()
+                else {
+                    unreachable!("only child-start inbox messages carry hard-delete writes");
+                };
+                ("InboxMessage", &start.hard_delete_objects)
+            }
+            _ => unreachable!("only Attribute commands can fail hard-delete validation"),
+        };
+        let object_ids: Vec<_> = references
+            .iter()
+            .map(|reference| reference.object_id.as_str())
+            .collect();
+        let detail = format!(
+            "effect-built {command_name} for Flow {} has invalid hard-delete objects {object_ids:?}: {error}",
+            command.flow_id
+        );
+        registry.halt(detail.clone());
+        return Err(FlowEffectOperationError::NodeStopping { detail });
+    }
+    Ok(())
 }
 
 /// What starting a still-pending attempt needs from its Step row.

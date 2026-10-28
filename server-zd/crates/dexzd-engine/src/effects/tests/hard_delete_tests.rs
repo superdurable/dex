@@ -659,3 +659,58 @@ async fn a_committed_result_whose_ledger_cleanup_fails_proposes_no_failure() {
     assert_eq!(pending_upload_count(&harness), 1);
     harness.shutdown().await;
 }
+
+#[tokio::test(start_paused = true)]
+async fn sub_flow_hard_delete_values_obey_the_parent_value_limit_before_upload() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    let mut run_settings = settings();
+    run_settings.max_value_bytes = 32;
+    harness.start_flow(start_request("parent-value-limit"), run_settings);
+    harness
+        .dispatcher
+        .next_dispatch()
+        .await
+        .complete_wait_for(InvokeWaitForMethodResponse {
+            waiting_condition: Some(dexzd_protocol::dex::WaitingCondition {
+                waiting_condition_type: dexzd_protocol::dex::WaitingConditionType::AllCompleted
+                    as i32,
+                sub_flow_conditions: vec![dexzd_protocol::dex::SubFlowCondition {
+                    sub_flow_type: "ChildFlow".to_owned(),
+                    start_step_type: "ChildStep".to_owned(),
+                    options: Some(dexzd_protocol::dex::SubFlowOptions {
+                        attributes: vec![hard_delete_write(
+                            "secret",
+                            string_value(&"oversized-secret".repeat(4)),
+                        )],
+                        ..dexzd_protocol::dex::SubFlowOptions::default()
+                    }),
+                    ..dexzd_protocol::dex::SubFlowCondition::default()
+                }],
+                ..dexzd_protocol::dex::WaitingCondition::default()
+            }),
+            ..InvokeWaitForMethodResponse::default()
+        });
+    harness.settle().await;
+    assert_eq!(
+        attempt_failure_kinds(&harness, 1),
+        vec![StepAttemptFailureKind::ValueTooLarge as i32]
+    );
+    assert!(
+        harness
+            .durable
+            .objects
+            .list("hard-delete/", None, 100)
+            .await
+            .unwrap()
+            .objects
+            .is_empty()
+    );
+    assert!(
+        harness
+            .flow_effect_operations
+            .commands_matching(|command| matches!(command, flow_command::Command::InboxMessage(_)))
+            .is_empty()
+    );
+    harness.shutdown().await;
+}

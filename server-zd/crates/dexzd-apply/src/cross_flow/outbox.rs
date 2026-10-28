@@ -14,8 +14,8 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     ChildFlowCompletedMessage, ChildFlowStartMessage, CrossFlowEndpoint, OutboxAckCommand,
-    OutboxRecord, OutboxRetentionTimerId, ParentFlowReference, StoredValue, TimerId, outbox_record,
-    timer_id,
+    OutboxRecord, OutboxRetentionTimerId, ParentFlowReference, StoredValue, TimerId, flow_command,
+    outbox_record, step_method_completed_command, timer_id,
 };
 
 use crate::ApplyEffect;
@@ -49,7 +49,38 @@ pub(crate) fn start_child_flows(
     }
     validate_child_start_conditions(cursor.record.flow_config.as_ref(), sub_flow_conditions)
         .map_err(|detail| ApplyError::InvariantViolation { detail })?;
+    let (mut attribute_offset, references) = match scope.command.command.as_ref() {
+        Some(flow_command::Command::StepMethodCompleted(command)) => {
+            match command.response.as_ref() {
+                Some(step_method_completed_command::Response::WaitFor(response)) => (
+                    response.upsert_attributes.len(),
+                    command.hard_delete_objects.as_slice(),
+                ),
+                _ => (0, &[][..]),
+            }
+        }
+        _ => (0, &[][..]),
+    };
     for (condition_index, condition) in sub_flow_conditions.iter().enumerate() {
+        let attribute_count = condition
+            .options
+            .as_ref()
+            .map_or(0, |options| options.attributes.len());
+        let hard_delete_objects = references
+            .iter()
+            .filter_map(|reference| {
+                let index = reference.write_index as usize;
+                (index >= attribute_offset && index < attribute_offset + attribute_count).then(
+                    || {
+                        let mut reference = reference.clone();
+                        reference.write_index = u32::try_from(index - attribute_offset)
+                            .expect("SubFlow Attribute index fits u32");
+                        reference
+                    },
+                )
+            })
+            .collect();
+        attribute_offset += attribute_count;
         let sub_flow_index =
             i32::try_from(condition_index).expect("SubFlow condition count fits a signed index");
         let child_flow_id = child_ids[condition_index].clone();
@@ -127,6 +158,7 @@ pub(crate) fn start_child_flows(
                 flow_config: Some(flow_config),
                 request_id,
                 parent: Some(parent),
+                hard_delete_objects,
             }),
             Vec::new(),
         );
@@ -452,6 +484,15 @@ pub(crate) fn apply_outbox_ack(
         };
         if record.acknowledged_at_micros != 0 {
             continue;
+        }
+        if let Some(outbox_record::Payload::ChildStart(start)) = record.payload.as_mut() {
+            for object in start.hard_delete_objects.drain(..) {
+                crate::command_handlers::flow_data::schedule_hard_delete(
+                    transaction,
+                    &mut cursor,
+                    object,
+                );
+            }
         }
         record.acknowledged_at_micros = scope.now_micros;
         transaction.put_message(ColumnFamily::Flow, key, &record);

@@ -11,7 +11,8 @@ use dexzd_apply::{ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, Wait
 use dexzd_clock::WallClock;
 use dexzd_engine::{
     CommitTicket, CommitUrgency, CommittedCommand, EngineNode, HardDeleteObjectOwner,
-    default_run_settings, encode_hard_delete_value, hard_delete_placeholder_value,
+    decode_hard_delete_value, default_run_settings, encode_hard_delete_value,
+    hard_delete_placeholder_value,
 };
 use dexzd_keyspace::row_keys::prefix_range;
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix};
@@ -23,8 +24,8 @@ use dexzd_protocol::dex::{
     InvokeRpcRequest, InvokeWaitForMethodResponse, InvokeWorkerRpcResponse, Kv,
     PublishToChannelRequest, ResetFlowRequest, RetryPolicy, SetAttributesRequest, SkipTimerRequest,
     StartFlowRequest, StepDecision, StepDurability, StepMovement, StepOptions, StopFlowRequest,
-    StopType, SubFlowCondition, TimerCondition, UpdateFlowConfigRequest, Value, WaitingCondition,
-    WaitingConditionType, WorkerErrorResponse, WorkerTarget, value,
+    StopType, SubFlowCondition, SubFlowOptions, TimerCondition, UpdateFlowConfigRequest, Value,
+    WaitingCondition, WaitingConditionType, WorkerErrorResponse, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
@@ -439,6 +440,13 @@ impl Workload<'_> {
                         start_step_type: "ChildStep".to_owned(),
                         step_input: Some(string_value("child input")),
                         step_options: Some(skip_wait_for()),
+                        options: Some(SubFlowOptions {
+                            attributes: vec![hard_delete_attribute(
+                                "child-secret",
+                                string_value("child hard-delete value"),
+                            )],
+                            ..SubFlowOptions::default()
+                        }),
                         ..SubFlowCondition::default()
                     }],
                     ..WaitingCondition::default()
@@ -448,7 +456,8 @@ impl Workload<'_> {
         )
         .await;
         let start = self.single_outbox_record(&parent).await;
-        let Some(outbox_record::Payload::ChildStart(child_start)) = start.payload.clone() else {
+        let Some(outbox_record::Payload::ChildStart(mut child_start)) = start.payload.clone()
+        else {
             panic!("the parent outbox holds a child start");
         };
         let child_flow_id = child_start.child_flow_id.clone();
@@ -458,6 +467,43 @@ impl Workload<'_> {
             "the child Flow lives in another partition"
         );
         let child_run_id = self.next_run_id();
+        let child = FlowRun {
+            flow_id: child_flow_id.clone(),
+            run_id: child_run_id,
+        };
+        let parent_owner = HardDeleteObjectOwner {
+            tenant_id: TenantId::DEFAULT,
+            flow_hash: self.hasher.flow_hash(TenantId::DEFAULT, &parent.flow_id),
+            run_id: parent.run_id,
+        };
+        let staging_object_ids: Vec<_> = child_start
+            .hard_delete_objects
+            .iter()
+            .map(|reference| reference.object_id.clone())
+            .collect();
+        let writes = &mut child_start
+            .condition
+            .as_mut()
+            .expect("the recorded child start has its condition")
+            .options
+            .as_mut()
+            .expect("the recorded condition has initial Attributes")
+            .attributes;
+        for reference in &child_start.hard_delete_objects {
+            let object_key = parent_owner.object_key(&reference.object_id);
+            let object = self
+                .object_store
+                .get(&object_key)
+                .await
+                .expect("read staging object")
+                .expect("staging object exists");
+            writes[reference.write_index as usize].value = Some(
+                decode_hard_delete_value(&object_key, &object.bytes)
+                    .expect("staging value decodes"),
+            );
+        }
+        child_start.hard_delete_objects = self.upload_hard_delete_values(&child, writes).await;
+        assert_eq!(child_start.hard_delete_objects.len(), 1);
         let source = child_start
             .parent
             .as_ref()
@@ -478,10 +524,8 @@ impl Workload<'_> {
             }),
         )
         .await;
-        let child = FlowRun {
-            flow_id: child_flow_id,
-            run_id: child_run_id,
-        };
+        self.delete_hard_delete_objects(&parent, &staging_object_ids)
+            .await;
         (parent, child)
     }
 
@@ -1034,14 +1078,36 @@ impl Workload<'_> {
         run: &FlowRun,
         step_execution_id: &str,
         attempt: u32,
-        response: InvokeWaitForMethodResponse,
+        mut response: InvokeWaitForMethodResponse,
     ) -> ApplyOutcome {
+        let mut hard_delete_objects = self
+            .upload_hard_delete_values(run, &mut response.upsert_attributes)
+            .await;
+        let mut attribute_offset = response.upsert_attributes.len();
+        for condition in response
+            .waiting_condition
+            .iter_mut()
+            .flat_map(|waiting| &mut waiting.sub_flow_conditions)
+        {
+            if let Some(options) = condition.options.as_mut() {
+                let references = self
+                    .upload_hard_delete_values(run, &mut options.attributes)
+                    .await;
+                hard_delete_objects.extend(references.into_iter().map(|mut reference| {
+                    reference.write_index +=
+                        u32::try_from(attribute_offset).expect("few Attributes");
+                    reference
+                }));
+                attribute_offset += options.attributes.len();
+            }
+        }
         self.commit(
             run,
             Command::StepMethodCompleted(StepMethodCompletedCommand {
                 invocation: Some(invocation(step_execution_id, StepMethod::WaitFor)),
                 attempt,
                 response: Some(step_method_completed_command::Response::WaitFor(response)),
+                hard_delete_objects,
                 app_worker_id: WORKER_ID.to_owned(),
                 ..StepMethodCompletedCommand::default()
             }),

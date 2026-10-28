@@ -34,9 +34,7 @@ use tokio_util::sync::CancellationToken;
 use crate::blocking_work::BlockingWorkFailure;
 use crate::effects::dispatch::MethodDispatchRequest;
 use crate::effects::dispatch::attempt_failure::AttemptFailure;
-use crate::effects::dispatch::worker_result::{
-    MethodResult, WorkerResultCheck, check_worker_result,
-};
+use crate::effects::dispatch::worker_result::{WorkerResultCheck, check_worker_result};
 use crate::effects::hard_delete_objects::{HardDeleteObjectOwner, HardDeleteUploads};
 use crate::effects::method_request::{
     MethodAttemptKey, MethodAttemptState, MethodRequest, RequestValueHydration,
@@ -606,10 +604,9 @@ impl MethodAttempt {
         result.assign_channel_message_ids(self.context.id_source.as_ref());
         let mut backoff = self.context.retry_backoff();
         let uploads = loop {
-            let upload = self
-                .context
-                .hard_delete_objects
-                .upload_attribute_writes(self.object_owner(state), result.attribute_writes_mut())
+            let objects = &self.context.hard_delete_objects;
+            let upload = result
+                .upload_attributes(objects, self.object_owner(state))
                 .await;
             match upload {
                 Ok(uploads) => break uploads,
@@ -994,14 +991,5 @@ impl ReplyOutcome for dexzd_protocol::dexzd::v1::CommandReply {
             self.reply,
             Some(dexzd_protocol::dexzd::v1::command_reply::Reply::Error(_))
         )
-    }
-}
-
-impl MethodResult {
-    fn attribute_writes_mut(&mut self) -> &mut [dex::AttributeWrite] {
-        match self {
-            Self::WaitFor(response) => &mut response.upsert_attributes,
-            Self::Execute(response) => &mut response.upsert_attributes,
-        }
     }
 }
