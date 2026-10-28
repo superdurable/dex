@@ -28,7 +28,6 @@ var temporalOnlyScenarioTests = map[string]struct{}{
 	"TestDeadEndFlowTemporalContinueAsNew":                      {},
 	"TestFlowIDWithTenantPrefixPassesThroughTemporal":           {},
 	"TestFlowTimeoutCadence":                                    {},
-	"TestFlowTimeoutTemporal":                                   {},
 	"TestGreedyTimerFlowBaseCadence":                            {},
 	"TestGreedyTimerFlowBaseCadenceContinueAsNew":               {},
 	"TestGreedyTimerFlowBaseTemporalContinueAsNew":              {},
