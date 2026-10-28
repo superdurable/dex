@@ -914,9 +914,7 @@ final class WorkerDispatcher {
                 }
                 mappedOptions.addAttributes(write);
             }
-            if (options.getConfigOverride() != null) {
-                mappedOptions.setFlowConfigOverride(mapFlowConfig(options.getConfigOverride()));
-            }
+            mappedOptions.setFlowConfigOverride(mapFlowConfig(options.getConfigOverride()));
             final SubFlowCondition.Builder mapped = SubFlowCondition.newBuilder()
                     .setConditionId(conditionId)
                     .setSubFlowType(target.getName())
@@ -969,7 +967,12 @@ final class WorkerDispatcher {
 
     private static io.superdurable.gen.FlowConfig mapFlowConfig(final FlowConfig config) {
         final io.superdurable.gen.FlowConfig.Builder mapped =
-                io.superdurable.gen.FlowConfig.newBuilder();
+                io.superdurable.gen.FlowConfig.newBuilder()
+                        .setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder()
+                                .setIsPullMode(true));
+        if (config == null) {
+            return mapped.build();
+        }
         if (config.getActiveStepSearchMode() != null) {
             switch (config.getActiveStepSearchMode()) {
                 case ALL:
@@ -996,12 +999,6 @@ final class WorkerDispatcher {
         }
         if (config.getStepDurability() != null) {
             mapped.setStepDurability(mapDurability(config.getStepDurability()));
-        }
-        if (config.getWorkerTarget() != null) {
-            mapped.setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder()
-                    .setAddress(config.getWorkerTarget().getAddress())
-                    .setIsHeadlessAddress(config.getWorkerTarget().isHeadless())
-                    .setIsPullMode(config.getWorkerTarget().isPull()));
         }
         if (config.getAttributeStoreNames() != null) {
             mapped.setAttributeStoreNames(io.superdurable.gen.AttributeStoreNames.newBuilder()

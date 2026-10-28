@@ -35,7 +35,7 @@ public final class PullRegistrationState {
      * Reports whether initial registration completed without an uncovered permanent rejection.
      *
      * @return true after all queues registered once unless a queue has a permanent error
-     *     and no registered stream; false for a listening Worker
+     *     and no registered stream
      */
     public boolean isReady() {
         return isReady;
@@ -44,7 +44,7 @@ public final class PullRegistrationState {
     /**
      * Returns queue snapshots ordered by app Worker ID and then sorted Flow types.
      *
-     * @return an immutable list, empty for a listening Worker
+     * @return an immutable list
      */
     public List<PullQueueRegistrationState> getQueues() {
         return queues;

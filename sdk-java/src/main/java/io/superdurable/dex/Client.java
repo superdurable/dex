@@ -1152,7 +1152,9 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Replaces the mutable Flow configuration for the current run.
+     * Updates the supplied mutable Flow configuration fields for the current run.
+     *
+     * <p>Unset fields retain their existing values. Worker routing remains unchanged.
      *
      * @param flowId the target Flow ID
      * @param config the new Flow configuration
@@ -1363,9 +1365,8 @@ public final class Client implements AutoCloseable {
             mapped.addAttributes(write);
         }
         final FlowConfig config = options.getConfigOverride();
-        if (config != null || this.options.getWorkerTarget() != null) {
-            mapped.setFlowConfigOverride(mapFlowConfig(config));
-        }
+        mapped.setFlowConfigOverride(mapFlowConfig(config).toBuilder()
+                .setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder().setIsPullMode(true)));
         return mapped.build();
     }
 
@@ -1390,15 +1391,6 @@ public final class Client implements AutoCloseable {
                 mapped.setAttributeStoreNames(io.superdurable.gen.AttributeStoreNames.newBuilder()
                         .addAllNames(config.getAttributeStoreNames()));
             }
-        }
-        final WorkerTarget target = config != null && config.getWorkerTarget() != null
-                ? config.getWorkerTarget()
-                : options.getWorkerTarget();
-        if (target != null) {
-            mapped.setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder()
-                    .setAddress(target.getAddress())
-                    .setIsHeadlessAddress(target.isHeadless())
-                    .setIsPullMode(target.isPull()));
         }
         return mapped.build();
     }

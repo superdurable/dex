@@ -26,7 +26,6 @@ import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.StepCompletion;
 import io.superdurable.dex.TimerId;
 import io.superdurable.dex.FlowResult;
-import io.superdurable.dex.WorkerTarget;
 import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
@@ -477,7 +476,6 @@ public final class BasicTest {
     void compileFailurePolicyAndConfigOverride(final Client client) {
         final FlowConfig config = FlowConfig.newBuilder()
                 .activeStepSearchMode(ActiveStepSearchMode.ALL)
-                .workerTarget(new WorkerTarget("worker:8803", false))
                 .build();
         final StartFlowOptions options = StartFlowOptions.newBuilder()
                 .configOverride(config)

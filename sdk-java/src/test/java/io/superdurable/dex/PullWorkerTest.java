@@ -18,6 +18,7 @@ import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import io.superdurable.dex.exceptions.RetryAfterException;
 import io.superdurable.gen.FlowServiceGrpc;
@@ -225,8 +226,9 @@ final class PullWorkerTest {
         }
         try (Worker worker = new Worker(new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache())) {
             assertFalse(worker.getPullRegistrationState().isReady());
-            assertTrue(worker.getPullRegistrationState().getQueues().isEmpty());
-            assertThrows(IllegalStateException.class, () -> worker.waitPullRegistered(Duration.ZERO));
+            assertEquals(1, worker.getPullRegistrationState().getQueues().size());
+            assertThrows(java.util.concurrent.TimeoutException.class,
+                    () -> worker.waitPullRegistered(Duration.ZERO));
         }
     }
 
@@ -261,14 +263,7 @@ final class PullWorkerTest {
                 () -> PullWorkerOptions.newBuilder().appWorkerID(repeat("a", 64)));
         assertThrows(IllegalArgumentException.class,
                 () -> PullWorkerOptions.newBuilder().stopDrainTimeout(Duration.ofSeconds(-1)));
-        assertThrows(IllegalArgumentException.class, () -> WorkerOptions.newBuilder()
-                .pull(PullWorkerOptions.newBuilder().build()).bindAddress(":8803").build());
-        assertThrows(IllegalArgumentException.class, () -> WorkerOptions.newBuilder()
-                .pull(PullWorkerOptions.newBuilder().build())
-                .workerTarget(new WorkerTarget("localhost:8803", false)).build());
-        assertThrows(IllegalArgumentException.class,
-                () -> WorkerOptions.newBuilder().workerTarget(WorkerTarget.pull()).build());
-        assertNotNull(WorkerOptions.newBuilder().bindAddress("").build());
+        assertNotNull(WorkerOptions.newBuilder().build().getPull());
 
         final PullWorkerOptions defaults = PullWorkerOptions.newBuilder()
                 .maxConcurrentTasks(0).idleStreamsPerQueue(0)
@@ -622,6 +617,136 @@ final class PullWorkerTest {
     }
 
     @Test
+    void cancellationInterruptsHandlerAndRejectsLateOutput() throws Exception {
+        for (boolean isWaitFor : new boolean[] {false, true}) {
+            final TestFlow flow = new TestFlow();
+            final PollServer pollServer = new PollServer();
+            try (RunningWorker running = new RunningWorker(pollServer, flow, 1)) {
+                try {
+                    final PollStream stream = pollServer.awaitQueue("PullTestFlow");
+                    stream.assign(retainedOutputTask("cancel-retained", "retain-block-failure", isWaitFor));
+                    final Context retained = flow.retainedContexts.poll(5, TimeUnit.SECONDS);
+                    assertNotNull(retained);
+                    stream.respond(PollWorkerTaskResponse.newBuilder().setCancelTask(
+                            PollWorkerTaskCancelTask.newBuilder().setTaskId("cancel-retained")).build());
+                    assertTrue(flow.cancellationObserved.await(5, TimeUnit.SECONDS));
+                    assertTrue(flow.contextReportedCancellation.get());
+                    assertRejectedOutput(flow, retained);
+                    flow.release.countDown();
+                    assertEquals(Status.Code.CANCELLED.value(),
+                            stream.awaitFrame().getTaskFrame().getWorkerError().getGrpcStatus());
+                    assertRejectedOutput(flow, retained);
+                } finally {
+                    flow.release.countDown();
+                }
+            }
+        }
+    }
+
+    @Test
+    void cooperativeCancellationSendsExactlyOneFinalResult() throws Exception {
+        for (boolean isWaitFor : new boolean[] {false, true}) {
+            final TestFlow flow = new TestFlow();
+            final PollServer pollServer = new PollServer();
+            try (RunningWorker running = new RunningWorker(pollServer, flow, 1)) {
+                try {
+                    final PollStream stream = pollServer.awaitQueue("PullTestFlow");
+                    stream.assign(retainedOutputTask("cooperative-cancel", "retain-block", isWaitFor));
+                    assertNotNull(flow.retainedContexts.poll(5, TimeUnit.SECONDS));
+                    stream.respond(PollWorkerTaskResponse.newBuilder().setCancelTask(
+                            PollWorkerTaskCancelTask.newBuilder().setTaskId("cooperative-cancel")).build());
+                    assertTrue(flow.cancellationObserved.await(5, TimeUnit.SECONDS));
+                    assertTrue(flow.contextReportedCancellation.get());
+                    flow.release.countDown();
+                    final io.superdurable.gen.PollWorkerTaskFrame result = stream.awaitFrame().getTaskFrame();
+                    assertEquals("cooperative-cancel", result.getTaskId());
+                    assertTrue(isWaitFor ? result.getWaitFor().hasResult() : result.getExecute().hasResult());
+                    assertFalse(result.hasWorkerError());
+                    running.stop();
+                    assertTrue(stream.closed.await(5, TimeUnit.SECONDS));
+                    assertTrue(stream.frames.isEmpty());
+                } finally {
+                    flow.release.countDown();
+                }
+            }
+        }
+    }
+
+    @Test
+    void rejectsLateOutputAfterCompletion() throws Exception {
+        for (boolean isWaitFor : new boolean[] {false, true}) {
+            final TestFlow flow = new TestFlow();
+            try (RunningWorker running = new RunningWorker(new PollServer(), flow, 1)) {
+                final PollStream stream = running.pollServer.awaitQueue("PullTestFlow");
+                stream.assign(retainedOutputTask("completed", "retain", isWaitFor));
+                final Context retained = flow.retainedContexts.poll(5, TimeUnit.SECONDS);
+                assertNotNull(retained);
+                final PollWorkerTaskRequest result = stream.awaitFrame();
+                assertEquals("completed", result.getTaskFrame().getTaskId());
+                assertTrue(isWaitFor ? result.getTaskFrame().getWaitFor().hasResult()
+                        : result.getTaskFrame().getExecute().hasResult());
+                assertRejectedOutput(flow, retained);
+            }
+        }
+    }
+
+    @Test
+    void rejectsLateOutputAfterStreamReuse() throws Exception {
+        for (boolean isWaitFor : new boolean[] {false, true}) {
+            final TestFlow flow = new TestFlow();
+            final PollServer pollServer = new PollServer(null, false, Duration.ZERO,
+                    Collections.<Boolean>emptyList(), true);
+            try (RunningWorker running = new RunningWorker(pollServer, flow, 1)) {
+                try {
+                    final PollStream stream = pollServer.awaitQueue("PullTestFlow");
+                    stream.respond(PollWorkerTaskResponse.newBuilder().setRegistered(
+                            io.superdurable.gen.PollWorkerTaskRegistered.getDefaultInstance()).build());
+                    stream.assign(retainedOutputTask("reused", "retain", isWaitFor));
+                    final Context retained = flow.retainedContexts.poll(5, TimeUnit.SECONDS);
+                    assertNotNull(retained);
+                    assertEquals("reused", stream.awaitFrame().getTaskFrame().getTaskId());
+                    stream.assign(retainedOutputTask("reused", "retain-block-progress", isWaitFor));
+                    assertNotNull(flow.retainedContexts.poll(5, TimeUnit.SECONDS));
+                    assertRejectedOutput(flow, retained);
+                    flow.release.countDown();
+                    final io.superdurable.gen.PollWorkerTaskFrame heartbeat = stream.awaitFrame().getTaskFrame();
+                    assertEquals("reused", heartbeat.getTaskId());
+                    assertEquals("new checkpoint", isWaitFor
+                            ? heartbeat.getWaitFor().getHeartbeat().getValue().getStringValue()
+                            : heartbeat.getExecute().getHeartbeat().getValue().getStringValue());
+                    final io.superdurable.gen.PollWorkerTaskFrame write = stream.awaitFrame().getTaskFrame();
+                    assertEquals("reused", write.getTaskId());
+                    assertEquals("new delta", isWaitFor
+                            ? write.getWaitFor().getStreamWrite().getValue().getStringValue()
+                            : write.getExecute().getStreamWrite().getValue().getStringValue());
+                    final PollWorkerTaskRequest result = stream.awaitFrame();
+                    assertTrue(isWaitFor ? result.getTaskFrame().getWaitFor().hasResult()
+                            : result.getTaskFrame().getExecute().hasResult());
+                } finally {
+                    flow.release.countDown();
+                }
+            }
+        }
+    }
+
+    private static PollWorkerTask retainedOutputTask(final String taskID, final String input,
+            final boolean isWaitFor) {
+        final PollWorkerTask task = executeTask(taskID, input);
+        if (!isWaitFor) {
+            return task;
+        }
+        return task.toBuilder().clearExecute().setWaitFor(InvokeWaitForMethodRequest.newBuilder()
+                .setFlowType(task.getExecute().getFlowType()).setStepType(task.getExecute().getStepType())
+                .setContext(task.getExecute().getContext()).setStepInput(task.getExecute().getStepInput()))
+                .build();
+    }
+
+    private static void assertRejectedOutput(final TestFlow flow, final Context retained) {
+        assertThrows(StatusRuntimeException.class, () -> retained.recordHeartbeat("late checkpoint"));
+        assertThrows(StatusRuntimeException.class, () -> flow.progress.write(retained, "late delta"));
+    }
+
+    @Test
     void reusesStreamAfterFinalResult() throws Exception {
         final TestFlow flow = new TestFlow();
         final PollServer pollServer = new PollServer(null, false, Duration.ZERO,
@@ -906,10 +1031,7 @@ final class PullWorkerTest {
         @Override
         public Wait waitFor(final Context context, final String input) {
             return Wait.until(SubFlow.run(ChildFlow.class, input,
-                    SubFlowOptions.newBuilder()
-                            .configOverride(FlowConfig.newBuilder()
-                                    .workerTarget(WorkerTarget.pull()).build())
-                            .build()));
+                    SubFlowOptions.newBuilder().build()));
         }
 
         @Override
@@ -1001,6 +1123,10 @@ final class PullWorkerTest {
         private final CountDownLatch entered = new CountDownLatch(1);
         private final CountDownLatch release = new CountDownLatch(1);
         private final AtomicInteger executeCalls = new AtomicInteger();
+        private final BlockingQueue<Context> retainedContexts = new LinkedBlockingQueue<Context>();
+        private final CountDownLatch cancellationObserved = new CountDownLatch(1);
+        private final AtomicReference<Boolean> contextReportedCancellation =
+                new AtomicReference<Boolean>(Boolean.FALSE);
         private final BlockingQueue<Cycle> cycles = new LinkedBlockingQueue<Cycle>();
 
         @Override
@@ -1050,12 +1176,14 @@ final class PullWorkerTest {
 
         @Override
         public Wait waitFor(final Context context, final String input) {
+            retainOutputContext(context, input);
             return Wait.skipImmediately();
         }
 
         @Override
         public StepDecision execute(final Context context, final String input) {
             flow.executeCalls.incrementAndGet();
+            retainOutputContext(context, input);
             if ("failure".equals(input)) {
                 throw new IllegalArgumentException("application failure");
             }
@@ -1091,6 +1219,35 @@ final class PullWorkerTest {
             }
             return StepDecision.gracefulComplete("large".equals(input)
                     ? repeat("x", 3_100_000) : input);
+        }
+
+        private void retainOutputContext(final Context context, final String input) {
+            if (!input.startsWith("retain")) {
+                return;
+            }
+            flow.retainedContexts.add(context);
+            if (input.startsWith("retain-block")) {
+                try {
+                    flow.release.await();
+                } catch (InterruptedException canceled) {
+                    flow.contextReportedCancellation.set(context.isCancellationRequested());
+                    flow.cancellationObserved.countDown();
+                    try {
+                        flow.release.await();
+                    } catch (InterruptedException interruptedAgain) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("handler interrupted again", interruptedAgain);
+                    }
+                    Thread.currentThread().interrupt();
+                }
+            }
+            if ("retain-block-failure".equals(input)) {
+                throw new IllegalStateException("handler cancelled");
+            }
+            if ("retain-block-progress".equals(input)) {
+                context.recordHeartbeat("new checkpoint");
+                flow.progress.write(context, "new delta");
+            }
         }
     }
 
@@ -1451,7 +1608,6 @@ final class PullWorkerTest {
                                     .map(IllegalArgumentException.class, Status.Code.INVALID_ARGUMENT)
                                     .build())
                             .build());
-            assertTrue(worker.getWorkerTarget().isPull());
             workerThread = new Thread(() -> {
                 try {
                     worker.start();

@@ -18,15 +18,16 @@ import java.util.List;
 /**
  * Configures server behavior for one Flow execution.
  *
- * <p>Use this value as a start-time override, in an update request, or to select a worker target.
- * Unset properties remain under server control. Continue-as-new thresholds bound execution history
- * and page size; consult the server deployment configuration before overriding them.
+ * <p>Use this value as a start-time override or in an update request.
+ * Flow starts select pull Workers; updates preserve the existing Worker routing.
+ * Unset properties use server defaults at start and retain existing values on update.
+ * Continue-as-new thresholds bound execution history and page size; consult the server deployment
+ * configuration before overriding them.
  *
  * <pre>{@code
  * FlowConfig config = FlowConfig.newBuilder()
  *         .activeStepSearchMode(ActiveStepSearchMode.WITH_WAIT_FOR)
  *         .stepDurability(StepDurability.SYNC)
- *         .workerTarget(new WorkerTarget("orders:8803", false))
  *         .build();
  * }</pre>
  */
@@ -35,7 +36,6 @@ public final class FlowConfig {
     private final Integer continueAsNewThreshold;
     private final Integer continueAsNewPageSizeBytes;
     private final StepDurability stepDurability;
-    private final WorkerTarget workerTarget;
     private final List<String> attributeStoreNames;
 
     private FlowConfig(final Builder builder) {
@@ -43,7 +43,6 @@ public final class FlowConfig {
         this.continueAsNewThreshold = builder.continueAsNewThreshold;
         this.continueAsNewPageSizeBytes = builder.continueAsNewPageSizeBytes;
         this.stepDurability = builder.stepDurability;
-        this.workerTarget = builder.workerTarget;
         this.attributeStoreNames = builder.attributeStoreNames;
     }
 
@@ -72,10 +71,6 @@ public final class FlowConfig {
         return stepDurability;
     }
 
-    WorkerTarget getWorkerTarget() {
-        return workerTarget;
-    }
-
     List<String> getAttributeStoreNames() {
         return attributeStoreNames;
     }
@@ -86,7 +81,6 @@ public final class FlowConfig {
         private Integer continueAsNewThreshold;
         private Integer continueAsNewPageSizeBytes;
         private StepDurability stepDurability;
-        private WorkerTarget workerTarget;
         private List<String> attributeStoreNames;
 
         private Builder() {
@@ -140,19 +134,6 @@ public final class FlowConfig {
          */
         public Builder stepDurability(final StepDurability value) {
             stepDurability = value;
-            return this;
-        }
-
-        /**
-         * Routes this Flow to a specific Worker target.
-         *
-         * <p>Use {@link WorkerTarget#pull()} when registered Workers poll the Flow type queue.
-         *
-         * @param value the worker target, or {@code null} for default routing
-         * @return this builder
-         */
-        public Builder workerTarget(final WorkerTarget value) {
-            workerTarget = value;
             return this;
         }
 

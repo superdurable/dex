@@ -169,7 +169,7 @@ tasks.register('localIntegrationTest', Test) {
     classpath = sourceSets.test.runtimeClasspath
     filter {
         includeTestsMatching 'io.superdurable.dex.NativeBlobCacheIntegrationTest'
-        includeTestsMatching 'io.superdurable.dex.WorkerServiceIntegrationTest'
+        includeTestsMatching 'io.superdurable.dex.WorkerDispatchIntegrationTest'
         includeTestsMatching 'io.superdurable.dex.ClientExceptionIntegrationTest'
         includeTestsMatching 'io.superdurable.dex.PullWorkerTest'
         includeTestsMatching 'io.superdurable.dex.integ.StepCancellationWorkflowTest'

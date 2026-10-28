@@ -36,17 +36,16 @@ import io.superdurable.gen.StartFlowRequest;
 import io.superdurable.gen.StartFlowResponse;
 import io.superdurable.gen.SyncAttributeIndexRequest;
 import io.superdurable.gen.SyncAttributeIndexResponse;
+import io.superdurable.gen.UpdateFlowConfigRequest;
 import io.superdurable.gen.Value;
 import io.superdurable.gen.WaitForAttributeRequest;
 import io.superdurable.gen.WaitForAttributeResponse;
 import io.superdurable.gen.WorkerErrorResponse;
-import io.superdurable.gen.WorkerServiceGrpc;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
 import java.io.IOException;
-import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -80,6 +79,47 @@ final class HardDeleteAttributeMappingTest {
             Attribute.define("child-secret", String.class).hardDeleteOnNull();
     private static final Attribute<String> CHILD_PLAIN =
             Attribute.define("child-plain", String.class);
+
+    @Test
+    void routesDefaultAndConfiguredStartsToPullWorkers() throws Exception {
+        final HardDeleteMappingFlow flow = new HardDeleteMappingFlow();
+        try (FakeFlowService service = new FakeFlowService(3);
+                Client client = service.newClient(new Registry(Arrays.<Flow<?>>asList(
+                        flow, new HardDeleteMappingChildFlow())))) {
+            client.startFlow(flow, "default-pull", "input");
+            client.startFlow(flow, "configured-pull", "input",
+                    StartFlowOptions.newBuilder().configOverride(FlowConfig.newBuilder()
+                            .stepDurability(StepDurability.ASYNC).build()).build());
+            assertEquals(2, service.startRequests.size());
+            for (StartFlowRequest request : service.startRequests) {
+                final io.superdurable.gen.WorkerTarget target = request.getFlowStartOptions()
+                        .getFlowConfigOverride().getWorkerTarget();
+                assertTrue(target.getIsPullMode());
+                assertEquals("", target.getAddress());
+                assertFalse(target.getIsHeadlessAddress());
+            }
+            assertEquals(io.superdurable.gen.StepDurability.STEP_DURABILITY_ASYNC,
+                    service.startRequests.get(1).getFlowStartOptions().getFlowConfigOverride().getStepDurability());
+        }
+    }
+
+    @Test
+    void updateFlowConfigLeavesWorkerTargetUnset() throws Exception {
+        try (FakeFlowService service = new FakeFlowService(3);
+                Client client = service.newClient(new Registry(Collections.<Flow<?>>singletonList(
+                        new HardDeleteMappingFlow())))) {
+            client.updateFlowConfig("existing-flow", FlowConfig.newBuilder()
+                    .stepDurability(StepDurability.ASYNC).build());
+            client.updateFlowConfig("existing-flow", FlowConfig.newBuilder().build());
+            assertEquals(2, service.updateRequests.size());
+            for (UpdateFlowConfigRequest request : service.updateRequests) {
+                assertEquals("existing-flow", request.getFlowId());
+                assertFalse(request.getFlowConfig().hasWorkerTarget());
+            }
+            assertEquals(io.superdurable.gen.StepDurability.STEP_DURABILITY_ASYNC,
+                    service.updateRequests.get(0).getFlowConfig().getStepDurability());
+        }
+    }
 
     @Test
     void rejectsUnsupportedDefinitionsAtDefinitionTime() {
@@ -475,12 +515,6 @@ final class HardDeleteAttributeMappingTest {
         return new ValueHydrator(FlowServiceGrpc.newBlockingStub(UNUSED_CHANNEL), new EmptyBlobCache());
     }
 
-    private static int availablePort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        }
-    }
-
     static final class SecretModel {
         public String token;
     }
@@ -607,14 +641,16 @@ final class HardDeleteAttributeMappingTest {
             implements AutoCloseable {
         private final int currentProtocolVersion;
         private final Server server;
+        private final PullTaskTestService tasks = new PullTaskTestService();
         private final AtomicInteger serverInfoCalls = new AtomicInteger();
         private final AtomicInteger waitForAttributeCalls = new AtomicInteger();
+        private final List<UpdateFlowConfigRequest> updateRequests = new CopyOnWriteArrayList<>();
         private final List<StartFlowRequest> startRequests =
                 new CopyOnWriteArrayList<StartFlowRequest>();
 
         private FakeFlowService(final int currentProtocolVersion) throws IOException {
             this.currentProtocolVersion = currentProtocolVersion;
-            this.server = ServerBuilder.forPort(0).addService(this).build().start();
+            this.server = ServerBuilder.forPort(0).addService(this).addService(tasks).build().start();
         }
 
         String getAddress() {
@@ -656,6 +692,14 @@ final class HardDeleteAttributeMappingTest {
         }
 
         @Override
+        public void updateFlowConfig(final UpdateFlowConfigRequest request,
+                final StreamObserver<Empty> observer) {
+            updateRequests.add(request);
+            observer.onNext(Empty.getDefaultInstance());
+            observer.onCompleted();
+        }
+
+        @Override
         public void waitForAttribute(
                 final WaitForAttributeRequest request,
                 final StreamObserver<WaitForAttributeResponse> observer) {
@@ -673,18 +717,15 @@ final class HardDeleteAttributeMappingTest {
         private final Worker worker;
         private final Thread workerThread;
         private final AtomicReference<Throwable> workerFailure = new AtomicReference<Throwable>();
-        private final ManagedChannel channel;
-        private final WorkerServiceGrpc.WorkerServiceBlockingStub stub;
+        private final PullTaskTestService stub;
         private final ValueMapper values = new ValueMapper(new ObjectMapper());
 
         private RunningWorker(final FakeFlowService flowService) throws IOException {
-            final int port = availablePort();
             this.worker = new Worker(
                     new Registry(Arrays.<Flow<?>>asList(
                             new HardDeleteMappingFlow(), new HardDeleteMappingChildFlow())),
                     new EmptyBlobCache(),
                     WorkerOptions.newBuilder()
-                            .bindAddress("127.0.0.1:" + port)
                             .serverAddress(flowService.getAddress())
                             .build());
             this.workerThread = new Thread(() -> {
@@ -695,16 +736,12 @@ final class HardDeleteAttributeMappingTest {
                 }
             }, "hard-delete-test-worker");
             workerThread.start();
-            this.channel = ManagedChannelBuilder.forAddress("127.0.0.1", port)
-                    .usePlaintext()
-                    .build();
-            this.stub = WorkerServiceGrpc.newBlockingStub(channel).withWaitForReady();
+            this.stub = flowService.tasks;
         }
 
         InvokeExecuteMethodResponse invokeExecute(final String input) {
             final List<InvokeExecuteMethodOutput> outputs = new ArrayList<InvokeExecuteMethodOutput>();
             final Iterator<InvokeExecuteMethodOutput> iterator = stub
-                    .withDeadlineAfter(10, TimeUnit.SECONDS)
                     .invokeExecuteMethod(executeRequest(values, input));
             while (iterator.hasNext()) {
                 outputs.add(iterator.next());
@@ -715,7 +752,6 @@ final class HardDeleteAttributeMappingTest {
 
         @Override
         public void close() throws InterruptedException {
-            channel.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
             worker.close();
             workerThread.join(5_000L);
             assertNull(workerFailure.get());

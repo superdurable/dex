@@ -21,12 +21,13 @@ import io.superdurable.dex.BlobCacheConfig;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.ClientOptions;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.PullWorkerOptions;
 import io.superdurable.dex.Registry;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
+import io.superdurable.dex.WorkerTarget;
 import io.superdurable.dex.WaitForAttributeOptions;
-import io.superdurable.dex.shared.ExampleWorkerMode;
 import io.superdurable.dex.shared.MyDependencyService;
 import io.superdurable.dex.products.engagement.EngagementFlow;
 import io.superdurable.dex.products.dealdsl.DealDSLFlow;
@@ -43,9 +44,6 @@ import io.superdurable.dex.products.subscription.SubscriptionFlow;
 import io.superdurable.dex.products.signup.UserOnboardingFlow;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -155,9 +153,7 @@ final class IntegEnvironment implements AutoCloseable {
                 userOnboardingFlow,
                 pollingFlow);
 
-        final ExampleWorkerMode workerMode = ExampleWorkerMode.readFromEnvironment();
         final Path cacheDirectory = Files.createTempDirectory("dex-java-examples-integ-");
-        final int workerPort = availablePort();
         final Registry registry = new Registry(flows);
         final BlobCache blobCache = BlobCache.open(new BlobCacheConfig(
                 cacheDirectory.toString(),
@@ -165,7 +161,10 @@ final class IntegEnvironment implements AutoCloseable {
         final Worker worker = new Worker(
                 registry,
                 blobCache,
-                integWorkerOptions(workerMode, serverAddress, workerPort));
+                WorkerOptions.newBuilder()
+                        .serverAddress(serverAddress)
+                        .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(64).build())
+                        .build());
         final AtomicReference<Throwable> workerFailure = new AtomicReference<Throwable>();
         final Thread workerThread = new Thread(() -> {
             try {
@@ -176,15 +175,11 @@ final class IntegEnvironment implements AutoCloseable {
         }, "dex-java-examples-integ-worker");
         workerThread.setDaemon(true);
         workerThread.start();
-        if (workerMode.isPull()) {
-            awaitPullWorkerRegistration(worker, workerFailure);
-        } else {
-            awaitWorker(workerPort, workerFailure);
-        }
+        awaitPullWorkerRegistration(worker, workerFailure);
         final Client client = new Client(
                 registry,
                 blobCache,
-                new ClientOptions(serverAddress, worker.getWorkerTarget()));
+                new ClientOptions(serverAddress, WorkerTarget.pull()));
         return new IntegEnvironment(
                 cacheDirectory,
                 blobCache,
@@ -311,47 +306,6 @@ final class IntegEnvironment implements AutoCloseable {
         if (failure != null) {
             throw new IllegalStateException("Java examples integ Worker failed", failure);
         }
-    }
-
-    private static WorkerOptions integWorkerOptions(
-            final ExampleWorkerMode workerMode,
-            final String serverAddress,
-            final int workerPort) {
-        if (workerMode.isPull()) {
-            return WorkerOptions.newBuilder()
-                    .serverAddress(serverAddress)
-                    .pull(ExampleWorkerMode.newExamplePullWorkerOptions())
-                    .build();
-        }
-        return WorkerOptions.newBuilder()
-                .bindAddress("127.0.0.1:" + workerPort)
-                .serverAddress(serverAddress)
-                .build();
-    }
-
-    private static int availablePort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        }
-    }
-
-    private static void awaitWorker(
-            final int workerPort,
-            final AtomicReference<Throwable> workerFailure) throws IOException {
-        final long deadline = System.nanoTime() + 10_000_000_000L;
-        while (System.nanoTime() < deadline) {
-            final Throwable failure = workerFailure.get();
-            if (failure != null) {
-                throw new IllegalStateException("Java examples integ Worker failed", failure);
-            }
-            try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress("127.0.0.1", workerPort), 100);
-                return;
-            } catch (final IOException unavailable) {
-                Thread.yield();
-            }
-        }
-        throw new IOException("Java examples integ Worker did not become ready");
     }
 
     private static void awaitPullWorkerRegistration(

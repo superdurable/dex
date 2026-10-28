@@ -30,8 +30,6 @@ import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
-import io.superdurable.dex.WorkerTarget;
-import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -58,7 +56,7 @@ public final class PullWorkerEndToEndTest {
     Path cacheDirectory;
 
     @Test
-    void routesStickyStepsRpcAndDrainWhilePushStillWorks() throws Exception {
+    void routesStickyStepsRpcAndDrain() throws Exception {
         final String address = System.getProperty("dex.test.serverAddress", "127.0.0.1:8801");
         final BlockingQueue<String> observations = new LinkedBlockingQueue<String>();
         final CountDownLatch firstRelease = new CountDownLatch(1);
@@ -78,7 +76,7 @@ public final class PullWorkerEndToEndTest {
                         cacheDirectory.resolve("client").toString(), 64L << 20));
                 Client client = new Client(
                         new Registry(Arrays.<Flow<?>>asList(firstWorkerFlow, probeFlow)),
-                        clientCache, new ClientOptions(address, WorkerTarget.pull()))) {
+                        clientCache, new ClientOptions(address))) {
             final String flowID = "java-pull-" + UUID.randomUUID();
             client.startFlow(firstWorkerFlow, flowID, "done");
             assertEquals("first:wait-1", observations.poll(30, TimeUnit.SECONDS));
@@ -96,7 +94,7 @@ public final class PullWorkerEndToEndTest {
                     overrideClient.startFlow(probeFlow, overrideFlowID, "probe",
                             StartFlowOptions.newBuilder()
                                     .configOverride(FlowConfig.newBuilder()
-                                            .workerTarget(WorkerTarget.pull()).build())
+                                            .build())
                                     .build());
                     assertEquals("second", overrideClient.waitForFlow(
                             overrideFlowID, Duration.ofSeconds(30))
@@ -134,19 +132,6 @@ public final class PullWorkerEndToEndTest {
                 assertEquals(1, firstExecuteCalls.get());
             }
         }
-
-        // C18: server-zd rejects push Worker targets.
-        if (IntegrationTestWaits.isServerZD()) {
-            return;
-        }
-        final PushFlow registered = new PushFlow();
-        try (DexDevTestEnvironment push = DexDevTestEnvironment.startPush(
-                cacheDirectory.resolve("push"), registered)) {
-            final String flowID = "java-push-" + UUID.randomUUID();
-            push.client().startFlow(registered, flowID, "push");
-            assertEquals("push", push.client().waitForFlow(flowID, Duration.ofSeconds(30))
-                    .getSingleOutput(String.class));
-        }
     }
 
     @Test
@@ -165,7 +150,7 @@ public final class PullWorkerEndToEndTest {
                 BlobCache clientCache = BlobCache.open(new BlobCacheConfig(
                         cacheDirectory.resolve("client-unknown").toString(), 64L << 20));
                 Client client = new Client(new Registry(Arrays.<Flow<?>>asList(newFlow)),
-                        clientCache, new ClientOptions(address, oldWorker.worker.getWorkerTarget()))) {
+                        clientCache, new ClientOptions(address))) {
             final String flowID = "java-pull-unknown-" + UUID.randomUUID();
             client.startFlow(newFlow, flowID, "complete");
             assertEquals("old:wait-1", observations.poll(30, TimeUnit.SECONDS));
@@ -199,7 +184,7 @@ public final class PullWorkerEndToEndTest {
                 BlobCache clientCache = BlobCache.open(new BlobCacheConfig(
                         cacheDirectory.resolve("client-step").toString(), 64L << 20));
                 Client client = new Client(new Registry(Arrays.<Flow<?>>asList(newFlow)),
-                        clientCache, new ClientOptions(address, oldWorker.worker.getWorkerTarget()))) {
+                        clientCache, new ClientOptions(address))) {
             final String flowID = "java-pull-unknown-step-" + UUID.randomUUID();
             client.startFlow(newFlow, flowID, "complete");
             try (PullRuntime newWorker = new PullRuntime(cacheDirectory.resolve("new-step"),
@@ -389,30 +374,6 @@ public final class PullWorkerEndToEndTest {
         @Override
         public StepDecision execute(final Context context, final String input) {
             return StepDecision.gracefulComplete("second");
-        }
-    }
-
-    private static final class PushFlow implements Flow<String> {
-        @Override
-        public StepList<String> getSteps() {
-            return StepList.startStep(new PushStep());
-        }
-    }
-
-    private static final class PushStep implements Step<String> {
-        @Override
-        public Class<String> getInputType() {
-            return String.class;
-        }
-
-        @Override
-        public Wait waitFor(final Context context, final String input) {
-            return Wait.skipImmediately();
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final String input) {
-            return StepDecision.gracefulComplete(input);
         }
     }
 

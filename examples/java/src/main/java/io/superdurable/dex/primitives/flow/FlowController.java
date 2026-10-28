@@ -23,7 +23,6 @@ import io.superdurable.dex.IdReusePolicy;
 import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepDurability;
-import io.superdurable.dex.WorkerTarget;
 import java.time.Duration;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -77,11 +76,11 @@ public final class FlowController {
         return flowId;
     }
 
-    private static void rerouteActiveFlow(final Client client, final String flowId) {
+    private static void updateActiveFlowDurability(final Client client, final String flowId) {
         client.updateFlowConfig(
                 flowId,
                 FlowConfig.newBuilder()
-                        .workerTarget(new WorkerTarget("worker-canary:8803", false))
+                        .stepDurability(StepDurability.SYNC)
                         .build());
     }
 

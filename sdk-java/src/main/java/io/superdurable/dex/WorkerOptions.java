@@ -19,18 +19,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 
 /**
- * Configures a Java Worker's listener or outbound polling, routing, connection, and serialization.
+ * Configures a Java Worker's outbound polling, connection, and serialization.
  *
- * <p>The worker listens on {@code :8803} and connects to {@code localhost:8801} by default. The
- * bind address controls the local gRPC listener; the worker target is the address advertised for
- * server routing and may differ behind a proxy or service discovery layer. The default Jackson
- * mapper discovers installed modules. Set {@link Builder#pull(PullWorkerOptions)} for outbound
- * polling and advertise {@link WorkerTarget#pull()} to Clients and Flow configurations.
+ * <p>The Worker connects to {@code localhost:8801} by default and receives tasks over outbound
+ * streams. It needs only an outbound connection to the Dex Server. Pull settings use
+ * {@link PullWorkerOptions} defaults unless explicitly configured. The default Jackson mapper
+ * discovers installed modules.
  *
  * <pre>{@code
  * WorkerOptions options = WorkerOptions.newBuilder()
- *         .bindAddress("0.0.0.0:8803")
- *         .workerTarget(new WorkerTarget("orders-worker:8803", false))
  *         .serverAddress("dex:8801")
  *         .objectMapper(applicationObjectMapper)
  *         .grpcErrorStatusMapping(GrpcErrorStatusMapping.newBuilder()
@@ -40,26 +37,20 @@ import java.time.Duration;
  * }</pre>
  */
 public final class WorkerOptions {
-    private final String bindAddress;
-    private final WorkerTarget workerTarget;
     private final String serverAddress;
     private final ObjectMapper objectMapper;
     private final GrpcErrorStatusMapping grpcErrorStatusMapping;
     private final Duration attributeIndexSyncTimeout;
     private final PullWorkerOptions pull;
     private final Credential credential;
-    private final boolean isBindAddressConfigured;
 
     private WorkerOptions(final Builder builder) {
-        this.bindAddress = builder.bindAddress;
-        this.workerTarget = builder.workerTarget;
         this.serverAddress = builder.serverAddress;
         this.objectMapper = builder.objectMapper;
         this.grpcErrorStatusMapping = builder.grpcErrorStatusMapping;
         this.attributeIndexSyncTimeout = builder.attributeIndexSyncTimeout;
         this.pull = builder.pull;
         this.credential = builder.credential;
-        this.isBindAddressConfigured = builder.isBindAddressConfigured;
     }
 
     /**
@@ -69,14 +60,6 @@ public final class WorkerOptions {
      */
     public static Builder newBuilder() {
         return new Builder();
-    }
-
-    String getBindAddress() {
-        return bindAddress;
-    }
-
-    WorkerTarget getWorkerTarget() {
-        return workerTarget;
     }
 
     String getServerAddress() {
@@ -103,45 +86,23 @@ public final class WorkerOptions {
         return credential;
     }
 
-    boolean isBindAddressConfigured() {
-        return isBindAddressConfigured;
-    }
-
     /** Builds immutable {@link WorkerOptions} values. */
     public static final class Builder {
-        private String bindAddress = ":8803";
-        private WorkerTarget workerTarget;
         private String serverAddress = "localhost:8801";
         private ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         private GrpcErrorStatusMapping grpcErrorStatusMapping =
                 GrpcErrorStatusMapping.newBuilder().build();
         private Duration attributeIndexSyncTimeout = Duration.ofMinutes(2);
-        private PullWorkerOptions pull;
+        private PullWorkerOptions pull = PullWorkerOptions.newBuilder().build();
         private Credential credential;
-        private boolean isBindAddressConfigured;
 
         private Builder() {
         }
 
         /**
-         * Sets the address on which the worker gRPC service listens.
+         * Configures outbound task polling capacity and lifecycle.
          *
-         * <p>Leave this unset when configuring {@link #pull(PullWorkerOptions)}.
-         *
-         * @param value the bind address; the default is {@code :8803}
-         * @return this builder
-         */
-        public Builder bindAddress(final String value) {
-            this.bindAddress = value;
-            this.isBindAddressConfigured = true;
-            return this;
-        }
-
-        /**
-         * Enables outbound task polling without a Worker listener.
-         *
-         * <p>Do not set a bind address or listening Worker target with pull options. Advertise
-         * {@link WorkerTarget#pull()} to a Client or Flow configuration.
+         * <p>Omitting this setting uses {@link PullWorkerOptions} defaults.
          *
          * <pre>{@code
          * WorkerOptions options = WorkerOptions.newBuilder()
@@ -163,21 +124,7 @@ public final class WorkerOptions {
         }
 
         /**
-         * Sets the Worker target advertised for Flow routing.
-         *
-         * <p>Use {@link WorkerTarget#pull()} with pull options, or a listening target with a bind
-         * address. The Worker derives a listening target from its bind address when this is unset.
-         *
-         * @param value the advertised target, or {@code null} for no explicit target
-         * @return this builder
-         */
-        public Builder workerTarget(final WorkerTarget value) {
-            this.workerTarget = value;
-            return this;
-        }
-
-        /**
-         * Sets the Dex server gRPC target used for worker callbacks.
+         * Sets the Dex Server gRPC target used for outbound task streams and API calls.
          *
          * @param value the server target; the default is {@code localhost:8801}
          * @return this builder
@@ -265,16 +212,8 @@ public final class WorkerOptions {
          * Builds immutable worker options from the current values.
          *
          * @return the configured worker options
-         * @throws IllegalArgumentException if pull is combined with a bind address or listening
-         *     target, or a pull target is configured without pull options
          */
         public WorkerOptions build() {
-            if (pull != null && (isBindAddressConfigured || workerTarget != null && !workerTarget.isPull())) {
-                throw new IllegalArgumentException("Pull Worker cannot configure bindAddress or listening workerTarget");
-            }
-            if (pull == null && workerTarget != null && workerTarget.isPull()) {
-                throw new IllegalArgumentException("pull WorkerTarget requires pull Worker options");
-            }
             return new WorkerOptions(this);
         }
     }

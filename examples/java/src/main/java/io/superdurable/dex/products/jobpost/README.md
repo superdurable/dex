@@ -9,7 +9,7 @@ Title uses the `text1` full-text Search Attribute. JobDescription is
 persisted but not searchable. LastUpdateTimeMillis uses `int1`.
 
 The Worker synchronizes the job-post Indexed Attributes automatically before
-opening its listener.
+opening outbound task streams to the Dex Server.
 
 With the sample server running:
 

@@ -52,7 +52,6 @@ public final class HeartbeatTest {
             final String expectedOutput) throws Exception {
         final HeartbeatTestWorkflow workflow = new HeartbeatTestWorkflow(
                 scenario,
-                DexDevTestEnvironment.isPullMode(),
                 IntegrationTestWaits.isServerZD());
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
                 cacheDirectory,
