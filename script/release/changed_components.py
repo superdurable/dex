@@ -70,6 +70,20 @@ COMPONENTS = (
         ("server", "web", "packages/flow-definition-renderer", "protos"),
     ),
     Component(
+        "web",
+        "Dex Web",
+        "web/v",
+        ("web/v*",),
+        (
+            "web",
+            "packages/flow-definition-renderer",
+            "server/gen",
+            "protos",
+            ".dockerignore",
+            ".github/workflows/docker-image-web-release.yml",
+        ),
+    ),
+    Component(
         "cli",
         "CLI",
         "cli-v",

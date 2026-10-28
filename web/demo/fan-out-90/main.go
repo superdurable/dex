@@ -19,7 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/web/internal/pointervalue"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -87,8 +87,8 @@ func run() (returnErr error) {
 		StepOptions:        executeOnlyOptions(),
 		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: &dexpb.FlowConfig{
-				ContinueAsNewThreshold: ptr.Any(int32(100)),
-				StepDurability: ptr.Any(
+				ContinueAsNewThreshold: pointervalue.ValuePointer(int32(100)),
+				StepDurability: pointervalue.ValuePointer(
 					dexpb.StepDurability_STEP_DURABILITY_SYNC,
 				),
 				WorkerTarget: &dexpb.WorkerTarget{Address: listener.Addr().String()},

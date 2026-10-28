@@ -25,8 +25,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
-	"github.com/superdurable/dex/service/common/grpctarget"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -80,7 +78,7 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 		WriteError(response, http.StatusBadRequest, "flow ID is required", nil)
 		return
 	}
-	if err := service.ValidateFlowID(body.FlowID); err != nil {
+	if err := validateFlowID(body.FlowID); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
@@ -150,7 +148,7 @@ func (h *v2Handler) validateStartWorkerTarget(
 		return nil, fmt.Errorf("workerTargetPull and workerTargetAddress cannot both be set")
 	}
 	if isPullTarget || (address == nil && isPull == nil && h.isPullDefaultStartWorkerTarget(ctx)) {
-		return grpctarget.NormalizeWorkerTarget(&dexpb.WorkerTarget{IsPullMode: true})
+		return validateAndRewriteWorkerTarget(&dexpb.WorkerTarget{IsPullMode: true})
 	}
 	if address == nil {
 		return nil, fmt.Errorf("workerTargetAddress or workerTargetPull is required")
@@ -165,7 +163,7 @@ func (h *v2Handler) isPullDefaultStartWorkerTarget(ctx context.Context) bool {
 }
 
 func (h *v2Handler) validateWorkerTarget(address string) (*dexpb.WorkerTarget, error) {
-	workerTarget, err := grpctarget.NormalizeWorkerTarget(&dexpb.WorkerTarget{
+	workerTarget, err := validateAndRewriteWorkerTarget(&dexpb.WorkerTarget{
 		Address: address, IsHeadlessAddress: h.isStartFlowWorkerTargetHeadless,
 	})
 	if err != nil {

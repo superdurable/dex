@@ -18,7 +18,7 @@ SCRIPT = Path(__file__).with_name("changed_components.py")
 DOCKER_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-release.yml"
 CLI_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/cli-release.yml"
 CHANGED_COMPONENTS_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-changed-components.yml"
-COMPONENT_KEYS = ("go", "rust", "java", "python", "typescript", "server", "cli")
+COMPONENT_KEYS = ("go", "rust", "java", "python", "typescript", "server", "web", "cli")
 BASELINE_TAGS = (
     "sdk-go/v0.1.0",
     "sdk-rust/v0.1.0",
@@ -27,6 +27,7 @@ BASELINE_TAGS = (
     "sdk-typescript/v0.1.0",
     "server/v0.1.0",
     "cli-v0.1.0",
+    "web/v0.1.0",
 )
 INITIAL_FILES = (
     "sdk-go/client.go",
@@ -144,20 +145,40 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.change("web/package.json")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "server", "cli")
+        self.assert_selected(values, "server", "web", "cli")
         self.assertEqual(values["server_baseline"], "server-v0.2.0")
 
     def test_web_change_triggers_server_and_cli(self) -> None:
         self.change("web/package.json")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "server", "cli")
+        self.assert_selected(values, "server", "web", "cli")
 
     def test_flow_definition_renderer_change_triggers_server_and_cli(self) -> None:
         self.change("packages/flow-definition-renderer/src/index.ts")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "server", "cli")
+        self.assert_selected(values, "server", "web", "cli")
+
+    def test_web_release_workflow_change_triggers_web_only(self) -> None:
+        self.change(".github/workflows/docker-image-web-release.yml")
+        result, values = self.plan()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_selected(values, "web")
+        self.assertEqual(values["web_tag"], "web/v1.2.3")
+
+    def test_generated_server_api_change_triggers_web(self) -> None:
+        self.change("server/gen/dexpb/dex.pb.go")
+        result, values = self.plan()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_selected(values, "server", "web", "cli")
+
+    def test_missing_web_baseline_selects_first_release(self) -> None:
+        self.git("tag", "-d", "web/v0.1.0")
+        result, values = self.plan()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_selected(values, "web")
+        self.assertEqual(values["web_baseline"], "")
 
     def test_mixed_changes_select_multiple_releases(self) -> None:
         self.change("sdk-go/client.go")
@@ -165,7 +186,7 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.change("protos/api.proto")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "go", "typescript", "server", "cli")
+        self.assert_selected(values, "go", "typescript", "server", "web", "cli")
 
     def test_missing_baseline_selects_first_release(self) -> None:
         self.git("tag", "-d", "sdk-go/v0.1.0")

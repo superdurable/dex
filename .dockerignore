@@ -42,3 +42,4 @@ server/coverage/
 server/coverage-raw/
 server/all-in-one/bin/
 script/licenseheaders/copyright/copyright
+web/dex-web
