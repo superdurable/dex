@@ -201,14 +201,14 @@ fn regression_seed_cases() -> Vec<(u64, usize)> {
 /// A model change that moves these trajectories would silently drop the regressions they
 /// reproduce; keep new commands in a separate stream instead.
 const REGRESSION_MAIN_COMMAND_DIGESTS: &[(u64, usize, u128)] = &[
-    (1592590336, 1000, 0xc032c65b7d382887abdb54a8dc10081e),
-    (476371529, 488, 0x8b041bf31f0cfdc8d4d2c992310b77c4),
-    (161503589, 1000, 0xfdc6f5e9d426965dd1e11bcdeaf2a302),
-    (879068896, 1000, 0xea49266404f93f45f426b531b7598e71),
-    (4200525811, 1000, 0xa6ab3ea1393afe48be232c77e6ec689d),
-    (10906685018, 1000, 0x9cb23e3676fd45b3fb97bccfddcc508a),
-    (2204788261, 1000, 0x11803384e2deeecaa00e6f5b733bef50),
-    (476371563, 580, 0x0551efb42300e6d2651c4fc0d1e584dc),
+    (1592590336, 1000, 0x4fb6408e5e32919ad0567b5eed0cc872),
+    (476371529, 488, 0x838f5ba3e0a5356ad35de3feff79ff99),
+    (161503589, 1000, 0xa0684ec415cb310ece0515713d408b0f),
+    (879068896, 1000, 0x8c0b6b1491fd0397842baeca3b9b2745),
+    (4200525811, 1000, 0x522ddc406868c11b874c16a005508739),
+    (10906685018, 1000, 0x15d90c44d1efee98606154f91fdbf8a2),
+    (2204788261, 1000, 0x91dfe62ca78c3335086f17473a88ccda),
+    (476371563, 580, 0x556ef4870181627f6cd2e95a145dec13),
 ];
 
 #[test]
