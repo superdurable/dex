@@ -268,7 +268,7 @@ client.skip_timer("order-123", StepExecutionId::of(&charge_order), TimerId::by_c
 
 ## 更新 FlowConfig
 
-**UpdateFlowConfig** 修改 active Flow 的 **FlowConfig**。只发送要修改的字段。它保留 Flow 现有的 Worker 路由。字段说明见
+**UpdateFlowConfig** 修改 active Flow 的 **FlowConfig**。只发送要修改的字段。SDK 的这个调用不会改变 Flow 的 Worker 路由。字段说明见
 [用 Client 更新 FlowConfig](/primitives/flow/flow-options#update-flow-config-with-a-client)。
 
 ## 触发 continue-as-new

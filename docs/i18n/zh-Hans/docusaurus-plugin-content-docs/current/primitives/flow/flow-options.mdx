@@ -487,4 +487,4 @@ Worker replacement → retry the same downstream start identity → no duplicate
 
 ### 用 Client 更新 FlowConfig {#update-flow-config-with-a-client}
 
-Flow active 时可以调用 **UpdateFlowConfig**。只发送要修改的字段。它们会与已有配置合并。**UpdateFlowConfig** 保留 Flow 现有的 Worker 路由。
+Flow active 时可以调用 **UpdateFlowConfig**。只发送要修改的字段。它们会与已有配置合并。SDK 的 **UpdateFlowConfig** 调用不会改变 Flow 的 Worker 路由。
