@@ -658,6 +658,12 @@ fn reapply_external_inputs(
                         detail: format!("time travel could not reapply recorded input: {reply:?}"),
                     });
                 }
+                HandlerResult::RebuildUnavailable(_) => {
+                    return Err(ApplyError::InvariantViolation {
+                        detail: "reapplied input used recorded-history projection semantics"
+                            .to_owned(),
+                    });
+                }
             }
         };
         absorb_writes(transaction, writes);

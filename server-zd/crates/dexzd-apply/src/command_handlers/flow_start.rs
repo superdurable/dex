@@ -185,11 +185,7 @@ pub(crate) fn start_run(
         scope,
         true,
     )? {
-        return Ok(HandlerResult::Rejected(error_reply(
-            grpc_code::INVALID_ARGUMENT,
-            ErrorSubStatus::Uncategorized,
-            rejection.message(),
-        )));
+        return Ok(HandlerResult::from(rejection));
     }
     pin_genesis_attributes(transaction, &cursor, &options.attributes)?;
     // Without a start Step type the Flow waits for RPCs or a close, as in the Go Server.

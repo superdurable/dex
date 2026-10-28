@@ -21,21 +21,59 @@ use dexzd_protocol::dex::{
     ErrorSubStatus, Value, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributeRecord, ChannelMessageRecord, CommandReply, FlowCommand, HardDeleteObjectRecord,
-    HardDeleteObjectReference, StoredValue, flow_command::Command, step_method_completed_command,
-    stored_value,
+    AttributeRecord, ChannelMessageRecord, CommandReply, HardDeleteObjectRecord,
+    HardDeleteObjectReference, StoredValue, stored_value,
 };
 
-use crate::command_handlers::CommandScope;
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::RunCursor;
+use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::projections::{attribute_sync, work_queue_permissions};
-use crate::state_access::{FlowTransaction, RunRows};
+use crate::state_access::FlowTransaction;
 use crate::values::{
     ValueHolder, ValueRejection, is_null_value, load_stored_value, release_stored_value,
     store_value,
 };
 use crate::{ApplyEffect, ApplyError, WaitableChange};
+
+pub(crate) enum FlowDataRejection {
+    Value(ValueRejection),
+    RebuildUnavailable(PermissionRebuildUnavailable),
+}
+
+pub(crate) struct PermissionRebuildUnavailable {
+    attribute_key: String,
+}
+
+impl PermissionRebuildUnavailable {
+    pub(crate) fn into_reply(self) -> CommandReply {
+        error_reply(
+            grpc_code::FAILED_PRECONDITION,
+            ErrorSubStatus::Uncategorized,
+            format!(
+                "the TimeTravel target cannot be reconstructed because a stored value for \
+                 permission projection Attribute {:?} was collected; \
+                 choose a later target that starts from a newer checkpoint",
+                self.attribute_key
+            ),
+        )
+    }
+}
+
+impl From<FlowDataRejection> for HandlerResult {
+    fn from(rejection: FlowDataRejection) -> Self {
+        match rejection {
+            FlowDataRejection::Value(rejection) => Self::Rejected(error_reply(
+                grpc_code::INVALID_ARGUMENT,
+                ErrorSubStatus::Uncategorized,
+                rejection.message(),
+            )),
+            FlowDataRejection::RebuildUnavailable(unavailable) => {
+                Self::RebuildUnavailable(unavailable)
+            }
+        }
+    }
+}
 
 /// Upper bound of messages one command may publish; keeps enqueue seqs unique per command.
 const MAX_MESSAGES_PER_COMMAND: u64 = 1_000_000;
@@ -43,7 +81,7 @@ const MAX_MESSAGES_PER_COMMAND: u64 = 1_000_000;
 /// Applies Attribute writes in order (later writes win) and the permission projection, then
 /// marks the synced keys in the Attribute Sync outbox.
 ///
-/// Returns the changed keys, or the first value the caller must reject.
+/// Returns the changed keys, a rejected value, or an unavailable recorded-history permission input.
 pub(crate) fn apply_attribute_writes(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -52,11 +90,15 @@ pub(crate) fn apply_attribute_writes(
     permission_mappings: Option<&ActionPermissionMappings>,
     scope: &CommandScope<'_>,
     should_wake_waiters: bool,
-) -> Result<Result<Vec<String>, ValueRejection>, ApplyError> {
-    let projected_write = permission_mappings
-        .map(|mappings| apply_permission_mappings(transaction, cursor, writes, mappings))
-        .transpose()?
-        .flatten();
+) -> Result<Result<Vec<String>, FlowDataRejection>, ApplyError> {
+    let projected_write = if let Some(mappings) = permission_mappings {
+        match apply_permission_mappings(transaction, cursor, writes, mappings, scope)? {
+            Ok(write) => write,
+            Err(unavailable) => return Ok(Err(FlowDataRejection::RebuildUnavailable(unavailable))),
+        }
+    } else {
+        None
+    };
     let mut changed_keys =
         Vec::with_capacity(writes.len() + usize::from(projected_write.is_some()));
     let mut pending_store_names = BTreeSet::new();
@@ -71,7 +113,7 @@ pub(crate) fn apply_attribute_writes(
             apply_plain_write(transaction, cursor, write)?
         };
         if let Err(rejection) = outcome {
-            return Ok(Err(rejection));
+            return Ok(Err(FlowDataRejection::Value(rejection)));
         }
         let synced_keys = attribute_sync::synced_write_keys([write]);
         pending_store_names.extend(attribute_sync::mark_attribute_sync_entries(
@@ -92,7 +134,7 @@ pub(crate) fn apply_attribute_writes(
     }
     if let Some(write) = projected_write {
         if let Err(rejection) = apply_plain_write(transaction, cursor, &write)? {
-            return Ok(Err(rejection));
+            return Ok(Err(FlowDataRejection::Value(rejection)));
         }
         let synced_keys = attribute_sync::synced_write_keys([&write]);
         pending_store_names.extend(attribute_sync::mark_attribute_sync_entries(
@@ -280,15 +322,32 @@ fn apply_permission_mappings(
     cursor: &RunCursor,
     writes: &[AttributeWrite],
     mappings: &ActionPermissionMappings,
-) -> Result<Option<AttributeWrite>, ApplyError> {
-    let current_value =
-        stored_attribute_value(transaction, cursor, work_queue_permissions::ATTRIBUTE_KEY)?;
+    scope: &CommandScope<'_>,
+) -> Result<Result<Option<AttributeWrite>, PermissionRebuildUnavailable>, ApplyError> {
+    // Permission grants accumulate, so rebuilding needs the pre-batch set and each unchanged mapping input.
+    let current_value = match stored_attribute_value(
+        transaction,
+        cursor,
+        work_queue_permissions::ATTRIBUTE_KEY,
+        scope,
+    )? {
+        Ok(value) => value,
+        Err(unavailable) => return Ok(Err(unavailable)),
+    };
     let (current_permissions, is_current_valid) =
         work_queue_permissions::decode(current_value.as_ref());
     let mut permission_set: BTreeSet<String> = current_permissions.iter().cloned().collect();
     for mapping in &mappings.mappings {
-        let value =
-            attribute_value_after_writes(transaction, cursor, writes, &mapping.attribute_key)?;
+        let value = match attribute_value_after_writes(
+            transaction,
+            cursor,
+            writes,
+            &mapping.attribute_key,
+            scope,
+        )? {
+            Ok(value) => value,
+            Err(unavailable) => return Ok(Err(unavailable)),
+        };
         if let Some(value) = value
             && mapping
                 .equal_values
@@ -300,14 +359,14 @@ fn apply_permission_mappings(
     }
     let permissions: Vec<String> = permission_set.into_iter().collect();
     if is_current_valid && current_permissions == permissions {
-        return Ok(None);
+        return Ok(Ok(None));
     }
-    Ok(Some(AttributeWrite {
+    Ok(Ok(Some(AttributeWrite {
         key: work_queue_permissions::ATTRIBUTE_KEY.to_owned(),
         value: Some(work_queue_permissions::projected_value(&permissions)),
         index_config: Some(work_queue_permissions::index_config()),
         ..AttributeWrite::default()
-    }))
+    })))
 }
 
 fn attribute_value_after_writes(
@@ -315,61 +374,34 @@ fn attribute_value_after_writes(
     cursor: &RunCursor,
     writes: &[AttributeWrite],
     attribute_key: &str,
-) -> Result<Option<Value>, ApplyError> {
+    scope: &CommandScope<'_>,
+) -> Result<Result<Option<Value>, PermissionRebuildUnavailable>, ApplyError> {
     if let Some(write) = writes.iter().rev().find(|write| write.key == attribute_key) {
-        return Ok(if is_null_value(write.value.as_ref()) {
+        return Ok(Ok(if is_null_value(write.value.as_ref()) {
             None
         } else {
             write.value.clone()
-        });
+        }));
     }
-    stored_attribute_value(transaction, cursor, attribute_key)
+    stored_attribute_value(transaction, cursor, attribute_key, scope)
 }
 
 fn stored_attribute_value(
     transaction: &FlowTransaction<'_>,
     cursor: &RunCursor,
     attribute_key: &str,
-) -> Result<Option<Value>, ApplyError> {
+    scope: &CommandScope<'_>,
+) -> Result<Result<Option<Value>, PermissionRebuildUnavailable>, ApplyError> {
     let Some(record) = cursor.rows.attribute(transaction, attribute_key)? else {
-        return Ok(None);
+        return Ok(Ok(None));
     };
     let Some(stored) = record.value.as_ref() else {
-        return Ok(None);
+        return Ok(Ok(None));
     };
-    load_stored_value(transaction, cursor.rows, stored)
-}
-
-pub(crate) fn permission_mapping_rebuild_rejection(
-    transaction: &FlowTransaction<'_>,
-    rows: RunRows,
-    command: &FlowCommand,
-) -> Result<Option<CommandReply>, ApplyError> {
-    let Some((writes, mappings)) = permission_mapping_batch(command) else {
-        return Ok(None);
-    };
-    // Permission grants accumulate, so rebuilding needs the pre-batch set and each unchanged mapping input.
-    let attribute_keys = std::iter::once(work_queue_permissions::ATTRIBUTE_KEY).chain(
-        mappings
-            .mappings
-            .iter()
-            .filter(|mapping| {
-                !writes
-                    .iter()
-                    .any(|write| write.key == mapping.attribute_key)
-            })
-            .map(|mapping| mapping.attribute_key.as_str()),
-    );
-    for attribute_key in attribute_keys {
-        let Some(attribute) = rows.attribute(transaction, attribute_key)? else {
-            continue;
-        };
-        let Some(stored) = attribute.value.as_ref() else {
-            continue;
-        };
-        let Some(stored_value::Kind::TableValue(reference)) = stored.kind.as_ref() else {
-            continue;
-        };
+    let value = load_stored_value(transaction, cursor.rows, stored)?;
+    if scope.is_history_rebuild()
+        && let Some(stored_value::Kind::TableValue(reference)) = stored.kind.as_ref()
+    {
         if reference.value_id.is_none() {
             return Err(ApplyError::InvariantViolation {
                 detail: format!(
@@ -377,48 +409,13 @@ pub(crate) fn permission_mapping_rebuild_rejection(
                 ),
             });
         }
-        if load_stored_value(transaction, rows, stored)?.is_none() {
-            return Ok(Some(error_reply(
-                grpc_code::FAILED_PRECONDITION,
-                ErrorSubStatus::Uncategorized,
-                format!(
-                    "the TimeTravel target cannot be reconstructed because a stored value for \
-                     permission projection Attribute {attribute_key:?} was collected"
-                ),
-            )));
+        if value.is_none() {
+            return Ok(Err(PermissionRebuildUnavailable {
+                attribute_key: attribute_key.to_owned(),
+            }));
         }
     }
-    Ok(None)
-}
-
-fn permission_mapping_batch(
-    command: &FlowCommand,
-) -> Option<(&[AttributeWrite], &ActionPermissionMappings)> {
-    let (writes, mappings) = match command.command.as_ref()? {
-        Command::AttributesSet(command) => {
-            let request = command.request.as_ref()?;
-            (&request.attributes, &request.action_permission_mappings)
-        }
-        Command::RpcCommitted(command) => {
-            let response = command.response.as_ref()?;
-            (
-                &response.upsert_attributes,
-                &response.action_permission_mappings,
-            )
-        }
-        Command::StepMethodCompleted(command) => match command.response.as_ref()? {
-            step_method_completed_command::Response::WaitFor(response) => (
-                &response.upsert_attributes,
-                &response.action_permission_mappings,
-            ),
-            step_method_completed_command::Response::Execute(response) => (
-                &response.upsert_attributes,
-                &response.action_permission_mappings,
-            ),
-        },
-        _ => return None,
-    };
-    Some((writes, mappings.as_ref()?))
+    Ok(Ok(value))
 }
 
 fn values_equal(left: &Value, right: &Value) -> bool {
@@ -573,7 +570,7 @@ pub(crate) fn apply_method_effects(
     step: &mut dexzd_protocol::dexzd::v1::StepExecutionRecord,
     effects: &MethodEffects<'_>,
     scope: &CommandScope<'_>,
-) -> Result<Result<(), ValueRejection>, ApplyError> {
+) -> Result<Result<(), FlowDataRejection>, ApplyError> {
     if let Err(rejection) = apply_attribute_writes(
         transaction,
         cursor,
@@ -589,7 +586,7 @@ pub(crate) fn apply_method_effects(
     let changed_channels =
         match apply_channel_publications(transaction, cursor, effects.publications)? {
             Ok(channels) => channels,
-            Err(rejection) => return Ok(Err(rejection)),
+            Err(rejection) => return Ok(Err(FlowDataRejection::Value(rejection))),
         };
     for local in effects.locals {
         let holder = ValueHolder::StepLocal {
@@ -620,7 +617,7 @@ pub(crate) fn apply_method_effects(
             &holder,
         )? {
             Ok(stored) => stored,
-            Err(rejection) => return Ok(Err(rejection)),
+            Err(rejection) => return Ok(Err(FlowDataRejection::Value(rejection))),
         };
         step.locals.push(dexzd_protocol::dexzd::v1::StoredKeyValue {
             key: local.key.clone(),

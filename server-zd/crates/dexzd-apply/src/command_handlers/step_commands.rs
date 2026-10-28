@@ -76,6 +76,9 @@ pub(crate) fn apply_step_command(
         StepCommandOutcome::Applied(reply) => Ok(StepHandlerResult::Done(HandlerResult::Applied(
             cursor.finish(transaction, scope, reply, kind)?,
         ))),
+        StepCommandOutcome::RebuildUnavailable(unavailable) => Ok(StepHandlerResult::Done(
+            HandlerResult::RebuildUnavailable(unavailable),
+        )),
         StepCommandOutcome::Ignored(reply) => {
             Ok(StepHandlerResult::Done(HandlerResult::Rejected(reply)))
         }
@@ -114,7 +117,9 @@ fn rejected_result_failure(
         StepCommandOutcome::MismatchedResult(detail) => {
             (StepAttemptFailureKind::InvalidResponse, detail.clone())
         }
-        StepCommandOutcome::Applied(_) | StepCommandOutcome::Ignored(_) => return None,
+        StepCommandOutcome::Applied(_)
+        | StepCommandOutcome::Ignored(_)
+        | StepCommandOutcome::RebuildUnavailable(_) => return None,
     };
     Some(StepAttemptFailedCommand {
         invocation,

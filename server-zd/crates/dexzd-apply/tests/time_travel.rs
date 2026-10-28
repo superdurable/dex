@@ -36,8 +36,8 @@ use dexzd_protocol::dex::{
     InvokeRpcRequest, InvokeWaitForMethodResponse, InvokeWorkerRpcResponse,
     PublishToChannelRequest, ResetFlowRequest, RetryPolicy, SetAttributesRequest, SkipTimerRequest,
     StartFlowRequest, StepDecision, StepMovement, StepOptions, StopFlowRequest, StopType,
-    TimerCondition, Value, WaitingCondition, WaitingConditionType, WorkerErrorResponse,
-    WorkerTarget, flow_history_event, value,
+    SubFlowCondition, TimerCondition, Value, WaitingCondition, WaitingConditionType,
+    WorkerErrorResponse, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, ChannelMessageDeleteCommand,
@@ -2723,22 +2723,170 @@ const PERMISSION_ATTRIBUTE_KEY: &str = "DexWorkQueuePermissions";
 
 #[test]
 fn permission_rebuild_rejects_collected_permission_values() {
-    assert_permission_rebuild_with_collected_value(PERMISSION_ATTRIBUTE_KEY, false);
+    assert_permission_rebuild_with_collected_value(
+        PERMISSION_ATTRIBUTE_KEY,
+        false,
+        PermissionMappingSource::AttributesSet,
+    );
 }
 
 #[test]
 fn permission_rebuild_rejects_collected_mapping_values() {
-    assert_permission_rebuild_with_collected_value("stage", false);
+    assert_permission_rebuild_with_collected_value(
+        "stage",
+        false,
+        PermissionMappingSource::AttributesSet,
+    );
 }
 
 #[test]
 fn permission_rebuild_uses_the_batch_replacement_of_a_collected_mapping_value() {
-    assert_permission_rebuild_with_collected_value("stage", true);
+    for source in [
+        PermissionMappingSource::AttributesSet,
+        PermissionMappingSource::Rpc,
+        PermissionMappingSource::WaitFor,
+        PermissionMappingSource::Execute,
+    ] {
+        assert_permission_rebuild_with_collected_value("stage", true, source);
+    }
+}
+
+#[test]
+fn permission_rebuild_rejects_collected_rpc_inputs() {
+    for collected_key in [PERMISSION_ATTRIBUTE_KEY, "stage"] {
+        assert_permission_rebuild_with_collected_value(
+            collected_key,
+            false,
+            PermissionMappingSource::Rpc,
+        );
+    }
+}
+
+#[test]
+fn permission_rebuild_rejects_collected_wait_for_inputs() {
+    for collected_key in [PERMISSION_ATTRIBUTE_KEY, "stage"] {
+        assert_permission_rebuild_with_collected_value(
+            collected_key,
+            false,
+            PermissionMappingSource::WaitFor,
+        );
+    }
+}
+
+#[test]
+fn permission_rebuild_rejects_collected_execute_inputs() {
+    for collected_key in [PERMISSION_ATTRIBUTE_KEY, "stage"] {
+        assert_permission_rebuild_with_collected_value(
+            collected_key,
+            false,
+            PermissionMappingSource::Execute,
+        );
+    }
+}
+
+#[test]
+fn permission_rebuild_skips_unread_inputs_when_invalid_wait_for_closes_the_flow() {
+    let mut harness = Harness::with_settings(RunSettings {
+        checkpoint_max_commands: 4,
+        ..settings()
+    });
+    harness.start(start_request());
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    for index in 0..2 {
+        harness.set_attribute("counter", &index.to_string(), "");
+    }
+    harness.set_attribute("stage", &"ready".repeat(40), "");
+    assert!(harness.checkpoint(1, harness.last_seq()).is_some());
+    let stored_value::Kind::TableValue(reference) = attribute(&harness, "stage")
+        .value
+        .expect("mapping value")
+        .kind
+        .expect("stored kind")
+    else {
+        panic!("the regression needs a table value");
+    };
+    let value_id = reference.value_id.expect("table value ID");
+    let mut command = permission_mapping_from_source(
+        permission_mapping_command(&"ready".repeat(40), "unread"),
+        PermissionMappingSource::WaitFor,
+    );
+    let Command::StepMethodCompleted(completed) = &mut command else {
+        panic!("Step command");
+    };
+    let Some(step_method_completed_command::Response::WaitFor(response)) = &mut completed.response
+    else {
+        panic!("WaitFor response");
+    };
+    response.waiting_condition = Some(WaitingCondition {
+        sub_flow_conditions: vec![SubFlowCondition::default()],
+        ..WaitingCondition::default()
+    });
+    let outcome = harness.apply(command);
+    assert!(is_ok(&outcome.reply));
+    assert_eq!(harness.run_record().status, FlowStatus::Failed as i32);
+    assert!(
+        !harness
+            .attribute_keys()
+            .contains(&"permission-command".to_owned())
+    );
+    let target_seq = harness.last_seq();
+    let target_time = harness
+        .history_record(target_seq)
+        .expect("closed target")
+        .timestamp_micros;
+    let mut recorded_hashes = BTreeMap::new();
+    record_permission_rebuild_hash(&harness, &mut recorded_hashes);
+    // Remove only payload bytes to exercise identity-only rebuild with an unread mapping input.
+    assert!(
+        harness
+            .state
+            .rows
+            .remove(&(
+                ColumnFamily::Value,
+                value_row_key(
+                    harness.context.flow_hash,
+                    harness.run(),
+                    RunTable::Value,
+                    ValueId {
+                        run_seq: value_id.run_seq,
+                        index_in_command: value_id.index_in_command,
+                    }
+                ),
+            ))
+            .is_some()
+    );
+    let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        request: Some(reset_to_time(target_time)),
+    }));
+    let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
+        .expect("unread input must not halt diagnostics")
+        .expect("closed target remains reconstructable");
+    assert_eq!(rebuilt.state_hash, recorded_hashes[&target_seq]);
+    assert!(
+        time_travel_target_close(&harness.context, &harness.state, &command)
+            .expect("close diagnostics")
+            .is_some()
+    );
+    let outcome = apply_flow_command(&harness.context, &harness.state, &command)
+        .expect("unread input must not halt apply");
+    assert!(matches!(
+        outcome.reply.reply,
+        Some(command_reply::Reply::TimeTravel(_))
+    ));
+}
+
+#[derive(Clone, Copy)]
+enum PermissionMappingSource {
+    AttributesSet,
+    Rpc,
+    WaitFor,
+    Execute,
 }
 
 fn assert_permission_rebuild_with_collected_value(
     collected_key: &str,
     should_replace_mapping_input: bool,
+    source: PermissionMappingSource,
 ) {
     let mut harness = Harness::with_settings(RunSettings {
         checkpoint_max_commands: 4,
@@ -2756,8 +2904,23 @@ fn assert_permission_rebuild_with_collected_value(
     } else {
         "ready".to_owned()
     };
-    harness.start(start_request());
-    for index in 0..3 {
+    harness.start(StartFlowRequest {
+        step_options: matches!(source, PermissionMappingSource::Execute).then(|| StepOptions {
+            skip_wait_for: true,
+            ..StepOptions::default()
+        }),
+        ..start_request()
+    });
+    match source {
+        PermissionMappingSource::WaitFor => {
+            harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1)
+        }
+        PermissionMappingSource::Execute => {
+            harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1)
+        }
+        PermissionMappingSource::AttributesSet | PermissionMappingSource::Rpc => {}
+    }
+    for index in 0..(3 - harness.run_record().commands_since_checkpoint) {
         harness.set_attribute("counter", &index.to_string(), "");
     }
     harness.apply(Command::AttributesSet(AttributesSetCommand {
@@ -2809,8 +2972,15 @@ fn assert_permission_rebuild_with_collected_value(
                 ..AttributeWrite::default()
             });
     }
+    let mapping_command = permission_mapping_from_source(mapping_command, source);
     let projected = harness.apply(mapping_command);
-    assert!(is_ok(&projected.reply));
+    assert!(
+        is_ok(&projected.reply)
+            || matches!(projected.reply.reply, Some(command_reply::Reply::Rpc(_)))
+    );
+    assert!(!projected.writes.is_empty());
+    let mut recorded_hashes = BTreeMap::new();
+    record_permission_rebuild_hash(&harness, &mut recorded_hashes);
     harness.apply(Command::AttributesSet(AttributesSetCommand {
         request: Some(SetAttributesRequest {
             attributes: vec![AttributeWrite {
@@ -2822,8 +2992,10 @@ fn assert_permission_rebuild_with_collected_value(
         }),
         ..AttributesSetCommand::default()
     }));
+    record_permission_rebuild_hash(&harness, &mut recorded_hashes);
     for index in 0..3 {
         harness.set_attribute("counter", &index.to_string(), "");
+        record_permission_rebuild_hash(&harness, &mut recorded_hashes);
     }
     assert!(harness.run_record().window_start_seq > 3);
     assert!(
@@ -2849,6 +3021,11 @@ fn assert_permission_rebuild_with_collected_value(
             .work_queue_permissions;
     let outcome = apply_flow_command(&harness.context, &harness.state, &command)
         .expect("unavailable history must not halt the partition");
+    let repeated = apply_flow_command(&harness.context, &harness.state, &command)
+        .expect("repeated rebuild must not halt the partition");
+    assert_eq!(outcome.reply, repeated.reply);
+    assert_eq!(outcome.writes, repeated.writes);
+    assert_eq!(outcome.effects, repeated.effects);
     let mut result_state = harness.state.clone();
     result_state.commit(&outcome);
     let result_permissions =
@@ -2865,11 +3042,11 @@ fn assert_permission_rebuild_with_collected_value(
             outcome.reply.reply,
             Some(command_reply::Reply::TimeTravel(_))
         ));
-        assert!(
-            time_travel_target_hash(&harness.context, &harness.state, &command)
-                .expect("replacement makes the target reconstructable")
-                .is_some()
-        );
+        let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
+            .expect("replacement makes the target reconstructable")
+            .expect("target exists");
+        assert_eq!(rebuilt.run_seq, target_seq);
+        assert_eq!(rebuilt.state_hash, recorded_hashes[&target_seq]);
         return;
     }
     assert_eq!(error_code(&outcome.reply), Some(FAILED_PRECONDITION));
@@ -2888,6 +3065,80 @@ fn assert_permission_rebuild_with_collected_value(
             .is_none()
     );
     assert_eq!(harness.state.rows, previous_state);
+}
+
+fn record_permission_rebuild_hash(
+    harness: &Harness,
+    recorded_hashes: &mut BTreeMap<u64, [u8; 16]>,
+) {
+    let history = harness
+        .history_record(harness.last_seq())
+        .expect("current history");
+    let point = current_semantic_point_hash(
+        &harness.context,
+        &harness.state,
+        harness.run(),
+        &history.command.expect("recorded command").command_id,
+    )
+    .expect("current hash")
+    .expect("semantic point");
+    recorded_hashes.insert(point.run_seq, point.state_hash);
+}
+
+fn permission_mapping_from_source(command: Command, source: PermissionMappingSource) -> Command {
+    let Command::AttributesSet(attributes_command) = command else {
+        panic!("mapping source is AttributesSet");
+    };
+    let request = attributes_command.request.expect("mapping request");
+    match source {
+        PermissionMappingSource::AttributesSet => Command::AttributesSet(AttributesSetCommand {
+            request: Some(request),
+            ..attributes_command
+        }),
+        PermissionMappingSource::Rpc => Command::RpcCommitted(RpcCommittedCommand {
+            request: Some(InvokeRpcRequest {
+                flow_id: "order-1".to_owned(),
+                rpc_name: "updateOrder".to_owned(),
+                request_id: "permission-rpc".to_owned(),
+                ..InvokeRpcRequest::default()
+            }),
+            response: Some(InvokeWorkerRpcResponse {
+                upsert_attributes: request.attributes,
+                action_permission_mappings: request.action_permission_mappings,
+                ..InvokeWorkerRpcResponse::default()
+            }),
+            ..RpcCommittedCommand::default()
+        }),
+        PermissionMappingSource::WaitFor | PermissionMappingSource::Execute => {
+            let (method, response) = match source {
+                PermissionMappingSource::WaitFor => (
+                    StepMethod::WaitFor,
+                    step_method_completed_command::Response::WaitFor(InvokeWaitForMethodResponse {
+                        upsert_attributes: request.attributes,
+                        action_permission_mappings: request.action_permission_mappings,
+                        ..InvokeWaitForMethodResponse::default()
+                    }),
+                ),
+                PermissionMappingSource::Execute => (
+                    StepMethod::Execute,
+                    step_method_completed_command::Response::Execute(InvokeExecuteMethodResponse {
+                        upsert_attributes: request.attributes,
+                        action_permission_mappings: request.action_permission_mappings,
+                        ..InvokeExecuteMethodResponse::default()
+                    }),
+                ),
+                PermissionMappingSource::AttributesSet | PermissionMappingSource::Rpc => {
+                    unreachable!("Step source")
+                }
+            };
+            Command::StepMethodCompleted(StepMethodCompletedCommand {
+                invocation: Some(key("ChargeStep-1", method)),
+                attempt: 1,
+                response: Some(response),
+                ..StepMethodCompletedCommand::default()
+            })
+        }
+    }
 }
 
 #[test]

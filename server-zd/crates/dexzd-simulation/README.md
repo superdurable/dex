@@ -25,10 +25,14 @@ search documents (SO1).
 The Attribute Sync stream also attaches permission mappings to its plain
 Attribute batches. They compare post-batch values and accumulate one inline
 permission, preserving the main stream's pinned trajectories. Coverage counts
-require an applied mapping batch. Collected mapping inputs and large permission
-sets are covered by deterministic `dexzd-apply` regressions. Randomizing those
-cases would also need a model for unreconstructable targets and their expected
-`FAILED_PRECONDITION` replies.
+require an applied mapping batch; they do not count projected permission writes or
+verify permission preservation. The apply stream has no stored mapping inputs or
+permission rebuild oracle, and the engine workload generates no permission mappings.
+[Issue #1016](https://github.com/superdurable/dex/issues/1016) tracks those gaps:
+varied grants across batches, mappings to stored Attributes outside the batch,
+recorded-versus-rebuilt semantic-point hashes, and expected rejections for collected
+inputs. Collected mapping inputs and large permission sets are covered by deterministic
+`dexzd-apply` regressions.
 
 ```bash
 cargo test -p dexzd-simulation                                   # fixed seed set

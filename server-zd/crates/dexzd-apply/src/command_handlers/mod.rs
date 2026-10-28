@@ -43,6 +43,13 @@ pub(crate) enum HandlerResult {
     Applied(HandlerOutput),
     /// The command changed nothing; discard the transaction.
     Rejected(CommandReply),
+    RebuildUnavailable(flow_data::PermissionRebuildUnavailable),
+}
+
+enum CommandDisposition {
+    Applied,
+    Rejected,
+    RebuildUnavailable,
 }
 
 pub(crate) fn apply_command(
@@ -55,7 +62,9 @@ pub(crate) fn apply_command(
     Ok(apply_in_scope(context, state, &scope)?.0)
 }
 
-/// Replays without recording history; returns writes or a rejection when required permission projection bytes were collected.
+/// Replays a recorded command without recording history.
+///
+/// Returns a rejection when required projection bytes were collected; other rejected replays are invariant violations.
 pub(crate) fn apply_replayed_command(
     context: &ApplyContext,
     state: &dyn FlowStateReader,
@@ -66,31 +75,22 @@ pub(crate) fn apply_replayed_command(
     let mut scope = CommandScope::new(command, behavior_version);
     scope.is_replay = true;
     scope.close_barrier_source = CloseBarrierSource::RecordedHistory { has_flow_closed };
-    let transaction = FlowTransaction::new(state, *context);
-    let cursor =
-        RunCursor::open(&transaction, &scope)?.map_err(|reply| ApplyError::InvariantViolation {
-            detail: format!("opening a replayed command was rejected: {reply:?}"),
-        })?;
-    if let Some(reply) =
-        flow_data::permission_mapping_rebuild_rejection(&transaction, cursor.rows, command)?
-    {
-        return Ok(Err(reply));
+    let (outcome, disposition) = apply_in_scope(context, state, &scope)?;
+    match disposition {
+        CommandDisposition::Applied => Ok(Ok(outcome.writes)),
+        CommandDisposition::RebuildUnavailable => Ok(Err(outcome.reply)),
+        CommandDisposition::Rejected => Err(ApplyError::InvariantViolation {
+            detail: format!("replaying command {:?} was rejected", command.command_id),
+        }),
     }
-    let (outcome, is_applied) = apply_in_scope(context, state, &scope)?;
-    if !is_applied {
-        return Err(ApplyError::InvariantViolation {
-            detail: format!("replaying the command at seq {} was rejected", cursor.seq),
-        });
-    }
-    Ok(Ok(outcome.writes))
 }
 
-/// Applies the scope's command; the flag tells whether it was applied or rejected.
+/// Applies the scope's command; the disposition distinguishes rejection from unavailable reconstruction.
 fn apply_in_scope(
     context: &ApplyContext,
     state: &dyn FlowStateReader,
     scope: &CommandScope<'_>,
-) -> Result<(ApplyOutcome, bool), ApplyError> {
+) -> Result<(ApplyOutcome, CommandDisposition), ApplyError> {
     let command = scope.command;
     if let Err(detail) = crate::validate_hard_delete_command(command) {
         return Ok((
@@ -99,7 +99,7 @@ fn apply_in_scope(
                 ErrorSubStatus::Uncategorized,
                 detail.to_string(),
             )),
-            false,
+            CommandDisposition::Rejected,
         ));
     }
     let behavior_version = scope.behavior_version;
@@ -142,7 +142,12 @@ fn apply_in_scope(
                         failure_scope.close_barrier_source = scope.close_barrier_source;
                         let cursor = match with_run(&transaction, &failure_scope)? {
                             Ok(cursor) => cursor,
-                            Err(reply) => return Ok((ApplyOutcome::rejected(reply), false)),
+                            Err(reply) => {
+                                return Ok((
+                                    ApplyOutcome::rejected(reply),
+                                    CommandDisposition::Rejected,
+                                ));
+                            }
                         };
                         match apply_step_command(
                             &mut transaction,
@@ -213,13 +218,22 @@ fn apply_in_scope(
                             ErrorSubStatus::Uncategorized,
                             detail,
                         )),
-                        false,
+                        CommandDisposition::Rejected,
                     ));
                 }
             }
-            (output.into_outcome(transaction.into_writes()), true)
+            (
+                output.into_outcome(transaction.into_writes()),
+                CommandDisposition::Applied,
+            )
         }
-        HandlerResult::Rejected(reply) => (ApplyOutcome::rejected(reply), false),
+        HandlerResult::Rejected(reply) => {
+            (ApplyOutcome::rejected(reply), CommandDisposition::Rejected)
+        }
+        HandlerResult::RebuildUnavailable(unavailable) => (
+            ApplyOutcome::rejected(unavailable.into_reply()),
+            CommandDisposition::RebuildUnavailable,
+        ),
     })
 }
 
