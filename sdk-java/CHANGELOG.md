@@ -20,3 +20,21 @@ Client constructors with `ClientOptions(serverAddress)` or
 `ClientOptions(serverAddress, objectMapper)`. Keep `WorkerOptions.Builder.pull(...)`
 only when customizing capacity or lifecycle settings; omitting it now uses pull
 defaults. Flow starts and SubFlows automatically send the existing pull wire value.
+
+UpdateFlowConfig leaves the Worker target unset, so an unrelated configuration
+update preserves the Flow's existing Worker routing on both Server implementations.
+Starts and SubFlows always select pull Workers. A Java Client can no longer select
+a push Worker for a new Flow or SubFlow; migrate those Workers to pull first.
+
+Workers that previously omitted pull settings used push handler concurrency of
+`max(2, min(32, availableProcessors))`. They now use PullWorkerOptions defaults:
+`availableProcessors` concurrent tasks, with one slot reserved for RPCs when that
+maximum is at least two. Set `maxConcurrentTasks` and `reservedRpcTasks` explicitly
+when preserving application capacity during migration.
+
+### Fixed
+
+Reject heartbeat and Stream writes from a cancelled or completed Step invocation,
+including when its pull stream has been reused for another task. A handler that
+returns cooperatively after cancellation still sends one final result; only
+progress is suppressed.

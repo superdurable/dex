@@ -690,19 +690,20 @@ final class PullWorker {
         }
 
         private void sendWaitFor(final PollWorkerTask task) throws Throwable {
+            final Context.CancellableContext owningContext = taskContext;
             final StepOutputEmitter emitter = new StepOutputEmitter() {
                 @Override
                 public void emitHeartbeat(final StepMethodHeartbeat heartbeat) {
-                    sendFrame(PollWorkerTaskFrame.newBuilder()
+                    sendStepOutput(PollWorkerTaskFrame.newBuilder()
                             .setWaitFor(InvokeWaitForMethodOutput.newBuilder()
-                                    .setHeartbeat(heartbeat).build()).build());
+                                    .setHeartbeat(heartbeat).build()).build(), task.getTaskId(), owningContext);
                 }
 
                 @Override
                 public void emitStreamWrite(final StepStreamWrite streamWrite) {
-                    sendFrame(PollWorkerTaskFrame.newBuilder()
+                    sendStepOutput(PollWorkerTaskFrame.newBuilder()
                             .setWaitFor(InvokeWaitForMethodOutput.newBuilder()
-                                    .setStreamWrite(streamWrite).build()).build());
+                                    .setStreamWrite(streamWrite).build()).build(), task.getTaskId(), owningContext);
                 }
             };
             sendFrame(PollWorkerTaskFrame.newBuilder()
@@ -712,19 +713,20 @@ final class PullWorker {
         }
 
         private void sendExecute(final PollWorkerTask task) throws Throwable {
+            final Context.CancellableContext owningContext = taskContext;
             final StepOutputEmitter emitter = new StepOutputEmitter() {
                 @Override
                 public void emitHeartbeat(final StepMethodHeartbeat heartbeat) {
-                    sendFrame(PollWorkerTaskFrame.newBuilder()
+                    sendStepOutput(PollWorkerTaskFrame.newBuilder()
                             .setExecute(InvokeExecuteMethodOutput.newBuilder()
-                                    .setHeartbeat(heartbeat).build()).build());
+                                    .setHeartbeat(heartbeat).build()).build(), task.getTaskId(), owningContext);
                 }
 
                 @Override
                 public void emitStreamWrite(final StepStreamWrite streamWrite) {
-                    sendFrame(PollWorkerTaskFrame.newBuilder()
+                    sendStepOutput(PollWorkerTaskFrame.newBuilder()
                             .setExecute(InvokeExecuteMethodOutput.newBuilder()
-                                    .setStreamWrite(streamWrite).build()).build());
+                                    .setStreamWrite(streamWrite).build()).build(), task.getTaskId(), owningContext);
                 }
             };
             sendFrame(PollWorkerTaskFrame.newBuilder()
@@ -733,11 +735,23 @@ final class PullWorker {
                     .build());
         }
 
-        private void sendFrame(final PollWorkerTaskFrame frame) {
+        private void sendStepOutput(final PollWorkerTaskFrame frame, final String owningTaskID,
+                final Context.CancellableContext owningContext) {
             synchronized (PullWorker.this) {
-                if (!frame.hasWorkerError() && cancellationStatus != null) {
+                if (!isBusy || isFinalFrameSent || owningContext != taskContext
+                        || !owningTaskID.equals(taskID) || isHalfClosed || isClosed) {
+                    throw Status.CANCELLED.withDescription("Worker task is no longer active")
+                            .asRuntimeException();
+                }
+                if (cancellationStatus != null) {
                     throw Status.fromCode(cancellationStatus).asRuntimeException();
                 }
+                sendFrame(frame);
+            }
+        }
+
+        private void sendFrame(final PollWorkerTaskFrame frame) {
+            synchronized (PullWorker.this) {
                 if (frame.hasRpc() || frame.hasWorkerError()
                         || frame.hasWaitFor() && frame.getWaitFor().hasResult()
                         || frame.hasExecute() && frame.getExecute().hasResult()) {

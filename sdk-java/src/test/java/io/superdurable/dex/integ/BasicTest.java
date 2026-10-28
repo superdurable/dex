@@ -476,7 +476,6 @@ public final class BasicTest {
     void compileFailurePolicyAndConfigOverride(final Client client) {
         final FlowConfig config = FlowConfig.newBuilder()
                 .activeStepSearchMode(ActiveStepSearchMode.ALL)
-
                 .build();
         final StartFlowOptions options = StartFlowOptions.newBuilder()
                 .configOverride(config)

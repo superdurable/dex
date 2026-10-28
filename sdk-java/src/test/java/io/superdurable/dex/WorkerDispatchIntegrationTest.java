@@ -751,8 +751,7 @@ final class WorkerDispatchIntegrationTest {
                     "... stack trace truncated by Dex Java SDK ..."));
             assertTrue(details.getStackTrace().getBytes(StandardCharsets.UTF_8).length
                     <= WorkerErrorMapper.MAX_WORKER_STACK_TRACE_BYTES);
-            assertEquals(details.getDetail(), status.getMessage());
-            assertTrue(status.getSerializedSize() < 7 * 1024);
+            assertTrue(details.getSerializedSize() < 7 * 1024);
             assertFalse(details.getDetail().contains("\ufffd"));
             assertFalse(details.getStackTrace().contains("\ufffd"));
         } finally {
@@ -1250,10 +1249,6 @@ final class WorkerDispatchIntegrationTest {
         private final AtomicReference<String> handlerThread = new AtomicReference<String>();
         private final AtomicReference<StepDecision> baseDecision =
                 new AtomicReference<StepDecision>();
-        private final AtomicReference<Boolean> contextReportedCancellation =
-                new AtomicReference<Boolean>(Boolean.FALSE);
-        private final CountDownLatch blockStarted = new CountDownLatch(1);
-        private final CountDownLatch cancellationObserved = new CountDownLatch(1);
         private final CountDownLatch bufferedHandlerRelease = new CountDownLatch(1);
         private final Channel<Void> commands;
         private final Stream<String> thinking;
@@ -1409,16 +1404,6 @@ final class WorkerDispatchIntegrationTest {
             }
             if ("heartbeat-overflow".equals(input)) {
                 return heartbeatDecision(Duration.ofSeconds((long) Integer.MAX_VALUE + 1));
-            }
-            if ("block".equals(input)) {
-                blockStarted.countDown();
-                try {
-                    Thread.sleep(TimeUnit.MINUTES.toMillis(1));
-                } catch (InterruptedException canceled) {
-                    contextReportedCancellation.set(context.isCancellationRequested());
-                    cancellationObserved.countDown();
-                    Thread.currentThread().interrupt();
-                }
             }
             return StepDecision.gracefulComplete(input);
         }

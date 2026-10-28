@@ -76,10 +76,11 @@ public final class FlowController {
         return flowId;
     }
 
-    private static void rerouteActiveFlow(final Client client, final String flowId) {
+    private static void updateActiveFlowDurability(final Client client, final String flowId) {
         client.updateFlowConfig(
                 flowId,
                 FlowConfig.newBuilder()
+                        .stepDurability(StepDurability.SYNC)
                         .build());
     }
 

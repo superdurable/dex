@@ -18,9 +18,11 @@ import java.util.List;
 /**
  * Configures server behavior for one Flow execution.
  *
- * <p>Use this value as a start-time override, in an update request, with pull Worker routing.
- * Unset properties remain under server control. Continue-as-new thresholds bound execution history
- * and page size; consult the server deployment configuration before overriding them.
+ * <p>Use this value as a start-time override or in an update request.
+ * Flow starts select pull Workers; updates preserve the existing Worker routing.
+ * Unset properties use server defaults at start and retain existing values on update.
+ * Continue-as-new thresholds bound execution history and page size; consult the server deployment
+ * configuration before overriding them.
  *
  * <pre>{@code
  * FlowConfig config = FlowConfig.newBuilder()

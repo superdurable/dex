@@ -318,7 +318,9 @@ WorkerOptions options = WorkerOptions.newBuilder()
 
 `serverAddress` connects to Dex for startup synchronization, blob hydration,
 and outbound task streams. Workers need only an outbound connection to the
-Dex Server. Clients and Flow configurations use pull routing automatically.
+Dex Server. Flow starts and SubFlows select pull Workers automatically.
+`Client.updateFlowConfig` leaves the Worker target unset, preserving the Flow's
+existing routing when other configuration fields change.
 
 ### Pull Workers
 
@@ -348,9 +350,11 @@ registered idle streams, preserving readiness. The transient peak during a burst
 remains bounded by the matching caps:
 `matching.maxConcurrentTasksCap` per app Worker ID per matching owner and
 `matching.maxStreams` per Matching instance.
-Each stream runs one task at a time. The Worker rejects a task with no capacity
-so Dex can assign it elsewhere. The default task capacity is the available CPU
-count. Zero task and idle counts and a zero drain timeout select their defaults.
+Each stream runs one task at a time. Heartbeat and Stream writes from a cancelled
+or completed invocation are rejected locally, including after stream reuse.
+A handler that returns after cancellation still sends its final result.
+The Worker rejects a task with no capacity so Dex can assign it elsewhere.
+The default task capacity is the available CPU count. Zero task and idle counts and a zero drain timeout select their defaults.
 The SDK sends an upstream Pong every 20 seconds while a task runs and stops
 before its final frame. This interval is internal and needs no Worker option.
 

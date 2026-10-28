@@ -110,5 +110,4 @@ public final class DexDevTestEnvironment implements AutoCloseable {
             throw new IllegalStateException("Java integration Worker failed", failure);
         }
     }
-
 }

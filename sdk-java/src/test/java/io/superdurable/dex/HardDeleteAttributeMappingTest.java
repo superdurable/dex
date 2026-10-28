@@ -36,6 +36,7 @@ import io.superdurable.gen.StartFlowRequest;
 import io.superdurable.gen.StartFlowResponse;
 import io.superdurable.gen.SyncAttributeIndexRequest;
 import io.superdurable.gen.SyncAttributeIndexResponse;
+import io.superdurable.gen.UpdateFlowConfigRequest;
 import io.superdurable.gen.Value;
 import io.superdurable.gen.WaitForAttributeRequest;
 import io.superdurable.gen.WaitForAttributeResponse;
@@ -99,6 +100,24 @@ final class HardDeleteAttributeMappingTest {
             }
             assertEquals(io.superdurable.gen.StepDurability.STEP_DURABILITY_ASYNC,
                     service.startRequests.get(1).getFlowStartOptions().getFlowConfigOverride().getStepDurability());
+        }
+    }
+
+    @Test
+    void updateFlowConfigLeavesWorkerTargetUnset() throws Exception {
+        try (FakeFlowService service = new FakeFlowService(3);
+                Client client = service.newClient(new Registry(Collections.<Flow<?>>singletonList(
+                        new HardDeleteMappingFlow())))) {
+            client.updateFlowConfig("existing-flow", FlowConfig.newBuilder()
+                    .stepDurability(StepDurability.ASYNC).build());
+            client.updateFlowConfig("existing-flow", FlowConfig.newBuilder().build());
+            assertEquals(2, service.updateRequests.size());
+            for (UpdateFlowConfigRequest request : service.updateRequests) {
+                assertEquals("existing-flow", request.getFlowId());
+                assertFalse(request.getFlowConfig().hasWorkerTarget());
+            }
+            assertEquals(io.superdurable.gen.StepDurability.STEP_DURABILITY_ASYNC,
+                    service.updateRequests.get(0).getFlowConfig().getStepDurability());
         }
     }
 
@@ -496,7 +515,6 @@ final class HardDeleteAttributeMappingTest {
         return new ValueHydrator(FlowServiceGrpc.newBlockingStub(UNUSED_CHANNEL), new EmptyBlobCache());
     }
 
-
     static final class SecretModel {
         public String token;
     }
@@ -626,6 +644,7 @@ final class HardDeleteAttributeMappingTest {
         private final PullTaskTestService tasks = new PullTaskTestService();
         private final AtomicInteger serverInfoCalls = new AtomicInteger();
         private final AtomicInteger waitForAttributeCalls = new AtomicInteger();
+        private final List<UpdateFlowConfigRequest> updateRequests = new CopyOnWriteArrayList<>();
         private final List<StartFlowRequest> startRequests =
                 new CopyOnWriteArrayList<StartFlowRequest>();
 
@@ -669,6 +688,14 @@ final class HardDeleteAttributeMappingTest {
                 final StreamObserver<StartFlowResponse> observer) {
             startRequests.add(request);
             observer.onNext(StartFlowResponse.newBuilder().setRunId("run-" + startRequests.size()).build());
+            observer.onCompleted();
+        }
+
+        @Override
+        public void updateFlowConfig(final UpdateFlowConfigRequest request,
+                final StreamObserver<Empty> observer) {
+            updateRequests.add(request);
+            observer.onNext(Empty.getDefaultInstance());
             observer.onCompleted();
         }
 
