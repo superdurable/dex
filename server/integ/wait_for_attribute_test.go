@@ -24,10 +24,7 @@ import (
 	"github.com/superdurable/dex/integ/workflow/signal"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
@@ -625,7 +622,11 @@ func doTestWaitForAttributeInternalHandlerTimeout(t *testing.T) {
 
 func doTestWaitForAttributeCancel(t *testing.T) {
 	workerTarget := startWorker(t, signal.NewHandler())
-	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType: service.BackendTypeTemporal,
+		// One waiter slot lets a probe observe server-zd waiter registration.
+		ServerZDMaxLongPollWaiters: 1,
+	})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -634,42 +635,30 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
 	runID := describeFlowRunID(t, ctx, runtime, flowId)
 	requestID := uuid.NewString()
-	requestSent := &requestSentStatsHandler{sent: make(chan struct{})}
-	waiterClient := flowClient
-	if isServerZDBinaryMode() {
-		connection, err := grpc.NewClient(
-			runtime.PublicAddress,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithStatsHandler(requestSent),
-		)
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, connection.Close()) })
-		waiterClient = dexpb.NewFlowServiceClient(connection)
-	}
 
 	done := make(chan error, 1)
 	go func() {
-		_, waitErr := waiterClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
-			FlowId: flowId,
-			Match: equalAttributeMatch(
-				waitForAttributeKey,
-				stringValue("never-set"),
-			),
-			RequestTimeoutSeconds: 30,
-			RequestId:             requestID,
-		})
-		done <- waitErr
+		for {
+			_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+				FlowId: flowId,
+				Match: equalAttributeMatch(
+					waitForAttributeKey,
+					stringValue("never-set"),
+				),
+				RequestTimeoutSeconds: 30,
+				RequestId:             requestID,
+			})
+			// A probe can hold the only server-zd waiter slot for one state read.
+			if isServerZDBinaryMode() && status.Code(waitErr) == codes.ResourceExhausted {
+				continue
+			}
+			done <- waitErr
+			return
+		}
 	}()
 
 	if isServerZDBinaryMode() {
-		// server-zd exposes no waiter registration, so cancel once the request is on the wire.
-		select {
-		case <-requestSent.sent:
-		case err := <-done:
-			require.FailNow(t, "WaitForAttribute returned before cancel", "%v", err)
-		case <-time.After(10 * time.Second):
-			require.FailNow(t, "WaitForAttribute request was not sent")
-		}
+		requireServerZDWaiterProbeCode(t, flowClient, codes.ResourceExhausted, done)
 	} else {
 		waitForAttributeWaiterAccepted(t, ctx, runtime, flowId, runID, requestID)
 	}
@@ -680,6 +669,10 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 		require.Equal(t, codes.Canceled, status.Code(err))
 	case <-time.After(10 * time.Second):
 		t.Fatal("WaitForAttribute did not return after cancel")
+	}
+	if isServerZDBinaryMode() {
+		// The cancelled waiter must release its server-zd slot.
+		requireServerZDWaiterProbeCode(t, flowClient, codes.NotFound, nil)
 	}
 
 	stopParkedWaitForAttributeFlow(t, context.Background(), flowClient, flowId)
@@ -1039,27 +1032,37 @@ func doTestWaitForAttributeCadenceUnimplemented(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// requestSentStatsHandler closes sent once the client writes a request message to the transport.
-type requestSentStatsHandler struct {
-	sent     chan struct{}
-	sentOnce sync.Once
-}
-
-func (handler *requestSentStatsHandler) TagRPC(ctx context.Context, _ *stats.RPCTagInfo) context.Context {
-	return ctx
-}
-
-func (handler *requestSentStatsHandler) HandleRPC(_ context.Context, rpcStats stats.RPCStats) {
-	if _, isOutPayload := rpcStats.(*stats.OutPayload); isOutPayload {
-		handler.sentOnce.Do(func() { close(handler.sent) })
+// requireServerZDWaiterProbeCode probes a missing Flow: RESOURCE_EXHAUSTED means a waiter holds the slot; NOT_FOUND means free.
+func requireServerZDWaiterProbeCode(
+	t *testing.T,
+	flowClient dexpb.FlowServiceClient,
+	expectedCode codes.Code,
+	waiterDone <-chan error,
+) {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for {
+		probeCtx, cancelProbe := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := flowClient.WaitForAttribute(probeCtx, &dexpb.WaitForAttributeRequest{
+			FlowId:                "wait-for-attribute-probe-" + uuid.NewString(),
+			Match:                 equalAttributeMatch(waitForAttributeKey, stringValue("probe")),
+			RequestTimeoutSeconds: 1,
+		})
+		cancelProbe()
+		probeCode := status.Code(err)
+		require.Contains(t, []codes.Code{codes.NotFound, codes.ResourceExhausted}, probeCode, "probe error: %v", err)
+		if probeCode == expectedCode {
+			return
+		}
+		select {
+		case err := <-waiterDone:
+			require.FailNow(t, "WaitForAttribute returned before cancel", "%v", err)
+		case <-deadline:
+			require.FailNow(t, "server-zd waiter probe never returned the expected code", "%v", expectedCode)
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 }
-
-func (handler *requestSentStatsHandler) TagConn(ctx context.Context, _ *stats.ConnTagInfo) context.Context {
-	return ctx
-}
-
-func (handler *requestSentStatsHandler) HandleConn(context.Context, stats.ConnStats) {}
 
 // waitForAttributeWaiterAccepted waits until Temporal accepts the waiter's Update.
 // server-zd has no Update history and checks the current value when a waiter arrives, so it returns at once.

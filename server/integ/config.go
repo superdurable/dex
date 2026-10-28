@@ -60,6 +60,9 @@ type DexServiceTestConfig struct {
 	// LazyLoading overrides BlobStore.LazyLoading.
 	// Nil uses EffectiveLazyLoading default (true).
 	LazyLoading *bool
+	// ServerZDMaxLongPollWaiters caps server-zd long-poll waiters per node and per Flow.
+	// Zero keeps the server-zd defaults. The Go Server ignores it.
+	ServerZDMaxLongPollWaiters int
 }
 
 func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config {

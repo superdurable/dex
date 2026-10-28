@@ -75,8 +75,11 @@ func TestBinaryDexConfigMapping(t *testing.T) {
 		LazyLoading:        ptr.Any(false),
 		Matching:           &config.MatchingConfig{DispatchWait: 2 * time.Second, MaxStreams: 16},
 		StreamStore:        config.StreamStoreConfig{Backend: config.StreamStoreBackendMemory, MaxReadMessages: 25},
+
+		ServerZDMaxLongPollWaiters: 1,
 	})
 	require.Empty(t, unsupportedSetting)
+	require.Equal(t, map[string]any{"maxLongPollWaitersPerNode": 1, "maxLongPollWaitersPerFlow": 1}, configuration["limits"])
 	require.Equal(t, map[string]any{"wireInlineThresholdBytes": 268, "hydrateBeforeDispatch": true}, configuration["values"])
 	require.Equal(t, map[string]any{"dispatchWait": "2s", "maxStreams": 16}, configuration["matching"])
 	require.Equal(t, map[string]any{"backend": config.StreamStoreBackendMemory, "maxReadMessages": int32(25)}, configuration["streamStore"])

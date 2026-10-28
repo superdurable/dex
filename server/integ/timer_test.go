@@ -24,6 +24,7 @@ import (
 	"github.com/superdurable/dex/integ/workflow/timer"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestTimerFlowTemporal(t *testing.T) {
@@ -138,10 +139,12 @@ func doTestTimerFlow(
 
 	assertions := assert.New(t)
 	skippedTimerStatus := dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
+	// zd-bug #1007 guard, delete once fixed: GetFlowState reports a skipped timer as fired.
+	if isServerZDBinaryMode() {
+		skippedTimerStatus = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED
+	}
 	resetTimerStatus := dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	if isServerZDBinaryMode() {
-		// zd-bug #1007: GetFlowState reports a skipped timer as fired.
-		skippedTimerStatus = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED
 		// Temporal reset reapplies later SkipTimer signals; server-zd reset discards them.
 		resetTimerStatus = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING
 	}
@@ -324,8 +327,10 @@ func assertTimerQueryResponseEqual(
 				expectedInfo.GetFiringUnixTimestampSeconds() - actualInfo.GetFiringUnixTimestampSeconds(),
 			))
 			assertions.True(abs <= 1)
-			expectedInfo.FiringUnixTimestampSeconds = actualInfo.GetFiringUnixTimestampSeconds()
-			assertions.Equal(expectedInfo, actualInfo)
+			// Compare a copy so polling never rewrites the expected firing time.
+			expectedWithActualTimestamp := proto.Clone(expectedInfo).(*dexpb.TimerInfo)
+			expectedWithActualTimestamp.FiringUnixTimestampSeconds = actualInfo.GetFiringUnixTimestampSeconds()
+			assertions.Equal(expectedWithActualTimestamp, actualInfo)
 		}
 	}
 }

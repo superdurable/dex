@@ -221,6 +221,12 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 			configuration["matching"] = matchingConfig
 		}
 	}
+	if testConfig.ServerZDMaxLongPollWaiters > 0 {
+		configuration["limits"] = map[string]any{
+			"maxLongPollWaitersPerNode": testConfig.ServerZDMaxLongPollWaiters,
+			"maxLongPollWaitersPerFlow": testConfig.ServerZDMaxLongPollWaiters,
+		}
+	}
 	configuration["streamStore"] = binaryStreamStoreConfig(testConfig.StreamStore)
 	if testConfig.Auth != nil {
 		configuration["auth"] = binaryAuthConfig(testConfig.Auth)
