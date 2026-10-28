@@ -11,7 +11,9 @@
 use std::collections::BTreeMap;
 
 use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_hash};
-use dexzd_apply::read_model::{get_search_document, search_order_index_keys_of_document};
+use dexzd_apply::read_model::{
+    get_flow_state, get_search_document, search_order_index_keys_of_document,
+};
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyError, ApplyOutcome, FlowStateReader, StateReadError, StateRow,
     StateWrite, apply_flow_command,
@@ -27,11 +29,12 @@ use dexzd_keyspace::{
 use dexzd_protocol::dex::{
     AttributeWrite, ChannelMessage, ChannelMessageDeletion, CloseDecision, CloseDecisionType,
     DeleteChannelMessageRequest, FlowResetStepMethod, FlowResetType, FlowStatus, FlowTimeoutPolicy,
-    IndexConfig, InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWaitForMethodResponse,
-    InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, RetryPolicy,
-    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StepDecision, StepMovement,
-    StepOptions, StopFlowRequest, StopType, TimerCondition, Value, WaitingCondition,
-    WaitingConditionType, WorkerErrorResponse, WorkerTarget, flow_history_event, value,
+    IndexConfig, InternalTimerStatus, InvokeExecuteMethodResponse, InvokeRpcRequest,
+    InvokeWaitForMethodResponse, InvokeWorkerRpcResponse, PublishToChannelRequest,
+    ResetFlowRequest, RetryPolicy, SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
+    StepDecision, StepMovement, StepOptions, StopFlowRequest, StopType, TimerCondition, Value,
+    WaitingCondition, WaitingConditionType, WorkerErrorResponse, WorkerTarget, flow_history_event,
+    value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, ChannelMessageDeleteCommand,
@@ -41,7 +44,7 @@ use dexzd_protocol::dexzd::v1::{
     RunPurgeCommand, RunRecord, RunSettings, StepAttemptFailedCommand, StepAttemptStartedCommand,
     StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepInvocationPhase, StepMethod,
     StepMethodCompletedCommand, TimeTravelCommand, TimerId, TimerRecord, TimerSkipCommand,
-    TimersFiredCommand, ValueRecord, command_reply, flow_command::Command,
+    TimersFiredCommand, ValueRecord, WaitConditionTimerId, command_reply, flow_command::Command,
     step_method_completed_command, stored_value, timer_id,
 };
 use prost::Message;
@@ -2056,6 +2059,98 @@ fn reapplied_skip_timer_completes_the_restored_wait_or_is_skipped() {
             1,
             beginning
         )]
+    );
+}
+
+/// Returns ChargeStep-1's waiting timer statuses, or its completed ones once Execute is pending.
+fn charge_timer_statuses(harness: &Harness) -> Vec<i32> {
+    let state = get_flow_state(&harness.state, harness.context.flow_hash, harness.run())
+        .expect("the Flow state reads");
+    let step = state
+        .active_step_executions
+        .iter()
+        .find(|step| step.step_execution_id == "ChargeStep-1")
+        .expect("ChargeStep-1 is active");
+    match &step.completed_conditions {
+        Some(completed) => completed
+            .completed_timer_conditions
+            .values()
+            .copied()
+            .collect(),
+        None => step.timers.iter().map(|timer| timer.status).collect(),
+    }
+}
+
+#[test]
+fn reset_reports_a_timer_as_skipped_only_when_the_restored_state_has_the_skip() {
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    wait_on_timer(&mut harness);
+    let waiting_time = harness
+        .history_record(harness.last_seq())
+        .unwrap()
+        .timestamp_micros;
+    assert!(is_ok(&skip_timer(&mut harness).reply));
+    let skipped_time = harness
+        .history_record(harness.last_seq())
+        .unwrap()
+        .timestamp_micros;
+    assert_eq!(
+        charge_timer_statuses(&harness),
+        [InternalTimerStatus::Skipped as i32]
+    );
+
+    for (request, expected) in [
+        (
+            reset_to_time(waiting_time),
+            InternalTimerStatus::Pending as i32,
+        ),
+        (
+            reapplying(reset_to_time(waiting_time)),
+            InternalTimerStatus::Skipped as i32,
+        ),
+        (
+            reset_to_time(skipped_time),
+            InternalTimerStatus::Skipped as i32,
+        ),
+        (
+            reapplying(reset_to_time(skipped_time)),
+            InternalTimerStatus::Skipped as i32,
+        ),
+    ] {
+        harness.travel_to(ResetFlowRequest {
+            run_attempt: 1,
+            ..request.clone()
+        });
+        assert_eq!(charge_timer_statuses(&harness), [expected], "{request:?}");
+        assert_eq!(
+            harness.step("ChargeStep-1").skipped_timer_indexes,
+            if expected == InternalTimerStatus::Skipped as i32 {
+                vec![0]
+            } else {
+                Vec::new()
+            },
+            "{request:?}"
+        );
+    }
+
+    // A restored wait without the skip reports its timer as fired when it fires.
+    let (attempt, _) = harness.travel_to(ResetFlowRequest {
+        run_attempt: 1,
+        ..reset_to_time(waiting_time)
+    });
+    harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![TimerId {
+            run_attempt: attempt,
+            kind: Some(timer_id::Kind::WaitCondition(WaitConditionTimerId {
+                step_execution_id: "ChargeStep-1".to_owned(),
+                timer_index: 0,
+            })),
+        }],
+    }));
+    assert_eq!(
+        charge_timer_statuses(&harness),
+        [InternalTimerStatus::Fired as i32]
     );
 }
 

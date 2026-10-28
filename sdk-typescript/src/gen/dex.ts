@@ -63,7 +63,7 @@ export enum PollWorkerTaskRejectReason {
 
 /**
  * Distinguishes no available Worker, a disconnected Worker, and a missing Step or RPC registration.
- * Go persists; server-zd does not.
+ * Go and server-zd persist it in Step method failure events.
  */
 export enum DispatchTaskErrorReason {
   DISPATCH_TASK_ERROR_REASON_UNSPECIFIED = 0,
