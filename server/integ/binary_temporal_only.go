@@ -97,7 +97,6 @@ var temporalOnlyScenarioTests = map[string]struct{}{
 	"TestStepLineageTemporal":                                   {},
 	"TestSubFlowConditionCadence":                               {},
 	"TestSubFlowConditionTemporal":                              {},
-	"TestSynchronousUpdateRequestIDTemporal":                    {},
 	"TestTemporalMetrics":                                       {},
 	"TestTimerFlowCadence":                                      {},
 	"TestTimerFlowCadenceContinueAsNew":                         {},
