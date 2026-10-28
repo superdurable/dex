@@ -16,9 +16,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 
 from dex import (
@@ -44,7 +46,11 @@ from dex import (
 )
 
 from dex_examples.products.ai_agent.mcp_registry import MCPRegistry
-from dex_examples.products.ai_agent.model_client import ModelClient
+from dex_examples.products.ai_agent.model_client import (
+    ModelClient,
+    ModelProviderError,
+    describe_model_api_error,
+)
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
     AgentDescription,
@@ -56,6 +62,7 @@ from dex_examples.products.ai_agent.models import (
     ContextSummary,
     HistoryPage,
     HistoryRequest,
+    ModelFailure,
     PendingApproval,
     PendingTimer,
     PendingUserInput,
@@ -113,8 +120,18 @@ MODEL_OPTIONS = StepOptions(
 )
 TOOL_OPTIONS = StepOptions(
     execute_method_timeout=timedelta(hours=2),
-    heartbeat_timeout=timedelta(minutes=5),
+    heartbeat_timeout=timedelta(seconds=30),
     execute_retry=RetryPolicy(maximum_attempts=1),
+)
+TOOL_HEARTBEAT_INTERVAL = timedelta(seconds=10)
+# Recovery waits for a Worker; a short interval resumes soon after one returns.
+RECOVERY_OPTIONS = StepOptions(
+    execute_retry=RetryPolicy(maximum_interval=timedelta(seconds=5)),
+)
+RECOVERY_DETAIL_CHARACTERS = 200
+# The Worker reports a raised exception's type as its qualified class name.
+MODEL_PROVIDER_ERROR_TYPE = (
+    f"{ModelProviderError.__module__}.{ModelProviderError.__qualname__}"
 )
 
 
@@ -208,7 +225,7 @@ class CompactContext(Step[int]):
         return replace(
             MODEL_OPTIONS,
             execute_load_attribute_maps=(self.flow.messages,),
-        )
+        ).on_execute_failure_proceed_to(RecoverFailedCompaction)
 
     async def execute(  # type: ignore[override]
         self,
@@ -232,11 +249,19 @@ class CompactContext(Step[int]):
                 messages,
                 flow_id=context.flow_id,
             )
-        except Exception:
+        except Exception as error:
+            api_error = describe_model_api_error(error)
             self.flow.agent_activity.write(
                 context,
-                AgentEvent("compaction_failed", "Context compaction failed."),
+                AgentEvent(
+                    "compaction_failed",
+                    "Context compaction failed."
+                    if api_error is None
+                    else f"Context compaction failed: model provider API error ({api_error}).",
+                ),
             )
+            if api_error is not None:
+                raise ModelProviderError(api_error) from error
             raise
         generation = state.compaction_generation + 1
         self.flow.summary.set(
@@ -268,7 +293,7 @@ class CallModel(Step[None]):
         return replace(
             MODEL_OPTIONS,
             execute_load_attribute_maps=(self.flow.messages,),
-        )
+        ).on_execute_failure_proceed_to(RecoverFailedModelCall)
 
     async def execute(  # type: ignore[override]
         self,
@@ -304,14 +329,24 @@ class CallModel(Step[None]):
                 forced_tool_name=forced_tool_name,
                 flow_id=context.flow_id,
             )
-        except Exception:
+        except Exception as error:
+            api_error = describe_model_api_error(error)
             self.flow.agent_activity.write(
                 context,
-                AgentEvent("model_failed", "Model request failed."),
+                AgentEvent(
+                    "model_failed",
+                    "Model request failed."
+                    if api_error is None
+                    else f"Model request failed: model provider API error ({api_error}).",
+                ),
             )
+            if api_error is not None:
+                raise ModelProviderError(api_error) from error
             raise
         if not reply.content.strip() and not reply.tool_calls:
             raise RuntimeError("the model returned no content or tool calls")
+        if _optional_attribute(self.flow.model_failure, context) is not None:
+            self.flow.model_failure.delete(context)
         self.flow.append_message(
             context,
             AgentMessage(
@@ -386,6 +421,8 @@ class CheckSteered(Step[str]):
         if input == CONTINUE_AWAIT_TOOL_APPROVAL:
             return go_to(AwaitToolApproval, None)
         if input == CONTINUE_EXECUTE_TOOL:
+            # ExecuteTool commits its own writes only after the tool returns.
+            self.flow.update_status(context, STATUS_EXECUTING_TOOL)
             return go_to(ExecuteTool, None)
         if input == CONTINUE_DURABLE_WAIT:
             return go_to(DurableWait, None)
@@ -614,7 +651,7 @@ class ExecuteTool(Step[None]):
         self.flow = flow
 
     def get_step_options(self) -> StepOptions:
-        return TOOL_OPTIONS
+        return TOOL_OPTIONS.on_execute_failure_proceed_to(ReportInterruptedTool)
 
     async def execute(  # type: ignore[override]
         self,
@@ -631,6 +668,7 @@ class ExecuteTool(Step[None]):
                 AgentEvent("tool_progress", message, call.id, call.name),
             )
 
+        heartbeats = asyncio.create_task(_record_tool_heartbeats(context))
         try:
             result = await self.flow.mcp_registry.execute(
                 call.name,
@@ -659,6 +697,10 @@ class ExecuteTool(Step[None]):
                 ),
                 True,
             )
+        finally:
+            heartbeats.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeats
         self.flow.append_tool_result(context, call, result)
         self.flow.agent_activity.write(
             context,
@@ -669,6 +711,72 @@ class ExecuteTool(Step[None]):
             return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
         self.flow.clear_pending_tool_calls(context)
         return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
+
+
+class ReportInterruptedTool(Step[None]):
+    def __init__(self, flow: AIAgentFlow) -> None:
+        self.flow = flow
+
+    def get_step_options(self) -> StepOptions:
+        return RECOVERY_OPTIONS
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        call = self.flow.current_tool_call(context)
+        is_read_only = self.flow.is_read_only_tool(context, call.name)
+        self.flow.append_tool_result(
+            context,
+            call,
+            ToolExecutionResult(
+                json.dumps(
+                    {
+                        "status": "interrupted",
+                        "outcome": (
+                            "known_failure" if is_read_only else "outcome_unknown"
+                        ),
+                        "retry_safe": is_read_only,
+                    }
+                ),
+                True,
+            ),
+        )
+        self.flow.agent_activity.write(
+            context,
+            AgentEvent(
+                "tool_interrupted",
+                f"{call.name} stopped without a result ({_recovery_detail(context)}).",
+                call.id,
+                call.name,
+            ),
+        )
+        if self.flow.has_next_tool_call(context):
+            self.flow.advance_tool(context)
+            return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
+        self.flow.clear_pending_tool_calls(context)
+        return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
+
+
+class RecoverFailedModelCall(Step[None]):
+    def __init__(self, flow: AIAgentFlow) -> None:
+        self.flow = flow
+
+    def get_step_options(self) -> StepOptions:
+        return RECOVERY_OPTIONS
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        self.flow.report_model_failure(context, "The model call")
+        return go_to(CheckSteered, CONTINUE_AWAIT_USER)
+
+
+class RecoverFailedCompaction(Step[int]):
+    def __init__(self, flow: AIAgentFlow) -> None:
+        self.flow = flow
+
+    def get_step_options(self) -> StepOptions:
+        return RECOVERY_OPTIONS
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        self.flow.report_model_failure(context, "Context compaction")
+        return go_to(CheckSteered, CONTINUE_AWAIT_USER)
 
 
 class DurableWait(Step[None]):
@@ -737,6 +845,7 @@ class AIAgentFlow(Flow[AgentConfig]):
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
     pending_user_input = Attribute("PendingUserInput", PendingUserInput)
+    model_failure = Attribute("ModelFailure", ModelFailure)
     queued_user_messages = Channel("QueuedUserMessages", UserMessage)
     steered_user_messages = Channel("SteeredUserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
@@ -760,6 +869,9 @@ class AIAgentFlow(Flow[AgentConfig]):
         self.route_tool = RouteTool(self)
         self.await_tool_approval = AwaitToolApproval(self)
         self.execute_tool = ExecuteTool(self)
+        self.report_interrupted_tool = ReportInterruptedTool(self)
+        self.recover_failed_model_call = RecoverFailedModelCall(self)
+        self.recover_failed_compaction = RecoverFailedCompaction(self)
         self.durable_wait = DurableWait(self)
 
     def get_steps(self) -> StepList[AgentConfig]:
@@ -771,6 +883,9 @@ class AIAgentFlow(Flow[AgentConfig]):
             self.route_tool,
             self.await_tool_approval,
             self.execute_tool,
+            self.report_interrupted_tool,
+            self.recover_failed_model_call,
+            self.recover_failed_compaction,
             self.durable_wait,
         )
 
@@ -784,6 +899,7 @@ class AIAgentFlow(Flow[AgentConfig]):
             self.pending_approval,
             self.pending_timer,
             self.pending_user_input,
+            self.model_failure,
             self.queued_user_messages,
             self.steered_user_messages,
             self.tool_approvals,
@@ -848,6 +964,43 @@ class AIAgentFlow(Flow[AgentConfig]):
             return definitions[name]
         except KeyError as error:
             raise ValueError(f"unknown or disabled tool {name!r}") from error
+
+    def is_read_only_tool(self, context: Context, name: str) -> bool:
+        try:
+            definition = self.invocation_tool_definition(
+                self.config.get(context),
+                self.state.get(context),
+                name,
+            )
+        except ValueError:
+            return False
+        return not definition.requires_approval
+
+    def report_model_failure(self, context: Context, operation: str) -> None:
+        error = context.recovery_error
+        is_provider_api_error = (
+            error is not None and error.error_type == MODEL_PROVIDER_ERROR_TYPE
+        )
+        failure = ModelFailure(
+            operation,
+            is_provider_api_error,
+            _recovery_detail(context),
+            datetime.now(timezone.utc).isoformat(),
+        )
+        self.model_failure.set(context, failure)
+        if is_provider_api_error:
+            event = AgentEvent(
+                "model_api_failed",
+                f"{operation} failed because the model provider API returned an "
+                f"error ({failure.detail}). Send a message to try again.",
+            )
+        else:
+            event = AgentEvent(
+                "model_unavailable",
+                f"{operation} did not finish ({failure.detail}). "
+                "Send a message to try again.",
+            )
+        self.agent_activity.write(context, event)
 
     def begin_user_turn(self, context: Context, message: UserMessage) -> None:
         state = self.state.get(context)
@@ -1441,6 +1594,9 @@ class AIAgentFlow(Flow[AgentConfig]):
                 "write_todos",
                 *(definition.name for definition in self.tool_definitions(config)),
             ],
+            model_failure=_model_failure_description(
+                _optional_attribute(self.model_failure, context)
+            ),
         )
 
 
@@ -1604,6 +1760,12 @@ def _plan_description(plan: AgentPlan | None) -> dict[str, object] | None:
     }
 
 
+def _model_failure_description(
+    failure: ModelFailure | None,
+) -> dict[str, object] | None:
+    return None if failure is None else asdict(failure)
+
+
 def _tool_arguments(call: ToolCall) -> dict[str, Any]:
     try:
         arguments = json.loads(call.arguments_json)
@@ -1612,6 +1774,19 @@ def _tool_arguments(call: ToolCall) -> dict[str, Any]:
     if not isinstance(arguments, dict):
         raise ValueError(f"tool {call.name!r} arguments must be an object")
     return arguments
+
+
+async def _record_tool_heartbeats(context: AsyncContext) -> None:
+    while True:
+        await asyncio.sleep(TOOL_HEARTBEAT_INTERVAL.total_seconds())
+        await context.heartbeat()
+
+
+def _recovery_detail(context: Context) -> str:
+    error = context.recovery_error
+    if error is None:
+        return "unknown failure"
+    return error.detail[:RECOVERY_DETAIL_CHARACTERS]
 
 
 def _sequence_key(sequence: int) -> str:

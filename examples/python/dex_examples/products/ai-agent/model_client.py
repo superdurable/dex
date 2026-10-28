@@ -36,6 +36,25 @@ TextWriter = Callable[[str], None]
 ActivityWriter = Callable[[AgentEvent], None]
 
 
+class ModelProviderError(RuntimeError):
+    """The model provider's API rejected or failed a request."""
+
+
+def describe_model_api_error(error: BaseException) -> str | None:
+    """Names a provider API error, or returns None for any other failure.
+
+    The name omits the provider's message, which can echo part of a credential.
+    """
+    import openai
+
+    if not isinstance(error, openai.OpenAIError):
+        return None
+    status_code = getattr(error, "status_code", None)
+    if status_code is None:
+        return type(error).__name__
+    return f"{type(error).__name__}, HTTP {status_code}"
+
+
 class ModelClient(Protocol):
     async def complete(
         self,
@@ -599,6 +618,10 @@ async def _mock_completion(
             )
             _write_tool_call_activities(reply.tool_calls, write_activity)
             return reply
+        if request.lower().startswith("/slow "):
+            parts = request.split(maxsplit=2)
+            await asyncio.sleep(float(parts[1]))
+            request = parts[2] if len(parts) == 3 else "done"
         content = f"Local demo response: {request}"
     await _stream_mock_content(content, write_assistant_text)
     return ModelReply(content)

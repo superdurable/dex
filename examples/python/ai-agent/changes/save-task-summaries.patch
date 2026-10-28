@@ -1,0 +1,107 @@
+diff --git a/dex_examples/products/ai-agent/ai_agent_flow.py b/dex_examples/products/ai-agent/ai_agent_flow.py
+index dd12f9a9..72f26e4c 100644
+--- a/dex_examples/products/ai-agent/ai_agent_flow.py
++++ b/dex_examples/products/ai-agent/ai_agent_flow.py
+@@ -71,6 +71,7 @@ from dex_examples.products.ai_agent.models import (
+     PlanTask,
+     SequencedMessage,
+     SteerMessageRequest,
++    TaskSummary,
+     ToolApproval,
+     ToolApprovalRequest,
+     ToolCall,
+@@ -706,6 +707,27 @@ class ExecuteTool(Step[None]):
+             context,
+             AgentEvent("tool_result", result.content, call.id, call.name),
+         )
++        return go_to(
++            SaveTaskSummary,
++            TaskSummary(
++                call.name,
++                _summarize_tool_result(result),
++                datetime.now(timezone.utc).isoformat(),
++            ),
++        )
++
++
++class SaveTaskSummary(Step[TaskSummary]):
++    def __init__(self, flow: AIAgentFlow) -> None:
++        self.flow = flow
++
++    def execute(self, context: Context, input: TaskSummary) -> StepDecision:
++        call = self.flow.current_tool_call(context)
++        self.flow.task_summaries.set(context, call.id, input)
++        self.flow.agent_activity.write(
++            context,
++            AgentEvent("task_summary_saved", input.summary, call.id, call.name),
++        )
+         if self.flow.has_next_tool_call(context):
+             self.flow.advance_tool(context)
+             return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
+@@ -846,6 +868,7 @@ class AIAgentFlow(Flow[AgentConfig]):
+     pending_timer = Attribute("PendingTimer", PendingTimer)
+     pending_user_input = Attribute("PendingUserInput", PendingUserInput)
+     model_failure = Attribute("ModelFailure", ModelFailure)
++    task_summaries = AttributeMap("TaskSummaries", TaskSummary)
+     queued_user_messages = Channel("QueuedUserMessages", UserMessage)
+     steered_user_messages = Channel("SteeredUserMessages", UserMessage)
+     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
+@@ -869,6 +892,7 @@ class AIAgentFlow(Flow[AgentConfig]):
+         self.route_tool = RouteTool(self)
+         self.await_tool_approval = AwaitToolApproval(self)
+         self.execute_tool = ExecuteTool(self)
++        self.save_task_summary = SaveTaskSummary(self)
+         self.report_interrupted_tool = ReportInterruptedTool(self)
+         self.recover_failed_model_call = RecoverFailedModelCall(self)
+         self.recover_failed_compaction = RecoverFailedCompaction(self)
+@@ -883,6 +907,7 @@ class AIAgentFlow(Flow[AgentConfig]):
+             self.route_tool,
+             self.await_tool_approval,
+             self.execute_tool,
++            self.save_task_summary,
+             self.report_interrupted_tool,
+             self.recover_failed_model_call,
+             self.recover_failed_compaction,
+@@ -900,6 +925,7 @@ class AIAgentFlow(Flow[AgentConfig]):
+             self.pending_timer,
+             self.pending_user_input,
+             self.model_failure,
++            self.task_summaries,
+             self.queued_user_messages,
+             self.steered_user_messages,
+             self.tool_approvals,
+@@ -1789,6 +1815,16 @@ def _recovery_detail(context: Context) -> str:
+     return error.detail[:RECOVERY_DETAIL_CHARACTERS]
+ 
+ 
++def _summarize_tool_result(result: ToolExecutionResult) -> str:
++    try:
++        content = json.loads(result.content).get("content", [])
++        text = " ".join(item.get("text", "") for item in content) or result.content
++    except (AttributeError, TypeError, ValueError):
++        text = result.content
++    outcome = "Failed" if result.is_error else "Done"
++    return f"{outcome}: {text[:200]}"
++
++
+ def _sequence_key(sequence: int) -> str:
+     return f"{sequence:020d}"
+ 
+diff --git a/dex_examples/products/ai-agent/models.py b/dex_examples/products/ai-agent/models.py
+index 25a59d52..67c73fa2 100644
+--- a/dex_examples/products/ai-agent/models.py
++++ b/dex_examples/products/ai-agent/models.py
+@@ -174,6 +174,13 @@ class ModelFailure:
+     failed_at: str
+ 
+ 
++@dataclass(frozen=True)
++class TaskSummary:
++    tool_name: str
++    summary: str
++    finished_at: str
++
++
+ @dataclass(frozen=True)
+ class AgentEvent:
+     kind: str

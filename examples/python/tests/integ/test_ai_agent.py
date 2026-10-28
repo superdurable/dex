@@ -91,13 +91,14 @@ async def test_local_portal_mcp_servers_are_ready_before_start() -> None:
     registry = MCPRegistry.from_file(config_path)
     try:
         await registry.start()
-        assert registry.server_names == ["google_docs", "search", "slack"]
+        assert registry.server_names == ["google_docs", "search", "slack", "web"]
         assert registry.tool_names == [
             "google_docs__create_document",
             "google_docs__search_documents",
             "search__web_search",
             "slack__post_message",
             "slack__search_messages",
+            "web__fetch_page",
         ]
     finally:
         await registry.close()
@@ -546,6 +547,8 @@ async def test_ai_agent_revises_and_clears_a_draft_before_execution(
         WAIT_TIMEOUT,
     )
     await _send(client, app, flow_id, "Plan the revised objective", plan_mode=True)
+    # A wait consumes the message before its Step commits; RPCs cannot see it then.
+    await _wait_for_content(client, app, flow_id, "Plan the revised objective")
     assert not await client.invoke_rpc(
         app.ai_agent.execute_plan,
         flow_id,

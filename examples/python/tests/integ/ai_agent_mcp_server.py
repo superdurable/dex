@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 
+import anyio
 from mcp import types
 from mcp.server.mcpserver import MCPServer
 
@@ -31,6 +32,18 @@ def lookup(query: str) -> str:
 
 @server.tool()
 def publish(message: str) -> str:
+    return f"published:{message}"
+
+
+@server.tool(annotations=types.ToolAnnotations(read_only_hint=True))
+async def slow_lookup(query: str, seconds: float) -> str:
+    await anyio.sleep(seconds)
+    return f"found:{query}"
+
+
+@server.tool()
+async def slow_publish(message: str, seconds: float) -> str:
+    await anyio.sleep(seconds)
     return f"published:{message}"
 
 

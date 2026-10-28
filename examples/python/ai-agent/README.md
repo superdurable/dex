@@ -7,7 +7,8 @@ local or remote tool servers.
 
 The application runs without external credentials by default with the `mock/dex`
 model. Its local model echoes normal messages and understands `/wait <seconds>
-<reason>`, which makes the durable timer easy to test.
+<reason>`, which makes the durable timer easy to test. `/tool <name> <json>`
+calls one tool, and `/slow <seconds> <text>` makes the model call take that long.
 
 The snapshot endpoint reads retained state through the unlocked, non-transactional
 **get_snapshot** RPC, which returns no durable effects. Missing or retention-unavailable
@@ -28,6 +29,8 @@ a successful query does not establish whether the Flow is active.
 - `AgentActivity` is a best-effort Stream for tool and lifecycle progress.
 - The `durable_wait` tool uses a Dex Timer and can be interrupted by Steer.
 - Write, destructive, and unclassified MCP tools wait for explicit approval.
+- Recovery Steps report a tool call or model call that a crash cut off. See
+  [Crashes and restarts](#crashes-and-restarts).
 
 The current AttributeMap retains 2,000 messages by default. Dex compacts older
 context before deleting summarized map instances. Deleted instances remain in the
@@ -88,10 +91,13 @@ the Agent is active.
 
 ## Run locally
 
-Start Dex, install the Python dependencies, and build the React application:
+Start Dex on server-zd, install the Python dependencies, and build the React
+application. **dexcli dev --engine zd** needs **dex-server-zd** from a server-zd
+release on your PATH, or **--zd-binary**. It keeps its state in
+`~/.dex/zd/8801`, so starting it again resumes the same Flows.
 
 ```bash
-dexcli dev
+dexcli dev --engine zd
 cd examples/python
 uv sync --locked
 cd ai-agent
@@ -108,9 +114,11 @@ model, then select the registered MCP servers and tools available to the new
 session. Providers without their required Worker environment variable remain
 visible but cannot be selected.
 
-The local MCP configuration starts credential-free search, Slack, and Google
-Docs demo servers before the Portal loads. Read operations run automatically.
-Demo Slack posts and Google Doc creation still require approval. Use
+The local MCP configuration starts credential-free search, Slack, Google Docs,
+and web demo servers before the Portal loads. Read operations run automatically.
+Demo Slack posts and Google Doc creation still require approval. The web
+server's read-only `fetch_page` tool downloads a real public page and reports
+its progress in three paced stages, so the chat page can show a running tool. Use
 [`mcp-servers.example.yaml`](./mcp-servers.example.yaml) when connecting real
 providers.
 
@@ -185,3 +193,88 @@ With `mock/dex`, send:
 Refresh the page while it waits. The Timer remains active. Send another message
 before it fires, then choose **Steer** to interrupt the wait and let the Agent
 replan.
+
+## Crashes and restarts
+
+Dex stores the conversation, plan, pending approval, timer, and question in the
+Flow, so you can hard-kill the engine and the Worker at any point:
+
+```bash
+kill -9 $(pgrep -f 'dex-server-zd dev')   # the engine; dexcli dev exits with it
+kill -9 $(pgrep -f 'python main.py')      # the Worker
+dexcli dev --engine zd
+uv run --frozen python main.py
+```
+
+- **While the Agent waits** for a message, a tool approval, a durable timer, or
+  an answer to **request_user_input**, the same run resumes with everything it
+  had. A timer that came due while the engine was down fires after it starts.
+- **A Worker crash during a tool call** ends that call's only attempt as soon as
+  Dex sees the Worker disconnect. When a Worker is running again,
+  **ReportInterruptedTool** records an `interrupted` tool result and the model
+  decides what to do. Read-only tools are marked `retry_safe`; write tools
+  report `outcome_unknown`, because the write may have happened. The tool Step
+  heartbeats every 10 seconds, so a Worker that hangs without disconnecting is
+  detected within 30 seconds.
+- **An engine crash during a tool call** sends the call to the Worker again after
+  the engine starts, because Dex delivers Step work at least once. A write tool
+  can therefore run twice. Make write tools idempotent, for example by using the
+  tool call ID as an idempotency key.
+- **A model call** gets three attempts. When all of them fail,
+  **RecoverFailedModelCall** returns the Agent to the user instead of failing
+  the run. Agent activity says which failure it was: `model_api_failed` names
+  the provider's error class and HTTP status, and `model_unavailable` means the
+  call did not finish, for example because no Worker was running. Send a message
+  or choose **Continue plan** to try again. Context compaction follows the same
+  rules through **RecoverFailedCompaction**.
+
+## Change code while a run waits
+
+Dex does not replay a Flow's history. A waiting run executes its next Step with
+whatever code the Worker has when that Step starts, so most changes need no
+versioning. To try it with the local MCP configuration:
+
+1. Send `/tool slack__post_message {"channel":"#eng","message":"hello"}` and leave
+   the approval card waiting.
+2. Stop the Worker and run
+   `patch -p1 < ai-agent/changes/save-task-summaries.patch`. The change adds a
+   **SaveTaskSummary** Step after every tool call and stores its result in a new
+   **TaskSummaries** AttributeMap.
+3. Start the Worker and approve. The waiting run executes **SaveTaskSummary**,
+   which did not exist when it started. `dexcli flow state <flow-id>` shows the
+   new `TaskSummaries/<call-id>` entry next to the conversation.
+4. Run `patch -p1 -R < ai-agent/changes/save-task-summaries.patch` to undo it.
+
+These changes are safe while runs wait:
+
+- Change the code inside a Step, RPC, or helper. Waiting runs use it from their
+  next Step.
+- Add a Step and route to it from an existing Step.
+- Put new data in a new Attribute, AttributeMap, Channel, or Stream, and add it
+  to the persistence schema. Do not repurpose existing data.
+- Add a dataclass field with a default to a stored type.
+
+These changes need care:
+
+- Keep every Flow, Step, Attribute, Channel, Stream, and RPC name that a waiting
+  run can still reach. A rename is a removal plus an addition; the run waiting in
+  **AwaitToolApproval** still needs a Step with that name.
+- Do not remove a stored field or change its type. Existing values must still
+  decode.
+- A wait that is already registered keeps its conditions. Changed **wait_for**
+  code applies the next time a Step starts waiting.
+- Step options, such as retries and timeouts, apply from the next Step
+  transition. Flow options are fixed when the run starts.
+
+## Test crashes and code changes
+
+`tests/integ/test_ai_agent_restarts.py` starts a private server-zd through
+**dexcli dev** and runs `main.py` as the only Worker, then hard-kills them. Set
+**DEX_SERVER_ZD_BINARY** to a `dex-server-zd` executable; without it the tests
+are skipped. Set **DEXCLI_PATH** to a `dexcli` executable, or the tests build one
+from `cli/` with Go.
+
+```bash
+DEX_SERVER_ZD_BINARY=/path/to/dex-server-zd \
+  uv run --frozen pytest tests/integ/test_ai_agent_restarts.py
+```
