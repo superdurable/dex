@@ -71,6 +71,7 @@ type toolPolicy struct {
 var toolPolicies = map[string]toolPolicy{
 	ToolFetchPage:   {isReadOnly: true},
 	ToolPublishNote: {needsApproval: true},
+	ToolPostToSlack: {needsApproval: true},
 	ToolWait:        {isReadOnly: true},
 	ToolAskUser:     {isReadOnly: true},
 }

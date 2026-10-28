@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/superdurable/dex-connectors-library/connectors/slack"
+	"github.com/superdurable/dex-connectors-library/sdkgo"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -108,15 +110,22 @@ type AgentSnapshot struct {
 // AIAgentFlow is one durable agent conversation: it waits for the user, calls the model and runs tools.
 type AIAgentFlow struct {
 	dex.FlowDefaults
-	model   ModelClient
-	toolbox *Toolbox
+	model         ModelClient
+	toolbox       *Toolbox
+	slackSettings SlackSettings
+	// modelToolDefinitions offers post_to_slack only when Slack is configured.
+	modelToolDefinitions []ToolDefinition
 }
 
-func NewAIAgentFlow(model ModelClient, toolbox *Toolbox) *AIAgentFlow {
+func NewAIAgentFlow(model ModelClient, toolbox *Toolbox, slackSettings SlackSettings) *AIAgentFlow {
 	if model == nil || toolbox == nil {
 		panic("aiagent: the model client and toolbox are required")
 	}
-	return &AIAgentFlow{model: model, toolbox: toolbox}
+	modelToolDefinitions := toolDefinitions
+	if slackSettings.IsConfigured() {
+		modelToolDefinitions = append(append([]ToolDefinition(nil), toolDefinitions...), postToSlackToolDefinition)
+	}
+	return &AIAgentFlow{model: model, toolbox: toolbox, slackSettings: slackSettings, modelToolDefinitions: modelToolDefinitions}
 }
 
 func (flow *AIAgentFlow) GetSteps() []dex.StepDef {
@@ -129,6 +138,27 @@ func (flow *AIAgentFlow) GetSteps() []dex.StepDef {
 		dex.DefineStep(AwaitTimer{}),
 		dex.DefineStep(ExecuteTool{flow: flow}),
 		dex.DefineStep(RecordToolFailure{}),
+		dex.DefineStep(slack.NewPostChannelMessageStep(slack.PostChannelMessageStepConfig[ToolCall]{
+			StepType: postToSlackStepType,
+			Annotations: sdkgo.StepAnnotations{
+				GroupID:     "tools",
+				GroupLabel:  "Tools",
+				Explanation: "Post an approved message to Slack through the Dex Slack connector.",
+			},
+			Connection:          flow.slackSettings.Connection,
+			ConnectionName:      slackConnectionName,
+			MapToOperationInput: flow.slackSettings.mapToolCallToSlackMessage,
+			Sent:                sdkgo.GoTo(RecordSlackPost{}),
+			ProviderRejected:    sdkgo.GoTo(RecordSlackPost{}),
+			Uncertain:           sdkgo.GoTo(RecordSlackPost{}),
+			Defect:              sdkgo.GoTo(RecordSlackPost{}),
+			// Like publish_note, a post runs once: a repeat after a crash could post twice.
+			StepOptionsOverride: &dex.StepOptions{
+				ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 1},
+				ExecuteFailure: dex.ProceedToOnExecuteFailure(RecordToolFailure{}, recoveryStepOptions),
+			},
+		})),
+		dex.DefineStep(RecordSlackPost{}),
 	}
 }
 
@@ -335,7 +365,7 @@ func (step CallModel) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, e
 	if err != nil {
 		return nil, err
 	}
-	reply, err := step.flow.model.Complete(ctx, ModelRequest{SystemPrompt: systemPrompt, Messages: messages, Tools: toolDefinitions})
+	reply, err := step.flow.model.Complete(ctx, ModelRequest{SystemPrompt: systemPrompt, Messages: messages, Tools: step.flow.modelToolDefinitions})
 	if err != nil {
 		return nil, err
 	}
@@ -465,6 +495,9 @@ func (AwaitToolApproval) Execute(ctx dex.Context, call ToolCall) (*dex.StepDecis
 	if err := Status.Set(ctx, StatusExecutingTool); err != nil {
 		return nil, err
 	}
+	if call.Name == ToolPostToSlack {
+		return dex.GoTo(sdkgo.StepRef[ToolCall](postToSlackStepType), call), nil
+	}
 	return dex.GoTo(ExecuteTool{}, call, dex.WithStepOptions(executeToolStepOptions(call))), nil
 }
 
@@ -553,6 +586,27 @@ func (RecordToolFailure) Execute(ctx dex.Context, call ToolCall) (*dex.StepDecis
 		outcome, content = OutcomeFailed, fmt.Sprintf("%s failed after its retries: %s. It only reads, so trying again is safe.", call.Name, detail)
 	}
 	if err := finishToolCall(ctx, call, outcome, content); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(RouteTool{}, nil), nil
+}
+
+// dex:group group-id:tools group-label:"Tools"
+// dex:explanation text:"Record the Slack connector's outcome as the result of the post_to_slack call."
+type RecordSlackPost struct {
+	dex.StepDefaultsNoWaitFor[slack.PostChannelMessageResult]
+}
+
+func (RecordSlackPost) Execute(ctx dex.Context, result slack.PostChannelMessageResult) (*dex.StepDecision, error) {
+	calls, _, err := getOptionalAttribute(ctx, PendingToolCalls)
+	if err != nil {
+		return nil, err
+	}
+	if len(calls) == 0 || calls[0].Name != ToolPostToSlack {
+		return nil, fmt.Errorf("no %s call is pending", ToolPostToSlack)
+	}
+	outcome, content := describeSlackPost(result)
+	if err := finishToolCall(ctx, calls[0], outcome, content); err != nil {
 		return nil, err
 	}
 	return dex.GoTo(RouteTool{}, nil), nil

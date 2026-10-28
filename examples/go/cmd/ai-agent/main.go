@@ -55,8 +55,12 @@ func runAIAgentApp(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	slackSettings, err := aiagent.NewSlackSettingsFromEnvironment()
+	if err != nil {
+		return err
+	}
 	model := aiagent.NewModelClientFromEnvironment()
-	flow := aiagent.NewAIAgentFlow(model, toolbox)
+	flow := aiagent.NewAIAgentFlow(model, toolbox, slackSettings)
 	registry, err := dex.NewRegistry([]dex.Flow{flow})
 	if err != nil {
 		return fmt.Errorf("register the AI Agent Flow: %w", err)
@@ -108,7 +112,8 @@ func runAIAgentApp(ctx context.Context) error {
 		}
 		httpResult <- err
 	}()
-	log.Printf("Dex AI Agent ready at http://%s/ai-agent (model %s, notes file %s)", listener.Addr(), model.Name(), toolbox.NotesFile)
+	log.Printf("Dex AI Agent ready at http://%s/ai-agent (model %s, Slack %s, notes file %s)",
+		listener.Addr(), model.Name(), describeSlack(slackSettings), toolbox.NotesFile)
 
 	var runErr error
 	select {
@@ -119,6 +124,13 @@ func runAIAgentApp(ctx context.Context) error {
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelShutdown()
 	return errors.Join(runErr, httpServer.Shutdown(shutdownCtx), closeAll())
+}
+
+func describeSlack(slackSettings aiagent.SlackSettings) string {
+	if !slackSettings.IsConfigured() {
+		return "not configured"
+	}
+	return "channel " + slackSettings.ChannelID
 }
 
 func stopWorker(worker *dex.Worker) error {

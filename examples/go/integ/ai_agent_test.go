@@ -34,6 +34,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -167,6 +168,61 @@ func TestAIAgentFlagsAModelProviderAPIFailure(t *testing.T) {
 	require.Equal(t, aiagent.ModelFailureProviderAPIError, failed.LastModelFailure.Kind)
 	require.Contains(t, failed.LastModelFailure.Detail, "HTTP 503: The model is overloaded.")
 	require.Equal(t, int32(3), providerRequests.Load(), "CallModel retries twice before its failure route")
+}
+
+func TestAIAgentPostsToSlackThroughTheDexConnector(t *testing.T) {
+	var postsMutex sync.Mutex
+	var posts []map[string]string
+	fakeSlack := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/chat.postMessage" || request.Header.Get("Authorization") != "Bearer xoxb-test-token" {
+			t.Errorf("unexpected Slack request %s", request.URL.Path)
+		}
+		var post map[string]string
+		if err := json.NewDecoder(request.Body).Decode(&post); err != nil {
+			t.Errorf("decode the Slack request: %v", err)
+		}
+		postsMutex.Lock()
+		posts = append(posts, post)
+		postsMutex.Unlock()
+		if strings.Contains(post["text"], "unconfirmed") {
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		if _, err := fmt.Fprintf(writer, `{"ok":true,"channel":%q,"ts":"1761700000.000100","message":{"text":%q,"ts":"1761700000.000100"}}`,
+			post["channel"], post["text"]); err != nil {
+			t.Errorf("write the Slack response: %v", err)
+		}
+	}))
+	t.Cleanup(fakeSlack.Close)
+	app := startAIAgentApp(t,
+		"SLACK_BOT_TOKEN=xoxb-test-token", "DEX_AI_AGENT_SLACK_CHANNEL=C0DEMO", "DEX_AI_AGENT_SLACK_ENDPOINT="+fakeSlack.URL)
+	flowID := app.startAgent(t)
+
+	app.sendUserMessage(t, flowID, "/slack Aurora ships today")
+	waiting := app.waitForSnapshot(t, flowID, "the Slack approval", func(snapshot aiagent.AgentSnapshot) bool {
+		return snapshot.Status == aiagent.StatusWaitingForApproval
+	})
+	app.restartAfterKill(t)
+	require.True(t, app.decideToolApproval(t, flowID, waiting.PendingApproval.ID, true))
+	posted := app.waitForToolResult(t, flowID, aiagent.ToolPostToSlack)
+	require.Equal(t, aiagent.OutcomeDone, posted.Outcome, posted.Content)
+	require.Equal(t, "Posted to Slack channel C0DEMO (message 1761700000.000100).", posted.Content)
+
+	app.sendUserMessage(t, flowID, "/slack This post stays unconfirmed")
+	waiting = app.waitForSnapshot(t, flowID, "the second Slack approval", func(snapshot aiagent.AgentSnapshot) bool {
+		return snapshot.Status == aiagent.StatusWaitingForApproval
+	})
+	require.True(t, app.decideToolApproval(t, flowID, waiting.PendingApproval.ID, true))
+	unconfirmed := app.waitForToolResult(t, flowID, aiagent.ToolPostToSlack)
+	require.Equal(t, aiagent.OutcomeOutcomeUnknown, unconfirmed.Outcome)
+	require.Contains(t, unconfirmed.Content, "Slack did not confirm the message")
+
+	postsMutex.Lock()
+	defer postsMutex.Unlock()
+	require.Len(t, posts, 2, "the connector sends each approved post once")
+	require.Equal(t, "C0DEMO", posts[0]["channel"])
+	require.Equal(t, "Aurora ships today", posts[0]["text"])
+	require.NotEmpty(t, posts[0]["client_msg_id"])
 }
 
 type aiAgentApp struct {

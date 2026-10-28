@@ -46,8 +46,9 @@ const (
 )
 
 const systemPrompt = `You are a helpful agent. Use fetch_page to read a web page, publish_note to
-publish a short note (the user approves each one), wait to pause for a number of seconds,
-and ask_user when you need information only the user has. Keep replies short.`
+publish a short note, post_to_slack (when offered) to post to the team's Slack channel, wait to
+pause for a number of seconds, and ask_user when you need information only the user has. The user
+approves every note and Slack post. Keep replies short.`
 
 // Message is one entry of the conversation the model replays on every call.
 type Message struct {
@@ -235,7 +236,7 @@ func providerErrorMessage(body io.Reader) string {
 // MockModel turns slash commands into tool calls, so the example runs without a model key.
 type MockModel struct{}
 
-const mockHelp = "I am the mock model. Try /fetch <url>, /publish <text>, /wait <seconds> or /ask <question>. " +
+const mockHelp = "I am the mock model. Try /fetch <url>, /publish <text>, /slack <text>, /wait <seconds> or /ask <question>. " +
 	"Set OPENAI_API_KEY to use a real model."
 
 func (MockModel) Name() string { return "mock" }
@@ -256,6 +257,8 @@ func (MockModel) Complete(_ context.Context, request ModelRequest) (Message, err
 		call.Name, call.Arguments = ToolFetchPage, mockArguments(map[string]any{"url": argument})
 	case command == "/publish" && argument != "":
 		call.Name, call.Arguments = ToolPublishNote, mockArguments(map[string]any{"text": argument})
+	case command == "/slack" && argument != "":
+		call.Name, call.Arguments = ToolPostToSlack, mockArguments(map[string]any{"text": argument})
 	case command == "/ask" && argument != "":
 		call.Name, call.Arguments = ToolAskUser, mockArguments(map[string]any{"question": argument})
 	case command == "/wait":

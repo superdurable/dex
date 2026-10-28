@@ -94,6 +94,7 @@ func TestMockModelTurnsCommandsIntoToolCalls(t *testing.T) {
 	for command, expected := range map[string]ToolCall{
 		"/fetch https://example.com": {Name: ToolFetchPage, Arguments: `{"url":"https://example.com"}`},
 		"/publish Aurora ships":      {Name: ToolPublishNote, Arguments: `{"text":"Aurora ships"}`},
+		"/slack Aurora ships":        {Name: ToolPostToSlack, Arguments: `{"text":"Aurora ships"}`},
 		"/wait 30":                   {Name: ToolWait, Arguments: `{"seconds":30}`},
 		"/ask Which release?":        {Name: ToolAskUser, Arguments: `{"question":"Which release?"}`},
 	} {
