@@ -164,6 +164,7 @@ details.
 - [Job posting](./products/job-post)
 - [Deal DSL](./products/deal-dsl) (separate UI and `dex-deal-dsl` binary)
 - [Customer refund](./products/customer-refund) (deterministic and agentic FDG 2.0 Flows)
+- [AI Agent](./products/ai-agent) (a durable chat agent with approvals, Timers and failure routes; separate `dex-ai-agent` binary)
 - [Connector factory](./products/connector-factory) (OpenAI operation-specific factories, recovery, Result Attributes, and Streams)
 
 ## Patterns

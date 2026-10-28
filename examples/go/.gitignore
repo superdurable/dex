@@ -6,6 +6,7 @@
 *.dylib
 /dex-samples
 /dex-deal-dsl
+/dex-ai-agent
 /deepverify
 /dvdiag
 
