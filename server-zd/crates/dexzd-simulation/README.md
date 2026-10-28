@@ -95,6 +95,22 @@ The fixed test runs 64 seeds of 400 commands, plus every case in `regression-see
 Each line in that file contains a decimal seed and the command count needed to reach its failure.
 The baseline seed also runs for 1,000 commands. The replay-deduplication regression uses
 seed `476371563` for 580 commands; reverting the replay-deduplication fix fails at command 579.
+
+Retaining method snapshots and locks moves the main-stream command trajectories. The earlier
+replay-deduplication seed `476371529` remains a historical baseline case; it no longer detects
+that defect. Seed `476371563` replaces its detection coverage. Attribute Sync seed `879068896`
+still detects marking during recorded-history rebuild: removing the rebuild skip fails at
+command 265 with a missing synced Attribute value. The other two Attribute Sync seeds,
+`161503589` and `4200525811`, remain historical baseline cases and no longer detect that mutant.
+Their pins record the merged trajectories, so the cases stay reproducible.
+
+The deterministic `dexzd-apply` tests
+`time_travel_replays_synced_references_after_their_values_are_collected` and
+`time_travel_replays_child_starts_after_their_referenced_values_are_collected` fail when their
+respective recorded-history rebuild skips are removed, and pass with the skips present.
+[Issue #1033](https://github.com/superdurable/dex/issues/1033) tracks the remaining randomized
+regression coverage gaps, including replacement Attribute Sync and purging-read seeds.
+
 Nightly runs set `DEXZD_SIMULATION_BASE_SEED`
 to a printed random starting seed, then use `DEXZD_SIMULATION_SEEDS` consecutive seeds and
 `DEXZD_SIMULATION_COMMANDS` commands per seed. The single-seed override runs only that seed.
@@ -314,7 +330,8 @@ that coverage:
 - `a_crash_after_object_deletion_before_run_purge_commits_purges_after_restart`
 
 All three fail when the purging-run guard in `read_run` is removed and pass with it present.
-Restoring randomized #847 detection is separate follow-up work.
+Restoring randomized #847 detection is tracked in
+[issue #1033](https://github.com/superdurable/dex/issues/1033).
 
 ### Running
 

@@ -1,3 +1,4 @@
+diff --git a/server-zd/crates/dexzd-apply/src/steps/step_results.rs b/server-zd/crates/dexzd-apply/src/steps/step_results.rs
 --- a/server-zd/crates/dexzd-apply/src/steps/step_results.rs
 +++ b/server-zd/crates/dexzd-apply/src/steps/step_results.rs
 @@ -124,7 +124,27 @@
