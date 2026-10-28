@@ -42,7 +42,6 @@ var temporalOnlyScenarioTests = map[string]struct{}{
 	"TestLargeDataAttributesTemporalContinueAsNew":              {},
 	"TestLockingWorkflowCadence":                                {},
 	"TestLockingWorkflowCadenceContinueAsNew":                   {},
-	"TestLockingWorkflowTemporal":                               {},
 	"TestLockingWorkflowTemporalContinueAsNew":                  {},
 	"TestPullParallelLastWriteCadence":                          {},
 	"TestPullRPCDispatchRespectsCallerDeadlineCadence":          {},
