@@ -67,8 +67,9 @@ AI coding assistants can use the official [Dex Skills](https://docs.superdurable
 
 The [skills/](skills/) module contains the Dex Skills source.
 
+You can see [examples/](./examples) of the repo.
 
-We're also open-sourcing sophisticated platforms built on Dex, including **[Superverse](https://github.com/superdurable/superverse/blob/main/docs/architecture/agent-harness-design/session.md)**, a durable AI agent harness that demonstrates how Dex handles:
+We're also open-sourcing lots of [apps](https://github.com/superdurable-apps) built on Dex.
 
 
 ## 💬 Community
