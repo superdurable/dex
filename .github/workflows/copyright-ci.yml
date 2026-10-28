@@ -66,7 +66,9 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
-          go-version-file: server/go.mod
+          go-version-file: script/licenseheaders/copyright/go.mod
           cache: false
+      - name: Test license header tool
+        run: make copyright-test
       - name: Verify license headers
         run: make copyright-check

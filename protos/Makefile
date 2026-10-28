@@ -107,7 +107,7 @@ codec-server:
 	cd ../cli && GOWORK=off go run ./cmd/dexcli codec-server
 
 codec-server-test:
-	go test ./codec-server/...
+	cd codec-server && GOWORK=off go test ./...
 
 clean:
 	rm -rf $(SERVER_GO_OUT) $(SDK_GO_OUT)

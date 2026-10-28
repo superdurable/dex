@@ -8,7 +8,7 @@ GENERATED_CODE_PATHS := \
 	sdk-python/dex/dexpb \
 	sdk-typescript/src/gen
 
-.PHONY: help ci-runner-check copyright copyright-check generated-code generated-code-check githooks docs-prose-check docs-prose-fix release-tooling-test
+.PHONY: help ci-runner-check copyright copyright-check copyright-test generated-code generated-code-check githooks docs-prose-check docs-prose-fix release-tooling-test
 
 release-tooling-test: ## Verify changed-component selection and release preflight
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s script/release -p '*_test.py'
@@ -29,10 +29,13 @@ ci-runner-check: ## Verify CI workflows use GitHub-hosted runners
 	bash .github/scripts/check-ci-runners.sh
 
 copyright: ## Add or upgrade license headers using the legacy manifest
-	cd server && GOWORK=off go run ./cmd/tools/copyright -rootDir "$(ROOT_DIR)"
+	cd script/licenseheaders/copyright && GOWORK=off go run . -rootDir "$(ROOT_DIR)"
 
 copyright-check: ## Verify license classifications, body hashes, and headers
-	cd server && GOWORK=off go run ./cmd/tools/copyright -rootDir "$(ROOT_DIR)" -verifyOnly
+	cd script/licenseheaders/copyright && GOWORK=off go run . -rootDir "$(ROOT_DIR)" -verifyOnly
+
+copyright-test: ## Test license header classification and rendering
+	cd script/licenseheaders/copyright && GOWORK=off go test ./...
 
 generated-code: ## Regenerate all checked-in code derived from protos
 	$(MAKE) -C protos proto
