@@ -42,8 +42,7 @@ interface StepNodeData extends Record<string, unknown> {
 type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Pending' | 'Completed' | 'Failed' | 'Canceled' | 'Not started';
 
 const graphEdgeColor = 'var(--mark)';
-const previousStepColor = 'var(--accent)';
-const nextStepColor = 'var(--busy)';
+const connectedStepColor = 'var(--ink-dim)';
 
 function waitingCondition(node: StepGraphNode): Record<string, unknown> {
   const output = node.waitFor?.payload.output;
@@ -341,7 +340,7 @@ export function ExecutionGraph({
     const isIncoming = selection.incomingEdgeIDs.has(edge.id);
     const isOutgoing = selection.outgoingEdgeIDs.has(edge.id);
     const isSubFlow = nodeByID.get(edge.target)?.kind === 'subflow';
-    const color = isIncoming ? previousStepColor : isOutgoing ? nextStepColor : graphEdgeColor;
+    const color = isIncoming || isOutgoing ? connectedStepColor : graphEdgeColor;
     return {
       ...edge,
       className: isSubFlow

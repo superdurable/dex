@@ -2942,34 +2942,24 @@ pre {
   background: var(--fail-subtle);
 }
 
-.react-flow__node.step-flow-node.graph-node-previous {
-  border-width: 2px;
-  border-color: var(--accent);
-  background: linear-gradient(90deg, var(--accent-subtle), var(--paper) 48%);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent), var(--shadow);
-}
-
-.react-flow__node.step-flow-node.graph-node-next {
-  border-width: 2px;
-  border-color: var(--busy);
-  background: linear-gradient(90deg, var(--busy-subtle), var(--paper) 48%);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--busy) 20%, transparent), var(--shadow);
-}
-
+/* As on the v2 canvas: only the selected Step is ringed; its edges march instead. */
 .react-flow__node.step-flow-node.graph-node-current {
   border-color: var(--cta);
-  outline: 2px solid var(--cta);
-  outline-offset: 0;
-  background: linear-gradient(90deg, var(--pass-subtle), var(--paper) 48%);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--cta) 24%, transparent), var(--shadow);
+  box-shadow: 0 0 0 2px var(--cta), 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
-.react-flow__edge.graph-edge-incoming .react-flow__edge-path {
-  filter: drop-shadow(0 1px 2px color-mix(in srgb, var(--accent) 28%, transparent));
-}
-
+.react-flow__edge.graph-edge-incoming .react-flow__edge-path,
 .react-flow__edge.graph-edge-outgoing .react-flow__edge-path {
-  filter: drop-shadow(0 1px 2px color-mix(in srgb, var(--busy) 28%, transparent));
+  animation: timeline-step-link-flow 650ms linear infinite;
+  stroke-dasharray: 8 5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__edge.graph-edge-incoming .react-flow__edge-path,
+  .react-flow__edge.graph-edge-outgoing .react-flow__edge-path {
+    animation: none;
+    stroke-dasharray: none;
+  }
 }
 
 .graph-sub-flow-link {
