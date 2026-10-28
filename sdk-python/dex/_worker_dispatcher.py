@@ -711,6 +711,9 @@ class WorkerDispatcher:
             mapped.flow_config_override.CopyFrom(
                 self._map_sub_flow_config(options.config_override)
             )
+        mapped.flow_config_override.worker_target.CopyFrom(
+            pb.WorkerTarget(is_pull_mode=True)
+        )
         return mapped
 
     def _result_attribute_writes(

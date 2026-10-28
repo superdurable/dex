@@ -120,6 +120,7 @@ class WorkerOptions:
         attribute_index_sync_timeout: Maximum duration for startup Attribute index
             synchronization. Defaults to two minutes and must be positive.
         pull: Outbound polling options. Defaults to ``PullWorkerOptions()``.
+            ``None`` is invalid because push Workers are no longer supported.
             Workers connect to ``server_address`` without an inbound listener.
         credential: Supplies the current bearer token for FlowService calls and
             each pull stream open. ``None`` sends no authorization metadata.
@@ -135,5 +136,9 @@ class WorkerOptions:
     credential: Credential | None = None
 
     def __post_init__(self) -> None:
+        if self.pull is None:
+            raise ValueError(
+                "push Workers are no longer supported; use PullWorkerOptions() instead of pull=None"
+            )
         if self.attribute_index_sync_timeout <= timedelta(0):
             raise ValueError("attribute_index_sync_timeout must be positive")

@@ -94,6 +94,7 @@ class SyncService(
         self.called = threading.Event()
         self.calls: list[str] = []
         self.poll_calls: list[str] = []
+        self.polling_during_sync = False
 
     def GetServerInfo(  # noqa: N802
         self,
@@ -110,6 +111,7 @@ class SyncService(
         request: pb.SyncAttributeIndexRequest,
         context: grpc.ServicerContext,
     ) -> pb.SyncAttributeIndexResponse:
+        self.polling_during_sync = bool(self.poll_calls)
         self.calls.append("SyncAttributeIndexes")
         self.received = request
         self.called.set()
@@ -123,7 +125,6 @@ class SyncService(
         context: grpc.ServicerContext,
     ) -> Iterator[pb.PollWorkerTaskResponse]:
         self.poll_calls.append("PollWorkerTask")
-        assert self.received is not None
         next(request_iterator)
         yield pb.PollWorkerTaskResponse(registered=pb.PollWorkerTaskRegistered())
         for request in request_iterator:
@@ -157,8 +158,9 @@ def test_worker_synchronizes_indexes_before_polling() -> None:
             service.received.attribute_indexes["PythonWorkerStatus"]
             == pb.INDEX_TYPE_KEYWORD
         )
-        assert service.calls[:2] == ["GetServerInfo", "SyncAttributeIndexes"]
+        assert service.calls == ["GetServerInfo", "SyncAttributeIndexes"]
         worker.wait_pull_registered(timeout=5)
+        assert not service.polling_during_sync
     finally:
         worker.stop()
         thread.join(timeout=5)
@@ -270,7 +272,8 @@ def test_worker_starts_on_protocol_2_server_and_records_version(
     try:
         assert service.called.wait(timeout=5)
         worker.wait_pull_registered(timeout=5)
-        assert service.calls[:2] == ["GetServerInfo", "SyncAttributeIndexes"]
+        assert not service.polling_during_sync
+        assert service.calls == ["GetServerInfo", "SyncAttributeIndexes"]
         assert worker._server_protocol.version == 2
     finally:
         worker.stop()
@@ -297,7 +300,8 @@ async def _test_async_worker_starts_on_protocol_2_server() -> None:
     worker_task = asyncio.create_task(worker.start())
     try:
         await worker.wait_pull_registered(timeout=5)
-        assert service.calls[:2] == ["GetServerInfo", "SyncAttributeIndexes"]
+        assert not service.polling_during_sync
+        assert service.calls == ["GetServerInfo", "SyncAttributeIndexes"]
         assert worker._server_protocol.version == 2
     finally:
         await worker.stop()
@@ -324,6 +328,7 @@ async def _test_async_worker_synchronizes_indexes_before_polling() -> None:
         called = await asyncio.to_thread(service.called.wait, 5)
         assert called
         await worker.wait_pull_registered(timeout=5)
+        assert not service.polling_during_sync
     finally:
         await worker.stop()
         await asyncio.wait_for(worker_task, timeout=5)

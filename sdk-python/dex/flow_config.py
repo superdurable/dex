@@ -32,8 +32,8 @@ class ActiveStepSearchMode(Enum):
 class FlowConfig:
     """Override server behavior for one Flow execution.
 
-    Every ``None`` field uses the registered or server default. Config may be set
-    at start time or replaced on an active Flow through the Client.
+    At start time, every ``None`` field uses the registered or server default.
+    Client configuration updates preserve existing values for ``None`` fields.
 
     Attribute Store projection is asynchronous. Failures never roll back Flow
     Attributes, and already queued projections retain their original target.

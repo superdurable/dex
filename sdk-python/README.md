@@ -86,10 +86,10 @@ need only an outbound connection to the Dex Server at `server_address`. Configur
 capacity and shutdown with `WorkerOptions.pull`; its default is
 `PullWorkerOptions()`. Clients and Flows use pull routing automatically.
 
-To migrate an active Flow that still stores a push Worker target, call
-`client.update_flow_config(flow_id, FlowConfig())` with the new SDK. Await this
-call with AsyncClient. The update routes future handler calls to pull Workers,
-preserves other configuration fields, and leaves already dispatched work alone.
+StartFlow and SubFlow always select pull Workers. Updating Flow configuration
+preserves its existing Worker target; an empty `FlowConfig()` changes nothing.
+Before upgrading an application with active push Flows, use an SDK version that
+supports Worker targets to migrate those Flows to pull routing.
 
 ```python
 import threading

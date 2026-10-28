@@ -16,9 +16,9 @@
   identity, registration, or shutdown.
 
 Migrate to pull Workers, which need only an outbound connection to the Dex Server.
-Remove inbound callback ports and Worker address advertisements. For active Flows
-that still store a push target, call Client.update_flow_config with FlowConfig()
-to route future handler calls to pull Workers; await the AsyncClient equivalent.
-Start the Worker
-and wait for wait_pull_registered before admitting work. This breaking change
-ships in the next minor SDK release during Beta.
+Remove inbound callback ports and Worker address advertisements. Before upgrading,
+use an SDK version that supports Worker targets to migrate active push Flows to
+pull routing. Configuration updates preserve the existing Worker target, and an
+empty FlowConfig() changes nothing. Start the Worker and wait for
+wait_pull_registered before admitting work. This breaking change ships in the next
+minor SDK release during Beta.

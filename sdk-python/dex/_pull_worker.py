@@ -806,6 +806,13 @@ class PullStream:
             if request.HasField("task_frame"):
                 frame = request.task_frame
                 if (
+                    frame.task_id != self.task_id
+                    or self._is_final_frame_sent
+                    or not self._active.is_set()
+                    and not frame.HasField("worker_error")
+                ):
+                    return
+                if (
                     frame.HasField("rpc")
                     or frame.HasField("worker_error")
                     or frame.HasField("wait_for")

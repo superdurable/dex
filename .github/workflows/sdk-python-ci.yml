@@ -11,7 +11,6 @@ on:
     - "sdk-rust/crates/dex-blob-cache-python/**"
     - "cli/**"
     - "server/**"
-    - "server-zd/**"
     - "web/**"
     - "protos/**"
     - "codecov.yml"
@@ -25,7 +24,6 @@ on:
     - "sdk-rust/crates/dex-blob-cache-python/**"
     - "cli/**"
     - "server/**"
-    - "server-zd/**"
     - "web/**"
     - "protos/**"
     - "codecov.yml"
@@ -149,7 +147,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [temporal, zd]
+        engine: [temporal]
     permissions:
       contents: read
       id-token: write
@@ -158,7 +156,6 @@ jobs:
         working-directory: sdk-python
     env:
       DEX_INTEG_ENGINE: ${{ matrix.engine }}
-      DEX_SERVER_ZD_BINARY: ${{ matrix.engine == 'zd' && format('{0}/server-zd/target/debug/dex-server-zd', github.workspace) || '' }}
     steps:
     - uses: actions/checkout@v7
     - uses: actions/setup-node@v6
@@ -174,7 +171,6 @@ jobs:
           server/go.sum
           web/go.sum
     - name: Install Temporal CLI runtime for dexcli dev
-      if: matrix.engine == 'temporal'
       uses: temporalio/setup-temporal@v0
     - name: Install Rust
       run: rustup toolchain install 1.97.1 --profile minimal
@@ -187,19 +183,6 @@ jobs:
         enable-cache: true
     - name: Install dependencies
       run: uv sync --locked --reinstall-package dex-python-sdk
-    - name: Install libclang for RocksDB
-      if: matrix.engine == 'zd'
-      run: sudo apt-get update && sudo apt-get install -y libclang-dev
-    - uses: Swatinem/rust-cache@v2
-      if: matrix.engine == 'zd'
-      with:
-        workspaces: server-zd
-        shared-key: server-zd-paradedb
-        save-if: false
-    - name: Build dex-server-zd
-      if: matrix.engine == 'zd'
-      working-directory: server-zd
-      run: cargo build --locked -p dexzd-server --bin dex-server-zd
     - name: Run Python and dexcli dev integration coverage
       run: ./run-integration-tests.sh --coverage
     - name: Upload Python integration coverage to Codecov

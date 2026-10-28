@@ -38,6 +38,7 @@ from dex import (
     Step,
     StepDecision,
     StepList,
+    SubFlowOptions,
     Wait,
     Worker,
     WorkerOptions,
@@ -92,7 +93,11 @@ async def _default_flow_and_subflow_config_use_pull_protocol(
     )
     expected_target = pb.WorkerTarget(is_pull_mode=True)
     assert start.flow_config_override.worker_target == expected_target
-    assert client._map_flow_config(FlowConfig()).worker_target == expected_target
+    for config in (None, FlowConfig(continue_as_new_threshold=500)):
+        sub_flow = client._mappings._map_sub_flow_options(
+            registry._flow_for_instance(flow), SubFlowOptions(config_override=config)
+        )
+        assert sub_flow.flow_config_override.worker_target == expected_target
     assert (
         WorkerDispatcher._map_sub_flow_config(FlowConfig()).worker_target
         == expected_target
@@ -102,6 +107,48 @@ async def _default_flow_and_subflow_config_use_pull_protocol(
         await client.close()
     else:
         client.close()
+
+
+@pytest.mark.parametrize("client_type", [Client, AsyncClient])
+@pytest.mark.parametrize(
+    "config", [FlowConfig(), FlowConfig(continue_as_new_threshold=500)]
+)
+def test_update_flow_config_leaves_worker_target_unset(
+    client_type: type[Client] | type[AsyncClient],
+    config: FlowConfig,
+) -> None:
+    asyncio.run(_update_flow_config_leaves_worker_target_unset(client_type, config))
+
+
+async def _update_flow_config_leaves_worker_target_unset(
+    client_type: type[Client] | type[AsyncClient],
+    config: FlowConfig,
+) -> None:
+    client = client_type(Registry([]), cast(BlobCache, object()))
+    try:
+        with patch.object(client, "_call") as call:
+            if isinstance(client, AsyncClient):
+                await client.update_flow_config("existing-flow", config)
+            else:
+                client.update_flow_config("existing-flow", config)
+            request = call.call_args.args[1]
+            assert isinstance(request, pb.UpdateFlowConfigRequest)
+            assert not request.flow_config.HasField("worker_target")
+            if config.continue_as_new_threshold is not None:
+                assert request.flow_config.HasField("continue_as_new_threshold")
+                assert request.flow_config.continue_as_new_threshold == 500
+    finally:
+        if isinstance(client, AsyncClient):
+            await client.close()
+        else:
+            client.close()
+
+
+def test_worker_options_reject_removed_push_selector() -> None:
+    with pytest.raises(
+        ValueError, match=r"use PullWorkerOptions\(\) instead of pull=None"
+    ):
+        WorkerOptions(pull=cast(Any, None))
 
 
 def test_sync_stop_rejects_event_loop_thread() -> None:
@@ -501,6 +548,84 @@ class FakeCall:
 
     def cancel(self) -> None:
         self.is_canceled = True
+
+
+@pytest.mark.parametrize("state", ["cancelled", "completed", "reused"])
+@pytest.mark.parametrize("method", ["wait_for", "execute"])
+@pytest.mark.parametrize("output_kind", ["heartbeat", "stream_write"])
+def test_pull_stream_rejects_late_step_output(
+    state: str,
+    method: str,
+    output_kind: str,
+) -> None:
+    asyncio.run(_pull_stream_rejects_late_step_output(state, method, output_kind))
+
+
+async def _pull_stream_rejects_late_step_output(
+    state: str,
+    method: str,
+    output_kind: str,
+) -> None:
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        None,
+        PullWorkerOptions(),
+        "localhost:8801",
+        None,
+    )
+    stream = PullStream(runtime, None, "late-output-worker")
+    call = FakeCall([])
+    stream._call = call
+    stream.task_id = "original-task"
+    stream.is_busy = True
+    stream._active.set()
+    output = pb.PollWorkerTaskFrame(task_id="original-task")
+    getattr(getattr(output, method), output_kind).SetInParent()
+    await stream._send_frame(output)
+    assert len(call.requests) == 1
+    if state == "cancelled":
+        stream.cancel_handler()
+    elif state == "completed":
+        result = pb.PollWorkerTaskFrame(task_id="original-task")
+        getattr(result, method).result.SetInParent()
+        await stream._send_frame(result)
+    else:
+        stream.task_id = "next-task"
+    previous_requests = list(call.requests)
+    await stream._send_frame(output)
+    assert call.requests == previous_requests
+
+
+def test_pull_stream_preserves_execute_output_order() -> None:
+    asyncio.run(_pull_stream_preserves_execute_output_order())
+
+
+async def _pull_stream_preserves_execute_output_order() -> None:
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        None,
+        PullWorkerOptions(),
+        "localhost:8801",
+        None,
+    )
+    stream = PullStream(runtime, None, "ordered-output-worker")
+    call = FakeCall([])
+    stream._call = call
+    stream.task_id = "execute-task"
+    stream.is_busy = True
+    stream._active.set()
+    for output_kind in ("heartbeat", "stream_write", "heartbeat", "result"):
+        frame = pb.PollWorkerTaskFrame(task_id="execute-task")
+        getattr(frame.execute, output_kind).SetInParent()
+        await stream._send_frame(frame)
+    assert [
+        request.task_frame.execute.WhichOneof("output") for request in call.requests
+    ] == [
+        "heartbeat",
+        "stream_write",
+        "heartbeat",
+        "result",
+    ]
 
 
 class FakeStub:

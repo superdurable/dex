@@ -135,8 +135,9 @@ class AsyncWorker:
     async def start(self) -> None:
         """Negotiate protocol, synchronize Attribute indexes, and serve.
 
-        ``start`` may be awaited exactly once. It contacts FlowService before opening outbound task streams
-        and completes only after ``stop`` terminates those streams.
+        ``start`` may be awaited exactly once. It contacts FlowService before
+        opening outbound task streams and completes only after ``stop``
+        terminates those streams.
         Permanent pull stream rejections raise PullRegistrationError when
         stop_on_permanent_stream_rejection is enabled; otherwise streams retry.
 

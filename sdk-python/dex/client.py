@@ -1030,12 +1030,11 @@ class Client:
                 raise
 
     def update_flow_config(self, flow_id: str, config: FlowConfig) -> None:
-        """Replace mutable configuration for an active Flow.
+        """Update specified mutable configuration fields for an active Flow.
 
         The update affects later decisions and does not recall work already
-        dispatched. Every update routes future handler calls to pull Workers.
-        Use ``FlowConfig()`` to migrate an active Flow's Worker routing while
-        preserving its other configuration fields.
+        dispatched. Unspecified fields and the existing Worker target remain
+        unchanged. An empty ``FlowConfig()`` leaves all configuration unchanged.
 
         Args:
             flow_id: The non-empty active Flow ID.
@@ -1190,6 +1189,9 @@ class Client:
         mapped.flow_config_override.CopyFrom(
             self._map_flow_config(options.config_override)
         )
+        mapped.flow_config_override.worker_target.CopyFrom(
+            pb.WorkerTarget(is_pull_mode=True)
+        )
         return mapped
 
     def _map_flow_config(self, config: FlowConfig | None) -> pb.FlowConfig:
@@ -1226,7 +1228,6 @@ class Client:
                 mapped.attribute_store_names.CopyFrom(
                     pb.AttributeStoreNames(names=config.attribute_store_names)
                 )
-        mapped.worker_target.CopyFrom(pb.WorkerTarget(is_pull_mode=True))
         return mapped
 
     @staticmethod
