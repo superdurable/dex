@@ -1401,7 +1401,7 @@ fn map_sub_flow_options(
             .map_err(handler_error)?,
         attributes,
         flow_config_override: Some(
-            crate::client::map_flow_config(options.config_override.as_ref())
+            crate::client::map_pull_flow_config(options.config_override.as_ref())
                 .map_err(handler_error)?,
         ),
         timeout_handler_options: map_flow_timeout_handler_options(

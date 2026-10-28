@@ -11,9 +11,10 @@ use crate::StepDurability;
 #[derive(Clone, Debug, Default)]
 /// Overrides runtime behavior for one Flow.
 ///
-/// StartFlow, SubFlow, and [`crate::Client::update_flow_config`] always select pull Workers, even
-/// when no override is supplied. Other omitted fields use server defaults for StartFlow, inherit
-/// the parent configuration for SubFlow, and retain the active Flow setting for updates.
+/// StartFlow and SubFlow always select pull Workers, even when no override is supplied.
+/// [`crate::Client::update_flow_config`] leaves the Worker target unset, preserving the active Flow
+/// target. Other omitted fields use server defaults for StartFlow, inherit the parent configuration
+/// for SubFlow, and retain the active Flow setting for updates.
 /// Pass a value to [`crate::StartFlowOptions::config_override`] for one execution or to
 /// [`crate::Client::update_flow_config`] for an active Flow.
 pub struct FlowConfig {
@@ -25,7 +26,7 @@ pub struct FlowConfig {
 }
 
 impl FlowConfig {
-    /// Creates a config that selects pull Workers and leaves other settings unchanged or inherited.
+    /// Creates a config with no overrides.
     pub fn new() -> Self {
         Self::default()
     }

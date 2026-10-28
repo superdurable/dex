@@ -854,8 +854,8 @@ impl Client {
 
     /// Replaces mutable runtime configuration fields on an active Flow.
     ///
-    /// Always sets the Worker target to pull, including for a Flow previously routed to push Workers.
-    /// Other unset fields retain the active Flow setting.
+    /// Leaves the Worker target unset, preserving the active Flow target.
+    /// Other unset fields also retain the active Flow setting.
     pub fn update_flow_config(&self, flow_id: &str, config: FlowConfig) -> SdkResult<()> {
         let flow_config = self.map_flow_config(Some(&config))?;
         self.call_empty(
@@ -1137,7 +1137,7 @@ impl Client {
             self.require_hard_delete_attribute_support("start_flow", &write.key)?;
         }
         let config = options.config_override.as_ref();
-        let flow_config_override = Some(self.map_flow_config(config)?);
+        let flow_config_override = Some(map_pull_flow_config(config)?);
         #[expect(
             clippy::needless_update,
             reason = "The test preserves forward-compatible construction of SDK options."
@@ -1226,6 +1226,17 @@ impl Client {
     }
 }
 
+pub(crate) fn map_pull_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {
+    Ok(ProtoFlowConfig {
+        worker_target: Some(ProtoWorkerTarget {
+            address: String::new(),
+            is_headless_address: false,
+            is_pull_mode: true,
+        }),
+        ..map_flow_config(config)?
+    })
+}
+
 pub(crate) fn map_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {
     Ok(ProtoFlowConfig {
         active_step_search_mode: config
@@ -1256,11 +1267,7 @@ pub(crate) fn map_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlo
                     StepDurability::Async => ProtoStepDurability::Async,
                 }) as i32
             }),
-        worker_target: Some(ProtoWorkerTarget {
-            address: String::new(),
-            is_headless_address: false,
-            is_pull_mode: true,
-        }),
+        worker_target: None,
         attribute_store_names: config.and_then(|config| {
             config
                 .attribute_store_names

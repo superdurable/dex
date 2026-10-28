@@ -352,8 +352,9 @@ and waiting for cancelled handlers to return. Calling `stop()` afterward remains
 
 Workers use outbound task streams and need only an outbound connection to the
 Dex Server. `WorkerOptions::new()` uses pull defaults. Set `WorkerOptions::pull`
-to customize concurrency, queue streams, and shutdown. Clients and SubFlows
-always use pull routing.
+to customize concurrency, queue streams, and shutdown. StartFlow and SubFlow
+always use pull routing. UpdateFlowConfig leaves the Worker target unset and preserves the
+existing Flow target.
 
 ```rust
 let worker = Worker::try_new(
