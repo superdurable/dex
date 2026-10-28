@@ -21,6 +21,7 @@ use dexzd_simulation::{
     ApplyChecker, CommandGenerator, INVALID_CLIENT_INPUT_CLASSES, RunSelection, SimulationFailure,
     SimulationSummary, run_seed,
 };
+use prost::Message;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -268,13 +269,15 @@ fn the_same_seed_proposes_and_applies_the_same_commands() {
 
 #[test]
 fn worker_commands_keep_their_dispatched_run_attempt_on_redelivery() {
-    let mut rejected_redeliveries = 0;
     for seed in [10906685018, 2204788261] {
+        let mut rejected_redeliveries = 0;
+        let mut accepted_redeliveries = 0;
         for mut generator in [
             CommandGenerator::new(seed),
             CommandGenerator::step_failure_stream(seed),
         ] {
             let mut checker = ApplyChecker::new();
+            let mut delivered_results = BTreeSet::new();
             for _ in 0..1000 {
                 let command = generator.next_command(&checker).expect("state decodes");
                 let is_worker_command = matches!(
@@ -301,21 +304,48 @@ fn worker_commands_keep_their_dispatched_run_attempt_on_redelivery() {
                 } else {
                     false
                 };
+                let is_redelivered_result = if matches!(
+                    command.command,
+                    Some(
+                        Command::StepAttemptHeartbeat(_)
+                            | Command::StepAttemptFailed(_)
+                            | Command::StepMethodCompleted(_)
+                    )
+                ) {
+                    let mut result_identity = command.clone();
+                    result_identity.command_id.clear();
+                    result_identity.proposed_at_micros = 0;
+                    !delivered_results.insert(result_identity.encode_to_vec())
+                } else {
+                    false
+                };
                 let outcome = checker
                     .apply_and_check(&command)
                     .unwrap_or_else(|violation| panic!("{violation}"));
                 if is_abandoned_result {
+                    assert!(is_redelivered_result, "seed {seed}: {command:?}");
                     assert!(outcome.writes.is_empty());
                     assert!(matches!(
                         outcome.reply.reply,
                         Some(command_reply::Reply::Error(_))
                     ));
                     rejected_redeliveries += 1;
+                } else if is_redelivered_result
+                    && matches!(outcome.reply.reply, Some(command_reply::Reply::Ok(_)))
+                {
+                    accepted_redeliveries += 1;
                 }
             }
         }
+        assert!(
+            rejected_redeliveries > 0,
+            "seed {seed}: no result crossed a reset"
+        );
+        assert!(
+            accepted_redeliveries > 0,
+            "seed {seed}: no same-attempt redelivery was accepted"
+        );
     }
-    assert!(rejected_redeliveries > 0, "no result crossed a reset");
 }
 
 #[test]
