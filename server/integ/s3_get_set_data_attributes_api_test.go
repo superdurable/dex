@@ -176,9 +176,7 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType,
 		require.True(t, proto.Equal(s3GetSetDataAttributes.LargeDataValue, getSpecific.GetAttributes()[0].GetValue()))
 	}
 
-	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
-	require.NoError(t, err)
-	require.Equal(t, int64(2), objectCount)
+	requireGoBlobStoreObjectCount(t, ctx, flowId, 2)
 
 	if backendType == service.BackendTypeTemporal {
 		historyBlobIds := []string{largeBlobId, anotherBlobId}
@@ -272,9 +270,7 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 		require.Empty(t, blobIdFromValue(retrieved["initial-large"]))
 	}
 
-	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), objectCount)
+	requireGoBlobStoreObjectCount(t, ctx, flowId, 1)
 
 	if backendType == service.BackendTypeTemporal {
 		historyBlobIds := []string{largeBlobId}

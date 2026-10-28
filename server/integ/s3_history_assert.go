@@ -22,6 +22,17 @@ import (
 	"go.temporal.io/api/workflowservice/v1"
 )
 
+// requireGoBlobStoreObjectCount asserts the Go Blob Store object count; server-zd has no Go Blob Store (C5).
+func requireGoBlobStoreObjectCount(t *testing.T, ctx context.Context, flowID string, expectedCount int64) {
+	t.Helper()
+	if isServerZDBinaryMode() {
+		return
+	}
+	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowID)
+	require.NoError(t, err)
+	require.Equal(t, expectedCount, objectCount)
+}
+
 // requireTemporalHistoryStoresBlobIdsNotPayloads asserts Temporal history embeds
 // blob IDs and does not embed the given large payloads.
 func requireTemporalHistoryStoresBlobIdsNotPayloads(
@@ -33,6 +44,10 @@ func requireTemporalHistoryStoresBlobIdsNotPayloads(
 	forbiddenPayloads []string,
 ) {
 	t.Helper()
+	// server-zd keeps large values in its log (C5); it has no Temporal history or Go Blob IDs.
+	if isServerZDBinaryMode() {
+		return
+	}
 
 	api, ok := unifiedClient.GetApiService().(workflowservice.WorkflowServiceClient)
 	if !ok {

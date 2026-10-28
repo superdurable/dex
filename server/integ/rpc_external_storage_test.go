@@ -172,13 +172,17 @@ func doTestRpcExternalStorage(
 	useSynchronousUpdate bool,
 	lazyLoading bool,
 ) {
-	runtime := startDexService(t, DexServiceTestConfig{
+	testConfig := DexServiceTestConfig{
 		BackendType:                            backendType,
 		S3TestThreshold:                        100,
 		LazyLoading:                            ptr.Any(lazyLoading),
-		AsyncStepInputSnapshotsEnabled:         ptr.Any(false),
 		UseTemporalSynchronousUpdateForAllRPCs: useSynchronousUpdate,
-	})
+	}
+	// server-zd has no async Step input snapshots (C2, C5).
+	if !isServerZDBinaryMode() {
+		testConfig.AsyncStepInputSnapshotsEnabled = ptr.Any(false)
+	}
+	runtime := startDexService(t, testConfig)
 	workerHandler := rpcStorage.NewHandler(runtime.FlowClient)
 	workerTarget := startWorker(t, workerHandler)
 	flowClient := runtime.FlowClient
@@ -220,13 +224,22 @@ func doTestRpcExternalStorage(
 		}
 		rpcRequest.RequestId = uuid.NewString()
 	}
-	objectsBeforeRPC, err := runtime.BlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
-	require.NoError(t, err)
+	// server-zd has no Go Blob Store to count (C5).
+	objectsBeforeRPC := int64(0)
+	if !isServerZDBinaryMode() {
+		objectsBeforeRPC, err = runtime.BlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
+		require.NoError(t, err)
+	}
 
 	rpcResp, err := flowClient.InvokeRPC(ctx, rpcRequest)
 	require.NoError(t, err)
 	rpcOutput := rpcResp.GetOutput()
-	require.Equal(t, lazyLoading && (useLocking || useSynchronousUpdate), integcommon.BlobIdFromValue(rpcOutput) != "")
+	// server-zd returns the RPC output to the client inline.
+	require.Equal(
+		t,
+		!isServerZDBinaryMode() && lazyLoading && (useLocking || useSynchronousUpdate),
+		integcommon.BlobIdFromValue(rpcOutput) != "",
+	)
 	rpcOutput, err = integcommon.LoadBlobsValue(ctx, flowClient, flowId, rpcOutput)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(rpcStorage.TestOutput, rpcOutput))
@@ -240,9 +253,10 @@ func doTestRpcExternalStorage(
 	testData := workerHandler.GetTestResult().InvokeData
 	rawInput, exists := testData[rpcStorage.UpdateDataAttributesRPC+"-raw-input"]
 	require.True(t, exists)
+	// server-zd passes the client's RPC input to the Worker inline.
 	require.Equal(
 		t,
-		lazyLoading && (useLocking || useSynchronousUpdate),
+		!isServerZDBinaryMode() && lazyLoading && (useLocking || useSynchronousUpdate),
 		integcommon.BlobIdFromValue(rawInput.(*dexpb.Value)) != "",
 	)
 	receivedInput, exists := testData[rpcStorage.UpdateDataAttributesRPC+"-input"]
@@ -273,14 +287,19 @@ func doTestRpcExternalStorage(
 	})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
-	if !lazyLoading {
+	// server-zd keeps large values in its log, and its history events return them inline (C5).
+	if !lazyLoading && !isServerZDBinaryMode() {
 		historyText := flowHistoryText(t, ctx, runtime, flowId)
 		require.NotContains(t, historyText, rpcStorage.InitialLargeDataContent)
 	}
-	if !useLocking && !useSynchronousUpdate {
+	if !useLocking && !useSynchronousUpdate && !isServerZDBinaryMode() {
 		objectsAfterRPC, err := runtime.BlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
 		require.NoError(t, err)
 		require.Equal(t, objectsBeforeRPC+1, objectsAfterRPC)
+	}
+	// server-zd records every RPC with effects as an RpcExecutionCompleted event and has no Temporal history.
+	if isServerZDBinaryMode() {
+		return
 	}
 	if backendType == service.BackendTypeTemporal && (useLocking || useSynchronousUpdate) {
 		assertTemporalRpcBlobHistory(

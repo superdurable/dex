@@ -94,9 +94,7 @@ func doTestWorkflowWithS3StateInputOptimization(t *testing.T, backendType servic
 	require.Equal(t, expectedData, history["S2_input_data"])
 	require.Equal(t, expectedData, history["S3_input_data"])
 
-	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), objectCount)
+	requireGoBlobStoreObjectCount(t, ctx, flowId, 1)
 
 	if backendType == service.BackendTypeTemporal {
 		requireTemporalHistoryStoresBlobIdsNotPayloads(

@@ -116,9 +116,7 @@ func doTestWorkflowWithS3InitDataAttributes(t *testing.T, backendType service.Ba
 	require.Equal(t, 3, history["S2_execute_total_attrs"])
 	require.Equal(t, true, history["S2_execute_validation_pass"])
 
-	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
-	require.NoError(t, err)
-	require.Equal(t, int64(2), objectCount)
+	requireGoBlobStoreObjectCount(t, ctx, flowId, 2)
 
 	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,

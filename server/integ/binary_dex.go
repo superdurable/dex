@@ -41,6 +41,9 @@ type binaryDexProcess struct {
 
 var binaryDexTerminationGracePeriod = 10 * time.Second
 
+// serverZDEncodedValueOverheadBytes is the JSON obj_value framing that server-zd counts and the S3 threshold does not.
+const serverZDEncodedValueOverheadBytes = 16
+
 type temporalOnlyUnifiedClient struct {
 	uclient.UnifiedClient
 	test *testing.T
@@ -143,9 +146,6 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 	if len(testConfig.DefaultHeaders) > 0 {
 		return nil, "default Worker headers"
 	}
-	if testConfig.S3TestThreshold > 0 {
-		return nil, "S3 Blob Store"
-	}
 	if testConfig.S3KeyPrefix != "" {
 		return nil, "S3 key prefix"
 	}
@@ -191,8 +191,13 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 	if len(apiConfig) > 0 {
 		configuration["api"] = apiConfig
 	}
+	// server-zd keeps large values in its log; its wire threshold plays the Go Blob Store threshold's role (C5).
 	if testConfig.LocalBlobThreshold > 0 {
 		configuration["values"] = map[string]any{"wireInlineThresholdBytes": testConfig.LocalBlobThreshold}
+	} else if testConfig.S3TestThreshold > 0 {
+		configuration["values"] = map[string]any{
+			"wireInlineThresholdBytes": testConfig.S3TestThreshold + serverZDEncodedValueOverheadBytes,
+		}
 	}
 	if testConfig.LazyLoading != nil {
 		valuesConfig, ok := configuration["values"].(map[string]any)
