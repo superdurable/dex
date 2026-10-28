@@ -346,6 +346,7 @@ fn apply_permission_mappings(
             scope,
         )? {
             Ok(value) => value,
+            Err(_) if permission_set.contains(&mapping.required_permission) => continue,
             Err(unavailable) => return Ok(Err(unavailable)),
         };
         if let Some(value) = value

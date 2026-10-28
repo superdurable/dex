@@ -31,7 +31,9 @@ permission rebuild oracle, and the engine workload generates no permission mappi
 [Issue #1016](https://github.com/superdurable/dex/issues/1016) tracks those gaps:
 varied grants across batches, mappings to stored Attributes outside the batch,
 recorded-versus-rebuilt semantic-point hashes, and expected rejections for collected
-inputs. Collected mapping inputs and large permission sets are covered by deterministic
+inputs. The follow-up also includes permission mappings in the engine workload and a
+seeded mutant that drops a rebuilt grant and must fail the permission oracle.
+Collected mapping inputs and large permission sets are covered by deterministic
 `dexzd-apply` regressions.
 
 ```bash

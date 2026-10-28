@@ -2726,6 +2726,7 @@ fn permission_rebuild_rejects_collected_permission_values() {
     assert_permission_rebuild_with_collected_value(
         PERMISSION_ATTRIBUTE_KEY,
         false,
+        None,
         PermissionMappingSource::AttributesSet,
     );
 }
@@ -2735,8 +2736,21 @@ fn permission_rebuild_rejects_collected_mapping_values() {
     assert_permission_rebuild_with_collected_value(
         "stage",
         false,
+        None,
         PermissionMappingSource::AttributesSet,
     );
+}
+
+#[test]
+fn permission_rebuild_accepts_collected_mapping_values_when_the_permission_is_already_granted() {
+    for source in [
+        PermissionMappingSource::AttributesSet,
+        PermissionMappingSource::Rpc,
+        PermissionMappingSource::WaitFor,
+        PermissionMappingSource::Execute,
+    ] {
+        assert_permission_rebuild_with_collected_value("stage", false, Some("mapped"), source);
+    }
 }
 
 #[test]
@@ -2747,7 +2761,7 @@ fn permission_rebuild_uses_the_batch_replacement_of_a_collected_mapping_value() 
         PermissionMappingSource::WaitFor,
         PermissionMappingSource::Execute,
     ] {
-        assert_permission_rebuild_with_collected_value("stage", true, source);
+        assert_permission_rebuild_with_collected_value("stage", true, None, source);
     }
 }
 
@@ -2757,6 +2771,7 @@ fn permission_rebuild_rejects_collected_rpc_inputs() {
         assert_permission_rebuild_with_collected_value(
             collected_key,
             false,
+            None,
             PermissionMappingSource::Rpc,
         );
     }
@@ -2768,6 +2783,7 @@ fn permission_rebuild_rejects_collected_wait_for_inputs() {
         assert_permission_rebuild_with_collected_value(
             collected_key,
             false,
+            None,
             PermissionMappingSource::WaitFor,
         );
     }
@@ -2779,6 +2795,7 @@ fn permission_rebuild_rejects_collected_execute_inputs() {
         assert_permission_rebuild_with_collected_value(
             collected_key,
             false,
+            None,
             PermissionMappingSource::Execute,
         );
     }
@@ -2886,6 +2903,7 @@ enum PermissionMappingSource {
 fn assert_permission_rebuild_with_collected_value(
     collected_key: &str,
     should_replace_mapping_input: bool,
+    initial_mapping_permission: Option<&str>,
     source: PermissionMappingSource,
 ) {
     let mut harness = Harness::with_settings(RunSettings {
@@ -2894,7 +2912,9 @@ fn assert_permission_rebuild_with_collected_value(
         history_prune_chunk_semantic_events: 1,
         ..settings()
     });
-    let initial_permission = if collected_key == PERMISSION_ATTRIBUTE_KEY {
+    let initial_permission = if let Some(permission) = initial_mapping_permission {
+        permission.to_owned()
+    } else if collected_key == PERMISSION_ATTRIBUTE_KEY {
         "grant".repeat(40)
     } else {
         "grant".to_owned()
@@ -3037,13 +3057,13 @@ fn assert_permission_rebuild_with_collected_value(
         result_permissions, expected_permissions,
         "rebuilding must never drop permissions"
     );
-    if should_replace_mapping_input {
+    if should_replace_mapping_input || initial_mapping_permission.is_some() {
         assert!(matches!(
             outcome.reply.reply,
             Some(command_reply::Reply::TimeTravel(_))
         ));
         let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
-            .expect("replacement makes the target reconstructable")
+            .expect("available permission dependencies make the target reconstructable")
             .expect("target exists");
         assert_eq!(rebuilt.run_seq, target_seq);
         assert_eq!(rebuilt.state_hash, recorded_hashes[&target_seq]);
