@@ -28,13 +28,14 @@ use dexzd_protocol::dex::{
     ActionPermissionMapping, ActionPermissionMappings, ActiveStepPhase, AttributeMatch,
     AttributeMatchOperator, AttributeWrite, ChannelMessage, CloseDecision, CloseDecisionType,
     ConditionStatus, ExecuteMethodFailurePolicy, FlowClosedHistoryEvent, FlowConfig, FlowErrorType,
-    FlowStartOptions, FlowStatus, FlowTimeoutPolicy, IndexConfig, IndexType,
+    FlowStartOptions, FlowStatus, FlowTimeoutPolicy, IndexConfig, IndexType, InternalTimerStatus,
     InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, LoadBlobRequestEntry,
     PublishToChannelRequest, PullRouting, PullRoutingSource, RecoveryErrorInfo, RetryPolicy,
-    SetAttributesRequest, StartFlowRequest, StepDecision, StepDurability, StepMethodEventContext,
-    StepMethodOptions, StepMovement, StepOptions, StopFlowRequest, StopType, TimerCondition,
-    TimerResult, UpdateFlowConfigRequest, Value, WaitForMethodFailurePolicy, WaitingCondition,
-    WaitingConditionType, WorkerErrorResponse, WorkerTarget, flow_history_event, value,
+    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StepDecision, StepDurability,
+    StepMethodEventContext, StepMethodOptions, StepMovement, StepOptions, StopFlowRequest,
+    StopType, TimerCondition, TimerResult, UpdateFlowConfigRequest, Value,
+    WaitForMethodFailurePolicy, WaitingCondition, WaitingConditionType, WorkerErrorResponse,
+    WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, ChannelPublishCommand, ConditionResultsRecord, FlowCommand,
@@ -42,8 +43,8 @@ use dexzd_protocol::dexzd::v1::{
     HardDeleteObjectReference, RetryBackoffTimerId, RunRecord, RunSettings,
     StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptStartedCommand,
     StepExecutionRecord, StepInvocationKey, StepMethod, StepMethodCompletedCommand,
-    StoredFlowResult, TimerId, TimersFiredCommand, WaitConditionTimerId, flow_command::Command,
-    step_method_completed_command, timer_id,
+    StoredFlowResult, TimerId, TimerSkipCommand, TimersFiredCommand, WaitConditionTimerId,
+    command_reply, flow_command::Command, step_method_completed_command, timer_id,
 };
 use prost::Message;
 
@@ -1538,6 +1539,89 @@ fn read_model_returns_sorted_values_channels_and_wait_predicates() {
     let closed_summary =
         get_flow_summary(&harness.state, harness.context.flow_hash, harness.run_id).unwrap();
     assert!(closed_summary.close_time.is_some());
+}
+
+#[test]
+fn flow_state_reports_a_skipped_timer_as_skipped_through_execute() {
+    let mut harness = Harness::new();
+    harness.start(FlowStartOptions::default(), None);
+    harness.start_attempt(StepMethod::WaitFor);
+    let timer = |condition_id: &str| TimerCondition {
+        condition_id: condition_id.to_owned(),
+        duration_seconds: 60,
+        ..TimerCondition::default()
+    };
+    harness.apply(Command::StepMethodCompleted(StepMethodCompletedCommand {
+        invocation: Some(StepInvocationKey {
+            step_execution_id: "ChargeStep-1".to_owned(),
+            method: StepMethod::WaitFor as i32,
+        }),
+        attempt: 1,
+        response: Some(step_method_completed_command::Response::WaitFor(
+            InvokeWaitForMethodResponse {
+                waiting_condition: Some(WaitingCondition {
+                    waiting_condition_type: WaitingConditionType::AllCompleted as i32,
+                    timer_conditions: vec![timer("skipped"), timer("fired")],
+                    ..WaitingCondition::default()
+                }),
+                ..InvokeWaitForMethodResponse::default()
+            },
+        )),
+        ..StepMethodCompletedCommand::default()
+    }));
+    let skipped = harness.apply(Command::TimerSkip(TimerSkipCommand {
+        request: Some(SkipTimerRequest {
+            flow_id: harness.flow_id.clone(),
+            step_execution_id: "ChargeStep-1".to_owned(),
+            timer_condition_id: "skipped".to_owned(),
+            ..SkipTimerRequest::default()
+        }),
+    }));
+    assert!(
+        matches!(skipped.reply.reply, Some(command_reply::Reply::Ok(_))),
+        "SkipTimer: {:?}",
+        skipped.reply
+    );
+
+    let state = get_flow_state(&harness.state, harness.context.flow_hash, harness.run_id).unwrap();
+    let timer_statuses: Vec<i32> = state.active_step_executions[0]
+        .timers
+        .iter()
+        .map(|timer| timer.status)
+        .collect();
+    assert_eq!(
+        timer_statuses,
+        [
+            InternalTimerStatus::Skipped as i32,
+            InternalTimerStatus::Pending as i32
+        ]
+    );
+
+    harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![TimerId {
+            run_attempt: 1,
+            kind: Some(timer_id::Kind::WaitCondition(WaitConditionTimerId {
+                step_execution_id: "ChargeStep-1".to_owned(),
+                timer_index: 1,
+            })),
+        }],
+    }));
+    harness.start_attempt(StepMethod::Execute);
+    let state = get_flow_state(&harness.state, harness.context.flow_hash, harness.run_id).unwrap();
+    let executing_step = &state.active_step_executions[0];
+    assert_eq!(executing_step.phase, ActiveStepPhase::Active as i32);
+    let completed_timers = &executing_step
+        .completed_conditions
+        .as_ref()
+        .expect("the Execute Step keeps its completed conditions")
+        .completed_timer_conditions;
+    assert_eq!(
+        completed_timers,
+        &BTreeMap::from([
+            (0, InternalTimerStatus::Skipped as i32),
+            (1, InternalTimerStatus::Fired as i32),
+        ])
+    );
 }
 
 #[test]

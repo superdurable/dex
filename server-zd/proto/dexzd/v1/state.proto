@@ -283,6 +283,8 @@ message StepExecutionRecord {
   // Retained through Execute until the Step finishes or is canceled.
   dex.PullRouting wait_for_pull_routing = 16;
   dex.RecoveryErrorInfo recovery_error = 17;
+  // Timer indexes skipped through SkipTimer, retained through Execute.
+  repeated uint32 skipped_timer_indexes = 18;
 }
 
 // Phase of one logical method call.

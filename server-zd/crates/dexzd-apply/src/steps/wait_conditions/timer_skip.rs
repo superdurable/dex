@@ -98,6 +98,10 @@ fn skip_wait_timer(
     if !mark_timer_completed(&mut step, timer_index) {
         return Ok(false);
     }
+    step.skipped_timer_indexes.push(
+        u32::try_from(timer_index)
+            .expect("timer index came from a uint32 request or condition count"),
+    );
     let timer = wait_timer_id(cursor.attempt(), &step.step_execution_id, timer_index);
     disarm_timer(transaction, cursor, &timer)?;
     evaluate_waiting_step(transaction, cursor, scope.now_micros, &mut step)?;
