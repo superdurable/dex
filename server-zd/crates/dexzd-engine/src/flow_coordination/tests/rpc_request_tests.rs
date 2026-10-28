@@ -274,7 +274,7 @@ async fn rpc_capacity_allows_joiners_and_releases_disconnected_calls_at_the_dead
 }
 
 #[tokio::test(start_paused = true)]
-async fn rpc_admission_wait_preserves_the_full_worker_timeout() {
+async fn rpc_sync_barrier_wait_preserves_explicit_and_default_worker_timeouts() {
     for timeout_seconds in [0, 2] {
         let config = FlowCoordinationConfig {
             rpc_default_timeout: Duration::from_secs(2),

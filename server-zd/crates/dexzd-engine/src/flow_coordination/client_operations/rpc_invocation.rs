@@ -281,7 +281,7 @@ impl FlowCoordinatorRegistry {
                 .await
                 .unwrap_or_else(|_| {
                     Err(FlowCoordinationError::Unavailable {
-                        detail: "RPC commit processing exceeded its server budget; the outcome is unknown and retrying may run the RPC again; see Dex issue #1039".to_owned(),
+                        detail: "RPC commit processing exceeded its server budget; the outcome is unknown and retrying may run the RPC again".to_owned(),
                     })
                 })
         } else {

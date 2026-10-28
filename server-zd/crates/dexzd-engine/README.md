@@ -22,11 +22,14 @@ fingerprint rejection. A committed reply takes precedence over an in-flight entr
 
 A caller disconnect or transport deadline ends only that caller's wait. It does not release
 the RPC's locks or let natural Flow close proceed. The RPC timeout starts at the Worker
-invocation, after admission, lock synchronization, and snapshot reads. Earlier waits retain
-their existing bounds and do not consume the Worker timeout. The Worker gets the full
-positive timeout_seconds, otherwise api.defaultRpcTimeout (default 60 seconds). A handler
-that exceeds its timeout returns DEADLINE_EXCEEDED without proposing a commit. Proposal and
-commit can finish after the Worker deadline and return the committed result.
+invocation, after admission, lock synchronization, and snapshot reads. Admission and lock
+conflicts return immediately. The SYNC barrier waits for earlier proposals to settle or
+the registry to halt, without a separate timer. Snapshot object reads use the object store
+timeout (30 seconds for S3 operations and between streamed body chunks). These stages do not consume the Worker timeout.
+The Worker gets the full positive timeout_seconds, otherwise api.defaultRpcTimeout
+(default 60 seconds). A handler that exceeds its timeout returns DEADLINE_EXCEEDED without
+proposing a commit. Proposal and commit can finish after the Worker deadline and return
+the committed result.
 
 An independent 60-second server budget, named RPC_COMMIT_PROCESSING_BUDGET, bounds uploads,
 proposal, commit waiting, and result processing. Exceeding it returns UNAVAILABLE with an
