@@ -27,6 +27,7 @@ import (
 
 	openai "github.com/superdurable/dex-connectors-library/connectors/openai"
 	"github.com/superdurable/dex-connectors-library/sdkgo"
+	"github.com/superdurable/dex/examples/go/products/customer-refund/agentic"
 )
 
 const demoOpenAIResponse = `{
@@ -38,7 +39,7 @@ const demoOpenAIResponse = `{
 }`
 
 func newDemoOpenAIConnection() openai.Connection {
-	reference := sdkgo.ConnectionRef{Provider: openai.ConnectorID, Name: "customer-refund-demo"}
+	reference := sdkgo.ConnectionRef{Provider: openai.ConnectorID, Name: agentic.OpenAIConnectionName}
 	client, err := openai.New(
 		openai.Config{Endpoint: "http://127.0.0.1/v1"},
 		sdkgo.StaticCredentialProvider[openai.Credentials]{

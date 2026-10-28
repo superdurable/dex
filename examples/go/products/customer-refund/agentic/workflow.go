@@ -56,6 +56,9 @@ const (
 	decisionRoundsBudget            = int64(12)
 )
 
+// OpenAIConnectionName names the OpenAI connection that generates the customer message.
+const OpenAIConnectionName = "customer-refund-demo"
+
 var agenticInputEmail = dex.DefineAttribute[string]("in-email")
 
 // dex:indexed-attribute attribute-key:customer-email index-key:keyword1 index-type:keyword value-type:string description:"Customer email address"
@@ -212,6 +215,7 @@ func (flow *AgenticCustomerRefundFlow) GetSteps() []dex.StepDef {
 				Explanation: "Generate the customer resolution message with OpenAI.",
 			},
 			Connection:          flow.openAIConnection,
+			ConnectionName:      OpenAIConnectionName,
 			MapToOperationInput: agenticMapToCustomerMessageRequest,
 			Completed:           sdkgo.GoTo(agenticStoreGeneratedCustomerMessage{}),
 			Failed:              sdkgo.GoTo(agenticUseFallbackCustomerMessage{}),

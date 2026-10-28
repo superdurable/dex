@@ -30,7 +30,7 @@ import (
 )
 
 func TestCustomerSummaryConnectorFlowRegisters(t *testing.T) {
-	connection := sdkgo.ConnectionRef{Provider: "openai", Name: "customer-summary"}
+	connection := sdkgo.ConnectionRef{Provider: "openai", Name: CustomerSummaryConnectionName}
 	client, err := openai.New(
 		openai.Config{Endpoint: "http://127.0.0.1:1"},
 		sdkgo.StaticCredentialProvider[openai.Credentials]{

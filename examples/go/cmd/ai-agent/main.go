@@ -55,7 +55,7 @@ func runAIAgentApp(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	slackSettings, err := aiagent.NewSlackSettingsFromEnvironment()
+	slackSettings, err := aiagent.LoadSlackSettings(ctx)
 	if err != nil {
 		return err
 	}
@@ -128,9 +128,9 @@ func runAIAgentApp(ctx context.Context) error {
 
 func describeSlack(slackSettings aiagent.SlackSettings) string {
 	if !slackSettings.IsConfigured() {
-		return "not configured"
+		return "not set up: " + slackSettings.NotSetUpReason
 	}
-	return "channel " + slackSettings.ChannelID
+	return "channel " + slackSettings.Channel.Value.ChannelID
 }
 
 func stopWorker(worker *dex.Worker) error {

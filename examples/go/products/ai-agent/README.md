@@ -39,20 +39,42 @@ OpenAI-compatible Chat Completions API.
 | `DEX_AI_AGENT_HTTP_ADDRESS` | `127.0.0.1:8090` |
 | `DEX_AI_AGENT_NOTES_FILE` | `$TMPDIR/dex-ai-agent/notes.jsonl` |
 | `DEX_AI_AGENT_STAGE_PAUSE` | `1.5s`, the pause between the stages of `fetch_page` and `publish_note` |
-| `SLACK_BOT_TOKEN` | unset; a Slack bot token with `chat:write` |
-| `DEX_AI_AGENT_SLACK_CHANNEL` | unset; the channel ID to post to, such as `C0123456789` |
-| `DEX_AI_AGENT_SLACK_ENDPOINT` | `https://slack.com/api` |
-
-The model is offered `post_to_slack` only when both Slack variables are set.
-Invite the bot to the channel first.
+| `DEX_CONNECTOR_CONFIG_FILE` | unset; the `connections.json` that Dex Web saves, for Slack |
 
 To see the Step graph and the agent's Display in Dex Web, render the Flow and
-pass the folder to `dexcli dev`:
+pass the folder to `dexcli dev`. Slack setup needs it too:
 
 ```bash
 dexcli visualize products/ai-agent/workflow.go --json --schema-version 2.0 --out /tmp/dex-flows/ai-agent
 dexcli dev --engine zd --flow-rendering-dir /tmp/dex-flows
 ```
+
+## Set up Slack
+
+Slack is optional. The app reads the Slack connection and channel that you set
+up in Dex Web, so it holds no Slack token itself.
+
+1. Start `dexcli dev` with the Flow rendering as above and open **Connectors**
+   in Dex Web (http://127.0.0.1:8802). It lists the Slack connection
+   `ai-agent-slack` that the Flow uses.
+2. **Authorize**: follow the guide on the page to create a Slack app at
+   https://api.slack.com/apps with the listed bot and user scopes and the
+   Redirect URI shown. Paste its client ID and client secret and sign in with
+   Slack. Socket Mode and `app_token` are only for Slack Triggers; this
+   example does not need them. Dex stores the tokens and the app refreshes
+   them when they expire.
+3. **postChannelMessage**: pick the channel for the `PostToSlack` Step. Invite
+   the app's bot to that channel.
+4. Start the app with the launch command that the page shows:
+
+   ```bash
+   DEX_CONNECTOR_CONFIG_FILE="$HOME/.dex/connectors/connections.json" ./dex-ai-agent
+   ```
+
+The app logs whether Slack is set up. Without a connection or a channel, the
+model is not offered `post_to_slack`. Settings are read at startup, so restart
+the app after you change the channel; a new sign-in takes effect on the next
+post.
 
 ## How it works
 
@@ -99,11 +121,13 @@ condition, so no process holds it.
   twice. When the app is killed during the call, `RecordToolFailure` records
   the outcome as unknown and tells the model to check before trying again.
   `publish_note` also uses the tool call ID as its idempotency key.
-- **Slack posts** (`post_to_slack`) run the connector Step once. The connector
+- **Slack posts** (`post_to_slack`) run the Slack connector's Step, which
   classifies the result itself: Slack accepted it (done), Slack rejected it
   (failed), Slack did not confirm it (outcome unknown, for example on a
-  timeout or an HTTP 5xx), or the input or connection is invalid (failed). A
-  kill during the post takes the failure route, like `publish_note`.
+  timeout or an HTTP 5xx), or the input or connection is invalid (failed).
+  The connector marks a post before it sends it. When the app is killed
+  during the post, Dex retries the Step on the restarted app, and the marker
+  makes the connector report an unknown outcome instead of posting again.
 
 A Go Worker reports every Step error type as `*errors.joinError` (Go SDK
 v1.25.0), so `RecordModelFailure` recognizes a provider failure by the fixed
@@ -142,8 +166,9 @@ Channels and RPCs that open runs use.
 SIGKILL. Dex keeps running. It checks that a question, an approval and a Timer
 survive the kill, that a read-only tool runs again, that a write is reported
 as an unknown outcome and is not repeated, that a provider API failure is
-flagged, and that a Slack post goes through the connector once and an
-unconfirmed one is reported as an unknown outcome (against a fake Slack API).
+flagged, and that a Slack post goes through the connector once and a post cut
+off by a kill is reported as an unknown outcome without a second post (against
+a fake Slack API, set up in the files that Dex Web writes).
 
 ```bash
 dexcli dev --engine zd --dex-port 19801 --web-port 19901
@@ -154,14 +179,6 @@ DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:19801 GOWORK=off go test -count=1 -v -run Tes
 Run them against an engine where no other app serves `AIAgentFlow`, or that
 app may take the test's Steps. `make e2eTests` runs them with the other
 examples.
-
-## Slack connector version
-
-The example uses Slack connector v0.7.0, the release built on Connector SDK
-v0.6.0 that the other Go examples use. That release checks for bot, user and
-app tokens before every call, although posting uses only the bot token, so the
-app fills the other two with a placeholder. A newer Slack release needs a newer
-Connector SDK, which means upgrading it for every Go example.
 
 ## Limits
 

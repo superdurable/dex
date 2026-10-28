@@ -145,6 +145,11 @@ func (flow *AIAgentFlow) GetSteps() []dex.StepDef {
 				GroupLabel:  "Tools",
 				Explanation: "Post an approved message to Slack through the Dex Slack connector.",
 			},
+			ConfigurationUI: sdkgo.ConnectorConfigurationUI{Units: []sdkgo.ConnectorUIUnit{{
+				ID: "channel", UnitID: slack.UIUnitChannelPicker, Label: "Channel", Required: true,
+				Description: "Select the joined Slack channel that post_to_slack posts to; the picker stores its stable channel ID.",
+				Bindings:    []sdkgo.ConnectorUIBinding{{Port: slack.UIChannelPickerPortChannelID, JSONPointer: "/channelId"}},
+			}}},
 			Connection:          flow.slackSettings.Connection,
 			ConnectionName:      slackConnectionName,
 			MapToOperationInput: flow.slackSettings.mapToolCallToSlackMessage,
@@ -152,9 +157,8 @@ func (flow *AIAgentFlow) GetSteps() []dex.StepDef {
 			ProviderRejected:    sdkgo.GoTo(RecordSlackPost{}),
 			Uncertain:           sdkgo.GoTo(RecordSlackPost{}),
 			Defect:              sdkgo.GoTo(RecordSlackPost{}),
-			// Like publish_note, a post runs once: a repeat after a crash could post twice.
+			// After a crash, the connector's dispatch fence turns the retry into Uncertain instead of a second post.
 			StepOptionsOverride: &dex.StepOptions{
-				ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 1},
 				ExecuteFailure: dex.ProceedToOnExecuteFailure(RecordToolFailure{}, recoveryStepOptions),
 			},
 		})),
@@ -580,8 +584,8 @@ func (RecordToolFailure) Execute(ctx dex.Context, call ToolCall) (*dex.StepDecis
 		detail = truncate(failure.Detail, maxRecoveryDetailLength)
 	}
 	outcome, content := OutcomeOutcomeUnknown, fmt.Sprintf(
-		"%s stopped before it reported a result (%s). Dex ran it once and did not repeat it because it changes data. "+
-			"Check whether it took effect before trying again.", call.Name, detail)
+		"%s stopped before it reported a result (%s). It changes data and may already have taken effect, "+
+			"so check before trying again.", call.Name, detail)
 	if toolPolicies[call.Name].isReadOnly {
 		outcome, content = OutcomeFailed, fmt.Sprintf("%s failed after its retries: %s. It only reads, so trying again is safe.", call.Name, detail)
 	}

@@ -140,7 +140,7 @@ func TestAIAgentReportsAWriteThatTheKillCutOffAsOutcomeUnknown(t *testing.T) {
 
 	result := app.waitForToolResult(t, flowID, aiagent.ToolPublishNote)
 	require.Equal(t, aiagent.OutcomeOutcomeUnknown, result.Outcome)
-	require.Contains(t, result.Content, "did not repeat it because it changes data")
+	require.Contains(t, result.Content, "may already have taken effect")
 	notes, err := app.toolbox.ReadPublishedNotes()
 	require.NoError(t, err)
 	require.Empty(t, notes, "Dex must not publish the note again after the kill")
@@ -173,6 +173,7 @@ func TestAIAgentFlagsAModelProviderAPIFailure(t *testing.T) {
 func TestAIAgentPostsToSlackThroughTheDexConnector(t *testing.T) {
 	var postsMutex sync.Mutex
 	var posts []map[string]string
+	slowPostArrived := make(chan struct{}, 1)
 	fakeSlack := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/chat.postMessage" || request.Header.Get("Authorization") != "Bearer xoxb-test-token" {
 			t.Errorf("unexpected Slack request %s", request.URL.Path)
@@ -184,8 +185,10 @@ func TestAIAgentPostsToSlackThroughTheDexConnector(t *testing.T) {
 		postsMutex.Lock()
 		posts = append(posts, post)
 		postsMutex.Unlock()
-		if strings.Contains(post["text"], "unconfirmed") {
-			writer.WriteHeader(http.StatusServiceUnavailable)
+		if strings.Contains(post["text"], "slow") {
+			// Hold the post open until the killed app drops the connection.
+			slowPostArrived <- struct{}{}
+			<-request.Context().Done()
 			return
 		}
 		if _, err := fmt.Fprintf(writer, `{"ok":true,"channel":%q,"ts":"1761700000.000100","message":{"text":%q,"ts":"1761700000.000100"}}`,
@@ -194,8 +197,8 @@ func TestAIAgentPostsToSlackThroughTheDexConnector(t *testing.T) {
 		}
 	}))
 	t.Cleanup(fakeSlack.Close)
-	app := startAIAgentApp(t,
-		"SLACK_BOT_TOKEN=xoxb-test-token", "DEX_AI_AGENT_SLACK_CHANNEL=C0DEMO", "DEX_AI_AGENT_SLACK_ENDPOINT="+fakeSlack.URL)
+	connectionsFile := writeDexWebSlackConnection(t, fakeSlack.URL, "C0DEMO")
+	app := startAIAgentApp(t, "DEX_CONNECTOR_CONFIG_FILE="+connectionsFile)
 	flowID := app.startAgent(t)
 
 	app.sendUserMessage(t, flowID, "/slack Aurora ships today")
@@ -208,21 +211,58 @@ func TestAIAgentPostsToSlackThroughTheDexConnector(t *testing.T) {
 	require.Equal(t, aiagent.OutcomeDone, posted.Outcome, posted.Content)
 	require.Equal(t, "Posted to Slack channel C0DEMO (message 1761700000.000100).", posted.Content)
 
-	app.sendUserMessage(t, flowID, "/slack This post stays unconfirmed")
+	app.sendUserMessage(t, flowID, "/slack This slow post never gets an answer")
 	waiting = app.waitForSnapshot(t, flowID, "the second Slack approval", func(snapshot aiagent.AgentSnapshot) bool {
 		return snapshot.Status == aiagent.StatusWaitingForApproval
 	})
 	require.True(t, app.decideToolApproval(t, flowID, waiting.PendingApproval.ID, true))
+	select {
+	case <-slowPostArrived:
+	case <-time.After(aiAgentConvergenceTimeout):
+		t.Fatal("the slow post never reached Slack")
+	}
+	app.restartAfterKill(t)
 	unconfirmed := app.waitForToolResult(t, flowID, aiagent.ToolPostToSlack)
-	require.Equal(t, aiagent.OutcomeOutcomeUnknown, unconfirmed.Outcome)
-	require.Contains(t, unconfirmed.Content, "Slack did not confirm the message")
+	require.Equal(t, aiagent.OutcomeOutcomeUnknown, unconfirmed.Outcome, unconfirmed.Content)
+	require.Contains(t, unconfirmed.Content, "Slack did not confirm the message", "the connector's Uncertain branch, not a failure route")
 
 	postsMutex.Lock()
 	defer postsMutex.Unlock()
-	require.Len(t, posts, 2, "the connector sends each approved post once")
+	require.Len(t, posts, 2, "the connector must not send a post again after the kill")
 	require.Equal(t, "C0DEMO", posts[0]["channel"])
 	require.Equal(t, "Aurora ships today", posts[0]["text"])
 	require.NotEmpty(t, posts[0]["client_msg_id"])
+}
+
+// writeDexWebSlackConnection writes the two files Dex Web saves after a Slack sign-in and a channel choice.
+func writeDexWebSlackConnection(t *testing.T, endpoint, channelID string) string {
+	t.Helper()
+	channelSetting := aiagent.SlackChannelSettingRef()
+	connections := map[string]any{
+		"schemaVersion": "connectors.dex.dev/local-connections/v1alpha1",
+		"connections": []map[string]any{{
+			"connectorId": channelSetting.ConnectorID, "provider": channelSetting.ConnectorID,
+			"connectionName": channelSetting.ConnectionName,
+			"modulePath":     "github.com/superdurable/dex-connectors-library/connectors/slack", "moduleVersion": "v1.2.0",
+			"configuration": map[string]string{"endpoint": endpoint},
+			"credentials":   map[string]string{"bot_token": "xoxb-test-token", "user_token": "xoxp-test-token"},
+		}},
+	}
+	useConfigurations := map[string]any{
+		"schemaVersion": "connectors.dex.dev/local-use-configurations/v1alpha1",
+		"operationConfigurations": []map[string]any{{
+			"connectorId": channelSetting.ConnectorID, "connectionName": channelSetting.ConnectionName,
+			"operationId": channelSetting.OperationID, "flowType": channelSetting.FlowType, "stepType": channelSetting.StepType,
+			"configuration": aiagent.SlackChannelSetting{ChannelID: channelID},
+		}},
+	}
+	directory := t.TempDir()
+	for name, contents := range map[string]any{"connections.json": connections, "use-configurations.json": useConfigurations} {
+		encoded, err := json.Marshal(contents)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(directory, name), encoded, 0o600))
+	}
+	return filepath.Join(directory, "connections.json")
 }
 
 type aiAgentApp struct {

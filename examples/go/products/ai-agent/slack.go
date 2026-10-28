@@ -21,20 +21,25 @@
 package aiagent
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/superdurable/dex-connectors-library/connectors/slack"
 	"github.com/superdurable/dex-connectors-library/sdkgo"
+	"github.com/superdurable/dex-connectors-library/sdkgo/projectconfig"
+	"github.com/superdurable/dex-connectors-library/sdkgo/projectconfig/provider"
 )
 
 const (
 	ToolPostToSlack = "post_to_slack"
 
-	postToSlackStepType = "PostToSlack"
-	slackConnectionName = "ai-agent-slack"
-	unusedSlackToken    = "not-used-by-post_to_slack"
+	aiAgentFlowType               = "AIAgentFlow"
+	postToSlackStepType           = "PostToSlack"
+	postChannelMessageOperationID = "postChannelMessage"
+	slackConnectionName           = "ai-agent-slack"
 )
 
 var postToSlackToolDefinition = ToolDefinition{
@@ -43,39 +48,60 @@ var postToSlackToolDefinition = ToolDefinition{
 	Parameters:  objectSchema(map[string]any{"text": stringSchema("The message to post.")}, "text"),
 }
 
-// SlackSettings is the Dex Slack connection and channel that post_to_slack writes to.
-type SlackSettings struct {
-	Connection  slack.Connection
-	ChannelID   string
-	hasBotToken bool
+// SlackChannelSetting is the PostToSlack setting that the channel picker in Dex Web saves.
+type SlackChannelSetting struct {
+	ChannelID string `json:"channelId"`
 }
 
-// NewSlackSettingsFromEnvironment reads SLACK_BOT_TOKEN, DEX_AI_AGENT_SLACK_CHANNEL and DEX_AI_AGENT_SLACK_ENDPOINT.
-func NewSlackSettingsFromEnvironment() (SlackSettings, error) {
-	reference := sdkgo.ConnectionRef{Provider: slack.ConnectorID, Name: slackConnectionName}
-	botToken := os.Getenv("SLACK_BOT_TOKEN")
-	client, err := slack.New(
-		slack.Config{Endpoint: os.Getenv("DEX_AI_AGENT_SLACK_ENDPOINT")},
-		sdkgo.StaticCredentialProvider[slack.Credentials]{reference: {
-			BotToken: sdkgo.NewSecretString(botToken),
-			// Slack connector v0.7.0 validates all three tokens; posting uses only the bot token.
-			UserToken: sdkgo.NewSecretString(unusedSlackToken),
-			AppToken:  sdkgo.NewSecretString(unusedSlackToken),
-		}},
-	)
-	if err != nil {
-		return SlackSettings{}, fmt.Errorf("create the Slack connector client: %w", err)
+// SlackSettings is the Slack connection and channel that Dex Web set up for post_to_slack.
+type SlackSettings struct {
+	Connection slack.Connection
+	Channel    sdkgo.ConnectorLoadedConfiguration[SlackChannelSetting]
+	// NotSetUpReason is empty once Dex Web holds both the connection and the channel.
+	NotSetUpReason string
+}
+
+// SlackChannelSettingRef identifies the channel setting of the PostToSlack Step in Dex Web.
+func SlackChannelSettingRef() sdkgo.ConnectorConfigurationRef {
+	return sdkgo.ConnectorConfigurationRef{
+		ConnectorID: slack.ConnectorID, ConnectionName: slackConnectionName, OperationID: postChannelMessageOperationID,
+		FlowType: aiAgentFlowType, StepType: postToSlackStepType,
 	}
-	connection, err := slack.NewConnection(client, reference)
-	if err != nil {
-		return SlackSettings{}, fmt.Errorf("create the Slack connection: %w", err)
+}
+
+// LoadSlackSettings reads the Slack connection and channel from the Dex Web store in DEX_CONNECTOR_CONFIG_FILE.
+// Slack that is not set up yet is not an error: the model is then not offered post_to_slack.
+func LoadSlackSettings(ctx context.Context) (SlackSettings, error) {
+	if os.Getenv(projectconfig.LocalConnectionsFileEnvironment) == "" && os.Getenv("DEX_PROJECT_ID") == "" {
+		return newSlackSettingsNotSetUp(projectconfig.LocalConnectionsFileEnvironment + " is not set")
 	}
-	return SlackSettings{Connection: connection, ChannelID: os.Getenv("DEX_AI_AGENT_SLACK_CHANNEL"), hasBotToken: botToken != ""}, nil
+	project, err := projectconfig.LoadFromEnvironment(ctx)
+	if errors.Is(err, os.ErrNotExist) {
+		return newSlackSettingsNotSetUp("Dex Web has not saved a connection yet")
+	}
+	if err != nil {
+		return SlackSettings{}, fmt.Errorf("load the connector configuration: %w", err)
+	}
+	connection, err := slack.NewProjectConnection(project, slackConnectionName)
+	if errors.Is(err, projectconfig.ErrObjectNotFound) {
+		return newSlackSettingsNotSetUp("Dex Web has no Slack connection named " + slackConnectionName)
+	}
+	if err != nil {
+		return SlackSettings{}, fmt.Errorf("open the Slack connection: %w", err)
+	}
+	channel, err := provider.LoadOperationConfiguration[SlackChannelSetting](project.Configuration, SlackChannelSettingRef())
+	if errors.Is(err, projectconfig.ErrObjectNotFound) || (err == nil && channel.Value.ChannelID == "") {
+		return SlackSettings{Connection: connection, NotSetUpReason: "no channel is selected for the PostToSlack Step in Dex Web"}, nil
+	}
+	if err != nil {
+		return SlackSettings{}, fmt.Errorf("load the Slack channel setting: %w", err)
+	}
+	return SlackSettings{Connection: connection, Channel: channel}, nil
 }
 
 // IsConfigured reports whether the model is offered post_to_slack.
 func (settings SlackSettings) IsConfigured() bool {
-	return settings.hasBotToken && settings.ChannelID != ""
+	return settings.NotSetUpReason == ""
 }
 
 // mapToolCallToSlackMessage leaves the text empty for bad arguments; the connector then takes its Defect branch.
@@ -86,7 +112,34 @@ func (settings SlackSettings) mapToolCallToSlackMessage(call ToolCall) slack.Pos
 	if json.Unmarshal([]byte(call.Arguments), &arguments) != nil {
 		arguments.Text = ""
 	}
-	return slack.PostChannelMessageInput{ChannelID: settings.ChannelID, Text: arguments.Text}
+	return slack.PostChannelMessageInput{ChannelID: settings.Channel.Value.ChannelID, Text: arguments.Text}
+}
+
+// newSlackSettingsNotSetUp still registers PostToSlack; every post then takes the connector's Defect branch.
+func newSlackSettingsNotSetUp(reason string) (SlackSettings, error) {
+	client, err := slack.New(slack.Config{}, slackCredentialsNotSetUp{reason: reason})
+	if err != nil {
+		return SlackSettings{}, fmt.Errorf("create the Slack client: %w", err)
+	}
+	connection, err := slack.NewConnection(client, sdkgo.ConnectionRef{Provider: slack.ConnectorID, Name: slackConnectionName})
+	if err != nil {
+		return SlackSettings{}, fmt.Errorf("create the Slack connection: %w", err)
+	}
+	return SlackSettings{Connection: connection, NotSetUpReason: reason}, nil
+}
+
+type slackCredentialsNotSetUp struct {
+	reason string
+}
+
+func (credentials slackCredentialsNotSetUp) Resolve(sdkgo.Call) (slack.Credentials, error) {
+	return slack.Credentials{}, errors.New(credentials.reason)
+}
+
+func (credentials slackCredentialsNotSetUp) ResolveWithRefresh(
+	context.Context, sdkgo.Call, sdkgo.CredentialRefreshDriver[slack.Credentials],
+) (slack.Credentials, error) {
+	return slack.Credentials{}, errors.New(credentials.reason)
 }
 
 func describeSlackPost(result slack.PostChannelMessageResult) (string, string) {
@@ -104,6 +157,5 @@ func describeSlackPost(result slack.PostChannelMessageResult) (string, string) {
 	case slack.PostChannelMessageBranchProviderRejected:
 		return OutcomeFailed, fmt.Sprintf("Slack rejected the message: %s.", detail)
 	}
-	return OutcomeFailed, fmt.Sprintf(
-		"The Slack connection cannot post (%s). Set SLACK_BOT_TOKEN and DEX_AI_AGENT_SLACK_CHANNEL.", detail)
+	return OutcomeFailed, fmt.Sprintf("The Slack connection cannot post (%s). Set it up on the Dex Web Connectors page.", detail)
 }
