@@ -4,27 +4,24 @@ title: Pull Workers
 
 # Pull Workers
 
-A pull Worker opens outbound task streams to Dex Server instead of listening for
-incoming calls. Choose pull mode when Workers cannot expose an inbound port, run
-behind NAT or firewalls, or need simpler network rules. Pull mode also offers
-sticky routing when a Worker keeps useful state in memory between calls.
+Every Dex Worker is a pull Worker. It opens outbound task streams to Dex Server
+and never listens for incoming calls. Workers need only an outbound connection
+to Dex Server, so they can run behind NAT or firewalls without an inbound port.
+Pull Workers also offer sticky routing when a Worker keeps useful state in
+memory between calls.
 
-## Enable pull mode
+## Start a Worker {#enable-pull-mode}
 
-Set the Worker's pull option and its Dex Server address. Do not set a bind
-address or advertise a listening address for the same Worker. The SDK exposes a
-pull **WorkerTarget** from the Worker. Set that target as the Client's default,
-or select it for one Flow with **StartFlowOptions** and
-**FlowConfig.WorkerTarget**. A SubFlow can select it with **SubFlowOptions** and
-the same **FlowConfig** override. Use a pull **WorkerTarget** without a local
-Worker when the Client runs in a separate process.
+Set the Worker's Dex Server address. The pull options are optional. Use them to
+tune task capacity, registration, and shutdown. A Client needs only the Dex
+Server address. Dex sends every Flow, SubFlow, Step, and RPC call to pull
+Workers, so there is no Worker address or target to configure.
 
-All five SDKs provide pull options and targets. This example serves a Greeting
-Flow through a pull Worker. Its Step stores a greeting, and the greeting RPC
-reads it. See the [Go](https://github.com/superdurable/dex/blob/main/sdk-go/README.md#running-a-worker),
-[Python](https://github.com/superdurable/dex/blob/main/sdk-python/README.md#pull-mode),
-[Java](https://github.com/superdurable/dex/blob/main/sdk-java/README.md#pull-mode),
-[TypeScript](https://github.com/superdurable/dex/blob/main/sdk-typescript/README.md#pull-mode),
+This example serves a Greeting Flow through a pull Worker. Its Step stores a
+greeting, and the greeting RPC reads it. See the [Go](https://github.com/superdurable/dex/blob/main/sdk-go/README.md#running-a-worker),
+[Python](https://github.com/superdurable/dex/blob/main/sdk-python/README.md#workers),
+[Java](https://github.com/superdurable/dex/blob/main/sdk-java/README.md#pull-workers),
+[TypeScript](https://github.com/superdurable/dex/blob/main/sdk-typescript/README.md#workers),
 and [Rust](https://github.com/superdurable/dex/blob/main/sdk-rust/README.md#pull-mode)
 READMEs for startup details.
 
@@ -62,10 +59,7 @@ async def start_pull_greeting(
     client = AsyncClient(
         registry,
         cache,
-        ClientOptions(
-            server_address=server_address,
-            worker_target=worker.worker_target,
-        ),
+        ClientOptions(server_address=server_address),
     )
     try:
         await worker.wait_pull_registered(timeout=30)
@@ -112,7 +106,6 @@ func StartPullGreeting(cache *blobcache.Cache, serverAddress string) (*GreetingF
 	}
 	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
 		FlowServiceAddress: serverAddress,
-		WorkerTarget:       worker.WorkerTarget(),
 	})
 	if err != nil {
 		return nil, nil, nil, nil, errors.Join(err, worker.Stop(context.Background()))
@@ -182,8 +175,7 @@ public final class PullGreetingExample {
                         .reservedRpcTasks(1)
                         .build())
                 .build());
-        final Client client = new Client(registry, cache,
-                new ClientOptions(serverAddress, worker.getWorkerTarget()));
+        final Client client = new Client(registry, cache, new ClientOptions(serverAddress));
         final CompletableFuture<Void> workerResult = new CompletableFuture<>();
         final Thread workerThread = new Thread(() -> {
             try {
@@ -268,10 +260,7 @@ export async function startPullGreeting(
     }
     throw failure;
   }
-  const client = new Client(registry, cache, {
-    serverAddress,
-    workerTarget: worker.workerTarget,
-  });
+  const client = new Client(registry, cache, { serverAddress });
   return { flow, worker, client };
 }
 
@@ -306,9 +295,7 @@ pub fn start_pull_greeting(
     let client = Client::try_new(
         registry,
         cache,
-        ClientOptions::new()
-            .server_address(server_address)
-            .worker_target(worker.worker_target().clone()),
+        ClientOptions::new().server_address(server_address),
     )?;
     let startup_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -491,7 +478,6 @@ and retry policy with an error that names the Step or RPC. An RPC caller gets
 the named error directly after waiting up to the regular dispatch wait of 10
 seconds. This reassignment requires a Dex Server release that supports it.
 Against older Servers, the Worker returns the not-registered error as before.
-Push Workers still return their ordinary missing-name error.
 
 Delivery is at least once. A call can be assigned again when its Worker
 disconnects before Dex receives any output. Make external side effects
@@ -580,7 +566,7 @@ exposes a cumulative reserve-decline counter: **PullReservedRPCDeclines()** in G
 and **pull_reserved_rpc_declines()** in Rust. Full-capacity rejections and unknown
 names do not increment it. It counts decline events, including repeated declines
 of the same Step dispatch while Dex retries it, so read its rate. The count never
-resets, remains available after shutdown, and is zero for listening Workers. See
+resets and remains available after shutdown. See
 each SDK README for logger configuration.
 
 The startup examples set the task limit to eight and explicitly reserve one slot
