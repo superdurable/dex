@@ -74,7 +74,7 @@ func TestPullSameWorkerFallbackCadence(t *testing.T) {
 func testPullSameWorkerFallback(t *testing.T, backend service.BackendType) {
 	for _, durability := range []dexpb.StepDurability{dexpb.StepDurability_STEP_DURABILITY_SYNC, dexpb.StepDurability_STEP_DURABILITY_ASYNC} {
 		t.Run(durability.String(), func(t *testing.T) {
-			runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: 5 * time.Second, StickyWait: 100 * time.Millisecond}})
+			runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: 5 * time.Second, StickyWait: 100 * time.Millisecond}})
 			workerID := "routing-same-worker-" + uuid.NewString()
 			worker := startRawPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, workerID, nil)
 			ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
@@ -98,7 +98,12 @@ func testPullSameWorkerFallback(t *testing.T, backend service.BackendType) {
 			completed, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID, WaitTimeSeconds: 25})
 			require.NoError(t, err)
 			require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, completed.GetFlowStatus(), completed.GetErrorMessage())
-			requirePullHistoryRouting(t, ctx, runtime.FlowClient, flowID, workerID, workerID, dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_FLOW_TYPE_QUEUE)
+			executeSource := dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_FLOW_TYPE_QUEUE
+			if isServerZDBinaryMode() {
+				// server-zd labels any task its sticky Worker serves as sticky, whichever stream delivered it.
+				executeSource = dexpb.PullRoutingSource_PULL_ROUTING_SOURCE_STICKY_QUEUE
+			}
+			requirePullHistoryRouting(t, ctx, runtime.FlowClient, flowID, workerID, workerID, executeSource)
 		})
 	}
 }
@@ -107,7 +112,7 @@ func TestPullRPCRoutingTemporal(t *testing.T) {
 	if !*temporalIntegTest || *dexServerAddress != "" {
 		t.Skip()
 	}
-	runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal, Matching: &config.MatchingConfig{}})
+	runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal, Matching: &config.MatchingConfig{}})
 	workerID := "routing-rpc-" + uuid.NewString()
 	worker := startRawPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, workerID, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -161,7 +166,7 @@ func TestPullRPCSignalRoutingCadence(t *testing.T) {
 
 func testPullRPCSignalRouting(t *testing.T, backend service.BackendType) {
 	t.Helper()
-	runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{}})
+	runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{}})
 	workerID := "routing-signal-rpc-" + uuid.NewString()
 	worker := startStateWritingPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, workerID, "rpc-write")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -289,7 +294,7 @@ func (p *pullWaitForCompletedProbe) hasCompleted() bool {
 func testPullRouting(t *testing.T, backend service.BackendType) {
 	for _, durability := range []dexpb.StepDurability{dexpb.StepDurability_STEP_DURABILITY_SYNC, dexpb.StepDurability_STEP_DURABILITY_ASYNC} {
 		t.Run(durability.String(), func(t *testing.T) {
-			runtime := startInProcessDexService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: 5 * time.Second, StickyWait: 100 * time.Millisecond}})
+			runtime := startPullDispatchService(t, DexServiceTestConfig{BackendType: backend, Matching: &config.MatchingConfig{DispatchWait: 5 * time.Second, StickyWait: 100 * time.Millisecond}})
 			firstWorkerID := "routing-first-" + uuid.NewString()
 			firstWorker := startUnknownRejectingPullWorker(t, runtime.PublicAddress, dispatchProbeFlowType, firstWorkerID, rawPullWorkerConfig{shouldStartSecondStep: true})
 			ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
