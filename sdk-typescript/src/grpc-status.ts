@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
+import { BinaryReader } from "@bufbuild/protobuf/wire";
 import { Metadata, status, type ServiceError as GrpcServiceError } from "@grpc/grpc-js";
 
 import {
@@ -41,25 +41,6 @@ const stackTraceTruncationMarker = Buffer.from("\n... stack trace truncated by D
 interface AnyDetail {
   readonly typeUrl: string;
   readonly value: Uint8Array;
-}
-
-export function workerServiceError(failure: unknown): GrpcServiceError {
-  const response = workerErrorResponse(failure);
-  const worker = WorkerErrorResponse.encode(response).finish();
-  const metadata = new Metadata();
-  metadata.set(
-    statusDetailsKey,
-    Buffer.from(
-      encodeStatus(response.grpcStatus, response.detail, [
-        { typeUrl: "type.googleapis.com/dex.WorkerErrorResponse", value: worker },
-      ]),
-    ),
-  );
-  return Object.assign(new Error(response.detail), {
-    code: response.grpcStatus,
-    details: response.detail,
-    metadata,
-  });
 }
 
 export function workerErrorResponse(failure: unknown, grpcStatus: status = status.UNKNOWN): WorkerErrorResponse {
@@ -220,23 +201,6 @@ function mapSubStatus(value: ProtoErrorSubStatus): ErrorSubStatusValue {
     default:
       return ErrorSubStatus.UNCATEGORIZED;
   }
-}
-
-function encodeStatus(code: number, message: string, details: readonly AnyDetail[]): Uint8Array {
-  const writer = new BinaryWriter();
-  if (code !== 0) {
-    writer.uint32(8).int32(code);
-  }
-  if (message !== "") {
-    writer.uint32(18).string(message);
-  }
-  for (const detail of details) {
-    writer.uint32(26).fork();
-    writer.uint32(10).string(detail.typeUrl);
-    writer.uint32(18).bytes(detail.value);
-    writer.join();
-  }
-  return writer.finish();
 }
 
 function decodeStatus(input: Uint8Array): { details: AnyDetail[] } {

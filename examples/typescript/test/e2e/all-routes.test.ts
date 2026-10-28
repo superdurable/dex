@@ -31,8 +31,6 @@ let baseUrl: string;
 test.before(async () => {
   process.env.DEX_EXAMPLES_HTTP_ADDRESS =
     process.env.DEX_SMOKE_HTTP_ADDRESS ?? "127.0.0.1:18080";
-  process.env.DEX_WORKER_BIND_ADDRESS =
-    process.env.DEX_SMOKE_WORKER_BIND_ADDRESS ?? "127.0.0.1:18803";
   server = await startSampleServer();
   baseUrl = `http://${loadEnv().httpAddress}`;
 });

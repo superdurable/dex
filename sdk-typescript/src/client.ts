@@ -79,7 +79,6 @@ import {
   type FlowResult,
 } from "./flow-result.js";
 import { translateServiceError } from "./grpc-status.js";
-import { mapWorkerTarget } from "./worker-target.js";
 import {
   ActiveStepSearchMode,
   FlowTimeoutPolicy,
@@ -142,16 +141,13 @@ export class Client {
    * Constructs a Client and lazy plaintext gRPC connection.
    * @param registry - Flow definitions used for validation and routing.
    * @param blobCache - Open cache used to hydrate large response values.
-   * @param options - Service address, default Worker target, and optional bearer credential.
+   * @param options - Service address and optional bearer credential.
    */
   public constructor(
     public readonly registry: Registry,
     public readonly blobCache: BlobCache,
     public readonly options: ClientOptions = {},
   ) {
-    if (options.workerTarget !== undefined && "pull" in options.workerTarget) {
-      mapWorkerTarget(options.workerTarget);
-    }
     this.service = new FlowServiceClient(
       options.serverAddress ?? defaultServerAddress,
       credentials.createInsecure(),
@@ -201,7 +197,10 @@ export class Client {
         flowStartDelaySeconds: seconds(options.startDelayMs),
         retryPolicy: mapFlowRetryPolicy(options.retryPolicy),
         attributes: initialAttributeWrites,
-        flowConfigOverride: mapFlowConfig(options.configOverride, this.options),
+        flowConfigOverride: {
+          ...mapFlowConfig(options.configOverride),
+          workerTarget: { address: "", isHeadlessAddress: false, isPullMode: true },
+        },
         flowAlreadyStartedOptions: {
           ignoreAlreadyStartedError: options.ignoreAlreadyStarted ?? false,
         },
@@ -1057,8 +1056,9 @@ export class Client {
   }
 
   /**
-   * Replaces mutable configuration for an active Flow.
+   * Updates mutable configuration for an active Flow.
    * The update affects later decisions and does not recall dispatched work.
+   * Updates preserve the existing Worker target, including when config is empty.
    * @param flowId - Non-empty active Flow ID.
    * @param config - New optional Flow configuration fields.
    */
@@ -1070,7 +1070,7 @@ export class Client {
         {
           flowId: requireName(flowId),
           runId: "",
-          flowConfig: mapFlowConfig(config, this.options),
+          flowConfig: mapFlowConfig(config),
         },
         callback,
       ),
@@ -1363,12 +1363,7 @@ function mapFlowRetryPolicy(retry: RetryPolicy | undefined) {
 
 function mapFlowConfig(
   config: FlowConfig | undefined,
-  clientOptions: ClientOptions,
-): ProtoFlowConfig | undefined {
-  const workerTarget = config?.workerTarget ?? clientOptions.workerTarget;
-  if (config === undefined && workerTarget === undefined) {
-    return undefined;
-  }
+): ProtoFlowConfig {
   return {
     activeStepSearchMode:
       config?.activeStepSearchMode === undefined
@@ -1381,10 +1376,7 @@ function mapFlowConfig(
     continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
     stepDurability:
       config?.stepDurability === undefined ? undefined : mapDurability(config.stepDurability),
-    workerTarget:
-      workerTarget === undefined
-        ? undefined
-        : mapWorkerTarget(workerTarget),
+    workerTarget: undefined,
   };
 }
 

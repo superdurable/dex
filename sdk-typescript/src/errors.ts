@@ -129,7 +129,7 @@ export class FlowNotFoundError extends DexServiceError {}
  */
 export class FlowNotActiveOrNotFoundError extends DexServiceError {}
 
-/** Exposes both outer FlowService and nested WorkerService failure details. */
+/** Exposes both outer FlowService and nested Worker invocation failure details. */
 export class WorkerInvocationError extends DexServiceError {
   /**
    * Creates an error from outer and nested Worker metadata.

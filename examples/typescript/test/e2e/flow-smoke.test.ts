@@ -40,8 +40,6 @@ let context: FlowSmokeContext;
 test.before(async () => {
   process.env.DEX_EXAMPLES_HTTP_ADDRESS =
     process.env.DEX_SMOKE_HTTP_ADDRESS ?? `127.0.0.1:${await availablePort()}`;
-  process.env.DEX_WORKER_BIND_ADDRESS =
-    process.env.DEX_SMOKE_WORKER_BIND_ADDRESS ?? `127.0.0.1:${await availablePort()}`;
   server = await startSampleServer();
   const httpAddress = loadEnv().httpAddress;
   context = {

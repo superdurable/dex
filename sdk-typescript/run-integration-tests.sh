@@ -15,36 +15,14 @@ if [[ "$DEX_INTEG_ENGINE" != temporal && "$DEX_INTEG_ENGINE" != zd ]]; then
   echo "DEX_INTEG_ENGINE must be temporal or zd" >&2
   exit 2
 fi
-default_worker_mode=push
-if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
-  default_worker_mode=pull
-fi
-export DEX_INTEG_WORKER_MODE="${DEX_INTEG_WORKER_MODE:-$default_worker_mode}"
-if [[ "$DEX_INTEG_WORKER_MODE" != "push" && "$DEX_INTEG_WORKER_MODE" != "pull" ]]; then
-  echo "DEX_INTEG_WORKER_MODE must be push or pull" >&2
-  exit 2
-fi
-if [[ "$DEX_INTEG_ENGINE" == zd && "$DEX_INTEG_WORKER_MODE" == push ]]; then
-  echo "DEX_INTEG_WORKER_MODE=push is not supported with DEX_INTEG_ENGINE=zd" >&2
-  exit 2
-fi
 
 test_script="test:integration"
-pull_only=false
 if [[ "${1:-}" == "--coverage" ]]; then
   test_script="test:integration:coverage"
   shift
 fi
-if [[ "${1:-}" == "--pull" ]]; then
-  pull_only=true
-  shift
-fi
 if [[ "$#" -ne 0 ]]; then
-  echo "usage: $0 [--coverage] [--pull]" >&2
-  exit 2
-fi
-if $pull_only && [[ "$test_script" == "test:integration:coverage" ]]; then
-  echo "--coverage and --pull cannot be combined" >&2
+  echo "usage: $0 [--coverage]" >&2
   exit 2
 fi
 
@@ -136,10 +114,4 @@ if ! $dex_ready; then
 fi
 
 cd "$script_dir"
-if $pull_only; then
-  npm run build:native
-  npm run build
-  DEX_SERVER_ADDRESS="$dex_address" node --test dist/test/integ/pull-worker.integration.test.js
-else
-  DEX_SERVER_ADDRESS="$dex_address" npm run "$test_script"
-fi
+DEX_SERVER_ADDRESS="$dex_address" npm run "$test_script"

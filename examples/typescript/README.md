@@ -1,9 +1,9 @@
 # Dex TypeScript examples
 
-These examples target [`@superdurable/dex@1.2.1`](https://www.npmjs.com/package/@superdurable/dex).
+These examples target [`@superdurable/dex@1.15.0`](https://www.npmjs.com/package/@superdurable/dex).
 
-The sample process hosts one gRPC Worker (default `127.0.0.1:8803`) and an HTTP
-controller on port `8080`. Step `execute` / `waitFor` / RPC handlers may
+The sample process runs one pull Worker and an HTTP controller on port `8080`.
+The Worker needs only an outbound connection to the Dex Server. Step `execute` / `waitFor` / RPC handlers may
 `await` the shared `Client` directly (async await on the Worker). Disk
 BlobCaches are under `DEX_BLOB_CACHE_DIR`.
 
@@ -45,7 +45,7 @@ npm start
 ```
 
 The Worker synchronizes all registered Indexed Attributes with Dex before it
-opens its listener; no backend CLI registration is required.
+opens its task streams; no backend CLI registration is required.
 
 The examples share namespace-level slots by index type: `keyword1`,
 `text1`, `int1`, and numbered later slots such as `keyword2`.
@@ -55,12 +55,14 @@ Application searches must constrain `FlowType` and parenthesize caller filters.
 The sample search endpoints enforce their Flow type.
 
 Use Node.js 22 or 24. Defaults connect to Dex at `localhost:8801`. Override with
-`DEX_FLOW_SERVICE_ADDRESS`, `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`,
-`DEX_EXAMPLES_HTTP_ADDRESS`, `DEX_BLOB_CACHE_DIR`.
+`DEX_FLOW_SERVICE_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, and `DEX_BLOB_CACHE_DIR`.
 
-Set `DEX_EXAMPLES_WORKER_MODE` to `push` (default) to listen on the Worker bind
-address. Set it to `pull` to connect to Dex as a pull Worker. Pull mode ignores
-the bind address and target, and starts Flows with the pull Worker target.
+Workers always use pull task streams. Startup waits for Dex to register every
+Flow type queue and the process queue before accepting HTTP requests.
+
+The examples retain their published SDK dependency. Their bootstrap explicitly
+selects pull routing for compatibility with that release; new SDK versions use
+pull routing automatically.
 
 ## Verify
 
@@ -74,9 +76,7 @@ npm run smoke            # every product + pattern HTTP route
 The integration suite starts and verifies Money Transfer, Order Processing,
 Engagement, Microservice, Subscription, and Failure Recovery Flows.
 
-Set `DEX_EXAMPLES_WORKER_MODE=pull` to run the same tests with pull Workers.
-Set `DEX_INTEG_ENGINE=zd` to run them against server-zd. That mode defaults to
-pull Workers. Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
+Set `DEX_INTEG_ENGINE=zd` to run them against server-zd. Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running
 after E2E tests for manual HTTP exploration.

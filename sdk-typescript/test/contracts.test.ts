@@ -29,6 +29,7 @@ import {
   Registry,
   Stream,
   StepList,
+  SubFlow,
   Timer,
   ValueMappingError,
   Wait,
@@ -44,6 +45,7 @@ import {
   type AsyncContext,
   type Context,
   type Credential,
+  type ClientOptions,
   type Flow,
   type FlowConfig,
   type RPCResult,
@@ -51,8 +53,8 @@ import {
   type Step,
   type StepDecision,
   type PullWorkerOptions,
-  type PullWorkerTarget,
   type WorkerOptions,
+  type Worker,
   type SubFlowOptions,
 } from "../src/index.js";
 import {
@@ -322,6 +324,47 @@ test("object Step and RPC omit codecs and still encode JSON", async () => {
     }),
   );
   assert.equal(pinged.output?.kind?.$case, "nullValue");
+});
+
+test("SubFlows always send the exact pull Worker target with and without config overrides", async () => {
+  class PullChildStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string { return "PullChildStep"; }
+    public execute(): StepDecision { return gracefulComplete(); }
+  }
+  const childStep = new PullChildStep();
+  const child: Flow<void> = {
+    getFlowType: () => "PullChildFlow",
+    getSteps: () => StepList.startStep(childStep),
+  };
+  for (const configOverride of [undefined, { continueAsNewThreshold: 123 }] as const) {
+    class StartPullChildStep implements Step<void> {
+      public readonly inputCodec = voidCodec;
+      public getStepType(): string { return "StartPullChildStep"; }
+      public waitFor(): Wait {
+        return Wait.until(SubFlow.run(child, undefined,
+          configOverride === undefined ? undefined : { configOverride }));
+      }
+      public execute(): StepDecision { return gracefulComplete(); }
+    }
+    const step = new StartPullChildStep();
+    const parent: Flow<void> = {
+      getFlowType: () => "PullParentFlow",
+      getSteps: () => StepList.startStep(step),
+    };
+    const hydrator = { hydrateAll: async (_flowId: string, values: readonly unknown[]) => values } as ValueHydrator;
+    const dispatcher = new WorkerDispatcher(new Registry([parent, child]), hydrator, () => 3);
+    const response = await dispatcher.invokeWaitFor(InvokeWaitForMethodRequest.create({
+      context: ProtoContext.create({ flowId: "pull-parent", stepExecutionId: "start-child-1" }),
+      flowType: parent.getFlowType(), stepType: step.getStepType(),
+      stepInput: encodeValue(voidCodec, undefined),
+    }));
+    const mappedConfig = response.waitingCondition?.subFlowConditions[0]?.options?.flowConfigOverride;
+    assert.deepEqual(mappedConfig?.workerTarget, {
+      address: "", isHeadlessAddress: false, isPullMode: true,
+    });
+    assert.equal(mappedConfig?.continueAsNewThreshold, configOverride?.continueAsNewThreshold);
+  }
 });
 
 test("fluent wait factories validate channel bounds", () => {
@@ -1016,8 +1059,7 @@ test("blob cache contract opens the native DXBC cache", () => {
 async function compileStrongTypes(client: Client): Promise<void> {
   const pullOptions: PullWorkerOptions = { maxConcurrentTasks: 8, idleStreamsPerQueue: 1 };
   const workerOptions: WorkerOptions = { pull: pullOptions };
-  const pullTarget: PullWorkerTarget = { pull: true };
-  const pullConfig: FlowConfig = { workerTarget: pullTarget };
+  const pullConfig: FlowConfig = {};
   const subFlowOptions: SubFlowOptions = { configOverride: pullConfig };
   void workerOptions;
   void subFlowOptions;
@@ -1074,3 +1116,22 @@ async function compileStrongTypes(client: Client): Promise<void> {
 }
 
 void compileStrongTypes;
+
+function compileRemovedWorkerSettings(worker: Worker): void {
+  // @ts-expect-error Worker listeners have been removed.
+  const listener: WorkerOptions = { bindAddress: "127.0.0.1:8803" };
+  // @ts-expect-error Worker routing is automatic.
+  const workerOptions: WorkerOptions = { workerTarget: { address: "worker:8803" } };
+  // @ts-expect-error Client routing is automatic.
+  const clientOptions: ClientOptions = { workerTarget: { pull: true } };
+  // @ts-expect-error Flow and SubFlow routing is automatic.
+  const flowConfig: FlowConfig = { workerTarget: { pull: true } };
+  // @ts-expect-error Workers have no advertised endpoint.
+  void worker.workerTarget;
+  void listener;
+  void workerOptions;
+  void clientOptions;
+  void flowConfig;
+}
+
+void compileRemovedWorkerSettings;

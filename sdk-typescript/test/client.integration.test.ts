@@ -64,6 +64,7 @@ import {
   type SearchFlowsRequest,
   type StartFlowRequest,
   type StartFlowResponse,
+  type UpdateFlowConfigRequest,
   type WaitForAttributeRequest,
   type WaitForAttributeResponse,
   type WaitForFlowRequest,
@@ -165,6 +166,7 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
   const requests: {
     search?: SearchFlowsRequest;
     start?: StartFlowRequest;
+    updateFlowConfig?: UpdateFlowConfigRequest;
     rpc?: InvokeRPCRequest;
     writeStream?: WriteStreamRequest;
     readStream?: ReadStreamRequest;
@@ -182,6 +184,10 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     startFlow(call, callback: sendUnaryData<StartFlowResponse>) {
       requests.start = call.request as StartFlowRequest;
       callback(null, { runId: "run-1" });
+    },
+    updateFlowConfig(call, callback) {
+      requests.updateFlowConfig = call.request as UpdateFlowConfigRequest;
+      callback(null, {});
     },
     invokeRpc(call, callback: sendUnaryData<InvokeRPCResponse>) {
       requests.rpc = call.request as InvokeRPCRequest;
@@ -439,6 +445,15 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(requests.waitForStepCompletion.at(-1)?.requestId, "");
     assert.equal(requests.waitForStepCompletion.at(-1)?.requestTimeoutSeconds, 1);
     assert.equal(requests.waitForStepCompletion.at(-1)?.internalHandlerTimeoutSeconds, 3);
+    assert.deepEqual(requests.start?.flowStartOptions?.flowConfigOverride?.workerTarget, {
+      address: "", isHeadlessAddress: false, isPullMode: true,
+    });
+    await client.updateFlowConfig("flow-1", {});
+    assert.ok(requests.updateFlowConfig?.flowConfig);
+    assert.equal(requests.updateFlowConfig.flowConfig.workerTarget, undefined);
+    await client.updateFlowConfig("flow-1", { continueAsNewThreshold: 123 });
+    assert.equal(requests.updateFlowConfig.flowConfig.workerTarget, undefined);
+    assert.equal(requests.updateFlowConfig.flowConfig.continueAsNewThreshold, 123);
     assert.equal(requests.start?.flowType, "TestFlow");
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.start?.stepOptions?.heartbeatTimeoutSeconds, 2);

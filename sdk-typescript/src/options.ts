@@ -12,14 +12,12 @@ import type { RetryPolicy, StepClass, StepDurability, StepOptions } from "./step
 import type { Channel, ChannelMap, ChannelMapLoad } from "./wait.js";
 import { requireMapInstance, requireName } from "./validation.js";
 
-/** Configures FlowService connectivity and default Flow routing. */
+/** Configures FlowService connectivity and bearer credentials. */
 export interface ClientOptions {
   /** Plaintext Dex gRPC target; defaults to `localhost:8801`. */
   readonly serverAddress?: string;
   /** Bearer token provider for every FlowService call; omitted sends no authorization metadata. */
   readonly credential?: Credential;
-  /** Worker endpoint advertised by `startFlow` unless a Flow overrides it; use `{ pull: true }` for pull Workers. */
-  readonly workerTarget?: WorkerTarget | PullWorkerTarget;
 }
 
 /**
@@ -177,8 +175,6 @@ export interface FlowConfig {
   readonly continueAsNewPageSizeBytes?: number;
   /** Default durability for later Step handler results. */
   readonly stepDurability?: StepDurability;
-  /** Worker endpoint used for later handler calls; use `{ pull: true }` for pull routing. */
-  readonly workerTarget?: WorkerTarget | PullWorkerTarget;
 }
 
 /**
@@ -456,18 +452,14 @@ export interface StopFlowOptions {
 }
 
 /**
- * Configures Worker startup and either a listening endpoint or outbound pull streams.
+ * Configures Worker startup and outbound task streams.
  *
- * Set `pull: {}` to execute tasks without a listener. A pull Worker cannot set
- * `bindAddress` or `workerTarget`. See {@link PullWorkerOptions} for capacity and shutdown.
+ * Every Worker pulls tasks over an outbound connection to the Dex Server.
+ * See {@link PullWorkerOptions} for capacity and shutdown settings.
  */
 export interface WorkerOptions {
-  /** Enables outbound polling when supplied; omitted to listen for WorkerService calls. */
+  /** Task capacity and shutdown settings; omitted uses the defaults in {@link PullWorkerOptions}. */
   readonly pull?: PullWorkerOptions;
-  /** Local plaintext WorkerService listener; defaults to `127.0.0.1:8803` outside pull mode. */
-  readonly bindAddress?: string;
-  /** Endpoint advertised to Dex; derived from `bindAddress` when omitted. */
-  readonly workerTarget?: WorkerTarget;
   /** Dex FlowService target; defaults to `localhost:8801`. */
   readonly serverAddress?: string;
   /** Bearer token provider for startup, hydration, and pull streams; omitted sends no authorization metadata. */
@@ -479,14 +471,14 @@ export interface WorkerOptions {
 /**
  * Configures an outbound pull Worker.
  *
- * Pass this as `WorkerOptions.pull`, then advertise `worker.workerTarget` to a Client.
+ * Pass this as `WorkerOptions.pull` to customize task capacity and shutdown.
  * Each stream handles one task, while handlers on different streams can run concurrently.
  *
  * @example
  * ```ts
  * const worker = new Worker(registry, cache, { pull: { maxConcurrentTasks: 8 } });
  * await worker.start();
- * const client = new Client(registry, cache, { workerTarget: worker.workerTarget });
+ * const client = new Client(registry, cache);
  * try { await client.startFlow(flow, flowId); } finally { await client.close(); await worker.close(); }
  * ```
  */
@@ -525,46 +517,6 @@ export interface PullWorkerOptions {
   readonly appWorkerID?: string;
   /** Milliseconds allowed for graceful shutdown and busy Reconnect final-frame delivery; defaults to 30000. Requires a non-negative finite value. After shutdown expiry, Worker.close cancels active handlers and waits for them to return. */
   readonly stopDrainTimeoutMs?: number;
-}
-
-/**
- * Selects the listening endpoint used for Step and RPC work.
- *
- * Use this for a WorkerService listener. Use {@link PullWorkerTarget} for
- * outbound pull routing.
- *
- * @example
- * ```ts
- * const client = new Client(registry, cache, { workerTarget: { address: "worker.example:8803" } });
- * ```
- */
-export interface WorkerTarget {
-  /** Plaintext gRPC target; headless targets must use `host:port`. */
-  readonly address: string;
-  /** Whether Dex connects directly without service discovery. */
-  readonly headless?: boolean;
-}
-
-/**
- * Routes Step and RPC work through Dex task queues to an outbound pull Worker.
- *
- * Supply this target as a Client default, StartFlow configuration override, or
- * SubFlow configuration override. The Worker must have `WorkerOptions.pull` enabled.
- * Pull cannot include a nonempty address or enable headless routing.
- *
- * @example
- * ```ts
- * const client = new Client(registry, cache, { workerTarget: { pull: true } });
- * await client.startFlow(flow, flowId, input);
- * ```
- */
-export interface PullWorkerTarget {
-  /** Enables routing through Dex task queues. */
-  readonly pull: true;
-  /** Omit this field or use an empty string; pull Workers do not listen. */
-  readonly address?: "";
-  /** Omit this field or use false; headless routing requires a listener. */
-  readonly headless?: false;
 }
 
 /** Selects whether a visibility search includes earlier Continue-as-New runs. */

@@ -23,7 +23,7 @@ import { Client, Worker, openBlobCache } from "@superdurable/dex";
 import { setClient } from "./client-holder.js";
 import { startCronSchedule } from "./config/cron-schedule-starter.js";
 import { loadEnv } from "./config/env.js";
-import { startExampleWorker } from "./config/worker-mode.js";
+import { startExampleWorker } from "./config/worker.js";
 import { createDrainInternalRouter } from "./patterns/drain-channels/internal/controller.js";
 import { createDrainingChannelRouter } from "./patterns/drain-channels/external-publishing/controller.js";
 import { createEntityStoreRouter } from "./patterns/entity-store/controller.js";
@@ -82,16 +82,10 @@ export async function startSampleServer(): Promise<SampleServer> {
     directory: env.blobCacheDir,
     maxBytes: 1 << 30,
   });
-  const worker = await startExampleWorker(registry, blobCache, env.workerMode, env.serverAddress, {
-    bindAddress: env.workerBindAddress,
-    serverAddress: env.serverAddress,
-    ...(env.workerTarget !== undefined
-      ? { workerTarget: { address: env.workerTarget } }
-      : {}),
-  });
+  const worker = await startExampleWorker(registry, blobCache, env.serverAddress);
   const client = new Client(registry, blobCache, {
     serverAddress: env.serverAddress,
-    workerTarget: worker.workerTarget,
+    workerTarget: { pull: true },
   });
   setClient(client);
 
@@ -227,9 +221,7 @@ async function main(): Promise<void> {
   const server = await startSampleServer();
   const env = loadEnv();
   console.log(
-    `Dex TypeScript examples listening on http://${env.httpAddress} (${
-      env.workerMode === "pull" ? "pull worker" : `worker ${env.workerBindAddress}`
-    })`,
+    `Dex TypeScript examples listening on http://${env.httpAddress} (pull worker)`,
   );
   const shutdown = async () => {
     await server.close();
