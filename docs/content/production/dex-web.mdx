@@ -168,8 +168,11 @@ dex-server --config web-only.yaml start --services web
 ~~~
 
 For local development, **dexcli dev --engine zd** starts server-zd and Dex Web
-without Temporal. Install **dex-server-zd** from a server-zd release on your
-PATH, set **DEX_SERVER_ZD_BINARY**, or pass **--zd-binary**. Pass
+without Temporal. The dexcli release package includes **dex-server-zd**, so a
+Homebrew install of dexcli needs no separate download. To use another
+**dex-server-zd** binary, pass **--zd-binary** or set **DEX_SERVER_ZD_BINARY**.
+Without either, dexcli uses the **dex-server-zd** next to the dexcli executable,
+then the one on your PATH. Pass
 **--zd-config** with a server-zd YAML file to override settings such as closed
 Flow retention, Streams, or the search backend. The
 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md#start-locally)

@@ -22,6 +22,11 @@ brew install superdurable/tap/dexcli
 The Homebrew formula installs all runtime dependencies. Node.js is not required
 at runtime.
 
+Every `dexcli` release archive also contains `dex-server-zd`, the Rust zd
+engine, next to `dexcli`. Homebrew installs both binaries, so
+`dexcli dev --engine zd` needs no separate download. The CLI pins the bundled
+server-zd release in `cli/SERVER_ZD_RELEASE`.
+
 When a released `dexcli` starts a local development environment, it checks the
 published `cli-v*` GitHub Releases in the background. Every version entry point
 also checks: `dexcli version`, `dexcli --version`, `dexcli -v`, and
@@ -60,8 +65,16 @@ application starts its own SDK Worker, while `dexcli codec-server` starts the
 Codec Server separately.
 
 Select the Rust zd engine with `dexcli dev --engine zd`. It starts
-`dex-server-zd` and Dex Web without Temporal. Install `dex-server-zd` on PATH,
-set `DEX_SERVER_ZD_BINARY`, or pass `--zd-binary /path/to/dex-server-zd`.
+`dex-server-zd` and Dex Web without Temporal. The CLI uses the first
+`dex-server-zd` it finds in this order:
+
+1. `--zd-binary /path/to/dex-server-zd`.
+2. The `DEX_SERVER_ZD_BINARY` environment variable.
+3. The directory of the running `dexcli` executable. When that path is a
+   symlink, as with Homebrew, the CLI checks both the link directory and the
+   resolved directory. Release archives place the bundled binary here.
+4. `dex-server-zd` on PATH.
+
 The CLI stores zd state in `$HOME/.dex/zd/<dex-port>` by default. Pass
 `--zd-data-dir ./zd-state` to choose another directory. Pass
 `--zd-config ./zd.yaml` to override `dex-server-zd` settings such as closed Flow
@@ -205,7 +218,7 @@ must exist and be reachable before startup.
 --sqlite-db-filename string        local SQLite file (default $HOME/.dex/dev/<port>/dex.sqlite.db)
 --verbose-engine-log               write Temporal Server logs to temporal-engine-server.log
 --web-port int                     Dex Web port (default 8802)
---zd-binary string                 dex-server-zd executable (default DEX_SERVER_ZD_BINARY or PATH)
+--zd-binary string                 dex-server-zd executable (default DEX_SERVER_ZD_BINARY, then next to dexcli, then PATH)
 --zd-config string                 dex-server-zd YAML file with configuration overrides
 --zd-data-dir string               zd state directory (default $HOME/.dex/zd/<dex-port>)
 ```
