@@ -25,7 +25,7 @@ use dexzd_protocol::dexzd::v1::{
 use crate::command_handlers::command_replies::ok_reply;
 use crate::command_handlers::flow_close::finalize_pending_close_if_ready;
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
-use crate::command_handlers::{CommandScope, HandlerResult};
+use crate::command_handlers::{CloseBarrierSource, CommandScope, HandlerResult};
 use crate::state_access::{FlowTransaction, RunRows};
 use crate::values::load_stored_value;
 use crate::{ApplyEffect, ApplyError};
@@ -48,8 +48,15 @@ pub(crate) fn mark_attribute_sync_entries(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     attribute_keys: &BTreeSet<String>,
-    now_micros: i64,
+    scope: &CommandScope<'_>,
 ) -> Result<BTreeSet<String>, ApplyError> {
+    // Rebuilds replay transient references whose bytes may be pruned; only the restored state updates the run-scoped outbox.
+    if matches!(
+        scope.close_barrier_source,
+        CloseBarrierSource::RecordedHistory { .. }
+    ) {
+        return Ok(BTreeSet::new());
+    }
     let store_names = attribute_store_names(&cursor.record);
     if attribute_keys.is_empty() || store_names.is_empty() {
         return Ok(BTreeSet::new());
@@ -96,7 +103,7 @@ pub(crate) fn mark_attribute_sync_entries(
                     store_name: store_name.clone(),
                     attribute_key: attribute_key.clone(),
                     written_seq: cursor.seq,
-                    retry_window_started_at_micros: now_micros,
+                    retry_window_started_at_micros: scope.now_micros,
                     sync_item: Some(sync_item.clone()),
                 },
             };

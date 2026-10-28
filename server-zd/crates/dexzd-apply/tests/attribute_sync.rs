@@ -16,11 +16,11 @@ use dexzd_apply::{
 };
 use dexzd_keyspace::row_keys::{
     attribute_sync_outbox_key, attribute_sync_pending_index_key, prefix_range, run_named_key,
-    run_singleton_key,
+    run_singleton_key, value_row_key,
 };
 use dexzd_keyspace::{
-    ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, parse_run_key, run_prefix,
-    run_table_prefix,
+    ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, ValueId, ValueReference,
+    parse_run_key, run_prefix, run_table_prefix,
 };
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeSyncConfig, AttributeWrite, FlowConfig, FlowResetType,
@@ -111,10 +111,15 @@ struct Harness {
     now_micros: i64,
     flow_id: String,
     run_id: Vec<u8>,
+    settings: RunSettings,
 }
 
 impl Harness {
     fn new() -> Self {
+        Self::with_settings(settings())
+    }
+
+    fn with_settings(settings: RunSettings) -> Self {
         let flow_id = "account-1";
         let hasher = PartitionHasher::new(&[7; 16], 1024).expect("valid partition hasher");
         let flow_hash = hasher.flow_hash(TenantId::DEFAULT, flow_id);
@@ -127,6 +132,7 @@ impl Harness {
             now_micros: 1_800_000_000 * SECOND,
             flow_id: flow_id.to_owned(),
             run_id: Vec::new(),
+            settings,
         }
     }
 
@@ -184,7 +190,7 @@ impl Harness {
                 }),
                 ..StartFlowRequest::default()
             }),
-            settings: Some(settings()),
+            settings: Some(self.settings),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
             worker_target: Some(WorkerTarget {
                 is_pull_mode: true,
@@ -633,6 +639,106 @@ fn reapplied_synced_write_retains_its_snapshot_after_an_unsynced_write() {
             .sync_config,
         Some(AttributeSyncConfig { enabled: false }),
     );
+}
+
+#[test]
+fn time_travel_replays_synced_references_after_their_values_are_collected() {
+    for attribute_key in ["status", "orders/1"] {
+        for replacement in [
+            string_value("current"),
+            string_value(&"y".repeat(300)),
+            null_value(),
+        ] {
+            let mut harness = Harness::with_settings(RunSettings {
+                history_window_semantic_events: 1,
+                history_prune_chunk_semantic_events: 1,
+                ..settings()
+            });
+            harness.start(Some(&[PRIMARY, REPLICA]), Vec::new());
+            harness.set(
+                vec![unsynced("source", string_value(&"x".repeat(300)))],
+                "source",
+            );
+            // The fork checkpoint holds a reference that replay cannot recreate after collection.
+            harness.apply(Command::TimeTravel(TimeTravelCommand {
+                request: Some(ResetFlowRequest {
+                    reset_type: FlowResetType::Beginning as i32,
+                    ..ResetFlowRequest::default()
+                }),
+            }));
+            let stored = harness.attribute("source").expect("source was reapplied");
+            let Some(stored_value::Kind::TableValue(stored_reference)) =
+                stored.value.and_then(|value| value.kind)
+            else {
+                panic!("the source uses the value table");
+            };
+            let stored_id = stored_reference.value_id.expect("table value has an ID");
+            let value_id = ValueId {
+                run_seq: stored_id.run_seq,
+                index_in_command: stored_id.index_in_command,
+            };
+            let value_key = value_row_key(
+                harness.context.flow_hash,
+                harness.run(),
+                RunTable::Value,
+                value_id,
+            );
+            let reference = Value {
+                kind: Some(value::Kind::InternalBlobIdForStringValue(
+                    ValueReference {
+                        run_id: harness.run(),
+                        value_id,
+                    }
+                    .to_string(),
+                )),
+            };
+            // The synced reference disappears before this command's semantic point.
+            harness.set(
+                vec![
+                    synced(attribute_key, reference),
+                    synced(attribute_key, replacement.clone()),
+                    unsynced("source", null_value()),
+                ],
+                "replace",
+            );
+            for index in 0..2 {
+                harness.set(
+                    vec![unsynced("progress", string_value("tick"))],
+                    &format!("tick-{index}"),
+                );
+            }
+            assert!(
+                !harness
+                    .state
+                    .rows
+                    .contains_key(&(ColumnFamily::Value, value_key))
+            );
+            let target_time = harness.now_micros;
+            let traveled = harness.apply(Command::TimeTravel(TimeTravelCommand {
+                request: Some(ResetFlowRequest {
+                    reset_type: FlowResetType::HistoryEventTime as i32,
+                    history_event_time: (target_time * 1000).to_string(),
+                    skip_writes_reapply: true,
+                    ..ResetFlowRequest::default()
+                }),
+            }));
+            assert!(matches!(
+                traveled.reply.reply,
+                Some(command_reply::Reply::TimeTravel(_))
+            ));
+            let expected = if replacement == null_value() {
+                SyncItem::IsDelete(true)
+            } else {
+                SyncItem::Value(replacement)
+            };
+            for store_name in [PRIMARY, REPLICA] {
+                assert_eq!(
+                    harness.sync_entry(store_name, attribute_key).sync_item,
+                    Some(expected.clone())
+                );
+            }
+        }
+    }
 }
 
 #[test]

@@ -156,7 +156,7 @@ pub(crate) fn apply_time_travel(
     let has_pending_remarks = has_attribute_store_names(&cursor.record)
         && (!remark_keys.is_empty() || !synced_row_keys(&restored_rows)?.is_empty());
     let mut pending_store_names =
-        mark_attribute_sync_entries(transaction, &mut cursor, &remark_keys, scope.now_micros)?;
+        mark_attribute_sync_entries(transaction, &mut cursor, &remark_keys, scope)?;
     let reapplied_events = reapply_external_inputs(
         transaction,
         &mut cursor,
@@ -170,7 +170,7 @@ pub(crate) fn apply_time_travel(
         transaction,
         &mut cursor,
         &synced_row_keys(&final_rows)?,
-        scope.now_micros,
+        scope,
     )?);
     let mut remaining_effects = Vec::with_capacity(cursor.effects.len());
     for effect in std::mem::take(&mut cursor.effects) {
