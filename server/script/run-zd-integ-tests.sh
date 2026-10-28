@@ -26,6 +26,14 @@ export GOFLAGS="${GOFLAGS:+$GOFLAGS }-tags=attributestore_integration"
 
 test_run_pattern=$(./script/select-integ-test-partition.sh "$total_partitions" "$partition_num")
 mkdir -p "$(dirname "$json_output_path")"
+# The summary reports selected tests without events, such as those after a panic, as not run.
+expected_tests_path="${json_output_path%.json}.tests.txt"
+test_names=${test_run_pattern#^(}
+test_names=${test_names%)\$}
+if [[ "$test_run_pattern" == '^$' ]]; then
+  test_names=
+fi
+tr '|' '\n' <<<"$test_names" >"$expected_tests_path"
 
 set +e
 go test -json ./integ -timeout 40m -run "$test_run_pattern" \
@@ -35,7 +43,7 @@ go test -json ./integ -timeout 40m -run "$test_run_pattern" \
 pipeline_statuses=("${PIPESTATUS[@]}")
 set -e
 
-python3 "$script_directory/summarize-integ-test-json.py" "$json_output_path"
+python3 "$script_directory/summarize-integ-test-json.py" --expected-tests "$expected_tests_path" "$json_output_path"
 
 for pipeline_status in "${pipeline_statuses[@]}"; do
   if ((pipeline_status != 0)); then

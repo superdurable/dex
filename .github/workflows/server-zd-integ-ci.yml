@@ -111,7 +111,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: zd-integ-json-${{ matrix.partition }}
-          path: ${{ runner.temp }}/zd-integ-${{ matrix.partition }}.json
+          path: |
+            ${{ runner.temp }}/zd-integ-${{ matrix.partition }}.json
+            ${{ runner.temp }}/zd-integ-${{ matrix.partition }}.tests.txt
           if-no-files-found: warn
           retention-days: 14
 
@@ -130,4 +132,10 @@ jobs:
           path: zd-integ-json
           merge-multiple: true
       - name: Write summary
-        run: python3 server/script/summarize-integ-test-json.py zd-integ-json/*.json | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          expected_test_arguments=()
+          for expected_tests_path in zd-integ-json/*.tests.txt; do
+            expected_test_arguments+=(--expected-tests "$expected_tests_path")
+          done
+          python3 server/script/summarize-integ-test-json.py "${expected_test_arguments[@]}" zd-integ-json/*.json |
+            tee -a "$GITHUB_STEP_SUMMARY"

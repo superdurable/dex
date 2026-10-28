@@ -9,18 +9,24 @@
 
 """Summarize `go test -json` output as one Markdown row per top-level test."""
 
+import argparse
 import json
+import os
 import re
 import sys
 from collections import Counter
 
 STATUS_LINE_PATTERN = re.compile(r"^\s*(=== (RUN|PAUSE|CONT|NAME)|--- (PASS|FAIL|SKIP)):?\s")
 ASSERTION_LINE_PATTERN = re.compile(r"^\s*(Error:|Messages:|panic:|.*_test\.go:\d+:|.*\.go:\d+: )")
+SKIP_LOCATION_PATTERN = re.compile(r"^([A-Za-z0-9_]+\.go):(\d+):$")
+PACKAGE_FAILURE_PATTERN = re.compile(r"panic:|test timed out|^FAIL\b")
 MAX_DETAIL_CHARACTERS = 300
+INTEG_DIRECTORY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "integ")
 
 def read_test_events(json_paths):
     results = {}
     outputs = {}
+    package_failures = []
     for json_path in json_paths:
         with open(json_path, encoding="utf-8") as json_file:
             for line in json_file:
@@ -29,6 +35,9 @@ def read_test_events(json_paths):
                 event = json.loads(line)
                 test_name = event.get("Test")
                 if not test_name:
+                    package_output = event.get("Output", "")
+                    if PACKAGE_FAILURE_PATTERN.search(package_output):
+                        package_failures.append(f"{json_path}: {package_output.strip()}")
                     continue
                 action = event.get("Action")
                 if action == "output":
@@ -37,7 +46,16 @@ def read_test_events(json_paths):
                     results.setdefault(test_name, "incomplete")
                 elif action in ("pass", "fail", "skip"):
                     results[test_name] = action
-    return results, outputs
+    return results, outputs, package_failures
+
+
+def read_expected_tests(expected_test_paths):
+    expected_tests = set()
+    for expected_test_path in expected_test_paths:
+        with open(expected_test_path, encoding="utf-8") as expected_test_file:
+            expected_tests.update(line.strip() for line in expected_test_file if line.strip())
+    return expected_tests
+
 
 def classify_test(test_name, results, outputs):
     """Returns the test's effective result; a pass whose leaf subtests all skipped counts as a skip."""
@@ -80,7 +98,27 @@ def last_message_line(output_lines):
         line.strip() for line in output_lines
         if line.strip() and not STATUS_LINE_PATTERN.match(line)
     ]
-    return message_lines[-1] if message_lines else ""
+    if not message_lines:
+        return ""
+    return explain_empty_skip(message_lines[-1])
+
+
+def explain_empty_skip(message_line):
+    """Replaces a bare `file.go:N:` skip location with the guard condition above it."""
+    location = SKIP_LOCATION_PATTERN.match(message_line)
+    if not location:
+        return message_line
+    source_path = os.path.join(INTEG_DIRECTORY, location.group(1))
+    try:
+        with open(source_path, encoding="utf-8") as source_file:
+            source_lines = source_file.readlines()
+    except OSError:
+        return message_line
+    for line_number in range(int(location.group(2)) - 2, -1, -1):
+        guard_line = source_lines[line_number].strip()
+        if guard_line.startswith("if "):
+            return f"{message_line} {guard_line.rstrip('{').strip()}"
+    return message_line
 
 def assertion_lines(output_lines):
     return [line.strip() for line in output_lines if ASSERTION_LINE_PATTERN.match(line)][:6]
@@ -92,18 +130,31 @@ def escape_markdown_cell(text):
     return text
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"usage: {sys.argv[0]} <go-test-json>...", file=sys.stderr)
-        return 2
-    results, outputs = read_test_events(sys.argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--expected-tests", action="append", default=[],
+        help="file listing one expected top-level test per line; unreported tests count as not-run",
+    )
+    parser.add_argument("json_paths", nargs="+", help="go test -json output files")
+    arguments = parser.parse_args()
+    results, outputs, package_failures = read_test_events(arguments.json_paths)
     top_level_tests = sorted(name for name in results if "/" not in name)
     classified_tests = {name: classify_test(name, results, outputs) for name in top_level_tests}
+    for test_name in read_expected_tests(arguments.expected_tests) - set(top_level_tests):
+        classified_tests[test_name] = ("not-run", "no test events; the partition ended before this test started")
+    top_level_tests = sorted(classified_tests)
     counts = Counter(result for result, _ in classified_tests.values())
     print("| Result | Count |")
     print("| --- | --- |")
-    for result in ("pass", "skip", "fail", "incomplete"):
+    for result in ("pass", "skip", "fail", "incomplete", "not-run"):
         print(f"| {result} | {counts.get(result, 0)} |")
     print()
+    if package_failures:
+        print("Package-level failures:")
+        print()
+        for package_failure in package_failures:
+            print(f"- {escape_markdown_cell(package_failure)}")
+        print()
     print("| Test | Result | Detail |")
     print("| --- | --- | --- |")
     for test_name in top_level_tests:
