@@ -783,6 +783,7 @@ impl ServerNode {
             .is_err()
         {
             tracing::warn!("open calls did not finish in time; closing them");
+            registry.cancel_rpc_tasks();
             grpc.task.abort();
         }
         registry.cancel_rpc_tasks();

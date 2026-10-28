@@ -9,6 +9,8 @@
 //! InvokeRPC: read-only, non-transactional, and transactional paths (plan 9.4).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::future::Future;
+use std::time::Duration;
 
 use dexzd_apply::{ApplyContext, FlowStateReader};
 use dexzd_keyspace::row_keys::{RequestKind, channel_name_prefix, request_dedup_key};
@@ -39,6 +41,9 @@ use crate::flow_coordination::{
     FlowAddress, FlowCoordinationError, FlowCoordinatorRegistry, RpcInvokeError,
     WorkerRpcInvocation, WorkerRpcResult, grpc_code,
 };
+
+// Commit outcomes may be unknown at this bound; it is independent of the Worker's RPC timeout.
+const RPC_COMMIT_PROCESSING_BUDGET: Duration = Duration::from_secs(60);
 
 /// An RPC snapshot whose hard-delete Attribute values are still to be read.
 struct RpcSnapshot {
@@ -143,16 +148,13 @@ impl FlowCoordinatorRegistry {
         guard: RpcRequestGuard,
     ) {
         let halted = self.halted();
-        let operation = tokio::time::timeout_at(
-            deadline,
-            self.invoke_rpc_once(flow, run_id, request, true, Some(deadline)),
-        );
+        let operation = self.invoke_rpc_once(flow, run_id, request, true, Some(deadline));
         let result = tokio::select! {
             biased;
             () = self.inner.rpc_requests.stopped.cancelled() => Err(FlowCoordinationError::NodeStopping {
                 detail: "node stopped while an RPC was in flight".to_owned(),
             }),
-            result = operation => result.unwrap_or_else(|_| Err(rpc_invoke_error(RpcInvokeError::DeadlineExceeded))),
+            result = operation => result,
             () = halted.cancelled() => Err(self.check_running().expect_err("halted")),
         };
         guard.finish(result);
@@ -201,7 +203,7 @@ impl FlowCoordinatorRegistry {
         };
         if lock_guard.is_some() {
             // Writes proposed before the locks were taken must be in the snapshot (plan 8.3, L2).
-            self.sync_barrier(&flow).await?;
+            wait_for_rpc_before_commit(deadline, self.sync_barrier(&flow)).await?;
         }
         let is_hydrating = self.inner.config.hydrate_value_references;
         let snapshot = {
@@ -225,7 +227,9 @@ impl FlowCoordinatorRegistry {
             )?
         };
         let run = snapshot.run.clone();
-        let worker_request = self.complete_rpc_snapshot(&flow, snapshot).await?;
+        let worker_request =
+            wait_for_rpc_before_commit(deadline, self.complete_rpc_snapshot(&flow, snapshot))
+                .await?;
         if worker_request.encoded_len() > self.inner.config.max_worker_rpc_request_bytes {
             return Err(FlowCoordinationError::rejected(
                 grpc_code::RESOURCE_EXHAUSTED,
@@ -236,7 +240,11 @@ impl FlowCoordinatorRegistry {
                 ),
             ));
         }
+        let is_shared = deadline.is_some();
         let deadline = deadline.unwrap_or_else(|| self.rpc_deadline(&request));
+        if tokio::time::Instant::now() >= deadline {
+            return Err(rpc_invoke_error(RpcInvokeError::DeadlineExceeded));
+        }
         let call = self
             .inner
             .dependencies
@@ -254,6 +262,9 @@ impl FlowCoordinatorRegistry {
             .await
             .unwrap_or(Err(RpcInvokeError::DeadlineExceeded))
             .map_err(rpc_invoke_error)?;
+        if tokio::time::Instant::now() >= deadline {
+            return Err(rpc_invoke_error(RpcInvokeError::DeadlineExceeded));
+        }
         validate_worker_response(
             WorkerResponse::Rpc(Some(&result.response)),
             &self.inner.config.validation,
@@ -280,9 +291,18 @@ impl FlowCoordinatorRegistry {
             }
             return Ok(InvokeRpcResponse { output });
         }
-        let output = self
-            .commit_rpc(&flow, &run, request, result, is_transactional)
-            .await;
+        let commit = self.commit_rpc(&flow, &run, request, result, is_transactional);
+        let output = if is_shared {
+            tokio::time::timeout(RPC_COMMIT_PROCESSING_BUDGET, commit)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(FlowCoordinationError::Unavailable {
+                        detail: "RPC commit processing exceeded its server budget; the outcome is unknown; retry with the same request ID".to_owned(),
+                    })
+                })
+        } else {
+            commit.await
+        };
         drop(lock_guard);
         drop(rpc_admission);
         output
@@ -386,6 +406,18 @@ impl FlowCoordinatorRegistry {
             &stored_output,
         )?;
         Ok(InvokeRpcResponse { output })
+    }
+}
+
+async fn wait_for_rpc_before_commit<T>(
+    deadline: Option<tokio::time::Instant>,
+    operation: impl Future<Output = Result<T, FlowCoordinationError>>,
+) -> Result<T, FlowCoordinationError> {
+    match deadline {
+        Some(deadline) => tokio::time::timeout_at(deadline, operation)
+            .await
+            .unwrap_or_else(|_| Err(rpc_invoke_error(RpcInvokeError::DeadlineExceeded))),
+        None => operation.await,
     }
 }
 

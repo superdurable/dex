@@ -22,9 +22,13 @@ fingerprint rejection. A committed reply takes precedence over an in-flight entr
 
 A caller disconnect or transport deadline ends only that caller's wait. It does
 not release the RPC's locks or let natural Flow close proceed. The shared task's
-RPC deadline starts at admission and covers snapshot reads, Worker execution,
-uploads, and commit waiting. It uses timeout_seconds, or api.defaultRpcTimeout
-(default 60 seconds) when zero. There is no separate configured maximum RPC timeout.
+RPC deadline starts at admission and covers lock synchronization, snapshot reads,
+and Worker execution. It uses timeout_seconds, or api.defaultRpcTimeout
+(default 60 seconds) when zero. It stops applying once the handler succeeds;
+proposal and commit can finish after this deadline and return the committed result.
+An independent 60-second server budget bounds uploads, proposal, commit waiting,
+and result processing. Exceeding it returns UNAVAILABLE with an unknown outcome,
+releases the shared task, and allows retry with the same request ID.
 Registry halt also ends the task. Graceful shutdown allows admitted tasks to finish
 and commit during the four-second drain, then cancels remaining tasks and awaits
 their cleanup. This includes tasks whose callers already disconnected.
@@ -38,8 +42,8 @@ does not leave the request ID stuck.
 
 Completed successful replies use the persisted request deduplication records.
 In-flight admission and errors are not persisted. A node crash before the result
-commits can invoke the Worker again on retry. A deadline or cancellation after a
-command was submitted can still leave a committed result; retry with the same
-request ID to retrieve it. Durable admission, resumable Worker calls, and persisted
+commits can invoke the Worker again on retry. Exceeding the server budget or
+cancelling a task after command submission can still leave a committed result;
+retry with the same request ID to retrieve it. Durable admission, resumable Worker calls, and persisted
 error replay require a separate recovery design. Plain RPCs continue to use the
 non-transactional path without in-flight deduplication.

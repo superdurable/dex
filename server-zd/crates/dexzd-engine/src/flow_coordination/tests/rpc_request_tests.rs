@@ -272,7 +272,7 @@ async fn rpc_capacity_allows_joiners_and_releases_disconnected_calls_at_the_dead
 }
 
 #[tokio::test(start_paused = true)]
-async fn rpc_deadline_bounds_commit_wait_and_releases_the_close_guard() {
+async fn rpc_deadline_does_not_bound_commit_and_disconnected_waiters_replay_the_result() {
     let harness = FlowCoordinationHarness::new();
     harness
         .applier
@@ -282,21 +282,156 @@ async fn rpc_deadline_bounds_commit_wait_and_releases_the_close_guard() {
     script_result(&harness);
     let mut request = rpc_request("commit-deadline");
     request.timeout_seconds = 2;
-    let mut caller = Box::pin(harness.registry.invoke_rpc(TENANT, request));
+    let mut caller = Box::pin(harness.registry.invoke_rpc(TENANT, request.clone()));
     tokio::select! {
         result = &mut caller => panic!("commit is pending: {result:?}"),
         () = harness.committer.submitted.notified() => {}
     }
+    let mut joiner = Box::pin(harness.registry.invoke_rpc(TENANT, request.clone()));
+    assert!(poll!(joiner.as_mut()).is_pending());
+    let address = flow("commit-deadline");
+    let mut closing = Box::pin(harness.registry.wait_for_transactional_rpcs(&address));
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), caller)
+            .await
+            .is_err()
+    );
     tokio::time::advance(Duration::from_secs(2)).await;
-    assert_eq!(
-        caller.await.unwrap_err().grpc_code(),
-        grpc_code::DEADLINE_EXCEEDED
+    assert!(poll!(joiner.as_mut()).is_pending());
+    assert!(poll!(closing.as_mut()).is_pending());
+    assert!(harness.commit_next());
+    let response = joiner.await.unwrap();
+    assert_eq!(response.output, Some(string_value("result")));
+    closing.await.unwrap();
+    let replay = harness.registry.invoke_rpc(TENANT, request).await.unwrap();
+    assert_eq!(replay, response);
+    assert_eq!(harness.rpc_invoker.invocations.lock().unwrap().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn rpc_handler_deadline_resolves_waiters_without_proposing_a_commit() {
+    let harness = FlowCoordinationHarness::new();
+    harness
+        .applier
+        .uses_real_apply
+        .store(true, Ordering::SeqCst);
+    let run_id = start_flow(&harness, "handler-deadline").await.unwrap();
+    hold_worker(&harness);
+    script_result(&harness);
+    let mut request = rpc_request("handler-deadline");
+    request.timeout_seconds = 2;
+    let submitted_before_rpc = harness.submitted().len();
+    let mut caller = Box::pin(harness.registry.invoke_rpc(TENANT, request.clone()));
+    tokio::select! {
+        result = &mut caller => panic!("Worker is gated: {result:?}"),
+        () = harness.rpc_invoker.entered.notified() => {}
+    }
+    let mut joiner = Box::pin(harness.registry.invoke_rpc(TENANT, request.clone()));
+    assert!(poll!(joiner.as_mut()).is_pending());
+    tokio::time::advance(Duration::from_secs(2)).await;
+    for result in [caller.await, joiner.await] {
+        assert_eq!(
+            result.unwrap_err().grpc_code(),
+            grpc_code::DEADLINE_EXCEEDED
+        );
+    }
+    assert_eq!(harness.submitted().len(), submitted_before_rpc);
+    assert!(!harness.commit_next());
+    let record_key = request_dedup_key(
+        harness
+            .registry
+            .flow_context(&flow("handler-deadline"))
+            .flow_hash,
+        run_id,
+        RequestKind::InvokeRpc,
+        &request.request_id,
+    );
+    assert!(
+        harness
+            .store
+            .view()
+            .get(ColumnFamily::Flow, &record_key)
+            .unwrap()
+            .is_none()
     );
     harness
         .registry
-        .wait_for_transactional_rpcs(&flow("commit-deadline"))
+        .wait_for_transactional_rpcs(&flow("handler-deadline"))
         .await
         .unwrap();
+    *harness.rpc_invoker.gate.lock().unwrap() = None;
+    let response = harness
+        .drive(harness.registry.invoke_rpc(TENANT, request))
+        .await
+        .unwrap();
+    assert_eq!(response.output, Some(string_value("result")));
+    assert_eq!(harness.rpc_invoker.invocations.lock().unwrap().len(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn rpc_commit_lifetime_budget_releases_disconnected_tasks_with_an_unknown_outcome() {
+    let config = FlowCoordinationConfig {
+        max_in_flight_rpcs_per_node: 1,
+        ..FlowCoordinationConfig::default()
+    };
+    let harness = FlowCoordinationHarness::with_config(&config);
+    harness
+        .applier
+        .uses_real_apply
+        .store(true, Ordering::SeqCst);
+    let run_id = start_flow(&harness, "commit-budget").await.unwrap();
+    script_result(&harness);
+    let mut request = rpc_request("commit-budget");
+    request.timeout_seconds = 2;
+    let mut caller = Box::pin(harness.registry.invoke_rpc(TENANT, request.clone()));
+    tokio::select! {
+        result = &mut caller => panic!("commit is pending: {result:?}"),
+        () = harness.committer.submitted.notified() => {}
+    }
+    drop(caller);
+    let mut joiner = Box::pin(harness.registry.invoke_rpc(TENANT, request.clone()));
+    assert!(poll!(joiner.as_mut()).is_pending());
+    tokio::time::advance(Duration::from_secs(60)).await;
+    assert_eq!(
+        joiner.await.unwrap_err().grpc_code(),
+        grpc_code::UNAVAILABLE
+    );
+    harness
+        .registry
+        .wait_for_transactional_rpcs(&flow("commit-budget"))
+        .await
+        .unwrap();
+    let lock = harness
+        .registry
+        .acquire_rpc_locks(
+            harness.registry.lease(&flow("commit-budget")),
+            run_id,
+            &["balance".to_owned()],
+        )
+        .unwrap();
+    drop(lock);
+    assert!(
+        harness.commit_next(),
+        "the submitted command can still commit"
+    );
+    let replay = harness
+        .registry
+        .invoke_rpc(TENANT, request.clone())
+        .await
+        .unwrap();
+    assert_eq!(replay.output, Some(string_value("result")));
+    script_result(&harness);
+    harness
+        .drive(harness.registry.invoke_rpc(
+            TENANT,
+            InvokeRpcRequest {
+                request_id: "after-budget".to_owned(),
+                ..request
+            },
+        ))
+        .await
+        .unwrap();
+    assert_eq!(harness.rpc_invoker.invocations.lock().unwrap().len(), 2);
 }
 
 #[tokio::test(start_paused = true)]

@@ -499,14 +499,6 @@ async fn sigterm_during_recovery_exits_zero_and_releases_the_lease() {
         first_address,
         directory.path().join("first.log"),
     );
-    let lease_prefix = format!("{PRIMARY_PREFIX}/lease/");
-    tokio::time::timeout(SEARCH_BUDGET, async {
-        while !primary.has_object_under(PRIMARY_BUCKET, &lease_prefix) {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the node takes its lease");
     tokio::time::timeout(SEARCH_BUDGET, async {
         while !first.log().contains("engine node recovering") {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -514,6 +506,11 @@ async fn sigterm_during_recovery_exits_zero_and_releases_the_lease() {
     })
     .await
     .expect("the node enters recovery");
+    assert!(
+        first.log().contains("epoch=2"),
+        "the recovering process acquired a new lease epoch: {}",
+        first.log()
+    );
     let first_status = first.terminate(SHUTDOWN_BUDGET).await;
     let first_log = first.log();
     assert_eq!(first_status.code(), Some(0), "{first_log}");

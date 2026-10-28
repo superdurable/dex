@@ -25,7 +25,6 @@ pub struct ApiConfig {
     /// Defaults to 60 seconds; upper bound on one transport long poll, matching the Go maxWaitSeconds integer key.
     pub max_wait_seconds: u64,
     /// Defaults to 60 s; timeout used for RPC calls that do not specify one.
-    /// Transactional and locking calls include snapshot reads, Worker execution, uploads, and commit waiting.
     #[serde(with = "humantime_serde")]
     pub default_rpc_timeout: Duration,
 }
