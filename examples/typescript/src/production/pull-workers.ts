@@ -96,7 +96,7 @@ export async function startPullGreeting(
   }
   const client = new Client(registry, cache, {
     serverAddress,
-    workerTarget: worker.workerTarget,
+    workerTarget: { pull: true },
   });
   return { flow, worker, client };
 }

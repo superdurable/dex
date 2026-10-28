@@ -39,7 +39,7 @@ export interface PullQueueRegistrationState {
 export interface PullRegistrationState {
   /** Latches after all queues register; false while a queue has a permanent error and no registered stream. */
   readonly isReady: boolean;
-  /** Queue snapshots in registration order; empty for a listening Worker. */
+  /** Queue snapshots in registration order, including the process queue and every registered Flow type. */
   readonly queues: readonly PullQueueRegistrationState[];
 }
 

@@ -19,51 +19,21 @@ import {
   type BlobCache,
   type PullWorkerOptions,
   type Registry,
-  type WorkerOptions,
 } from "@superdurable/dex";
 
-/** Environment variable that selects push or pull Workers. Empty selects push. */
-export const WORKER_MODE_ENVIRONMENT_VARIABLE = "DEX_EXAMPLES_WORKER_MODE";
-
-/** How an example Worker receives tasks from Dex Server. */
-export type WorkerMode = "push" | "pull";
-
 const PULL_REGISTRATION_TIMEOUT_MS = 30_000;
-
-/** Returns the Worker mode selected by DEX_EXAMPLES_WORKER_MODE, or throws for an unknown value. */
-export function readWorkerModeFromEnvironment(): WorkerMode {
-  const value = process.env[WORKER_MODE_ENVIRONMENT_VARIABLE] ?? "";
-  switch (value) {
-    case "":
-    case "push":
-      return "push";
-    case "pull":
-      return "pull";
-    default:
-      throw new Error(
-        `${WORKER_MODE_ENVIRONMENT_VARIABLE} must be push or pull, got ${JSON.stringify(value)}`,
-      );
-  }
-}
 
 /** Returns pull options sized for every sample Flow sharing one Worker process. */
 export function newExamplePullWorkerOptions(): PullWorkerOptions {
   return { maxConcurrentTasks: 64 };
 }
 
-/** Starts a push Worker, or a pull Worker whose task streams Dex Server registered. */
+/** Starts a pull Worker whose task streams Dex Server registered. */
 export async function startExampleWorker(
   registry: Registry,
   blobCache: BlobCache,
-  workerMode: WorkerMode,
   serverAddress: string,
-  pushWorkerOptions: WorkerOptions,
 ): Promise<Worker> {
-  if (workerMode === "push") {
-    const worker = new Worker(registry, blobCache, pushWorkerOptions);
-    await worker.start();
-    return worker;
-  }
   const worker = new Worker(registry, blobCache, {
     serverAddress,
     pull: newExamplePullWorkerOptions(),

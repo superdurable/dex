@@ -73,7 +73,6 @@ import {
   type FlowTimeoutHandlerOptions,
 } from "./options.js";
 import { SubFlowReusePolicy, type SubFlowOptions } from "./subflow.js";
-import { mapWorkerTarget } from "./worker-target.js";
 import type { RegisteredRPC } from "./rpc.js";
 import type {
   RetryPolicy,
@@ -1096,28 +1095,24 @@ function mapDurability(value: "sync" | "async" | undefined): ProtoStepDurability
   return ProtoStepDurability.STEP_DURABILITY_UNSPECIFIED;
 }
 
-function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig | undefined {
-  if (config === undefined) return undefined;
+function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig {
   return ProtoFlowConfig.create({
     activeStepSearchMode:
-      config.activeStepSearchMode === ActiveStepSearchMode.ALL
+      config?.activeStepSearchMode === ActiveStepSearchMode.ALL
         ? ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL
-        : config.activeStepSearchMode === undefined
+        : config?.activeStepSearchMode === undefined
           ? undefined
           : ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED,
     attributeStoreNames: mapAttributeStoreNames(config),
-    continueAsNewThreshold: config.continueAsNewThreshold,
-    continueAsNewPageSizeInBytes: config.continueAsNewPageSizeBytes,
+    continueAsNewThreshold: config?.continueAsNewThreshold,
+    continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
     stepDurability:
-      config.stepDurability === "sync"
+      config?.stepDurability === "sync"
         ? ProtoStepDurability.STEP_DURABILITY_SYNC
-        : config.stepDurability === "async"
+        : config?.stepDurability === "async"
           ? ProtoStepDurability.STEP_DURABILITY_ASYNC
           : undefined,
-    workerTarget:
-      config.workerTarget === undefined
-        ? undefined
-        : mapWorkerTarget(config.workerTarget),
+    workerTarget: { address: "", isHeadlessAddress: false, isPullMode: true },
   });
 }
 

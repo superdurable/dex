@@ -51,8 +51,8 @@ import {
   type Step,
   type StepDecision,
   type PullWorkerOptions,
-  type PullWorkerTarget,
   type WorkerOptions,
+  type Worker,
   type SubFlowOptions,
 } from "../src/index.js";
 import {
@@ -1016,8 +1016,7 @@ test("blob cache contract opens the native DXBC cache", () => {
 async function compileStrongTypes(client: Client): Promise<void> {
   const pullOptions: PullWorkerOptions = { maxConcurrentTasks: 8, idleStreamsPerQueue: 1 };
   const workerOptions: WorkerOptions = { pull: pullOptions };
-  const pullTarget: PullWorkerTarget = { pull: true };
-  const pullConfig: FlowConfig = { workerTarget: pullTarget };
+  const pullConfig: FlowConfig = {};
   const subFlowOptions: SubFlowOptions = { configOverride: pullConfig };
   void workerOptions;
   void subFlowOptions;
@@ -1074,3 +1073,22 @@ async function compileStrongTypes(client: Client): Promise<void> {
 }
 
 void compileStrongTypes;
+
+function compileRemovedWorkerSettings(worker: Worker): void {
+  // @ts-expect-error Worker listeners have been removed.
+  const listener: WorkerOptions = { bindAddress: "127.0.0.1:8803" };
+  // @ts-expect-error Worker routing is automatic.
+  const workerOptions: WorkerOptions = { workerTarget: { address: "worker:8803" } };
+  // @ts-expect-error Client routing is automatic.
+  const clientOptions: import("../src/options.js").ClientOptions = { workerTarget: { pull: true } };
+  // @ts-expect-error Flow and SubFlow routing is automatic.
+  const flowConfig: FlowConfig = { workerTarget: { pull: true } };
+  // @ts-expect-error Workers have no advertised endpoint.
+  void worker.workerTarget;
+  void listener;
+  void workerOptions;
+  void clientOptions;
+  void flowConfig;
+}
+
+void compileRemovedWorkerSettings;

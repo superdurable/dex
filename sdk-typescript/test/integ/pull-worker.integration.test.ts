@@ -34,8 +34,7 @@ import {
   type Step,
   type StepDecision,
 } from "../../src/index.js";
-import { WorkerPortReservation } from "../worker-port-reservation.js";
-import { flowId, isServerZD } from "./environment.js";
+import { flowId } from "./environment.js";
 
 interface Observation {
   readonly workerID: string;
@@ -150,42 +149,26 @@ class ProbeFlow implements Flow<string> {
   public getSteps() { return StepList.startStep(this.start); }
 }
 
-class PushStep implements Step<string> {
-  public readonly inputCodec = stringCodec;
-  public getStepType(): string { return "PushStep"; }
-  public execute(_context: Context, input: string): StepDecision { return gracefulComplete(input); }
-}
-
-class PushFlow implements Flow<string> {
-  private readonly start = new PushStep();
-  public getFlowType(): string { return "PushFlow"; }
-  public getSteps() { return StepList.startStep(this.start); }
-}
-
-class PullOverrideParentStep implements Step<string> {
+class PullParentStep implements Step<string> {
   public readonly inputCodec = stringCodec;
   public constructor(private readonly child: ProbeFlow) {}
-  public getStepType(): string { return "PullOverrideParentStep"; }
+  public getStepType(): string { return "PullParentStep"; }
   public waitFor(_context: Context, input: string): Wait {
-    return Wait.until(SubFlow.run(this.child, input, {
-      configOverride: { workerTarget: { pull: true } },
-    }));
+    return Wait.until(SubFlow.run(this.child, input));
   }
   public execute(context: Context, _input: string): StepDecision {
     return gracefulComplete(SubFlow.getConditionResults(context).singleOutput(stringCodec));
   }
 }
 
-class PullOverrideParentFlow implements Flow<string> {
-  private readonly start: PullOverrideParentStep;
-  public constructor(child: ProbeFlow) { this.start = new PullOverrideParentStep(child); }
-  public getFlowType(): string { return "PullOverrideParentFlow"; }
+class PullParentFlow implements Flow<string> {
+  private readonly start: PullParentStep;
+  public constructor(child: ProbeFlow) { this.start = new PullParentStep(child); }
+  public getFlowType(): string { return "PullParentFlow"; }
   public getSteps() { return StepList.startStep(this.start); }
 }
 
-test("pull Worker executes Steps and RPC with sticky routing, drains Stop, and coexists with push", async (context) => {
-  // C18: server-zd rejects push Worker targets, so push sections need the Go Server.
-  const serverSupportsPushWorkers = !await isServerZD();
+test("pull Worker executes Steps, RPC, and SubFlows with sticky routing and drains Stop", async () => {
   const serverAddress = process.env.DEX_SERVER_ADDRESS ?? "127.0.0.1:8801";
   const cacheDirectory = mkdtempSync(join(tmpdir(), "dex-typescript-pull-cache-"));
   const cache: BlobCache = openBlobCache({ directory: cacheDirectory, maxBytes: 64 * 1_024 * 1_024 });
@@ -197,31 +180,21 @@ test("pull Worker executes Steps and RPC with sticky routing, drains Stop, and c
   const flowA = new PullFlow("pull-a", observations, firstGate, secondGate);
   const flowB = new PullFlow("pull-b", observations, firstGate, secondGate);
   const probe = new ProbeFlow("pull-b");
-  const pushProbe = new ProbeFlow("push");
-  const pushFlow = new PushFlow();
-  const parentFlow = new PullOverrideParentFlow(pushProbe);
+  const parentFlow = new PullParentFlow(probe);
   const workerA = new Worker(new Registry([flowA]), cache, {
     serverAddress, pull: { appWorkerID: `typescript-a-${flowId("worker")}`, maxConcurrentTasks: 4 },
   });
-  const workerB = new Worker(new Registry([flowB, probe]), cache, {
+  const workerB = new Worker(new Registry([flowB, probe, parentFlow]), cache, {
     serverAddress, pull: { appWorkerID: `typescript-b-${flowId("worker")}`, maxConcurrentTasks: 4 },
   });
-  const reservation = await WorkerPortReservation.reserve();
-  context.after(() => reservation.release());
-  const pushWorker = new Worker(new Registry([pushFlow, pushProbe, parentFlow]), cache, {
-    serverAddress, bindAddress: `127.0.0.1:${reservation.port}`,
-  });
-  const client = new Client(new Registry([flowA, probe, pushFlow, parentFlow]), cache, {
-    serverAddress, workerTarget: workerA.workerTarget,
+  const client = new Client(new Registry([flowA, probe, parentFlow]), cache, {
+    serverAddress,
   });
   try {
-    await reservation.release();
-    if (serverSupportsPushWorkers) {
-      await pushWorker.start();
-    }
     await workerA.start();
     const id = flowId("pull-typescript");
     await client.startFlow(flowA, id, "completed");
+    await client.updateFlowConfig(id, {});
     await until(() => observations.some((entry) => entry.method === "Execute"));
     assert.deepEqual(observations.slice(0, 2), [
       { workerID: "pull-a", method: "WaitFor" },
@@ -230,16 +203,12 @@ test("pull Worker executes Steps and RPC with sticky routing, drains Stop, and c
 
     await workerB.start();
     assert.equal(await runProbe(client, probe), "pull-b");
-    if (serverSupportsPushWorkers) {
-      const subFlowId = flowId("pull-subflow-override");
-      await client.startFlow(parentFlow, subFlowId, "child", {
-        configOverride: { workerTarget: pushWorker.workerTarget },
-      });
-      assert.equal(
-        await client.waitForFlow(subFlowId, 30_000).then((result) => result.singleOutput(stringCodec)),
-        "pull-b",
-      );
-    }
+    const subFlowId = flowId("pull-subflow");
+    await client.startFlow(parentFlow, subFlowId, "child");
+    assert.equal(
+      await client.waitForFlow(subFlowId, 30_000).then((result) => result.singleOutput(stringCodec)),
+      "pull-b",
+    );
     releaseFirst();
     await until(() => observations.some((entry) => entry.method === "SecondExecute"));
     assert.deepEqual(observations.slice(2, 4), [
@@ -262,23 +231,12 @@ test("pull Worker executes Steps and RPC with sticky routing, drains Stop, and c
       { workerID: "pull-a", method: "SecondExecute" },
     ]);
 
-    if (serverSupportsPushWorkers) {
-      const pushId = flowId("push-alongside-pull");
-      await client.startFlow(pushFlow, pushId, "push", {
-        configOverride: { workerTarget: pushWorker.workerTarget },
-      });
-      assert.equal(
-        await client.waitForFlow(pushId, 30_000).then((result) => result.singleOutput(stringCodec)),
-        "push",
-      );
-    }
   } finally {
     releaseFirst();
     releaseSecond();
     await client.close();
     await workerA.close();
     await workerB.close();
-    await pushWorker.close();
     cache.close();
     rmSync(cacheDirectory, { recursive: true, force: true });
   }
@@ -300,7 +258,7 @@ test("pull Worker reassigns an unregistered RPC from a sticky Worker", async () 
     serverAddress, pull: { appWorkerID: `typescript-new-${flowId("worker")}` },
   });
   const client = new Client(new Registry([newFlow]), cache, {
-    serverAddress, workerTarget: oldWorker.workerTarget,
+    serverAddress,
   });
   try {
     await oldWorker.start();
@@ -334,7 +292,7 @@ test("pull Worker reassigns an unregistered starting Step", async () => {
     serverAddress, pull: { appWorkerID: `typescript-new-step-${flowId("worker")}` },
   });
   const client = new Client(new Registry([newFlow]), cache, {
-    serverAddress, workerTarget: oldWorker.workerTarget,
+    serverAddress,
   });
   try {
     await oldWorker.start();

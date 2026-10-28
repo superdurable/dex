@@ -77,7 +77,7 @@ class StepHeartbeatStep implements Step<HeartbeatScenario> {
     // C2: server-zd persists ASYNC heartbeat checkpoints from the first attempt.
     if (
       (this.flow.isServerZD && invocation > 1) ||
-      (process.env.DEX_INTEG_WORKER_MODE === "pull" && invocation > 2)
+      invocation > 2
     ) {
       if (context.getLastHeartbeatValue(stringCodec) !== `local-${invocation - 1}`) {
         throw new Error("regular retry did not restore its previous heartbeat");

@@ -18,12 +18,12 @@ Full integration verification:
 
 ```shell
 ./run-integration-tests.sh
-DEX_INTEG_WORKER_MODE=pull ./run-integration-tests.sh
+DEX_INTEG_ENGINE=zd ./run-integration-tests.sh
 ```
 
-The default mode uses a listening Worker. Pull mode runs the same suite with
-outbound Worker streams and pull routing as the Client default. Each invocation
-starts its own `dexcli dev` environment. Both modes run in CI with coverage.
+Every test uses outbound Worker task streams and automatic pull routing.
+Each invocation starts its own `dexcli dev` environment. CI covers both the
+Temporal and server-zd engines.
 
 ## Programming experience
 

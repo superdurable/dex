@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import { createServer } from "node:net";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,9 +23,8 @@ import { Client, Registry, openBlobCache, type Flow } from "@superdurable/dex";
 
 import { HOUR_MS } from "../../src/config/env.js";
 import {
-  readWorkerModeFromEnvironment,
   startExampleWorker,
-} from "../../src/config/worker-mode.js";
+} from "../../src/config/worker.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
 import { channelFlow } from "../../src/primitives/channel/channel-flow.js";
 import { streamFlow } from "../../src/primitives/stream/stream-flow.js";
@@ -103,16 +101,11 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
   const worker = await startExampleWorker(
     registry,
     blobCache,
-    readWorkerModeFromEnvironment(),
     serverAddress,
-    {
-      bindAddress: `127.0.0.1:${await availablePort()}`,
-      serverAddress,
-    },
   );
   const client = new Client(registry, blobCache, {
     serverAddress,
-    workerTarget: worker.workerTarget,
+    workerTarget: { pull: true },
   });
   return {
     client,
@@ -168,27 +161,5 @@ export async function awaitCondition<T>(
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
-  });
-}
-
-function availablePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (address === null || typeof address === "string") {
-        server.close();
-        reject(new Error("failed to allocate a Worker port"));
-        return;
-      }
-      server.close((error) => {
-        if (error !== undefined) {
-          reject(error);
-          return;
-        }
-        resolve(address.port);
-      });
-    });
   });
 }

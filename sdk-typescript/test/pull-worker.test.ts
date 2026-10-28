@@ -16,7 +16,7 @@ import {
   type ServerDuplexStream,
 } from "@grpc/grpc-js";
 
-import { Client, Registry, StepList, Worker, PullRegistrationError, retryAfter, type PullWorkerOptions, type BlobCache, type Flow, type PullWorkerTarget } from "../src/index.js";
+import { Registry, StepList, Worker, PullRegistrationError, retryAfter, type PullWorkerOptions, type BlobCache, type Flow } from "../src/index.js";
 import {
   FlowServiceService,
   type FlowServiceServer,
@@ -32,7 +32,7 @@ import {
   type PollWorkerTaskResponse,
   type WorkerTaskServiceServer,
 } from "../src/gen/dex.js";
-import { workerErrorResponse, workerServiceError } from "../src/grpc-status.js";
+import { workerErrorResponse } from "../src/grpc-status.js";
 import { PullWorker } from "../src/pull-worker.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
 
@@ -43,24 +43,15 @@ class TestFlow implements Flow<void> {
   public getSteps(): StepList<void> { return StepList.empty(); }
 }
 
-test("pull options reject listener conflicts, invalid capacity, and Worker IDs", async () => {
+test("pull options reject invalid capacity and Worker IDs", async () => {
   const registry = new Registry([new TestFlow()]);
   const cache = {} as BlobCache;
-  assert.throws(() => new Worker(registry, cache, { pull: {}, bindAddress: "127.0.0.1:8000" }), TypeError);
-  assert.throws(() => new Worker(registry, cache, { pull: {}, workerTarget: { address: "" } }), TypeError);
   assert.throws(() => new Worker(registry, cache, { pull: { maxConcurrentTasks: -1 } }), RangeError);
   assert.throws(() => new Worker(registry, cache, { pull: { idleStreamsPerQueue: 1.2 } }), RangeError);
   assert.throws(() => new Worker(registry, cache, { pull: { stopDrainTimeoutMs: -1 } }), RangeError);
   assert.throws(() => new Worker(registry, cache, { pull: { appWorkerID: "bad/id" } }), TypeError);
   assert.throws(() => new Worker(registry, cache, { pull: { appWorkerID: "TestFlow" } }), TypeError);
-  assert.throws(() => new Client(registry, cache, { workerTarget: { pull: true, address: "127.0.0.1:8000" } as unknown as PullWorkerTarget }), TypeError);
-  assert.throws(() => new Client(registry, cache, { workerTarget: { pull: true, headless: true } as unknown as PullWorkerTarget }), TypeError);
-  const emptyTargetClient = new Client(registry, cache, { workerTarget: { address: "" } });
-  await emptyTargetClient.close();
-  const emptyTargetWorker = new Worker(registry, cache, { workerTarget: { address: "" } });
-  await emptyTargetWorker.close();
-  const worker = new Worker(registry, cache, { pull: {} });
-  assert.deepEqual(worker.workerTarget, { address: "", pull: true });
+  const worker = new Worker(registry, cache);
   await worker.close();
 });
 
@@ -775,12 +766,10 @@ for (const shutdown of ["Stop drain", "busy Reconnect", "busy Reconnect then Sto
   });
 }
 
-test("Worker error frame preserves push status, type, stack, and retry delay", () => {
+test("Worker error frame preserves status, type, stack, and retry delay", () => {
   const failure = Object.assign(new Error("failed"), { code: status.INVALID_ARGUMENT });
   const pull = workerErrorResponse(failure);
-  const push = workerServiceError(failure);
   assert.equal(pull.grpcStatus, status.UNKNOWN);
-  assert.equal(push.code, pull.grpcStatus);
   assert.equal(pull.detail, "failed");
   assert.equal(pull.errorType, "Error");
   assert.match(pull.stackTrace, /failed/);
@@ -1031,7 +1020,7 @@ for (const hasRegistered of [false, true]) {
   });
 }
 
-test("registration wait handles startup failure, cancellation, timeout, and listening Workers", async () => {
+test("registration wait handles startup failure, cancellation, timeout, and default Workers", async () => {
   const worker = new Worker(new Registry([]), {} as BlobCache, {
     serverAddress: "127.0.0.1:1", attributeIndexSyncTimeoutMs: 100, pull: {},
   });
@@ -1057,8 +1046,5 @@ test("registration wait handles startup failure, cancellation, timeout, and list
   const stopped = assert.rejects(pending.waitPullRegistered(), /stopped before registration/);
   await pending.close();
   await stopped;
-  const listener = new Worker(new Registry([]), {} as BlobCache);
-  await assert.rejects(listener.waitPullRegistered(), /requires a pull Worker/);
-  assert.deepEqual(listener.pullRegistrationState(), { isReady: false, queues: [] });
-  await listener.close();
+
 });

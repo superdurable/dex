@@ -6,38 +6,13 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import {
-  Server,
-  ServerCredentials,
-  Metadata,
-  credentials,
-  type ServerWritableStream,
-  type ServerUnaryCall,
-  type sendUnaryData,
-} from "@grpc/grpc-js";
+import { Metadata, credentials } from "@grpc/grpc-js";
 
 import type { BlobCache } from "./blob-cache.js";
 import { credentialInterceptors } from "./credential.js";
-import {
-  FlowServiceClient,
-  InvokeExecuteMethodOutput,
-  InvokeWaitForMethodOutput,
-  WorkerServiceService,
-  type InvokeExecuteMethodRequest,
-  type InvokeExecuteMethodResponse,
-  type InvokeWaitForMethodRequest,
-  type InvokeWaitForMethodResponse,
-  type InvokeWorkerRPCRequest,
-  type InvokeWorkerRPCResponse,
-  type ServerInfo,
-  type StepStreamWrite,
-  type Value,
-  type WorkerServiceServer,
-} from "./gen/dex.js";
-import { workerServiceError } from "./grpc-status.js";
+import { FlowServiceClient, type ServerInfo } from "./gen/dex.js";
 import { registeredAttributeIndexes, type Registry } from "./flow.js";
-import type { StepOutputEmitter } from "./invocation-context.js";
-import type { WorkerOptions, WorkerTarget } from "./options.js";
+import type { WorkerOptions } from "./options.js";
 import { negotiateServerProtocol, serverInfoRequestError } from "./server-protocol.js";
 import { sdkVersion } from "./sdk-version.generated.js";
 import { ValueHydrator } from "./value-mapper.js";
@@ -51,11 +26,11 @@ import type { PullRegistrationState, WaitPullRegisteredOptions } from "./pull-re
 type WorkerState = "created" | "running" | "stopping" | "stopped" | "closed";
 
 /**
- * Hosts registered Step and RPC handlers through a listener or outbound pull streams.
+ * Hosts registered Step and RPC handlers through outbound pull streams.
  *
  * A Worker is one-shot. Call `start` for non-blocking startup or `run` to await
  * shutdown, then call `close`. Concurrent handlers must synchronize shared state.
- * In pull mode, `close` drains for `stopDrainTimeoutMs`, then cancels handlers and
+ * `close` drains for `stopDrainTimeoutMs`, then cancels handlers and
  * waits for them to return. Half-closed streams wait for server EOF until the
  * remaining drain deadline. A handler that ignores cancellation can delay shutdown.
  *
@@ -63,20 +38,12 @@ type WorkerState = "created" | "running" | "stopping" | "stopped" | "closed";
  * ```ts
  * const worker = new Worker(registry, cache);
  * await worker.start();
- * try { console.log(worker.workerTarget.address); } finally { await worker.close(); }
+ * try { await worker.waitPullRegistered({ timeoutMs: 10_000 }); } finally { await worker.close(); }
  * ```
  */
 export class Worker {
-  /**
-   * Effective endpoint advertised to Dex.
-   * In pull mode, the runtime value also carries `pull: true` and an empty address.
-   * Pass it directly to ClientOptions.workerTarget or a Flow configuration override.
-   */
-  public readonly workerTarget: WorkerTarget;
-
-  private readonly server = new Server();
   private readonly flowService: InstanceType<typeof FlowServiceClient>;
-  private readonly pullWorker: PullWorker | undefined;
+  private readonly pullWorker: PullWorker;
   private readonly stopped: Promise<void>;
   private resolveStopped!: () => void;
   private state: WorkerState = "created";
@@ -84,11 +51,11 @@ export class Worker {
   private shutdownError: unknown;
 
   /**
-   * Constructs a Worker without starting its listener or task streams.
+   * Constructs a Worker without starting its task streams. Workers need only an outbound connection to the Dex Server.
    * @param registry - Flow definitions served by this Worker.
    * @param blobCache - Open cache used to hydrate large handler values.
-   * @param options - Networking, pull mode, bearer credential, and startup settings; uses local defaults when omitted.
-   * @throws {TypeError} When pull mode conflicts with a listener or has an invalid Worker ID.
+   * @param options - Server connectivity, task capacity, bearer credential, and startup settings; uses local defaults when omitted.
+   * @throws {TypeError} When the Worker ID is invalid.
    * @throws {RangeError} When a pull capacity or drain timeout is invalid.
    */
   public constructor(
@@ -96,14 +63,6 @@ export class Worker {
     public readonly blobCache: BlobCache,
     public readonly options: WorkerOptions = {},
   ) {
-    if (options.pull !== undefined && (options.bindAddress !== undefined || options.workerTarget !== undefined)) {
-      throw new TypeError("pull Worker cannot configure bindAddress or workerTarget");
-    }
-    const bindAddress = options.bindAddress ?? "127.0.0.1:8803";
-    const pullTarget = { address: "", pull: true } as const;
-    this.workerTarget = options.pull === undefined
-      ? options.workerTarget ?? targetFromBindAddress(bindAddress)
-      : pullTarget;
     this.flowService = new FlowServiceClient(
       options.serverAddress ?? "localhost:8801",
       credentials.createInsecure(),
@@ -115,15 +74,13 @@ export class Worker {
       () => this.negotiatedProtocolVersion,
     );
     try {
-      this.pullWorker = options.pull === undefined
-        ? undefined
-        : new PullWorker(registry, dispatcher, options.serverAddress ?? "localhost:8801", options.pull, options.credential, () => this.stopAfterPermanentRejection());
+      this.pullWorker = new PullWorker(
+        registry, dispatcher, options.serverAddress ?? "localhost:8801", options.pull ?? {},
+        options.credential, () => this.stopAfterPermanentRejection(),
+      );
     } catch (failure) {
       this.flowService.close();
       throw failure;
-    }
-    if (this.pullWorker === undefined) {
-      this.server.addService(WorkerServiceService, workerService(dispatcher));
     }
     this.stopped = new Promise((resolve) => {
       this.resolveStopped = resolve;
@@ -131,15 +88,14 @@ export class Worker {
   }
 
   /**
-   * Negotiates the Server protocol, synchronizes indexes, and starts listening or polling.
-   * The promise resolves after binding or launching pull streams; call exactly once.
+   * Negotiates the Server protocol, synchronizes indexes, and starts polling.
+   * The promise resolves after launching pull streams; call exactly once.
    * Await waitPullRegistered separately to gate startup on pull queue acknowledgements.
    */
   public async start(): Promise<void> {
     if (this.state !== "created") {
       throw new Error(`Worker cannot start from state ${this.state}`);
     }
-    const bindAddress = this.options.bindAddress ?? "127.0.0.1:8803";
     try {
       const timeoutMs = this.options.attributeIndexSyncTimeoutMs ?? 120_000;
       if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -153,20 +109,14 @@ export class Worker {
       }
       this.negotiatedProtocolVersion = negotiateServerProtocol(serverInfo, sdkVersion);
       await syncAttributeIndexes(this.flowService, this.registry, timeoutMs);
-      if (this.pullWorker === undefined) {
-        await bind(this.server, bindAddress);
-      } else {
-        this.pullWorker.start();
-      }
+      this.pullWorker.start();
       this.state = "running";
     } catch (failure) {
-      const endpoint = this.pullWorker === undefined
-        ? `Worker on ${bindAddress}`
-        : `pull Worker for ${this.options.serverAddress ?? "localhost:8801"}`;
+      const endpoint = `pull Worker for ${this.options.serverAddress ?? "localhost:8801"}`;
       const startupError = new Error(`cannot start TypeScript ${endpoint}`, { cause: failure });
-      this.pullWorker?.registration.stopped(startupError);
+      this.pullWorker.registration.stopped(startupError);
       this.state = "stopped";
-      await this.pullWorker?.close();
+      await this.pullWorker.close();
       this.flowService.close();
       this.resolveStopped();
       throw startupError;
@@ -183,7 +133,7 @@ export class Worker {
     await this.start();
     await this.stopped;
     if (this.shutdownError !== undefined) throw this.shutdownError;
-    if (this.options.pull?.stopOnPermanentStreamRejection === true && this.pullWorker?.registration.permanentError !== undefined) {
+    if (this.options.pull?.stopOnPermanentStreamRejection === true && this.pullWorker.registration.permanentError !== undefined) {
       throw this.pullWorker.registration.permanentError;
     }
   }
@@ -195,7 +145,7 @@ export class Worker {
    * @param options - Optional AbortSignal and positive timeout in milliseconds; defaults to waiting indefinitely.
    * @returns A promise resolved after all queues have registered once.
    * @throws {PullRegistrationError} A permanent rejection leaves a queue without another registered stream before readiness.
-   * @throws {Error} Startup fails, the Worker stops before readiness, or this is a listening Worker.
+   * @throws {Error} Startup fails or the Worker stops before readiness.
    * @throws {RangeError} The timeout is invalid.
    * @throws {DOMException} The timeout expires; cancellation rejects with the signal's reason.
    * @example
@@ -206,7 +156,6 @@ export class Worker {
    * ```
    */
   public waitPullRegistered(options: WaitPullRegisteredOptions = {}): Promise<void> {
-    if (this.pullWorker === undefined) return Promise.reject(new Error("waitPullRegistered requires a pull Worker"));
     return this.pullWorker.registration.wait(options);
   }
 
@@ -214,27 +163,27 @@ export class Worker {
    * Cumulative Step declines caused by reserved RPC capacity during this Worker's lifetime.
    * Counts decline events. Dex may decline the same Step dispatch repeatedly while retrying it,
    * so read the counter as a rate. Excludes full-capacity rejections and unknown names. The count never resets and
-   * remains available after close. Listening Workers return zero. Reading during
+   * remains available after close. Reading during
    * handler execution is safe. Export the value to a monitoring counter.
-   * @returns The cumulative reserve-decline count, or zero for a listening Worker.
+   * @returns The cumulative reserve-decline count.
    * @example
    * ```ts
    * const declines = worker.pullReservedRpcDeclines;
    * ```
    */
   public get pullReservedRpcDeclines(): number {
-    return this.pullWorker?.reservedRpcDeclines ?? 0;
+    return this.pullWorker.reservedRpcDeclines;
   }
 
   /**
    * Returns an independent snapshot of pull queue registrations.
    * Readiness latches after every queue registers once. Only a permanent rejection with no
    * registered stream makes it false; re-registration clears the queue error. Stop preserves readiness.
-   * @returns Current readiness and queue snapshots, or false and an empty list for a listening Worker.
+   * @returns Current readiness and queue snapshots.
    * See waitPullRegistered for a startup and readiness example. Treat errors as immutable.
    */
   public pullRegistrationState(): PullRegistrationState {
-    return this.pullWorker?.registration.snapshot() ?? { isReady: false, queues: [] };
+    return this.pullWorker.registration.snapshot();
   }
 
   private stopAfterPermanentRejection(): void {
@@ -245,7 +194,7 @@ export class Worker {
   }
 
   /**
-   * Gracefully stops the listener or drains pull tasks, then releases connections.
+   * Gracefully drains tasks, then releases connections.
    * A pull Worker force-cancels after its drain timeout and waits for handlers to return.
    * Half-closed pull streams wait for server EOF until the remaining drain deadline.
    * Calls before `start` and repeated calls after shutdown are safe.
@@ -256,7 +205,7 @@ export class Worker {
     }
     if (this.state === "created") {
       this.state = "closed";
-      await this.pullWorker?.close();
+      await this.pullWorker.close();
       this.flowService.close();
       this.resolveStopped();
       return;
@@ -264,11 +213,7 @@ export class Worker {
     if (this.state === "running") {
       this.state = "stopping";
       try {
-        if (this.pullWorker === undefined) {
-          await shutdown(this.server);
-        } else {
-          await this.pullWorker.close();
-        }
+        await this.pullWorker.close();
       } finally {
         this.flowService.close();
         this.state = "stopped";
@@ -315,200 +260,4 @@ function syncAttributeIndexes(
       },
     );
   });
-}
-
-function workerService(dispatcher: WorkerDispatcher): WorkerServiceServer {
-  return {
-    invokeWaitForMethod(call) {
-      invokeStep(
-        call,
-        (signal, output) => dispatcher.invokeWaitFor(call.request, signal, output),
-        waitForOutput,
-      );
-    },
-    invokeExecuteMethod(call) {
-      invokeStep(
-        call,
-        (signal, output) => dispatcher.invokeExecute(call.request, signal, output),
-        executeOutput,
-      );
-    },
-    invokeWorkerRpc(call, callback) {
-      invoke(call, (signal) => dispatcher.invokeRPC(call.request, signal), callback);
-    },
-  };
-}
-
-interface StepOutputFactory<Response, Output> {
-  heartbeat(value: Value | undefined): Output;
-  streamWrite(write: StepStreamWrite): Output;
-  result(response: Response): Output;
-}
-
-class GrpcStepOutputEmitter<Request, Response, Output> implements StepOutputEmitter {
-  private isActive = true;
-
-  public constructor(
-    private readonly call: ServerWritableStream<Request, Output>,
-    private readonly outputs: StepOutputFactory<Response, Output>,
-  ) {}
-
-  public recordHeartbeat(value: Value | undefined): Promise<void> {
-    this.write(this.outputs.heartbeat(value));
-    return Promise.resolve();
-  }
-
-  public writeStream(write: StepStreamWrite): void {
-    this.write(this.outputs.streamWrite(write));
-  }
-
-  public finish(response: Response): void {
-    if (!this.isActive) {
-      return;
-    }
-    this.isActive = false;
-    this.call.write(this.outputs.result(response));
-    this.call.end();
-  }
-
-  public fail(failure: unknown): void {
-    if (!this.isActive) {
-      return;
-    }
-    this.isActive = false;
-    this.call.emit("error", workerServiceError(failure));
-  }
-
-  public cancel(): void {
-    this.isActive = false;
-  }
-
-  private write(output: Output): void {
-    if (!this.isActive || this.call.cancelled) {
-      throw new Error("Step invocation is no longer active");
-    }
-    this.call.write(output);
-  }
-}
-
-function invokeStep<Request, Response, Output>(
-  call: ServerWritableStream<Request, Output>,
-  invocation: (signal: AbortSignal, output: StepOutputEmitter) => Promise<Response>,
-  outputs: StepOutputFactory<Response, Output>,
-): void {
-  const controller = new AbortController();
-  const emitter = new GrpcStepOutputEmitter(call, outputs);
-  const cancel = (): void => {
-    controller.abort();
-    emitter.cancel();
-  };
-  call.once("cancelled", cancel);
-  if (call.cancelled) {
-    cancel();
-  }
-  invocation(controller.signal, emitter)
-    .then(
-      (response) => emitter.finish(response),
-      (failure: unknown) => emitter.fail(failure),
-    )
-    .finally(() => call.off("cancelled", cancel));
-}
-
-const waitForOutput: StepOutputFactory<InvokeWaitForMethodResponse, InvokeWaitForMethodOutput> = {
-  heartbeat: (value) => InvokeWaitForMethodOutput.create({
-    output: { $case: "heartbeat", value: { value } },
-  }),
-  streamWrite: (write) => InvokeWaitForMethodOutput.create({
-    output: { $case: "streamWrite", value: write },
-  }),
-  result: (response) => InvokeWaitForMethodOutput.create({
-    output: { $case: "result", value: response },
-  }),
-};
-
-const executeOutput: StepOutputFactory<InvokeExecuteMethodResponse, InvokeExecuteMethodOutput> = {
-  heartbeat: (value) => InvokeExecuteMethodOutput.create({
-    output: { $case: "heartbeat", value: { value } },
-  }),
-  streamWrite: (write) => InvokeExecuteMethodOutput.create({
-    output: { $case: "streamWrite", value: write },
-  }),
-  result: (response) => InvokeExecuteMethodOutput.create({
-    output: { $case: "result", value: response },
-  }),
-};
-
-function invoke<Request, Response>(
-  call: ServerUnaryCall<Request, Response>,
-  invocation: (signal: AbortSignal) => Promise<Response>,
-  callback: sendUnaryData<Response>,
-): void {
-  const controller = new AbortController();
-  const cancel = (): void => controller.abort();
-  call.once("cancelled", cancel);
-  if (call.cancelled) {
-    cancel();
-  }
-  invocation(controller.signal)
-    .then(
-      (response) => {
-        if (!controller.signal.aborted) {
-          callback(null, response);
-        }
-      },
-      (failure: unknown) => {
-        if (!controller.signal.aborted) {
-          callback(workerServiceError(failure), null);
-        }
-      },
-    )
-    .finally(() => call.off("cancelled", cancel));
-}
-
-function bind(server: Server, address: string): Promise<number> {
-  parseAddress(address);
-  return new Promise((resolve, reject) => {
-    server.bindAsync(address, ServerCredentials.createInsecure(), (error, port) => {
-      if (error !== null) {
-        reject(error);
-        return;
-      }
-      resolve(port);
-    });
-  });
-}
-
-function shutdown(server: Server): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.tryShutdown((error) => {
-      if (error !== undefined) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
-}
-
-function targetFromBindAddress(address: string): WorkerTarget {
-  const parsed = parseAddress(address);
-  const host = parsed.host === "" || parsed.host === "0.0.0.0" || parsed.host === "::"
-    ? "localhost"
-    : parsed.host;
-  return { address: host.includes(":") ? `[${host}]:${parsed.port}` : `${host}:${parsed.port}` };
-}
-
-function parseAddress(address: string): { host: string; port: number } {
-  if (address.trim() !== address || address === "") {
-    throw new TypeError("Worker bind address is required without whitespace");
-  }
-  const bracketed = /^\[([^\]]+)]:(\d+)$/.exec(address);
-  const separator = address.lastIndexOf(":");
-  const host = bracketed?.[1] ?? (separator < 0 ? "" : address.slice(0, separator));
-  const portText = bracketed?.[2] ?? (separator < 0 ? "" : address.slice(separator + 1));
-  const port = Number(portText);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new TypeError("Worker bind address requires port 1-65535");
-  }
-  return { host, port };
 }

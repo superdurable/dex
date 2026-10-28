@@ -68,12 +68,6 @@ export async function startExampleFlowRequest(
   return flowId;
 }
 
-export async function rerouteActiveFlow(client: Client, flowId: string): Promise<void> {
-  await client.updateFlowConfig(flowId, {
-    workerTarget: { address: "worker-canary:8803" },
-  });
-}
-
 export function createFlowRouter(client: Client): Router {
   const router = Router();
 

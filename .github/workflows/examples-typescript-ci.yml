@@ -63,7 +63,7 @@ jobs:
         run: npm test
 
   integ:
-    name: Integration tests with dexcli dev (${{ matrix.engine }})
+    name: Integration tests with dexcli dev (${{ matrix.engine }}, pull)
     runs-on: ubuntu-latest
     timeout-minutes: 50
     strategy:

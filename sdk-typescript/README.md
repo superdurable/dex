@@ -155,19 +155,31 @@ Non-starting Steps may use unrelated input types. `Flow` defaults to `void` for
 Flows without a start input.
 
 `Worker.start()` synchronizes every registered Indexed Attribute with Dex
-Server before binding its listener or opening pull streams. Existing indexes
+Server before opening task streams. Existing indexes
 return immediately; failure or the default 120-second deadline aborts startup.
 An indexed `AttributeMap` must provide one fixed `indexKey`.
 
-### Pull mode
+### Migrating from push Workers
 
-Set `WorkerOptions.pull` to open outbound task streams without a WorkerService
-listener. Advertise `worker.workerTarget` through `ClientOptions.workerTarget`.
-`StartFlowOptions.configOverride.workerTarget` can select pull routing for one
-Flow, and `SubFlowOptions.configOverride.workerTarget` can select it for a SubFlow.
-The pull target is `{ pull: true }`; it cannot include a nonempty address or
-`headless`.
-A pull Worker cannot set `bindAddress` or an advertised `workerTarget`.
+This breaking change ships in the next minor SDK release. Remove
+`WorkerOptions.bindAddress`, `WorkerOptions.workerTarget`, `ClientOptions.workerTarget`,
+and `FlowConfig.workerTarget`, including StartFlow and SubFlow overrides. Remove
+uses of `Worker.workerTarget`, `WorkerTarget`, and `PullWorkerTarget`.
+Workers always pull tasks and need only an outbound connection to the Dex Server.
+Keep `WorkerOptions.pull` when customizing capacity or shutdown.
+
+For an active Flow created with a Worker address by an older SDK, start a pull
+Worker with the same Flow and Step types, then call
+`await client.updateFlowConfig(flowId, {})` to route later tasks to pull Workers.
+Already dispatched work is not recalled. Drain the old Worker before removing
+its listener.
+
+### Workers
+
+Workers pull tasks from the Dex Server and need only an outbound connection.
+Worker startup, Client Flow starts, and SubFlows use pull routing automatically.
+Set `WorkerOptions.pull` to customize task capacity, registration, and shutdown;
+omitting it uses the defaults described below.
 
 ```typescript
 const worker = new Worker(registry, cache, {
@@ -181,7 +193,6 @@ const worker = new Worker(registry, cache, {
 await worker.start();
 const client = new Client(registry, cache, {
   serverAddress: "dex.example:8801",
-  workerTarget: worker.workerTarget,
 });
 try {
   await client.startFlow(flow, flowId, input);
@@ -291,7 +302,6 @@ full-capacity rejections. The count excludes full-capacity rejections and unknow
 names. It counts decline events, including repeated declines of the same Step
 dispatch while Dex retries it. Read its rate to assess reserve pressure. It never
 resets and remains available after shutdown.
-Listening Workers return zero.
 
 ### Canceling Step executions
 
@@ -433,7 +443,7 @@ rollover. Request expiry throws `RequestTimeoutError`.
 `Promise` of their result. Because the Worker runs on Node's single event loop,
 an async handler that `await`s `Client` calls (`startFlow`, `waitForFlow`,
 `invokeRPC`, ...) yields the loop, so the **same** Worker keeps serving other
-WorkerService calls — including the child Flow or RPC you just started. One
+tasks — including the child Flow or RPC you just started. One
 Worker is enough; no sidecar Worker is needed.
 
 ```ts
@@ -450,7 +460,7 @@ Synchronous handlers stay valid — returning a plain `StepDecision` / `Wait` /
 
 - Never block the event loop from a handler (`Atomics.wait`,
   `child_process.spawnSync`). That freezes the Worker and defeats the point.
-- A long `await client.waitForFlow(...)` holds the current WorkerService call
+- A long `await client.waitForFlow(...)` holds the current task slot
   until it resolves or times out. Prefer a short timeout plus Step retry (or a
   timer-backed re-check) over one unbounded poll. `executeMethodTimeoutMs` /
 `waitForMethodTimeoutMs` clock the full async handler duration.
@@ -573,7 +583,6 @@ const credential = new FileCredential("/var/run/secrets/dex/token");
 const worker = new Worker(registry, cache, { credential, pull: {} });
 const client = new Client(registry, cache, {
   credential,
-  workerTarget: worker.workerTarget,
 });
 ```
 
@@ -599,7 +608,7 @@ const credential = new ApiKeyCredential({
   apiKey: process.env.DEX_API_KEY!,
 });
 const worker = new Worker(registry, cache, { credential, pull: {} });
-const client = new Client(registry, cache, { credential, workerTarget: worker.workerTarget });
+const client = new Client(registry, cache, { credential });
 try {
   await worker.start();
   await client.searchFlows("", 10);
@@ -773,9 +782,9 @@ require 2FA and disallow token-based publication.
 ## Server protocol compatibility
 
 Worker startup calls `GetServerInfo`, negotiates the highest common protocol,
-synchronizes Attribute indexes, and then binds WorkerService. The TypeScript
+synchronizes Attribute indexes, and then opens outbound task streams. The TypeScript
 SDK interval is `[1,3]`. Missing information, invalid or disjoint intervals,
-and RPC failures stop startup before binding. The Client negotiates lazily, once,
+and RPC failures stop startup before polling. The Client negotiates lazily, once,
 before its first hard-delete Attribute write. Hard-delete Attribute writes
 require negotiated protocol version 3 or later.
 

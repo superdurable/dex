@@ -40,7 +40,6 @@ export async function compileEmptyAndModelInputs(client: Client): Promise<void> 
 export async function compileFailurePolicyAndConfigOverride(client: Client): Promise<void> {
   const config: FlowConfig = {
     activeStepSearchMode: ActiveStepSearchMode.ALL,
-    workerTarget: { address: "worker:8803" },
   };
   const options: StartFlowOptions = { configOverride: config };
   await client.startFlow(flows.PROCEED_ON_WAIT_FAILURE, "recover", "input", options);
