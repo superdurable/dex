@@ -4,8 +4,8 @@ This report records how the whole `server/integ` suite behaves when it runs in
 binary mode against `dex-server-zd`. Every test has a result. Every skip and
 failure has one classification.
 
-- CI run: [Server Integration against server-zd #40724119425](https://github.com/superdurable/dex/actions/runs/40724119425)
-  on commit `046ad95fb`, five partitions, debug `dex-server-zd`, PostgreSQL 17,
+- CI run: [Server Integration against server-zd #40728045943](https://github.com/superdurable/dex/actions/runs/40728045943)
+  on commit `c672d9266`, five partitions, debug `dex-server-zd`, PostgreSQL 17,
   and Redis 7.
 - Command: `make -C server zdIntegTests dexServerZDBinary=<dex-server-zd> totalPartitions=5 partitionNum=<n>`.
 - Regenerate the result table from the uploaded `zd-integ-json-*` artifacts with
@@ -128,9 +128,11 @@ Fixed in this change:
   length is longer than its threshold. The harness sets the server-zd threshold
   to the encoded length of a `json` object Value whose payload has exactly
   S3TestThreshold bytes. Both servers then offload the same `json` objects. For
-  payloads under 128 bytes the encoded length is the payload plus 10 bytes.
-  A string Value costs the payload plus 2 bytes, so strings up to 8 bytes over
-  the threshold stay inline on server-zd. No ported test uses such a string.
+  payloads under 120 bytes the encoded length is the payload plus 10 bytes.
+  A string Value under 128 bytes costs the payload plus 2 bytes. So, for
+  thresholds under 120 bytes, strings up to 8 bytes over the threshold stay
+  inline on server-zd. Larger thresholds widen this gap by a few bytes. No
+  ported test uses such a string.
   With lazy loading, the S3 Start input, Step input, initial Attribute, and
   upserted Attribute tests assert that server-zd sends each large value to the
   Worker as a reference and each small value inline. The get/set Attribute,
@@ -290,7 +292,7 @@ checks Go Server configuration.
 | TestDeadEndFlowCadence | skip | go-server-only | Skip reason: `deadend_test.go:53: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestDeadEndFlowCadenceContinueAsNew | skip | go-server-only | Skip reason: `deadend_test.go:77: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestDeadEndFlowTemporal | pass |  |  |
-| TestDeadEndFlowTemporalContinueAsNew | skip | go-server-only | Skip reason: `deadend_test.go:199: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
+| TestDeadEndFlowTemporalContinueAsNew | skip | go-server-only | Skip reason: `deadend_test.go:200: Temporal-only assertion`. Continue-As-New variant; server-zd never continues a run as new (C3). |
 | TestFlowForceFailCadence | skip | go-server-only | Skip reason: `wf_force_fail_test.go:39: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestFlowForceFailTemporal | pass |  |  |
 | TestFlowIDWithTenantPrefixPassesThroughTemporal | skip | go-server-only | Skip reason: `flow_id_passthrough_test.go:87: Temporal-only assertion`. Starts the interpreter workflow directly through Temporal (StartInterpreterWorkflow). |
@@ -325,7 +327,7 @@ checks Go Server configuration.
 | TestHardDeleteAttributeResetTemporal | pass |  |  |
 | TestHardDeleteAttributeStepWriteRequiresBlobStoreTemporal | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:413: Temporal-only assertion`. Go Server disabled Blob Store rejection (C5). |
 | TestHardDeleteAttributeSubFlowCadence | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:306: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
-| TestHardDeleteAttributeSubFlowTemporal | skip | zd-bug | Skip reason: `hard_delete_attribute_test.go:295: Temporal-only assertion`. Stays in temporalOnlyScenarioTests: zd-bug 1 (#1001) stops the server-zd node. |
+| TestHardDeleteAttributeSubFlowTemporal | skip | zd-bug | Skip reason: `hard_delete_attribute_test.go:313: Temporal-only assertion`. Stays in temporalOnlyScenarioTests: zd-bug 1 (#1001) stops the server-zd node. |
 | TestHardDeleteAttributeValidationTemporal | pass |  |  |
 | TestHardDeleteAttributesCadence | skip | go-server-only | Skip reason: `hard_delete_attribute_test.go:69: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestHardDeleteAttributesTemporal | pass | behavior-difference | Passes; skips the Go Blob directory checks (C4, C5) and asserts that LoadBlobs rejects a Go Blob ID. Dex history is checked for secrets. |
@@ -547,7 +549,7 @@ checks Go Server configuration.
 | TestUpdateWorkerTargetCadence | skip | go-server-only | Skip reason: `worker_target_update_test.go:35: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestUpdateWorkerTargetTemporal | skip | go-server-only | Skip reason: `worker_target_update_test.go:41: requires push Workers: switching addresses between Workers for one Flow type`. Push Worker address switching; server-zd supports only pull Workers (C18). |
 | TestWaitForAttributeBlobBackedTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestWaitForAttributeCadence | skip | go-server-only | Skip reason: `wait_for_attribute_test.go:86: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
+| TestWaitForAttributeCadence | skip | go-server-only | Skip reason: `wait_for_attribute_test.go:89: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestWaitForAttributeTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
 | TestWaitForStateCompletionCadence | skip | go-server-only | Skip reason: `wait_for_state_completion_test.go:71: if !*cadenceIntegTest`. Cadence backend; server-zd has no Cadence. |
 | TestWaitForStateCompletionTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |

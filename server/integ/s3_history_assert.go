@@ -22,8 +22,7 @@ import (
 	"go.temporal.io/api/workflowservice/v1"
 )
 
-// requireServerZDValueReferences asserts which Worker-recorded values server-zd sent as references.
-// Lazy loading sends values above the threshold as references; otherwise server-zd hydrates every value.
+// requireServerZDValueReferences asserts which recorded Worker values server-zd sent as references.
 func requireServerZDValueReferences(
 	t *testing.T,
 	history map[string]any,

@@ -42,8 +42,7 @@ type binaryDexProcess struct {
 
 var binaryDexTerminationGracePeriod = 10 * time.Second
 
-// serverZDWireInlineThresholdBytes maps a Go Blob Store payload threshold to server-zd's encoded Value threshold.
-// The mapping is exact for JSON obj_value; string_value payloads up to 8 bytes over stay inline.
+// serverZDWireInlineThresholdBytes returns the encoded length of a JSON obj_value with that payload length.
 func serverZDWireInlineThresholdBytes(goPayloadThresholdBytes int) int {
 	return proto.Size(&dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
 		Encoding: "json",
