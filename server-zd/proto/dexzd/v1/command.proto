@@ -311,7 +311,7 @@ message ParentFlowReference {
   string condition_id = 4;
 }
 
-// Start of a child Flow, written into the parent's outbox by apply. Values are complete.
+// Start of a child Flow, written into the parent's outbox by apply. Values are complete except staged hard-delete Attributes.
 message ChildFlowStartMessage {
   string child_flow_id = 1;
   dex.SubFlowCondition condition = 2;

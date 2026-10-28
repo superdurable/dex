@@ -49,13 +49,16 @@ pub(crate) async fn deliver_outbox_message(
             .propose_until_committed(&delivery.target, delivery.command, CommitUrgency::Prompt)
             .await
             .ok_or(EffectError::Stopped)?;
-        finish_delivery_uploads(
+        if let Err(error) = finish_delivery_uploads(
             context,
             &delivery.target,
             delivery.new_run_id,
             delivery.uploads.take(),
         )
-        .await?;
+        .await
+        {
+            tracing::warn!(%error, %run_id, target_flow_id = %delivery.target.flow_id, "finishing child hard-delete uploads failed; recovery retries cleanup");
+        }
         if matches!(reply.reply, Some(command_reply::Reply::Ok(_))) {
             break;
         }
@@ -117,12 +120,18 @@ async fn prepare_delivery(
         let parent_owner = objects.owner_of(flow, run_id);
         for reference in &start.hard_delete_objects {
             // A replayed parent may redeliver after its acknowledged staging objects were erased.
-            let value = objects
+            let value = match objects
                 .read_value(parent_owner, &reference.object_id)
                 .await?
-                .unwrap_or(Value {
-                    kind: Some(value::Kind::NullValue(0)),
-                });
+            {
+                Some(value) => value,
+                None => {
+                    tracing::warn!(object_id = %reference.object_id, %run_id, "child hard-delete staging object is missing; delivering null");
+                    Value {
+                        kind: Some(value::Kind::NullValue(0)),
+                    }
+                }
+            };
             writes[reference.write_index as usize].value = Some(value);
         }
         let child_run = delivery
@@ -155,13 +164,10 @@ async fn finish_delivery_uploads(
         .flow_state_reader(target, false)?;
     let key = run_singleton_key(run.flow_hash, run.run_id, RunTable::RunRecord);
     let is_committed = reader.get(ColumnFamily::Flow, &key)?.is_some();
-    if let Err(error) = context
+    context
         .hard_delete_objects
         .finish_uploads(uploads, is_committed)
-        .await
-    {
-        tracing::warn!(%error, %run_id, "finishing child hard-delete uploads failed; recovery retries cleanup");
-    }
+        .await?;
     Ok(())
 }
 

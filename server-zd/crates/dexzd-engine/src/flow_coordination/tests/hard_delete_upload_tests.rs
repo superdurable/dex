@@ -613,3 +613,64 @@ async fn admission_rejects_raw_hard_delete_writes_before_submission_without_halt
     assert!(harness.applier.applied.lock().unwrap().is_empty());
     assert!(!harness.registry.halted().is_cancelled());
 }
+
+#[tokio::test(start_paused = true)]
+async fn invalid_effect_hard_delete_commands_halt_before_submission() {
+    use crate::effects::{FlowEffectOperationError, FlowEffectOperations};
+    use dexzd_protocol::dex::InvokeExecuteMethodResponse;
+    use dexzd_protocol::dexzd::v1::{
+        HardDeleteObjectReference, StepMethodCompletedCommand, step_method_completed_command,
+    };
+
+    for should_propose_speculatively in [false, true] {
+        let harness = blob_store_harness();
+        let command = FlowCommand {
+            flow_id: "invalid-effect".to_owned(),
+            command: Some(flow_command::Command::StepMethodCompleted(
+                StepMethodCompletedCommand {
+                    response: Some(step_method_completed_command::Response::Execute(
+                        InvokeExecuteMethodResponse {
+                            upsert_attributes: vec![hard_delete_write(
+                                "secret",
+                                string_value("secret-text-must-not-be-logged"),
+                            )],
+                            ..InvokeExecuteMethodResponse::default()
+                        },
+                    )),
+                    hard_delete_objects: vec![HardDeleteObjectReference {
+                        object_id: "corrupt-staged-object".to_owned(),
+                        write_index: 1,
+                        ..HardDeleteObjectReference::default()
+                    }],
+                    ..StepMethodCompletedCommand::default()
+                },
+            )),
+            ..FlowCommand::default()
+        };
+        let address = flow("invalid-effect");
+        let urgency = crate::flow_coordination::CommitUrgency::Prompt;
+        let error = if should_propose_speculatively {
+            harness
+                .registry
+                .propose_speculative(&address, command, urgency)
+                .await
+                .unwrap_err()
+        } else {
+            harness
+                .registry
+                .propose_committed(&address, command, urgency)
+                .await
+                .unwrap_err()
+        };
+        let FlowEffectOperationError::NodeStopping { detail } = error else {
+            panic!("invalid effect command must halt the registry");
+        };
+        assert!(detail.contains("StepMethodCompleted"));
+        assert!(detail.contains("corrupt-staged-object"));
+        assert!(detail.contains("secret"));
+        assert!(!detail.contains("secret-text-must-not-be-logged"));
+        assert!(harness.registry.halted().is_cancelled());
+        assert!(harness.submitted().is_empty());
+        assert!(harness.applier.applied.lock().unwrap().is_empty());
+    }
+}

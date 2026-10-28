@@ -190,6 +190,7 @@ pub(super) struct InMemoryFlowEffectOperations {
     pub(super) unavailable_proposals: AtomicUsize,
     /// Makes `flow_state_reader` fail as unavailable; committed reads still succeed.
     pub(super) is_flow_state_unreadable: AtomicBool,
+    pub(super) flow_state_reader_failures: Arc<AtomicUsize>,
     /// Sets `is_flow_state_unreadable` once an attempt start commits.
     pub(super) is_flow_state_unreadable_after_start: AtomicBool,
     /// Holds `flow_state_reader` calls from blocking threads while closed.
@@ -401,7 +402,14 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
         _flow: &FlowAddress,
         _should_include_speculative: bool,
     ) -> Result<Box<dyn FlowStateReader + Send>, FlowEffectOperationError> {
-        if self.is_flow_state_unreadable.load(Ordering::SeqCst) {
+        if self.is_flow_state_unreadable.load(Ordering::SeqCst)
+            || self
+                .flow_state_reader_failures
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                    remaining.checked_sub(1)
+                })
+                .is_ok()
+        {
             return Err(FlowEffectOperationError::Unavailable {
                 detail: "injected state reader outage".to_owned(),
             });
@@ -909,6 +917,7 @@ impl EffectHarness {
             busy_lock_keys: Mutex::new(BTreeSet::new()),
             unavailable_proposals: AtomicUsize::new(0),
             is_flow_state_unreadable: AtomicBool::new(false),
+            flow_state_reader_failures: Arc::new(AtomicUsize::new(0)),
             is_flow_state_unreadable_after_start: AtomicBool::new(false),
             state_read_gate: Arc::new(StateReadGate::new()),
             committed_reads: AtomicUsize::new(0),

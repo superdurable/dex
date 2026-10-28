@@ -31,8 +31,10 @@ Before the snapshot:
   than the inline threshold and lives in the Value column family.
 - `profile-review`: a WaitFor on a Channel keeps the run open while a hard-delete value is
   replaced; the replaced object is deleted and the deletion committed.
-- `fulfillment-parent`: a WaitFor starts a SubFlow. The child start is delivered to the child
-  Flow in another partition, and the parent's outbox message is acknowledged.
+- `fulfillment-parent`: a WaitFor stages a SubFlow hard-delete Attribute. The child start
+  carries field 6 with a parent-owned staging reference, then a child-owned object reference
+  in the delivered InboxMessage. The parent's outbox message is acknowledged and its staging
+  object is deleted.
 - `account-sync`: a Flow that targets the `accounts` Attribute Store starts with two synced
   Attributes and one unsynced Attribute, then a SetAttributes changes a synced one. Its
   Attribute Sync entries and pending index are pending in the snapshot. The entries carry the
@@ -70,5 +72,5 @@ because no snapshot was older than the deletion delay, so the log keeps every ba
 | `objects/registry/attribute-indexes` | Attribute index registry with one keyword index |
 | `objects/log/node-a/0000000001/` | Every log batch, starting with the EpochStart at seq 1 |
 | `objects/snapshot/node-a/<lineage>/` | Snapshot manifest 1 and its memory store file |
-| `objects/hard-delete/` | The hard-delete value that is still live |
+| `objects/hard-delete/` | The hard-delete values that are still live |
 | `state.txt` | Committed state after the last command; see `../README.md` |

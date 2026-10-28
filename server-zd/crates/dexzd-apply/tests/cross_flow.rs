@@ -2844,7 +2844,7 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
 }
 
 #[test]
-fn sub_flow_hard_delete_objects_are_persisted_delivered_and_erased_after_recovery() {
+fn sub_flow_hard_delete_objects_are_persisted_delivered_and_erased() {
     let mut harness = Harness::new();
     harness.start_parent();
     let reference = HardDeleteObjectReference {
@@ -2953,4 +2953,133 @@ fn sub_flow_hard_delete_objects_are_persisted_delivered_and_erased_after_recover
         ColumnFamily::Flow,
         hard_delete_pending_key(child_hash, RunId(FIRST_CHILD_RUN), "child-secret")
     )));
+}
+
+#[test]
+fn sub_flow_hard_delete_indices_are_remapped_across_all_conditions_after_parent_writes() {
+    let mut harness = Harness::new();
+    harness.start_parent();
+    let invocation = StepInvocationKey {
+        step_execution_id: "StartStep-1".to_owned(),
+        method: StepMethod::WaitFor as i32,
+    };
+    assert_ok(&harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::StepAttemptStarted(StepAttemptStartedCommand {
+            invocation: Some(invocation.clone()),
+            attempt: 1,
+            task_id: vec![9; 16],
+            pull_routing: None,
+        }),
+    ));
+    let parent_reference = HardDeleteObjectReference {
+        write_index: 1,
+        object_id: "parent-secret".to_owned(),
+        size_bytes: 11,
+        is_string_value: true,
+    };
+    let child_references = vec![
+        HardDeleteObjectReference {
+            write_index: 0,
+            object_id: "first-child-secret".to_owned(),
+            size_bytes: 17,
+            is_string_value: true,
+        },
+        HardDeleteObjectReference {
+            write_index: 2,
+            object_id: "second-child-secret".to_owned(),
+            size_bytes: 19,
+            is_string_value: false,
+        },
+    ];
+    let mut flattened_references = vec![parent_reference];
+    flattened_references.extend(child_references.iter().cloned().map(|mut reference| {
+        reference.write_index += 3;
+        reference
+    }));
+    let hard_delete_write = |key: &str| AttributeWrite {
+        key: key.to_owned(),
+        value: Some(Value { kind: None }),
+        is_hard_delete_on_null: true,
+        ..AttributeWrite::default()
+    };
+    let plain_write = AttributeWrite {
+        key: "plain".to_owned(),
+        value: Some(Value {
+            kind: Some(value::Kind::StringValue("plain value".to_owned())),
+        }),
+        ..AttributeWrite::default()
+    };
+    let child_condition = SubFlowCondition {
+        condition_id: "without-options".to_owned(),
+        sub_flow_type: "ChildFlow".to_owned(),
+        start_step_type: "ChildStep".to_owned(),
+        ..SubFlowCondition::default()
+    };
+    assert_ok(&harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(invocation),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::WaitFor(
+                InvokeWaitForMethodResponse {
+                    upsert_attributes: vec![
+                        plain_write.clone(),
+                        hard_delete_write("parent-secret"),
+                    ],
+                    waiting_condition: Some(WaitingCondition {
+                        waiting_condition_type: WaitingConditionType::AllCompleted as i32,
+                        sub_flow_conditions: vec![
+                            child_condition.clone(),
+                            SubFlowCondition {
+                                condition_id: "plain-child".to_owned(),
+                                sub_flow_index: 1,
+                                options: Some(SubFlowOptions {
+                                    attributes: vec![plain_write.clone()],
+                                    ..SubFlowOptions::default()
+                                }),
+                                ..child_condition.clone()
+                            },
+                            SubFlowCondition {
+                                condition_id: "secret-child".to_owned(),
+                                sub_flow_index: 2,
+                                options: Some(SubFlowOptions {
+                                    attributes: vec![
+                                        hard_delete_write("first-secret"),
+                                        plain_write,
+                                        hard_delete_write("second-secret"),
+                                    ],
+                                    ..SubFlowOptions::default()
+                                }),
+                                ..child_condition
+                            },
+                        ],
+                        ..WaitingCondition::default()
+                    }),
+                    ..InvokeWaitForMethodResponse::default()
+                },
+            )),
+            hard_delete_objects: flattened_references,
+            ..StepMethodCompletedCommand::default()
+        }),
+    ));
+    let starts: BTreeMap<_, _> = harness
+        .outbox("parent", PARENT_RUN)
+        .into_iter()
+        .map(|record| {
+            let Some(outbox_record::Payload::ChildStart(start)) = record.payload else {
+                panic!("expected child start");
+            };
+            (
+                start.parent.unwrap().sub_flow_index,
+                start.hard_delete_objects,
+            )
+        })
+        .collect();
+    assert_eq!(starts.len(), 3);
+    assert_eq!(starts[&0], Vec::new());
+    assert_eq!(starts[&1], Vec::new());
+    assert_eq!(starts[&2], child_references);
 }
