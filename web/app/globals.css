@@ -134,6 +134,8 @@ body {
   color: var(--ink);
   background: var(--canvas);
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button,
@@ -246,7 +248,7 @@ a {
   border-radius: 7px;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .workspace-switch a.active {
@@ -543,7 +545,7 @@ a {
   color: var(--ink-dim);
   background: var(--well);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   text-align: center;
 }
 
@@ -607,7 +609,7 @@ a {
   background: var(--pass-subtle);
   font-size: 8px;
   font-style: normal;
-  font-weight: 800;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
@@ -665,19 +667,27 @@ p {
 h1 {
   margin-bottom: 7px;
   font-size: clamp(28px, 4vw, 42px);
-  letter-spacing: -0.035em;
+  font-weight: 600;
+  letter-spacing: -0.025em;
   line-height: 1.05;
 }
 
 h2 {
   margin-bottom: 6px;
   font-size: 20px;
-  letter-spacing: -0.02em;
+  font-weight: 600;
+  letter-spacing: normal;
 }
 
 h3 {
   margin-bottom: 4px;
   font-size: 15px;
+  font-weight: 600;
+}
+
+.page-shell :is(b, strong, th),
+.run-page :is(b, strong, th) {
+  font-weight: 600;
 }
 
 .view-toolbar p,
@@ -751,7 +761,7 @@ h3 {
   border: 1px solid transparent;
   border-radius: 9px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .button.primary {
@@ -914,7 +924,7 @@ h3 {
   color: var(--accent);
   background: none;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .query-preview {
@@ -932,7 +942,7 @@ h3 {
   flex: none;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1100,7 +1110,7 @@ h3 {
 
 .table-link {
   color: var(--accent);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .table-link:hover {
@@ -1294,7 +1304,7 @@ pre {
 .summary-strip span:first-child {
   color: var(--muted);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -1322,7 +1332,7 @@ pre {
   padding: 11px 15px;
   color: var(--muted);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .run-tabs button.active {
@@ -1420,7 +1430,7 @@ pre {
   color: var(--muted);
   background: var(--paper);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .stream-listening-dot {
@@ -1440,7 +1450,7 @@ pre {
 .stream-form > label {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .stream-form > div {
@@ -1649,7 +1659,7 @@ pre {
   color: var(--muted);
   background: transparent;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .event-detail-tabs button.active {
@@ -1906,7 +1916,7 @@ pre {
 
 .failure-stack summary {
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .failure-stack pre {
@@ -1940,10 +1950,16 @@ pre {
 }
 
 .semantic-fields-compact > div {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 5px;
+  gap: 2px 5px;
+}
+
+/* A value with no room beside its label wraps below it. */
+.semantic-fields-compact:not(.semantic-fields-stacked) dd {
+  min-width: 12ch;
+  flex: 1 1 0;
 }
 
 .semantic-fields-compact > .semantic-field-wide {
@@ -1986,7 +2002,7 @@ pre {
   text-align: left;
   background: var(--raised);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .json-toggle span {
@@ -2103,7 +2119,7 @@ pre {
   padding: 3px 6px;
   border-radius: 999px;
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
@@ -2386,7 +2402,7 @@ pre {
 .timeline-step-duration {
   fill: var(--accent);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   paint-order: stroke;
   pointer-events: painted;
   stroke: var(--paper);
@@ -2407,7 +2423,7 @@ pre {
 .timeline-step-link-group:focus .timeline-step-duration,
 .timeline-step-link-group.is-active .timeline-step-duration {
   fill: var(--pass);
-  font-weight: 800;
+  font-weight: 700;
   stroke: var(--pass-subtle);
 }
 
@@ -2544,7 +2560,7 @@ pre {
   color: var(--muted);
   background: var(--hover);
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -2577,7 +2593,7 @@ pre {
 .semantic-run-link-row > span:first-child {
   color: var(--muted);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
@@ -2629,7 +2645,7 @@ pre {
   content: "Linked event";
   background: var(--door-subtle);
   font-size: 8px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -2812,7 +2828,7 @@ pre {
   box-shadow: var(--shadow-soft);
   font: inherit;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   pointer-events: auto;
 }
@@ -2854,11 +2870,11 @@ pre {
   padding: 0;
   overflow: visible;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
   color: var(--ink);
   text-align: left;
   background: var(--paper);
-  box-shadow: var(--shadow);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
 .react-flow__node.step-flow-node.selected {
@@ -2874,7 +2890,7 @@ pre {
 .graph-node-body {
   height: 100%;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: 11px;
 }
 
 .react-flow__node.step-flow-node .react-flow__handle {
@@ -2891,15 +2907,16 @@ pre {
 
 .react-flow__node.node-active,
 .react-flow__node.node-pending {
-  border-color: var(--accent);
+  border-color: var(--accent-rule);
 }
 
 .react-flow__node.node-waiting {
-  border-color: var(--clock);
+  border-color: var(--clock-rule);
 }
 
 .react-flow__node.node-failed {
-  border-color: var(--fail);
+  border-color: var(--fail-rule);
+  background: var(--fail-subtle);
 }
 
 .react-flow__node.node-canceled {
@@ -2908,7 +2925,7 @@ pre {
 }
 
 .react-flow__node.node-source {
-  border-color: var(--child);
+  border-color: var(--child-rule);
   background: var(--raised);
 }
 
@@ -2921,7 +2938,7 @@ pre {
 .react-flow__node.node-subflow.node-canceled,
 .react-flow__node.node-subflow.node-timeout,
 .react-flow__node.node-subflow.node-terminated {
-  border-color: var(--fail);
+  border-color: var(--fail-rule);
   background: var(--fail-subtle);
 }
 
@@ -2981,7 +2998,7 @@ pre {
   gap: 5px;
   color: var(--accent);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .graph-sub-flow-link b,
@@ -2993,7 +3010,7 @@ pre {
 }
 
 .graph-sub-flow-link b {
-  font-size: 12px;
+  font-size: 13.5px;
 }
 
 .graph-sub-flow-link code,
@@ -3014,12 +3031,12 @@ pre {
 .graph-node-label > span {
   color: var(--muted);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .graph-node-label b {
   overflow: hidden;
-  font-size: 12px;
+  font-size: 13.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3057,7 +3074,7 @@ pre {
   grid-column: 1 / -1;
   color: var(--muted);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .graph-step-heading b,
@@ -3068,7 +3085,7 @@ pre {
 }
 
 .graph-step-heading b {
-  font-size: 12px;
+  font-size: 13.5px;
 }
 
 .graph-step-heading code {
@@ -3082,7 +3099,7 @@ pre {
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   align-items: stretch;
   gap: 16px;
-  background: var(--paper);
+  background: transparent;
 }
 
 .graph-methods > .graph-method:only-child {
@@ -3111,7 +3128,7 @@ pre {
   padding-right: 20px;
   border: 0;
   border-radius: 0;
-  background: var(--clock);
+  background: var(--clock-rule);
   clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%);
 }
 
@@ -3130,7 +3147,7 @@ pre {
 }
 
 .graph-method-execute {
-  border-color: var(--pass);
+  border-color: var(--pass-rule);
   background: var(--raised);
 }
 
@@ -3140,6 +3157,10 @@ pre {
 
 .graph-method-waitfor:hover:not(:disabled)::before {
   background: var(--paper);
+}
+
+.graph-method-execute.graph-method-failed {
+  border-color: var(--fail-rule);
 }
 
 .graph-method-execute:hover:not(:disabled) {
@@ -3164,7 +3185,7 @@ pre {
 .graph-method span {
   color: var(--muted);
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .graph-method strong {
@@ -3294,7 +3315,7 @@ pre {
   gap: 7px;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .modal-actions {

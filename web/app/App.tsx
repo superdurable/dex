@@ -71,7 +71,7 @@ function FlowRunRoute() {
     <RunDetailsPage
       breadcrumb={(
         <div className="breadcrumbs">
-          <Link to="/">Flows</Link><span>/</span>
+          <Link to="/v1/flows">Flows</Link><span>/</span>
           <Link to={flowPath}>{flowId}</Link><span>/</span>
           <span className="mono">{runId}</span>
         </div>

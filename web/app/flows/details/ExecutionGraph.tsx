@@ -470,7 +470,7 @@ export function ExecutionGraph({
             onSelectEvent(model.execute ?? model.pendingExecute ?? model.waitFor ?? model.pendingWaitFor ?? null);
           }}
         >
-          <Background gap={22} size={1} color="var(--line)" />
+          <Background gap={22} size={1} color="var(--line-faint)" />
           <Controls position="top-right" />
           <div className={`graph-minimap-shell${isMiniMapExpanded ? ' expanded' : ''}`}>
             {isMiniMapExpanded && (
