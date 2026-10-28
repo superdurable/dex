@@ -53,7 +53,7 @@ One-off local mutation checks observed the following failures with the corrected
 | Apply `testdata/seeded-bugs/immediate-reclaim.patch`. | `1592590336` | `I1-window-value-reference` |
 | Apply `testdata/seeded-bugs/retry-stale-snapshot.patch`, handling a rejected rebuild as no prior snapshot. | `1592590336` | `S5-fresh-snapshot` |
 | Remove the `scope.is_history_rebuild()` early return from `mark_attribute_sync_entries`. | `161503589`, `879068896` | `apply-error`: synced Attribute has no live value |
-| Remove `|| scope.is_replay` from both request-deduplication guards in `command_handlers/client_writes.rs`. | `879068896` | `apply-error`: replayed command rejected |
+| Remove `\|\| scope.is_replay` from both request-deduplication guards in `command_handlers/client_writes.rs`. | `879068896` | `apply-error`: replayed command rejected |
 
 The retry mutant also handles the inner `rebuild_attempt_state` result: add
 `let Ok(rebuilt) = rebuilt else { return Ok(None); };` before reading `rebuilt.rows`

@@ -21,7 +21,6 @@ use dexzd_simulation::{
     ApplyChecker, CommandGenerator, INVALID_CLIENT_INPUT_CLASSES, RunSelection, SimulationFailure,
     SimulationSummary, run_seed,
 };
-use prost::Message;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -277,9 +276,9 @@ fn worker_commands_keep_their_dispatched_run_attempt_on_redelivery() {
             CommandGenerator::step_failure_stream(seed),
         ] {
             let mut checker = ApplyChecker::new();
-            let mut delivered_results = BTreeSet::new();
             for _ in 0..1000 {
                 let command = generator.next_command(&checker).expect("state decodes");
+                let is_redelivered_result = generator.last_command_was_redelivered_result();
                 let is_worker_command = matches!(
                     command.command,
                     Some(
@@ -301,21 +300,6 @@ fn worker_commands_keep_their_dispatched_run_attempt_on_redelivery() {
                         .expect("worker run exists")
                         .current_attempt
                         != command.expected_run_attempt
-                } else {
-                    false
-                };
-                let is_redelivered_result = if matches!(
-                    command.command,
-                    Some(
-                        Command::StepAttemptHeartbeat(_)
-                            | Command::StepAttemptFailed(_)
-                            | Command::StepMethodCompleted(_)
-                    )
-                ) {
-                    let mut result_identity = command.clone();
-                    result_identity.command_id.clear();
-                    result_identity.proposed_at_micros = 0;
-                    !delivered_results.insert(result_identity.encode_to_vec())
                 } else {
                     false
                 };

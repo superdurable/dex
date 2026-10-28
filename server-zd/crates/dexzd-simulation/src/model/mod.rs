@@ -65,6 +65,7 @@ pub struct CommandGenerator {
     rng: ChaCha8Rng,
     now_micros: i64,
     sent_results: Vec<FlowCommand>,
+    last_command_was_redelivered_result: bool,
     flow_ids: &'static [&'static str],
     stream: CommandStream,
     closed_erase_phase: ClosedErasePhase,
@@ -136,6 +137,7 @@ impl CommandGenerator {
             rng: ChaCha8Rng::seed_from_u64(seed),
             now_micros: START_MICROS,
             sent_results: Vec::new(),
+            last_command_was_redelivered_result: false,
             flow_ids: FLOW_IDS,
             stream: CommandStream::Main,
             closed_erase_phase: ClosedErasePhase::Start,
@@ -468,6 +470,7 @@ impl CommandGenerator {
     }
 
     fn realize(&mut self, flow_id: &str, proposal: Proposal<'_>) -> FlowCommand {
+        self.last_command_was_redelivered_result = false;
         let is_synced = self.stream == CommandStream::AttributeSync;
         let is_step_failure_stream = self.stream == CommandStream::StepFailure;
         let rng = &mut self.rng;
@@ -551,6 +554,7 @@ impl CommandGenerator {
                 self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
             }
             Proposal::RedeliverResult => {
+                self.last_command_was_redelivered_result = true;
                 let index = rng.random_range(0..self.sent_results.len());
                 let previous = self.sent_results[index].clone();
                 let body = previous
@@ -605,5 +609,10 @@ impl CommandGenerator {
             self.sent_results.remove(0);
         }
         self.sent_results.push(command.clone());
+    }
+
+    /// Reports whether the last successful [`Self::next_command`] selected a remembered Worker result for redelivery; false before generation.
+    pub fn last_command_was_redelivered_result(&self) -> bool {
+        self.last_command_was_redelivered_result
     }
 }
