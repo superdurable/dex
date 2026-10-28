@@ -123,7 +123,7 @@ async fn rpc_conflicts_with_a_speculative_step_lock_holder() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn rpc_conflicts_with_another_rpc_and_releases_when_the_call_is_dropped() {
+async fn rpc_conflicts_with_another_rpc_until_the_worker_finishes_after_the_caller_drops() {
     let harness = Arc::new(FlowCoordinationHarness::new());
     start_flow(&harness, "order-1").await.unwrap();
     let gate = Arc::new(Notify::new());
@@ -147,16 +147,24 @@ async fn rpc_conflicts_with_another_rpc_and_releases_when_the_call_is_dropped() 
 
     let error = harness
         .registry
-        .invoke_rpc(TENANT, rpc_request("order-1", &["other", "balance"]))
+        .invoke_rpc(
+            TENANT,
+            InvokeRpcRequest {
+                request_id: "conflicting-rpc".to_owned(),
+                ..rpc_request("order-1", &["other", "balance"])
+            },
+        )
         .await
         .unwrap_err();
     assert_aborted(&error);
 
-    let mut unrelated = Box::pin(
-        harness
-            .registry
-            .invoke_rpc(TENANT, rpc_request("order-1", &["unrelated"])),
-    );
+    let mut unrelated = Box::pin(harness.registry.invoke_rpc(
+        TENANT,
+        InvokeRpcRequest {
+            request_id: "unrelated-rpc".to_owned(),
+            ..rpc_request("order-1", &["unrelated"])
+        },
+    ));
     tokio::select! {
         _ = &mut unrelated => panic!("waits at the gate too"),
         () = harness.rpc_invoker.entered.notified() => {}
@@ -164,8 +172,29 @@ async fn rpc_conflicts_with_another_rpc_and_releases_when_the_call_is_dropped() 
 
     drop(holder);
     drop(unrelated);
+    let error = harness
+        .registry
+        .invoke_rpc(
+            TENANT,
+            InvokeRpcRequest {
+                request_id: "retry-before-worker-finishes".to_owned(),
+                ..rpc_request("order-1", &["balance"])
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_aborted(&error);
     *harness.rpc_invoker.gate.lock().unwrap() = None;
-    harness.rpc_invoker.results.lock().unwrap().clear();
+    gate.notify_waiters();
+    let response = harness
+        .drive(
+            harness
+                .registry
+                .invoke_rpc(TENANT, rpc_request("order-1", &["balance"])),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.output, Some(string_value("first")));
     harness
         .rpc_invoker
         .results
@@ -173,11 +202,13 @@ async fn rpc_conflicts_with_another_rpc_and_releases_when_the_call_is_dropped() 
         .unwrap()
         .push_back(Ok(output_result("second")));
     let response = harness
-        .drive(
-            harness
-                .registry
-                .invoke_rpc(TENANT, rpc_request("order-1", &["balance"])),
-        )
+        .drive(harness.registry.invoke_rpc(
+            TENANT,
+            InvokeRpcRequest {
+                request_id: "after-worker-finishes".to_owned(),
+                ..rpc_request("order-1", &["balance"])
+            },
+        ))
         .await
         .unwrap();
     assert_eq!(response.output, Some(string_value("second")));

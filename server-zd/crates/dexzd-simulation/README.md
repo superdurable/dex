@@ -247,6 +247,10 @@ until the child-wait probe moved its trajectory.
 Combining the child-wait probe with later engine changes moved every pin again. Both active
 regression seeds still fail at the same simulated times when the fix is reverted.
 
+Registry-owned RPC tasks change the scheduling of transactional and locking calls. Four pins
+were refreshed for that change. With the purging-read fix reverted, both active regression
+seeds still detect omitted hard-delete Attributes within 120 simulated seconds.
+
 ### Running
 
 ```bash

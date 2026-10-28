@@ -11,3 +11,17 @@ WaitFor results upload hard-delete values before the parent command enters the l
 The delivery effect reads the parent-owned staging objects and uploads child-owned objects before proposing the inbox command. The inbox carries the child references. An acknowledgment schedules the staging objects for deletion. Pending-upload recovery retains objects referenced by an outbox message as well as current or pending-delete Attribute objects. Rejected deliveries and attachments delete their unused child uploads; an interrupted delivery leaves ledger entries for recovery.
 
 Every Attribute-carrying command passes the same hard-delete reference check before submission and at apply entry. Missing, duplicate, mismatched, and out-of-range references return an input error. The low-level missing-object invariant therefore indicates an internal call-path bug, rather than unchecked client or Worker input.
+
+## RPC request IDs
+
+Transactional and locking RPCs share one node-owned task for each tenant, Flow,
+resolved run, and request ID. Concurrent identical requests receive the same result
+or error. A caller disconnect or transport deadline ends only that caller's wait;
+the Worker call continues until its RPC deadline or node shutdown. Conflicting
+payloads retain the existing fingerprint rejection.
+
+Completed successful replies use the persisted request deduplication records.
+In-flight admission and errors are not persisted. A node crash before the result
+commits can invoke the Worker again on retry. Durable admission, resumable Worker
+calls, and persisted error replay require a separate recovery design. Plain RPCs
+continue to use the non-transactional path without in-flight deduplication.

@@ -28,6 +28,7 @@ use prost::Message;
 
 use crate::flow_coordination::client_operations::hard_delete_uploads::hard_delete_references;
 use crate::flow_coordination::client_operations::request_fingerprint::request_fingerprint;
+use crate::flow_coordination::client_operations::rpc_requests::RpcResultSender;
 use crate::flow_coordination::client_operations::unstamped_flow_command;
 use crate::flow_coordination::read_operations::state_rows::{
     ResolvedRun, WireValue, decode_row, hydrate_value_reference, load_complete_value, read_run,
@@ -65,23 +66,90 @@ impl FlowCoordinatorRegistry {
         )?;
         self.check_running()?;
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
+        let run_id = {
+            let committed = self.inner.dependencies.committer.committed_view()?;
+            read_run(
+                committed.as_ref(),
+                self.flow_context(&flow),
+                &flow,
+                &request.run_id,
+            )?
+            .run_id
+        };
+        let is_transactional = request.is_transactional || !request.lock_attribute_keys.is_empty();
+        if !is_transactional {
+            return self.invoke_rpc_once(flow, run_id, request).await;
+        }
+        let (mut result, sender) = self.inner.rpc_requests.join_or_insert(
+            &flow,
+            run_id,
+            &request.request_id,
+            request_fingerprint(&request),
+        )?;
+        if let Some(sender) = sender {
+            let task = self
+                .inner
+                .rpc_requests
+                .tasks
+                .spawn(self.clone().run_shared_rpc(flow, run_id, request, sender));
+            // The registry tracks this task; individual callers own only their result subscriptions.
+            drop(task);
+        }
+        result
+            .wait_for(Option::is_some)
+            .await
+            .map_err(|_| FlowCoordinationError::NodeStopping {
+                detail: "RPC task ended without a result".to_owned(),
+            })?
+            .as_ref()
+            .expect("wait_for observed a result")
+            .clone()
+    }
+
+    async fn run_shared_rpc(
+        self,
+        flow: FlowAddress,
+        run_id: RunId,
+        request: InvokeRpcRequest,
+        sender: RpcResultSender,
+    ) {
+        let request_id = request.request_id.clone();
+        let halted = self.halted();
+        let result = tokio::select! {
+            biased;
+            () = self.inner.rpc_requests.stopped.cancelled() => Err(FlowCoordinationError::NodeStopping {
+                detail: "node stopped while an RPC was in flight".to_owned(),
+            }),
+            () = halted.cancelled() => Err(self.check_running().expect_err("halted")),
+            result = self.invoke_rpc_once(flow.clone(), run_id, request) => result,
+        };
+        self.inner
+            .rpc_requests
+            .finish(flow, run_id, request_id, sender, result);
+    }
+
+    async fn invoke_rpc_once(
+        &self,
+        flow: FlowAddress,
+        run_id: RunId,
+        request: InvokeRpcRequest,
+    ) -> Result<InvokeRpcResponse, FlowCoordinationError> {
+        self.check_running()?;
         let context = self.flow_context(&flow);
         let is_transactional = request.is_transactional || !request.lock_attribute_keys.is_empty();
         let lease = self.lease(&flow);
         let mut lock_keys = request.lock_attribute_keys.clone();
         lock_keys.sort();
         lock_keys.dedup();
-        let run_id = {
+        if is_transactional {
             let committed = self.inner.dependencies.committer.committed_view()?;
-            let run = read_run(committed.as_ref(), context, &flow, &request.run_id)?;
-            if is_transactional
-                && let Some(response) =
-                    admit_transactional_rpc_run(committed.as_ref(), context, &flow, &run, &request)?
+            let run = read_run(committed.as_ref(), context, &flow, &run_id.to_string())?;
+            if let Some(response) =
+                admit_transactional_rpc_run(committed.as_ref(), context, &flow, &run, &request)?
             {
                 return Ok(response);
             }
-            run.run_id
-        };
+        }
         // The Go Server rejects these workflow updates during cleanup, and waits for admitted ones.
         let rpc_admission = if is_transactional {
             let admission = self.admit_transactional_rpc(&flow, run_id, |committed| {

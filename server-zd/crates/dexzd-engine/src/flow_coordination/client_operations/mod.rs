@@ -11,6 +11,7 @@
 mod hard_delete_uploads;
 mod request_fingerprint;
 mod rpc_invocation;
+pub(super) mod rpc_requests;
 
 use dexzd_keyspace::{RunId, TenantId};
 use dexzd_protocol::dex::{
