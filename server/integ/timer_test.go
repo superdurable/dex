@@ -136,10 +136,6 @@ func doTestTimerFlow(
 	})
 	require.NoError(t, err)
 
-	time.Sleep(time.Second)
-	timerInfos, err := queryCurrentTimerInfos(ctx, runtime, flowId)
-	require.NoError(t, err)
-
 	assertions := assert.New(t)
 	skippedTimerStatus := dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	resetTimerStatus := dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
@@ -174,7 +170,7 @@ func doTestTimerFlow(
 			},
 		},
 	}
-	assertTimerQueryResponseEqual(assertions, expectedTimerInfos, timerInfos)
+	requireTimerInfosEventually(t, ctx, runtime, flowId, expectedTimerInfos)
 
 	_, err = flowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
 		FlowId:           flowId,
@@ -183,11 +179,8 @@ func doTestTimerFlow(
 	})
 	require.NoError(t, err)
 
-	time.Sleep(time.Second)
-	timerInfos, err = queryCurrentTimerInfos(ctx, runtime, flowId)
-	require.NoError(t, err)
 	timer2.Status = skippedTimerStatus
-	assertTimerQueryResponseEqual(assertions, expectedTimerInfos, timerInfos)
+	requireTimerInfosEventually(t, ctx, runtime, flowId, expectedTimerInfos)
 
 	_, err = flowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
 		FlowId:              flowId,
@@ -196,11 +189,8 @@ func doTestTimerFlow(
 	})
 	require.NoError(t, err)
 
-	time.Sleep(time.Second)
-	timerInfos, err = queryCurrentTimerInfos(ctx, runtime, flowId)
-	require.NoError(t, err)
 	timer3.Status = skippedTimerStatus
-	assertTimerQueryResponseEqual(assertions, expectedTimerInfos, timerInfos)
+	requireTimerInfosEventually(t, ctx, runtime, flowId, expectedTimerInfos)
 
 	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
@@ -229,6 +219,7 @@ func doTestTimerFlow(
 
 	timer2.Status = resetTimerStatus
 	timer3.Status = resetTimerStatus
+	var timerInfos *dexpb.GetCurrentTimerInfosQueryResponse
 	require.Eventually(t, func() bool {
 		var queryErr error
 		if timerInfos, queryErr = queryCurrentTimerInfos(ctx, runtime, flowId); queryErr != nil {
@@ -294,6 +285,24 @@ func queryCurrentTimerInfos(
 	timerInfos := &dexpb.GetCurrentTimerInfosQueryResponse{}
 	err := runtime.UnifiedClient.QueryWorkflow(ctx, timerInfos, flowID, "", service.GetCurrentTimerInfosQueryType)
 	return timerInfos, err
+}
+
+// requireTimerInfosEventually polls Step timers until they match expected.
+func requireTimerInfosEventually(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	expected *dexpb.GetCurrentTimerInfosQueryResponse,
+) {
+	t.Helper()
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		timerInfos, err := queryCurrentTimerInfos(ctx, runtime, flowID)
+		if !assert.NoError(collect, err) {
+			return
+		}
+		assertTimerQueryResponseEqual(assert.New(collect), expected, timerInfos)
+	}, 10*time.Second, 100*time.Millisecond)
 }
 
 func assertTimerQueryResponseEqual(

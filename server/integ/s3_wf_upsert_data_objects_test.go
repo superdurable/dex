@@ -94,6 +94,16 @@ func doTestWorkflowWithS3UpsertDataObjects(t *testing.T, backendType service.Bac
 	require.Equal(t, s3_upsert_data_objects.LargeDataContent2, history["S2_large_obj2_data"])
 	require.Equal(t, s3_upsert_data_objects.SmallDataContent3, history["S2_small_obj3_data"])
 
+	requireServerZDValueReferences(
+		t,
+		history,
+		lazyLoading,
+		[]string{
+			"S2_" + s3_upsert_data_objects.TestDataObjKey1 + "_is_reference",
+			"S2_" + s3_upsert_data_objects.TestDataObjKey2 + "_is_reference",
+		},
+		[]string{"S2_" + s3_upsert_data_objects.TestDataObjKey3 + "_is_reference"},
+	)
 	requireGoBlobStoreObjectCount(t, ctx, flowId, 2)
 
 	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{

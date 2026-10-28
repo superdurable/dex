@@ -116,6 +116,16 @@ func doTestWorkflowWithS3InitDataAttributes(t *testing.T, backendType service.Ba
 	require.Equal(t, 3, history["S2_execute_total_attrs"])
 	require.Equal(t, true, history["S2_execute_validation_pass"])
 
+	requireServerZDValueReferences(
+		t,
+		history,
+		lazyLoading,
+		[]string{
+			"S1_waitFor_" + s3_init_data_attributes.TestDataAttrKey1 + "_is_reference",
+			"S1_waitFor_" + s3_init_data_attributes.TestDataAttrKey2 + "_is_reference",
+		},
+		[]string{"S1_waitFor_" + s3_init_data_attributes.TestDataAttrKey3 + "_is_reference"},
+	)
 	requireGoBlobStoreObjectCount(t, ctx, flowId, 2)
 
 	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{

@@ -516,7 +516,7 @@ func doTestFlowTimeoutHandlerExecutionOptions(
 	require.NoError(t, err)
 
 	firstRequest := receiveTimeoutExecuteRequest(t, ctx, workerHandler.executeRequests)
-	requireTimeoutHandlerState(t, firstRequest)
+	requireTimeoutHandlerState(t, firstRequest, 1)
 	if !shouldRecover {
 		_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 			FlowId: flowID,
@@ -529,12 +529,12 @@ func doTestFlowTimeoutHandlerExecutionOptions(
 		require.NoError(t, err)
 	}
 	secondRequest := receiveTimeoutExecuteRequest(t, ctx, workerHandler.executeRequests)
+	retryCommandMessages := 1
 	if isServerZDBinaryMode() && !shouldRecover {
 		// zd-bug #1006: the retry reloads Channels instead of reusing the first attempt's snapshot.
-		require.Len(t, secondRequest.GetLoadedChannelMessages()["timeout-commands"].GetMessages(), 2)
-	} else {
-		requireTimeoutHandlerState(t, secondRequest)
+		retryCommandMessages = 2
 	}
+	requireTimeoutHandlerState(t, secondRequest, retryCommandMessages)
 	require.Equal(
 		t,
 		firstRequest.GetLoadedChannelMessages()["timeout-commands"].GetMessages()[0].GetMessageId(),
@@ -583,17 +583,21 @@ func receiveTimeoutExecuteRequest(
 	}
 }
 
-func requireTimeoutHandlerState(t *testing.T, request *dexpb.InvokeExecuteMethodRequest) {
+func requireTimeoutHandlerState(
+	t *testing.T,
+	request *dexpb.InvokeExecuteMethodRequest,
+	expectedCommandMessages int,
+) {
 	t.Helper()
 	require.Equal(t, service.FlowTimeoutStepType, request.GetStepType())
 	require.ElementsMatch(t, []string{"ordinary", "timeout-map/one"}, attributeKeys(request.GetAttributes()))
 	require.Equal(t, []string{"timeout-map/one"}, request.GetLoadedAttributeMapInstances())
 	require.Equal(t, []string{"timeout-commands"}, request.GetLoadedChannelNames())
 	require.Equal(t, []string{"timeout-channel-map/"}, request.GetLoadedChannelMapInstances())
-	require.Len(t, request.GetLoadedChannelMessages()["timeout-commands"].GetMessages(), 1)
+	require.Len(t, request.GetLoadedChannelMessages()["timeout-commands"].GetMessages(), expectedCommandMessages)
 	require.Len(t, request.GetLoadedChannelMessages()["timeout-channel-map/one"].GetMessages(), 1)
 	require.Len(t, request.GetLoadedChannelMessages()["timeout-channel-map/two"].GetMessages(), 1)
-	require.Equal(t, int32(1), request.GetChannelInfos()["timeout-commands"].GetSize())
+	require.Equal(t, int32(expectedCommandMessages), request.GetChannelInfos()["timeout-commands"].GetSize())
 }
 
 func requireTimeoutHandlerDeletionHistory(

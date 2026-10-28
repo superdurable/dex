@@ -30,6 +30,7 @@ import (
 	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 )
 
@@ -41,8 +42,14 @@ type binaryDexProcess struct {
 
 var binaryDexTerminationGracePeriod = 10 * time.Second
 
-// serverZDEncodedValueOverheadBytes is the JSON obj_value framing that server-zd counts and the S3 threshold does not.
-const serverZDEncodedValueOverheadBytes = 16
+// serverZDWireInlineThresholdBytes maps a Go Blob Store payload threshold to server-zd's encoded Value threshold.
+// The mapping is exact for JSON obj_value; string_value payloads up to 8 bytes over stay inline.
+func serverZDWireInlineThresholdBytes(goPayloadThresholdBytes int) int {
+	return proto.Size(&dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+		Encoding: "json",
+		Payload:  make([]byte, goPayloadThresholdBytes),
+	}}})
+}
 
 type temporalOnlyUnifiedClient struct {
 	uclient.UnifiedClient
@@ -193,10 +200,12 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 	}
 	// server-zd keeps large values in its log; its wire threshold plays the Go Blob Store threshold's role (C5).
 	if testConfig.LocalBlobThreshold > 0 {
-		configuration["values"] = map[string]any{"wireInlineThresholdBytes": testConfig.LocalBlobThreshold}
+		configuration["values"] = map[string]any{
+			"wireInlineThresholdBytes": serverZDWireInlineThresholdBytes(testConfig.LocalBlobThreshold),
+		}
 	} else if testConfig.S3TestThreshold > 0 {
 		configuration["values"] = map[string]any{
-			"wireInlineThresholdBytes": testConfig.S3TestThreshold + serverZDEncodedValueOverheadBytes,
+			"wireInlineThresholdBytes": serverZDWireInlineThresholdBytes(testConfig.S3TestThreshold),
 		}
 	}
 	if testConfig.LazyLoading != nil {

@@ -205,6 +205,10 @@ func (h *handler) validateInitialAttributes(
 		if err != nil {
 			return status.Errorf(codes.Internal, "LoadBlobs for %s: %v", attribute.GetKey(), err)
 		}
+		h.invokeData.Store(
+			storePrefix+"_"+attribute.GetKey()+"_is_reference",
+			common.BlobIdFromValue(attribute.GetValue()) != "",
+		)
 
 		switch attribute.GetKey() {
 		case TestDataAttrKey1:

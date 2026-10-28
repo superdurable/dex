@@ -37,7 +37,8 @@ Server matching internals, Temporal queries, Temporal history, and the Go Blob
 Store run only against the Go Server; binary mode reads the same state through
 **GetFlowState**, **GetFlowSummary**, **GetChannelMessages**, and
 **GetHistoryEvents** where server-zd exposes it. **S3TestThreshold** maps to
-**values.wireInlineThresholdBytes** plus the JSON framing that server-zd counts.
+**values.wireInlineThresholdBytes**, set to the encoded length of a `json` object
+Value with a payload of exactly that many bytes.
 
 Each launch registers the custom search attributes that the Temporal dev server
 predefines, such as **CustomKeywordField** and **CustomDatetimeField**, through

@@ -1964,6 +1964,11 @@ func testPullWorkerUnavailable(t *testing.T, backend service.BackendType) {
 	if isServerZDBinaryMode() {
 		// zd-bug #1008: server-zd writes the reason name into the detail, not the reason field.
 		require.Equal(t, "DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE: no Worker accepted the task", failureDetails.GetDetail())
+		require.Equal(
+			t,
+			dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_UNSPECIFIED,
+			failureDetails.GetDispatchTaskErrorReason(),
+		)
 		return
 	}
 	require.Equal(t, dexpb.DispatchTaskErrorReason_DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE, failureDetails.GetDispatchTaskErrorReason())

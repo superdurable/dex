@@ -94,6 +94,7 @@ func doTestWorkflowWithS3StartInput(t *testing.T, backendType service.BackendTyp
 	require.Equal(t, int64(1), history["S1_waitFor"])
 	require.Equal(t, int64(1), history["S1_execute"])
 
+	requireServerZDValueReferences(t, history, lazyLoading, []string{"S1_execute_input_is_reference"}, nil)
 	requireGoBlobStoreObjectCount(t, ctx, flowId, 1)
 
 	if backendType == service.BackendTypeTemporal {

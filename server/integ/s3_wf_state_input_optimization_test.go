@@ -94,6 +94,7 @@ func doTestWorkflowWithS3StateInputOptimization(t *testing.T, backendType servic
 	require.Equal(t, expectedData, history["S2_input_data"])
 	require.Equal(t, expectedData, history["S3_input_data"])
 
+	requireServerZDValueReferences(t, history, lazyLoading, []string{"S1_input_is_reference"}, nil)
 	requireGoBlobStoreObjectCount(t, ctx, flowId, 1)
 
 	if backendType == service.BackendTypeTemporal {

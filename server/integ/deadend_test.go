@@ -155,17 +155,18 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 		require.NoError(t, requestErr)
 	}
 	require.Equal(t, responses[0], responses[1])
+	concurrentInvokes := workerHandler.GetRPCInvokes()
+	if isServerZDBinaryMode() {
+		// zd-bug #1005: concurrent RPCs with one request ID can each reach the Worker.
+		require.Contains(t, []int32{1, 2}, concurrentInvokes)
+	} else {
+		require.Equal(t, int32(1), concurrentInvokes)
+	}
 
 	retryResponse, err := flowClient.InvokeRPC(ctx, request)
 	require.NoError(t, err)
 	require.Equal(t, responses[0], retryResponse)
-	duplicateInvokes := workerHandler.GetRPCInvokes()
-	if isServerZDBinaryMode() {
-		// zd-bug #1005: concurrent RPCs with one request ID can each reach the Worker.
-		require.Contains(t, []int32{1, 2}, duplicateInvokes)
-	} else {
-		require.Equal(t, int32(1), duplicateInvokes)
-	}
+	require.Equal(t, concurrentInvokes, workerHandler.GetRPCInvokes())
 
 	if !isServerZDBinaryMode() {
 		accepted, completed := countTemporalUpdateEvents(
@@ -183,7 +184,7 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 	request.RequestId = uuid.NewString()
 	_, err = flowClient.InvokeRPC(ctx, request)
 	require.NoError(t, err)
-	require.Equal(t, duplicateInvokes+1, workerHandler.GetRPCInvokes())
+	require.Equal(t, concurrentInvokes+1, workerHandler.GetRPCInvokes())
 
 	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{FlowId: flowId})
 	require.NoError(t, err)

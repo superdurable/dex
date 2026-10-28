@@ -24,7 +24,10 @@ import (
 	"github.com/superdurable/dex/integ/workflow/signal"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
@@ -631,10 +634,22 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
 	runID := describeFlowRunID(t, ctx, runtime, flowId)
 	requestID := uuid.NewString()
+	requestSent := &requestSentStatsHandler{sent: make(chan struct{})}
+	waiterClient := flowClient
+	if isServerZDBinaryMode() {
+		connection, err := grpc.NewClient(
+			runtime.PublicAddress,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithStatsHandler(requestSent),
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, connection.Close()) })
+		waiterClient = dexpb.NewFlowServiceClient(connection)
+	}
 
 	done := make(chan error, 1)
 	go func() {
-		_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+		_, waitErr := waiterClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 			FlowId: flowId,
 			Match: equalAttributeMatch(
 				waitForAttributeKey,
@@ -646,7 +661,18 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 		done <- waitErr
 	}()
 
-	waitForAttributeWaiterAccepted(t, ctx, runtime, flowId, runID, requestID)
+	if isServerZDBinaryMode() {
+		// server-zd exposes no waiter registration, so cancel once the request is on the wire.
+		select {
+		case <-requestSent.sent:
+		case err := <-done:
+			require.FailNow(t, "WaitForAttribute returned before cancel", "%v", err)
+		case <-time.After(10 * time.Second):
+			require.FailNow(t, "WaitForAttribute request was not sent")
+		}
+	} else {
+		waitForAttributeWaiterAccepted(t, ctx, runtime, flowId, runID, requestID)
+	}
 	cancel()
 
 	select {
@@ -1012,6 +1038,28 @@ func doTestWaitForAttributeCadenceUnimplemented(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// requestSentStatsHandler closes sent once the client writes a request message to the transport.
+type requestSentStatsHandler struct {
+	sent     chan struct{}
+	sentOnce sync.Once
+}
+
+func (handler *requestSentStatsHandler) TagRPC(ctx context.Context, _ *stats.RPCTagInfo) context.Context {
+	return ctx
+}
+
+func (handler *requestSentStatsHandler) HandleRPC(_ context.Context, rpcStats stats.RPCStats) {
+	if _, isOutPayload := rpcStats.(*stats.OutPayload); isOutPayload {
+		handler.sentOnce.Do(func() { close(handler.sent) })
+	}
+}
+
+func (handler *requestSentStatsHandler) TagConn(ctx context.Context, _ *stats.ConnTagInfo) context.Context {
+	return ctx
+}
+
+func (handler *requestSentStatsHandler) HandleConn(context.Context, stats.ConnStats) {}
 
 // waitForAttributeWaiterAccepted waits until Temporal accepts the waiter's Update.
 // server-zd has no Update history and checks the current value when a waiter arrives, so it returns at once.

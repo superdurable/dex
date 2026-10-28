@@ -22,6 +22,27 @@ import (
 	"go.temporal.io/api/workflowservice/v1"
 )
 
+// requireServerZDValueReferences asserts which Worker-recorded values server-zd sent as references.
+// Lazy loading sends values above the threshold as references; otherwise server-zd hydrates every value.
+func requireServerZDValueReferences(
+	t *testing.T,
+	history map[string]any,
+	lazyLoading bool,
+	offloadedKeys []string,
+	inlineKeys []string,
+) {
+	t.Helper()
+	if !isServerZDBinaryMode() {
+		return
+	}
+	for _, key := range offloadedKeys {
+		require.Equal(t, lazyLoading, history[key], key)
+	}
+	for _, key := range inlineKeys {
+		require.Equal(t, false, history[key], key)
+	}
+}
+
 // requireGoBlobStoreObjectCount asserts the Go Blob Store object count; server-zd has no Go Blob Store (C5).
 func requireGoBlobStoreObjectCount(t *testing.T, ctx context.Context, flowID string, expectedCount int64) {
 	t.Helper()

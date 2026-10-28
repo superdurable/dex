@@ -123,10 +123,21 @@ Fixed in this change:
 - **TestFlowTimeoutTemporal** guards the Go Server terminal event listener, the
   timeout Step timer query, and the Continue-As-New scenarios.
 - **S3TestThreshold** (10 tests) maps to **values.wireInlineThresholdBytes**.
-  server-zd compares the encoded Value with its threshold. The Go Server
-  compares the payload, so the mapping adds 16 bytes of JSON framing. Go Blob
-  Store object counts and Temporal history checks run only against the Go
-  Server.
+  The Go Server offloads a string or object whose payload is longer than the
+  threshold. server-zd offloads a string or object Value whose protobuf encoded
+  length is longer than its threshold. The harness sets the server-zd threshold
+  to the encoded length of a `json` object Value whose payload has exactly
+  S3TestThreshold bytes. Both servers then offload the same `json` objects. For
+  payloads under 128 bytes the encoded length is the payload plus 10 bytes.
+  A string Value costs the payload plus 2 bytes, so strings up to 8 bytes over
+  the threshold stay inline on server-zd. No ported test uses such a string.
+  With lazy loading, the S3 Start input, Step input, initial Attribute, and
+  upserted Attribute tests assert that server-zd sends each large value to the
+  Worker as a reference and each small value inline. The get/set Attribute,
+  selected Channel, and blob-backed WaitForAttribute tests already observe the
+  reference. RPC input stays inline on server-zd by design (C5). The
+  **LocalBlobThreshold** setting uses the same mapping. Go Blob Store object
+  counts and Temporal history checks run only against the Go Server.
 
 Open:
 

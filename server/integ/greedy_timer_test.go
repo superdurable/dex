@@ -104,11 +104,19 @@ func doTestGreedyTimerFlowCustomConfig(
 	})
 	require.NoError(t, err)
 
-	time.Sleep(time.Second)
-
 	// Greedy timers limit Temporal timers; server-zd keeps timers in its own log, so binary mode skips these counts.
 	singleTimerScheduled := int64(0)
-	if !isServerZDBinaryMode() {
+	if isServerZDBinaryMode() {
+		require.Eventually(t, func() bool {
+			timerInfos, queryErr := queryCurrentTimerInfos(ctx, runtime, flowId)
+			if queryErr != nil {
+				return false
+			}
+			timers := timerInfos.GetStepExecutionCurrentTimerInfos()[greedy_timer.ScheduleTimerState+"-1"].GetTimers()
+			return len(timers) == len(durations)
+		}, 10*time.Second, 100*time.Millisecond)
+	} else {
+		time.Sleep(time.Second)
 		firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)
 		assertions.Len(firingUserTimers, 1)
 		singleTimerScheduled = firingUserTimers[0]
@@ -123,9 +131,8 @@ func doTestGreedyTimerFlowCustomConfig(
 	})
 	require.NoError(t, err)
 
-	time.Sleep(time.Second)
-
 	if !isServerZDBinaryMode() {
+		time.Sleep(time.Second)
 		firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)
 		assertions.Len(firingUserTimers, 1)
 		assertions.LessOrEqual(singleTimerScheduled, firingUserTimers[0])

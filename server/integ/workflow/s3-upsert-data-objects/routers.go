@@ -203,6 +203,7 @@ func (h *handler) validateUpsertedAttributes(
 		if err != nil {
 			return status.Errorf(codes.Internal, "LoadBlobs for %s: %v", attribute.GetKey(), err)
 		}
+		h.invokeData.Store("S2_"+attribute.GetKey()+"_is_reference", common.BlobIdFromValue(attribute.GetValue()) != "")
 
 		switch attribute.GetKey() {
 		case TestDataObjKey1:
