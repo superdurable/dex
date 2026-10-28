@@ -894,7 +894,7 @@ class SdkDescribeFlowTest(unittest.TestCase):
     def test_core_reference_must_not_present_describe_as_go_only(self):
         mutate_page(
             self, self.check, self.references / "core" / "error-handling.md",
-            "Java, Python, TypeScript, and Rust already have it at their v1.23.0 baselines.",
+            "Java, Python, TypeScript, and Rust already have it at their v1.25.0 baselines.",
             "Only the Go SDK has it.",
         )
 
@@ -1578,10 +1578,6 @@ class FlowServiceTlsTest(unittest.TestCase):
                     "no FlowService TLS option", "a FlowService TLS option")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class PullOnlyWorkersTest(unittest.TestCase):
     SDK_TAGS = {
         "go": "sdk-go/v1.25.0",
@@ -1597,6 +1593,7 @@ class PullOnlyWorkersTest(unittest.TestCase):
         for language, tag in self.SDK_TAGS.items():
             paths = {path for path, _ in CHECKER.PULL_ONLY_SOURCES[language]}
             paths |= {path for path, _ in CHECKER.PULL_ONLY_FORBIDDEN_OPTIONS[language]}
+            paths |= {path for path, _, _ in CHECKER.PULL_ONLY_ROUTING_FUNCTIONS.get(language, ())}
             self.sources[tag] = tagged_sources(tag, *sorted(paths))
             self.repository.commit_and_tag(tag, self.sources[tag])
         self.references = copy_references(
@@ -1616,16 +1613,33 @@ class PullOnlyWorkersTest(unittest.TestCase):
     def test_real_tagged_sources_and_references_pass(self):
         self.check()
 
-    def test_go_start_must_route_to_pull_workers(self):
-        path = "sdk-go/dex/proto_mapper.go"
-        source = self.sources["sdk-go/v1.25.0"][path]
-        self.assertEqual(source.count("WorkerTarget{IsPullMode: true}"), 2)
-        self.repository.commit_and_tag("sdk-go/v1.25.0", {
-            path: source.replace("WorkerTarget{IsPullMode: true}", "WorkerTarget{IsPullMode: false}"),
-        })
-        with self.assertRaises(SystemExit) as raised:
-            self.check()
-        self.assertIn(path, str(raised.exception))
+    def test_go_start_and_sub_flow_must_each_route_to_pull_workers(self):
+        tag, path = "sdk-go/v1.25.0", "sdk-go/dex/proto_mapper.go"
+        source = self.sources[tag][path]
+        pull_false = CHECKER.GO_PULL_ROUTING.replace("IsPullMode: true", "IsPullMode: false")
+        for function in ("mapStartFlowOptions", "mapSubFlowOptions"):
+            with self.subTest(function=function):
+                mutated = replace_in_function(source, f"func {function}(", CHECKER.GO_PULL_ROUTING, pull_false)
+                self.repository.commit_and_tag(tag, {path: mutated})
+                with self.assertRaises(SystemExit) as raised:
+                    self.check()
+                self.assertIn(path, str(raised.exception))
+                self.assertIn(function, str(raised.exception))
+        self.repository.commit_and_tag(tag, {path: source})
+        self.check()
+
+    def test_rust_pull_flow_config_must_set_pull_mode(self):
+        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/client.rs",
+                        "is_pull_mode: true,", "is_pull_mode: false,")
+
+    def test_rust_start_flow_must_use_pull_flow_config(self):
+        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/client.rs",
+                        "Some(map_pull_flow_config(config)?)", "Some(map_flow_config(config)?)")
+
+    def test_rust_sub_flow_must_use_pull_flow_config(self):
+        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/worker_dispatcher.rs",
+                        "crate::client::map_pull_flow_config(options.config_override.as_ref())",
+                        "crate::client::map_flow_config(options.config_override.as_ref())")
 
     def test_go_bind_address_must_stay_removed(self):
         self.mutate_tag("sdk-go/v1.25.0", "sdk-go/dex/worker.go",
@@ -1648,3 +1662,7 @@ class PullOnlyWorkersTest(unittest.TestCase):
             for needle in needles:
                 with self.subTest(page=page, needle=needle):
                     mutate_page(self, self.check, self.references / page, needle, needle[:-1] + "?")
+
+
+if __name__ == "__main__":
+    unittest.main()

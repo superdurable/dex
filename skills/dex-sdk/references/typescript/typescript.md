@@ -1,6 +1,6 @@
 # TypeScript handbook
 
-The SDK API reference uses the [released v1.23.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current error API.
+The SDK API reference uses the [released v1.25.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current error API.
 
 Read this page first for TypeScript application work, then open only the topic reference needed. The [baseline package](https://github.com/superdurable/dex/blob/sdk-typescript/v1.25.0/examples/typescript/package.json) uses `@superdurable/dex@1.15.0` on Node.js 22 or 24. Always inspect the application's lockfile and installed declarations before using a precise API.
 

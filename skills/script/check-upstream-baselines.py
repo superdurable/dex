@@ -387,7 +387,6 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
 # Pull-only Worker statements, checked at each language's baseline tag.
 PULL_ONLY_SOURCES = {
     "go": (
-        ("sdk-go/dex/proto_mapper.go", ("config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true}",)),
         ("sdk-go/dex/worker.go", ("Pull *PullWorkerOptions",)),
     ),
     "java": (
@@ -404,8 +403,23 @@ PULL_ONLY_SOURCES = {
         ("sdk-typescript/src/worker.ts", ('options.pull ?? {}',)),
     ),
     "rust": (
-        ("sdk-rust/crates/dex-sdk/src/client.rs", ("worker_target: Some(ProtoWorkerTarget {",)),
         ("sdk-rust/crates/dex-sdk/src/worker_options.rs", ("pull: PullWorkerOptions::default(),",)),
+    ),
+}
+# Each StartFlow and SubFlow mapping must route the new Flow to pull Workers.
+GO_PULL_ROUTING = "config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true}"
+PULL_ONLY_ROUTING_FUNCTIONS = {
+    "go": (
+        ("sdk-go/dex/proto_mapper.go", "func mapStartFlowOptions(", (GO_PULL_ROUTING,)),
+        ("sdk-go/dex/proto_mapper.go", "func mapSubFlowOptions(", (GO_PULL_ROUTING,)),
+    ),
+    "rust": (
+        ("sdk-rust/crates/dex-sdk/src/client.rs", "pub(crate) fn map_pull_flow_config(",
+         ("worker_target: Some(ProtoWorkerTarget {", "is_pull_mode: true,")),
+        ("sdk-rust/crates/dex-sdk/src/client.rs", "    fn map_start_options(",
+         ("Some(map_pull_flow_config(config)?)",)),
+        ("sdk-rust/crates/dex-sdk/src/worker_dispatcher.rs", "fn map_sub_flow_options(",
+         ("crate::client::map_pull_flow_config(options.config_override.as_ref())",)),
     ),
 }
 PULL_ONLY_FORBIDDEN_OPTIONS = {
@@ -440,6 +454,12 @@ def check_pull_only_workers(checkout: Path, sdk_baselines: dict[str, str], refer
             for needle in needles:
                 if needle not in source:
                     fail(f"{tag}:{path} is missing pull-only text: {needle!r}")
+    for language, functions in PULL_ONLY_ROUTING_FUNCTIONS.items():
+        require_function_text = (
+            require_tagged_go_function_text if language == "go" else require_tagged_rust_function_text
+        )
+        for path, declaration, needles in functions:
+            require_function_text(checkout, sdk_baselines[language], path, declaration, *needles)
     for language, files in PULL_ONLY_FORBIDDEN_OPTIONS.items():
         tag = sdk_baselines[language]
         for path, terms in files:
@@ -1160,7 +1180,7 @@ def check_sdk_describe_flow(checkout: Path, baselines: dict[str, str], reference
         references / "core" / "error-handling.md",
         "Java **Client.describeFlow**, Python **Client.describe_flow** or **AsyncClient.describe_flow**, "
         "TypeScript **Client.describeFlow**, or Rust **Client::describe_flow**.",
-        "Java, Python, TypeScript, and Rust already have it at their v1.23.0 baselines.",
+        "Java, Python, TypeScript, and Rust already have it at their v1.25.0 baselines.",
         "It returns the Flow ID, run ID, Flow type, status, and start time.",
         "A missing Flow returns the SDK's typed Flow-not-found error.",
     )
