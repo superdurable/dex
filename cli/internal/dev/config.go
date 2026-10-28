@@ -269,12 +269,17 @@ func (c *Config) validate() error {
 				return fmt.Errorf("--%s cannot be used with --engine zd", name)
 			}
 		}
+		invocationPath, err := dexcliInvocationPath(os.Args[0])
+		if err != nil {
+			// The resolved executable directory and PATH remain candidates.
+			invocationPath = ""
+		}
 		executablePath, err := os.Executable()
 		if err != nil {
 			// PATH lookup still works without the dexcli executable directory.
 			executablePath = ""
 		}
-		binaryPath, err := resolveZDBinary(c.ZDBinary, executablePath)
+		binaryPath, err := resolveZDBinary(c.ZDBinary, invocationPath, executablePath)
 		if err != nil {
 			return err
 		}
@@ -465,8 +470,8 @@ func (c *Config) autoSQLiteDBFilename() string {
 
 // resolveZDBinary returns the dex-server-zd executable path, or an error naming every location searched.
 // A non-empty configuredBinary comes from --zd-binary or DEX_SERVER_ZD_BINARY and is the only candidate.
-// Otherwise it searches the directory of dexcliExecutablePath, its symlink-resolved directory, then PATH.
-func resolveZDBinary(configuredBinary string, dexcliExecutablePath string) (string, error) {
+// Otherwise it searches the directory of invocationPath, the symlink-resolved directory of executablePath, then PATH.
+func resolveZDBinary(configuredBinary string, invocationPath string, executablePath string) (string, error) {
 	if configuredBinary != "" {
 		binaryPath, err := exec.LookPath(configuredBinary)
 		if err != nil {
@@ -474,7 +479,7 @@ func resolveZDBinary(configuredBinary string, dexcliExecutablePath string) (stri
 		}
 		return binaryPath, nil
 	}
-	searchedDirectories := dexcliExecutableDirectories(dexcliExecutablePath)
+	searchedDirectories := dexcliExecutableDirectories(invocationPath, executablePath)
 	for _, directory := range searchedDirectories {
 		// A missing or non-executable sibling falls through to the next location.
 		if binaryPath, err := exec.LookPath(filepath.Join(directory, zdBinaryName)); err == nil {
@@ -494,19 +499,44 @@ func resolveZDBinary(configuredBinary string, dexcliExecutablePath string) (stri
 	return binaryPath, nil
 }
 
-// dexcliExecutableDirectories returns the directory of executablePath and, when different, the directory of its
-// symlink-resolved target. It returns nil for an empty path.
-func dexcliExecutableDirectories(executablePath string) []string {
-	if executablePath == "" {
-		return nil
+// dexcliInvocationPath returns the absolute path dexcli was invoked through, keeping any symlink, or an error when
+// the path cannot be made absolute or a bare command name is not on PATH.
+// os.Executable cannot provide it because Linux reports the symlink target.
+func dexcliInvocationPath(argument string) (string, error) {
+	if argument == "" {
+		return "", fmt.Errorf("dexcli invocation path is empty")
 	}
-	directories := []string{filepath.Dir(executablePath)}
+	if !strings.ContainsRune(argument, os.PathSeparator) && !strings.ContainsRune(argument, '/') {
+		lookedUpPath, err := exec.LookPath(argument)
+		if err != nil {
+			return "", fmt.Errorf("find dexcli invocation %q on PATH: %w", argument, err)
+		}
+		argument = lookedUpPath
+	}
+	absolutePath, err := filepath.Abs(argument)
+	if err != nil {
+		return "", fmt.Errorf("resolve dexcli invocation path %q: %w", argument, err)
+	}
+	return absolutePath, nil
+}
+
+// dexcliExecutableDirectories returns the directory of invocationPath, then the directory of the symlink-resolved
+// executablePath when different. Empty paths contribute no directory.
+func dexcliExecutableDirectories(invocationPath string, executablePath string) []string {
+	var directories []string
+	if invocationPath != "" {
+		directories = append(directories, filepath.Dir(invocationPath))
+	}
+	if executablePath == "" {
+		return directories
+	}
 	resolvedPath, err := filepath.EvalSymlinks(executablePath)
 	if err != nil {
 		// The unresolved directory is still a valid candidate.
-		return directories
+		resolvedPath = executablePath
 	}
-	if resolvedDirectory := filepath.Dir(resolvedPath); resolvedDirectory != directories[0] {
+	resolvedDirectory := filepath.Dir(resolvedPath)
+	if len(directories) == 0 || resolvedDirectory != directories[0] {
 		directories = append(directories, resolvedDirectory)
 	}
 	return directories
