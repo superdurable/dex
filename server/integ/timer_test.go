@@ -144,7 +144,7 @@ func doTestTimerFlow(
 	skippedTimerStatus := dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	resetTimerStatus := dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	if isServerZDBinaryMode() {
-		// zd-bug (ZD_BASELINE.md): GetFlowState reports a skipped timer as fired.
+		// zd-bug #1007: GetFlowState reports a skipped timer as fired.
 		skippedTimerStatus = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED
 		// Temporal reset reapplies later SkipTimer signals; server-zd reset discards them.
 		resetTimerStatus = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING

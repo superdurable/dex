@@ -530,7 +530,7 @@ func doTestFlowTimeoutHandlerExecutionOptions(
 	}
 	secondRequest := receiveTimeoutExecuteRequest(t, ctx, workerHandler.executeRequests)
 	if isServerZDBinaryMode() && !shouldRecover {
-		// zd-bug (ZD_BASELINE.md): the retry reloads Channels instead of reusing the first attempt's snapshot.
+		// zd-bug #1006: the retry reloads Channels instead of reusing the first attempt's snapshot.
 		require.Len(t, secondRequest.GetLoadedChannelMessages()["timeout-commands"].GetMessages(), 2)
 	} else {
 		requireTimeoutHandlerState(t, secondRequest)

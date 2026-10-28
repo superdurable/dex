@@ -1119,7 +1119,7 @@ func testPullSubFlowRejectsInvalidTarget(t *testing.T, backend service.BackendTy
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, result.GetFlowStatus())
 	if isServerZDBinaryMode() {
-		// zd-bug (ZD_BASELINE.md): server-zd fails the Flow as an internal error.
+		// zd-bug #1009: server-zd fails the Flow as an internal error.
 		require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL, result.GetErrorType(), result.GetErrorMessage())
 		require.Equal(t, "server-zd does not support Worker target addresses", result.GetErrorMessage())
 	} else {
@@ -1962,7 +1962,7 @@ func testPullWorkerUnavailable(t *testing.T, backend service.BackendType) {
 	require.Empty(t, failedMethod.GetContext().GetPullRouting().GetServedByAppWorkerId())
 	failureDetails := failedMethod.GetOutput().GetFailure().GetDetails()
 	if isServerZDBinaryMode() {
-		// zd-bug (ZD_BASELINE.md): server-zd writes the reason name into the detail, not the reason field.
+		// zd-bug #1008: server-zd writes the reason name into the detail, not the reason field.
 		require.Equal(t, "DISPATCH_TASK_ERROR_REASON_NO_WORKER_AVAILABLE: no Worker accepted the task", failureDetails.GetDetail())
 		return
 	}
