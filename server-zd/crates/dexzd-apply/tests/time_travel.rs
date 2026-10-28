@@ -1249,6 +1249,162 @@ fn restored_running_attempts_carry_their_configured_method_timeouts() {
 }
 
 #[test]
+fn retry_snapshot_rebuild_crosses_collected_attribute_and_channel_values() {
+    assert_retry_snapshot_rebuild_with_collected_values(false);
+}
+
+#[test]
+fn retry_snapshot_rebuild_from_running_checkpoint_crosses_collected_values() {
+    assert_retry_snapshot_rebuild_with_collected_values(true);
+}
+
+fn assert_retry_snapshot_rebuild_with_collected_values(should_checkpoint_running_attempt: bool) {
+    let mut harness = Harness::with_settings(RunSettings {
+        checkpoint_max_commands: 20,
+        history_window_semantic_events: 2,
+        history_prune_chunk_semantic_events: 1,
+        ..settings()
+    });
+    harness.start(StartFlowRequest {
+        step_options: Some(StepOptions {
+            skip_wait_for: true,
+            execute_load_channel_names: vec!["commands".to_owned()],
+            ..StepOptions::default()
+        }),
+        ..start_request()
+    });
+    harness.set_attribute("payload", &"old payload".repeat(100), "");
+    let attribute_seq = harness.last_seq();
+    publish_large(&mut harness, "commands", "old-message");
+    let channel_seq = harness.last_seq();
+    if should_checkpoint_running_attempt {
+        harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    }
+    for index in 0..(20 - harness.run_record().commands_since_checkpoint) {
+        harness.set_attribute("counter", &index.to_string(), "");
+    }
+    let checkpoint_seq = harness.last_seq();
+    assert!(harness.checkpoint(1, checkpoint_seq).is_some());
+    if !should_checkpoint_running_attempt {
+        harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    }
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(key("ChargeStep-1", StepMethod::Execute)),
+        attempt: 1,
+        kind: 1,
+        worker_error: Some(WorkerErrorResponse {
+            detail: "retry the method".to_owned(),
+            ..WorkerErrorResponse::default()
+        }),
+        ..StepAttemptFailedCommand::default()
+    }));
+    let retry_seq = harness.last_seq();
+    assert!(checkpoint_seq < retry_seq);
+    assert_eq!(
+        harness
+            .step("ChargeStep-1")
+            .invocation
+            .expect("retry retains its invocation")
+            .phase,
+        StepInvocationPhase::Backoff as i32
+    );
+    harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![TimerId {
+            run_attempt: 1,
+            kind: Some(timer_id::Kind::RetryBackoff(RetryBackoffTimerId {
+                invocation: Some(key("ChargeStep-1", StepMethod::Execute)),
+                next_attempt: 2,
+            })),
+        }],
+    }));
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute, 2);
+    let snapshot = harness
+        .step("ChargeStep-1")
+        .invocation
+        .expect("running retry has an invocation")
+        .snapshot
+        .expect("running retry has a snapshot");
+    assert!(
+        snapshot
+            .attributes
+            .iter()
+            .any(|attribute| attribute.key == "payload")
+    );
+    assert_eq!(snapshot.loaded_channel_messages[0].messages.len(), 1);
+    harness.set_attribute("payload", "replacement", "");
+    let deleted = harness.apply(Command::ChannelMessageDelete(ChannelMessageDeleteCommand {
+        request: Some(DeleteChannelMessageRequest {
+            channel_name: "commands".to_owned(),
+            message_id: "old-message".to_owned(),
+            ..DeleteChannelMessageRequest::default()
+        }),
+        ..ChannelMessageDeleteCommand::default()
+    }));
+    assert!(is_ok(&deleted.reply));
+    assert!(value_row(&harness, attribute_seq).is_some());
+    assert!(value_row(&harness, channel_seq).is_some());
+    harness.complete_execute("ChargeStep-1", 2, next_steps(&["NextStep"]));
+    let mut recorded_hashes = BTreeMap::new();
+    for index in 0..5 {
+        harness.set_attribute("counter", &index.to_string(), "");
+        let point = current_semantic_point_hash(
+            &harness.context,
+            &harness.state,
+            harness.run(),
+            &harness
+                .history_record(harness.last_seq())
+                .expect("current semantic history exists")
+                .command
+                .expect("semantic history records the command")
+                .command_id,
+        )
+        .expect("current hash reads")
+        .expect("current semantic point exists");
+        recorded_hashes.insert(harness.last_seq(), point.state_hash);
+    }
+    assert!(
+        value_row(&harness, attribute_seq).is_none(),
+        "old Attribute was collected"
+    );
+    assert!(
+        value_row(&harness, channel_seq).is_none(),
+        "old message was collected"
+    );
+    let target_seq = harness.run_record().window_start_seq;
+    assert!(target_seq > retry_seq);
+    assert_eq!(harness.run_record().last_checkpoint_seq, checkpoint_seq);
+    assert!(harness.history_record(retry_seq).is_some());
+    let target_time = harness
+        .history_record(target_seq)
+        .expect("target history remains in the window")
+        .timestamp_micros;
+    let travel = harness.command(Command::TimeTravel(TimeTravelCommand {
+        request: Some(reset_to_time(target_time)),
+    }));
+    let target = time_travel_target_hash(&harness.context, &harness.state, &travel)
+        .expect("snapshot rebuild must not halt diagnostics")
+        .expect("target exists");
+    assert_eq!(target.state_hash, recorded_hashes[&target_seq]);
+    let outcome = apply_flow_command(&harness.context, &harness.state, &travel)
+        .expect("snapshot rebuild must not halt the partition");
+    let repeated = apply_flow_command(&harness.context, &harness.state, &travel)
+        .expect("repeated snapshot rebuild succeeds");
+    assert_eq!(outcome.reply, repeated.reply);
+    assert_eq!(outcome.writes, repeated.writes);
+    assert_eq!(outcome.effects, repeated.effects);
+    assert!(matches!(
+        outcome.reply.reply,
+        Some(command_reply::Reply::TimeTravel(_))
+    ));
+    harness.state.commit(&outcome);
+    assert_eq!(harness.run_record().current_attempt, 2);
+    assert!(harness.step("ChargeStep-1").invocation.is_none());
+    assert_eq!(pending_count(&harness, "commands"), 0);
+    assert!(value_row(&harness, attribute_seq).is_none());
+    assert!(value_row(&harness, channel_seq).is_none());
+}
+
+#[test]
 fn retry_total_duration_starts_when_attempt_one_starts_after_its_lock_wait() {
     let mut harness = Harness::new();
     let mut request = start_request();
