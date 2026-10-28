@@ -133,6 +133,8 @@ jobs:
           merge-multiple: true
       - name: Write summary
         run: |
+          # The default run shell has no pipefail; tee would hide the summarizer's exit status.
+          set -o pipefail
           # A missing artifact would drop its partition's tests from the summary.
           expected_test_arguments=()
           json_paths=()
