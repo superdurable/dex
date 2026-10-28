@@ -105,7 +105,6 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
   );
   const client = new Client(registry, blobCache, {
     serverAddress,
-    workerTarget: { pull: true },
   });
   return {
     client,

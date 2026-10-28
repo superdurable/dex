@@ -86,7 +86,6 @@ class SyncExampleApp:
             self.blob_cache,
             ClientOptions(
                 server_address=config.server_address,
-                worker_target=self.worker.worker_target,
             ),
         )
         self._worker_thread: threading.Thread | None = None

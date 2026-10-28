@@ -1,6 +1,6 @@
 # Dex TypeScript examples
 
-These examples target [`@superdurable/dex@1.15.0`](https://www.npmjs.com/package/@superdurable/dex).
+These examples target [`@superdurable/dex@1.25.0`](https://www.npmjs.com/package/@superdurable/dex).
 
 The sample process runs one pull Worker and an HTTP controller on port `8080`.
 The Worker needs only an outbound connection to the Dex Server. Step `execute` / `waitFor` / RPC handlers may
@@ -60,9 +60,7 @@ Use Node.js 22 or 24. Defaults connect to Dex at `localhost:8801`. Override with
 Workers always use pull task streams. Startup waits for Dex to register every
 Flow type queue and the process queue before accepting HTTP requests.
 
-The examples retain their published SDK dependency. Their bootstrap explicitly
-selects pull routing for compatibility with that release; new SDK versions use
-pull routing automatically.
+Worker routing is automatic. Clients do not configure Worker targets.
 
 ## Verify
 

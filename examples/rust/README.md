@@ -5,7 +5,7 @@
 Runnable Rust examples for Dex Flows, Steps, and application patterns.
 
 This application mirrors the examples shared by the Java, Python, and TypeScript
-applications. It intentionally depends on the published `dex-sdk = "=1.15.0"`
+applications. It intentionally depends on the published `dex-sdk = "=1.25.0"`
 crate without a repository path override.
 
 RPC and mutation calls can return `SdkError::FlowNotActiveOrNotFound` when the Flow is missing
@@ -55,8 +55,7 @@ and stores large payload blobs under `/tmp/dex-rust-examples-blobs`. Override
 these with `DEX_SERVER_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, and
 `DEX_BLOB_CACHE_DIR`.
 
-The examples explicitly configure pull routing for their published SDK version.
-The next minor SDK release removes target selectors and defaults to pull.
+Worker routing is automatic. Clients do not configure Worker targets.
 
 ## Products
 

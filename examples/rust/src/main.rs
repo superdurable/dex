@@ -23,9 +23,7 @@ use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::server::build_router;
 use dex_examples_rust::shared::{PULL_REGISTRATION_TIMEOUT, example_pull_worker_options};
 use dex_examples_rust::{create_example_registry, create_worker_registry};
-use dex_sdk::{
-    BlobCache, BlobCacheConfig, Client, ClientOptions, Worker, WorkerOptions, WorkerTarget,
-};
+use dex_sdk::{BlobCache, BlobCacheConfig, Client, ClientOptions, Worker, WorkerOptions};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,9 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Arc::new(Client::try_new(
         create_example_registry(Arc::clone(&polling_jobs))?,
         Arc::clone(&cache),
-        ClientOptions::new()
-            .server_address(config.server_address.clone())
-            .worker_target(WorkerTarget::pull()),
+        ClientOptions::new().server_address(config.server_address.clone()),
     )?);
     let worker = Arc::new(Worker::try_new(
         create_worker_registry(Arc::clone(&client), Arc::clone(&polling_jobs))?,

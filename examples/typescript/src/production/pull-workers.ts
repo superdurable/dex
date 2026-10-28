@@ -94,10 +94,7 @@ export async function startPullGreeting(
     }
     throw failure;
   }
-  const client = new Client(registry, cache, {
-    serverAddress,
-    workerTarget: { pull: true },
-  });
+  const client = new Client(registry, cache, { serverAddress });
   return { flow, worker, client };
 }
 

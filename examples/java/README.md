@@ -1,6 +1,6 @@
 # Dex Java examples
 
-These examples target `io.superdurable:dex-sdk:1.15.0` (`io.superdurable.dex`).
+These examples target `io.superdurable:dex-sdk:1.25.0` (`io.superdurable.dex`).
 
 The sample process runs one pull Worker and an HTTP controller on port `8080`.
 The Worker needs only an outbound connection to the Dex Server. One Registry and disk BlobCache are shared by its
@@ -48,9 +48,8 @@ Defaults connect to Dex at `localhost:8801`. Override with
 Worker bind addresses, advertised targets, and Worker mode selection have been
 removed. Delete `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`, and
 `DEX_EXAMPLES_WORKER_MODE` from existing configurations. Every Worker uses pull
-routing, with 64 concurrent tasks for the shared example process. The examples
-keep explicit pull targets because the published SDK pin still requires them.
-After the pull-only Java SDK minor release, bump the pin and remove those targets.
+routing, with 64 concurrent tasks for the shared example process. Client routing
+is automatic.
 
 ## Verify
 
