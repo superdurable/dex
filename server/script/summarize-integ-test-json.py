@@ -24,13 +24,13 @@ MAX_DETAIL_CHARACTERS = 300
 INTEG_DIRECTORY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "integ")
 
 def read_test_events(json_paths):
-    """Returns test results, test outputs, package failure lines, and the JSON files without a package result."""
+    """Returns test results, test outputs, package failure lines, and why each JSON file lacks a package pass."""
     results = {}
     outputs = {}
     package_failures = []
-    incomplete_package_paths = []
+    unpassed_package_errors = []
     for json_path in json_paths:
-        has_package_result = False
+        package_results = set()
         with open(json_path, encoding="utf-8") as json_file:
             for line in json_file:
                 if not line.startswith("{"):
@@ -39,7 +39,7 @@ def read_test_events(json_paths):
                 test_name = event.get("Test")
                 if not test_name:
                     if event.get("Action") in ("pass", "fail"):
-                        has_package_result = True
+                        package_results.add(event["Action"])
                     package_output = event.get("Output", "")
                     if PACKAGE_FAILURE_PATTERN.search(package_output):
                         package_failures.append(f"{json_path}: {package_output.strip()}")
@@ -51,9 +51,12 @@ def read_test_events(json_paths):
                     results.setdefault(test_name, "incomplete")
                 elif action in ("pass", "fail", "skip"):
                     results[test_name] = action
-        if not has_package_result:
-            incomplete_package_paths.append(json_path)
-    return results, outputs, package_failures, incomplete_package_paths
+        # A package fails after every test passes when TestMain or teardown fails.
+        if "fail" in package_results:
+            unpassed_package_errors.append(f"{json_path}: package fail event; go test failed outside a test")
+        elif "pass" not in package_results:
+            unpassed_package_errors.append(f"{json_path}: no package pass event; go test did not complete")
+    return results, outputs, package_failures, unpassed_package_errors
 
 
 def read_expected_tests(expected_test_paths):
@@ -144,7 +147,7 @@ def main():
     )
     parser.add_argument("json_paths", nargs="+", help="go test -json output files")
     arguments = parser.parse_args()
-    results, outputs, package_failures, incomplete_package_paths = read_test_events(arguments.json_paths)
+    results, outputs, package_failures, unpassed_package_errors = read_test_events(arguments.json_paths)
     expected_tests = read_expected_tests(arguments.expected_tests)
     top_level_tests = sorted(name for name in results if "/" not in name)
     classified_tests = {name: classify_test(name, results, outputs) for name in top_level_tests}
@@ -168,13 +171,13 @@ def main():
     for test_name in top_level_tests:
         result, detail = classified_tests[test_name]
         print(f"| {test_name} | {result} | {escape_markdown_cell(detail)} |")
-    summary_errors = find_summary_errors(expected_tests, counts, incomplete_package_paths)
+    summary_errors = find_summary_errors(expected_tests, counts, unpassed_package_errors)
     for summary_error in summary_errors:
         print(f"error: {summary_error}", file=sys.stderr)
     return 1 if summary_errors else 0
 
 
-def find_summary_errors(expected_tests, counts, incomplete_package_paths):
+def find_summary_errors(expected_tests, counts, unpassed_package_errors):
     """Returns why the run is not a complete, passing run; an empty list means it is."""
     summary_errors = []
     if not expected_tests:
@@ -184,8 +187,7 @@ def find_summary_errors(expected_tests, counts, incomplete_package_paths):
     for result in ("fail", "incomplete", "not-run"):
         if counts.get(result, 0):
             summary_errors.append(f"{result}: {counts[result]} tests")
-    for json_path in incomplete_package_paths:
-        summary_errors.append(f"{json_path}: no package pass or fail event; go test did not complete")
+    summary_errors.extend(unpassed_package_errors)
     return summary_errors
 
 if __name__ == "__main__":

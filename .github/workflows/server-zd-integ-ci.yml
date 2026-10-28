@@ -125,6 +125,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      - name: Test the summarizer
+        run: python3 server/script/summarize_integ_test_json_test.py
       - name: Download test events
         uses: actions/download-artifact@v7
         with:
