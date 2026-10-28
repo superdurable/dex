@@ -205,7 +205,8 @@ for name in wall-clock hash-map-iteration immediate-reclaim retry-fresh-snapshot
   ack-before-persist skip-epoch-check speculative-read-leak; do
   case "$name" in
     wall-clock) suite=apply; expected_invariants=(A2-apply-twice) ;;
-    hash-map-iteration) suite=apply; expected_invariants=(A2-apply-twice A2-apply-redecoded) ;;
+    # Matching HashMap permutations can pass A2 before snapshot-order checks fail.
+    hash-map-iteration) suite=apply; expected_invariants=(A2-apply-twice A2-apply-redecoded S5-fresh-snapshot S5-retained-snapshot) ;;
     immediate-reclaim) suite=apply; expected_invariants=(I1-window-value-reference) ;;
     retry-fresh-snapshot) suite=apply; expected_invariants=(S5-retained-snapshot) ;;
     ack-before-persist) suite=engine; expected_invariants=(acknowledged-write-lost) ;;
