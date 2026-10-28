@@ -20,7 +20,7 @@ use dexzd_protocol::dexzd::v1::{
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::state_access::FlowTransaction;
 use crate::steps::invocation_retry_deadline_micros;
-use crate::values::{ValueHolder, release_stored_value};
+use crate::values::{ValueHolder, hold_stored_value, release_stored_value};
 use crate::{ApplyEffect, ApplyError};
 
 /// How a running attempt ended.
@@ -28,6 +28,8 @@ use crate::{ApplyEffect, ApplyError};
 pub(crate) enum InvocationEnd {
     /// The Worker returned a result or an error.
     Finished,
+    /// The method will retry with its first snapshot.
+    Retry,
     /// The Step was canceled, the Flow closed, or time travel abandoned the attempt; the
     /// Worker should stop.
     Canceled,
@@ -102,6 +104,9 @@ pub(crate) fn make_invocation_pending(
         last_failure: previous
             .as_ref()
             .and_then(|invocation| invocation.last_failure.clone()),
+        snapshot: previous
+            .as_mut()
+            .and_then(|invocation| invocation.snapshot.take()),
         heartbeat_checkpoint: previous.and_then(|invocation| invocation.heartbeat_checkpoint),
         ..StepInvocationRecord::default()
     });
@@ -243,8 +248,9 @@ pub(crate) fn configured_method_timeout_seconds(options: Option<&StepOptions>, m
 }
 
 /// Ends the running or pending attempt of the Step's current method: releases its locks and
-/// lock queue entries, unpins its snapshot, and for running attempts that were canceled tells
-/// the Worker to stop. Leaves `step.invocation` in place for the caller to update or clear.
+/// lock queue entries, transfers snapshot pins on retry or unpins otherwise, and for running
+/// attempts that were canceled tells the Worker to stop. Leaves `step.invocation` in place
+/// for the caller to update or clear.
 pub(crate) fn end_running_attempt(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -278,17 +284,29 @@ pub(crate) fn end_running_attempt(
             method: invocation.method,
             attempt: invocation.attempt,
         };
-        for attribute in &snapshot.attributes {
-            if let Some(stored) = &attribute.value {
-                release_stored_value(transaction, cursor.rows, stored, &pin, cursor.seq)?;
+        let next_pin = (end == InvocationEnd::Retry).then(|| ValueHolder::AttemptSnapshot {
+            step_execution_id: step.step_execution_id.clone(),
+            method: invocation.method,
+            attempt: invocation.attempt + 1,
+        });
+        let stored_values = snapshot
+            .attributes
+            .iter()
+            .filter_map(|attribute| attribute.value.as_ref())
+            .chain(snapshot.loaded_channel_messages.iter().flat_map(|channel| {
+                channel
+                    .messages
+                    .iter()
+                    .filter_map(|message| message.value.as_ref())
+            }));
+        for stored in stored_values {
+            if let Some(next_pin) = &next_pin {
+                hold_stored_value(transaction, cursor.rows, stored, next_pin)?;
             }
+            release_stored_value(transaction, cursor.rows, stored, &pin, cursor.seq)?;
         }
-        for channel in &snapshot.loaded_channel_messages {
-            for message in &channel.messages {
-                if let Some(stored) = &message.value {
-                    release_stored_value(transaction, cursor.rows, stored, &pin, cursor.seq)?;
-                }
-            }
+        if next_pin.is_some() {
+            invocation.snapshot = Some(snapshot);
         }
     }
     let run_id = cursor.run_id();

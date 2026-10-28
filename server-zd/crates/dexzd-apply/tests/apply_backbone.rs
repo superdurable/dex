@@ -47,6 +47,9 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
+#[path = "apply_backbone/retry_snapshots.rs"]
+mod retry_snapshots;
+
 #[derive(Default)]
 struct MemoryState {
     rows: BTreeMap<(ColumnFamily, Vec<u8>), Vec<u8>>,

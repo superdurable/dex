@@ -40,7 +40,7 @@ pub(crate) enum ValueHolder {
         step_execution_id: String,
         method: i32,
     },
-    /// The snapshot of a running attempt (a pin, plan R3').
+    /// The snapshot of a running or retrying method (a pin, plan R3').
     AttemptSnapshot {
         step_execution_id: String,
         method: i32,
