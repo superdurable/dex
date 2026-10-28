@@ -148,15 +148,22 @@ func doTestSubFlowCondition(
 		}, workerTarget),
 	})
 	require.NoError(t, err)
-	parentDescription, err := runtime.UnifiedClient.DescribeWorkflowExecution(
-		ctx,
-		parentFlowID,
-		startResponse.GetRunId(),
-		nil,
-	)
-	require.NoError(t, err)
-	require.Len(t, parentDescription.Memos, 1)
-	require.Equal(t, parentRequestID, string(parentDescription.Memos["ReqId"].GetObjValue().GetPayload()))
+	if isServerZDBinaryMode() {
+		// server-zd has no Temporal memo; GetFlowSummary reports the start request ID.
+		parentSummary, summaryErr := flowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: parentFlowID})
+		require.NoError(t, summaryErr)
+		require.Equal(t, parentRequestID, parentSummary.GetRequestId())
+	} else {
+		parentDescription, describeErr := runtime.UnifiedClient.DescribeWorkflowExecution(
+			ctx,
+			parentFlowID,
+			startResponse.GetRunId(),
+			nil,
+		)
+		require.NoError(t, describeErr)
+		require.Len(t, parentDescription.Memos, 1)
+		require.Equal(t, parentRequestID, string(parentDescription.Memos["ReqId"].GetObjValue().GetPayload()))
+	}
 
 	firstResult, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          parentFlowID,
@@ -180,39 +187,42 @@ func doTestSubFlowCondition(
 	})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, firstChild.GetFlowStatus())
-	require.Equal(t, startResponse.GetRunId()+subFlowParentStep+"-1", firstChild.GetRequestId())
-	childDescription, err := runtime.UnifiedClient.DescribeWorkflowExecution(
-		ctx,
-		childFlowID,
-		firstChild.GetFlowExecutionId().GetRunId(),
-		map[string]dexpb.IndexType{
-			service.SearchAttributeDexParentFlowID: dexpb.IndexType_INDEX_TYPE_KEYWORD,
-		},
-	)
-	require.NoError(t, err)
-	require.Equal(
-		t,
-		parentFlowID,
-		childDescription.IndexedAttributes[service.SearchAttributeDexParentFlowID].GetStringValue(),
-	)
-	require.Len(t, childDescription.Memos, 1)
-	require.Equal(
-		t,
-		startResponse.GetRunId()+subFlowParentStep+"-1",
-		string(childDescription.Memos["ReqId"].GetObjValue().GetPayload()),
-	)
-	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, childFlowID)
-	require.NoError(t, err)
-	require.Equal(t, int64(2), objectCount)
-	if backendType == service.BackendTypeTemporal {
-		requireTemporalHistoryStoresBlobIdsNotPayloads(
-			t,
+	require.Equal(t, subFlowChildRequestID(startResponse.GetRunId(), 1), firstChild.GetRequestId())
+	// The parent search attribute, memo, Go Blob Store objects, and Temporal history are Go Server storage.
+	if !isServerZDBinaryMode() {
+		childDescription, err := runtime.UnifiedClient.DescribeWorkflowExecution(
 			ctx,
-			runtime.UnifiedClient,
-			parentFlowID,
-			[]string{"local-store-id|"},
-			[]string{subFlowInput, subFlowAttribute},
+			childFlowID,
+			firstChild.GetFlowExecutionId().GetRunId(),
+			map[string]dexpb.IndexType{
+				service.SearchAttributeDexParentFlowID: dexpb.IndexType_INDEX_TYPE_KEYWORD,
+			},
 		)
+		require.NoError(t, err)
+		require.Equal(
+			t,
+			parentFlowID,
+			childDescription.IndexedAttributes[service.SearchAttributeDexParentFlowID].GetStringValue(),
+		)
+		require.Len(t, childDescription.Memos, 1)
+		require.Equal(
+			t,
+			subFlowChildRequestID(startResponse.GetRunId(), 1),
+			string(childDescription.Memos["ReqId"].GetObjValue().GetPayload()),
+		)
+		objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, childFlowID)
+		require.NoError(t, err)
+		require.Equal(t, int64(2), objectCount)
+		if backendType == service.BackendTypeTemporal {
+			requireTemporalHistoryStoresBlobIdsNotPayloads(
+				t,
+				ctx,
+				runtime.UnifiedClient,
+				parentFlowID,
+				[]string{"local-store-id|"},
+				[]string{subFlowInput, subFlowAttribute},
+			)
+		}
 	}
 
 	resetResponse, err := flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
@@ -235,7 +245,7 @@ func doTestSubFlowCondition(
 	require.NoError(t, err)
 	if shouldRestart {
 		require.NotEqual(t, firstChild.GetFlowExecutionId().GetRunId(), secondChild.GetFlowExecutionId().GetRunId())
-		require.Equal(t, resetResponse.GetRunId()+subFlowParentStep+"-1", secondChild.GetRequestId())
+		require.Equal(t, subFlowChildRequestID(resetResponse.GetRunId(), 2), secondChild.GetRequestId())
 	} else {
 		require.Equal(t, firstChild.GetFlowExecutionId().GetRunId(), secondChild.GetFlowExecutionId().GetRunId())
 		require.Equal(t, firstChild.GetRequestId(), secondChild.GetRequestId())
@@ -244,6 +254,15 @@ func doTestSubFlowCondition(
 		{status: dexpb.FlowStatus_FLOW_STATUS_COMPLETED},
 		{status: dexpb.FlowStatus_FLOW_STATUS_COMPLETED},
 	}, handler.results())
+}
+
+// subFlowChildRequestID returns the request ID a parent run mints for its first SubFlow child.
+// server-zd adds the run attempt, which a reset increments, and the SubFlow condition index.
+func subFlowChildRequestID(parentRunID string, parentRunAttempt int) string {
+	if isServerZDBinaryMode() {
+		return fmt.Sprintf("%s:%d:%s-1:0", parentRunID, parentRunAttempt, subFlowParentStep)
+	}
+	return parentRunID + subFlowParentStep + "-1"
 }
 
 func (h *subFlowHandler) InvokeWaitForMethod(

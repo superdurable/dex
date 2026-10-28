@@ -469,6 +469,17 @@ func describeFlowStatus(t *testing.T, ctx context.Context, runtime *integRuntime
 	return description.Status
 }
 
+// readFlowConfig returns the run's FlowConfig from the Temporal debug dump, or through GetFlowState in binary mode.
+func readFlowConfig(ctx context.Context, runtime *integRuntime, flowID string) (*dexpb.FlowConfig, error) {
+	if isServerZDBinaryMode() {
+		state, err := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{FlowId: flowID})
+		return state.GetFlowConfig(), err
+	}
+	var dump dexpb.DebugDumpResponse
+	err := runtime.UnifiedClient.QueryWorkflow(ctx, &dump, flowID, "", service.DebugDumpQueryType)
+	return dump.GetConfig(), err
+}
+
 func requireTemporalOnly(t *testing.T) {
 	t.Helper()
 	if *dexServerBinary != "" {

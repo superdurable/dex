@@ -78,7 +78,6 @@ func doTestSignalWorkflow(
 	workerTarget := startWorker(t, workerHandler)
 	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
-	unifiedClient := runtime.UnifiedClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -97,15 +96,21 @@ func doTestSignalWorkflow(
 	})
 	require.NoError(t, err)
 
-	var debugDump dexpb.DebugDumpResponse
-	err = unifiedClient.QueryWorkflow(ctx, &debugDump, flowId, "", service.DebugDumpQueryType)
+	startedConfig, err := readFlowConfig(ctx, runtime, flowId)
 	require.NoError(t, err)
 	expectedConfig := copyFlowConfigForMutation(runtime.defaultFlowConfig)
 	if flowConfig != nil {
 		expectedConfig = copyFlowConfigForMutation(flowConfig)
 	}
 	expectedConfig.WorkerTarget = workerTarget
-	assertions.True(proto.Equal(expectedConfig, debugDump.GetConfig()))
+	if isServerZDBinaryMode() {
+		// GetFlowState returns the resolved FlowConfig, which includes server-zd defaults.
+		assertions.True(proto.Equal(expectedConfig.GetWorkerTarget(), startedConfig.GetWorkerTarget()))
+		assertions.Equal(expectedConfig.GetStepDurability(), startedConfig.GetStepDurability())
+		expectedConfig = copyFlowConfigForMutation(startedConfig)
+	} else {
+		assertions.True(proto.Equal(expectedConfig, startedConfig))
+	}
 
 	_, err = flowClient.UpdateFlowConfig(ctx, &dexpb.UpdateFlowConfigRequest{
 		FlowId: flowId,
@@ -117,18 +122,8 @@ func doTestSignalWorkflow(
 
 	expectedConfig.ContinueAsNewPageSizeInBytes = ptr.Any(int32(3000000))
 	require.Eventually(t, func() bool {
-		var currentDebugDump dexpb.DebugDumpResponse
-		queryErr := unifiedClient.QueryWorkflow(
-			ctx,
-			&currentDebugDump,
-			flowId,
-			"",
-			service.DebugDumpQueryType,
-		)
-		if queryErr != nil {
-			return false
-		}
-		return proto.Equal(expectedConfig, currentDebugDump.GetConfig())
+		currentConfig, queryErr := readFlowConfig(ctx, runtime, flowId)
+		return queryErr == nil && proto.Equal(expectedConfig, currentConfig)
 	}, 2*time.Second, 50*time.Millisecond)
 
 	var unhandledSignalVals []*dexpb.Value
@@ -223,14 +218,11 @@ func doTestSignalWorkflow(
 		assertions.True(proto.Equal(signalVals[i], data[fmt.Sprintf("signalValue%v", i)].(*dexpb.Value)))
 	}
 
-	var dump dexpb.DebugDumpResponse
-	err = unifiedClient.QueryWorkflow(ctx, &dump, flowId, "", service.DebugDumpQueryType)
-	require.NoError(t, err)
-	received := dump.GetSnapshot().GetChannelReceived()[signal.UnhandledSignalName].GetMessages()
+	received := channelReceivedValues(t, runtime, flowId, signal.UnhandledSignalName)
 	assertions.True(len(unhandledSignalVals) > 0)
 	require.Len(t, received, len(unhandledSignalVals))
 	for i, expected := range unhandledSignalVals {
-		assertions.True(proto.Equal(expected, received[i].GetValue()))
+		assertions.True(proto.Equal(expected, received[i]))
 	}
 
 	if flowConfig == nil {

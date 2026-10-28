@@ -21,7 +21,6 @@ var temporalOnlyScenarioTests = map[string]struct{}{
 	"TestAsyncRetryBudgetTemporal":                              {},
 	"TestAttributeIndexSyncCadence":                             {},
 	"TestChannelMultivalueCadence":                              {},
-	"TestChannelMultivalueTemporal":                             {},
 	"TestCreateFlowCadence":                                     {},
 	"TestCreateFlowCadenceContinueAsNew":                        {},
 	"TestDeadEndFlowCadence":                                    {},
