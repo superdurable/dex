@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"path"
@@ -119,11 +120,33 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 	return &Server{
 		cfg: cfg,
 		httpServer: &http.Server{
-			Handler:           mux,
+			Handler:           protectAPIRequests(mux),
+			ReadTimeout:       30 * time.Second,
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       90 * time.Second,
 		},
 	}, nil
+}
+
+func protectAPIRequests(next http.Handler) http.Handler {
+	crossOriginProtection := http.NewCrossOriginProtection()
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if !strings.HasPrefix(request.URL.Path, "/api/") ||
+			request.Method == http.MethodGet || request.Method == http.MethodHead || request.Method == http.MethodOptions {
+			next.ServeHTTP(response, request)
+			return
+		}
+		if err := crossOriginProtection.Check(request); err != nil {
+			api.WriteError(response, http.StatusForbidden, "API requests must be same-origin", nil)
+			return
+		}
+		mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+		if err != nil || mediaType != "application/json" {
+			api.WriteError(response, http.StatusUnsupportedMediaType, "Content-Type must be application/json", nil)
+			return
+		}
+		next.ServeHTTP(response, request)
+	})
 }
 
 func (s *Server) Run() error {

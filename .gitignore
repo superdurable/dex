@@ -69,3 +69,4 @@ sdk-typescript/coverage/
 test.log
 server/all-in-one/bin/
 script/licenseheaders/copyright/copyright
+web/dex-web

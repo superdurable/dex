@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
@@ -453,11 +454,7 @@ func (h *handler) loadBlobs(response http.ResponseWriter, request *http.Request)
 	}
 	result, err := h.client.LoadBlobs(request.Context(), &dexpb.LoadBlobsRequest{Entries: entries})
 	if err != nil {
-		writeGRPCError(
-			response,
-			status.Error(status.Code(err), "Value blob unavailable"),
-			"LoadBlobs",
-		)
+		writeGRPCErrorMessage(response, err, "Value blob unavailable")
 		return
 	}
 	mapped := make(map[string]interface{}, len(result.GetValues()))
@@ -533,6 +530,24 @@ func parseNonNegativeInt32(request *http.Request, name string) (int32, error) {
 }
 
 func writeGRPCError(response http.ResponseWriter, err error, operation string) {
+	writeGRPCErrorMessage(response, err, publicGRPCErrorMessage(err, operation))
+}
+
+func publicGRPCErrorMessage(err error, operation string) string {
+	statusError := status.Convert(err)
+	message := statusError.Message()
+	switch statusError.Code() {
+	case codes.Unknown, codes.Internal, codes.Unavailable, codes.Unauthenticated, codes.PermissionDenied:
+		slog.Error("Dex Web FlowService request failed", "operation", operation, "grpc_code", statusError.Code().String(), "error", err)
+		message = operation + " failed"
+	}
+	if message == "" {
+		message = operation + " failed"
+	}
+	return flowRunNotFoundMessage(statusError.Code(), message)
+}
+
+func writeGRPCErrorMessage(response http.ResponseWriter, err error, message string) {
 	statusError := status.Convert(err)
 	httpStatus := http.StatusBadGateway
 	switch statusError.Code() {
@@ -549,11 +564,6 @@ func writeGRPCError(response http.ResponseWriter, err error, operation string) {
 	case codes.Canceled:
 		httpStatus = 499
 	}
-	message := statusError.Message()
-	if message == "" {
-		message = operation + " failed"
-	}
-	message = flowRunNotFoundMessage(statusError.Code(), message)
 	grpcCode := int32(statusError.Code())
 	WriteError(response, httpStatus, message, &grpcCode)
 }

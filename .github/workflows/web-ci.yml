@@ -61,7 +61,7 @@ jobs:
       - name: Go integration tests
         env:
           GOWORK: "off"
-        run: go test ./...
+        run: make test
       - name: Dex Server Web integration tests
         working-directory: server
         env:
@@ -200,3 +200,31 @@ jobs:
             fi
             sleep 1
           done
+
+  standalone-image:
+    name: Dex Web image
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build standalone Web image
+        run: docker build -f web/Dockerfile -t dex-web-image-test .
+      - name: Verify version and CA bundle
+        run: |
+          docker run --rm dex-web-image-test --version
+          docker run --rm --entrypoint test dex-web-image-test -s /etc/ssl/certs/ca-certificates.crt
+      - name: Verify standalone HTTP server
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name dex-web-smoke -p 18804:8802 dex-web-image-test
+          trap 'docker rm -f dex-web-smoke >/dev/null' EXIT
+          for _ in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18804/healthz; then
+              curl --fail --silent http://127.0.0.1:18804/ | grep -F '<div id="root"></div>'
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs dex-web-smoke
+          exit 1

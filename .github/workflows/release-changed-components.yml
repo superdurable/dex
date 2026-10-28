@@ -41,6 +41,9 @@ jobs:
       server: ${{ steps.plan.outputs.server }}
       server_tag: ${{ steps.plan.outputs.server_tag }}
       server_baseline: ${{ steps.plan.outputs.server_baseline }}
+      web: ${{ steps.plan.outputs.web }}
+      web_tag: ${{ steps.plan.outputs.web_tag }}
+      web_baseline: ${{ steps.plan.outputs.web_baseline }}
       cli: ${{ steps.plan.outputs.cli }}
       cli_tag: ${{ steps.plan.outputs.cli_tag }}
       cli_baseline: ${{ steps.plan.outputs.cli_baseline }}
@@ -100,6 +103,9 @@ jobs:
           SERVER_SELECTED: ${{ needs.plan.outputs.server }}
           SERVER_TAG: ${{ needs.plan.outputs.server_tag }}
           SERVER_BASELINE: ${{ needs.plan.outputs.server_baseline }}
+          WEB_SELECTED: ${{ needs.plan.outputs.web }}
+          WEB_TAG: ${{ needs.plan.outputs.web_tag }}
+          WEB_BASELINE: ${{ needs.plan.outputs.web_baseline }}
           CLI_SELECTED: ${{ needs.plan.outputs.cli }}
           CLI_TAG: ${{ needs.plan.outputs.cli_tag }}
           CLI_BASELINE: ${{ needs.plan.outputs.cli_baseline }}
@@ -111,6 +117,7 @@ jobs:
             "${PYTHON_SELECTED}:${PYTHON_TAG}:${PYTHON_BASELINE}"
             "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_TAG}:${TYPESCRIPT_BASELINE}"
             "${SERVER_SELECTED}:${SERVER_TAG}:${SERVER_BASELINE}"
+            "${WEB_SELECTED}:${WEB_TAG}:${WEB_BASELINE}"
             "${CLI_SELECTED}:${CLI_TAG}:${CLI_BASELINE}"
           )
           for release in "${selected[@]}"; do
@@ -217,6 +224,15 @@ jobs:
       version: ${{ needs.plan.outputs.version }}
     secrets: inherit
 
+  publish-web:
+    name: Publish Dex Web
+    needs: [plan, create-releases]
+    if: needs.plan.outputs.web == 'true'
+    uses: ./.github/workflows/docker-image-web-release.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+    secrets: inherit
+
   publish-cli:
     name: Publish CLI
     needs: [plan, create-releases]
@@ -238,6 +254,7 @@ jobs:
       - publish-rust
       - publish-typescript
       - publish-server
+      - publish-web
       - publish-cli
     runs-on: ubuntu-latest
     steps:
@@ -258,6 +275,8 @@ jobs:
           SERVER_SELECTED: ${{ needs.plan.outputs.server }}
           SERVER_RESULT: ${{ needs.publish-server.result }}
           CLI_SELECTED: ${{ needs.plan.outputs.cli }}
+          WEB_SELECTED: ${{ needs.plan.outputs.web }}
+          WEB_RESULT: ${{ needs.publish-web.result }}
           CLI_RESULT: ${{ needs.publish-cli.result }}
         run: |
           {
@@ -272,6 +291,7 @@ jobs:
               "Rust SDK:${RUST_SELECTED}:${RUST_RESULT}" \
               "TypeScript SDK:${TYPESCRIPT_SELECTED}:${TYPESCRIPT_RESULT}" \
               "Server:${SERVER_SELECTED}:${SERVER_RESULT}" \
+              "Dex Web:${WEB_SELECTED}:${WEB_RESULT}" \
               "CLI:${CLI_SELECTED}:${CLI_RESULT}"; do
               name="${result%%:*}"
               remainder="${result#*:}"
@@ -291,6 +311,7 @@ jobs:
             "${RUST_SELECTED}:${RUST_RESULT}" \
             "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_RESULT}" \
             "${SERVER_SELECTED}:${SERVER_RESULT}" \
+            "${WEB_SELECTED}:${WEB_RESULT}" \
             "${CLI_SELECTED}:${CLI_RESULT}"; do
             if [[ "${result%%:*}" == "true" && "${result#*:}" != "success" ]]; then
               exit 1

@@ -27,6 +27,109 @@ and caches loaded values across tabs. Missing values are labeled
 snapshot explain the short-retry behavior in Selected event without raising a
 page-level data warning. Neither state exposes blob IDs or storage paths.
 
+## Run standalone dex-web
+
+Build the SPA and standalone Go binary from the repository root:
+
+```bash
+make -C web build
+./web/dex-web --flow-service-address 127.0.0.1:8801
+```
+
+Open [http://127.0.0.1:8802](http://127.0.0.1:8802). The binary serves the
+embedded SPA, `/api/`, `/healthz`, and `/readyz`. It connects to an existing Dex
+FlowService; it does not start a Dex Server. SIGINT and SIGTERM allow ten seconds
+for HTTP requests to finish before the process exits. `/healthz` is liveness;
+`/readyz` is readiness and calls FlowService with the configured credential on
+every probe. A FlowService outage must not trigger liveness restarts.
+
+Dex Web has no end-user authentication. Anyone who can reach its HTTP port can
+read and mutate Flows with the configured FlowService credential. Protect the
+port with network policies or an authenticating reverse proxy before exposing
+it beyond a trusted local machine.
+
+Every setting below accepts a flag or an environment variable. Flags override
+environment values. Settings are immutable after startup, except for token-file
+contents, which are checked for rotation at most once per second. Unlisted
+environment variables are ignored, including Kubernetes service-link variables
+such as `DEX_WEB_PORT` and `DEX_WEB_SERVICE_HOST`.
+
+| Flag | Environment variable | Default |
+| --- | --- | --- |
+| `--bind-address` | `DEX_WEB_BIND_ADDRESS` | `127.0.0.1` |
+| `--port` | `DEX_WEB_HTTP_PORT_NUMBER` | `8802` |
+| `--flow-service-address` | `DEX_WEB_FLOW_SERVICE_ADDRESS` | `127.0.0.1:8801` |
+| `--flow-rendering-dir` | `DEX_WEB_FLOW_RENDERING_DIRECTORY` | empty |
+| `--start-flow-worker-target-headless` | `DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS` | `false` |
+| `--start-flow-worker-target-pull` | `DEX_WEB_START_FLOW_WORKER_TARGET_PULL` | `false` |
+| `--tls` | `DEX_WEB_TLS` | `false` |
+| `--tls-ca-file` | `DEX_WEB_TLS_CA_FILE` | empty; system trust roots |
+| `--tls-server-name` | `DEX_WEB_TLS_SERVER_NAME` | empty; verify the target host |
+| `--flow-service-credential-file` | `DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE` | empty; no credential |
+
+TLS encrypts the FlowService gRPC connection and verifies its certificate. A
+custom PEM CA file adds certificates to the system trust roots. CA and server
+name overrides require `--tls`. The HTTP listener is plaintext; an HTTPS reverse
+proxy can terminate browser TLS.
+
+The credential file contains a bearer token, with surrounding whitespace
+ignored. A missing or empty file fails startup. If it becomes empty or unreadable
+later, RPCs fail until the file is restored. Credentials stay in the Go process
+and are never sent to the browser. This matches the existing embedded Web path;
+API key exchange is not part of that path. An external credential agent can
+supply short-lived tokens through the rotating file. Use `--tls` when sending a
+credential to a remote FlowService to protect the bearer token in transit.
+
+POST, PUT, PATCH, and DELETE requests under `/api/` require
+`Content-Type: application/json`; a missing or different media type returns HTTP
+415. Cross-origin browser requests return HTTP 403. These requirements apply to
+standalone Dex Web, the Go Server's embedded Web, and `dexcli dev`, including
+Flow search. Non-browser clients without `Origin` and `Sec-Fetch-Site` headers
+are accepted when they send JSON. When using `curl -d`, add
+`-H 'Content-Type: application/json'`.
+
+Dex Web uses Go's `net/http.CrossOriginProtection`. Browsers sending
+`Sec-Fetch-Site: same-origin` work behind TLS-terminating and Host-rewriting
+proxies without trusted-origin configuration. Proxies must preserve browser
+fetch metadata. For older clients without fetch metadata, the Origin host must
+match the request Host, so configure the proxy to preserve the public Host.
+Forwarded headers do not override these checks.
+
+This protection does not prevent DNS rebinding. A configurable Host allowlist is
+a follow-up; restrict accepted hostnames at the reverse proxy and keep direct
+access to Dex Web's port limited to trusted clients. Masked FlowService errors
+retain their original diagnostics in server-side logs while browser responses
+use a generic message.
+
+```bash
+./web/dex-web --flow-service-address dex.example.com:443 --tls \
+  --flow-service-credential-file /var/run/secrets/dex/token
+```
+
+Build or run the standalone image:
+
+```bash
+docker build -f web/Dockerfile -t dex-web .
+docker run --rm -p 8802:8802 \
+  -e DEX_WEB_FLOW_SERVICE_ADDRESS=host.docker.internal:8801 dex-web
+```
+
+The image binds HTTP to `0.0.0.0:8802`, runs as UID/GID 65532, and includes the
+system CA bundle. Mount definition directories and token files read-only with
+permissions that allow that UID to read them. Main publishes
+`superdurable/dex-web:latest`; `web/vX.Y.Z` releases publish
+`superdurable/dex-web:vX.Y.Z`. Changed-component releases select Web when its
+source, shared renderer, or protobuf dependency changes. `--version` reports the
+build version.
+
+The Web bridge and command have no imports of server runtime helpers. They
+currently retain `github.com/superdurable/dex/gen/dexpb` and the server module
+replacement solely for generated FlowService types. The protobuf import moves
+to `sdk-go/gen/dexpb` atomically with the CLI migration: linking both generated
+copies of `dex.proto` into the existing embedded CLI would fail at startup.
+Standalone mode leaves local Connector setup disabled; use `dexcli dev` for
+that local development workflow.
+
 ## Run through dexcli
 
 ```bash
