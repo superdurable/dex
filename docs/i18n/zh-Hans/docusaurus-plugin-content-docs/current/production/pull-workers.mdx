@@ -9,7 +9,9 @@ sidebar_label: Pull Workers
 Worker 只需要能出站连接 Dex Server，因此可以位于 NAT 或防火墙后，无需开放入站端口。
 如果 Worker 在内存中保存了后续调用会用到的状态，也可以利用黏性路由。
 
-## 启动 Worker
+<a id="启用拉取模式"></a>
+
+## 启动 Worker {#enable-pull-mode}
 
 设置 Worker 的 Dex Server 地址。pull 选项是可选的，用于调整任务容量、注册和关闭行为。
 Client 只需要 Dex Server 地址。Dex 将所有 Flow、SubFlow、Step 和 RPC 调用发送给拉取模式
