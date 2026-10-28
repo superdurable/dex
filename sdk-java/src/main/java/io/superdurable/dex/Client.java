@@ -1363,9 +1363,7 @@ public final class Client implements AutoCloseable {
             mapped.addAttributes(write);
         }
         final FlowConfig config = options.getConfigOverride();
-        if (config != null || this.options.getWorkerTarget() != null) {
-            mapped.setFlowConfigOverride(mapFlowConfig(config));
-        }
+        mapped.setFlowConfigOverride(mapFlowConfig(config));
         return mapped.build();
     }
 
@@ -1391,15 +1389,8 @@ public final class Client implements AutoCloseable {
                         .addAllNames(config.getAttributeStoreNames()));
             }
         }
-        final WorkerTarget target = config != null && config.getWorkerTarget() != null
-                ? config.getWorkerTarget()
-                : options.getWorkerTarget();
-        if (target != null) {
-            mapped.setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder()
-                    .setAddress(target.getAddress())
-                    .setIsHeadlessAddress(target.isHeadless())
-                    .setIsPullMode(target.isPull()));
-        }
+        mapped.setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder()
+                .setIsPullMode(true));
         return mapped.build();
     }
 

@@ -1,9 +1,9 @@
 # Dex Java examples
 
-These examples target `io.superdurable:dex-sdk:1.2.1` (`io.superdurable.dex`).
+These examples target `io.superdurable:dex-sdk:1.15.0` (`io.superdurable.dex`).
 
-The sample process hosts one gRPC Worker on `127.0.0.1:8803` and an HTTP
-controller on port `8080`. One Registry and disk BlobCache are shared by its
+The sample process runs one pull Worker and an HTTP controller on port `8080`.
+The Worker needs only an outbound connection to the Dex Server. One Registry and disk BlobCache are shared by its
 Worker and Client.
 
 ## Layout
@@ -30,7 +30,7 @@ dexcli dev
 ```
 
 The Worker synchronizes all registered Indexed Attributes with Dex before it
-opens its listener; no backend CLI registration is required.
+opens outbound task streams; no backend CLI registration is required.
 
 The examples share namespace-level slots by index type: `keyword1`,
 `text1`, `int1`, and numbered later slots such as `keyword2`.
@@ -43,12 +43,14 @@ Use JDK 17+ to run Gradle; the examples build and run on the newest Java
 release by default (the toolchain downloads automatically), and
 `-PjavaVersion=17` (or 21, 25, ...) selects another JDK.
 Defaults connect to Dex at `localhost:8801`. Override with
-`DEX_FLOW_SERVICE_ADDRESS`, `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`,
-`DEX_EXAMPLES_HTTP_ADDRESS`, `DEX_BLOB_CACHE_DIR`.
+`DEX_FLOW_SERVICE_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, and `DEX_BLOB_CACHE_DIR`.
 
-- `DEX_EXAMPLES_WORKER_MODE`: `push` (default) listens on the Worker bind
-  address. `pull` connects to Dex as a pull Worker, ignores the bind address and
-  target, and starts Flows with the pull Worker target.
+Worker bind addresses, advertised targets, and Worker mode selection have been
+removed. Delete `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`, and
+`DEX_EXAMPLES_WORKER_MODE` from existing configurations. Every Worker uses pull
+routing, with 64 concurrent tasks for the shared example process. The examples
+keep explicit pull targets because the published SDK pin still requires them.
+After the pull-only Java SDK minor release, bump the pin and remove those targets.
 
 ## Verify
 
@@ -58,9 +60,7 @@ Run the integration suite against an isolated `dexcli dev` environment:
 ./run-integration-tests.sh
 ```
 
-Set `DEX_EXAMPLES_WORKER_MODE=pull` to run the same tests with pull Workers.
-Set `DEX_INTEG_ENGINE=zd` to run them against server-zd. That mode defaults to
-pull Workers. Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
+The tests use pull Workers. Set `DEX_INTEG_ENGINE=zd` to run them against server-zd. Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 Examples catch concrete types from `io.superdurable.dex.exceptions`.
 `FlowNotFoundException` is for read operations with no matching execution;

@@ -79,7 +79,7 @@
     "sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowUncompletedException.java",
     "sdk-java/src/test/java/io/superdurable/dex/ClientExceptionIntegrationTest.java",
     "sdk-java/src/test/java/io/superdurable/dex/NativeBlobCacheIntegrationTest.java",
-    "sdk-java/src/test/java/io/superdurable/dex/WorkerServiceIntegrationTest.java",
+    "sdk-java/src/test/java/io/superdurable/dex/WorkerDispatchIntegrationTest.java",
     "sdk-java/src/test/java/io/superdurable/dex/contracts/UserContractsTest.java",
     "sdk-python/dex/async_client.py",
     "sdk-python/dex/attribute.py",

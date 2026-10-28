@@ -20,28 +20,25 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * Configures a synchronous {@link Client} connection and value mapper.
  *
  * <p>The client connects to the Dex server over plaintext gRPC. Its default server address is
- * {@code localhost:8801}. A worker target is copied into start-time Flow configuration unless a
- * request supplies a more specific target. Use {@link WorkerTarget#pull()} when the application
- * Worker polls Dex instead of accepting inbound calls. The default Jackson mapper discovers installed modules;
- * pass a configured mapper when application values require custom serialization.
+ * {@code localhost:8801}. Flow invocations route to pull Workers automatically.
+ * The default Jackson mapper discovers installed modules; pass a configured mapper when
+ * application values require custom serialization.
  * A credential sends a bearer token with each FlowService call. By default no token is sent.
  *
  * <pre>{@code
  * ClientOptions options = new ClientOptions(
  *         "dex.example.com:8801",
- *         new WorkerTarget("orders-worker:8803", false),
  *         applicationObjectMapper);
  * }</pre>
  */
 public final class ClientOptions {
     private final String serverAddress;
-    private final WorkerTarget workerTarget;
     private final ObjectMapper objectMapper;
     private final Credential credential;
 
     /** Creates options for {@code localhost:8801} with the default Jackson mapper. */
     public ClientOptions() {
-        this("localhost:8801", null, new ObjectMapper().findAndRegisterModules());
+        this("localhost:8801", new ObjectMapper().findAndRegisterModules());
     }
 
     /**
@@ -50,46 +47,30 @@ public final class ClientOptions {
      * @param serverAddress the gRPC target understood by {@code ManagedChannelBuilder}
      */
     public ClientOptions(final String serverAddress) {
-        this(serverAddress, null, new ObjectMapper().findAndRegisterModules());
+        this(serverAddress, new ObjectMapper().findAndRegisterModules());
     }
 
     /**
-     * Creates options with explicit server and default worker routing.
+     * Creates options with explicit transport and serialization settings.
      *
      * @param serverAddress the Dex gRPC target
-     * @param workerTarget the default Flow worker target, or {@code null}
-     */
-    public ClientOptions(
-            final String serverAddress,
-            final WorkerTarget workerTarget) {
-        this(serverAddress, workerTarget, new ObjectMapper().findAndRegisterModules());
-    }
-
-    /**
-     * Creates options with explicit transport, routing, and serialization settings.
-     *
-     * @param serverAddress the Dex gRPC target
-     * @param workerTarget the default Flow worker target, or {@code null}
      * @param objectMapper the nonnull Jackson mapper used for application values
      * @throws IllegalArgumentException if {@code objectMapper} is {@code null}
      */
     public ClientOptions(
             final String serverAddress,
-            final WorkerTarget workerTarget,
             final ObjectMapper objectMapper) {
-        this(serverAddress, workerTarget, objectMapper, null);
+        this(serverAddress, objectMapper, null);
     }
 
     private ClientOptions(
             final String serverAddress,
-            final WorkerTarget workerTarget,
             final ObjectMapper objectMapper,
             final Credential credential) {
         if (objectMapper == null) {
             throw new IllegalArgumentException("objectMapper is required");
         }
         this.serverAddress = serverAddress;
-        this.workerTarget = workerTarget;
         this.objectMapper = objectMapper;
         this.credential = credential;
     }
@@ -117,10 +98,6 @@ public final class ClientOptions {
         return serverAddress;
     }
 
-    WorkerTarget getWorkerTarget() {
-        return workerTarget;
-    }
-
     ObjectMapper getObjectMapper() {
         return objectMapper;
     }
@@ -132,7 +109,6 @@ public final class ClientOptions {
     /** Builds immutable Client options. */
     public static final class Builder {
         private String serverAddress = "localhost:8801";
-        private WorkerTarget workerTarget;
         private ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         private Credential credential;
 
@@ -147,17 +123,6 @@ public final class ClientOptions {
          */
         public Builder serverAddress(final String value) {
             this.serverAddress = value;
-            return this;
-        }
-
-        /**
-         * Sets the default target for started Flows.
-         *
-         * @param value the target, or {@code null} for no default
-         * @return this builder
-         */
-        public Builder workerTarget(final WorkerTarget value) {
-            this.workerTarget = value;
             return this;
         }
 
@@ -199,7 +164,7 @@ public final class ClientOptions {
          * @throws IllegalArgumentException if the mapper is null
          */
         public ClientOptions build() {
-            return new ClientOptions(serverAddress, workerTarget, objectMapper, credential);
+            return new ClientOptions(serverAddress, objectMapper, credential);
         }
     }
 }

@@ -40,7 +40,6 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.Stream;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.WorkerOptions;
-import io.superdurable.dex.WorkerTarget;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -131,9 +130,8 @@ public class UserContractsTest {
     @Test
     public void optionsAcceptDefaultAndCustomObjectMappers() {
         final ObjectMapper mapper = new ObjectMapper();
-        final ClientOptions clientOptions = new ClientOptions("localhost:8801", null, mapper);
+        final ClientOptions clientOptions = new ClientOptions("localhost:8801", mapper);
         final WorkerOptions workerOptions = WorkerOptions.newBuilder()
-                .bindAddress(":8803")
                 .serverAddress("localhost:8801")
                 .objectMapper(mapper)
                 .build();
@@ -154,7 +152,6 @@ public class UserContractsTest {
                         .stopDrainTimeout(java.time.Duration.ofSeconds(30))
                         .build())
                 .build());
-        Assertions.assertNotNull(WorkerTarget.pull());
     }
 
     @Test

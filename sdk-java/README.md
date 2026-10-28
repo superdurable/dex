@@ -90,7 +90,7 @@ Maven coordinates: `io.superdurable:dex-sdk` (namespace for domain [superdurable
 
 The canonical rewrite API is under `io.superdurable.dex`. This phase includes
 strongly typed workflow definitions, persistence handles, registry
-validation, synchronous gRPC Client operations, and a Java gRPC Worker.
+validation, synchronous gRPC Client operations, and a Java pull Worker.
 Rust is used only by the DXBC BlobCache JNI binding.
 
 Java workflows and steps are interfaces, while RPCs keep the annotation and
@@ -308,7 +308,6 @@ Workers use a builder so optional transport settings remain readable:
 
 ```java
 WorkerOptions options = WorkerOptions.newBuilder()
-        .bindAddress(":8803")
         .serverAddress("localhost:8801")
         .objectMapper(objectMapper)
         .grpcErrorStatusMapping(GrpcErrorStatusMapping.newBuilder()
@@ -317,19 +316,14 @@ WorkerOptions options = WorkerOptions.newBuilder()
         .build();
 ```
 
-`bindAddress` is the Java WorkerService listener. `serverAddress` connects to
-Dex for startup synchronization and blob hydration; pull Workers also poll
-tasks through it. `workerTarget` is the
-address advertised in Flow configuration; when omitted, Worker derives it from
-the bind address and exposes it through `worker.getWorkerTarget()`.
+`serverAddress` connects to Dex for startup synchronization, blob hydration,
+and outbound task streams. Workers need only an outbound connection to the
+Dex Server. Clients and Flow configurations use pull routing automatically.
 
-### Pull mode
+### Pull Workers
 
-Set `pull` to have a Worker open outbound task streams to the Dex server. It does
-not bind a listener. Advertise `worker.getWorkerTarget()` through `ClientOptions`,
-`StartFlowOptions.configOverride(...)`, or a SubFlow's
-`SubFlowOptions.configOverride(...)`. Pull mode cannot be combined with a bind
-address or a listening Worker target.
+Every Worker receives tasks through outbound streams. Omit `pull` to use the
+`PullWorkerOptions` defaults, or configure task capacity and shutdown behavior:
 
 ```java
 Worker worker = new Worker(registry, blobCache, WorkerOptions.newBuilder()
@@ -340,7 +334,7 @@ Worker worker = new Worker(registry, blobCache, WorkerOptions.newBuilder()
                 .build())
         .build());
 Client client = new Client(registry, blobCache,
-        new ClientOptions("dex:8801", worker.getWorkerTarget()));
+        new ClientOptions("dex:8801"));
 new Thread(worker::start).start();
 ```
 
@@ -387,8 +381,8 @@ and before activating it. It waits for every Flow type queue and the app Worker
 ID queue to register at least once. A timeout throws `TimeoutException`;
 interruption cancels only the wait. Startup errors and a permanent rejection
 before readiness reach the waiter. `PullRegistrationError.getQueue()` identifies
-the queue and `getCause()` preserves the transport error. A listening Worker or
-stop before readiness throws `IllegalStateException`.
+the queue and `getCause()` preserves the transport error. Stopping before
+readiness throws `IllegalStateException`.
 
 Use `getPullRegistrationState()` for later readiness probes. Its immutable queue
 entries expose `getQueue()`, `hasRegisteredStream()`, and `getLastPermanentError()`.
@@ -442,7 +436,6 @@ distinguish reserve pressure from full-capacity rejections. The count excludes
 full-capacity rejections and unknown names. It counts decline events, including
 repeated declines of the same Step dispatch while Dex retries it. Read its rate
 to assess reserve pressure. It never resets and remains available after shutdown.
-Listening Workers return zero.
 
 ### Authentication
 
@@ -679,7 +672,7 @@ another action is needed.
 `Client.waitForFlow` returns `FlowResult` for successful and unsuccessful
 terminal statuses. Inspect `getStatus`, `getErrorType`, and `getErrorMessage`
 before decoding outputs from an unsuccessful result.
-`WorkerInvocationException` preserves the original WorkerService error type,
+`WorkerInvocationException` preserves the original Worker error type,
 detail, gRPC code, and Java stack trace. Read the persisted trace with
 `getWorkerStackTrace()`; it may be empty for Workers implemented by another SDK.
 `DexServiceException` remains the generic service failure and exposes status
@@ -753,8 +746,8 @@ failure modes, and options.
 
 ## Runtime architecture
 
-Java owns Registry reflection, FlowService client transport, WorkerService gRPC
-transport, callback dispatch, and exception mapping. Worker requests never
+Java owns Registry reflection, FlowService client transport, outbound task
+streams, invocation dispatch, and exception mapping. Worker requests never
 cross JNI. Synchronous Step and RPC handlers run on a bounded JVM executor so
 they do not block gRPC event-loop progress. Java failures are logged with their
 complete stack and returned with their Java type, message, mapped status, and
@@ -841,17 +834,17 @@ Run the JVM/native integration tests and all E2E scenarios against a fresh
 
 ```shell
 ./run-integration-tests.sh
-DEX_INTEG_WORKER_MODE=pull ./run-integration-tests.sh
+DEX_INTEG_ENGINE=zd ./run-integration-tests.sh
 ```
 
 The script builds `dexcli` from the current checkout and starts an isolated
-Dex environment. The default `push` mode starts a listening Worker for each E2E
-case. The `pull` mode starts an outbound polling Worker and routes Client calls
-through the pull target. Both modes run the local JNI and WorkerService tests.
-Each Worker synchronizes its registered Indexed Attributes before serving tasks.
-Gradle builds the Rust BlobCache JNI library. E2E cases use unique flow IDs;
-push Workers also use unique listener ports. A clean checkout also requires Go 1.24+,
-Node.js 22+, Rust 1.97+, and Temporal CLI.
+Dex environment. Every E2E case starts an outbound polling Worker. The suite
+also runs local JNI and pull dispatch integration tests. Each Worker synchronizes
+its registered Indexed Attributes before serving tasks. Gradle builds the Rust
+BlobCache JNI library. E2E cases use unique Flow IDs. A clean checkout also requires
+Go 1.24+, Node.js 22+, and Rust 1.97+. The default engine requires Temporal CLI.
+Set `DEX_INTEG_ENGINE=zd` to use server-zd, and `DEX_SERVER_ZD_BINARY` to reuse a
+built server-zd binary.
 
 ### Measure integration coverage
 
@@ -861,7 +854,7 @@ Run the same integration suite with JaCoCo coverage:
 ./run-integration-tests.sh --coverage
 ```
 
-The report combines the local JNI and WorkerService integration tests with all
+The report combines the local JNI and pull dispatch integration tests with all
 `dexcli dev` E2E scenarios. It measures only production classes under
 `io.superdurable.dex`; contract tests, other unit tests, test fixtures, and
 generated protobuf classes are excluded. The XML report is written to
@@ -946,9 +939,9 @@ use the local publishing command:
 ## Server protocol compatibility
 
 Worker startup calls `GetServerInfo`, negotiates the highest common protocol,
-synchronizes Attribute indexes, and then binds WorkerService. The Java SDK
+synchronizes Attribute indexes, and then opens outbound task streams. The Java SDK
 interval is `[1,3]`. An absent RPC, invalid or nonoverlapping intervals, and
-request failures stop startup before binding.
+request failures stop startup before polling.
 
 Protocol 3 adds hard-delete Attributes. A Worker invocation that writes a
 hard-delete Attribute fails when the negotiated protocol is below 3. The Client

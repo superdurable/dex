@@ -15,15 +15,11 @@ import io.superdurable.dex.BlobCacheConfig;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.ClientOptions;
 import io.superdurable.dex.Flow;
-import io.superdurable.dex.PullWorkerOptions;
 import io.superdurable.dex.Registry;
 import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
@@ -53,19 +49,6 @@ public final class DexDevTestEnvironment implements AutoCloseable {
     public static DexDevTestEnvironment start(
             final Path cacheDirectory,
             final Flow<?>... flows) throws IOException {
-        return start(cacheDirectory, isPullMode(), flows);
-    }
-
-    public static DexDevTestEnvironment startPush(
-            final Path cacheDirectory,
-            final Flow<?>... flows) throws IOException {
-        return start(cacheDirectory, false, flows);
-    }
-
-    private static DexDevTestEnvironment start(
-            final Path cacheDirectory,
-            final boolean isPullMode,
-            final Flow<?>... flows) throws IOException {
         final String serverAddress = System.getProperty(
                 "dex.test.serverAddress",
                 "127.0.0.1:8801");
@@ -75,14 +58,6 @@ public final class DexDevTestEnvironment implements AutoCloseable {
                 CACHE_SIZE_BYTES));
         final WorkerOptions.Builder workerOptions = WorkerOptions.newBuilder()
                 .serverAddress(serverAddress);
-        final int workerPort;
-        if (isPullMode) {
-            workerPort = 0;
-            workerOptions.pull(PullWorkerOptions.newBuilder().build());
-        } else {
-            workerPort = availablePort();
-            workerOptions.bindAddress("127.0.0.1:" + workerPort);
-        }
         final Worker worker = new Worker(
                 registry,
                 blobCache,
@@ -96,30 +71,28 @@ public final class DexDevTestEnvironment implements AutoCloseable {
             }
         }, "dex-java-integration-worker");
         workerThread.start();
-        if (!isPullMode) {
-            awaitWorker(workerPort, workerFailure);
+        try {
+            worker.waitPullRegistered(java.time.Duration.ofSeconds(30));
+        } catch (InterruptedException interrupted) {
+            worker.close();
+            blobCache.close();
+            Thread.currentThread().interrupt();
+            throw new IOException("interrupted awaiting Worker registration", interrupted);
+        } catch (java.util.concurrent.TimeoutException | RuntimeException failure) {
+            worker.close();
+            blobCache.close();
+            throw new IOException("Worker registration failed", failure);
         }
         final Client client = new Client(
                 registry,
                 blobCache,
-                new ClientOptions(serverAddress, worker.getWorkerTarget()));
+                new ClientOptions(serverAddress));
         return new DexDevTestEnvironment(
                 blobCache,
                 worker,
                 workerThread,
                 workerFailure,
                 client);
-    }
-
-    public static boolean isPullMode() {
-        final String workerMode = System.getenv("DEX_INTEG_WORKER_MODE");
-        if (workerMode == null || "push".equals(workerMode)) {
-            return false;
-        }
-        if ("pull".equals(workerMode)) {
-            return true;
-        }
-        throw new IllegalArgumentException("DEX_INTEG_WORKER_MODE must be push or pull");
     }
 
     public Client client() {
@@ -138,28 +111,4 @@ public final class DexDevTestEnvironment implements AutoCloseable {
         }
     }
 
-    private static int availablePort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        }
-    }
-
-    private static void awaitWorker(
-            final int workerPort,
-            final AtomicReference<Throwable> workerFailure) throws IOException {
-        final long deadline = System.nanoTime() + 10_000_000_000L;
-        while (System.nanoTime() < deadline) {
-            final Throwable failure = workerFailure.get();
-            if (failure != null) {
-                throw new IllegalStateException("Java integration Worker failed", failure);
-            }
-            try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress("127.0.0.1", workerPort), 100);
-                return;
-            } catch (IOException unavailable) {
-                Thread.yield();
-            }
-        }
-        throw new IOException("Java integration Worker did not become ready");
-    }
 }

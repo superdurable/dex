@@ -225,8 +225,9 @@ final class PullWorkerTest {
         }
         try (Worker worker = new Worker(new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache())) {
             assertFalse(worker.getPullRegistrationState().isReady());
-            assertTrue(worker.getPullRegistrationState().getQueues().isEmpty());
-            assertThrows(IllegalStateException.class, () -> worker.waitPullRegistered(Duration.ZERO));
+            assertEquals(1, worker.getPullRegistrationState().getQueues().size());
+            assertThrows(java.util.concurrent.TimeoutException.class,
+                    () -> worker.waitPullRegistered(Duration.ZERO));
         }
     }
 
@@ -261,14 +262,7 @@ final class PullWorkerTest {
                 () -> PullWorkerOptions.newBuilder().appWorkerID(repeat("a", 64)));
         assertThrows(IllegalArgumentException.class,
                 () -> PullWorkerOptions.newBuilder().stopDrainTimeout(Duration.ofSeconds(-1)));
-        assertThrows(IllegalArgumentException.class, () -> WorkerOptions.newBuilder()
-                .pull(PullWorkerOptions.newBuilder().build()).bindAddress(":8803").build());
-        assertThrows(IllegalArgumentException.class, () -> WorkerOptions.newBuilder()
-                .pull(PullWorkerOptions.newBuilder().build())
-                .workerTarget(new WorkerTarget("localhost:8803", false)).build());
-        assertThrows(IllegalArgumentException.class,
-                () -> WorkerOptions.newBuilder().workerTarget(WorkerTarget.pull()).build());
-        assertNotNull(WorkerOptions.newBuilder().bindAddress("").build());
+        assertNotNull(WorkerOptions.newBuilder().build().getPull());
 
         final PullWorkerOptions defaults = PullWorkerOptions.newBuilder()
                 .maxConcurrentTasks(0).idleStreamsPerQueue(0)
@@ -906,10 +900,7 @@ final class PullWorkerTest {
         @Override
         public Wait waitFor(final Context context, final String input) {
             return Wait.until(SubFlow.run(ChildFlow.class, input,
-                    SubFlowOptions.newBuilder()
-                            .configOverride(FlowConfig.newBuilder()
-                                    .workerTarget(WorkerTarget.pull()).build())
-                            .build()));
+                    SubFlowOptions.newBuilder().build()));
         }
 
         @Override
@@ -1451,7 +1442,6 @@ final class PullWorkerTest {
                                     .map(IllegalArgumentException.class, Status.Code.INVALID_ARGUMENT)
                                     .build())
                             .build());
-            assertTrue(worker.getWorkerTarget().isPull());
             workerThread = new Thread(() -> {
                 try {
                     worker.start();

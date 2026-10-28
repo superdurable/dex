@@ -19,7 +19,6 @@ package io.superdurable.dex.integ.smoke;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.superdurable.dex.SpringMainApplication;
 import io.superdurable.dex.Worker;
-import io.superdurable.dex.shared.ExampleWorkerMode;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -60,24 +59,16 @@ final class FlowSmokeEnvironment implements AutoCloseable {
     static FlowSmokeEnvironment start() throws Exception {
         final String serverAddress =
                 System.getenv().getOrDefault("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801");
-        final ExampleWorkerMode workerMode = ExampleWorkerMode.readFromEnvironment();
         final Path cacheDirectory = Files.createTempDirectory("dex-java-flow-smoke-");
-        final int workerPort = availablePort();
-        final String workerAddress = "127.0.0.1:" + workerPort;
 
         final SpringApplication application = new SpringApplication(SpringMainApplication.class);
         final ConfigurableApplicationContext context = application.run(
                 "--server.port=0",
                 "--dex.server-address=" + serverAddress,
-                "--dex.worker-bind-address=" + workerAddress,
                 "--dex.blob-cache-dir=" + cacheDirectory.toString());
         final WebServerApplicationContext webContext = (WebServerApplicationContext) context;
         final int httpPort = webContext.getWebServer().getPort();
-        if (workerMode.isPull()) {
-            context.getBean(Worker.class).waitPullRegistered(Duration.ofSeconds(30));
-        } else {
-            awaitWorker(workerPort);
-        }
+        context.getBean(Worker.class).waitPullRegistered(Duration.ofSeconds(30));
         return new FlowSmokeEnvironment(
                 context,
                 cacheDirectory,
@@ -147,25 +138,6 @@ final class FlowSmokeEnvironment implements AutoCloseable {
             }
         }
         return "";
-    }
-
-    private static int availablePort() throws IOException {
-        try (var socket = new java.net.ServerSocket(0)) {
-            return socket.getLocalPort();
-        }
-    }
-
-    private static void awaitWorker(final int workerPort) throws InterruptedException, IOException {
-        final long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-        while (System.nanoTime() < deadline) {
-            try (var socket = new java.net.Socket()) {
-                socket.connect(new java.net.InetSocketAddress("127.0.0.1", workerPort), 100);
-                return;
-            } catch (final IOException unavailable) {
-                Thread.sleep(50L);
-            }
-        }
-        throw new IOException("Java flow smoke Worker did not become ready");
     }
 
     private static void deleteRecursively(final Path path) throws IOException {

@@ -48,14 +48,11 @@ import io.superdurable.gen.ServerInfo;
 import io.superdurable.gen.SyncAttributeIndexRequest;
 import io.superdurable.gen.SyncAttributeIndexResponse;
 import io.superdurable.gen.Value;
-import io.superdurable.gen.WorkerServiceGrpc;
 import io.superdurable.gen.WorkerErrorResponse;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -77,7 +74,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-final class WorkerServiceIntegrationTest {
+final class WorkerDispatchIntegrationTest {
     @Test
     void usesCompactObjectEncodingWireValues() {
         final ValueMapper values = new ValueMapper(new ObjectMapper());
@@ -91,21 +88,7 @@ final class WorkerServiceIntegrationTest {
     }
 
     @Test
-    void derivesAdvertisedTargetFromDefaultBindAddress() {
-        final Worker worker = new Worker(
-                new Registry(Collections.<Flow<?>>emptyList()),
-                new TestBlobCache());
-        try {
-            assertEquals("localhost:8803", worker.getWorkerTarget().getAddress());
-            assertFalse(worker.getWorkerTarget().isHeadless());
-        } finally {
-            worker.close();
-        }
-    }
-
-    @Test
-    void rejectsIncompatibleServerBeforeIndexSyncAndBinding() throws Exception {
-        final int workerPort = availablePort();
+    void rejectsIncompatibleServerBeforeIndexSyncAndPolling() throws Exception {
         final int flowPort = availablePort();
         final AtomicInteger syncCalls = new AtomicInteger();
         final Server flowServer = ServerBuilder.forPort(flowPort)
@@ -137,7 +120,6 @@ final class WorkerServiceIntegrationTest {
                 new Registry(Collections.<Flow<?>>singletonList(new BridgeFlow())),
                 new TestBlobCache(),
                 WorkerOptions.newBuilder()
-                        .bindAddress("127.0.0.1:" + workerPort)
                         .serverAddress("127.0.0.1:" + flowPort)
                         .build());
         try {
@@ -146,11 +128,6 @@ final class WorkerServiceIntegrationTest {
                     worker::start);
             assertTrue(failure.getMessage().contains("protocol intervals do not overlap"));
             assertEquals(0, syncCalls.get());
-            assertThrows(IOException.class, () -> {
-                try (Socket socket = new Socket()) {
-                    socket.connect(new InetSocketAddress("127.0.0.1", workerPort), 100);
-                }
-            });
         } finally {
             worker.close();
             flowServer.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
@@ -178,7 +155,6 @@ final class WorkerServiceIntegrationTest {
             assertEquals(
                     io.superdurable.gen.IndexType.INDEX_TYPE_KEYWORD,
                     running.syncRequest.get().getAttributeIndexesOrThrow("JavaWorkerStatus"));
-            assertFalse(running.listeningDuringSync.get());
         } finally {
             running.close();
         }
@@ -750,7 +726,7 @@ final class WorkerServiceIntegrationTest {
             assertTrue(details.getStackTrace().endsWith(
                     "... stack trace truncated by Dex Java SDK ..."));
             assertTrue(details.getStackTrace().getBytes(StandardCharsets.UTF_8).length
-                    <= JavaWorkerService.MAX_WORKER_STACK_TRACE_BYTES);
+                    <= WorkerErrorMapper.MAX_WORKER_STACK_TRACE_BYTES);
             assertFalse(details.getStackTrace().contains("\ufffd"));
         } finally {
             running.close();
@@ -770,11 +746,11 @@ final class WorkerServiceIntegrationTest {
             assertTrue(details.getDetail().endsWith(
                     "... error detail truncated by Dex Java SDK ..."));
             assertTrue(details.getDetail().getBytes(StandardCharsets.UTF_8).length
-                    <= JavaWorkerService.MAX_WORKER_ERROR_DETAIL_BYTES);
+                    <= WorkerErrorMapper.MAX_WORKER_ERROR_DETAIL_BYTES);
             assertTrue(details.getStackTrace().endsWith(
                     "... stack trace truncated by Dex Java SDK ..."));
             assertTrue(details.getStackTrace().getBytes(StandardCharsets.UTF_8).length
-                    <= JavaWorkerService.MAX_WORKER_STACK_TRACE_BYTES);
+                    <= WorkerErrorMapper.MAX_WORKER_STACK_TRACE_BYTES);
             assertEquals(details.getDetail(), status.getMessage());
             assertTrue(status.getSerializedSize() < 7 * 1024);
             assertFalse(details.getDetail().contains("\ufffd"));
@@ -879,40 +855,6 @@ final class WorkerServiceIntegrationTest {
     }
 
     @Test
-    void grpcCancellationInterruptsHandlerAndUpdatesContext() throws Exception {
-        final BridgeFlow flow = new BridgeFlow();
-        final RunningWorker running = startWorker(flow, new TestBlobCache(), null);
-        try {
-            final io.grpc.Context.CancellableContext invocation =
-                    io.grpc.Context.current().withCancellation();
-            invocation.run(() -> WorkerServiceGrpc.newStub(running.channel)
-                    .withWaitForReady()
-                    .withDeadlineAfter(10, TimeUnit.SECONDS)
-                    .invokeExecuteMethod(
-                            executeRequest(concrete("block")),
-                            new StreamObserver<InvokeExecuteMethodOutput>() {
-                                @Override
-                                public void onNext(final InvokeExecuteMethodOutput output) {
-                                }
-
-                                @Override
-                                public void onError(final Throwable failure) {
-                                }
-
-                                @Override
-                                public void onCompleted() {
-                                }
-                            }));
-            assertTrue(flow.start.blockStarted.await(5, TimeUnit.SECONDS));
-            invocation.cancel(null);
-            assertTrue(flow.start.cancellationObserved.await(5, TimeUnit.SECONDS));
-            assertTrue(flow.start.contextReportedCancellation.get());
-        } finally {
-            running.close();
-        }
-    }
-
-    @Test
     void hydratesBlobValuesThroughTheJavaCacheInterface() throws Exception {
         final AtomicInteger loads = new AtomicInteger();
         final int flowPort = availablePort();
@@ -1007,58 +949,47 @@ final class WorkerServiceIntegrationTest {
             final TestBlobCache cache,
             final String serverAddress,
             final GrpcErrorStatusMapping mapping) throws Exception {
-        final int port = availablePort();
-        final AtomicReference<SyncAttributeIndexRequest> syncRequest =
-                new AtomicReference<SyncAttributeIndexRequest>();
-        final AtomicReference<Boolean> listeningDuringSync =
-                new AtomicReference<Boolean>();
-        final Server ownedFlowServer;
-        final String effectiveServerAddress;
-        if (serverAddress == null) {
-            final int flowPort = availablePort();
-            ownedFlowServer = ServerBuilder.forPort(flowPort)
-                    .addService(new FlowServiceGrpc.FlowServiceImplBase() {
-                        @Override
-                        public void getServerInfo(
-                                final Empty request,
-                                final StreamObserver<ServerInfo> observer) {
-                            observer.onNext(compatibleServerInfo());
-                            observer.onCompleted();
-                        }
+        final AtomicReference<SyncAttributeIndexRequest> syncRequest = new AtomicReference<>();
+        final PullTaskTestService client = new PullTaskTestService();
+        final ManagedChannel upstream = serverAddress == null ? null
+                : ManagedChannelBuilder.forTarget(serverAddress).usePlaintext().build();
+        final Server flowServer = ServerBuilder.forPort(0)
+                .addService(client)
+                .addService(new FlowServiceGrpc.FlowServiceImplBase() {
+                    @Override
+                    public void getServerInfo(final Empty request,
+                            final StreamObserver<ServerInfo> observer) {
+                        observer.onNext(compatibleServerInfo());
+                        observer.onCompleted();
+                    }
 
-                        @Override
-                        public void syncAttributeIndexes(
-                                final SyncAttributeIndexRequest request,
-                                final StreamObserver<SyncAttributeIndexResponse> observer) {
-                            syncRequest.set(request);
-                            try (Socket socket = new Socket()) {
-                                socket.connect(new InetSocketAddress("127.0.0.1", port), 100);
-                                listeningDuringSync.set(Boolean.TRUE);
-                            } catch (IOException expected) {
-                                listeningDuringSync.set(Boolean.FALSE);
-                            }
-                            observer.onNext(SyncAttributeIndexResponse.getDefaultInstance());
+                    @Override
+                    public void syncAttributeIndexes(final SyncAttributeIndexRequest request,
+                            final StreamObserver<SyncAttributeIndexResponse> observer) {
+                        syncRequest.set(request);
+                        observer.onNext(SyncAttributeIndexResponse.getDefaultInstance());
+                        observer.onCompleted();
+                    }
+
+                    @Override
+                    public void loadBlobs(final LoadBlobsRequest request,
+                            final StreamObserver<LoadBlobsResponse> observer) {
+                        try {
+                            observer.onNext(FlowServiceGrpc.newBlockingStub(upstream).loadBlobs(request));
                             observer.onCompleted();
+                        } catch (RuntimeException failure) {
+                            observer.onError(failure);
                         }
-                    })
-                    .build()
-                    .start();
-            effectiveServerAddress = "127.0.0.1:" + flowPort;
-        } else {
-            ownedFlowServer = null;
-            effectiveServerAddress = serverAddress;
-        }
+                    }
+                }).build().start();
         final WorkerOptions.Builder options = WorkerOptions.newBuilder()
-                .bindAddress("127.0.0.1:" + port)
-                .serverAddress(effectiveServerAddress);
+                .serverAddress("127.0.0.1:" + flowServer.getPort());
         if (mapping != null) {
             options.grpcErrorStatusMapping(mapping);
         }
         final Worker worker = new Worker(
-                new Registry(Collections.<Flow<?>>singletonList(flow)),
-                cache,
-                options.build());
-        final AtomicReference<Throwable> workerFailure = new AtomicReference<Throwable>();
+                new Registry(Collections.<Flow<?>>singletonList(flow)), cache, options.build());
+        final AtomicReference<Throwable> workerFailure = new AtomicReference<>();
         final Thread workerThread = new Thread(() -> {
             try {
                 worker.start();
@@ -1067,24 +998,9 @@ final class WorkerServiceIntegrationTest {
             }
         }, "test-dex-worker");
         workerThread.start();
-        final ManagedChannel channel = ManagedChannelBuilder
-                .forAddress("127.0.0.1", port)
-                .usePlaintext()
-                .maxInboundMetadataSize(64 * 1024)
-                .build();
-        final WorkerServiceGrpc.WorkerServiceBlockingStub client =
-                WorkerServiceGrpc.newBlockingStub(channel)
-                        .withWaitForReady()
-                        .withDeadlineAfter(10, TimeUnit.SECONDS);
-        return new RunningWorker(
-                worker,
-                workerThread,
-                workerFailure,
-                channel,
-                client,
-                ownedFlowServer,
-                syncRequest,
-                listeningDuringSync);
+        worker.waitPullRegistered(Duration.ofSeconds(10));
+        return new RunningWorker(worker, workerThread, workerFailure, upstream, client,
+                flowServer, syncRequest);
     }
 
     private static InvokeWaitForMethodRequest waitRequest(final Value input) {
@@ -1227,20 +1143,18 @@ final class WorkerServiceIntegrationTest {
         private final Thread workerThread;
         private final AtomicReference<Throwable> workerFailure;
         private final ManagedChannel channel;
-        private final WorkerServiceGrpc.WorkerServiceBlockingStub client;
+        private final PullTaskTestService client;
         private final Server ownedFlowServer;
         private final AtomicReference<SyncAttributeIndexRequest> syncRequest;
-        private final AtomicReference<Boolean> listeningDuringSync;
 
         private RunningWorker(
                 final Worker worker,
                 final Thread workerThread,
                 final AtomicReference<Throwable> workerFailure,
                 final ManagedChannel channel,
-                final WorkerServiceGrpc.WorkerServiceBlockingStub client,
+                final PullTaskTestService client,
                 final Server ownedFlowServer,
-                final AtomicReference<SyncAttributeIndexRequest> syncRequest,
-                final AtomicReference<Boolean> listeningDuringSync) {
+                final AtomicReference<SyncAttributeIndexRequest> syncRequest) {
             this.worker = worker;
             this.workerThread = workerThread;
             this.workerFailure = workerFailure;
@@ -1248,12 +1162,13 @@ final class WorkerServiceIntegrationTest {
             this.client = client;
             this.ownedFlowServer = ownedFlowServer;
             this.syncRequest = syncRequest;
-            this.listeningDuringSync = listeningDuringSync;
         }
 
         @Override
         public void close() throws InterruptedException {
-            channel.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
+            if (channel != null) {
+                channel.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
+            }
             worker.close();
             workerThread.join(5_000L);
             assertNull(workerFailure.get());
@@ -1441,7 +1356,7 @@ final class WorkerServiceIntegrationTest {
                         new BridgeFailureException("retry later"));
             }
             if ("checked".equals(input)) {
-                WorkerServiceIntegrationTest.<RuntimeException>throwUnchecked(
+                WorkerDispatchIntegrationTest.<RuntimeException>throwUnchecked(
                         new CheckedBridgeException("checked bridge failure"));
             }
             if ("error".equals(input)) {
@@ -1451,7 +1366,7 @@ final class WorkerServiceIntegrationTest {
                 throw Status.NOT_FOUND.withDescription("do not bypass mapping").asRuntimeException();
             }
             if ("checked-status".equals(input)) {
-                WorkerServiceIntegrationTest.<RuntimeException>throwUnchecked(
+                WorkerDispatchIntegrationTest.<RuntimeException>throwUnchecked(
                         Status.NOT_FOUND.withDescription("do not bypass mapping").asException());
             }
             if ("large".equals(input)) {

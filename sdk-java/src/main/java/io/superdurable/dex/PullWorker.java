@@ -56,7 +56,7 @@ final class PullWorker {
     private static final char[] BASE32 = "abcdefghijklmnopqrstuvwxyz234567".toCharArray();
     private final WorkerTaskServiceGrpc.WorkerTaskServiceStub taskService;
     private final Credential credential;
-    private final JavaWorkerService workerService;
+    private final WorkerErrorMapper errorMapper;
     private final WorkerDispatcher dispatcher;
     private final ExecutorService handlers;
     private final ScheduledThreadPoolExecutor scheduler;
@@ -92,14 +92,14 @@ final class PullWorker {
 
     PullWorker(
             final Registry registry,
-            final JavaWorkerService workerService,
+            final WorkerErrorMapper errorMapper,
             final WorkerDispatcher dispatcher,
             final ExecutorService handlers,
             final ManagedChannel channel,
             final PullWorkerOptions options,
             final Credential credential,
             final String sdkVersion) {
-        this.workerService = workerService;
+        this.errorMapper = errorMapper;
         this.credential = credential;
         this.dispatcher = dispatcher;
         this.handlers = handlers;
@@ -679,7 +679,7 @@ final class PullWorker {
             } catch (Throwable failure) {
                 LOGGER.log(Level.SEVERE, "Java pull Worker invocation failed", failure);
                 sendFrame(PollWorkerTaskFrame.newBuilder()
-                        .setWorkerError(workerService.pullWorkerError(failure, cancellationStatus))
+                        .setWorkerError(errorMapper.mapFailure(failure, cancellationStatus))
                         .build());
             } finally {
                 taskContext.detach(previous);
