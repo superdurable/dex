@@ -126,7 +126,9 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 	if services.isWebEnabled {
 		return nil, fmt.Errorf("embedded Dex Web was removed from dex-server; run dex-web separately")
 	}
-	log.Print("dex-server no longer serves Dex Web on port 8802; web configuration is ignored; run dex-web separately (see https://docs.superdurable.io/production/dex-web#migrate-embedded-web)")
+	if cfg.Web != (config.WebConfig{}) {
+		log.Print("dex-server no longer serves Dex Web on port 8802; web configuration is ignored; run dex-web separately (see https://docs.superdurable.io/production/dex-web#migrate-embedded-web)")
+	}
 	if services.isAPIEnabled || services.isInterpreterEnabled || services.isMatchingEnabled {
 		dexRuntime, err := bootstrap.New(cfg, &bootstrap.Options{
 			Services: bootstrap.Services{

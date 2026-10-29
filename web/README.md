@@ -75,8 +75,8 @@ proxy can terminate browser TLS.
 The credential file contains a bearer token, with surrounding whitespace
 ignored. A missing or empty file fails startup. If it becomes empty or unreadable
 later, RPCs fail until the file is restored. Credentials stay in the Go process
-and are never sent to the browser. This matches the existing embedded Web path;
-API key exchange is not part of that path. An external credential agent can
+and are never sent to the browser. Dex Web does not exchange API keys.
+An external credential agent can
 supply short-lived tokens through the rotating file. Use `--tls` when sending a
 credential to a remote FlowService to protect the bearer token in transit.
 
@@ -206,9 +206,8 @@ The browser cannot set Worker headless routing.
 Configure headless routing once for address targets started from this Dex Web
 instance:
 
-```yaml
-web:
-  startFlowWorkerTargetHeadless: false
+```bash
+dex-web --start-flow-worker-target-headless=false
 ```
 
 The equivalent environment variable is
@@ -216,7 +215,7 @@ The equivalent environment variable is
 is immutable after startup. Set it to true when the entered Worker addresses
 are Kubernetes headless Service targets.
 
-For deployments using pull Workers, `web.startFlowWorkerTargetPull: true` selects
+For deployments using pull Workers, `--start-flow-worker-target-pull` selects
 a pull target when an API request omits both target fields. The equivalent
 environment variable is `DEX_WEB_START_FLOW_WORKER_TARGET_PULL`. The default is
 false; an explicit address still selects address routing. Headless routing
@@ -620,7 +619,7 @@ Dex Web reads `GetServerInfo` and reports the engine as `serverEngine` in
 `GET /api/v2/catalog`. On server-zd, which dispatches only to pull Workers, the
 Start dialog opens with **Pull Worker** selected and hides the address option.
 `POST /api/v2/start` also selects a pull target there when a request omits both
-target fields. `web.startFlowWorkerTargetPull` keeps its meaning on every engine.
+target fields. `--start-flow-worker-target-pull` keeps its meaning on every engine.
 
 On server-zd, Time Travel keeps the run ID and creates a new run attempt. The
 Run page reloads the whole history when the run attempt changes, because
@@ -637,9 +636,9 @@ selects the current attempt. Each event and `GET /api/flows/summary` report
 accepts an optional `runAttempt` and returns the new `runAttempt`.
 
 `web/scripts/run-server-zd-e2e.sh` runs the end-to-end test of this mode. It
-starts `dex-server-zd dev`, a web-only `dex-server`, and the Go SDK pull Worker
+starts `dex-server-zd dev`, standalone `dex-web`, and the Go SDK pull Worker
 from `sdk-go/integ`. Set `DEX_SERVER_ZD_BINARY` to a `dex-server-zd` binary from
-a server-zd release, and build `web/assets/dist` first.
+this worktree or a server-zd release, and build `web/assets/dist` first.
 
 To populate Web with a 90-execution Flow containing serial, fan-out, and fan-in
 sections, run the [Large Step Graph demo](./demo/large-step-graph).

@@ -30,14 +30,36 @@ func TestEmbeddedWebDirectsToStandaloneCommand(t *testing.T) {
 }
 
 func TestLegacyWebConfigLogsStandaloneMigration(t *testing.T) {
-	var output bytes.Buffer
-	originalOutput := log.Writer()
-	log.SetOutput(&output)
-	defer log.SetOutput(originalOutput)
-	_, err := newApplication(&config.Config{Web: config.WebConfig{Port: 9802}}, serviceSelection{})
-	require.NoError(t, err)
-	require.Contains(t, output.String(), "no longer serves Dex Web on port 8802")
-	require.Contains(t, output.String(), "web configuration is ignored; run dex-web separately")
+	testCases := []struct {
+		name               string
+		webConfig          config.WebConfig
+		shouldLogMigration bool
+	}{
+		{name: "absent"},
+		{name: "port", webConfig: config.WebConfig{Port: 9802}, shouldLogMigration: true},
+		{name: "bind address", webConfig: config.WebConfig{BindAddress: "127.0.0.1"}, shouldLogMigration: true},
+		{name: "FlowService target", webConfig: config.WebConfig{FlowServiceTarget: "localhost:9801"}, shouldLogMigration: true},
+		{name: "credential file", webConfig: config.WebConfig{FlowServiceCredentialFile: "/etc/dex/token"}, shouldLogMigration: true},
+		{name: "definitions", webConfig: config.WebConfig{FlowRenderingDirectory: "/etc/dex/definitions"}, shouldLogMigration: true},
+		{name: "headless routing", webConfig: config.WebConfig{IsStartFlowWorkerTargetHeadless: true}, shouldLogMigration: true},
+		{name: "pull routing", webConfig: config.WebConfig{IsStartFlowWorkerTargetPull: true}, shouldLogMigration: true},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var output bytes.Buffer
+			originalOutput := log.Writer()
+			log.SetOutput(&output)
+			defer log.SetOutput(originalOutput)
+			_, err := newApplication(&config.Config{Web: testCase.webConfig}, serviceSelection{})
+			require.NoError(t, err)
+			if testCase.shouldLogMigration {
+				require.Contains(t, output.String(), "no longer serves Dex Web on port 8802")
+				require.Contains(t, output.String(), "web configuration is ignored; run dex-web separately")
+			} else {
+				require.Empty(t, output.String())
+			}
+		})
+	}
 }
 
 func TestWebConfigDefaultsAndOverrides(t *testing.T) {

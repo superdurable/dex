@@ -50,7 +50,7 @@ cleanup() {
     fi
   done
   if [[ "$status" -ne 0 ]]; then
-    for log_file in "$log_dir"/dex-server-zd.log "$log_dir"/dex-server-web.log; do
+    for log_file in "$log_dir"/dex-server-zd.log "$log_dir"/dex-web.log; do
       if [[ -f "$log_file" ]]; then
         echo "==> $log_file" >&2
         tail -n 200 "$log_file" >&2
@@ -80,7 +80,7 @@ wait_for_http() {
 }
 
 # Binaries stay outside the repository.
-(cd "$repo_root/server/cmd/server" && GOWORK=off go build -o "$work_dir/dex-server" .)
+(cd "$repo_root/web" && GOWORK=off go build -o "$work_dir/dex-web" ./cmd/dex-web)
 (cd "$repo_root/cli" && GOWORK=off go build -trimpath -o "$work_dir/dexcli" ./cmd/dexcli)
 
 mkdir -p "$work_dir/definitions"
@@ -97,18 +97,15 @@ done
   >"$log_dir/dex-server-zd.log" 2>&1 &
 zd_pid=$!
 
-cat >"$work_dir/web-only.yaml" <<EOF
-web:
-  bindAddress: 127.0.0.1
-  port: $web_port
-  flowServiceTarget: 127.0.0.1:$zd_port
-  flowRenderingDirectory: $work_dir/definitions
-EOF
-"$work_dir/dex-server" --config "$work_dir/web-only.yaml" start --services web \
-  >"$log_dir/dex-server-web.log" 2>&1 &
+"$work_dir/dex-web" \
+  --bind-address 127.0.0.1 \
+  --port "$web_port" \
+  --flow-service-address "127.0.0.1:$zd_port" \
+  --flow-rendering-dir "$work_dir/definitions" \
+  >"$log_dir/dex-web.log" 2>&1 &
 web_pid=$!
 
-# Readiness calls FlowService HealthCheck through the web-only Server, so both processes are up.
+# Readiness calls FlowService HealthCheck through standalone Dex Web, so both processes are up.
 wait_for_http "http://127.0.0.1:$web_port/readyz" "$web_pid" "Dex Web"
 kill -0 "$zd_pid"
 
