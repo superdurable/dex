@@ -7,48 +7,6 @@ Protobuf + gRPC interface between Dex SDKs and the Dex server.
 - License: [Sustainable Use License 1.0](LICENSE), with legacy portions
   under their original terms ([`LEGACY_NOTICES.md`](LEGACY_NOTICES.md))
 
-## Inspect legacy Go Server history
-
-The `protos/codec-server` tool decodes known Dex protobuf payloads when
-inspecting legacy Go Server history in Temporal Cloud or a local Temporal
-Web UI. It is a local inspection tool; current Dex execution and semantic
-history do not require it. Start it with:
-
-```bash
-dexcli codec-server
-```
-
-The server listens on `http://127.0.0.1:8804` and accepts only loopback
-addresses. Pass a different loopback address when needed:
-
-```bash
-dexcli codec-server --address 127.0.0.1:8805
-```
-
-When developing from this repository, use
-`go run ./cli/cmd/dexcli codec-server` or `make -C protos codec-server`.
-
-In the Temporal Cloud Workflows page, select **Configure Codec Server**. Choose
-**Use my browser setting and ignore Namespace-level setting**, then enter
-`http://127.0.0.1:8804`. Leave **Pass access token** and **Include cross-origin
-credentials** disabled. If Chrome requests Local Network Access, allow it for
-`https://cloud.temporal.io`.
-
-The browser calls the local server directly. Each user must run their own copy.
-For a local Temporal Web UI, configure the same Codec Server URL in its
-settings. The server accepts the Temporal Cloud UI origin and HTTP/HTTPS
-origins on `localhost` or loopback IP addresses, including `127.0.0.1` and
-`[::1]`, on any port. No additional arguments are needed when the local UI
-selects another port. Other browser origins are rejected. The server does not
-authenticate requests and must not be exposed beyond the local machine. Stop
-it with `Ctrl-C`.
-
-The `/decode` endpoint converts known Dex `binary/protobuf` payloads to
-`json/protobuf`. The `/encode` endpoint performs the reverse conversion when
-the input includes a known Dex `messageType`. Other payloads pass through
-unchanged. Known types are the messages still defined in `dex.proto`; payloads
-of the removed Go Server internal messages pass through unchanged.
-
 ## Services
 
 - **FlowService** — hosted by the server; SDKs call these RPCs

@@ -121,8 +121,8 @@ source, shared renderer, or protobuf dependency changes. `--version` reports the
 build version.
 
 The Web bridge and command use `sdk-go/gen/dexpb` for generated FlowService
-types. CLI and Codec Server use
-the same protobuf package so a dexcli process registers `dex.proto` once.
+types. The CLI uses the same protobuf package so a dexcli process registers
+`dex.proto` once.
 Standalone mode leaves local Connector setup disabled; use `dexcli dev` for
 that local development workflow.
 
@@ -566,20 +566,18 @@ and Actions. A stale request receives `409 FLOW_DEFINITION_CHANGED`; the UI
 reloads the catalog, clears stale operation state, and requires Action
 confirmation again.
 
-## Run through the Dex Server image
+## Run standalone Dex Web against server-zd
 
-The legacy `dex-server` image no longer embeds Dex Web. Use the standalone
-`dex-web` binary or `superdurable/dex-web` image described above, alongside the
-API service. Pass `--flow-service-address` or `DEX_WEB_FLOW_SERVICE_ADDRESS`
+Use the standalone `dex-web` binary or `superdurable/dex-web` image described
+above, alongside server-zd. Pass `--flow-service-address` or `DEX_WEB_FLOW_SERVICE_ADDRESS`
 to select that service.
 
 Web starts even when that upstream is unavailable. `/healthz` reports
 process liveness. `/readyz` validates the current definition snapshot and a
-FlowService search, returning `definitionRevision`, source, and definition
+FlowService `HealthCheck`, returning `definitionRevision`, source, and definition
 count; `/api/*` returns an upstream error until FlowService is available.
-On server-zd, readiness calls FlowService `HealthCheck` instead of a search,
-because a search can exceed the builtin visibility scan budget. The Go Server
-keeps the search, because its `HealthCheck` does not reach Temporal or Cadence.
+Readiness uses `HealthCheck` because a search can exceed the builtin visibility
+scan budget.
 
 ### Run against server-zd
 
@@ -607,7 +605,7 @@ selected attempt. A **TimeTravelFork** event links to the previous run attempt.
 
 `GET /api/flows/history` accepts an optional `runAttempt`; zero or absent
 selects the current attempt. Each event and `GET /api/flows/summary` report
-`runAttempt`, which is zero on the Go Server. `POST /api/flows/time-travel`
+`runAttempt`. `POST /api/flows/time-travel`
 accepts an optional `runAttempt` and returns the new `runAttempt`.
 
 `web/scripts/run-server-zd-e2e.sh` runs the end-to-end test of this mode. It
@@ -771,7 +769,6 @@ Methods interrupted by a forced close remain visible as Pending Timeline events
 with their last persisted Scheduled or Started phase.
 Timeline and Execution graph share structured event details for flow, step method, RPC,
 and channel events. A Raw JSON tab preserves the complete server payload.
-Successful Temporal RPC Updates appear as the same RPC events as result signals.
 Blob-backed RPC input and output hydrate through the existing selected-event loader.
 The Streams tab accepts a Stream name, reads its retained messages from the beginning,
 and then continuously long-polls for the next message. Each message displays its creation
