@@ -28,7 +28,7 @@ because the repository-wide diff exceeds Git's default rename limit.
 Within `reviewed_mixed_override_prefixes` (only `server-zd/integ`), exact paths
 in `reviewed_mixed_paths` take precedence over `forced_new_prefixes`.
 The 91 reviewed copies under `server-zd/integ` retain legacy MIT material from
-`server/integ`; their manifest entries record the source paths and licenses.
+`server-zd/integ`; their manifest entries record the source paths and licenses.
 Both header writing and verification use this same precedence. Other files
 under `server-zd`, including new integration files without legacy lineage,
 remain subject to the forced-new policy. The migration tool also excludes these

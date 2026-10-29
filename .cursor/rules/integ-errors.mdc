@@ -1,0 +1,26 @@
+---
+description: Error handling and trust-boundary rules for Go integration code
+globs: server-zd/integ/**/*.go
+alwaysApply: false
+---
+
+# Go Integration Test Errors
+
+## Never Ignore Errors
+
+- Every returned error must be returned, logged, or explicitly acted on.
+- Never use `_ = f()`, `value, _ := f()`, or an `err == nil` branch without an
+  error path.
+- If an error genuinely must be ignored, explain why in a short comment and call
+  it out in review.
+
+## Trusted and Untrusted Values
+
+- Values from our own store rows, server-minted IDs, and controlled invariants are
+  trusted. Violations are bugs: fail fast with a `Must*` helper, or preserve the
+  typed value end-to-end.
+- Values from HTTP requests, SDK/worker payloads, and any client-settable field
+  are untrusted, even if marked internal.
+- Validate untrusted values with an error-returning helper and return an
+  input error. Never allow untrusted input to reach a
+  `Must*` helper or panic path.

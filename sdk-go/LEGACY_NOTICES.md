@@ -14,7 +14,6 @@ At the cutoff, the principal directory licenses were:
 
 | Cutoff path | Legacy license |
 | --- | --- |
-| `server/` | MIT |
 | `sdk-go/` | Apache License 2.0 |
 | `sdk-java/` | Apache License 2.0 |
 | `sdk-python/` | Apache License 2.0 |

@@ -63,13 +63,6 @@ COMPONENTS = (
         ("sdk-typescript", *SHARED_RUST_PATHS, "sdk-rust/crates/dex-blob-cache-node"),
     ),
     Component(
-        "server",
-        "Server",
-        "server/v",
-        ("server/v*", "server-v*"),
-        ("server", "web", "packages/flow-definition-renderer", "protos"),
-    ),
-    Component(
         "web",
         "Dex Web",
         "web/v",
@@ -77,7 +70,7 @@ COMPONENTS = (
         (
             "web",
             "packages/flow-definition-renderer",
-            "server/gen",
+            "sdk-go",
             "protos",
             ".dockerignore",
             ".github/workflows/docker-image-web-release.yml",
@@ -88,8 +81,7 @@ COMPONENTS = (
         "CLI",
         "cli-v",
         ("cli-v*",),
-        ("cli", "web", "packages/flow-definition-renderer", "server", "protos", "go.work"),
-        ("server/all-in-one",),
+        ("cli", "web", "packages/flow-definition-renderer", "sdk-go", "protos", "go.work"),
     ),
 )
 

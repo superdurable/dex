@@ -15,18 +15,16 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).with_name("changed_components.py")
-DOCKER_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-release.yml"
 WEB_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-web-release.yml"
 CLI_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/cli-release.yml"
 CHANGED_COMPONENTS_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-changed-components.yml"
-COMPONENT_KEYS = ("go", "rust", "java", "python", "typescript", "server", "web", "cli")
+COMPONENT_KEYS = ("go", "rust", "java", "python", "typescript", "web", "cli")
 BASELINE_TAGS = (
     "sdk-go/v0.1.0",
     "sdk-rust/v0.1.0",
     "sdk-java/v0.1.0",
     "sdk-python/v0.1.0",
     "sdk-typescript/v0.1.0",
-    "server/v0.1.0",
     "cli-v0.1.0",
     "web/v0.1.0",
 )
@@ -41,7 +39,6 @@ INITIAL_FILES = (
     "sdk-java/build.gradle",
     "sdk-python/pyproject.toml",
     "sdk-typescript/package.json",
-    "server/main.go",
     "protos/api.proto",
     "cli/main.go",
     "web/package.json",
@@ -114,11 +111,11 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values)
 
-    def test_one_sdk_change(self) -> None:
+    def test_go_sdk_change_triggers_web_and_cli(self) -> None:
         self.change("sdk-go/client.go")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "go")
+        self.assert_selected(values, "go", "web", "cli")
 
     def test_shared_native_change_triggers_dependent_sdks(self) -> None:
         self.change("sdk-rust/crates/dex-blob-cache/src/lib.rs")
@@ -126,40 +123,17 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "rust", "java", "python", "typescript")
 
-    def test_server_change_triggers_server_and_cli(self) -> None:
-        self.change("server/main.go")
-        result, values = self.plan()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "server", "cli")
-        self.assertEqual(values["server_baseline"], "server/v0.1.0")
-        self.assertEqual(values["server_tag"], "server/v1.2.3")
-
-    def test_all_in_one_change_triggers_server_only(self) -> None:
-        self.change("server/all-in-one/go.mod")
-        result, values = self.plan()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "server")
-
-    def test_historical_server_tag_remains_a_valid_baseline(self) -> None:
-        self.change("server/main.go")
-        self.git("tag", "server-v0.2.0")
+    def test_web_change_triggers_web_and_cli(self) -> None:
         self.change("web/package.json")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "server", "web", "cli")
-        self.assertEqual(values["server_baseline"], "server-v0.2.0")
+        self.assert_selected(values, "web", "cli")
 
-    def test_web_change_triggers_server_and_cli(self) -> None:
-        self.change("web/package.json")
-        result, values = self.plan()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "server", "web", "cli")
-
-    def test_flow_definition_renderer_change_triggers_server_and_cli(self) -> None:
+    def test_flow_definition_renderer_change_triggers_web_and_cli(self) -> None:
         self.change("packages/flow-definition-renderer/src/index.ts")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "server", "web", "cli")
+        self.assert_selected(values, "web", "cli")
 
     def test_web_release_workflow_change_triggers_web_only(self) -> None:
         self.change(".github/workflows/docker-image-web-release.yml")
@@ -168,11 +142,11 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assert_selected(values, "web")
         self.assertEqual(values["web_tag"], "web/v1.2.3")
 
-    def test_generated_server_api_change_triggers_web(self) -> None:
-        self.change("server/gen/dexpb/dex.pb.go")
+    def test_generated_sdk_api_change_triggers_web_and_cli(self) -> None:
+        self.change("sdk-go/gen/dexpb/dex.pb.go")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "server", "web", "cli")
+        self.assert_selected(values, "go", "web", "cli")
 
     def test_missing_web_baseline_selects_first_release(self) -> None:
         self.git("tag", "-d", "web/v0.1.0")
@@ -187,7 +161,7 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.change("protos/api.proto")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "go", "typescript", "server", "web", "cli")
+        self.assert_selected(values, "go", "typescript", "web", "cli")
 
     def test_missing_baseline_selects_first_release(self) -> None:
         self.git("tag", "-d", "sdk-go/v0.1.0")
@@ -202,12 +176,6 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         result, _ = self.plan()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("sdk-go/v1.2.3", result.stderr)
-
-    def test_docker_release_uses_server_path_tag(self) -> None:
-        workflow = DOCKER_RELEASE_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("startsWith(github.event.release.tag_name, 'server/v')", workflow)
-        self.assertIn('image_tag="${RELEASE_TAG#server/}"', workflow)
-        self.assertNotIn("server-v", workflow)
 
     def test_docker_web_release_uses_web_path_tag(self) -> None:
         workflow = WEB_RELEASE_WORKFLOW.read_text(encoding="utf-8")

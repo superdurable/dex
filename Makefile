@@ -1,8 +1,7 @@
-# Monorepo root helpers. Component builds stay in server/, sdk-*/, samples-*/.
+# Monorepo root helpers. Component builds stay in their module directories.
 
 ROOT_DIR := $(abspath .)
 GENERATED_CODE_PATHS := \
-	server/gen/dexpb \
 	sdk-go/gen/dexpb \
 	sdk-java/src/main/java/io/superdurable/gen \
 	sdk-python/dex/dexpb \

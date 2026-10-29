@@ -62,7 +62,6 @@ jobs:
           go-version-file: cli/go.mod
           cache-dependency-path: |
             cli/go.sum
-            server/go.sum
             web/go.sum
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0

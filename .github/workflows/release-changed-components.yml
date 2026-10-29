@@ -38,9 +38,6 @@ jobs:
       typescript: ${{ steps.plan.outputs.typescript }}
       typescript_tag: ${{ steps.plan.outputs.typescript_tag }}
       typescript_baseline: ${{ steps.plan.outputs.typescript_baseline }}
-      server: ${{ steps.plan.outputs.server }}
-      server_tag: ${{ steps.plan.outputs.server_tag }}
-      server_baseline: ${{ steps.plan.outputs.server_baseline }}
       web: ${{ steps.plan.outputs.web }}
       web_tag: ${{ steps.plan.outputs.web_tag }}
       web_baseline: ${{ steps.plan.outputs.web_baseline }}
@@ -100,9 +97,6 @@ jobs:
           TYPESCRIPT_SELECTED: ${{ needs.plan.outputs.typescript }}
           TYPESCRIPT_TAG: ${{ needs.plan.outputs.typescript_tag }}
           TYPESCRIPT_BASELINE: ${{ needs.plan.outputs.typescript_baseline }}
-          SERVER_SELECTED: ${{ needs.plan.outputs.server }}
-          SERVER_TAG: ${{ needs.plan.outputs.server_tag }}
-          SERVER_BASELINE: ${{ needs.plan.outputs.server_baseline }}
           WEB_SELECTED: ${{ needs.plan.outputs.web }}
           WEB_TAG: ${{ needs.plan.outputs.web_tag }}
           WEB_BASELINE: ${{ needs.plan.outputs.web_baseline }}
@@ -116,7 +110,6 @@ jobs:
             "${JAVA_SELECTED}:${JAVA_TAG}:${JAVA_BASELINE}"
             "${PYTHON_SELECTED}:${PYTHON_TAG}:${PYTHON_BASELINE}"
             "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_TAG}:${TYPESCRIPT_BASELINE}"
-            "${SERVER_SELECTED}:${SERVER_TAG}:${SERVER_BASELINE}"
             "${WEB_SELECTED}:${WEB_TAG}:${WEB_BASELINE}"
             "${CLI_SELECTED}:${CLI_TAG}:${CLI_BASELINE}"
           )
@@ -215,15 +208,6 @@ jobs:
           RUN_ID: ${{ steps.dispatch.outputs.run_id }}
         run: gh run watch "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" --exit-status
 
-  publish-server:
-    name: Publish server
-    needs: [plan, create-releases]
-    if: needs.plan.outputs.server == 'true'
-    uses: ./.github/workflows/docker-image-release.yml
-    with:
-      version: ${{ needs.plan.outputs.version }}
-    secrets: inherit
-
   publish-web:
     name: Publish Dex Web
     needs: [plan, create-releases]
@@ -253,7 +237,6 @@ jobs:
       - publish-python
       - publish-rust
       - publish-typescript
-      - publish-server
       - publish-web
       - publish-cli
     runs-on: ubuntu-latest
@@ -272,8 +255,6 @@ jobs:
           RUST_RESULT: ${{ needs.publish-rust.result }}
           TYPESCRIPT_SELECTED: ${{ needs.plan.outputs.typescript }}
           TYPESCRIPT_RESULT: ${{ needs.publish-typescript.result }}
-          SERVER_SELECTED: ${{ needs.plan.outputs.server }}
-          SERVER_RESULT: ${{ needs.publish-server.result }}
           CLI_SELECTED: ${{ needs.plan.outputs.cli }}
           WEB_SELECTED: ${{ needs.plan.outputs.web }}
           WEB_RESULT: ${{ needs.publish-web.result }}
@@ -290,7 +271,6 @@ jobs:
               "Python SDK:${PYTHON_SELECTED}:${PYTHON_RESULT}" \
               "Rust SDK:${RUST_SELECTED}:${RUST_RESULT}" \
               "TypeScript SDK:${TYPESCRIPT_SELECTED}:${TYPESCRIPT_RESULT}" \
-              "Server:${SERVER_SELECTED}:${SERVER_RESULT}" \
               "Dex Web:${WEB_SELECTED}:${WEB_RESULT}" \
               "CLI:${CLI_SELECTED}:${CLI_RESULT}"; do
               name="${result%%:*}"
@@ -310,7 +290,6 @@ jobs:
             "${PYTHON_SELECTED}:${PYTHON_RESULT}" \
             "${RUST_SELECTED}:${RUST_RESULT}" \
             "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_RESULT}" \
-            "${SERVER_SELECTED}:${SERVER_RESULT}" \
             "${WEB_SELECTED}:${WEB_RESULT}" \
             "${CLI_SELECTED}:${CLI_RESULT}"; do
             if [[ "${result%%:*}" == "true" && "${result#*:}" != "success" ]]; then

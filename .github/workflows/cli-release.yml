@@ -43,7 +43,6 @@ jobs:
           cache-dependency-path: |
             cli/go.sum
             web/go.sum
-            server/go.sum
       - name: Resolve version
         id: version
         shell: bash

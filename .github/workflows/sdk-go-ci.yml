@@ -129,7 +129,6 @@ jobs:
           cache-dependency-path: |
             sdk-go/go.sum
             cli/go.sum
-            server/go.sum
             go.work.sum
       - uses: actions/setup-node@v6
         with:

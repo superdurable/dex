@@ -95,7 +95,6 @@ jobs:
           go-version-file: cli/go.mod
           cache-dependency-path: |
             cli/go.sum
-            server/go.sum
             web/go.sum
       - uses: actions/setup-java@v5
         with:

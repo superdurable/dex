@@ -60,6 +60,18 @@ database or queue to run.
 If you want your data in your own database for
 queries and reports, turn on attribute sync and Dex writes it there for you.
 
+## Repository modules
+
+| Path | Contents |
+| --- | --- |
+| [server-zd/](server-zd/) | Rust Dex Server |
+| [server-zd/integ/](server-zd/integ/) | Go integration suite for the server-zd binary |
+| [web/](web/) | Standalone Dex Web console and `dex-web` binary |
+| [cli/](cli/) | `dexcli` local development environment |
+| [protos/](protos/) | Protobuf IDL and codec server |
+| [sdk-go/](sdk-go/), [sdk-java/](sdk-java/), [sdk-python/](sdk-python/), [sdk-typescript/](sdk-typescript/), [sdk-rust/](sdk-rust/) | Application SDKs |
+| [examples/](examples/), [docs/](docs/), [skills/](skills/) | Runnable examples, product docs, and AI skills |
+
 ## How to start
 See [Quick start](https://docs.superdurable.io/quick-start) on docs.superdurable.io.
 

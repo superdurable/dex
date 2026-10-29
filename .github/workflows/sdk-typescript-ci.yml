@@ -114,7 +114,6 @@ jobs:
           go-version-file: cli/go.mod
           cache-dependency-path: |
             cli/go.sum
-            server/go.sum
       - name: Install dependencies
         run: npm ci
       - name: Run integration coverage with dexcli dev

@@ -29,17 +29,6 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           filters: |
-            server:
-              # Any-pattern matching makes a negation match every other file; use an extglob.
-              - 'server/*'
-              - 'server/!(all-in-one)/**'
-              - 'protos/**'
-              - '.github/scripts/dump-docker-logs.sh'
-              - '.github/workflows/server-ci.yml'
-            server_all_in_one:
-              - 'server/**'
-              - 'protos/**'
-              - '.github/workflows/server-all-in-one-ci.yml'
             sdk_go:
               - 'sdk-go/**'
               - 'blob-cache-go/**'
@@ -142,6 +131,11 @@ jobs:
               - 's3mock/**'
               - 'protos/**'
               - '.github/workflows/server-zd-ci.yml'
+            server_zd_integ:
+              - 'sdk-go/**'
+              - 'server-zd/**'
+              - 'protos/**'
+              - '.github/workflows/server-zd-integ-ci.yml'
             server_zd_simulation_runner:
               - 'script/server-zd-simulation-run.py'
               - 'script/test_server_zd_simulation_run.py'
@@ -163,7 +157,6 @@ jobs:
               - 'examples/entity-store/**'
             generated_code:
               - 'protos/**'
-              - 'server/gen/dexpb/**'
               - 'sdk-go/gen/dexpb/**'
               - 'sdk-java/src/main/java/io/superdurable/gen/**'
               - 'sdk-python/dex/dexpb/**'
@@ -184,7 +177,6 @@ jobs:
               - 'skills/**'
               - '.github/workflows/skills-ci.yml'
             copyright:
-              - 'server/**'
               - 'cli/**'
               - 'sdk-go/**'
               - 'sdk-java/**'
@@ -212,8 +204,6 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           EVENT_NAME: ${{ github.event_name }}
-          FILTER_SERVER: ${{ steps.filter.outputs.server }}
-          FILTER_SERVER_ALL_IN_ONE: ${{ steps.filter.outputs.server_all_in_one }}
           FILTER_SDK_GO: ${{ steps.filter.outputs.sdk_go }}
           FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
           FILTER_SDK_JAVA: ${{ steps.filter.outputs.sdk_java }}
@@ -227,6 +217,7 @@ jobs:
           FILTER_EXAMPLES_RUST: ${{ steps.filter.outputs.examples_rust }}
           FILTER_S3MOCK: ${{ steps.filter.outputs.s3mock }}
           FILTER_SERVER_ZD: ${{ steps.filter.outputs.server_zd }}
+          FILTER_SERVER_ZD_INTEG: ${{ steps.filter.outputs.server_zd_integ }}
           FILTER_SERVER_ZD_SIMULATION_RUNNER: ${{ steps.filter.outputs.server_zd_simulation_runner }}
           FILTER_SERVER_ZD_IMAGE: ${{ steps.filter.outputs.server_zd_image }}
           FILTER_SERVER_ZD_BINARY: ${{ steps.filter.outputs.server_zd_binary }}
@@ -260,16 +251,13 @@ jobs:
               "Rust SDK CI"
               "TypeScript SDK CI"
               "S3mock CI"
-              "Server CI"
               "Server ZD CI"
+              "Server Integration against server-zd"
               "Server ZD Simulation Runner CI"
-              "Server All-in-One CI"
               "Web CI"
             )
           else
             expected+=("CLA")
-            [[ "$FILTER_SERVER" == "true" ]] && expected+=("Server CI")
-            [[ "$FILTER_SERVER_ALL_IN_ONE" == "true" ]] && expected+=("Server All-in-One CI")
             [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
             [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
             [[ "$FILTER_SDK_JAVA" == "true" ]] && expected+=("Java SDK CI")
@@ -283,6 +271,7 @@ jobs:
             [[ "$FILTER_EXAMPLES_RUST" == "true" ]] && expected+=("Rust examples CI")
             [[ "$FILTER_S3MOCK" == "true" ]] && expected+=("S3mock CI")
             [[ "$FILTER_SERVER_ZD" == "true" ]] && expected+=("Server ZD CI")
+            [[ "$FILTER_SERVER_ZD_INTEG" == "true" ]] && expected+=("Server Integration against server-zd")
             [[ "$FILTER_SERVER_ZD_SIMULATION_RUNNER" == "true" ]] && expected+=("Server ZD Simulation Runner CI")
             [[ "$FILTER_SERVER_ZD_IMAGE" == "true" ]] && expected+=("Server ZD image release")
             [[ "$FILTER_SERVER_ZD_BINARY" == "true" ]] && expected+=("Server ZD binary release")
@@ -294,7 +283,7 @@ jobs:
             [[ "$FILTER_COPYRIGHT" == "true" ]] && expected+=("Copyright")
           fi
 
-          # ci:fast-merge stops the existing Temporal/Cadence engine, SDK, CLI, Web, and examples
+          # ci:fast-merge stops the SDK, CLI, Web, and examples
           # suites from blocking the merge. They still run on the pull request and on main.
           # The SDK suites on server-zd are non-blocking too; Server ZD CI still blocks.
           if [[ "$EVENT_NAME" == "pull_request" && "$IS_FAST_MERGE" == "true" ]]; then
@@ -306,8 +295,6 @@ jobs:
               "Python SDK CI"
               "Rust SDK CI"
               "TypeScript SDK CI"
-              "Server CI"
-              "Server All-in-One CI"
               "Web CI"
               "Go examples CI"
               "Java examples CI"

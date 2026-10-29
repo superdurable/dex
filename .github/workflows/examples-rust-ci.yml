@@ -92,7 +92,6 @@ jobs:
           go-version-file: cli/go.mod
           cache-dependency-path: |
             cli/go.sum
-            server/go.sum
             web/go.sum
       - name: Integration tests with dexcli dev
         run: ./run-integration-tests.sh

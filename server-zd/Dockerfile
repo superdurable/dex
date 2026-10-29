@@ -75,8 +75,8 @@ RUN apt-get update \
 
 COPY --from=builder /out/dex-server-zd /usr/local/bin/dex-server-zd
 COPY server-zd/config/dex-server-zd.example.yaml /etc/dex-server-zd/dex-server-zd.example.yaml
-COPY server/LICENSE.md server/LEGACY_NOTICES.md /licenses/
-COPY server/LICENSES/ /licenses/LICENSES/
+COPY server-zd/LICENSE.md server-zd/LEGACY_NOTICES.md /licenses/
+COPY server-zd/LICENSES/ /licenses/LICENSES/
 
 USER 10001:10001
 EXPOSE 8801

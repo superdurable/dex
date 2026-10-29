@@ -6,13 +6,11 @@ PROTOC_GEN_GRPC_JAVA_VERSION := 1.69.1
 PROTO_DIR := .
 PROTO_FILE := $(PROTO_DIR)/dex.proto
 
-SERVER_GO_OUT := ../server/gen/dexpb
 SDK_GO_OUT := ../sdk-go/gen/dexpb
 SDK_JAVA_OUT := ../sdk-java/src/main/java
 SDK_PYTHON_OUT := ../sdk-python/dex/dexpb
 SDK_TYPESCRIPT_OUT := ../sdk-typescript/src/gen
 
-SERVER_GO_PKG := github.com/superdurable/dex/gen/dexpb
 SDK_GO_PKG := github.com/superdurable/dex/sdk-go/gen/dexpb
 
 TOOLS_DIR := .tools
@@ -43,23 +41,9 @@ else
   GRPC_JAVA_CLASSIFIER := windows-x86_64
 endif
 
-.PHONY: proto proto-server-go proto-sdk-go proto-java proto-python proto-typescript codec-server codec-server-test clean ensure-protoc ensure-tools ensure-python-tools ensure-typescript-tools
+.PHONY: proto proto-sdk-go proto-java proto-python proto-typescript codec-server codec-server-test clean ensure-protoc ensure-tools ensure-python-tools ensure-typescript-tools
 
-proto: proto-server-go proto-sdk-go proto-java proto-python proto-typescript
-
-# Server-only codegen for the server rewrite. Does not touch SDK trees.
-proto-server-go: ensure-tools
-	rm -rf $(SERVER_GO_OUT)
-	mkdir -p $(SERVER_GO_OUT)
-	protoc \
-		-I $(PROTO_DIR) \
-		--go_out=$(SERVER_GO_OUT) \
-		--go_opt=paths=source_relative \
-		--go_opt=Mdex.proto=$(SERVER_GO_PKG) \
-		--go-grpc_out=$(SERVER_GO_OUT) \
-		--go-grpc_opt=paths=source_relative \
-		--go-grpc_opt=Mdex.proto=$(SERVER_GO_PKG) \
-		$(PROTO_FILE)
+proto: proto-sdk-go proto-java proto-python proto-typescript
 
 proto-sdk-go: ensure-tools
 	rm -rf $(SDK_GO_OUT)
@@ -110,7 +94,7 @@ codec-server-test:
 	go test ./codec-server/...
 
 clean:
-	rm -rf $(SERVER_GO_OUT) $(SDK_GO_OUT)
+	rm -rf $(SDK_GO_OUT)
 	rm -rf $(SDK_JAVA_OUT)/io/superdurable/gen
 	rm -rf $(SDK_PYTHON_OUT)
 	rm -rf $(SDK_TYPESCRIPT_OUT)

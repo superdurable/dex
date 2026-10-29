@@ -4,7 +4,8 @@
 
 | Path | Contents |
 |------|----------|
-| [server/](server/) | Dex server (Temporal/Cadence backend) |
+| [server-zd/](server-zd/) | Rust Dex Server |
+| [server-zd/integ/](server-zd/integ/) | Standalone Go integration suite for server-zd |
 | [protos/](protos/) | Protobuf IDL ([`dex.proto`](protos/dex.proto); renames in [`docs/design/idl-renames.md`](docs/design/idl-renames.md)) |
 | [docs/](docs/) | Product docs site ([docs.superdurable.io](https://docs.superdurable.io)); design notes in [`design/`](docs/design/); start at [README.md](docs/README.md) |
 | [cli/](cli/) | `dexcli` local development environment |
@@ -23,15 +24,15 @@
 | [examples/playground/](examples/playground/) | Shared examples playground |
 | [s3mock/](s3mock/) | S3-compatible object store on local disk for development and tests |
 
-Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside the workspace so consumers resolve released versions. Build the server separately (`cd server && go build ./...`) to avoid a Cadence/Temporal `genproto` workspace conflict.
+Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside the workspace so consumers resolve released versions. The Rust server builds from `server-zd/`.
 
 ## Prerequisites
 
-- Go 1.24+ (see `server/go.mod`; root `go.work` pins the workspace)
+- Go 1.26+ (root `go.work` pins the workspace)
 - JDK 17+ and Gradle wrapper (for `sdk-java` / `examples/java`; test JDKs
   are Gradle toolchains downloaded automatically)
 - Python 3.9+ and uv (for `sdk-python` / `examples/python`)
-- Docker (for integration tests / local Temporal+Cadence stacks)
+- Rust (see `server-zd/rust-toolchain.toml`) for the server; Docker for CI service dependencies
 
 Install git hooks once per clone with `make githooks`. They reject Cursor
 co-author trailers and inline backticks in product-doc prose. Do not pass
@@ -47,15 +48,16 @@ go build ./sdk-go/...
 go build ./examples/go/...
 ```
 
-### Server
-
-Build outside the workspace (or with `GOWORK=off`) so Cadence’s older `genproto` does not clash with Temporal’s split modules:
+### Server ZD
 
 ```bash
-cd server && go build ./...
-make -C server unitTests
-# Integration tests need Cadence/Temporal; see server/CONTRIBUTING.md
+make -C server-zd test
+make -C server-zd/integ compile
+make -C server-zd/integ zdIntegTests
 ```
+
+See [server-zd/README.md](server-zd/README.md) and
+[server-zd/integ/README.md](server-zd/integ/README.md) for prerequisites.
 
 ### Go SDK
 
@@ -88,29 +90,19 @@ make -C cli test
 make -C cli integration-test
 ```
 
-The CLI integration suite requires Temporal CLI. Web contributors can run
+The CLI integration suite uses server-zd. Web contributors can run
 `cli/dexcli dev --web-port 8902` and `npm run dev` in `web/` for hot reload.
 
 ## IDL (`protos/`)
 
 Protobuf source lives in [`protos/dex.proto`](protos/dex.proto). Rename catalog: [`docs/design/idl-renames.md`](docs/design/idl-renames.md).
 
-Server-only regen (leave SDK trees alone during the server rewrite):
+Regenerate all checked-in SDK stubs:
 
 ```bash
-make -C protos proto-server-go
-# or: make -C server idl-code-gen-server
+make generated-code
+make generated-code-check
 ```
-
-Full regen (server + all SDKs):
-
-```bash
-make -C protos proto
-# or: make -C server idl-code-gen
-```
-
-Interpreter Temporal/Cadence history encoding uses binary protobuf DataConverters
-in `server/service/common/converter` (see `server/CONTRIBUTING.md`).
 
 ## Java
 
@@ -179,13 +171,13 @@ mirror to that tree, then rerun the sync; do not overwrite unexplained edits.
 
 ## CI
 
-Root workflows under [`.github/workflows/`](.github/workflows/) run path-filtered jobs for server and each SDK/samples tree, plus the copyright check. Prefer fixing those over re-adding nested `*/.github/workflows` duplicates.
+Root workflows under [`.github/workflows/`](.github/workflows/) run path-filtered jobs for server-zd and each SDK/examples tree, plus the copyright check. Prefer fixing those over re-adding nested `*/.github/workflows` duplicates.
 
 CI jobs use GitHub-hosted runners for pushes, pull requests, and manual runs. Linux jobs use `ubuntu-latest`; the Rust SDK test matrix also covers `macos-latest` and `windows-latest`. Run `make ci-runner-check` before submitting workflow changes.
 
 To run every CI workflow against the latest `main` commit, dispatch **Main CI (all)** in GitHub Actions or run `gh workflow run main-ci-all.yml --ref main`. The dispatcher starts every non-release CI workflow, then starts Check Gate to report their aggregate result.
 
-Check Gate CI is the only required check. It waits for every workflow whose paths a pull request touches. A pull request with the `ci:fast-merge` label does not wait for the Temporal/Cadence server, SDK, CLI, Web, and examples suites; they still run on the pull request and again on `main`, and a failure on `main` must be fixed forward right away. Generated Code CI, Server ZD CI, S3mock CI, Rust Rules CI, Copyright, CLA, Skills CI, and Release Tooling CI still block. Use the label only for changes that cannot affect the existing engine's behavior, such as additive protocol fields or test runner support for another engine.
+Check Gate CI is the only required check. It waits for every workflow whose paths a pull request touches. A pull request with the `ci:fast-merge` label does not wait for the SDK, CLI, Web, and examples suites; they still run on the pull request and again on `main`, and a failure on `main` must be fixed forward right away. Generated Code CI, Server ZD CI, Server Integration against server-zd, S3mock CI, Rust Rules CI, Copyright, CLA, Skills CI, and Release Tooling CI still block. Use the label only for changes that cannot affect the existing engine's behavior, such as additive protocol fields or test runner support for another engine.
 
 ## Releases (monorepo tags)
 
@@ -195,7 +187,7 @@ For coordinated releases, run **Release changed components** from the **main** b
 
 Coordinated releases do not create a cross-component compatibility manifest.
 Each selected component publishes its native immutable artifacts. CLI publishes
-`checksums.txt`, Server publishes its versioned image, and SDK registries retain
+`checksums.txt`, Dex Web publishes its versioned image, and SDK registries retain
 their normal package checksums. Applications update explicit component versions
 in ordinary pull requests and use compilation and integration tests as the
 compatibility gate.
@@ -211,15 +203,12 @@ The dependency-aware paths are:
 | Java SDK | `sdk-java/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-jni/**` |
 | Python SDK | `sdk-python/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-python/**` |
 | TypeScript SDK | `sdk-typescript/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-node/**` |
-| Server | `server/**`, `protos/**` |
-| CLI | `cli/**`, `web/**`, `packages/flow-definition-renderer/**`, `server/**`, `protos/**`, `go.work` |
-
-Server baselines may use either current `server/vX.Y.Z` tags or historical `server-vX.Y.Z` tags. New server releases always use `server/vX.Y.Z`.
+| Dex Web | `web/**`, `packages/flow-definition-renderer/**`, `sdk-go/**`, `protos/**`, `.dockerignore`, Web release workflow |
+| CLI | `cli/**`, `web/**`, `packages/flow-definition-renderer/**`, `sdk-go/**`, `protos/**`, `go.work` |
 
 | Component | Tag format | Example | What it publishes |
 |-----------|------------|---------|-------------------|
 | Dex Web / Docker | `web/vX.Y.Z` | `web/v0.1.0` | Docker Hub `superdurable/dex-web:v0.1.0` |
-| Server / Docker | `server/vX.Y.Z` | `server/v1.0.0` | Docker Hub `dex-server:v1.0.0` |
 | Server ZD / Docker and binaries | `server-zd/vX.Y.Z` | `server-zd/v0.1.0` | Docker Hub `dex-server-zd:X.Y.Z` through [image release](.github/workflows/server-zd-image-release.yml), plus Linux amd64, Linux arm64, macOS amd64, and macOS arm64 archives and `checksums.txt` through [binary release](.github/workflows/server-zd-binary-release.yml) (version from the tag) |
 | Python SDK | `sdk-python/vX.Y.Z` | `sdk-python/v0.1.0` | PyPI [`dex-python-sdk`](https://pypi.org/project/dex-python-sdk/) via [`.github/workflows/sdk-python-publish.yml`](.github/workflows/sdk-python-publish.yml) (version from the tag) |
 | Java SDK | `sdk-java/vX.Y.Z` | `sdk-java/v0.0.3` | Maven Central `io.superdurable:dex-sdk` via [`.github/workflows/sdk-java-publish.yml`](.github/workflows/sdk-java-publish.yml) (version from the tag) |
@@ -277,7 +266,8 @@ note that publish takes the version from the tag.
 
 ## Package-specific guides
 
-- [server/CONTRIBUTING.md](server/CONTRIBUTING.md)
+- [server-zd/README.md](server-zd/README.md)
+- [server-zd/integ/README.md](server-zd/integ/README.md)
 - [sdk-go/CONTRIBUTION.md](sdk-go/CONTRIBUTION.md)
 - [sdk-java/README.md](sdk-java/README.md)
 - [sdk-python/README.md](sdk-python/README.md)

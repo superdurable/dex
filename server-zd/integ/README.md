@@ -60,11 +60,11 @@ they do not require MinIO or external S3. Redis package tests were not copied.
 
 The source baseline has 326 top-level tests. This module copies 136 names:
 134 passing rows and the two applicable unsupported/harness-gap rows. The
-original `server/integ` tree remains unchanged until the Go Server is deleted.
+original Go Server suite has been retired.
 Temporal suffixes and some ContinueAsNew variant names remain for continuity;
 these scenarios use only Dex APIs here and do not run backend-only assertions.
 
-The other 190 names stay behind: 174 skipped Go Server tests, 13 direct Go
+The other 190 names were retired: 174 skipped Go Server tests, 13 direct Go
 Stream Store package tests, the Temporal authentication startup validation,
 and two obsolete binary-harness tests (unsupported Go settings and
 Temporal-only scenario skipping). Passing rows with backend-only subtests keep
@@ -72,7 +72,7 @@ their applicable application assertions here. The pull error comparisons now che
 
 The Web API suite retains all 21 applicable history, summary, condition, current
 state, failure, timeout, and time-travel scenarios under the existing #1003 guard.
-Only these five Go Server configuration scenarios remain in the original suite:
+These five Go Server configuration scenarios were retired with the original suite:
 
 - `async-local-fallback`
 - `async-step-input-snapshots-enabled-by-default`
@@ -87,8 +87,8 @@ server-zd serves committed snapshots immediately, so the original binary harness
 already skipped that scenario. No empty passing subtest replaces it.
 
 The label-gated Attribute Sync workflow runs this module's PostgreSQL scenarios
-and preserves the MongoDB C26 guard. Its Go Server MySQL/PostgreSQL and MongoDB
-jobs remain unchanged; this module contains no MySQL synchronization scenario.
+and preserves the MongoDB C26 guard. The Go Server MySQL/PostgreSQL and MongoDB
+jobs have been retired; this module contains no MySQL synchronization scenario.
 
 Small local helpers retain the protocol's reserved Step sources, timeout Step
 identifiers, and search Attribute names. Logging uses standard JSON encoding.
@@ -204,7 +204,7 @@ concurrent transactional RPC request IDs (#1005/#1038), skipped timer state
 | TestPullAdapterRegistrationTimeout | pass |  | |
 | TestPullAdapterRejectsAmbiguousWorkersTemporal | pass |  | |
 | TestPullAdapterUnregisteredSubFlowTemporal | pass |  | |
-| TestPullDispatchFailureTextTemporal | pass |  | Applicable application scenarios run; backend-only subtests stay in server/integ. |
+| TestPullDispatchFailureTextTemporal | pass |  | Applicable application scenarios run; backend-only subtests were retired with the Go Server. |
 | TestPullParallelLastWriteTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullRPCDispatchRespectsCallerDeadlineTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullRPCRoutingTemporal | pass |  | Runs against dex-server-zd. |
@@ -229,7 +229,7 @@ concurrent transactional RPC request IDs (#1005/#1038), skipped timer state
 | TestPullWorkerStickyFallbackTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullWorkerTargetValidationTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullWorkerUnavailableTemporal | pass |  | Ported from go-server-only. zd-bug 4 (#1008) fixed by #1037; runs the Go Server StepWaitForFailed assertion against dex-server-zd. |
-| TestReadBehindSlowEngineTaskTemporal | pass |  | Applicable application scenarios run; backend-only subtests stay in server/integ. |
+| TestReadBehindSlowEngineTaskTemporal | pass |  | Applicable application scenarios run; backend-only subtests were retired with the Go Server. |
 | TestResetByStateIdWorkflowTemporal | pass |  | |
 | TestRpcExternalStorageLockingTemporal | pass | behavior-difference | server-zd returns RPC input and output inline and keeps values inline in history (C5). |
 | TestRpcExternalStorageNonLockingTemporal | pass | behavior-difference | server-zd records RpcExecutionCompleted for plain RPCs with effects and keeps values inline in history (C5). |
