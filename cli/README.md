@@ -55,10 +55,9 @@ The local port conventions are:
 |---|---|---|
 | server-zd | `127.0.0.1:8801` | FlowService and WorkerTaskService gRPC |
 | Dex Web | `http://127.0.0.1:8802` | Dex Web HTTP UI and API |
-| Codec Server | `http://127.0.0.1:8804` | Payload Codec HTTP API |
 
 `dexcli dev` starts `dex-server-zd` and embedded Dex Web. An application
-starts its own SDK pull Worker. `dexcli codec-server` starts the Codec Server separately.
+starts its own SDK pull Worker.
 
 server-zd is the only engine. `--engine zd` remains accepted as a no-op for
 existing scripts. The CLI uses the first
@@ -188,27 +187,7 @@ must exist and be reachable before startup.
 --zd-data-dir string               zd state directory (default $HOME/.dex/zd/<dex-port>)
 ```
 
-## View Temporal protobuf payloads
-
-Start the local protobuf Codec Server:
-
-```bash
-dexcli codec-server
-```
-
-It listens on `http://127.0.0.1:8804`. Use `--address` to select another
-loopback address. In Temporal Cloud, choose **Configure Codec Server**, select
-**Use my browser setting and ignore Namespace-level setting**, and enter that
-URL. Allow Chrome Local Network Access when prompted. Stop the server with
-Ctrl+C.
-
-For a local Temporal Web UI, configure the same Codec Server URL in its
-settings. Local UI ports may vary; no additional server arguments are needed.
-
-The browser connects directly to this local process. The server accepts
-`https://cloud.temporal.io` and HTTP/HTTPS origins on `localhost` or loopback IP
-addresses, including `127.0.0.1` and `[::1]`, on any port. Other browser origins
-are rejected. The server must not be exposed beyond the local machine.
+`dexcli codec-server` was removed; use `cli-v1.26.1` to inspect payloads in legacy Temporal histories.
 
 ## Operate flows
 

@@ -41,7 +41,7 @@ else
   GRPC_JAVA_CLASSIFIER := windows-x86_64
 endif
 
-.PHONY: proto proto-sdk-go proto-java proto-python proto-typescript codec-server codec-server-test clean ensure-protoc ensure-tools ensure-python-tools ensure-typescript-tools
+.PHONY: proto proto-sdk-go proto-java proto-python proto-typescript clean ensure-protoc ensure-tools ensure-python-tools ensure-typescript-tools
 
 proto: proto-sdk-go proto-java proto-python proto-typescript
 
@@ -86,12 +86,6 @@ proto-python: ensure-python-tools
 proto-typescript: ensure-protoc ensure-typescript-tools
 	npm --prefix ../sdk-typescript ci --ignore-scripts
 	npm --prefix ../sdk-typescript run generate:proto
-
-codec-server:
-	cd ../cli && GOWORK=off go run ./cmd/dexcli codec-server
-
-codec-server-test:
-	go test ./codec-server/...
 
 clean:
 	rm -rf $(SDK_GO_OUT)

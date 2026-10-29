@@ -4,7 +4,6 @@ use (
 	./benchmark
 	./cli
 	./examples/go
-	./protos/codec-server
 	./sdk-go
 	./server-zd/integ
 	./web

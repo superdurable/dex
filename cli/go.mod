@@ -5,7 +5,6 @@ go 1.26.0
 require (
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.11.1
-	github.com/superdurable/dex/protos/codec-server v0.0.0
 	github.com/superdurable/dex/sdk-go v0.0.0
 	github.com/superdurable/dex/web v0.0.0
 	golang.org/x/tools v0.49.0
@@ -15,26 +14,17 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
-	github.com/nexus-rpc/nexus-proto-annotations v0.1.0 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	go.temporal.io/api v1.63.4 // indirect
-	go.temporal.io/sdk v1.47.1-superdurable.3 // indirect
 	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace github.com/superdurable/dex/sdk-go => ../sdk-go
 
-replace github.com/superdurable/dex/protos/codec-server => ../protos/codec-server
-
 replace github.com/superdurable/dex/web => ../web
-
-replace go.temporal.io/sdk => github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.3
