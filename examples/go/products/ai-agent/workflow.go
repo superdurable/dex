@@ -457,6 +457,11 @@ func (RouteTool) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error)
 			return nil, err
 		}
 		return dex.GoTo(AwaitTimer{}, call), nil
+	case call.Name == ToolPostToSlack:
+		if err := Status.Set(ctx, StatusExecutingTool); err != nil {
+			return nil, err
+		}
+		return dex.GoTo(sdkgo.StepRef[ToolCall](postToSlackStepType), call), nil
 	case policy.needsApproval:
 		if err := PendingApproval.Set(ctx, call); err != nil {
 			return nil, err
@@ -498,9 +503,6 @@ func (AwaitToolApproval) Execute(ctx dex.Context, call ToolCall) (*dex.StepDecis
 	}
 	if err := Status.Set(ctx, StatusExecutingTool); err != nil {
 		return nil, err
-	}
-	if call.Name == ToolPostToSlack {
-		return dex.GoTo(sdkgo.StepRef[ToolCall](postToSlackStepType), call), nil
 	}
 	return dex.GoTo(ExecuteTool{}, call, dex.WithStepOptions(executeToolStepOptions(call))), nil
 }

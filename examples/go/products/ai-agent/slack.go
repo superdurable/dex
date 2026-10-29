@@ -44,7 +44,7 @@ const (
 
 var postToSlackToolDefinition = ToolDefinition{
 	Name:        ToolPostToSlack,
-	Description: "Post a message to the team's Slack channel. The user approves every post.",
+	Description: "Post a message to the team's Slack channel.",
 	Parameters:  objectSchema(map[string]any{"text": stringSchema("The message to post.")}, "text"),
 }
 

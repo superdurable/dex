@@ -48,7 +48,7 @@ const (
 const systemPrompt = `You are a helpful agent. Use fetch_page to read a web page, publish_note to
 publish a short note, post_to_slack (when offered) to post to the team's Slack channel, wait to
 pause for a number of seconds, and ask_user when you need information only the user has. The user
-approves every note and Slack post. Keep replies short.`
+approves every note. Keep replies short.`
 
 // Message is one entry of the conversation the model replays on every call.
 type Message struct {
