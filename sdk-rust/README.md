@@ -265,9 +265,9 @@ let options = StartFlowOptions::new()
     .timeout_policy(FlowTimeoutPolicy::Handler);
 ```
 
-`Fail` produces `FlowErrorType::FlowTimeout` and permits Flow retry; `Cancel`
-cancels without retry. Continue-as-new preserves the deadline and handler
-execution, while retry runs receive a fresh budget. An absent or zero
+`Fail` produces `FlowErrorType::FlowTimeout` and fails the Flow; `Cancel`
+cancels it. The deadline and handler execution are preserved across Flow state
+transfers. An absent or zero
 timeout disables the feature.
 
 ## Rust SDK runtime

@@ -603,9 +603,9 @@ options = dex.StartFlowOptions(
 ```
 
 Register async hooks with `allow_async_handlers=True` and run them with
-`AsyncWorker`. `FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and permits Flow
-retry; `CANCEL` cancels without retry. Continue-as-new preserves the deadline,
-while retry runs receive a fresh budget. A zero or absent timeout
+`AsyncWorker`. `FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and fails the
+Flow; `CANCEL` cancels it. The deadline is preserved across Flow state
+transfers. A zero or absent timeout
 disables the feature.
 
 `Registry` validates every Flow, Step, RPC signature, durable name, lock, and
@@ -680,7 +680,7 @@ SubFlow.
 Client calls raise concrete `DexServiceError` subclasses. Existing-Flow reads
 (`describe_flow`, `wait_for_flow`, and `time_travel`) raise
 `FlowNotFoundError` when the Flow does not exist. Mutations, RPCs, timer/Step
-waits, config updates, and continue-as-new triggers raise
+waits, config updates, and state-transfer triggers raise
 `FlowNotActiveOrNotFoundError` when no running Flow can accept the operation.
 
 RPCs also use this error when the target Flow cannot be found, including query-only

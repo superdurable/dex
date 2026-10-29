@@ -630,7 +630,7 @@ Hard-delete Attribute 有以下要求：
 - 多个 Step 或 RPC 并发写同一个 key 时，最终的 value 不一定是最后提交的那次写入。
 - 如果 Flow ID 已经在运行，Flow start 或 SubFlow start 会失败，但仍然会覆盖正在运行的 Flow 的 value；initial value 为 null 时会删除它。
 - 复用同一个 Flow ID 的 Flow 共用这份存储的 value。
-- 已删除的 value 总是读作不存在，time travel 也不会恢复它。Flow retry 或重新启动的 SubFlow 从原来的 initial value 开始；如果之前的 run 已经删除了这个 value，新的 run 会读到不存在。
+- 已删除的 value 总是读作不存在，time travel 也不会恢复它。重新启动的 SubFlow 从原来的 initial value 开始；如果之前的 run 已经删除了这个 value，新的 run 会读到不存在。
 - 从定义上移除这个 option 后，已存储的 value 会一直保留，直到 Dex 删除这个 Flow。请先用 hard-delete 定义删除 value，再移除 option。
 
 value 会一直保存，直到被删除，或者 Dex 在 retention period 结束后删除这个 Flow。Dex 之外的对象存储备份和 bucket versioning 可能会保留副本。参见[对象存储](/production/server-zd-operations#对象存储)。

@@ -121,7 +121,7 @@ Projection-only Attribute locks are not required.
 
 The Server skips an upsert when no permission is added. Once a permission has
 matched, later state changes and empty mappings do not remove it. The set is
-carried across Continue-as-New and remains searchable after completion. An
+kept for the life of the Flow and remains searchable after completion. An
 upgrade preserves permissions that are still stored but does not reconstruct
 permissions removed before the upgrade. A new, independent Flow execution
 starts from its own initial Attributes. A changed Action definition is first
@@ -398,8 +398,7 @@ options := dex.StartFlowOptions{
 
 The hook is Execute-only, receives no input, and runs at most once after its
 durable timer fires or is skipped. It may use `Context` normally and return any
-`StepDecision`. Continue-as-new preserves its deadline; retry runs get
-a fresh timeout budget. Zero or nil timeout disables the feature.
+`StepDecision`. The deadline is preserved across Flow state transfers. Zero or nil timeout disables the feature.
 
 Use `dex.None` when a Step, RPC, or Channel has no application payload, and pass
 `nil` at every call site. It rejects accidental values unlike `any` and makes
@@ -851,8 +850,8 @@ the FlowService TLS option in a later release.
 
 ## Calling FlowService
 
-Client methods target the current run by sending an empty run ID. This follows
-Continue-as-New automatically. `StartFlow` and `TimeTravel` return run IDs for
+Client methods target the current run by sending an empty run ID. This always
+reaches the Flow's current run. `StartFlow` and `TimeTravel` return run IDs for
 diagnostics, while normal calls need only the flow ID.
 
 `ClientOptions.Credential` and `WorkerOptions.Credential` send a bearer

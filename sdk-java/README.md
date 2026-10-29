@@ -240,10 +240,10 @@ StartFlowOptions options = StartFlowOptions.newBuilder()
         .build();
 ```
 
-`FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and permits Flow retry; `CANCEL`
-cancels without retry. `SubFlowOptions` exposes the same `timeoutPolicy(...)`
-override. Continue-as-new preserves the deadline and handler execution, while
-retry runs receive a fresh budget. A zero or absent timeout disables
+`FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and fails the Flow; `CANCEL`
+cancels it. `SubFlowOptions` exposes the same `timeoutPolicy(...)`
+override. The deadline and handler execution are preserved across Flow state
+transfers. A zero or absent timeout disables
 the feature.
 
 ### Canceling Step executions
@@ -533,7 +533,7 @@ Failure-policy recovery exposes the previous method error through
 `context.getRecoveryError()`. Wait-for recovery passes the error directly to
 execute in the same run. Execute recovery passes it to both methods of the
 configured recovery Step, including when that Step starts after
-continue-as-new:
+the Flow's state has been transferred to a new run:
 
 ```java
 RecoveryErrorInfo error = context.getRecoveryError();
@@ -600,7 +600,7 @@ durable condition. Read it during `execute` with
 `SubFlow.getConditionResults(context, index)`. `allOf` results are terminal;
 an unfinished `anyOf` loser is a `RUNNING` snapshot. Obtain its deterministic
 Flow ID with `SubFlow.getFlowId(context, index)` before passing it to
-`Client.stopFlow`. Continue-as-new retains only each SubFlow Condition ID and
+`Client.stopFlow`. A state transfer retains only each SubFlow Condition ID and
 stable list position, not its starting input or options. SubFlows continue when
 their parent closes.
 

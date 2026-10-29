@@ -572,7 +572,7 @@ dexcli flow time-travel FLOW_ID [--run-id RUN_ID]
 
 With the default JSON output, `watch` writes one object per line and exits when
 the run becomes terminal.
-`--follow-runs` continues into the current run after Continue-As-New. Stop and
+`--follow-runs` keeps watching the Flow's current run when it changes. Stop and
 time travel operate on the current run by default; pass `--run-id` to target an
 exact run. All mutating Flow commands require `--yes`, including in
 non-interactive use.
@@ -590,7 +590,7 @@ dexcli flow start order-123 --flow-type OrderFlow --start-step-type StartOrder \
 ```
 
 `--config` accepts a JSON object with optional `activeStepSearchMode` (`all`,
-`wait-for`, or `disabled`), Continue-As-New thresholds, `stepDurability`
+`wait-for`, or `disabled`), state-transfer thresholds, `stepDurability`
 (`sync` or `async`), `workerTarget`, and `attributeStoreNames`. `--retry-policy`
 uses `initialInterval`, `backoffCoefficient`, `maximumInterval`, and
 `maximumAttempts`; intervals are Go duration strings. `--step-options` accepts

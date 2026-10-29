@@ -83,7 +83,7 @@ Dex Web can search on:
 | `case-status` | `keyword2` keyword | exact, or one of several |
 
 The email is synthetic sample data only. Do not index email addresses or other
-PII in production; follow Temporal's Search Attribute guidance.
+PII in production; index only values your search needs.
 
 Raw searches for these generic slots must also filter
 `FlowType = 'AgenticCustomerRefundFlow'`.

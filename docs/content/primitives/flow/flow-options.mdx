@@ -144,7 +144,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 - **CANCEL** — cancel the Flow. It does not retry.
 - **HANDLER** — run one logical Flow timeout-handler execution.
 
-With a positive **Timeout**, a Dex SDK uses **FAIL** by default. If the Flow has a timeout handler, it uses **HANDLER** instead. **HANDLER** is invalid when the Flow has no handler. A retry starts with a new timeout budget.
+With a positive **Timeout**, a Dex SDK uses **FAIL** by default. If the Flow has a timeout handler, it uses **HANDLER** instead. **HANDLER** is invalid when the Flow has no handler.
 
 **TimeoutHandlerOptions** is valid only with a positive **Timeout** and a final **HANDLER** policy. It uses Execute semantics: a method timeout limits each attempt, **Retry** can run multiple attempts, **HeartbeatTimeout** detects stalled regular attempts, and **Failure** can route exhausted retries to a registered no-input Step. The recovery Step receives null or unit input and reads the final error from the handler **Context**.
 
@@ -442,8 +442,7 @@ At start, Dex applies the supplied fields over the Dex Server defaults. Omitted 
 | Field | Behavior                                                                                                                        |
 |-------|---------------------------------------------------------------------------------------------------------------------------------|
 | **ActiveStepSearchMode** | Index every active Step, only Steps that ran **WaitFor**, or no active Steps. The built-in server default does not index active Steps. Set an explicit mode to opt in. |
-| **ContinueAsNewThreshold** | Continue as new after this many tracked events. Zero turns it off.                                                              |
-| **ContinueAsNewPageSizeBytes** | Limit each page of state carried into continue-as-new. Zero uses 1 MiB.|
+| **ContinueAsNewThreshold** | Continue as new after this many tracked events. Zero turns it off. **ContinueAsNewPageSizeBytes** limits each page of carried state; zero uses 1 MiB. |
 | **StepDurability** | Default durability for methods without a Step override. Dex resolves a method override first, then this value, then **SYNC**. |
 | **AttributeStoreNames** | Dex Server Attribute Stores for Attributes that opt in to attribute sync                                                        |
 
