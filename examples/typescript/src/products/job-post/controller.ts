@@ -48,9 +48,6 @@ export function createJobPostingRouter(client: Client): Router {
         InitialAttribute.of(jobPostingFlow.lastUpdateTimeMillis, BigInt(Date.now())),
         InitialAttribute.of(jobPostingFlow.updateVersion, 0),
       ],
-      configOverride: {
-        continueAsNewThreshold: 10,
-      },
     });
     response.send(`started workflowId: ${flowId}`);
   });

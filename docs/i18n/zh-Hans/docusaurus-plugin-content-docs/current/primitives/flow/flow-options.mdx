@@ -442,7 +442,7 @@ server-zd 不支持 **StartDelay**。带正值延迟的启动请求会以 **INVA
 | 字段 | 行为 |
 |------|------|
 | **ActiveStepSearchMode** | 索引所有 active Step、只索引运行过 **WaitFor** 的 Step，或不索引 active Step。内置 Server 默认不索引 active Step；如需启用，请显式设置模式。 |
-| **ContinueAsNewThreshold** | 追踪到这个事件数后 continue as new。零会关闭它。**ContinueAsNewPageSizeBytes** 限制带入的每一页 state，零使用 1 MiB。 |
+| **ContinueAsNewThreshold** | 已弃用。Dex 不会把 Flow continue as new。Dex 会拒绝负值，把值保存在 **FlowConfig** 中，其他情况下忽略它。**ContinueAsNewPageSizeBytes** 的行为相同。 |
 | **StepDurability** | 没有 Step override 的 method 使用的默认 durability。Dex 依次使用 method override、这里的值，最后使用 **SYNC**。 |
 | **AttributeStoreNames** | Dex Server Attribute Store 名称，供 opt-in attribute sync 的 Attribute 使用。 |
 

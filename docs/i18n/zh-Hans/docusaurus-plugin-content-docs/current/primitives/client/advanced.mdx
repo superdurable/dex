@@ -273,40 +273,7 @@ client.skip_timer("order-123", StepExecutionId::of(&charge_order), TimerId::by_c
 
 ## 触发 continue-as-new
 
-**TriggerContinueAsNew** 请求 active Flow 把 history 滚动到新的 run。
-
-<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/flow/controller.py', go: 'examples/go/primitives/flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java', typescript: 'examples/typescript/src/primitives/flow/controller.ts', rust: 'examples/rust/src/primitives/flow/controller.rs'}}>
-<SdkSnippet lang="python">
-
-```python
-await client.trigger_continue_as_new("order-123")
-```
-
-</SdkSnippet><SdkSnippet lang="go">
-
-```go
-err := client.TriggerContinueAsNew(ctx, "order-123")
-```
-
-</SdkSnippet><SdkSnippet lang="java">
-
-```java
-client.triggerContinueAsNew("order-123");
-```
-
-</SdkSnippet><SdkSnippet lang="typescript">
-
-```typescript
-await client.triggerContinueAsNew("order-123");
-```
-
-</SdkSnippet><SdkSnippet lang="rust">
-
-```rust
-client.trigger_continue_as_new("order-123")?;
-```
-
-</SdkSnippet></SdkTabs>
+**TriggerContinueAsNew** 已弃用。Dex 不会把 Flow continue as new。这个调用总是以 **UNIMPLEMENTED** 失败。不要调用它。
 
 ## Time travel
 

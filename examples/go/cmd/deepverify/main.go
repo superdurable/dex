@@ -47,7 +47,6 @@ import (
 	"github.com/superdurable/dex/examples/go/registry"
 	"github.com/superdurable/dex/examples/go/shared/service"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
 type result struct {
@@ -528,7 +527,6 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 		Attributes: []dex.InitialAttributeDef{
 			titleAttr, descriptionAttr, lastUpdateAttr,
 		},
-		ConfigOverride: &dex.FlowConfig{ContinueAsNewThreshold: ptr.Any(int32(10))},
 	})
 	if err != nil {
 		return fail(name, "start", err)
