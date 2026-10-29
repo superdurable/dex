@@ -19,6 +19,7 @@ use thiserror::Error;
 use tokio_postgres::Transaction;
 use tokio_postgres::types::{ToSql, Type};
 
+use super::super::row::is_system_field;
 use super::super::search_backend::{
     DATABASE_OPERATION_TIMEOUT, ParadeDbSearchBackend, database_error_message,
     is_transient_database_error,
@@ -605,9 +606,11 @@ fn row_from_document(
     let version = i64::try_from(record.version).map_err(|_| {
         ProjectionError::InvalidState("search document version exceeds bigint".into())
     })?;
+    // System attributes, such as DexWorkQueuePermissions, are projected into dedicated columns.
     let application_fields = record
         .attributes
         .iter()
+        .filter(|attribute| !is_system_field(&attribute.index_key))
         .map(|attribute| {
             IndexType::try_from(attribute.index_type)
                 .map(|index_type| (attribute.index_key.clone(), index_type))
@@ -779,14 +782,16 @@ fn should_retry(result: &Result<impl Sized, ProjectionError>, has_retried: bool)
 
 #[cfg(test)]
 mod tests {
-    use dexzd_keyspace::{PartitionId, RunId};
+    use dexzd_keyspace::{PartitionId, RunId, TenantId};
     use dexzd_postgres_connection::{ConnectionSettings, error_with_sources};
-    use dexzd_protocol::dexzd::v1::LogPosition;
+    use dexzd_protocol::dex::{EncodedObject, FlowStatus, IndexType, Value, value};
+    use dexzd_protocol::dexzd::v1::{LogPosition, SearchAttributeValue, SearchDocumentRecord};
+    use prost::Message;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio_postgres::{Config, NoTls};
 
-    use super::{database_error, row_database_error, validate_position};
+    use super::{database_error, row_database_error, row_from_document, validate_position};
 
     #[test]
     fn permits_zero_incarnation_with_positive_sequence() {
@@ -796,6 +801,48 @@ mod tests {
             seq: 1,
         };
         assert!(validate_position(&position).is_ok());
+    }
+
+    #[test]
+    fn projects_work_queue_permissions_into_their_column_only() {
+        let tenant_id = TenantId(1);
+        let run_id = RunId([9; 16]);
+        let record = SearchDocumentRecord {
+            version: 2,
+            tenant_id: tenant_id.0,
+            flow_id: "permission-flow".into(),
+            run_id: run_id.as_bytes().to_vec(),
+            flow_type: "PermissionFlow".into(),
+            status: FlowStatus::Running.into(),
+            started_at_micros: 1_000_000,
+            work_queue_permissions: vec!["approve".into()],
+            attributes: vec![
+                SearchAttributeValue {
+                    index_key: "DexWorkQueuePermissions".into(),
+                    index_type: IndexType::KeywordArray.into(),
+                    value: Some(Value {
+                        kind: Some(value::Kind::ObjValue(EncodedObject {
+                            encoding: "json".into(),
+                            payload: br#"["approve"]"#.to_vec(),
+                        })),
+                    }),
+                },
+                SearchAttributeValue {
+                    index_key: "ReviewState".into(),
+                    index_type: IndexType::Keyword.into(),
+                    value: Some(Value {
+                        kind: Some(value::Kind::StringValue("ready".into())),
+                    }),
+                },
+            ],
+            ..SearchDocumentRecord::default()
+        };
+        let row = row_from_document(PartitionId(3), tenant_id, run_id, &record.encode_to_vec())
+            .expect("a document with server-managed permissions projects");
+        assert_eq!(row.dex_work_queue_permissions, Some(vec!["approve".into()]));
+        assert!(!row.sa_keyword.contains_key("DexWorkQueuePermissions"));
+        assert!(row.sa_keyword.contains_key("ReviewState"));
+        assert!(row.sa_wire.contains_key("DexWorkQueuePermissions"));
     }
 
     #[tokio::test]
