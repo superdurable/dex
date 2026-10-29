@@ -2707,6 +2707,1040 @@
       "legacy_path": null,
       "legacy_paths": []
     },
+    "server-zd/integ/any_command_close_test.go": {
+      "baseline_hash": "207b12611269dc534c4ec9cf87ad582ae158410db539bb96fffd3f9652692ca4",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/any_command_close_test.go",
+      "legacy_paths": [
+        "server/integ/any_command_close_test.go"
+      ]
+    },
+    "server-zd/integ/any_command_combination_test.go": {
+      "baseline_hash": "5640e0e924364b0cf45cb24c85658545cdbb28cac8eccbe05fdb1ef7eb8277e4",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/any_command_combination_test.go",
+      "legacy_paths": [
+        "server/integ/any_command_combination_test.go"
+      ]
+    },
+    "server-zd/integ/any_timer_signal_test.go": {
+      "baseline_hash": "7b7c970a5ec577952c07c1290d95588f8a70e20eead1c9ca42a8197e9e5dbf45",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/any_timer_signal_test.go",
+      "legacy_paths": [
+        "server/integ/any_timer_signal_test.go"
+      ]
+    },
+    "server-zd/integ/basic_test.go": {
+      "baseline_hash": "ef6572a8139e52b61c737dcba49207d323805e2a52800d0ea101f4add56f307f",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/basic_test.go",
+      "legacy_paths": [
+        "server/integ/basic_test.go"
+      ]
+    },
+    "server-zd/integ/channel_multivalue_test.go": {
+      "baseline_hash": null,
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": null,
+      "legacy_paths": [
+        "server/integ/channel_multivalue_test.go",
+        "server/integ/wait_until_search_attributes_test.go",
+        "server/integ/wf_timeout_test.go"
+      ]
+    },
+    "server-zd/integ/command_thread_completion_test.go": {
+      "baseline_hash": "07fff1ba18fd3358db7a6b0fb94e10e173ebf8e4fc01c96367c96c98d1fa9d5a",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/command_thread_completion_test.go",
+      "legacy_paths": [
+        "server/integ/command_thread_completion_test.go"
+      ]
+    },
+    "server-zd/integ/conditional_close_test.go": {
+      "baseline_hash": "65b7c6c497f51ea6f7fc688eacc36ea72247833beb25c3d244d33f6ecf93299e",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/conditional_close_test.go",
+      "legacy_paths": [
+        "server/integ/conditional_close_test.go"
+      ]
+    },
+    "server-zd/integ/config.go": {
+      "baseline_hash": "a0ddbc565ee3b6d129ac48d22d356ba6f972b447701e54119e4d1b7d0d7c4fdc",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/config.go",
+      "legacy_paths": [
+        "server/integ/config.go"
+      ]
+    },
+    "server-zd/integ/create_test.go": {
+      "baseline_hash": "5a604e72c840b7f83b06e6de896b38bb096c46f11b2b0a7a380bbc900d879d97",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/create_test.go",
+      "legacy_paths": [
+        "server/integ/create_test.go"
+      ]
+    },
+    "server-zd/integ/deadend_test.go": {
+      "baseline_hash": "6fa9e10b3c9f4571b50c38520bf4fa8be1a60ce432b1e384906f35d2df8993e5",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/deadend_test.go",
+      "legacy_paths": [
+        "server/integ/deadend_test.go"
+      ]
+    },
+    "server-zd/integ/external_dex.go": {
+      "baseline_hash": null,
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": null,
+      "legacy_paths": [
+        "samples-go/integ/money_transfer_test.go",
+        "server/integ/external_dex.go",
+        "server/integ/wf_timeout_test.go",
+        "server/service/interpreter/workflowUpdater.go"
+      ]
+    },
+    "server-zd/integ/flag.go": {
+      "baseline_hash": "7fcd96b16608824ce7545c6b9a452b9352c43bee7cbf2128aae139a8c5cbc44b",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/flag.go",
+      "legacy_paths": [
+        "server/integ/flag.go"
+      ]
+    },
+    "server-zd/integ/from_step_execution_id_test.go": {
+      "baseline_hash": "7964f850851a2949854daf189ca37b2f96d2f6ba018e87ce05b83c05266e4d77",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/large_data_attributes_test.go",
+      "legacy_paths": [
+        "server/integ/from_step_execution_id_test.go",
+        "server/integ/large_data_attributes_test.go"
+      ]
+    },
+    "server-zd/integ/get_with_wait_timeout_test.go": {
+      "baseline_hash": "6a2b204a0416e3ce6c287272d30eb2bc3b105ea5fdcee96806294f91c553e0a7",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/get_with_wait_timeout_test.go",
+      "legacy_paths": [
+        "server/integ/get_with_wait_timeout_test.go"
+      ]
+    },
+    "server-zd/integ/greedy_timer_test.go": {
+      "baseline_hash": "04dba2deda16d0ce958be4c1c2a4ed7cce04760c3b436e728063418b1716e6e2",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/greedy_timer_test.go",
+      "legacy_paths": [
+        "server/integ/greedy_timer_test.go"
+      ]
+    },
+    "server-zd/integ/internalchannel_test.go": {
+      "baseline_hash": "5efb9f3cef81ebd697e250ac0d4dbb38b939f0d595bbe265d2270035c54d8c01",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/internalchannel_test.go",
+      "legacy_paths": [
+        "server/integ/internalchannel_test.go"
+      ]
+    },
+    "server-zd/integ/locking_test.go": {
+      "baseline_hash": "c924c80794f007f24e40ddeec435e565d2689a979794c76af83c58f9c90770a9",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/locking_test.go",
+      "legacy_paths": [
+        "server/integ/locking_test.go"
+      ]
+    },
+    "server-zd/integ/main_test.go": {
+      "baseline_hash": "7c934101dc9a457e2acc731ef17894a67523193c8d7852232b1b627ed4ba2fc5",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/main_test.go",
+      "legacy_paths": [
+        "server/integ/main_test.go"
+      ]
+    },
+    "server-zd/integ/no_workflow_id_test.go": {
+      "baseline_hash": "156d719a4e54e1524444b98720b69f70a4c2ebd8bcdf7a418479ae0f9daa5e3a",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/no_workflow_id_test.go",
+      "legacy_paths": [
+        "server/integ/no_workflow_id_test.go"
+      ]
+    },
+    "server-zd/integ/parallel_test.go": {
+      "baseline_hash": "9af6e8469cf2955804b201b4d0b1537c43577e041d89b6c209b446c275f9adc9",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/parallel_test.go",
+      "legacy_paths": [
+        "server/integ/parallel_test.go"
+      ]
+    },
+    "server-zd/integ/persistence_loading_policy_test.go": {
+      "baseline_hash": "fca3668370bbd36a41ca5d9bc0a806729ab93be03e9282a75677aa2f78c72dca",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/persistence_loading_policy_test.go",
+      "legacy_paths": [
+        "server/integ/persistence_loading_policy_test.go"
+      ]
+    },
+    "server-zd/integ/persistence_test.go": {
+      "baseline_hash": "47ea1ac545aba0ccd1e9cd0f03fd55d2c228f409222f3c43fc44190cdc580297",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/persistence_test.go",
+      "legacy_paths": [
+        "server/integ/persistence_test.go"
+      ]
+    },
+    "server-zd/integ/reset_by_state_id_test.go": {
+      "baseline_hash": "7ac20cf6228c04a5ddcdc29467a02d6ab83d48ec4b6a8769d20354b0a3af6bc9",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/reset_by_state_id_test.go",
+      "legacy_paths": [
+        "server/integ/reset_by_state_id_test.go"
+      ]
+    },
+    "server-zd/integ/rpc_external_storage_test.go": {
+      "baseline_hash": "f60b38d64b1824378f313794870d4ae263173e5fd72df8a27edb4948df8f2f4c",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/rpc_external_storage_test.go",
+      "legacy_paths": [
+        "server/integ/rpc_external_storage_test.go"
+      ]
+    },
+    "server-zd/integ/rpc_test.go": {
+      "baseline_hash": "8b4ac921ec238881f8efee86a9da58287caabace9e0c33d45f92ed0bba155772",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/rpc_test.go",
+      "legacy_paths": [
+        "server/integ/rpc_test.go"
+      ]
+    },
+    "server-zd/integ/runtime.go": {
+      "baseline_hash": null,
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": null,
+      "legacy_paths": [
+        "samples-go/integ/money_transfer_test.go",
+        "server/integ/persistence_test.go",
+        "server/integ/runtime.go",
+        "server/integ/util.go",
+        "server/integ/wait_for_state_completion_test.go",
+        "server/service/interpreter/temporal/worker.go"
+      ]
+    },
+    "server-zd/integ/s3_get_set_data_attributes_api_test.go": {
+      "baseline_hash": "d8b3c4e2a52d9d1d3c193ecfe8a2ef2a00c8151ef344e4a6b182cbf2f4fef9b5",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/s3_get_set_data_attributes_api_test.go",
+      "legacy_paths": [
+        "server/integ/s3_get_set_data_attributes_api_test.go"
+      ]
+    },
+    "server-zd/integ/s3_history_assert.go": {
+      "baseline_hash": null,
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": null,
+      "legacy_paths": [
+        "server/integ/s3_history_assert.go",
+        "server/integ/wait_until_search_attributes_optimization_test.go",
+        "server/integ/wf_state_api_timeout_test.go",
+        "server/service/client/temporal/reset.go"
+      ]
+    },
+    "server-zd/integ/s3_wf_init_data_attributes_test.go": {
+      "baseline_hash": "e34ec744cbc15d8797d30064efff8946d2ac6d5645892011c054af5ea01f8864",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/s3_wf_init_data_attributes_test.go",
+      "legacy_paths": [
+        "server/integ/s3_wf_init_data_attributes_test.go"
+      ]
+    },
+    "server-zd/integ/s3_wf_start_input_test.go": {
+      "baseline_hash": "f957f667acc7ccc0bdd0c2f88defab84ec77e707c5ea77dbd31dfec101598b9d",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/s3_wf_start_input_test.go",
+      "legacy_paths": [
+        "server/integ/s3_wf_start_input_test.go"
+      ]
+    },
+    "server-zd/integ/s3_wf_state_input_optimization_test.go": {
+      "baseline_hash": "7c8fce333eb3b74b71751414ee5967c8f0db6b48c6c511c6f836fc4766bde7cc",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/s3_wf_state_input_optimization_test.go",
+      "legacy_paths": [
+        "server/integ/s3_wf_state_input_optimization_test.go"
+      ]
+    },
+    "server-zd/integ/s3_wf_upsert_data_objects_test.go": {
+      "baseline_hash": "69d4928a6f105991b691ddb464da596ce22ec8c7c4e978187db5ff29d207e0d0",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/s3_wf_upsert_data_objects_test.go",
+      "legacy_paths": [
+        "server/integ/s3_wf_upsert_data_objects_test.go"
+      ]
+    },
+    "server-zd/integ/set_data_attributes_test.go": {
+      "baseline_hash": "165353fd85051cc7111521739b5c4030a6432e8f705992d9ffa3ccc7df3bcf08",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/set_data_attributes_test.go",
+      "legacy_paths": [
+        "server/integ/set_data_attributes_test.go"
+      ]
+    },
+    "server-zd/integ/set_search_attributes_test.go": {
+      "baseline_hash": "18d3249405e019ca0cbfac4163467ec75a18d9e868237fc82a2ebc7a15d79ab4",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/set_search_attributes_test.go",
+      "legacy_paths": [
+        "server/integ/set_search_attributes_test.go"
+      ]
+    },
+    "server-zd/integ/signal_test.go": {
+      "baseline_hash": "f2db119ec784dd165a7de433a2828736a6103605f0d47932e637304ad9abedee",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/signal_test.go",
+      "legacy_paths": [
+        "server/integ/signal_test.go"
+      ]
+    },
+    "server-zd/integ/skip_start_test.go": {
+      "baseline_hash": "7ced0f9630105847e48825f601be1a849ca9fbb1ef5a1a10a87e63a330398c75",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/skip_start_test.go",
+      "legacy_paths": [
+        "server/integ/skip_start_test.go"
+      ]
+    },
+    "server-zd/integ/start_delay_test.go": {
+      "baseline_hash": "032f2031fa00f92b56edd311859ec10b52923404680ae82db30e2a8698ec8d6c",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/start_delay_test.go",
+      "legacy_paths": [
+        "server/integ/start_delay_test.go"
+      ]
+    },
+    "server-zd/integ/start_with_no_options_test.go": {
+      "baseline_hash": "8e7c5e607cd49b66dd86e62d55ef7cbde620a1e276ac6b78df444cd673cb0f5d",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/start_with_no_options_test.go",
+      "legacy_paths": [
+        "server/integ/start_with_no_options_test.go"
+      ]
+    },
+    "server-zd/integ/timer_test.go": {
+      "baseline_hash": "4dac7969a49b1d07387e88be0a211cfc0a01801b66136406c485a760f84b985d",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/timer_test.go",
+      "legacy_paths": [
+        "server/integ/timer_test.go"
+      ]
+    },
+    "server-zd/integ/wait_for_attribute_test.go": {
+      "baseline_hash": null,
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": null,
+      "legacy_paths": [
+        "server/integ/set_search_attributes_test.go",
+        "server/integ/wait_for_attribute_test.go",
+        "server/integ/wait_until_search_attributes_test.go",
+        "server/integ/wf_state_api_timeout_test.go",
+        "server/integ/wf_timeout_test.go",
+        "server/service/interpreter/activityImpl_test.go"
+      ]
+    },
+    "server-zd/integ/wait_for_state_completion_test.go": {
+      "baseline_hash": "434378de5808ca68f13caf03a35af88c46d8a435a980a72d34af266e3e2f9d43",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/wait_for_state_completion_test.go",
+      "legacy_paths": [
+        "server/integ/wait_for_state_completion_test.go"
+      ]
+    },
+    "server-zd/integ/web_api_test.go": {
+      "baseline_hash": null,
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": null,
+      "legacy_paths": [
+        "server/integ/basic_test.go",
+        "server/integ/rpc_external_storage_test.go",
+        "server/integ/wait_until_search_attributes_test.go",
+        "server/integ/web_api_test.go",
+        "server/integ/wf_timeout_test.go"
+      ]
+    },
+    "server-zd/integ/wf_force_fail_test.go": {
+      "baseline_hash": "8c06f0609376c2134f9f5184d34fbc7d2abffdc7348ca60dbc9670f60129b83c",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/wf_force_fail_test.go",
+      "legacy_paths": [
+        "server/integ/wf_force_fail_test.go"
+      ]
+    },
+    "server-zd/integ/wf_ignore_already_started_test.go": {
+      "baseline_hash": "86a680e2125b8cefb30f47030b9df74a66f2cc61b55a8309158fcbf51611f1b9",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/wf_ignore_already_started_test.go",
+      "legacy_paths": [
+        "server/integ/wf_ignore_already_started_test.go"
+      ]
+    },
+    "server-zd/integ/wf_state_api_fail_test.go": {
+      "baseline_hash": "adc040cd60940564c77a3a2442441d14dcc06f90170995ac2c73cdf3ffd232cb",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/wf_state_api_fail_test.go",
+      "legacy_paths": [
+        "server/integ/wf_state_api_fail_test.go"
+      ]
+    },
+    "server-zd/integ/wf_state_api_timeout_test.go": {
+      "baseline_hash": "fbd8c46bb693dddb4ac9123d7a682c9071dfb2d58bcfdbface393e511e3ab44d",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/wf_state_api_timeout_test.go",
+      "legacy_paths": [
+        "server/integ/wf_state_api_timeout_test.go"
+      ]
+    },
+    "server-zd/integ/wf_state_execute_method_fail_and_proceed_test.go": {
+      "baseline_hash": "694429248a3d2b26180bf17bca8a633e47df2ad208075c2f52c018f705f95cb8",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/wf_state_execute_api_fail_and_proceed_test.go",
+      "legacy_paths": [
+        "server/integ/wf_state_execute_api_fail_and_proceed_test.go",
+        "server/integ/wf_state_execute_method_fail_and_proceed_test.go"
+      ]
+    },
+    "server-zd/integ/wf_state_options_data_attributes_loading_test.go": {
+      "baseline_hash": "770f80b021e8638aaa78c409252cbbb440b2ab9864e412539c9b3a37a061c682",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/wf_state_options_data_attributes_loading_test.go",
+      "legacy_paths": [
+        "server/integ/wf_state_options_data_attributes_loading_test.go"
+      ]
+    },
+    "server-zd/integ/wf_state_options_search_attributes_loading_test.go": {
+      "baseline_hash": "508937474a0cc8e7074ec3482316bb3c7ee40051efb7b518baebac2148263d0b",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/wf_state_options_search_attributes_loading_test.go",
+      "legacy_paths": [
+        "server/integ/wf_state_options_search_attributes_loading_test.go"
+      ]
+    },
+    "server-zd/integ/wf_state_wait_until_api_fail_and_proceed_test.go": {
+      "baseline_hash": "76955a0f638760d10918b127f224f7b4d503b9a119c81134a19f0ba09ed6dd53",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/wf_state_wait_until_api_fail_and_proceed_test.go",
+      "legacy_paths": [
+        "server/integ/wf_state_wait_until_api_fail_and_proceed_test.go"
+      ]
+    },
+    "server-zd/integ/wf_stop_test.go": {
+      "baseline_hash": "e59d39d3b4e2198987f78809bbdf932972690d7eb8bf6b78129981a8a785733a",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/wf_stop_test.go",
+      "legacy_paths": [
+        "server/integ/wf_stop_test.go"
+      ]
+    },
+    "server-zd/integ/wf_timeout_test.go": {
+      "baseline_hash": "c721e199be5ff13b3eac8f79b22f3cf908fa6b1ba9890859107f5c703167f51f",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/wf_timeout_test.go",
+      "legacy_paths": [
+        "server/integ/wf_timeout_test.go"
+      ]
+    },
+    "server-zd/integ/workflow/any_command_close/routers.go": {
+      "baseline_hash": "a508a421a817d70fd0ca78138758a9f334404a2062edb1ca0efaea49ba5c428d",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/any_command_close/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/any_command_close/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/any_command_combination/routers.go": {
+      "baseline_hash": "2204e660241fc7e8d5e212ffd9066836a3343ae9d0f2327200f5b4d266d5b9b3",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/any_command_combination/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/any_command_combination/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/any_timer_signal/routers.go": {
+      "baseline_hash": "89473b747b1da2c6466081085c4c99c7ce67ab7d06a909971745b096b7cba2b4",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/any_timer_signal/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/any_timer_signal/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/basic/routers.go": {
+      "baseline_hash": "71ed54342e81c39a1a971ab77da16ee9d6b2bc845994b8401889e3ea9911bce0",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/basic/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/basic/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/channel_multivalue/routers.go": {
+      "baseline_hash": null,
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": null,
+      "legacy_paths": [
+        "server/integ/workflow/channel_multivalue/routers.go",
+        "server/integ/workflow/wait_for_state_completion/routers.go",
+        "server/integ/workflow/wf_state_options_search_attributes_loading/routers.go",
+        "server/service/interpreter/activityImpl_test.go",
+        "server/service/interpreter/workflowUpdater.go"
+      ]
+    },
+    "server-zd/integ/workflow/command_thread_completion/routers.go": {
+      "baseline_hash": "0e86892871c98ad9a519040447a06a5a9a42c731ad2c2c58982b5d0c25e53518",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/command_thread_completion/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/command_thread_completion/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/common/close_decision.go": {
+      "baseline_hash": "1988603d8d0e8099e6c728a1d1eff8fbcddb1f23b551d4256db048ac2e433618",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/common/interfaces.go",
+      "legacy_paths": [
+        "server/integ/workflow/common/close_decision.go",
+        "server/integ/workflow/common/interfaces.go"
+      ]
+    },
+    "server-zd/integ/workflow/common/dummy_t.go": {
+      "baseline_hash": "db14ab3a07432ddc5b09870c21f7c78f9d42694801a99282fc2d4dc99e5c0cdf",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/common/dummy_t.go",
+      "legacy_paths": [
+        "server/integ/workflow/common/dummy_t.go"
+      ]
+    },
+    "server-zd/integ/workflow/common/interfaces.go": {
+      "baseline_hash": "1988603d8d0e8099e6c728a1d1eff8fbcddb1f23b551d4256db048ac2e433618",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/common/interfaces.go",
+      "legacy_paths": [
+        "server/integ/workflow/common/interfaces.go"
+      ]
+    },
+    "server-zd/integ/workflow/common/load_blobs.go": {
+      "baseline_hash": null,
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": null,
+      "legacy_paths": [
+        "server/integ/workflow/common/interfaces.go",
+        "server/integ/workflow/common/load_blobs.go",
+        "server/integ/workflow/s3-upsert-data-objects/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/common/log.go": {
+      "baseline_hash": "1988603d8d0e8099e6c728a1d1eff8fbcddb1f23b551d4256db048ac2e433618",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/common/interfaces.go",
+      "legacy_paths": [
+        "server/integ/workflow/common/interfaces.go",
+        "server/integ/workflow/common/log.go"
+      ]
+    },
+    "server-zd/integ/workflow/conditional_close/routers.go": {
+      "baseline_hash": "cdd25b1b38ecd3d1c3403b67bfe8da1201753ec45decc3ad94c2e490adb345bd",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/conditional_close/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/conditional_close/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/deadend/routers.go": {
+      "baseline_hash": "97e53652b36e381977a6645b6292fecc63b7b49656cc3ee0d7cac9dcbc7c5b0a",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/deadend/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/deadend/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/greedy_timer/routers.go": {
+      "baseline_hash": "549f8f4ad70a7d1c6c913f763abda723a976826823a0fcc08f1a794a31843f32",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/greedy_timer/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/greedy_timer/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/interstate/routers.go": {
+      "baseline_hash": "747cdd2091d49aeb75686e95182cdab31b2b2ce857c3b41a10973f9875fbeaa0",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/interstate/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/interstate/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/locking/routers.go": {
+      "baseline_hash": "c07dbc942186b86779a47fd375400c2438a7c97771de4e4bd1d865aa0fd41385",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/locking/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/locking/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/parallel/routers.go": {
+      "baseline_hash": "c9925326917395903500cf260fa7badee7f6c725c77220a693321477901596cb",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/parallel/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/parallel/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/persistence/routers.go": {
+      "baseline_hash": "10360186f51f4e7db117feeb06a1c23176de9b1d0941b5364c5bd12ecad93354",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/persistence/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/persistence/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/persistence_loading_policy/routers.go": {
+      "baseline_hash": "e7fc02bf589a5d12ca3d9825b030f796d000eb9ef807c9f92c3e87e254f4ad50",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/persistence_loading_policy/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/persistence_loading_policy/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/reset/routers.go": {
+      "baseline_hash": "f7bb2e62a2925ee24927d0dd07a50b5b355a755f957548b642ba7a0e477c6943",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/reset/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/reset/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/rpc-external-storage/routers.go": {
+      "baseline_hash": "319f3b447f227ec290718619f0788639fe86e40420c1dba4c9a4c6a1d199d9ed",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/rpc-external-storage/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/rpc-external-storage/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/rpc/routers.go": {
+      "baseline_hash": "7cf11ba5786715d0a1791b810e2cad707d4d104ed544851c988362ca2508fbee",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/rpc/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/rpc/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/s3-get-set-data-attributes/routers.go": {
+      "baseline_hash": "12281d1575c88bfb97e695f2abcbfa570318fe680f888deaac2da9a457abfbde",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/s3-get-set-data-attributes/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/s3-get-set-data-attributes/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/s3-init-data-attributes/routers.go": {
+      "baseline_hash": "882c3d93db4a53e627ec2660eea434bc7ae9b4d22dbac1935a86faa656e5a246",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/s3-init-data-attributes/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/s3-init-data-attributes/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/s3-start-input/routers.go": {
+      "baseline_hash": "f95790e0ddca42f920905757eb1f645aa3d8f3ff7a1d31b437d942c5121272fa",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/s3-start-input/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/s3-start-input/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/s3-state-input-optimization/routers.go": {
+      "baseline_hash": "14ee42fe516f3e2891183bacf958887b47c32f86375a7ed6d69dcfef6f38d3fa",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/s3-state-input-optimization/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/s3-state-input-optimization/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/s3-upsert-data-objects/routers.go": {
+      "baseline_hash": "e9e40b1ae87c1066d3910b26de8b58b8663804593f0aadd9b02db601721458b8",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/s3-upsert-data-objects/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/s3-upsert-data-objects/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/signal/routers.go": {
+      "baseline_hash": "d9fe8fe7245a16217919496b00e3ff66de1100b2961752a3ac62b8b8c0c6a457",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/signal/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/signal/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/skipstart/routers.go": {
+      "baseline_hash": "1fed1ad7f1e73411bf448cb929cec533c63b804346fa65421ba3a4a626ccec8b",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/skipstart/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/skipstart/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/timer/routers.go": {
+      "baseline_hash": "4954a9b056f0ebc151694d3f2232d9b163c3065a26c8a19bb86c24d32a226436",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/timer/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/timer/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/wait_for_state_completion/routers.go": {
+      "baseline_hash": "62e07ee9551fff7a80b6e8e33bfbd5e8dae688cf4ac3aeb511271bbb7168ea8b",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/wait_for_state_completion/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/wait_for_state_completion/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/wf_execute_method_fail_and_proceed/routers.go": {
+      "baseline_hash": "e47db2cdfd7109ec51a093c6cbe1d361d81e911149896a1fc49fba36d7772aee",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/wf_execute_api_fail_and_proceed/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/wf_execute_api_fail_and_proceed/routers.go",
+        "server/integ/workflow/wf_execute_method_fail_and_proceed/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/wf_force_fail/routers.go": {
+      "baseline_hash": "ad6592ba0800209b9c389372325dca2e5a308d00f3ed596ac13842a692551af7",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/wf_force_fail/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/wf_force_fail/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/wf_ignore_already_started/routers.go": {
+      "baseline_hash": "8f8687d04e8b0a03ffa546754777852cd568574e0297fb6351d31292cad4da4f",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/wf_ignore_already_started/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/wf_ignore_already_started/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/wf_state_api_fail/routers.go": {
+      "baseline_hash": "611b93f0331279592c3f9cc81c728080c37291b7720cba199c07fe440b0a0ba8",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/wf_state_api_fail/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/wf_state_api_fail/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/wf_state_api_fail_and_proceed/routers.go": {
+      "baseline_hash": "5a7a7a4c5d22142a50ab59a6046b9bc4eabc89caef3baff53c534877bfc2af37",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/wf_state_api_fail_and_proceed/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/wf_state_api_fail_and_proceed/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/wf_state_api_timeout/routers.go": {
+      "baseline_hash": "a5dd21d3f37f47b34ab05bc44d29bdac0e819a99431d3519541e3d2c4da2adf0",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/wf_state_api_timeout/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/wf_state_api_timeout/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/wf_state_options_data_attributes_loading/routers.go": {
+      "baseline_hash": "949240d47753a8e8468c852d6f016ed3350cb67c5af76d2f60270e6516510e44",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/wf_state_options_data_attributes_loading/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/wf_state_options_data_attributes_loading/routers.go"
+      ]
+    },
+    "server-zd/integ/workflow/wf_state_options_search_attributes_loading/routers.go": {
+      "baseline_hash": "5d4fe715b29bd3cee1d86af3f16533d93d10b7cbedf6d7d7307e8a075c51d746",
+      "classification": "mixed",
+      "legacy_licenses": [
+        "MIT"
+      ],
+      "legacy_path": "server/integ/workflow/wf_state_options_search_attributes_loading/routers.go",
+      "legacy_paths": [
+        "server/integ/workflow/wf_state_options_search_attributes_loading/routers.go"
+      ]
+    },
     "server/all-in-one/cmd/dex-server-all-in-one/main.go": {
       "baseline_hash": null,
       "classification": "new",

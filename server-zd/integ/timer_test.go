@@ -1,17 +1,18 @@
-// Copyright (c) 2026 Super Durable, Inc.
+// Legacy Materials in this file remain under their original licenses.
+// See LEGACY_NOTICES.md.
+
+// Modifications Copyright (c) 2026 Super Durable, Inc.
 //
-// Licensed under the Sustainable Use License 1.0.
-// You may not use this file except in compliance with the License.
-// See the LICENSE file in the repository root.
-//
-// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+// Modifications after the Legacy Cutoff are licensed under the
+// Sustainable Use License 1.0.
+// Legacy Materials remain under their original licenses.
+// See LICENSE and LEGACY_NOTICES.md.
 
 package integ
 
 import (
 	"context"
 	"math"
-	"strconv"
 	"testing"
 	"time"
 
@@ -51,7 +52,6 @@ func doTestTimerFlow(
 	defer cancel()
 
 	flowId := timer.WorkflowType + "-" + uuid.NewString()
-	nowTimestamp := time.Now().Unix()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             flowId,
@@ -59,7 +59,6 @@ func doTestTimerFlow(
 		FlowTimeoutSeconds: 30,
 
 		StartStepType: timer.State1,
-		StepInput:     stringValue(strconv.FormatInt(nowTimestamp, 10)),
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}, workerTarget),
@@ -69,9 +68,7 @@ func doTestTimerFlow(
 	timerScheduledTimestamp := readTimerWaitForCompletionTimestamp(t, ctx, flowClient, flowId)
 
 	assertions := assert.New(t)
-	resetTimerStatus := dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING
-
-	// Temporal reset reapplies later SkipTimer signals; server-zd reset discards them.
+	const resetTimerStatus = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING
 
 	timer2 := &dexpb.TimerInfo{
 		ConditionId:                "timer-cmd-id-2",
@@ -145,6 +142,7 @@ func doTestTimerFlow(
 	})
 	require.NoError(t, err)
 
+	// Temporal reset reapplies later SkipTimer signals; server-zd reset discards them.
 	timer2.Status = resetTimerStatus
 	timer3.Status = resetTimerStatus
 	var timerInfos *dexpb.GetCurrentTimerInfosQueryResponse

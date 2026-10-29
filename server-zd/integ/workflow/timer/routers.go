@@ -1,16 +1,17 @@
-// Copyright (c) 2026 Super Durable, Inc.
+// Legacy Materials in this file remain under their original licenses.
+// See LEGACY_NOTICES.md.
+
+// Modifications Copyright (c) 2026 Super Durable, Inc.
 //
-// Licensed under the Sustainable Use License 1.0.
-// You may not use this file except in compliance with the License.
-// See the LICENSE file in the repository root.
-//
-// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+// Modifications after the Legacy Cutoff are licensed under the
+// Sustainable Use License 1.0.
+// Legacy Materials remain under their original licenses.
+// See LICENSE and LEGACY_NOTICES.md.
 
 package timer
 
 import (
 	"context"
-	"strconv"
 	"sync"
 	"time"
 
@@ -64,12 +65,6 @@ func (h *handler) InvokeWaitForMethod(
 		}
 
 		if request.GetStepType() == State1 {
-			nowInt, err := strconv.Atoi(request.GetStepInput().GetStringValue())
-			if err != nil {
-				return nil, status.Error(codes.InvalidArgument, err.Error())
-			}
-			h.invokeData.Store("scheduled_at", int64(nowInt))
-
 			return &dexpb.InvokeWaitForMethodResponse{
 				WaitingCondition: &dexpb.WaitingCondition{
 					TimerConditions: []*dexpb.TimerCondition{

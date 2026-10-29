@@ -37,13 +37,14 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 
 	copyTestTemplates(t, repositoryRoot)
 	writeTestJSON(t, repositoryRoot, "script/licenseheaders/policy.json", policy{
-		Cutoff:                  cutoff,
-		IncludedPrefixes:        []string{"server", "sdk-rust", "sdk-python", "sdk-typescript"},
-		ForcedNewPrefixes:       []string{"sdk-rust", "sdk-typescript"},
-		ThirdPartyMixedPrefixes: []string{"sdk-python/tests/iwfcompat", "sdk-typescript/test/iwfcompat"},
-		ReviewedMixedPaths:      []string{"sdk-python/contracts.py"},
-		ExcludedPrefixes:        []string{"docs", "examples"},
-		RetainedLicensePrefixes: map[string]string{"examples/go": "mit"},
+		Cutoff:                        cutoff,
+		IncludedPrefixes:              []string{"server", "sdk-rust", "sdk-python", "sdk-typescript"},
+		ReviewedMixedOverridePrefixes: []string{"sdk-rust/src"},
+		ForcedNewPrefixes:             []string{"sdk-rust", "sdk-typescript"},
+		ThirdPartyMixedPrefixes:       []string{"sdk-python/tests/iwfcompat", "sdk-typescript/test/iwfcompat"},
+		ReviewedMixedPaths:            []string{"sdk-python/contracts.py", "sdk-rust/src/copied.go", "sdk-typescript/src/index.ts"},
+		ExcludedPrefixes:              []string{"docs", "examples"},
+		RetainedLicensePrefixes:       map[string]string{"examples/go": "mit"},
 	})
 	writeTestJSON(t, repositoryRoot, "script/licenseheaders/legacy-manifest.json", manifest{
 		Cutoff: cutoff,
@@ -61,6 +62,7 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	runTestGit(t, repositoryRoot, "add", "server/legacy_copy.go", "server/new_with_legacy_fragment.go")
 	runTestGit(t, repositoryRoot, "commit", "-q", "-m", "add post-cutoff files")
 	writeTestFile(t, repositoryRoot, "server/legacy.go", strings.Replace(legacyContent, "return 1", "return 2", 1))
+	writeTestFile(t, repositoryRoot, "sdk-rust/src/copied.go", legacyContent)
 	writeTestFile(t, repositoryRoot, "sdk-rust/src/lib.rs", "pub fn sdk() {}\n")
 	writeTestFile(t, repositoryRoot, "sdk-python/tests/iwfcompat/basic_flow.py", "class BasicFlow:\n    pass\n")
 	writeTestFile(t, repositoryRoot, "sdk-python/contracts.py", legacyContent)
@@ -83,6 +85,9 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(fragmentContent), "SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0")
 	require.NotContains(t, string(fragmentContent), "Modifications after the Legacy Cutoff")
+	reviewedCopy, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-rust/src/copied.go"))
+	require.NoError(t, err)
+	require.Contains(t, string(reviewedCopy), "Modifications after the Legacy Cutoff")
 	newContent, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-rust/src/lib.rs"))
 	require.NoError(t, err)
 	require.Contains(t, string(newContent), "SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0")

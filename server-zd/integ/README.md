@@ -70,6 +70,26 @@ and two obsolete binary-harness tests (unsupported Go settings and
 Temporal-only scenario skipping). Passing rows with backend-only subtests keep
 their applicable application assertions here. The pull error comparisons now check the recorded expected push error directly.
 
+The Web API suite retains all 21 applicable history, summary, condition, current
+state, failure, timeout, and time-travel scenarios under the existing #1003 guard.
+Only these five Go Server configuration scenarios remain in the original suite:
+
+- `async-local-fallback`
+- `async-step-input-snapshots-enabled-by-default`
+- `async-step-input-snapshots-can-be-disabled`
+- `storage-disabled-STEP_DURABILITY_SYNC`
+- `storage-disabled-STEP_DURABILITY_ASYNC`
+
+The copied history-and-summary scenario omits only direct deletion of files in
+the Go Blob Store layout. Snapshot availability settings are not needed by this
+harness. The slow-task suite omits the Go Server read-cancellation scenario:
+server-zd serves committed snapshots immediately, so the original binary harness
+already skipped that scenario. No empty passing subtest replaces it.
+
+The label-gated Attribute Sync workflow runs this module's PostgreSQL scenarios
+and preserves the MongoDB C26 guard. Its Go Server MySQL/PostgreSQL and MongoDB
+jobs remain unchanged; this module contains no MySQL synchronization scenario.
+
 Small local helpers retain the protocol's reserved Step sources, timeout Step
 identifiers, and search Attribute names. Logging uses standard JSON encoding.
 No server bootstrap, UnifiedClient, Temporal/Cadence client, Go Blob Store,
@@ -81,7 +101,7 @@ The source baseline was recorded by
 [CI run 40784846162](https://github.com/superdurable/dex/actions/runs/40784846162)
 on `ef640fbe2` and refreshed for fixes #1011, #1019, #1037, and #1038.
 The table below includes only copied tests. Its evidence describes that baseline;
-local extraction validation is recorded separately below.
+validation commands are documented above.
 
 | Result | Tests |
 | --- | ---: |
@@ -120,34 +140,17 @@ SubFlows (#1001/#1011), unavailable-Worker failure reasons (#1008/#1037),
 concurrent transactional RPC request IDs (#1005/#1038), skipped timer state
 (#1007/#1037), and timeout-handler retry snapshots (#1006/#1019).
 
-## Validation
-
-Local validation on 2026-10-28 used a debug dex-server-zd built from main
-`47cd59290c71100bcc3797da6bd255135e5818b1`:
-
-- All 130 tests without PostgreSQL dependencies ran across five partitions:
-  **128 pass, 2 skip, 0 fail**. The skips are the existing #1003 Web API guard
-  and C26 MongoDB guard.
-- The six PostgreSQL synchronization tests compiled with
-  `attributestore_integration`; their execution remains covered by CI.
-- `make compile` passed with `GOWORK=off`, with and without that build tag.
-- All five production partitions selected exactly 136 distinct expected names.
-- Four summarizer regression tests, actionlint, and `make copyright-check`
-  passed. The dependency graph contains no Go Server module, Temporal, or Cadence.
-- Both timer scenarios passed after anchoring relative deadlines to history;
-  the final full run includes this change. No dependency containers were started.
-
 ## Per-test inherited results
 
 | Test | Result | Classification | Reason and evidence |
 | --- | --- | --- | --- |
 | TestAnyCommandCloseFlowTemporal | pass |  | |
 | TestAnyCommandCloseFlowTemporalContinueAsNew | pass |  | |
-| TestAnyCommandCombinationFlowTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
+| TestAnyCommandCombinationFlowTemporal | pass |  | Runs against dex-server-zd. |
 | TestAnyCommandCompletedTemporal | pass |  | |
 | TestAnyTimerSignalFlowTemporal | pass |  | |
 | TestAnyTimerSignalFlowTemporalContinueAsNew | pass |  | |
-| TestAttributeIndexSyncTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
+| TestAttributeIndexSyncTemporal | pass |  | Runs against dex-server-zd. |
 | TestAttributeSyncFlowTimeoutTemporal | pass |  | |
 | TestAttributeSyncInvokeRPCGracefulCompleteTemporal | pass |  | |
 | TestAttributeSyncMapTablesTemporal | pass |  | |
@@ -163,7 +166,7 @@ Local validation on 2026-10-28 used a debug dex-server-zd built from main
 | TestBinaryDexLauncherKillsUnresponsiveProcess | pass |  | |
 | TestBinaryDexLauncherReadinessTimeout | pass |  | |
 | TestChannelMessageQueueTemporal | pass |  | |
-| TestChannelMultivalueTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
+| TestChannelMultivalueTemporal | pass |  | Runs against dex-server-zd. |
 | TestCommandThreadCompletionTemporal | pass |  | |
 | TestConditionalForceCompleteOnInternalChannelEmptyWorkflowTemporal | pass |  | |
 | TestConditionalForceCompleteOnInternalChannelEmptyWorkflowTemporalContinueAsNew | pass |  | |
@@ -171,15 +174,15 @@ Local validation on 2026-10-28 used a debug dex-server-zd built from main
 | TestCreateFlowTemporalContinueAsNew | pass |  | |
 | TestDeadEndFlowTemporal | pass |  | |
 | TestFlowForceFailTemporal | pass |  | |
-| TestFlowTimeoutTemporal | pass | behavior-difference | Harness gap fixed. Passes; asserts that server-zd rejects the Flow retry policy. zd-bug 7 (#1006) fixed by #1019, so the timeout handler retry runs the Go Server assertion. |
+| TestFlowTimeoutTemporal | pass | behavior-difference | Asserts that server-zd rejects the Flow retry policy. zd-bug 7 (#1006) fixed by #1019, so the timeout handler retry runs the Go Server assertion. |
 | TestFlowWaitForTimeoutTemporal | pass |  | |
 | TestForceCompleteIfChannelsEmptyCountsCommittedConsumptionTemporal | pass |  | |
 | TestGeneralAuthenticationTemporal | pass |  | |
 | TestGetHistoryEventsNotFoundTemporal | pass |  | |
 | TestGreedyAnyTimerSignalFlowTemporal | pass |  | |
 | TestGreedyAnyTimerSignalFlowTemporalContinueAsNew | pass |  | |
-| TestGreedyTimerFlowBaseTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestGreedyTimerFlowTemporal | pass | behavior-difference | Harness gap fixed. Passes; asserts the reset difference. zd-bug 6 (#1007) fixed by #1037, so the skipped timer status runs the Go Server assertion. |
+| TestGreedyTimerFlowBaseTemporal | pass |  | Runs against dex-server-zd. |
+| TestGreedyTimerFlowTemporal | pass | behavior-difference | Asserts the reset difference. zd-bug 6 (#1007) fixed by #1037, so the skipped timer status runs the Go Server assertion. |
 | TestHardDeleteAttributeResetTemporal | pass |  | |
 | TestHardDeleteAttributeSubFlowTemporal | pass |  | zd-bug 1 (#1001) fixed by #1011; runs against dex-server-zd. |
 | TestHardDeleteAttributeValidationTemporal | pass |  | |
@@ -189,7 +192,7 @@ Local validation on 2026-10-28 used a debug dex-server-zd built from main
 | TestInvokeRPCReadOnlyQueryAfterTerminalTemporal | pass |  | |
 | TestInvokeRPCSignalRejectedAfterTerminalTemporal | pass |  | |
 | TestLocalStepCancellationTemporal | pass |  | |
-| TestLockingWorkflowTemporal | pass | zd-bug | Harness gap fixed. Passes; its lock-conflict detail check pins zd-bug 2 (#1002), and it skips the RPC reapply after reset. |
+| TestLockingWorkflowTemporal | pass | zd-bug | its lock-conflict detail check pins zd-bug 2 (#1002), and it skips the RPC reapply after reset. |
 | TestMongoDBAttributeSyncTemporal | skip | behavior-difference | Existing C26 skip retained: server-zd supports PostgreSQL Attribute Stores only. |
 | TestParallelFlowTemporal | pass |  | |
 | TestPersistenceLoadingPolicy | pass |  | |
@@ -202,36 +205,36 @@ Local validation on 2026-10-28 used a debug dex-server-zd built from main
 | TestPullAdapterRejectsAmbiguousWorkersTemporal | pass |  | |
 | TestPullAdapterUnregisteredSubFlowTemporal | pass |  | |
 | TestPullDispatchFailureTextTemporal | pass |  | Applicable application scenarios run; backend-only subtests stay in server/integ. |
-| TestPullParallelLastWriteTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullRPCDispatchRespectsCallerDeadlineTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullRPCRoutingTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullRPCSignalRoutingTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullRoutingTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
+| TestPullParallelLastWriteTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullRPCDispatchRespectsCallerDeadlineTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullRPCRoutingTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullRPCSignalRoutingTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullRoutingTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullSameWorkerFallbackTemporal | pass | behavior-difference | Ported from go-server-only. Passes; server-zd labels a task its sticky Worker serves as STICKY_QUEUE whichever stream delivered it. |
-| TestPullStepErrorMatchesPushTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
+| TestPullStepErrorMatchesPushTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullSubFlowRejectsInvalidTargetTemporal | pass | zd-bug | Ported from go-server-only. Passes; its error check pins zd-bug 3 (#1009, invalid SubFlow target fails as INTERNAL). |
-| TestPullSubFlowStartsWithoutStickyQueueTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullTransactionalRPCShortBudgetTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullTransactionalRPCTimeoutReleasesLockTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullUnknownNameRedispatchTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullUnknownRPCBoundedFailureTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullWaitForAttributeSuccessTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestPullWorkerAppearsDuringRetriesTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullWorkerCancellationTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullWorkerDisconnectTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullWorkerDispatchTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullWorkerErrorMatchesPushTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullWorkerHeartbeatTimeoutTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullWorkerStickyCapacityRecoveryTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullWorkerStickyFallbackTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestPullWorkerTargetValidationTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
+| TestPullSubFlowStartsWithoutStickyQueueTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullTransactionalRPCShortBudgetTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullTransactionalRPCTimeoutReleasesLockTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullUnknownNameRedispatchTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullUnknownRPCBoundedFailureTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullWaitForAttributeSuccessTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullWorkerAppearsDuringRetriesTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullWorkerCancellationTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullWorkerDisconnectTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullWorkerDispatchTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullWorkerErrorMatchesPushTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullWorkerHeartbeatTimeoutTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullWorkerStickyCapacityRecoveryTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullWorkerStickyFallbackTemporal | pass |  | Runs against dex-server-zd. |
+| TestPullWorkerTargetValidationTemporal | pass |  | Runs against dex-server-zd. |
 | TestPullWorkerUnavailableTemporal | pass |  | Ported from go-server-only. zd-bug 4 (#1008) fixed by #1037; runs the Go Server StepWaitForFailed assertion against dex-server-zd. |
 | TestReadBehindSlowEngineTaskTemporal | pass |  | Applicable application scenarios run; backend-only subtests stay in server/integ. |
 | TestResetByStateIdWorkflowTemporal | pass |  | |
-| TestRpcExternalStorageLockingTemporal | pass | behavior-difference | Harness gap fixed. Passes; server-zd returns RPC input and output inline and keeps values inline in history (C5). |
-| TestRpcExternalStorageNonLockingTemporal | pass | behavior-difference | Harness gap fixed. Passes; server-zd records RpcExecutionCompleted for plain RPCs with effects and keeps values inline in history (C5). |
+| TestRpcExternalStorageLockingTemporal | pass | behavior-difference | server-zd returns RPC input and output inline and keeps values inline in history (C5). |
+| TestRpcExternalStorageNonLockingTemporal | pass | behavior-difference | server-zd records RpcExecutionCompleted for plain RPCs with effects and keeps values inline in history (C5). |
 | TestRpcLockingErrorMappingTemporal | pass |  | |
-| TestRpcSelectedChannelExternalStorageTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
+| TestRpcSelectedChannelExternalStorageTemporal | pass |  | Runs against dex-server-zd. |
 | TestRpcStepCancellationTemporal | pass |  | |
 | TestRpcWorkflowTemporal | pass |  | |
 | TestRpcWorkflowTemporalContinueAsNew | pass |  | |
@@ -239,17 +242,17 @@ Local validation on 2026-10-28 used a debug dex-server-zd built from main
 | TestRpcWorkflowTemporalContinueAsNewWithMemoAndEncryption | pass |  | |
 | TestRpcWorkflowTemporalWithMemo | pass |  | |
 | TestRpcWorkflowTemporalWithMemoAndEncryption | pass |  | |
-| TestS3GetSetDataAttributesTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestS3GetSetDataAttributesWithInitialDataTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestS3WorkflowInitDataAttributesTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestS3WorkflowStartInputTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestS3WorkflowStateInputOptimizationTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestS3WorkflowUpsertDataObjectsTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
+| TestS3GetSetDataAttributesTemporal | pass |  | Runs against dex-server-zd. |
+| TestS3GetSetDataAttributesWithInitialDataTemporal | pass |  | Runs against dex-server-zd. |
+| TestS3WorkflowInitDataAttributesTemporal | pass |  | Runs against dex-server-zd. |
+| TestS3WorkflowStartInputTemporal | pass |  | Runs against dex-server-zd. |
+| TestS3WorkflowStateInputOptimizationTemporal | pass |  | Runs against dex-server-zd. |
+| TestS3WorkflowUpsertDataObjectsTemporal | pass |  | Runs against dex-server-zd. |
 | TestSearchRunsTemporal | pass |  | |
 | TestServerInfoTemporal | pass |  | |
 | TestSetDataAttributesTemporal | pass |  | |
-| TestSetSearchAttributes | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestSignalWorkflowTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
+| TestSetSearchAttributes | pass |  | Runs against dex-server-zd. |
+| TestSignalWorkflowTemporal | pass |  | Runs against dex-server-zd. |
 | TestSkipStartFlowTemporal | pass |  | |
 | TestSkipStartFlowTemporalContinueAsNew | pass |  | |
 | TestStartDelayTemporal | pass | behavior-difference | Passes; asserts that server-zd rejects flow_start_delay_seconds > 0 with InvalidArgument (C8). |
@@ -261,19 +264,19 @@ Local validation on 2026-10-28 used a debug dex-server-zd built from main
 | TestStateExecuteMethodFailAndProceedTemporal | pass |  | |
 | TestStateExecuteTimeoutRecoveryTemporal | pass |  | |
 | TestStepCancellationTemporal | pass |  | |
-| TestStepLineageTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestStepStateLoadingTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
+| TestStepLineageTemporal | pass |  | Runs against dex-server-zd. |
+| TestStepStateLoadingTemporal | pass |  | Runs against dex-server-zd. |
 | TestStreamAPITemporal | pass |  | |
 | TestStreamDisabledTemporal | pass |  | |
 | TestStreamStepWorkerStreamingTemporal | pass |  | |
-| TestSubFlowConditionTemporal | pass | behavior-difference | Harness gap fixed. Passes; server-zd SubFlow request IDs add the run attempt and condition index. |
-| TestSynchronousUpdateRequestIDTemporal | pass | behavior-difference | Ported from go-server-only with transactional RPCs. zd-bug 5 (#1005) fixed by #1038, so binary mode expects one Worker invocation. |
-| TestTerminalProducerDrainTemporal | pass |  | Ported from go-server-only in this change; runs against dex-server-zd. |
-| TestTimerFlowTemporal | pass | behavior-difference | Harness gap fixed. Passes; asserts the reset difference. zd-bug 6 (#1007) fixed by #1037, so the skipped timer status runs the Go Server assertion. |
-| TestWaitForAttributeBlobBackedTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestWaitForAttributeTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestWaitForStateCompletionTemporal | pass |  | Harness gap fixed in this change; runs against dex-server-zd. |
-| TestWebAPITemporal | skip | harness-gap | Existing #1003 guard retained for applicable history/state scenarios; Go Server snapshot and local-activity scenarios were not copied. |
+| TestSubFlowConditionTemporal | pass | behavior-difference | server-zd SubFlow request IDs add the run attempt and condition index. |
+| TestSynchronousUpdateRequestIDTemporal | pass | behavior-difference | Ported from go-server-only with transactional RPCs. zd-bug 5 (#1005) fixed by #1038, so the suite expects one Worker invocation. |
+| TestTerminalProducerDrainTemporal | pass |  | Runs against dex-server-zd. |
+| TestTimerFlowTemporal | pass | behavior-difference | Asserts the reset difference. zd-bug 6 (#1007) fixed by #1037, so the skipped timer status runs the Go Server assertion. |
+| TestWaitForAttributeBlobBackedTemporal | pass |  | Runs against dex-server-zd. |
+| TestWaitForAttributeTemporal | pass |  | Runs against dex-server-zd. |
+| TestWaitForStateCompletionTemporal | pass |  | Runs against dex-server-zd. |
+| TestWebAPITemporal | skip | harness-gap | Existing #1003 guard retained for applicable history/state scenarios; only the five Go Server configuration scenarios listed above were omitted. |
 | TestWfStateOptionsDataAttributesLoading | pass |  | |
 | TestWfStateOptionsSearchAttributesLoading | pass |  | |
 | TestWorkflowCanceledTemporal | pass |  | |

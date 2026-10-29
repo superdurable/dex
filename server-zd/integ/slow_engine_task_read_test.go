@@ -99,7 +99,6 @@ func (h *slowEngineTaskHandler) InvokeWorkerRPC(
 func TestReadBehindSlowEngineTaskTemporal(t *testing.T) {
 	t.Run("reads-complete-within-caller-deadline", testReadsCompleteWithinCallerDeadline)
 	t.Run("deadline-less-reads-report-request-timeout", testDeadlineLessReadsReportRequestTimeout)
-	t.Run("caller-deadline-and-cancellation-end-reads-at-once", testCallerDeadlineAndCancellationEndReadsAtOnce)
 }
 
 func testReadsCompleteWithinCallerDeadline(t *testing.T) {
@@ -171,10 +170,6 @@ func testDeadlineLessReadsReportRequestTimeout(t *testing.T) {
 	requireSlowEngineTaskAttribute(t, slowEngineTaskHeldRPCAttributeValue, getSlowEngineTaskAttributes(t, runtime, flowID))
 
 	stopSlowEngineTaskFlow(t, runtime, flowID)
-}
-
-func testCallerDeadlineAndCancellationEndReadsAtOnce(t *testing.T) {
-	return
 }
 
 func newReadFlowRPCRequest(flowID string) *dexpb.InvokeRPCRequest {

@@ -1,10 +1,12 @@
-// Copyright (c) 2026 Super Durable, Inc.
+// Legacy Materials in this file remain under their original licenses.
+// See LEGACY_NOTICES.md.
+
+// Modifications Copyright (c) 2026 Super Durable, Inc.
 //
-// Licensed under the Sustainable Use License 1.0.
-// You may not use this file except in compliance with the License.
-// See the LICENSE file in the repository root.
-//
-// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+// Modifications after the Legacy Cutoff are licensed under the
+// Sustainable Use License 1.0.
+// Legacy Materials remain under their original licenses.
+// See LICENSE and LEGACY_NOTICES.md.
 
 package integ
 
@@ -21,9 +23,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/server-zd/integ/workflow/basic"
 	"github.com/superdurable/dex/server-zd/integ/workflow/signal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -33,14 +37,1024 @@ func TestWebAPITemporal(t *testing.T) {
 }
 
 func testWebAPI(t *testing.T) {
-	for _, lazyLoading := range []bool{true, false} {
-		t.Run(fmt.Sprintf("current-state-lazy-%t", lazyLoading), func(t *testing.T) { testWebCurrentState(t, lazyLoading) })
+	for _, durability := range []dexpb.StepDurability{
+		dexpb.StepDurability_STEP_DURABILITY_SYNC,
+		dexpb.StepDurability_STEP_DURABILITY_ASYNC,
+	} {
+		lazyLoadingValues := []bool{true}
+		if durability == dexpb.StepDurability_STEP_DURABILITY_ASYNC {
+			lazyLoadingValues = []bool{true, false}
+		}
+		for _, lazyLoading := range lazyLoadingValues {
+			t.Run(fmt.Sprintf("%s-lazy-%t", durability, lazyLoading), func(t *testing.T) {
+				testWebHistoryAndSummary(t, durability, lazyLoading)
+			})
+		}
 	}
-	t.Run("set-attributes-history", func(t *testing.T) { testWebSetAttributesHistory(t) })
-	t.Run("parallel-attribute-snapshots", func(t *testing.T) { testWebParallelAttributeSnapshots(t) })
-	t.Run("parallel-same-type-failures", func(t *testing.T) { testWebParallelSameTypeFailures(t) })
-	t.Run("force-closed-pending-step", func(t *testing.T) { testWebForceClosedPendingStep(t) })
-	t.Run("force-closed-pending-wait-for", func(t *testing.T) { testWebForceClosedPendingWaitFor(t) })
+	for _, lazyLoading := range []bool{true, false} {
+		t.Run(fmt.Sprintf("current-state-lazy-%t", lazyLoading), func(t *testing.T) {
+			testWebCurrentState(t, lazyLoading)
+		})
+	}
+	t.Run("set-attributes-history", func(t *testing.T) {
+		testWebSetAttributesHistory(t)
+	})
+	for _, durability := range []dexpb.StepDurability{
+		dexpb.StepDurability_STEP_DURABILITY_SYNC,
+		dexpb.StepDurability_STEP_DURABILITY_ASYNC,
+	} {
+		for _, conditionType := range []string{"any", "all"} {
+			t.Run(fmt.Sprintf("condition-results-%s-%s", durability, conditionType), func(t *testing.T) {
+				testWebConditionResults(t, durability, conditionType)
+			})
+		}
+	}
+	t.Run("time-travel-snapshot-origin", func(t *testing.T) {
+		testWebTimeTravelSnapshotOrigin(t)
+	})
+	t.Run("parallel-attribute-snapshots", func(t *testing.T) {
+		testWebParallelAttributeSnapshots(t)
+	})
+	t.Run("parallel-same-type-failures", func(t *testing.T) {
+		testWebParallelSameTypeFailures(t)
+	})
+	t.Run("force-closed-pending-step", func(t *testing.T) {
+		testWebForceClosedPendingStep(t)
+	})
+	t.Run("force-closed-pending-wait-for", func(t *testing.T) {
+		testWebForceClosedPendingWaitFor(t)
+	})
+	for _, method := range []string{"wait-for", "execute"} {
+		t.Run("sync-last-failure-"+method, func(t *testing.T) {
+			testWebSyncLastFailure(t, method, false)
+		})
+		t.Run("sync-terminal-failure-"+method, func(t *testing.T) {
+			testWebSyncLastFailure(t, method, true)
+		})
+		t.Run("sync-timeout-"+method, func(t *testing.T) {
+			testWebSyncTimeoutFailure(t, method)
+		})
+	}
+}
+
+func testWebTimeTravelSnapshotOrigin(t *testing.T) {
+	flowType := "web-time-travel-snapshot-origin"
+	stepType := "condition-step"
+	stepExecutionID := stepType + "-1"
+	workerTarget := startWorker(t, &webStepInputHandler{
+		flowType:      flowType,
+		conditionType: "all",
+	})
+	runtime := startDexService(t, serverZDTestConfig{})
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowID := flowType + "-" + uuid.NewString()
+	stepInput := "time-travel-input"
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           flowType,
+		FlowTimeoutSeconds: 30,
+		StartStepType:      stepType,
+		StepInput:          stringValue(stepInput),
+		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			WorkerTarget:   workerTarget,
+		}},
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+
+	firstTimeTravel, err := runtime.FlowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
+		FlowId:          flowID,
+		RunId:           startResponse.GetRunId(),
+		ResetType:       dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID,
+		StepExecutionId: stepExecutionID,
+		StepMethod:      dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_WAIT_FOR,
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+
+	secondTimeTravel, err := runtime.FlowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
+		FlowId:          flowID,
+		RunId:           firstTimeTravel.GetRunId(),
+		ResetType:       dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID,
+		StepExecutionId: stepExecutionID,
+		StepMethod:      dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE,
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+
+	events, _ := getAllWebHistoryEvents(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		secondTimeTravel.GetRunId(),
+	)
+	var forkEventIDs []int64
+	for _, event := range events {
+		if event.GetTimeTravelFork() != nil {
+			forkEventIDs = append(forkEventIDs, event.GetEventId())
+		}
+	}
+	require.Len(t, forkEventIDs, 2)
+	var inheritedWaitFor *dexpb.StepWaitForCompletedEvent
+	for _, event := range events {
+		waitFor := event.GetStepWaitForCompleted()
+		if waitFor == nil ||
+			event.GetEventId() <= forkEventIDs[0] ||
+			event.GetEventId() >= forkEventIDs[1] {
+			continue
+		}
+		inheritedWaitFor = waitFor
+		break
+	}
+	require.NotNil(t, inheritedWaitFor)
+	require.False(t, inheritedWaitFor.GetInput().GetUnavailable())
+	require.Equal(t, stepInput, inheritedWaitFor.GetInput().GetStepInput().GetStringValue())
+}
+
+func testWebSyncLastFailure(
+	t *testing.T,
+	method string,
+	terminal bool,
+) {
+	handler := &webSyncRetryHandler{
+		flowType:        "web-sync-last-failure-" + method,
+		method:          method,
+		terminal:        terminal,
+		failureObserved: make(chan struct{}),
+	}
+	workerTarget := startWorker(t, handler)
+	runtime := startDexService(t, serverZDTestConfig{})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := handler.flowType + "-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           handler.flowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      "retry-step",
+		StepOptions:        webSyncRetryStepOptions(method),
+		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			WorkerTarget:   workerTarget,
+		}},
+	})
+	require.NoError(t, err)
+	select {
+	case <-handler.failureObserved:
+	case <-ctx.Done():
+		require.NoError(t, ctx.Err())
+	}
+	var activeFailure *dexpb.StepMethodFailure
+	require.Eventually(t, func() bool {
+		state, stateErr := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{
+			FlowId: flowID,
+			RunId:  startResponse.GetRunId(),
+		})
+		if stateErr != nil {
+			return false
+		}
+		activeUserSteps := userActiveStepExecutions(state)
+		if len(activeUserSteps) != 1 {
+			return false
+		}
+		activeFailure = activeUserSteps[0].GetLastFailureInfo()
+		return activeFailure != nil
+	}, 2*time.Second, 50*time.Millisecond)
+	require.Equal(t, int32(1), activeFailure.GetAttempt())
+	require.Equal(
+		t,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
+		activeFailure.GetBackendError(),
+	)
+	require.Empty(t, activeFailure.GetDetails().GetDetail())
+	require.Equal(t, "WorkerRetryError", activeFailure.GetDetails().GetOriginalWorkerErrorType())
+	require.Equal(
+		t,
+		"retryable worker failure",
+		activeFailure.GetDetails().GetOriginalWorkerErrorDetail(),
+	)
+	require.Equal(
+		t,
+		int32(codes.Unavailable),
+		activeFailure.GetDetails().GetOriginalWorkerErrorStatus(),
+	)
+	require.Equal(t, "java worker stack", activeFailure.GetDetails().GetOriginalWorkerErrorStackTrace())
+	requireStepMethodFailureJSON(t, activeFailure)
+	flowResult, err := runtime.FlowClient.WaitForFlow(
+		ctx,
+		&dexpb.WaitForFlowRequest{FlowId: flowID},
+	)
+	require.NoError(t, err)
+	if terminal {
+		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, flowResult.GetFlowStatus())
+	} else {
+		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, flowResult.GetFlowStatus())
+	}
+
+	events, nextInternalEventID := getAllWebHistoryEvents(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		startResponse.GetRunId(),
+	)
+	require.Positive(t, nextInternalEventID)
+	eventContext, terminalFailure := syncRetryStepEvent(events, method, terminal)
+	require.NotNil(t, eventContext)
+	require.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, eventContext.GetDurability())
+	require.Equal(t, int32(2), eventContext.GetFinalAttempt())
+	lastFailure := eventContext.GetLastFailureInfo()
+	require.NotNil(t, lastFailure)
+	require.Equal(t, int32(1), lastFailure.GetAttempt())
+	require.Equal(
+		t,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
+		lastFailure.GetBackendError(),
+	)
+	require.Empty(t, lastFailure.GetDetails().GetDetail())
+	require.Equal(t, "WorkerRetryError", lastFailure.GetDetails().GetOriginalWorkerErrorType())
+	require.Equal(t, "retryable worker failure", lastFailure.GetDetails().GetOriginalWorkerErrorDetail())
+	require.Equal(t, int32(codes.Unavailable), lastFailure.GetDetails().GetOriginalWorkerErrorStatus())
+	require.Equal(t, "java worker stack", lastFailure.GetDetails().GetOriginalWorkerErrorStackTrace())
+	requireStepMethodFailureJSON(t, lastFailure)
+	if terminal {
+		require.NotNil(t, terminalFailure)
+		require.Equal(t, int32(2), terminalFailure.GetAttempt())
+		require.Empty(t, terminalFailure.GetDetails().GetDetail())
+		require.Equal(
+			t,
+			"retryable worker failure",
+			terminalFailure.GetDetails().GetOriginalWorkerErrorDetail(),
+		)
+		requireStepMethodFailureJSON(t, terminalFailure)
+	} else {
+		require.Nil(t, terminalFailure)
+	}
+}
+
+func testWebSyncTimeoutFailure(
+	t *testing.T,
+	method string,
+) {
+	release := make(chan struct{})
+	defer close(release)
+	handler := &webSyncTimeoutHandler{
+		flowType: "web-sync-timeout-" + method,
+		method:   method,
+		release:  release,
+	}
+	workerTarget := startWorker(t, handler)
+	runtime := startDexService(t, serverZDTestConfig{})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := handler.flowType + "-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           handler.flowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      "timeout-step",
+		StepOptions:        webSyncTimeoutStepOptions(method),
+		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			WorkerTarget:   workerTarget,
+		}},
+	})
+	require.NoError(t, err)
+	flowResult, err := runtime.FlowClient.WaitForFlow(
+		ctx,
+		&dexpb.WaitForFlowRequest{FlowId: flowID},
+	)
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, flowResult.GetFlowStatus())
+
+	events, _ := getAllWebHistoryEvents(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		startResponse.GetRunId(),
+	)
+	eventContext, terminalFailure := syncRetryStepEvent(events, method, true)
+	require.NotNil(t, eventContext)
+	require.Equal(t, int32(1), eventContext.GetFinalAttempt())
+	require.Nil(t, eventContext.GetLastFailureInfo())
+	require.NotNil(t, terminalFailure)
+	require.Equal(t, int32(1), terminalFailure.GetAttempt())
+	requireSyncTimeoutFailure(t, terminalFailure)
+	requireStepMethodFailureJSON(t, terminalFailure)
+}
+
+func requireSyncTimeoutFailure(
+	t *testing.T,
+	failure *dexpb.StepMethodFailure,
+) {
+	t.Helper()
+	expectedBackendError := "StartToClose"
+	if failure.GetBackendError() == expectedBackendError {
+		require.Nil(t, failure.GetDetails())
+		return
+	}
+	require.Equal(
+		t,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
+		failure.GetBackendError(),
+	)
+	details := failure.GetDetails()
+	require.NotNil(t, details)
+	require.Equal(
+		t,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		details.GetSubStatus(),
+	)
+	workerStatus := codes.Code(details.GetOriginalWorkerErrorStatus())
+	workerDetail := details.GetDetail()
+	if workerStatus == codes.DeadlineExceeded {
+		if strings.Contains(workerDetail, "context deadline exceeded") ||
+			strings.Contains(workerDetail, "RST_STREAM") {
+			return
+		}
+	}
+	t.Fatalf("unexpected worker status %v: %q", workerStatus, workerDetail)
+}
+
+func requireStepMethodFailureJSON(t *testing.T, failure *dexpb.StepMethodFailure) {
+	t.Helper()
+	encoded, err := protojson.Marshal(failure)
+	require.NoError(t, err)
+	jsonValue := string(encoded)
+	require.Contains(t, jsonValue, `"backendError"`)
+	for _, removedField := range []string{"message", "errorType", "stackTrace", "retryState"} {
+		require.NotContains(t, jsonValue, `"`+removedField+`"`)
+	}
+}
+
+func webSyncRetryStepOptions(method string) *dexpb.StepOptions {
+	retryPolicy := &dexpb.RetryPolicy{
+		InitialIntervalSeconds: 3,
+		BackoffCoefficient:     1,
+		MaximumIntervalSeconds: 3,
+		MaximumAttempts:        2,
+	}
+	if method == "execute" {
+		return &dexpb.StepOptions{
+			SkipWaitFor:           true,
+			ExecuteTimeoutSeconds: 5,
+			ExecuteRetryPolicy:    retryPolicy,
+		}
+	}
+	return &dexpb.StepOptions{
+		WaitForTimeoutSeconds: 5,
+		WaitForRetryPolicy:    retryPolicy,
+	}
+}
+
+func webSyncTimeoutStepOptions(method string) *dexpb.StepOptions {
+	retryPolicy := &dexpb.RetryPolicy{MaximumAttempts: 1}
+	if method == "execute" {
+		return &dexpb.StepOptions{
+			SkipWaitFor:           true,
+			ExecuteTimeoutSeconds: 1,
+			ExecuteRetryPolicy:    retryPolicy,
+		}
+	}
+	return &dexpb.StepOptions{
+		WaitForTimeoutSeconds: 1,
+		WaitForRetryPolicy:    retryPolicy,
+	}
+}
+
+func syncRetryStepEvent(
+	events []*dexpb.FlowHistoryEvent,
+	method string,
+	terminal bool,
+) (*dexpb.StepMethodEventContext, *dexpb.StepMethodFailure) {
+	for _, event := range events {
+		switch {
+		case method == "wait-for" && terminal && event.GetStepWaitForFailed() != nil:
+			payload := event.GetStepWaitForFailed()
+			return payload.GetContext(), payload.GetOutput().GetFailure()
+		case method == "wait-for" && !terminal && event.GetStepWaitForCompleted() != nil:
+			return event.GetStepWaitForCompleted().GetContext(), nil
+		case method == "execute" && terminal && event.GetStepExecuteFailed() != nil:
+			payload := event.GetStepExecuteFailed()
+			return payload.GetContext(), payload.GetOutput().GetFailure()
+		case method == "execute" && !terminal && event.GetStepExecuteCompleted() != nil:
+			return event.GetStepExecuteCompleted().GetContext(), nil
+		}
+	}
+	return nil, nil
+}
+
+type webSyncRetryHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	flowType        string
+	method          string
+	terminal        bool
+	waitCalls       atomic.Int32
+	executeCalls    atomic.Int32
+	failureObserved chan struct{}
+}
+
+func (h *webSyncRetryHandler) InvokeWaitForMethod(
+	_ context.Context,
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	if request.GetFlowType() != h.flowType {
+		return nil, fmt.Errorf("unexpected flow type %q", request.GetFlowType())
+	}
+	attempt := h.waitCalls.Add(1)
+	if h.method == "wait-for" && (attempt == 1 || h.terminal) {
+		if attempt == 1 {
+			close(h.failureObserved)
+		}
+		return nil, webSyncRetryError(h.method, attempt)
+	}
+	return &dexpb.InvokeWaitForMethodResponse{}, nil
+}
+
+func (h *webSyncRetryHandler) InvokeExecuteMethod(
+	_ context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetFlowType() != h.flowType {
+		return nil, fmt.Errorf("unexpected flow type %q", request.GetFlowType())
+	}
+	attempt := h.executeCalls.Add(1)
+	if h.method == "execute" && (attempt == 1 || h.terminal) {
+		if attempt == 1 {
+			close(h.failureObserved)
+		}
+		return nil, webSyncRetryError(h.method, attempt)
+	}
+	return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
+		CloseDecision: &dexpb.CloseDecision{
+			CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE,
+		},
+	}}, nil
+}
+
+func webSyncRetryError(method string, attempt int32) error {
+	workerStatus, err := status.New(
+		codes.Unavailable,
+		fmt.Sprintf("%s failure %d", method, attempt),
+	).WithDetails(&dexpb.WorkerErrorResponse{
+		Detail:     "retryable worker failure",
+		ErrorType:  "WorkerRetryError",
+		StackTrace: "java worker stack",
+	})
+	if err != nil {
+		return err
+	}
+	return workerStatus.Err()
+}
+
+type webSyncTimeoutHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	flowType string
+	method   string
+	release  <-chan struct{}
+}
+
+func (h *webSyncTimeoutHandler) InvokeWaitForMethod(
+	_ context.Context,
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	if request.GetFlowType() != h.flowType {
+		return nil, fmt.Errorf("unexpected flow type %q", request.GetFlowType())
+	}
+	if h.method == "wait-for" {
+		<-h.release
+	}
+	return &dexpb.InvokeWaitForMethodResponse{}, nil
+}
+
+func (h *webSyncTimeoutHandler) InvokeExecuteMethod(
+	_ context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetFlowType() != h.flowType {
+		return nil, fmt.Errorf("unexpected flow type %q", request.GetFlowType())
+	}
+	if h.method == "execute" {
+		<-h.release
+	}
+	return &dexpb.InvokeExecuteMethodResponse{}, nil
+}
+
+func testWebConditionResults(
+	t *testing.T,
+	durability dexpb.StepDurability,
+	conditionType string,
+) {
+	flowType := fmt.Sprintf("web-step-input-%s-%s", durability, conditionType)
+	workerTarget := startWorker(t, &webStepInputHandler{flowType: flowType, conditionType: conditionType})
+	runtime := startDexService(t, serverZDTestConfig{
+
+		LazyLoading: ptr.Any(true),
+
+		ObjectPayloadThresholdBytes: 10,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := flowType + "-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           flowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      "condition-step",
+		StepOptions: &dexpb.StepOptions{
+			WaitForTimeoutSeconds: 11,
+			ExecuteTimeoutSeconds: 13,
+			WaitForRetryPolicy: &dexpb.RetryPolicy{
+				InitialIntervalSeconds: 2,
+				BackoffCoefficient:     3,
+				MaximumIntervalSeconds: 4,
+				MaximumAttempts:        5,
+				TotalDurationSeconds:   60,
+			},
+			ExecuteRetryPolicy: &dexpb.RetryPolicy{
+				InitialIntervalSeconds: 3,
+				BackoffCoefficient:     4,
+				MaximumIntervalSeconds: 5,
+				MaximumAttempts:        6,
+				TotalDurationSeconds:   70,
+			},
+		},
+		StepInput: &dexpb.Value{Kind: &dexpb.Value_StringValue{
+			StringValue: largeWebTestValue("condition-step-input"),
+		}},
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{{
+				Key: "condition-attribute",
+				Value: &dexpb.Value{Kind: &dexpb.Value_StringValue{
+					StringValue: largeWebTestValue("condition-attribute"),
+				}},
+			}},
+			FlowConfigOverride: &dexpb.FlowConfig{
+				StepDurability: ptr.Any(durability),
+				WorkerTarget:   workerTarget,
+			},
+		},
+	})
+	require.NoError(t, err)
+	if conditionType == "any" {
+		_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+			FlowId: flowID,
+			RunId:  startResponse.GetRunId(),
+			Messages: []*dexpb.ChannelMessage{{
+				ChannelName: "condition-channel",
+				Value: &dexpb.Value{Kind: &dexpb.Value_StringValue{
+					StringValue: largeWebTestValue("condition-channel-value"),
+				}},
+			}},
+		})
+		require.NoError(t, err)
+	}
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+	events, nextInternalEventID := getAllWebHistoryEvents(
+		t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
+	)
+	require.Positive(t, nextInternalEventID)
+	waitForEvent := firstStepEvent(events)
+	require.NotNil(t, waitForEvent)
+	executeEvent := firstExecuteEvent(events)
+	require.NotNil(t, executeEvent)
+	waitForInput := waitForEvent.GetInput()
+	executeInput := executeEvent.GetInput()
+	require.NotNil(t, waitForInput)
+	require.NotNil(t, executeInput)
+	assertStepMethodOptions(t, waitForEvent.GetContext().GetMethodOptions(), 11, 2, 3, 4, 5, 60)
+	assertStepMethodOptions(t, executeEvent.GetContext().GetMethodOptions(), 13, 3, 4, 5, 6, 70)
+	require.Nil(t, waitForEvent.GetContext().GetLastFailureInfo())
+	require.Nil(t, executeEvent.GetContext().GetLastFailureInfo())
+	require.Len(t, waitForInput.GetAttributes(), 1)
+	require.Len(t, executeInput.GetAttributes(), 1)
+	require.Len(t, executeInput.GetStepExecutionLocals(), 1)
+	values := []*dexpb.Value{
+		waitForInput.GetStepInput(),
+		waitForInput.GetAttributes()[0].GetValue(),
+		executeInput.GetStepInput(),
+		executeInput.GetAttributes()[0].GetValue(),
+		executeInput.GetStepExecutionLocals()[0].GetValue(),
+	}
+	for _, channelResult := range executeInput.GetConditionResults().GetChannelResults() {
+		values = append(values, channelResult.GetValues()...)
+	}
+	loadedValues := loadWebBlobValues(t, ctx, runtime.FlowClient, flowID, values)
+	require.Equal(
+		t,
+		largeWebTestValue("condition-step-input"),
+		resolvedWebStringValue(waitForInput.GetStepInput(), loadedValues),
+	)
+	require.Equal(
+		t,
+		largeWebTestValue("condition-attribute"),
+		resolvedWebStringValue(waitForInput.GetAttributes()[0].GetValue(), loadedValues),
+	)
+	require.Equal(
+		t,
+		largeWebTestValue("condition-step-input"),
+		resolvedWebStringValue(executeInput.GetStepInput(), loadedValues),
+	)
+	require.Equal(
+		t,
+		largeWebTestValue("condition-attribute"),
+		resolvedWebStringValue(executeInput.GetAttributes()[0].GetValue(), loadedValues),
+	)
+	require.Equal(t, "condition-local", executeInput.GetStepExecutionLocals()[0].GetKey())
+	require.Equal(
+		t,
+		largeWebTestValue("condition-local"),
+		resolvedWebStringValue(executeInput.GetStepExecutionLocals()[0].GetValue(), loadedValues),
+	)
+	if conditionType == "any" {
+		require.Len(t, executeInput.GetConditionResults().GetChannelResults(), 1)
+		require.Len(t, executeInput.GetConditionResults().GetTimerResults(), 2)
+		require.Equal(
+			t,
+			largeWebTestValue("condition-channel-value"),
+			resolvedWebStringValue(
+				executeInput.GetConditionResults().GetChannelResults()[0].GetValues()[0],
+				loadedValues,
+			),
+		)
+		for _, result := range executeInput.GetConditionResults().GetTimerResults() {
+			require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_WAITING, result.GetConditionStatus())
+		}
+	} else {
+		require.Empty(t, executeInput.GetConditionResults().GetChannelResults())
+		require.Len(t, executeInput.GetConditionResults().GetTimerResults(), 2)
+		for _, result := range executeInput.GetConditionResults().GetTimerResults() {
+			require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, result.GetConditionStatus())
+		}
+	}
+}
+
+func assertStepMethodOptions(
+	t *testing.T,
+	options *dexpb.StepMethodOptions,
+	timeout int32,
+	initialInterval int32,
+	backoff float32,
+	maximumInterval int32,
+	maximumAttempts int32,
+	totalDuration int32,
+) {
+	t.Helper()
+	require.Equal(t, timeout, options.GetTimeoutSeconds())
+	require.Equal(t, initialInterval, options.GetRetryPolicy().GetInitialIntervalSeconds())
+	require.Equal(t, backoff, options.GetRetryPolicy().GetBackoffCoefficient())
+	require.Equal(t, maximumInterval, options.GetRetryPolicy().GetMaximumIntervalSeconds())
+	require.Equal(t, maximumAttempts, options.GetRetryPolicy().GetMaximumAttempts())
+	require.Equal(t, totalDuration, options.GetRetryPolicy().GetTotalDurationSeconds())
+}
+
+type webStepInputHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	flowType      string
+	conditionType string
+}
+
+func (h *webStepInputHandler) InvokeWaitForMethod(
+	_ context.Context,
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	if request.GetFlowType() != h.flowType {
+		return nil, fmt.Errorf("unexpected flow type %q", request.GetFlowType())
+	}
+	condition := &dexpb.WaitingCondition{}
+	if h.conditionType == "any" {
+		condition.WaitingConditionType = dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED
+		condition.ChannelConditions = []*dexpb.ChannelCondition{{
+			ConditionId: "channel",
+			ChannelName: "condition-channel",
+		}}
+		condition.TimerConditions = []*dexpb.TimerCondition{
+			{ConditionId: "timer-1", DurationSeconds: 60},
+			{ConditionId: "timer-2", DurationSeconds: 120},
+		}
+	} else {
+		condition.WaitingConditionType = dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED
+		condition.TimerConditions = []*dexpb.TimerCondition{
+			{ConditionId: "timer-1", DurationSeconds: 1},
+			{ConditionId: "timer-2", DurationSeconds: 1},
+		}
+	}
+	return &dexpb.InvokeWaitForMethodResponse{
+		WaitingCondition: condition,
+		UpsertStepExeLocals: []*dexpb.KV{{
+			Key: "condition-local",
+			Value: &dexpb.Value{Kind: &dexpb.Value_StringValue{
+				StringValue: largeWebTestValue("condition-local"),
+			}},
+		}},
+	}, nil
+}
+
+func (h *webStepInputHandler) InvokeExecuteMethod(
+	_ context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetFlowType() != h.flowType {
+		return nil, fmt.Errorf("unexpected flow type %q", request.GetFlowType())
+	}
+	return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
+		CloseDecision: &dexpb.CloseDecision{
+			CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE,
+			CloseInput:        request.GetStepInput(),
+		},
+	}}, nil
+}
+
+func testWebHistoryAndSummary(
+	t *testing.T,
+	durability dexpb.StepDurability,
+	lazyLoading bool,
+) {
+	workerTarget := startWorker(t, basic.NewHandler())
+	runtime := startDexService(t, serverZDTestConfig{
+
+		LazyLoading: ptr.Any(lazyLoading),
+
+		ObjectPayloadThresholdBytes: 10,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	flowID := fmt.Sprintf("%s-web-%s-%s", basic.FlowType, durability, uuid.NewString())
+	stepInput := largeWebTestValue("step-input")
+	attributePayload := []byte(fmt.Sprintf(`{"source":%q}`, largeWebTestValue("web-step-event-input")))
+	requestID := newRequestID()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          requestID,
+		FlowId:             flowID,
+		FlowType:           basic.FlowType,
+		FlowTimeoutSeconds: 60,
+		FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
+		StartStepType:      basic.Step1,
+		StepInput:          &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: stepInput}},
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{{
+				Key: "web-test-attribute",
+				Value: &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+					Encoding: "json",
+					Payload:  attributePayload,
+				}}},
+			}},
+			FlowConfigOverride: &dexpb.FlowConfig{
+				ContinueAsNewThreshold: ptr.Any(int32(1)),
+				StepDurability:         ptr.Any(durability),
+				WorkerTarget:           workerTarget,
+			},
+			TimeoutHandlerOptions: &dexpb.FlowTimeoutHandlerOptions{
+				MethodTimeoutSeconds:      20,
+				HeartbeatTimeoutSeconds:   10,
+				RetryPolicy:               &dexpb.RetryPolicy{MaximumAttempts: 3},
+				DurabilityOverride:        dexpb.StepDurability_STEP_DURABILITY_ASYNC,
+				LockAttributeKeys:         []string{"web-test-attribute"},
+				LoadAttributeMapInstances: []string{"web-test-map/"},
+				LoadChannelNames:          []string{"web-test-channel"},
+				LoadChannelMapInstances:   []string{"web-test-channel-map/instance"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+
+	summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{
+		FlowId: flowID,
+		RunId:  startResponse.GetRunId(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, flowID, summary.GetFlowExecutionId().GetFlowId())
+	require.Equal(t, startResponse.GetRunId(), summary.GetFlowExecutionId().GetRunId())
+	require.Equal(t, requestID, summary.GetRequestId())
+	require.Equal(t, basic.FlowType, summary.GetFlowType())
+	require.NotNil(t, summary.GetStartTime())
+
+	firstRunEvents, nextEventID := getAllWebHistoryEvents(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		startResponse.GetRunId(),
+	)
+	require.NotEmpty(t, firstRunEvents)
+	flowStarted := firstRunEvents[0].GetFlowStartedOrContinued()
+	require.Equal(t, time.Minute, flowStarted.GetFlowTimeout().AsDuration())
+	require.Equal(
+		t,
+		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
+		flowStarted.GetFlowTimeoutPolicy(),
+	)
+	require.Equal(t, int32(20), flowStarted.GetTimeoutHandlerOptions().GetMethodTimeoutSeconds())
+	require.Equal(t, int32(10), flowStarted.GetTimeoutHandlerOptions().GetHeartbeatTimeoutSeconds())
+	require.Equal(t, int32(3), flowStarted.GetTimeoutHandlerOptions().GetRetryPolicy().GetMaximumAttempts())
+	require.Equal(t, []string{"web-test-map/"}, flowStarted.GetTimeoutHandlerOptions().GetLoadAttributeMapInstances())
+	initialStart := flowStarted.GetInitialStart()
+	require.NotNil(t, initialStart)
+	require.NotEmpty(t, initialStart.GetStepInput().GetInternalBlobIdForStringValue())
+	require.Len(t, initialStart.GetInitialAttributes(), 1)
+	require.NotEmpty(t, initialStart.GetInitialAttributes()[0].GetValue().GetInternalBlobIdForObjValue())
+	loadedStartValues, err := runtime.FlowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Entries: blobRequestEntries(
+		flowID,
+		[]*dexpb.Value{
+			initialStart.GetStepInput(),
+			initialStart.GetInitialAttributes()[0].GetValue(),
+		},
+	)})
+	require.NoError(t, err)
+	require.Equal(t, stepInput, loadedStartValues.GetValues()[initialStart.GetStepInput().GetInternalBlobIdForStringValue()].GetStringValue())
+	require.Equal(t, attributePayload, loadedStartValues.GetValues()[initialStart.GetInitialAttributes()[0].GetValue().GetInternalBlobIdForObjValue()].GetObjValue().GetPayload())
+	firstStep := firstStepEvent(firstRunEvents)
+	require.NotNil(t, firstStep)
+	require.Equal(
+		t,
+		startingStepExecutionID,
+		firstStep.GetContext().GetFromStepExecutionId(),
+	)
+	firstExecute := firstExecuteEvent(firstRunEvents)
+	require.NotNil(t, firstExecute)
+	require.NotNil(t, firstStep.GetInput())
+	require.NotNil(t, firstExecute.GetInput())
+	assertStepMethodRequestValues(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		firstStep.GetInput().GetStepInput(),
+		firstStep.GetInput().GetAttributes(),
+		stepInput,
+		attributePayload,
+	)
+	assertStepMethodRequestValues(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		firstExecute.GetInput().GetStepInput(),
+		firstExecute.GetInput().GetAttributes(),
+		stepInput,
+		attributePayload,
+	)
+
+	continuedToRunID := continuedToRunID(firstRunEvents)
+	require.NotEmpty(t, continuedToRunID)
+	continuedEvents, _ := getAllWebHistoryEvents(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		continuedToRunID,
+	)
+	require.NotEmpty(t, continuedEvents)
+	continuedFlowStarted := continuedEvents[0].GetFlowStartedOrContinued()
+	require.Equal(t, time.Minute, continuedFlowStarted.GetFlowTimeout().AsDuration())
+	require.Equal(
+		t,
+		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
+		continuedFlowStarted.GetFlowTimeoutPolicy(),
+	)
+	require.Equal(t, int32(20), continuedFlowStarted.GetTimeoutHandlerOptions().GetMethodTimeoutSeconds())
+	require.Equal(t, int32(10), continuedFlowStarted.GetTimeoutHandlerOptions().GetHeartbeatTimeoutSeconds())
+	require.Equal(t, int32(3), continuedFlowStarted.GetTimeoutHandlerOptions().GetRetryPolicy().GetMaximumAttempts())
+	require.Equal(t, []string{"web-test-map/"}, continuedFlowStarted.GetTimeoutHandlerOptions().GetLoadAttributeMapInstances())
+	continuedStart := continuedFlowStarted.GetContinuedStart()
+	require.NotNil(t, continuedStart)
+	require.Equal(t, startResponse.GetRunId(), continuedStart.GetPreviousRunId())
+	require.True(
+		t,
+		len(continuedStart.GetStepsToStart()) > 0 ||
+			len(continuedStart.GetStepsToResume()) > 0 ||
+			len(continuedStart.GetCompletedSteps()) > 0,
+	)
+	continuedStep := firstStepEvent(continuedEvents)
+	require.NotNil(t, continuedStep)
+	continuedExecute := firstExecuteEvent(continuedEvents)
+	require.NotNil(t, continuedExecute)
+	assertStepMethodRequestValues(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		continuedStep.GetInput().GetStepInput(),
+		continuedStep.GetInput().GetAttributes(),
+		stepInput,
+		attributePayload,
+	)
+	assertStepMethodRequestValues(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		continuedExecute.GetInput().GetStepInput(),
+		continuedExecute.GetInput().GetAttributes(),
+		stepInput,
+		attributePayload,
+	)
+	closeOutput := firstWebCloseOutput(continuedEvents)
+	require.NotNil(t, closeOutput)
+	require.NotEmpty(t, closeOutput.GetInternalBlobIdForStringValue())
+	loadedCloseOutput, err := runtime.FlowClient.LoadBlobs(
+		ctx,
+		&dexpb.LoadBlobsRequest{Entries: blobRequestEntries(flowID, []*dexpb.Value{closeOutput})},
+	)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		stepInput,
+		loadedCloseOutput.GetValues()[closeOutput.GetInternalBlobIdForStringValue()].GetStringValue(),
+	)
+	unknownStoreBlobID := "unknown-store|" + strings.SplitN(
+		closeOutput.GetInternalBlobIdForStringValue(),
+		"|",
+		2,
+	)[1]
+	partiallyLoaded, err := runtime.FlowClient.LoadBlobs(
+		ctx,
+		&dexpb.LoadBlobsRequest{Entries: blobRequestEntries(flowID, []*dexpb.Value{
+			closeOutput,
+			{Kind: &dexpb.Value_InternalBlobIdForStringValue{
+				InternalBlobIdForStringValue: unknownStoreBlobID,
+			}},
+		})},
+	)
+	require.NoError(t, err)
+	require.Len(t, partiallyLoaded.GetValues(), 1)
+	require.Contains(t, partiallyLoaded.GetValues(), closeOutput.GetInternalBlobIdForStringValue())
+
+	waitResponse, err := runtime.FlowClient.WaitForHistoryEvent(
+		ctx,
+		&dexpb.WaitForHistoryEventRequest{
+			FlowId:              flowID,
+			RunId:               startResponse.GetRunId(),
+			NextInternalEventId: nextEventID,
+		},
+	)
+	require.NoError(t, err)
+	require.False(t, waitResponse.GetEventAvailable())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW, waitResponse.GetFlowStatus())
+
+}
+
+func firstStepEvent(events []*dexpb.FlowHistoryEvent) *dexpb.StepWaitForCompletedEvent {
+	for _, event := range events {
+		if event.GetStepWaitForCompleted() != nil {
+			return event.GetStepWaitForCompleted()
+		}
+	}
+	return nil
+}
+
+func firstWebCloseOutput(events []*dexpb.FlowHistoryEvent) *dexpb.Value {
+	for _, event := range events {
+		results := event.GetFlowClosed().GetResults()
+		if len(results) > 0 {
+			return results[0].GetCompletedStepOutput()
+		}
+	}
+	return nil
+}
+
+func assertStepMethodRequestValues(
+	t *testing.T,
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
+	flowID string,
+	stepInput *dexpb.Value,
+	attributes []*dexpb.KV,
+	expectedInput string,
+	expectedAttribute []byte,
+) {
+	t.Helper()
+	require.Len(t, attributes, 1)
+	require.Equal(t, "web-test-attribute", attributes[0].GetKey())
+	loadedValues := loadWebBlobValues(
+		t,
+		ctx,
+		flowClient,
+		flowID,
+		[]*dexpb.Value{stepInput, attributes[0].GetValue()},
+	)
+	require.Equal(t, expectedInput, resolvedWebStringValue(stepInput, loadedValues))
+	attribute := attributes[0].GetValue()
+	if blobID := attribute.GetInternalBlobIdForObjValue(); blobID != "" {
+		attribute = loadedValues[blobID]
+	}
+	require.Equal(t, expectedAttribute, attribute.GetObjValue().GetPayload())
 }
 
 func testWebForceClosedPendingStep(t *testing.T) {
