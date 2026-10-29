@@ -46,7 +46,7 @@ Lock the exact AttributeMap instance when Steps or RPCs can race on it. For an i
 
 Assign every application Indexed Attribute an explicit generic index key from a namespace-wide typed pool: **keyword1**, **keyword2**, **keywordList1**, **keywordList2**, **text1**, **text2**, **int1**, **int2**, **bool1**, **bool2**, **double1**, **double2**, **datetime1**, **datetime2**, and later numbers as capacity permits. Keep the Attribute name meaningful to the business; only its physical search key uses a generic slot. Reuse each slot across Flow types with the same index type, even when its business meaning differs. Two logical indexed fields in one Flow need distinct slots. Do not use business names or the default Attribute-derived key for application indexes. Dex system indexes keep their reserved names.
 
-Generic slots can mean different things for different Flow types. Application run searches using a generic slot must constrain **FlowType**. Combine that scope predicate with parenthesized caller filters so an OR cannot bypass it. Do not index sensitive data or PII. Before assigning many distinct index keys, read [Indexed Attribute capacity](operations.md#indexed-attribute-capacity). The default local **dexcli dev** stack has a smaller SQLite index pool than an Elasticsearch-backed production deployment.
+Generic slots can mean different things for different Flow types. Application run searches using a generic slot must constrain **FlowType**. Combine that scope predicate with parenthesized caller filters so an OR cannot bypass it. Do not index sensitive data or PII.
 
 For a short-lived secret that the Flow itself must hold, such as an API key, define a hard-delete Attribute or AttributeMap. Dex keeps its values out of Flow history and permanently deletes them on delete or a null write. It supports only string and object values. It cannot be indexed, synced to an Attribute Store, or used with WaitForAttributeMatch. Writes can become visible before the attempt commits. Read [hard-delete Attributes](data-handling.md#hard-delete-attributes-for-short-lived-secrets) for every requirement and limitation before using one.
 
@@ -128,7 +128,7 @@ Use a Timer Condition for a durable delay, reminder, deadline branch, or schedul
 
 A Flow timeout handler has Execute semantics. Configure its per-attempt timeout, heartbeat timeout, retry, failure route, durability, locks, and selective state loads through FlowTimeoutHandlerOptions on StartFlowOptions or SubFlowOptions. These options require a positive Flow timeout and the Handler policy. Handler timing starts after the soft timeout fires and may extend beyond the original deadline.
 
-Route exhausted handler retries only to a registered no-input Step. The SDK supplies null or unit input, and the recovery Step reads the final failure from Context. Without a failure target, exhausted retries fail the Flow. Flow retry preserves timeout-handler options and starts a new soft-timeout budget.
+Route exhausted handler retries only to a registered no-input Step. The SDK supplies null or unit input, and the recovery Step reads the final failure from Context. Without a failure target, exhausted retries fail the Flow.
 
 Docs: https://docs.superdurable.io/primitives/timer
 

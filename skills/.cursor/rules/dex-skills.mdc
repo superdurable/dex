@@ -51,8 +51,8 @@ and Cursor. Its only public skills are `dex-sdk`, `dex-app-builder`, and
 Dex Skills is open-source Dex material and contains no information about any
 product built on Dex (no product names, template contracts or platform
 concepts). Describe only open-source Dex: the Dex SDKs, `dexcli` including
-`dexcli dev`, Dex Server, Dex Web, the FDG analyzer, and the official
-connectors. A product built on Dex keeps its own platform-specific guidance in
+`dexcli dev`, Dex Server (server-zd), Dex Web, the FDG analyzer, and the
+official connectors. A product built on Dex keeps its own platform-specific guidance in
 its own repository; nothing here refers to it.
 
 ## Dex concept boundary
@@ -63,9 +63,10 @@ describe Temporal or Cadence internals (activity timeout names, Signals,
 Queries, Updates, workflow history mechanics) in application guidance; state the
 Dex behavior and guarantee instead. When a guarantee differs by backend, say so
 in Dex terms without explaining the backend mechanism. Deployment and operations
-guidance may name the backend and its configuration, such as a Temporal
-namespace or Cadence domain, Temporal Cloud index provisioning, local SQLite
-index slots, and the codec server for raw payloads.
+guidance may name server-zd and its configuration, such as object storage, the
+PostgreSQL Attribute Store, and the search backend. Name Temporal or Cadence
+only in migration notes for the Go Server, retired after `server/v1.25.0`, and for the
+Temporal CLI flags that `dexcli dev` removed.
 
 ## Packaging and release
 
@@ -83,5 +84,6 @@ repository; the coding-agent host supplies the installed Dex Skills release.
 
 Every skill change updates `VERSION` and `CHANGELOG.md`. Validate Dex SDK source
 excerpts against `DEX_BASELINE`, and validate Server and CLI guidance against
-`DEX_SERVER_BASELINE` and `DEX_CLI_BASELINE`. Dex Web is embedded in the Server
-and CLI releases.
+`DEX_SERVER_BASELINE` (a published server-zd release) and `DEX_CLI_BASELINE`,
+and Dex Web guidance against `DEX_WEB_BASELINE`. Dex Web is released as its own
+`web/vX.Y.Z` standalone binary and image, and `dexcli dev` embeds it.

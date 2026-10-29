@@ -11,7 +11,7 @@ capability mapping records a specific interaction Dex Web v2 cannot provide.
 ### No custom UI
 
 Use Dex Web v2 as the only process-management UI: `dexcli dev` during local
-development, and the Dex Web embedded in Dex Server behind the deployment's
+development, and the standalone Dex Web behind the deployment's
 authenticated proxy. Define indexed Attributes, `GetDexSummary`,
 `GetDexDisplay`, editable fields, human-action Steps, and Action RPCs with
 conditions and permissions so Run and Work Queue modes cover the confirmed

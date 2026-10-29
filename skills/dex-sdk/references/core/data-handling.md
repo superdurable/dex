@@ -54,9 +54,9 @@ Use the installed SDK and its version-matched examples for exact BlobCache const
 
 Do not parse, construct, persist, or forward internal blob references in application code. A reference omits its owning Flow ID. Dex and the SDK supply that identity from trusted context, and the cache isolates identical-looking references by Flow. When an internal StartFlow, SubFlow, or RPC boundary moves a blob-backed value to another Flow, Dex copies or inlines the payload before the destination records it. The destination therefore remains recoverable after the source Blob is deleted.
 
-The default server threshold keeps payloads through 100 bytes inline and offloads payloads from 101 bytes. String and Object references have the same compact shape, such as `p1|c/ab3de7kp2x`; their Value arms distinguish the types. The date segment is the lowercase Base36 day offset from September 1, 2026 UTC, without leading zeros. An Object Blob stores the complete EncodedObject, including `json`, `raw`, or a custom encoding, so the reference has no encoding suffix.
+The default server threshold (`values.wireInlineThresholdBytes`) keeps payloads through 100 bytes inline and offloads payloads from 101 bytes. Treat the resulting references as opaque.
 
-ASYNC local Step input snapshots are separate from normal payload offload and are disabled by default. Enable `blobStore.asyncStepInputSnapshotsEnabled` only when semantic history needs those exact inputs; execution and recovery do not require them.
+server-zd records each Step method input with its Step execution, so history shows the exact inputs without any Server setting. Normal payload offload still applies to large inputs.
 
 The Value null arm represents an ordinary application null in inputs, Channel messages, RPC values, and other general Value positions. SDKs encode and decode it as the language's native null value. Two narrower boundaries intentionally assign it control semantics: an Attribute write with null deletes the Attribute, and Flow completion discards null output instead of storing an empty result. Do not use null when the distinction between “completed with null” and “completed without output” matters; return an explicit result object instead. For a hard-delete Attribute, a null write permanently deletes the stored value.
 
@@ -64,14 +64,14 @@ The Value null arm represents an ordinary application null in inputs, Channel me
 
 Use a hard-delete Attribute or AttributeMap when a Flow must hold a short-lived secret, such as an API key that it uses a few times and then discards. Keep long-lived credentials and connection secrets in the deployment's secret management instead. The product guide is [Hard-delete Attributes](https://docs.superdurable.io/primitives/attribute#hard-delete-attributes).
 
-A regular Attribute value is recorded in Flow history. A hard-delete value never is. Dex stores it only in the Blob Store, whatever its size, and Flow history keeps only a reference. Deleting the Attribute or AttributeMap instance, or writing null to it, permanently deletes the stored value. After that, neither Dex APIs nor Flow history can recover it, and the value reads as absent. Every write through the definition carries the setting: Step, RPC, and timeout-handler writes and deletes, StartFlow initial Attributes, and SubFlow initial Attributes. Handlers receive the value inline, and the SDK never writes it to the local BlobCache. From server-zd v0.1.5, Server SetAttributes can erase currently stored hard-delete Attributes after the run closes and before purge when every write sets one to null and the request sets no action permission mappings; see [server-zd operations](operations.md#server-zd).
+A regular Attribute value is recorded in Flow history. A hard-delete value never is. Dex stores it only in object storage, whatever its size, and Flow history keeps only a reference. By default it uses the primary bucket and prefix; the optional `objectStore.hardDeleteStore` setting sends it to a separate destination. Deleting the Attribute or AttributeMap instance, or writing null to it, permanently deletes the stored value. After that, neither Dex APIs nor Flow history can recover it, and the value reads as absent. Every write through the definition carries the setting: Step, RPC, and timeout-handler writes and deletes, StartFlow initial Attributes, and SubFlow initial Attributes. Handlers receive the value inline, and the SDK never writes it to the local BlobCache. From server-zd v0.1.5, Server SetAttributes can erase currently stored hard-delete Attributes after the run closes and before purge when every write sets one to null and the request sets no action permission mappings; see [server-zd operations](operations.md#server-zd).
 
 Check these constraints before choosing it:
 
 - Only string and object values are supported, including bytes. Definitions reject numeric and Boolean value types. When the declared type is broader, a write that encodes a number or Boolean fails. Null is always allowed. To store a numeric secret, such as a one-time code, wrap it in an object type with one field.
 - The option cannot be combined with an index or Attribute Store sync. A hard-delete value therefore never appears in Dex search or an external projection.
 - WaitForAttributeMatch rejects a hard-delete Attribute, and Action conditions cannot use one. When a caller needs the value, read it through an RPC.
-- It requires Dex Server v1.11.0 or later with Blob Store enabled, and SDK v1.11.0 or later. Blob Store is enabled by default. With `blobStore.enabled: false`, the Server rejects hard-delete writes.
+- It requires SDK v1.11.0 or later.
 - SDKs fail closed against an older Server. A Worker fails the Step, RPC, or timeout-handler result that writes a hard-delete Attribute or starts a SubFlow with one. A Client fails a StartFlow that carries a hard-delete initial value.
 - On server-zd, a SubFlow whose initial Attributes include a hard-delete Attribute needs v0.1.10 or later. Earlier releases could stop the node on that start.
 - Build StartFlow and SubFlow initial values from the same definition that the target Flow registers. A value built from a definition with a different hard-delete setting is rejected.
@@ -82,9 +82,9 @@ Each Flow keeps one stored value per Attribute key and overwrites it in place. U
 - When concurrent Steps or RPCs write the same key, the final value may not be the last committed write. When the order matters, write each key from a single writer.
 - A StartFlow or SubFlow start that fails because the Flow ID is already running still overwrites the running Flow's value. With a null initial value, it deletes that value.
 - Flows that reuse a Flow ID share the stored value.
-- Time travel does not restore a deleted value. A Flow retry or a restarted SubFlow starts from the original initial value. If an earlier run deleted that value, the new run reads it as absent. Design the Flow to request a fresh secret when the value is absent.
+- Time travel does not restore a deleted value. A restarted SubFlow starts from the original initial value. If an earlier run deleted that value, the new run reads it as absent. Design the Flow to request a fresh secret when the value is absent.
 - Removing the hard-delete option from a definition leaves the stored value in place until Dex removes the Flow. Delete the value through the hard-delete definition first.
-- A value remains until it is deleted, or until retention removes the Flow. Delete the secret as soon as the Flow no longer needs it. Blob Store backups and bucket versioning outside Dex can keep copies, so configure them separately when deleted secrets must not survive.
+- A value remains until it is deleted, or until retention removes the Flow. Delete the secret as soon as the Flow no longer needs it. Object storage backups and bucket versioning outside Dex can keep copies, so configure them separately when deleted secrets must not survive.
 
 ## Combine caching with sticky Worker routing
 
@@ -127,7 +127,7 @@ Inside a handler, map size and instance-key enumeration include buffered writes 
 
 AttributeMap locks are scoped to one instance. Lock the exact instance when parallel Steps or RPCs perform a read-modify-write on the same value; unrelated instances can remain concurrent.
 
-An RPC lock-conflict error means another holder owns the lock now. That holder can be a Step method in retry backoff. Retries keep their locks until the method call ends on the Go Server and on server-zd from v0.1.10. Retry the RPC with bounded backoff; see [retry snapshots and locks](step-options.md#understand-the-shared-attempt-budget).
+An RPC lock-conflict error means another holder owns the lock now. That holder can be a Step method in retry backoff. Retries keep their locks until the method call ends from server-zd v0.1.10. Retry the RPC with bounded backoff; see [retry snapshots and locks](step-options.md#understand-the-shared-attempt-budget).
 
 #### Whole-map coordination
 
@@ -149,13 +149,13 @@ When data needs relational queries, independent pagination, cross-Flow access, a
 
 Attribute Store synchronization is opt-in for each Attribute or AttributeMap, and a Flow selects one or more Server-configured stores. Dex asynchronously projects latest-state writes and retries transient failures. A projection failure does not roll back the Flow Attribute, and retry exhaustion does not automatically replay or backfill the missed batch. Keep Dex authoritative unless the documented storage decision assigns a fact to an external system of record, and make important projections reconcilable.
 
-The built-in Attribute Store targets are PostgreSQL, MySQL, Databricks, Snowflake, and MongoDB. A SQL target projects into the columns of an existing table and MongoDB into the fields of one document per Flow; Dex never creates, migrates, or backfills the destination. They are not direct Elasticsearch or vector-store connectors, and synchronization does not generate embeddings or transform documents. server-zd v0.1.3 or later syncs only to PostgreSQL. From server-zd v0.1.4, a naturally closing Flow stays RUNNING until its pending synced writes are written or dropped and previously admitted transactional or locking RPCs finish. v0.1.3 closed without waiting, so rows could land after completion; see [server-zd operations](operations.md#server-zd).
+The only built-in Attribute Store target is PostgreSQL. It projects into the columns of an existing table; Dex never creates, migrates, or backfills the destination. It is not a direct Elasticsearch or vector-store connector, and synchronization does not generate embeddings or transform documents. From server-zd v0.1.4, a naturally closing Flow stays RUNNING until its pending synced writes are written or dropped and previously admitted transactional or locking RPCs finish. v0.1.3 closed without waiting, so rows could land after completion; see [server-zd operations](operations.md#server-zd).
 
 For Elasticsearch or a vector database, choose among:
 
 - synchronize a suitable SQL projection, then use CDC or another downstream indexer
 - run an explicit durable projection Step when chunking, embedding, deletion, or version checks are required
-- add a Dex Attribute Store backend when direct projection is a product requirement
+- request a Dex Attribute Store backend when direct projection is a product requirement
 
 By default an AttributeMap instance is projected as an ordinary Attribute named by the map and the instance key, so an instance without a matching destination column is filtered. Either verify how every physical instance name maps to the destination schema before enabling synchronization for a dynamic map, or give the map its own table as described under row keys, column names, and AttributeMap tables below.
 
@@ -163,7 +163,7 @@ Do not introduce an external projection merely to avoid repeat reads of unchange
 
 ### Row keys, column names, and AttributeMap tables
 
-Dex Server v1.6.0 or later adds three optional settings to a PostgreSQL or MySQL store: `rowKey`, `columnNaming`, and `attributeMaps`. A store without them behaves as before. Databricks, Snowflake, and MongoDB stores reject all three at startup, and so does a Server before v1.6.0, which does not know the keys. The full contract is in the [Custom Attribute Store](https://docs.superdurable.io/production/attribute-store) operations page.
+A PostgreSQL store accepts three optional settings: `rowKey`, `columnNaming`, and `attributeMaps`. A store without them behaves as before. The full contract is in the [Custom Attribute Store](https://docs.superdurable.io/production/attribute-store) operations page.
 
 ```yaml
 attributeStore:
@@ -193,7 +193,7 @@ attributeStore:
   - The store row and all its instance rows are written in one transaction. Do not add foreign keys between the tables: a violated constraint fails the whole batch and holds back the Flow's later writes until the retry budget runs out.
   - Dex never deletes rows when a Flow closes, so the destination needs its own retention. A Flow writes each AttributeMap only to the selected stores that declare it; other selected stores project its instances as ordinary Attributes.
 
-A migration that adds a column to a store table or an AttributeMap table needs no Dex restart, as long as it completes before the Workers that write the column start. From Dex Server v1.6.1 a batch that writes a column missing from the current schema refreshes the store's schema before it writes, and an earlier Server picks the column up at its periodic refresh (one minute by default).
+A migration that adds a column to a store table or an AttributeMap table needs no Dex restart, as long as it completes before the Workers that write the column start. A batch that writes a column missing from the current schema refreshes the store's schema before it writes, and a column that a refresh already found missing waits for the periodic refresh (one minute by default).
 
 The tables stay an eventual, latest-state projection. Never read them to make a Flow decision.
 
