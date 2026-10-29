@@ -1,0 +1,295 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+package integ
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	s3GetSetDataAttributes "github.com/superdurable/dex/server-zd/integ/workflow/s3-get-set-data-attributes"
+	"google.golang.org/protobuf/proto"
+)
+
+func TestS3GetSetDataAttributesTemporal(t *testing.T) {
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestS3GetSetDataAttributes(t, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
+	}
+}
+
+func TestS3GetSetDataAttributesWithInitialDataTemporal(t *testing.T) {
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestS3GetSetDataAttributesWithInitialData(t, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
+	}
+}
+
+func doTestS3GetSetDataAttributes(t *testing.T, lazyLoading bool) {
+	runtime := startDexService(t, serverZDTestConfig{
+
+		ObjectPayloadThresholdBytes: 50,
+		LazyLoading:                 ptr.Any(lazyLoading),
+	})
+	workerHandler := s3GetSetDataAttributes.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := s3GetSetDataAttributes.WorkflowType + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           s3GetSetDataAttributes.WorkflowType,
+		FlowTimeoutSeconds: 100,
+
+		StartStepType:    s3GetSetDataAttributes.State1,
+		StepInput:        objJSONValue(`"test-input"`),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+
+	testAttributes := []*dexpb.AttributeWrite{
+		{Key: s3GetSetDataAttributes.SmallDataKey, Value: s3GetSetDataAttributes.SmallDataValue},
+		{Key: s3GetSetDataAttributes.LargeDataKey, Value: s3GetSetDataAttributes.LargeDataValue},
+		{Key: s3GetSetDataAttributes.AnotherLargeDataKey, Value: s3GetSetDataAttributes.AnotherLargeDataValue},
+	}
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId:  newRequestID(),
+		FlowId:     flowId,
+		Attributes: testAttributes,
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		getResult, getErr := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+			FlowId: flowId,
+			Keys: []string{
+				s3GetSetDataAttributes.SmallDataKey,
+				s3GetSetDataAttributes.LargeDataKey,
+				s3GetSetDataAttributes.AnotherLargeDataKey,
+			},
+		})
+		if getErr != nil || len(getResult.GetAttributes()) != 3 {
+			return false
+		}
+		retrieved := attributeMap(getResult.GetAttributes())
+		if lazyLoading {
+			return blobIdFromValue(retrieved[s3GetSetDataAttributes.LargeDataKey]) != "" &&
+				blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey]) != ""
+		}
+		return proto.Equal(s3GetSetDataAttributes.LargeDataValue, retrieved[s3GetSetDataAttributes.LargeDataKey]) &&
+			proto.Equal(s3GetSetDataAttributes.AnotherLargeDataValue, retrieved[s3GetSetDataAttributes.AnotherLargeDataKey])
+	}, 10*time.Second, 100*time.Millisecond)
+
+	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+		FlowId: flowId,
+		Keys: []string{
+			s3GetSetDataAttributes.SmallDataKey,
+			s3GetSetDataAttributes.LargeDataKey,
+			s3GetSetDataAttributes.AnotherLargeDataKey,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, getResult.GetAttributes(), 3)
+
+	retrieved := attributeMap(getResult.GetAttributes())
+	require.True(t, proto.Equal(s3GetSetDataAttributes.SmallDataValue, retrieved[s3GetSetDataAttributes.SmallDataKey]))
+
+	var largeBlobId, anotherBlobId string
+	if lazyLoading {
+		largeBlobId = blobIdFromValue(retrieved[s3GetSetDataAttributes.LargeDataKey])
+		anotherBlobId = blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey])
+		require.NotEmpty(t, largeBlobId)
+		require.NotEmpty(t, anotherBlobId)
+		require.Nil(t, retrieved[s3GetSetDataAttributes.LargeDataKey].GetObjValue())
+		require.Nil(t, retrieved[s3GetSetDataAttributes.AnotherLargeDataKey].GetObjValue())
+		requireLoadedBlobPayload(
+			t, ctx, flowClient, flowId, largeBlobId,
+			string(s3GetSetDataAttributes.LargeDataValue.GetObjValue().GetPayload()),
+		)
+		requireLoadedBlobPayload(
+			t, ctx, flowClient, flowId, anotherBlobId,
+			string(s3GetSetDataAttributes.AnotherLargeDataValue.GetObjValue().GetPayload()),
+		)
+	} else {
+		require.True(t, proto.Equal(s3GetSetDataAttributes.LargeDataValue, retrieved[s3GetSetDataAttributes.LargeDataKey]))
+		require.True(t, proto.Equal(s3GetSetDataAttributes.AnotherLargeDataValue, retrieved[s3GetSetDataAttributes.AnotherLargeDataKey]))
+		require.Empty(t, blobIdFromValue(retrieved[s3GetSetDataAttributes.LargeDataKey]))
+		require.Empty(t, blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey]))
+	}
+
+	getSpecific, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+		FlowId: flowId,
+		Keys:   []string{s3GetSetDataAttributes.LargeDataKey},
+	})
+	require.NoError(t, err)
+	require.Len(t, getSpecific.GetAttributes(), 1)
+	require.Equal(t, s3GetSetDataAttributes.LargeDataKey, getSpecific.GetAttributes()[0].GetKey())
+	if lazyLoading {
+		require.Equal(t, largeBlobId, blobIdFromValue(getSpecific.GetAttributes()[0].GetValue()))
+	} else {
+		require.True(t, proto.Equal(s3GetSetDataAttributes.LargeDataValue, getSpecific.GetAttributes()[0].GetValue()))
+	}
+
+	publishS3GetSetDataAttributesCompletion(t, ctx, flowClient, flowId)
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
+	require.NoError(t, err)
+}
+
+func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, lazyLoading bool) {
+	runtime := startDexService(t, serverZDTestConfig{
+
+		ObjectPayloadThresholdBytes: 50,
+		LazyLoading:                 ptr.Any(lazyLoading),
+	})
+	workerHandler := s3GetSetDataAttributes.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := s3GetSetDataAttributes.WorkflowType + uuid.NewString() + "-initial"
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           s3GetSetDataAttributes.WorkflowType,
+		FlowTimeoutSeconds: 100,
+
+		StartStepType: s3GetSetDataAttributes.State1,
+		StepInput:     objJSONValue(`"test-input"`),
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				{Key: "initial-small", Value: s3GetSetDataAttributes.SmallDataValue},
+				{Key: "initial-large", Value: s3GetSetDataAttributes.LargeDataValue},
+			},
+		}, workerTarget),
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		getResult, getErr := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+			FlowId: flowId,
+			Keys:   []string{"initial-small", "initial-large"},
+		})
+		if getErr != nil || len(getResult.GetAttributes()) != 2 {
+			return false
+		}
+		retrieved := attributeMap(getResult.GetAttributes())
+		if lazyLoading {
+			return blobIdFromValue(retrieved["initial-large"]) != ""
+		}
+		return proto.Equal(s3GetSetDataAttributes.LargeDataValue, retrieved["initial-large"])
+	}, 10*time.Second, 100*time.Millisecond)
+
+	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+		FlowId: flowId,
+		Keys:   []string{"initial-small", "initial-large"},
+	})
+	require.NoError(t, err)
+	require.Len(t, getResult.GetAttributes(), 2)
+
+	retrieved := attributeMap(getResult.GetAttributes())
+	require.True(t, proto.Equal(s3GetSetDataAttributes.SmallDataValue, retrieved["initial-small"]))
+	var largeBlobId string
+	if lazyLoading {
+		largeBlobId = blobIdFromValue(retrieved["initial-large"])
+		require.NotEmpty(t, largeBlobId)
+		require.Nil(t, retrieved["initial-large"].GetObjValue())
+		requireLoadedBlobPayload(
+			t, ctx, flowClient, flowId, largeBlobId,
+			string(s3GetSetDataAttributes.LargeDataValue.GetObjValue().GetPayload()),
+		)
+	} else {
+		require.True(t, proto.Equal(s3GetSetDataAttributes.LargeDataValue, retrieved["initial-large"]))
+		require.Empty(t, blobIdFromValue(retrieved["initial-large"]))
+	}
+
+	publishS3GetSetDataAttributesCompletion(t, ctx, flowClient, flowId)
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
+	require.NoError(t, err)
+}
+
+func publishS3GetSetDataAttributesCompletion(
+	t *testing.T,
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
+	flowId string,
+) {
+	t.Helper()
+	_, err := flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+		FlowId: flowId,
+		Messages: []*dexpb.ChannelMessage{
+			{ChannelName: s3GetSetDataAttributes.CompletionChannelName},
+		},
+	})
+	require.NoError(t, err)
+}
+
+func attributeMap(attributes []*dexpb.KV) map[string]*dexpb.Value {
+	result := make(map[string]*dexpb.Value, len(attributes))
+	for _, attribute := range attributes {
+		result[attribute.GetKey()] = attribute.GetValue()
+	}
+	return result
+}
+
+func blobIdFromValue(value *dexpb.Value) string {
+	if value == nil {
+		return ""
+	}
+	if blobId := value.GetInternalBlobIdForObjValue(); blobId != "" {
+		return blobId
+	}
+	return value.GetInternalBlobIdForStringValue()
+}
+
+func requireLoadedBlobPayload(
+	t *testing.T,
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
+	flowID string,
+	blobId string,
+	expectedPayload string,
+) {
+	t.Helper()
+	loadResult, err := flowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
+		Entries: []*dexpb.LoadBlobRequestEntry{
+			{FlowId: flowID, BlobValue: &dexpb.Value{
+				Kind: &dexpb.Value_InternalBlobIdForObjValue{
+					InternalBlobIdForObjValue: blobId,
+				},
+			}},
+		},
+	})
+	require.NoError(t, err)
+	loaded := loadResult.GetValues()[blobId]
+	require.NotNil(t, loaded)
+	if obj := loaded.GetObjValue(); obj != nil {
+		require.Equal(t, expectedPayload, string(obj.GetPayload()))
+		return
+	}
+	require.Equal(t, expectedPayload, loaded.GetStringValue())
+}

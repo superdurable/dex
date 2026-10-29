@@ -1,0 +1,186 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+package integ
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/server-zd/integ/workflow/persistence"
+	"github.com/superdurable/dex/server-zd/integ/workflow/signal"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+)
+
+func TestSetSearchAttributes(t *testing.T) {
+	workerHandler := signal.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, serverZDTestConfig{})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := flowClient.SyncAttributeIndexes(ctx, &dexpb.SyncAttributeIndexRequest{
+		AttributeIndexes: map[string]dexpb.IndexType{
+			workQueuePermissionsAttributeName: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+		},
+	})
+	require.NoError(t, err)
+
+	flowId := signal.WorkflowType + uuid.NewString()
+	_, err = flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 10,
+
+		StartStepType:    signal.State1,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+
+	searchAttributes := []*dexpb.AttributeWrite{
+		indexedIntAttribute(
+			persistence.TestSearchAttributeIntKey,
+			persistence.TestSearchAttributeIntValue1,
+		),
+		indexedKeywordAttribute(
+			persistence.TestSearchAttributeKeywordKey,
+			persistence.TestSearchAttributeKeywordValue1,
+		),
+		indexedKeywordArrayAttribute(
+			persistence.TestSearchAttributeKeywordArrayKey,
+			persistence.TestSearchAttributeKeywordValue2,
+			persistence.TestSearchAttributeKeywordValue1,
+		),
+		{Key: "action-status", Value: stringValue("ready")},
+	}
+
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId:  newRequestID(),
+		FlowId:     flowId,
+		Attributes: searchAttributes,
+		ActionPermissionMappings: &dexpb.ActionPermissionMappings{
+			Mappings: []*dexpb.ActionPermissionMapping{{
+				AttributeKey:       "action-status",
+				EqualValues:        []*dexpb.Value{stringValue("ready")},
+				RequiredPermission: "refund.approve",
+			}},
+		},
+	})
+	require.NoError(t, err)
+
+	var searchResult *dexpb.GetAttributesResponse
+	require.Eventually(t, func() bool {
+		var getErr error
+		searchResult, getErr = flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+			FlowId: flowId,
+			Keys: []string{
+				persistence.TestSearchAttributeIntKey,
+				persistence.TestSearchAttributeKeywordKey,
+				persistence.TestSearchAttributeKeywordArrayKey,
+				"action-status",
+				workQueuePermissionsAttributeName,
+			},
+		})
+		return getErr == nil && len(searchResult.GetAttributes()) == 5
+	}, 10*time.Second, 20*time.Millisecond)
+
+	expected := []*dexpb.KV{
+		{Key: persistence.TestSearchAttributeIntKey, Value: searchAttributes[0].GetValue()},
+		{Key: persistence.TestSearchAttributeKeywordKey, Value: searchAttributes[1].GetValue()},
+		{Key: persistence.TestSearchAttributeKeywordArrayKey, Value: searchAttributes[2].GetValue()},
+		{Key: "action-status", Value: searchAttributes[3].GetValue()},
+		{
+			Key:   workQueuePermissionsAttributeName,
+			Value: jsonObjValue([]string{"refund.approve"}),
+		},
+	}
+	require.Len(t, searchResult.GetAttributes(), len(expected))
+	for _, want := range expected {
+		found := false
+		for _, got := range searchResult.GetAttributes() {
+			if got.GetKey() == want.GetKey() && proto.Equal(got.GetValue(), want.GetValue()) {
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "missing attribute %s", want.GetKey())
+	}
+
+	// Describe reads Temporal indexed fields, not workflow persistence.
+	// server-zd has no Temporal indexed fields; SearchFlows above covers its index.
+
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowId,
+		Attributes: []*dexpb.AttributeWrite{{
+			Key:   workQueuePermissionsAttributeName,
+			Value: jsonObjValue([]string{"forged"}),
+		}},
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId:  newRequestID(),
+		FlowId:     flowId,
+		Attributes: []*dexpb.AttributeWrite{{Key: "action-status", Value: stringValue("ready")}},
+		ActionPermissionMappings: &dexpb.ActionPermissionMappings{
+			Mappings: []*dexpb.ActionPermissionMapping{{
+				AttributeKey:       "action-status",
+				EqualValues:        []*dexpb.Value{stringValue("ready")},
+				RequiredPermission: "Refund.Approve",
+			}},
+		},
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId:                newRequestID(),
+		FlowId:                   flowId,
+		Attributes:               []*dexpb.AttributeWrite{{Key: "action-status", Value: stringValue("closed")}},
+		ActionPermissionMappings: &dexpb.ActionPermissionMappings{},
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		result, getErr := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+			FlowId: flowId,
+			Keys:   []string{workQueuePermissionsAttributeName},
+		})
+		return getErr == nil && len(result.GetAttributes()) == 1 && proto.Equal(
+			result.GetAttributes()[0].GetValue(),
+			jsonObjValue([]string{"refund.approve"}),
+		)
+	}, 10*time.Second, 20*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		result, searchErr := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
+			Query: fmt.Sprintf(
+				"WorkflowId = '%s' AND %s = 'refund.approve'",
+				flowId,
+				workQueuePermissionsAttributeName,
+			),
+			PageSize: 10,
+		})
+		return searchErr == nil && len(result.GetFlowRuns()) == 1 &&
+			result.GetFlowRuns()[0].GetFlowId() == flowId
+	}, 10*time.Second, 20*time.Millisecond)
+
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId:   flowId,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
+	})
+	require.NoError(t, err)
+}

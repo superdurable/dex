@@ -1,0 +1,134 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+package integ
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	s3_init_data_attributes "github.com/superdurable/dex/server-zd/integ/workflow/s3-init-data-attributes"
+	"google.golang.org/protobuf/proto"
+)
+
+func TestS3WorkflowInitDataAttributesTemporal(t *testing.T) {
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestWorkflowWithS3InitDataAttributes(t, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
+	}
+}
+
+func doTestWorkflowWithS3InitDataAttributes(t *testing.T, lazyLoading bool) {
+	runtime := startDexService(t, serverZDTestConfig{
+
+		ObjectPayloadThresholdBytes: 10,
+		LazyLoading:                 ptr.Any(lazyLoading),
+	})
+	workerHandler := s3_init_data_attributes.NewHandler(runtime.FlowClient)
+	workerTarget := startWorker(t, workerHandler)
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := s3_init_data_attributes.WorkflowType + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           s3_init_data_attributes.WorkflowType,
+		FlowTimeoutSeconds: 100,
+
+		StartStepType: s3_init_data_attributes.State1,
+		StepInput:     objJSONValue(`"test"`),
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				{
+					Key:   s3_init_data_attributes.TestDataAttrKey1,
+					Value: s3_init_data_attributes.TestDataAttributeVal1,
+				},
+				{
+					Key:   s3_init_data_attributes.TestDataAttrKey2,
+					Value: s3_init_data_attributes.TestDataAttributeVal2,
+				},
+				{
+					Key:   s3_init_data_attributes.TestDataAttrKey3,
+					Value: s3_init_data_attributes.TestDataAttributeVal3,
+				},
+			},
+		}, workerTarget),
+	})
+	require.NoError(t, err)
+
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
+	require.NoError(t, err)
+
+	history := workerHandler.GetTestResult().InvokeData
+	require.Equal(t, int64(1), history["S1_waitFor"])
+	require.Equal(t, true, history["S1_waitFor_attr1_found"])
+	require.Equal(t, true, history["S1_waitFor_attr2_found"])
+	require.Equal(t, true, history["S1_waitFor_attr3_found"])
+	require.Equal(t, 3, history["S1_waitFor_total_attrs"])
+	require.Equal(t, s3_init_data_attributes.LargeDataContent1, history["S1_waitFor_attr1_data"])
+	require.Equal(t, s3_init_data_attributes.LargeDataContent2, history["S1_waitFor_attr2_data"])
+	require.Equal(t, s3_init_data_attributes.SmallDataContent3, history["S1_waitFor_attr3_data"])
+	require.Equal(t, true, history["S1_waitFor_validation_pass"])
+	require.Equal(t, int64(1), history["S1_execute"])
+	require.Equal(t, int64(1), history["S2_waitFor"])
+	require.Equal(t, int64(1), history["S2_execute"])
+	require.Equal(t, true, history["S2_execute_attr1_found"])
+	require.Equal(t, true, history["S2_execute_attr2_found"])
+	require.Equal(t, true, history["S2_execute_attr3_found"])
+	require.Equal(t, 3, history["S2_execute_total_attrs"])
+	require.Equal(t, true, history["S2_execute_validation_pass"])
+
+	requireServerZDValueReferences(
+		t,
+		history,
+		lazyLoading,
+		[]string{
+			"S1_waitFor_" + s3_init_data_attributes.TestDataAttrKey1 + "_is_reference",
+			"S1_waitFor_" + s3_init_data_attributes.TestDataAttrKey2 + "_is_reference",
+		},
+		[]string{"S1_waitFor_" + s3_init_data_attributes.TestDataAttrKey3 + "_is_reference"},
+	)
+
+	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+		FlowId: flowId,
+		Keys: []string{
+			s3_init_data_attributes.TestDataAttrKey1,
+			s3_init_data_attributes.TestDataAttrKey2,
+			s3_init_data_attributes.TestDataAttrKey3,
+		},
+	})
+	require.NoError(t, err)
+	retrieved := attributeMap(getResult.GetAttributes())
+	blobId1 := blobIdFromValue(retrieved[s3_init_data_attributes.TestDataAttrKey1])
+	blobId2 := blobIdFromValue(retrieved[s3_init_data_attributes.TestDataAttrKey2])
+	if lazyLoading {
+		require.NotEmpty(t, blobId1)
+		require.NotEmpty(t, blobId2)
+		require.Empty(t, blobIdFromValue(retrieved[s3_init_data_attributes.TestDataAttrKey3]))
+	} else {
+		require.Empty(t, blobId1)
+		require.Empty(t, blobId2)
+		require.True(t, proto.Equal(s3_init_data_attributes.TestDataAttributeVal1, retrieved[s3_init_data_attributes.TestDataAttrKey1]))
+		require.True(t, proto.Equal(s3_init_data_attributes.TestDataAttributeVal2, retrieved[s3_init_data_attributes.TestDataAttrKey2]))
+		require.True(t, proto.Equal(s3_init_data_attributes.TestDataAttributeVal3, retrieved[s3_init_data_attributes.TestDataAttrKey3]))
+	}
+
+}

@@ -1,18 +1,18 @@
 name: Server Integration against server-zd
 
-# Runs the whole server/integ suite in binary mode against dex-server-zd.
-# It does not gate merges yet; see server/integ/ZD_BASELINE.md for the expected results.
+# Runs the standalone server-zd integration module against dex-server-zd.
+# It does not gate merges yet; see server-zd/integ/README.md for the expected results.
 on:
   push:
     branches: [main]
     paths:
-      - "server/**"
+      - "sdk-go/**"
       - "server-zd/**"
       - "protos/**"
       - ".github/workflows/server-zd-integ-ci.yml"
   pull_request:
     paths:
-      - "server/**"
+      - "sdk-go/**"
       - "server-zd/**"
       - "protos/**"
       - ".github/workflows/server-zd-integ-ci.yml"
@@ -84,16 +84,15 @@ jobs:
           --health-retries 30
     defaults:
       run:
-        working-directory: server
+        working-directory: server-zd/integ
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
-      # The Stream Store tests read Redis directly, matching docker-compose/integ-dependencies.yml.
-      - name: Start Redis
-        run: docker run -d --name redis -p 6379:6379 redis:7-alpine redis-server --maxmemory-policy noeviction
+          go-version-file: server-zd/integ/go.mod
+          cache-dependency-path: |
+            server-zd/integ/go.sum
+            sdk-go/go.sum
       - name: Download dex-server-zd
         uses: actions/download-artifact@v7
         with:
@@ -126,7 +125,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Test the summarizer
-        run: python3 server/script/summarize_integ_test_json_test.py
+        run: python3 server-zd/integ/script/summarize_integ_test_json_test.py
       - name: Download test events
         uses: actions/download-artifact@v7
         with:
@@ -156,5 +155,5 @@ jobs:
             printf 'Missing partition artifacts: %s\n' "${missing_paths[*]}" | tee -a "$GITHUB_STEP_SUMMARY" >&2
             exit 1
           fi
-          python3 server/script/summarize-integ-test-json.py "${expected_test_arguments[@]}" "${json_paths[@]}" |
+          python3 server-zd/integ/script/summarize-integ-test-json.py "${expected_test_arguments[@]}" "${json_paths[@]}" |
             tee -a "$GITHUB_STEP_SUMMARY"
