@@ -72,15 +72,24 @@ func runAIAgentApp(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create the blob cache: %w", err)
 	}
-	flowServiceAddress := os.Getenv("DEX_FLOW_SERVICE_ADDRESS")
+	connection, err := readDexConnection()
+	if err != nil {
+		return errors.Join(err, cache.Close())
+	}
 	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
-		FlowServiceAddress: flowServiceAddress,
+		FlowServiceAddress: connection.address,
+		FlowServiceTLS:     connection.tls,
+		Credential:         connection.credential,
 		Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: 16},
 	})
 	if err != nil {
 		return errors.Join(err, cache.Close())
 	}
-	client, err := dex.NewClient(registry, cache, dex.ClientOptions{FlowServiceAddress: flowServiceAddress})
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+		FlowServiceAddress: connection.address,
+		FlowServiceTLS:     connection.tls,
+		Credential:         connection.credential,
+	})
 	if err != nil {
 		return errors.Join(err, stopWorker(worker), cache.Close())
 	}
@@ -131,6 +140,29 @@ func describeSlack(slackSettings aiagent.SlackSettings) string {
 		return "not set up: " + slackSettings.NotSetUpReason
 	}
 	return "channel " + slackSettings.Channel.Value.ChannelID
+}
+
+// dexConnection is the engine the app connects to: a local dexcli dev, or a Dex Cloud engine.
+type dexConnection struct {
+	address    string
+	tls        *dex.FlowServiceTLSOptions
+	credential dex.Credential
+}
+
+// readDexConnection reads the variables that a Dex Cloud engine's Connect panel exports.
+func readDexConnection() (dexConnection, error) {
+	connection := dexConnection{address: environmentOr("DEX_SERVER", os.Getenv("DEX_FLOW_SERVICE_ADDRESS"))}
+	if os.Getenv("DEX_TLS") == "true" {
+		connection.tls = &dex.FlowServiceTLSOptions{}
+	}
+	if apiKey := os.Getenv("DEX_API_KEY"); apiKey != "" {
+		credential, err := dex.APIKeyCredential(os.Getenv("DEX_TOKEN_URL"), os.Getenv("DEX_SERVER_ID"), apiKey)
+		if err != nil {
+			return dexConnection{}, fmt.Errorf("create the Dex API key credential: %w", err)
+		}
+		connection.credential = credential
+	}
+	return connection, nil
 }
 
 func stopWorker(worker *dex.Worker) error {
