@@ -228,9 +228,11 @@ func TestVisualizeV2ConnectorFactoryExample(t *testing.T) {
 		"defect":    "step:CustomerSummaryFailed",
 	}, connectorBranchTargets(graph, "step:GenerateCustomerSummary"))
 	require.Equal(t, map[string]string{
-		"found":  "step:CustomerSummaryReconciled",
-		"failed": "step:CustomerSummaryReconcileFailed",
-		"defect": "step:CustomerSummaryReconcileFailed",
+		"found":            "step:CustomerSummaryReconciled",
+		"notFound":         "step:CustomerSummaryReconcileFailed",
+		"providerRejected": "step:CustomerSummaryReconcileFailed",
+		"invalidResponse":  "step:CustomerSummaryReconcileFailed",
+		"defect":           "step:CustomerSummaryReconcileFailed",
 	}, connectorBranchTargets(graph, "step:ReconcileCustomerSummary"))
 
 	resultEdge := graphEdge(t, graph, "resource_write", "step:GenerateCustomerSummary", "resource:attribute:generatedCustomerSummary", "Set")
