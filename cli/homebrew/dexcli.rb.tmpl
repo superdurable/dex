@@ -4,8 +4,6 @@ class Dexcli < Formula
   version "@FORMULA_VERSION@"
   license "MIT"
 
-  depends_on "temporal"
-
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/superdurable/dex/releases/download/cli-@VERSION@/dexcli_@VERSION@_darwin_arm64.tar.gz"

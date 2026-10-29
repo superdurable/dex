@@ -6,7 +6,7 @@ sidebar_label: Dex Web
 # Dex Web
 
 Dex Web 没有最终用户身份认证。启用 Dex Server **auth** 后，Web 会在每次请求中向
-FlowService 发送 **web.flowServiceCredentialFile** 中的 bearer credential。
+FlowService 发送 **--credential-file** 中的 bearer credential。
 任何能够访问 Web 端口的人都能使用该 credential 操作 Dex。必须通过网络访问控制或
 强制认证的代理保护 Web 端口。参见[Server 身份认证](/production/server-operations#authentication)和
 [Dex Web 访问控制](/production/server-operations#dex-web-access-control)。
@@ -148,24 +148,20 @@ Work Queue 不增加登录，也不执行授权。**Working as** 只是选择工
 
 ## 对接 server-zd {#run-against-server-zd}
 
-[server-zd](/production/server-zd-operations) 本身不提供 Dex Web，而是由一个仅运行
-Web 的 Dex Server process 提供。将 **web.flowServiceTarget** 设置为 server-zd 的明文
-gRPC address。该 process 不会创建任何 Temporal 或 Cadence 连接。server-zd 开启身份认证时，
-将 **web.flowServiceCredentialFile** 设置为包含 static token 或 service JWT 的文件。
-
-~~~yaml
-web:
-  bindAddress: 0.0.0.0
-  port: 8802
-  flowServiceTarget: dex-server-zd:8801
-  flowServiceCredentialFile: /etc/dex/web-token
-~~~
+[server-zd](/production/server-zd-operations) 本身不提供 Dex Web。
+请运行独立的 **dex-web**，用 **--flow-service-address** 指定 server-zd 的 gRPC 地址。
+server-zd 开启身份认证时，用 **--credential-file** 指定包含 static token 或 service JWT
+的文件。Dex Web 还支持用 **--tls**、**--tls-ca-file** 和 **--tls-server-name**
+配置上游连接的 TLS。
 
 ~~~bash
-dex-server --config web-only.yaml start --services web
+dex-web --bind-address 0.0.0.0 --port 8802 \
+  --flow-service-address dex-server-zd:8801 \
+  --credential-file /etc/dex/web-token
 ~~~
 
-本地开发时，**dexcli dev --engine zd** 会启动 server-zd 和 Dex Web，不启动 Temporal。
+本地开发时，**dexcli dev** 会启动 server-zd 和内嵌 Dex Web。
+**--engine zd** 仍然接受，以兼容现有脚本。
 dexcli 的发布包已包含 **dex-server-zd**，因此用 Homebrew 安装 dexcli 后无需另外下载。
 要使用其他 **dex-server-zd** 二进制文件，传入 **--zd-binary** 或设置
 **DEX_SERVER_ZD_BINARY**。两者都未设置时，dexcli 先使用 dexcli 可执行文件旁边的

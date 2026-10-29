@@ -35,15 +35,10 @@ import (
 	"strings"
 
 	"github.com/superdurable/dex/config"
-	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/bootstrap"
-	"github.com/superdurable/dex/service/common/credential"
-	dexweb "github.com/superdurable/dex/web"
-	"github.com/superdurable/dex/web/assets"
 	"github.com/urfave/cli"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -67,8 +62,6 @@ type componentExit struct {
 
 type application struct {
 	dexRuntime     *bootstrap.Runtime
-	webServer      *dexweb.Server
-	webConnection  *grpc.ClientConn
 	componentCount int
 }
 
@@ -95,8 +88,8 @@ func BuildCLI(ctx context.Context) *cli.App {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "services",
-					Value: strings.Join([]string{serviceWeb, serviceAPI, serviceInterpreter, serviceMatching}, ", "),
-					Usage: "start Dex components: web, api, interpreter, matching",
+					Value: strings.Join([]string{serviceAPI, serviceInterpreter, serviceMatching}, ", "),
+					Usage: "start Dex components: api, interpreter, matching; run dex-web separately",
 				},
 			},
 			Usage: "start Dex Server",
@@ -129,52 +122,8 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 		panic("Dex Server config must not be nil")
 	}
 	serverApplication := &application{}
-	if err := cfg.ValidateWebFlowServiceCredential(services.isWebEnabled); err != nil {
-		return nil, err
-	}
 	if services.isWebEnabled {
-		dialOptions := []grpc.DialOption{
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithDefaultCallOptions(
-				grpc.MaxCallRecvMsgSize(cfg.Api.EffectiveGrpcMaxMessageBytes()),
-				grpc.MaxCallSendMsgSize(cfg.Api.EffectiveGrpcMaxMessageBytes()),
-			),
-		}
-		if cfg.Web.FlowServiceCredentialFile != "" {
-			perRPCCredential, err := credential.File(cfg.Web.FlowServiceCredentialFile)
-			if err != nil {
-				return nil, fmt.Errorf("load Dex Web FlowService credential: %w", err)
-			}
-			dialOptions = append(dialOptions, grpc.WithPerRPCCredentials(perRPCCredential))
-		}
-		connection, err := grpc.NewClient(
-			cfg.GetWebFlowServiceTargetWithDefault(),
-			dialOptions...,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("create Dex Web FlowService client: %w", err)
-		}
-		webConfig := &dexweb.Config{
-			BindAddress:                     cfg.Web.EffectiveBindAddress(),
-			Port:                            cfg.Web.EffectivePort(),
-			FlowRenderingDirectory:          cfg.Web.FlowRenderingDirectory,
-			IsStartFlowWorkerTargetHeadless: cfg.Web.IsStartFlowWorkerTargetHeadless,
-			IsStartFlowWorkerTargetPull:     cfg.Web.IsStartFlowWorkerTargetPull,
-		}
-		webServer, err := dexweb.NewServer(
-			webConfig,
-			dexpb.NewFlowServiceClient(connection),
-			assets.Files,
-		)
-		if err != nil {
-			if closeErr := connection.Close(); closeErr != nil {
-				return nil, errors.Join(err, fmt.Errorf("close Dex Web FlowService connection: %w", closeErr))
-			}
-			return nil, err
-		}
-		serverApplication.webConnection = connection
-		serverApplication.webServer = webServer
-		serverApplication.componentCount++
+		return nil, fmt.Errorf("embedded Dex Web was removed from dex-server; run dex-web separately")
 	}
 	if services.isAPIEnabled || services.isInterpreterEnabled || services.isMatchingEnabled {
 		dexRuntime, err := bootstrap.New(cfg, &bootstrap.Options{
@@ -185,7 +134,7 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 			},
 		})
 		if err != nil {
-			return nil, errors.Join(err, serverApplication.closeWebConnection())
+			return nil, err
 		}
 		serverApplication.dexRuntime = dexRuntime
 		serverApplication.componentCount++
@@ -202,11 +151,6 @@ func (a *application) Run(ctx context.Context) error {
 	if a.dexRuntime != nil {
 		go func() {
 			componentExits <- componentExit{name: "Dex API/Interpreter", err: a.dexRuntime.Run(runCtx)}
-		}()
-	}
-	if a.webServer != nil {
-		go func() {
-			componentExits <- componentExit{name: "Dex Web", err: a.webServer.Run()}
 		}()
 	}
 
@@ -228,11 +172,6 @@ func (a *application) shutdown(
 ) error {
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(runCtx), bootstrap.DefaultShutdownTimeout)
 	defer cancelShutdown()
-	if a.webServer != nil {
-		if err := a.webServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			runErr = errors.Join(runErr, fmt.Errorf("stop Dex Web: %w", err))
-		}
-	}
 	cancelRun()
 	for remainingComponents > 0 {
 		select {
@@ -247,24 +186,11 @@ func (a *application) shutdown(
 			}
 			return errors.Join(
 				runErr,
-				a.closeWebConnection(),
 				fmt.Errorf("stop Dex Server components: %w", shutdownCtx.Err()),
 			)
 		}
 	}
-	return errors.Join(runErr, a.closeWebConnection())
-}
-
-func (a *application) closeWebConnection() error {
-	if a.webConnection == nil {
-		return nil
-	}
-	err := a.webConnection.Close()
-	a.webConnection = nil
-	if err != nil {
-		return fmt.Errorf("close Dex Web FlowService connection: %w", err)
-	}
-	return nil
+	return runErr
 }
 
 func unexpectedComponentExit(exited componentExit) error {

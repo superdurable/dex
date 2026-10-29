@@ -6,7 +6,7 @@ sidebar_label: Dex Web
 # Dex Web
 
 Dex Web has no end-user authentication. When Dex Server **auth** is enabled,
-Web sends its configured **web.flowServiceCredentialFile** bearer credential to
+Web sends its configured **--credential-file** bearer credential to
 FlowService for every request. Anyone who can reach the Web port can act with
 that credential. Protect the Web port with network controls or an
 authenticating proxy. See [server authentication](/production/server-operations#authentication)
@@ -149,26 +149,20 @@ Work Queue does not add login or enforce authorization. **Working as** selects w
 
 ## Run against server-zd {#run-against-server-zd}
 
-[server-zd](/production/server-zd-operations) does not serve Dex Web. A
-web-only Dex Server process serves it instead. Set **web.flowServiceTarget** to
-the server-zd plaintext gRPC address. This process creates no Temporal or
-Cadence connection. When server-zd authentication is on, set
-**web.flowServiceCredentialFile** to a file with a static token or service JWT.
-
-~~~yaml
-web:
-  bindAddress: 0.0.0.0
-  port: 8802
-  flowServiceTarget: dex-server-zd:8801
-  flowServiceCredentialFile: /etc/dex/web-token
-~~~
+[server-zd](/production/server-zd-operations) does not serve Dex Web.
+Run standalone **dex-web** and point **--flow-service-address** at the server-zd
+gRPC address. When server-zd authentication is on, pass **--credential-file**
+with a static token or service JWT. Dex Web also supports TLS for the upstream
+connection through **--tls**, **--tls-ca-file**, and **--tls-server-name**.
 
 ~~~bash
-dex-server --config web-only.yaml start --services web
+dex-web --bind-address 0.0.0.0 --port 8802 \
+  --flow-service-address dex-server-zd:8801 \
+  --credential-file /etc/dex/web-token
 ~~~
 
-For local development, **dexcli dev --engine zd** starts server-zd and Dex Web
-without Temporal. The dexcli release package includes **dex-server-zd**, so a
+For local development, **dexcli dev** starts server-zd and embedded Dex Web.
+**--engine zd** remains accepted for existing scripts. The dexcli release package includes **dex-server-zd**, so a
 Homebrew install of dexcli needs no separate download. To use another
 **dex-server-zd** binary, pass **--zd-binary** or set **DEX_SERVER_ZD_BINARY**.
 Without either, dexcli uses the **dex-server-zd** next to the dexcli executable,

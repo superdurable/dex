@@ -2,13 +2,13 @@ module github.com/superdurable/dex/protos/codec-server
 
 go 1.26.0
 
-replace github.com/superdurable/dex => ../../server
+replace github.com/superdurable/dex/sdk-go => ../../sdk-go
 
 replace go.temporal.io/sdk => github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.3
 
 require (
 	github.com/stretchr/testify v1.11.1
-	github.com/superdurable/dex v0.0.0
+	github.com/superdurable/dex/sdk-go v0.0.0
 	go.temporal.io/api v1.63.4
 	go.temporal.io/sdk v1.47.1-superdurable.3
 	google.golang.org/protobuf v1.36.11

@@ -82,7 +82,7 @@ func TestZDEngineFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Engine != "temporal" {
+	if config.Engine != "zd" {
 		t.Fatalf("default engine = %q", config.Engine)
 	}
 	for _, flagName := range []string{
@@ -98,13 +98,13 @@ func TestZDEngineFlags(t *testing.T) {
 			arguments = []string{"--engine", "zd", "--verbose-engine-log"}
 		}
 		_, err := parseConfig(arguments, &bytes.Buffer{})
-		if err == nil || !strings.Contains(err.Error(), "--"+flagName+" cannot be used with --engine zd") {
+		if err == nil || !strings.Contains(err.Error(), "Temporal engine was removed; server-zd is the only engine") {
 			t.Fatalf("--%s: expected zd incompatibility, got %v", flagName, err)
 		}
 	}
 	for _, arguments := range [][]string{
-		{"--engine", "unknown"}, {"--zd-binary", binary}, {"--zd-data-dir", overrideDirectory}, {"--engine", "zd", "--zd-data-dir", ""},
-		{"--zd-config", zdConfig}, {"--engine", "zd", "--zd-config", ""},
+		{"--engine", "unknown"}, {"--engine", "zd", "--zd-data-dir", ""},
+		{"--engine", "zd", "--zd-config", ""},
 		{"--engine", "zd", "--zd-config", filepath.Join(t.TempDir(), "missing.yaml")}, {"--engine", "zd", "--zd-config", t.TempDir()},
 		{"--engine", "zd", "--attribute-store-config", ""}, {"--engine", "zd", "--attribute-store-config", t.TempDir()},
 		{"--engine", "zd", "--attribute-store-config", filepath.Join(t.TempDir(), "missing.yaml")},

@@ -22,7 +22,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"github.com/superdurable/dex/web"
 	"github.com/superdurable/dex/web/assets"
 )

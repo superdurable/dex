@@ -20,7 +20,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/cli/internal/pointervalue"
 )
 
 const maximumStartInputDepth = 32
@@ -128,7 +128,7 @@ func (analyzer *goAnalyzer) startInputSchema(
 			return StartInputSchema{}, err
 		}
 		return StartInputSchema{
-			Kind: "array", Items: &items, FixedLength: ptr.Any(underlying.Len()),
+			Kind: "array", Items: &items, FixedLength: pointervalue.Pointer(underlying.Len()),
 		}, nil
 	case *types.Map:
 		key, ok := types.Unalias(underlying.Key()).Underlying().(*types.Basic)

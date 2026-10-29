@@ -16,103 +16,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/superdurable/dex/config"
 )
 
-func TestAttributeStoreConfigFlagLoadsStandardDexYAML(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "attribute-store.yaml")
-	contents := []byte(`attributeStore:
-  stores:
-    entityStore:
-      type: postgres
-      dsn: postgres://entity_store:entity_store@localhost:55432/entity_store?sslmode=disable
-      tableName: public.user_profiles
-  syncBatchSize: 25
-`)
-	if err := os.WriteFile(configPath, contents, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cliConfig, err := parseConfig([]string{"--attribute-store-config", configPath}, &bytes.Buffer{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	attributeStore, err := cliConfig.loadAttributeStoreConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if attributeStore.SyncBatchSize != 25 {
-		t.Fatalf("unexpected sync batch size: %d", attributeStore.SyncBatchSize)
-	}
-	store := attributeStore.Stores["entityStore"]
-	if store.Type != config.AttributeStoreTypePostgres ||
-		store.DSN != "postgres://entity_store:entity_store@localhost:55432/entity_store?sslmode=disable" ||
-		store.TableName != "public.user_profiles" {
-		t.Fatalf("unexpected store config: %+v", store)
-	}
-}
-
-func TestAttributeStoreConfigFlagLoadsWarehouseAndMongoDB(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "attribute-store.yaml")
-	contents := []byte(`attributeStore:
-  stores:
-    lakehouse:
-      type: databricks
-      dsn: token:secret@workspace:443/sql/1.0/warehouses/id
-      tableName: analytics.reporting.flow_attributes
-      flowIdColumn: flow_id
-    warehouse:
-      type: snowflake
-      dsn: user:password@account/analytics/reporting
-      tableName: analytics.reporting.flow_attributes
-      flowIdColumn: flow_id
-    documents:
-      type: mongodb
-      dsn: mongodb://localhost:27017
-      databaseName: analytics
-      collectionName: flow_attributes
-`)
-	if err := os.WriteFile(configPath, contents, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cliConfig, err := parseConfig([]string{"--attribute-store-config", configPath}, &bytes.Buffer{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	attributeStore, err := cliConfig.loadAttributeStoreConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if attributeStore.Stores["lakehouse"].FlowIDColumn != "flow_id" ||
-		attributeStore.Stores["warehouse"].Type != config.AttributeStoreTypeSnowflake ||
-		attributeStore.Stores["documents"].CollectionName != "flow_attributes" {
-		t.Fatalf("unexpected Attribute Store config: %+v", attributeStore.Stores)
-	}
-}
-
-func TestAttributeStoreConfigRejectsUnknownFields(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "attribute-store.yaml")
-	if err := os.WriteFile(configPath, []byte("attributeStore:\n  unknown: true\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cliConfig := &Config{AttributeStoreConfigPath: configPath}
-	if _, err := cliConfig.loadAttributeStoreConfig(); err == nil {
-		t.Fatal("expected unknown Attribute Store field to fail")
-	}
-}
-
-func TestAttributeStoreConfigRequiresStore(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "attribute-store.yaml")
-	if err := os.WriteFile(configPath, []byte("attributeStore: {}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cliConfig := &Config{AttributeStoreConfigPath: configPath}
-	if _, err := cliConfig.loadAttributeStoreConfig(); err == nil {
-		t.Fatal("expected empty Attribute Store config to fail")
-	}
-}
-
 func TestServerLogFolderFlag(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
 	directory := filepath.Join(t.TempDir(), "logs")
 	cfg, err := parseConfig([]string{"--server-log-folder", directory}, &bytes.Buffer{})
 	if err != nil {
@@ -124,6 +31,7 @@ func TestServerLogFolderFlag(t *testing.T) {
 }
 
 func TestFlowRenderingDirectoryFlag(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
 	directory := t.TempDir()
 	cfg, err := parseConfig([]string{"--flow-rendering-dir", directory}, &bytes.Buffer{})
 	if err != nil {
@@ -135,6 +43,7 @@ func TestFlowRenderingDirectoryFlag(t *testing.T) {
 }
 
 func TestConnectorConfigDirectoryFlagResolvesAbsolutePath(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
 	directory := filepath.Join("testdata", "connector-secrets")
 	cfg, err := parseConfig([]string{"--connector-config-dir", directory}, &bytes.Buffer{})
 	if err != nil {
@@ -150,6 +59,7 @@ func TestConnectorConfigDirectoryFlagResolvesAbsolutePath(t *testing.T) {
 }
 
 func TestConnectorConfigDirectoryDefaultsUnderDexHome(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
 	cfg, err := parseConfig(nil, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
@@ -165,6 +75,7 @@ func TestConnectorConfigDirectoryDefaultsUnderDexHome(t *testing.T) {
 }
 
 func TestConnectorReleaseOverrideFlagResolvesRepeatableDirectories(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
 	firstDirectory := filepath.Join("testdata", "slack-release")
 	secondDirectory := filepath.Join("testdata", "gmail-release")
 	cfg, err := parseConfig([]string{
@@ -182,6 +93,7 @@ func TestConnectorReleaseOverrideFlagResolvesRepeatableDirectories(t *testing.T)
 }
 
 func TestConnectorReleaseOverrideFlagRejectsInvalidAndDuplicateIDs(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
 	for _, arguments := range [][]string{
 		{"--connector-release-override", "Slack=/tmp/release"},
 		{"--connector-release-override", "slack"},
@@ -193,44 +105,8 @@ func TestConnectorReleaseOverrideFlagRejectsInvalidAndDuplicateIDs(t *testing.T)
 	}
 }
 
-func TestVerboseEngineLogFlag(t *testing.T) {
-	cfg, err := parseConfig([]string{"--verbose-engine-log"}, &bytes.Buffer{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.VerboseEngineLog {
-		t.Fatal("expected verbose engine logs to be enabled")
-	}
-}
-
-func TestVerboseEngineLogRejectedWithExternalAddress(t *testing.T) {
-	_, err := parseConfig([]string{
-		"--external-temporal-address", "127.0.0.1:7233",
-		"--verbose-engine-log",
-	}, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("expected --verbose-engine-log to fail with --external-temporal-address")
-	}
-}
-
-func TestSQLiteDBFilenameRejectedWithExternalAddress(t *testing.T) {
-	_, err := parseConfig([]string{
-		"--external-temporal-address", "127.0.0.1:7233",
-		"--sqlite-db-filename", "dex.sqlite.db",
-	}, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("expected --sqlite-db-filename to fail with --external-temporal-address")
-	}
-}
-
-func TestExternalTemporalNamespaceRequiresAddress(t *testing.T) {
-	_, err := parseConfig([]string{"--external-temporal-namespace", "custom"}, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("expected --external-temporal-namespace to fail without --external-temporal-address")
-	}
-}
-
 func TestHelpListsFlagsInOrder(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", filepath.Join(t.TempDir(), "missing"))
 	var output bytes.Buffer
 	_, err := parseConfig([]string{"-h"}, &output)
 	if err != nil && !errors.Is(err, flag.ErrHelp) {
@@ -256,6 +132,11 @@ func TestHelpListsFlagsInOrder(t *testing.T) {
 		"-temporal-namespace",
 		"-temporal-log-file",
 		"-log-dir",
+		"-external-temporal-address",
+		"-external-temporal-namespace",
+		"-sqlite-db-filename",
+		"-verbose-engine-log",
+		"-blob-store-dir",
 	} {
 		if strings.Contains(text, "  "+name+" ") || strings.Contains(text, "  "+name+"\n") {
 			t.Fatalf("removed flag %s still documented:\n%s", name, text)
@@ -267,6 +148,7 @@ func TestHelpListsFlagsInOrder(t *testing.T) {
 }
 
 func TestOpenBrowserDefaultsTrue(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
 	cfg, err := parseConfig(nil, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
@@ -277,6 +159,7 @@ func TestOpenBrowserDefaultsTrue(t *testing.T) {
 }
 
 func TestOpenFalseDisablesBrowser(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
 	cfg, err := parseConfig([]string{"--open=false"}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
@@ -287,6 +170,7 @@ func TestOpenFalseDisablesBrowser(t *testing.T) {
 }
 
 func TestOpenFalseSeparateTokenIsRejected(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
 	_, err := parseConfig([]string{"--open", "false"}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected --open false to fail")
@@ -294,6 +178,7 @@ func TestOpenFalseSeparateTokenIsRejected(t *testing.T) {
 }
 
 func TestRemovedTemporalPortFlagsAreRejected(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
 	for _, name := range []string{
 		"temporal-port",
 		"temporal-ui-port",
@@ -309,23 +194,17 @@ func TestRemovedTemporalPortFlagsAreRejected(t *testing.T) {
 	}
 }
 
-func TestWriteTemporalStartupRecordIncludesPortsAndDatabase(t *testing.T) {
-	cfg := testConfig(t)
-	cfg.TemporalPort = 7234
-	cfg.TemporalUIPort = 8234
-	cfg.SQLiteDBFilename = filepath.Join(cfg.StateDirectory, "dev", "7234", localSQLiteFileName)
-	var output bytes.Buffer
-	if err := cfg.writeTemporalStartupRecord(&output); err != nil {
+func TestAttributeStoreConfigPathIsPassedToServerZD(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
+	path := filepath.Join(t.TempDir(), "attributes.yaml")
+	if err := os.WriteFile(path, []byte("attributeStore: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	text := output.String()
-	if !strings.Contains(text, "127.0.0.1:7234") {
-		t.Fatalf("missing Temporal gRPC address: %s", text)
+	cfg, err := parseConfig([]string{"--attribute-store-config", "  " + path + "  "}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(text, "http://127.0.0.1:8234") {
-		t.Fatalf("missing Temporal Web address: %s", text)
-	}
-	if !strings.Contains(text, filepath.Join(cfg.StateDirectory, "dev", "7234")) {
-		t.Fatalf("missing Temporal DB directory: %s", text)
+	if cfg.AttributeStoreConfigPath != path {
+		t.Fatalf("Attribute Store path = %q", cfg.AttributeStoreConfigPath)
 	}
 }

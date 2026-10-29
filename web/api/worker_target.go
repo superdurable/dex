@@ -14,7 +14,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 func validateAndRewriteWorkerTarget(target *dexpb.WorkerTarget) (*dexpb.WorkerTarget, error) {

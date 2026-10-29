@@ -152,7 +152,6 @@ idl-code-gen-server: # server rewrite: regenerate only server/gen/dexpb (leave S
 bins: $(BINS)
 
 serverCommandIntegTests:
-	@cd ../web && npm ci && npm run build
 	@cd cmd/server && go test -tags=integration ./... -count=1 -v
 
 clean: ## Clean binaries and build folder

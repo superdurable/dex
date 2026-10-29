@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"github.com/superdurable/dex/web/api"
 	"google.golang.org/protobuf/types/known/emptypb"
 )

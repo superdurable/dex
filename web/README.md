@@ -83,7 +83,7 @@ credential to a remote FlowService to protect the bearer token in transit.
 POST, PUT, PATCH, and DELETE requests under `/api/` require
 `Content-Type: application/json`; a missing or different media type returns HTTP
 415. Cross-origin browser requests return HTTP 403. These requirements apply to
-standalone Dex Web, the Go Server's embedded Web, and `dexcli dev`, including
+standalone Dex Web and `dexcli dev`, including
 Flow search. Non-browser clients without `Origin` and `Sec-Fetch-Site` headers
 are accepted when they send JSON. When using `curl -d`, add
 `-H 'Content-Type: application/json'`.
@@ -122,11 +122,10 @@ permissions that allow that UID to read them. Main publishes
 source, shared renderer, or protobuf dependency changes. `--version` reports the
 build version.
 
-The Web bridge and command have no imports of server runtime helpers. They
-currently retain `github.com/superdurable/dex/gen/dexpb` and the server module
-replacement solely for generated FlowService types. The protobuf import moves
-to `sdk-go/gen/dexpb` atomically with the CLI migration: linking both generated
-copies of `dex.proto` into the existing embedded CLI would fail at startup.
+The Web bridge and command use `sdk-go/gen/dexpb` for generated FlowService
+types and have no dependency on the Go Server module. CLI and Codec Server use
+the same protobuf package so a dexcli process registers `dex.proto` once.
+The legacy Go Server no longer embeds Web; run `dex-web` separately.
 Standalone mode leaves local Connector setup disabled; use `dexcli dev` for
 that local development workflow.
 
@@ -593,18 +592,12 @@ confirmation again.
 
 ## Run through the Dex Server image
 
-The `dex-server` Docker image embeds these production assets and starts Dex Web,
-API, and Interpreter in one process by default. It listens for Web traffic on
-port 8802 and FlowService traffic on port 8801.
+The legacy `dex-server` image no longer embeds Dex Web. Use the standalone
+`dex-web` binary or `superdurable/dex-web` image described above, alongside the
+API service. Pass `--flow-service-address` or `DEX_WEB_FLOW_SERVICE_ADDRESS`
+to select that service.
 
-Run only Web when it needs to scale independently:
-
-```bash
-docker run IMAGE --services web
-```
-
-Set `web.flowServiceTarget` in the mounted server YAML to the API service
-address. Web starts even when that upstream is unavailable. `/healthz` reports
+Web starts even when that upstream is unavailable. `/healthz` reports
 process liveness. `/readyz` validates the current definition snapshot and a
 FlowService search, returning `definitionRevision`, source, and definition
 count; `/api/*` returns an upstream error until FlowService is available.
@@ -614,21 +607,13 @@ keeps the search, because its `HealthCheck` does not reach Temporal or Cadence.
 
 ### Run against server-zd
 
-Web-only `dex-server` also serves Dex Web for server-zd. Point
-`web.flowServiceTarget` at the server-zd plaintext gRPC address. No Temporal or
-Cadence connection is created in this mode.
-
-```yaml
-web:
-  bindAddress: 0.0.0.0
-  port: 8802
-  flowServiceTarget: dex-server-zd:8801
-  # When server-zd authentication is on, supply a static token or service JWT.
-  flowServiceCredentialFile: /etc/dex/web-token
-```
+Run standalone `dex-web` against server-zd. Supply `--credential-file` when
+server-zd authentication requires a static token or service JWT:
 
 ```bash
-dex-server --config web-only.yaml start --services web
+dex-web --bind-address 0.0.0.0 --port 8802 \
+  --flow-service-address dex-server-zd:8801 \
+  --credential-file /etc/dex/web-token
 ```
 
 Dex Web reads `GetServerInfo` and reports the engine as `serverEngine` in

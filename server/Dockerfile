@@ -1,20 +1,8 @@
-FROM node:22-bookworm AS web-builder
-
-WORKDIR /src
-COPY web/package.json web/package-lock.json web/
-COPY packages/flow-definition-renderer/package.json packages/flow-definition-renderer/
-RUN cd web && npm ci
-COPY web/ web/
-COPY packages/flow-definition-renderer/ packages/flow-definition-renderer/
-RUN cd web && npm run build
-
 FROM golang:latest AS server-builder
 
 ARG SERVER_VERSION=dev
 WORKDIR /src
 COPY server/ server/
-COPY web/ web/
-COPY --from=web-builder /src/web/assets/dist/ web/assets/dist/
 RUN cd server/cmd/server && CGO_ENABLED=0 go build -trimpath \
     -ldflags "-X github.com/superdurable/dex/service.DexServerVersion=${SERVER_VERSION}" \
     -o /dex-server .
@@ -41,5 +29,5 @@ COPY server/LICENSES/ /dex/LICENSES/
 RUN chmod +x /dex/script/start-server.sh
 
 WORKDIR /dex
-EXPOSE 8801 8802
+EXPOSE 8801
 ENTRYPOINT ["/dex/script/start-server.sh"]
