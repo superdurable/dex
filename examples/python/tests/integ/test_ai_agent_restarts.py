@@ -41,7 +41,7 @@ from tests.integ.flow_smoke_helper import dexcli_path, run_dexcli_json
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import ExamplesConfig
-from dex_examples.products.ai_agent.ai_agent_flow import AIAgentFlow
+from dex_examples.products.ai_agent.ai_agent_flow import STATUS_WAITING, AIAgentFlow
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
     AgentDescription,
@@ -141,8 +141,11 @@ async def test_ai_agent_resumes_every_wait_after_its_engine_and_worker_are_kille
         agent_stack,
         input_flow,
         "draft plan",
+        # execute_plan accepts a plan only after the turn ends and the agent waits again.
         lambda description: description.plan
-        if description.plan is not None and description.plan["status"] == "draft"
+        if description.plan is not None
+        and description.plan["status"] == "draft"
+        and description.status == STATUS_WAITING
         else None,
     )
     assert await client.invoke_rpc(
