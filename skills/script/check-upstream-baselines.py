@@ -261,8 +261,30 @@ def check_go_server_retry_locks(checkout: Path, tag: str) -> None:
             f"i.activities.I{method}M,",
             RETRY_LOCK_UNLOCK,
         ))
-        if RETRY_LOCK_UNLOCK in function[positions[0] : positions[-1]]:
+        activity_open = positions[3] + len("provider.ExecuteActivity(") - 1
+        activity_end = closing_parenthesis(function, activity_open, location, declaration)
+        if RETRY_LOCK_UNLOCK in function[positions[0] : activity_end + 1]:
             fail(f"{location} function `{declaration}` unlocks {method} Attribute locks before its method activity returns")
+
+
+def closing_parenthesis(block: str, opening: int, location: str, declaration: str) -> int:
+    """Returns the index of the parenthesis that closes the one at opening, ignoring Go string literals."""
+    depth = 0
+    index = opening
+    while index < len(block):
+        character = block[index]
+        if character in "\"`":
+            index = block.find(character, index + 1)
+            if index < 0:
+                break
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    fail(f"{location} function `{declaration}` has an unclosed provider.ExecuteActivity call")
 
 
 def require_ordered_text(block: str, location: str, declaration: str, needles: tuple[str, ...]) -> list[int]:
