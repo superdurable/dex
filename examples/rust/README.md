@@ -121,8 +121,8 @@ The integration script starts the current checkout's `dexcli dev`, then starts
 and verifies Money Transfer, Engagement, Microservice, Subscription,
 Deal DSL, and Failure Recovery Flows through the published Rust SDK.
 
-All tests use pull Workers. Set `DEX_INTEG_ENGINE=zd` to run them against
-server-zd. Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
+All tests use server-zd and pull Workers. `DEX_INTEG_ENGINE=zd` remains accepted.
+Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running
 after E2E tests for manual HTTP exploration.

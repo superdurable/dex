@@ -59,7 +59,7 @@ Run the integration suite against an isolated `dexcli dev` environment:
 ./run-integration-tests.sh
 ```
 
-The tests use pull Workers. Set `DEX_INTEG_ENGINE=zd` to run them against server-zd. Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
+The tests use server-zd and pull Workers. `DEX_INTEG_ENGINE=zd` remains accepted. Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 Examples catch concrete types from `io.superdurable.dex.exceptions`.
 `FlowNotFoundException` is for read operations with no matching execution;

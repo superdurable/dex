@@ -32,7 +32,6 @@ import {
   triggerGet,
   triggerPost,
 } from "./flow-smoke-helper.js";
-import { skipWhenServerZd } from "../server-zd.js";
 
 let server: SampleServer;
 let context: FlowSmokeContext;
@@ -418,11 +417,7 @@ test("flow smoke catalog size", () => {
 
 test("flow smoke all registered flows via controller", async (t) => {
   for (const entry of flowSmokeCatalog()) {
-    const skipReason =
-      entry.serverZdUnsupportedFeature === undefined
-        ? false
-        : skipWhenServerZd(entry.serverZdUnsupportedFeature);
-    await t.test(entry.name, { skip: skipReason }, async () => {
+    await t.test(entry.name, async () => {
       try {
         const result = await entry.trigger(context);
         assert.ok(result.flowId, `${entry.name}: controller response did not include flowID`);

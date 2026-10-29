@@ -23,18 +23,6 @@ use tokio::runtime::Runtime;
 
 static SERVER_ENGINE: OnceLock<ServerEngine> = OnceLock::new();
 
-#[expect(
-    clippy::print_stdout,
-    reason = "Rust integration tests have no skip API"
-)]
-pub(crate) fn skip_if_server_zd(feature: &str) -> bool {
-    if !is_server_zd() {
-        return false;
-    }
-    println!("server-zd does not support {feature}");
-    true
-}
-
 pub(crate) fn is_server_zd() -> bool {
     let server_engine = SERVER_ENGINE.get_or_init(|| {
         let server_address =

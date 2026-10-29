@@ -42,13 +42,64 @@ jobs:
               - '.github/workflows/server-all-in-one-ci.yml'
             sdk_go:
               - 'sdk-go/**'
+              - 'blob-cache-go/**'
               - 'protos/**'
+              - 'server-zd/**'
+              - 's3mock/**'
+              - 'cli/**'
+              - 'web/**'
               - 'go.work'
               - 'go.work.sum'
+              - 'codecov.yml'
               - '.github/workflows/sdk-go-ci.yml'
             sdk_rust:
               - 'sdk-rust/**'
+              - 'cli/**'
+              - 'server-zd/**'
+              - 's3mock/**'
+              - 'protos/**'
+              - 'web/**'
+              - 'codecov.yml'
               - '.github/workflows/sdk-rust-ci.yml'
+            sdk_java:
+              - 'sdk-java/**'
+              - 'sdk-rust/Cargo.lock'
+              - 'sdk-rust/Cargo.toml'
+              - 'sdk-rust/crates/dex-blob-cache/**'
+              - 'sdk-rust/crates/dex-blob-cache-jni/**'
+              - 'cli/**'
+              - 'server-zd/**'
+              - 's3mock/**'
+              - 'protos/**'
+              - 'codecov.yml'
+              - '.github/workflows/sdk-java-ci.yml'
+              - '.github/workflows/sdk-java-publish.yml'
+            sdk_python:
+              - 'sdk-python/**'
+              - 'sdk-rust/Cargo.lock'
+              - 'sdk-rust/Cargo.toml'
+              - 'sdk-rust/crates/dex-blob-cache/**'
+              - 'sdk-rust/crates/dex-blob-cache-python/**'
+              - 'cli/**'
+              - 'server-zd/**'
+              - 's3mock/**'
+              - 'web/**'
+              - 'protos/**'
+              - 'codecov.yml'
+              - '.github/workflows/sdk-python-ci.yml'
+            sdk_typescript:
+              - 'sdk-typescript/**'
+              - 'sdk-rust/Cargo.lock'
+              - 'sdk-rust/Cargo.toml'
+              - 'sdk-rust/crates/dex-blob-cache/**'
+              - 'sdk-rust/crates/dex-blob-cache-node/**'
+              - 'cli/**'
+              - 'server-zd/**'
+              - 's3mock/**'
+              - 'protos/**'
+              - 'web/**'
+              - '.github/workflows/sdk-typescript-ci.yml'
+              - '.github/workflows/sdk-typescript-publish.yml'
             rust_rules:
               - '**/*.rs'
               - '**/Cargo.toml'
@@ -178,6 +229,9 @@ jobs:
           FILTER_SERVER_ALL_IN_ONE: ${{ steps.filter.outputs.server_all_in_one }}
           FILTER_SDK_GO: ${{ steps.filter.outputs.sdk_go }}
           FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
+          FILTER_SDK_JAVA: ${{ steps.filter.outputs.sdk_java }}
+          FILTER_SDK_PYTHON: ${{ steps.filter.outputs.sdk_python }}
+          FILTER_SDK_TYPESCRIPT: ${{ steps.filter.outputs.sdk_typescript }}
           FILTER_RUST_RULES: ${{ steps.filter.outputs.rust_rules }}
           FILTER_WEB: ${{ steps.filter.outputs.web }}
           FILTER_EXAMPLES_GO: ${{ steps.filter.outputs.examples_go }}
@@ -233,6 +287,9 @@ jobs:
             [[ "$FILTER_SERVER_ALL_IN_ONE" == "true" ]] && expected+=("Server All-in-One CI")
             [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
             [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
+            [[ "$FILTER_SDK_JAVA" == "true" ]] && expected+=("Java SDK CI")
+            [[ "$FILTER_SDK_PYTHON" == "true" ]] && expected+=("Python SDK CI")
+            [[ "$FILTER_SDK_TYPESCRIPT" == "true" ]] && expected+=("TypeScript SDK CI")
             [[ "$FILTER_RUST_RULES" == "true" ]] && expected+=("Rust Rules CI")
             [[ "$FILTER_WEB" == "true" ]] && expected+=("Web CI")
             [[ "$FILTER_EXAMPLES_GO" == "true" ]] && expected+=("Go examples CI")

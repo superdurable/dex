@@ -11,6 +11,8 @@
 import time
 from datetime import timedelta
 
+import pytest
+
 from dex import (
     DexServiceError,
     FlowConfig,
@@ -27,7 +29,6 @@ from dex import (
 from .abnormal_exit_flow import AbnormalExitFlow
 from .basic_flow import BasicFlow
 from .environment import DexDevTestEnvironment
-from .flow_service_client import skip_if_server_zd
 from .shared import unique_id
 from .subflow_flow import (
     AllSubFlowParent,
@@ -128,9 +129,9 @@ def test_subflow_default_reuse_restarts_failed_execution_across_parent_reset() -
         assert environment.client.describe_flow(child_id).run_id != first_run_id
 
 
+@pytest.mark.skip(reason="server-zd never continues a run as new")
 def test_subflow_partial_results_survive_continue_as_new_without_restart() -> None:
     # C3: server-zd never continues a run as new.
-    skip_if_server_zd("Continue-As-New")
     completed = BasicFlow()
     delayed = TimerFlow()
     parent = ContinueAsNewSubFlowParent(completed, delayed)

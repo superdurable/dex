@@ -52,12 +52,6 @@ def server_address() -> str:
     return os.environ.get("DEX_FLOW_SERVICE_ADDRESS", DEFAULT_SERVER_ADDRESS)
 
 
-def skip_when_server_zd(feature: str) -> None:
-    """Skips a test whose sample uses a feature that server-zd rejects."""
-    if os.environ.get("DEX_INTEG_ENGINE") == "zd":
-        pytest.skip(f"server-zd does not support {feature}")
-
-
 @pytest_asyncio.fixture(scope="session")
 async def example_app(
     tmp_path_factory: pytest.TempPathFactory,

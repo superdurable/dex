@@ -7,7 +7,8 @@ on:
       - "sdk-go/**"
       - "blob-cache-go/**"
       - "protos/**"
-      - "server/**"
+      - "server-zd/**"
+      - "s3mock/**"
       - "cli/**"
       - "web/**"
       - "go.work"
@@ -19,7 +20,8 @@ on:
       - "sdk-go/**"
       - "blob-cache-go/**"
       - "protos/**"
-      - "server/**"
+      - "server-zd/**"
+      - "s3mock/**"
       - "cli/**"
       - "web/**"
       - "go.work"
@@ -90,17 +92,37 @@ jobs:
         run: make clientIntegTests
 
   e2e:
-    name: Integration coverage (pull)
+    name: Integration coverage (zd, pull)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
+    env:
+      DEX_INTEG_ENGINE: zd
+      DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+      RUSTUP_TOOLCHAIN: "1.97.1"
+      CARGO_BUILD_JOBS: "4"
     defaults:
       run:
         working-directory: sdk-go
     steps:
       - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for RocksDB
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-paradedb
+          save-if: false
+      - name: Build dex-server-zd
+        working-directory: server-zd
+        run: cargo build --locked -p dexzd-server --bin dex-server-zd
       - uses: actions/setup-go@v7
         with:
           go-version: "1.26.x"
@@ -114,8 +136,6 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Install Temporal CLI runtime for dexcli dev
-        uses: temporalio/setup-temporal@v0
       - name: Run integration coverage with dexcli dev
         run: ./run-e2e-tests.sh --coverage
       - name: Upload Go coverage to Codecov

@@ -13,7 +13,6 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TestContext } from "node:test";
 
 import { credentials } from "@grpc/grpc-js";
 
@@ -32,13 +31,6 @@ import { FlowServiceClient, ServerEngine } from "../../src/gen/dex.js";
 
 let serverEnginePromise: Promise<ServerEngine> | undefined;
 
-export async function skipIfServerZD(context: TestContext, feature: string): Promise<boolean> {
-  if (!await isServerZD()) {
-    return false;
-  }
-  context.skip(`server-zd does not support ${feature}`);
-  return true;
-}
 
 export async function isServerZD(): Promise<boolean> {
   serverEnginePromise ??= fetchServerEngine();

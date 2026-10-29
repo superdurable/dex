@@ -26,9 +26,9 @@ if [[ "$#" -ne 0 ]]; then
   exit 2
 fi
 
-export DEX_INTEG_ENGINE="${DEX_INTEG_ENGINE:-temporal}"
-if [[ "$DEX_INTEG_ENGINE" != temporal && "$DEX_INTEG_ENGINE" != zd ]]; then
-  echo "DEX_INTEG_ENGINE must be temporal or zd" >&2
+export DEX_INTEG_ENGINE="${DEX_INTEG_ENGINE:-zd}"
+if [[ "$DEX_INTEG_ENGINE" != zd ]]; then
+  echo "DEX_INTEG_ENGINE must be zd" >&2
   exit 2
 fi
 
@@ -97,15 +97,11 @@ dev_args=(
   -open=false
   -flow-rendering-dir "$test_dir/definitions"
 )
-if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
-  if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
-    (cd "$repo_root" && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
-    DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
-  fi
-  dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
-else
-  dev_args+=(-sqlite-db-filename "$test_dir/temporal.db")
+if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
+  (cd "$repo_root" && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
+  DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
+dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
 mkdir -p "$test_dir/definitions"
 for flow_package in webv2approval webv2reply; do
   ../cli/dexcli visualize "integ/$flow_package/workflow.go" \

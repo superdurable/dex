@@ -534,9 +534,6 @@ func TestFlowSmokeAllRegisteredFlowsViaController(t *testing.T) {
 	for _, entry := range flowSmokeCatalog() {
 		entry := entry
 		t.Run(entry.name, func(t *testing.T) {
-			if entry.serverZDUnsupportedFeature != "" {
-				skipWhenServerZD(t, entry.serverZDUnsupportedFeature)
-			}
 			flowID, runID := entry.trigger(t)
 			requireFlowSmokeIDs(t, entry.name, flowID)
 			assertFlowSmokeStartStep(t, entry, flowID, runID)

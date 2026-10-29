@@ -76,10 +76,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [temporal, zd]
+        engine: [zd]
     env:
       DEX_INTEG_ENGINE: ${{ matrix.engine }}
-      DEX_SERVER_ZD_BINARY: ${{ matrix.engine == 'zd' && format('{0}/server-zd/target/debug/dex-server-zd', github.workspace) || '' }}
+      DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
       # These CARGO_* and RUST* values match Server ZD CI, so its main cache restores here.
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: "0"
@@ -92,20 +92,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        if: matrix.engine == 'zd'
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for RocksDB
-        if: matrix.engine == 'zd'
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
       - uses: Swatinem/rust-cache@v2
-        if: matrix.engine == 'zd'
         with:
           workspaces: server-zd
           shared-key: server-zd-paradedb
           # Restore-only: the Server ZD CI ParadeDB job owns this key.
           save-if: false
       - name: Build dex-server-zd
-        if: matrix.engine == 'zd'
         working-directory: server-zd
         run: cargo build --locked -p dexzd-server --bin dex-server-zd
       - uses: actions/setup-go@v7
@@ -117,9 +113,6 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Install Temporal CLI runtime for dexcli dev
-        if: matrix.engine == 'temporal'
-        uses: temporalio/setup-temporal@v0
       - name: End-to-end tests
         run: make e2eTests
       - name: Upload service logs

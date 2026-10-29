@@ -16,7 +16,6 @@ from functools import cache
 from typing import cast
 
 import grpc
-import pytest
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc as pb_grpc
 from google.protobuf.empty_pb2 import Empty
@@ -30,11 +29,6 @@ def flow_service_client() -> pb_grpc.FlowServiceStub:
 
 def is_server_zd() -> bool:
     return _server_engine() == pb.SERVER_ENGINE_ZD
-
-
-def skip_if_server_zd(feature: str) -> None:
-    if is_server_zd():
-        pytest.skip(f"server-zd does not support {feature}")
 
 
 @cache

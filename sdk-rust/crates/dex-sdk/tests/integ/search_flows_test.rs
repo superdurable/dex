@@ -16,7 +16,7 @@ use dex_sdk::{
 use serde_json::Value as JsonValue;
 
 use crate::search_flows_workflow::SearchFlowsWorkflow;
-use crate::support::{DexDevTestEnvironment, flow_id, skip_if_server_zd};
+use crate::support::{DexDevTestEnvironment, flow_id, is_server_zd};
 
 #[test]
 #[ignore = "requires dexcli dev"]
@@ -69,7 +69,7 @@ fn test_search_flows_finds_indexed_flow() {
     };
     let chain_query = format!("WorkflowId = '{flow_id}'");
     // C3: server-zd never continues a run as new.
-    if !skip_if_server_zd("Continue-As-New") {
+    if !is_server_zd() {
         let deadline = Instant::now() + Duration::from_secs(30);
         let all_runs = loop {
             let page = environment

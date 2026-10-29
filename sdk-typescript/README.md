@@ -719,7 +719,9 @@ enum value, type parameter, input, and output; generated sources are excluded.
 The comments appear in TypeScript language-service and IDE hovers.
 
 Run `./run-integration-tests.sh` for all 58 IWF
-compatibility scenarios against an isolated `dexcli dev` environment. After
+compatibility scenarios against an isolated server-zd `dexcli dev` environment.
+`DEX_INTEG_ENGINE=zd` remains accepted. Set `DEX_SERVER_ZD_BINARY` to reuse a
+built `dex-server-zd`. After
 changing `protos/dex.proto`, run `make generated-code` from the repository root
 and commit every server and SDK output.
 

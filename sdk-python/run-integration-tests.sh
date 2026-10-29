@@ -10,10 +10,10 @@
 
 set -euo pipefail
 
-export DEX_INTEG_ENGINE="${DEX_INTEG_ENGINE:-temporal}"
+export DEX_INTEG_ENGINE="${DEX_INTEG_ENGINE:-zd}"
 case "$DEX_INTEG_ENGINE" in
-  temporal|zd) ;;
-  *) echo "DEX_INTEG_ENGINE must be temporal or zd" >&2; exit 2 ;;
+  zd) ;;
+  *) echo "DEX_INTEG_ENGINE must be zd" >&2; exit 2 ;;
 esac
 
 pytest_args=(-q)
@@ -76,15 +76,11 @@ dev_args=(
   -web-port "$web_port"
   -open=false
 )
-if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
-  if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
-    (cd "$repo_root" && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
-    DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
-  fi
-  dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
-else
-  dev_args+=(-sqlite-db-filename "$test_dir/temporal.db")
+if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
+  (cd "$repo_root" && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
+  DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
+dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
 
 "$binary_dir/dexcli" dev "${dev_args[@]}" >>"$log_file" 2>&1 &
 dexcli_pid=$!

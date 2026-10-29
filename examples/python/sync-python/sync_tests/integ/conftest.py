@@ -59,12 +59,6 @@ def sync_app(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SyncExampleAp
         app.close()
 
 
-def skip_when_server_zd(feature: str) -> None:
-    """Skips a test whose sample uses a feature that server-zd rejects."""
-    if os.environ.get("DEX_INTEG_ENGINE") == "zd":
-        pytest.skip(f"server-zd does not support {feature}")
-
-
 @pytest.fixture(scope="session")
 def app(sync_app: SyncExampleApp) -> SyncExampleApp:
     return sync_app

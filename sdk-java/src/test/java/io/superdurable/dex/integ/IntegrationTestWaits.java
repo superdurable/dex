@@ -21,7 +21,6 @@ import io.superdurable.dex.TimerId;
 import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.ServerEngine;
-import org.junit.jupiter.api.Assumptions;
 
 import java.time.Duration;
 
@@ -31,11 +30,6 @@ final class IntegrationTestWaits {
     private IntegrationTestWaits() {
     }
 
-    static void skipIfServerZD(final String feature) {
-        Assumptions.assumeFalse(
-                isServerZD(),
-                "server-zd does not support " + feature);
-    }
 
     static boolean isServerZD() {
         return SERVER_ENGINE == ServerEngine.SERVER_ENGINE_ZD;

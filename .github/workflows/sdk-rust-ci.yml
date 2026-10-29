@@ -6,7 +6,8 @@ on:
     paths:
       - "sdk-rust/**"
       - "cli/**"
-      - "server/**"
+      - "server-zd/**"
+      - "s3mock/**"
       - "protos/**"
       - "web/**"
       - "codecov.yml"
@@ -15,7 +16,8 @@ on:
     paths:
       - "sdk-rust/**"
       - "cli/**"
-      - "server/**"
+      - "server-zd/**"
+      - "s3mock/**"
       - "protos/**"
       - "web/**"
       - "codecov.yml"
@@ -72,17 +74,37 @@ jobs:
         run: cargo test --workspace --locked
 
   integration:
-    name: Integration coverage (pull)
+    name: Integration coverage (zd, pull)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
+    env:
+      DEX_INTEG_ENGINE: zd
+      DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+      RUSTUP_TOOLCHAIN: "1.97.1"
+      CARGO_BUILD_JOBS: "4"
     defaults:
       run:
         working-directory: sdk-rust
     steps:
       - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for RocksDB
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-paradedb
+          save-if: false
+      - name: Build dex-server-zd
+        working-directory: server-zd
+        run: cargo build --locked -p dexzd-server --bin dex-server-zd
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -95,10 +117,6 @@ jobs:
             cli/go.sum
             server/go.sum
             web/go.sum
-      - name: Install Temporal CLI runtime for dexcli dev
-        uses: temporalio/setup-temporal@v0
-      - name: Install Rust
-        run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Run integration coverage

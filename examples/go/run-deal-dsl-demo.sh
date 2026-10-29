@@ -54,7 +54,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for command_name in docker temporal curl jq; do
+for command_name in docker cargo curl jq; do
   if ! command -v "$command_name" >/dev/null; then
     echo "$command_name is required" >&2
     exit 1
@@ -68,6 +68,10 @@ DEAL_DSL_POSTGRES_PORT="$postgres_port" docker compose \
 
 make -C ../../cli build
 make bins
+if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
+  (cd ../.. && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
+  DEX_SERVER_ZD_BINARY="$(cd ../.. && pwd)/server-zd/target/release/dex-server-zd"
+fi
 mkdir -p "$log_dir"
 : >"$dex_log"
 : >"$app_log"
@@ -76,7 +80,9 @@ mkdir -p "$log_dir"
   -dex-port "$dex_port" \
   -web-port "$dex_web_port" \
   -open=false \
-  -sqlite-db-filename "$test_dir/temporal.db" \
+  -engine zd \
+  -zd-binary "$DEX_SERVER_ZD_BINARY" \
+  -zd-data-dir "$test_dir/zd" \
   >>"$dex_log" 2>&1 &
 dexcli_pid=$!
 

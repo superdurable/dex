@@ -636,11 +636,12 @@ Run the SDK integration suite against a fresh local `dexcli dev` stack:
 
 ```bash
 ./run-integration-tests.sh
-DEX_INTEG_ENGINE=zd ./run-integration-tests.sh
 ```
 
 The script creates its own Dex environment, ports, and BlobCache directory,
-then removes the temporary state. Both engines use pull Workers. Each Worker
+then removes the temporary state. It uses server-zd and pull Workers.
+`DEX_INTEG_ENGINE=zd` remains accepted. Set `DEX_SERVER_ZD_BINARY` to reuse a
+built `dex-server-zd`. Each Worker
 synchronizes its registered Indexed Attributes before serving; failure or the default two-minute deadline aborts startup.
 
 ### Measure integration coverage
@@ -659,8 +660,7 @@ data. Test sources and dependencies are excluded from the report by
 
 The LCOV report is written to `coverage/lcov.info`, and the browser report
 starts at `coverage/html/index.html`. CI uploads the LCOV report with the
-engine-specific `sdk-rust-integration-temporal` or `sdk-rust-integration-zd` flag
-and retains each report as an engine-specific Actions artifact.
+`sdk-rust-integration-pull` flag and retains the report as an Actions artifact.
 
 ## Releases
 

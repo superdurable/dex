@@ -16,7 +16,6 @@
 
 package io.superdurable.dex.integ.smoke;
 
-import io.superdurable.dex.integ.ServerZDSkips;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,9 +40,6 @@ public class FlowSmokeTest {
 
     private static void runFlowSmokeEntry(
             final FlowSmokeEnvironment environment, final FlowSmokeEntry entry) throws Exception {
-        if (!entry.serverZDUnsupportedFeature.isEmpty()) {
-            ServerZDSkips.skipWhenServerZD(entry.serverZDUnsupportedFeature);
-        }
         final FlowSmokeTriggerResult result = entry.trigger.trigger(environment);
         if (result.flowId == null || result.flowId.isEmpty()) {
             throw new AssertionError(entry.name + ": controller response did not include flowID");
