@@ -1460,6 +1460,18 @@ class GoServerRetryLocksTest(unittest.TestCase):
                 mutated = replace_in_function(self.source, declaration, activity, self.UNLOCK + "\t" + activity)
                 self.assert_mutation_fails(mutated, f"function `{declaration}`", f"unlocks {method} Attribute locks before")
 
+    def test_activity_scan_skips_go_strings_runes_and_comments(self):
+        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
+            for decoy in ('")\\")",', "')',", "/* ) */", "// )\n", "`)`,"):
+                with self.subTest(method=method, decoy=decoy):
+                    argument = f"i.activities.I{method}M,"
+                    mutated = replace_in_function(
+                        self.source, declaration, argument,
+                        argument + " " + decoy + " " + self.UNLOCK.strip() + ",",
+                    )
+                    self.assertNotEqual(mutated, self.source)
+                    self.assert_mutation_fails(mutated, f"function `{declaration}`", f"unlocks {method} Attribute locks before")
+
     def test_each_method_must_not_unlock_inside_its_activity_arguments(self):
         for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
             with self.subTest(method=method):

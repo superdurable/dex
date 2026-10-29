@@ -268,14 +268,29 @@ def check_go_server_retry_locks(checkout: Path, tag: str) -> None:
 
 
 def closing_parenthesis(block: str, opening: int, location: str, declaration: str) -> int:
-    """Returns the index of the parenthesis that closes the one at opening, ignoring Go string literals."""
+    """Returns the index of the parenthesis that closes the one at opening, skipping Go strings, runes, and comments."""
     depth = 0
     index = opening
     while index < len(block):
         character = block[index]
-        if character in "\"`":
-            index = block.find(character, index + 1)
-            if index < 0:
+        if block.startswith("//", index):
+            newline = block.find("\n", index)
+            index = len(block) if newline < 0 else newline
+        elif block.startswith("/*", index):
+            close = block.find("*/", index + 2)
+            if close < 0:
+                break
+            index = close + 1
+        elif character == "`":
+            close = block.find("`", index + 1)
+            if close < 0:
+                break
+            index = close
+        elif character in "\"'":
+            index += 1
+            while index < len(block) and block[index] != character:
+                index += 2 if block[index] == "\\" else 1
+            if index >= len(block):
                 break
         elif character == "(":
             depth += 1
