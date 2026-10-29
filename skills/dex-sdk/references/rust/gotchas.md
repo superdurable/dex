@@ -53,7 +53,3 @@ From Rust SDK v1.16.0, Worker errors and warnings go to the **tracing** crate, n
 ## No unverified API invention
 
 If a desired Rust feature is absent from the pinned examples and matching SDK source, say so and link the closest supported primitive. In particular, do not translate a Python coroutine shape or Java annotation literally into Rust.
-
-## Temporal Cloud indexes
-
-Temporal Cloud API-key deployments require externally provisioned indexes and `attributeIndexesManagedExternally: true`.

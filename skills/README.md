@@ -288,8 +288,8 @@ The project dependency and lockfile remain authoritative when versions differ.
 ## Dex App Builder
 
 `dex-app-builder` builds a Dex application with open-source Dex only: the Dex
-Go SDK, `dexcli` (including `dexcli dev` and the FDG analyzer), Dex Server,
-the Dex Web embedded in Server and CLI, and released official connectors.
+Go SDK, `dexcli` (including `dexcli dev` and the FDG analyzer), Dex Server
+(server-zd), Dex Web, and released official connectors.
 
 It starts with business discovery: process maintainers, managers, terminal
 users, permissions, triggers, actions, waits, approvals, recovery, and audit
@@ -307,8 +307,8 @@ An existing application keeps its pinned Go, Dex SDK, `dexcli`, and frontend
 versions. An effectively empty repository becomes a Go module on an exact
 released Dex Go SDK paired with the installed `dexcli`. App Builder does not
 invent a TypeScript backend or borrow SDK setup from a neighboring project.
-The `DEX_BASELINE`, `DEX_SERVER_BASELINE`, and `DEX_CLI_BASELINE` files record
-the releases the guidance was checked against; they do not authorize upgrading
+The `DEX_BASELINE`, `DEX_SERVER_BASELINE`, `DEX_CLI_BASELINE`, and
+`DEX_WEB_BASELINE` files record the releases the guidance was checked against; they do not authorize upgrading
 an application.
 
 No custom UI uses Dex Web v2 for every management interaction, so the

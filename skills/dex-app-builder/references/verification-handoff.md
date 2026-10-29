@@ -60,15 +60,16 @@ Verify on the long-lived `dexcli dev` stack started during implementation:
 **Working as** filters work during local development; it does not
 authenticate a user or grant permission.
 
-The default `dexcli dev` engine is Temporal. When the application targets
-server-zd, verify on `dexcli dev --engine zd` instead, which needs a
-`dex-server-zd` binary from a server-zd release and accepts `--zd-config` for
-server-zd overrides. Follow the [server-zd flags](../../dex-sdk/references/core/operations.md#server-zd).
-server-zd dispatches only to pull Workers, so run the Worker in pull mode;
-**Start Flow** offers only **Pull Worker** there. Step failure policies need
-server-zd v0.1.2 or later. After an authorized time
-travel, record the run attempt with the Run ID, because the Run ID stays the
-same; see [Dex Web with server-zd](dex-web-v2.md#dex-web-with-server-zd).
+`dexcli dev` runs only server-zd, from the `dex-server-zd` binary bundled in the
+`dexcli` release package. It accepts `--zd-binary`, `--zd-data-dir`, and
+`--zd-config` for server-zd overrides; `--engine zd` is accepted and has no
+effect, and `--engine temporal` and the Temporal flags fail with an error.
+Follow the [server-zd flags](../../dex-sdk/references/core/operations.md#server-zd).
+server-zd dispatches only to pull Workers, so run the Worker in pull mode.
+server-zd rejects a Flow start delay and a Flow-level retry policy with
+INVALID_ARGUMENT, and its only Attribute Store is PostgreSQL. After an
+authorized time travel, record the run attempt with the Run ID, because the Run
+ID stays the same; see [Dex Web with server-zd](dex-web-v2.md#dex-web-with-server-zd).
 
 ## Package Flow definitions
 
@@ -80,9 +81,9 @@ written alongside blocking diagnostics. Regenerate the definitions after every
 Flow change and after upgrading `dexcli`, because the rendered type names must
 match the Worker.
 
-A deployed Dex Web loads the same files from a directory: set
-`web.flowRenderingDirectory`, or `DEX_WEB_FLOW_RENDERING_DIRECTORY`, which
-overrides the YAML. Dex scans the directory recursively on every
+A deployed Dex Web loads the same files from a directory: pass
+`--flow-rendering-dir`, or set `DEX_WEB_FLOW_RENDERING_DIRECTORY`; a flag
+overrides the variable. Dex scans the directory recursively on every
 definition-dependent request, so a change becomes visible without restarting Dex
 Web, and the directory has no manifest, bundle, or atomic switch. Publish only a
 complete set of validated definitions: an invalid JSON file, an unsupported
@@ -90,16 +91,17 @@ schema version, or a source read failure returns a 503 and fails `/readyz`, and
 two valid definitions for one Flow type make the source invalid. After
 publishing, confirm that `/readyz` reports the expected definition count and
 `GET /api/v2/catalog` lists every Flow type. See the [Dex Web
-definition directory](https://github.com/superdurable/dex/blob/server/v1.25.0/web/README.md#run-through-dexcli)
-and [Dex Server image](https://github.com/superdurable/dex/blob/server/v1.25.0/web/README.md#run-through-the-dex-server-image)
+definition directory](https://github.com/superdurable/dex/blob/web/v1.26.0/web/README.md#run-through-dexcli)
+and [standalone Dex Web](https://github.com/superdurable/dex/blob/web/v1.26.0/web/README.md#run-standalone-dex-web)
 contracts.
 
 ## Deployment, only when requested
 
-The `dex-server` image starts Dex Web, API, and Interpreter in one process,
-with FlowService on port 8801 and Dex Web on port 8802. Before deploying a
-Worker, run `dexcli version check --server ADDRESS` against the target Server
-and make the Worker's advertised target reachable from it. Dex Web neither
+Run the Dex Server (server-zd) and the standalone `dex-web` binary or
+`superdurable/dex-web` image as separate processes. FlowService listens on port
+8801 and Dex Web on port 8802 by default. Before deploying a Worker, run
+`dexcli version check --server ADDRESS` against the target Server. Workers only
+open outbound connections to it. Dex Web neither
 authenticates users nor enforces authorization, so run it behind a trusted
 application boundary that authenticates users and maps roles to permissions,
 and keep ports 8801 and 8802 unreachable around that boundary. Dex provides no
@@ -107,11 +109,10 @@ deployed Connector configuration; a Go application reads it through the
 Connector SDK's `sdkgo/projectconfig`, as described in
 [Connector architecture](connector-architecture.md#deployed-configuration-and-credential-boundary).
 See the Dex SDK [operations reference](../../dex-sdk/references/core/operations.md)
-for Server components and the Worker protocol check. To serve Dex Web for
-server-zd, run a web-only `dex-server start --services web` with
-`web.flowServiceTarget` set to the server-zd address. Its `/readyz` calls the
-FlowService health check instead of a Flow search; see
-[server-zd](../../dex-sdk/references/core/operations.md#server-zd).
+for server-zd deployment and the Worker protocol check. Point Dex Web at the
+server-zd address with `--flow-service-address`; its `/readyz` calls the
+FlowService health check instead of a Flow search. See
+[Dex Web with server-zd](dex-web-v2.md#dex-web-with-server-zd).
 
 Finish with:
 

@@ -8,7 +8,7 @@ Separate handler failures from controller/client failures. A Step or RPC returns
 
 Return errors with `?` when a durable read or write fails. For an application failure, construct a stable error type and useful message. `HandlerError::retry_after` overrides the next retry delay for that failure; `StepOptions::execute_retry` still bounds attempts. Use it only as explicit backoff for a transient failure. It is not a polling loop: an external “not ready yet” status is a normal branch of the [Polling pattern](patterns.md#polling), never an error. The excerpt below only demonstrates the delay override.
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.25.0/examples/rust/src/primitives/custom_retry/flow.rs)
+[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/examples/rust/src/primitives/custom_retry/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/custom_retry/flow.rs -->
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
@@ -37,7 +37,7 @@ Make Execute side effects idempotent across attempts. Dex retries a logical meth
 
 Configure retry policies for the phase that can fail. WaitFor should normally be pure durable preparation. If WaitFor exhaustion is explicitly recoverable, set `WaitForFailurePolicy::Proceed`; Execute must then check `context.wait_for_method_failed()` before selecting a recovery transition.
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.25.0/examples/rust/src/primitives/proceed_on_wait_failure/flow.rs)
+[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/examples/rust/src/primitives/proceed_on_wait_failure/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/proceed_on_wait_failure/flow.rs -->
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
@@ -82,11 +82,11 @@ For an explicitly best-effort external `Client::write_stream`, suppress only `Sd
 
 ## Flow close cleanup
 
-From Rust SDK v1.20.0 or later, match `SdkError::FlowClosing { .. }` for a cleanup-sensitive Client call rejected with `ErrorSubStatus::FlowClosing` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. `SdkError` and `ErrorSubStatus` are non-exhaustive; include a wildcard arm in exhaustive matches. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released variants](https://github.com/superdurable/dex/blob/sdk-rust/v1.25.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs)
+From Rust SDK v1.20.0 or later, match `SdkError::FlowClosing { .. }` for a cleanup-sensitive Client call rejected with `ErrorSubStatus::FlowClosing` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. `SdkError` and `ErrorSubStatus` are non-exhaustive; include a wildcard arm in exhaustive matches. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released variants](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs)
 
 ## Closed-Flow races
 
-Follow the shared [closed-Flow race rule](../core/error-handling.md#closed-flow-races). `SdkError::FlowNotActiveOrNotFound` from a mutation says it found no active target; it does not say the requested action succeeded. First reconcile from authoritative domain state and operation invariants. Call `client.describe_flow(flow_id)` only when an otherwise unknown terminal distinction changes the outcome. It is a blocking call, so keep it off the async executor like other Client calls. It reads the current or latest run without waiting for completion. It returns `SdkResult<FlowInfo>` with `flow_id`, `run_id`, `flow_type`, `status`, and `started_at`; it has no close time. Treat `FlowStatus::Completed` as idempotent success only when successful completion guarantees the requested condition. For another terminal status or `SdkError::FlowNotFound { .. }`, return an explicit domain failure or unknown outcome. If the Flow still appears running, query its domain state before a bounded, idempotent retry. [Released Client](https://github.com/superdurable/dex/blob/sdk-rust/v1.25.0/sdk-rust/crates/dex-sdk/src/client.rs) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-rust/v1.25.0/sdk-rust/crates/dex-sdk/src/flow_info.rs)
+Follow the shared [closed-Flow race rule](../core/error-handling.md#closed-flow-races). `SdkError::FlowNotActiveOrNotFound` from a mutation says it found no active target; it does not say the requested action succeeded. First reconcile from authoritative domain state and operation invariants. Call `client.describe_flow(flow_id)` only when an otherwise unknown terminal distinction changes the outcome. It is a blocking call, so keep it off the async executor like other Client calls. It reads the current or latest run without waiting for completion. It returns `SdkResult<FlowInfo>` with `flow_id`, `run_id`, `flow_type`, `status`, and `started_at`; it has no close time. Treat `FlowStatus::Completed` as idempotent success only when successful completion guarantees the requested condition. For another terminal status or `SdkError::FlowNotFound { .. }`, return an explicit domain failure or unknown outcome. If the Flow still appears running, query its domain state before a bounded, idempotent retry. [Released Client](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/sdk-rust/crates/dex-sdk/src/client.rs) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/sdk-rust/crates/dex-sdk/src/flow_info.rs)
 
 ## Query-only Get failures
 

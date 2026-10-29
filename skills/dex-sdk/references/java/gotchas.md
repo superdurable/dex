@@ -18,6 +18,5 @@
 - Worker startup synchronizes indexed Attributes; startup failure should fail the service rather than accept traffic with a partial Registry.
 - Catch SDK exception classes, not strings or numeric diagnostic sub-status.
 - Flow, Step, Attribute, Channel, Stream, and RPC names are persisted compatibility identifiers.
-- Temporal Cloud API-key deployments require externally provisioned indexes and `attributeIndexesManagedExternally: true`.
 
 When in doubt, compare the application lockfile to the pinned SDK source and run a real integration scenario.

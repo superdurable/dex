@@ -28,13 +28,16 @@ pin each other SDK and its language examples to its own published tag. Language 
 excerpts from runnable examples, SDK tests, or SDK READMEs at that release, with
 the existing visible source link and `dex-source` marker.
 
-`DEX_SERVER_BASELINE` pins the released Server required by App Builder.
-`DEX_CLI_BASELINE` pins the released local tooling and embedded Web v2/FDG 2.0
-implementation. The Server release embeds the same Dex Web source for deployed
-environments. Refresh any baseline deliberately and review all affected
-guidance. The CLI checkout must include all published SDK tags (use a full
-fetch, as Skills CI does); source validation reads the non-Go SDK tags there
-even when the Go checkout is shallow.
+`DEX_SERVER_BASELINE` pins the published server-zd release that the CLI
+baseline bundles (`cli/SERVER_ZD_RELEASE`), the only Dex Server. The
+Temporal-based Go Server was removed after `server/v1.25.0`; no baseline or
+source link may name it. `DEX_CLI_BASELINE` pins the released local tooling and
+embedded Web v2/FDG 2.0 implementation. `DEX_WEB_BASELINE` pins the standalone
+Dex Web release (`web/vX.Y.Z`), and `web/` and `protos/` source links use it.
+Refresh any baseline deliberately and review all affected guidance. The CLI
+checkout must include all published tags (use a full fetch, as Skills CI does);
+source validation reads the non-Go SDK tags and the Web tag there even when the
+Go checkout is shallow.
 
 ## Open-source product boundary
 
@@ -53,7 +56,7 @@ Run from the repository root:
 python3 script/check-package.py
 python3 script/check-reference-sources.py \
   --dex-root /path/to/dex-sdk-baseline \
-  --server-root /path/to/dex-server-baseline \
+  --server-root /path/to/dex-server-zd-baseline \
   --cli-root /path/to/dex-cli-baseline
 python3 script/check-upstream-baselines.py \
   --dex-root /path/to/dex-cli-baseline

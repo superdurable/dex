@@ -192,8 +192,8 @@ Ensure:
 - for a deployment, the packaged definitions and the project configuration that
   `projectconfig.LoadFromEnvironment` loads keep credentials out of application
   code and Flow state;
-- for a deployment using pull Workers, Matching remains available, streams fit the configured limits, the app Worker ID changes after restart, replacement Workers pass **WaitPullRegistered** before old Workers stop, readiness combines **PullRegistrationState** with lifecycle health, and Stop drains within the configured deadline;
-- for a Dex Server upgrade, removed multi-tenant YAML is migrated to `auth`, `internal`, and `worker.wake` before startup, with single-tenant data preserved;
+- for a deployment using pull Workers, the Dex Server is reachable, streams fit the configured limits, the app Worker ID changes after restart, replacement Workers pass **WaitPullRegistered** before old Workers stop, readiness combines **PullRegistrationState** with lifecycle health, and Stop drains within the configured deadline;
+- for a Dex Server upgrade, the `dex-server-zd` release notes are read, every node is upgraded together, and no earlier 0.x binary is rolled back onto data a newer one has run;
 - requested acceptance for known token expiry, concurrent calls, credential rotation,
   lost exchange responses and Worker restart records actual results or explicit
   gaps, without recreating the released Connector's test suite in the app.

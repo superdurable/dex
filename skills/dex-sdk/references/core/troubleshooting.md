@@ -7,7 +7,7 @@ Application failure policy belongs in pre-implementation design. Read [error han
 ## Diagnostic order
 
 1. Check application and Worker logs for registration, handler, connectivity, codec, and blob errors.
-2. Inspect the Flow in Dex Web. With Server v1.15.0, compare the target, Flow type queue, captured dispatch sticky app Worker ID, serving app Worker ID, queue source, and dispatch failure reason; see [routing diagnostics](operations.md#dex-web-pull-routing-diagnostics).
+2. Inspect the Flow in Dex Web. Compare the target, Flow type queue, captured dispatch sticky app Worker ID, serving app Worker ID, queue source, and dispatch failure reason; see [routing diagnostics](operations.md#dex-web-pull-routing-diagnostics).
 3. Run `dexcli flow inspect <flow-id> --all-history` for a bounded history view.
 4. Compare the active Step, Conditions, Attributes, pending Channels, Timers, and recent semantic events with the intended graph.
 5. Reproduce the path with the smallest real Dex Server integration test.

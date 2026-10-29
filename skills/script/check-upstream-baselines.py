@@ -10,10 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release used by core operations guidance.
 SERVER_ZD_RELEASE = "server-zd/v0.1.6"
-SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.10"
-WORKFLOW_UPDATER_PATH = "server/service/interpreter/workflowUpdater.go"
-API_SERVICE_PATH = "server/service/api/service.go"
-TERMINAL_COORDINATOR_PATH = "server/service/interpreter/terminalCoordinator.go"
+SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.11"
 POSTGRES_CONNECTION_PATH = "server-zd/crates/dexzd-postgres-connection/src/lib.rs"
 POSTGRES_TLS_PATH = "server-zd/crates/dexzd-postgres-connection/src/tls.rs"
 POSTGRES_DSN_PATH = "server-zd/crates/dexzd-postgres-connection/src/dsn.rs"
@@ -23,7 +20,6 @@ SERVER_ZD_READ_OPERATIONS_PATH = "server-zd/crates/dexzd-engine/src/runtime/read
 SERVER_ZD_STATE_ROWS_PATH = "server-zd/crates/dexzd-engine/src/runtime/read_operations/state_rows.rs"
 SERVER_ZD_RUNTIME_ERROR_PATH = "server-zd/crates/dexzd-engine/src/runtime/runtime_error.rs"
 SERVER_ZD_TIME_TRAVEL_TEST_PATH = "server-zd/crates/dexzd-e2e-tests/tests/dev_server/time_travel.rs"
-SERVER_ERROR_STATUS_PATH = "server/service/common/errors/errorStatus.go"
 # Each language closed-Flow race section ends its completed-status rule with this text.
 COMPLETED_STATUS_RULE = " as idempotent success only when successful completion guarantees the requested condition."
 GO_DESCRIBE_FLOW_SIGNATURE = "func (client *Client) DescribeFlow(ctx context.Context, flowID string) (FlowInfo, error)"
@@ -115,38 +111,15 @@ SERVER_ZD_LATEST_STATEMENTS = (
     ("server-zd/v0.1.10", "server-zd/crates/dexzd-apply/src/steps/step_results.rs", (
         "dispatch_task_error_reason: dispatch_reason as i32,",
     )),
-)
-# Go Server documentation of first-attempt snapshot reuse, checked at the Server baseline.
-RETRY_SNAPSHOT_SERVER_STATEMENT = (
-    "docs/content/primitives/step/step-options.mdx",
-    "A retry of one **Execute** call reuses the [state snapshot](#selective-state-loading) loaded for its first attempt",
-)
-# Go Server functions that hold a method's Attribute locks across its activity retries, as (declaration, method).
-RETRY_LOCK_SERVER_PATH = "server/service/interpreter/workflowImpl.go"
-RETRY_LOCK_SERVER_METHODS = (
-    ("func (i *Interpreter) processStepExecution(", "WaitFor"),
-    ("func (i *Interpreter) invokeExecuteMethod(", "Execute"),
-)
-RETRY_LOCK_UNLOCK = "persistenceManager.UnlockKeys(lockAttributeKeys)"
-# Statements about Server v1.24.0 and SDK v1.23.0 behavior, as (tagged path, needles).
-RELEASE_1_24_STATEMENTS = (
-    ("sdk-go/README.md", (
-        "The SDK sends an upstream Pong every 20 seconds while a task runs",
-        "keeps one additional idle stream until 30",
+    ("server-zd/v0.1.11", "server-zd/crates/dexzd-request-validation/src/shared.rs", (
+        'format!("{path}.flow_start_delay_seconds"),\n            "flow_start_delay_seconds > 0",',
+        'format!("{path}.retry_policy"),\n            "Flow retry_policy",',
     )),
-    ("docs/content/production/server-operations.mdx", (
-        "Current SDKs send upstream **Pong** frames every 20",
-        "set their idle timeouts above both 20 seconds and",
+    ("server-zd/v0.1.11", "server-zd/crates/dexzd-server/src/config/attribute_store_config.rs", (
+        "Selects the Attribute Store backend; dex-server-zd supports only `postgres`.",
     )),
+    ("server-zd/v0.1.11", "server-zd/config/dex-server-zd.example.yaml", ("pingInterval: 20s",)),
 )
-# Go Server update validators that reject new requests during Flow close cleanup, with their handlers.
-CLEANUP_REJECTING_UPDATES = (
-    ("validateWorkerRpc", "handleWorkerRpc"),
-    ("validateDeleteChannelMessage", "handleDeleteChannelMessage"),
-    ("validateWaitForStepCompletion", "handleWaitForStepCompletion"),
-    ("validateWaitForAttribute", "handleWaitForAttribute"),
-)
-TERMINAL_UPDATE_GUARD = "if err := u.rejectTerminalUpdate(); err != nil {\n\t\treturn err\n\t}"
 
 
 def fail(message: str) -> None:
@@ -247,74 +220,6 @@ def rust_function_source(source: str, declaration: str, location: str) -> str:
     fail(f"{location} function `{declaration}` has no matching closing brace")
 
 
-def check_go_server_retry_locks(checkout: Path, tag: str) -> None:
-    """Checks that WaitFor and Execute load their locks before the method activity and unlock only after it returns."""
-    location = f"{tag}:{RETRY_LOCK_SERVER_PATH}"
-    source = git(checkout, "show", f"refs/tags/{tag}:{RETRY_LOCK_SERVER_PATH}")
-    for declaration, method in RETRY_LOCK_SERVER_METHODS:
-        function = go_function_source(source, declaration, location)
-        positions = require_ordered_text(function, location, declaration, (
-            f"lockAttributeKeys := options.Get{method}LockAttributeKeys()",
-            "persistenceManager.LoadSelectedAttributes(",
-            "lockAttributeKeys,",
-            "provider.ExecuteActivity(",
-            f"i.activities.I{method}M,",
-            RETRY_LOCK_UNLOCK,
-        ))
-        activity_open = positions[3] + len("provider.ExecuteActivity(") - 1
-        activity_end = closing_parenthesis(function, activity_open, location, declaration)
-        if RETRY_LOCK_UNLOCK in function[positions[0] : activity_end + 1]:
-            fail(f"{location} function `{declaration}` unlocks {method} Attribute locks before its method activity returns")
-
-
-def closing_parenthesis(block: str, opening: int, location: str, declaration: str) -> int:
-    """Returns the index of the parenthesis that closes the one at opening, skipping Go strings, runes, and comments."""
-    depth = 0
-    index = opening
-    while index < len(block):
-        character = block[index]
-        if block.startswith("//", index):
-            newline = block.find("\n", index)
-            index = len(block) if newline < 0 else newline
-        elif block.startswith("/*", index):
-            close = block.find("*/", index + 2)
-            if close < 0:
-                break
-            index = close + 1
-        elif character == "`":
-            close = block.find("`", index + 1)
-            if close < 0:
-                break
-            index = close
-        elif character in "\"'":
-            index += 1
-            while index < len(block) and block[index] != character:
-                index += 2 if block[index] == "\\" else 1
-            if index >= len(block):
-                break
-        elif character == "(":
-            depth += 1
-        elif character == ")":
-            depth -= 1
-            if depth == 0:
-                return index
-        index += 1
-    fail(f"{location} function `{declaration}` has an unclosed provider.ExecuteActivity call")
-
-
-def require_ordered_text(block: str, location: str, declaration: str, needles: tuple[str, ...]) -> list[int]:
-    """Requires needles in order within one block and returns each needle's start position."""
-    positions = []
-    cursor = 0
-    for needle in needles:
-        position = block.find(needle, cursor)
-        if position < 0:
-            fail(f"{location} function `{declaration}` is missing required text in order: {needle!r}")
-        positions.append(position)
-        cursor = position + len(needle)
-    return positions
-
-
 def require_tagged_rust_function_text(checkout: Path, tag: str, path: str, declaration: str, *needles: str) -> None:
     location = f"{tag}:{path}"
     function = rust_function_source(git(checkout, "show", f"refs/tags/{tag}:{path}"), declaration, location)
@@ -362,13 +267,11 @@ REFERENCE_1_24_STATEMENTS = (
     ("core/pull-workers.md", (
         "From SDK v1.23.0 in all five languages, a queue that declines a Step for reserved RPC capacity keeps one additional idle stream",
         "sends an unsolicited upstream Pong every 20 seconds while a task runs",
-        "above both 20 seconds and Server **matching.pingInterval**",
+        "above both 20 seconds and server-zd **matching.pingInterval**",
     )),
     ("core/error-handling.md", (
-        "With Server v1.24.0 on the Go Server, SearchFlows returns only Dex Flows",
         "return NOT_FOUND with FLOW_NOT_EXISTS",
-        "With Server v1.24.0, a pull dispatch failure such as no available Worker carries its text",
-        "server-zd enforces this at admission from v0.1.8",
+        "A pull dispatch failure such as no available Worker carries its text",
     )),
     ("core/read-after-write.md", ("From server-zd v0.1.8, a transactional or locking RPC on a closed run returns NOT_FOUND",)),
     ("core/operations.md", (
@@ -380,15 +283,16 @@ REFERENCE_1_24_STATEMENTS = (
         "Concurrent transactional or locking RPCs to the same Flow run that share a request ID",
         "carry identical payloads run the Worker handler once while their shared in-flight task is active",
         "Identical request IDs in different Flow runs do not share a task.",
-        "as the Go Server already does for WaitFor and Execute",
         "GetFlowState reports a skipped Timer as SKIPPED",
+        "server-zd rejects a Flow start delay (**flow_start_delay_seconds** greater than zero) and a Flow-level retry policy (**retry_policy** in the Flow start options) with INVALID_ARGUMENT.",
+        "Step-level retry is supported.",
+        "### Retired Go Server",
+        "Its final release is `server/v1.25.0`.",
     )),
     ("core/step-options.md", (
-        "On the Go Server, a WaitFor or Execute retry reuses the state snapshot loaded for that call's first attempt.",
-        "From server-zd v0.1.10, a WaitFor, Execute, or Flow timeout handler retry does the same.",
-        "On the Go Server, WaitFor and Execute retries reuse that snapshot and keep its Attribute locks.",
-        "From server-zd v0.1.10, every WaitFor, Execute, and Flow timeout handler retry does the same",
-        "On both servers, the Attribute locks stay held through retry backoff",
+        "From server-zd v0.1.10, a WaitFor, Execute, or Flow timeout handler retry reuses the state snapshot loaded for that call's first attempt.",
+        "From server-zd v0.1.10, every WaitFor, Execute, and Flow timeout handler retry reuses that snapshot",
+        "The Attribute locks stay held through retry backoff",
     )),
     ("core/read-after-write.md", (
         "Every SDK generates a fresh request ID for each RPC invocation and exposes no override.",
@@ -400,10 +304,10 @@ REFERENCE_1_24_STATEMENTS = (
     )),
     ("core/data-handling.md", (
         "That holder can be a Step method in retry backoff.",
-        "on the Go Server and on server-zd from v0.1.10",
+        "Retries keep their locks until the method call ends from server-zd v0.1.10.",
         "a hard-delete Attribute needs v0.1.10 or later",
     )),
-    ("core/bundle-baselines.md", ("The server-zd guidance covers v0.1.3 through v0.1.10.",)),
+    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.11.",)),
     ("go/go.md", ("From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity",)),
     ("java/java.md", ("From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
     ("python/python.md", ("From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
@@ -487,8 +391,7 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
         "`FlowInfo` has `FlowID string` (application-assigned ID), `RunID string` (server-assigned run ID), "
         "`FlowType string`, `Status FlowStatus`, `StartedAt time.Time`, and `ClosedAt time.Time`.",
         "A zero `ClosedAt` means the run is open or its close time is unavailable.",
-        "On the Go Server, time travel creates a new run ID, so `RunID` can differ from the run ID `StartFlow` returned.",
-        "server-zd keeps the run ID across time travel.",
+        "server-zd keeps the run ID across time travel, so `RunID` matches the run ID `StartFlow` returned.",
         "The method rejects a nil, canceled, or expired context, a closed Client, or an empty or whitespace-only Flow ID "
         "before the RPC.",
         "A missing Flow returns `*dex.FlowNotFoundError`",
@@ -500,7 +403,7 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
         "Go **Client.DescribeFlow** (from Go SDK v1.21.0)",
         "Each reads the current or latest run without waiting.",
         "Only the Go result also carries the close time, when available.",
-        "Both the Go Server and server-zd serve the underlying **GetFlowSummary** RPC.",
+        "server-zd serves the underlying **GetFlowSummary** RPC.",
         "Do not call it after a missing-target error at a query-only Get boundary.",
     )
     require_section_text(references / "go" / "observability.md", "## Correlation and signals", "For a stall: confirm IDs/status;")
@@ -537,7 +440,7 @@ PULL_ONLY_SOURCES = {
         ("sdk-python/dex/worker_options.py", ("pull: PullWorkerOptions = field(default_factory=PullWorkerOptions)",)),
     ),
     "typescript": (
-        ("sdk-typescript/src/client.ts", ('workerTarget: { address: "", isHeadlessAddress: false, isPullMode: true }',)),
+        ("sdk-typescript/src/client.ts", ("workerTarget: { isPullMode: true }",)),
         ("sdk-typescript/src/worker.ts", ('options.pull ?? {}',)),
     ),
     "rust": (
@@ -553,7 +456,7 @@ PULL_ONLY_ROUTING_FUNCTIONS = {
     ),
     "rust": (
         ("sdk-rust/crates/dex-sdk/src/client.rs", "pub(crate) fn map_pull_flow_config(",
-         ("worker_target: Some(ProtoWorkerTarget {", "is_pull_mode: true,")),
+         ("worker_target: Some(ProtoWorkerTarget { is_pull_mode: true }),",)),
         ("sdk-rust/crates/dex-sdk/src/client.rs", "    fn map_start_options(",
          ("Some(map_pull_flow_config(config)?)",)),
         ("sdk-rust/crates/dex-sdk/src/worker_dispatcher.rs", "fn map_sub_flow_options(",
@@ -574,8 +477,9 @@ PULL_ONLY_FORBIDDEN_OPTIONS = {
 PULL_ONLY_REFERENCE_STATEMENTS = (
     ("core/pull-workers.md", ("From SDK v1.25.0 in all five languages, every Worker is a pull Worker",
                               "UpdateFlowConfig does not change a Flow's Worker routing",
-                              "a Flow started with a Worker address by an earlier SDK keeps that address",
-                              "drop that option on SDK v1.25.0")),
+                              "server-zd always rejected a Worker address, so no stored Flow holds one",
+                              "From SDK v1.26.0 the protocol has no Worker address or headless field",
+                              "`dexcli flow start --config` rejects a non-null `workerTarget`")),
     ("go/go.md", ("From Go SDK v1.25.0, every Worker is a pull Worker",)),
     ("java/java.md", ("From Java SDK v1.25.0, every Worker is a pull Worker",)),
     ("python/python.md", ("From Python SDK v1.25.0, every Worker is a pull Worker",)),
@@ -705,8 +609,8 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
         "FlowServiceTLSOptions.AdditionalRootCAsPEM", "FlowServiceTLSOptions.ServerName",
         "matching IP SAN", "IPv6 endpoint", "no client-certificate or private-key field",
         "NewClient", "NewWorker", "gRPC **Unavailable**", "APIKeyCredential",
-        "Go Server's **api.port**", "server-zd v0.1.6's **api.listen**",
-        "dexcli", "Dex Web's **web.flowServiceTarget**",
+        "**api.listen** serves plaintext FlowService gRPC",
+        "dexcli", "Dex Web connects with plaintext gRPC unless **--tls** is set",
         "Java", "Python", "TypeScript", "Rust", "no FlowService TLS option",
         "default FlowService connections use plaintext",
     )
@@ -778,24 +682,6 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
     for path in ("sdk-rust/crates/dex-sdk/src/client.rs", "sdk-rust/crates/dex-sdk/src/worker.rs"):
         require_tagged_rust_function_text(checkout, sdk_baselines["rust"], path,
                                           "fn endpoint_address(", 'format!("http://{address}")')
-    require_tagged_text(checkout, (ROOT / "DEX_SERVER_BASELINE").read_text().strip(),
-                        "server/config/config.go", "Port is the TCP port for FlowService", "(plaintext gRPC)",
-                        "FlowServiceTarget is the plaintext FlowService gRPC target")
-    server_tag = (ROOT / "DEX_SERVER_BASELINE").read_text().strip()
-    require_tagged_go_function_text(
-        checkout, server_tag, "server/cmd/server/dex/dex.go",
-        "func newApplication(cfg *config.Config, services serviceSelection)",
-        "grpc.WithTransportCredentials(insecure.NewCredentials())",
-        "grpc.WithPerRPCCredentials(perRPCCredential)",
-        "cfg.GetWebFlowServiceTargetWithDefault()",
-    )
-    server_source = go_function_source(
-        git(checkout, "show", f"refs/tags/{server_tag}:server/service/api/routers.go"),
-        "func NewServerWithMatchingAccess(", f"{server_tag}:server/service/api/routers.go",
-    )
-    require_block_text(server_source, f"{server_tag}:server/service/api/routers.go", "func NewServerWithMatchingAccess(",
-                       ("grpc.NewServer(", "RegisterFlowServiceServer(server.grpcServer, handler)"),
-                       ("grpc.creds(",))
     require_tagged_text(checkout, SERVER_ZD_RELEASE, "server-zd/crates/dexzd-server/src/config/service_config.rs",
                         "bind address for the plaintext public gRPC services")
     require_tagged_text(checkout, SERVER_ZD_RELEASE, "server-zd/README.md",
@@ -809,34 +695,7 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
                        (".tls_config(",))
 
 
-def check_flow_summary_rpc(checkout: Path, server_tag: str, server_zd_tag: str) -> None:
-    require_tagged_go_function_text(
-        checkout, server_tag, API_SERVICE_PATH,
-        "func (s *serviceImpl) GetFlowSummary(",
-        'req == nil || req.GetFlowId() == ""',
-        "s.client.DescribeWorkflowExecution(",
-        "req.GetFlowId()", "req.GetRunId()",
-        "FlowId: req.GetFlowId(),\n\t\t\tRunId:  description.RunId,",
-        "FlowType:   description.IndexedAttributes[service.SearchAttributeDexWorkflowType].GetStringValue(),",
-        "FlowStatus: description.Status", "StartTime:  timestamppb.New(description.StartTime)",
-        "if description.CloseTime != nil {\n\t\tresponse.CloseTime = timestamppb.New(*description.CloseTime)",
-        "return nil, s.handleError(err)",
-    )
-    require_tagged_go_function_text(
-        checkout, server_tag, API_SERVICE_PATH,
-        "func (s *serviceImpl) handleError(",
-        "if s.client.IsNotFoundError(err) {\n\t\treturn serviceerrors.NotFound(err.Error()).ToGRPCError()",
-    )
-    require_tagged_go_function_text(
-        checkout, server_tag, API_SERVICE_PATH,
-        "func (s *serviceImpl) ResetFlow(",
-        "runId, err := s.client.ResetWorkflow(ctx, req)", "return &dexpb.ResetFlowResponse{RunId: runId}, nil",
-    )
-    require_tagged_go_function_text(
-        checkout, server_tag, SERVER_ERROR_STATUS_PATH,
-        "func NotFound(",
-        "NewErrorAndStatus(codes.NotFound, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS, details)",
-    )
+def check_flow_summary_rpc(checkout: Path, server_zd_tag: str) -> None:
     require_tagged_rust_function_text(
         checkout, server_zd_tag, "server-zd/crates/dexzd-api/src/flow_service.rs",
         "    async fn get_flow_summary(",
@@ -1063,95 +922,6 @@ def check_server_zd_search_tls(checkout: Path, tag: str, references: Path) -> No
     )
 
 
-def check_go_server_close_cleanup(checkout: Path, tag: str) -> None:
-    """Checks the Go Server Flow close cleanup rejection set and its backend routing in the tagged source."""
-    require_tagged_go_function_text(
-        checkout,
-        tag,
-        WORKFLOW_UPDATER_PATH,
-        "func NewWorkflowUpdater(",
-        *(f"updater.{validator},\n\t\tupdater.{handler}," for validator, handler in CLEANUP_REJECTING_UPDATES),
-    )
-    for validator, _ in CLEANUP_REJECTING_UPDATES:
-        require_tagged_go_function_text(
-            checkout,
-            tag,
-            WORKFLOW_UPDATER_PATH,
-            f"func (u *WorkflowUpdater) {validator}(",
-            TERMINAL_UPDATE_GUARD,
-        )
-    require_tagged_go_function_text(
-        checkout,
-        tag,
-        WORKFLOW_UPDATER_PATH,
-        "func (u *WorkflowUpdater) rejectTerminalUpdate(",
-        "if !u.terminalCoordinator.HasStartedFinalizing() {",
-        "dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION,\n\t\tservice.FlowTerminalCleanupInProgressMessage,",
-    )
-    require_tagged_go_function_text(
-        checkout,
-        tag,
-        API_SERVICE_PATH,
-        "func (s *serviceImpl) handleError(",
-        "case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION:\n"
-        "\t\t\tsubStatus := dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED\n"
-        "\t\t\tif details == service.FlowTerminalCleanupInProgressMessage {\n"
-        "\t\t\t\tsubStatus = dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING\n"
-        "\t\t\t}\n"
-        "\t\t\treturn serviceerrors.NewErrorAndStatus(\n"
-        "\t\t\t\tcodes.FailedPrecondition,\n"
-        "\t\t\t\tsubStatus,",
-    )
-    require_tagged_go_function_text(
-        checkout,
-        tag,
-        API_SERVICE_PATH,
-        "func (s *serviceImpl) shouldInvokeRPCTransactionally(",
-        "return s.client.GetBackendType() == service.BackendTypeTemporal &&\n"
-        "\t\t(req.GetIsTransactional() || len(req.GetLockAttributeKeys()) > 0 ||\n"
-        "\t\t\ts.apiCfg.UseTemporalSynchronousUpdateForAllRPCs)",
-    )
-    require_tagged_go_function_text(
-        checkout,
-        tag,
-        API_SERVICE_PATH,
-        "func (s *serviceImpl) InvokeRPC(",
-        "if len(req.GetLockAttributeKeys()) > 0 && backendType == service.BackendTypeCadence {\n"
-        "\t\treturn nil, status.Errorf(codes.Unimplemented,",
-        "isTransactional := s.shouldInvokeRPCTransactionally(req)",
-    )
-    for wait in ("WaitForStepCompletion", "WaitForAttribute"):
-        require_tagged_go_function_text(
-            checkout, tag, API_SERVICE_PATH,
-            f"func (s *serviceImpl) {wait}(",
-            "if s.client.GetBackendType() == service.BackendTypeCadence {\n"
-            f'\t\treturn nil, status.Errorf(codes.Unimplemented, "{wait} requires Temporal synchronous update")',
-        )
-    require_tagged_go_function_text(
-        checkout,
-        tag,
-        API_SERVICE_PATH,
-        "func (s *serviceImpl) DeleteChannelMessage(",
-        "if s.client.GetBackendType() == service.BackendTypeCadence {\n"
-        "\t\treturn s.deleteCadenceChannelMessage(",
-    )
-    require_tagged_go_function_text(
-        checkout,
-        tag,
-        API_SERVICE_PATH,
-        "func (s *serviceImpl) deleteCadenceChannelMessage(",
-        "s.client.SignalWorkflow(",
-    )
-    require_tagged_go_function_text(
-        checkout, tag, TERMINAL_COORDINATOR_PATH,
-        "func (c *TerminalCoordinator) CoordinateAndFinalizeError(",
-        "c.startedFinalizing = true",
-        "c.provider.Await(ctx, func() bool {\n"
-        "\t\treturn c.attributeSyncer.ProducersDrained() && c.continueAsNewer.inflightUpdateOperations == 0",
-        "c.attributeSyncer.FlushAndClose(ctx)",
-    )
-
-
 def check_sdk_flow_closing_errors(checkout: Path, baselines: dict[str, str], references: Path) -> None:
     """Checks each SDK's tagged typed Flow close cleanup error and that its reference page uses the same name."""
     go_error = "FlowClosingError"
@@ -1318,7 +1088,7 @@ def check_sdk_describe_flow(checkout: Path, baselines: dict[str, str], reference
         references / "core" / "error-handling.md",
         "Java **Client.describeFlow**, Python **Client.describe_flow** or **AsyncClient.describe_flow**, "
         "TypeScript **Client.describeFlow**, or Rust **Client::describe_flow**.",
-        "Java, Python, TypeScript, and Rust already have it at their v1.25.0 baselines.",
+        "Java, Python, TypeScript, and Rust already have it at their v1.26.0 baselines.",
         "It returns the Flow ID, run ID, Flow type, status, and start time.",
         "A missing Flow returns the SDK's typed Flow-not-found error.",
     )
@@ -1332,6 +1102,12 @@ def require_ancestor(checkout: Path, ancestor: str, descendant: str, label: str)
     )
     if result.returncode != 0:
         fail(f"{label} {ancestor} is not an ancestor of {descendant}")
+
+
+def require_same_tree(checkout: Path, first: str, second: str, paths: tuple[str, ...], label: str) -> None:
+    require_tag(checkout, first)
+    if git(checkout, "diff", "--stat", f"refs/tags/{first}", f"refs/tags/{second}", "--", *paths):
+        fail(f"{label} {first} differs from {second} under {', '.join(paths)}")
 
 
 def require_tag(checkout: Path, tag: str) -> None:
@@ -1353,6 +1129,7 @@ def main() -> None:
 
     server_baseline = (ROOT / "DEX_SERVER_BASELINE").read_text().strip()
     cli_baseline = (ROOT / "DEX_CLI_BASELINE").read_text().strip()
+    web_baseline = (ROOT / "DEX_WEB_BASELINE").read_text().strip()
     go_sdk_baseline = (ROOT / "DEX_BASELINE").read_text().strip()
     sdk_baselines = {
         "go": go_sdk_baseline,
@@ -1363,6 +1140,10 @@ def main() -> None:
     }
     require_revision(arguments.dex_root, cli_baseline, "Dex CLI")
     require_ancestor(arguments.dex_root, server_baseline, cli_baseline, "Dex Server baseline")
+    if server_baseline != SERVER_ZD_LATEST_RELEASE:
+        fail(f"DEX_SERVER_BASELINE {server_baseline} must equal {SERVER_ZD_LATEST_RELEASE}")
+    require_text(arguments.dex_root / "cli" / "SERVER_ZD_RELEASE", server_baseline.removeprefix("server-zd/"))
+    require_same_tree(arguments.dex_root, web_baseline, cli_baseline, ("web", "protos"), "Dex Web baseline")
     require_tag(arguments.dex_root, SERVER_ZD_RELEASE)
     require_tag(arguments.dex_root, SERVER_ZD_LATEST_RELEASE)
 
@@ -1440,8 +1221,10 @@ def main() -> None:
     )
     require_text(
         arguments.dex_root / "cli" / "README.md",
-        "`--attribute-store-config` also works with `--engine zd`",
-        "`attributeStore` in the `--zd-config` file.",
+        "zd supports only `type: postgres`",
+        "Do not also set\n`attributeStore` in the `--zd-config` file.",
+        "server-zd is the only engine.",
+        "The Temporal engine was removed.",
         "### Connect over TLS",
         "TLS never falls back to plaintext.",
         "ALPN `h2`",
@@ -1462,45 +1245,22 @@ def main() -> None:
     )
     check_server_zd_statements(arguments.dex_root, SERVER_ZD_RELEASE, SERVER_ZD_STATEMENTS)
     check_release_1_24_references(SDK_REFERENCES)
+    check_server_zd_statements(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, SERVER_ZD_STATEMENTS)
     check_server_zd_statements(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, SERVER_ZD_LATEST_STATEMENTS)
-    for statement_path, statement_needles in RELEASE_1_24_STATEMENTS:
-        require_tagged_text(arguments.dex_root, server_baseline, statement_path, *statement_needles)
-    require_tagged_text(arguments.dex_root, server_baseline, *RETRY_SNAPSHOT_SERVER_STATEMENT)
-    check_go_server_retry_locks(arguments.dex_root, server_baseline)
     check_server_zd_search_tls(arguments.dex_root, SERVER_ZD_RELEASE, SDK_REFERENCES)
-    check_go_server_close_cleanup(arguments.dex_root, server_baseline)
-    check_flow_summary_rpc(arguments.dex_root, server_baseline, SERVER_ZD_RELEASE)
-    require_tagged_text(
-        arguments.dex_root,
-        server_baseline,
-        "server/config/config.go",
-        'yaml:"useTemporalSynchronousUpdateForAllRPCs"',
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        server_baseline,
-        "server/service/interpreter/activityImpl.go",
-        "recordImplicitStepHeartbeat",
-        "a.activityProvider.RecordHeartbeat(ctx",
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        server_baseline,
-        "server/service/interpreter/pullDispatch.go",
-        "deadline, hasDeadline := ctx.Deadline()",
-        "Deadline:                 timestamppb.New(deadline)",
-    )
-    require_tagged_text(
-        arguments.dex_root,
-        server_baseline,
-        "server/service/matching/matching.go",
-        "w.cancelTask(request.TaskId)",
-    )
+    check_flow_summary_rpc(arguments.dex_root, SERVER_ZD_RELEASE)
     check_sdk_flow_closing_errors(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_go_describe_flow(arguments.dex_root, go_sdk_baseline, SDK_REFERENCES)
     check_sdk_describe_flow(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_flow_service_tls(arguments.dex_root, go_sdk_baseline, sdk_baselines, SDK_REFERENCES)
     check_pull_only_workers(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
+    require_tagged_text(
+        arguments.dex_root,
+        go_sdk_baseline,
+        "sdk-go/README.md",
+        "The SDK sends an upstream Pong every 20 seconds while a task runs",
+        "keeps one additional idle stream until 30",
+    )
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,
@@ -1519,8 +1279,33 @@ def main() -> None:
         '"serverEngine"',
     )
     require_text(
-        arguments.dex_root / "web" / "app" / "v2" / "start" / "workerTarget.ts",
-        "isAddressWorkerTargetSupported: !isPullOnly",
+        arguments.dex_root / "web" / "cmd" / "dex-web" / "config.go",
+        '"bind-address", "127.0.0.1"', '"port", web.DefaultPort', '"flow-service-address", "127.0.0.1:8801"',
+        '"flow-rendering-dir"', '"tls-ca-file"', '"tls-server-name"', '"flow-service-credential-file"',
+        '"DEX_WEB_BIND_ADDRESS"', '"DEX_WEB_HTTP_PORT_NUMBER"', '"DEX_WEB_FLOW_SERVICE_ADDRESS"',
+        '"DEX_WEB_FLOW_RENDERING_DIRECTORY"', '"DEX_WEB_TLS"', '"DEX_WEB_TLS_CA_FILE"',
+        '"DEX_WEB_TLS_SERVER_NAME"', '"DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE"',
+        "deprecated: has no effect; Dex Web starts Flows on pull Workers",
+        "TLS CA file and server name require --tls",
+    )
+    require_text(
+        arguments.dex_root / "web" / "README.md",
+        "## Run standalone dex-web",
+        "superdurable/dex-web:latest",
+        "runs as UID/GID 65532",
+        "`/readyz` is readiness and calls FlowService with the configured credential on\nevery probe.",
+        "optional `workerTargetPull: true`.",
+        "or `workerTargetPull: false`, because Dex routes Flow work to pull Workers.",
+        "accepts and ignores `bypassWorkerHealthCheck`",
+    )
+    require_text(
+        arguments.dex_root / "web" / "api" / "v2_start.go",
+        "workerTargetAddress is not supported: Dex routes Flow work to pull Workers",
+        "workerTargetPull must be true: Dex routes Flow work to pull Workers",
+    )
+    require_text(
+        arguments.dex_root / "cli" / "internal" / "command" / "flow_client_operations.go",
+        "workerTarget is not supported: Dex routes Flow work to pull Workers",
     )
     require_text(
         arguments.dex_root / "web" / "server.go",
@@ -1581,7 +1366,6 @@ def main() -> None:
     )
     require_text(
         arguments.dex_root / "web" / "api" / "v2_start.go",
-        "WORKER_UNHEALTHY",
         "BypassWorkerHealthCheck",
         "v2StartStepInput",
         "SkipWaitFor: definition.Start.SkipWaitFor",
@@ -1592,21 +1376,6 @@ def main() -> None:
         "filepath.WalkDir",
         "FLOW_DEFINITION_INVALID",
         "FLOW_DEFINITION_SOURCE_UNAVAILABLE",
-    )
-    require_text(
-        arguments.dex_root / "server" / "config" / "config.go",
-        'yaml:"flowRenderingDirectory"',
-        'yaml:"startFlowWorkerTargetHeadless"',
-        'yaml:"rowKey"',
-        'yaml:"columnNaming"',
-        'yaml:"attributeMaps"',
-        'yaml:"instanceKeyColumn"',
-    )
-    require_text(
-        arguments.dex_root / "server" / "service" / "common" / "attributestore" / "sql_store.go",
-        "confirmedMissingColumns",
-        "needsColumnRefresh",
-        "refresh Attribute Store schema for an unknown column",
     )
     require_text(
         arguments.dex_root / "web" / "connector_release_oauth_settings.go",

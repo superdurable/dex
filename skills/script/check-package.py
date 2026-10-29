@@ -22,6 +22,7 @@ BASELINE_FILES = (
     "DEX_BASELINE",
     "DEX_SERVER_BASELINE",
     "DEX_CLI_BASELINE",
+    "DEX_WEB_BASELINE",
     "DEX_JAVA_BASELINE",
     "DEX_PYTHON_BASELINE",
     "DEX_TYPESCRIPT_BASELINE",
@@ -101,6 +102,9 @@ PUBLISHED_RELEASE_TAG = re.compile(
 PUBLISHED_CLI_RELEASE_TAG = re.compile(
     r"^cli-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$"
 )
+PUBLISHED_WEB_RELEASE_TAG = re.compile(
+    r"^web/v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$"
+)
 MARKDOWN_LINK = re.compile(r"\[[^]]+\]\(([^)]+)\)")
 FENCED_BLOCK = re.compile(r"```.*?```", re.DOTALL)
 SOURCE_MARKER = re.compile(r"<!-- dex-source: ([^\s]+) -->")
@@ -179,8 +183,10 @@ def reference_baseline(source_path: str, sdk_baseline: str) -> str:
         prefix = f"sdk-{parts[1]}"
     if prefix in {"sdk-java", "sdk-python", "sdk-typescript", "sdk-rust"}:
         return (ROOT / f"DEX_{prefix[4:].upper()}_BASELINE").read_text().strip()
-    if prefix in {"server", "web", "protos"}:
+    if prefix == "server-zd":
         return (ROOT / "DEX_SERVER_BASELINE").read_text().strip()
+    if prefix in {"web", "protos"}:
+        return (ROOT / "DEX_WEB_BASELINE").read_text().strip()
     if prefix == "cli":
         return (ROOT / "DEX_CLI_BASELINE").read_text().strip()
     return sdk_baseline
@@ -369,7 +375,7 @@ def check_app_builder() -> None:
         "Mock evidence never replaces real Dex durability",
         "Default application authoring produces source without integration/browser test",
         "## Local verification with dexcli dev", "## Package Flow definitions",
-        "`web.flowRenderingDirectory`", "## Deployment, only when requested",
+        "`--flow-rendering-dir`", "## Deployment, only when requested",
         "ports 8801 and 8802 unreachable around that boundary",
         "deployed Connector configuration",
     ):
@@ -987,6 +993,10 @@ REMOVED_DEX_CONTRACTS = (
     "local-selector",
     "project Connector mode",
     "native-hosted-project-configuration",
+    "dex-server start",
+    "web.flowServiceTarget",
+    "web.flowServiceCredentialFile",
+    "docker-compose",
 )
 
 
@@ -996,7 +1006,7 @@ OLDER_CONNECTOR_LOADER_TERMS = ("localconfig", "NewLocalConnection")
 
 
 def check_removed_dex_contracts() -> None:
-    """Dex Server v1.6.1 and Dex CLI v1.7.0 no longer define these Dex Web contracts.
+    """The baselines no longer define these Dex Web contracts or the retired Go Server deployment.
 
     The Connector SDK's own sdkgo/projectconfig package still exists and is cited for deployed Go applications.
     """
@@ -1063,9 +1073,14 @@ def main() -> None:
     server_baseline = (ROOT / "DEX_SERVER_BASELINE").read_text().strip()
     if PUBLISHED_RELEASE_TAG.fullmatch(server_baseline) is None:
         fail("DEX_SERVER_BASELINE must contain a published Dex release tag")
+    if not server_baseline.startswith("server-zd/"):
+        fail("DEX_SERVER_BASELINE must pin a published server-zd release tag")
     cli_baseline = (ROOT / "DEX_CLI_BASELINE").read_text().strip()
     if PUBLISHED_CLI_RELEASE_TAG.fullmatch(cli_baseline) is None:
         fail("DEX_CLI_BASELINE must contain a published Dex CLI release tag")
+    web_baseline = (ROOT / "DEX_WEB_BASELINE").read_text().strip()
+    if PUBLISHED_WEB_RELEASE_TAG.fullmatch(web_baseline) is None:
+        fail("DEX_WEB_BASELINE must contain a published Dex Web release tag")
     check_skills(baseline)
     check_standalone_bundle(current_version)
     check_manifests(current_version)

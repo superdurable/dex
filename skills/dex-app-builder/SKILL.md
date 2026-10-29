@@ -11,8 +11,8 @@ choices. Ask only for missing business facts, access or consequential choices;
 do not turn discovery, design, wireframes or source checks into repeated gates.
 
 The toolchain is open-source Dex: the Dex Go SDK, `dexcli` (including
-`dexcli dev` and the FDG analyzer behind `dexcli visualize`), Dex Server, the
-Dex Web embedded in Server and CLI, and released official connectors.
+`dexcli dev` and the FDG analyzer behind `dexcli visualize`), Dex Server
+(server-zd), Dex Web, and released official connectors.
 
 ## Session start and routing
 
@@ -60,7 +60,7 @@ configuration. A missing module is resolved at its exact released version.
 - Go backend only; strict FDG 2.0 only. The FDG 2.0 analyzer and the
   application Connector SDK are Go-only.
 - Dex Web owns Runs, Work Queue, Actions, edits, history and diagnostics:
-  `dexcli dev` locally, the Dex Server's embedded Dex Web when deployed. Do not
+  `dexcli dev` locally, the standalone `dex-web` binary or image when deployed. Do not
   recreate management APIs or UI. A separate participant interaction is a valid
   custom UI; a backend requirement alone is not.
 - Use typed Flow Attributes and exact-loaded AttributeMaps as the default

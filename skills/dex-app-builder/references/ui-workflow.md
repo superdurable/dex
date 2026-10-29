@@ -8,8 +8,8 @@ Dex Web v2 capability gap.
 
 ## No custom UI
 
-Dex Web owns process management: `dexcli dev` locally and the Dex Server's
-embedded Dex Web when deployed. With no separate participant UI requested,
+Dex Web owns process management: `dexcli dev` locally and the standalone
+`dex-web` binary or image when deployed. With no separate participant UI requested,
 select this mode without a redundant question. The application ships its Go
 Worker and, only for confirmed integration ingress, a minimal HTTP server.
 

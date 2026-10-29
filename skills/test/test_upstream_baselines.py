@@ -14,223 +14,28 @@ SPEC = importlib.util.spec_from_file_location(
 CHECKER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECKER)
 
-SERVER_TAG = "server/v9.9.9"
-UPDATER_PATH = "server/service/interpreter/workflowUpdater.go"
-SERVICE_PATH = "server/service/api/service.go"
-TERMINAL_PATH = "server/service/interpreter/terminalCoordinator.go"
-VALIDATORS = (
-    "validateWorkerRpc",
-    "validateDeleteChannelMessage",
-    "validateWaitForStepCompletion",
-    "validateWaitForAttribute",
-)
-GUARD = "\tif err := u.rejectTerminalUpdate(); err != nil {\n\t\treturn err\n\t}\n"
-
-
 def gofmt_tabs(source: str) -> str:
     """Returns the fixture with each leading four-space group replaced by the tab gofmt uses."""
     return re.sub(r"(?m)^((?:    )+)", lambda match: "\t" * (len(match.group(1)) // 4), source)
 
 
-# Synthetic gofmt-shaped fixtures that keep the decoys which made whole-file needles vacuous.
-UPDATER_SOURCE = gofmt_tabs("""package interpreter
+# Synthetic gofmt-shaped fixture with a decoy function whose name extends another's.
+FUNCTION_SOURCE = gofmt_tabs("""package fixture
 
-func NewWorkflowUpdater(
-    ctx interfaces.UnifiedContext,
+func (c *Collector) validateWait(
+    ctx context.Context,
 ) error {
-    updater := &WorkflowUpdater{}
-    if err := provider.SetInvokeRPCUpdateHandler(
-        ctx,
-        updater.validateWorkerRpc,
-        updater.handleWorkerRpc,
-    ); err != nil {
-        return err
-    }
-    if err := provider.SetDeleteChannelMessageUpdateHandler(
-        ctx,
-        updater.validateDeleteChannelMessage,
-        updater.handleDeleteChannelMessage,
-    ); err != nil {
-        return err
-    }
-    if err := provider.SetWaitForStepCompletionUpdateHandler(
-        ctx,
-        updater.validateWaitForStepCompletion,
-        updater.handleWaitForStepCompletion,
-    ); err != nil {
-        return err
-    }
-    if err := provider.SetWaitForAttributeUpdateHandler(
-        ctx,
-        updater.validateWaitForAttribute,
-        updater.handleWaitForAttribute,
-    ); err != nil {
-        return err
-    }
     return nil
 }
 
-func (u *WorkflowUpdater) validateDeleteChannelMessage(
-    _ interfaces.UnifiedContext,
-    request *dexpb.DeleteChannelMessageRequest,
+func (c *Collector) validateWaitForMatch(
+    ctx context.Context,
 ) error {
-    if err := u.rejectTerminalUpdate(); err != nil {
-        return err
-    }
+    return c.record(ctx)
+}
+
+func (c *Collector) record(ctx context.Context) error {
     return nil
-}
-
-func (u *WorkflowUpdater) validateWorkerRpc(
-    _ interfaces.UnifiedContext,
-    input *dexpb.InvokeRPCRequest,
-) error {
-    if err := u.rejectTerminalUpdate(); err != nil {
-        return err
-    }
-    return nil
-}
-
-func (u *WorkflowUpdater) validateWaitForStepCompletion(
-    _ interfaces.UnifiedContext,
-    request *dexpb.WaitForStepCompletionRequest,
-) error {
-    if err := u.rejectTerminalUpdate(); err != nil {
-        return err
-    }
-    return nil
-}
-
-func (u *WorkflowUpdater) validateWaitForAttribute(
-    _ interfaces.UnifiedContext,
-    request *dexpb.WaitForAttributeRequest,
-) error {
-    if err := u.rejectTerminalUpdate(); err != nil {
-        return err
-    }
-    return nil
-}
-
-func (u *WorkflowUpdater) rejectTerminalUpdate() error {
-    if !u.terminalCoordinator.HasStartedFinalizing() {
-        return nil
-    }
-    return u.provider.NewUpdateError(
-        dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION,
-        service.FlowTerminalCleanupInProgressMessage,
-    )
-}
-""")
-
-SERVICE_SOURCE = gofmt_tabs("""package api
-
-func (s *serviceImpl) DeleteChannelMessage(
-    ctx context.Context,
-    req *dexpb.DeleteChannelMessageRequest,
-) (*emptypb.Empty, error) {
-    runID := req.GetRunId()
-    if s.client.GetBackendType() == service.BackendTypeCadence {
-        return s.deleteCadenceChannelMessage(ctx, req, runID)
-    }
-    return s.deleteTemporalChannelMessage(ctx, req, runID)
-}
-
-func (s *serviceImpl) deleteCadenceChannelMessage(
-    ctx context.Context,
-    req *dexpb.DeleteChannelMessageRequest,
-    runID string,
-) (*emptypb.Empty, error) {
-    if err := s.client.SignalWorkflow(ctx, req.GetFlowId(), runID); err != nil {
-        return nil, s.handleError(err)
-    }
-    return &emptypb.Empty{}, nil
-}
-
-func (s *serviceImpl) PublishToChannel(
-    ctx context.Context,
-    req *dexpb.PublishToChannelRequest,
-) (*emptypb.Empty, error) {
-    if err := s.client.SignalWorkflow(ctx, req.GetFlowId(), ""); err != nil {
-        return nil, s.handleError(err)
-    }
-    return &emptypb.Empty{}, nil
-}
-
-func (s *serviceImpl) InvokeRPC(
-    ctx context.Context,
-    req *dexpb.InvokeRPCRequest,
-) (*dexpb.InvokeRPCResponse, error) {
-    backendType := s.client.GetBackendType()
-    if len(req.GetLockAttributeKeys()) > 0 && backendType == service.BackendTypeCadence {
-        return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
-    }
-    isTransactional := s.shouldInvokeRPCTransactionally(req)
-    return s.doInvokeRPC(ctx, req, isTransactional)
-}
-
-func (s *serviceImpl) WaitForStepCompletion(
-    ctx context.Context,
-    req *dexpb.WaitForStepCompletionRequest,
-) (*dexpb.WaitForStepCompletionResponse, error) {
-    if s.client.GetBackendType() == service.BackendTypeCadence {
-        return nil, status.Errorf(codes.Unimplemented, "WaitForStepCompletion requires Temporal synchronous update")
-    }
-    return s.waitForStepCompletion(ctx, req)
-}
-
-func (s *serviceImpl) WaitForAttribute(
-    ctx context.Context,
-    req *dexpb.WaitForAttributeRequest,
-) (*dexpb.WaitForAttributeResponse, error) {
-    if s.client.GetBackendType() == service.BackendTypeCadence {
-        return nil, status.Errorf(codes.Unimplemented, "WaitForAttribute requires Temporal synchronous update")
-    }
-    return s.waitForAttribute(ctx, req)
-}
-
-func (s *serviceImpl) shouldInvokeRPCTransactionally(req *dexpb.InvokeRPCRequest) bool {
-    return s.client.GetBackendType() == service.BackendTypeTemporal &&
-        (req.GetIsTransactional() || len(req.GetLockAttributeKeys()) > 0 ||
-            s.apiCfg.UseTemporalSynchronousUpdateForAllRPCs)
-}
-
-func (s *serviceImpl) handleError(err error) error {
-    var details string
-    if updateType, ok := s.client.GetIfUpdateError(err, &details); ok {
-        switch updateType {
-        case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION:
-            subStatus := dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED
-            if details == service.FlowTerminalCleanupInProgressMessage {
-                subStatus = dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING
-            }
-            return serviceerrors.NewErrorAndStatus(
-                codes.FailedPrecondition,
-                subStatus,
-                details,
-            ).ToGRPCError()
-        }
-    }
-    return err
-}
-""")
-
-TERMINAL_SOURCE = gofmt_tabs("""package interpreter
-
-func (c *TerminalCoordinator) CoordinateAndFinalizeError(
-    ctx interfaces.UnifiedContext,
-    retErr error,
-) error {
-    c.startedFinalizing = true
-    if err := c.provider.Await(ctx, func() bool {
-        return c.attributeSyncer.ProducersDrained() && c.continueAsNewer.inflightUpdateOperations == 0
-    }); err != nil {
-        return err
-    }
-    for {
-        if err := c.attributeSyncer.FlushAndClose(ctx); err != nil {
-            return err
-        }
-        return retErr
-    }
 }
 """)
 
@@ -353,151 +158,34 @@ class FixtureRepository:
 class GoFunctionSourceTest(unittest.TestCase):
     def test_returns_only_the_declared_function(self):
         function = CHECKER.go_function_source(
-            SERVICE_SOURCE, "func (s *serviceImpl) deleteCadenceChannelMessage(", "fixture",
+            FUNCTION_SOURCE, "func (c *Collector) validateWaitForMatch(", "fixture",
         )
-        self.assertTrue(function.startswith("func (s *serviceImpl) deleteCadenceChannelMessage(\n"))
+        self.assertTrue(function.startswith("func (c *Collector) validateWaitForMatch(\n"))
         self.assertTrue(function.endswith("\n}"))
-        self.assertEqual(1, function.count("s.client.SignalWorkflow("))
-        self.assertNotIn("PublishToChannel", function)
+        self.assertEqual(1, function.count("c.record("))
+        self.assertNotIn("return nil\n}\n\nfunc", function)
 
     def test_missing_declaration_names_location_and_declaration(self):
         with self.assertRaises(SystemExit) as raised:
-            CHECKER.go_function_source(UPDATER_SOURCE, "func (u *WorkflowUpdater) validateMissing(", "tag:path.go")
-        self.assertIn("tag:path.go has no function declared as `func (u *WorkflowUpdater) validateMissing(`", str(raised.exception))
+            CHECKER.go_function_source(FUNCTION_SOURCE, "func (c *Collector) validateMissing(", "tag:path.go")
+        self.assertIn("tag:path.go has no function declared as `func (c *Collector) validateMissing(`", str(raised.exception))
 
     def test_declaration_does_not_match_a_longer_function_name(self):
-        renamed = UPDATER_SOURCE.replace("validateWaitForAttribute(", "validateWaitForAttributeMatch(")
+        renamed = FUNCTION_SOURCE.replace("validateWait(", "validateWaitAll(")
         with self.assertRaises(SystemExit) as raised:
-            CHECKER.go_function_source(renamed, "func (u *WorkflowUpdater) validateWaitForAttribute(", "fixture")
+            CHECKER.go_function_source(renamed, "func (c *Collector) validateWait(", "fixture")
         self.assertIn("has no function declared", str(raised.exception))
 
     def test_duplicate_declaration_fails(self):
         with self.assertRaises(SystemExit) as raised:
-            CHECKER.go_function_source(UPDATER_SOURCE + UPDATER_SOURCE, "func NewWorkflowUpdater(", "fixture")
-        self.assertIn("declares `func NewWorkflowUpdater(` 2 times", str(raised.exception))
+            CHECKER.go_function_source(FUNCTION_SOURCE + FUNCTION_SOURCE, "func (c *Collector) record(", "fixture")
+        self.assertIn("declares `func (c *Collector) record(` 2 times", str(raised.exception))
 
     def test_function_without_closing_brace_before_next_declaration_fails(self):
         source = "func Broken() error {\n\treturn nil\ntype After struct {\n}\n"
         with self.assertRaises(SystemExit) as raised:
             CHECKER.go_function_source(source, "func Broken(", "fixture")
         self.assertIn("has no column-0 closing brace", str(raised.exception))
-
-
-class GoServerCloseCleanupTest(unittest.TestCase):
-    def setUp(self):
-        self.repository = FixtureRepository(self)
-        self.files = {UPDATER_PATH: UPDATER_SOURCE, SERVICE_PATH: SERVICE_SOURCE, TERMINAL_PATH: TERMINAL_SOURCE}
-        self.repository.commit_and_tag(SERVER_TAG, self.files)
-
-    def check(self):
-        CHECKER.check_go_server_close_cleanup(self.repository.root, SERVER_TAG)
-
-    def assert_mutation_fails(self, path, declaration, old, new, missing_fragment, whole_file_needles):
-        """Asserts one function-scoped mutation fails while every former whole-file needle still matches."""
-        mutated = replace_in_function(self.files[path], declaration, old, new)
-        for needle in whole_file_needles:
-            self.assertIn(needle, mutated)
-        self.repository.commit_and_tag(SERVER_TAG, {path: mutated})
-        with self.assertRaises(SystemExit) as raised:
-            self.check()
-        message = str(raised.exception)
-        for expected in (f"{SERVER_TAG}:{path}", f"function `{declaration}`", "missing required text", missing_fragment):
-            self.assertIn(expected, message)
-
-    def test_unmodified_fixture_passes(self):
-        self.check()
-
-    def test_each_validator_requires_its_cleanup_guard(self):
-        for validator in VALIDATORS:
-            with self.subTest(validator=validator):
-                self.repository.commit_and_tag(SERVER_TAG, self.files)
-                self.assert_mutation_fails(
-                    UPDATER_PATH, f"func (u *WorkflowUpdater) {validator}(", GUARD, "",
-                    "rejectTerminalUpdate()", ("rejectTerminalUpdate", "FlowTerminalCleanupInProgressMessage", validator),
-                )
-
-    def test_removing_every_guard_fails_while_the_helper_remains(self):
-        mutated = UPDATER_SOURCE
-        for validator in VALIDATORS:
-            mutated = replace_in_function(mutated, f"func (u *WorkflowUpdater) {validator}(", GUARD, "")
-        self.assertIn("rejectTerminalUpdate", mutated)
-        self.repository.commit_and_tag(SERVER_TAG, {UPDATER_PATH: mutated})
-        with self.assertRaises(SystemExit) as raised:
-            self.check()
-        self.assertIn("rejectTerminalUpdate()", str(raised.exception))
-
-    def test_unregistered_validator_fails(self):
-        self.assert_mutation_fails(
-            UPDATER_PATH, "func NewWorkflowUpdater(", "updater.validateWaitForAttribute,", "nil,",
-            "updater.validateWaitForAttribute", ("validateWaitForAttribute",),
-        )
-
-    def test_terminal_update_rejection_must_depend_on_finalizing(self):
-        self.assert_mutation_fails(
-            UPDATER_PATH, "func (u *WorkflowUpdater) rejectTerminalUpdate(",
-            "if !u.terminalCoordinator.HasStartedFinalizing() {", "if true {",
-            "HasStartedFinalizing", ("rejectTerminalUpdate", "FlowTerminalCleanupInProgressMessage"),
-        )
-
-    def test_cleanup_rejection_must_map_to_flow_closing(self):
-        self.assert_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) handleError(",
-            "if details == service.FlowTerminalCleanupInProgressMessage {", 'if details == "" {',
-            "ERROR_SUB_STATUS_FLOW_CLOSING", ("ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING",),
-        )
-
-    def test_transactional_routing_requires_temporal_backend(self):
-        self.assert_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) shouldInvokeRPCTransactionally(",
-            "return s.client.GetBackendType() == service.BackendTypeTemporal &&\n\t\t(", "return (",
-            "BackendTypeTemporal", ("shouldInvokeRPCTransactionally",),
-        )
-
-    def test_invoke_rpc_must_use_transactional_routing(self):
-        self.assert_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) InvokeRPC(",
-            "isTransactional := s.shouldInvokeRPCTransactionally(req)", "isTransactional := req.GetIsTransactional()",
-            "shouldInvokeRPCTransactionally(req)", ("shouldInvokeRPCTransactionally",),
-        )
-
-    def test_invoke_rpc_must_reject_cadence_locking_rpcs(self):
-        self.assert_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) InvokeRPC(",
-            "len(req.GetLockAttributeKeys()) > 0 && backendType == service.BackendTypeCadence", "false",
-            "codes.Unimplemented", (),
-        )
-
-    def test_delete_channel_message_must_dispatch_cadence(self):
-        self.assert_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) DeleteChannelMessage(",
-            "if s.client.GetBackendType() == service.BackendTypeCadence {", "if false {",
-            "deleteCadenceChannelMessage(", ("deleteCadenceChannelMessage",),
-        )
-
-    def test_cadence_delete_requires_signal_inside_its_function(self):
-        self.assert_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) deleteCadenceChannelMessage(",
-            "s.client.SignalWorkflow(", "s.client.UpdateWorkflow(",
-            "SignalWorkflow", ("deleteCadenceChannelMessage", "s.client.SignalWorkflow("),
-        )
-
-    def test_cadence_waits_return_unimplemented(self):
-        for wait in ("WaitForStepCompletion", "WaitForAttribute"):
-            with self.subTest(wait=wait):
-                self.repository.commit_and_tag(SERVER_TAG, self.files)
-                self.assert_mutation_fails(
-                    SERVICE_PATH, f"func (s *serviceImpl) {wait}(",
-                    "return nil, status.Errorf(codes.Unimplemented,",
-                    "return nil, status.Errorf(codes.FailedPrecondition,",
-                    "codes.Unimplemented", ("codes.Unimplemented", wait),
-                )
-
-    def test_terminal_cleanup_waits_for_inflight_updates(self):
-        self.assert_mutation_fails(
-            TERMINAL_PATH, "func (c *TerminalCoordinator) CoordinateAndFinalizeError(",
-            "c.continueAsNewer.inflightUpdateOperations == 0", "true",
-            "inflightUpdateOperations == 0", ("CoordinateAndFinalizeError",),
-        )
 
 
 class SdkFlowClosingErrorsTest(unittest.TestCase):
@@ -645,8 +333,8 @@ class GoDescribeFlowTest(unittest.TestCase):
 
     def test_reference_must_distinguish_time_travel_run_identity(self):
         self.assert_reference_mutation_fails(
-            "go/observability.md", "server-zd keeps the run ID across time travel.",
-            "server-zd also creates a new run ID after time travel.",
+            "go/observability.md", "server-zd keeps the run ID across time travel, so `RunID` matches the run ID `StartFlow` returned.",
+            "server-zd creates a new run ID after time travel, so `RunID` differs from the run ID `StartFlow` returned.",
         )
 
     def test_reference_must_name_expired_context(self):
@@ -894,7 +582,7 @@ class SdkDescribeFlowTest(unittest.TestCase):
     def test_core_reference_must_not_present_describe_as_go_only(self):
         mutate_page(
             self, self.check, self.references / "core" / "error-handling.md",
-            "Java, Python, TypeScript, and Rust already have it at their v1.25.0 baselines.",
+            "Java, Python, TypeScript, and Rust already have it at their v1.26.0 baselines.",
             "Only the Go SDK has it.",
         )
 
@@ -1184,9 +872,7 @@ class ServerZdSearchTlsTest(unittest.TestCase):
 
 
 class FlowSummaryRpcTest(unittest.TestCase):
-    SERVER_TAG = "server/v9.9.9"
     SERVER_ZD_TAG = "server-zd/v9.9.9"
-    ERROR_STATUS_PATH = CHECKER.SERVER_ERROR_STATUS_PATH
     ZD_SERVICE_PATH = "server-zd/crates/dexzd-api/src/flow_service.rs"
     ZD_OPERATIONS_PATH = "server-zd/crates/dexzd-api/src/runtime_flow_operations.rs"
     ZD_READ_PATH = CHECKER.SERVER_ZD_READ_OPERATIONS_PATH
@@ -1196,16 +882,14 @@ class FlowSummaryRpcTest(unittest.TestCase):
 
     def setUp(self):
         self.repository = FixtureRepository(self)
-        self.server_sources = tagged_sources("server/v1.24.0", SERVICE_PATH, self.ERROR_STATUS_PATH)
         self.zd_sources = tagged_sources(
             "server-zd/v0.1.6", self.ZD_SERVICE_PATH, self.ZD_OPERATIONS_PATH, self.ZD_READ_PATH,
             self.ZD_STATE_ROWS_PATH, self.ZD_RUNTIME_ERROR_PATH, self.ZD_TIME_TRAVEL_PATH,
         )
-        self.repository.commit_and_tag(self.SERVER_TAG, self.server_sources)
         self.repository.commit_and_tag(self.SERVER_ZD_TAG, self.zd_sources)
 
     def check(self):
-        CHECKER.check_flow_summary_rpc(self.repository.root, self.SERVER_TAG, self.SERVER_ZD_TAG)
+        CHECKER.check_flow_summary_rpc(self.repository.root, self.SERVER_ZD_TAG)
 
     def assert_mutation_fails(self, tag, sources, path, declaration, old, new):
         source = sources[path]
@@ -1215,58 +899,11 @@ class FlowSummaryRpcTest(unittest.TestCase):
             self.check()
         self.assertIn(f"{tag}:{path}", str(raised.exception))
 
-    def assert_server_mutation_fails(self, path, declaration, old, new):
-        self.assert_mutation_fails(self.SERVER_TAG, self.server_sources, path, declaration, old, new)
-
     def assert_server_zd_mutation_fails(self, path, declaration, old, new):
         self.assert_mutation_fails(self.SERVER_ZD_TAG, self.zd_sources, path, declaration, old, new)
 
-    def test_released_server_rpcs_pass(self):
+    def test_released_server_zd_rpcs_pass(self):
         self.check()
-
-    def test_go_server_must_describe_execution(self):
-        self.assert_server_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) GetFlowSummary(",
-            "s.client.DescribeWorkflowExecution(", "s.client.QueryWorkflow(",
-        )
-
-    def test_go_server_must_return_described_run_id(self):
-        self.assert_server_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) GetFlowSummary(",
-            "RunId:  description.RunId,", "RunId:  req.GetRunId(),",
-        )
-
-    def test_go_server_must_return_flow_type(self):
-        self.assert_server_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) GetFlowSummary(",
-            "FlowType:   description.IndexedAttributes[service.SearchAttributeDexWorkflowType].GetStringValue(),",
-            'FlowType:   "",',
-        )
-
-    def test_go_server_must_return_close_time(self):
-        self.assert_server_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) GetFlowSummary(",
-            "\t\tresponse.CloseTime = timestamppb.New(*description.CloseTime)\n", "",
-        )
-
-    def test_go_server_missing_flow_must_map_to_not_found(self):
-        self.assert_server_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) handleError(",
-            "return serviceerrors.NotFound(err.Error()).ToGRPCError()",
-            "return serviceerrors.Internal(err.Error()).ToGRPCError()",
-        )
-
-    def test_go_server_not_found_must_carry_flow_not_exists(self):
-        self.assert_server_mutation_fails(
-            self.ERROR_STATUS_PATH, "func NotFound(",
-            "dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS", "dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED",
-        )
-
-    def test_go_server_time_travel_must_return_reset_run_id(self):
-        self.assert_server_mutation_fails(
-            SERVICE_PATH, "func (s *serviceImpl) ResetFlow(",
-            "return &dexpb.ResetFlowResponse{RunId: runId}, nil", "return &dexpb.ResetFlowResponse{RunId: req.GetRunId()}, nil",
-        )
 
     def test_server_zd_must_route_summary_rpc(self):
         self.assert_server_zd_mutation_fails(
@@ -1327,6 +964,29 @@ class FlowSummaryRpcTest(unittest.TestCase):
             "ResetFlowResponse {\n            run_id: run_id.clone(),\n            run_attempt: 2,",
             "ResetFlowResponse {\n            run_id: new_run_id.clone(),\n            run_attempt: 2,",
         )
+
+
+class DexWebTreeTest(unittest.TestCase):
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.repository.commit_and_tag("web/v9.9.9", {"web/README.md": "Dex Web\n", "protos/dex.proto": "syntax\n"})
+        self.repository.commit_and_tag("cli-v9.9.9", {})
+
+    def check(self):
+        CHECKER.require_same_tree(self.repository.root, "web/v9.9.9", "cli-v9.9.9", ("web", "protos"), "Dex Web baseline")
+
+    def test_identical_web_and_protocol_trees_pass(self):
+        self.check()
+
+    def test_changed_web_source_between_the_tags_fails(self):
+        self.repository.commit_and_tag("cli-v9.9.9", {"web/README.md": "Changed Dex Web\n"})
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn("Dex Web baseline web/v9.9.9 differs from cli-v9.9.9", str(raised.exception))
+
+    def test_missing_web_tag_fails(self):
+        with self.assertRaises(SystemExit):
+            CHECKER.require_same_tree(self.repository.root, "web/v0.0.0", "cli-v9.9.9", ("web",), "Dex Web baseline")
 
 
 class ServerZdStatementsTest(unittest.TestCase):
@@ -1397,92 +1057,6 @@ class ServerZdLatestStatementsTest(unittest.TestCase):
                     self.repository.commit_and_tag(self.TAG, {path: self.sources[path]})
 
 
-class GoServerRetryLocksTest(unittest.TestCase):
-    TAG = "server/v1.25.0"
-    PATH = CHECKER.RETRY_LOCK_SERVER_PATH
-    UNLOCK = "persistenceManager.UnlockKeys(lockAttributeKeys)\n"
-
-    def setUp(self):
-        self.repository = FixtureRepository(self)
-        self.source = tagged_sources(self.TAG, self.PATH)[self.PATH]
-        self.repository.commit_and_tag(SERVER_TAG, {self.PATH: self.source})
-
-    def check(self):
-        CHECKER.check_go_server_retry_locks(self.repository.root, SERVER_TAG)
-
-    def assert_mutation_fails(self, mutated, *fragments):
-        self.repository.commit_and_tag(SERVER_TAG, {self.PATH: mutated})
-        with self.assertRaises(SystemExit) as raised:
-            self.check()
-        for fragment in (f"{SERVER_TAG}:{self.PATH}", *fragments):
-            self.assertIn(fragment, str(raised.exception))
-
-    def test_released_source_passes(self):
-        self.check()
-
-    def test_each_method_must_load_its_locks(self):
-        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
-            with self.subTest(method=method):
-                getter = f"options.Get{method}LockAttributeKeys()"
-                mutated = replace_in_function(self.source, declaration, getter, "nil")
-                self.assert_mutation_fails(mutated, f"function `{declaration}`", getter)
-
-    def test_each_method_must_load_attributes_with_its_locks(self):
-        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
-            with self.subTest(method=method):
-                function_start = self.source.index(declaration)
-                load = self.source.index("persistenceManager.LoadSelectedAttributes(", function_start)
-                end = self.source.index("selection.AttributeMapInstances,", load)
-                call = self.source[load:end]
-                mutated = self.source[:load] + call.replace("lockAttributeKeys,", "nil,") + self.source[end:]
-                self.assertNotEqual(mutated, self.source)
-                self.assert_mutation_fails(mutated, f"function `{declaration}`")
-
-    def test_each_method_must_invoke_its_own_activity(self):
-        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
-            with self.subTest(method=method):
-                other = "Execute" if method == "WaitFor" else "WaitFor"
-                mutated = replace_in_function(
-                    self.source, declaration, f"i.activities.I{method}M,", f"i.activities.I{other}M,",
-                )
-                self.assert_mutation_fails(mutated, f"i.activities.I{method}M,")
-
-    def test_each_method_must_unlock_after_its_activity(self):
-        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
-            with self.subTest(method=method):
-                mutated = replace_in_function(self.source, declaration, self.UNLOCK, "\n")
-                self.assert_mutation_fails(mutated, f"function `{declaration}`", "UnlockKeys")
-
-    def test_each_method_must_not_unlock_before_its_activity(self):
-        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
-            with self.subTest(method=method):
-                activity = "provider.ExecuteActivity("
-                mutated = replace_in_function(self.source, declaration, activity, self.UNLOCK + "\t" + activity)
-                self.assert_mutation_fails(mutated, f"function `{declaration}`", f"unlocks {method} Attribute locks before")
-
-    def test_activity_scan_skips_go_strings_runes_and_comments(self):
-        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
-            for decoy in ('")\\")",', "')',", "/* ) */", "// )\n", "`)`,"):
-                with self.subTest(method=method, decoy=decoy):
-                    argument = f"i.activities.I{method}M,"
-                    mutated = replace_in_function(
-                        self.source, declaration, argument,
-                        argument + " " + decoy + " " + self.UNLOCK.strip() + ",",
-                    )
-                    self.assertNotEqual(mutated, self.source)
-                    self.assert_mutation_fails(mutated, f"function `{declaration}`", f"unlocks {method} Attribute locks before")
-
-    def test_each_method_must_not_unlock_inside_its_activity_arguments(self):
-        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
-            with self.subTest(method=method):
-                argument = f"i.activities.I{method}M,"
-                mutated = replace_in_function(
-                    self.source, declaration, argument, argument + " " + self.UNLOCK.strip() + ",",
-                )
-                self.assertNotEqual(mutated, self.source)
-                self.assert_mutation_fails(mutated, f"function `{declaration}`", f"unlocks {method} Attribute locks before")
-
-
 class Release124ReferencesTest(unittest.TestCase):
     def setUp(self):
         self.references = CHECKER.SDK_REFERENCES
@@ -1501,13 +1075,13 @@ class Release124ReferencesTest(unittest.TestCase):
 
 
 class FlowServiceTlsTest(unittest.TestCase):
-    GO_TAG = "sdk-go/v1.25.0"
+    GO_TAG = "sdk-go/v1.26.0"
     SDK_TAGS = {
         "go": GO_TAG,
-        "java": "sdk-java/v1.25.0",
-        "python": "sdk-python/v1.25.0",
-        "typescript": "sdk-typescript/v1.25.0",
-        "rust": "sdk-rust/v1.25.0",
+        "java": "sdk-java/v1.26.0",
+        "python": "sdk-python/v1.26.0",
+        "typescript": "sdk-typescript/v1.26.0",
+        "rust": "sdk-rust/v1.26.0",
     }
     TAGGED_PATHS = {
         GO_TAG: (
@@ -1516,24 +1090,22 @@ class FlowServiceTlsTest(unittest.TestCase):
             "sdk-go/dex/credential_api_key.go", "sdk-go/dex/credential_integration_test.go",
             "sdk-go/integ/tls_transport_test.go",
         ),
-        "sdk-java/v1.25.0": (
+        "sdk-java/v1.26.0": (
             "sdk-java/src/main/java/io/superdurable/dex/Client.java",
             "sdk-java/src/main/java/io/superdurable/dex/Worker.java",
             "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
             "sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java",
         ),
-        "sdk-python/v1.25.0": (
+        "sdk-python/v1.26.0": (
             "sdk-python/dex/_credential_transport.py", "sdk-python/dex/_pull_worker.py",
             "sdk-python/dex/client_options.py", "sdk-python/dex/worker_options.py",
         ),
-        "sdk-typescript/v1.25.0": ("sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts",
+        "sdk-typescript/v1.26.0": ("sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts",
                                       "sdk-typescript/src/options.ts"),
-        "sdk-rust/v1.25.0": (
+        "sdk-rust/v1.26.0": (
             "sdk-rust/crates/dex-sdk/src/client.rs", "sdk-rust/crates/dex-sdk/src/worker.rs",
             "sdk-rust/crates/dex-sdk/src/client_options.rs", "sdk-rust/crates/dex-sdk/src/worker_options.rs",
         ),
-        "server/v1.25.0": ("server/config/config.go", "server/service/api/routers.go",
-                            "server/cmd/server/dex/dex.go"),
         "server-zd/v0.1.6": (
             "server-zd/crates/dexzd-server/src/config/service_config.rs", "server-zd/README.md",
             "server-zd/crates/dexzd-server/src/server_node.rs",
@@ -1639,38 +1211,28 @@ class FlowServiceTlsTest(unittest.TestCase):
                         "if status.Code(err) == codes.Unavailable {", "if status.Code(err) == codes.Unimplemented {")
 
     def test_java_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-java/v1.25.0", "sdk-java/src/main/java/io/superdurable/dex/Client.java",
+        self.mutate_tag("sdk-java/v1.26.0", "sdk-java/src/main/java/io/superdurable/dex/Client.java",
                         ".usePlaintext()", ".useTransportSecurity()")
 
     def test_java_options_must_not_add_tls_without_reference_update(self):
-        self.mutate_tag("sdk-java/v1.25.0", "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
+        self.mutate_tag("sdk-java/v1.26.0", "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
                         "private final Credential credential;", "private final Credential credential;\n    private final Object tlsConfig;")
 
     def test_python_pull_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-python/v1.25.0", "sdk-python/dex/_pull_worker.py",
+        self.mutate_tag("sdk-python/v1.26.0", "sdk-python/dex/_pull_worker.py",
                         "return grpc.aio.insecure_channel(server_address)", "return grpc.aio.secure_channel(server_address)")
 
     def test_typescript_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-typescript/v1.25.0", "sdk-typescript/src/client.ts",
+        self.mutate_tag("sdk-typescript/v1.26.0", "sdk-typescript/src/client.ts",
                         "credentials.createInsecure()", "credentials.createSsl()")
 
     def test_rust_default_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/client.rs",
+        self.mutate_tag("sdk-rust/v1.26.0", "sdk-rust/crates/dex-sdk/src/client.rs",
                         'format!("http://{address}")', 'format!("https://{address}")')
 
     def test_server_zd_listener_must_remain_plaintext(self):
         self.mutate_tag("server-zd/v0.1.6", "server-zd/crates/dexzd-server/src/config/service_config.rs",
                         "bind address for the plaintext public gRPC services", "bind address for the TLS public gRPC services")
-
-    def test_go_server_must_not_add_native_tls_without_reference_update(self):
-        self.mutate_tag("server/v1.25.0", "server/service/api/routers.go",
-                        "if publicEnabled && !authCfg.IsEnabled() {\n\t\tserver.grpcServer = grpc.NewServer(append(",
-                        "if publicEnabled && !authCfg.IsEnabled() {\n\t\tserver.grpcServer = grpc.NewServer(grpc.Creds(credentials.NewTLS(config)), append(")
-
-    def test_dex_web_must_keep_separate_plaintext_transport(self):
-        self.mutate_tag("server/v1.25.0", "server/cmd/server/dex/dex.go",
-                        "grpc.WithTransportCredentials(insecure.NewCredentials())",
-                        "grpc.WithTransportCredentials(credentials.NewTLS(config))")
 
     def test_server_zd_must_not_add_native_tls_without_reference_update(self):
         self.mutate_tag("server-zd/v0.1.6", "server-zd/crates/dexzd-server/src/server_node.rs",
@@ -1695,11 +1257,11 @@ class FlowServiceTlsTest(unittest.TestCase):
 
 class PullOnlyWorkersTest(unittest.TestCase):
     SDK_TAGS = {
-        "go": "sdk-go/v1.25.0",
-        "java": "sdk-java/v1.25.0",
-        "python": "sdk-python/v1.25.0",
-        "typescript": "sdk-typescript/v1.25.0",
-        "rust": "sdk-rust/v1.25.0",
+        "go": "sdk-go/v1.26.0",
+        "java": "sdk-java/v1.26.0",
+        "python": "sdk-python/v1.26.0",
+        "typescript": "sdk-typescript/v1.26.0",
+        "rust": "sdk-rust/v1.26.0",
     }
 
     def setUp(self):
@@ -1729,7 +1291,7 @@ class PullOnlyWorkersTest(unittest.TestCase):
         self.check()
 
     def test_go_start_and_sub_flow_must_each_route_to_pull_workers(self):
-        tag, path = "sdk-go/v1.25.0", "sdk-go/dex/proto_mapper.go"
+        tag, path = "sdk-go/v1.26.0", "sdk-go/dex/proto_mapper.go"
         source = self.sources[tag][path]
         pull_false = CHECKER.GO_PULL_ROUTING.replace("IsPullMode: true", "IsPullMode: false")
         for function in ("mapStartFlowOptions", "mapSubFlowOptions"):
@@ -1744,32 +1306,32 @@ class PullOnlyWorkersTest(unittest.TestCase):
         self.check()
 
     def test_rust_pull_flow_config_must_set_pull_mode(self):
-        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/client.rs",
-                        "is_pull_mode: true,", "is_pull_mode: false,")
+        self.mutate_tag("sdk-rust/v1.26.0", "sdk-rust/crates/dex-sdk/src/client.rs",
+                        "ProtoWorkerTarget { is_pull_mode: true }", "ProtoWorkerTarget { is_pull_mode: false }")
 
     def test_rust_start_flow_must_use_pull_flow_config(self):
-        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/client.rs",
+        self.mutate_tag("sdk-rust/v1.26.0", "sdk-rust/crates/dex-sdk/src/client.rs",
                         "Some(map_pull_flow_config(config)?)", "Some(map_flow_config(config)?)")
 
     def test_rust_sub_flow_must_use_pull_flow_config(self):
-        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/worker_dispatcher.rs",
+        self.mutate_tag("sdk-rust/v1.26.0", "sdk-rust/crates/dex-sdk/src/worker_dispatcher.rs",
                         "crate::client::map_pull_flow_config(options.config_override.as_ref())",
                         "crate::client::map_flow_config(options.config_override.as_ref())")
 
     def test_go_bind_address_must_stay_removed(self):
-        self.mutate_tag("sdk-go/v1.25.0", "sdk-go/dex/worker.go",
+        self.mutate_tag("sdk-go/v1.26.0", "sdk-go/dex/worker.go",
                         "\tPull *PullWorkerOptions\n", "\tPull *PullWorkerOptions\n\tBindAddress string\n")
 
     def test_python_worker_target_option_must_stay_removed(self):
-        self.mutate_tag("sdk-python/v1.25.0", "sdk-python/dex/client_options.py",
+        self.mutate_tag("sdk-python/v1.26.0", "sdk-python/dex/client_options.py",
                         "class ClientOptions", "worker_target = None\n\n\nclass ClientOptions")
 
     def test_typescript_bind_address_must_stay_removed(self):
-        self.mutate_tag("sdk-typescript/v1.25.0", "sdk-typescript/src/options.ts",
+        self.mutate_tag("sdk-typescript/v1.26.0", "sdk-typescript/src/options.ts",
                         "export interface WorkerOptions {", "export interface WorkerOptions {\n  bindAddress?: string;")
 
     def test_rust_pull_default_must_remain(self):
-        self.mutate_tag("sdk-rust/v1.25.0", "sdk-rust/crates/dex-sdk/src/worker_options.rs",
+        self.mutate_tag("sdk-rust/v1.26.0", "sdk-rust/crates/dex-sdk/src/worker_options.rs",
                         "pull: PullWorkerOptions::default(),", "pull: PullWorkerOptions::disabled(),")
 
     def test_each_reference_statement_must_be_enforced(self):

@@ -145,12 +145,12 @@ Do not select PostgreSQL, another database, a cache, an ORM, or a shadow read
 model merely because data must persist. Dex already provides durable
 Attributes, AttributeMaps, indexes/search, locks, exact instance loading, blob
 offload, and optional Attribute Store projections. An Attribute Store
-projection still introduces an external database; use it only for a confirmed
-query gap, and prefer its server-managed projection over application dual
+projection still introduces an external database, and server-zd supports only
+PostgreSQL for it; use it only for a confirmed query gap, and prefer its server-managed projection over application dual
 writes when Dex remains authoritative. When a projection is chosen, record the
 Flow ID format with any `rowKey` template, which makes that format a storage
 contract, and whether keyed AttributeMap records need rows of their own
-(Dex Server v1.6.0 or later; see [row keys and AttributeMap tables](../../dex-sdk/references/core/data-handling.md#row-keys-column-names-and-attributemap-tables)). Require an external store only for a
+(see [row keys and AttributeMap tables](../../dex-sdk/references/core/data-handling.md#row-keys-column-names-and-attributemap-tables)). Require an external store only for a
 specific unsupported need such as complex/ad-hoc indexes, full-text or vector
 search, high-concurrency access to one hot record, relational joins or
 multi-record transactions, or large analytical scans. Record the exact

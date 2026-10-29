@@ -22,8 +22,8 @@ class ReferenceSourcesTest(unittest.TestCase):
         self.git("init", "--quiet")
         self.git("config", "user.name", "Source validator fixture")
         self.git("config", "user.email", "fixture@example.invalid")
-        self.paths = {"sdk": "sdk-go/dex/client.go", "server": "server/service/api/service.go", "cli": "cli/internal/command/flow_client_operations.go"}
-        self.baselines = {"sdk": "sdk-go/v1.0.0", "server": "server/v2.0.0", "cli": "cli-v3.0.0"}
+        self.paths = {"sdk": "sdk-go/dex/client.go", "server": "server-zd/README.md", "web": "web/README.md", "cli": "cli/internal/command/flow_client_operations.go"}
+        self.baselines = {"sdk": "sdk-go/v1.0.0", "server": "server-zd/v2.0.0", "web": "web/v2.0.0", "cli": "cli-v3.0.0"}
         for language in ("java", "python", "typescript", "rust"):
             self.paths[f"sdk-{language}"] = f"sdk-{language}/README.md"
             self.baselines[f"sdk-{language}"] = f"sdk-{language}/v1.0.0"
@@ -85,7 +85,7 @@ class ReferenceSourcesTest(unittest.TestCase):
     def test_missing_tag_and_traversal_rejected(self):
         with self.assertRaises(SystemExit):
             CHECKER.validate_checkout(self.root, "sdk-go/v9.9.9")
-        for path in ["../secrets", "/etc/passwd", "server/../sdk-go/dex/client.go", "unknown/file.go"]:
+        for path in ["../secrets", "/etc/passwd", "server-zd/../sdk-go/dex/client.go", "server/service/api/service.go", "unknown/file.go"]:
             with self.subTest(path=path):
                 self.assertIsNone(CHECKER.source_family(path))
 

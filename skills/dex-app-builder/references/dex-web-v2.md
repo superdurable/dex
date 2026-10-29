@@ -1,14 +1,41 @@
 # Dex Web v2 and FDG 2.0
 
-Reference capability baselines: Dex Server `v1.17.0`, Dex CLI `v1.17.0`, and
-the SDK source baseline in [bundle-baselines.md](../../dex-sdk/references/core/bundle-baselines.md).
+Reference capability baselines: Dex Web `web/v1.26.0`, `cli-v1.26.1`, the
+server-zd release it bundles, and the SDK source baseline in
+[bundle-baselines.md](../../dex-sdk/references/core/bundle-baselines.md).
 These validate the guidance, not an instruction to upgrade an application.
-An application retains its pinned Server, CLI, and Go SDK versions unless the
-user authorizes an upgrade. Both Server and CLI embed Web v2, Start Flow with a
-reachable Worker address, and the permission-based Work Queue. Release-owned
-Connector setup runs only in loopback `dexcli dev`.
+An application retains its pinned Server, CLI, Web, and Go SDK versions unless the
+user authorizes an upgrade. Dex Web v2 provides Start Flow on pull Workers and
+the permission-based Work Queue. Release-owned Connector setup runs only in
+loopback `dexcli dev`.
 
-With Dex Server auth enabled, set `web.flowServiceCredentialFile` for Web's calls to FlowService. This does not authenticate Web users: protect the Web port with network controls or an authenticating proxy. Keep this bearer-token file separate from the local Connector development credential store. See [public API authentication](../../dex-sdk/references/core/operations.md#public-api-authentication).
+## Run Dex Web
+
+`dexcli dev` starts server-zd and an embedded Dex Web. A deployment runs the standalone `dex-web` binary or the `superdurable/dex-web` image next to the Dex Server. The Dex Server does not serve Dex Web, and no `dex-server` process or image does either. `dex-web` connects to an existing FlowService and never starts a Server. [Released standalone Web](https://github.com/superdurable/dex/blob/web/v1.26.0/web/README.md#run-standalone-dex-web)
+
+```bash
+dex-web --flow-service-address dex-server-zd:8801 \
+  --flow-service-credential-file /etc/dex/web-token
+```
+
+Every setting is a flag or an environment variable, and a flag overrides its variable. Dex Web has no `web.*` YAML keys.
+
+| Flag | Environment variable | Default |
+| --- | --- | --- |
+| `--bind-address` | `DEX_WEB_BIND_ADDRESS` | `127.0.0.1` |
+| `--port` | `DEX_WEB_HTTP_PORT_NUMBER` | `8802` |
+| `--flow-service-address` | `DEX_WEB_FLOW_SERVICE_ADDRESS` | `127.0.0.1:8801` |
+| `--flow-rendering-dir` | `DEX_WEB_FLOW_RENDERING_DIRECTORY` | empty |
+| `--tls` | `DEX_WEB_TLS` | `false` |
+| `--tls-ca-file` | `DEX_WEB_TLS_CA_FILE` | empty; system roots |
+| `--tls-server-name` | `DEX_WEB_TLS_SERVER_NAME` | empty; the target host |
+| `--flow-service-credential-file` | `DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE` | empty; no credential |
+
+`--start-flow-worker-target-pull` and `--start-flow-worker-target-headless`, with their `DEX_WEB_START_FLOW_WORKER_TARGET_*` variables, are deprecated no-ops. Dex Web accepts them and prints a startup warning. Remove them from scripts and manifests.
+
+The `superdurable/dex-web` image binds `0.0.0.0:8802` and runs as UID and GID 65532. Mount definition directories and token files read-only with permissions that UID can read. The `main` branch publishes `superdurable/dex-web:latest`, and a `web/vX.Y.Z` release publishes `superdurable/dex-web:vX.Y.Z`. Pin a release tag for a deployment.
+
+With Dex Server auth enabled, set `--flow-service-credential-file` for Web's calls to FlowService. This does not authenticate Web users: protect the Web port with network controls or an authenticating proxy. Keep this bearer-token file separate from the local Connector development credential store. Use `--tls` when Web sends the credential to a remote FlowService. See [public API authentication](../../dex-sdk/references/core/operations.md#public-api-authentication).
 
 Released connector modules may require an older Connector SDK; at connectors
 `main` `980a6f9`, modules require exact releases from `sdkgo/v0.7.0` through
@@ -33,23 +60,22 @@ Dex Web derives its experience from:
 
 ## Pull routing and debugging
 
-With Server and CLI v1.15.0, Flow detail shows the Worker target and, for pull Flows, the Flow type queue and sticky app Worker ID. Active Steps and Step history show serving app Worker IDs for WaitFor and Execute, the dispatch sticky app Worker ID, and the queue source. **Sticky queue** means the serving ID matches the sticky ID captured for that dispatch; otherwise a completed dispatch shows **Flow type queue**. Compare against that captured ID, not just the Flow's current sticky ID.
+Flow detail shows the Flow type queue and sticky app Worker ID. Active Steps and Step history show serving app Worker IDs for WaitFor and Execute, the dispatch sticky app Worker ID, and the queue source. **Sticky queue** means the serving ID matches the sticky ID captured for that dispatch; otherwise a completed dispatch shows **Flow type queue**. Compare against that captured ID, not just the Flow's current sticky ID.
 
-Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Address targets retain address-only routing. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage. [Released routing UI](https://github.com/superdurable/dex/blob/server/v1.25.0/web/app/flows/details/PullRouting.tsx)
+Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage.
 
-Use the Flow target, captured dispatch sticky ID, queue source, and failure reason before changing Worker routing. Inspect [reserve pressure and capacity](../../dex-sdk/references/core/pull-workers.md#reserved-rpc-capacity) when registered Workers decline Steps.
+Use the captured dispatch sticky ID, queue source, and failure reason before changing Worker configuration. Inspect [reserve pressure and capacity](../../dex-sdk/references/core/pull-workers.md#reserved-rpc-capacity) when registered Workers decline Steps.
 
 ## Dex Web with server-zd
 
-With Server and CLI v1.17.0, Dex Web also works against [server-zd](../../dex-sdk/references/core/operations.md#server-zd), which dispatches only to pull Workers. Locally, `dexcli dev --engine zd` serves it. A deployment runs a web-only `dex-server` whose `web.flowServiceTarget` is the server-zd address.
+Dex Web reads `GetServerInfo` and reports the engine in `GET /api/v2/catalog` as `serverEngine`: `zd`, or `unspecified` when the FlowService does not answer. Locally, `dexcli dev` serves server-zd and Dex Web together. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.26.0/web/README.md#run-against-server-zd)
 
-- `GET /api/v2/catalog` reports `serverEngine`: `temporal`, `cadence`, `zd`, or `unspecified` when the Server does not report one.
-- On server-zd, **Start Flow** opens with **Pull Worker** selected and hides **Worker address**. `POST /api/v2/start` selects a pull target when a request omits both target fields. The Go Worker therefore needs `WorkerOptions.Pull`.
+- **Start Flow** always starts on pull Workers. The dialog asks only for the Flow ID and the Start input and has no Worker address or headless control.
 - Time travel keeps the run ID and creates a new run attempt. The run details page, which v1 run pages and v2 **Inspect** share, replaces **Run chain** with a **Run attempt** selector. Choosing an earlier attempt adds `?runAttempt=N` to the URL and shows that attempt's history. Live history and live state always belong to the current attempt. A **TimeTravelFork** event links to the previous attempt.
-- `GET /api/flows/history` and `POST /api/flows/time-travel` accept an optional `runAttempt`; zero or absent selects the current attempt. `GET /api/flows/summary` and each history event report `runAttempt`, which is zero on the Go Server.
-- `/readyz` calls the FlowService health check on server-zd instead of a Flow search.
+- `GET /api/flows/history` and `POST /api/flows/time-travel` accept an optional `runAttempt`; zero or absent selects the current attempt. `GET /api/flows/summary` and each history event report `runAttempt`.
+- `/readyz` calls the FlowService health check instead of a Flow search.
 
-Record the run attempt with the run ID in verification evidence on server-zd. [Released Web behavior](https://github.com/superdurable/dex/blob/server/v1.25.0/web/README.md#run-against-server-zd)
+Record the run attempt with the run ID in verification evidence.
 
 ## Management UI design
 
@@ -74,20 +100,10 @@ A deployed Dex Web sits behind a trusted application boundary that authenticates
 ## Start Flow
 
 The v2 Run workspace shows **Start Flow** when the selected definition has a
-supported typed Start schema. The operator enters a Flow ID, a Worker target,
-and the typed input. Choose **Worker address** for a reachable plaintext Worker
-gRPC address, or **Pull Worker** for a Worker connected to Dex Server. Dex Web
-checks an address target with a TCP connection when it loses focus and again
-before starting; an unreachable port blocks the start until the operator selects
-**Bypass worker health check**. A pull target has no address to check. The
-browser cannot supply Step options or choose headless routing;
-`web.startFlowWorkerTargetHeadless` applies to address targets.
-
-Every Worker built with SDK v1.25.0 or later is a pull Worker and has no
-address. Select **Pull Worker** for those Workers, and set
-**web.startFlowWorkerTargetPull: true** so requests without a target use pull
-routing. The **Worker address** option serves only Workers built with an
-earlier SDK.
+supported typed Start schema. The operator enters a Flow ID and the typed
+input. Dex Web starts every Flow on pull Workers and sends no Worker address.
+The browser cannot supply Step options. A Worker built with SDK v1.25.0 or
+later is a pull Worker and needs no routing setting.
 
 Dex Web validates input and derives `skipWaitFor` from the validated Start
 phase: `execute` skips WaitFor, while `wait_for+execute` retains it. Missing,
@@ -101,19 +117,18 @@ rejects a second submission of the same Flow ID. That rejection is not a
 recovery path. After an uncertain start response, read the Flow ID with the
 bounded read-only `dexcli flow summary` before submitting again, and treat a
 different Flow ID as a different business operation. Definition revision,
-Worker target, and typed input errors must fail with their actual coded errors.
+and typed input errors must fail with their actual coded errors.
 Connector Trigger applications still use the real Trigger for their Trigger
 acceptance path.
 
-**POST /api/v2/start** accepts **workerTargetAddress** or
-**workerTargetPull: true**, but not both. If neither is provided,
-**web.startFlowWorkerTargetPull** selects a pull target when true; its default is
-false, and an explicit address still works. **workerTargetPull: false** requires
-an address even when the pull default is enabled. The environment equivalent is
-**DEX_WEB_START_FLOW_WORKER_TARGET_PULL**. Dex Web does not check that a pull
-Worker is currently registered before starting because registration can change
-before dispatch. On server-zd, a request without target fields selects a pull
-target regardless of this setting, and the dialog offers only **Pull Worker**.
+**POST /api/v2/start** accepts **flowType**, **flowId**, raw JSON **input**, and an
+optional **workerTargetPull: true**. It returns HTTP 400 for
+**workerTargetAddress** or **workerTargetPull: false**, because Dex routes all
+Flow work to pull Workers. It accepts and ignores **bypassWorkerHealthCheck**.
+Dex Web does not check that a pull Worker is currently registered before
+starting because registration can change before dispatch.
+**POST /api/v2/worker-health** still reports whether Dex Web can open a TCP
+connection to a **host:port**; it does not invoke a Worker method.
 
 Observed with Dex CLI v0.13.8 and Go SDK v0.12.1:
 
@@ -129,22 +144,21 @@ Observed with Dex CLI v0.13.8 and Go SDK v0.12.1:
   If the graph and Worker names differ,
   diagnose the analyzer/SDK version or generated metadata; do not implement
   `GetFlowType` and `GetStepType` on every Flow and Step as a Web workaround.
-- Those older versions invoked `WaitFor` on an execute-only Start Step and
-  failed before Execute. Server v1.3.0 and later derive the correct option from
-  their validated graph; preserve the real Step semantics and inspect any existing
+- Older releases invoked `WaitFor` on an execute-only Start Step and
+  failed before Execute. Dex Web derives the correct option from
+  the validated graph; preserve the real Step semantics and inspect any existing
   failed execution before an authorized recovery.
 - FDG 2.0 requires `GetDexSummary` and `GetDexDisplay`, both registered as
   RPCs, even when a Flow has little to show (`v2_view_rpc`).
 - A start input field of type `map[string]any` cannot drive the form
   (`v2_start_input`).
 
-For a headless check, use the same endpoints as the browser:
+For a scripted check, use the same endpoints as the browser:
 `GET /api/v2/catalog` returns `definitionRevision`;
 `GET /api/v2/connector-connections` reports each connection's status;
-`POST /api/v2/worker-health` probes a Worker address; and `POST /api/v2/start`
-accepts `flowType`, `flowId`, `workerTargetPull: true` (or `workerTargetAddress`
-for a Worker built with an earlier SDK), and raw JSON `input` with
-that revision in the `X-Dex-Flow-Definition-Revision` header.
+and `POST /api/v2/start` accepts `flowType`, `flowId`, an optional
+`workerTargetPull: true`, and raw JSON `input` with that revision in the
+`X-Dex-Flow-Definition-Revision` header.
 
 ## Connectors mode
 
@@ -209,7 +223,7 @@ pending OAuth/PKCE exchanges and UI sessions. Credential replacement is read
 for each provider call; non-secret connection, binding, and operation
 configuration remains startup-bound in the application.
 
-A deployed Dex Server's Dex Web does not expose Connector setup, OAuth, or
+A deployed standalone Dex Web does not expose Connector setup, OAuth, or
 credential storage; they exist only in loopback `dexcli dev`. A deployed Go
 application reads its connections through the Connector SDK's
 `sdkgo/projectconfig`; see

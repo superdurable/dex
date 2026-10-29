@@ -52,8 +52,10 @@ def source_family(path: str) -> str | None:
         return "sdk"
     if prefix in {"sdk-java", "sdk-python", "sdk-rust", "sdk-typescript"}:
         return prefix
-    if prefix in {"server", "web", "protos"}:
+    if prefix == "server-zd":
         return "server"
+    if prefix in {"web", "protos"}:
+        return "web"
     if prefix == "cli":
         return "cli"
     return None
@@ -125,6 +127,7 @@ def main() -> None:
         "sdk": (arguments.dex_root.resolve(), (ROOT / "DEX_BASELINE").read_text().strip()),
         "server": ((arguments.server_root or arguments.dex_root).resolve(), (ROOT / "DEX_SERVER_BASELINE").read_text().strip()),
         "cli": ((arguments.cli_root or arguments.dex_root).resolve(), (ROOT / "DEX_CLI_BASELINE").read_text().strip()),
+        "web": ((arguments.cli_root or arguments.dex_root).resolve(), (ROOT / "DEX_WEB_BASELINE").read_text().strip()),
     }
     for language in ("java", "python", "typescript", "rust"):
         sources[f"sdk-{language}"] = (
