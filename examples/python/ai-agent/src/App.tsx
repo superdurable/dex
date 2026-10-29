@@ -151,6 +151,14 @@ interface AgentDescription {
   plan_execution_requested: boolean;
   available_mcp_servers: string[];
   available_tools: string[];
+  model_failure: ModelFailure | null;
+}
+
+interface ModelFailure {
+  operation: string;
+  is_provider_api_error: boolean;
+  detail: string;
+  failed_at: string;
 }
 
 interface AgentEvent {
@@ -1053,6 +1061,18 @@ const App: React.FC = () => {
           />
           )}
 
+          {description?.model_failure && (
+          <div style={styles.modelFailureCard}>
+            <strong>
+              {description.model_failure.is_provider_api_error
+                ? `${description.model_failure.operation} failed: the model provider API returned an error`
+                : `${description.model_failure.operation} did not finish`}
+            </strong>
+            <p>{description.model_failure.detail}</p>
+            <p>Send a message to try again.</p>
+          </div>
+          )}
+
           {description?.pending_approval_call_id && (
           <div style={styles.approvalCard}>
             <strong>Approve tool: {description.pending_approval_tool_name}</strong>
@@ -1549,6 +1569,7 @@ const styles: Record<string, React.CSSProperties> = {
   toolCall: { marginTop: 10, padding: 10, background: 'rgba(255,255,255,.7)', borderRadius: 9 },
   pre: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '8px 0', fontSize: 12 },
   approvalCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#fff3e5', border: '1px solid #f4bb77' },
+  modelFailureCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#fdecec', border: '1px solid #f1a3a3' },
   timerCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#e9f8f2', border: '1px solid #8dd7bd' },
   liveModelCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#161b2e', color: '#eef2ff', border: '1px solid #343b5f', boxShadow: '0 12px 30px rgba(20, 24, 45, .16)' },
   thinkingCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#f4f1ff', color: '#3d3168', border: '1px solid #cfc4ff' },

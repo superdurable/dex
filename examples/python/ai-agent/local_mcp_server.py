@@ -17,9 +17,18 @@
 from __future__ import annotations
 
 import argparse
+import re
+import urllib.request
+from html.parser import HTMLParser
 
+import anyio
 from mcp import types
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
+
+MAX_PAGE_BYTES = 2 * 1024 * 1024
+MAX_PAGE_CHARACTERS = 6_000
+# Paces each stage so the chat page can show the tool's progress.
+PROGRESS_PAUSE_SECONDS = 1.5
 
 
 def search_server() -> MCPServer:
@@ -60,10 +69,63 @@ def google_docs_server() -> MCPServer:
     return server
 
 
+def web_server() -> MCPServer:
+    server = MCPServer("dex-local-web")
+
+    @server.tool(annotations=types.ToolAnnotations(read_only_hint=True))
+    async def fetch_page(url: str, ctx: Context) -> str:
+        """Fetch a public web page and return its readable text."""
+        if not url.startswith(("https://", "http://")):
+            raise ValueError("url must start with https:// or http://")
+        await ctx.report_progress(1, message=f"Fetching {url}")
+        html = await anyio.to_thread.run_sync(_download_page, url)
+        await anyio.sleep(PROGRESS_PAUSE_SECONDS)
+        await ctx.report_progress(2, message=f"Downloaded {len(html) // 1024} KB")
+        text = _readable_text(html)
+        await anyio.sleep(PROGRESS_PAUSE_SECONDS)
+        await ctx.report_progress(3, message=f"Extracted {len(text)} characters of text")
+        return text[:MAX_PAGE_CHARACTERS]
+
+    return server
+
+
+def _download_page(url: str) -> str:
+    request = urllib.request.Request(url, headers={"User-Agent": "dex-ai-agent-example"})
+    with urllib.request.urlopen(request, timeout=20) as response:
+        charset = response.headers.get_content_charset() or "utf-8"
+        return response.read(MAX_PAGE_BYTES).decode(charset, errors="replace")
+
+
+class _ReadableTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+        self._skipped_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"script", "style", "noscript", "svg"}:
+            self._skipped_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style", "noscript", "svg"} and self._skipped_depth:
+            self._skipped_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._skipped_depth:
+            self.parts.append(data)
+
+
+def _readable_text(html: str) -> str:
+    parser = _ReadableTextParser()
+    parser.feed(html)
+    return re.sub(r"\s+", " ", " ".join(parser.parts)).strip()
+
+
 SERVERS = {
     "search": search_server,
     "slack": slack_server,
     "google-docs": google_docs_server,
+    "web": web_server,
 }
 
 

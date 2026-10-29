@@ -16,3 +16,9 @@ servers:
     command: .venv/bin/python
     args: [ai-agent/local_mcp_server.py, google-docs]
     trust_read_only_annotations: true
+
+  - name: web
+    transport: stdio
+    command: .venv/bin/python
+    args: [ai-agent/local_mcp_server.py, web]
+    trust_read_only_annotations: true

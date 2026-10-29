@@ -36,6 +36,7 @@ from dex import AsyncClient, DexServiceError, FlowNotFoundError, FlowStatus
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import ExamplesConfig
+from tests.integ.ai_agent_processes import write_agent_mcp_config
 
 DEFAULT_SERVER_ADDRESS = "127.0.0.1:8801"
 
@@ -86,19 +87,9 @@ async def example_app(
 
 
 def _agent_mcp_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    config_path = tmp_path_factory.mktemp("dex-agent-mcp") / "servers.yaml"
-    server_path = Path(__file__).with_name("ai_agent_mcp_server.py")
-    config_path.write_text(
-        f"""
-servers:
-  - name: test
-    transport: stdio
-    command: {sys.executable}
-    args: [{server_path}]
-    trust_read_only_annotations: true
-""".strip()
+    return write_agent_mcp_config(
+        tmp_path_factory.mktemp("dex-agent-mcp") / "servers.yaml"
     )
-    return config_path
 
 
 @pytest_asyncio.fixture(scope="session")

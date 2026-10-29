@@ -167,6 +167,14 @@ class PendingUserInput:
 
 
 @dataclass(frozen=True)
+class ModelFailure:
+    operation: str
+    is_provider_api_error: bool
+    detail: str
+    failed_at: str
+
+
+@dataclass(frozen=True)
 class AgentEvent:
     kind: str
     message: str
@@ -214,6 +222,7 @@ class AgentDescription:
     plan_execution_requested: bool
     available_mcp_servers: list[str]
     available_tools: list[str]
+    model_failure: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
