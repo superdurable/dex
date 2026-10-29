@@ -446,7 +446,7 @@ History 读取（例如 **dexcli flow history --all**）只返回保留的事件
 
 | Key | 默认值 | 含义 |
 | --- | --- | --- |
-| **history.windowSemanticEvents** | 10000 | 清理之前窗口最多保留的 semantic event 数。 |
+| **history.windowSemanticEvents** | 10000 | 窗口保留的最新 semantic event 的大致数量。窗口超过这个值加一个清理批次时才开始清理。一个 semantic event 可能显示为多行 CLI history。 |
 | **history.pruneChunkSize** | 1000 | 每次清理的旧 semantic event 数。不得超过 **windowSemanticEvents**。 |
 | **history.maxRetainedSupersededBytes** | 268435456（256 MiB） | 窗口内为 time travel 保留的被替换值的最大字节数。 |
 
@@ -454,13 +454,13 @@ History 读取（例如 **dexcli flow history --all**）只返回保留的事件
 
 ## 限制 {#limits}
 
-server-zd 执行以下限制。超出限制的请求会立即失败，不会等待容量。
+server-zd 执行以下限制。被限制拒绝的请求会立即失败，不会等待容量。请求 ID 限制从不拒绝请求，而是淘汰最早的请求 ID。
 
 | Key | 默认值 | 含义 |
 | --- | --- | --- |
 | **values.maxValueBytes** | 16777216（16 MiB） | 单个应用值序列化后的最大大小，例如 Attribute 值或 Channel 消息。更大的值会被拒绝。 |
 | **api.grpcMaxMessageBytes** | 33554432（32 MiB） | 收发的单条 gRPC 消息的最大大小。必须大于 **values.maxValueBytes**。 |
-| **limits.maxFlowStateBytes** | 67108864（64 MiB） | 一个 Flow run 物化状态的最大大小，包括当前的 Attribute 和 Channel。会超出它的 Step attempt 直接失败，不会重试。会超出它的 Client 或 RPC 写入以 RESOURCE_EXHAUSTED 失败。 |
+| **limits.maxFlowStateBytes** | 67108864（64 MiB） | 一个 Flow run 的存储预算。它计入当前状态、Attribute 和 Channel 的值，以及为 time travel 保留的被替换值。server-zd 只对 Flow 启动、Client Attribute 写入、Client Channel 发布、Step heartbeat 和 Step 完成检查它，并且只在这条命令让 run 的当前存储增长并超出预算时检查。这样的 Flow 启动或 Client 写入以 RESOURCE_EXHAUSTED 失败。这样的 Step heartbeat 或完成会让 attempt 失败，不会重试。其他写入（例如 RPC 写入）不受检查，所以这个预算并不限制 run 的全部状态。 |
 | **limits.maxFlowIdBytes** | 1000 | Flow ID 的最大长度，以 UTF-8 字节计。 |
 | **limits.maxRequestIdsPerRun** | 1000 | 一个 run 为去重保留的最新请求 ID 数。使用更早请求 ID 的重试会作为新请求执行。 |
 | **limits.maxLongPollWaitersPerFlow** | 1000 | 一个 Flow 上的最大并发 wait 数，例如 WaitForStepCompletion 和 WaitForAttributeMatch 调用。超出的 wait 以 RESOURCE_EXHAUSTED 失败。 |

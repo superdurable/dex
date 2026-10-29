@@ -73,7 +73,7 @@ Set a short-operation default through `StartFlowOptions.newBuilder().configOverr
 
 `StepOptions` also owns method timeouts, heartbeat timeout, retries, selected loads, locks, and failure routes. Do not infer durability from a long method timeout. Read [core StepOptions guidance](../core/step-options.md) for the replay-risk versus latency trade-off and the child-deadline requirement.
 
-Choose Step durability from workload semantics. Async execution can optimize short handlers before falling back, but shares the logical retry budget. Method timeout and heartbeat behavior can differ between phases; verify the installed SDK docs and test Worker replacement.
+Choose Step durability from workload semantics. Async and Sync attempts use the same retry budget, method timeout, and heartbeat settings. Async can replay a recent result after a node failure, so keep side effects idempotent and test Worker replacement.
 
 ## BlobCache and Attribute Store
 

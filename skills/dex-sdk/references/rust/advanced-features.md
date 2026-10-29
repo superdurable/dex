@@ -48,7 +48,7 @@ StepOptions also owns method timeouts, heartbeat timeout, retries, selected load
 
 ## Waiting for durable acceptance
 
-`Client::wait_for_step_completion` lets a controller wait until a selected Step reaches its defined completion, then return while background branches continue. The server derives a stable namespaced Request ID from the Step execution when options omit one. `request_timeout` is the caller-visible budget across transparent transport reattachments; zero waits indefinitely. `internal_handler_timeout` is deprecated and ignored; leave it unset. This is useful when an API needs a durable acceptance point rather than full Flow completion. The runnable [Wait for Step completion pattern](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/examples/rust/src/patterns/wait_for_step_completion/flow.rs) persists the request before launching background work.
+`Client::wait_for_step_completion` lets a controller wait until a selected Step reaches its defined completion, then return while background branches continue. The Request ID is optional; server-zd does not use it. `request_timeout` is the caller-visible budget across transparent transport reattachments; zero waits indefinitely. `internal_handler_timeout` is deprecated and ignored; leave it unset. This is useful when an API needs a durable acceptance point rather than full Flow completion. The runnable [Wait for Step completion pattern](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/examples/rust/src/patterns/wait_for_step_completion/flow.rs) persists the request before launching background work.
 
 ## Attribute Store entity projection
 

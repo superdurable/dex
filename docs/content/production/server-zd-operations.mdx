@@ -523,7 +523,7 @@ a point inside the window. Time travel to the beginning is always available.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| **history.windowSemanticEvents** | 10000 | Most semantic events kept in the window before pruning. |
+| **history.windowSemanticEvents** | 10000 | Approximate number of the newest semantic events kept in the window. Pruning starts when the window exceeds this value plus one prune chunk. A semantic event can appear as several CLI history rows. |
 | **history.pruneChunkSize** | 1000 | Old semantic events pruned at a time. Must not exceed **windowSemanticEvents**. |
 | **history.maxRetainedSupersededBytes** | 268435456 (256 MiB) | Most superseded value bytes kept for time travel inside the window. |
 
@@ -532,14 +532,15 @@ that start after the node restarts with it.
 
 ## Limits {#limits}
 
-server-zd enforces these limits. A request over a limit fails at once; it does
-not wait for capacity.
+server-zd enforces these limits. A request that a limit rejects fails at once;
+it does not wait for capacity. The request ID limit never rejects a request; it
+evicts the oldest request IDs instead.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | **values.maxValueBytes** | 16777216 (16 MiB) | Largest serialized application value, such as an Attribute value or a Channel message. A larger value is rejected. |
 | **api.grpcMaxMessageBytes** | 33554432 (32 MiB) | Largest incoming or outgoing gRPC message. Must exceed **values.maxValueBytes**. |
-| **limits.maxFlowStateBytes** | 67108864 (64 MiB) | Largest materialized state of one Flow run, including current Attributes and Channels. A Step attempt that would exceed it fails without retry. A Client or RPC write that would exceed it fails with RESOURCE_EXHAUSTED. |
+| **limits.maxFlowStateBytes** | 67108864 (64 MiB) | Storage budget of one Flow run. It counts current state, Attribute and Channel values, and the superseded values kept for time travel. server-zd checks it only for a Flow start, a Client Attribute write, a Client Channel publish, a Step heartbeat, and a Step completion, and only when that command grows the run's current storage past the budget. Such a Flow start or Client write fails with RESOURCE_EXHAUSTED. Such a Step heartbeat or completion fails the attempt without retry. Other writes, such as RPC writes, are not checked, so the budget does not bound all run state. |
 | **limits.maxFlowIdBytes** | 1000 | Longest Flow ID, in UTF-8 bytes. |
 | **limits.maxRequestIdsPerRun** | 1000 | Newest request IDs that one run keeps for deduplication. A retry with an older request ID runs as a new request. |
 | **limits.maxLongPollWaitersPerFlow** | 1000 | Most concurrent waits on one Flow, such as WaitForStepCompletion and WaitForAttributeMatch calls. A wait beyond it fails with RESOURCE_EXHAUSTED. |
