@@ -538,9 +538,11 @@ store's tables.
 - server-zd v0.1.4 or later waits. A Step decision that
   completes or fails the Flow, exhausted Step retries, or the Flow timeout stops
   the Steps at once. The run then stays RUNNING until every pending write is
-  written or dropped. WaitForFlow returns only then. Rows for written entries
-  are in the table. A dropped entry is never written, so its row stays missing
-  or stale.
+  written or dropped. WaitForFlow returns only then. Entries written before
+  the wait ended are in the table. A dropped entry does not guarantee the row's
+  value, because earlier writes of the same run may have committed. If
+  **dexzd_attribute_sync_dropped_entries_total** increases, compare the affected
+  rows with the Flow's Attributes and write the Attributes again.
 - While a close waits, SetAttributes, PublishToChannel, and RPCs that are
   neither transactional nor locking are accepted. Their synced writes extend
   the wait, and they start no Step.
