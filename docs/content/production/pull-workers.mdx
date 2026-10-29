@@ -463,8 +463,8 @@ process restarts. The SDK generates one unless you set it explicitly.
 Dex waits for an available Worker within the matching dispatch budget. If none
 is available, a Step receives a retryable unavailable error that consumes a
 Step retry. An RPC caller receives an **Unavailable** error directly. The default dispatch wait is 10 seconds,
-including up to 5 seconds for a sticky queue with connected streams. Shorter waits apply to calls
-that need to preserve time for execution. See [Pull Worker dispatch](/production/server-zd-operations#pull-worker-dispatch)
+including up to 5 seconds for a sticky queue with connected streams. The wait never extends past
+the method deadline of the attempt. See [Pull Worker dispatch](/production/server-zd-operations#pull-worker-dispatch)
 for the wait settings.
 
 When a pull Worker has the Flow type but lacks the requested Step type or RPC

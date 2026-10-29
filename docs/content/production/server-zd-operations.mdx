@@ -546,8 +546,8 @@ not wait for capacity.
 | **limits.maxLongPollWaitersPerNode** | 100000 | Most concurrent waits on the node. A wait beyond it fails with RESOURCE_EXHAUSTED. |
 | **limits.maxInFlightRpcsPerNode** | 1000 | Most shared transactional or locking RPC tasks in flight on the node. A new request ID beyond it fails with RESOURCE_EXHAUSTED. |
 
-Each run records **limits.maxFlowStateBytes** and **limits.maxRequestIdsPerRun**
-when it starts. A new value applies only to runs that start after the node
+Each run records **values.maxValueBytes**, **limits.maxFlowStateBytes**, and
+**limits.maxRequestIdsPerRun** when it starts. A new value applies only to runs that start after the node
 restarts with it.
 
 ## Attribute Store sync {#attribute-store}

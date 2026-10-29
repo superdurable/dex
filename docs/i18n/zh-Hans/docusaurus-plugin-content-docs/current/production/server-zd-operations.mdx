@@ -467,7 +467,7 @@ server-zd 执行以下限制。超出限制的请求会立即失败，不会等�
 | **limits.maxLongPollWaitersPerNode** | 100000 | 节点上的最大并发 wait 数。超出的 wait 以 RESOURCE_EXHAUSTED 失败。 |
 | **limits.maxInFlightRpcsPerNode** | 1000 | 节点上同时进行的共享事务型或加锁 RPC 任务的最大数量。超出时，新的请求 ID 以 RESOURCE_EXHAUSTED 失败。 |
 
-每个 run 在启动时记录 **limits.maxFlowStateBytes** 和 **limits.maxRequestIdsPerRun**。新值只对节点用它重启之后启动的 run 生效。
+每个 run 在启动时记录 **values.maxValueBytes**、**limits.maxFlowStateBytes** 和 **limits.maxRequestIdsPerRun**。新值只对节点用它重启之后启动的 run 生效。
 
 ## Attribute Store 同步 {#attribute-store}
 

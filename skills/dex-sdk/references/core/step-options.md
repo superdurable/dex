@@ -8,7 +8,7 @@ Durability resolves from the WaitFor or Execute override, then the FlowConfig de
 
 Durability trades commit latency against replay risk. **SYNC** persists a method result before the Flow advances. **ASYNC** advances first and batches the commit within about 20 milliseconds by default. If the Dex Server node fails before that commit, the result is lost: the method runs again, and so does any later work that started from it.
 
-When most handlers are short and idempotent, set the FlowConfig default to **ASYNC** at Flow start. Let ordinary handlers inherit it. Explicitly override a method to **SYNC** when a replay would be costly or unsafe: a non-idempotent external effect, an expensive call such as an LLM generation, or a long-running method. For a long method, the commit latency **ASYNC** saves is negligible next to its run time, while a replay repeats the whole call.
+When most handlers are short and idempotent, set the FlowConfig default to **ASYNC** at Flow start. Let ordinary handlers inherit it. Explicitly override a method to **SYNC** when a replay would be costly or unsafe: a non-idempotent external effect, an expensive call such as an LLM generation, or a long-running method. For a long method, the commit latency **ASYNC** saves is negligible next to its run time, while a replay restarts the call from its last heartbeat checkpoint, or from the beginning without one. A long method that checkpoints its progress, such as a polling loop, can inherit **ASYNC**.
 
 Both modes run the same attempts. Retry policy, method timeout, heartbeat timeout, and heartbeat checkpoints apply to every attempt in both modes. Do not describe **ASYNC** as a separate local execution.
 

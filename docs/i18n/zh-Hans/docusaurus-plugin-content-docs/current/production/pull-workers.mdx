@@ -450,7 +450,7 @@ Worker 的内存。同一个 Dex Server 内的 Flow 类型名称必须唯一。a
 Dex 在 matching dispatch 等待时间内寻找可用 Worker。如果没有 Worker，Step 会收到
 可重试的 unavailable 错误，并消耗一次 Step 重试。RPC 调用方则直接收到
 **Unavailable** 错误。dispatch
-默认等待 10 秒，其中有已连接 stream 的黏性队列最多等待 5 秒。需要保留执行时间的调用使用更短的等待。
+默认等待 10 秒，其中有已连接 stream 的黏性队列最多等待 5 秒。等待时间不会超过这次 attempt 的 method deadline。
 等待设置见 [Pull Worker 分发](/production/server-zd-operations#pull-worker-dispatch)。
 
 如果拉取模式 Worker 注册了该 Flow 类型，却没有请求的 Step 类型或 RPC 名称，
