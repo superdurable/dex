@@ -77,8 +77,8 @@ jobs:
         run: |
           set -euo pipefail
           for module in cli web protos/codec-server; do
-            dependencies="$(cd "$module" && GOWORK=off go list -deps ./...)"
-            if grep -E '^github.com/superdurable/dex/(config|gen|service)(/|$)' <<<"$dependencies"; then
+            dependencies="$(cd "$module" && GOWORK=off go list -m all)"
+            if grep -E '^github.com/superdurable/dex ' <<<"$dependencies"; then
               echo "::error::$module imports the removed Go Server module"
               exit 1
             fi

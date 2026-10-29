@@ -189,8 +189,11 @@ func defaultStateDirectory() (string, error) {
 }
 
 func (c *Config) validate() error {
-	if c.Engine != "zd" {
+	if c.Engine == "temporal" {
 		return fmt.Errorf("Temporal engine was removed; server-zd is the only engine (use --engine zd or omit --engine): %q", c.Engine)
+	}
+	if c.Engine != "zd" {
+		return fmt.Errorf("unknown engine %q; server-zd is the only engine (use --engine zd or omit --engine)", c.Engine)
 	}
 	invocationPath, err := dexcliInvocationPath(os.Args[0])
 	if err != nil {
@@ -329,6 +332,9 @@ func (c *Config) isExplicit(flagName string) bool {
 	return c.explicitLocalFlags[flagName]
 }
 
+// resolveZDBinary returns the dex-server-zd executable path, or an error naming every location searched.
+// A non-empty configuredBinary comes from --zd-binary or DEX_SERVER_ZD_BINARY and is the only candidate.
+// Otherwise it searches the directory of invocationPath, the symlink-resolved directory of executablePath, then PATH.
 func resolveZDBinary(configuredBinary string, invocationPath string, executablePath string) (string, error) {
 	if configuredBinary != "" {
 		binaryPath, err := exec.LookPath(configuredBinary)

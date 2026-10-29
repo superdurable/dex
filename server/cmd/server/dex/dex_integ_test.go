@@ -11,8 +11,10 @@
 package dex
 
 import (
+	"bytes"
 	"context"
 	"flag"
+	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,6 +27,17 @@ import (
 func TestEmbeddedWebDirectsToStandaloneCommand(t *testing.T) {
 	_, err := newApplication(&config.Config{}, serviceSelection{isWebEnabled: true})
 	require.EqualError(t, err, "embedded Dex Web was removed from dex-server; run dex-web separately")
+}
+
+func TestLegacyWebConfigLogsStandaloneMigration(t *testing.T) {
+	var output bytes.Buffer
+	originalOutput := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(originalOutput)
+	_, err := newApplication(&config.Config{Web: config.WebConfig{Port: 9802}}, serviceSelection{})
+	require.NoError(t, err)
+	require.Contains(t, output.String(), "no longer serves Dex Web on port 8802")
+	require.Contains(t, output.String(), "web configuration is ignored; run dex-web separately")
 }
 
 func TestWebConfigDefaultsAndOverrides(t *testing.T) {

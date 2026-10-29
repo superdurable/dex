@@ -748,5 +748,5 @@ server-zd 会拒绝未知的键，因此 Go Server 的配置文件不能原样�
 | **attributeStore** | **attributeStore** | 相同的键，需要 server-zd v0.1.3 或更高版本。只支持 **type: postgres**。**flowIdColumn**、**databaseName** 和 **collectionName** 必须留空。**fencingTableName** 只存在于 server-zd，每个数据库都需要一张 fencing 表。见 [Attribute Store 同步](#attribute-store)。 |
 | **interpreter** | 无 | server-zd 不使用 Temporal 或 Cadence backend。 |
 | **membership** 和 **internal** | 无 | 一个集群只运行一个节点，没有内部监听器。 |
-| **web** | 无 | server-zd 不提供 Dex Web。请运行一个指向 server-zd 的仅 Web Dex Server。参见[对接 server-zd](/production/dex-web#run-against-server-zd)。 |
+| **web** | 无 | server-zd 不提供 Dex Web。请单独运行 **dex-web**，并用 **--flow-service-address** 指向 server-zd。参见[对接 server-zd](/production/dex-web#run-against-server-zd)。 |
 | **worker** | 无 | server-zd 只支持拉取模式 Worker。 |

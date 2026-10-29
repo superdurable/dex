@@ -23,7 +23,8 @@ concurrency="${DEXBENCH_CONCURRENCY:-1,32}"
 workers="${DEXBENCH_WORKERS:-0}"
 steps="${DEXBENCH_STEPS:-10}"
 scenarios="${DEXBENCH_SCENARIOS:-start-complete,sequential-steps,rpc,attribute-read,channel-wake,attribute-write,recovery}"
-targets="${DEXBENCH_TARGETS:-temporal,zd}"
+targets="${DEXBENCH_TARGETS:-zd}"
+if [[ "$targets" != zd ]]; then echo "only the zd target is supported; dexcli no longer starts the Go Server" >&2; exit 2; fi
 output_dir="${DEXBENCH_OUT:-$repo_root/benchmark/results/$(date -u +%Y-%m-%d)-$mode-${DEXBENCH_HOST_LABEL:-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)}}"
 run_dir="$(mktemp -d)"
 benchmark_binary="$repo_root/benchmark/bin/dexbench"
@@ -76,10 +77,6 @@ start_quick_server() {
   local target="$1" state_dir="$2"
   mkdir -p "$state_dir"
   case "$target" in
-    temporal)
-      nice -n 10 "$dexcli_binary" dev --engine temporal --open=false --dex-port 8801 --web-port 8802 \
-        --sqlite-db-filename "$state_dir/temporal.sqlite" --blob-store-dir "$state_dir/go-blobs" >"$state_dir/server.log" 2>&1 &
-      ;;
     zd)
       cat > "$state_dir/zd-quick.yaml" <<'YAML'
 metrics:
@@ -104,7 +101,7 @@ run_step() {
     version="$("$dexcli_binary" --version 2>/dev/null || echo unknown)"
   fi
   wait_for_load
-  # The dexcli PID is the sampling root, so its children (Temporal, server-zd, s3mock) are included.
+  # The dexcli PID is the sampling root, so its children (server-zd, s3mock) are included.
   DEXBENCH_SERVER_VERSION="$version" nice -n 10 "$benchmark_binary" run \
     --address 127.0.0.1:8801 --target "$target" --engine "$target" \
     --duration "$duration" --warmup "$warmup" --concurrency "$step_concurrency" \

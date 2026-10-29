@@ -179,7 +179,7 @@ must exist and be reachable before startup.
 --connector-config-dir string      local Connector config directory (default $HOME/.dex/connectors)
 --connector-release-override value local Connector release as connector-id=artifact-directory (repeatable)
 --dex-port int                     Dex gRPC port (default 8801)
---engine string                    compatibility option; only zd is accepted (default zd)
+--engine string                    compatibility option; server-zd is the only engine (default zd)
 --flow-rendering-dir string        directory containing Flow Definition Graph JSON files
 --open                             open Dex Web after readiness (default true)
 --server-log-folder string         keep server logs (default stderr)

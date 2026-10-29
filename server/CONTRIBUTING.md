@@ -150,18 +150,19 @@ representation and `TEXT` uses String.
 ## Run the standalone server
 
 The standalone server binary supports full Temporal and Cadence YAML
-configuration. It starts Dex Web, API, and Interpreter in one process by
+configuration. It starts API, Interpreter, and Matching in one process by
 default. Select any non-empty component combination with `--services`:
 
 ```shell
-./dex-server start --services web
 ./dex-server start --services api
 ./dex-server start --services interpreter
-./dex-server start --services web,api
+./dex-server start --services api,interpreter,matching
 ```
 
-Web-only mode does not connect to Temporal or Cadence. Configure its remote API
-with `web.flowServiceTarget`. An empty target uses `localhost:<api.port>`.
+Run Dex Web separately with `dex-web --flow-service-address localhost:8801`.
+The legacy `web` YAML section is ignored. See the
+[Web migration table](../docs/content/production/dex-web.mdx#migrate-embedded-web)
+for standalone flags and environment variables.
 
 The first step you may want to explore is to run it locally!
 
@@ -186,7 +187,7 @@ For development, you may want to run the test locally for debugging, especially 
 * To run the whole suite for Cadence only `make cadenceIntegTests`
 * To run a specify test case or a test file, you can utilize the IDE or `go test` command.
 
-To reuse the Temporal and Dex Server managed by `dexcli dev`, run:
+To test against a separately started Temporal dev server and Go Dex Server, run:
 
 ```shell
 make temporalIntegTestsAgainstLocalDexDev

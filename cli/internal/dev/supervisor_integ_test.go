@@ -39,6 +39,7 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	cfg.explicitLocalFlags["dex-port"] = true
 	cfg.explicitLocalFlags["web-port"] = true
 	cfg.LogDirectory = t.TempDir()
+	cfg.explicitLocalFlags["server-log-folder"] = true
 	output := &synchronizedBuffer{}
 	runCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -67,6 +68,9 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	if searchResponse.StatusCode != http.StatusOK || !bytes.Contains(body, []byte(`"flows":[]`)) {
 		cancel()
 		t.Fatalf("search response: status=%d body=%s", searchResponse.StatusCode, body)
+	}
+	if !strings.Contains(output.String(), "Server log folder: "+cfg.LogDirectory) {
+		t.Fatalf("missing server log directory: %s", output.String())
 	}
 	cliOutput := &bytes.Buffer{}
 	cliErrors := &bytes.Buffer{}
@@ -218,6 +222,13 @@ func TestRemovedTemporalFlagsExplainMigration(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "Temporal engine was removed; server-zd is the only engine") {
 			t.Fatalf("parseConfig(%v) = %v", arguments, err)
 		}
+	}
+}
+
+func TestUnknownEngineReportsInvalidSelection(t *testing.T) {
+	_, err := parseConfig([]string{"--engine", "foo"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), `unknown engine "foo"; server-zd is the only engine`) {
+		t.Fatalf("unexpected engine error: %v", err)
 	}
 }
 

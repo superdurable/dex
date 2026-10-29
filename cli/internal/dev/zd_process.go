@@ -23,6 +23,8 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
+const defaultZDGRPCMaxMessageBytes = 32 << 20
+
 type zdProcess = childProcess
 
 type zdRunResources struct {
@@ -73,8 +75,8 @@ func waitForZD(ctx context.Context, address string, process *zdProcess) (*grpc.C
 	connection, err := grpc.NewClient(address,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(32<<20),
-			grpc.MaxCallSendMsgSize(32<<20),
+			grpc.MaxCallRecvMsgSize(defaultZDGRPCMaxMessageBytes),
+			grpc.MaxCallSendMsgSize(defaultZDGRPCMaxMessageBytes),
 		),
 	)
 	if err != nil {

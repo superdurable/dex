@@ -607,13 +607,13 @@ keeps the search, because its `HealthCheck` does not reach Temporal or Cadence.
 
 ### Run against server-zd
 
-Run standalone `dex-web` against server-zd. Supply `--credential-file` when
+Run standalone `dex-web` against server-zd. Supply `--flow-service-credential-file` when
 server-zd authentication requires a static token or service JWT:
 
 ```bash
 dex-web --bind-address 0.0.0.0 --port 8802 \
   --flow-service-address dex-server-zd:8801 \
-  --credential-file /etc/dex/web-token
+  --flow-service-credential-file /etc/dex/web-token
 ```
 
 Dex Web reads `GetServerInfo` and reports the engine as `serverEngine` in

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds dexcli release archives. Each archive bundles the dex-server-zd binary
 # from the server-zd GitHub Release named in cli/SERVER_ZD_RELEASE, so
-# `dexcli dev --engine zd` works right after install.
+# `dexcli dev` works right after install.
 #
 # Usage: script/package-release.sh <version> <output-dir> <os/arch>...
 # Example: script/package-release.sh v1.26.0 dist darwin/arm64 linux/amd64
