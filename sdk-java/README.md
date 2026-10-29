@@ -838,7 +838,6 @@ Run the JVM/native integration tests and all E2E scenarios against a fresh
 
 ```shell
 ./run-integration-tests.sh
-DEX_INTEG_ENGINE=zd ./run-integration-tests.sh
 ```
 
 The script builds `dexcli` from the current checkout and starts an isolated
@@ -846,8 +845,8 @@ Dex environment. Every E2E case starts an outbound polling Worker. The suite
 also runs local JNI and pull dispatch integration tests. Each Worker synchronizes
 its registered Indexed Attributes before serving tasks. Gradle builds the Rust
 BlobCache JNI library. E2E cases use unique Flow IDs. A clean checkout also requires
-Go 1.24+, Node.js 22+, and Rust 1.97+. The default engine requires Temporal CLI.
-Set `DEX_INTEG_ENGINE=zd` to use server-zd, and `DEX_SERVER_ZD_BINARY` to reuse a
+Go 1.24+, Node.js 22+, and Rust 1.97+. The suite uses server-zd.
+`DEX_INTEG_ENGINE=zd` remains accepted. Set `DEX_SERVER_ZD_BINARY` to reuse a
 built server-zd binary.
 
 ### Measure integration coverage

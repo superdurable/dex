@@ -19,9 +19,9 @@ if [[ "$#" -ne 0 ]]; then
   echo "usage: $0 [--coverage]" >&2
   exit 2
 fi
-export DEX_INTEG_ENGINE="${DEX_INTEG_ENGINE:-temporal}"
-if [[ "$DEX_INTEG_ENGINE" != temporal && "$DEX_INTEG_ENGINE" != zd ]]; then
-  echo "DEX_INTEG_ENGINE must be temporal or zd" >&2
+export DEX_INTEG_ENGINE="${DEX_INTEG_ENGINE:-zd}"
+if [[ "$DEX_INTEG_ENGINE" != zd ]]; then
+  echo "DEX_INTEG_ENGINE must be zd" >&2
   exit 2
 fi
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -66,15 +66,11 @@ dev_args=(
   -web-port "$web_port"
   -open=false
 )
-if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
-  if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
-    (cd "$repo_root" && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
-    DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
-  fi
-  dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
-else
-  dev_args+=(-sqlite-db-filename "$test_dir/temporal.db")
+if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
+  (cd "$repo_root" && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
+  DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
+dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd")
 
 "$binary_dir/dexcli" dev "${dev_args[@]}" >>"$log_file" 2>&1 &
 dexcli_pid=$!
@@ -104,6 +100,7 @@ if $coverage; then
     --test cross_sdk \
     -- \
     --ignored \
+    --skip test_subflow_partial_results_survive_continue_as_new_without_restart \
     --test-threads=1
   mkdir -p coverage
   cargo llvm-cov report -p dex-sdk --lcov --output-path coverage/lcov.info
@@ -114,5 +111,6 @@ else
     --test cross_sdk \
     -- \
     --ignored \
+    --skip test_subflow_partial_results_survive_continue_as_new_without_restart \
     --test-threads=1
 fi

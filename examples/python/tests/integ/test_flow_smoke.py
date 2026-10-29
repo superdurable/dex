@@ -27,7 +27,7 @@ from dex_examples.app import ExampleApp
 from dex_examples.http_app import create_app
 from dex_examples.products.ai_agent.ai_agent_flow import STATUS_WAITING_TIMER
 from dex_examples.products.ai_agent.models import HistoryRequest
-from tests.integ.conftest import WAIT_TIMEOUT, skip_when_server_zd, wait_until
+from tests.integ.conftest import WAIT_TIMEOUT, wait_until
 from tests.integ.flow_smoke_helper import (
     FlowSmokeEntry,
     FlowSmokeFlags,
@@ -615,8 +615,6 @@ async def test_flow_smoke_all_registered_flows_via_controller(
     catalog = flow_smoke_catalog(flow_smoke_http)
     assert catalog, "flow smoke catalog is empty"
     entry = next(entry for entry in catalog if entry.name == entry_name)
-    if entry.server_zd_unsupported_feature:
-        skip_when_server_zd(entry.server_zd_unsupported_feature)
     flow_id, run_id = await entry.trigger(flow_smoke_http)
     assert flow_id, f"{entry.name}: controller response did not include flowID"
     await assert_flow_smoke_start_step(entry, flow_id, run_id)

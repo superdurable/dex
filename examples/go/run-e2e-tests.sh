@@ -35,9 +35,9 @@ for arg in "$@"; do
   esac
 done
 
-export DEX_INTEG_ENGINE="${DEX_INTEG_ENGINE:-temporal}"
-if [[ "$DEX_INTEG_ENGINE" != temporal && "$DEX_INTEG_ENGINE" != zd ]]; then
-  echo "DEX_INTEG_ENGINE must be temporal or zd" >&2
+export DEX_INTEG_ENGINE="${DEX_INTEG_ENGINE:-zd}"
+if [[ "$DEX_INTEG_ENGINE" != zd ]]; then
+  echo "DEX_INTEG_ENGINE must be zd" >&2
   exit 2
 fi
 
@@ -123,18 +123,13 @@ fi
   cd "$repo_root/cli"
   GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
 )
-if [[ "$DEX_INTEG_ENGINE" == zd && -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
+if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
   (cd "$repo_root" && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
   DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
 
-if [[ "$DEX_INTEG_ENGINE" == zd ]]; then
-  default_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/default-zd")
-  deal_dsl_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/deal-dsl-zd")
-else
-  default_dev_args=(-sqlite-db-filename "$test_dir/default-temporal.db")
-  deal_dsl_dev_args=(-sqlite-db-filename "$test_dir/deal-dsl-temporal.db")
-fi
+default_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/default-zd")
+deal_dsl_dev_args=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/deal-dsl-zd")
 default_dev_args+=(-attribute-store-config "$entity_store_config")
 deal_dsl_dev_args+=(-attribute-store-config "$entity_store_config")
 

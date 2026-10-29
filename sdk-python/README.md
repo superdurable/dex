@@ -778,8 +778,8 @@ environment:
 ./run-integration-tests.sh
 ```
 
-The suite always uses pull Workers. Set `DEX_INTEG_ENGINE=zd` to test against
-server-zd, or leave it unset to use the Temporal-backed server.
+The suite uses server-zd and pull Workers. `DEX_INTEG_ENGINE=zd` remains accepted.
+Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 ### Measure integration coverage
 

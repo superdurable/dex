@@ -1128,7 +1128,8 @@ directory and checks that Dex Web v2 lists, searches, displays, edits, acts
 on, and starts both Flows under the names the Worker registers.
 `DEX_INTEG_DEX_PORT` and `DEX_INTEG_WEB_PORT` pin the Dex gRPC and Dex Web
 ports; each defaults to a free port. Each script run starts a fresh `dexcli dev`
-environment with pull Workers. Set `DEX_INTEG_ENGINE=zd` to test server-zd.
+environment with server-zd and pull Workers. `DEX_INTEG_ENGINE=zd` remains accepted.
+Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 `integTests` runs `./integ` against a Dex you start yourself. Start it with
 `dexcli dev -flow-rendering-dir` pointing at the two visualized fixtures, and

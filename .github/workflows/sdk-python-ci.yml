@@ -10,7 +10,8 @@ on:
     - "sdk-rust/crates/dex-blob-cache/**"
     - "sdk-rust/crates/dex-blob-cache-python/**"
     - "cli/**"
-    - "server/**"
+    - "server-zd/**"
+    - "s3mock/**"
     - "web/**"
     - "protos/**"
     - "codecov.yml"
@@ -23,7 +24,8 @@ on:
     - "sdk-rust/crates/dex-blob-cache/**"
     - "sdk-rust/crates/dex-blob-cache-python/**"
     - "cli/**"
-    - "server/**"
+    - "server-zd/**"
+    - "s3mock/**"
     - "web/**"
     - "protos/**"
     - "codecov.yml"
@@ -141,13 +143,9 @@ jobs:
             uv.lock
 
   integration:
-    name: Integration tests (${{ matrix.engine }}, pull)
+    name: Integration tests (zd, pull)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        engine: [temporal]
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
@@ -155,9 +153,27 @@ jobs:
       run:
         working-directory: sdk-python
     env:
-      DEX_INTEG_ENGINE: ${{ matrix.engine }}
+      DEX_INTEG_ENGINE: zd
+      DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+      RUSTUP_TOOLCHAIN: "1.97.1"
+      CARGO_BUILD_JOBS: "4"
     steps:
     - uses: actions/checkout@v7
+    - name: Install Rust
+      run: rustup toolchain install 1.97.1 --profile minimal
+    - name: Install libclang for RocksDB
+      run: sudo apt-get update && sudo apt-get install -y libclang-dev
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: server-zd
+        shared-key: server-zd-paradedb
+        save-if: false
+    - name: Build dex-server-zd
+      working-directory: server-zd
+      run: cargo build --locked -p dexzd-server --bin dex-server-zd
     - uses: actions/setup-node@v6
       with:
         node-version: 22
@@ -170,10 +186,6 @@ jobs:
           cli/go.sum
           server/go.sum
           web/go.sum
-    - name: Install Temporal CLI runtime for dexcli dev
-      uses: temporalio/setup-temporal@v0
-    - name: Install Rust
-      run: rustup toolchain install 1.97.1 --profile minimal
     - name: Install uv
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b   # v8.1.0
       with:
@@ -192,19 +204,19 @@ jobs:
         fail_ci_if_error: true
         files: ./sdk-python/coverage/lcov.info
         flags: sdk-python-integration
-        name: sdk-python-integration-${{ matrix.engine }}
+        name: sdk-python-integration-zd
         use_oidc: true
     - name: Upload coverage report
       if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: sdk-python-integration-coverage-${{ matrix.engine }}
+        name: sdk-python-integration-coverage-zd
         path: sdk-python/coverage/
         if-no-files-found: ignore
     - name: Upload service logs
       if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: sdk-python-integration-services-${{ matrix.engine }}
+        name: sdk-python-integration-services-zd
         path: /tmp/test-python-sdk-integration-services.log
         if-no-files-found: ignore

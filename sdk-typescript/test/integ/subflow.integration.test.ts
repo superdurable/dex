@@ -22,7 +22,7 @@ import {
 } from "../../src/index.js";
 import { AbnormalExitFlow } from "./abnormal_exit_flow.js";
 import { BasicFlow } from "./basic_flow.js";
-import { flowId, skipIfServerZD, skipTimerWhenPending, withEnvironment } from "./environment.js";
+import { flowId, skipTimerWhenPending, withEnvironment } from "./environment.js";
 import {
   AllSubFlowParent,
   AnySubFlowParent,
@@ -95,9 +95,8 @@ test("SubFlow default reuse restarts a failed execution across parent reset", as
   });
 });
 
-test("SubFlow partial results survive continue-as-new without restart", async (context) => {
+test("SubFlow partial results survive continue-as-new without restart", { skip: "server-zd never continues a run as new" }, async () => {
   // C3: server-zd never continues a run as new.
-  if (await skipIfServerZD(context, "Continue-As-New")) return;
   const completed = new BasicFlow();
   const delayed = new TimerFlow();
   const parent = new ContinueAsNewSubFlowParent(completed, delayed);

@@ -120,7 +120,7 @@ class CancellationBlockingExecute implements Step<void> {
     this.flow.markBlockingStarted();
     try {
       if (this.flow.scenario === "no-heartbeat") {
-        await delay(7_000, this.flow.isServerZD ? context.cancellationSignal : undefined);
+        await delay(7_000, context.cancellationSignal);
       } else if (
         this.flow.scenario === "heartbeat-execute" ||
         this.flow.scenario === "local-timeout-fallback"
@@ -236,7 +236,7 @@ class CancellationFinal implements Step<string> {
 
   public async waitFor(_context: Context, _input: string): Promise<Wait> {
     // On server-zd the canceled TypeScript handler sends its late write; order it before the read.
-    if (this.flow.isServerZD && blockingExecuteScenarios.has(this.flow.scenario)) {
+    if (blockingExecuteScenarios.has(this.flow.scenario)) {
       await awaitWithinTimeout(
         this.flow.lateHandlerReturned,
         10_000,
@@ -363,10 +363,7 @@ export class StepCancellationFlow implements Flow<string> {
   private resolveSelectorWaitsRegistered!: () => void;
   private selectorWaitCount = 0;
 
-  public constructor(
-    public readonly scenario: CancellationScenario,
-    public readonly isServerZD: boolean,
-  ) {
+  public constructor(public readonly scenario: CancellationScenario) {
     this.blockingStarted = new Promise((resolve) => { this.resolveBlockingStarted = resolve; });
     this.cancellationObserved = new Promise((resolve) => { this.resolveCancellationObserved = resolve; });
     this.lateHandlerReturned = new Promise((resolve) => { this.resolveLateHandlerReturned = resolve; });

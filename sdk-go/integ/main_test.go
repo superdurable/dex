@@ -189,15 +189,6 @@ func integrationContext(t *testing.T) context.Context {
 	return ctx
 }
 
-func skipIfServerZD(t *testing.T, feature string) {
-	t.Helper()
-	serverEngine, err := integrationServerEngine()
-	require.NoError(t, err)
-	if serverEngine == dexpb.ServerEngine_SERVER_ENGINE_ZD {
-		t.Skip("server-zd does not support " + feature)
-	}
-}
-
 func fetchIntegrationServerEngine() (dexpb.ServerEngine, error) {
 	connection, err := grpc.NewClient(flowServiceAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {

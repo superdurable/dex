@@ -13,9 +13,6 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TestContext } from "node:test";
-
-import { credentials } from "@grpc/grpc-js";
 
 import {
   Client,
@@ -27,41 +24,6 @@ import {
   type StepExecutionId,
   type TimerId,
 } from "../../src/index.js";
-
-import { FlowServiceClient, ServerEngine } from "../../src/gen/dex.js";
-
-let serverEnginePromise: Promise<ServerEngine> | undefined;
-
-export async function skipIfServerZD(context: TestContext, feature: string): Promise<boolean> {
-  if (!await isServerZD()) {
-    return false;
-  }
-  context.skip(`server-zd does not support ${feature}`);
-  return true;
-}
-
-export async function isServerZD(): Promise<boolean> {
-  serverEnginePromise ??= fetchServerEngine();
-  return await serverEnginePromise === ServerEngine.SERVER_ENGINE_ZD;
-}
-
-async function fetchServerEngine(): Promise<ServerEngine> {
-  const serverAddress = process.env.DEX_SERVER_ADDRESS ?? "127.0.0.1:8801";
-  const client = new FlowServiceClient(serverAddress, credentials.createInsecure());
-  try {
-    return await new Promise<ServerEngine>((resolve, reject) => {
-      client.getServerInfo({}, (error, response) => {
-        if (error !== null && error !== undefined) {
-          reject(error);
-          return;
-        }
-        resolve(response.serverEngine);
-      });
-    });
-  } finally {
-    client.close();
-  }
-}
 
 export interface TestEnvironment {
   readonly client: Client;

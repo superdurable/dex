@@ -56,15 +56,11 @@ jobs:
           fi
 
   integ:
-    name: Integration tests (${{ matrix.engine }})
+    name: Integration tests (zd)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        engine: [temporal, zd]
     env:
-      DEX_INTEG_ENGINE: ${{ matrix.engine }}
-      DEX_SERVER_ZD_BINARY: ${{ matrix.engine == 'zd' && format('{0}/server-zd/target/debug/dex-server-zd', github.workspace) || '' }}
+      DEX_INTEG_ENGINE: zd
+      DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
       # These CARGO_* and RUST* values match Server ZD CI, so its main cache restores here.
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: "0"
@@ -77,20 +73,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        if: matrix.engine == 'zd'
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for RocksDB
-        if: matrix.engine == 'zd'
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
       - uses: Swatinem/rust-cache@v2
-        if: matrix.engine == 'zd'
         with:
           workspaces: server-zd
           shared-key: server-zd-paradedb
           # Restore-only: the Server ZD CI ParadeDB job owns this key.
           save-if: false
       - name: Build dex-server-zd
-        if: matrix.engine == 'zd'
         working-directory: server-zd
         run: cargo build --locked -p dexzd-server --bin dex-server-zd
       - uses: actions/setup-node@v6
@@ -105,9 +97,6 @@ jobs:
             cli/go.sum
             server/go.sum
             web/go.sum
-      - name: Install Temporal CLI runtime for dexcli dev
-        if: matrix.engine == 'temporal'
-        uses: temporalio/setup-temporal@v0
       - uses: actions/setup-java@v5
         with:
           distribution: zulu
@@ -120,6 +109,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: java-examples-integration-services-${{ matrix.engine }}
+          name: java-examples-integration-services-zd
           path: /tmp/test-java-examples-integration-services.log
           if-no-files-found: ignore

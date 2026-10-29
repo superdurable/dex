@@ -125,8 +125,8 @@ Web running after tests for manual exploration:
 ./run-e2e-tests.sh --keep-running
 ```
 
-The integration suites always use pull Workers.
-Set `DEX_INTEG_ENGINE=zd` to run them against server-zd.
+The integration suites use server-zd and pull Workers.
+`DEX_INTEG_ENGINE=zd` remains accepted.
 Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 `make e2eTests` also runs Deal DSL against its own binary-equivalent Worker

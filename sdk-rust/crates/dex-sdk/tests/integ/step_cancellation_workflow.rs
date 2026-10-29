@@ -88,15 +88,10 @@ impl Event {
             .expect("event wait");
         *ready
     }
-
-    pub(crate) fn is_set(&self) -> bool {
-        *self.ready.lock().expect("event lock")
-    }
 }
 
 pub(crate) struct CancellationState {
     pub(crate) scenario: CancellationScenario,
-    pub(crate) is_server_zd: bool,
     pub(crate) blocking_started: Event,
     pub(crate) cancellation_observed: Event,
     pub(crate) late_handler_returned: Event,
@@ -111,10 +106,9 @@ pub(crate) struct CancellationState {
 }
 
 impl CancellationState {
-    pub(crate) fn new(scenario: CancellationScenario, is_server_zd: bool) -> Arc<Self> {
+    pub(crate) fn new(scenario: CancellationScenario) -> Arc<Self> {
         Arc::new(Self {
             scenario,
-            is_server_zd,
             blocking_started: Event::default(),
             cancellation_observed: Event::default(),
             late_handler_returned: Event::default(),
@@ -235,17 +229,13 @@ impl Step for CancellationBlockingExecute {
             .fetch_add(1, Ordering::SeqCst);
         self.state.blocking_started.set();
         if self.state.scenario == CancellationScenario::NoHeartbeat {
-            if self.state.is_server_zd {
-                // Polling observes cancel_task without recording a heartbeat.
-                let deadline = Instant::now() + Duration::from_secs(7);
-                while !context.is_cancelled() && Instant::now() < deadline {
-                    thread::sleep(Duration::from_millis(50));
-                }
-                if context.is_cancelled() {
-                    self.state.record_cancellation(context);
-                }
-            } else {
-                thread::sleep(Duration::from_secs(7));
+            // Polling observes cancel_task without recording a heartbeat.
+            let deadline = Instant::now() + Duration::from_secs(7);
+            while !context.is_cancelled() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(50));
+            }
+            if context.is_cancelled() {
+                self.state.record_cancellation(context);
             }
         } else {
             wait_for_stream_cancellation(context, &self.state)?;
@@ -380,8 +370,7 @@ impl Step for CancellationFinal {
 
     fn wait_for(&self, _context: &mut Context, _input: String) -> HandlerResult<Wait> {
         // On server-zd the canceled Rust handler sends its late write; order it before the read.
-        if self.0.is_server_zd
-            && self.0.scenario.cancels_blocking_execute()
+        if self.0.scenario.cancels_blocking_execute()
             && !self.0.late_handler_returned.wait(Duration::from_secs(10))
         {
             return Err(HandlerError::new(

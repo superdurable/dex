@@ -42,13 +42,65 @@ jobs:
               - '.github/workflows/server-all-in-one-ci.yml'
             sdk_go:
               - 'sdk-go/**'
+              - 'blob-cache-go/**'
               - 'protos/**'
+              - 'server-zd/**'
+              - 's3mock/**'
+              - 'cli/**'
+              - 'web/**'
               - 'go.work'
               - 'go.work.sum'
+              - 'codecov.yml'
               - '.github/workflows/sdk-go-ci.yml'
             sdk_rust:
               - 'sdk-rust/**'
+              - 'cli/**'
+              - 'server-zd/**'
+              - 's3mock/**'
+              - 'protos/**'
+              - 'web/**'
+              - 'codecov.yml'
               - '.github/workflows/sdk-rust-ci.yml'
+            sdk_java:
+              - 'sdk-java/**'
+              - 'sdk-rust/Cargo.lock'
+              - 'sdk-rust/Cargo.toml'
+              - 'sdk-rust/crates/dex-blob-cache/**'
+              - 'sdk-rust/crates/dex-blob-cache-jni/**'
+              - 'cli/**'
+              - 'web/**'
+              - 'server-zd/**'
+              - 's3mock/**'
+              - 'protos/**'
+              - 'codecov.yml'
+              - '.github/workflows/sdk-java-ci.yml'
+              - '.github/workflows/sdk-java-publish.yml'
+            sdk_python:
+              - 'sdk-python/**'
+              - 'sdk-rust/Cargo.lock'
+              - 'sdk-rust/Cargo.toml'
+              - 'sdk-rust/crates/dex-blob-cache/**'
+              - 'sdk-rust/crates/dex-blob-cache-python/**'
+              - 'cli/**'
+              - 'server-zd/**'
+              - 's3mock/**'
+              - 'web/**'
+              - 'protos/**'
+              - 'codecov.yml'
+              - '.github/workflows/sdk-python-ci.yml'
+            sdk_typescript:
+              - 'sdk-typescript/**'
+              - 'sdk-rust/Cargo.lock'
+              - 'sdk-rust/Cargo.toml'
+              - 'sdk-rust/crates/dex-blob-cache/**'
+              - 'sdk-rust/crates/dex-blob-cache-node/**'
+              - 'cli/**'
+              - 'server-zd/**'
+              - 's3mock/**'
+              - 'protos/**'
+              - 'web/**'
+              - '.github/workflows/sdk-typescript-ci.yml'
+              - '.github/workflows/sdk-typescript-publish.yml'
             rust_rules:
               - '**/*.rs'
               - '**/Cargo.toml'
@@ -96,20 +148,6 @@ jobs:
               - '.github/workflows/server-zd-simulation-nightly.yml'
               - '.github/workflows/server-zd-simulation-runner-ci.yml'
               - 'Makefile'
-            server_zd_sdk:
-              - 'sdk-go/**'
-              - 'sdk-rust/**'
-              - 'sdk-python/**'
-              - 'sdk-typescript/**'
-              - 'sdk-java/**'
-              - 'server-zd/**'
-              - 's3mock/**'
-              - 'cli/**'
-              - 'web/**'
-              - 'protos/**'
-              - 'go.work'
-              - 'go.work.sum'
-              - '.github/workflows/server-zd-sdk-ci.yml'
             server_zd_image:
               - 'server-zd/Dockerfile'
               - '.dockerignore'
@@ -178,6 +216,9 @@ jobs:
           FILTER_SERVER_ALL_IN_ONE: ${{ steps.filter.outputs.server_all_in_one }}
           FILTER_SDK_GO: ${{ steps.filter.outputs.sdk_go }}
           FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
+          FILTER_SDK_JAVA: ${{ steps.filter.outputs.sdk_java }}
+          FILTER_SDK_PYTHON: ${{ steps.filter.outputs.sdk_python }}
+          FILTER_SDK_TYPESCRIPT: ${{ steps.filter.outputs.sdk_typescript }}
           FILTER_RUST_RULES: ${{ steps.filter.outputs.rust_rules }}
           FILTER_WEB: ${{ steps.filter.outputs.web }}
           FILTER_EXAMPLES_GO: ${{ steps.filter.outputs.examples_go }}
@@ -187,7 +228,6 @@ jobs:
           FILTER_S3MOCK: ${{ steps.filter.outputs.s3mock }}
           FILTER_SERVER_ZD: ${{ steps.filter.outputs.server_zd }}
           FILTER_SERVER_ZD_SIMULATION_RUNNER: ${{ steps.filter.outputs.server_zd_simulation_runner }}
-          FILTER_SERVER_ZD_SDK: ${{ steps.filter.outputs.server_zd_sdk }}
           FILTER_SERVER_ZD_IMAGE: ${{ steps.filter.outputs.server_zd_image }}
           FILTER_SERVER_ZD_BINARY: ${{ steps.filter.outputs.server_zd_binary }}
           FILTER_SERVER_ZD_MINIO: ${{ steps.filter.outputs.server_zd_minio }}
@@ -223,7 +263,6 @@ jobs:
               "Server CI"
               "Server ZD CI"
               "Server ZD Simulation Runner CI"
-              "Server ZD SDK CI"
               "Server All-in-One CI"
               "Web CI"
             )
@@ -233,6 +272,9 @@ jobs:
             [[ "$FILTER_SERVER_ALL_IN_ONE" == "true" ]] && expected+=("Server All-in-One CI")
             [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
             [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
+            [[ "$FILTER_SDK_JAVA" == "true" ]] && expected+=("Java SDK CI")
+            [[ "$FILTER_SDK_PYTHON" == "true" ]] && expected+=("Python SDK CI")
+            [[ "$FILTER_SDK_TYPESCRIPT" == "true" ]] && expected+=("TypeScript SDK CI")
             [[ "$FILTER_RUST_RULES" == "true" ]] && expected+=("Rust Rules CI")
             [[ "$FILTER_WEB" == "true" ]] && expected+=("Web CI")
             [[ "$FILTER_EXAMPLES_GO" == "true" ]] && expected+=("Go examples CI")
@@ -242,7 +284,6 @@ jobs:
             [[ "$FILTER_S3MOCK" == "true" ]] && expected+=("S3mock CI")
             [[ "$FILTER_SERVER_ZD" == "true" ]] && expected+=("Server ZD CI")
             [[ "$FILTER_SERVER_ZD_SIMULATION_RUNNER" == "true" ]] && expected+=("Server ZD Simulation Runner CI")
-            [[ "$FILTER_SERVER_ZD_SDK" == "true" ]] && expected+=("Server ZD SDK CI")
             [[ "$FILTER_SERVER_ZD_IMAGE" == "true" ]] && expected+=("Server ZD image release")
             [[ "$FILTER_SERVER_ZD_BINARY" == "true" ]] && expected+=("Server ZD binary release")
             [[ "$FILTER_SERVER_ZD_MINIO" == "true" ]] && expected+=("Server ZD MinIO Nightly")
@@ -255,13 +296,12 @@ jobs:
 
           # ci:fast-merge stops the existing Temporal/Cadence engine, SDK, CLI, Web, and examples
           # suites from blocking the merge. They still run on the pull request and on main.
-          # The SDK suites on server-zd (Server ZD SDK CI) are non-blocking too; Server ZD CI still blocks.
+          # The SDK suites on server-zd are non-blocking too; Server ZD CI still blocks.
           if [[ "$EVENT_NAME" == "pull_request" && "$IS_FAST_MERGE" == "true" ]]; then
             non_blocking=(
               "Blob Cache Go CI"
               "Dex CLI CI"
               "Go SDK CI"
-              "Server ZD SDK CI"
               "Java SDK CI"
               "Python SDK CI"
               "Rust SDK CI"

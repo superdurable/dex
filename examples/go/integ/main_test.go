@@ -167,14 +167,6 @@ func waitForFlow(t *testing.T, flowID string) dex.FlowResult {
 	return result
 }
 
-// skipWhenServerZD skips a sample whose feature server-zd rejects.
-func skipWhenServerZD(t *testing.T, feature string) {
-	t.Helper()
-	if os.Getenv("DEX_INTEG_ENGINE") == "zd" {
-		t.Skipf("server-zd does not support %s", feature)
-	}
-}
-
 func flowServiceAddress() string {
 	if address := os.Getenv("DEX_FLOW_SERVICE_ADDRESS"); address != "" {
 		return address
