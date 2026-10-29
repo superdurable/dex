@@ -72,7 +72,7 @@ Do not use BlobCache as business persistence. Durable references remain owned by
 
 The default server threshold (`values.wireInlineThresholdBytes`) keeps payloads through 100 bytes inline and offloads payloads from 101 bytes. Treat the resulting references as opaque: hydration and cache lookup use the owning Flow ID with the reference.
 
-ASYNC local Step input snapshots are disabled by default. Enable the Server's `blobStore.asyncStepInputSnapshotsEnabled` only when semantic history needs exact method inputs; it does not affect execution, retry, or recovery.
+server-zd records each Step method input with its Step execution, so history shows the exact inputs without any Server setting.
 
 Rust JSON null uses the Value null arm and decodes as `serde_json::Value::Null`. In an Attribute write null deletes the Attribute, permanently for a hard-delete Attribute, and as a Flow completion output it is discarded. Return an explicit result type when terminal null and no output must differ.
 

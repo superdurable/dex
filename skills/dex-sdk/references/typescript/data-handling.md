@@ -46,7 +46,7 @@ Share one process BlobCache between Client and Worker. Large payload support doe
 
 The default server threshold (`values.wireInlineThresholdBytes`) keeps payloads through 100 bytes inline and offloads payloads from 101 bytes. Treat the resulting references as opaque: hydration and cache lookup use the owning Flow ID with the reference.
 
-ASYNC local Step input snapshots are disabled by default. Enable the Server's `blobStore.asyncStepInputSnapshotsEnabled` only when semantic history needs exact method inputs; it does not affect execution, retry, or recovery.
+server-zd records each Step method input with its Step execution, so history shows the exact inputs without any Server setting.
 
 TypeScript `null` and `undefined` use the Value null arm. The default JSON codec decodes it as `null`; `voidCodec` and `optionalCodec` decode it as `undefined`. In an Attribute write it deletes the Attribute, permanently for a hard-delete Attribute, and as a Flow completion output it is discarded. Return an explicit result object when terminal null and no output must differ.
 

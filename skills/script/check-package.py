@@ -997,6 +997,8 @@ REMOVED_DEX_CONTRACTS = (
     "web.flowServiceTarget",
     "web.flowServiceCredentialFile",
     "docker-compose",
+    "blobStore",
+    "asyncStepInputSnapshotsEnabled",
 )
 
 
@@ -1014,7 +1016,7 @@ def check_removed_dex_contracts() -> None:
         content = markdown.read_text()
         for removed in REMOVED_DEX_CONTRACTS:
             if removed in content:
-                fail(f"{markdown.relative_to(ROOT)} cites a Dex Web contract that the baselines removed: {removed}")
+                fail(f"{markdown.relative_to(ROOT)} cites a contract or configuration key that the baselines removed: {removed}")
         for term in OLDER_CONNECTOR_LOADER_TERMS:
             if term in content and "v0.21.0" not in content:
                 fail(f"{markdown.relative_to(ROOT)} names the older Connector loader {term} without the v0.21.0 release boundary")

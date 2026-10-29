@@ -56,7 +56,7 @@ Do not parse, construct, persist, or forward internal blob references in applica
 
 The default server threshold (`values.wireInlineThresholdBytes`) keeps payloads through 100 bytes inline and offloads payloads from 101 bytes. Treat the resulting references as opaque.
 
-ASYNC local Step input snapshots are separate from normal payload offload and are disabled by default. Enable `blobStore.asyncStepInputSnapshotsEnabled` only when semantic history needs those exact inputs; execution and recovery do not require them.
+server-zd records each Step method input with its Step execution, so history shows the exact inputs without any Server setting. Normal payload offload still applies to large inputs.
 
 The Value null arm represents an ordinary application null in inputs, Channel messages, RPC values, and other general Value positions. SDKs encode and decode it as the language's native null value. Two narrower boundaries intentionally assign it control semantics: an Attribute write with null deletes the Attribute, and Flow completion discards null output instead of storing an empty result. Do not use null when the distinction between “completed with null” and “completed without output” matters; return an explicit result object instead. For a hard-delete Attribute, a null write permanently deletes the stored value.
 
