@@ -22,9 +22,9 @@ Leave **RequestTimeout** at 0 for an ordinary durable wait. The wait is then unl
 
 The server also caps one transport attempt. That cap is internal. The SDK reattaches with the same logical Request ID, so the cap does not reset **RequestTimeout** or end the accepted wait.
 
-**InternalHandlerTimeout** is an advanced capacity control. On the Temporal backend, one Flow can hold at most 10 in-flight requests that wait inside the Flow, such as accepted waits and locked or transactional RPCs. A request timeout or cancellation ends the SDK call but does not end an accepted wait. An abandoned wait can therefore hold one of those 10 slots until the condition matches or the Flow closes.
+**InternalHandlerTimeout** is an advanced capacity control. A request timeout or cancellation ends the SDK call but does not end an accepted wait. An abandoned wait therefore stays registered on the Flow until the condition matches or the Flow closes.
 
-Set **InternalHandlerTimeout** to a positive value only when abandoned waits can accumulate enough to approach that limit. When it expires, Dex ends the accepted wait and frees its slot. An active SDK call transparently registers its wait again and keeps waiting. This does not raise the limit. Each new registration is another accepted request on the Flow and may increase Temporal Cloud Actions. Prefer a value comfortably longer than normal **RequestTimeout** values and expected reconnect gaps. Keep it at 0 when waits reliably complete or the Flow closes before abandoned waits become a capacity risk.
+Set **InternalHandlerTimeout** to a positive value only when abandoned waits can accumulate. When it expires, Dex ends the accepted wait. An active SDK call transparently registers its wait again and keeps waiting. Prefer a value comfortably longer than normal **RequestTimeout** values and expected reconnect gaps. Keep it at 0 when waits reliably complete or the Flow closes before abandoned waits become a capacity risk.
 
 | Setting | Default | Behavior |
 | --- | --- | --- |

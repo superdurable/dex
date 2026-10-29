@@ -9,10 +9,22 @@ server-zd 是一种 Dex Server，运行时只依赖对象存储，例如 Amazon 
 它把 Flow 状态保存在本地存储中，每次写入都先提交到对象存储，再向调用方确认。本地磁盘
 只是缓存。节点会用对象存储中最新的快照和命令日志重建它。
 
-server-zd 提供与 Go Dex Server 相同的 **FlowService** 和 **WorkerTaskService** API，
-SDK 不需要任何修改。它和 Go Dex Server 有少数差异，例如只支持
-[拉取模式 Worker](/production/pull-workers)。本页介绍 server-zd 0.1。Go Dex Server
-请参阅[服务器运维](/production/server-operations)。
+server-zd 提供 **FlowService** 和 **WorkerTaskService** API，只支持
+[拉取模式 Worker](/production/pull-workers)。[Dex Web](/production/dex-web) 需要作为单独的进程运行，
+server-zd 不提供它。本地开发时运行 **dexcli dev**，它会启动 server-zd 和 Dex Web。本页介绍
+server-zd 0.1。
+
+## 不支持的功能
+
+server-zd 用 **INVALID_ARGUMENT** 拒绝以下选项：
+
+- Flow 启动延迟，即大于零的 **flow_start_delay_seconds**。由
+  [issue 995](https://github.com/superdurable/dex/issues/995) 跟踪。
+- Flow 级重试策略，即 Flow 启动选项中的 **retry_policy**。由
+  [issue 996](https://github.com/superdurable/dex/issues/996) 跟踪。Step 级重试受支持。
+
+唯一支持的 Attribute Store 是 PostgreSQL。Redis 由
+[issue 616](https://github.com/superdurable/dex/issues/616) 跟踪。
 
 ## 安装和启动
 
@@ -420,33 +432,27 @@ server-zd 不发送服务端加密的请求头，因此使用 bucket 的默认�
 
 从 server-zd v0.1.8 起，对已关闭 run 调用事务型或加锁的 RPC，会在 Worker 执行处理函数前返回
 NOT_FOUND 和 FLOW_NOT_EXISTS。使用已记录的请求 ID 重试时，会返回先前的结果。其他 RPC 仍会在尚未清除的
-已关闭 run 上执行处理函数，因此可以读取该 run。处理函数返回的任何写入都会被 server-zd 拒绝。Go Server
-的行为相同：它拒绝已关闭 Flow 上的事务型和加锁 RPC，执行其他 RPC 的处理函数，只拒绝其写入。
+已关闭 run 上执行处理函数，因此可以读取该 run。处理函数返回的任何写入都会被 server-zd 拒绝。
 
 ## Attribute Store 同步 {#attribute-store}
 
-server-zd v0.1.3 或更高版本可以把 Attribute 同步到 PostgreSQL。这与 Go Dex Server 的
-[自定义 Attribute Store](/production/attribute-store) 是同一个功能。Flow 用
-**syncToAttributeStore** 标记 Attribute，并在 **FlowConfig** 中列出一个已配置的 store
-名称。server-zd 随后把该 Attribute 写入这个 store 的表。
+server-zd v0.1.3 或更高版本可以把 Attribute 同步到 PostgreSQL。表契约见
+[自定义 Attribute Store](/production/attribute-store)。Flow 用 **syncToAttributeStore**
+标记 Attribute，并在 **FlowConfig** 中列出一个已配置的 store 名称。server-zd 随后把该
+Attribute 写入这个 store 的表。
 
-**attributeStore** 一节使用 Go Server 的键和表契约。按那一页的说明创建表。本节只介绍
-server-zd 不同的地方。
+### 行为 {#attribute-store-behavior}
 
-### 与 Go Dex Server 的差异 {#attribute-store-differences}
-
-- 只支持 **type: postgres**。Go Server 的 **mysql**、**databricks**、**snowflake** 和
-  **mongodb** store 无法通过校验，因此启动会失败。这些 store 请继续使用 Go Server。
+- 只支持 **type: postgres**。其他 store 类型无法通过校验，因此启动会失败。
 - Step、RPC 和 SetAttributes 的提交从不等待表写入。server-zd 没有七秒的 local 阶段。
 - 行通常在提交后一秒内出现。应把这张表视为最终一致。
 - store 不可用时，Flow 继续运行。store 恢复后，server-zd 用最新的值写入积压的数据。
-- 首次标记后经过 **syncRetryPolicy.totalDuration** 仍未写入的 entry 会被丢弃。Go Server 则为每个
-  batch 从其第一次尝试起单独计算 **totalDuration**，各 batch 依次等待。之后对同一 Attribute 的写入照常同步。
+- 首次标记后经过 **syncRetryPolicy.totalDuration** 仍未写入的 entry 会被丢弃。之后对同一 Attribute 的写入照常同步。
 - [Time travel](/primitives/client/advanced#time-travel) 之后，server-zd 会用 time travel
-  之后的状态重写该 run 同步过的每一行。Go Server 不会重写这些行。
-- 每个数据库都需要一张 [fencing 表](#attribute-store-fencing-table)。Go Server 不需要。
+  之后的状态重写该 run 同步过的每一行。
+- 每个数据库都需要一张 [fencing 表](#attribute-store-fencing-table)。
 - server-zd v0.1.3 关闭 Flow 时不等待同步的 Attribute，行可能在 Flow 完成之后才写入。
-- server-zd v0.1.4 或更高版本与 Go Server 一样会等待。Step 决策使 Flow 完成或失败、Step
+- server-zd v0.1.4 或更高版本会等待。Step 决策使 Flow 完成或失败、Step
   重试耗尽或 Flow 超时时，Step 立即停止，但 run 保持 RUNNING，直到所有待写入的值都写完或被丢弃。
   WaitForFlow 到那时才返回，因此返回时行已经在表中。
 - 关闭等待期间，SetAttributes、PublishToChannel 以及既非事务性也不带锁的 RPC 照常接受。它们同步的写入会延长等待，
@@ -462,8 +468,7 @@ server-zd 不同的地方。
   只有请求中的每项写入都是把当前存储的
   [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) 设为 null 时，才会被接受。
   此例外仅适用于尚未清除的 run。该操作会删除存储的对象，但不会重新打开 run。run 的 Flow history
-  会在关闭之后记录这次擦除。Go Server 在已取消或失败的 run 收尾期间接受写入，关闭后则拒绝写入。
-  Flow 需要的数据请在停止之前写入。
+  会在关闭之后记录这次擦除。Flow 需要的数据请在停止之前写入。
 - 已不在配置中的 store 的待写入值会被立即丢弃，并计入
   **dexzd_attribute_sync_dropped_entries_total**。
 
@@ -494,7 +499,7 @@ attributeStore:
     totalDuration: 1h
 ~~~
 
-键和默认值与 Go Server 相同。与 Go Server 一样，时长、**syncBatchSize** 或重试策略字段
+时长、**syncBatchSize** 或重试策略字段
 显式设为零时，表示使用默认值。
 [示例配置](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
 带注释地列出了这一节。
@@ -505,8 +510,7 @@ attributeStore:
 | **stores.NAME.type** | 无 | 必须是 **postgres**。 |
 | **stores.NAME.dsn** | 空 | PostgreSQL 连接字符串。为空时，server-zd 改为读取环境变量。日志会隐去它。 |
 | **stores.NAME.tableName** | 无 | 主表，写成 **table** 或 **schema.table**。 |
-| **stores.NAME.rowKey**、**columnNaming** 和 **attributeMaps** | 空 | 与 Go Server 相同。 |
-| **stores.NAME.flowIdColumn**、**databaseName** 和 **collectionName** | 空 | 必须留空。只有 Go 的 warehouse 和 MongoDB store 使用它们。 |
+| **stores.NAME.rowKey**、**columnNaming** 和 **attributeMaps** | 空 | 见[自定义 Attribute Store](/production/attribute-store)。 |
 | **stores.NAME.fencingTableName** | **dexzd_attribute_sync_fencing** | 只存在于 server-zd。见 [Fencing 表](#attribute-store-fencing-table)。 |
 | **schemaSyncInterval** | 1m | 两次表 schema 刷新之间的时间，带 90–110% 的 jitter。写入未知的列会立即刷新 schema。 |
 | **syncBatchSize** | 100 | 一个事务最多写入一个 run 的多少个 Attribute 和 AttributeMap instance。待写入的值更多时，该 run 使用多个事务。 |
@@ -563,8 +567,7 @@ fencing 表。缺少 fencing 表时，错误信息会给出 **CREATE TABLE** 语
 
 ### 重试和丢弃的 entry {#attribute-store-retries}
 
-失败的写入会按照 **syncRetryPolicy** 的 backoff 重试，直到 **totalDuration**，这一点与
-Go Server 相同。失败的类型决定哪些内容进入 backoff：
+失败的写入会按照 **syncRetryPolicy** 的 backoff 重试，直到 **totalDuration**，。失败的类型决定哪些内容进入 backoff：
 
 - **Store。** 连接失败或整个 store 的其他失败，会让该 store 的每个 run 都进入 backoff。
 - **Run。** 由写入的值或与其他会话的冲突导致的失败只让该 run 进入 backoff，其他 Flow 继续同步。
@@ -605,7 +608,7 @@ dexzd_attribute_sync_oldest_pending_age_seconds > 300
 ### 本地开发 {#attribute-store-local-development}
 
 **dex-server-zd dev** 在本地运行一个使用内嵌对象存储的节点。它的
-**--attribute-store-config** 参数只读取 Go Server 配置文件中的 **attributeStore** 一节。
+**--attribute-store-config** 参数只读取 YAML 文件中的 **attributeStore** 一节。
 这一节至少要定义一个 store。**--config** 覆盖文件不能同时设置 **attributeStore**。
 
 ~~~bash
@@ -613,8 +616,7 @@ dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-stor
 ~~~
 
 数据库仍然需要这些表和 fencing 表。**dexcli dev --engine zd --attribute-store-config**
-会把文件传给这个参数，需要 dexcli v1.19.0 或更高版本。Go Server 会拒绝
-**fencingTableName**，因此 Go Server 也要加载的文件只能使用默认的 fencing 表名。
+会把文件传给这个参数，需要 dexcli v1.19.0 或更高版本。
 
 ## 指标 {#metrics}
 
@@ -666,6 +668,48 @@ increase(dexzd_lease_renewals_total{outcome="error"}[10m]) > 0
 完整目录，包括类型、histogram bucket 和 Linux 进程指标，见
 [server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/README.md#metrics)。
 
+## Pull Worker 分发 {#pull-worker-dispatch}
+
+Worker 的搭建和容量规划见[拉取模式 Worker](/production/pull-workers)。
+server-zd 以单节点运行，因此自己拥有所有 Worker 队列。Worker 和 Client 连接到 **api.listen**，
+默认是 **0.0.0.0:8801**。
+
+~~~yaml
+matching:
+  dispatchWait: 10s
+  stickyWait: 5s
+  maxConcurrentTasksCap: 256
+  maxStreams: 100000
+  maxQueueLength: 256
+  maxFlowTypes: 256
+  maxFlowTypeLength: 256
+  pingInterval: 20s
+~~~
+
+| 键 | 默认值 | 含义 |
+| --- | --- | --- |
+| **matching.dispatchWait** | 10s | 为一次常规 attempt 寻找 Worker 的总时间。 |
+| **matching.stickyWait** | 5s | 回退到 Flow type 队列之前，尝试已连接 sticky Worker 的时间。不得超过 **dispatchWait**。没有连接上一个 app Worker ID 的 stream 时，server-zd 立即使用 Flow type 队列。 |
+| **matching.maxConcurrentTasksCap** | 256 | 节点上一个 app Worker ID 最多可拥有的 stream 数。 |
+| **matching.maxStreams** | 100000 | 节点上已注册 Worker stream 的上限。 |
+| **matching.maxQueueLength** | 256 | 队列名称的最大字符数。 |
+| **matching.maxFlowTypes** | 256 | 一次 Worker 注册中 Flow type 的最大数量。 |
+| **matching.maxFlowTypeLength** | 256 | 已注册 Flow type 的最大字符数。 |
+| **matching.pingInterval** | 20s | 空闲 Worker stream 上 **Ping** 帧的间隔。 |
+
+如果在 **dispatchWait** 内没有可用的 Worker，Step 会收到可重试的 unavailable 错误，并消耗一次
+Step 重试。RPC 调用方会直接收到 **Unavailable** 错误。
+
+当前 SDK 在任务运行期间每 20 秒发送一次上行 **Pong** 帧。请为长连接 HTTP/2 stream 配置负载均衡器和
+代理，并把它们的空闲超时设置得高于 20 秒和 **matching.pingInterval**，同时留出网络延迟的余量。
+使用旧版 SDK 的 Worker 需要高于最长任务时长的空闲超时。请在公共入口保持双向 streaming。
+
+## Stream {#streams}
+
+用 **streamStore.backend** 控制 best-effort [Stream](/primitives/stream)，取值为 **disabled**（默认）
+或 **memory**。memory Stream 存在于 server 进程中，重启后为空。backend 为 disabled 时，写入 Stream 的
+消息会被丢弃，但 Step 不会失败。
+
 ## 身份验证
 
 公共 API 身份验证默认关闭。配置 **auth.authenticators** 后，每个 **FlowService** 和
@@ -685,8 +729,7 @@ auth:
       file: /etc/dex-server-zd/tokens.yaml
 ~~~
 
-这一节使用 Go Dex Server 的 **auth** 键，现有的 Go Server 配置段可以原样加载。
-**allowInsecureJWKSURL** 只存在于 server-zd，它允许在可信网络上使用明文 HTTP 的
+**allowInsecureJWKSURL** 允许在可信网络上使用明文 HTTP 的
 **jwksURL**。**jwksURL** 为空时，通过 issuer 的 OpenID 配置发现 key set。**caFile**
 把一个 PEM bundle 加到系统根证书中。
 
@@ -706,6 +749,20 @@ server 只在调用开始时检查一次凭证。已经打开的 pull Worker str
 **api.listen** 提供明文 gRPC，bearer 凭证会以明文在网络上传输。在 server 前面终止
 TLS，或者只允许可信的调用方访问网络。
 
+## Server 与 SDK 的协议兼容性
+
+server-zd 和每个 SDK 版本都声明闭区间形式的协议范围。两个范围重叠时 Worker 才能启动。
+Worker 会协商出双方都支持的最高协议，然后同步 Attribute 索引，最后绑定 WorkerTaskService。
+server 和 SDK 的制品版本只用于诊断，不决定兼容性。
+
+新 SDK 保留旧协议时可以使用旧 server；新 server 也可以在协议范围仍然重叠时使用旧 SDK。
+破坏性的 server 版本会提高最低协议。升级 server 之前，先停止旧 Worker 及其流量，升级后再恢复流量。
+也可以使用相互隔离的蓝绿环境，使协议范围不相交的部署永远不会互相通信。运行中的 Worker 在
+server 升级后不会重新协商，因此破坏性变更之前必须显式停止它们。
+
+协议兼容性只覆盖 Worker 到 server 的 API。它不能替代 open Flow 的兼容性规则，包括
+Flow type 名称、Step 图和已持久化的 payload。
+
 ## 备份和恢复
 
 对象存储前缀是唯一的数据源。本地存储从它重建。ParadeDB 搜索投影在启动后从本地存储
@@ -724,29 +781,3 @@ TLS，或者只允许可信的调用方访问网络。
 4. 启动 server-zd。它会用恢复后的前缀中最新的快照和日志进行恢复。
 
 恢复时间点之后确认的写入会丢失。
-
-## 从 Go Dex Server 映射配置 {#configuration-mapping}
-
-server-zd 会拒绝未知的键，因此 Go Server 的配置文件不能原样加载。只复制下表中的键。
-**auth** 一节是例外，可以原样加载。
-
-| Go Dex Server | server-zd | 说明 |
-| --- | --- | --- |
-| **api.port** | **api.listen** | 完整的绑定地址，默认 **0.0.0.0:8801**。 |
-| **api.maxWaitSeconds** 和 **api.grpcMaxMessageBytes** | 相同的键 | 含义和默认值相同：60 秒和 32 MiB。server-zd 拒绝为零的 **maxWaitSeconds**，Go Server 则把零当作默认值。 |
-| Temporal 专用的 **api** 键，例如 **api.useTemporalSynchronousUpdateForAllRPCs** | 无 | 删除。 |
-| **auth.authenticators** | 相同的键 | 原样加载。**allowInsecureJWKSURL** 只存在于 server-zd。 |
-| **matching.dispatchWait**、**stickyWait**、**maxConcurrentTasksCap**、**maxStreams**、**maxQueueLength**、**maxFlowTypes**、**maxFlowTypeLength** 和 **pingInterval** | 相同的键 | 默认值相同。 |
-| **matching.localDispatchWait**、**localStickyWait** 和 **localExecutionReserve** | 无 | 删除。 |
-| **streamStore** | **streamStore** | **backend** 为 **disabled**（默认）或 **memory**，没有 **redis** backend。删除 **redisURL**、**trimLeaseTTL** 和 **trimLeaseRetry**。memory Stream 保存在进程中，重启后为空。 |
-| Temporal 或 Cadence 的 namespace 保留期，以及 **blobStore.historyRetentionInDays** | **retention.closedFlowDuration** | 用时长表示，例如 **7days**，而不是整天数。只对修改后启动的 run 生效。 |
-| **interpreter.temporal.prometheus.listenAddress** | **metrics.listen** | 指标名称不同，见[指标](#metrics)。 |
-| **log** | **RUST_LOG** 环境变量 | 日志输出到标准错误，默认级别为 **info**。 |
-| 没有对应的键；**SearchFlows** 使用 Temporal 或 Cadence 的 visibility | **search.backend** | **builtin**（默认）或 **paradedb**。 |
-| 没有对应的键 | **search.paradeDbConnectionString** | ParadeDB 搜索使用的 PostgreSQL URL 或键值连接字符串。支持 **sslmode**（disable、allow、prefer、require、verify-ca、verify-full）、**sslrootcert**（PEM 文件或系统根证书）、**sslsni**（0 或 1）、**sslnegotiation**（postgres 或 direct），以及以秒为单位的 **connect_timeout**。直接 TLS 协商需要 PostgreSQL 17 或更高版本。不设置 **sslrootcert** 时，**sslmode=require** 会加密连接，但不会验证服务器证书。**sslrootcert** 指定 PEM 文件时，**require** 会用该文件验证证书链，但不验证主机名。**sslmode=verify-ca** 会用 **sslrootcert** 指定的 PEM 文件验证证书链；不设置 **sslrootcert** 时使用系统根证书。它从不验证主机名。**sslmode=verify-full** 会验证证书链和主机名，使用 **sslrootcert** 指定的 PEM 文件；不设置 **sslrootcert** 时使用系统根证书。**sslrootcert=system** 使用系统根证书，并且无论 **sslmode** 设置为什么，都强制使用 verify-full。未使用 **sslnegotiation=direct** 时，即使 **sslrootcert** 指定了 PEM 文件，**prefer** 和 **allow** 也不验证证书。**sslmode=allow** 不能与 **sslnegotiation=direct** 组合使用。不指定 TLS 参数时，连接保持明文，以兼容现有部署。显式设置 **sslmode=prefer** 现在会尝试不验证证书的 TLS；此前会保持明文。使用 **sslnegotiation=direct** 时，**sslmode=prefer** 或未设置的 **sslmode** 会变为 **require**，并适用上述 **require** 规则，因此必须使用 TLS，不会回退到明文。 |
-| **blobStore** | 无 | server-zd 把所有值保存在自己的对象存储前缀下。硬删除的值可以使用 **objectStore.hardDeleteStore**。 |
-| **attributeStore** | **attributeStore** | 相同的键，需要 server-zd v0.1.3 或更高版本。只支持 **type: postgres**。**flowIdColumn**、**databaseName** 和 **collectionName** 必须留空。**fencingTableName** 只存在于 server-zd，每个数据库都需要一张 fencing 表。见 [Attribute Store 同步](#attribute-store)。 |
-| **interpreter** | 无 | server-zd 不使用 Temporal 或 Cadence backend。 |
-| **membership** 和 **internal** | 无 | 一个集群只运行一个节点，没有内部监听器。 |
-| **web** | 无 | server-zd 不提供 Dex Web。请单独运行 **dex-web**，并用 **--flow-service-address** 指向 server-zd。参见[对接 server-zd](/production/dex-web#run-against-server-zd)。 |
-| **worker** | 无 | server-zd 只支持拉取模式 Worker。 |

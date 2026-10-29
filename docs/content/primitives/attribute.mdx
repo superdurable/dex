@@ -338,7 +338,7 @@ The SDK defaults a regular Attribute's index key to its Attribute name. For appl
 | **DOUBLE** | **double1**, **double2**, … |
 | **DATETIME** | **datetime1**, **datetime2**, … |
 
-Numbering does not increase namespace capacity. Choose only slots available in the target Temporal visibility store. Renaming an index does not remove its old Search Attribute registration or backfill existing Flow executions. Validate changed example schemas in a fresh local namespace. Plan any existing deployment migration separately.
+Renaming an index does not backfill existing Flow executions. Validate changed example schemas in a fresh local **dexcli dev** instance. Plan any existing deployment migration separately.
 
 A generic key can have a different business meaning in each Flow type. Application run queries must constrain **FlowType**. Keep the query unchanged across pages. Dex Web already scopes searches to the selected Flow type. Parenthesize caller filters before combining them with the application scope so an OR cannot bypass it. Do not index sensitive data or PII. The customer-email value in the Customer Refund example is synthetic data only.
 
@@ -516,7 +516,7 @@ let progress = AttributeMap::new("primitive-attribute-progress")
 
 Use a hard-delete Attribute for a short-lived secret, such as an API key that a Flow uses a few times and then discards.
 
-Dex stores every value of a hard-delete Attribute only in its Blob Store, whatever the value size. Flow history keeps only a reference. Deleting the Attribute, or setting it to null, permanently deletes the stored value. After that, neither Dex APIs nor Flow history can recover it.
+Dex stores every value of a hard-delete Attribute only in object storage, whatever the value size. Flow history keeps only a reference. Deleting the Attribute, or setting it to null, permanently deletes the stored value. After that, neither Dex APIs nor Flow history can recover it.
 
 From server-zd v0.1.5, a direct call to the FlowService **SetAttributes** API can erase a hard-delete Attribute after its Flow run closes and before the run is purged. The SDK Clients do not expose this API, so send it with **dexcli api call SetAttributes** or another FlowService client. Set every Attribute in the request to null. Each Attribute must still have a stored hard-delete value. The erase leaves the run closed and permanently deletes its stored objects. Other writes to a closed run return NOT_FOUND.
 
@@ -622,7 +622,7 @@ A hard-delete Attribute has these requirements:
 
 - Only string and object values are supported, including bytes. Numeric and Boolean value types are rejected.
 - It cannot be indexed or synced to an Attribute Store. **WaitForAttributeMatch** and Action conditions reject it.
-- Dex Server v1.11.0 or later, with its Blob Store enabled. The SDKs refuse to write the Attribute to an older Server, and a Server without a Blob Store rejects the write.
+- A server that supports hard-delete Attributes, such as server-zd. The SDKs refuse to write the Attribute to an older server.
 
 Each Flow keeps one stored value per Attribute key and overwrites it in place. Plan for these consequences:
 
@@ -633,7 +633,7 @@ Each Flow keeps one stored value per Attribute key and overwrites it in place. P
 - A deleted value always reads as absent. Time travel does not restore it. A Flow retry or a restarted SubFlow starts from the original initial value, so it reads as absent when an earlier run deleted that value.
 - Removing the option from a definition leaves the stored value in place until Dex removes the Flow. Delete the value with the hard-delete definition first.
 
-A value remains stored until it is deleted, or until Dex removes the Flow after its retention period. Blob Store backups and bucket versioning outside Dex can keep copies. See [Blob Store](/production/server-operations#blob-store).
+A value remains stored until it is deleted, or until Dex removes the Flow after its retention period. Object storage backups and bucket versioning outside Dex can keep copies. See [Object storage](/production/server-zd-operations#object-storage).
 
 ## Attribute Sync {#attribute-store-projection}
 
@@ -687,7 +687,7 @@ static DISPLAY_NAME: LazyLock<Attribute<String>> =
 </SdkSnippet>
 </SdkTabs>
 
-First, define an Attribute Store in Dex Server configuration:
+First, define an Attribute Store in a YAML file:
 
 ```yaml
 attributeStore:
@@ -698,13 +698,13 @@ attributeStore:
       tableName: public.user_profiles
 ```
 
-The same configuration can target MySQL, Databricks, Snowflake, or MongoDB.
+Only PostgreSQL is supported as an Attribute Store. Redis support is tracked in [issue 616](https://github.com/superdurable/dex/issues/616).
 Create the destination first. Attribute Sync writes latest state asynchronously
 and does not automatically backfill existing Flows. See
 [Custom Attribute Store operations](/production/attribute-store) for target
 contracts, type mappings, and retry behavior.
 
-Start Dex Server with the configuration:
+Start the local server with the file:
 
 ```bash
 dexcli dev --attribute-store-config ./attribute-store.yaml

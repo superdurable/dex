@@ -53,13 +53,12 @@ The local port conventions are:
 
 | Component | Default endpoint | Purpose |
 |---|---|---|
-| Dex Server | `127.0.0.1:8801` | FlowService and WorkerTaskService gRPC |
+| server-zd | `127.0.0.1:8801` | FlowService and WorkerTaskService gRPC |
 | Dex Web | `http://127.0.0.1:8802` | Dex Web HTTP UI and API |
-| SDK Worker | port `8803` | Application-owned WorkerService gRPC |
-| Codec Server | `http://127.0.0.1:8804` | Temporal payload Codec HTTP API |
+| Codec Server | `http://127.0.0.1:8804` | Payload Codec HTTP API |
 
 `dexcli dev` starts `dex-server-zd` and embedded Dex Web. An application
-starts its own SDK Worker. `dexcli codec-server` starts the Codec Server separately.
+starts its own SDK pull Worker. `dexcli codec-server` starts the Codec Server separately.
 
 server-zd is the only engine. `--engine zd` remains accepted as a no-op for
 existing scripts. The CLI uses the first

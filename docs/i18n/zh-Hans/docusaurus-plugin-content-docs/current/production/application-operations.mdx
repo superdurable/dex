@@ -39,7 +39,7 @@ Flow 可能因为 Worker handler 返回失败、Worker 重试耗尽，或达到�
 
 Flow 超时是 Flow 启动时配置的持久化 Dex timer；零会禁用它。请选择 **FAIL**、
 **CANCEL** 或 Flow timeout handler。检查启动事件中的配置时长和解析后的策略。
-截止时间是绝对时间；Flow 重试会得到新的超时预算。
+截止时间是绝对时间。
 
 每个正值超时都有一个内部 **sys:timeout_handler** timer。它会显示在活动 Step 诊断中，
 并且 **SkipTimer** 可以通过 timer index 提前触发它。恢复超时失败前，先修复根本原因。

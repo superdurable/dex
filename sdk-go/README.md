@@ -81,7 +81,7 @@ and [stable-key lookup layout](../docs/content/design-patterns/hash-partitioned-
 ## Action permission projection
 
 An RPC can declare a state-dependent Action in `GetRPCs`. Dex maintains the
-Temporal KeywordList Search Attribute `DexWorkQueuePermissions`:
+KeywordList Search Attribute `DexWorkQueuePermissions`:
 
 ```go
 func (flow RefundFlow) GetRPCs() []dex.RPCDef {
@@ -135,9 +135,7 @@ gateway must authorize the selected RPC against its statically registered
 permission and current state. Search Attribute contents are never proof that a
 caller is authorized or that the Action remains available.
 
-This feature requires the Temporal backend because it uses a KeywordList Search
-Attribute. Cadence rejects runtime Action mappings. Go SDK v0.10.2 requires
-Server protocol 2.
+Go SDK v0.10.2 requires Server protocol 2.
 
 ## Step and timeout-handler state loading
 
@@ -437,12 +435,7 @@ Request IDs are optional for both durable waits. When omitted, the server
 derives a stable ID from the Step execution or Attribute condition. Reuse an
 override only for the same wait. `RequestTimeout` is the total SDK call budget
 across transparent transport reattachments. Zero waits indefinitely until the
-caller context is canceled. Temporal permits 10 in-flight Updates and 2,000
-total Updates in History per Workflow Execution. A caller timeout or
-cancellation does not finish an accepted durable wait, so an abandoned handler
-can retain one in-flight slot. Set `InternalHandlerTimeout` only when abandoned
-waits can approach that limit. An active call transparently starts another
-generation, which counts toward the 2,000-Update history limit. Prefer a value
+caller context is canceled. A caller timeout or cancellation does not finish an accepted durable wait. Set `InternalHandlerTimeout` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value
 comfortably longer than normal request timeouts and reconnect gaps. Zero
 disables timed rollover. Request expiry returns `*dex.RequestTimeoutError`.
 

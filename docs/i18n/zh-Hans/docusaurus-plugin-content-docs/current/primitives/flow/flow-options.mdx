@@ -23,8 +23,8 @@ Dex 允许你自定义 Flow execution 的行为。
 | **IDReusePolicy** | 启动时如何复用已有 Flow ID。 |
 | **RequestID** | 重试同一次启动请求的幂等键。 |
 | **AlreadyStartedOptions** | 如何处理已启动的 Flow。 |
-| **RetryPolicy** | 单次 Flow execution 失败后的重试策略。 |
-| **StartDelay** | start Step 运行前的延迟。 |
+| **RetryPolicy** | 不支持。server-zd 会以 **INVALID_ARGUMENT** 拒绝它。见 [RetryPolicy](#retry-policy)。 |
+| **StartDelay** | 不支持。server-zd 会以 **INVALID_ARGUMENT** 拒绝正值。见 [StartDelay](#start-delay)。 |
 | **Attributes** | 初始 Attribute 值。 |
 | **FlowConfig** | 每次 execution 的 Flow 配置。 |
 
@@ -178,7 +178,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 
 **Timeout** 是整个 Flow 的一个 durable timer。只有 **Timeout** 为正数时才能设置 **TimeoutPolicy**。
 
-- **FAIL** — 以 timeout error 失败 Flow。**RetryPolicy** 可以重试它。
+- **FAIL** — 以 timeout error 失败 Flow。
 - **CANCEL** — 取消 Flow，不会重试。
 - **HANDLER** — 运行一次逻辑 Flow timeout-handler execution。
 
@@ -460,12 +460,12 @@ Worker replacement → retry the same downstream start identity → no duplicate
 
 ### RetryPolicy {#retry-policy}
 
-**RetryPolicy** 会在一次 Flow execution 失败后重试它。**MaximumAttempts** 包含首次 execution。**InitialInterval**、**BackoffCoefficient** 与 **MaximumInterval** 设置指数退避。**FAIL** timeout 可以使用这个 retry policy；**CANCEL** timeout 不可以。
+server-zd 不支持 Flow 级别的 **RetryPolicy**。设置了它的启动请求会以 **INVALID_ARGUMENT** 失败。由 [issue 996](https://github.com/superdurable/dex/issues/996) 跟踪。需要重试工作时，请使用受支持的 [Step retry](/primitives/step/step-options)。
 
 
 ### StartDelay {#start-delay}
 
-**StartDelay** 会立即接受要启动的 Flow，但在 **StartStep** 可以运行前等待。它适合一次性延迟，例如新订单创建五分钟后再处理。周期性工作请使用 durable **Timer** 循环。
+server-zd 不支持 **StartDelay**。带正值延迟的启动请求会以 **INVALID_ARGUMENT** 失败。由 [issue 995](https://github.com/superdurable/dex/issues/995) 跟踪。需要延迟第一项工作时，请不带延迟启动 Flow，并让 **StartStep** 以 durable **Timer** 等待开头。
 
 ### Attributes {#attributes}
 

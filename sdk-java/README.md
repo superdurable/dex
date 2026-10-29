@@ -542,7 +542,7 @@ if (error != null) {
 }
 ```
 
-To override the next Temporal retry interval, throw a retry request with the
+To override the next retry interval, throw a retry request with the
 current attempt failure as its cause:
 
 ```java
@@ -550,8 +550,7 @@ throw RetryAfterException.after(Duration.ofSeconds(30), currentFailure);
 ```
 
 The delay must be a positive whole number of seconds in the signed 32-bit
-range. Retry limits and method timeouts remain unchanged. Cadence rejects a
-dynamic retry interval with an `INVALID_USER_FLOW_CODE` validation error.
+range. Retry limits and method timeouts remain unchanged.
 Recovery exposes only the final failure type and detail; stack traces remain in
 failure history, and retry delays are scheduling metadata.
 
@@ -621,12 +620,7 @@ Request IDs are optional for both durable waits. When omitted, the server
 derives a stable ID from the Step execution or Attribute condition. Reuse an
 override only for the same wait. `requestTimeout` is the total SDK call budget
 across transparent transport reattachments. Zero waits indefinitely.
-Temporal permits 10 in-flight Updates and 2,000 total Updates in History per
-Workflow Execution. A caller timeout or cancellation does not finish an
-accepted durable wait, so an abandoned handler can retain one in-flight slot.
-Set `internalHandlerTimeout` only when abandoned waits can approach that limit.
-An active call transparently starts another generation, which counts toward the
-2,000-Update history limit. Prefer a value comfortably longer than normal
+A caller timeout or cancellation does not finish an accepted durable wait. Set `internalHandlerTimeout` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value comfortably longer than normal
 request timeouts and reconnect gaps. Zero disables timed rollover. Request
 expiry throws `RequestTimeoutException`.
 

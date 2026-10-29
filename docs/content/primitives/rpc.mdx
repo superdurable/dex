@@ -396,7 +396,7 @@ fn rpcs(&self) -> RpcList<Self> {
 
 A transactional commit does not isolate the handler while it runs. If a decision depends on the whole loaded Channel, ChannelMap, or AttributeMap remaining unchanged, every cooperating Step and RPC writer must use the same Attribute lock. The lock provides that isolation and implicitly makes the RPC transactional; it does not load collection contents.
 
-A non-transactional RPC treats a missing deletion as a no-op and still commits its other successful effects. Cadence does not provide the same atomic guarantee for Channel deletion validation and writes. Design Cadence callers to tolerate that race.
+A non-transactional RPC treats a missing deletion as a no-op and still commits its other successful effects.
 
 ## RPC timeout
 

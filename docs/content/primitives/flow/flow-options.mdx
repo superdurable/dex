@@ -23,8 +23,8 @@ Dex allows you to customize the behavior of a Flow execution.
 | **IDReusePolicy** | How to reuse existing Flow ID to start                                 |
 | **RequestID** | Idempotency key for retrying one start request.                        |
 | **AlreadyStartedOptions** | How to handle an already-started Flow.                                 |
-| **RetryPolicy** | Retry policy for one Flow execution after failure.                     |
-| **StartDelay** | Delay before the start Step to run.                   |
+| **RetryPolicy** | Not supported. server-zd rejects it with **INVALID_ARGUMENT**. See [RetryPolicy](#retry-policy). |
+| **StartDelay** | Not supported. server-zd rejects a positive value with **INVALID_ARGUMENT**. See [StartDelay](#start-delay). |
 | **Attributes** | Initial Attribute values.                            |
 | **FlowConfig** | Per-execution Flow configuration |
 
@@ -178,7 +178,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 
 **Timeout** is one durable timer for the whole Flow. Set **TimeoutPolicy** only when **Timeout** is positive.
 
-- **FAIL** — fail the Flow with a timeout error. **RetryPolicy** can retry it.
+- **FAIL** — fail the Flow with a timeout error.
 - **CANCEL** — cancel the Flow. It does not retry.
 - **HANDLER** — run one logical Flow timeout-handler execution.
 
@@ -460,12 +460,12 @@ Worker replacement → retry the same downstream start identity → no duplicate
 
 ### RetryPolicy {#retry-policy}
 
-**RetryPolicy** retries one Flow execution after it fails. **MaximumAttempts** includes the first execution. **InitialInterval**, **BackoffCoefficient**, and **MaximumInterval** set the exponential backoff. A **FAIL** timeout can use this retry policy. A **CANCEL** timeout cannot.
+server-zd does not support a Flow-level **RetryPolicy**. A start request that sets one fails with **INVALID_ARGUMENT**. Tracked in [issue 996](https://github.com/superdurable/dex/issues/996). To retry work, use [Step retry](/primitives/step/step-options), which is supported.
 
 
 ### StartDelay {#start-delay}
 
-**StartDelay** accepts the Flow to start now, but waits before the **StartStep** can run. Use it for a one-off delay, for example, wait five minutes before processing a new order. Use a durable **Timer** loop for recurring work.
+server-zd does not support **StartDelay**. A start request with a positive delay fails with **INVALID_ARGUMENT**. Tracked in [issue 995](https://github.com/superdurable/dex/issues/995). To delay the first work, start the Flow without a delay and begin the **StartStep** with a durable **Timer** wait.
 
 ### Attributes {#attributes}
 

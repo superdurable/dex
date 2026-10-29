@@ -69,7 +69,6 @@ Engineering design docs (not in the public sidebar):
 * [Dex Design](design/Dex-Design.md)
 * [Compact workflow-history wire names](design/compact-workflow-history-names.md)
 * [IDL renames (OpenAPI → dex.proto)](design/idl-renames.md)
-* [ContinueAsNew in Temporal (or Cadence)](design/ContinueAsNew-in-Temporal-(or-Cadence)-workflow.md)
 * Plans under [`design/plan/`](design/plan/)
 
 ## Archive
@@ -78,6 +77,7 @@ Legacy iWF-era wiki and case studies (source material only):
 
 * [`archive/old-iwfwiki/`](archive/old-iwfwiki/)
 * [`archive/old-iwf-case-study/`](archive/old-iwf-case-study/)
+* [`archive/design/`](archive/design/): Temporal-based Go Server design notes
 
 ## Hosting
 
