@@ -28,5 +28,3 @@ require (
 replace github.com/superdurable/dex/sdk-go => ../sdk-go
 
 replace github.com/superdurable/dex/web => ../web
-
-replace go.temporal.io/sdk => github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.3
