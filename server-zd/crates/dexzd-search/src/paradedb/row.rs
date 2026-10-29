@@ -254,7 +254,7 @@ fn optional_string_array(
     }
 }
 
-fn is_system_field(field: &str) -> bool {
+pub(crate) fn is_system_field(field: &str) -> bool {
     matches!(
         field,
         "WorkflowId"
