@@ -1368,6 +1368,121 @@ class ServerZdStatementsTest(unittest.TestCase):
         self.assertIn(f"Required release tag {self.CITED_TAG} is unavailable", str(raised.exception))
 
 
+class ServerZdLatestStatementsTest(unittest.TestCase):
+    TAG = "server-zd/v0.1.10"
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.statements = tuple(
+            statement for statement in CHECKER.SERVER_ZD_LATEST_STATEMENTS if statement[0] == self.TAG
+        )
+        self.sources = tagged_sources(self.TAG, *dict.fromkeys(path for _, path, _ in self.statements))
+        self.repository.commit_and_tag(self.TAG, self.sources)
+
+    def check(self):
+        CHECKER.check_server_zd_statements(self.repository.root, self.TAG, self.statements)
+
+    def test_real_tagged_sources_pass(self):
+        self.check()
+
+    def test_each_tagged_statement_must_be_enforced(self):
+        for _, path, needles in self.statements:
+            for needle in needles:
+                with self.subTest(path=path, needle=needle):
+                    mutated = replace_once(self.sources[path], needle, needle[:-1] + "?")
+                    self.repository.commit_and_tag(self.TAG, {path: mutated})
+                    with self.assertRaises(SystemExit) as raised:
+                        self.check()
+                    self.assertIn(f"{self.TAG}:{path} is missing required text", str(raised.exception))
+                    self.repository.commit_and_tag(self.TAG, {path: self.sources[path]})
+
+
+class GoServerRetryLocksTest(unittest.TestCase):
+    TAG = "server/v1.25.0"
+    PATH = CHECKER.RETRY_LOCK_SERVER_PATH
+    UNLOCK = "persistenceManager.UnlockKeys(lockAttributeKeys)\n"
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.source = tagged_sources(self.TAG, self.PATH)[self.PATH]
+        self.repository.commit_and_tag(SERVER_TAG, {self.PATH: self.source})
+
+    def check(self):
+        CHECKER.check_go_server_retry_locks(self.repository.root, SERVER_TAG)
+
+    def assert_mutation_fails(self, mutated, *fragments):
+        self.repository.commit_and_tag(SERVER_TAG, {self.PATH: mutated})
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        for fragment in (f"{SERVER_TAG}:{self.PATH}", *fragments):
+            self.assertIn(fragment, str(raised.exception))
+
+    def test_released_source_passes(self):
+        self.check()
+
+    def test_each_method_must_load_its_locks(self):
+        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
+            with self.subTest(method=method):
+                getter = f"options.Get{method}LockAttributeKeys()"
+                mutated = replace_in_function(self.source, declaration, getter, "nil")
+                self.assert_mutation_fails(mutated, f"function `{declaration}`", getter)
+
+    def test_each_method_must_load_attributes_with_its_locks(self):
+        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
+            with self.subTest(method=method):
+                function_start = self.source.index(declaration)
+                load = self.source.index("persistenceManager.LoadSelectedAttributes(", function_start)
+                end = self.source.index("selection.AttributeMapInstances,", load)
+                call = self.source[load:end]
+                mutated = self.source[:load] + call.replace("lockAttributeKeys,", "nil,") + self.source[end:]
+                self.assertNotEqual(mutated, self.source)
+                self.assert_mutation_fails(mutated, f"function `{declaration}`")
+
+    def test_each_method_must_invoke_its_own_activity(self):
+        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
+            with self.subTest(method=method):
+                other = "Execute" if method == "WaitFor" else "WaitFor"
+                mutated = replace_in_function(
+                    self.source, declaration, f"i.activities.I{method}M,", f"i.activities.I{other}M,",
+                )
+                self.assert_mutation_fails(mutated, f"i.activities.I{method}M,")
+
+    def test_each_method_must_unlock_after_its_activity(self):
+        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
+            with self.subTest(method=method):
+                mutated = replace_in_function(self.source, declaration, self.UNLOCK, "\n")
+                self.assert_mutation_fails(mutated, f"function `{declaration}`", "UnlockKeys")
+
+    def test_each_method_must_not_unlock_before_its_activity(self):
+        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
+            with self.subTest(method=method):
+                activity = "provider.ExecuteActivity("
+                mutated = replace_in_function(self.source, declaration, activity, self.UNLOCK + "\t" + activity)
+                self.assert_mutation_fails(mutated, f"function `{declaration}`", f"unlocks {method} Attribute locks before")
+
+    def test_activity_scan_skips_go_strings_runes_and_comments(self):
+        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
+            for decoy in ('")\\")",', "')',", "/* ) */", "// )\n", "`)`,"):
+                with self.subTest(method=method, decoy=decoy):
+                    argument = f"i.activities.I{method}M,"
+                    mutated = replace_in_function(
+                        self.source, declaration, argument,
+                        argument + " " + decoy + " " + self.UNLOCK.strip() + ",",
+                    )
+                    self.assertNotEqual(mutated, self.source)
+                    self.assert_mutation_fails(mutated, f"function `{declaration}`", f"unlocks {method} Attribute locks before")
+
+    def test_each_method_must_not_unlock_inside_its_activity_arguments(self):
+        for declaration, method in CHECKER.RETRY_LOCK_SERVER_METHODS:
+            with self.subTest(method=method):
+                argument = f"i.activities.I{method}M,"
+                mutated = replace_in_function(
+                    self.source, declaration, argument, argument + " " + self.UNLOCK.strip() + ",",
+                )
+                self.assertNotEqual(mutated, self.source)
+                self.assert_mutation_fails(mutated, f"function `{declaration}`", f"unlocks {method} Attribute locks before")
+
+
 class Release124ReferencesTest(unittest.TestCase):
     def setUp(self):
         self.references = CHECKER.SDK_REFERENCES

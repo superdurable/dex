@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release used by core operations guidance.
 SERVER_ZD_RELEASE = "server-zd/v0.1.6"
-SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.8"
+SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.10"
 WORKFLOW_UPDATER_PATH = "server/service/interpreter/workflowUpdater.go"
 API_SERVICE_PATH = "server/service/api/service.go"
 TERMINAL_COORDINATOR_PATH = "server/service/interpreter/terminalCoordinator.go"
@@ -75,7 +75,7 @@ SERVER_ZD_STATEMENTS = (
         "request.action_permission_mappings.is_some()",
     )),
 )
-# Statements first made by server-zd v0.1.7 and v0.1.8, checked at the latest release.
+# Statements first made by server-zd v0.1.7 through v0.1.10, checked at the latest release.
 SERVER_ZD_LATEST_STATEMENTS = (
     ("server-zd/v0.1.7", "server-zd/README.md", (
         "`recovery.startupReadRetryBudget` wall-clock window (default 30 seconds)",
@@ -85,7 +85,49 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "From v0.1.8, a transactional or locking InvokeRPC on a closed run returns NOT_FOUND and",
         "A later unsynced write does not replace a pending synced value.",
     )),
+    ("server-zd/v0.1.10", "server-zd/crates/dexzd-apply/README.md", (
+        "Each logical WaitFor or Execute call, including the Flow timeout handler, loads",
+        "Retries reuse its\nAttributes, Channel messages, Channel infos, and selections.",
+        "Conflicting RPCs fail immediately while those locks are held.",
+        "Locks release when the logical method ends.",
+        "If a required permission or mapping Attribute value was collected,",
+        "TimeTravel returns `FAILED_PRECONDITION` without changing state.",
+    )),
+    ("server-zd/v0.1.10", "server-zd/crates/dexzd-engine/README.md", (
+        "## SubFlow hard-delete Attributes",
+        "While a shared task is active, transactional and locking RPCs share one node-owned task",
+        "Concurrent identical requests receive the\nsame result or error.",
+        "Conflicting payloads retain the existing\nfingerprint rejection.",
+        "The RPC timeout starts at the Worker\ninvocation",
+        "Exceeding it returns UNAVAILABLE with an\nunknown outcome and releases the shared task.",
+        "An already\nsubmitted command may still commit after the budget expires.",
+        "A retry may run the RPC again.",
+        "A node crash before the result commits can invoke\nthe Worker again on retry.",
+        "generate a fresh request ID for each explicit\nRPC invocation and expose no override.",
+    )),
+    ("server-zd/v0.1.10", "server-zd/crates/dexzd-engine/src/flow_coordination/client_operations/rpc_requests.rs", (
+        "if pending.fingerprint != fingerprint {",
+        "request ID {request_id} was already used for a different request",
+    )),
+    ("server-zd/v0.1.10", "server-zd/crates/dexzd-apply/src/read_model/flow.rs", (
+        "InternalTimerStatus::Skipped",
+    )),
+    ("server-zd/v0.1.10", "server-zd/crates/dexzd-apply/src/steps/step_results.rs", (
+        "dispatch_task_error_reason: dispatch_reason as i32,",
+    )),
 )
+# Go Server documentation of first-attempt snapshot reuse, checked at the Server baseline.
+RETRY_SNAPSHOT_SERVER_STATEMENT = (
+    "docs/content/primitives/step/step-options.mdx",
+    "A retry of one **Execute** call reuses the [state snapshot](#selective-state-loading) loaded for its first attempt",
+)
+# Go Server functions that hold a method's Attribute locks across its activity retries, as (declaration, method).
+RETRY_LOCK_SERVER_PATH = "server/service/interpreter/workflowImpl.go"
+RETRY_LOCK_SERVER_METHODS = (
+    ("func (i *Interpreter) processStepExecution(", "WaitFor"),
+    ("func (i *Interpreter) invokeExecuteMethod(", "Execute"),
+)
+RETRY_LOCK_UNLOCK = "persistenceManager.UnlockKeys(lockAttributeKeys)"
 # Statements about Server v1.24.0 and SDK v1.23.0 behavior, as (tagged path, needles).
 RELEASE_1_24_STATEMENTS = (
     ("sdk-go/README.md", (
@@ -205,6 +247,74 @@ def rust_function_source(source: str, declaration: str, location: str) -> str:
     fail(f"{location} function `{declaration}` has no matching closing brace")
 
 
+def check_go_server_retry_locks(checkout: Path, tag: str) -> None:
+    """Checks that WaitFor and Execute load their locks before the method activity and unlock only after it returns."""
+    location = f"{tag}:{RETRY_LOCK_SERVER_PATH}"
+    source = git(checkout, "show", f"refs/tags/{tag}:{RETRY_LOCK_SERVER_PATH}")
+    for declaration, method in RETRY_LOCK_SERVER_METHODS:
+        function = go_function_source(source, declaration, location)
+        positions = require_ordered_text(function, location, declaration, (
+            f"lockAttributeKeys := options.Get{method}LockAttributeKeys()",
+            "persistenceManager.LoadSelectedAttributes(",
+            "lockAttributeKeys,",
+            "provider.ExecuteActivity(",
+            f"i.activities.I{method}M,",
+            RETRY_LOCK_UNLOCK,
+        ))
+        activity_open = positions[3] + len("provider.ExecuteActivity(") - 1
+        activity_end = closing_parenthesis(function, activity_open, location, declaration)
+        if RETRY_LOCK_UNLOCK in function[positions[0] : activity_end + 1]:
+            fail(f"{location} function `{declaration}` unlocks {method} Attribute locks before its method activity returns")
+
+
+def closing_parenthesis(block: str, opening: int, location: str, declaration: str) -> int:
+    """Returns the index of the parenthesis that closes the one at opening, skipping Go strings, runes, and comments."""
+    depth = 0
+    index = opening
+    while index < len(block):
+        character = block[index]
+        if block.startswith("//", index):
+            newline = block.find("\n", index)
+            index = len(block) if newline < 0 else newline
+        elif block.startswith("/*", index):
+            close = block.find("*/", index + 2)
+            if close < 0:
+                break
+            index = close + 1
+        elif character == "`":
+            close = block.find("`", index + 1)
+            if close < 0:
+                break
+            index = close
+        elif character in "\"'":
+            index += 1
+            while index < len(block) and block[index] != character:
+                index += 2 if block[index] == "\\" else 1
+            if index >= len(block):
+                break
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    fail(f"{location} function `{declaration}` has an unclosed provider.ExecuteActivity call")
+
+
+def require_ordered_text(block: str, location: str, declaration: str, needles: tuple[str, ...]) -> list[int]:
+    """Requires needles in order within one block and returns each needle's start position."""
+    positions = []
+    cursor = 0
+    for needle in needles:
+        position = block.find(needle, cursor)
+        if position < 0:
+            fail(f"{location} function `{declaration}` is missing required text in order: {needle!r}")
+        positions.append(position)
+        cursor = position + len(needle)
+    return positions
+
+
 def require_tagged_rust_function_text(checkout: Path, tag: str, path: str, declaration: str, *needles: str) -> None:
     location = f"{tag}:{path}"
     function = rust_function_source(git(checkout, "show", f"refs/tags/{tag}:{path}"), declaration, location)
@@ -265,7 +375,35 @@ REFERENCE_1_24_STATEMENTS = (
         "From server-zd v0.1.7, node start retries transient or unknown-outcome object-storage reads",
         "**recovery.startupReadRetryBudget** (default 30 seconds)",
         "From server-zd v0.1.8, Attribute Sync never replaces a pending synced value",
+        "server-zd v0.1.10 changes these application-visible behaviors:",
+        "From server-zd v0.1.10, time travel returns FAILED_PRECONDITION when rebuilding the target point needs a permission or permission-mapping Attribute value",
+        "Concurrent transactional or locking RPCs to the same Flow run that share a request ID",
+        "carry identical payloads run the Worker handler once while their shared in-flight task is active",
+        "Identical request IDs in different Flow runs do not share a task.",
+        "as the Go Server already does for WaitFor and Execute",
+        "GetFlowState reports a skipped Timer as SKIPPED",
     )),
+    ("core/step-options.md", (
+        "On the Go Server, a WaitFor or Execute retry reuses the state snapshot loaded for that call's first attempt.",
+        "From server-zd v0.1.10, a WaitFor, Execute, or Flow timeout handler retry does the same.",
+        "On the Go Server, WaitFor and Execute retries reuse that snapshot and keep its Attribute locks.",
+        "From server-zd v0.1.10, every WaitFor, Execute, and Flow timeout handler retry does the same",
+        "On both servers, the Attribute locks stay held through retry backoff",
+    )),
+    ("core/read-after-write.md", (
+        "Every SDK generates a fresh request ID for each RPC invocation and exposes no override.",
+        "share a request ID and carry identical payloads run the Worker handler once",
+        "A request that reuses the ID with a different payload fails with INVALID_ARGUMENT.",
+        "This holds only while the shared in-flight task is active.",
+        "the call returns UNAVAILABLE and the outcome is unknown",
+        "another invocation with the same request ID can run the handler again while the first command may still commit",
+    )),
+    ("core/data-handling.md", (
+        "That holder can be a Step method in retry backoff.",
+        "on the Go Server and on server-zd from v0.1.10",
+        "a hard-delete Attribute needs v0.1.10 or later",
+    )),
+    ("core/bundle-baselines.md", ("The server-zd guidance covers v0.1.3 through v0.1.10.",)),
     ("go/go.md", ("From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity",)),
     ("java/java.md", ("From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
     ("python/python.md", ("From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
@@ -1327,6 +1465,8 @@ def main() -> None:
     check_server_zd_statements(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, SERVER_ZD_LATEST_STATEMENTS)
     for statement_path, statement_needles in RELEASE_1_24_STATEMENTS:
         require_tagged_text(arguments.dex_root, server_baseline, statement_path, *statement_needles)
+    require_tagged_text(arguments.dex_root, server_baseline, *RETRY_SNAPSHOT_SERVER_STATEMENT)
+    check_go_server_retry_locks(arguments.dex_root, server_baseline)
     check_server_zd_search_tls(arguments.dex_root, SERVER_ZD_RELEASE, SDK_REFERENCES)
     check_go_server_close_cleanup(arguments.dex_root, server_baseline)
     check_flow_summary_rpc(arguments.dex_root, server_baseline, SERVER_ZD_RELEASE)

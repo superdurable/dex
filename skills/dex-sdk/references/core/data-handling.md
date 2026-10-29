@@ -73,6 +73,7 @@ Check these constraints before choosing it:
 - WaitForAttributeMatch rejects a hard-delete Attribute, and Action conditions cannot use one. When a caller needs the value, read it through an RPC.
 - It requires Dex Server v1.11.0 or later with Blob Store enabled, and SDK v1.11.0 or later. Blob Store is enabled by default. With `blobStore.enabled: false`, the Server rejects hard-delete writes.
 - SDKs fail closed against an older Server. A Worker fails the Step, RPC, or timeout-handler result that writes a hard-delete Attribute or starts a SubFlow with one. A Client fails a StartFlow that carries a hard-delete initial value.
+- On server-zd, a SubFlow whose initial Attributes include a hard-delete Attribute needs v0.1.10 or later. Earlier releases could stop the node on that start.
 - Build StartFlow and SubFlow initial values from the same definition that the target Flow registers. A value built from a definition with a different hard-delete setting is rejected.
 
 Each Flow keeps one stored value per Attribute key and overwrites it in place. Unlike regular Attribute writes, this value does not wait for the invocation's commit:
@@ -125,6 +126,8 @@ For keyed lookup, use a fixed partition count and a stable cross-language hash. 
 Inside a handler, map size and instance-key enumeration include buffered writes and deletes. They do not provide server-side pagination. An unbounded map can therefore avoid blob rewrite amplification while still becoming expensive to enumerate, transfer, and decode.
 
 AttributeMap locks are scoped to one instance. Lock the exact instance when parallel Steps or RPCs perform a read-modify-write on the same value; unrelated instances can remain concurrent.
+
+An RPC lock-conflict error means another holder owns the lock now. That holder can be a Step method in retry backoff. Retries keep their locks until the method call ends on the Go Server and on server-zd from v0.1.10. Retry the RPC with bounded backoff; see [retry snapshots and locks](step-options.md#understand-the-shared-attempt-budget).
 
 #### Whole-map coordination
 

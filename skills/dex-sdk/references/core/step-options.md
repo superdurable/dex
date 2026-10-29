@@ -16,6 +16,10 @@ Fallback starts a regular execution, but the method's durability remains **ASYNC
 
 The local phase and fallback regular attempts are one logical method execution. They share maximum attempts, elapsed retry duration, and 1-based attempt numbers. Fallback starts immediately. Later regular retries continue the existing attempt and backoff sequence.
 
+On the Go Server, a WaitFor or Execute retry reuses the state snapshot loaded for that call's first attempt. From server-zd v0.1.10, a WaitFor, Execute, or Flow timeout handler retry does the same. A retry does not see Attribute writes or Channel changes made after that load. Do not retry a Step to wait for an RPC or another Step to fix state. Have the writer publish a Channel message and wait on it in the next Step's WaitFor, or fail to a recovery route.
+
+On the Go Server, WaitFor and Execute retries reuse that snapshot and keep its Attribute locks. From server-zd v0.1.10, every WaitFor, Execute, and Flow timeout handler retry does the same, including its Attributes, Channel messages, and selections. On both servers, the Attribute locks stay held through retry backoff and are released once when the method call ends. While a Step backs off, a writing RPC that needs one of those locks gets the usual lock-conflict error. A long backoff on a locking method therefore blocks conflicting RPCs for that whole time. Keep lock scope narrow and the retry budget bounded. Earlier server-zd releases reloaded state and reacquired locks on every attempt.
+
 The local phase currently ignores method timeout and heartbeat timeout. A method timeout still bounds each regular attempt. When an external call needs a strict deadline during both phases, create a child context or use the installed SDK's cancellation mechanism around that call. Keep external mutations idempotent because an ASYNC result can replay after failure.
 
 ## Configure the complete method policy

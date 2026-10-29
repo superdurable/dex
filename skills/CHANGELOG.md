@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.55.0 - 2026-10-28
+
+- Document server-zd v0.1.9 and v0.1.10, which carry the server-zd fixes that 0.54.0 left undocumented. The SDK, Server, and CLI baselines stay at v1.25.0; the server-zd guidance now covers v0.1.3 through v0.1.10. Synchronize the bundle and plugin manifests at 0.55.0.
+- Explain in StepOptions that a WaitFor or Execute retry on the Go Server, and a WaitFor, Execute, or Flow timeout handler retry on server-zd from v0.1.10, reuses its first attempt's state snapshot, so a retry cannot wait for another writer. Both servers keep a method's Attribute locks through retry backoff: the Go Server for WaitFor and Execute, and server-zd from v0.1.10 also for Flow timeout handlers. A conflicting writing RPC gets a lock-conflict error meanwhile.
+- Document RPC request IDs: every SDK generates a fresh request ID per invocation, so an SDK retry may run the handler again. From server-zd v0.1.10, concurrent transactional or locking RPCs to the same Flow run sharing a request ID and an identical payload run the handler once while their shared in-flight task is active, a different payload fails with INVALID_ARGUMENT, the RPC timeout bounds only the Worker handler, and UNAVAILABLE after the commit budget means an unknown outcome and releases the shared task, so another invocation can run the handler while the first command may still commit.
+- Document server-zd v0.1.10 time travel FAILED_PRECONDITION when a required permission or permission-mapping Attribute value was collected, SubFlow hard-delete initial Attributes, SKIPPED Timer status in GetFlowState, and structured dispatch failure reasons.
+- Advance the latest server-zd release checked by `check-upstream-baselines.py` to server-zd/v0.1.10, add tagged-source statements for each new claim, pin the Go Server snapshot-reuse documentation at server/v1.25.0, check that its WaitFor and Execute load Attribute locks before the method call and unlock only after it returns, and add mutation tests for the v0.1.10 statements and for each lock-ordering step.
+
 ## 0.54.0 - 2026-10-28
 
 - Advance all five SDK baselines, the Server baseline, and the CLI baseline to their published v1.25.0 tags; refresh pinned source links. Synchronize the bundle and plugin manifests at 0.54.0.
