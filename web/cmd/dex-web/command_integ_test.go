@@ -192,6 +192,31 @@ func TestStandaloneBridgeWithTLSAndRotatingBearerToken(t *testing.T) {
 	}
 }
 
+func TestStandaloneCommandDeprecatedRoutingOptions(t *testing.T) {
+	for _, option := range []string{"headless", "pull"} {
+		for _, value := range []string{"true", "false"} {
+			t.Run(option+"/"+value, func(t *testing.T) {
+				flagName := "--start-flow-worker-target-" + option
+				var diagnostic bytes.Buffer
+				if err := runDexWeb(context.Background(), []string{flagName + "=" + value, "--version"}, io.Discard, &diagnostic); err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(diagnostic.String(), "deprecated and have no effect") {
+					t.Fatalf("missing flag warning: %s", &diagnostic)
+				}
+				t.Setenv("DEX_WEB_START_FLOW_WORKER_TARGET_"+strings.ToUpper(option), value)
+				diagnostic.Reset()
+				if err := runDexWeb(context.Background(), []string{"--version"}, io.Discard, &diagnostic); err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(diagnostic.String(), "deprecated and have no effect") {
+					t.Fatalf("missing environment warning: %s", &diagnostic)
+				}
+			})
+		}
+	}
+}
+
 func TestStandaloneCommandEnvironmentFlagsAndShutdown(t *testing.T) {
 	t.Setenv("DEX_WEB_PORT", "tcp://10.0.0.1:8802")
 	t.Setenv("DEX_WEB_SERVICE_HOST", "10.0.0.1")
@@ -206,7 +231,7 @@ func TestStandaloneCommandEnvironmentFlagsAndShutdown(t *testing.T) {
 	t.Setenv("DEX_WEB_FLOW_RENDERING_DIRECTORY", "")
 	t.Setenv("DEX_WEB_START_FLOW_WORKER_TARGET_PULL", "true")
 	cfg, err := parseCommandConfig([]string{"--port", "19003"}, io.Discard)
-	if err != nil || cfg.web.Port != 19003 || !cfg.web.IsStartFlowWorkerTargetPull {
+	if err != nil || cfg.web.Port != 19003 {
 		t.Fatalf("config: %+v, %v", cfg, err)
 	}
 	for _, arguments := range [][]string{{"--port", "0"}, {"--tls-ca-file", "ca.pem"}, {"unexpected"}} {

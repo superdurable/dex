@@ -1088,91 +1088,6 @@
   color: var(--p-ink-0);
 }
 
-.sfd-target-mode {
-  display: flex;
-  gap: 16px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.sfd-target-mode legend {
-  margin-bottom: 8px;
-  color: var(--p-ink-2);
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.sfd-target-mode label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sfd-worker-control {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.sfd-worker-control .button {
-  min-height: 32px;
-  padding: 6px 10px;
-  border-color: var(--p-line);
-  border-radius: 6px;
-  background: var(--p-surface-2);
-  color: var(--p-ink-1);
-  white-space: nowrap;
-}
-
-.sfd-worker-control .button:hover:enabled {
-  border-color: var(--p-ink-3);
-  background: var(--p-surface-3);
-  color: var(--p-ink-0);
-}
-
-.sfd-worker-health {
-  display: grid;
-  gap: 5px;
-  padding: 10px 12px;
-  border: 1px solid var(--p-line);
-  border-radius: 7px;
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.sfd-worker-health[data-status='healthy'] {
-  border-color: var(--p-run-done);
-  color: var(--p-run-done);
-  background: var(--color-done-subtle);
-}
-
-.sfd-worker-health[data-status='unhealthy'] {
-  border-color: var(--color-attention-rule);
-  color: var(--color-attention-ink);
-  background: var(--color-attention-subtle);
-}
-
-.sfd-worker-health > span {
-  color: var(--p-ink-1);
-  overflow-wrap: anywhere;
-}
-
-.sfd-bypass {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 3px;
-  color: var(--p-ink-0);
-  font-weight: 600;
-}
-
-.sfd-bypass input {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-}
-
 .sfd-input,
 .sfd-group {
   display: grid;
@@ -1229,7 +1144,6 @@
 }
 
 @media (max-width: 640px) {
-  .sfd-worker-control,
   .sfd-map {
     grid-template-columns: 1fr;
   }

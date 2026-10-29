@@ -177,11 +177,10 @@ type V2ActionInputField struct {
 }
 
 type v2Handler struct {
-	client                      dexpb.FlowServiceClient
-	loadDefinitions             V2DefinitionLoader
-	isStartFlowWorkerTargetPull bool
-	checkStartFlowWorkerHealth  V2WorkerHealthChecker
-	serverEngine                *ServerEngineResolver
+	client                     dexpb.FlowServiceClient
+	loadDefinitions            V2DefinitionLoader
+	checkStartFlowWorkerHealth V2WorkerHealthChecker
+	serverEngine               *ServerEngineResolver
 }
 
 // V2DefinitionSnapshot is one request's immutable catalog revision.
@@ -198,10 +197,7 @@ type V2WorkerHealthChecker func(context.Context, string) error
 
 // V2HandlerConfig controls server-side v2 behavior.
 type V2HandlerConfig struct {
-	// Deprecated: IsStartFlowWorkerTargetHeadless has no effect because Dex Web starts Flows only on pull Workers.
-	IsStartFlowWorkerTargetHeadless bool
-	IsStartFlowWorkerTargetPull     bool
-	WorkerHealthChecker             V2WorkerHealthChecker
+	WorkerHealthChecker V2WorkerHealthChecker
 }
 
 type v2CatalogEntry struct {
@@ -297,9 +293,8 @@ func RegisterDynamicV2Handlers(
 	}
 	handler := &v2Handler{
 		client: client, loadDefinitions: loader,
-		isStartFlowWorkerTargetPull: config.IsStartFlowWorkerTargetPull,
-		checkStartFlowWorkerHealth:  config.WorkerHealthChecker,
-		serverEngine:                NewServerEngineResolver(client),
+		checkStartFlowWorkerHealth: config.WorkerHealthChecker,
+		serverEngine:               NewServerEngineResolver(client),
 	}
 	if handler.checkStartFlowWorkerHealth == nil {
 		handler.checkStartFlowWorkerHealth = checkV2WorkerPortHealth
@@ -331,11 +326,10 @@ func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request)
 	}
 	setDefinitionETag(response, snapshot.Revision)
 	writeJSON(response, http.StatusOK, map[string]interface{}{
-		"enabled":                   len(entries) > 0,
-		"flows":                     entries,
-		"definitionRevision":        snapshot.Revision,
-		"startFlowWorkerTargetPull": h.isStartFlowWorkerTargetPull,
-		"serverEngine":              serverEngineName(h.serverEngine.ResolveServerEngine(request.Context())),
+		"enabled":            len(entries) > 0,
+		"flows":              entries,
+		"definitionRevision": snapshot.Revision,
+		"serverEngine":       serverEngineName(h.serverEngine.ResolveServerEngine(request.Context())),
 	})
 }
 

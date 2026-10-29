@@ -59,7 +59,7 @@ such as `DEX_WEB_PORT` and `DEX_WEB_SERVICE_HOST`.
 | `--flow-service-address` | `DEX_WEB_FLOW_SERVICE_ADDRESS` | `127.0.0.1:8801` |
 | `--flow-rendering-dir` | `DEX_WEB_FLOW_RENDERING_DIRECTORY` | empty |
 | `--start-flow-worker-target-headless` | `DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS` | `false`; deprecated, no effect |
-| `--start-flow-worker-target-pull` | `DEX_WEB_START_FLOW_WORKER_TARGET_PULL` | `false` |
+| `--start-flow-worker-target-pull` | `DEX_WEB_START_FLOW_WORKER_TARGET_PULL` | `false`; deprecated, no effect |
 | `--tls` | `DEX_WEB_TLS` | `false` |
 | `--tls-ca-file` | `DEX_WEB_TLS_CA_FILE` | empty; system trust roots |
 | `--tls-server-name` | `DEX_WEB_TLS_SERVER_NAME` | empty; verify the target host |
@@ -193,16 +193,15 @@ fields. The Server chooses the start Step type and generates the request ID. It 
 Execute, while `wait_for+execute` retains WaitFor. Missing, repeated, or unknown
 Start phases are invalid definitions; the browser cannot supply Step options.
 
-`--start-flow-worker-target-headless` and
-`DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS` are deprecated and have no effect.
-Dex Web still accepts them so existing deployments keep starting.
-
-`--start-flow-worker-target-pull` and its environment variable
-`DEX_WEB_START_FLOW_WORKER_TARGET_PULL` default to false.
-`GET /api/v2/catalog` reports this default so the dialog opens with **Pull Worker**
-selected when it is true. The catalog also reports `serverEngine`:
-`zd` or `unspecified` when the FlowService does not
-answer `GetServerInfo`.
+The legacy `--start-flow-worker-target-headless` and
+`--start-flow-worker-target-pull` flags and their corresponding
+`DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS` and
+`DEX_WEB_START_FLOW_WORKER_TARGET_PULL` environment variables are deprecated
+no-ops. Dex Web accepts them and prints a startup warning whenever either is
+provided, including explicit false values. Start Flow always uses pull Workers;
+the dialog has no Worker target controls and the catalog has no routing default.
+The catalog reports `serverEngine`: `zd` or `unspecified` when the FlowService
+does not answer `GetServerInfo`.
 
 The v2 Work Queue is available at `/v2/work-queue`. Its **Working as** control
 selects one Action permission and filters on the Server-maintained
@@ -558,7 +557,6 @@ Environment variables override YAML:
 
 ```text
 DEX_WEB_FLOW_RENDERING_DIRECTORY
-DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS
 ```
 
 `GET /api/flow-definitions` and `GET /api/v2/catalog` return the active revision
@@ -595,10 +593,8 @@ dex-web --bind-address 0.0.0.0 --port 8802 \
 ```
 
 Dex Web reads `GetServerInfo` and reports the engine as `serverEngine` in
-`GET /api/v2/catalog`. On server-zd, which dispatches only to pull Workers, the
-Start dialog opens with **Pull Worker** selected and hides the address option.
-`POST /api/v2/start` also selects a pull target there when a request omits both
-target fields. `--start-flow-worker-target-pull` keeps its meaning on every engine.
+`GET /api/v2/catalog`. Start Flow always uses pull Workers. The dialog requires
+only the Flow ID and Start input; requests can omit Worker target fields.
 
 On server-zd, Time Travel keeps the run ID and creates a new run attempt. The
 Run page reloads the whole history when the run attempt changes, because
