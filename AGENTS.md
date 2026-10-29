@@ -1,6 +1,6 @@
 # Dex — Codex Instructions
 
-Durable workflow framework: Go server (`server/`), OpenAPI IDL (`protos/`), and
+Durable workflow framework: Rust server (`server-zd/`), OpenAPI IDL (`protos/`), and
 SDKs/samples for Go, Java, and Python. See [README.md](README.md) for the module
 map.
 
@@ -15,7 +15,7 @@ only when a section genuinely doesn't apply.
 
 ### Tests
 
-- Default to **integration tests** (`server/integ/`) and SDK integ suites.
+- Default to **integration tests** (`server-zd/integ/`) and SDK integ suites.
 - Do NOT add unit tests unless explicitly asked or the edge case is unreachable
   through integration/E2E paths.
 - List specific test scenarios — not just "add tests".
@@ -169,17 +169,6 @@ need it.
 The docs site shell (navbar and footer in `docs/docusaurus.config.ts` and their
 zh-Hans translations) may link to company product pages. Content pages must
 still not describe downstream products.
-
-### Temporal Skill Routing
-
-- In this repository, use the `temporal-developer` skill only when changing or
-  diagnosing `server/service/interpreter/**` requires Temporal runtime or SDK
-  semantics.
-- Do not use it for other modules, SDKs, examples, docs, routine integration
-  tests, or merely because Temporal, workflow, signal, query, worker,
-  heartbeat, or `temporalIntegTests` is mentioned.
-- An explicit user request to use `temporal-developer` overrides this
-  restriction.
 
 ### Dex SDK Skill Routing
 
@@ -357,10 +346,6 @@ These rules do not apply to comments that existed before the current change.
 Never edit an existing comment merely to simplify, shorten, rephrase, fix
 grammar, or satisfy the word limit.
 
-The new-comment simplification and 20-word rules also do not apply to
-`server/config/`. Configuration comments should favor complete operational
-semantics.
-
 Comments documenting function or method return values are also exempt from the
 20-word limit and should describe complete return semantics.
 
@@ -421,8 +406,7 @@ Keep a struct's methods in one primary file. Do not split its method set across 
 ### `ptr.Any(...)` for Pointer Literals (Go)
 
 Use `ptr.Any(value)` instead of a throwaway local variable taken by address.
-Import: `github.com/superdurable/dex/service/common/ptr` (server) or
-`github.com/superdurable/dex/sdk-go/dex/ptr` (SDK). Use explicit types for
+Import: `github.com/superdurable/dex/sdk-go/dex/ptr`. Use explicit types for
 numerics: `ptr.Any(int64(0))`, `ptr.Any(int32(1))`.
 
 Do not use `ptr.Any` when the pointer must alias an existing named variable that
@@ -447,10 +431,11 @@ overly broad globs. Delete stray uncommitted binaries.
 After code changes, run tests via the Makefile — not bare `go test` for full
 suites:
 
-- `make -C server unitTests`
-- `make -C server integTests` / `temporalIntegTests` / `cadenceIntegTests`
+- `make -C server-zd/integ compile`
+- `make -C server-zd/integ zdIntegTests`
+- `make -C server-zd/integ zdAttributeSyncIntegTests` for PostgreSQL integration.
 
-Always tee output: `make -C server unitTests 2>&1 | tee /tmp/test-<scope>.log`
+Always tee output: `make -C server-zd/integ compile 2>&1 | tee /tmp/test-<scope>.log`
 
 Fix all failures before moving on. If stuck after multiple attempts, pause and
 ask the user with: (1) the failure, (2) what you tried, (3) where you're blocked.
@@ -458,17 +443,13 @@ ask the user with: (1) the failure, (2) what you tried, (3) where you're blocked
 ### Do Not Casually Skip Failing Tests
 
 Never skip/gate/early-return around a failing assertion just to green the suite
-(e.g. `if backend == Cadence { return }` or `t.Skip` for a known flake) unless
-the user explicitly asks. On failure: add targeted logs, dump Temporal/Cadence
-workflow history (plus describe/query output), find the root cause, then fix
+(e.g. `t.Skip` for a known flake) unless
+the user explicitly asks. On failure: add targeted logs, inspect server-zd
+logs (plus relevant API output), find the root cause, then fix
 product code or the expectation. Backend-specific skips need a proven platform
 limit and user agreement.
 
 ## Go-Specific Rules
-
-### Strongly Typed Log Tags
-
-Never use or reintroduce `tag.Value`. Add a semantic, strongly typed constructor in `server/service/common/log/tag` for each structured field.
 
 ### Config Field Comments
 
@@ -498,16 +479,6 @@ Required dependencies must panic or `log.Fatal` if nil — fail fast at startup.
 Do not add `if x == nil { return nil }` guards that silently swallow bugs. Only
 add nil checks when nil is a valid, expected value.
 
-### Server Error Handling (`server/`)
-
-API failures that reach Gin handlers should use `errors.ErrorAndStatus` from
-`github.com/superdurable/dex/service/common/errors` with an
-`dexpb.ErrorSubStatus` and HTTP status code.
-
-- Prefer `NewErrorAndStatus` / `NewErrorAndStatusWithWorkerError`.
-- Bad client/SDK input → 4xx + appropriate `ErrorSubStatus`.
-- Infrastructure / unexpected failures → 5xx.
-
 ### Never Silently Ignore Errors
 
 Every returned error must be handled — returned, logged, or explicitly acted on.
@@ -521,8 +492,8 @@ Trusted vs untrusted decides fail-fast vs graceful:
   violated invariant is a bug — fail fast. Use a `Must*` helper rather than
   silently ignoring. Better still, thread the typed value end-to-end.
 - **Untrusted** (HTTP request fields, SDK/worker payloads, anything a client can
-  set): must handle gracefully — validate and return an input-style
-  `ErrorAndStatus`; **never** `Must*`/panic.
+  set): must handle gracefully — validate and return an input
+  error; **never** `Must*`/panic.
 
 ### Naming — No 1-2 Letter Variable Names
 
@@ -547,19 +518,6 @@ as `ValidateAndSortSelections`, `TrimWhitespace`, or `CanonicalizeURL`.
 When a concept already has a repository or public API term, reuse that exact
 term in identifiers. Do not invent a synonym for an existing term such as
 instance, name, message, or definition.
-
-### Interpreter Components
-
-Within `server/service/interpreter/`, every component type must be exported.
-Helper and value types that are not components may remain unexported.
-Constructors and methods called by another component must also be exported,
-even when both components share the `interpreter` package. Component-internal
-methods remain unexported.
-
-Components may use `UnifiedContext` during construction but must not retain it.
-Pass the operation-scoped context explicitly to methods. Handle every `Await`
-error immediately. After a successful `Await`, write synchronously without a
-redundant context check; otherwise check the context before mutating state.
 
 ## Go SDK Conventions (`sdk-go/`)
 
@@ -638,7 +596,7 @@ inside the system under test itself.
 ### Unique IDs Per Test
 
 Generate unique workflow IDs (and namespaces when applicable) per test when
-sharing a Temporal/Cadence stack. Never rely on leftover state from another test.
+sharing a server-zd instance. Never rely on leftover state from another test.
 
 ## Rust Code Conventions
 
@@ -702,7 +660,7 @@ file or directory meets its limit; stale entries fail the check.
 - Local tests use the in-process s3mock or the in-memory object store, never
   MinIO.
 
-### server-zd Rust conventions ported from the Server Go rules
+### server-zd Rust conventions ported from the Go rules
 
 These rules restate the applicable Server Go rules for `server-zd/**`. The
 Rust table (R1–R19) still applies.

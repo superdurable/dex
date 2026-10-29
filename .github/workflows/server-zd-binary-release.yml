@@ -12,6 +12,9 @@ on:
   pull_request:
     paths:
       - .github/workflows/server-zd-binary-release.yml
+      - server-zd/LICENSE.md
+      - server-zd/LEGACY_NOTICES.md
+      - server-zd/LICENSES/**
   workflow_dispatch:
     inputs:
       dry_run:
@@ -312,8 +315,8 @@ jobs:
           package_dir="${RUNNER_TEMP}/package"
           mkdir -p "${package_dir}" "${RUNNER_TEMP}/dist"
           cp server-zd/target/release/dex-server-zd "${package_dir}/"
-          cp server/LICENSE.md server/LEGACY_NOTICES.md "${package_dir}/"
-          cp -R server/LICENSES "${package_dir}/"
+          cp server-zd/LICENSE.md server-zd/LEGACY_NOTICES.md "${package_dir}/"
+          cp -R server-zd/LICENSES "${package_dir}/"
           if [[ "${TARGET_OS}" == linux ]]; then
             owner_flags=(--owner=0 --group=0 --numeric-owner)
           else

@@ -28,10 +28,6 @@ flag_management:
 
 component_management:
   individual_components:
-    - component_id: server
-      name: Server
-      paths:
-        - server/**
     - component_id: sdk-go
       name: Go SDK
       paths:
@@ -54,7 +50,6 @@ component_management:
         - sdk-typescript/**
 
 ignore:
-  - "server/gen/**/*"
   - "sdk-go/gen/**/*"
   - "sdk-java/src/main/java/io/superdurable/gen/**/*"
   - "sdk-python/dex/dexpb/**/*"

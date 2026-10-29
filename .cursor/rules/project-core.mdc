@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Dex Project Rules
 
-Dex is a durable workflow framework: Go server (`server/`), OpenAPI IDL
+Dex is a durable workflow framework: Rust server (`server-zd/`), OpenAPI IDL
 (`protos/`), and SDKs/samples for Go, Java, and Python. See `README.md` for the
 module map.
 
@@ -59,17 +59,6 @@ need it.
 The docs site shell (navbar and footer in `docs/docusaurus.config.ts` and their
 zh-Hans translations) may link to company product pages. Content pages must
 still not describe downstream products.
-
-## Temporal Skill Routing
-
-- In this repository, use the `temporal-developer` skill only when changing or
-  diagnosing `server/service/interpreter/**` requires Temporal runtime or SDK
-  semantics.
-- Do not use it for other modules, SDKs, examples, docs, routine integration
-  tests, or merely because Temporal, workflow, signal, query, worker,
-  heartbeat, or `temporalIntegTests` is mentioned.
-- An explicit user request to use `temporal-developer` overrides this
-  restriction.
 
 ## Dex SDK Skill Routing
 
@@ -144,8 +133,6 @@ backend and its configuration.
 - Preserve existing comments verbatim during refactors and move them with their
   code. If one becomes stale, update only outdated references while retaining
   every original detail and meaning.
-- The new-comment rules do not apply to `server/config/`; configuration comments
-  should favor complete operational semantics.
 - Comments documenting function or method return values are exempt from the
   20-word limit and should describe complete return semantics.
 - Public SDK API documentation is exempt from the short-comment and

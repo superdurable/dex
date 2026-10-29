@@ -42,7 +42,7 @@ jobs:
             rust-rules-ci.yml
             sdk-rust-ci.yml
             sdk-typescript-ci.yml
-            server-ci.yml
+            server-zd-integ-ci.yml
             web-ci.yml
           )
 

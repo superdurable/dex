@@ -3,7 +3,6 @@
 cli/dexcli
 bin/dexcli-tls-darwin-arm64
 cli/internal/command/testfixtures/registered-type-names/mainpackage/mainpackage
-server/dex-server
 web/node_modules/
 web/assets/dist/
 web/large-step-graph
@@ -39,8 +38,5 @@ sdk-java/publication-smoke-test/target/
 sdk-typescript/coverage/
 sdk-python/coverage/
 sdk-go/coverage/
-server/coverage/
-server/coverage-raw/
-server/all-in-one/bin/
 script/licenseheaders/copyright/copyright
 web/dex-web

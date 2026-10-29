@@ -1,7 +1,7 @@
 name: Server Integration against server-zd
 
 # Runs the standalone server-zd integration module against dex-server-zd.
-# It does not gate merges yet; see server-zd/integ/README.md for the expected results.
+# Check Gate waits for this suite; see server-zd/integ/README.md for the expected results.
 on:
   push:
     branches: [main]

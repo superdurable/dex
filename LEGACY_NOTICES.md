@@ -58,7 +58,7 @@ Kernel compiled to JavaScript.
   the npm package https://www.npmjs.com/package/elkjs/v/0.11.1.
 
 elkjs is distributed unmodified, as part of the Dex Web bundle that `dexcli`,
-the Dex Server image and the documentation site include. The Sustainable Use
+the Dex Web image and the documentation site include. The Sustainable Use
 License 1.0 does not apply to it.
 
 ## IWF Java SDK integration fixtures

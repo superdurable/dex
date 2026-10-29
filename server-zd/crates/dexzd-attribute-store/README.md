@@ -8,7 +8,7 @@ Writes synchronized Attribute batches into Postgres tables with the Go Server's 
 
 `AttributeStore::connect_and_validate` connects, pings, and validates the
 store table, every AttributeMap table, and the fencing table, exactly like the
-Go Server's Postgres Attribute Store (`server/service/common/attributestore`).
+archived Go Server's Postgres Attribute Store contract.
 Any failure fails construction. It never creates or alters a table.
 
 `write_batch` writes one batch from one Flow in one transaction: the store row

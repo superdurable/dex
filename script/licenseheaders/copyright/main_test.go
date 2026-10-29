@@ -29,8 +29,8 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	legacyContent := "// Copyright (c) 2020 Legacy Holder\n" +
 		"//\n" +
 		"// Permission is hereby granted under the legacy MIT terms.\n\n" +
-		"package server\n\nfunc Legacy() int { return 1 }\n"
-	writeTestFile(t, repositoryRoot, "server/legacy.go", legacyContent)
+		"package cli\n\nfunc Legacy() int { return 1 }\n"
+	writeTestFile(t, repositoryRoot, "cli/legacy.go", legacyContent)
 	runTestGit(t, repositoryRoot, "add", ".")
 	runTestGit(t, repositoryRoot, "commit", "-q", "-m", "cutoff")
 	cutoff := strings.TrimSpace(runTestGit(t, repositoryRoot, "rev-parse", "HEAD"))
@@ -38,7 +38,7 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	copyTestTemplates(t, repositoryRoot)
 	writeTestJSON(t, repositoryRoot, "script/licenseheaders/policy.json", policy{
 		Cutoff:                        cutoff,
-		IncludedPrefixes:              []string{"server", "sdk-rust", "sdk-python", "sdk-typescript"},
+		IncludedPrefixes:              []string{"cli", "sdk-rust", "sdk-python", "sdk-typescript"},
 		ReviewedMixedOverridePrefixes: []string{"sdk-rust/src"},
 		ForcedNewPrefixes:             []string{"sdk-rust", "sdk-typescript"},
 		ThirdPartyMixedPrefixes:       []string{"sdk-python/tests/iwfcompat", "sdk-typescript/test/iwfcompat"},
@@ -49,19 +49,19 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	writeTestJSON(t, repositoryRoot, "script/licenseheaders/legacy-manifest.json", manifest{
 		Cutoff: cutoff,
 		Entries: map[string]manifestEntry{
-			"server/legacy.go": {
+			"cli/legacy.go": {
 				Classification: "legacy-only",
-				BaselineHash:   hashBytes([]byte("package server\n\nfunc Legacy() int { return 1 }\n")),
+				BaselineHash:   hashBytes([]byte("package cli\n\nfunc Legacy() int { return 1 }\n")),
 			},
 		},
 	})
-	writeTestFile(t, repositoryRoot, "server/legacy_copy.go", legacyContent)
-	newFragmentSource := "package server\n\nfunc Legacy() int { return 1 }\n\n" +
+	writeTestFile(t, repositoryRoot, "cli/legacy_copy.go", legacyContent)
+	newFragmentSource := "package cli\n\nfunc Legacy() int { return 1 }\n\n" +
 		strings.Repeat("func New() int { return 2 }\n", 20)
-	writeTestFile(t, repositoryRoot, "server/new_with_legacy_fragment.go", newFragmentSource)
-	runTestGit(t, repositoryRoot, "add", "server/legacy_copy.go", "server/new_with_legacy_fragment.go")
+	writeTestFile(t, repositoryRoot, "cli/new_with_legacy_fragment.go", newFragmentSource)
+	runTestGit(t, repositoryRoot, "add", "cli/legacy_copy.go", "cli/new_with_legacy_fragment.go")
 	runTestGit(t, repositoryRoot, "commit", "-q", "-m", "add post-cutoff files")
-	writeTestFile(t, repositoryRoot, "server/legacy.go", strings.Replace(legacyContent, "return 1", "return 2", 1))
+	writeTestFile(t, repositoryRoot, "cli/legacy.go", strings.Replace(legacyContent, "return 1", "return 2", 1))
 	writeTestFile(t, repositoryRoot, "sdk-rust/src/copied.go", legacyContent)
 	writeTestFile(t, repositoryRoot, "sdk-rust/src/lib.rs", "pub fn sdk() {}\n")
 	writeTestFile(t, repositoryRoot, "sdk-python/tests/iwfcompat/basic_flow.py", "class BasicFlow:\n    pass\n")
@@ -73,15 +73,15 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, task.run())
 
-	mixedContent, err := os.ReadFile(filepath.Join(repositoryRoot, "server/legacy.go"))
+	mixedContent, err := os.ReadFile(filepath.Join(repositoryRoot, "cli/legacy.go"))
 	require.NoError(t, err)
 	require.Contains(t, string(mixedContent), "Copyright (c) 2020 Legacy Holder")
 	require.Contains(t, string(mixedContent), "Modifications Copyright (c) 2026 Super Durable, Inc.")
-	copiedContent, err := os.ReadFile(filepath.Join(repositoryRoot, "server/legacy_copy.go"))
+	copiedContent, err := os.ReadFile(filepath.Join(repositoryRoot, "cli/legacy_copy.go"))
 	require.NoError(t, err)
 	require.Contains(t, string(copiedContent), "Copyright (c) 2020 Legacy Holder")
 	require.Contains(t, string(copiedContent), "Modifications Copyright (c) 2026 Super Durable, Inc.")
-	fragmentContent, err := os.ReadFile(filepath.Join(repositoryRoot, "server/new_with_legacy_fragment.go"))
+	fragmentContent, err := os.ReadFile(filepath.Join(repositoryRoot, "cli/new_with_legacy_fragment.go"))
 	require.NoError(t, err)
 	require.Contains(t, string(fragmentContent), "SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0")
 	require.NotContains(t, string(fragmentContent), "Modifications after the Legacy Cutoff")

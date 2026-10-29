@@ -38,10 +38,10 @@ class MigrationIntegrationTest(unittest.TestCase):
             classifications = {
                 entry["path"]: entry["classification"] for entry in report["entries"]
             }
-            self.assertEqual(classifications["server/legacy.go"], "mixed")
-            self.assertEqual(classifications["server/created.go"], "new")
-            self.assertEqual(classifications["server/renamed.go"], "legacy-only")
-            self.assertEqual(classifications["server/copied.go"], "mixed")
+            self.assertEqual(classifications["cli/legacy.go"], "mixed")
+            self.assertEqual(classifications["cli/created.go"], "new")
+            self.assertEqual(classifications["cli/renamed.go"], "legacy-only")
+            self.assertEqual(classifications["cli/copied.go"], "mixed")
             self.assertEqual(classifications["sdk-rust/src/lib.rs"], "new")
             self.assertEqual(
                 classifications["sdk-python/tests/iwfcompat/basic_flow.py"],
@@ -58,7 +58,7 @@ class MigrationIntegrationTest(unittest.TestCase):
 
             apply_result = self.run_migration(root, "--apply")
             self.assertEqual(apply_result.returncode, 0, apply_result.stderr)
-            mixed = (root / "server/legacy.go").read_text()
+            mixed = (root / "cli/legacy.go").read_text()
             self.assertIn("Copyright (c) 2020 Legacy Holder", mixed)
             self.assertIn("Modifications Copyright (c) 2026 Super Durable, Inc.", mixed)
             third_party_mixed = (
@@ -84,7 +84,7 @@ class MigrationIntegrationTest(unittest.TestCase):
             self.assertEqual(second_apply.returncode, 0, second_apply.stderr)
             self.assertEqual(first_hash, self.tree_hash(root))
 
-            dirty_path = root / "server/renamed.go"
+            dirty_path = root / "cli/renamed.go"
             dirty_path.write_text(dirty_path.read_text().replace("return 1", "return 2"))
             dirty_result = self.run_migration(root, "--report")
             self.assertEqual(dirty_result.returncode, 1)
@@ -94,7 +94,7 @@ class MigrationIntegrationTest(unittest.TestCase):
                 for entry in dirty_report["entries"]
                 if entry["classification"] == "manual-review"
             }
-            self.assertEqual(manual_paths, {"server/renamed.go"})
+            self.assertEqual(manual_paths, {"cli/renamed.go"})
 
     def initialize_repository(self, root: Path) -> None:
         self.git(root, "init", "-q")
@@ -118,9 +118,9 @@ class MigrationIntegrationTest(unittest.TestCase):
             "//\n"
             "// Permission is hereby granted under the legacy MIT terms.\n\n"
         )
-        self.write(root, "server/legacy.go", legacy_header + "package server\n\nfunc Legacy() int { return 1 }\n")
-        self.write(root, "server/unchanged.go", legacy_header + "package server\n\nfunc Unchanged() int { return 1 }\n")
-        self.write(root, "server/reviewed.go", legacy_header + "package server\n\nfunc Reviewed() int { return 7 }\n")
+        self.write(root, "cli/legacy.go", legacy_header + "package cli\n\nfunc Legacy() int { return 1 }\n")
+        self.write(root, "cli/unchanged.go", legacy_header + "package cli\n\nfunc Unchanged() int { return 1 }\n")
+        self.write(root, "cli/reviewed.go", legacy_header + "package cli\n\nfunc Reviewed() int { return 7 }\n")
         self.write(root, "docs/legacy.py", "print('legacy docs')\n")
         self.write(root, "examples/go/main.go", legacy_header + "package main\n")
         self.git(root, "add", ".")
@@ -128,7 +128,7 @@ class MigrationIntegrationTest(unittest.TestCase):
         return self.git(root, "rev-parse", "HEAD").strip()
 
     def create_contamination(self, root: Path) -> str:
-        path = root / "server/legacy.go"
+        path = root / "cli/legacy.go"
         synthetic = (
             "// Copyright (c) 2022-2026 Super Durable, Inc.\n"
             "//\n"
@@ -140,18 +140,18 @@ class MigrationIntegrationTest(unittest.TestCase):
         return self.git(root, "rev-parse", "HEAD").strip()
 
     def create_current_tree(self, root: Path) -> None:
-        legacy_path = root / "server/legacy.go"
+        legacy_path = root / "cli/legacy.go"
         legacy_path.write_text(legacy_path.read_text().replace("return 1", "return 3"))
-        self.write(root, "server/created.go", "package server\n\nfunc Created() {}\n")
-        self.git(root, "mv", "server/unchanged.go", "server/renamed.go")
-        shutil.copyfile(root / "server/renamed.go", root / "server/copied.go")
+        self.write(root, "cli/created.go", "package cli\n\nfunc Created() {}\n")
+        self.git(root, "mv", "cli/unchanged.go", "cli/renamed.go")
+        shutil.copyfile(root / "cli/renamed.go", root / "cli/copied.go")
         self.write(root, "sdk-rust/src/lib.rs", "pub fn sdk() {}\n")
         self.write(
             root,
             "sdk-python/tests/iwfcompat/basic_flow.py",
             "class BasicFlow:\n    pass\n",
         )
-        self.write(root, "web/copied.go", (root / "server/reviewed.go").read_text())
+        self.write(root, "web/copied.go", (root / "cli/reviewed.go").read_text())
         self.write(root, "web/server.go", "package web\n")
         self.write(root, "web/app.tsx", "export const App = () => null;\n")
         self.write(root, "web/site.css", "body { color: black; }\n")
@@ -165,7 +165,7 @@ class MigrationIntegrationTest(unittest.TestCase):
             "version": 1,
             "cutoff": cutoff,
             "contamination_commit": contamination,
-            "included_prefixes": ["server", "sdk-python", "sdk-rust", "web", "protos"],
+            "included_prefixes": ["cli", "sdk-python", "sdk-rust", "web", "protos"],
             "forced_new_prefixes": ["sdk-rust", "web", "protos"],
             "third_party_mixed_prefixes": ["sdk-python/tests/iwfcompat"],
             "excluded_prefixes": ["docs", "examples"],
@@ -175,7 +175,7 @@ class MigrationIntegrationTest(unittest.TestCase):
             "reviewed_mixed_paths": ["web/copied.go", "protos/api.proto"],
             "reviewed_mixed_override_prefixes": ["web"],
             "repair_from_head_paths": [],
-            "legacy_licenses": {"server": ["MIT"]},
+            "legacy_licenses": {"cli": ["MIT"]},
         }
         policy_path = root / "script" / "licenseheaders" / "policy.json"
         policy_path.write_text(json.dumps(policy, indent=2) + "\n")

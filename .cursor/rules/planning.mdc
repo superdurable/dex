@@ -11,12 +11,10 @@ Every implementation plan must include all three sections below. Use
 ## Tests
 
 - List specific integration and E2E scenarios and why each is needed.
-- Default to integration tests in `server/integ/` and the relevant SDK integ
+- Default to integration tests in `server-zd/integ/` and the relevant SDK integ
   suites (`sdk-go/integ/`, Java/Python test stacks).
 - Do not propose unit tests unless explicitly requested or the edge case cannot
   be reached through integration/E2E paths.
-- Cluster or multi-backend features should cover Temporal and Cadence when both
-  are affected.
 
 ## Documentation
 

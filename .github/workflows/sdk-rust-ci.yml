@@ -115,7 +115,6 @@ jobs:
           go-version-file: cli/go.mod
           cache-dependency-path: |
             cli/go.sum
-            server/go.sum
             web/go.sum
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov

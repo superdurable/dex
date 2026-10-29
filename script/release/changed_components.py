@@ -29,7 +29,6 @@ class Component:
     tag_prefix: str
     baseline_patterns: tuple[str, ...]
     paths: tuple[str, ...]
-    excluded_paths: tuple[str, ...] = ()
 
 
 SHARED_RUST_PATHS = (
@@ -63,13 +62,6 @@ COMPONENTS = (
         ("sdk-typescript", *SHARED_RUST_PATHS, "sdk-rust/crates/dex-blob-cache-node"),
     ),
     Component(
-        "server",
-        "Server",
-        "server/v",
-        ("server/v*", "server-v*"),
-        ("server", "web", "packages/flow-definition-renderer", "protos"),
-    ),
-    Component(
         "web",
         "Dex Web",
         "web/v",
@@ -77,7 +69,7 @@ COMPONENTS = (
         (
             "web",
             "packages/flow-definition-renderer",
-            "server/gen",
+            "sdk-go",
             "protos",
             ".dockerignore",
             ".github/workflows/docker-image-web-release.yml",
@@ -88,8 +80,7 @@ COMPONENTS = (
         "CLI",
         "cli-v",
         ("cli-v*",),
-        ("cli", "web", "packages/flow-definition-renderer", "server", "protos", "go.work"),
-        ("server/all-in-one",),
+        ("cli", "web", "packages/flow-definition-renderer", "sdk-go", "protos", "go.work"),
     ),
 )
 
@@ -144,10 +135,7 @@ def has_changes(component: Component, baseline: str | None) -> bool:
         result = git("ls-files", "--", *component.paths)
     else:
         result = git("diff", "--name-only", f"{baseline}..HEAD", "--", *component.paths)
-    return any(
-        not any(path == excluded or path.startswith(f"{excluded}/") for excluded in component.excluded_paths)
-        for path in result.stdout.splitlines()
-    )
+    return bool(result.stdout.splitlines())
 
 
 def tag_exists(tag: str) -> bool:

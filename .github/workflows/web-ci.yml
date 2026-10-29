@@ -7,7 +7,6 @@ on:
       - "web/**"
       - "packages/flow-definition-renderer/**"
       - "docs/src/data/flow-definitions/**"
-      - "server/**"
       - "protos/**"
       - "sdk-go/**"
       - ".github/workflows/web-ci.yml"
@@ -16,7 +15,6 @@ on:
       - "web/**"
       - "packages/flow-definition-renderer/**"
       - "docs/src/data/flow-definitions/**"
-      - "server/**"
       - "protos/**"
       - "sdk-go/**"
       - ".github/workflows/web-ci.yml"
@@ -49,7 +47,6 @@ jobs:
           cache-dependency-path: |
             web/go.sum
             sdk-go/go.sum
-            server/cmd/server/go.sum
       - name: Install
         run: npm ci
       - name: Check
@@ -60,11 +57,6 @@ jobs:
         env:
           GOWORK: "off"
         run: make test
-      - name: Dex Server Web integration tests
-        working-directory: server
-        env:
-          GOWORK: "off"
-        run: make serverCommandIntegTests
 
   server-zd-e2e:
     name: Dex Web on server-zd
@@ -84,11 +76,10 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - uses: actions/setup-go@v7
         with:
-          go-version-file: server/cmd/server/go.mod
+          go-version-file: web/go.mod
           cache-dependency-path: |
             web/go.sum
             sdk-go/go.sum
-            server/cmd/server/go.sum
             cli/go.sum
       - name: Build Dex Web assets
         working-directory: web
@@ -108,48 +99,6 @@ jobs:
           echo "DEX_SERVER_ZD_BINARY=$download_dir/dex-server-zd" >> "$GITHUB_ENV"
       - name: Run Dex Web end-to-end tests against server-zd
         run: web/scripts/run-server-zd-e2e.sh
-
-  docker-image:
-    name: Dex Server image
-    needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - name: Build image
-        run: docker build -f server/Dockerfile -t dex-server-image-test .
-      - name: Verify system CA bundle
-        run: docker run --rm --entrypoint test dex-server-image-test -s /etc/ssl/certs/ca-certificates.crt
-      - name: Start Temporal dependencies
-        run: docker compose -p dex-server-image-test -f server/docker-compose/ci-temporal-dependencies.yml up -d
-      - name: Test API mode and standalone Web migration
-        shell: bash
-        run: |
-          set -euo pipefail
-          cleanup() {
-            docker rm -f dex-server-default >/dev/null 2>&1 || true
-            docker compose -p dex-server-image-test -f server/docker-compose/ci-temporal-dependencies.yml down -v >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          docker run -d --name dex-server-default \
-            --network testing-network -p 18801:8801 dex-server-image-test
-          for attempt in {1..120}; do
-            if (echo >/dev/tcp/127.0.0.1/18801) >/dev/null 2>&1; then
-              break
-            fi
-            if [[ "$attempt" = 120 ]]; then
-              docker logs dex-server-default
-              exit 1
-            fi
-            sleep 1
-          done
-          migration_output="$RUNNER_TEMP/embedded-web-migration.log"
-          if docker run --rm --entrypoint /dex/dex-server dex-server-image-test \
-            start --services=web >"$migration_output" 2>&1; then
-            echo "Expected embedded Web selection to fail"
-            exit 1
-          fi
-          grep --fixed-strings 'run dex-web separately' "$migration_output"
 
   standalone-image:
     name: Dex Web image
