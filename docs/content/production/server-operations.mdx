@@ -4,8 +4,8 @@ title: Server operation
 
 # Server operation
 
-Dex Server exposes the FlowService API, coordinates durable Flow execution, and
-serves the Dex Web API. Run it as a managed production service with explicit
+Dex Server exposes the FlowService API and coordinates durable Flow execution.
+Run Dex Web separately to serve its UI and HTTP API. Run it as a managed production service with explicit
 configuration, health checks, and access control.
 
 To run server-zd, the Dex Server that needs only object storage, see
@@ -20,7 +20,7 @@ brew install superdurable/tap/dexcli
 dexcli dev
 ~~~
 
-This starts Dex Server and Dex Web for local use. See the
+This starts server-zd and embedded Dex Web for local use. See the
 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md) for
 options.
 
@@ -65,33 +65,32 @@ graphs, and persisted payloads.
 
 ## Server components
 
-The dex-server image starts Dex Web, API, Interpreter, and Matching in one process by
-default. The container listens on port 8801 for FlowService and port 8802 for
-Dex Web. Publishing either port remains an explicit deployment decision.
+The legacy dex-server image starts API, Interpreter, and Matching in one
+process by default. It listens on port 8801 for FlowService. Publishing the
+port remains an explicit deployment decision.
 
 Use the **services** startup option to run any non-empty combination. Separate
 components when they need different replica counts or resource limits:
 
 ~~~bash
-dex-server start --services web
 dex-server start --services api
 dex-server start --services interpreter
 dex-server start --services matching
-dex-server start --services web,api
+dex-server start --services api,interpreter
 ~~~
+
+Embedded Web was removed from this command. **--services web** now fails with
+a message directing operators to standalone **dex-web**. Deploy **dex-web**
+separately; see [Dex Web](/production/dex-web).
 
 An Interpreter-only deployment without **internal.listen** must set
 **interpreter.interpreterActivityConfig.internalServiceTarget** to the API
 service. With a private listener, the Interpreter uses its local address by
-default. A Web-only deployment does not connect to Temporal or Cadence. It
-starts before its API upstream is available, so **/healthz** reports only Web
-process health. Web API requests return an upstream error until FlowService is
-available. **/readyz** also checks FlowService, with a one-result
-**SearchFlows** on the Go Dex Server. See
-[Dex Web readiness](/production/dex-web#readiness).
+default.
 
-A Web-only process can also serve Dex Web for server-zd. Set
-**web.flowServiceTarget** to the server-zd address. See
+Standalone Dex Web can serve either the Go Server or server-zd. Its
+**/healthz** reports process health, while **/readyz** also checks FlowService.
+See [Dex Web readiness](/production/dex-web#readiness) and
 [Run against server-zd](/production/dex-web#run-against-server-zd).
 
 ## Pull Worker routing {#pull-worker-routing}
@@ -183,29 +182,11 @@ not in an application image.
 The Blob Store section is named **blobStore**. Its entries use
 **BlobStoreConfigEntry**. The former **externalStorage** key is not accepted.
 
-Configure the Web listener and API upstream in the **web** section:
-
-~~~yaml
-web:
-  bindAddress: 0.0.0.0
-  port: 8802
-  flowServiceTarget: dex-api:8801
-  flowServiceCredentialFile: /etc/dex/web-token
-  flowRenderingDirectory: ""
-  startFlowWorkerTargetHeadless: false
-~~~
-
-The bind address defaults to all interfaces and the port defaults to 8802. An
-empty **flowServiceTarget** uses localhost and the configured API port. The Web
-connection is plaintext gRPC and uses **api.grpcMaxMessageBytes**, so keep it on
-a trusted network path.
-**web.flowServiceCredentialFile** defaults to empty. When set, it contains the
-bearer token Web sends to FlowService, even if **auth** is off. Dex Web checks
-the file for rotation at most once per second. When this process enables
-**auth** and starts Web, the field is required. A Web-only process that points
-to an authenticated remote FlowService must set it too.
-
-**web.startFlowWorkerTargetHeadless** controls Worker routing for every Flow started from Dex Web. It defaults to false and is immutable after startup. The environment override is **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS**. Enable it only when operators enter Kubernetes headless Service addresses.
+The legacy **web** configuration section is still accepted, but the Go
+Server no longer starts Web. Move listener, upstream, credential, and Worker
+routing settings to the standalone **dex-web** configuration. See
+[Dex Web configuration](/production/dex-web#migrate-embedded-web) for flags and
+environment variables.
 
 ## Authentication {#authentication}
 

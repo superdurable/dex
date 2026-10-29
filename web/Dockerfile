@@ -10,7 +10,7 @@ RUN cd web && npm run build
 FROM golang:1.26 AS web-binary
 ARG WEB_VERSION=dev
 WORKDIR /src
-COPY server/ server/
+COPY sdk-go/ sdk-go/
 COPY web/ web/
 COPY --from=web-assets /src/web/assets/dist/ web/assets/dist/
 RUN cd web && GOWORK=off CGO_ENABLED=0 go build -trimpath \

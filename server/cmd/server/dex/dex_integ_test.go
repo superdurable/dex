@@ -13,215 +13,53 @@ package dex
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"flag"
-	"fmt"
-	"io"
-	"net"
-	"net/http"
+	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/config"
-	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service/auth"
-	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/urfave/cli"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
 )
 
-type flowService struct {
-	dexpb.UnimplementedFlowServiceServer
+func TestEmbeddedWebDirectsToStandaloneCommand(t *testing.T) {
+	_, err := newApplication(&config.Config{}, serviceSelection{isWebEnabled: true})
+	require.EqualError(t, err, "embedded Dex Web was removed from dex-server; run dex-web separately")
 }
 
-func (f *flowService) SearchFlows(
-	context.Context,
-	*dexpb.SearchFlowsRequest,
-) (*dexpb.SearchFlowsResponse, error) {
-	return &dexpb.SearchFlowsResponse{}, nil
-}
-
-func TestWebOnlyStartsWithoutWorkflowBackend(t *testing.T) {
-	grpcListener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	grpcServer := grpc.NewServer()
-	dexpb.RegisterFlowServiceServer(grpcServer, &flowService{})
-	grpcExit := make(chan error, 1)
-	go func() {
-		grpcExit <- grpcServer.Serve(grpcListener)
-	}()
-	t.Cleanup(func() {
-		grpcServer.Stop()
-		serveErr := <-grpcExit
-		if serveErr != nil {
-			require.ErrorIs(t, serveErr, grpc.ErrServerStopped)
-		}
-	})
-
-	webPort := reservePort(t)
-	configPath := filepath.Join(t.TempDir(), "web-only.yaml")
-	configBody := fmt.Sprintf(
-		"web:\n  bindAddress: 127.0.0.1\n  port: %d\n  flowServiceTarget: %s\n",
-		webPort,
-		grpcListener.Addr().String(),
-	)
-	require.NoError(t, os.WriteFile(configPath, []byte(configBody), 0o600))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	serverExit := make(chan error, 1)
-	go func() {
-		serverExit <- BuildCLI(ctx).Run([]string{
-			"dex-server",
-			"--config", configPath,
-			"start",
-			"--services", "web",
+func TestLegacyWebConfigLogsStandaloneMigration(t *testing.T) {
+	testCases := []struct {
+		name               string
+		webConfig          config.WebConfig
+		shouldLogMigration bool
+	}{
+		{name: "absent"},
+		{name: "port", webConfig: config.WebConfig{Port: 9802}, shouldLogMigration: true},
+		{name: "bind address", webConfig: config.WebConfig{BindAddress: "127.0.0.1"}, shouldLogMigration: true},
+		{name: "FlowService target", webConfig: config.WebConfig{FlowServiceTarget: "localhost:9801"}, shouldLogMigration: true},
+		{name: "credential file", webConfig: config.WebConfig{FlowServiceCredentialFile: "/etc/dex/token"}, shouldLogMigration: true},
+		{name: "definitions", webConfig: config.WebConfig{FlowRenderingDirectory: "/etc/dex/definitions"}, shouldLogMigration: true},
+		{name: "headless routing", webConfig: config.WebConfig{IsStartFlowWorkerTargetHeadless: true}, shouldLogMigration: true},
+		{name: "pull routing", webConfig: config.WebConfig{IsStartFlowWorkerTargetPull: true}, shouldLogMigration: true},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var output bytes.Buffer
+			originalOutput := log.Writer()
+			log.SetOutput(&output)
+			defer log.SetOutput(originalOutput)
+			_, err := newApplication(&config.Config{Web: testCase.webConfig}, serviceSelection{})
+			require.NoError(t, err)
+			if testCase.shouldLogMigration {
+				require.Contains(t, output.String(), "no longer serves Dex Web on port 8802")
+				require.Contains(t, output.String(), "web configuration is ignored; run dex-web separately")
+			} else {
+				require.Empty(t, output.String())
+			}
 		})
-	}()
-
-	httpClient := &http.Client{Timeout: time.Second}
-	webAddress := "http://127.0.0.1:" + strconv.Itoa(webPort)
-	require.Eventually(t, func() bool {
-		response, requestErr := httpClient.Get(webAddress + "/healthz")
-		if requestErr != nil {
-			return false
-		}
-		defer response.Body.Close()
-		return response.StatusCode == http.StatusOK
-	}, 5*time.Second, 25*time.Millisecond)
-
-	response, err := httpClient.Get(webAddress)
-	require.NoError(t, err)
-	indexBody, err := io.ReadAll(response.Body)
-	require.NoError(t, err)
-	require.NoError(t, response.Body.Close())
-	require.Equal(t, http.StatusOK, response.StatusCode)
-	require.Contains(t, string(indexBody), `<div id="root"></div>`)
-
-	response, err = httpClient.Post(
-		webAddress+"/api/flows/search",
-		"application/json",
-		bytes.NewBufferString(`{"pageSize":1}`),
-	)
-	require.NoError(t, err)
-	require.NoError(t, response.Body.Close())
-	require.Equal(t, http.StatusOK, response.StatusCode)
-
-	cancel()
-	require.NoError(t, <-serverExit)
-	releasedListener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(webPort)))
-	require.NoError(t, err)
-	require.NoError(t, releasedListener.Close())
-}
-
-func TestWebUsesCredentialForFlowSearch(t *testing.T) {
-	grpcListener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	credentialPath := filepath.Join(t.TempDir(), "web-token")
-	require.NoError(t, os.WriteFile(credentialPath, []byte(" web-token \n"), 0o600))
-	staticTokensPath := filepath.Join(t.TempDir(), "static-tokens.yaml")
-	tokenHash := sha256.Sum256([]byte("web-token"))
-	require.NoError(t, os.WriteFile(staticTokensPath, []byte(fmt.Sprintf("tokens:\n  - sha256: %x\n", tokenHash)), 0o600))
-	publicAuthConfig := &config.AuthConfig{Authenticators: []config.AuthenticatorConfig{{Kind: config.AuthenticatorKindStaticTokens, File: staticTokensPath}}}
-	logger, err := loggerimpl.NewDevelopment()
-	require.NoError(t, err)
-	authenticator, err := auth.NewAuthenticator(publicAuthConfig, logger)
-	require.NoError(t, err)
-	interceptors := auth.NewPublicServiceInterceptors(authenticator)
-	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(interceptors.Unary), grpc.StreamInterceptor(interceptors.Stream))
-	dexpb.RegisterFlowServiceServer(grpcServer, &flowService{})
-	grpcExit := make(chan error, 1)
-	go func() { grpcExit <- grpcServer.Serve(grpcListener) }()
-	t.Cleanup(func() {
-		grpcServer.Stop()
-		serveErr := <-grpcExit
-		if serveErr != nil {
-			require.ErrorIs(t, serveErr, grpc.ErrServerStopped)
-		}
-	})
-	unauthenticatedConnection, err := grpc.NewClient(grpcListener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, unauthenticatedConnection.Close()) })
-	_, err = dexpb.NewFlowServiceClient(unauthenticatedConnection).SearchFlows(context.Background(), &dexpb.SearchFlowsRequest{})
-	require.Equal(t, codes.Unauthenticated, status.Code(err))
-
-	internalTokenPath := filepath.Join(t.TempDir(), "internal-token")
-	require.NoError(t, os.WriteFile(internalTokenPath, []byte("0123456789abcdef0123456789abcdef"), 0o600))
-	webPort := reservePort(t)
-	configPath := filepath.Join(t.TempDir(), "web-auth.yaml")
-	configBody := fmt.Sprintf("auth:\n  authenticators:\n    - kind: staticTokens\n      file: %s\ninternal:\n  listen: 127.0.0.1:8803\n  tokenFile: %s\nweb:\n  bindAddress: 127.0.0.1\n  port: %d\n  flowServiceTarget: %s\n  flowServiceCredentialFile: %s\n", staticTokensPath, internalTokenPath, webPort, grpcListener.Addr().String(), credentialPath)
-	require.NoError(t, os.WriteFile(configPath, []byte(configBody), 0o600))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	serverExit := make(chan error, 1)
-	go func() {
-		serverExit <- BuildCLI(ctx).Run([]string{"dex-server", "--config", configPath, "start", "--services", "web"})
-	}()
-	httpClient := &http.Client{Timeout: time.Second}
-	webAddress := "http://127.0.0.1:" + strconv.Itoa(webPort)
-	require.Eventually(t, func() bool {
-		response, requestErr := httpClient.Get(webAddress + "/healthz")
-		if requestErr != nil {
-			return false
-		}
-		require.NoError(t, response.Body.Close())
-		return response.StatusCode == http.StatusOK
-	}, 5*time.Second, 25*time.Millisecond)
-	response, err := httpClient.Post(webAddress+"/api/flows/search", "application/json", bytes.NewBufferString(`{"pageSize":1}`))
-	require.NoError(t, err)
-	require.NoError(t, response.Body.Close())
-	require.Equal(t, http.StatusOK, response.StatusCode)
-	cancel()
-	require.NoError(t, <-serverExit)
-}
-
-func TestAuthenticatedWebRejectsMissingCredentialAtStartup(t *testing.T) {
-	cfg := &config.Config{Auth: config.AuthConfig{Authenticators: []config.AuthenticatorConfig{{Kind: config.AuthenticatorKindStaticTokens}}}}
-	_, err := newApplication(cfg, serviceSelection{isWebEnabled: true})
-	require.ErrorContains(t, err, "web.flowServiceCredentialFile is required")
-}
-
-func TestWebOnlyStartsBeforeFlowService(t *testing.T) {
-	webPort := reservePort(t)
-	flowServicePort := reservePort(t)
-	configPath := filepath.Join(t.TempDir(), "web-before-api.yaml")
-	configBody := fmt.Sprintf(
-		"web:\n  bindAddress: 127.0.0.1\n  port: %d\n  flowServiceTarget: 127.0.0.1:%d\n",
-		webPort,
-		flowServicePort,
-	)
-	require.NoError(t, os.WriteFile(configPath, []byte(configBody), 0o600))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	serverExit := make(chan error, 1)
-	go func() {
-		serverExit <- BuildCLI(ctx).Run([]string{
-			"dex-server",
-			"--config", configPath,
-			"start",
-			"--services=web",
-		})
-	}()
-
-	httpClient := &http.Client{Timeout: time.Second}
-	webAddress := "http://127.0.0.1:" + strconv.Itoa(webPort)
-	require.Eventually(t, func() bool {
-		response, requestErr := httpClient.Get(webAddress + "/healthz")
-		if requestErr != nil {
-			return false
-		}
-		defer response.Body.Close()
-		return response.StatusCode == http.StatusOK
-	}, 5*time.Second, 25*time.Millisecond)
-
-	cancel()
-	require.NoError(t, <-serverExit)
+	}
 }
 
 func TestWebConfigDefaultsAndOverrides(t *testing.T) {
@@ -262,7 +100,6 @@ func TestServiceSelection(t *testing.T) {
 		{
 			name: "default",
 			expected: serviceSelection{
-				isWebEnabled:         true,
 				isAPIEnabled:         true,
 				isInterpreterEnabled: true,
 				isMatchingEnabled:    true,
@@ -312,15 +149,6 @@ func TestServiceSelection(t *testing.T) {
 			require.Equal(t, testCase.expected, selection)
 		})
 	}
-}
-
-func reservePort(t *testing.T) int {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	require.NoError(t, listener.Close())
-	return port
 }
 
 func serviceCLIContext(t *testing.T, arguments []string) *cli.Context {

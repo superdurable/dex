@@ -14,7 +14,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 const (

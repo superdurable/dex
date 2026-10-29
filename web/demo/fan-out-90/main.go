@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"github.com/superdurable/dex/web/internal/pointervalue"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

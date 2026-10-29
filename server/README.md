@@ -37,7 +37,8 @@ brew install superdurable/tap/dexcli
 dexcli dev
 ```
 
-`dexcli dev` starts Dex Server, Dex Web, and the internal workflow backend. See
+`dexcli dev` starts server-zd and embedded Dex Web. The legacy Go Server does
+not embed Web; run `dex-web` separately. See
 the [CLI README](../cli/README.md) for endpoints, persistence, and configuration
 options.
 

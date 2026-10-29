@@ -1,10 +1,12 @@
 ---
 title: 服务器运维
+sidebar_label: Server operation
 ---
 
 # 服务器运维
 
-Dex Server 提供 FlowService API、协调持久化 Flow 执行，并提供 Dex Web API。将它作为
+Dex Server 提供 FlowService API，并协调持久化 Flow 执行。Dex Web 的 UI 和 HTTP API
+由独立的 Dex Web 进程提供。将 Server 作为
 具有明确配置、健康检查和访问控制的托管生产服务来运行。
 
 server-zd 是只依赖对象存储的 Dex Server。它的运维方式见
@@ -19,7 +21,7 @@ brew install superdurable/tap/dexcli
 dexcli dev
 ~~~
 
-这会启动 Dex Server 和 Dex Web 供本地使用。选项请参阅
+这会启动 server-zd 和内嵌 Dex Web 供本地使用。选项请参阅
 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)。
 
 ## 生产部署形态
@@ -55,31 +57,28 @@ Flow type name、Step graph 和持久化 payload。
 
 ## Server 组件
 
-dex-server 镜像默认在同一个 process 中启动 Dex Web、API、Interpreter 和 Matching。容器在 8801
-端口提供 FlowService，在 8802 端口提供 Dex Web。是否发布任一端口仍由 deployment
-显式决定。
+旧版 dex-server 镜像默认在一个进程中启动 API、Interpreter 和 Matching，
+在 8801 端口提供 FlowService。是否发布该端口仍由部署显式决定。
 
-使用 **services** 启动选项运行任意非空组件组合。当组件需要不同的 replica 数量或
-resource limit 时，将它们分开部署：
+使用 **services** 启动选项运行任意非空组件组合。组件需要不同的副本数或资源限制时，
+可以分开部署：
 
 ~~~bash
-dex-server start --services web
 dex-server start --services api
 dex-server start --services interpreter
 dex-server start --services matching
-dex-server start --services web,api
+dex-server start --services api,interpreter
 ~~~
+
+此命令已移除内嵌 Web。**--services web** 现在会报错，并提示改用独立的
+**dex-web**。请单独部署 **dex-web**，参见 [Dex Web](/production/dex-web)。
 
 仅部署 Interpreter 且没有 **internal.listen** 时，必须将
 **interpreter.interpreterActivityConfig.internalServiceTarget** 设置为 API service。
 配置私有 listener 时，Interpreter 默认使用本地地址。
-仅部署 Web 时不会连接 Temporal 或 Cadence。Web 会在 API upstream 可用前启动，因此
-**/healthz** 只报告 Web process 的健康状态。在 FlowService 可用前，Web API request
-会返回 upstream error。**/readyz** 还会检查 FlowService：在 Go Dex Server 上执行只返回
-一条结果的 **SearchFlows**。参见 [Dex Web readiness](/production/dex-web#readiness)。
-
-仅运行 Web 的 process 也可以为 server-zd 提供 Dex Web。将 **web.flowServiceTarget**
-设置为 server-zd 的 address。参见[对接 server-zd](/production/dex-web#run-against-server-zd)。
+独立的 Dex Web 可以连接 Go Server 或 server-zd。**/healthz** 报告进程健康状态，
+**/readyz** 还会检查 FlowService。参见 [Dex Web readiness](/production/dex-web#readiness)
+和[对接 server-zd](/production/dex-web#run-against-server-zd)。
 
 ## Pull Worker 路由 {#pull-worker-routing}
 
@@ -158,29 +157,9 @@ Server 配置是 YAML 和有类型的 Go 配置。生产配置不同于 **dexcli
 Blob Store section 名为 **blobStore**。其中的 entry 使用 **BlobStoreConfigEntry**。
 旧的 **externalStorage** key 不被接受。
 
-在 **web** section 中配置 Web listener 和 API upstream：
-
-~~~yaml
-web:
-  bindAddress: 0.0.0.0
-  port: 8802
-  flowServiceTarget: dex-api:8801
-  flowServiceCredentialFile: /etc/dex/web-token
-  flowRenderingDirectory: ""
-  startFlowWorkerTargetHeadless: false
-~~~
-
-bind address 默认监听所有 interface，port 默认是 8802。空的
-**flowServiceTarget** 使用 localhost 和已配置的 API port。Web connection 使用
-plaintext gRPC，并复用 **api.grpcMaxMessageBytes**，因此应将其限制在可信
-network path 内。
-
-**web.flowServiceCredentialFile** 默认值为空。配置后，Web 会将文件中的 bearer token
-发送给 FlowService，即使 **auth** 关闭也是如此。Dex Web 至多每秒检查一次文件轮换。
-当前进程启用 **auth** 并运行 Web 时，此字段为必填。仅运行 Web、并连接启用了身份认证的
-远程 FlowService 的进程也必须配置此字段。
-
-**web.startFlowWorkerTargetHeadless** 控制所有从 Dex Web 启动的 Flow 的 Worker routing。默认值为 false，启动后不可变。对应的环境变量是 **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS**。只有操作员填写 Kubernetes headless Service address 时才启用它。
+旧版 **web** 配置部分仍然可以读取，但 Go Server 不再启动 Web。
+请将监听地址、上游、凭据和 Worker 路由设置迁移到独立的 **dex-web** 配置。
+flag 和环境变量见 [Dex Web 配置](/production/dex-web#migrate-embedded-web)。
 
 ## 身份认证 {#authentication}
 

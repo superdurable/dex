@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	dexweb "github.com/superdurable/dex/web"
 	"github.com/superdurable/dex/web/assets"
 	"google.golang.org/grpc"

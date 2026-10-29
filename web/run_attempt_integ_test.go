@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 type runAttemptFlowService struct {

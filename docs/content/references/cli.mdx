@@ -9,6 +9,47 @@ sidebar_label: CLI
 **dexcli** provides a JSON-first interface for operating and inspecting Flows. It
 is designed for shell automation and AI agents as well as human operators.
 
+## Start a local development server {#start-locally}
+
+**dexcli dev** starts server-zd and embedded Dex Web. server-zd is the only
+engine. Existing scripts can keep **--engine zd**; it has no effect.
+The release package includes **dex-server-zd** next to **dexcli**. Binary lookup
+uses **--zd-binary**, then **DEX_SERVER_ZD_BINARY**, then the executable directory
+(including its resolved symlink directory), then PATH.
+
+```bash
+dexcli dev --open=false --zd-data-dir ./dex-state
+```
+
+| Flag | Default and behavior |
+|---|---|
+| **--engine** | **zd**; accepted for compatibility. |
+| **--zd-binary** | Override the bundled server-zd executable. |
+| **--zd-data-dir** | **$HOME/.dex/zd/&lt;dex-port&gt;**; persistent local state. |
+| **--zd-config** | Optional server-zd YAML overrides. |
+| **--attribute-store-config** | Optional YAML file; server-zd reads its **attributeStore** section. Supports PostgreSQL. |
+| **--bind-address** | **127.0.0.1**; bind IP for local services. |
+| **--dex-port** | **8801**; Dex gRPC port. |
+| **--web-port** | **8802**; embedded Dex Web port. |
+| **--open** | **true**; use **--open=false** to keep the browser closed. |
+| **--server-log-folder** | Empty; logs go to stderr. When set, also writes **dex-server-zd.log** in that directory. |
+| **--flow-rendering-dir** | Optional Flow Definition Graph JSON directory. |
+| **--connector-config-dir** | **$HOME/.dex/connectors**; local Connector credentials. |
+| **--connector-release-override** | Repeatable **connector-id=artifact-directory** for a local Connector release. |
+
+If a default port is occupied, Dex selects the next available port and prints
+its addresses. An explicitly requested occupied port fails. The state directory
+uses the selected Dex port. Ctrl+C stops Web and the server-zd child process.
+server-zd supports pull Workers. See [server-zd operations](../production/server-zd-operations.mdx)
+for storage, durability, and Attribute Store configuration.
+
+The Temporal engine was removed. **--engine temporal**, all
+**--external-temporal-*** and **--temporal-*** flags, **--sqlite-db-filename**,
+**--verbose-engine-log**, and **--blob-store-dir** now fail with an error that
+names server-zd as the only engine. Remove those flags and use **--zd-data-dir**
+and **--zd-config** instead. Start with a new server-zd data directory;
+Temporal SQLite files cannot be used as server-zd state.
+
 ## Connect to Dex
 
 Commands connect to **127.0.0.1:8801** by default. Set

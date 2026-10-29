@@ -5,7 +5,6 @@ go 1.26.0
 require (
 	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex v0.0.0
-	github.com/superdurable/dex/web v0.0.0
 	github.com/urfave/cli v1.22.5
 	google.golang.org/grpc v1.82.1
 )
@@ -177,7 +176,5 @@ require (
 )
 
 replace github.com/superdurable/dex => ../..
-
-replace github.com/superdurable/dex/web => ../../../web
 
 replace go.temporal.io/sdk => github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.3

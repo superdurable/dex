@@ -6,7 +6,7 @@ sidebar_label: Dex Web
 # Dex Web
 
 Dex Web has no end-user authentication. When Dex Server **auth** is enabled,
-Web sends its configured **web.flowServiceCredentialFile** bearer credential to
+Web sends its configured **--flow-service-credential-file** bearer credential to
 FlowService for every request. Anyone who can reach the Web port can act with
 that credential. Protect the Web port with network controls or an
 authenticating proxy. See [server authentication](/production/server-operations#authentication)
@@ -83,11 +83,11 @@ The Go analyzer derives the schema from the input type of the Step registered wi
 
 The Server reloads the current definition revision and validates the complete input before calling **StartFlow**. It rejects unknown object fields, missing required fields, invalid nulls, type, enum, range, datetime, array, and map errors. It repeats the Worker port check for address targets unless the operator selected the bypass. The Server selects the start Step type and creates the request ID. The browser cannot choose headless routing.
 
-Set **web.startFlowWorkerTargetHeadless** or **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** for address targets entered through this Dex Web instance. The default is false. Set it to true when operators enter Kubernetes headless Service targets.
+Set **--start-flow-worker-target-headless** or **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** for address targets entered through this Dex Web instance. The default is false. Set it to true when operators enter Kubernetes headless Service targets.
 
-The **POST /api/v2/start** request accepts **workerTargetAddress** or **workerTargetPull: true**. Sending both returns HTTP 400. If neither is supplied, **web.startFlowWorkerTargetPull** selects a pull target when true. Its default is false, and an explicit address still works. **workerTargetPull: false** requires an address even when the pull default is enabled. **DEX_WEB_START_FLOW_WORKER_TARGET_PULL** sets the same default through the environment. The dialog initially selects **Pull Worker** when this default is true. Headless routing applies only to address targets, so both settings can be enabled together. Dex Web does not check for a registered pull Worker before starting because registrations can change before dispatch.
+The **POST /api/v2/start** request accepts **workerTargetAddress** or **workerTargetPull: true**. Sending both returns HTTP 400. If neither is supplied, **--start-flow-worker-target-pull** selects a pull target when true. Its default is false, and an explicit address still works. **workerTargetPull: false** requires an address even when the pull default is enabled. **DEX_WEB_START_FLOW_WORKER_TARGET_PULL** sets the same default through the environment. The dialog initially selects **Pull Worker** when this default is true. Headless routing applies only to address targets, so both settings can be enabled together. Dex Web does not check for a registered pull Worker before starting because registrations can change before dispatch.
 
-server-zd dispatches only to pull Workers. On server-zd, the dialog opens with **Pull Worker** selected and hides **Worker address**. A **POST /api/v2/start** request without either target field selects a pull target there, whatever **web.startFlowWorkerTargetPull** says. See [Run against server-zd](#run-against-server-zd).
+server-zd dispatches only to pull Workers. On server-zd, the dialog opens with **Pull Worker** selected and hides **Worker address**. A **POST /api/v2/start** request without either target field selects a pull target there, whatever **--start-flow-worker-target-pull** says. See [Run against server-zd](#run-against-server-zd).
 
 ## Worker routing
 
@@ -147,28 +147,38 @@ The browser condition only controls presentation. Every Action RPC must check th
 
 Work Queue does not add login or enforce authorization. **Working as** selects work; it does not grant the chosen permission. The trusted application boundary remains responsible for authenticating users, mapping roles to permissions, and limiting which permissions it sends. Deploy Dex Web behind that boundary.
 
+## Migrate embedded Web configuration {#migrate-embedded-web}
+
+The legacy **dex-server** no longer serves Dex Web on port 8802. Run **dex-web** separately and replace the old YAML settings with flags or environment variables. Command-line flags override environment variables.
+
+| Old YAML key | dex-web flag | Environment variable |
+| --- | --- | --- |
+| **web.flowServiceTarget** | **--flow-service-address** | **DEX_WEB_FLOW_SERVICE_ADDRESS** |
+| **web.flowServiceCredentialFile** | **--flow-service-credential-file** | **DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE** |
+| **web.bindAddress** | **--bind-address** | **DEX_WEB_BIND_ADDRESS** |
+| **web.port** | **--port** | **DEX_WEB_HTTP_PORT_NUMBER** |
+| **web.flowRenderingDirectory** | **--flow-rendering-dir** | **DEX_WEB_FLOW_RENDERING_DIRECTORY** |
+| **web.startFlowWorkerTargetHeadless** | **--start-flow-worker-target-headless** | **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** |
+| **web.startFlowWorkerTargetPull** | **--start-flow-worker-target-pull** | **DEX_WEB_START_FLOW_WORKER_TARGET_PULL** |
+
+The old embedded Web bound to **0.0.0.0** by default. Standalone **dex-web** defaults to **127.0.0.1**. Pass **--bind-address 0.0.0.0** when remote clients must connect, and protect that listener with your access controls. An empty old **web.flowServiceTarget** used **localhost:&lt;api.port&gt;**; set **--flow-service-address** explicitly if your API uses a port other than 8801.
+
 ## Run against server-zd {#run-against-server-zd}
 
-[server-zd](/production/server-zd-operations) does not serve Dex Web. A
-web-only Dex Server process serves it instead. Set **web.flowServiceTarget** to
-the server-zd plaintext gRPC address. This process creates no Temporal or
-Cadence connection. When server-zd authentication is on, set
-**web.flowServiceCredentialFile** to a file with a static token or service JWT.
-
-~~~yaml
-web:
-  bindAddress: 0.0.0.0
-  port: 8802
-  flowServiceTarget: dex-server-zd:8801
-  flowServiceCredentialFile: /etc/dex/web-token
-~~~
+[server-zd](/production/server-zd-operations) does not serve Dex Web.
+Run standalone **dex-web** and point **--flow-service-address** at the server-zd
+gRPC address. When server-zd authentication is on, pass **--flow-service-credential-file**
+with a static token or service JWT. Dex Web also supports TLS for the upstream
+connection through **--tls**, **--tls-ca-file**, and **--tls-server-name**.
 
 ~~~bash
-dex-server --config web-only.yaml start --services web
+dex-web --bind-address 0.0.0.0 --port 8802 \
+  --flow-service-address dex-server-zd:8801 \
+  --flow-service-credential-file /etc/dex/web-token
 ~~~
 
-For local development, **dexcli dev --engine zd** starts server-zd and Dex Web
-without Temporal. The dexcli release package includes **dex-server-zd**, so a
+For local development, **dexcli dev** starts server-zd and embedded Dex Web.
+**--engine zd** remains accepted for existing scripts. The dexcli release package includes **dex-server-zd**, so a
 Homebrew install of dexcli needs no separate download. To use another
 **dex-server-zd** binary, pass **--zd-binary** or set **DEX_SERVER_ZD_BINARY**.
 Without either, dexcli uses the **dex-server-zd** next to the dexcli executable,

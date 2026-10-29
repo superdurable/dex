@@ -16,8 +16,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service/common/credential"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -153,9 +152,9 @@ func newPerRPCCredential(options options) (credentials.PerRPCCredentials, error)
 		}
 		return newAPIKeyCredential(options.tokenURL, options.serverID, apiKey)
 	case options.hasFile || options.credentialFile != "":
-		return credential.File(options.credentialFile)
+		return newFileBearerCredential(options.credentialFile)
 	case options.hasCredential || options.credential != "":
-		return credential.Static(options.credential)
+		return newStaticBearerCredential(options.credential)
 	default:
 		return nil, nil
 	}

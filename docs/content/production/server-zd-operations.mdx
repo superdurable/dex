@@ -880,5 +880,5 @@ it loads unchanged.
 | **attributeStore** | **attributeStore** | Same keys, in server-zd v0.1.3 or later. Only **type: postgres** is supported. **flowIdColumn**, **databaseName**, and **collectionName** must stay empty. **fencingTableName** exists only in server-zd, and each database needs a fencing table. See [Attribute Store sync](#attribute-store). |
 | **interpreter** | None | server-zd uses no Temporal or Cadence backend. |
 | **membership** and **internal** | None | A cluster runs one node and has no internal listener. |
-| **web** | None | server-zd does not serve Dex Web. Run a web-only Dex Server that points at server-zd. See [Run against server-zd](/production/dex-web#run-against-server-zd). |
+| **web** | None | server-zd does not serve Dex Web. Run standalone **dex-web** and point **--flow-service-address** at server-zd. See [Run against server-zd](/production/dex-web#run-against-server-zd). |
 | **worker** | None | server-zd supports only pull Workers. |

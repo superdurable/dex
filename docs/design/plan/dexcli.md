@@ -1,5 +1,7 @@
 # Dex CLI 实施计划
 
+> Historical design: the shipped CLI now starts only server-zd. Temporal flags and the Homebrew Temporal dependency were removed; CLI and Web use sdk-go protobufs. See [current CLI usage](../../../cli/README.md#start-locally).
+
 状态：Implemented
 日期：2026-07-31
 

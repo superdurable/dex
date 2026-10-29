@@ -14,7 +14,7 @@ import (
 	"go/types"
 	"path/filepath"
 
-	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/cli/internal/pointervalue"
 )
 
 type goConditionReturnCollector struct {
@@ -38,7 +38,7 @@ func (collector *goWaitConditionCollector) collect(
 		return
 	}
 	analyzer := collector.analyzer
-	condition := WaitCondition{Index: ptr.Any(index), Span: analyzer.functions.reachedSpan(call, reach)}
+	condition := WaitCondition{Index: pointervalue.Pointer(index), Span: analyzer.functions.reachedSpan(call, reach)}
 	switch name := analyzer.callName(call); name {
 	case "Combo":
 		for argumentIndex, argument := range call.Args {
@@ -135,7 +135,7 @@ func (collector *goWaitConditionCollector) addEdge(
 
 func (collector *goWaitConditionCollector) addUnknown(expression ast.Expr, index int) {
 	collector.conditions = append(collector.conditions, WaitCondition{
-		Kind: "unknown", Index: ptr.Any(index), Label: collector.analyzer.expressionString(expression),
+		Kind: "unknown", Index: pointervalue.Pointer(index), Label: collector.analyzer.expressionString(expression),
 		Expression: collector.analyzer.expressionString(expression), Span: collector.analyzer.span(expression),
 	})
 }

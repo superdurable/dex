@@ -9,6 +9,44 @@ sidebar_label: CLI
 **dexcli** 提供以 JSON 为主的 Flow 运维和检查接口，适合 shell automation、AI agent
 和人工操作。
 
+## 启动本地开发服务器 {#start-locally}
+
+**dexcli dev** 启动 server-zd 和内嵌 Dex Web。server-zd 是唯一的 engine。
+现有脚本可以保留 **--engine zd**，该选项不产生额外效果。
+发布包在 **dexcli** 旁边包含 **dex-server-zd**。CLI 依次查找 **--zd-binary**、
+**DEX_SERVER_ZD_BINARY**、可执行文件所在目录（包括解析符号链接后的目录），最后查找 PATH。
+
+```bash
+dexcli dev --open=false --zd-data-dir ./dex-state
+```
+
+| Flag | 默认值和行为 |
+|---|---|
+| **--engine** | **zd**；为兼容现有脚本而保留。 |
+| **--zd-binary** | 覆盖随包提供的 server-zd 可执行文件。 |
+| **--zd-data-dir** | **$HOME/.dex/zd/&lt;dex-port&gt;**；本地持久化状态。 |
+| **--zd-config** | 可选的 server-zd YAML 配置覆盖文件。 |
+| **--attribute-store-config** | 可选 YAML 文件；server-zd 读取其中的 **attributeStore** 部分。支持 PostgreSQL。 |
+| **--bind-address** | **127.0.0.1**；本地服务绑定的 IP。 |
+| **--dex-port** | **8801**；Dex gRPC 端口。 |
+| **--web-port** | **8802**；内嵌 Dex Web 端口。 |
+| **--open** | **true**；使用 **--open=false** 不打开浏览器。 |
+| **--server-log-folder** | 默认为空，日志写入 stderr。设置后也会写入该目录的 **dex-server-zd.log**。 |
+| **--flow-rendering-dir** | 可选的 Flow Definition Graph JSON 目录。 |
+| **--connector-config-dir** | **$HOME/.dex/connectors**；本地 Connector 凭据。 |
+| **--connector-release-override** | 可重复的 **connector-id=artifact-directory**，用于本地 Connector 发布包。 |
+
+默认端口被占用时，Dex 会选择下一个可用端口并打印地址。显式指定的端口被占用时启动失败。
+状态目录使用实际选中的 Dex 端口。Ctrl+C 会停止 Web 和 server-zd 子进程。
+server-zd 支持 pull Worker。存储、持久性和 Attribute Store 配置见
+[server-zd 运维](../production/server-zd-operations.mdx)。
+
+Temporal engine 已移除。**--engine temporal**、所有 **--external-temporal-*** 和
+**--temporal-*** flag、**--sqlite-db-filename**、**--verbose-engine-log** 和
+**--blob-store-dir** 现在都会报错，并明确说明 server-zd 是唯一的 engine。
+请移除这些 flag，改用 **--zd-data-dir** 和 **--zd-config**。
+请使用新的 server-zd 数据目录；Temporal SQLite 文件不能作为 server-zd 状态使用。
+
 ## 连接 Dex
 
 command 默认连接 **127.0.0.1:8801**。可通过 **DEX_FLOW_SERVICE_ADDRESS** 设置

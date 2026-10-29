@@ -24,7 +24,7 @@ at runtime.
 
 Every `dexcli` release archive also contains `dex-server-zd`, the Rust zd
 engine, next to `dexcli`. Homebrew installs both binaries, so
-`dexcli dev --engine zd` needs no separate download. The CLI pins the bundled
+`dexcli dev` needs no separate download. The CLI pins the bundled
 server-zd release in `cli/SERVER_ZD_RELEASE`.
 
 When a released `dexcli` starts a local development environment, it checks the
@@ -53,19 +53,16 @@ The local port conventions are:
 
 | Component | Default endpoint | Purpose |
 |---|---|---|
-| Dex Server | `127.0.0.1:8801` | FlowService and InternalService gRPC |
+| Dex Server | `127.0.0.1:8801` | FlowService and WorkerTaskService gRPC |
 | Dex Web | `http://127.0.0.1:8802` | Dex Web HTTP UI and API |
 | SDK Worker | port `8803` | Application-owned WorkerService gRPC |
 | Codec Server | `http://127.0.0.1:8804` | Temporal payload Codec HTTP API |
-| Temporal Server | `127.0.0.1:7233` | Local Temporal gRPC |
-| Temporal Web | `http://127.0.0.1:8233` | Local Temporal UI |
 
-`dexcli dev` starts Dex Server, Dex Web, Temporal Server, and Temporal Web. An
-application starts its own SDK Worker, while `dexcli codec-server` starts the
-Codec Server separately.
+`dexcli dev` starts `dex-server-zd` and embedded Dex Web. An application
+starts its own SDK Worker. `dexcli codec-server` starts the Codec Server separately.
 
-Select the Rust zd engine with `dexcli dev --engine zd`. It starts
-`dex-server-zd` and Dex Web without Temporal. The CLI uses the first
+server-zd is the only engine. `--engine zd` remains accepted as a no-op for
+existing scripts. The CLI uses the first
 `dex-server-zd` it finds in this order:
 
 1. `--zd-binary /path/to/dex-server-zd`.
@@ -91,41 +88,27 @@ you delete the state directory. A state directory that an earlier zd release
 left after a crash or kill is refused too, because those releases defaulted to
 relaxed. If every earlier run used `dev.durabilityMode: strict`, keep that
 setting, and zd accepts the directory.
-`--attribute-store-config` also works with `--engine zd`. The CLI passes the
+With `--attribute-store-config`, the CLI passes the
 file to `dex-server-zd dev --attribute-store-config`, which reads only its
 `attributeStore` section. zd supports only `type: postgres`, and each database
 needs the fencing table described in `server-zd/README.md`. Do not also set
 `attributeStore` in the `--zd-config` file.
-Options for Temporal or the in-process Go Server, including
-`--sqlite-db-filename`, `--external-temporal-address`,
-`--verbose-engine-log`, and `--blob-store-dir`, cannot be combined with
-`--engine zd`.
+The Temporal engine was removed. `--engine temporal`, every
+`--external-temporal-*` or `--temporal-*` flag, `--sqlite-db-filename`,
+`--verbose-engine-log`, and `--blob-store-dir` fail with a migration error.
+Remove these flags and use `--zd-data-dir` for local state and `--zd-config`
+for server-zd settings. Existing Temporal SQLite files cannot be reused as
+server-zd data directories; start with a new directory.
 
 If a `dexcli dev` port is already in use, it binds the next free port and prints
 the Dex addresses it selected. Running several `dexcli dev` processes on the
-same machine therefore starts isolated stacks: distinct Dex ports, a distinct
-local Temporal server, and a distinct SQLite database. Point later CLI commands
+same machine therefore starts isolated stacks with distinct Dex ports and state
+directories. Point later CLI commands
 at a non-default stack with `--server` or `DEX_FLOW_SERVICE_ADDRESS`.
 
 Dex Web opens after every component becomes ready. Pass `--open=false` to skip
 that. Ctrl+C stops Dex Web, Dex Server, and all internal processes owned by
 `dexcli`.
-
-With the default Temporal engine, local state persists in
-`$HOME/.dex/dev/<port>/dex.sqlite.db`.
-Dex Web step inputs and values larger than 1 KB persist next to that database
-in `dex.blobs`, so execution history and its blobs share a lifecycle. Override
-the database path with:
-
-```bash
-dexcli dev --sqlite-db-filename ./dex.sqlite.db
-```
-
-Choose another blob directory with:
-
-```bash
-dexcli dev --blob-store-dir ./dex-blobs
-```
 
 Local Connector setup stores named connections in
 `$HOME/.dex/connectors/connections.json` by default. All local stacks share
@@ -159,26 +142,14 @@ range, UI checksum, and archive paths. The explicit local bundle replaces
 GitHub release resolution only for that Connector ID; it does not weaken the
 default release path.
 
-`dexcli dev` enables the in-memory Stream Store without Redis. Stream messages
-are discarded when the CLI process stops. Repeated source values append
-independent messages.
+Stream messages use server-zd storage and retention settings. Pass
+`--zd-config` to override them.
 
-`--blob-store-dir` takes precedence over the directory derived from
-`--sqlite-db-filename`.
-
-With the Temporal engine, server logs go to a temp folder that `dexcli` prints
-on readiness and deletes when it exits. Keep them with:
+Server logs go to stderr by default. Keep a copy in `dex-server-zd.log` with:
 
 ```bash
 dexcli dev --server-log-folder ./dex-logs
 ```
-
-With zd, logs go to stderr by default. `--server-log-folder` also writes them
-to `dex-server-zd.log` in that folder.
-
-When investigating the local Temporal Server, add `--verbose-engine-log`. It
-writes Temporal Server info logs to `temporal-engine-server.log` in that folder.
-Use `--server-log-folder` if you need the file after `dexcli` exits.
 
 Configure local Attribute Store projection with the same YAML section accepted
 by Dex Server:
@@ -197,7 +168,7 @@ attributeStore:
 ```
 
 Only `attributeStore` is read from this file. `dexcli` continues to own its local
-API, Temporal, Web, and blob-store settings. The destination database and table
+API and Web listeners. The destination database and table
 must exist and be reachable before startup.
 
 ## Application-facing flags
@@ -205,29 +176,18 @@ must exist and be reachable before startup.
 ```text
 --attribute-store-config string    Dex YAML file supplying Attribute Store settings
 --bind-address string              local bind IP (default 127.0.0.1)
---blob-store-dir string            persistent Dex blob storage directory (default $HOME/.dex/blobs)
 --connector-config-dir string      local Connector config directory (default $HOME/.dex/connectors)
 --connector-release-override value local Connector release as connector-id=artifact-directory (repeatable)
 --dex-port int                     Dex gRPC port (default 8801)
---engine string                    Dex Server engine: temporal or zd (default temporal)
---external-temporal-address string      external Temporal host:port
---external-temporal-namespace string    external Temporal namespace (default default)
+--engine string                    compatibility option; server-zd is the only engine (default zd)
 --flow-rendering-dir string        directory containing Flow Definition Graph JSON files
 --open                             open Dex Web after readiness (default true)
---server-log-folder string         keep server logs (Temporal defaults to temp; zd logs to stderr)
---sqlite-db-filename string        local SQLite file (default $HOME/.dex/dev/<port>/dex.sqlite.db)
---verbose-engine-log               write Temporal Server logs to temporal-engine-server.log
+--server-log-folder string         keep server logs (default stderr)
 --web-port int                     Dex Web port (default 8802)
 --zd-binary string                 dex-server-zd executable (default DEX_SERVER_ZD_BINARY, then next to dexcli, then PATH)
 --zd-config string                 dex-server-zd YAML file with configuration overrides
 --zd-data-dir string               zd state directory (default $HOME/.dex/zd/<dex-port>)
 ```
-
-Local Temporal gRPC and Web ports start at `7233` and `8233` and move to free
-ports automatically. Operators can point Dex at an existing Temporal with
-`--external-temporal-address` and
-`--external-temporal-namespace`. Dex does not print those endpoints, and
-application developers do not need them.
 
 ## View Temporal protobuf payloads
 
@@ -666,8 +626,8 @@ details when supplied. Usage and missing-confirmation failures exit with status
 
 ## Build and test
 
-Requirements are Go 1.24+, Node.js 22+, and the workflow-backend CLI used by
-the local supervisor.
+Requirements are Go 1.26+, Node.js 22+, and a `dex-server-zd` binary for dev
+integration tests. Set `DEX_SERVER_ZD_BINARY` or put it on PATH.
 
 ```bash
 make -C cli build
@@ -681,13 +641,11 @@ binary does not read `web/`, `node_modules`, or the source tree.
 
 ## Troubleshooting
 
-- “workflow backend CLI was not found”: reinstall `dexcli` with Homebrew.
+- “dex-server-zd was not found”: reinstall `dexcli` with Homebrew.
 - “address is already in use”: an explicit `--dex-port` or `--web-port` is
-  taken. Stop that process or pass another port. Unspecified Dex ports and all
-  local Temporal ports are assigned automatically.
-- “attribute index synchronization failed”: operators should verify that Dex
-  can list and add backend visibility indexes. Workers never require a manual
-  registration command.
+  taken. Stop that process or pass another port. Unspecified Dex ports are assigned automatically.
+- “Temporal engine was removed”: remove Temporal-specific flags and use
+  `--zd-data-dir` and `--zd-config` for server-zd storage and settings.
 
 ## Version compatibility
 

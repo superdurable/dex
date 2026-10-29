@@ -11,7 +11,7 @@ package api
 import (
 	"testing"
 
-	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 

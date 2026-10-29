@@ -16,13 +16,14 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/superdurable/dex/config"
-	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	dexweb "github.com/superdurable/dex/web"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
+
+const defaultZDGRPCMaxMessageBytes = 32 << 20
 
 type zdProcess = childProcess
 
@@ -30,7 +31,6 @@ type zdRunResources struct {
 	ctx             context.Context
 	shutdownTimeout time.Duration
 	listeners       *ownedListeners
-	logs            *serverLogDir
 	process         *zdProcess
 	connection      *grpc.ClientConn
 	web             *dexweb.Server
@@ -50,13 +50,6 @@ func (resources *zdRunResources) closeInto(runErr *error) {
 	}
 	if resources.process != nil {
 		*runErr = errors.Join(*runErr, resources.process.Stop(resources.shutdownTimeout))
-	}
-	if resources.logs != nil {
-		shouldRemove := resources.logs.isEphemeral && *runErr == nil
-		if resources.logs.isEphemeral && *runErr != nil {
-			*runErr = fmt.Errorf("%w (server log folder %s)", *runErr, resources.logs.directory)
-		}
-		*runErr = errors.Join(*runErr, resources.logs.Close(shouldRemove))
 	}
 	if resources.listeners != nil {
 		*runErr = errors.Join(*runErr, resources.listeners.Close())
@@ -82,8 +75,8 @@ func waitForZD(ctx context.Context, address string, process *zdProcess) (*grpc.C
 	connection, err := grpc.NewClient(address,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(config.DefaultGrpcMaxMessageBytes),
-			grpc.MaxCallSendMsgSize(config.DefaultGrpcMaxMessageBytes),
+			grpc.MaxCallRecvMsgSize(defaultZDGRPCMaxMessageBytes),
+			grpc.MaxCallSendMsgSize(defaultZDGRPCMaxMessageBytes),
 		),
 	)
 	if err != nil {
