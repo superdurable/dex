@@ -45,7 +45,7 @@ service-link 变量。
 | **--tls-server-name** | **DEX_WEB_TLS_SERVER_NAME** | 空；覆盖用于校验 server 证书的名称。需要 **--tls**。 |
 | **--flow-service-credential-file** | **DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE** | 空；包含 Dex Web 发给 FlowService 的 bearer token 的文件。 |
 
-旧版 Worker 路由参数和环境变量仍可使用，但已弃用且不再生效。提供这些选项时会输出启动警告。Start Flow 始终使用 pull Worker。
+Start Flow 始终使用 pull Worker。两个旧版 Worker 路由选项已弃用且不再生效：**--start-flow-worker-target-pull**（**DEX_WEB_START_FLOW_WORKER_TARGET_PULL**）和 **--start-flow-worker-target-headless**（**DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS**）。Dex Web 仍接受它们，提供其中任一选项时会输出启动警告。
 
 credential 文件只包含一个 bearer token，前后的空白会被忽略。文件缺失或为空时启动失败。
 文件之后变空或不可读时，RPC 会失败，直到文件恢复。Dex Web 最多每秒检查一次文件中的新 token，

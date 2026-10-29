@@ -557,7 +557,6 @@ Environment variables override YAML:
 
 ```text
 DEX_WEB_FLOW_RENDERING_DIRECTORY
-DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS
 ```
 
 `GET /api/flow-definitions` and `GET /api/v2/catalog` return the active revision

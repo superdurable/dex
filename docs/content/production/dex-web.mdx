@@ -48,7 +48,7 @@ Kubernetes service-link variables such as **DEX_WEB_PORT**.
 | **--tls-server-name** | **DEX_WEB_TLS_SERVER_NAME** | Empty; overrides the name checked against the server certificate. Requires **--tls**. |
 | **--flow-service-credential-file** | **DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE** | Empty; a file with the bearer token that Dex Web sends to FlowService. |
 
-Legacy Worker routing flags and environment variables remain accepted as deprecated no-ops and print a startup warning when provided. Start Flow always uses pull Workers.
+Start Flow always uses pull Workers. Two legacy Worker routing options are deprecated and have no effect: **--start-flow-worker-target-pull** (**DEX_WEB_START_FLOW_WORKER_TARGET_PULL**) and **--start-flow-worker-target-headless** (**DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS**). Dex Web still accepts them and prints a startup warning when one is provided.
 
 The credential file holds one bearer token. Surrounding whitespace is ignored.
 A missing or empty file fails startup. If the file later becomes empty or
