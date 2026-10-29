@@ -41,9 +41,6 @@ func testGeneralAuthentication(t *testing.T) {
 	hash := sha256.Sum256([]byte(token))
 	tokenFile := filepath.Join(t.TempDir(), "public-tokens.yaml")
 	require.NoError(t, os.WriteFile(tokenFile, []byte("tokens:\n  - sha256: "+hex.EncodeToString(hash[:])+"\n"), 0o600))
-	internalToken := "internal-" + uuid.NewString()
-	internalTokenFile := filepath.Join(t.TempDir(), "internal-token")
-	require.NoError(t, os.WriteFile(internalTokenFile, []byte(internalToken+"\n"), 0o600))
 	issuer := newTestJWTIssuer(t)
 	testConfig := serverZDTestConfig{
 
@@ -79,13 +76,6 @@ func testGeneralAuthentication(t *testing.T) {
 	})))
 	require.Equal(t, codes.Unauthenticated, call(jwtToken(time.Now().Add(-time.Hour), "dex")))
 	require.Equal(t, codes.Unauthenticated, call(jwtToken(time.Now().Add(time.Hour), "wrong")))
-	dumpRequest := &dexpb.ContinueAsNewDumpRequest{FlowId: "missing-" + uuid.NewString(), PageSizeInBytes: 1024}
-	dump := func(address string, credential string) codes.Code {
-		client := dexpb.NewInternalServiceClient(newDexClientConnectionWithCredential(t, address, credential, testconfig.DefaultGrpcMaxMessageBytes))
-		_, err := client.DumpFlowForContinueAsNew(ctx, dumpRequest)
-		return status.Code(err)
-	}
-	require.Equal(t, codes.Unimplemented, dump(runtime.PublicAddress, internalToken))
 
 	workerTarget := startWorker(t, basic.NewHandler())
 	flowID := basic.FlowType + "-" + uuid.NewString()

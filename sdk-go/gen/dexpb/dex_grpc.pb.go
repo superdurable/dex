@@ -89,7 +89,7 @@ type FlowServiceClient interface {
 	UpdateFlowConfig(ctx context.Context, in *UpdateFlowConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	WaitForStepCompletion(ctx context.Context, in *WaitForStepCompletionRequest, opts ...grpc.CallOption) (*WaitForStepCompletionResponse, error)
 	WaitForAttribute(ctx context.Context, in *WaitForAttributeRequest, opts ...grpc.CallOption) (*WaitForAttributeResponse, error)
-	// server-zd returns UNIMPLEMENTED.
+	// Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
 	TriggerContinueAsNew(ctx context.Context, in *TriggerContinueAsNewRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	HealthCheck(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*HealthInfo, error)
 }
@@ -404,7 +404,7 @@ type FlowServiceServer interface {
 	UpdateFlowConfig(context.Context, *UpdateFlowConfigRequest) (*emptypb.Empty, error)
 	WaitForStepCompletion(context.Context, *WaitForStepCompletionRequest) (*WaitForStepCompletionResponse, error)
 	WaitForAttribute(context.Context, *WaitForAttributeRequest) (*WaitForAttributeResponse, error)
-	// server-zd returns UNIMPLEMENTED.
+	// Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
 	TriggerContinueAsNew(context.Context, *TriggerContinueAsNewRequest) (*emptypb.Empty, error)
 	HealthCheck(context.Context, *emptypb.Empty) (*HealthInfo, error)
 	mustEmbedUnimplementedFlowServiceServer()
@@ -1135,8 +1135,8 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// Hosted by Dex worker; server calls these RPCs.
-// server-zd supports only pull Workers and never calls WorkerService.
+// Describes the Step and RPC calls a Worker serves.
+// Dex delivers them over WorkerTaskService and never dials Workers.
 type WorkerServiceClient interface {
 	InvokeWaitForMethod(ctx context.Context, in *InvokeWaitForMethodRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[InvokeWaitForMethodOutput], error)
 	InvokeExecuteMethod(ctx context.Context, in *InvokeExecuteMethodRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[InvokeExecuteMethodOutput], error)
@@ -1203,8 +1203,8 @@ func (c *workerServiceClient) InvokeWorkerRPC(ctx context.Context, in *InvokeWor
 // All implementations must embed UnimplementedWorkerServiceServer
 // for forward compatibility.
 //
-// Hosted by Dex worker; server calls these RPCs.
-// server-zd supports only pull Workers and never calls WorkerService.
+// Describes the Step and RPC calls a Worker serves.
+// Dex delivers them over WorkerTaskService and never dials Workers.
 type WorkerServiceServer interface {
 	InvokeWaitForMethod(*InvokeWaitForMethodRequest, grpc.ServerStreamingServer[InvokeWaitForMethodOutput]) error
 	InvokeExecuteMethod(*InvokeExecuteMethodRequest, grpc.ServerStreamingServer[InvokeExecuteMethodOutput]) error
@@ -1415,260 +1415,5 @@ var WorkerTaskService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "dex.proto",
-}
-
-const (
-	MatchingService_DispatchTask_FullMethodName          = "/dex.MatchingService/DispatchTask"
-	MatchingService_ForwardPollWorkerTask_FullMethodName = "/dex.MatchingService/ForwardPollWorkerTask"
-)
-
-// MatchingServiceClient is the client API for MatchingService service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-//
-// Hosted on the internal listener; server instances route tasks and Worker streams to queue owners.
-// Go Server internals; server-zd does not serve or persist them.
-type MatchingServiceClient interface {
-	// Streams Worker output frames and a final result or dispatch error.
-	DispatchTask(ctx context.Context, in *DispatchTaskRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DispatchTaskResponse], error)
-	// Proxies a Worker's queue stream from its receiving instance to the queue owner.
-	ForwardPollWorkerTask(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[PollWorkerTaskRequest, PollWorkerTaskResponse], error)
-}
-
-type matchingServiceClient struct {
-	cc grpc.ClientConnInterface
-}
-
-func NewMatchingServiceClient(cc grpc.ClientConnInterface) MatchingServiceClient {
-	return &matchingServiceClient{cc}
-}
-
-func (c *matchingServiceClient) DispatchTask(ctx context.Context, in *DispatchTaskRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DispatchTaskResponse], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MatchingService_ServiceDesc.Streams[0], MatchingService_DispatchTask_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[DispatchTaskRequest, DispatchTaskResponse]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MatchingService_DispatchTaskClient = grpc.ServerStreamingClient[DispatchTaskResponse]
-
-func (c *matchingServiceClient) ForwardPollWorkerTask(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[PollWorkerTaskRequest, PollWorkerTaskResponse], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MatchingService_ServiceDesc.Streams[1], MatchingService_ForwardPollWorkerTask_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[PollWorkerTaskRequest, PollWorkerTaskResponse]{ClientStream: stream}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MatchingService_ForwardPollWorkerTaskClient = grpc.BidiStreamingClient[PollWorkerTaskRequest, PollWorkerTaskResponse]
-
-// MatchingServiceServer is the server API for MatchingService service.
-// All implementations must embed UnimplementedMatchingServiceServer
-// for forward compatibility.
-//
-// Hosted on the internal listener; server instances route tasks and Worker streams to queue owners.
-// Go Server internals; server-zd does not serve or persist them.
-type MatchingServiceServer interface {
-	// Streams Worker output frames and a final result or dispatch error.
-	DispatchTask(*DispatchTaskRequest, grpc.ServerStreamingServer[DispatchTaskResponse]) error
-	// Proxies a Worker's queue stream from its receiving instance to the queue owner.
-	ForwardPollWorkerTask(grpc.BidiStreamingServer[PollWorkerTaskRequest, PollWorkerTaskResponse]) error
-	mustEmbedUnimplementedMatchingServiceServer()
-}
-
-// UnimplementedMatchingServiceServer must be embedded to have
-// forward compatible implementations.
-//
-// NOTE: this should be embedded by value instead of pointer to avoid a nil
-// pointer dereference when methods are called.
-type UnimplementedMatchingServiceServer struct{}
-
-func (UnimplementedMatchingServiceServer) DispatchTask(*DispatchTaskRequest, grpc.ServerStreamingServer[DispatchTaskResponse]) error {
-	return status.Error(codes.Unimplemented, "method DispatchTask not implemented")
-}
-func (UnimplementedMatchingServiceServer) ForwardPollWorkerTask(grpc.BidiStreamingServer[PollWorkerTaskRequest, PollWorkerTaskResponse]) error {
-	return status.Error(codes.Unimplemented, "method ForwardPollWorkerTask not implemented")
-}
-func (UnimplementedMatchingServiceServer) mustEmbedUnimplementedMatchingServiceServer() {}
-func (UnimplementedMatchingServiceServer) testEmbeddedByValue()                         {}
-
-// UnsafeMatchingServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to MatchingServiceServer will
-// result in compilation errors.
-type UnsafeMatchingServiceServer interface {
-	mustEmbedUnimplementedMatchingServiceServer()
-}
-
-func RegisterMatchingServiceServer(s grpc.ServiceRegistrar, srv MatchingServiceServer) {
-	// If the following call panics, it indicates UnimplementedMatchingServiceServer was
-	// embedded by pointer and is nil.  This will cause panics if an
-	// unimplemented method is ever invoked, so we test this at initialization
-	// time to prevent it from happening at runtime later due to I/O.
-	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
-		t.testEmbeddedByValue()
-	}
-	s.RegisterService(&MatchingService_ServiceDesc, srv)
-}
-
-func _MatchingService_DispatchTask_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(DispatchTaskRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(MatchingServiceServer).DispatchTask(m, &grpc.GenericServerStream[DispatchTaskRequest, DispatchTaskResponse]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MatchingService_DispatchTaskServer = grpc.ServerStreamingServer[DispatchTaskResponse]
-
-func _MatchingService_ForwardPollWorkerTask_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(MatchingServiceServer).ForwardPollWorkerTask(&grpc.GenericServerStream[PollWorkerTaskRequest, PollWorkerTaskResponse]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MatchingService_ForwardPollWorkerTaskServer = grpc.BidiStreamingServer[PollWorkerTaskRequest, PollWorkerTaskResponse]
-
-// MatchingService_ServiceDesc is the grpc.ServiceDesc for MatchingService service.
-// It's only intended for direct use with grpc.RegisterService,
-// and not to be introspected or modified (even as a copy)
-var MatchingService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "dex.MatchingService",
-	HandlerType: (*MatchingServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "DispatchTask",
-			Handler:       _MatchingService_DispatchTask_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "ForwardPollWorkerTask",
-			Handler:       _MatchingService_ForwardPollWorkerTask_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
-		},
-	},
-	Metadata: "dex.proto",
-}
-
-const (
-	InternalService_DumpFlowForContinueAsNew_FullMethodName = "/dex.InternalService/DumpFlowForContinueAsNew"
-)
-
-// InternalServiceClient is the client API for InternalService service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-//
-// Server-internal only (interpreter CAN activity → API). Not SDK-facing.
-// Go Server internals; server-zd does not serve or persist them.
-type InternalServiceClient interface {
-	DumpFlowForContinueAsNew(ctx context.Context, in *ContinueAsNewDumpRequest, opts ...grpc.CallOption) (*ContinueAsNewDumpResponse, error)
-}
-
-type internalServiceClient struct {
-	cc grpc.ClientConnInterface
-}
-
-func NewInternalServiceClient(cc grpc.ClientConnInterface) InternalServiceClient {
-	return &internalServiceClient{cc}
-}
-
-func (c *internalServiceClient) DumpFlowForContinueAsNew(ctx context.Context, in *ContinueAsNewDumpRequest, opts ...grpc.CallOption) (*ContinueAsNewDumpResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ContinueAsNewDumpResponse)
-	err := c.cc.Invoke(ctx, InternalService_DumpFlowForContinueAsNew_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// InternalServiceServer is the server API for InternalService service.
-// All implementations must embed UnimplementedInternalServiceServer
-// for forward compatibility.
-//
-// Server-internal only (interpreter CAN activity → API). Not SDK-facing.
-// Go Server internals; server-zd does not serve or persist them.
-type InternalServiceServer interface {
-	DumpFlowForContinueAsNew(context.Context, *ContinueAsNewDumpRequest) (*ContinueAsNewDumpResponse, error)
-	mustEmbedUnimplementedInternalServiceServer()
-}
-
-// UnimplementedInternalServiceServer must be embedded to have
-// forward compatible implementations.
-//
-// NOTE: this should be embedded by value instead of pointer to avoid a nil
-// pointer dereference when methods are called.
-type UnimplementedInternalServiceServer struct{}
-
-func (UnimplementedInternalServiceServer) DumpFlowForContinueAsNew(context.Context, *ContinueAsNewDumpRequest) (*ContinueAsNewDumpResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method DumpFlowForContinueAsNew not implemented")
-}
-func (UnimplementedInternalServiceServer) mustEmbedUnimplementedInternalServiceServer() {}
-func (UnimplementedInternalServiceServer) testEmbeddedByValue()                         {}
-
-// UnsafeInternalServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to InternalServiceServer will
-// result in compilation errors.
-type UnsafeInternalServiceServer interface {
-	mustEmbedUnimplementedInternalServiceServer()
-}
-
-func RegisterInternalServiceServer(s grpc.ServiceRegistrar, srv InternalServiceServer) {
-	// If the following call panics, it indicates UnimplementedInternalServiceServer was
-	// embedded by pointer and is nil.  This will cause panics if an
-	// unimplemented method is ever invoked, so we test this at initialization
-	// time to prevent it from happening at runtime later due to I/O.
-	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
-		t.testEmbeddedByValue()
-	}
-	s.RegisterService(&InternalService_ServiceDesc, srv)
-}
-
-func _InternalService_DumpFlowForContinueAsNew_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ContinueAsNewDumpRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(InternalServiceServer).DumpFlowForContinueAsNew(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: InternalService_DumpFlowForContinueAsNew_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(InternalServiceServer).DumpFlowForContinueAsNew(ctx, req.(*ContinueAsNewDumpRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-// InternalService_ServiceDesc is the grpc.ServiceDesc for InternalService service.
-// It's only intended for direct use with grpc.RegisterService,
-// and not to be introspected or modified (even as a copy)
-var InternalService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "dex.InternalService",
-	HandlerType: (*InternalServiceServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "DumpFlowForContinueAsNew",
-			Handler:    _InternalService_DumpFlowForContinueAsNew_Handler,
-		},
-	},
-	Streams:  []grpc.StreamDesc{},
 	Metadata: "dex.proto",
 }

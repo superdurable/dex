@@ -80,7 +80,8 @@ private static final long serialVersionUID = 0L;
   private int continueAsNewThreshold_ = 0;
   /**
    * <pre>
-   * server-zd ignores this field.
+   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+   * value in the Flow configuration, and otherwise ignores it.
    * </pre>
    *
    * <code>optional int32 continue_as_new_threshold = 2;</code>
@@ -92,7 +93,8 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * server-zd ignores this field.
+   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+   * value in the Flow configuration, and otherwise ignores it.
    * </pre>
    *
    * <code>optional int32 continue_as_new_threshold = 2;</code>
@@ -107,7 +109,8 @@ private static final long serialVersionUID = 0L;
   private int continueAsNewPageSizeInBytes_ = 0;
   /**
    * <pre>
-   * server-zd ignores this field.
+   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+   * value in the Flow configuration, and otherwise ignores it.
    * </pre>
    *
    * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
@@ -119,7 +122,8 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * server-zd ignores this field.
+   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+   * value in the Flow configuration, and otherwise ignores it.
    * </pre>
    *
    * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
@@ -752,7 +756,8 @@ private static final long serialVersionUID = 0L;
     private int continueAsNewThreshold_ ;
     /**
      * <pre>
-     * server-zd ignores this field.
+     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+     * value in the Flow configuration, and otherwise ignores it.
      * </pre>
      *
      * <code>optional int32 continue_as_new_threshold = 2;</code>
@@ -764,7 +769,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd ignores this field.
+     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+     * value in the Flow configuration, and otherwise ignores it.
      * </pre>
      *
      * <code>optional int32 continue_as_new_threshold = 2;</code>
@@ -776,7 +782,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd ignores this field.
+     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+     * value in the Flow configuration, and otherwise ignores it.
      * </pre>
      *
      * <code>optional int32 continue_as_new_threshold = 2;</code>
@@ -792,7 +799,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd ignores this field.
+     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+     * value in the Flow configuration, and otherwise ignores it.
      * </pre>
      *
      * <code>optional int32 continue_as_new_threshold = 2;</code>
@@ -808,7 +816,8 @@ private static final long serialVersionUID = 0L;
     private int continueAsNewPageSizeInBytes_ ;
     /**
      * <pre>
-     * server-zd ignores this field.
+     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+     * value in the Flow configuration, and otherwise ignores it.
      * </pre>
      *
      * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
@@ -820,7 +829,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd ignores this field.
+     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+     * value in the Flow configuration, and otherwise ignores it.
      * </pre>
      *
      * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
@@ -832,7 +842,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd ignores this field.
+     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+     * value in the Flow configuration, and otherwise ignores it.
      * </pre>
      *
      * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
@@ -848,7 +859,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd ignores this field.
+     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+     * value in the Flow configuration, and otherwise ignores it.
      * </pre>
      *
      * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>

@@ -611,10 +611,7 @@ async fn update_flow_config_merges_into_the_stored_config() {
     let started_config = stored_flow_config(&mut flow_client, flow_id).await;
     assert_eq!(
         started_config.worker_target,
-        Some(WorkerTarget {
-            is_pull_mode: true,
-            ..WorkerTarget::default()
-        })
+        Some(WorkerTarget { is_pull_mode: true })
     );
 
     flow_client

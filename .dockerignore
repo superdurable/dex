@@ -5,8 +5,6 @@ bin/dexcli-tls-darwin-arm64
 cli/internal/command/testfixtures/registered-type-names/mainpackage/mainpackage
 web/node_modules/
 web/assets/dist/
-web/large-step-graph
-web/fan-out-90
 examples/go/dex-samples
 examples/go/dex-deal-dsl
 examples/go/dex-ai-agent

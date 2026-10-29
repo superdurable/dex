@@ -591,8 +591,9 @@ dexcli flow start order-123 --flow-type OrderFlow --start-step-type StartOrder \
 
 `--config` accepts a JSON object with optional `activeStepSearchMode` (`all`,
 `wait-for`, or `disabled`), state-transfer thresholds, `stepDurability`
-(`sync` or `async`), `workerTarget`, and `attributeStoreNames`. `--retry-policy`
-uses `initialInterval`, `backoffCoefficient`, `maximumInterval`, and
+(`sync` or `async`), and `attributeStoreNames`. It rejects `workerTarget`
+because Dex routes Flow work to pull Workers. `--retry-policy` uses
+`initialInterval`, `backoffCoefficient`, `maximumInterval`, and
 `maximumAttempts`; intervals are Go duration strings. `--step-options` accepts
 protobuf JSON because it mirrors the full nested StepOptions message. When a
 Flow timeout is set without `--flow-timeout-policy`, the server's `fail` default

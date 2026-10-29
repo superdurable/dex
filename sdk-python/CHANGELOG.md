@@ -11,6 +11,10 @@
   WorkerOptions.worker_target, ClientOptions.worker_target, and
   FlowConfig.worker_target. Delete these settings from applications, including
   StartFlowOptions and SubFlowOptions config overrides. Pull routing is automatic.
+- The generated dex.dexpb protocol module no longer includes the Go Server
+  internal services and messages, WorkerTarget.address,
+  WorkerTarget.is_headless_address, or local_activity_metadata on Step method
+  responses. Only code that imports dex.dexpb directly is affected.
 - WorkerOptions.pull now defaults to PullWorkerOptions() and no longer accepts
   None to select push mode. Retain it only to configure polling, task capacity,
   identity, registration, or shutdown.

@@ -54,47 +54,6 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
-  public static final int LOCAL_ACTIVITY_METADATA_FIELD_NUMBER = 1;
-  private io.superdurable.gen.LocalActivityMetadata localActivityMetadata_;
-  /**
-   * <pre>
-   * Server-populated lineage input for local activity history.
-   * server-zd never sets this.
-   * </pre>
-   *
-   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-   * @return Whether the localActivityMetadata field is set.
-   */
-  @java.lang.Override
-  public boolean hasLocalActivityMetadata() {
-    return ((bitField0_ & 0x00000001) != 0);
-  }
-  /**
-   * <pre>
-   * Server-populated lineage input for local activity history.
-   * server-zd never sets this.
-   * </pre>
-   *
-   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-   * @return The localActivityMetadata.
-   */
-  @java.lang.Override
-  public io.superdurable.gen.LocalActivityMetadata getLocalActivityMetadata() {
-    return localActivityMetadata_ == null ? io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
-  }
-  /**
-   * <pre>
-   * Server-populated lineage input for local activity history.
-   * server-zd never sets this.
-   * </pre>
-   *
-   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-   */
-  @java.lang.Override
-  public io.superdurable.gen.LocalActivityMetadataOrBuilder getLocalActivityMetadataOrBuilder() {
-    return localActivityMetadata_ == null ? io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
-  }
-
   public static final int UPSERT_ATTRIBUTES_FIELD_NUMBER = 2;
   @SuppressWarnings("serial")
   private java.util.List<io.superdurable.gen.AttributeWrite> upsertAttributes_;
@@ -144,7 +103,7 @@ private static final long serialVersionUID = 0L;
    */
   @java.lang.Override
   public boolean hasWaitingCondition() {
-    return ((bitField0_ & 0x00000002) != 0);
+    return ((bitField0_ & 0x00000001) != 0);
   }
   /**
    * <code>.dex.WaitingCondition waiting_condition = 3;</code>
@@ -334,7 +293,7 @@ private static final long serialVersionUID = 0L;
    */
   @java.lang.Override
   public boolean hasActionPermissionMappings() {
-    return ((bitField0_ & 0x00000004) != 0);
+    return ((bitField0_ & 0x00000002) != 0);
   }
   /**
    * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
@@ -366,13 +325,10 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(1, getLocalActivityMetadata());
-    }
     for (int i = 0; i < upsertAttributes_.size(); i++) {
       output.writeMessage(2, upsertAttributes_.get(i));
     }
-    if (((bitField0_ & 0x00000002) != 0)) {
+    if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(3, getWaitingCondition());
     }
     for (int i = 0; i < upsertStepExeLocals_.size(); i++) {
@@ -387,17 +343,13 @@ private static final long serialVersionUID = 0L;
     for (int i = 0; i < deleteFromChannel_.size(); i++) {
       output.writeMessage(7, deleteFromChannel_.get(i));
     }
-    if (((bitField0_ & 0x00000004) != 0)) {
+    if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(8, getActionPermissionMappings());
     }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (((bitField0_ & 0x00000001) != 0)) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(1, getLocalActivityMetadata());
-    }
 
         {
           final int count = upsertAttributes_.size();
@@ -407,7 +359,7 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
-    if (((bitField0_ & 0x00000002) != 0)) {
+    if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(3, getWaitingCondition());
     }
@@ -447,7 +399,7 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
-    if (((bitField0_ & 0x00000004) != 0)) {
+    if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(8, getActionPermissionMappings());
     }
@@ -475,11 +427,6 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.InvokeWaitForMethodResponse other = (io.superdurable.gen.InvokeWaitForMethodResponse) obj;
 
-    if (hasLocalActivityMetadata() != other.hasLocalActivityMetadata()) return false;
-    if (hasLocalActivityMetadata()) {
-      if (!getLocalActivityMetadata()
-          .equals(other.getLocalActivityMetadata())) return false;
-    }
     if (!getUpsertAttributesList()
         .equals(other.getUpsertAttributesList())) return false;
     if (hasWaitingCondition() != other.hasWaitingCondition()) return false;
@@ -511,10 +458,6 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    if (hasLocalActivityMetadata()) {
-      hash = (37 * hash) + LOCAL_ACTIVITY_METADATA_FIELD_NUMBER;
-      hash = (53 * hash) + getLocalActivityMetadata().hashCode();
-    }
     if (getUpsertAttributesCount() > 0) {
       hash = (37 * hash) + UPSERT_ATTRIBUTES_FIELD_NUMBER;
       hash = (53 * hash) + getUpsertAttributesList().hashCode();
@@ -673,7 +616,6 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetLocalActivityMetadataFieldBuilder();
         internalGetUpsertAttributesFieldBuilder();
         internalGetWaitingConditionFieldBuilder();
         internalGetUpsertStepExeLocalsFieldBuilder();
@@ -687,18 +629,13 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      localActivityMetadata_ = null;
-      if (localActivityMetadataBuilder_ != null) {
-        localActivityMetadataBuilder_.dispose();
-        localActivityMetadataBuilder_ = null;
-      }
       if (upsertAttributesBuilder_ == null) {
         upsertAttributes_ = java.util.Collections.emptyList();
       } else {
         upsertAttributes_ = null;
         upsertAttributesBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000002);
+      bitField0_ = (bitField0_ & ~0x00000001);
       waitingCondition_ = null;
       if (waitingConditionBuilder_ != null) {
         waitingConditionBuilder_.dispose();
@@ -710,28 +647,28 @@ private static final long serialVersionUID = 0L;
         upsertStepExeLocals_ = null;
         upsertStepExeLocalsBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000004);
       if (recordEventsBuilder_ == null) {
         recordEvents_ = java.util.Collections.emptyList();
       } else {
         recordEvents_ = null;
         recordEventsBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000008);
       if (publishToChannelBuilder_ == null) {
         publishToChannel_ = java.util.Collections.emptyList();
       } else {
         publishToChannel_ = null;
         publishToChannelBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000020);
+      bitField0_ = (bitField0_ & ~0x00000010);
       if (deleteFromChannelBuilder_ == null) {
         deleteFromChannel_ = java.util.Collections.emptyList();
       } else {
         deleteFromChannel_ = null;
         deleteFromChannelBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000040);
+      bitField0_ = (bitField0_ & ~0x00000020);
       actionPermissionMappings_ = null;
       if (actionPermissionMappingsBuilder_ != null) {
         actionPermissionMappingsBuilder_.dispose();
@@ -771,45 +708,45 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartialRepeatedFields(io.superdurable.gen.InvokeWaitForMethodResponse result) {
       if (upsertAttributesBuilder_ == null) {
-        if (((bitField0_ & 0x00000002) != 0)) {
+        if (((bitField0_ & 0x00000001) != 0)) {
           upsertAttributes_ = java.util.Collections.unmodifiableList(upsertAttributes_);
-          bitField0_ = (bitField0_ & ~0x00000002);
+          bitField0_ = (bitField0_ & ~0x00000001);
         }
         result.upsertAttributes_ = upsertAttributes_;
       } else {
         result.upsertAttributes_ = upsertAttributesBuilder_.build();
       }
       if (upsertStepExeLocalsBuilder_ == null) {
-        if (((bitField0_ & 0x00000008) != 0)) {
+        if (((bitField0_ & 0x00000004) != 0)) {
           upsertStepExeLocals_ = java.util.Collections.unmodifiableList(upsertStepExeLocals_);
-          bitField0_ = (bitField0_ & ~0x00000008);
+          bitField0_ = (bitField0_ & ~0x00000004);
         }
         result.upsertStepExeLocals_ = upsertStepExeLocals_;
       } else {
         result.upsertStepExeLocals_ = upsertStepExeLocalsBuilder_.build();
       }
       if (recordEventsBuilder_ == null) {
-        if (((bitField0_ & 0x00000010) != 0)) {
+        if (((bitField0_ & 0x00000008) != 0)) {
           recordEvents_ = java.util.Collections.unmodifiableList(recordEvents_);
-          bitField0_ = (bitField0_ & ~0x00000010);
+          bitField0_ = (bitField0_ & ~0x00000008);
         }
         result.recordEvents_ = recordEvents_;
       } else {
         result.recordEvents_ = recordEventsBuilder_.build();
       }
       if (publishToChannelBuilder_ == null) {
-        if (((bitField0_ & 0x00000020) != 0)) {
+        if (((bitField0_ & 0x00000010) != 0)) {
           publishToChannel_ = java.util.Collections.unmodifiableList(publishToChannel_);
-          bitField0_ = (bitField0_ & ~0x00000020);
+          bitField0_ = (bitField0_ & ~0x00000010);
         }
         result.publishToChannel_ = publishToChannel_;
       } else {
         result.publishToChannel_ = publishToChannelBuilder_.build();
       }
       if (deleteFromChannelBuilder_ == null) {
-        if (((bitField0_ & 0x00000040) != 0)) {
+        if (((bitField0_ & 0x00000020) != 0)) {
           deleteFromChannel_ = java.util.Collections.unmodifiableList(deleteFromChannel_);
-          bitField0_ = (bitField0_ & ~0x00000040);
+          bitField0_ = (bitField0_ & ~0x00000020);
         }
         result.deleteFromChannel_ = deleteFromChannel_;
       } else {
@@ -820,23 +757,17 @@ private static final long serialVersionUID = 0L;
     private void buildPartial0(io.superdurable.gen.InvokeWaitForMethodResponse result) {
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.localActivityMetadata_ = localActivityMetadataBuilder_ == null
-            ? localActivityMetadata_
-            : localActivityMetadataBuilder_.build();
-        to_bitField0_ |= 0x00000001;
-      }
-      if (((from_bitField0_ & 0x00000004) != 0)) {
+      if (((from_bitField0_ & 0x00000002) != 0)) {
         result.waitingCondition_ = waitingConditionBuilder_ == null
             ? waitingCondition_
             : waitingConditionBuilder_.build();
-        to_bitField0_ |= 0x00000002;
+        to_bitField0_ |= 0x00000001;
       }
-      if (((from_bitField0_ & 0x00000080) != 0)) {
+      if (((from_bitField0_ & 0x00000040) != 0)) {
         result.actionPermissionMappings_ = actionPermissionMappingsBuilder_ == null
             ? actionPermissionMappings_
             : actionPermissionMappingsBuilder_.build();
-        to_bitField0_ |= 0x00000004;
+        to_bitField0_ |= 0x00000002;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -853,14 +784,11 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.InvokeWaitForMethodResponse other) {
       if (other == io.superdurable.gen.InvokeWaitForMethodResponse.getDefaultInstance()) return this;
-      if (other.hasLocalActivityMetadata()) {
-        mergeLocalActivityMetadata(other.getLocalActivityMetadata());
-      }
       if (upsertAttributesBuilder_ == null) {
         if (!other.upsertAttributes_.isEmpty()) {
           if (upsertAttributes_.isEmpty()) {
             upsertAttributes_ = other.upsertAttributes_;
-            bitField0_ = (bitField0_ & ~0x00000002);
+            bitField0_ = (bitField0_ & ~0x00000001);
           } else {
             ensureUpsertAttributesIsMutable();
             upsertAttributes_.addAll(other.upsertAttributes_);
@@ -873,7 +801,7 @@ private static final long serialVersionUID = 0L;
             upsertAttributesBuilder_.dispose();
             upsertAttributesBuilder_ = null;
             upsertAttributes_ = other.upsertAttributes_;
-            bitField0_ = (bitField0_ & ~0x00000002);
+            bitField0_ = (bitField0_ & ~0x00000001);
             upsertAttributesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetUpsertAttributesFieldBuilder() : null;
@@ -889,7 +817,7 @@ private static final long serialVersionUID = 0L;
         if (!other.upsertStepExeLocals_.isEmpty()) {
           if (upsertStepExeLocals_.isEmpty()) {
             upsertStepExeLocals_ = other.upsertStepExeLocals_;
-            bitField0_ = (bitField0_ & ~0x00000008);
+            bitField0_ = (bitField0_ & ~0x00000004);
           } else {
             ensureUpsertStepExeLocalsIsMutable();
             upsertStepExeLocals_.addAll(other.upsertStepExeLocals_);
@@ -902,7 +830,7 @@ private static final long serialVersionUID = 0L;
             upsertStepExeLocalsBuilder_.dispose();
             upsertStepExeLocalsBuilder_ = null;
             upsertStepExeLocals_ = other.upsertStepExeLocals_;
-            bitField0_ = (bitField0_ & ~0x00000008);
+            bitField0_ = (bitField0_ & ~0x00000004);
             upsertStepExeLocalsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetUpsertStepExeLocalsFieldBuilder() : null;
@@ -915,7 +843,7 @@ private static final long serialVersionUID = 0L;
         if (!other.recordEvents_.isEmpty()) {
           if (recordEvents_.isEmpty()) {
             recordEvents_ = other.recordEvents_;
-            bitField0_ = (bitField0_ & ~0x00000010);
+            bitField0_ = (bitField0_ & ~0x00000008);
           } else {
             ensureRecordEventsIsMutable();
             recordEvents_.addAll(other.recordEvents_);
@@ -928,7 +856,7 @@ private static final long serialVersionUID = 0L;
             recordEventsBuilder_.dispose();
             recordEventsBuilder_ = null;
             recordEvents_ = other.recordEvents_;
-            bitField0_ = (bitField0_ & ~0x00000010);
+            bitField0_ = (bitField0_ & ~0x00000008);
             recordEventsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetRecordEventsFieldBuilder() : null;
@@ -941,7 +869,7 @@ private static final long serialVersionUID = 0L;
         if (!other.publishToChannel_.isEmpty()) {
           if (publishToChannel_.isEmpty()) {
             publishToChannel_ = other.publishToChannel_;
-            bitField0_ = (bitField0_ & ~0x00000020);
+            bitField0_ = (bitField0_ & ~0x00000010);
           } else {
             ensurePublishToChannelIsMutable();
             publishToChannel_.addAll(other.publishToChannel_);
@@ -954,7 +882,7 @@ private static final long serialVersionUID = 0L;
             publishToChannelBuilder_.dispose();
             publishToChannelBuilder_ = null;
             publishToChannel_ = other.publishToChannel_;
-            bitField0_ = (bitField0_ & ~0x00000020);
+            bitField0_ = (bitField0_ & ~0x00000010);
             publishToChannelBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetPublishToChannelFieldBuilder() : null;
@@ -967,7 +895,7 @@ private static final long serialVersionUID = 0L;
         if (!other.deleteFromChannel_.isEmpty()) {
           if (deleteFromChannel_.isEmpty()) {
             deleteFromChannel_ = other.deleteFromChannel_;
-            bitField0_ = (bitField0_ & ~0x00000040);
+            bitField0_ = (bitField0_ & ~0x00000020);
           } else {
             ensureDeleteFromChannelIsMutable();
             deleteFromChannel_.addAll(other.deleteFromChannel_);
@@ -980,7 +908,7 @@ private static final long serialVersionUID = 0L;
             deleteFromChannelBuilder_.dispose();
             deleteFromChannelBuilder_ = null;
             deleteFromChannel_ = other.deleteFromChannel_;
-            bitField0_ = (bitField0_ & ~0x00000040);
+            bitField0_ = (bitField0_ & ~0x00000020);
             deleteFromChannelBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetDeleteFromChannelFieldBuilder() : null;
@@ -1018,13 +946,6 @@ private static final long serialVersionUID = 0L;
             case 0:
               done = true;
               break;
-            case 10: {
-              input.readMessage(
-                  internalGetLocalActivityMetadataFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              bitField0_ |= 0x00000001;
-              break;
-            } // case 10
             case 18: {
               io.superdurable.gen.AttributeWrite m =
                   input.readMessage(
@@ -1042,7 +963,7 @@ private static final long serialVersionUID = 0L;
               input.readMessage(
                   internalGetWaitingConditionFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000004;
+              bitField0_ |= 0x00000002;
               break;
             } // case 26
             case 34: {
@@ -1101,7 +1022,7 @@ private static final long serialVersionUID = 0L;
               input.readMessage(
                   internalGetActionPermissionMappingsFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000080;
+              bitField0_ |= 0x00000040;
               break;
             } // case 66
             default: {
@@ -1121,178 +1042,12 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private io.superdurable.gen.LocalActivityMetadata localActivityMetadata_;
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.LocalActivityMetadata, io.superdurable.gen.LocalActivityMetadata.Builder, io.superdurable.gen.LocalActivityMetadataOrBuilder> localActivityMetadataBuilder_;
-    /**
-     * <pre>
-     * Server-populated lineage input for local activity history.
-     * server-zd never sets this.
-     * </pre>
-     *
-     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-     * @return Whether the localActivityMetadata field is set.
-     */
-    public boolean hasLocalActivityMetadata() {
-      return ((bitField0_ & 0x00000001) != 0);
-    }
-    /**
-     * <pre>
-     * Server-populated lineage input for local activity history.
-     * server-zd never sets this.
-     * </pre>
-     *
-     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-     * @return The localActivityMetadata.
-     */
-    public io.superdurable.gen.LocalActivityMetadata getLocalActivityMetadata() {
-      if (localActivityMetadataBuilder_ == null) {
-        return localActivityMetadata_ == null ? io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
-      } else {
-        return localActivityMetadataBuilder_.getMessage();
-      }
-    }
-    /**
-     * <pre>
-     * Server-populated lineage input for local activity history.
-     * server-zd never sets this.
-     * </pre>
-     *
-     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-     */
-    public Builder setLocalActivityMetadata(io.superdurable.gen.LocalActivityMetadata value) {
-      if (localActivityMetadataBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        localActivityMetadata_ = value;
-      } else {
-        localActivityMetadataBuilder_.setMessage(value);
-      }
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Server-populated lineage input for local activity history.
-     * server-zd never sets this.
-     * </pre>
-     *
-     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-     */
-    public Builder setLocalActivityMetadata(
-        io.superdurable.gen.LocalActivityMetadata.Builder builderForValue) {
-      if (localActivityMetadataBuilder_ == null) {
-        localActivityMetadata_ = builderForValue.build();
-      } else {
-        localActivityMetadataBuilder_.setMessage(builderForValue.build());
-      }
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Server-populated lineage input for local activity history.
-     * server-zd never sets this.
-     * </pre>
-     *
-     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-     */
-    public Builder mergeLocalActivityMetadata(io.superdurable.gen.LocalActivityMetadata value) {
-      if (localActivityMetadataBuilder_ == null) {
-        if (((bitField0_ & 0x00000001) != 0) &&
-          localActivityMetadata_ != null &&
-          localActivityMetadata_ != io.superdurable.gen.LocalActivityMetadata.getDefaultInstance()) {
-          getLocalActivityMetadataBuilder().mergeFrom(value);
-        } else {
-          localActivityMetadata_ = value;
-        }
-      } else {
-        localActivityMetadataBuilder_.mergeFrom(value);
-      }
-      if (localActivityMetadata_ != null) {
-        bitField0_ |= 0x00000001;
-        onChanged();
-      }
-      return this;
-    }
-    /**
-     * <pre>
-     * Server-populated lineage input for local activity history.
-     * server-zd never sets this.
-     * </pre>
-     *
-     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-     */
-    public Builder clearLocalActivityMetadata() {
-      bitField0_ = (bitField0_ & ~0x00000001);
-      localActivityMetadata_ = null;
-      if (localActivityMetadataBuilder_ != null) {
-        localActivityMetadataBuilder_.dispose();
-        localActivityMetadataBuilder_ = null;
-      }
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Server-populated lineage input for local activity history.
-     * server-zd never sets this.
-     * </pre>
-     *
-     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-     */
-    public io.superdurable.gen.LocalActivityMetadata.Builder getLocalActivityMetadataBuilder() {
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return internalGetLocalActivityMetadataFieldBuilder().getBuilder();
-    }
-    /**
-     * <pre>
-     * Server-populated lineage input for local activity history.
-     * server-zd never sets this.
-     * </pre>
-     *
-     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-     */
-    public io.superdurable.gen.LocalActivityMetadataOrBuilder getLocalActivityMetadataOrBuilder() {
-      if (localActivityMetadataBuilder_ != null) {
-        return localActivityMetadataBuilder_.getMessageOrBuilder();
-      } else {
-        return localActivityMetadata_ == null ?
-            io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
-      }
-    }
-    /**
-     * <pre>
-     * Server-populated lineage input for local activity history.
-     * server-zd never sets this.
-     * </pre>
-     *
-     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-     */
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.LocalActivityMetadata, io.superdurable.gen.LocalActivityMetadata.Builder, io.superdurable.gen.LocalActivityMetadataOrBuilder> 
-        internalGetLocalActivityMetadataFieldBuilder() {
-      if (localActivityMetadataBuilder_ == null) {
-        localActivityMetadataBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.LocalActivityMetadata, io.superdurable.gen.LocalActivityMetadata.Builder, io.superdurable.gen.LocalActivityMetadataOrBuilder>(
-                getLocalActivityMetadata(),
-                getParentForChildren(),
-                isClean());
-        localActivityMetadata_ = null;
-      }
-      return localActivityMetadataBuilder_;
-    }
-
     private java.util.List<io.superdurable.gen.AttributeWrite> upsertAttributes_ =
       java.util.Collections.emptyList();
     private void ensureUpsertAttributesIsMutable() {
-      if (!((bitField0_ & 0x00000002) != 0)) {
+      if (!((bitField0_ & 0x00000001) != 0)) {
         upsertAttributes_ = new java.util.ArrayList<io.superdurable.gen.AttributeWrite>(upsertAttributes_);
-        bitField0_ |= 0x00000002;
+        bitField0_ |= 0x00000001;
        }
     }
 
@@ -1442,7 +1197,7 @@ private static final long serialVersionUID = 0L;
     public Builder clearUpsertAttributes() {
       if (upsertAttributesBuilder_ == null) {
         upsertAttributes_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000002);
+        bitField0_ = (bitField0_ & ~0x00000001);
         onChanged();
       } else {
         upsertAttributesBuilder_.clear();
@@ -1519,7 +1274,7 @@ private static final long serialVersionUID = 0L;
         upsertAttributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder>(
                 upsertAttributes_,
-                ((bitField0_ & 0x00000002) != 0),
+                ((bitField0_ & 0x00000001) != 0),
                 getParentForChildren(),
                 isClean());
         upsertAttributes_ = null;
@@ -1535,7 +1290,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the waitingCondition field is set.
      */
     public boolean hasWaitingCondition() {
-      return ((bitField0_ & 0x00000004) != 0);
+      return ((bitField0_ & 0x00000002) != 0);
     }
     /**
      * <code>.dex.WaitingCondition waiting_condition = 3;</code>
@@ -1560,7 +1315,7 @@ private static final long serialVersionUID = 0L;
       } else {
         waitingConditionBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
@@ -1574,7 +1329,7 @@ private static final long serialVersionUID = 0L;
       } else {
         waitingConditionBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
@@ -1583,7 +1338,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeWaitingCondition(io.superdurable.gen.WaitingCondition value) {
       if (waitingConditionBuilder_ == null) {
-        if (((bitField0_ & 0x00000004) != 0) &&
+        if (((bitField0_ & 0x00000002) != 0) &&
           waitingCondition_ != null &&
           waitingCondition_ != io.superdurable.gen.WaitingCondition.getDefaultInstance()) {
           getWaitingConditionBuilder().mergeFrom(value);
@@ -1594,7 +1349,7 @@ private static final long serialVersionUID = 0L;
         waitingConditionBuilder_.mergeFrom(value);
       }
       if (waitingCondition_ != null) {
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000002;
         onChanged();
       }
       return this;
@@ -1603,7 +1358,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.WaitingCondition waiting_condition = 3;</code>
      */
     public Builder clearWaitingCondition() {
-      bitField0_ = (bitField0_ & ~0x00000004);
+      bitField0_ = (bitField0_ & ~0x00000002);
       waitingCondition_ = null;
       if (waitingConditionBuilder_ != null) {
         waitingConditionBuilder_.dispose();
@@ -1616,7 +1371,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.WaitingCondition waiting_condition = 3;</code>
      */
     public io.superdurable.gen.WaitingCondition.Builder getWaitingConditionBuilder() {
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return internalGetWaitingConditionFieldBuilder().getBuilder();
     }
@@ -1651,9 +1406,9 @@ private static final long serialVersionUID = 0L;
     private java.util.List<io.superdurable.gen.KV> upsertStepExeLocals_ =
       java.util.Collections.emptyList();
     private void ensureUpsertStepExeLocalsIsMutable() {
-      if (!((bitField0_ & 0x00000008) != 0)) {
+      if (!((bitField0_ & 0x00000004) != 0)) {
         upsertStepExeLocals_ = new java.util.ArrayList<io.superdurable.gen.KV>(upsertStepExeLocals_);
-        bitField0_ |= 0x00000008;
+        bitField0_ |= 0x00000004;
        }
     }
 
@@ -1803,7 +1558,7 @@ private static final long serialVersionUID = 0L;
     public Builder clearUpsertStepExeLocals() {
       if (upsertStepExeLocalsBuilder_ == null) {
         upsertStepExeLocals_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000008);
+        bitField0_ = (bitField0_ & ~0x00000004);
         onChanged();
       } else {
         upsertStepExeLocalsBuilder_.clear();
@@ -1880,7 +1635,7 @@ private static final long serialVersionUID = 0L;
         upsertStepExeLocalsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>(
                 upsertStepExeLocals_,
-                ((bitField0_ & 0x00000008) != 0),
+                ((bitField0_ & 0x00000004) != 0),
                 getParentForChildren(),
                 isClean());
         upsertStepExeLocals_ = null;
@@ -1891,9 +1646,9 @@ private static final long serialVersionUID = 0L;
     private java.util.List<io.superdurable.gen.KV> recordEvents_ =
       java.util.Collections.emptyList();
     private void ensureRecordEventsIsMutable() {
-      if (!((bitField0_ & 0x00000010) != 0)) {
+      if (!((bitField0_ & 0x00000008) != 0)) {
         recordEvents_ = new java.util.ArrayList<io.superdurable.gen.KV>(recordEvents_);
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000008;
        }
     }
 
@@ -2043,7 +1798,7 @@ private static final long serialVersionUID = 0L;
     public Builder clearRecordEvents() {
       if (recordEventsBuilder_ == null) {
         recordEvents_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000010);
+        bitField0_ = (bitField0_ & ~0x00000008);
         onChanged();
       } else {
         recordEventsBuilder_.clear();
@@ -2120,7 +1875,7 @@ private static final long serialVersionUID = 0L;
         recordEventsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>(
                 recordEvents_,
-                ((bitField0_ & 0x00000010) != 0),
+                ((bitField0_ & 0x00000008) != 0),
                 getParentForChildren(),
                 isClean());
         recordEvents_ = null;
@@ -2131,9 +1886,9 @@ private static final long serialVersionUID = 0L;
     private java.util.List<io.superdurable.gen.ChannelMessage> publishToChannel_ =
       java.util.Collections.emptyList();
     private void ensurePublishToChannelIsMutable() {
-      if (!((bitField0_ & 0x00000020) != 0)) {
+      if (!((bitField0_ & 0x00000010) != 0)) {
         publishToChannel_ = new java.util.ArrayList<io.superdurable.gen.ChannelMessage>(publishToChannel_);
-        bitField0_ |= 0x00000020;
+        bitField0_ |= 0x00000010;
        }
     }
 
@@ -2283,7 +2038,7 @@ private static final long serialVersionUID = 0L;
     public Builder clearPublishToChannel() {
       if (publishToChannelBuilder_ == null) {
         publishToChannel_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000020);
+        bitField0_ = (bitField0_ & ~0x00000010);
         onChanged();
       } else {
         publishToChannelBuilder_.clear();
@@ -2360,7 +2115,7 @@ private static final long serialVersionUID = 0L;
         publishToChannelBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder>(
                 publishToChannel_,
-                ((bitField0_ & 0x00000020) != 0),
+                ((bitField0_ & 0x00000010) != 0),
                 getParentForChildren(),
                 isClean());
         publishToChannel_ = null;
@@ -2371,9 +2126,9 @@ private static final long serialVersionUID = 0L;
     private java.util.List<io.superdurable.gen.ChannelMessageDeletion> deleteFromChannel_ =
       java.util.Collections.emptyList();
     private void ensureDeleteFromChannelIsMutable() {
-      if (!((bitField0_ & 0x00000040) != 0)) {
+      if (!((bitField0_ & 0x00000020) != 0)) {
         deleteFromChannel_ = new java.util.ArrayList<io.superdurable.gen.ChannelMessageDeletion>(deleteFromChannel_);
-        bitField0_ |= 0x00000040;
+        bitField0_ |= 0x00000020;
        }
     }
 
@@ -2523,7 +2278,7 @@ private static final long serialVersionUID = 0L;
     public Builder clearDeleteFromChannel() {
       if (deleteFromChannelBuilder_ == null) {
         deleteFromChannel_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000040);
+        bitField0_ = (bitField0_ & ~0x00000020);
         onChanged();
       } else {
         deleteFromChannelBuilder_.clear();
@@ -2600,7 +2355,7 @@ private static final long serialVersionUID = 0L;
         deleteFromChannelBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.ChannelMessageDeletion, io.superdurable.gen.ChannelMessageDeletion.Builder, io.superdurable.gen.ChannelMessageDeletionOrBuilder>(
                 deleteFromChannel_,
-                ((bitField0_ & 0x00000040) != 0),
+                ((bitField0_ & 0x00000020) != 0),
                 getParentForChildren(),
                 isClean());
         deleteFromChannel_ = null;
@@ -2616,7 +2371,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the actionPermissionMappings field is set.
      */
     public boolean hasActionPermissionMappings() {
-      return ((bitField0_ & 0x00000080) != 0);
+      return ((bitField0_ & 0x00000040) != 0);
     }
     /**
      * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
@@ -2641,7 +2396,7 @@ private static final long serialVersionUID = 0L;
       } else {
         actionPermissionMappingsBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
@@ -2655,7 +2410,7 @@ private static final long serialVersionUID = 0L;
       } else {
         actionPermissionMappingsBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
@@ -2664,7 +2419,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeActionPermissionMappings(io.superdurable.gen.ActionPermissionMappings value) {
       if (actionPermissionMappingsBuilder_ == null) {
-        if (((bitField0_ & 0x00000080) != 0) &&
+        if (((bitField0_ & 0x00000040) != 0) &&
           actionPermissionMappings_ != null &&
           actionPermissionMappings_ != io.superdurable.gen.ActionPermissionMappings.getDefaultInstance()) {
           getActionPermissionMappingsBuilder().mergeFrom(value);
@@ -2675,7 +2430,7 @@ private static final long serialVersionUID = 0L;
         actionPermissionMappingsBuilder_.mergeFrom(value);
       }
       if (actionPermissionMappings_ != null) {
-        bitField0_ |= 0x00000080;
+        bitField0_ |= 0x00000040;
         onChanged();
       }
       return this;
@@ -2684,7 +2439,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
      */
     public Builder clearActionPermissionMappings() {
-      bitField0_ = (bitField0_ & ~0x00000080);
+      bitField0_ = (bitField0_ & ~0x00000040);
       actionPermissionMappings_ = null;
       if (actionPermissionMappingsBuilder_ != null) {
         actionPermissionMappingsBuilder_.dispose();
@@ -2697,7 +2452,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
      */
     public io.superdurable.gen.ActionPermissionMappings.Builder getActionPermissionMappingsBuilder() {
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000040;
       onChanged();
       return internalGetActionPermissionMappingsFieldBuilder().getBuilder();
     }

@@ -22,10 +22,7 @@ use dexzd_request_validation::{
 
 fn config() -> ValidationConfig {
     let mut config = ValidationConfig::default();
-    config.default_flow_config.worker_target = Some(WorkerTarget {
-        is_pull_mode: true,
-        ..WorkerTarget::default()
-    });
+    config.default_flow_config.worker_target = Some(WorkerTarget { is_pull_mode: true });
     config
 }
 
@@ -196,18 +193,6 @@ fn start_flow_rejects_server_zd_unsupported_options() {
     let mut request = start_request();
     request.flow_start_options = Some(FlowStartOptions {
         retry_policy: Some(dex::FlowRetryPolicy::default()),
-        ..FlowStartOptions::default()
-    });
-    cases.push(request);
-    let mut request = start_request();
-    request.flow_start_options = Some(FlowStartOptions {
-        flow_config_override: Some(FlowConfig {
-            worker_target: Some(WorkerTarget {
-                address: "localhost:9000".into(),
-                ..WorkerTarget::default()
-            }),
-            ..FlowConfig::default()
-        }),
         ..FlowStartOptions::default()
     });
     cases.push(request);
@@ -408,8 +393,7 @@ fn client_request_variants_preserve_go_messages() {
         flow_id: "flow".into(),
         flow_config: Some(FlowConfig {
             worker_target: Some(WorkerTarget {
-                address: "host:9000".into(),
-                ..WorkerTarget::default()
+                is_pull_mode: false,
             }),
             ..FlowConfig::default()
         }),
@@ -417,7 +401,7 @@ fn client_request_variants_preserve_go_messages() {
     };
     assert_invalid(
         validate_client_request(ClientRequest::UpdateFlowConfig(&update), &config),
-        "server-zd does not support",
+        "worker_target is empty",
     );
 
     let skip = dex::SkipTimerRequest {
@@ -815,8 +799,7 @@ fn subflow_target_rejection_does_not_reject_nested_failure_policy() {
     let options = SubFlowOptions {
         flow_config_override: Some(FlowConfig {
             worker_target: Some(WorkerTarget {
-                address: "host:9000".into(),
-                ..WorkerTarget::default()
+                is_pull_mode: false,
             }),
             ..FlowConfig::default()
         }),
@@ -845,7 +828,7 @@ fn subflow_target_rejection_does_not_reject_nested_failure_policy() {
             },
             &config,
         ),
-        "server-zd does not support Worker target addresses",
+        "worker_target is empty",
         ValidationCategory::RetryableWorkerResponse,
     );
 
@@ -1095,10 +1078,7 @@ fn subflow_inherits_parent_effective_flow_config() {
     let mut config = ValidationConfig::default();
     config.attribute_store_names.insert("parent-store".into());
     let parent_flow_config = FlowConfig {
-        worker_target: Some(WorkerTarget {
-            is_pull_mode: true,
-            ..WorkerTarget::default()
-        }),
+        worker_target: Some(WorkerTarget { is_pull_mode: true }),
         attribute_store_names: Some(dex::AttributeStoreNames {
             names: vec!["parent-store".into()],
         }),
@@ -1165,10 +1145,7 @@ fn default_heartbeat_minimum_matches_go_server() {
         ..StepOptions::default()
     });
     let mut request_config = zero_minimum;
-    request_config.default_flow_config.worker_target = Some(WorkerTarget {
-        is_pull_mode: true,
-        ..WorkerTarget::default()
-    });
+    request_config.default_flow_config.worker_target = Some(WorkerTarget { is_pull_mode: true });
     assert_invalid(
         validate_client_request(ClientRequest::StartFlow(&request), &request_config),
         "heartbeat timeout must be zero or at least 0s",

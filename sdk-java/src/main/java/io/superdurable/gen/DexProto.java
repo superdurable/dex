@@ -87,21 +87,6 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_dex_PollWorkerTaskPing_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_DispatchTaskRequest_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_DispatchTaskRequest_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_DispatchTaskResponse_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_DispatchTaskResponse_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_DispatchTaskError_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_DispatchTaskError_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_dex_Value_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -146,11 +131,6 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_dex_Context_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_LocalActivityMetadata_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_LocalActivityMetadata_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
     internal_static_dex_RetryPolicy_descriptor;
   static final 
@@ -366,16 +346,6 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_dex_GetFlowSummaryResponse_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InternalAsyncStepInputSnapshot_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InternalAsyncStepInputSnapshot_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InternalLocalActivityInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InternalLocalActivityInput_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
     internal_static_dex_GetHistoryEventsRequest_descriptor;
   static final 
@@ -607,21 +577,6 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_dex_WorkerErrorResponse_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InternalActivityError_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InternalActivityError_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InternalWorkerError_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InternalWorkerError_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InternalFlowError_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InternalFlowError_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_dex_ChannelInfo_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -777,16 +732,6 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_dex_ChannelResult_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_ContinueAsNewDumpRequest_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_ContinueAsNewDumpRequest_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_ContinueAsNewDumpResponse_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_ContinueAsNewDumpResponse_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_dex_ChannelValues_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -812,245 +757,20 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_dex_StepExecutionResumeInfo_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_StepExecutionCounterInfo_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_StepExecutionCounterInfo_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_StepExecutionCounterInfo_StepTypeStartedCountEntry_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_StepExecutionCounterInfo_StepTypeStartedCountEntry_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_StepExecutionCounterInfo_StepTypeCurrentlyExecutingCountEntry_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_StepExecutionCounterInfo_StepTypeCurrentlyExecutingCountEntry_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_StepExecutionCounterInfo_StepActiveExecutionNumsEntry_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_StepExecutionCounterInfo_StepActiveExecutionNumsEntry_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_StaleSkipTimer_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_StaleSkipTimer_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_ContinueAsNewDump_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_ContinueAsNewDump_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_ContinueAsNewDump_ChannelReceivedEntry_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_ContinueAsNewDump_ChannelReceivedEntry_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_ContinueAsNewInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_ContinueAsNewInput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InterpreterWorkflowInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InterpreterWorkflowInput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InterpreterWorkflowOutput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InterpreterWorkflowOutput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_BlobStoreCleanupWorkflowInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_BlobStoreCleanupWorkflowInput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_BlobStoreCleanupWorkflowOutput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_BlobStoreCleanupWorkflowOutput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InvokeWaitForMethodActivityInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InvokeWaitForMethodActivityInput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InvokeWaitForMethodActivityOutput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InvokeWaitForMethodActivityOutput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InvokeExecuteMethodActivityInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InvokeExecuteMethodActivityInput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_dex_RecoveryErrorInfo_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_dex_RecoveryErrorInfo_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InternalLocalStepActivityFailure_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InternalLocalStepActivityFailure_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InvokeExecuteMethodActivityOutput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InvokeExecuteMethodActivityOutput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_DumpFlowForContinueAsNewActivityInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_DumpFlowForContinueAsNewActivityInput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_DumpFlowForContinueAsNewActivityOutput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_DumpFlowForContinueAsNewActivityOutput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InvokeWorkerRPCActivityInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InvokeWorkerRPCActivityInput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InvokeWorkerRPCActivityOutput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InvokeWorkerRPCActivityOutput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_CleanupBlobStoreActivityInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_CleanupBlobStoreActivityInput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_CleanupBlobStoreActivityOutput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_CleanupBlobStoreActivityOutput_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
     internal_static_dex_AttributeSyncItem_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_dex_AttributeSyncItem_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_SyncAttributeBatchActivityInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_SyncAttributeBatchActivityInput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_StartSubFlowActivityInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_StartSubFlowActivityInput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_StartSubFlowActivityOutput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_StartSubFlowActivityOutput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_SubFlowCompletionSignalRequest_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_SubFlowCompletionSignalRequest_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_ReportSubFlowCompletionActivityInput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_ReportSubFlowCompletionActivityInput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_ReportSubFlowCompletionActivityOutput_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_ReportSubFlowCompletionActivityOutput_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_ExecuteRpcSignalRequest_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_ExecuteRpcSignalRequest_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_SkipTimerSignalRequest_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_SkipTimerSignalRequest_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_StopFlowSignalRequest_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_StopFlowSignalRequest_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_GetAttributesQueryRequest_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_GetAttributesQueryRequest_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_GetAttributesQueryResponse_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_GetAttributesQueryResponse_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_PrepareRpcQueryRequest_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_PrepareRpcQueryRequest_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_PrepareRpcQueryResponse_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_PrepareRpcQueryResponse_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_PrepareRpcQueryResponse_ChannelInfosEntry_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_PrepareRpcQueryResponse_ChannelInfosEntry_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_PrepareRpcQueryResponse_LoadedChannelMessagesEntry_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_PrepareRpcQueryResponse_LoadedChannelMessagesEntry_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_dex_TimerInfo_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_dex_TimerInfo_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_TimerInfoList_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_TimerInfoList_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_GetCurrentTimerInfosQueryResponse_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_GetCurrentTimerInfosQueryResponse_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_GetCurrentTimerInfosQueryResponse_StepExecutionCurrentTimerInfosEntry_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_GetCurrentTimerInfosQueryResponse_StepExecutionCurrentTimerInfosEntry_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_GetScheduledGreedyTimerTimesQueryResponse_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_GetScheduledGreedyTimerTimesQueryResponse_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_DebugDumpResponse_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_DebugDumpResponse_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_InvokeRpcUpdateResult_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_InvokeRpcUpdateResult_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_dex_StepExecutionNumbers_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_dex_StepExecutionNumbers_fieldAccessorTable;
 
   public static com.google.protobuf.Descriptors.FileDescriptor
       getDescriptor() {
@@ -1102,1027 +822,779 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "rRPCRequestH\000B\t\n\007request\"+\n\030PollWorkerTa" +
       "skCancelTask\022\017\n\007task_id\030\001 \001(\t\")\n\027PollWor" +
       "kerTaskReconnect\022\016\n\006reason\030\001 \001(\t\"\024\n\022Poll" +
-      "WorkerTaskPing\"\300\004\n\023DispatchTaskRequest\022\r" +
-      "\n\005queue\030\001 \001(\t\022\026\n\016fallback_queue\030\002 \001(\t\022\017\n" +
-      "\007flow_id\030\003 \001(\t\022.\n\013sticky_wait\030\004 \001(\0132\031.go" +
-      "ogle.protobuf.Duration\0220\n\rdispatch_wait\030" +
-      "\005 \001(\0132\031.google.protobuf.Duration\022,\n\010dead" +
-      "line\030\006 \001(\0132\032.google.protobuf.Timestamp\022\017" +
-      "\n\007task_id\030\007 \001(\t\0223\n\010wait_for\030\010 \001(\0132\037.dex." +
-      "InvokeWaitForMethodRequestH\000\0222\n\007execute\030" +
-      "\t \001(\0132\037.dex.InvokeExecuteMethodRequestH\000" +
-      "\022*\n\003rpc\030\n \001(\0132\033.dex.InvokeWorkerRPCReque" +
-      "stH\000\022!\n\031supports_assignment_state\030\013 \001(\010\022" +
-      "\037\n\027excluded_app_worker_ids\030\014 \003(\t\022\037\n\027stop" +
-      "_after_unknown_name\030\r \001(\010\022&\n\036stop_when_q" +
-      "ueue_has_no_streams\030\016 \001(\010\022#\n\033supports_un" +
-      "known_name_error\030\017 \001(\010B\t\n\007request\"\344\003\n\024Di" +
-      "spatchTaskResponse\0222\n\010wait_for\030\001 \001(\0132\036.d" +
-      "ex.InvokeWaitForMethodOutputH\000\0221\n\007execut" +
-      "e\030\002 \001(\0132\036.dex.InvokeExecuteMethodOutputH" +
-      "\000\022+\n\003rpc\030\003 \001(\0132\034.dex.InvokeWorkerRPCResp" +
-      "onseH\000\0220\n\014worker_error\030\004 \001(\0132\030.dex.Worke" +
-      "rErrorResponseH\000\0220\n\016dispatch_error\030\005 \001(\013" +
-      "2\026.dex.DispatchTaskErrorH\000\022*\n\010assigned\030\007" +
-      " \001(\0132\026.google.protobuf.EmptyH\000\022,\n\nunassi" +
-      "gned\030\010 \001(\0132\026.google.protobuf.EmptyH\000\022\037\n\027" +
-      "served_by_app_worker_id\030\006 \001(\t\022!\n\031rejecte" +
-      "d_by_app_worker_id\030\t \001(\t\022,\n\014queue_source" +
-      "\030\n \001(\0162\026.dex.PullRoutingSourceB\010\n\006output" +
-      "\"Q\n\021DispatchTaskError\022,\n\006reason\030\001 \001(\0162\034." +
-      "dex.DispatchTaskErrorReason\022\016\n\006detail\030\002 " +
-      "\001(\t\"\234\002\n\005Value\022+\n!internal_blob_id_for_st" +
-      "ring_value\030\001 \001(\tH\000\022(\n\036internal_blob_id_f" +
-      "or_obj_value\030\002 \001(\tH\000\022\026\n\014string_value\030\003 \001" +
-      "(\tH\000\022\'\n\tobj_value\030\004 \001(\0132\022.dex.EncodedObj" +
-      "ectH\000\022\023\n\tint_value\030\005 \001(\003H\000\022\026\n\014double_val" +
-      "ue\030\006 \001(\001H\000\022\024\n\nbool_value\030\007 \001(\010H\000\0220\n\nnull" +
-      "_value\030\010 \001(\0162\032.google.protobuf.NullValue" +
-      "H\000B\006\n\004kind\"2\n\rEncodedObject\022\020\n\010encoding\030" +
-      "\001 \001(\t\022\017\n\007payload\030\002 \001(\014\"\257\001\n\016AttributeWrit" +
-      "e\022\013\n\003key\030\001 \001(\t\022\031\n\005value\030\002 \001(\0132\n.dex.Valu" +
-      "e\022&\n\014index_config\030\003 \001(\0132\020.dex.IndexConfi" +
-      "g\022-\n\013sync_config\030\004 \001(\0132\030.dex.AttributeSy" +
-      "ncConfig\022\036\n\026is_hard_delete_on_null\030\005 \001(\010" +
-      "\"o\n\027ActionPermissionMapping\022\025\n\rattribute" +
-      "_key\030\001 \001(\t\022 \n\014equal_values\030\002 \003(\0132\n.dex.V" +
-      "alue\022\033\n\023required_permission\030\003 \001(\t\"J\n\030Act" +
-      "ionPermissionMappings\022.\n\010mappings\030\001 \003(\0132" +
-      "\034.dex.ActionPermissionMapping\"&\n\023Attribu" +
-      "teSyncConfig\022\017\n\007enabled\030\001 \001(\010\",\n\002KV\022\013\n\003k" +
-      "ey\030\001 \001(\t\022\031\n\005value\030\002 \001(\0132\n.dex.Value\"N\n\013I" +
-      "ndexConfig\022\016\n\006enable\030\001 \001(\010\022\034\n\004type\030\002 \001(\016" +
-      "2\016.dex.IndexType\022\021\n\tindex_key\030\003 \001(\t\"\246\002\n\007" +
-      "Context\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t" +
-      "\022\036\n\026flow_started_timestamp\030\003 \001(\003\022\031\n\021step" +
-      "_execution_id\030\004 \001(\t\022\037\n\027first_attempt_tim" +
-      "estamp\030\005 \001(\003\022\017\n\007attempt\030\006 \001(\005\022\036\n\026from_st" +
-      "ep_execution_id\030\007 \001(\t\022.\n\016recovery_error\030" +
-      "\010 \001(\0132\026.dex.RecoveryErrorInfo\022(\n\024last_he" +
-      "artbeat_value\030\t \001(\0132\n.dex.Value\022\023\n\013run_a" +
-      "ttempt\030\n \001(\005\"Z\n\025LocalActivityMetadata\022!\n" +
-      "\031current_step_execution_id\030\001 \001(\t\022\036\n\026from" +
-      "_step_execution_id\030\002 \001(\t\"\250\001\n\013RetryPolicy" +
-      "\022 \n\030initial_interval_seconds\030\001 \001(\005\022\033\n\023ba" +
-      "ckoff_coefficient\030\002 \001(\002\022 \n\030maximum_inter" +
-      "val_seconds\030\003 \001(\005\022\030\n\020maximum_attempts\030\004 " +
-      "\001(\005\022\036\n\026total_duration_seconds\030\005 \001(\005\"\214\001\n\017" +
-      "FlowRetryPolicy\022 \n\030initial_interval_seco" +
-      "nds\030\001 \001(\005\022\033\n\023backoff_coefficient\030\002 \001(\002\022 " +
-      "\n\030maximum_interval_seconds\030\003 \001(\005\022\030\n\020maxi" +
-      "mum_attempts\030\004 \001(\005\"\230\007\n\013StepOptions\022 \n\030wa" +
-      "it_for_timeout_seconds\030\001 \001(\005\022\037\n\027execute_" +
-      "timeout_seconds\030\002 \001(\005\022/\n\025wait_for_retry_" +
-      "policy\030\003 \001(\0132\020.dex.RetryPolicy\022.\n\024execut" +
-      "e_retry_policy\030\004 \001(\0132\020.dex.RetryPolicy\022@" +
-      "\n\027wait_for_failure_policy\030\005 \001(\0162\037.dex.Wa" +
-      "itForMethodFailurePolicy\022?\n\026execute_fail" +
-      "ure_policy\030\006 \001(\0162\037.dex.ExecuteMethodFail" +
-      "urePolicy\022)\n!execute_failure_proceed_ste" +
-      "p_type\030\007 \001(\t\022>\n$execute_failure_proceed_" +
-      "step_options\030\010 \001(\0132\020.dex.StepOptions\022\025\n\r" +
-      "skip_wait_for\030\t \001(\010\0229\n\034wait_for_durabili" +
-      "ty_override\030\n \001(\0162\023.dex.StepDurability\0228" +
-      "\n\033execute_durability_override\030\013 \001(\0162\023.de" +
-      "x.StepDurability\022$\n\034wait_for_lock_attrib" +
-      "ute_keys\030\014 \003(\t\022#\n\033execute_lock_attribute" +
-      "_keys\030\r \003(\t\022!\n\031heartbeat_timeout_seconds" +
-      "\030\016 \001(\005\022-\n%wait_for_load_attribute_map_in" +
-      "stances\030\017 \003(\t\022#\n\033wait_for_load_channel_n" +
-      "ames\030\020 \003(\t\022+\n#wait_for_load_channel_map_" +
-      "instances\030\021 \003(\t\022,\n$execute_load_attribut" +
-      "e_map_instances\030\022 \003(\t\022\"\n\032execute_load_ch" +
-      "annel_names\030\023 \003(\t\022*\n\"execute_load_channe" +
-      "l_map_instances\030\024 \003(\t\"\317\003\n\031FlowTimeoutHan" +
-      "dlerOptions\022\036\n\026method_timeout_seconds\030\001 " +
-      "\001(\005\022!\n\031heartbeat_timeout_seconds\030\002 \001(\005\022&" +
-      "\n\014retry_policy\030\003 \001(\0132\020.dex.RetryPolicy\0227" +
-      "\n\016failure_policy\030\004 \001(\0162\037.dex.ExecuteMeth" +
-      "odFailurePolicy\022!\n\031failure_proceed_step_" +
-      "type\030\005 \001(\t\0226\n\034failure_proceed_step_optio" +
-      "ns\030\006 \001(\0132\020.dex.StepOptions\0220\n\023durability" +
-      "_override\030\007 \001(\0162\023.dex.StepDurability\022\033\n\023" +
-      "lock_attribute_keys\030\010 \003(\t\022$\n\034load_attrib" +
-      "ute_map_instances\030\t \003(\t\022\032\n\022load_channel_" +
-      "names\030\n \003(\t\022\"\n\032load_channel_map_instance" +
-      "s\030\013 \003(\t\"A\n\031FlowAlreadyStartedOptions\022$\n\034" +
-      "ignore_already_started_error\030\001 \001(\010\"\354\002\n\020F" +
-      "lowStartOptions\022+\n\017id_reuse_policy\030\001 \001(\016" +
-      "2\022.dex.IdReusePolicy\022 \n\030flow_start_delay" +
-      "_seconds\030\002 \001(\005\022*\n\014retry_policy\030\003 \001(\0132\024.d" +
-      "ex.FlowRetryPolicy\022\'\n\nattributes\030\004 \003(\0132\023" +
-      ".dex.AttributeWrite\022-\n\024flow_config_overr" +
-      "ide\030\005 \001(\0132\017.dex.FlowConfig\022D\n\034flow_alrea" +
-      "dy_started_options\030\006 \001(\0132\036.dex.FlowAlrea" +
-      "dyStartedOptions\022?\n\027timeout_handler_opti" +
-      "ons\030\007 \001(\0132\036.dex.FlowTimeoutHandlerOption" +
-      "s\"\320\003\n\nFlowConfig\022?\n\027active_step_search_m" +
-      "ode\030\001 \001(\0162\031.dex.ActiveStepSearchModeH\000\210\001" +
-      "\001\022&\n\031continue_as_new_threshold\030\002 \001(\005H\001\210\001" +
-      "\001\022/\n\"continue_as_new_page_size_in_bytes\030" +
-      "\003 \001(\005H\002\210\001\001\0221\n\017step_durability\030\004 \001(\0162\023.de" +
-      "x.StepDurabilityH\003\210\001\001\022(\n\rworker_target\030\005" +
-      " \001(\0132\021.dex.WorkerTarget\022<\n\025attribute_sto" +
-      "re_names\030\006 \001(\0132\030.dex.AttributeStoreNames" +
-      "H\004\210\001\001B\032\n\030_active_step_search_modeB\034\n\032_co" +
-      "ntinue_as_new_thresholdB%\n#_continue_as_" +
-      "new_page_size_in_bytesB\022\n\020_step_durabili" +
-      "tyB\030\n\026_attribute_store_names\"$\n\023Attribut" +
-      "eStoreNames\022\r\n\005names\030\001 \003(\t\"R\n\014WorkerTarg" +
-      "et\022\017\n\007address\030\001 \001(\t\022\033\n\023is_headless_addre" +
-      "ss\030\002 \001(\010\022\024\n\014is_pull_mode\030\003 \001(\010\"\261\002\n\020Start" +
-      "FlowRequest\022\017\n\007flow_id\030\001 \001(\t\022\021\n\tflow_typ" +
-      "e\030\002 \001(\t\022\034\n\024flow_timeout_seconds\030\003 \001(\005\0223\n" +
-      "\023flow_timeout_policy\030\004 \001(\0162\026.dex.FlowTim" +
-      "eoutPolicy\022\027\n\017start_step_type\030\005 \001(\t\022\036\n\ns" +
-      "tep_input\030\010 \001(\0132\n.dex.Value\022&\n\014step_opti" +
-      "ons\030\t \001(\0132\020.dex.StepOptions\0221\n\022flow_star" +
-      "t_options\030\n \001(\0132\025.dex.FlowStartOptions\022\022" +
-      "\n\nrequest_id\030\013 \001(\t\"#\n\021StartFlowResponse\022" +
-      "\016\n\006run_id\030\001 \001(\t\"a\n\027PublishToChannelReque" +
-      "st\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022%\n\010m" +
-      "essages\030\003 \003(\0132\023.dex.ChannelMessage\"U\n\016Ch" +
-      "annelMessage\022\024\n\014channel_name\030\001 \001(\t\022\031\n\005va" +
-      "lue\030\002 \001(\0132\n.dex.Value\022\022\n\nmessage_id\030\003 \001(" +
-      "\t\"R\n\031GetChannelMessagesRequest\022\017\n\007flow_i" +
-      "d\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\024\n\014channel_name\030" +
-      "\003 \001(\t\"C\n\032GetChannelMessagesResponse\022%\n\010m" +
-      "essages\030\001 \003(\0132\023.dex.ChannelMessage\"|\n\033De" +
-      "leteChannelMessageRequest\022\017\n\007flow_id\030\001 \001" +
+      "WorkerTaskPing\"\234\002\n\005Value\022+\n!internal_blo" +
+      "b_id_for_string_value\030\001 \001(\tH\000\022(\n\036interna" +
+      "l_blob_id_for_obj_value\030\002 \001(\tH\000\022\026\n\014strin" +
+      "g_value\030\003 \001(\tH\000\022\'\n\tobj_value\030\004 \001(\0132\022.dex" +
+      ".EncodedObjectH\000\022\023\n\tint_value\030\005 \001(\003H\000\022\026\n" +
+      "\014double_value\030\006 \001(\001H\000\022\024\n\nbool_value\030\007 \001(" +
+      "\010H\000\0220\n\nnull_value\030\010 \001(\0162\032.google.protobu" +
+      "f.NullValueH\000B\006\n\004kind\"2\n\rEncodedObject\022\020" +
+      "\n\010encoding\030\001 \001(\t\022\017\n\007payload\030\002 \001(\014\"\257\001\n\016At" +
+      "tributeWrite\022\013\n\003key\030\001 \001(\t\022\031\n\005value\030\002 \001(\013" +
+      "2\n.dex.Value\022&\n\014index_config\030\003 \001(\0132\020.dex" +
+      ".IndexConfig\022-\n\013sync_config\030\004 \001(\0132\030.dex." +
+      "AttributeSyncConfig\022\036\n\026is_hard_delete_on" +
+      "_null\030\005 \001(\010\"o\n\027ActionPermissionMapping\022\025" +
+      "\n\rattribute_key\030\001 \001(\t\022 \n\014equal_values\030\002 " +
+      "\003(\0132\n.dex.Value\022\033\n\023required_permission\030\003" +
+      " \001(\t\"J\n\030ActionPermissionMappings\022.\n\010mapp" +
+      "ings\030\001 \003(\0132\034.dex.ActionPermissionMapping" +
+      "\"&\n\023AttributeSyncConfig\022\017\n\007enabled\030\001 \001(\010" +
+      "\",\n\002KV\022\013\n\003key\030\001 \001(\t\022\031\n\005value\030\002 \001(\0132\n.dex" +
+      ".Value\"N\n\013IndexConfig\022\016\n\006enable\030\001 \001(\010\022\034\n" +
+      "\004type\030\002 \001(\0162\016.dex.IndexType\022\021\n\tindex_key" +
+      "\030\003 \001(\t\"\246\002\n\007Context\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006r" +
+      "un_id\030\002 \001(\t\022\036\n\026flow_started_timestamp\030\003 " +
+      "\001(\003\022\031\n\021step_execution_id\030\004 \001(\t\022\037\n\027first_" +
+      "attempt_timestamp\030\005 \001(\003\022\017\n\007attempt\030\006 \001(\005" +
+      "\022\036\n\026from_step_execution_id\030\007 \001(\t\022.\n\016reco" +
+      "very_error\030\010 \001(\0132\026.dex.RecoveryErrorInfo" +
+      "\022(\n\024last_heartbeat_value\030\t \001(\0132\n.dex.Val" +
+      "ue\022\023\n\013run_attempt\030\n \001(\005\"\250\001\n\013RetryPolicy\022" +
+      " \n\030initial_interval_seconds\030\001 \001(\005\022\033\n\023bac" +
+      "koff_coefficient\030\002 \001(\002\022 \n\030maximum_interv" +
+      "al_seconds\030\003 \001(\005\022\030\n\020maximum_attempts\030\004 \001" +
+      "(\005\022\036\n\026total_duration_seconds\030\005 \001(\005\"\214\001\n\017F" +
+      "lowRetryPolicy\022 \n\030initial_interval_secon" +
+      "ds\030\001 \001(\005\022\033\n\023backoff_coefficient\030\002 \001(\002\022 \n" +
+      "\030maximum_interval_seconds\030\003 \001(\005\022\030\n\020maxim" +
+      "um_attempts\030\004 \001(\005\"\230\007\n\013StepOptions\022 \n\030wai" +
+      "t_for_timeout_seconds\030\001 \001(\005\022\037\n\027execute_t" +
+      "imeout_seconds\030\002 \001(\005\022/\n\025wait_for_retry_p" +
+      "olicy\030\003 \001(\0132\020.dex.RetryPolicy\022.\n\024execute" +
+      "_retry_policy\030\004 \001(\0132\020.dex.RetryPolicy\022@\n" +
+      "\027wait_for_failure_policy\030\005 \001(\0162\037.dex.Wai" +
+      "tForMethodFailurePolicy\022?\n\026execute_failu" +
+      "re_policy\030\006 \001(\0162\037.dex.ExecuteMethodFailu" +
+      "rePolicy\022)\n!execute_failure_proceed_step" +
+      "_type\030\007 \001(\t\022>\n$execute_failure_proceed_s" +
+      "tep_options\030\010 \001(\0132\020.dex.StepOptions\022\025\n\rs" +
+      "kip_wait_for\030\t \001(\010\0229\n\034wait_for_durabilit" +
+      "y_override\030\n \001(\0162\023.dex.StepDurability\0228\n" +
+      "\033execute_durability_override\030\013 \001(\0162\023.dex" +
+      ".StepDurability\022$\n\034wait_for_lock_attribu" +
+      "te_keys\030\014 \003(\t\022#\n\033execute_lock_attribute_" +
+      "keys\030\r \003(\t\022!\n\031heartbeat_timeout_seconds\030" +
+      "\016 \001(\005\022-\n%wait_for_load_attribute_map_ins" +
+      "tances\030\017 \003(\t\022#\n\033wait_for_load_channel_na" +
+      "mes\030\020 \003(\t\022+\n#wait_for_load_channel_map_i" +
+      "nstances\030\021 \003(\t\022,\n$execute_load_attribute" +
+      "_map_instances\030\022 \003(\t\022\"\n\032execute_load_cha" +
+      "nnel_names\030\023 \003(\t\022*\n\"execute_load_channel" +
+      "_map_instances\030\024 \003(\t\"\317\003\n\031FlowTimeoutHand" +
+      "lerOptions\022\036\n\026method_timeout_seconds\030\001 \001" +
+      "(\005\022!\n\031heartbeat_timeout_seconds\030\002 \001(\005\022&\n" +
+      "\014retry_policy\030\003 \001(\0132\020.dex.RetryPolicy\0227\n" +
+      "\016failure_policy\030\004 \001(\0162\037.dex.ExecuteMetho" +
+      "dFailurePolicy\022!\n\031failure_proceed_step_t" +
+      "ype\030\005 \001(\t\0226\n\034failure_proceed_step_option" +
+      "s\030\006 \001(\0132\020.dex.StepOptions\0220\n\023durability_" +
+      "override\030\007 \001(\0162\023.dex.StepDurability\022\033\n\023l" +
+      "ock_attribute_keys\030\010 \003(\t\022$\n\034load_attribu" +
+      "te_map_instances\030\t \003(\t\022\032\n\022load_channel_n" +
+      "ames\030\n \003(\t\022\"\n\032load_channel_map_instances" +
+      "\030\013 \003(\t\"A\n\031FlowAlreadyStartedOptions\022$\n\034i" +
+      "gnore_already_started_error\030\001 \001(\010\"\354\002\n\020Fl" +
+      "owStartOptions\022+\n\017id_reuse_policy\030\001 \001(\0162" +
+      "\022.dex.IdReusePolicy\022 \n\030flow_start_delay_" +
+      "seconds\030\002 \001(\005\022*\n\014retry_policy\030\003 \001(\0132\024.de" +
+      "x.FlowRetryPolicy\022\'\n\nattributes\030\004 \003(\0132\023." +
+      "dex.AttributeWrite\022-\n\024flow_config_overri" +
+      "de\030\005 \001(\0132\017.dex.FlowConfig\022D\n\034flow_alread" +
+      "y_started_options\030\006 \001(\0132\036.dex.FlowAlread" +
+      "yStartedOptions\022?\n\027timeout_handler_optio" +
+      "ns\030\007 \001(\0132\036.dex.FlowTimeoutHandlerOptions" +
+      "\"\320\003\n\nFlowConfig\022?\n\027active_step_search_mo" +
+      "de\030\001 \001(\0162\031.dex.ActiveStepSearchModeH\000\210\001\001" +
+      "\022&\n\031continue_as_new_threshold\030\002 \001(\005H\001\210\001\001" +
+      "\022/\n\"continue_as_new_page_size_in_bytes\030\003" +
+      " \001(\005H\002\210\001\001\0221\n\017step_durability\030\004 \001(\0162\023.dex" +
+      ".StepDurabilityH\003\210\001\001\022(\n\rworker_target\030\005 " +
+      "\001(\0132\021.dex.WorkerTarget\022<\n\025attribute_stor" +
+      "e_names\030\006 \001(\0132\030.dex.AttributeStoreNamesH" +
+      "\004\210\001\001B\032\n\030_active_step_search_modeB\034\n\032_con" +
+      "tinue_as_new_thresholdB%\n#_continue_as_n" +
+      "ew_page_size_in_bytesB\022\n\020_step_durabilit" +
+      "yB\030\n\026_attribute_store_names\"$\n\023Attribute" +
+      "StoreNames\022\r\n\005names\030\001 \003(\t\"N\n\014WorkerTarge" +
+      "t\022\024\n\014is_pull_mode\030\003 \001(\010J\004\010\001\020\002J\004\010\002\020\003R\007add" +
+      "ressR\023is_headless_address\"\261\002\n\020StartFlowR" +
+      "equest\022\017\n\007flow_id\030\001 \001(\t\022\021\n\tflow_type\030\002 \001" +
+      "(\t\022\034\n\024flow_timeout_seconds\030\003 \001(\005\0223\n\023flow" +
+      "_timeout_policy\030\004 \001(\0162\026.dex.FlowTimeoutP" +
+      "olicy\022\027\n\017start_step_type\030\005 \001(\t\022\036\n\nstep_i" +
+      "nput\030\010 \001(\0132\n.dex.Value\022&\n\014step_options\030\t" +
+      " \001(\0132\020.dex.StepOptions\0221\n\022flow_start_opt" +
+      "ions\030\n \001(\0132\025.dex.FlowStartOptions\022\022\n\nreq" +
+      "uest_id\030\013 \001(\t\"#\n\021StartFlowResponse\022\016\n\006ru" +
+      "n_id\030\001 \001(\t\"a\n\027PublishToChannelRequest\022\017\n" +
+      "\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022%\n\010messag" +
+      "es\030\003 \003(\0132\023.dex.ChannelMessage\"U\n\016Channel" +
+      "Message\022\024\n\014channel_name\030\001 \001(\t\022\031\n\005value\030\002" +
+      " \001(\0132\n.dex.Value\022\022\n\nmessage_id\030\003 \001(\t\"R\n\031" +
+      "GetChannelMessagesRequest\022\017\n\007flow_id\030\001 \001" +
       "(\t\022\016\n\006run_id\030\002 \001(\t\022\024\n\014channel_name\030\003 \001(\t" +
-      "\022\022\n\nmessage_id\030\004 \001(\t\022\022\n\nrequest_id\030\005 \001(\t" +
-      "\"B\n\026ChannelMessageDeletion\022\024\n\014channel_na" +
-      "me\030\001 \001(\t\022\022\n\nmessage_id\030\002 \001(\t\"\227\001\n\022WriteSt" +
-      "reamRequest\022\017\n\007flow_id\030\001 \001(\t\022\021\n\tflow_typ" +
-      "e\030\002 \001(\t\022\023\n\013stream_name\030\003 \001(\t\022\035\n\025stream_c" +
-      "apacity_bytes\030\004 \001(\003\022\031\n\005value\030\005 \001(\0132\n.dex" +
-      ".Value\022\016\n\006source\030\006 \001(\t\"}\n\021ReadStreamRequ" +
-      "est\022\017\n\007flow_id\030\001 \001(\t\022\021\n\tflow_type\030\002 \001(\t\022" +
-      "\023\n\013stream_name\030\003 \001(\t\022\024\n\014resume_token\030\004 \001" +
-      "(\t\022\031\n\021wait_time_seconds\030\005 \001(\005\"9\n\022ReadStr" +
-      "eamResponse\022#\n\007message\030\001 \001(\0132\022.dex.Strea" +
-      "mMessage\"\202\001\n\031ListStreamMessagesRequest\022\017" +
+      "\"C\n\032GetChannelMessagesResponse\022%\n\010messag" +
+      "es\030\001 \003(\0132\023.dex.ChannelMessage\"|\n\033DeleteC" +
+      "hannelMessageRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n" +
+      "\006run_id\030\002 \001(\t\022\024\n\014channel_name\030\003 \001(\t\022\022\n\nm" +
+      "essage_id\030\004 \001(\t\022\022\n\nrequest_id\030\005 \001(\t\"B\n\026C" +
+      "hannelMessageDeletion\022\024\n\014channel_name\030\001 " +
+      "\001(\t\022\022\n\nmessage_id\030\002 \001(\t\"\227\001\n\022WriteStreamR" +
+      "equest\022\017\n\007flow_id\030\001 \001(\t\022\021\n\tflow_type\030\002 \001" +
+      "(\t\022\023\n\013stream_name\030\003 \001(\t\022\035\n\025stream_capaci" +
+      "ty_bytes\030\004 \001(\003\022\031\n\005value\030\005 \001(\0132\n.dex.Valu" +
+      "e\022\016\n\006source\030\006 \001(\t\"}\n\021ReadStreamRequest\022\017" +
       "\n\007flow_id\030\001 \001(\t\022\021\n\tflow_type\030\002 \001(\t\022\023\n\013st" +
-      "ream_name\030\003 \001(\t\022\021\n\tpage_size\030\004 \001(\005\022\031\n\021be" +
-      "fore_page_token\030\005 \001(\t\"[\n\032ListStreamMessa" +
-      "gesResponse\022$\n\010messages\030\001 \003(\0132\022.dex.Stre" +
-      "amMessage\022\027\n\017next_page_token\030\002 \001(\t\"\202\001\n\rS" +
-      "treamMessage\022\031\n\005value\030\001 \001(\0132\n.dex.Value\022" +
-      "\024\n\014resume_token\030\002 \001(\t\0220\n\014created_time\030\003 " +
-      "\001(\0132\032.google.protobuf.Timestamp\022\016\n\006sourc" +
-      "e\030\004 \001(\t\"d\n\017StopFlowRequest\022\017\n\007flow_id\030\001 " +
-      "\001(\t\022\016\n\006run_id\030\002 \001(\t\022\016\n\006reason\030\003 \001(\t\022 \n\ts" +
-      "top_type\030\004 \001(\0162\r.dex.StopType\"W\n\024GetAttr" +
-      "ibutesRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id" +
-      "\030\002 \001(\t\022\014\n\004keys\030\003 \003(\t\022\020\n\010all_keys\030\004 \001(\010\"4" +
-      "\n\025GetAttributesResponse\022\033\n\nattributes\030\001 " +
-      "\003(\0132\007.dex.KV\"\267\001\n\024SetAttributesRequest\022\017\n" +
-      "\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\'\n\nattrib" +
-      "utes\030\003 \003(\0132\023.dex.AttributeWrite\022\022\n\nreque" +
-      "st_id\030\004 \001(\t\022A\n\032action_permission_mapping" +
-      "s\030\005 \001(\0132\035.dex.ActionPermissionMappings\"G" +
-      "\n\024LoadBlobRequestEntry\022\017\n\007flow_id\030\001 \001(\t\022" +
-      "\036\n\nblob_value\030\002 \001(\0132\n.dex.Value\">\n\020LoadB" +
-      "lobsRequest\022*\n\007entries\030\001 \003(\0132\031.dex.LoadB" +
-      "lobRequestEntry\"\202\001\n\021LoadBlobsResponse\0222\n" +
-      "\006values\030\001 \003(\0132\".dex.LoadBlobsResponse.Va" +
-      "luesEntry\0329\n\013ValuesEntry\022\013\n\003key\030\001 \001(\t\022\031\n" +
-      "\005value\030\002 \001(\0132\n.dex.Value:\0028\001\"g\n\022WaitForF" +
-      "lowRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 " +
-      "\001(\t\022\025\n\rneeds_results\030\003 \001(\010\022\031\n\021wait_time_" +
-      "seconds\030\004 \001(\005\"\203\001\n\024StepCompletionOutput\022\033" +
-      "\n\023completed_step_type\030\001 \001(\t\022#\n\033completed" +
-      "_step_execution_id\030\002 \001(\t\022)\n\025completed_st" +
-      "ep_output\030\003 \001(\0132\n.dex.Value\"\235\001\n\nFlowResu" +
-      "lt\022$\n\013flow_status\030\001 \001(\0162\017.dex.FlowStatus" +
-      "\022*\n\007results\030\002 \003(\0132\031.dex.StepCompletionOu" +
-      "tput\022&\n\nerror_type\030\003 \001(\0162\022.dex.FlowError" +
-      "Type\022\025\n\rerror_message\030\004 \001(\t\"q\n\022SearchFlo" +
-      "wsRequest\022\r\n\005query\030\001 \001(\t\022\021\n\tpage_size\030\002 " +
-      "\001(\005\022\027\n\017next_page_token\030\003 \001(\t\022 \n\030include_" +
-      "continued_as_new\030\004 \001(\010\"`\n\023SearchFlowsRes" +
-      "ponse\0220\n\tflow_runs\030\001 \003(\0132\035.dex.SearchFlo" +
-      "wsResponseEntry\022\027\n\017next_page_token\030\002 \001(\t" +
-      "\"\371\001\n\030SearchFlowsResponseEntry\022\017\n\007flow_id" +
-      "\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022#\n\022indexed_attrib" +
-      "utes\030\003 \003(\0132\007.dex.KV\022\021\n\tflow_type\030\004 \001(\t\022$" +
-      "\n\013flow_status\030\005 \001(\0162\017.dex.FlowStatus\022.\n\n" +
-      "start_time\030\006 \001(\0132\032.google.protobuf.Times" +
-      "tamp\022.\n\nclose_time\030\007 \001(\0132\032.google.protob" +
-      "uf.Timestamp\"\265\001\n\031SyncAttributeIndexReque" +
-      "st\022O\n\021attribute_indexes\030\001 \003(\01324.dex.Sync" +
-      "AttributeIndexRequest.AttributeIndexesEn" +
-      "try\032G\n\025AttributeIndexesEntry\022\013\n\003key\030\001 \001(" +
-      "\t\022\035\n\005value\030\002 \001(\0162\016.dex.IndexType:\0028\001\"\034\n\032" +
-      "SyncAttributeIndexResponse\"2\n\017FlowExecut" +
-      "ionID\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\"8" +
-      "\n\025GetFlowSummaryRequest\022\017\n\007flow_id\030\001 \001(\t" +
-      "\022\016\n\006run_id\030\002 \001(\t\"\241\002\n\026GetFlowSummaryRespo" +
-      "nse\022/\n\021flow_execution_id\030\001 \001(\0132\024.dex.Flo" +
-      "wExecutionID\022\024\n\014first_run_id\030\002 \001(\t\022\022\n\nre" +
-      "quest_id\030\003 \001(\t\022\021\n\tflow_type\030\004 \001(\t\022$\n\013flo" +
+      "ream_name\030\003 \001(\t\022\024\n\014resume_token\030\004 \001(\t\022\031\n" +
+      "\021wait_time_seconds\030\005 \001(\005\"9\n\022ReadStreamRe" +
+      "sponse\022#\n\007message\030\001 \001(\0132\022.dex.StreamMess" +
+      "age\"\202\001\n\031ListStreamMessagesRequest\022\017\n\007flo" +
+      "w_id\030\001 \001(\t\022\021\n\tflow_type\030\002 \001(\t\022\023\n\013stream_" +
+      "name\030\003 \001(\t\022\021\n\tpage_size\030\004 \001(\005\022\031\n\021before_" +
+      "page_token\030\005 \001(\t\"[\n\032ListStreamMessagesRe" +
+      "sponse\022$\n\010messages\030\001 \003(\0132\022.dex.StreamMes" +
+      "sage\022\027\n\017next_page_token\030\002 \001(\t\"\202\001\n\rStream" +
+      "Message\022\031\n\005value\030\001 \001(\0132\n.dex.Value\022\024\n\014re" +
+      "sume_token\030\002 \001(\t\0220\n\014created_time\030\003 \001(\0132\032" +
+      ".google.protobuf.Timestamp\022\016\n\006source\030\004 \001" +
+      "(\t\"d\n\017StopFlowRequest\022\017\n\007flow_id\030\001 \001(\t\022\016" +
+      "\n\006run_id\030\002 \001(\t\022\016\n\006reason\030\003 \001(\t\022 \n\tstop_t" +
+      "ype\030\004 \001(\0162\r.dex.StopType\"W\n\024GetAttribute" +
+      "sRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(" +
+      "\t\022\014\n\004keys\030\003 \003(\t\022\020\n\010all_keys\030\004 \001(\010\"4\n\025Get" +
+      "AttributesResponse\022\033\n\nattributes\030\001 \003(\0132\007" +
+      ".dex.KV\"\267\001\n\024SetAttributesRequest\022\017\n\007flow" +
+      "_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\'\n\nattributes\030" +
+      "\003 \003(\0132\023.dex.AttributeWrite\022\022\n\nrequest_id" +
+      "\030\004 \001(\t\022A\n\032action_permission_mappings\030\005 \001" +
+      "(\0132\035.dex.ActionPermissionMappings\"G\n\024Loa" +
+      "dBlobRequestEntry\022\017\n\007flow_id\030\001 \001(\t\022\036\n\nbl" +
+      "ob_value\030\002 \001(\0132\n.dex.Value\">\n\020LoadBlobsR" +
+      "equest\022*\n\007entries\030\001 \003(\0132\031.dex.LoadBlobRe" +
+      "questEntry\"\202\001\n\021LoadBlobsResponse\0222\n\006valu" +
+      "es\030\001 \003(\0132\".dex.LoadBlobsResponse.ValuesE" +
+      "ntry\0329\n\013ValuesEntry\022\013\n\003key\030\001 \001(\t\022\031\n\005valu" +
+      "e\030\002 \001(\0132\n.dex.Value:\0028\001\"g\n\022WaitForFlowRe" +
+      "quest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\025" +
+      "\n\rneeds_results\030\003 \001(\010\022\031\n\021wait_time_secon" +
+      "ds\030\004 \001(\005\"\203\001\n\024StepCompletionOutput\022\033\n\023com" +
+      "pleted_step_type\030\001 \001(\t\022#\n\033completed_step" +
+      "_execution_id\030\002 \001(\t\022)\n\025completed_step_ou" +
+      "tput\030\003 \001(\0132\n.dex.Value\"\235\001\n\nFlowResult\022$\n" +
+      "\013flow_status\030\001 \001(\0162\017.dex.FlowStatus\022*\n\007r" +
+      "esults\030\002 \003(\0132\031.dex.StepCompletionOutput\022" +
+      "&\n\nerror_type\030\003 \001(\0162\022.dex.FlowErrorType\022" +
+      "\025\n\rerror_message\030\004 \001(\t\"q\n\022SearchFlowsReq" +
+      "uest\022\r\n\005query\030\001 \001(\t\022\021\n\tpage_size\030\002 \001(\005\022\027" +
+      "\n\017next_page_token\030\003 \001(\t\022 \n\030include_conti" +
+      "nued_as_new\030\004 \001(\010\"`\n\023SearchFlowsResponse" +
+      "\0220\n\tflow_runs\030\001 \003(\0132\035.dex.SearchFlowsRes" +
+      "ponseEntry\022\027\n\017next_page_token\030\002 \001(\t\"\371\001\n\030" +
+      "SearchFlowsResponseEntry\022\017\n\007flow_id\030\001 \001(" +
+      "\t\022\016\n\006run_id\030\002 \001(\t\022#\n\022indexed_attributes\030" +
+      "\003 \003(\0132\007.dex.KV\022\021\n\tflow_type\030\004 \001(\t\022$\n\013flo" +
       "w_status\030\005 \001(\0162\017.dex.FlowStatus\022.\n\nstart" +
       "_time\030\006 \001(\0132\032.google.protobuf.Timestamp\022" +
       ".\n\nclose_time\030\007 \001(\0132\032.google.protobuf.Ti" +
-      "mestamp\022\023\n\013run_attempt\030\010 \001(\005\"\324\001\n\036Interna" +
-      "lAsyncStepInputSnapshot\022.\n\016method_option" +
-      "s\030\001 \001(\0132\026.dex.StepMethodOptions\022;\n\020wait_" +
-      "for_request\030\002 \001(\0132\037.dex.InvokeWaitForMet" +
-      "hodRequestH\000\022:\n\017execute_request\030\003 \001(\0132\037." +
-      "dex.InvokeExecuteMethodRequestH\000B\t\n\007requ" +
-      "est\"s\n\032InternalLocalActivityInput\022%\n\035cur" +
-      "rent_run_started_timestamp\030\001 \001(\003\022.\n\016meth" +
-      "od_options\030\002 \001(\0132\026.dex.StepMethodOptions" +
-      "\"\245\001\n\027GetHistoryEventsRequest\022\017\n\007flow_id\030" +
-      "\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\037\n\027start_internal_" +
-      "event_id\030\003 \001(\003\022\032\n\022estimate_page_size\030\004 \001" +
-      "(\005\022\027\n\017next_page_token\030\005 \001(\014\022\023\n\013run_attem" +
-      "pt\030\006 \001(\005\"z\n\030GetHistoryEventsResponse\022%\n\006" +
-      "events\030\001 \003(\0132\025.dex.FlowHistoryEvent\022\027\n\017n" +
-      "ext_page_token\030\002 \001(\014\022\036\n\026next_internal_ev" +
-      "ent_id\030\003 \001(\003\"\372\006\n\020FlowHistoryEvent\022\020\n\010eve" +
-      "nt_id\030\001 \001(\003\022.\n\nevent_time\030\002 \001(\0132\032.google" +
-      ".protobuf.Timestamp\022\023\n\013run_attempt\030\003 \001(\005" +
-      "\022L\n\031flow_started_or_continued\030\024 \001(\0132\'.de" +
-      "x.FlowStartedOrContinuedHistoryEventH\000\0222" +
-      "\n\013flow_closed\030\025 \001(\0132\033.dex.FlowClosedHist" +
-      "oryEventH\000\022A\n\027step_wait_for_completed\030\026 " +
-      "\001(\0132\036.dex.StepWaitForCompletedEventH\000\022;\n" +
-      "\024step_wait_for_failed\030\027 \001(\0132\033.dex.StepWa" +
-      "itForFailedEventH\000\022@\n\026step_execute_compl" +
-      "eted\030\030 \001(\0132\036.dex.StepExecuteCompletedEve" +
-      "ntH\000\022:\n\023step_execute_failed\030\031 \001(\0132\033.dex." +
-      "StepExecuteFailedEventH\000\022B\n\027rpc_executio" +
-      "n_completed\030\032 \001(\0132\037.dex.RpcExecutionComp" +
-      "letedEventH\000\022D\n\030channel_external_publish" +
-      "\030\033 \001(\0132 .dex.ChannelExternalPublishEvent" +
-      "H\000\022<\n\025step_wait_for_pending\030\034 \001(\0132\033.dex." +
-      "StepMethodPendingEventH\000\022;\n\024step_execute" +
-      "_pending\030\035 \001(\0132\033.dex.StepMethodPendingEv" +
-      "entH\000\022;\n\020time_travel_fork\030\036 \001(\0132\037.dex.Ti" +
-      "meTravelForkHistoryEventH\000\022B\n\027channel_ex" +
-      "ternal_delete\030\037 \001(\0132\037.dex.ChannelExterna" +
-      "lDeleteEventH\000B\t\n\007payload\"\210\001\n\032TimeTravel" +
-      "ForkHistoryEvent\022\027\n\017previous_run_id\030\001 \001(" +
-      "\t\022\034\n\024previous_run_attempt\030\002 \001(\005\022\032\n\022targe" +
-      "t_run_attempt\030\003 \001(\005\022\027\n\017target_event_id\030\004" +
-      " \001(\003\"\256\003\n\"FlowStartedOrContinuedHistoryEv" +
-      "ent\022/\n\021flow_execution_id\030\001 \001(\0132\024.dex.Flo" +
-      "wExecutionID\022\021\n\tflow_type\030\002 \001(\t\022$\n\013flow_" +
-      "config\030\003 \001(\0132\017.dex.FlowConfig\022/\n\014flow_ti" +
-      "meout\030\004 \001(\0132\031.google.protobuf.Duration\0223" +
-      "\n\023flow_timeout_policy\030\005 \001(\0162\026.dex.FlowTi" +
-      "meoutPolicy\022?\n\027timeout_handler_options\030\006" +
-      " \001(\0132\036.dex.FlowTimeoutHandlerOptions\022.\n\r" +
-      "initial_start\030\n \001(\0132\025.dex.FlowInitialSta" +
-      "rtH\000\0222\n\017continued_start\030\013 \001(\0132\027.dex.Flow" +
-      "ContinuedStartH\000B\023\n\021start_or_continue\"\230\001" +
-      "\n\020FlowInitialStart\022\027\n\017start_step_type\030\001 " +
-      "\001(\t\022\036\n\nstep_input\030\002 \001(\0132\n.dex.Value\022&\n\014s" +
-      "tep_options\030\003 \001(\0132\020.dex.StepOptions\022#\n\022i" +
-      "nitial_attributes\030\004 \003(\0132\007.dex.KV\"\250\003\n\022Flo" +
-      "wContinuedStart\022\027\n\017previous_run_id\030\001 \001(\t" +
-      "\022)\n\016steps_to_start\030\002 \003(\0132\021.dex.StepMovem" +
-      "ent\0225\n\017steps_to_resume\030\003 \003(\0132\034.dex.StepE" +
-      "xecutionResumeInfo\022U\n\030pending_channel_me" +
-      "ssages\030\004 \003(\01323.dex.FlowContinuedStart.Pe" +
-      "ndingChannelMessagesEntry\022\033\n\nattributes\030" +
-      "\005 \003(\0132\007.dex.KV\0222\n\017completed_steps\030\006 \003(\0132" +
-      "\031.dex.StepCompletionOutput\022\034\n\024sticky_app" +
-      "_worker_id\030\007 \001(\t\032Q\n\033PendingChannelMessag" +
-      "esEntry\022\013\n\003key\030\001 \001(\t\022!\n\005value\030\002 \001(\0132\022.de" +
-      "x.ChannelValues:\0028\001\"\344\001\n\026FlowClosedHistor" +
-      "yEvent\022$\n\013flow_status\030\001 \001(\0162\017.dex.FlowSt" +
-      "atus\022*\n\007results\030\002 \003(\0132\031.dex.StepCompleti" +
-      "onOutput\022&\n\nerror_type\030\003 \001(\0162\022.dex.FlowE" +
-      "rrorType\022\025\n\rerror_message\030\004 \001(\t\022\033\n\023conti" +
-      "nued_to_run_id\030\005 \001(\t\022\034\n\024sticky_app_worke" +
-      "r_id\030\006 \001(\t\"\234\001\n\026StepMethodPendingEvent\022(\n" +
-      "\005input\030\001 \001(\0132\031.dex.StepMethodEventInput\022" +
-      ",\n\007context\030\002 \001(\0132\033.dex.StepMethodEventCo" +
-      "ntext\022*\n\005phase\030\003 \001(\0162\033.dex.PendingStepMe" +
-      "thodPhase\"\217\001\n\021StepMethodFailure\022\025\n\rbacke" +
-      "nd_error\030\001 \001(\t\022*\n\007details\030\002 \001(\0132\031.dex.Se" +
-      "rviceErrorResponse\022\017\n\007attempt\030\003 \001(\005\022&\n\014p" +
-      "ull_routing\030\004 \001(\0132\020.dex.PullRouting\"w\n\021S" +
-      "tepMethodOptions\022\027\n\017timeout_seconds\030\001 \001(" +
-      "\005\022&\n\014retry_policy\030\002 \001(\0132\020.dex.RetryPolic" +
-      "y\022!\n\031heartbeat_timeout_seconds\030\003 \001(\005\"\302\001\n" +
-      "\024StepMethodEventInput\022\023\n\013unavailable\030\001 \001" +
-      "(\010\022\036\n\nstep_input\030\002 \001(\0132\n.dex.Value\0220\n\021co" +
-      "ndition_results\030\003 \001(\0132\025.dex.ConditionRes" +
-      "ults\022\033\n\nattributes\030\004 \003(\0132\007.dex.KV\022&\n\025ste" +
-      "p_execution_locals\030\005 \003(\0132\007.dex.KV\"t\n\013Pul" +
-      "lRouting\022\034\n\024sticky_app_worker_id\030\001 \001(\t\022\037" +
-      "\n\027served_by_app_worker_id\030\002 \001(\t\022&\n\006sourc" +
-      "e\030\003 \001(\0162\026.dex.PullRoutingSource\"\220\003\n\026Step" +
-      "MethodEventContext\022\031\n\021step_execution_id\030" +
-      "\001 \001(\t\022\036\n\026from_step_execution_id\030\002 \001(\t\022\021\n" +
-      "\tstep_type\030\003 \001(\t\022\'\n\ndurability\030\004 \001(\0162\023.d" +
-      "ex.StepDurability\022\025\n\rfinal_attempt\030\005 \001(\005" +
-      "\0220\n\014started_time\030\006 \001(\0132\032.google.protobuf" +
-      ".Timestamp\022+\n\010duration\030\007 \001(\0132\031.google.pr" +
-      "otobuf.Duration\022.\n\016method_options\030\010 \001(\0132" +
-      "\026.dex.StepMethodOptions\0221\n\021last_failure_" +
-      "info\030\t \001(\0132\026.dex.StepMethodFailure\022&\n\014pu" +
-      "ll_routing\030\n \001(\0132\020.dex.PullRouting\"\271\002\n\032S" +
-      "tepWaitForCompletedOutput\0221\n\022wait_for_co" +
-      "ndition\030\001 \001(\0132\025.dex.WaitingCondition\022.\n\021" +
-      "upsert_attributes\030\002 \003(\0132\023.dex.AttributeW" +
-      "rite\022/\n\022publish_to_channel\030\003 \003(\0132\023.dex.C" +
-      "hannelMessage\022\036\n\rrecord_events\030\004 \003(\0132\007.d" +
-      "ex.KV\022-\n\034upsert_step_execution_locals\030\005 " +
-      "\003(\0132\007.dex.KV\0228\n\023delete_from_channel\030\006 \003(" +
-      "\0132\033.dex.ChannelMessageDeletion\"\260\002\n\032StepE" +
-      "xecuteCompletedOutput\022(\n\rstep_decision\030\001" +
-      " \001(\0132\021.dex.StepDecision\022.\n\021upsert_attrib" +
-      "utes\030\002 \003(\0132\023.dex.AttributeWrite\022/\n\022publi" +
-      "sh_to_channel\030\003 \003(\0132\023.dex.ChannelMessage" +
-      "\022\036\n\rrecord_events\030\004 \003(\0132\007.dex.KV\022-\n\034upse" +
-      "rt_step_execution_locals\030\005 \003(\0132\007.dex.KV\022" +
-      "8\n\023delete_from_channel\030\006 \003(\0132\033.dex.Chann" +
-      "elMessageDeletion\"A\n\026StepMethodFailedOut" +
-      "put\022\'\n\007failure\030\001 \001(\0132\026.dex.StepMethodFai" +
-      "lure\"\244\001\n\031StepWaitForCompletedEvent\022(\n\005in" +
-      "put\030\001 \001(\0132\031.dex.StepMethodEventInput\022/\n\006" +
-      "output\030\002 \001(\0132\037.dex.StepWaitForCompletedO" +
-      "utput\022,\n\007context\030\003 \001(\0132\033.dex.StepMethodE" +
-      "ventContext\"\235\001\n\026StepWaitForFailedEvent\022(" +
-      "\n\005input\030\001 \001(\0132\031.dex.StepMethodEventInput" +
-      "\022+\n\006output\030\002 \001(\0132\033.dex.StepMethodFailedO" +
-      "utput\022,\n\007context\030\003 \001(\0132\033.dex.StepMethodE" +
-      "ventContext\"\244\001\n\031StepExecuteCompletedEven" +
-      "t\022(\n\005input\030\001 \001(\0132\031.dex.StepMethodEventIn" +
-      "put\022/\n\006output\030\002 \001(\0132\037.dex.StepExecuteCom" +
-      "pletedOutput\022,\n\007context\030\003 \001(\0132\033.dex.Step" +
-      "MethodEventContext\"\235\001\n\026StepExecuteFailed" +
-      "Event\022(\n\005input\030\001 \001(\0132\031.dex.StepMethodEve" +
-      "ntInput\022+\n\006output\030\002 \001(\0132\033.dex.StepMethod" +
-      "FailedOutput\022,\n\007context\030\003 \001(\0132\033.dex.Step" +
-      "MethodEventContext\"\211\003\n\032RpcExecutionCompl",
-      "etedEvent\022\020\n\010rpc_name\030\001 \001(\t\022\031\n\005input\030\002 \001" +
-      "(\0132\n.dex.Value\022\032\n\006output\030\003 \001(\0132\n.dex.Val" +
-      "ue\022(\n\rstep_decision\030\004 \001(\0132\021.dex.StepDeci" +
-      "sion\022.\n\021upsert_attributes\030\005 \003(\0132\023.dex.At" +
-      "tributeWrite\022\036\n\rrecord_events\030\006 \003(\0132\007.de" +
-      "x.KV\022/\n\022publish_to_channel\030\007 \003(\0132\023.dex.C" +
-      "hannelMessage\022\034\n\024is_set_attribute_api\030\010 " +
-      "\001(\010\0228\n\023delete_from_channel\030\t \003(\0132\033.dex.C" +
-      "hannelMessageDeletion\022\037\n\027served_by_app_w" +
-      "orker_id\030\n \001(\t\"D\n\033ChannelExternalPublish" +
-      "Event\022%\n\010messages\030\001 \003(\0132\023.dex.ChannelMes" +
-      "sage\"K\n\032ChannelExternalDeleteEvent\022-\n\010me" +
-      "ssages\030\001 \003(\0132\033.dex.ChannelMessageDeletio" +
-      "n\"]\n\032WaitForHistoryEventRequest\022\017\n\007flow_" +
-      "id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\036\n\026next_interna" +
-      "l_event_id\030\003 \001(\003\"\201\001\n\033WaitForHistoryEvent" +
-      "Response\022\027\n\017event_available\030\001 \001(\010\022#\n\033ava" +
-      "ilable_internal_event_id\030\002 \001(\003\022$\n\013flow_s" +
-      "tatus\030\003 \001(\0162\017.dex.FlowStatus\"\212\004\n\030ActiveS" +
-      "tepExecutionState\022\031\n\021step_execution_id\030\001" +
-      " \001(\t\022\036\n\026from_step_execution_id\030\002 \001(\t\022\021\n\t" +
-      "step_type\030\003 \001(\t\022#\n\005phase\030\004 \001(\0162\024.dex.Act" +
-      "iveStepPhase\022#\n\010movement\030\005 \001(\0132\021.dex.Ste" +
-      "pMovement\0225\n\021waiting_condition\030\006 \001(\0132\032.d" +
-      "ex.WaitingConditionState\022C\n\024completed_co" +
-      "nditions\030\007 \001(\0132%.dex.StepExecutionComple" +
-      "tedConditions\022&\n\025step_execution_locals\030\010" +
-      " \003(\0132\007.dex.KV\022\036\n\006timers\030\t \003(\0132\016.dex.Time" +
-      "rInfo\0221\n\021last_failure_info\030\n \001(\0132\026.dex.S" +
-      "tepMethodFailure\022/\n\025wait_for_pull_routin" +
-      "g\030\013 \001(\0132\020.dex.PullRouting\022.\n\024execute_pul" +
-      "l_routing\030\014 \001(\0132\020.dex.PullRouting\"6\n\023Get" +
-      "FlowStateRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run" +
-      "_id\030\002 \001(\t\"\277\003\n\024GetFlowStateResponse\022$\n\013fl" +
-      "ow_config\030\001 \001(\0132\017.dex.FlowConfig\022\033\n\nattr" +
-      "ibutes\030\002 \003(\0132\007.dex.KV\022=\n\026active_step_exe" +
-      "cutions\030\003 \003(\0132\035.dex.ActiveStepExecutionS" +
-      "tate\022\'\n\014queued_steps\030\004 \003(\0132\021.dex.StepMov" +
-      "ement\022W\n\030pending_channel_messages\030\005 \003(\0132" +
-      "5.dex.GetFlowStateResponse.PendingChanne" +
-      "lMessagesEntry\0222\n\017completed_steps\030\006 \003(\0132" +
-      "\031.dex.StepCompletionOutput\022\034\n\024sticky_app" +
-      "_worker_id\030\007 \001(\t\032Q\n\033PendingChannelMessag" +
-      "esEntry\022\013\n\003key\030\001 \001(\t\022!\n\005value\030\002 \001(\0132\022.de" +
-      "x.ChannelValues:\0028\001\"\226\002\n\020ResetFlowRequest" +
-      "\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022&\n\nres" +
-      "et_type\030\003 \001(\0162\022.dex.FlowResetType\022\016\n\006rea" +
-      "son\030\004 \001(\t\022\032\n\022history_event_time\030\005 \001(\t\022\021\n" +
-      "\tstep_type\030\006 \001(\t\022\031\n\021step_execution_id\030\007 " +
-      "\001(\t\022\033\n\023skip_writes_reapply\030\010 \001(\010\022-\n\013step" +
-      "_method\030\t \001(\0162\030.dex.FlowResetStepMethod\022" +
-      "\023\n\013run_attempt\030\n \001(\005\"8\n\021ResetFlowRespons" +
-      "e\022\016\n\006run_id\030\001 \001(\t\022\023\n\013run_attempt\030\002 \001(\005\"\252" +
-      "\002\n\020InvokeRPCRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006" +
-      "run_id\030\002 \001(\t\022\020\n\010rpc_name\030\003 \001(\t\022\031\n\005input\030" +
-      "\004 \001(\0132\n.dex.Value\022\027\n\017timeout_seconds\030\005 \001" +
-      "(\005\022\033\n\023lock_attribute_keys\030\006 \003(\t\022\022\n\nreque" +
-      "st_id\030\007 \001(\t\022\030\n\020is_transactional\030\010 \001(\010\022$\n" +
-      "\034load_attribute_map_instances\030\t \003(\t\022\032\n\022l" +
-      "oad_channel_names\030\n \003(\t\022\"\n\032load_channel_" +
-      "map_instances\030\013 \003(\t\"/\n\021InvokeRPCResponse" +
-      "\022\032\n\006output\030\001 \001(\0132\n.dex.Value\"\250\001\n\020SkipTim" +
-      "erRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001" +
-      "(\t\022\031\n\021step_execution_id\030\003 \001(\t\022\032\n\022timer_c" +
-      "ondition_id\030\004 \001(\t\022\"\n\025timer_condition_ind" +
-      "ex\030\005 \001(\005H\000\210\001\001B\030\n\026_timer_condition_index\"" +
-      "`\n\027UpdateFlowConfigRequest\022\017\n\007flow_id\030\001 " +
-      "\001(\t\022\016\n\006run_id\030\002 \001(\t\022$\n\013flow_config\030\003 \001(\013" +
-      "2\017.dex.FlowConfig\"\300\001\n\034WaitForStepComplet" +
-      "ionRequest\022\017\n\007flow_id\030\001 \001(\t\022\021\n\tstep_type" +
-      "\030\002 \001(\t\022\035\n\025step_execution_number\030\003 \001(\t\022\037\n" +
-      "\027request_timeout_seconds\030\004 \001(\005\022(\n intern" +
-      "al_handler_timeout_seconds\030\005 \001(\005\022\022\n\nrequ" +
-      "est_id\030\006 \001(\t\"\037\n\035WaitForStepCompletionRes" +
-      "ponse\"\255\001\n\027WaitForAttributeRequest\022\017\n\007flo" +
-      "w_id\030\001 \001(\t\022\"\n\005match\030\002 \001(\0132\023.dex.Attribut" +
-      "eMatch\022\037\n\027request_timeout_seconds\030\003 \001(\005\022" +
-      "(\n internal_handler_timeout_seconds\030\004 \001(" +
-      "\005\022\022\n\nrequest_id\030\005 \001(\t\"=\n\030WaitForAttribut" +
-      "eResponse\022!\n\rmatched_value\030\001 \001(\0132\n.dex.V" +
-      "alue\"i\n\016AttributeMatch\022\013\n\003key\030\001 \001(\t\022-\n\010o" +
-      "perator\030\002 \001(\0162\033.dex.AttributeMatchOperat" +
-      "or\022\033\n\007operand\030\003 \001(\0132\n.dex.Value\">\n\033Trigg" +
-      "erContinueAsNewRequest\022\017\n\007flow_id\030\001 \001(\t\022" +
-      "\016\n\006run_id\030\002 \001(\t\"C\n\nHealthInfo\022\021\n\tconditi" +
-      "on\030\001 \001(\t\022\020\n\010hostname\030\002 \001(\t\022\020\n\010duration\030\003" +
-      " \001(\005\"\254\002\n\024ServiceErrorResponse\022\016\n\006detail\030" +
-      "\001 \001(\t\022\'\n\nsub_status\030\002 \001(\0162\023.dex.ErrorSub" +
-      "Status\022$\n\034original_worker_error_detail\030\003" +
-      " \001(\t\022\"\n\032original_worker_error_type\030\004 \001(\t" +
-      "\022$\n\034original_worker_error_status\030\005 \001(\005\022)" +
-      "\n!original_worker_error_stack_trace\030\006 \001(" +
-      "\t\022@\n\032dispatch_task_error_reason\030\007 \001(\0162\034." +
-      "dex.DispatchTaskErrorReason\"\200\001\n\023WorkerEr" +
-      "rorResponse\022\016\n\006detail\030\001 \001(\t\022\022\n\nerror_typ" +
-      "e\030\002 \001(\t\022\023\n\013stack_trace\030\003 \001(\t\022\033\n\023retry_af" +
-      "ter_seconds\030\004 \001(\005\022\023\n\013grpc_status\030\005 \001(\005\"\344" +
-      "\001\n\025InternalActivityError\022\025\n\rserver_detai" +
-      "l\030\001 \001(\t\022\032\n\022worker_grpc_status\030\002 \001(\005\022.\n\014w" +
-      "orker_error\030\003 \001(\0132\030.dex.InternalWorkerEr" +
-      "ror\022&\n\014pull_routing\030\004 \001(\0132\020.dex.PullRout" +
-      "ing\022@\n\032dispatch_task_error_reason\030\005 \001(\0162" +
-      "\034.dex.DispatchTaskErrorReason\"N\n\023Interna" +
-      "lWorkerError\022\016\n\006detail\030\001 \001(\t\022\022\n\nerror_ty" +
-      "pe\030\002 \001(\t\022\023\n\013stack_trace\030\003 \001(\t\"m\n\021Interna" +
-      "lFlowError\022\027\n\rserver_detail\030\001 \001(\tH\000\0224\n\016a" +
-      "ctivity_error\030\002 \001(\0132\032.dex.InternalActivi" +
-      "tyErrorH\000B\t\n\007failure\"\033\n\013ChannelInfo\022\014\n\004s" +
-      "ize\030\001 \001(\005\"\312\004\n\032InvokeWaitForMethodRequest" +
-      "\022\035\n\007context\030\001 \001(\0132\014.dex.Context\022\021\n\tflow_" +
-      "type\030\002 \001(\t\022\021\n\tstep_type\030\003 \001(\t\022\036\n\nstep_in" +
-      "put\030\004 \001(\0132\n.dex.Value\022\033\n\nattributes\030\005 \003(" +
-      "\0132\007.dex.KV\022H\n\rchannel_infos\030\006 \003(\01321.dex." +
-      "InvokeWaitForMethodRequest.ChannelInfosE" +
-      "ntry\022[\n\027loaded_channel_messages\030\007 \003(\0132:." +
-      "dex.InvokeWaitForMethodRequest.LoadedCha" +
-      "nnelMessagesEntry\022&\n\036loaded_attribute_ma" +
-      "p_instances\030\010 \003(\t\022\034\n\024loaded_channel_name" +
-      "s\030\t \003(\t\022$\n\034loaded_channel_map_instances\030" +
-      "\n \003(\t\032E\n\021ChannelInfosEntry\022\013\n\003key\030\001 \001(\t\022" +
-      "\037\n\005value\030\002 \001(\0132\020.dex.ChannelInfo:\0028\001\032P\n\032" +
-      "LoadedChannelMessagesEntry\022\013\n\003key\030\001 \001(\t\022" +
-      "!\n\005value\030\002 \001(\0132\022.dex.ChannelValues:\0028\001\"\263" +
-      "\003\n\033InvokeWaitForMethodResponse\022;\n\027local_" +
-      "activity_metadata\030\001 \001(\0132\032.dex.LocalActiv" +
-      "ityMetadata\022.\n\021upsert_attributes\030\002 \003(\0132\023" +
-      ".dex.AttributeWrite\0220\n\021waiting_condition" +
-      "\030\003 \001(\0132\025.dex.WaitingCondition\022\'\n\026upsert_" +
-      "step_exe_locals\030\004 \003(\0132\007.dex.KV\022\036\n\rrecord" +
-      "_events\030\005 \003(\0132\007.dex.KV\022/\n\022publish_to_cha" +
-      "nnel\030\006 \003(\0132\023.dex.ChannelMessage\0228\n\023delet" +
-      "e_from_channel\030\007 \003(\0132\033.dex.ChannelMessag" +
-      "eDeletion\022A\n\032action_permission_mappings\030" +
-      "\010 \001(\0132\035.dex.ActionPermissionMappings\"0\n\023" +
-      "StepMethodHeartbeat\022\031\n\005value\030\001 \001(\0132\n.dex" +
-      ".Value\"`\n\017StepStreamWrite\022\023\n\013stream_name" +
-      "\030\001 \001(\t\022\035\n\025stream_capacity_bytes\030\002 \001(\003\022\031\n" +
-      "\005value\030\003 \001(\0132\n.dex.Value\"\266\001\n\031InvokeWaitF" +
-      "orMethodOutput\022-\n\theartbeat\030\001 \001(\0132\030.dex." +
-      "StepMethodHeartbeatH\000\022,\n\014stream_write\030\002 " +
-      "\001(\0132\024.dex.StepStreamWriteH\000\0222\n\006result\030\003 " +
-      "\001(\0132 .dex.InvokeWaitForMethodResponseH\000B" +
-      "\010\n\006output\"\236\005\n\032InvokeExecuteMethodRequest" +
-      "\022\035\n\007context\030\001 \001(\0132\014.dex.Context\022\021\n\tflow_" +
-      "type\030\002 \001(\t\022\021\n\tstep_type\030\003 \001(\t\022\036\n\nstep_in" +
-      "put\030\004 \001(\0132\n.dex.Value\022\033\n\nattributes\030\005 \003(" +
-      "\0132\007.dex.KV\022 \n\017step_exe_locals\030\006 \003(\0132\007.de" +
-      "x.KV\0220\n\021condition_results\030\007 \001(\0132\025.dex.Co" +
-      "nditionResults\022H\n\rchannel_infos\030\010 \003(\01321." +
-      "dex.InvokeExecuteMethodRequest.ChannelIn" +
-      "fosEntry\022[\n\027loaded_channel_messages\030\t \003(" +
-      "\0132:.dex.InvokeExecuteMethodRequest.Loade" +
-      "dChannelMessagesEntry\022&\n\036loaded_attribut" +
-      "e_map_instances\030\n \003(\t\022\034\n\024loaded_channel_" +
-      "names\030\013 \003(\t\022$\n\034loaded_channel_map_instan" +
-      "ces\030\014 \003(\t\032E\n\021ChannelInfosEntry\022\013\n\003key\030\001 " +
-      "\001(\t\022\037\n\005value\030\002 \001(\0132\020.dex.ChannelInfo:\0028\001" +
-      "\032P\n\032LoadedChannelMessagesEntry\022\013\n\003key\030\001 " +
+      "mestamp\"\265\001\n\031SyncAttributeIndexRequest\022O\n" +
+      "\021attribute_indexes\030\001 \003(\01324.dex.SyncAttri" +
+      "buteIndexRequest.AttributeIndexesEntry\032G" +
+      "\n\025AttributeIndexesEntry\022\013\n\003key\030\001 \001(\t\022\035\n\005" +
+      "value\030\002 \001(\0162\016.dex.IndexType:\0028\001\"\034\n\032SyncA" +
+      "ttributeIndexResponse\"2\n\017FlowExecutionID" +
+      "\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\"8\n\025Get" +
+      "FlowSummaryRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006r" +
+      "un_id\030\002 \001(\t\"\241\002\n\026GetFlowSummaryResponse\022/" +
+      "\n\021flow_execution_id\030\001 \001(\0132\024.dex.FlowExec" +
+      "utionID\022\024\n\014first_run_id\030\002 \001(\t\022\022\n\nrequest" +
+      "_id\030\003 \001(\t\022\021\n\tflow_type\030\004 \001(\t\022$\n\013flow_sta" +
+      "tus\030\005 \001(\0162\017.dex.FlowStatus\022.\n\nstart_time" +
+      "\030\006 \001(\0132\032.google.protobuf.Timestamp\022.\n\ncl" +
+      "ose_time\030\007 \001(\0132\032.google.protobuf.Timesta" +
+      "mp\022\023\n\013run_attempt\030\010 \001(\005\"\245\001\n\027GetHistoryEv" +
+      "entsRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002" +
+      " \001(\t\022\037\n\027start_internal_event_id\030\003 \001(\003\022\032\n" +
+      "\022estimate_page_size\030\004 \001(\005\022\027\n\017next_page_t" +
+      "oken\030\005 \001(\014\022\023\n\013run_attempt\030\006 \001(\005\"z\n\030GetHi" +
+      "storyEventsResponse\022%\n\006events\030\001 \003(\0132\025.de" +
+      "x.FlowHistoryEvent\022\027\n\017next_page_token\030\002 " +
+      "\001(\014\022\036\n\026next_internal_event_id\030\003 \001(\003\"\372\006\n\020" +
+      "FlowHistoryEvent\022\020\n\010event_id\030\001 \001(\003\022.\n\nev" +
+      "ent_time\030\002 \001(\0132\032.google.protobuf.Timesta" +
+      "mp\022\023\n\013run_attempt\030\003 \001(\005\022L\n\031flow_started_" +
+      "or_continued\030\024 \001(\0132\'.dex.FlowStartedOrCo" +
+      "ntinuedHistoryEventH\000\0222\n\013flow_closed\030\025 \001" +
+      "(\0132\033.dex.FlowClosedHistoryEventH\000\022A\n\027ste" +
+      "p_wait_for_completed\030\026 \001(\0132\036.dex.StepWai" +
+      "tForCompletedEventH\000\022;\n\024step_wait_for_fa" +
+      "iled\030\027 \001(\0132\033.dex.StepWaitForFailedEventH" +
+      "\000\022@\n\026step_execute_completed\030\030 \001(\0132\036.dex." +
+      "StepExecuteCompletedEventH\000\022:\n\023step_exec" +
+      "ute_failed\030\031 \001(\0132\033.dex.StepExecuteFailed" +
+      "EventH\000\022B\n\027rpc_execution_completed\030\032 \001(\013" +
+      "2\037.dex.RpcExecutionCompletedEventH\000\022D\n\030c" +
+      "hannel_external_publish\030\033 \001(\0132 .dex.Chan" +
+      "nelExternalPublishEventH\000\022<\n\025step_wait_f" +
+      "or_pending\030\034 \001(\0132\033.dex.StepMethodPending" +
+      "EventH\000\022;\n\024step_execute_pending\030\035 \001(\0132\033." +
+      "dex.StepMethodPendingEventH\000\022;\n\020time_tra" +
+      "vel_fork\030\036 \001(\0132\037.dex.TimeTravelForkHisto" +
+      "ryEventH\000\022B\n\027channel_external_delete\030\037 \001" +
+      "(\0132\037.dex.ChannelExternalDeleteEventH\000B\t\n" +
+      "\007payload\"\210\001\n\032TimeTravelForkHistoryEvent\022" +
+      "\027\n\017previous_run_id\030\001 \001(\t\022\034\n\024previous_run" +
+      "_attempt\030\002 \001(\005\022\032\n\022target_run_attempt\030\003 \001" +
+      "(\005\022\027\n\017target_event_id\030\004 \001(\003\"\256\003\n\"FlowStar" +
+      "tedOrContinuedHistoryEvent\022/\n\021flow_execu" +
+      "tion_id\030\001 \001(\0132\024.dex.FlowExecutionID\022\021\n\tf" +
+      "low_type\030\002 \001(\t\022$\n\013flow_config\030\003 \001(\0132\017.de" +
+      "x.FlowConfig\022/\n\014flow_timeout\030\004 \001(\0132\031.goo" +
+      "gle.protobuf.Duration\0223\n\023flow_timeout_po" +
+      "licy\030\005 \001(\0162\026.dex.FlowTimeoutPolicy\022?\n\027ti" +
+      "meout_handler_options\030\006 \001(\0132\036.dex.FlowTi" +
+      "meoutHandlerOptions\022.\n\rinitial_start\030\n \001" +
+      "(\0132\025.dex.FlowInitialStartH\000\0222\n\017continued" +
+      "_start\030\013 \001(\0132\027.dex.FlowContinuedStartH\000B" +
+      "\023\n\021start_or_continue\"\230\001\n\020FlowInitialStar" +
+      "t\022\027\n\017start_step_type\030\001 \001(\t\022\036\n\nstep_input" +
+      "\030\002 \001(\0132\n.dex.Value\022&\n\014step_options\030\003 \001(\013" +
+      "2\020.dex.StepOptions\022#\n\022initial_attributes" +
+      "\030\004 \003(\0132\007.dex.KV\"\250\003\n\022FlowContinuedStart\022\027" +
+      "\n\017previous_run_id\030\001 \001(\t\022)\n\016steps_to_star" +
+      "t\030\002 \003(\0132\021.dex.StepMovement\0225\n\017steps_to_r" +
+      "esume\030\003 \003(\0132\034.dex.StepExecutionResumeInf" +
+      "o\022U\n\030pending_channel_messages\030\004 \003(\01323.de" +
+      "x.FlowContinuedStart.PendingChannelMessa" +
+      "gesEntry\022\033\n\nattributes\030\005 \003(\0132\007.dex.KV\0222\n" +
+      "\017completed_steps\030\006 \003(\0132\031.dex.StepComplet" +
+      "ionOutput\022\034\n\024sticky_app_worker_id\030\007 \001(\t\032" +
+      "Q\n\033PendingChannelMessagesEntry\022\013\n\003key\030\001 " +
       "\001(\t\022!\n\005value\030\002 \001(\0132\022.dex.ChannelValues:\002" +
-      "8\001\"\253\003\n\033InvokeExecuteMethodResponse\022;\n\027lo" +
-      "cal_activity_metadata\030\001 \001(\0132\032.dex.LocalA" +
-      "ctivityMetadata\022(\n\rstep_decision\030\002 \001(\0132\021" +
-      ".dex.StepDecision\022.\n\021upsert_attributes\030\003" +
-      " \003(\0132\023.dex.AttributeWrite\022\036\n\rrecord_even" +
-      "ts\030\004 \003(\0132\007.dex.KV\022\'\n\026upsert_step_exe_loc" +
-      "als\030\005 \003(\0132\007.dex.KV\022/\n\022publish_to_channel" +
-      "\030\006 \003(\0132\023.dex.ChannelMessage\0228\n\023delete_fr" +
-      "om_channel\030\007 \003(\0132\033.dex.ChannelMessageDel" +
-      "etion\022A\n\032action_permission_mappings\030\010 \001(" +
-      "\0132\035.dex.ActionPermissionMappings\"\266\001\n\031Inv" +
-      "okeExecuteMethodOutput\022-\n\theartbeat\030\001 \001(" +
-      "\0132\030.dex.StepMethodHeartbeatH\000\022,\n\014stream_" +
-      "write\030\002 \001(\0132\024.dex.StepStreamWriteH\000\0222\n\006r" +
-      "esult\030\003 \001(\0132 .dex.InvokeExecuteMethodRes" +
-      "ponseH\000B\010\n\006output\"\270\004\n\026InvokeWorkerRPCReq" +
-      "uest\022\035\n\007context\030\001 \001(\0132\014.dex.Context\022\021\n\tf" +
-      "low_type\030\002 \001(\t\022\020\n\010rpc_name\030\003 \001(\t\022\031\n\005inpu" +
-      "t\030\004 \001(\0132\n.dex.Value\022\033\n\nattributes\030\005 \003(\0132" +
-      "\007.dex.KV\022D\n\rchannel_infos\030\006 \003(\0132-.dex.In" +
-      "vokeWorkerRPCRequest.ChannelInfosEntry\022W" +
-      "\n\027loaded_channel_messages\030\007 \003(\01326.dex.In" +
-      "vokeWorkerRPCRequest.LoadedChannelMessag" +
-      "esEntry\022&\n\036loaded_attribute_map_instance" +
-      "s\030\010 \003(\t\022\034\n\024loaded_channel_names\030\t \003(\t\022$\n" +
-      "\034loaded_channel_map_instances\030\n \003(\t\032E\n\021C" +
-      "hannelInfosEntry\022\013\n\003key\030\001 \001(\t\022\037\n\005value\030\002" +
-      " \001(\0132\020.dex.ChannelInfo:\0028\001\032P\n\032LoadedChan" +
-      "nelMessagesEntry\022\013\n\003key\030\001 \001(\t\022!\n\005value\030\002" +
-      " \001(\0132\022.dex.ChannelValues:\0028\001\"\335\002\n\027InvokeW" +
-      "orkerRPCResponse\022\032\n\006output\030\001 \001(\0132\n.dex.V" +
-      "alue\022(\n\rstep_decision\030\002 \001(\0132\021.dex.StepDe" +
-      "cision\022.\n\021upsert_attributes\030\003 \003(\0132\023.dex." +
-      "AttributeWrite\022\036\n\rrecord_events\030\004 \003(\0132\007." +
-      "dex.KV\0228\n\023delete_from_channel\030\005 \003(\0132\033.de" +
-      "x.ChannelMessageDeletion\022/\n\022publish_to_c" +
-      "hannel\030\006 \003(\0132\023.dex.ChannelMessage\022A\n\032act" +
-      "ion_permission_mappings\030\007 \001(\0132\035.dex.Acti" +
-      "onPermissionMappings\"\237\001\n\014StepDecision\022%\n" +
-      "\nnext_steps\030\001 \003(\0132\021.dex.StepMovement\022*\n\016" +
-      "close_decision\030\002 \001(\0132\022.dex.CloseDecision" +
-      "\022\031\n\021cancel_step_types\030\003 \003(\t\022!\n\031cancel_si" +
-      "bling_step_types\030\004 \003(\t\"\210\001\n\rCloseDecision" +
-      "\0223\n\023close_decision_type\030\001 \001(\0162\026.dex.Clos" +
-      "eDecisionType\022!\n\031conditional_channel_nam" +
-      "es\030\002 \003(\t\022\037\n\013close_input\030\003 \001(\0132\n.dex.Valu" +
-      "e\"\325\001\n\014StepMovement\022\021\n\tstep_type\030\001 \001(\t\022\036\n" +
-      "\nstep_input\030\002 \001(\0132\n.dex.Value\022&\n\014step_op" +
-      "tions\030\003 \001(\0132\020.dex.StepOptions\022,\n$from_st" +
-      "ep_execution_id_internal_only\030\004 \001(\t\022<\n\034r" +
-      "ecovery_error_internal_only\030\005 \001(\0132\026.dex." +
-      "RecoveryErrorInfo\"-\n\024ConditionCombinatio" +
-      "n\022\025\n\rcondition_ids\030\001 \003(\t\"\236\002\n\020WaitingCond" +
-      "ition\0229\n\026waiting_condition_type\030\001 \001(\0162\031." +
-      "dex.WaitingConditionType\022-\n\020timer_condit" +
-      "ions\030\002 \003(\0132\023.dex.TimerCondition\0221\n\022chann" +
-      "el_conditions\030\003 \003(\0132\025.dex.ChannelConditi" +
-      "on\0229\n\026condition_combinations\030\004 \003(\0132\031.dex" +
-      ".ConditionCombination\0222\n\023sub_flow_condit" +
-      "ions\030\005 \003(\0132\025.dex.SubFlowCondition\"\250\002\n\025Wa" +
-      "itingConditionState\0229\n\026waiting_condition" +
-      "_type\030\001 \001(\0162\031.dex.WaitingConditionType\022-" +
-      "\n\020timer_conditions\030\002 \003(\0132\023.dex.TimerCond" +
-      "ition\0221\n\022channel_conditions\030\003 \003(\0132\025.dex." +
-      "ChannelCondition\0229\n\026condition_combinatio" +
-      "ns\030\004 \003(\0132\031.dex.ConditionCombination\0227\n\023s" +
-      "ub_flow_conditions\030\005 \003(\0132\032.dex.SubFlowCo" +
-      "nditionState\"\371\002\n\016SubFlowOptions\022-\n\014reuse" +
-      "_policy\030\001 \001(\0162\027.dex.SubFlowReusePolicy\022\034" +
-      "\n\024flow_timeout_seconds\030\002 \001(\005\022 \n\030flow_sta" +
-      "rt_delay_seconds\030\003 \001(\005\022*\n\014retry_policy\030\004" +
-      " \001(\0132\024.dex.FlowRetryPolicy\022\'\n\nattributes" +
-      "\030\005 \003(\0132\023.dex.AttributeWrite\022-\n\024flow_conf" +
-      "ig_override\030\006 \001(\0132\017.dex.FlowConfig\0223\n\023fl" +
-      "ow_timeout_policy\030\007 \001(\0162\026.dex.FlowTimeou" +
-      "tPolicy\022?\n\027timeout_handler_options\030\010 \001(\013" +
-      "2\036.dex.FlowTimeoutHandlerOptions\"\336\001\n\020Sub" +
-      "FlowCondition\022\024\n\014condition_id\030\001 \001(\t\022\025\n\rs" +
-      "ub_flow_type\030\002 \001(\t\022\027\n\017start_step_type\030\003 " +
-      "\001(\t\022\036\n\nstep_input\030\004 \001(\0132\n.dex.Value\022&\n\014s" +
-      "tep_options\030\005 \001(\0132\020.dex.StepOptions\022$\n\007o" +
-      "ptions\030\006 \001(\0132\023.dex.SubFlowOptions\022\026\n\016sub" +
-      "_flow_index\030\007 \001(\005\"-\n\025SubFlowConditionSta" +
-      "te\022\024\n\014condition_id\030\001 \001(\t\"g\n\016TimerConditi" +
-      "on\022\024\n\014condition_id\030\001 \001(\t\022\030\n\020duration_sec" +
-      "onds\030\002 \001(\003\022%\n\035firing_unix_timestamp_seco" +
-      "nds\030\003 \001(\003\"\204\001\n\020ChannelCondition\022\024\n\014condit" +
-      "ion_id\030\001 \001(\t\022\024\n\014channel_name\030\002 \001(\t\022\025\n\010at" +
-      "_least\030\003 \001(\005H\000\210\001\001\022\024\n\007at_most\030\004 \001(\005H\001\210\001\001B" +
-      "\013\n\t_at_leastB\n\n\010_at_most\"\254\001\n\020ConditionRe" +
-      "sults\022+\n\017channel_results\030\001 \003(\0132\022.dex.Cha" +
-      "nnelResult\022\'\n\rtimer_results\030\002 \003(\0132\020.dex." +
-      "TimerResult\022\027\n\017wait_for_failed\030\003 \001(\010\022)\n\020" +
-      "sub_flow_results\030\004 \003(\0132\017.dex.FlowResult\"" +
-      "S\n\013TimerResult\022\024\n\014condition_id\030\001 \001(\t\022.\n\020" +
-      "condition_status\030\002 \001(\0162\024.dex.ConditionSt" +
-      "atus\"\207\001\n\rChannelResult\022\024\n\014condition_id\030\001" +
-      " \001(\t\022.\n\020condition_status\030\002 \001(\0162\024.dex.Con" +
-      "ditionStatus\022\024\n\014channel_name\030\003 \001(\t\022\032\n\006va" +
-      "lues\030\004 \003(\0132\n.dex.Value\"i\n\030ContinueAsNewD" +
-      "umpRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 " +
-      "\001(\t\022\020\n\010page_num\030\003 \001(\005\022\032\n\022page_size_in_by" +
-      "tes\030\004 \001(\005\"j\n\031ContinueAsNewDumpResponse\022\024" +
-      "\n\014page_content\030\001 \001(\014\022\020\n\010page_num\030\002 \001(\005\022\023" +
-      "\n\013total_pages\030\003 \001(\005\022\020\n\010checksum\030\004 \001(\t\"6\n" +
-      "\rChannelValues\022%\n\010messages\030\001 \003(\0132\023.dex.C" +
-      "hannelMessage\"\237\003\n StepExecutionCompleted" +
-      "Conditions\022g\n\032completed_timer_conditions" +
-      "\030\001 \003(\0132C.dex.StepExecutionCompletedCondi" +
-      "tions.CompletedTimerConditionsEntry\022f\n\032c" +
-      "ompleted_sub_flow_results\030\002 \003(\0132B.dex.St" +
-      "epExecutionCompletedConditions.Completed" +
-      "SubFlowResultsEntry\032Y\n\035CompletedTimerCon" +
-      "ditionsEntry\022\013\n\003key\030\001 \001(\005\022\'\n\005value\030\002 \001(\016" +
-      "2\030.dex.InternalTimerStatus:\0028\001\032O\n\034Comple" +
-      "tedSubFlowResultsEntry\022\013\n\003key\030\001 \001(\005\022\036\n\005v" +
-      "alue\030\002 \001(\0132\017.dex.FlowResult:\0028\001\"\244\002\n\027Step" +
-      "ExecutionResumeInfo\022\031\n\021step_execution_id" +
-      "\030\001 \001(\t\022\037\n\004step\030\002 \001(\0132\021.dex.StepMovement\022" +
-      "C\n\024completed_conditions\030\003 \001(\0132%.dex.Step" +
-      "ExecutionCompletedConditions\0225\n\021waiting_" +
-      "condition\030\004 \001(\0132\032.dex.WaitingConditionSt" +
-      "ate\022 \n\017step_exe_locals\030\005 \003(\0132\007.dex.KV\022/\n" +
-      "\025wait_for_pull_routing\030\006 \001(\0132\020.dex.PullR" +
-      "outing\"\316\004\n\030StepExecutionCounterInfo\022X\n\027s" +
-      "tep_type_started_count\030\001 \003(\01327.dex.StepE" +
-      "xecutionCounterInfo.StepTypeStartedCount" +
-      "Entry\022o\n#step_type_currently_executing_c" +
-      "ount\030\002 \003(\0132B.dex.StepExecutionCounterInf" +
-      "o.StepTypeCurrentlyExecutingCountEntry\022\'" +
-      "\n\037total_currently_executing_count\030\003 \001(\005\022" +
-      "^\n\032step_active_execution_nums\030\004 \003(\0132:.de" +
-      "x.StepExecutionCounterInfo.StepActiveExe" +
-      "cutionNumsEntry\032;\n\031StepTypeStartedCountE" +
-      "ntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\005:\0028\001\032F\n$" +
-      "StepTypeCurrentlyExecutingCountEntry\022\013\n\003" +
-      "key\030\001 \001(\t\022\r\n\005value\030\002 \001(\005:\0028\001\032Y\n\034StepActi" +
-      "veExecutionNumsEntry\022\013\n\003key\030\001 \001(\t\022(\n\005val" +
-      "ue\030\002 \001(\0132\031.dex.StepExecutionNumbers:\0028\001\"" +
-      "f\n\016StaleSkipTimer\022\031\n\021step_execution_id\030\001" +
-      " \001(\t\022\032\n\022timer_condition_id\030\002 \001(\t\022\035\n\025time" +
-      "r_condition_index\030\003 \001(\005\"\252\004\n\021ContinueAsNe" +
-      "wDump\0228\n\035steps_to_start_from_beginning\030\001" +
-      " \003(\0132\021.dex.StepMovement\022?\n\031step_executio" +
-      "ns_to_resume\030\002 \003(\0132\034.dex.StepExecutionRe" +
-      "sumeInfo\022E\n\020channel_received\030\003 \003(\0132+.dex" +
-      ".ContinueAsNewDump.ChannelReceivedEntry\022" +
-      "3\n\014counter_info\030\004 \001(\0132\035.dex.StepExecutio" +
-      "nCounterInfo\022/\n\014step_outputs\030\005 \003(\0132\031.dex" +
-      ".StepCompletionOutput\022.\n\021stale_skip_time" +
-      "rs\030\006 \003(\0132\023.dex.StaleSkipTimer\022\033\n\nattribu" +
-      "tes\030\007 \003(\0132\007.dex.KV\022<\n\034pending_attribute_" +
-      "sync_items\030\010 \003(\0132\026.dex.AttributeSyncItem" +
-      "\022\026\n\016dex_task_queue\030\t \001(\t\032J\n\024ChannelRecei" +
-      "vedEntry\022\013\n\003key\030\001 \001(\t\022!\n\005value\030\002 \001(\0132\022.d" +
-      "ex.ChannelValues:\0028\001\"6\n\022ContinueAsNewInp" +
-      "ut\022 \n\030previous_internal_run_id\030\001 \001(\t\"\202\004\n" +
-      "\030InterpreterWorkflowInput\022\021\n\tflow_type\030\001" +
-      " \001(\t\022\'\n\037configured_flow_timeout_seconds\030" +
-      "\002 \001(\005\0223\n\023flow_timeout_policy\030\003 \001(\0162\026.dex" +
-      ".FlowTimeoutPolicy\022\027\n\017start_step_type\030\004 " +
-      "\001(\t\022\036\n\nstep_input\030\005 \001(\0132\n.dex.Value\022&\n\014s" +
-      "tep_options\030\006 \001(\0132\020.dex.StepOptions\022,\n\017i" +
-      "nit_attributes\030\007 \003(\0132\023.dex.AttributeWrit" +
-      "e\022\037\n\006config\030\010 \001(\0132\017.dex.FlowConfig\022&\n\036is" +
-      "_resume_from_continue_as_new\030\t \001(\010\0226\n\025co" +
-      "ntinue_as_new_input\030\n \001(\0132\027.dex.Continue" +
-      "AsNewInput\022?\n\027timeout_handler_options\030\013 " +
-      "\001(\0132\036.dex.FlowTimeoutHandlerOptionsJ\004\010\014\020" +
-      "\rJ\004\010\r\020\016R\ttenant_idR\rtenant_claims\"W\n\031Int" +
-      "erpreterWorkflowOutput\022:\n\027step_completio" +
-      "n_outputs\030\001 \003(\0132\031.dex.StepCompletionOutp" +
-      "ut\"1\n\035BlobStoreCleanupWorkflowInput\022\020\n\010s" +
-      "tore_id\030\001 \001(\t\"7\n\036BlobStoreCleanupWorkflo" +
-      "wOutput\022\025\n\rtotal_deleted\030\001 \001(\005\"\236\002\n Invok" +
-      "eWaitForMethodActivityInput\022(\n\rworker_ta" +
-      "rget\030\001 \001(\0132\021.dex.WorkerTarget\0220\n\007request" +
-      "\030\002 \001(\0132\037.dex.InvokeWaitForMethodRequest\022" +
-      "\026\n\016dex_task_queue\030\005 \001(\t\0220\n\rdispatch_wait" +
-      "\030\006 \001(\0132\031.google.protobuf.Duration\022.\n\013sti" +
-      "cky_wait\030\007 \001(\0132\031.google.protobuf.Duratio" +
-      "nJ\004\010\003\020\004J\004\010\004\020\005R\ttenant_idR\rtenant_claims\"" +
-      "\240\001\n!InvokeWaitForMethodActivityOutput\0222\n" +
-      "\010response\030\001 \001(\0132 .dex.InvokeWaitForMetho" +
-      "dResponse\022\037\n\027served_by_app_worker_id\030\002 \001" +
-      "(\t\022&\n\014pull_routing\030\003 \001(\0132\020.dex.PullRouti" +
-      "ng\"\236\002\n InvokeExecuteMethodActivityInput\022" +
-      "(\n\rworker_target\030\001 \001(\0132\021.dex.WorkerTarge" +
-      "t\0220\n\007request\030\002 \001(\0132\037.dex.InvokeExecuteMe" +
-      "thodRequest\022\026\n\016dex_task_queue\030\005 \001(\t\0220\n\rd" +
-      "ispatch_wait\030\006 \001(\0132\031.google.protobuf.Dur" +
-      "ation\022.\n\013sticky_wait\030\007 \001(\0132\031.google.prot" +
-      "obuf.DurationJ\004\010\003\020\004J\004\010\004\020\005R\ttenant_idR\rte" +
-      "nant_claims\"7\n\021RecoveryErrorInfo\022\016\n\006deta" +
-      "il\030\001 \001(\t\022\022\n\nerror_type\030\002 \001(\t\"\235\002\n Interna" +
-      "lLocalStepActivityFailure\022;\n\027local_activ" +
-      "ity_metadata\030\001 \001(\0132\032.dex.LocalActivityMe" +
-      "tadata\022\037\n\027first_attempt_timestamp\030\002 \001(\003\022" +
-      ".\n\016method_options\030\003 \001(\0132\026.dex.StepMethod" +
-      "Options\022\017\n\007attempt\030\004 \001(\005\0222\n\016activity_err" +
-      "or\030\005 \001(\0132\032.dex.InternalActivityError\022&\n\014" +
-      "pull_routing\030\006 \001(\0132\020.dex.PullRouting\"\240\001\n" +
-      "!InvokeExecuteMethodActivityOutput\0222\n\010re" +
-      "sponse\030\001 \001(\0132 .dex.InvokeExecuteMethodRe" +
-      "sponse\022\037\n\027served_by_app_worker_id\030\002 \001(\t\022" +
-      "&\n\014pull_routing\030\003 \001(\0132\020.dex.PullRouting\"" +
-      "W\n%DumpFlowForContinueAsNewActivityInput" +
-      "\022.\n\007request\030\001 \001(\0132\035.dex.ContinueAsNewDum" +
-      "pRequest\"Z\n&DumpFlowForContinueAsNewActi" +
-      "vityOutput\0220\n\010response\030\001 \001(\0132\036.dex.Conti" +
-      "nueAsNewDumpResponse\"\332\001\n\034InvokeWorkerRPC" +
-      "ActivityInput\022.\n\010rpc_prep\030\001 \001(\0132\034.dex.Pr" +
-      "epareRpcQueryResponse\022&\n\007request\030\002 \001(\0132\025" +
-      ".dex.InvokeRPCRequestJ\004\010\003\020\004J\004\010\004\020\005J\004\010\005\020\006J" +
-      "\004\010\006\020\007J\004\010\007\020\010R\ttenant_idR\rtenant_claimsR\016d" +
-      "ex_task_queueR\rdispatch_waitR\013sticky_wai" +
-      "t\"\204\001\n\035InvokeWorkerRPCActivityOutput\022.\n\010r" +
-      "esponse\030\001 \001(\0132\034.dex.InvokeWorkerRPCRespo" +
-      "nse\022\022\n\nrequest_id\030\002 \001(\t\022\037\n\027served_by_app" +
-      "_worker_id\030\003 \001(\t\"1\n\035CleanupBlobStoreActi" +
-      "vityInput\022\020\n\010store_id\030\001 \001(\t\"7\n\036CleanupBl" +
-      "obStoreActivityOutput\022\025\n\rtotal_deleted\030\001" +
-      " \001(\005\"P\n\021AttributeSyncItem\022\023\n\013config_name" +
-      "\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\022\031\n\005value\030\003 \001(\0132\n.dex" +
-      ".Value\"n\n\037SyncAttributeBatchActivityInpu" +
-      "t\022\017\n\007flow_id\030\001 \001(\t\022\023\n\013config_name\030\002 \001(\t\022" +
-      "%\n\005items\030\003 \003(\0132\026.dex.AttributeSyncItem\"\333" +
-      "\001\n\031StartSubFlowActivityInput\022(\n\tconditio" +
-      "n\030\001 \001(\0132\025.dex.SubFlowCondition\022+\n\022parent" +
-      "_flow_config\030\002 \001(\0132\017.dex.FlowConfig\022 \n\030p" +
-      "arent_step_execution_id\030\003 \001(\t\022\037\n\027typed_r" +
-      "ejection_enabled\030\006 \001(\010J\004\010\004\020\005J\004\010\005\020\006R\ttena" +
-      "nt_idR\rtenant_claims\"L\n\032StartSubFlowActi" +
-      "vityOutput\022.\n\025immediate_flow_result\030\001 \001(" +
-      "\0132\017.dex.FlowResult\"[\n\036SubFlowCompletionS" +
-      "ignalRequest\022\023\n\013sub_flow_id\030\001 \001(\t\022$\n\013flo" +
-      "w_result\030\002 \001(\0132\017.dex.FlowResult\"t\n$Repor" +
-      "tSubFlowCompletionActivityInput\022\026\n\016paren" +
-      "t_flow_id\030\001 \001(\t\0224\n\007request\030\002 \001(\0132#.dex.S" +
-      "ubFlowCompletionSignalRequest\"]\n%ReportS" +
-      "ubFlowCompletionActivityOutput\0224\n\006status",
-      "\030\001 \001(\0162$.dex.SubFlowCompletionDeliverySt" +
-      "atus\"\312\003\n\027ExecuteRpcSignalRequest\022.\n\021upse" +
-      "rt_attributes\030\003 \003(\0132\023.dex.AttributeWrite" +
-      "\022(\n\rstep_decision\030\004 \001(\0132\021.dex.StepDecisi" +
-      "on\022\036\n\rrecord_events\030\005 \003(\0132\007.dex.KV\022/\n\022pu" +
-      "blish_to_channel\030\006 \003(\0132\023.dex.ChannelMess" +
-      "age\022\034\n\024is_set_attribute_api\030\007 \001(\010\0228\n\023del" +
-      "ete_from_channel\030\010 \003(\0132\033.dex.ChannelMess" +
-      "ageDeletion\022%\n\035is_delete_channel_message" +
-      "_api\030\t \001(\010\022A\n\032action_permission_mappings" +
-      "\030\n \001(\0132\035.dex.ActionPermissionMappings\022\037\n" +
-      "\027served_by_app_worker_id\030\013 \001(\tJ\004\010\001\020\002J\004\010\002" +
-      "\020\003R\trpc_inputR\nrpc_output\"n\n\026SkipTimerSi" +
-      "gnalRequest\022\031\n\021step_execution_id\030\001 \001(\t\022\032" +
-      "\n\022timer_condition_id\030\002 \001(\t\022\035\n\025timer_cond" +
-      "ition_index\030\003 \001(\005\"I\n\025StopFlowSignalReque" +
-      "st\022 \n\tstop_type\030\001 \001(\0162\r.dex.StopType\022\016\n\006" +
-      "reason\030\002 \001(\t\";\n\031GetAttributesQueryReques" +
-      "t\022\014\n\004keys\030\001 \003(\t\022\020\n\010all_keys\030\002 \001(\010\"9\n\032Get" +
-      "AttributesQueryResponse\022\033\n\nattributes\030\001 " +
-      "\003(\0132\007.dex.KV\"~\n\026PrepareRpcQueryRequest\022$" +
-      "\n\034load_attribute_map_instances\030\001 \003(\t\022\032\n\022" +
-      "load_channel_names\030\002 \003(\t\022\"\n\032load_channel" +
-      "_map_instances\030\003 \003(\t\"\341\004\n\027PrepareRpcQuery" +
-      "Response\022\033\n\nattributes\030\001 \003(\0132\007.dex.KV\022\016\n" +
-      "\006run_id\030\002 \001(\t\022\036\n\026flow_started_timestamp\030" +
-      "\003 \001(\003\022\021\n\tflow_type\030\004 \001(\t\022(\n\rworker_targe" +
-      "t\030\005 \001(\0132\021.dex.WorkerTarget\022E\n\rchannel_in" +
-      "fos\030\006 \003(\0132..dex.PrepareRpcQueryResponse." +
-      "ChannelInfosEntry\022X\n\027loaded_channel_mess" +
-      "ages\030\007 \003(\01327.dex.PrepareRpcQueryResponse" +
-      ".LoadedChannelMessagesEntry\022&\n\036loaded_at" +
-      "tribute_map_instances\030\010 \003(\t\022\034\n\024loaded_ch" +
-      "annel_names\030\t \003(\t\022$\n\034loaded_channel_map_" +
-      "instances\030\n \003(\t\022\026\n\016dex_task_queue\030\013 \001(\t\032" +
-      "E\n\021ChannelInfosEntry\022\013\n\003key\030\001 \001(\t\022\037\n\005val" +
-      "ue\030\002 \001(\0132\020.dex.ChannelInfo:\0028\001\032P\n\032Loaded" +
-      "ChannelMessagesEntry\022\013\n\003key\030\001 \001(\t\022!\n\005val" +
-      "ue\030\002 \001(\0132\022.dex.ChannelValues:\0028\001\"r\n\tTime" +
-      "rInfo\022\024\n\014condition_id\030\001 \001(\t\022%\n\035firing_un" +
-      "ix_timestamp_seconds\030\002 \001(\003\022(\n\006status\030\003 \001" +
-      "(\0162\030.dex.InternalTimerStatus\"/\n\rTimerInf" +
-      "oList\022\036\n\006timers\030\001 \003(\0132\016.dex.TimerInfo\"\366\001" +
-      "\n!GetCurrentTimerInfosQueryResponse\022v\n\"s" +
-      "tep_execution_current_timer_infos\030\001 \003(\0132" +
-      "J.dex.GetCurrentTimerInfosQueryResponse." +
-      "StepExecutionCurrentTimerInfosEntry\032Y\n#S" +
-      "tepExecutionCurrentTimerInfosEntry\022\013\n\003ke" +
-      "y\030\001 \001(\t\022!\n\005value\030\002 \001(\0132\022.dex.TimerInfoLi" +
-      "st:\0028\001\"V\n)GetScheduledGreedyTimerTimesQu" +
-      "eryResponse\022)\n\021pending_scheduled\030\001 \003(\0132\016" +
-      ".dex.TimerInfo\"\304\001\n\021DebugDumpResponse\022\037\n\006" +
-      "config\030\001 \001(\0132\017.dex.FlowConfig\022(\n\010snapsho" +
-      "t\030\002 \001(\0132\026.dex.ContinueAsNewDump\022%\n\035firin" +
-      "g_timers_unix_timestamps\030\003 \003(\003\022=\n\026active" +
-      "_step_executions\030\004 \003(\0132\035.dex.ActiveStepE" +
-      "xecutionState\"A\n\025InvokeRpcUpdateResult\022(" +
-      "\n\010response\030\001 \001(\0132\026.dex.InvokeRPCResponse" +
-      "\"\'\n\024StepExecutionNumbers\022\017\n\007numbers\030\001 \003(" +
-      "\005*z\n\014ServerEngine\022\035\n\031SERVER_ENGINE_UNSPE" +
-      "CIFIED\020\000\022\032\n\026SERVER_ENGINE_TEMPORAL\020\001\022\031\n\025" +
-      "SERVER_ENGINE_CADENCE\020\002\022\024\n\020SERVER_ENGINE" +
-      "_ZD\020\003*\335\001\n\032PollWorkerTaskRejectReason\022.\n*" +
-      "POLL_WORKER_TASK_REJECT_REASON_UNSPECIFI" +
-      "ED\020\000\022.\n*POLL_WORKER_TASK_REJECT_REASON_N" +
-      "O_CAPACITY\020\001\022/\n+POLL_WORKER_TASK_REJECT_" +
-      "REASON_UNKNOWN_STEP\020\002\022.\n*POLL_WORKER_TAS" +
-      "K_REJECT_REASON_UNKNOWN_RPC\020\003*\332\001\n\027Dispat" +
-      "chTaskErrorReason\022*\n&DISPATCH_TASK_ERROR" +
-      "_REASON_UNSPECIFIED\020\000\0222\n.DISPATCH_TASK_E" +
-      "RROR_REASON_NO_WORKER_AVAILABLE\020\001\0222\n.DIS" +
-      "PATCH_TASK_ERROR_REASON_WORKER_DISCONNEC" +
-      "TED\020\002\022+\n\'DISPATCH_TASK_ERROR_REASON_UNKN" +
-      "OWN_NAME\020\003*\313\001\n\tIndexType\022\032\n\026INDEX_TYPE_U" +
-      "NSPECIFIED\020\000\022\026\n\022INDEX_TYPE_KEYWORD\020\001\022\023\n\017" +
-      "INDEX_TYPE_TEXT\020\002\022\034\n\030INDEX_TYPE_KEYWORD_" +
-      "ARRAY\020\003\022\022\n\016INDEX_TYPE_INT\020\004\022\025\n\021INDEX_TYP" +
-      "E_DOUBLE\020\005\022\023\n\017INDEX_TYPE_BOOL\020\006\022\027\n\023INDEX" +
-      "_TYPE_DATETIME\020\007*\274\001\n\032WaitForMethodFailur" +
-      "ePolicy\022.\n*WAIT_FOR_METHOD_FAILURE_POLIC" +
-      "Y_UNSPECIFIED\020\000\0227\n3WAIT_FOR_METHOD_FAILU" +
-      "RE_POLICY_FAIL_FLOW_ON_FAILURE\020\001\0225\n1WAIT" +
-      "_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FA" +
-      "ILURE\020\002*\320\001\n\032ExecuteMethodFailurePolicy\022-" +
-      "\n)EXECUTE_METHOD_FAILURE_POLICY_UNSPECIF" +
-      "IED\020\000\022E\nAEXECUTE_METHOD_FAILURE_POLICY_F" +
-      "AIL_FLOW_ON_EXECUTE_METHOD_FAILURE\020\001\022<\n8" +
-      "EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO" +
-      "_CONFIGURED_STEP\020\002*\346\001\n\rIdReusePolicy\022\037\n\033" +
-      "ID_REUSE_POLICY_UNSPECIFIED\020\000\0227\n3ID_REUS" +
-      "E_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORM" +
-      "ALLY\020\001\022\'\n#ID_REUSE_POLICY_ALLOW_IF_NO_RU" +
-      "NNING\020\002\022\"\n\036ID_REUSE_POLICY_DISALLOW_REUS" +
-      "E\020\003\022.\n*ID_REUSE_POLICY_ALLOW_TERMINATE_I" +
-      "F_RUNNING\020\004*\317\001\n\024ActiveStepSearchMode\022\'\n#" +
-      "ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED\020\000\022+\n" +
-      "\'ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL" +
-      "\020\001\022;\n7ACTIVE_STEP_SEARCH_MODE_ENABLED_FO" +
-      "R_STEPS_WITH_WAIT_FOR\020\002\022$\n ACTIVE_STEP_S" +
-      "EARCH_MODE_DISABLED\020\003*f\n\016StepDurability\022" +
-      "\037\n\033STEP_DURABILITY_UNSPECIFIED\020\000\022\030\n\024STEP" +
-      "_DURABILITY_SYNC\020\001\022\031\n\025STEP_DURABILITY_AS" +
-      "YNC\020\002*\227\001\n\021FlowTimeoutPolicy\022#\n\037FLOW_TIME" +
-      "OUT_POLICY_UNSPECIFIED\020\000\022\034\n\030FLOW_TIMEOUT" +
-      "_POLICY_FAIL\020\001\022\036\n\032FLOW_TIMEOUT_POLICY_CA" +
-      "NCEL\020\002\022\037\n\033FLOW_TIMEOUT_POLICY_HANDLER\020\003*" +
-      "h\n\010StopType\022\031\n\025STOP_TYPE_UNSPECIFIED\020\000\022\024" +
-      "\n\020STOP_TYPE_CANCEL\020\001\022\027\n\023STOP_TYPE_TERMIN" +
-      "ATE\020\002\022\022\n\016STOP_TYPE_FAIL\020\003*\200\002\n\nFlowStatus" +
-      "\022\033\n\027FLOW_STATUS_UNSPECIFIED\020\000\022\027\n\023FLOW_ST" +
-      "ATUS_RUNNING\020\001\022\031\n\025FLOW_STATUS_COMPLETED\020" +
-      "\002\022\026\n\022FLOW_STATUS_FAILED\020\003\0221\n-FLOW_STATUS" +
-      "_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY\020\004\022\032\n\026" +
-      "FLOW_STATUS_TERMINATED\020\005\022\030\n\024FLOW_STATUS_" +
-      "CANCELED\020\006\022 \n\034FLOW_STATUS_CONTINUED_AS_N" +
-      "EW\020\007*\236\002\n\rFlowErrorType\022\037\n\033FLOW_ERROR_TYP" +
-      "E_UNSPECIFIED\020\000\022.\n*FLOW_ERROR_TYPE_STEP_" +
-      "DECISION_FAILING_FLOW\020\001\022+\n\'FLOW_ERROR_TY" +
-      "PE_CLIENT_API_FAILING_FLOW\020\002\022#\n\037FLOW_ERR" +
-      "OR_TYPE_WORKER_API_FAIL\020\003\022*\n&FLOW_ERROR_" +
-      "TYPE_INVALID_USER_FLOW_CODE\020\004\022 \n\034FLOW_ER" +
-      "ROR_TYPE_FLOW_TIMEOUT\020\005\022\034\n\030FLOW_ERROR_TY" +
-      "PE_INTERNAL\020\006*\223\001\n\026PendingStepMethodPhase" +
-      "\022)\n%PENDING_STEP_METHOD_PHASE_UNSPECIFIE" +
-      "D\020\000\022\'\n#PENDING_STEP_METHOD_PHASE_SCHEDUL" +
-      "ED\020\001\022%\n!PENDING_STEP_METHOD_PHASE_STARTE" +
-      "D\020\002*\207\001\n\021PullRoutingSource\022#\n\037PULL_ROUTIN" +
-      "G_SOURCE_UNSPECIFIED\020\000\022$\n PULL_ROUTING_S" +
-      "OURCE_STICKY_QUEUE\020\001\022\'\n#PULL_ROUTING_SOU" +
-      "RCE_FLOW_TYPE_QUEUE\020\002*q\n\017ActiveStepPhase" +
-      "\022!\n\035ACTIVE_STEP_PHASE_UNSPECIFIED\020\000\022\034\n\030A" +
-      "CTIVE_STEP_PHASE_ACTIVE\020\001\022\035\n\031ACTIVE_STEP" +
-      "_PHASE_WAITING\020\002*\275\001\n\rFlowResetType\022\037\n\033FL" +
-      "OW_RESET_TYPE_UNSPECIFIED\020\000\022\035\n\031FLOW_RESE" +
-      "T_TYPE_BEGINNING\020\001\022&\n\"FLOW_RESET_TYPE_HI" +
-      "STORY_EVENT_TIME\020\002\022\035\n\031FLOW_RESET_TYPE_ST" +
-      "EP_TYPE\020\003\022%\n!FLOW_RESET_TYPE_STEP_EXECUT" +
-      "ION_ID\020\004*\206\001\n\023FlowResetStepMethod\022&\n\"FLOW" +
-      "_RESET_STEP_METHOD_UNSPECIFIED\020\000\022#\n\037FLOW" +
-      "_RESET_STEP_METHOD_WAIT_FOR\020\001\022\"\n\036FLOW_RE" +
-      "SET_STEP_METHOD_EXECUTE\020\002*\306\002\n\026AttributeM" +
-      "atchOperator\022(\n$ATTRIBUTE_MATCH_OPERATOR" +
-      "_UNSPECIFIED\020\000\022\"\n\036ATTRIBUTE_MATCH_OPERAT" +
-      "OR_EQUAL\020\001\022&\n\"ATTRIBUTE_MATCH_OPERATOR_N" +
-      "OT_EQUAL\020\002\022)\n%ATTRIBUTE_MATCH_OPERATOR_G" +
-      "REATER_THAN\020\003\0222\n.ATTRIBUTE_MATCH_OPERATO" +
-      "R_GREATER_THAN_OR_EQUAL\020\004\022&\n\"ATTRIBUTE_M" +
-      "ATCH_OPERATOR_LESS_THAN\020\005\022/\n+ATTRIBUTE_M" +
-      "ATCH_OPERATOR_LESS_THAN_OR_EQUAL\020\006*\360\002\n\016E" +
-      "rrorSubStatus\022 \n\034ERROR_SUB_STATUS_UNSPEC" +
-      "IFIED\020\000\022\"\n\036ERROR_SUB_STATUS_UNCATEGORIZE" +
-      "D\020\001\022)\n%ERROR_SUB_STATUS_FLOW_ALREADY_STA" +
-      "RTED\020\002\022$\n ERROR_SUB_STATUS_FLOW_NOT_EXIS" +
-      "TS\020\003\022%\n!ERROR_SUB_STATUS_WORKER_API_ERRO" +
-      "R\020\004\022\'\n#ERROR_SUB_STATUS_LONG_POLL_TIME_O" +
-      "UT\020\005\022.\n*ERROR_SUB_STATUS_CHANNEL_MESSAGE" +
-      "_NOT_FOUND\020\006\022$\n ERROR_SUB_STATUS_REQUEST" +
-      "_TIMEOUT\020\007\022!\n\035ERROR_SUB_STATUS_FLOW_CLOS" +
-      "ING\020\010*\213\002\n\021CloseDecisionType\022#\n\037CLOSE_DEC" +
-      "ISION_TYPE_UNSPECIFIED\020\000\0228\n4CLOSE_DECISI" +
-      "ON_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY" +
-      "\020\001\022)\n%CLOSE_DECISION_TYPE_GRACEFUL_COMPL" +
-      "ETE\020\002\022&\n\"CLOSE_DECISION_TYPE_FORCE_COMPL" +
-      "ETE\020\003\022\"\n\036CLOSE_DECISION_TYPE_FORCE_FAIL\020" +
-      "\004\022 \n\034CLOSE_DECISION_TYPE_DEAD_END\020\005*\310\001\n\024" +
-      "WaitingConditionType\022&\n\"WAITING_CONDITIO" +
-      "N_TYPE_UNSPECIFIED\020\000\022(\n$WAITING_CONDITIO" +
-      "N_TYPE_ALL_COMPLETED\020\001\022(\n$WAITING_CONDIT" +
-      "ION_TYPE_ANY_COMPLETED\020\002\0224\n0WAITING_COND" +
-      "ITION_TYPE_ANY_COMBINATION_COMPLETED\020\003*\307" +
-      "\001\n\022SubFlowReusePolicy\022%\n!SUB_FLOW_REUSE_" +
-      "POLICY_UNSPECIFIED\020\000\022 \n\034SUB_FLOW_REUSE_P" +
-      "OLICY_ATTACH\020\001\022>\n:SUB_FLOW_REUSE_POLICY_" +
-      "RESTART_IF_PREVIOUS_EXITS_ABNORMALLY\020\002\022(" +
-      "\n$SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART\020\003" +
-      "*q\n\017ConditionStatus\022 \n\034CONDITION_STATUS_" +
-      "UNSPECIFIED\020\000\022\034\n\030CONDITION_STATUS_WAITIN" +
-      "G\020\001\022\036\n\032CONDITION_STATUS_COMPLETED\020\002*\243\001\n\023" +
-      "InternalTimerStatus\022%\n!INTERNAL_TIMER_ST" +
-      "ATUS_UNSPECIFIED\020\000\022!\n\035INTERNAL_TIMER_STA" +
-      "TUS_PENDING\020\001\022\037\n\033INTERNAL_TIMER_STATUS_F" +
-      "IRED\020\002\022!\n\035INTERNAL_TIMER_STATUS_SKIPPED\020" +
-      "\003*\351\002\n\017UpdateErrorType\022!\n\035UPDATE_ERROR_TY" +
-      "PE_UNSPECIFIED\020\000\022/\n+UPDATE_ERROR_TYPE_CO" +
-      "NTINUE_AS_NEW_PREEMPTED\020\001\022&\n\"UPDATE_ERRO" +
-      "R_TYPE_INVALID_ARGUMENT\020\002\022)\n%UPDATE_ERRO" +
-      "R_TYPE_FAILED_PRECONDITION\020\003\022\'\n#UPDATE_E" +
-      "RROR_TYPE_DEADLINE_EXCEEDED\020\004\022.\n*UPDATE_" +
-      "ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE\020\005\022%\n" +
-      "!UPDATE_ERROR_TYPE_SERVER_INTERNAL\020\006\022/\n+" +
-      "UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FO" +
-      "UND\020\007*\315\001\n\037SubFlowCompletionDeliveryStatu" +
-      "s\0223\n/SUB_FLOW_COMPLETION_DELIVERY_STATUS" +
-      "_UNSPECIFIED\020\000\0221\n-SUB_FLOW_COMPLETION_DE" +
-      "LIVERY_STATUS_DELIVERED\020\001\022B\n>SUB_FLOW_CO" +
-      "MPLETION_DELIVERY_STATUS_PARENT_CLOSED_O" +
-      "R_NOT_FOUND\020\0022\226\017\n\013FlowService\0228\n\rGetServ" +
-      "erInfo\022\026.google.protobuf.Empty\032\017.dex.Ser" +
-      "verInfo\022:\n\tStartFlow\022\025.dex.StartFlowRequ" +
-      "est\032\026.dex.StartFlowResponse\022H\n\020PublishTo" +
-      "Channel\022\034.dex.PublishToChannelRequest\032\026." +
-      "google.protobuf.Empty\022U\n\022GetChannelMessa" +
-      "ges\022\036.dex.GetChannelMessagesRequest\032\037.de" +
-      "x.GetChannelMessagesResponse\022P\n\024DeleteCh" +
-      "annelMessage\022 .dex.DeleteChannelMessageR" +
-      "equest\032\026.google.protobuf.Empty\022>\n\013WriteS" +
-      "tream\022\027.dex.WriteStreamRequest\032\026.google." +
-      "protobuf.Empty\022=\n\nReadStream\022\026.dex.ReadS" +
-      "treamRequest\032\027.dex.ReadStreamResponse\022U\n" +
-      "\022ListStreamMessages\022\036.dex.ListStreamMess" +
-      "agesRequest\032\037.dex.ListStreamMessagesResp" +
-      "onse\0228\n\010StopFlow\022\024.dex.StopFlowRequest\032\026" +
-      ".google.protobuf.Empty\022F\n\rGetAttributes\022" +
-      "\031.dex.GetAttributesRequest\032\032.dex.GetAttr" +
-      "ibutesResponse\022B\n\rSetAttributes\022\031.dex.Se" +
-      "tAttributesRequest\032\026.google.protobuf.Emp" +
-      "ty\022:\n\tLoadBlobs\022\025.dex.LoadBlobsRequest\032\026" +
-      ".dex.LoadBlobsResponse\0227\n\013WaitForFlow\022\027." +
-      "dex.WaitForFlowRequest\032\017.dex.FlowResult\022" +
-      "@\n\013SearchFlows\022\027.dex.SearchFlowsRequest\032" +
-      "\030.dex.SearchFlowsResponse\022W\n\024SyncAttribu" +
-      "teIndexes\022\036.dex.SyncAttributeIndexReques" +
-      "t\032\037.dex.SyncAttributeIndexResponse\022I\n\016Ge" +
-      "tFlowSummary\022\032.dex.GetFlowSummaryRequest" +
-      "\032\033.dex.GetFlowSummaryResponse\022O\n\020GetHist" +
-      "oryEvents\022\034.dex.GetHistoryEventsRequest\032" +
-      "\035.dex.GetHistoryEventsResponse\022X\n\023WaitFo" +
-      "rHistoryEvent\022\037.dex.WaitForHistoryEventR" +
-      "equest\032 .dex.WaitForHistoryEventResponse" +
-      "\022C\n\014GetFlowState\022\030.dex.GetFlowStateReque" +
-      "st\032\031.dex.GetFlowStateResponse\022:\n\tResetFl" +
-      "ow\022\025.dex.ResetFlowRequest\032\026.dex.ResetFlo" +
-      "wResponse\022:\n\tInvokeRPC\022\025.dex.InvokeRPCRe" +
-      "quest\032\026.dex.InvokeRPCResponse\022:\n\tSkipTim" +
-      "er\022\025.dex.SkipTimerRequest\032\026.google.proto" +
-      "buf.Empty\022H\n\020UpdateFlowConfig\022\034.dex.Upda" +
-      "teFlowConfigRequest\032\026.google.protobuf.Em" +
-      "pty\022^\n\025WaitForStepCompletion\022!.dex.WaitF" +
-      "orStepCompletionRequest\032\".dex.WaitForSte" +
-      "pCompletionResponse\022O\n\020WaitForAttribute\022" +
-      "\034.dex.WaitForAttributeRequest\032\035.dex.Wait" +
-      "ForAttributeResponse\022P\n\024TriggerContinueA" +
-      "sNew\022 .dex.TriggerContinueAsNewRequest\032\026" +
-      ".google.protobuf.Empty\0226\n\013HealthCheck\022\026." +
-      "google.protobuf.Empty\032\017.dex.HealthInfo2\221" +
-      "\002\n\rWorkerService\022X\n\023InvokeWaitForMethod\022" +
-      "\037.dex.InvokeWaitForMethodRequest\032\036.dex.I" +
-      "nvokeWaitForMethodOutput0\001\022X\n\023InvokeExec" +
-      "uteMethod\022\037.dex.InvokeExecuteMethodReque" +
-      "st\032\036.dex.InvokeExecuteMethodOutput0\001\022L\n\017" +
-      "InvokeWorkerRPC\022\033.dex.InvokeWorkerRPCReq" +
-      "uest\032\034.dex.InvokeWorkerRPCResponse2b\n\021Wo" +
-      "rkerTaskService\022M\n\016PollWorkerTask\022\032.dex." +
-      "PollWorkerTaskRequest\032\033.dex.PollWorkerTa" +
-      "skResponse(\0010\0012\256\001\n\017MatchingService\022E\n\014Di" +
-      "spatchTask\022\030.dex.DispatchTaskRequest\032\031.d" +
-      "ex.DispatchTaskResponse0\001\022T\n\025ForwardPoll" +
-      "WorkerTask\022\032.dex.PollWorkerTaskRequest\032\033" +
-      ".dex.PollWorkerTaskResponse(\0010\0012l\n\017Inter" +
-      "nalService\022Y\n\030DumpFlowForContinueAsNew\022\035" +
-      ".dex.ContinueAsNewDumpRequest\032\036.dex.Cont" +
-      "inueAsNewDumpResponseB!\n\023io.superdurable" +
-      ".genB\010DexProtoP\001b\006proto3"
+      "8\001\"\344\001\n\026FlowClosedHistoryEvent\022$\n\013flow_st" +
+      "atus\030\001 \001(\0162\017.dex.FlowStatus\022*\n\007results\030\002" +
+      " \003(\0132\031.dex.StepCompletionOutput\022&\n\nerror" +
+      "_type\030\003 \001(\0162\022.dex.FlowErrorType\022\025\n\rerror" +
+      "_message\030\004 \001(\t\022\033\n\023continued_to_run_id\030\005 " +
+      "\001(\t\022\034\n\024sticky_app_worker_id\030\006 \001(\t\"\234\001\n\026St" +
+      "epMethodPendingEvent\022(\n\005input\030\001 \001(\0132\031.de" +
+      "x.StepMethodEventInput\022,\n\007context\030\002 \001(\0132" +
+      "\033.dex.StepMethodEventContext\022*\n\005phase\030\003 " +
+      "\001(\0162\033.dex.PendingStepMethodPhase\"\217\001\n\021Ste" +
+      "pMethodFailure\022\025\n\rbackend_error\030\001 \001(\t\022*\n" +
+      "\007details\030\002 \001(\0132\031.dex.ServiceErrorRespons" +
+      "e\022\017\n\007attempt\030\003 \001(\005\022&\n\014pull_routing\030\004 \001(\013" +
+      "2\020.dex.PullRouting\"w\n\021StepMethodOptions\022" +
+      "\027\n\017timeout_seconds\030\001 \001(\005\022&\n\014retry_policy" +
+      "\030\002 \001(\0132\020.dex.RetryPolicy\022!\n\031heartbeat_ti" +
+      "meout_seconds\030\003 \001(\005\"\302\001\n\024StepMethodEventI" +
+      "nput\022\023\n\013unavailable\030\001 \001(\010\022\036\n\nstep_input\030" +
+      "\002 \001(\0132\n.dex.Value\0220\n\021condition_results\030\003" +
+      " \001(\0132\025.dex.ConditionResults\022\033\n\nattribute" +
+      "s\030\004 \003(\0132\007.dex.KV\022&\n\025step_execution_local" +
+      "s\030\005 \003(\0132\007.dex.KV\"t\n\013PullRouting\022\034\n\024stick" +
+      "y_app_worker_id\030\001 \001(\t\022\037\n\027served_by_app_w" +
+      "orker_id\030\002 \001(\t\022&\n\006source\030\003 \001(\0162\026.dex.Pul" +
+      "lRoutingSource\"\220\003\n\026StepMethodEventContex" +
+      "t\022\031\n\021step_execution_id\030\001 \001(\t\022\036\n\026from_ste" +
+      "p_execution_id\030\002 \001(\t\022\021\n\tstep_type\030\003 \001(\t\022" +
+      "\'\n\ndurability\030\004 \001(\0162\023.dex.StepDurability" +
+      "\022\025\n\rfinal_attempt\030\005 \001(\005\0220\n\014started_time\030" +
+      "\006 \001(\0132\032.google.protobuf.Timestamp\022+\n\010dur" +
+      "ation\030\007 \001(\0132\031.google.protobuf.Duration\022." +
+      "\n\016method_options\030\010 \001(\0132\026.dex.StepMethodO" +
+      "ptions\0221\n\021last_failure_info\030\t \001(\0132\026.dex." +
+      "StepMethodFailure\022&\n\014pull_routing\030\n \001(\0132" +
+      "\020.dex.PullRouting\"\271\002\n\032StepWaitForComplet" +
+      "edOutput\0221\n\022wait_for_condition\030\001 \001(\0132\025.d" +
+      "ex.WaitingCondition\022.\n\021upsert_attributes" +
+      "\030\002 \003(\0132\023.dex.AttributeWrite\022/\n\022publish_t" +
+      "o_channel\030\003 \003(\0132\023.dex.ChannelMessage\022\036\n\r" +
+      "record_events\030\004 \003(\0132\007.dex.KV\022-\n\034upsert_s" +
+      "tep_execution_locals\030\005 \003(\0132\007.dex.KV\0228\n\023d" +
+      "elete_from_channel\030\006 \003(\0132\033.dex.ChannelMe" +
+      "ssageDeletion\"\260\002\n\032StepExecuteCompletedOu" +
+      "tput\022(\n\rstep_decision\030\001 \001(\0132\021.dex.StepDe" +
+      "cision\022.\n\021upsert_attributes\030\002 \003(\0132\023.dex." +
+      "AttributeWrite\022/\n\022publish_to_channel\030\003 \003" +
+      "(\0132\023.dex.ChannelMessage\022\036\n\rrecord_events" +
+      "\030\004 \003(\0132\007.dex.KV\022-\n\034upsert_step_execution" +
+      "_locals\030\005 \003(\0132\007.dex.KV\0228\n\023delete_from_ch" +
+      "annel\030\006 \003(\0132\033.dex.ChannelMessageDeletion" +
+      "\"A\n\026StepMethodFailedOutput\022\'\n\007failure\030\001 " +
+      "\001(\0132\026.dex.StepMethodFailure\"\244\001\n\031StepWait" +
+      "ForCompletedEvent\022(\n\005input\030\001 \001(\0132\031.dex.S" +
+      "tepMethodEventInput\022/\n\006output\030\002 \001(\0132\037.de" +
+      "x.StepWaitForCompletedOutput\022,\n\007context\030" +
+      "\003 \001(\0132\033.dex.StepMethodEventContext\"\235\001\n\026S" +
+      "tepWaitForFailedEvent\022(\n\005input\030\001 \001(\0132\031.d" +
+      "ex.StepMethodEventInput\022+\n\006output\030\002 \001(\0132" +
+      "\033.dex.StepMethodFailedOutput\022,\n\007context\030" +
+      "\003 \001(\0132\033.dex.StepMethodEventContext\"\244\001\n\031S" +
+      "tepExecuteCompletedEvent\022(\n\005input\030\001 \001(\0132" +
+      "\031.dex.StepMethodEventInput\022/\n\006output\030\002 \001" +
+      "(\0132\037.dex.StepExecuteCompletedOutput\022,\n\007c" +
+      "ontext\030\003 \001(\0132\033.dex.StepMethodEventContex" +
+      "t\"\235\001\n\026StepExecuteFailedEvent\022(\n\005input\030\001 " +
+      "\001(\0132\031.dex.StepMethodEventInput\022+\n\006output" +
+      "\030\002 \001(\0132\033.dex.StepMethodFailedOutput\022,\n\007c" +
+      "ontext\030\003 \001(\0132\033.dex.StepMethodEventContex" +
+      "t\"\211\003\n\032RpcExecutionCompletedEvent\022\020\n\010rpc_" +
+      "name\030\001 \001(\t\022\031\n\005input\030\002 \001(\0132\n.dex.Value\022\032\n" +
+      "\006output\030\003 \001(\0132\n.dex.Value\022(\n\rstep_decisi" +
+      "on\030\004 \001(\0132\021.dex.StepDecision\022.\n\021upsert_at" +
+      "tributes\030\005 \003(\0132\023.dex.AttributeWrite\022\036\n\rr" +
+      "ecord_events\030\006 \003(\0132\007.dex.KV\022/\n\022publish_t" +
+      "o_channel\030\007 \003(\0132\023.dex.ChannelMessage\022\034\n\024" +
+      "is_set_attribute_api\030\010 \001(\010\0228\n\023delete_fro" +
+      "m_channel\030\t \003(\0132\033.dex.ChannelMessageDele" +
+      "tion\022\037\n\027served_by_app_worker_id\030\n \001(\t\"D\n" +
+      "\033ChannelExternalPublishEvent\022%\n\010messages" +
+      "\030\001 \003(\0132\023.dex.ChannelMessage\"K\n\032ChannelEx" +
+      "ternalDeleteEvent\022-\n\010messages\030\001 \003(\0132\033.de" +
+      "x.ChannelMessageDeletion\"]\n\032WaitForHisto" +
+      "ryEventRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_i" +
+      "d\030\002 \001(\t\022\036\n\026next_internal_event_id\030\003 \001(\003\"" +
+      "\201\001\n\033WaitForHistoryEventResponse\022\027\n\017event" +
+      "_available\030\001 \001(\010\022#\n\033available_internal_e" +
+      "vent_id\030\002 \001(\003\022$\n\013flow_status\030\003 \001(\0162\017.dex" +
+      ".FlowStatus\"\212\004\n\030ActiveStepExecutionState" +
+      "\022\031\n\021step_execution_id\030\001 \001(\t\022\036\n\026from_step" +
+      "_execution_id\030\002 \001(\t\022\021\n\tstep_type\030\003 \001(\t\022#" +
+      "\n\005phase\030\004 \001(\0162\024.dex.ActiveStepPhase\022#\n\010m" +
+      "ovement\030\005 \001(\0132\021.dex.StepMovement\0225\n\021wait" +
+      "ing_condition\030\006 \001(\0132\032.dex.WaitingConditi" +
+      "onState\022C\n\024completed_conditions\030\007 \001(\0132%." +
+      "dex.StepExecutionCompletedConditions\022&\n\025" +
+      "step_execution_locals\030\010 \003(\0132\007.dex.KV\022\036\n\006" +
+      "timers\030\t \003(\0132\016.dex.TimerInfo\0221\n\021last_fai" +
+      "lure_info\030\n \001(\0132\026.dex.StepMethodFailure\022" +
+      "/\n\025wait_for_pull_routing\030\013 \001(\0132\020.dex.Pul" +
+      "lRouting\022.\n\024execute_pull_routing\030\014 \001(\0132\020" +
+      ".dex.PullRouting\"6\n\023GetFlowStateRequest\022" +
+      "\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\"\277\003\n\024Get" +
+      "FlowStateResponse\022$\n\013flow_config\030\001 \001(\0132\017" +
+      ".dex.FlowConfig\022\033\n\nattributes\030\002 \003(\0132\007.de" +
+      "x.KV\022=\n\026active_step_executions\030\003 \003(\0132\035.d" +
+      "ex.ActiveStepExecutionState\022\'\n\014queued_st" +
+      "eps\030\004 \003(\0132\021.dex.StepMovement\022W\n\030pending_" +
+      "channel_messages\030\005 \003(\01325.dex.GetFlowStat",
+      "eResponse.PendingChannelMessagesEntry\0222\n" +
+      "\017completed_steps\030\006 \003(\0132\031.dex.StepComplet" +
+      "ionOutput\022\034\n\024sticky_app_worker_id\030\007 \001(\t\032" +
+      "Q\n\033PendingChannelMessagesEntry\022\013\n\003key\030\001 " +
+      "\001(\t\022!\n\005value\030\002 \001(\0132\022.dex.ChannelValues:\002" +
+      "8\001\"\226\002\n\020ResetFlowRequest\022\017\n\007flow_id\030\001 \001(\t" +
+      "\022\016\n\006run_id\030\002 \001(\t\022&\n\nreset_type\030\003 \001(\0162\022.d" +
+      "ex.FlowResetType\022\016\n\006reason\030\004 \001(\t\022\032\n\022hist" +
+      "ory_event_time\030\005 \001(\t\022\021\n\tstep_type\030\006 \001(\t\022" +
+      "\031\n\021step_execution_id\030\007 \001(\t\022\033\n\023skip_write" +
+      "s_reapply\030\010 \001(\010\022-\n\013step_method\030\t \001(\0162\030.d" +
+      "ex.FlowResetStepMethod\022\023\n\013run_attempt\030\n " +
+      "\001(\005\"8\n\021ResetFlowResponse\022\016\n\006run_id\030\001 \001(\t" +
+      "\022\023\n\013run_attempt\030\002 \001(\005\"\252\002\n\020InvokeRPCReque" +
+      "st\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\020\n\010r" +
+      "pc_name\030\003 \001(\t\022\031\n\005input\030\004 \001(\0132\n.dex.Value" +
+      "\022\027\n\017timeout_seconds\030\005 \001(\005\022\033\n\023lock_attrib" +
+      "ute_keys\030\006 \003(\t\022\022\n\nrequest_id\030\007 \001(\t\022\030\n\020is" +
+      "_transactional\030\010 \001(\010\022$\n\034load_attribute_m" +
+      "ap_instances\030\t \003(\t\022\032\n\022load_channel_names" +
+      "\030\n \003(\t\022\"\n\032load_channel_map_instances\030\013 \003" +
+      "(\t\"/\n\021InvokeRPCResponse\022\032\n\006output\030\001 \001(\0132" +
+      "\n.dex.Value\"\250\001\n\020SkipTimerRequest\022\017\n\007flow" +
+      "_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\031\n\021step_execut" +
+      "ion_id\030\003 \001(\t\022\032\n\022timer_condition_id\030\004 \001(\t" +
+      "\022\"\n\025timer_condition_index\030\005 \001(\005H\000\210\001\001B\030\n\026" +
+      "_timer_condition_index\"`\n\027UpdateFlowConf" +
+      "igRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001" +
+      "(\t\022$\n\013flow_config\030\003 \001(\0132\017.dex.FlowConfig" +
+      "\"\300\001\n\034WaitForStepCompletionRequest\022\017\n\007flo" +
+      "w_id\030\001 \001(\t\022\021\n\tstep_type\030\002 \001(\t\022\035\n\025step_ex" +
+      "ecution_number\030\003 \001(\t\022\037\n\027request_timeout_" +
+      "seconds\030\004 \001(\005\022(\n internal_handler_timeou" +
+      "t_seconds\030\005 \001(\005\022\022\n\nrequest_id\030\006 \001(\t\"\037\n\035W" +
+      "aitForStepCompletionResponse\"\255\001\n\027WaitFor" +
+      "AttributeRequest\022\017\n\007flow_id\030\001 \001(\t\022\"\n\005mat" +
+      "ch\030\002 \001(\0132\023.dex.AttributeMatch\022\037\n\027request" +
+      "_timeout_seconds\030\003 \001(\005\022(\n internal_handl" +
+      "er_timeout_seconds\030\004 \001(\005\022\022\n\nrequest_id\030\005" +
+      " \001(\t\"=\n\030WaitForAttributeResponse\022!\n\rmatc" +
+      "hed_value\030\001 \001(\0132\n.dex.Value\"i\n\016Attribute" +
+      "Match\022\013\n\003key\030\001 \001(\t\022-\n\010operator\030\002 \001(\0162\033.d" +
+      "ex.AttributeMatchOperator\022\033\n\007operand\030\003 \001" +
+      "(\0132\n.dex.Value\">\n\033TriggerContinueAsNewRe" +
+      "quest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\"C" +
+      "\n\nHealthInfo\022\021\n\tcondition\030\001 \001(\t\022\020\n\010hostn" +
+      "ame\030\002 \001(\t\022\020\n\010duration\030\003 \001(\005\"\254\002\n\024ServiceE" +
+      "rrorResponse\022\016\n\006detail\030\001 \001(\t\022\'\n\nsub_stat" +
+      "us\030\002 \001(\0162\023.dex.ErrorSubStatus\022$\n\034origina" +
+      "l_worker_error_detail\030\003 \001(\t\022\"\n\032original_" +
+      "worker_error_type\030\004 \001(\t\022$\n\034original_work" +
+      "er_error_status\030\005 \001(\005\022)\n!original_worker" +
+      "_error_stack_trace\030\006 \001(\t\022@\n\032dispatch_tas" +
+      "k_error_reason\030\007 \001(\0162\034.dex.DispatchTaskE" +
+      "rrorReason\"\200\001\n\023WorkerErrorResponse\022\016\n\006de" +
+      "tail\030\001 \001(\t\022\022\n\nerror_type\030\002 \001(\t\022\023\n\013stack_" +
+      "trace\030\003 \001(\t\022\033\n\023retry_after_seconds\030\004 \001(\005" +
+      "\022\023\n\013grpc_status\030\005 \001(\005\"\033\n\013ChannelInfo\022\014\n\004" +
+      "size\030\001 \001(\005\"\312\004\n\032InvokeWaitForMethodReques" +
+      "t\022\035\n\007context\030\001 \001(\0132\014.dex.Context\022\021\n\tflow" +
+      "_type\030\002 \001(\t\022\021\n\tstep_type\030\003 \001(\t\022\036\n\nstep_i" +
+      "nput\030\004 \001(\0132\n.dex.Value\022\033\n\nattributes\030\005 \003" +
+      "(\0132\007.dex.KV\022H\n\rchannel_infos\030\006 \003(\01321.dex" +
+      ".InvokeWaitForMethodRequest.ChannelInfos" +
+      "Entry\022[\n\027loaded_channel_messages\030\007 \003(\0132:" +
+      ".dex.InvokeWaitForMethodRequest.LoadedCh" +
+      "annelMessagesEntry\022&\n\036loaded_attribute_m" +
+      "ap_instances\030\010 \003(\t\022\034\n\024loaded_channel_nam" +
+      "es\030\t \003(\t\022$\n\034loaded_channel_map_instances" +
+      "\030\n \003(\t\032E\n\021ChannelInfosEntry\022\013\n\003key\030\001 \001(\t" +
+      "\022\037\n\005value\030\002 \001(\0132\020.dex.ChannelInfo:\0028\001\032P\n" +
+      "\032LoadedChannelMessagesEntry\022\013\n\003key\030\001 \001(\t" +
+      "\022!\n\005value\030\002 \001(\0132\022.dex.ChannelValues:\0028\001\"" +
+      "\225\003\n\033InvokeWaitForMethodResponse\022.\n\021upser" +
+      "t_attributes\030\002 \003(\0132\023.dex.AttributeWrite\022" +
+      "0\n\021waiting_condition\030\003 \001(\0132\025.dex.Waiting" +
+      "Condition\022\'\n\026upsert_step_exe_locals\030\004 \003(" +
+      "\0132\007.dex.KV\022\036\n\rrecord_events\030\005 \003(\0132\007.dex." +
+      "KV\022/\n\022publish_to_channel\030\006 \003(\0132\023.dex.Cha" +
+      "nnelMessage\0228\n\023delete_from_channel\030\007 \003(\013" +
+      "2\033.dex.ChannelMessageDeletion\022A\n\032action_" +
+      "permission_mappings\030\010 \001(\0132\035.dex.ActionPe" +
+      "rmissionMappingsJ\004\010\001\020\002R\027local_activity_m" +
+      "etadata\"0\n\023StepMethodHeartbeat\022\031\n\005value\030" +
+      "\001 \001(\0132\n.dex.Value\"`\n\017StepStreamWrite\022\023\n\013" +
+      "stream_name\030\001 \001(\t\022\035\n\025stream_capacity_byt" +
+      "es\030\002 \001(\003\022\031\n\005value\030\003 \001(\0132\n.dex.Value\"\266\001\n\031" +
+      "InvokeWaitForMethodOutput\022-\n\theartbeat\030\001" +
+      " \001(\0132\030.dex.StepMethodHeartbeatH\000\022,\n\014stre" +
+      "am_write\030\002 \001(\0132\024.dex.StepStreamWriteH\000\0222" +
+      "\n\006result\030\003 \001(\0132 .dex.InvokeWaitForMethod" +
+      "ResponseH\000B\010\n\006output\"\236\005\n\032InvokeExecuteMe" +
+      "thodRequest\022\035\n\007context\030\001 \001(\0132\014.dex.Conte" +
+      "xt\022\021\n\tflow_type\030\002 \001(\t\022\021\n\tstep_type\030\003 \001(\t" +
+      "\022\036\n\nstep_input\030\004 \001(\0132\n.dex.Value\022\033\n\nattr" +
+      "ibutes\030\005 \003(\0132\007.dex.KV\022 \n\017step_exe_locals" +
+      "\030\006 \003(\0132\007.dex.KV\0220\n\021condition_results\030\007 \001" +
+      "(\0132\025.dex.ConditionResults\022H\n\rchannel_inf" +
+      "os\030\010 \003(\01321.dex.InvokeExecuteMethodReques" +
+      "t.ChannelInfosEntry\022[\n\027loaded_channel_me" +
+      "ssages\030\t \003(\0132:.dex.InvokeExecuteMethodRe" +
+      "quest.LoadedChannelMessagesEntry\022&\n\036load" +
+      "ed_attribute_map_instances\030\n \003(\t\022\034\n\024load" +
+      "ed_channel_names\030\013 \003(\t\022$\n\034loaded_channel" +
+      "_map_instances\030\014 \003(\t\032E\n\021ChannelInfosEntr" +
+      "y\022\013\n\003key\030\001 \001(\t\022\037\n\005value\030\002 \001(\0132\020.dex.Chan" +
+      "nelInfo:\0028\001\032P\n\032LoadedChannelMessagesEntr" +
+      "y\022\013\n\003key\030\001 \001(\t\022!\n\005value\030\002 \001(\0132\022.dex.Chan" +
+      "nelValues:\0028\001\"\215\003\n\033InvokeExecuteMethodRes" +
+      "ponse\022(\n\rstep_decision\030\002 \001(\0132\021.dex.StepD" +
+      "ecision\022.\n\021upsert_attributes\030\003 \003(\0132\023.dex" +
+      ".AttributeWrite\022\036\n\rrecord_events\030\004 \003(\0132\007" +
+      ".dex.KV\022\'\n\026upsert_step_exe_locals\030\005 \003(\0132" +
+      "\007.dex.KV\022/\n\022publish_to_channel\030\006 \003(\0132\023.d" +
+      "ex.ChannelMessage\0228\n\023delete_from_channel" +
+      "\030\007 \003(\0132\033.dex.ChannelMessageDeletion\022A\n\032a" +
+      "ction_permission_mappings\030\010 \001(\0132\035.dex.Ac" +
+      "tionPermissionMappingsJ\004\010\001\020\002R\027local_acti" +
+      "vity_metadata\"\266\001\n\031InvokeExecuteMethodOut" +
+      "put\022-\n\theartbeat\030\001 \001(\0132\030.dex.StepMethodH" +
+      "eartbeatH\000\022,\n\014stream_write\030\002 \001(\0132\024.dex.S" +
+      "tepStreamWriteH\000\0222\n\006result\030\003 \001(\0132 .dex.I" +
+      "nvokeExecuteMethodResponseH\000B\010\n\006output\"\270" +
+      "\004\n\026InvokeWorkerRPCRequest\022\035\n\007context\030\001 \001" +
+      "(\0132\014.dex.Context\022\021\n\tflow_type\030\002 \001(\t\022\020\n\010r" +
+      "pc_name\030\003 \001(\t\022\031\n\005input\030\004 \001(\0132\n.dex.Value" +
+      "\022\033\n\nattributes\030\005 \003(\0132\007.dex.KV\022D\n\rchannel" +
+      "_infos\030\006 \003(\0132-.dex.InvokeWorkerRPCReques" +
+      "t.ChannelInfosEntry\022W\n\027loaded_channel_me" +
+      "ssages\030\007 \003(\01326.dex.InvokeWorkerRPCReques" +
+      "t.LoadedChannelMessagesEntry\022&\n\036loaded_a" +
+      "ttribute_map_instances\030\010 \003(\t\022\034\n\024loaded_c" +
+      "hannel_names\030\t \003(\t\022$\n\034loaded_channel_map" +
+      "_instances\030\n \003(\t\032E\n\021ChannelInfosEntry\022\013\n" +
+      "\003key\030\001 \001(\t\022\037\n\005value\030\002 \001(\0132\020.dex.ChannelI" +
+      "nfo:\0028\001\032P\n\032LoadedChannelMessagesEntry\022\013\n" +
+      "\003key\030\001 \001(\t\022!\n\005value\030\002 \001(\0132\022.dex.ChannelV" +
+      "alues:\0028\001\"\335\002\n\027InvokeWorkerRPCResponse\022\032\n" +
+      "\006output\030\001 \001(\0132\n.dex.Value\022(\n\rstep_decisi" +
+      "on\030\002 \001(\0132\021.dex.StepDecision\022.\n\021upsert_at" +
+      "tributes\030\003 \003(\0132\023.dex.AttributeWrite\022\036\n\rr" +
+      "ecord_events\030\004 \003(\0132\007.dex.KV\0228\n\023delete_fr" +
+      "om_channel\030\005 \003(\0132\033.dex.ChannelMessageDel" +
+      "etion\022/\n\022publish_to_channel\030\006 \003(\0132\023.dex." +
+      "ChannelMessage\022A\n\032action_permission_mapp" +
+      "ings\030\007 \001(\0132\035.dex.ActionPermissionMapping" +
+      "s\"\237\001\n\014StepDecision\022%\n\nnext_steps\030\001 \003(\0132\021" +
+      ".dex.StepMovement\022*\n\016close_decision\030\002 \001(" +
+      "\0132\022.dex.CloseDecision\022\031\n\021cancel_step_typ" +
+      "es\030\003 \003(\t\022!\n\031cancel_sibling_step_types\030\004 " +
+      "\003(\t\"\210\001\n\rCloseDecision\0223\n\023close_decision_" +
+      "type\030\001 \001(\0162\026.dex.CloseDecisionType\022!\n\031co" +
+      "nditional_channel_names\030\002 \003(\t\022\037\n\013close_i" +
+      "nput\030\003 \001(\0132\n.dex.Value\"\325\001\n\014StepMovement\022" +
+      "\021\n\tstep_type\030\001 \001(\t\022\036\n\nstep_input\030\002 \001(\0132\n" +
+      ".dex.Value\022&\n\014step_options\030\003 \001(\0132\020.dex.S" +
+      "tepOptions\022,\n$from_step_execution_id_int" +
+      "ernal_only\030\004 \001(\t\022<\n\034recovery_error_inter" +
+      "nal_only\030\005 \001(\0132\026.dex.RecoveryErrorInfo\"-" +
+      "\n\024ConditionCombination\022\025\n\rcondition_ids\030" +
+      "\001 \003(\t\"\236\002\n\020WaitingCondition\0229\n\026waiting_co" +
+      "ndition_type\030\001 \001(\0162\031.dex.WaitingConditio" +
+      "nType\022-\n\020timer_conditions\030\002 \003(\0132\023.dex.Ti" +
+      "merCondition\0221\n\022channel_conditions\030\003 \003(\013" +
+      "2\025.dex.ChannelCondition\0229\n\026condition_com" +
+      "binations\030\004 \003(\0132\031.dex.ConditionCombinati" +
+      "on\0222\n\023sub_flow_conditions\030\005 \003(\0132\025.dex.Su" +
+      "bFlowCondition\"\250\002\n\025WaitingConditionState" +
+      "\0229\n\026waiting_condition_type\030\001 \001(\0162\031.dex.W" +
+      "aitingConditionType\022-\n\020timer_conditions\030" +
+      "\002 \003(\0132\023.dex.TimerCondition\0221\n\022channel_co" +
+      "nditions\030\003 \003(\0132\025.dex.ChannelCondition\0229\n" +
+      "\026condition_combinations\030\004 \003(\0132\031.dex.Cond" +
+      "itionCombination\0227\n\023sub_flow_conditions\030" +
+      "\005 \003(\0132\032.dex.SubFlowConditionState\"\371\002\n\016Su" +
+      "bFlowOptions\022-\n\014reuse_policy\030\001 \001(\0162\027.dex" +
+      ".SubFlowReusePolicy\022\034\n\024flow_timeout_seco" +
+      "nds\030\002 \001(\005\022 \n\030flow_start_delay_seconds\030\003 " +
+      "\001(\005\022*\n\014retry_policy\030\004 \001(\0132\024.dex.FlowRetr" +
+      "yPolicy\022\'\n\nattributes\030\005 \003(\0132\023.dex.Attrib" +
+      "uteWrite\022-\n\024flow_config_override\030\006 \001(\0132\017" +
+      ".dex.FlowConfig\0223\n\023flow_timeout_policy\030\007" +
+      " \001(\0162\026.dex.FlowTimeoutPolicy\022?\n\027timeout_" +
+      "handler_options\030\010 \001(\0132\036.dex.FlowTimeoutH" +
+      "andlerOptions\"\336\001\n\020SubFlowCondition\022\024\n\014co" +
+      "ndition_id\030\001 \001(\t\022\025\n\rsub_flow_type\030\002 \001(\t\022" +
+      "\027\n\017start_step_type\030\003 \001(\t\022\036\n\nstep_input\030\004" +
+      " \001(\0132\n.dex.Value\022&\n\014step_options\030\005 \001(\0132\020" +
+      ".dex.StepOptions\022$\n\007options\030\006 \001(\0132\023.dex." +
+      "SubFlowOptions\022\026\n\016sub_flow_index\030\007 \001(\005\"-" +
+      "\n\025SubFlowConditionState\022\024\n\014condition_id\030" +
+      "\001 \001(\t\"g\n\016TimerCondition\022\024\n\014condition_id\030" +
+      "\001 \001(\t\022\030\n\020duration_seconds\030\002 \001(\003\022%\n\035firin" +
+      "g_unix_timestamp_seconds\030\003 \001(\003\"\204\001\n\020Chann" +
+      "elCondition\022\024\n\014condition_id\030\001 \001(\t\022\024\n\014cha" +
+      "nnel_name\030\002 \001(\t\022\025\n\010at_least\030\003 \001(\005H\000\210\001\001\022\024" +
+      "\n\007at_most\030\004 \001(\005H\001\210\001\001B\013\n\t_at_leastB\n\n\010_at" +
+      "_most\"\254\001\n\020ConditionResults\022+\n\017channel_re" +
+      "sults\030\001 \003(\0132\022.dex.ChannelResult\022\'\n\rtimer" +
+      "_results\030\002 \003(\0132\020.dex.TimerResult\022\027\n\017wait" +
+      "_for_failed\030\003 \001(\010\022)\n\020sub_flow_results\030\004 " +
+      "\003(\0132\017.dex.FlowResult\"S\n\013TimerResult\022\024\n\014c" +
+      "ondition_id\030\001 \001(\t\022.\n\020condition_status\030\002 " +
+      "\001(\0162\024.dex.ConditionStatus\"\207\001\n\rChannelRes" +
+      "ult\022\024\n\014condition_id\030\001 \001(\t\022.\n\020condition_s" +
+      "tatus\030\002 \001(\0162\024.dex.ConditionStatus\022\024\n\014cha" +
+      "nnel_name\030\003 \001(\t\022\032\n\006values\030\004 \003(\0132\n.dex.Va" +
+      "lue\"6\n\rChannelValues\022%\n\010messages\030\001 \003(\0132\023" +
+      ".dex.ChannelMessage\"\237\003\n StepExecutionCom" +
+      "pletedConditions\022g\n\032completed_timer_cond" +
+      "itions\030\001 \003(\0132C.dex.StepExecutionComplete" +
+      "dConditions.CompletedTimerConditionsEntr" +
+      "y\022f\n\032completed_sub_flow_results\030\002 \003(\0132B." +
+      "dex.StepExecutionCompletedConditions.Com" +
+      "pletedSubFlowResultsEntry\032Y\n\035CompletedTi" +
+      "merConditionsEntry\022\013\n\003key\030\001 \001(\005\022\'\n\005value" +
+      "\030\002 \001(\0162\030.dex.InternalTimerStatus:\0028\001\032O\n\034" +
+      "CompletedSubFlowResultsEntry\022\013\n\003key\030\001 \001(" +
+      "\005\022\036\n\005value\030\002 \001(\0132\017.dex.FlowResult:\0028\001\"\244\002" +
+      "\n\027StepExecutionResumeInfo\022\031\n\021step_execut" +
+      "ion_id\030\001 \001(\t\022\037\n\004step\030\002 \001(\0132\021.dex.StepMov" +
+      "ement\022C\n\024completed_conditions\030\003 \001(\0132%.de" +
+      "x.StepExecutionCompletedConditions\0225\n\021wa" +
+      "iting_condition\030\004 \001(\0132\032.dex.WaitingCondi" +
+      "tionState\022 \n\017step_exe_locals\030\005 \003(\0132\007.dex" +
+      ".KV\022/\n\025wait_for_pull_routing\030\006 \001(\0132\020.dex" +
+      ".PullRouting\"7\n\021RecoveryErrorInfo\022\016\n\006det" +
+      "ail\030\001 \001(\t\022\022\n\nerror_type\030\002 \001(\t\"P\n\021Attribu" +
+      "teSyncItem\022\023\n\013config_name\030\001 \001(\t\022\013\n\003key\030\002" +
+      " \001(\t\022\031\n\005value\030\003 \001(\0132\n.dex.Value\"r\n\tTimer" +
+      "Info\022\024\n\014condition_id\030\001 \001(\t\022%\n\035firing_uni" +
+      "x_timestamp_seconds\030\002 \001(\003\022(\n\006status\030\003 \001(" +
+      "\0162\030.dex.InternalTimerStatus*z\n\014ServerEng" +
+      "ine\022\035\n\031SERVER_ENGINE_UNSPECIFIED\020\000\022\032\n\026SE" +
+      "RVER_ENGINE_TEMPORAL\020\001\022\031\n\025SERVER_ENGINE_" +
+      "CADENCE\020\002\022\024\n\020SERVER_ENGINE_ZD\020\003*\335\001\n\032Poll" +
+      "WorkerTaskRejectReason\022.\n*POLL_WORKER_TA" +
+      "SK_REJECT_REASON_UNSPECIFIED\020\000\022.\n*POLL_W" +
+      "ORKER_TASK_REJECT_REASON_NO_CAPACITY\020\001\022/" +
+      "\n+POLL_WORKER_TASK_REJECT_REASON_UNKNOWN" +
+      "_STEP\020\002\022.\n*POLL_WORKER_TASK_REJECT_REASO" +
+      "N_UNKNOWN_RPC\020\003*\332\001\n\027DispatchTaskErrorRea" +
+      "son\022*\n&DISPATCH_TASK_ERROR_REASON_UNSPEC" +
+      "IFIED\020\000\0222\n.DISPATCH_TASK_ERROR_REASON_NO" +
+      "_WORKER_AVAILABLE\020\001\0222\n.DISPATCH_TASK_ERR" +
+      "OR_REASON_WORKER_DISCONNECTED\020\002\022+\n\'DISPA" +
+      "TCH_TASK_ERROR_REASON_UNKNOWN_NAME\020\003*\313\001\n" +
+      "\tIndexType\022\032\n\026INDEX_TYPE_UNSPECIFIED\020\000\022\026" +
+      "\n\022INDEX_TYPE_KEYWORD\020\001\022\023\n\017INDEX_TYPE_TEX" +
+      "T\020\002\022\034\n\030INDEX_TYPE_KEYWORD_ARRAY\020\003\022\022\n\016IND" +
+      "EX_TYPE_INT\020\004\022\025\n\021INDEX_TYPE_DOUBLE\020\005\022\023\n\017" +
+      "INDEX_TYPE_BOOL\020\006\022\027\n\023INDEX_TYPE_DATETIME" +
+      "\020\007*\274\001\n\032WaitForMethodFailurePolicy\022.\n*WAI" +
+      "T_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED\020" +
+      "\000\0227\n3WAIT_FOR_METHOD_FAILURE_POLICY_FAIL" +
+      "_FLOW_ON_FAILURE\020\001\0225\n1WAIT_FOR_METHOD_FA" +
+      "ILURE_POLICY_PROCEED_ON_FAILURE\020\002*\320\001\n\032Ex" +
+      "ecuteMethodFailurePolicy\022-\n)EXECUTE_METH" +
+      "OD_FAILURE_POLICY_UNSPECIFIED\020\000\022E\nAEXECU" +
+      "TE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EX" +
+      "ECUTE_METHOD_FAILURE\020\001\022<\n8EXECUTE_METHOD" +
+      "_FAILURE_POLICY_PROCEED_TO_CONFIGURED_ST" +
+      "EP\020\002*\346\001\n\rIdReusePolicy\022\037\n\033ID_REUSE_POLIC" +
+      "Y_UNSPECIFIED\020\000\0227\n3ID_REUSE_POLICY_ALLOW" +
+      "_IF_PREVIOUS_EXISTS_ABNORMALLY\020\001\022\'\n#ID_R" +
+      "EUSE_POLICY_ALLOW_IF_NO_RUNNING\020\002\022\"\n\036ID_" +
+      "REUSE_POLICY_DISALLOW_REUSE\020\003\022.\n*ID_REUS" +
+      "E_POLICY_ALLOW_TERMINATE_IF_RUNNING\020\004*\317\001" +
+      "\n\024ActiveStepSearchMode\022\'\n#ACTIVE_STEP_SE" +
+      "ARCH_MODE_UNSPECIFIED\020\000\022+\n\'ACTIVE_STEP_S" +
+      "EARCH_MODE_ENABLED_FOR_ALL\020\001\022;\n7ACTIVE_S" +
+      "TEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_W" +
+      "AIT_FOR\020\002\022$\n ACTIVE_STEP_SEARCH_MODE_DIS" +
+      "ABLED\020\003*f\n\016StepDurability\022\037\n\033STEP_DURABI" +
+      "LITY_UNSPECIFIED\020\000\022\030\n\024STEP_DURABILITY_SY" +
+      "NC\020\001\022\031\n\025STEP_DURABILITY_ASYNC\020\002*\227\001\n\021Flow" +
+      "TimeoutPolicy\022#\n\037FLOW_TIMEOUT_POLICY_UNS" +
+      "PECIFIED\020\000\022\034\n\030FLOW_TIMEOUT_POLICY_FAIL\020\001" +
+      "\022\036\n\032FLOW_TIMEOUT_POLICY_CANCEL\020\002\022\037\n\033FLOW" +
+      "_TIMEOUT_POLICY_HANDLER\020\003*h\n\010StopType\022\031\n" +
+      "\025STOP_TYPE_UNSPECIFIED\020\000\022\024\n\020STOP_TYPE_CA" +
+      "NCEL\020\001\022\027\n\023STOP_TYPE_TERMINATE\020\002\022\022\n\016STOP_" +
+      "TYPE_FAIL\020\003*\200\002\n\nFlowStatus\022\033\n\027FLOW_STATU" +
+      "S_UNSPECIFIED\020\000\022\027\n\023FLOW_STATUS_RUNNING\020\001" +
+      "\022\031\n\025FLOW_STATUS_COMPLETED\020\002\022\026\n\022FLOW_STAT" +
+      "US_FAILED\020\003\0221\n-FLOW_STATUS_SERVER_SIDE_T" +
+      "IMEOUT_INTERNAL_ONLY\020\004\022\032\n\026FLOW_STATUS_TE" +
+      "RMINATED\020\005\022\030\n\024FLOW_STATUS_CANCELED\020\006\022 \n\034" +
+      "FLOW_STATUS_CONTINUED_AS_NEW\020\007*\236\002\n\rFlowE" +
+      "rrorType\022\037\n\033FLOW_ERROR_TYPE_UNSPECIFIED\020" +
+      "\000\022.\n*FLOW_ERROR_TYPE_STEP_DECISION_FAILI" +
+      "NG_FLOW\020\001\022+\n\'FLOW_ERROR_TYPE_CLIENT_API_" +
+      "FAILING_FLOW\020\002\022#\n\037FLOW_ERROR_TYPE_WORKER" +
+      "_API_FAIL\020\003\022*\n&FLOW_ERROR_TYPE_INVALID_U" +
+      "SER_FLOW_CODE\020\004\022 \n\034FLOW_ERROR_TYPE_FLOW_" +
+      "TIMEOUT\020\005\022\034\n\030FLOW_ERROR_TYPE_INTERNAL\020\006*" +
+      "\223\001\n\026PendingStepMethodPhase\022)\n%PENDING_ST" +
+      "EP_METHOD_PHASE_UNSPECIFIED\020\000\022\'\n#PENDING" +
+      "_STEP_METHOD_PHASE_SCHEDULED\020\001\022%\n!PENDIN" +
+      "G_STEP_METHOD_PHASE_STARTED\020\002*\207\001\n\021PullRo" +
+      "utingSource\022#\n\037PULL_ROUTING_SOURCE_UNSPE" +
+      "CIFIED\020\000\022$\n PULL_ROUTING_SOURCE_STICKY_Q" +
+      "UEUE\020\001\022\'\n#PULL_ROUTING_SOURCE_FLOW_TYPE_" +
+      "QUEUE\020\002*q\n\017ActiveStepPhase\022!\n\035ACTIVE_STE" +
+      "P_PHASE_UNSPECIFIED\020\000\022\034\n\030ACTIVE_STEP_PHA" +
+      "SE_ACTIVE\020\001\022\035\n\031ACTIVE_STEP_PHASE_WAITING" +
+      "\020\002*\275\001\n\rFlowResetType\022\037\n\033FLOW_RESET_TYPE_" +
+      "UNSPECIFIED\020\000\022\035\n\031FLOW_RESET_TYPE_BEGINNI" +
+      "NG\020\001\022&\n\"FLOW_RESET_TYPE_HISTORY_EVENT_TI" +
+      "ME\020\002\022\035\n\031FLOW_RESET_TYPE_STEP_TYPE\020\003\022%\n!F" +
+      "LOW_RESET_TYPE_STEP_EXECUTION_ID\020\004*\206\001\n\023F" +
+      "lowResetStepMethod\022&\n\"FLOW_RESET_STEP_ME" +
+      "THOD_UNSPECIFIED\020\000\022#\n\037FLOW_RESET_STEP_ME" +
+      "THOD_WAIT_FOR\020\001\022\"\n\036FLOW_RESET_STEP_METHO" +
+      "D_EXECUTE\020\002*\306\002\n\026AttributeMatchOperator\022(" +
+      "\n$ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED\020\000" +
+      "\022\"\n\036ATTRIBUTE_MATCH_OPERATOR_EQUAL\020\001\022&\n\"" +
+      "ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL\020\002\022)\n%" +
+      "ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN\020\003\022" +
+      "2\n.ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN" +
+      "_OR_EQUAL\020\004\022&\n\"ATTRIBUTE_MATCH_OPERATOR_" +
+      "LESS_THAN\020\005\022/\n+ATTRIBUTE_MATCH_OPERATOR_" +
+      "LESS_THAN_OR_EQUAL\020\006*\360\002\n\016ErrorSubStatus\022" +
+      " \n\034ERROR_SUB_STATUS_UNSPECIFIED\020\000\022\"\n\036ERR" +
+      "OR_SUB_STATUS_UNCATEGORIZED\020\001\022)\n%ERROR_S" +
+      "UB_STATUS_FLOW_ALREADY_STARTED\020\002\022$\n ERRO" +
+      "R_SUB_STATUS_FLOW_NOT_EXISTS\020\003\022%\n!ERROR_" +
+      "SUB_STATUS_WORKER_API_ERROR\020\004\022\'\n#ERROR_S" +
+      "UB_STATUS_LONG_POLL_TIME_OUT\020\005\022.\n*ERROR_" +
+      "SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND\020\006\022$" +
+      "\n ERROR_SUB_STATUS_REQUEST_TIMEOUT\020\007\022!\n\035" +
+      "ERROR_SUB_STATUS_FLOW_CLOSING\020\010*\213\002\n\021Clos" +
+      "eDecisionType\022#\n\037CLOSE_DECISION_TYPE_UNS" +
+      "PECIFIED\020\000\0228\n4CLOSE_DECISION_TYPE_FORCE_" +
+      "COMPLETE_ON_CHANNELS_EMPTY\020\001\022)\n%CLOSE_DE" +
+      "CISION_TYPE_GRACEFUL_COMPLETE\020\002\022&\n\"CLOSE" +
+      "_DECISION_TYPE_FORCE_COMPLETE\020\003\022\"\n\036CLOSE" +
+      "_DECISION_TYPE_FORCE_FAIL\020\004\022 \n\034CLOSE_DEC" +
+      "ISION_TYPE_DEAD_END\020\005*\310\001\n\024WaitingConditi" +
+      "onType\022&\n\"WAITING_CONDITION_TYPE_UNSPECI" +
+      "FIED\020\000\022(\n$WAITING_CONDITION_TYPE_ALL_COM" +
+      "PLETED\020\001\022(\n$WAITING_CONDITION_TYPE_ANY_C" +
+      "OMPLETED\020\002\0224\n0WAITING_CONDITION_TYPE_ANY" +
+      "_COMBINATION_COMPLETED\020\003*\307\001\n\022SubFlowReus" +
+      "ePolicy\022%\n!SUB_FLOW_REUSE_POLICY_UNSPECI" +
+      "FIED\020\000\022 \n\034SUB_FLOW_REUSE_POLICY_ATTACH\020\001" +
+      "\022>\n:SUB_FLOW_REUSE_POLICY_RESTART_IF_PRE" +
+      "VIOUS_EXITS_ABNORMALLY\020\002\022(\n$SUB_FLOW_REU" +
+      "SE_POLICY_ALWAYS_RESTART\020\003*q\n\017ConditionS" +
+      "tatus\022 \n\034CONDITION_STATUS_UNSPECIFIED\020\000\022" +
+      "\034\n\030CONDITION_STATUS_WAITING\020\001\022\036\n\032CONDITI" +
+      "ON_STATUS_COMPLETED\020\002*\243\001\n\023InternalTimerS" +
+      "tatus\022%\n!INTERNAL_TIMER_STATUS_UNSPECIFI" +
+      "ED\020\000\022!\n\035INTERNAL_TIMER_STATUS_PENDING\020\001\022" +
+      "\037\n\033INTERNAL_TIMER_STATUS_FIRED\020\002\022!\n\035INTE" +
+      "RNAL_TIMER_STATUS_SKIPPED\020\0032\226\017\n\013FlowServ" +
+      "ice\0228\n\rGetServerInfo\022\026.google.protobuf.E" +
+      "mpty\032\017.dex.ServerInfo\022:\n\tStartFlow\022\025.dex" +
+      ".StartFlowRequest\032\026.dex.StartFlowRespons" +
+      "e\022H\n\020PublishToChannel\022\034.dex.PublishToCha" +
+      "nnelRequest\032\026.google.protobuf.Empty\022U\n\022G" +
+      "etChannelMessages\022\036.dex.GetChannelMessag" +
+      "esRequest\032\037.dex.GetChannelMessagesRespon" +
+      "se\022P\n\024DeleteChannelMessage\022 .dex.DeleteC" +
+      "hannelMessageRequest\032\026.google.protobuf.E" +
+      "mpty\022>\n\013WriteStream\022\027.dex.WriteStreamReq" +
+      "uest\032\026.google.protobuf.Empty\022=\n\nReadStre" +
+      "am\022\026.dex.ReadStreamRequest\032\027.dex.ReadStr" +
+      "eamResponse\022U\n\022ListStreamMessages\022\036.dex." +
+      "ListStreamMessagesRequest\032\037.dex.ListStre" +
+      "amMessagesResponse\0228\n\010StopFlow\022\024.dex.Sto" +
+      "pFlowRequest\032\026.google.protobuf.Empty\022F\n\r" +
+      "GetAttributes\022\031.dex.GetAttributesRequest" +
+      "\032\032.dex.GetAttributesResponse\022B\n\rSetAttri" +
+      "butes\022\031.dex.SetAttributesRequest\032\026.googl" +
+      "e.protobuf.Empty\022:\n\tLoadBlobs\022\025.dex.Load" +
+      "BlobsRequest\032\026.dex.LoadBlobsResponse\0227\n\013" +
+      "WaitForFlow\022\027.dex.WaitForFlowRequest\032\017.d" +
+      "ex.FlowResult\022@\n\013SearchFlows\022\027.dex.Searc" +
+      "hFlowsRequest\032\030.dex.SearchFlowsResponse\022" +
+      "W\n\024SyncAttributeIndexes\022\036.dex.SyncAttrib" +
+      "uteIndexRequest\032\037.dex.SyncAttributeIndex" +
+      "Response\022I\n\016GetFlowSummary\022\032.dex.GetFlow" +
+      "SummaryRequest\032\033.dex.GetFlowSummaryRespo" +
+      "nse\022O\n\020GetHistoryEvents\022\034.dex.GetHistory" +
+      "EventsRequest\032\035.dex.GetHistoryEventsResp" +
+      "onse\022X\n\023WaitForHistoryEvent\022\037.dex.WaitFo" +
+      "rHistoryEventRequest\032 .dex.WaitForHistor" +
+      "yEventResponse\022C\n\014GetFlowState\022\030.dex.Get" +
+      "FlowStateRequest\032\031.dex.GetFlowStateRespo" +
+      "nse\022:\n\tResetFlow\022\025.dex.ResetFlowRequest\032" +
+      "\026.dex.ResetFlowResponse\022:\n\tInvokeRPC\022\025.d" +
+      "ex.InvokeRPCRequest\032\026.dex.InvokeRPCRespo" +
+      "nse\022:\n\tSkipTimer\022\025.dex.SkipTimerRequest\032" +
+      "\026.google.protobuf.Empty\022H\n\020UpdateFlowCon" +
+      "fig\022\034.dex.UpdateFlowConfigRequest\032\026.goog" +
+      "le.protobuf.Empty\022^\n\025WaitForStepCompleti" +
+      "on\022!.dex.WaitForStepCompletionRequest\032\"." +
+      "dex.WaitForStepCompletionResponse\022O\n\020Wai" +
+      "tForAttribute\022\034.dex.WaitForAttributeRequ",
+      "est\032\035.dex.WaitForAttributeResponse\022P\n\024Tr" +
+      "iggerContinueAsNew\022 .dex.TriggerContinue" +
+      "AsNewRequest\032\026.google.protobuf.Empty\0226\n\013" +
+      "HealthCheck\022\026.google.protobuf.Empty\032\017.de" +
+      "x.HealthInfo2\221\002\n\rWorkerService\022X\n\023Invoke" +
+      "WaitForMethod\022\037.dex.InvokeWaitForMethodR" +
+      "equest\032\036.dex.InvokeWaitForMethodOutput0\001" +
+      "\022X\n\023InvokeExecuteMethod\022\037.dex.InvokeExec" +
+      "uteMethodRequest\032\036.dex.InvokeExecuteMeth" +
+      "odOutput0\001\022L\n\017InvokeWorkerRPC\022\033.dex.Invo" +
+      "keWorkerRPCRequest\032\034.dex.InvokeWorkerRPC" +
+      "Response2b\n\021WorkerTaskService\022M\n\016PollWor" +
+      "kerTask\022\032.dex.PollWorkerTaskRequest\032\033.de" +
+      "x.PollWorkerTaskResponse(\0010\001B!\n\023io.super" +
+      "durable.genB\010DexProtoP\001b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -2204,260 +1676,236 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_PollWorkerTaskPing_descriptor,
         new java.lang.String[] { });
-    internal_static_dex_DispatchTaskRequest_descriptor =
-      getDescriptor().getMessageType(12);
-    internal_static_dex_DispatchTaskRequest_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_DispatchTaskRequest_descriptor,
-        new java.lang.String[] { "Queue", "FallbackQueue", "FlowId", "StickyWait", "DispatchWait", "Deadline", "TaskId", "WaitFor", "Execute", "Rpc", "SupportsAssignmentState", "ExcludedAppWorkerIds", "StopAfterUnknownName", "StopWhenQueueHasNoStreams", "SupportsUnknownNameError", "Request", });
-    internal_static_dex_DispatchTaskResponse_descriptor =
-      getDescriptor().getMessageType(13);
-    internal_static_dex_DispatchTaskResponse_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_DispatchTaskResponse_descriptor,
-        new java.lang.String[] { "WaitFor", "Execute", "Rpc", "WorkerError", "DispatchError", "Assigned", "Unassigned", "ServedByAppWorkerId", "RejectedByAppWorkerId", "QueueSource", "Output", });
-    internal_static_dex_DispatchTaskError_descriptor =
-      getDescriptor().getMessageType(14);
-    internal_static_dex_DispatchTaskError_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_DispatchTaskError_descriptor,
-        new java.lang.String[] { "Reason", "Detail", });
     internal_static_dex_Value_descriptor =
-      getDescriptor().getMessageType(15);
+      getDescriptor().getMessageType(12);
     internal_static_dex_Value_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_Value_descriptor,
         new java.lang.String[] { "InternalBlobIdForStringValue", "InternalBlobIdForObjValue", "StringValue", "ObjValue", "IntValue", "DoubleValue", "BoolValue", "NullValue", "Kind", });
     internal_static_dex_EncodedObject_descriptor =
-      getDescriptor().getMessageType(16);
+      getDescriptor().getMessageType(13);
     internal_static_dex_EncodedObject_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_EncodedObject_descriptor,
         new java.lang.String[] { "Encoding", "Payload", });
     internal_static_dex_AttributeWrite_descriptor =
-      getDescriptor().getMessageType(17);
+      getDescriptor().getMessageType(14);
     internal_static_dex_AttributeWrite_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_AttributeWrite_descriptor,
         new java.lang.String[] { "Key", "Value", "IndexConfig", "SyncConfig", "IsHardDeleteOnNull", });
     internal_static_dex_ActionPermissionMapping_descriptor =
-      getDescriptor().getMessageType(18);
+      getDescriptor().getMessageType(15);
     internal_static_dex_ActionPermissionMapping_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ActionPermissionMapping_descriptor,
         new java.lang.String[] { "AttributeKey", "EqualValues", "RequiredPermission", });
     internal_static_dex_ActionPermissionMappings_descriptor =
-      getDescriptor().getMessageType(19);
+      getDescriptor().getMessageType(16);
     internal_static_dex_ActionPermissionMappings_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ActionPermissionMappings_descriptor,
         new java.lang.String[] { "Mappings", });
     internal_static_dex_AttributeSyncConfig_descriptor =
-      getDescriptor().getMessageType(20);
+      getDescriptor().getMessageType(17);
     internal_static_dex_AttributeSyncConfig_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_AttributeSyncConfig_descriptor,
         new java.lang.String[] { "Enabled", });
     internal_static_dex_KV_descriptor =
-      getDescriptor().getMessageType(21);
+      getDescriptor().getMessageType(18);
     internal_static_dex_KV_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_KV_descriptor,
         new java.lang.String[] { "Key", "Value", });
     internal_static_dex_IndexConfig_descriptor =
-      getDescriptor().getMessageType(22);
+      getDescriptor().getMessageType(19);
     internal_static_dex_IndexConfig_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_IndexConfig_descriptor,
         new java.lang.String[] { "Enable", "Type", "IndexKey", });
     internal_static_dex_Context_descriptor =
-      getDescriptor().getMessageType(23);
+      getDescriptor().getMessageType(20);
     internal_static_dex_Context_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_Context_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "FlowStartedTimestamp", "StepExecutionId", "FirstAttemptTimestamp", "Attempt", "FromStepExecutionId", "RecoveryError", "LastHeartbeatValue", "RunAttempt", });
-    internal_static_dex_LocalActivityMetadata_descriptor =
-      getDescriptor().getMessageType(24);
-    internal_static_dex_LocalActivityMetadata_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_LocalActivityMetadata_descriptor,
-        new java.lang.String[] { "CurrentStepExecutionId", "FromStepExecutionId", });
     internal_static_dex_RetryPolicy_descriptor =
-      getDescriptor().getMessageType(25);
+      getDescriptor().getMessageType(21);
     internal_static_dex_RetryPolicy_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_RetryPolicy_descriptor,
         new java.lang.String[] { "InitialIntervalSeconds", "BackoffCoefficient", "MaximumIntervalSeconds", "MaximumAttempts", "TotalDurationSeconds", });
     internal_static_dex_FlowRetryPolicy_descriptor =
-      getDescriptor().getMessageType(26);
+      getDescriptor().getMessageType(22);
     internal_static_dex_FlowRetryPolicy_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowRetryPolicy_descriptor,
         new java.lang.String[] { "InitialIntervalSeconds", "BackoffCoefficient", "MaximumIntervalSeconds", "MaximumAttempts", });
     internal_static_dex_StepOptions_descriptor =
-      getDescriptor().getMessageType(27);
+      getDescriptor().getMessageType(23);
     internal_static_dex_StepOptions_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepOptions_descriptor,
         new java.lang.String[] { "WaitForTimeoutSeconds", "ExecuteTimeoutSeconds", "WaitForRetryPolicy", "ExecuteRetryPolicy", "WaitForFailurePolicy", "ExecuteFailurePolicy", "ExecuteFailureProceedStepType", "ExecuteFailureProceedStepOptions", "SkipWaitFor", "WaitForDurabilityOverride", "ExecuteDurabilityOverride", "WaitForLockAttributeKeys", "ExecuteLockAttributeKeys", "HeartbeatTimeoutSeconds", "WaitForLoadAttributeMapInstances", "WaitForLoadChannelNames", "WaitForLoadChannelMapInstances", "ExecuteLoadAttributeMapInstances", "ExecuteLoadChannelNames", "ExecuteLoadChannelMapInstances", });
     internal_static_dex_FlowTimeoutHandlerOptions_descriptor =
-      getDescriptor().getMessageType(28);
+      getDescriptor().getMessageType(24);
     internal_static_dex_FlowTimeoutHandlerOptions_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowTimeoutHandlerOptions_descriptor,
         new java.lang.String[] { "MethodTimeoutSeconds", "HeartbeatTimeoutSeconds", "RetryPolicy", "FailurePolicy", "FailureProceedStepType", "FailureProceedStepOptions", "DurabilityOverride", "LockAttributeKeys", "LoadAttributeMapInstances", "LoadChannelNames", "LoadChannelMapInstances", });
     internal_static_dex_FlowAlreadyStartedOptions_descriptor =
-      getDescriptor().getMessageType(29);
+      getDescriptor().getMessageType(25);
     internal_static_dex_FlowAlreadyStartedOptions_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowAlreadyStartedOptions_descriptor,
         new java.lang.String[] { "IgnoreAlreadyStartedError", });
     internal_static_dex_FlowStartOptions_descriptor =
-      getDescriptor().getMessageType(30);
+      getDescriptor().getMessageType(26);
     internal_static_dex_FlowStartOptions_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowStartOptions_descriptor,
         new java.lang.String[] { "IdReusePolicy", "FlowStartDelaySeconds", "RetryPolicy", "Attributes", "FlowConfigOverride", "FlowAlreadyStartedOptions", "TimeoutHandlerOptions", });
     internal_static_dex_FlowConfig_descriptor =
-      getDescriptor().getMessageType(31);
+      getDescriptor().getMessageType(27);
     internal_static_dex_FlowConfig_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowConfig_descriptor,
         new java.lang.String[] { "ActiveStepSearchMode", "ContinueAsNewThreshold", "ContinueAsNewPageSizeInBytes", "StepDurability", "WorkerTarget", "AttributeStoreNames", });
     internal_static_dex_AttributeStoreNames_descriptor =
-      getDescriptor().getMessageType(32);
+      getDescriptor().getMessageType(28);
     internal_static_dex_AttributeStoreNames_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_AttributeStoreNames_descriptor,
         new java.lang.String[] { "Names", });
     internal_static_dex_WorkerTarget_descriptor =
-      getDescriptor().getMessageType(33);
+      getDescriptor().getMessageType(29);
     internal_static_dex_WorkerTarget_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WorkerTarget_descriptor,
-        new java.lang.String[] { "Address", "IsHeadlessAddress", "IsPullMode", });
+        new java.lang.String[] { "IsPullMode", });
     internal_static_dex_StartFlowRequest_descriptor =
-      getDescriptor().getMessageType(34);
+      getDescriptor().getMessageType(30);
     internal_static_dex_StartFlowRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StartFlowRequest_descriptor,
         new java.lang.String[] { "FlowId", "FlowType", "FlowTimeoutSeconds", "FlowTimeoutPolicy", "StartStepType", "StepInput", "StepOptions", "FlowStartOptions", "RequestId", });
     internal_static_dex_StartFlowResponse_descriptor =
-      getDescriptor().getMessageType(35);
+      getDescriptor().getMessageType(31);
     internal_static_dex_StartFlowResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StartFlowResponse_descriptor,
         new java.lang.String[] { "RunId", });
     internal_static_dex_PublishToChannelRequest_descriptor =
-      getDescriptor().getMessageType(36);
+      getDescriptor().getMessageType(32);
     internal_static_dex_PublishToChannelRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_PublishToChannelRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "Messages", });
     internal_static_dex_ChannelMessage_descriptor =
-      getDescriptor().getMessageType(37);
+      getDescriptor().getMessageType(33);
     internal_static_dex_ChannelMessage_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ChannelMessage_descriptor,
         new java.lang.String[] { "ChannelName", "Value", "MessageId", });
     internal_static_dex_GetChannelMessagesRequest_descriptor =
-      getDescriptor().getMessageType(38);
+      getDescriptor().getMessageType(34);
     internal_static_dex_GetChannelMessagesRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_GetChannelMessagesRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "ChannelName", });
     internal_static_dex_GetChannelMessagesResponse_descriptor =
-      getDescriptor().getMessageType(39);
+      getDescriptor().getMessageType(35);
     internal_static_dex_GetChannelMessagesResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_GetChannelMessagesResponse_descriptor,
         new java.lang.String[] { "Messages", });
     internal_static_dex_DeleteChannelMessageRequest_descriptor =
-      getDescriptor().getMessageType(40);
+      getDescriptor().getMessageType(36);
     internal_static_dex_DeleteChannelMessageRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_DeleteChannelMessageRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "ChannelName", "MessageId", "RequestId", });
     internal_static_dex_ChannelMessageDeletion_descriptor =
-      getDescriptor().getMessageType(41);
+      getDescriptor().getMessageType(37);
     internal_static_dex_ChannelMessageDeletion_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ChannelMessageDeletion_descriptor,
         new java.lang.String[] { "ChannelName", "MessageId", });
     internal_static_dex_WriteStreamRequest_descriptor =
-      getDescriptor().getMessageType(42);
+      getDescriptor().getMessageType(38);
     internal_static_dex_WriteStreamRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WriteStreamRequest_descriptor,
         new java.lang.String[] { "FlowId", "FlowType", "StreamName", "StreamCapacityBytes", "Value", "Source", });
     internal_static_dex_ReadStreamRequest_descriptor =
-      getDescriptor().getMessageType(43);
+      getDescriptor().getMessageType(39);
     internal_static_dex_ReadStreamRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ReadStreamRequest_descriptor,
         new java.lang.String[] { "FlowId", "FlowType", "StreamName", "ResumeToken", "WaitTimeSeconds", });
     internal_static_dex_ReadStreamResponse_descriptor =
-      getDescriptor().getMessageType(44);
+      getDescriptor().getMessageType(40);
     internal_static_dex_ReadStreamResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ReadStreamResponse_descriptor,
         new java.lang.String[] { "Message", });
     internal_static_dex_ListStreamMessagesRequest_descriptor =
-      getDescriptor().getMessageType(45);
+      getDescriptor().getMessageType(41);
     internal_static_dex_ListStreamMessagesRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ListStreamMessagesRequest_descriptor,
         new java.lang.String[] { "FlowId", "FlowType", "StreamName", "PageSize", "BeforePageToken", });
     internal_static_dex_ListStreamMessagesResponse_descriptor =
-      getDescriptor().getMessageType(46);
+      getDescriptor().getMessageType(42);
     internal_static_dex_ListStreamMessagesResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ListStreamMessagesResponse_descriptor,
         new java.lang.String[] { "Messages", "NextPageToken", });
     internal_static_dex_StreamMessage_descriptor =
-      getDescriptor().getMessageType(47);
+      getDescriptor().getMessageType(43);
     internal_static_dex_StreamMessage_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StreamMessage_descriptor,
         new java.lang.String[] { "Value", "ResumeToken", "CreatedTime", "Source", });
     internal_static_dex_StopFlowRequest_descriptor =
-      getDescriptor().getMessageType(48);
+      getDescriptor().getMessageType(44);
     internal_static_dex_StopFlowRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StopFlowRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "Reason", "StopType", });
     internal_static_dex_GetAttributesRequest_descriptor =
-      getDescriptor().getMessageType(49);
+      getDescriptor().getMessageType(45);
     internal_static_dex_GetAttributesRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_GetAttributesRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "Keys", "AllKeys", });
     internal_static_dex_GetAttributesResponse_descriptor =
-      getDescriptor().getMessageType(50);
+      getDescriptor().getMessageType(46);
     internal_static_dex_GetAttributesResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_GetAttributesResponse_descriptor,
         new java.lang.String[] { "Attributes", });
     internal_static_dex_SetAttributesRequest_descriptor =
-      getDescriptor().getMessageType(51);
+      getDescriptor().getMessageType(47);
     internal_static_dex_SetAttributesRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_SetAttributesRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "Attributes", "RequestId", "ActionPermissionMappings", });
     internal_static_dex_LoadBlobRequestEntry_descriptor =
-      getDescriptor().getMessageType(52);
+      getDescriptor().getMessageType(48);
     internal_static_dex_LoadBlobRequestEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_LoadBlobRequestEntry_descriptor,
         new java.lang.String[] { "FlowId", "BlobValue", });
     internal_static_dex_LoadBlobsRequest_descriptor =
-      getDescriptor().getMessageType(53);
+      getDescriptor().getMessageType(49);
     internal_static_dex_LoadBlobsRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_LoadBlobsRequest_descriptor,
         new java.lang.String[] { "Entries", });
     internal_static_dex_LoadBlobsResponse_descriptor =
-      getDescriptor().getMessageType(54);
+      getDescriptor().getMessageType(50);
     internal_static_dex_LoadBlobsResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_LoadBlobsResponse_descriptor,
@@ -2469,43 +1917,43 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
         internal_static_dex_LoadBlobsResponse_ValuesEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
     internal_static_dex_WaitForFlowRequest_descriptor =
-      getDescriptor().getMessageType(55);
+      getDescriptor().getMessageType(51);
     internal_static_dex_WaitForFlowRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WaitForFlowRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "NeedsResults", "WaitTimeSeconds", });
     internal_static_dex_StepCompletionOutput_descriptor =
-      getDescriptor().getMessageType(56);
+      getDescriptor().getMessageType(52);
     internal_static_dex_StepCompletionOutput_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepCompletionOutput_descriptor,
         new java.lang.String[] { "CompletedStepType", "CompletedStepExecutionId", "CompletedStepOutput", });
     internal_static_dex_FlowResult_descriptor =
-      getDescriptor().getMessageType(57);
+      getDescriptor().getMessageType(53);
     internal_static_dex_FlowResult_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowResult_descriptor,
         new java.lang.String[] { "FlowStatus", "Results", "ErrorType", "ErrorMessage", });
     internal_static_dex_SearchFlowsRequest_descriptor =
-      getDescriptor().getMessageType(58);
+      getDescriptor().getMessageType(54);
     internal_static_dex_SearchFlowsRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_SearchFlowsRequest_descriptor,
         new java.lang.String[] { "Query", "PageSize", "NextPageToken", "IncludeContinuedAsNew", });
     internal_static_dex_SearchFlowsResponse_descriptor =
-      getDescriptor().getMessageType(59);
+      getDescriptor().getMessageType(55);
     internal_static_dex_SearchFlowsResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_SearchFlowsResponse_descriptor,
         new java.lang.String[] { "FlowRuns", "NextPageToken", });
     internal_static_dex_SearchFlowsResponseEntry_descriptor =
-      getDescriptor().getMessageType(60);
+      getDescriptor().getMessageType(56);
     internal_static_dex_SearchFlowsResponseEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_SearchFlowsResponseEntry_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "IndexedAttributes", "FlowType", "FlowStatus", "StartTime", "CloseTime", });
     internal_static_dex_SyncAttributeIndexRequest_descriptor =
-      getDescriptor().getMessageType(61);
+      getDescriptor().getMessageType(57);
     internal_static_dex_SyncAttributeIndexRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_SyncAttributeIndexRequest_descriptor,
@@ -2517,79 +1965,67 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
         internal_static_dex_SyncAttributeIndexRequest_AttributeIndexesEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
     internal_static_dex_SyncAttributeIndexResponse_descriptor =
-      getDescriptor().getMessageType(62);
+      getDescriptor().getMessageType(58);
     internal_static_dex_SyncAttributeIndexResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_SyncAttributeIndexResponse_descriptor,
         new java.lang.String[] { });
     internal_static_dex_FlowExecutionID_descriptor =
-      getDescriptor().getMessageType(63);
+      getDescriptor().getMessageType(59);
     internal_static_dex_FlowExecutionID_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowExecutionID_descriptor,
         new java.lang.String[] { "FlowId", "RunId", });
     internal_static_dex_GetFlowSummaryRequest_descriptor =
-      getDescriptor().getMessageType(64);
+      getDescriptor().getMessageType(60);
     internal_static_dex_GetFlowSummaryRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_GetFlowSummaryRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", });
     internal_static_dex_GetFlowSummaryResponse_descriptor =
-      getDescriptor().getMessageType(65);
+      getDescriptor().getMessageType(61);
     internal_static_dex_GetFlowSummaryResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_GetFlowSummaryResponse_descriptor,
         new java.lang.String[] { "FlowExecutionId", "FirstRunId", "RequestId", "FlowType", "FlowStatus", "StartTime", "CloseTime", "RunAttempt", });
-    internal_static_dex_InternalAsyncStepInputSnapshot_descriptor =
-      getDescriptor().getMessageType(66);
-    internal_static_dex_InternalAsyncStepInputSnapshot_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InternalAsyncStepInputSnapshot_descriptor,
-        new java.lang.String[] { "MethodOptions", "WaitForRequest", "ExecuteRequest", "Request", });
-    internal_static_dex_InternalLocalActivityInput_descriptor =
-      getDescriptor().getMessageType(67);
-    internal_static_dex_InternalLocalActivityInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InternalLocalActivityInput_descriptor,
-        new java.lang.String[] { "CurrentRunStartedTimestamp", "MethodOptions", });
     internal_static_dex_GetHistoryEventsRequest_descriptor =
-      getDescriptor().getMessageType(68);
+      getDescriptor().getMessageType(62);
     internal_static_dex_GetHistoryEventsRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_GetHistoryEventsRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "StartInternalEventId", "EstimatePageSize", "NextPageToken", "RunAttempt", });
     internal_static_dex_GetHistoryEventsResponse_descriptor =
-      getDescriptor().getMessageType(69);
+      getDescriptor().getMessageType(63);
     internal_static_dex_GetHistoryEventsResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_GetHistoryEventsResponse_descriptor,
         new java.lang.String[] { "Events", "NextPageToken", "NextInternalEventId", });
     internal_static_dex_FlowHistoryEvent_descriptor =
-      getDescriptor().getMessageType(70);
+      getDescriptor().getMessageType(64);
     internal_static_dex_FlowHistoryEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowHistoryEvent_descriptor,
         new java.lang.String[] { "EventId", "EventTime", "RunAttempt", "FlowStartedOrContinued", "FlowClosed", "StepWaitForCompleted", "StepWaitForFailed", "StepExecuteCompleted", "StepExecuteFailed", "RpcExecutionCompleted", "ChannelExternalPublish", "StepWaitForPending", "StepExecutePending", "TimeTravelFork", "ChannelExternalDelete", "Payload", });
     internal_static_dex_TimeTravelForkHistoryEvent_descriptor =
-      getDescriptor().getMessageType(71);
+      getDescriptor().getMessageType(65);
     internal_static_dex_TimeTravelForkHistoryEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_TimeTravelForkHistoryEvent_descriptor,
         new java.lang.String[] { "PreviousRunId", "PreviousRunAttempt", "TargetRunAttempt", "TargetEventId", });
     internal_static_dex_FlowStartedOrContinuedHistoryEvent_descriptor =
-      getDescriptor().getMessageType(72);
+      getDescriptor().getMessageType(66);
     internal_static_dex_FlowStartedOrContinuedHistoryEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowStartedOrContinuedHistoryEvent_descriptor,
         new java.lang.String[] { "FlowExecutionId", "FlowType", "FlowConfig", "FlowTimeout", "FlowTimeoutPolicy", "TimeoutHandlerOptions", "InitialStart", "ContinuedStart", "StartOrContinue", });
     internal_static_dex_FlowInitialStart_descriptor =
-      getDescriptor().getMessageType(73);
+      getDescriptor().getMessageType(67);
     internal_static_dex_FlowInitialStart_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowInitialStart_descriptor,
         new java.lang.String[] { "StartStepType", "StepInput", "StepOptions", "InitialAttributes", });
     internal_static_dex_FlowContinuedStart_descriptor =
-      getDescriptor().getMessageType(74);
+      getDescriptor().getMessageType(68);
     internal_static_dex_FlowContinuedStart_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowContinuedStart_descriptor,
@@ -2601,133 +2037,133 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
         internal_static_dex_FlowContinuedStart_PendingChannelMessagesEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
     internal_static_dex_FlowClosedHistoryEvent_descriptor =
-      getDescriptor().getMessageType(75);
+      getDescriptor().getMessageType(69);
     internal_static_dex_FlowClosedHistoryEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowClosedHistoryEvent_descriptor,
         new java.lang.String[] { "FlowStatus", "Results", "ErrorType", "ErrorMessage", "ContinuedToRunId", "StickyAppWorkerId", });
     internal_static_dex_StepMethodPendingEvent_descriptor =
-      getDescriptor().getMessageType(76);
+      getDescriptor().getMessageType(70);
     internal_static_dex_StepMethodPendingEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepMethodPendingEvent_descriptor,
         new java.lang.String[] { "Input", "Context", "Phase", });
     internal_static_dex_StepMethodFailure_descriptor =
-      getDescriptor().getMessageType(77);
+      getDescriptor().getMessageType(71);
     internal_static_dex_StepMethodFailure_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepMethodFailure_descriptor,
         new java.lang.String[] { "BackendError", "Details", "Attempt", "PullRouting", });
     internal_static_dex_StepMethodOptions_descriptor =
-      getDescriptor().getMessageType(78);
+      getDescriptor().getMessageType(72);
     internal_static_dex_StepMethodOptions_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepMethodOptions_descriptor,
         new java.lang.String[] { "TimeoutSeconds", "RetryPolicy", "HeartbeatTimeoutSeconds", });
     internal_static_dex_StepMethodEventInput_descriptor =
-      getDescriptor().getMessageType(79);
+      getDescriptor().getMessageType(73);
     internal_static_dex_StepMethodEventInput_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepMethodEventInput_descriptor,
         new java.lang.String[] { "Unavailable", "StepInput", "ConditionResults", "Attributes", "StepExecutionLocals", });
     internal_static_dex_PullRouting_descriptor =
-      getDescriptor().getMessageType(80);
+      getDescriptor().getMessageType(74);
     internal_static_dex_PullRouting_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_PullRouting_descriptor,
         new java.lang.String[] { "StickyAppWorkerId", "ServedByAppWorkerId", "Source", });
     internal_static_dex_StepMethodEventContext_descriptor =
-      getDescriptor().getMessageType(81);
+      getDescriptor().getMessageType(75);
     internal_static_dex_StepMethodEventContext_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepMethodEventContext_descriptor,
         new java.lang.String[] { "StepExecutionId", "FromStepExecutionId", "StepType", "Durability", "FinalAttempt", "StartedTime", "Duration", "MethodOptions", "LastFailureInfo", "PullRouting", });
     internal_static_dex_StepWaitForCompletedOutput_descriptor =
-      getDescriptor().getMessageType(82);
+      getDescriptor().getMessageType(76);
     internal_static_dex_StepWaitForCompletedOutput_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepWaitForCompletedOutput_descriptor,
         new java.lang.String[] { "WaitForCondition", "UpsertAttributes", "PublishToChannel", "RecordEvents", "UpsertStepExecutionLocals", "DeleteFromChannel", });
     internal_static_dex_StepExecuteCompletedOutput_descriptor =
-      getDescriptor().getMessageType(83);
+      getDescriptor().getMessageType(77);
     internal_static_dex_StepExecuteCompletedOutput_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepExecuteCompletedOutput_descriptor,
         new java.lang.String[] { "StepDecision", "UpsertAttributes", "PublishToChannel", "RecordEvents", "UpsertStepExecutionLocals", "DeleteFromChannel", });
     internal_static_dex_StepMethodFailedOutput_descriptor =
-      getDescriptor().getMessageType(84);
+      getDescriptor().getMessageType(78);
     internal_static_dex_StepMethodFailedOutput_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepMethodFailedOutput_descriptor,
         new java.lang.String[] { "Failure", });
     internal_static_dex_StepWaitForCompletedEvent_descriptor =
-      getDescriptor().getMessageType(85);
+      getDescriptor().getMessageType(79);
     internal_static_dex_StepWaitForCompletedEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepWaitForCompletedEvent_descriptor,
         new java.lang.String[] { "Input", "Output", "Context", });
     internal_static_dex_StepWaitForFailedEvent_descriptor =
-      getDescriptor().getMessageType(86);
+      getDescriptor().getMessageType(80);
     internal_static_dex_StepWaitForFailedEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepWaitForFailedEvent_descriptor,
         new java.lang.String[] { "Input", "Output", "Context", });
     internal_static_dex_StepExecuteCompletedEvent_descriptor =
-      getDescriptor().getMessageType(87);
+      getDescriptor().getMessageType(81);
     internal_static_dex_StepExecuteCompletedEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepExecuteCompletedEvent_descriptor,
         new java.lang.String[] { "Input", "Output", "Context", });
     internal_static_dex_StepExecuteFailedEvent_descriptor =
-      getDescriptor().getMessageType(88);
+      getDescriptor().getMessageType(82);
     internal_static_dex_StepExecuteFailedEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepExecuteFailedEvent_descriptor,
         new java.lang.String[] { "Input", "Output", "Context", });
     internal_static_dex_RpcExecutionCompletedEvent_descriptor =
-      getDescriptor().getMessageType(89);
+      getDescriptor().getMessageType(83);
     internal_static_dex_RpcExecutionCompletedEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_RpcExecutionCompletedEvent_descriptor,
         new java.lang.String[] { "RpcName", "Input", "Output", "StepDecision", "UpsertAttributes", "RecordEvents", "PublishToChannel", "IsSetAttributeApi", "DeleteFromChannel", "ServedByAppWorkerId", });
     internal_static_dex_ChannelExternalPublishEvent_descriptor =
-      getDescriptor().getMessageType(90);
+      getDescriptor().getMessageType(84);
     internal_static_dex_ChannelExternalPublishEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ChannelExternalPublishEvent_descriptor,
         new java.lang.String[] { "Messages", });
     internal_static_dex_ChannelExternalDeleteEvent_descriptor =
-      getDescriptor().getMessageType(91);
+      getDescriptor().getMessageType(85);
     internal_static_dex_ChannelExternalDeleteEvent_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ChannelExternalDeleteEvent_descriptor,
         new java.lang.String[] { "Messages", });
     internal_static_dex_WaitForHistoryEventRequest_descriptor =
-      getDescriptor().getMessageType(92);
+      getDescriptor().getMessageType(86);
     internal_static_dex_WaitForHistoryEventRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WaitForHistoryEventRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "NextInternalEventId", });
     internal_static_dex_WaitForHistoryEventResponse_descriptor =
-      getDescriptor().getMessageType(93);
+      getDescriptor().getMessageType(87);
     internal_static_dex_WaitForHistoryEventResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WaitForHistoryEventResponse_descriptor,
         new java.lang.String[] { "EventAvailable", "AvailableInternalEventId", "FlowStatus", });
     internal_static_dex_ActiveStepExecutionState_descriptor =
-      getDescriptor().getMessageType(94);
+      getDescriptor().getMessageType(88);
     internal_static_dex_ActiveStepExecutionState_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ActiveStepExecutionState_descriptor,
         new java.lang.String[] { "StepExecutionId", "FromStepExecutionId", "StepType", "Phase", "Movement", "WaitingCondition", "CompletedConditions", "StepExecutionLocals", "Timers", "LastFailureInfo", "WaitForPullRouting", "ExecutePullRouting", });
     internal_static_dex_GetFlowStateRequest_descriptor =
-      getDescriptor().getMessageType(95);
+      getDescriptor().getMessageType(89);
     internal_static_dex_GetFlowStateRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_GetFlowStateRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", });
     internal_static_dex_GetFlowStateResponse_descriptor =
-      getDescriptor().getMessageType(96);
+      getDescriptor().getMessageType(90);
     internal_static_dex_GetFlowStateResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_GetFlowStateResponse_descriptor,
@@ -2739,121 +2175,103 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
         internal_static_dex_GetFlowStateResponse_PendingChannelMessagesEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
     internal_static_dex_ResetFlowRequest_descriptor =
-      getDescriptor().getMessageType(97);
+      getDescriptor().getMessageType(91);
     internal_static_dex_ResetFlowRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ResetFlowRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "ResetType", "Reason", "HistoryEventTime", "StepType", "StepExecutionId", "SkipWritesReapply", "StepMethod", "RunAttempt", });
     internal_static_dex_ResetFlowResponse_descriptor =
-      getDescriptor().getMessageType(98);
+      getDescriptor().getMessageType(92);
     internal_static_dex_ResetFlowResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ResetFlowResponse_descriptor,
         new java.lang.String[] { "RunId", "RunAttempt", });
     internal_static_dex_InvokeRPCRequest_descriptor =
-      getDescriptor().getMessageType(99);
+      getDescriptor().getMessageType(93);
     internal_static_dex_InvokeRPCRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeRPCRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "RpcName", "Input", "TimeoutSeconds", "LockAttributeKeys", "RequestId", "IsTransactional", "LoadAttributeMapInstances", "LoadChannelNames", "LoadChannelMapInstances", });
     internal_static_dex_InvokeRPCResponse_descriptor =
-      getDescriptor().getMessageType(100);
+      getDescriptor().getMessageType(94);
     internal_static_dex_InvokeRPCResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeRPCResponse_descriptor,
         new java.lang.String[] { "Output", });
     internal_static_dex_SkipTimerRequest_descriptor =
-      getDescriptor().getMessageType(101);
+      getDescriptor().getMessageType(95);
     internal_static_dex_SkipTimerRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_SkipTimerRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "StepExecutionId", "TimerConditionId", "TimerConditionIndex", });
     internal_static_dex_UpdateFlowConfigRequest_descriptor =
-      getDescriptor().getMessageType(102);
+      getDescriptor().getMessageType(96);
     internal_static_dex_UpdateFlowConfigRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_UpdateFlowConfigRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", "FlowConfig", });
     internal_static_dex_WaitForStepCompletionRequest_descriptor =
-      getDescriptor().getMessageType(103);
+      getDescriptor().getMessageType(97);
     internal_static_dex_WaitForStepCompletionRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WaitForStepCompletionRequest_descriptor,
         new java.lang.String[] { "FlowId", "StepType", "StepExecutionNumber", "RequestTimeoutSeconds", "InternalHandlerTimeoutSeconds", "RequestId", });
     internal_static_dex_WaitForStepCompletionResponse_descriptor =
-      getDescriptor().getMessageType(104);
+      getDescriptor().getMessageType(98);
     internal_static_dex_WaitForStepCompletionResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WaitForStepCompletionResponse_descriptor,
         new java.lang.String[] { });
     internal_static_dex_WaitForAttributeRequest_descriptor =
-      getDescriptor().getMessageType(105);
+      getDescriptor().getMessageType(99);
     internal_static_dex_WaitForAttributeRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WaitForAttributeRequest_descriptor,
         new java.lang.String[] { "FlowId", "Match", "RequestTimeoutSeconds", "InternalHandlerTimeoutSeconds", "RequestId", });
     internal_static_dex_WaitForAttributeResponse_descriptor =
-      getDescriptor().getMessageType(106);
+      getDescriptor().getMessageType(100);
     internal_static_dex_WaitForAttributeResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WaitForAttributeResponse_descriptor,
         new java.lang.String[] { "MatchedValue", });
     internal_static_dex_AttributeMatch_descriptor =
-      getDescriptor().getMessageType(107);
+      getDescriptor().getMessageType(101);
     internal_static_dex_AttributeMatch_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_AttributeMatch_descriptor,
         new java.lang.String[] { "Key", "Operator", "Operand", });
     internal_static_dex_TriggerContinueAsNewRequest_descriptor =
-      getDescriptor().getMessageType(108);
+      getDescriptor().getMessageType(102);
     internal_static_dex_TriggerContinueAsNewRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_TriggerContinueAsNewRequest_descriptor,
         new java.lang.String[] { "FlowId", "RunId", });
     internal_static_dex_HealthInfo_descriptor =
-      getDescriptor().getMessageType(109);
+      getDescriptor().getMessageType(103);
     internal_static_dex_HealthInfo_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_HealthInfo_descriptor,
         new java.lang.String[] { "Condition", "Hostname", "Duration", });
     internal_static_dex_ServiceErrorResponse_descriptor =
-      getDescriptor().getMessageType(110);
+      getDescriptor().getMessageType(104);
     internal_static_dex_ServiceErrorResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ServiceErrorResponse_descriptor,
         new java.lang.String[] { "Detail", "SubStatus", "OriginalWorkerErrorDetail", "OriginalWorkerErrorType", "OriginalWorkerErrorStatus", "OriginalWorkerErrorStackTrace", "DispatchTaskErrorReason", });
     internal_static_dex_WorkerErrorResponse_descriptor =
-      getDescriptor().getMessageType(111);
+      getDescriptor().getMessageType(105);
     internal_static_dex_WorkerErrorResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WorkerErrorResponse_descriptor,
         new java.lang.String[] { "Detail", "ErrorType", "StackTrace", "RetryAfterSeconds", "GrpcStatus", });
-    internal_static_dex_InternalActivityError_descriptor =
-      getDescriptor().getMessageType(112);
-    internal_static_dex_InternalActivityError_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InternalActivityError_descriptor,
-        new java.lang.String[] { "ServerDetail", "WorkerGrpcStatus", "WorkerError", "PullRouting", "DispatchTaskErrorReason", });
-    internal_static_dex_InternalWorkerError_descriptor =
-      getDescriptor().getMessageType(113);
-    internal_static_dex_InternalWorkerError_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InternalWorkerError_descriptor,
-        new java.lang.String[] { "Detail", "ErrorType", "StackTrace", });
-    internal_static_dex_InternalFlowError_descriptor =
-      getDescriptor().getMessageType(114);
-    internal_static_dex_InternalFlowError_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InternalFlowError_descriptor,
-        new java.lang.String[] { "ServerDetail", "ActivityError", "Failure", });
     internal_static_dex_ChannelInfo_descriptor =
-      getDescriptor().getMessageType(115);
+      getDescriptor().getMessageType(106);
     internal_static_dex_ChannelInfo_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ChannelInfo_descriptor,
         new java.lang.String[] { "Size", });
     internal_static_dex_InvokeWaitForMethodRequest_descriptor =
-      getDescriptor().getMessageType(116);
+      getDescriptor().getMessageType(107);
     internal_static_dex_InvokeWaitForMethodRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeWaitForMethodRequest_descriptor,
@@ -2871,31 +2289,31 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
         internal_static_dex_InvokeWaitForMethodRequest_LoadedChannelMessagesEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
     internal_static_dex_InvokeWaitForMethodResponse_descriptor =
-      getDescriptor().getMessageType(117);
+      getDescriptor().getMessageType(108);
     internal_static_dex_InvokeWaitForMethodResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeWaitForMethodResponse_descriptor,
-        new java.lang.String[] { "LocalActivityMetadata", "UpsertAttributes", "WaitingCondition", "UpsertStepExeLocals", "RecordEvents", "PublishToChannel", "DeleteFromChannel", "ActionPermissionMappings", });
+        new java.lang.String[] { "UpsertAttributes", "WaitingCondition", "UpsertStepExeLocals", "RecordEvents", "PublishToChannel", "DeleteFromChannel", "ActionPermissionMappings", });
     internal_static_dex_StepMethodHeartbeat_descriptor =
-      getDescriptor().getMessageType(118);
+      getDescriptor().getMessageType(109);
     internal_static_dex_StepMethodHeartbeat_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepMethodHeartbeat_descriptor,
         new java.lang.String[] { "Value", });
     internal_static_dex_StepStreamWrite_descriptor =
-      getDescriptor().getMessageType(119);
+      getDescriptor().getMessageType(110);
     internal_static_dex_StepStreamWrite_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepStreamWrite_descriptor,
         new java.lang.String[] { "StreamName", "StreamCapacityBytes", "Value", });
     internal_static_dex_InvokeWaitForMethodOutput_descriptor =
-      getDescriptor().getMessageType(120);
+      getDescriptor().getMessageType(111);
     internal_static_dex_InvokeWaitForMethodOutput_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeWaitForMethodOutput_descriptor,
         new java.lang.String[] { "Heartbeat", "StreamWrite", "Result", "Output", });
     internal_static_dex_InvokeExecuteMethodRequest_descriptor =
-      getDescriptor().getMessageType(121);
+      getDescriptor().getMessageType(112);
     internal_static_dex_InvokeExecuteMethodRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeExecuteMethodRequest_descriptor,
@@ -2913,19 +2331,19 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
         internal_static_dex_InvokeExecuteMethodRequest_LoadedChannelMessagesEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
     internal_static_dex_InvokeExecuteMethodResponse_descriptor =
-      getDescriptor().getMessageType(122);
+      getDescriptor().getMessageType(113);
     internal_static_dex_InvokeExecuteMethodResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeExecuteMethodResponse_descriptor,
-        new java.lang.String[] { "LocalActivityMetadata", "StepDecision", "UpsertAttributes", "RecordEvents", "UpsertStepExeLocals", "PublishToChannel", "DeleteFromChannel", "ActionPermissionMappings", });
+        new java.lang.String[] { "StepDecision", "UpsertAttributes", "RecordEvents", "UpsertStepExeLocals", "PublishToChannel", "DeleteFromChannel", "ActionPermissionMappings", });
     internal_static_dex_InvokeExecuteMethodOutput_descriptor =
-      getDescriptor().getMessageType(123);
+      getDescriptor().getMessageType(114);
     internal_static_dex_InvokeExecuteMethodOutput_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeExecuteMethodOutput_descriptor,
         new java.lang.String[] { "Heartbeat", "StreamWrite", "Result", "Output", });
     internal_static_dex_InvokeWorkerRPCRequest_descriptor =
-      getDescriptor().getMessageType(124);
+      getDescriptor().getMessageType(115);
     internal_static_dex_InvokeWorkerRPCRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeWorkerRPCRequest_descriptor,
@@ -2943,115 +2361,103 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
         internal_static_dex_InvokeWorkerRPCRequest_LoadedChannelMessagesEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
     internal_static_dex_InvokeWorkerRPCResponse_descriptor =
-      getDescriptor().getMessageType(125);
+      getDescriptor().getMessageType(116);
     internal_static_dex_InvokeWorkerRPCResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeWorkerRPCResponse_descriptor,
         new java.lang.String[] { "Output", "StepDecision", "UpsertAttributes", "RecordEvents", "DeleteFromChannel", "PublishToChannel", "ActionPermissionMappings", });
     internal_static_dex_StepDecision_descriptor =
-      getDescriptor().getMessageType(126);
+      getDescriptor().getMessageType(117);
     internal_static_dex_StepDecision_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepDecision_descriptor,
         new java.lang.String[] { "NextSteps", "CloseDecision", "CancelStepTypes", "CancelSiblingStepTypes", });
     internal_static_dex_CloseDecision_descriptor =
-      getDescriptor().getMessageType(127);
+      getDescriptor().getMessageType(118);
     internal_static_dex_CloseDecision_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_CloseDecision_descriptor,
         new java.lang.String[] { "CloseDecisionType", "ConditionalChannelNames", "CloseInput", });
     internal_static_dex_StepMovement_descriptor =
-      getDescriptor().getMessageType(128);
+      getDescriptor().getMessageType(119);
     internal_static_dex_StepMovement_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepMovement_descriptor,
         new java.lang.String[] { "StepType", "StepInput", "StepOptions", "FromStepExecutionIdInternalOnly", "RecoveryErrorInternalOnly", });
     internal_static_dex_ConditionCombination_descriptor =
-      getDescriptor().getMessageType(129);
+      getDescriptor().getMessageType(120);
     internal_static_dex_ConditionCombination_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ConditionCombination_descriptor,
         new java.lang.String[] { "ConditionIds", });
     internal_static_dex_WaitingCondition_descriptor =
-      getDescriptor().getMessageType(130);
+      getDescriptor().getMessageType(121);
     internal_static_dex_WaitingCondition_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WaitingCondition_descriptor,
         new java.lang.String[] { "WaitingConditionType", "TimerConditions", "ChannelConditions", "ConditionCombinations", "SubFlowConditions", });
     internal_static_dex_WaitingConditionState_descriptor =
-      getDescriptor().getMessageType(131);
+      getDescriptor().getMessageType(122);
     internal_static_dex_WaitingConditionState_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WaitingConditionState_descriptor,
         new java.lang.String[] { "WaitingConditionType", "TimerConditions", "ChannelConditions", "ConditionCombinations", "SubFlowConditions", });
     internal_static_dex_SubFlowOptions_descriptor =
-      getDescriptor().getMessageType(132);
+      getDescriptor().getMessageType(123);
     internal_static_dex_SubFlowOptions_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_SubFlowOptions_descriptor,
         new java.lang.String[] { "ReusePolicy", "FlowTimeoutSeconds", "FlowStartDelaySeconds", "RetryPolicy", "Attributes", "FlowConfigOverride", "FlowTimeoutPolicy", "TimeoutHandlerOptions", });
     internal_static_dex_SubFlowCondition_descriptor =
-      getDescriptor().getMessageType(133);
+      getDescriptor().getMessageType(124);
     internal_static_dex_SubFlowCondition_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_SubFlowCondition_descriptor,
         new java.lang.String[] { "ConditionId", "SubFlowType", "StartStepType", "StepInput", "StepOptions", "Options", "SubFlowIndex", });
     internal_static_dex_SubFlowConditionState_descriptor =
-      getDescriptor().getMessageType(134);
+      getDescriptor().getMessageType(125);
     internal_static_dex_SubFlowConditionState_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_SubFlowConditionState_descriptor,
         new java.lang.String[] { "ConditionId", });
     internal_static_dex_TimerCondition_descriptor =
-      getDescriptor().getMessageType(135);
+      getDescriptor().getMessageType(126);
     internal_static_dex_TimerCondition_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_TimerCondition_descriptor,
         new java.lang.String[] { "ConditionId", "DurationSeconds", "FiringUnixTimestampSeconds", });
     internal_static_dex_ChannelCondition_descriptor =
-      getDescriptor().getMessageType(136);
+      getDescriptor().getMessageType(127);
     internal_static_dex_ChannelCondition_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ChannelCondition_descriptor,
         new java.lang.String[] { "ConditionId", "ChannelName", "AtLeast", "AtMost", });
     internal_static_dex_ConditionResults_descriptor =
-      getDescriptor().getMessageType(137);
+      getDescriptor().getMessageType(128);
     internal_static_dex_ConditionResults_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ConditionResults_descriptor,
         new java.lang.String[] { "ChannelResults", "TimerResults", "WaitForFailed", "SubFlowResults", });
     internal_static_dex_TimerResult_descriptor =
-      getDescriptor().getMessageType(138);
+      getDescriptor().getMessageType(129);
     internal_static_dex_TimerResult_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_TimerResult_descriptor,
         new java.lang.String[] { "ConditionId", "ConditionStatus", });
     internal_static_dex_ChannelResult_descriptor =
-      getDescriptor().getMessageType(139);
+      getDescriptor().getMessageType(130);
     internal_static_dex_ChannelResult_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ChannelResult_descriptor,
         new java.lang.String[] { "ConditionId", "ConditionStatus", "ChannelName", "Values", });
-    internal_static_dex_ContinueAsNewDumpRequest_descriptor =
-      getDescriptor().getMessageType(140);
-    internal_static_dex_ContinueAsNewDumpRequest_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_ContinueAsNewDumpRequest_descriptor,
-        new java.lang.String[] { "FlowId", "RunId", "PageNum", "PageSizeInBytes", });
-    internal_static_dex_ContinueAsNewDumpResponse_descriptor =
-      getDescriptor().getMessageType(141);
-    internal_static_dex_ContinueAsNewDumpResponse_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_ContinueAsNewDumpResponse_descriptor,
-        new java.lang.String[] { "PageContent", "PageNum", "TotalPages", "Checksum", });
     internal_static_dex_ChannelValues_descriptor =
-      getDescriptor().getMessageType(142);
+      getDescriptor().getMessageType(131);
     internal_static_dex_ChannelValues_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_ChannelValues_descriptor,
         new java.lang.String[] { "Messages", });
     internal_static_dex_StepExecutionCompletedConditions_descriptor =
-      getDescriptor().getMessageType(143);
+      getDescriptor().getMessageType(132);
     internal_static_dex_StepExecutionCompletedConditions_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepExecutionCompletedConditions_descriptor,
@@ -3069,299 +2475,29 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
         internal_static_dex_StepExecutionCompletedConditions_CompletedSubFlowResultsEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
     internal_static_dex_StepExecutionResumeInfo_descriptor =
-      getDescriptor().getMessageType(144);
+      getDescriptor().getMessageType(133);
     internal_static_dex_StepExecutionResumeInfo_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_StepExecutionResumeInfo_descriptor,
         new java.lang.String[] { "StepExecutionId", "Step", "CompletedConditions", "WaitingCondition", "StepExeLocals", "WaitForPullRouting", });
-    internal_static_dex_StepExecutionCounterInfo_descriptor =
-      getDescriptor().getMessageType(145);
-    internal_static_dex_StepExecutionCounterInfo_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_StepExecutionCounterInfo_descriptor,
-        new java.lang.String[] { "StepTypeStartedCount", "StepTypeCurrentlyExecutingCount", "TotalCurrentlyExecutingCount", "StepActiveExecutionNums", });
-    internal_static_dex_StepExecutionCounterInfo_StepTypeStartedCountEntry_descriptor =
-      internal_static_dex_StepExecutionCounterInfo_descriptor.getNestedType(0);
-    internal_static_dex_StepExecutionCounterInfo_StepTypeStartedCountEntry_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_StepExecutionCounterInfo_StepTypeStartedCountEntry_descriptor,
-        new java.lang.String[] { "Key", "Value", });
-    internal_static_dex_StepExecutionCounterInfo_StepTypeCurrentlyExecutingCountEntry_descriptor =
-      internal_static_dex_StepExecutionCounterInfo_descriptor.getNestedType(1);
-    internal_static_dex_StepExecutionCounterInfo_StepTypeCurrentlyExecutingCountEntry_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_StepExecutionCounterInfo_StepTypeCurrentlyExecutingCountEntry_descriptor,
-        new java.lang.String[] { "Key", "Value", });
-    internal_static_dex_StepExecutionCounterInfo_StepActiveExecutionNumsEntry_descriptor =
-      internal_static_dex_StepExecutionCounterInfo_descriptor.getNestedType(2);
-    internal_static_dex_StepExecutionCounterInfo_StepActiveExecutionNumsEntry_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_StepExecutionCounterInfo_StepActiveExecutionNumsEntry_descriptor,
-        new java.lang.String[] { "Key", "Value", });
-    internal_static_dex_StaleSkipTimer_descriptor =
-      getDescriptor().getMessageType(146);
-    internal_static_dex_StaleSkipTimer_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_StaleSkipTimer_descriptor,
-        new java.lang.String[] { "StepExecutionId", "TimerConditionId", "TimerConditionIndex", });
-    internal_static_dex_ContinueAsNewDump_descriptor =
-      getDescriptor().getMessageType(147);
-    internal_static_dex_ContinueAsNewDump_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_ContinueAsNewDump_descriptor,
-        new java.lang.String[] { "StepsToStartFromBeginning", "StepExecutionsToResume", "ChannelReceived", "CounterInfo", "StepOutputs", "StaleSkipTimers", "Attributes", "PendingAttributeSyncItems", "DexTaskQueue", });
-    internal_static_dex_ContinueAsNewDump_ChannelReceivedEntry_descriptor =
-      internal_static_dex_ContinueAsNewDump_descriptor.getNestedType(0);
-    internal_static_dex_ContinueAsNewDump_ChannelReceivedEntry_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_ContinueAsNewDump_ChannelReceivedEntry_descriptor,
-        new java.lang.String[] { "Key", "Value", });
-    internal_static_dex_ContinueAsNewInput_descriptor =
-      getDescriptor().getMessageType(148);
-    internal_static_dex_ContinueAsNewInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_ContinueAsNewInput_descriptor,
-        new java.lang.String[] { "PreviousInternalRunId", });
-    internal_static_dex_InterpreterWorkflowInput_descriptor =
-      getDescriptor().getMessageType(149);
-    internal_static_dex_InterpreterWorkflowInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InterpreterWorkflowInput_descriptor,
-        new java.lang.String[] { "FlowType", "ConfiguredFlowTimeoutSeconds", "FlowTimeoutPolicy", "StartStepType", "StepInput", "StepOptions", "InitAttributes", "Config", "IsResumeFromContinueAsNew", "ContinueAsNewInput", "TimeoutHandlerOptions", });
-    internal_static_dex_InterpreterWorkflowOutput_descriptor =
-      getDescriptor().getMessageType(150);
-    internal_static_dex_InterpreterWorkflowOutput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InterpreterWorkflowOutput_descriptor,
-        new java.lang.String[] { "StepCompletionOutputs", });
-    internal_static_dex_BlobStoreCleanupWorkflowInput_descriptor =
-      getDescriptor().getMessageType(151);
-    internal_static_dex_BlobStoreCleanupWorkflowInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_BlobStoreCleanupWorkflowInput_descriptor,
-        new java.lang.String[] { "StoreId", });
-    internal_static_dex_BlobStoreCleanupWorkflowOutput_descriptor =
-      getDescriptor().getMessageType(152);
-    internal_static_dex_BlobStoreCleanupWorkflowOutput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_BlobStoreCleanupWorkflowOutput_descriptor,
-        new java.lang.String[] { "TotalDeleted", });
-    internal_static_dex_InvokeWaitForMethodActivityInput_descriptor =
-      getDescriptor().getMessageType(153);
-    internal_static_dex_InvokeWaitForMethodActivityInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InvokeWaitForMethodActivityInput_descriptor,
-        new java.lang.String[] { "WorkerTarget", "Request", "DexTaskQueue", "DispatchWait", "StickyWait", });
-    internal_static_dex_InvokeWaitForMethodActivityOutput_descriptor =
-      getDescriptor().getMessageType(154);
-    internal_static_dex_InvokeWaitForMethodActivityOutput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InvokeWaitForMethodActivityOutput_descriptor,
-        new java.lang.String[] { "Response", "ServedByAppWorkerId", "PullRouting", });
-    internal_static_dex_InvokeExecuteMethodActivityInput_descriptor =
-      getDescriptor().getMessageType(155);
-    internal_static_dex_InvokeExecuteMethodActivityInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InvokeExecuteMethodActivityInput_descriptor,
-        new java.lang.String[] { "WorkerTarget", "Request", "DexTaskQueue", "DispatchWait", "StickyWait", });
     internal_static_dex_RecoveryErrorInfo_descriptor =
-      getDescriptor().getMessageType(156);
+      getDescriptor().getMessageType(134);
     internal_static_dex_RecoveryErrorInfo_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_RecoveryErrorInfo_descriptor,
         new java.lang.String[] { "Detail", "ErrorType", });
-    internal_static_dex_InternalLocalStepActivityFailure_descriptor =
-      getDescriptor().getMessageType(157);
-    internal_static_dex_InternalLocalStepActivityFailure_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InternalLocalStepActivityFailure_descriptor,
-        new java.lang.String[] { "LocalActivityMetadata", "FirstAttemptTimestamp", "MethodOptions", "Attempt", "ActivityError", "PullRouting", });
-    internal_static_dex_InvokeExecuteMethodActivityOutput_descriptor =
-      getDescriptor().getMessageType(158);
-    internal_static_dex_InvokeExecuteMethodActivityOutput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InvokeExecuteMethodActivityOutput_descriptor,
-        new java.lang.String[] { "Response", "ServedByAppWorkerId", "PullRouting", });
-    internal_static_dex_DumpFlowForContinueAsNewActivityInput_descriptor =
-      getDescriptor().getMessageType(159);
-    internal_static_dex_DumpFlowForContinueAsNewActivityInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_DumpFlowForContinueAsNewActivityInput_descriptor,
-        new java.lang.String[] { "Request", });
-    internal_static_dex_DumpFlowForContinueAsNewActivityOutput_descriptor =
-      getDescriptor().getMessageType(160);
-    internal_static_dex_DumpFlowForContinueAsNewActivityOutput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_DumpFlowForContinueAsNewActivityOutput_descriptor,
-        new java.lang.String[] { "Response", });
-    internal_static_dex_InvokeWorkerRPCActivityInput_descriptor =
-      getDescriptor().getMessageType(161);
-    internal_static_dex_InvokeWorkerRPCActivityInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InvokeWorkerRPCActivityInput_descriptor,
-        new java.lang.String[] { "RpcPrep", "Request", });
-    internal_static_dex_InvokeWorkerRPCActivityOutput_descriptor =
-      getDescriptor().getMessageType(162);
-    internal_static_dex_InvokeWorkerRPCActivityOutput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InvokeWorkerRPCActivityOutput_descriptor,
-        new java.lang.String[] { "Response", "RequestId", "ServedByAppWorkerId", });
-    internal_static_dex_CleanupBlobStoreActivityInput_descriptor =
-      getDescriptor().getMessageType(163);
-    internal_static_dex_CleanupBlobStoreActivityInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_CleanupBlobStoreActivityInput_descriptor,
-        new java.lang.String[] { "StoreId", });
-    internal_static_dex_CleanupBlobStoreActivityOutput_descriptor =
-      getDescriptor().getMessageType(164);
-    internal_static_dex_CleanupBlobStoreActivityOutput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_CleanupBlobStoreActivityOutput_descriptor,
-        new java.lang.String[] { "TotalDeleted", });
     internal_static_dex_AttributeSyncItem_descriptor =
-      getDescriptor().getMessageType(165);
+      getDescriptor().getMessageType(135);
     internal_static_dex_AttributeSyncItem_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_AttributeSyncItem_descriptor,
         new java.lang.String[] { "ConfigName", "Key", "Value", });
-    internal_static_dex_SyncAttributeBatchActivityInput_descriptor =
-      getDescriptor().getMessageType(166);
-    internal_static_dex_SyncAttributeBatchActivityInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_SyncAttributeBatchActivityInput_descriptor,
-        new java.lang.String[] { "FlowId", "ConfigName", "Items", });
-    internal_static_dex_StartSubFlowActivityInput_descriptor =
-      getDescriptor().getMessageType(167);
-    internal_static_dex_StartSubFlowActivityInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_StartSubFlowActivityInput_descriptor,
-        new java.lang.String[] { "Condition", "ParentFlowConfig", "ParentStepExecutionId", "TypedRejectionEnabled", });
-    internal_static_dex_StartSubFlowActivityOutput_descriptor =
-      getDescriptor().getMessageType(168);
-    internal_static_dex_StartSubFlowActivityOutput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_StartSubFlowActivityOutput_descriptor,
-        new java.lang.String[] { "ImmediateFlowResult", });
-    internal_static_dex_SubFlowCompletionSignalRequest_descriptor =
-      getDescriptor().getMessageType(169);
-    internal_static_dex_SubFlowCompletionSignalRequest_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_SubFlowCompletionSignalRequest_descriptor,
-        new java.lang.String[] { "SubFlowId", "FlowResult", });
-    internal_static_dex_ReportSubFlowCompletionActivityInput_descriptor =
-      getDescriptor().getMessageType(170);
-    internal_static_dex_ReportSubFlowCompletionActivityInput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_ReportSubFlowCompletionActivityInput_descriptor,
-        new java.lang.String[] { "ParentFlowId", "Request", });
-    internal_static_dex_ReportSubFlowCompletionActivityOutput_descriptor =
-      getDescriptor().getMessageType(171);
-    internal_static_dex_ReportSubFlowCompletionActivityOutput_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_ReportSubFlowCompletionActivityOutput_descriptor,
-        new java.lang.String[] { "Status", });
-    internal_static_dex_ExecuteRpcSignalRequest_descriptor =
-      getDescriptor().getMessageType(172);
-    internal_static_dex_ExecuteRpcSignalRequest_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_ExecuteRpcSignalRequest_descriptor,
-        new java.lang.String[] { "UpsertAttributes", "StepDecision", "RecordEvents", "PublishToChannel", "IsSetAttributeApi", "DeleteFromChannel", "IsDeleteChannelMessageApi", "ActionPermissionMappings", "ServedByAppWorkerId", });
-    internal_static_dex_SkipTimerSignalRequest_descriptor =
-      getDescriptor().getMessageType(173);
-    internal_static_dex_SkipTimerSignalRequest_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_SkipTimerSignalRequest_descriptor,
-        new java.lang.String[] { "StepExecutionId", "TimerConditionId", "TimerConditionIndex", });
-    internal_static_dex_StopFlowSignalRequest_descriptor =
-      getDescriptor().getMessageType(174);
-    internal_static_dex_StopFlowSignalRequest_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_StopFlowSignalRequest_descriptor,
-        new java.lang.String[] { "StopType", "Reason", });
-    internal_static_dex_GetAttributesQueryRequest_descriptor =
-      getDescriptor().getMessageType(175);
-    internal_static_dex_GetAttributesQueryRequest_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_GetAttributesQueryRequest_descriptor,
-        new java.lang.String[] { "Keys", "AllKeys", });
-    internal_static_dex_GetAttributesQueryResponse_descriptor =
-      getDescriptor().getMessageType(176);
-    internal_static_dex_GetAttributesQueryResponse_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_GetAttributesQueryResponse_descriptor,
-        new java.lang.String[] { "Attributes", });
-    internal_static_dex_PrepareRpcQueryRequest_descriptor =
-      getDescriptor().getMessageType(177);
-    internal_static_dex_PrepareRpcQueryRequest_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_PrepareRpcQueryRequest_descriptor,
-        new java.lang.String[] { "LoadAttributeMapInstances", "LoadChannelNames", "LoadChannelMapInstances", });
-    internal_static_dex_PrepareRpcQueryResponse_descriptor =
-      getDescriptor().getMessageType(178);
-    internal_static_dex_PrepareRpcQueryResponse_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_PrepareRpcQueryResponse_descriptor,
-        new java.lang.String[] { "Attributes", "RunId", "FlowStartedTimestamp", "FlowType", "WorkerTarget", "ChannelInfos", "LoadedChannelMessages", "LoadedAttributeMapInstances", "LoadedChannelNames", "LoadedChannelMapInstances", "DexTaskQueue", });
-    internal_static_dex_PrepareRpcQueryResponse_ChannelInfosEntry_descriptor =
-      internal_static_dex_PrepareRpcQueryResponse_descriptor.getNestedType(0);
-    internal_static_dex_PrepareRpcQueryResponse_ChannelInfosEntry_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_PrepareRpcQueryResponse_ChannelInfosEntry_descriptor,
-        new java.lang.String[] { "Key", "Value", });
-    internal_static_dex_PrepareRpcQueryResponse_LoadedChannelMessagesEntry_descriptor =
-      internal_static_dex_PrepareRpcQueryResponse_descriptor.getNestedType(1);
-    internal_static_dex_PrepareRpcQueryResponse_LoadedChannelMessagesEntry_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_PrepareRpcQueryResponse_LoadedChannelMessagesEntry_descriptor,
-        new java.lang.String[] { "Key", "Value", });
     internal_static_dex_TimerInfo_descriptor =
-      getDescriptor().getMessageType(179);
+      getDescriptor().getMessageType(136);
     internal_static_dex_TimerInfo_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_TimerInfo_descriptor,
         new java.lang.String[] { "ConditionId", "FiringUnixTimestampSeconds", "Status", });
-    internal_static_dex_TimerInfoList_descriptor =
-      getDescriptor().getMessageType(180);
-    internal_static_dex_TimerInfoList_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_TimerInfoList_descriptor,
-        new java.lang.String[] { "Timers", });
-    internal_static_dex_GetCurrentTimerInfosQueryResponse_descriptor =
-      getDescriptor().getMessageType(181);
-    internal_static_dex_GetCurrentTimerInfosQueryResponse_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_GetCurrentTimerInfosQueryResponse_descriptor,
-        new java.lang.String[] { "StepExecutionCurrentTimerInfos", });
-    internal_static_dex_GetCurrentTimerInfosQueryResponse_StepExecutionCurrentTimerInfosEntry_descriptor =
-      internal_static_dex_GetCurrentTimerInfosQueryResponse_descriptor.getNestedType(0);
-    internal_static_dex_GetCurrentTimerInfosQueryResponse_StepExecutionCurrentTimerInfosEntry_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_GetCurrentTimerInfosQueryResponse_StepExecutionCurrentTimerInfosEntry_descriptor,
-        new java.lang.String[] { "Key", "Value", });
-    internal_static_dex_GetScheduledGreedyTimerTimesQueryResponse_descriptor =
-      getDescriptor().getMessageType(182);
-    internal_static_dex_GetScheduledGreedyTimerTimesQueryResponse_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_GetScheduledGreedyTimerTimesQueryResponse_descriptor,
-        new java.lang.String[] { "PendingScheduled", });
-    internal_static_dex_DebugDumpResponse_descriptor =
-      getDescriptor().getMessageType(183);
-    internal_static_dex_DebugDumpResponse_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_DebugDumpResponse_descriptor,
-        new java.lang.String[] { "Config", "Snapshot", "FiringTimersUnixTimestamps", "ActiveStepExecutions", });
-    internal_static_dex_InvokeRpcUpdateResult_descriptor =
-      getDescriptor().getMessageType(184);
-    internal_static_dex_InvokeRpcUpdateResult_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_InvokeRpcUpdateResult_descriptor,
-        new java.lang.String[] { "Response", });
-    internal_static_dex_StepExecutionNumbers_descriptor =
-      getDescriptor().getMessageType(185);
-    internal_static_dex_StepExecutionNumbers_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_dex_StepExecutionNumbers_descriptor,
-        new java.lang.String[] { "Numbers", });
     descriptor.resolveAllFeaturesImmutable();
     com.google.protobuf.EmptyProto.getDescriptor();
     com.google.protobuf.DurationProto.getDescriptor();

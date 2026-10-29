@@ -66,10 +66,7 @@ async fn oversized_hydrated_rpc_fails_before_worker_dispatch() {
             start_step_type: "CollectStep".to_owned(),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -186,10 +183,7 @@ async fn check_sub_flow_result_delivery(is_hydrating: bool) {
             start_step_type: "ParentStep".to_owned(),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -221,10 +215,7 @@ async fn check_sub_flow_result_delivery(is_hydrating: bool) {
                             }),
                             options: Some(SubFlowOptions {
                                 flow_config_override: Some(FlowConfig {
-                                    worker_target: Some(WorkerTarget {
-                                        is_pull_mode: true,
-                                        ..WorkerTarget::default()
-                                    }),
+                                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                                     ..FlowConfig::default()
                                 }),
                                 ..SubFlowOptions::default()
@@ -335,10 +326,7 @@ async fn check_value_delivery(is_hydrating: bool) {
                     ..AttributeWrite::default()
                 }],
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()

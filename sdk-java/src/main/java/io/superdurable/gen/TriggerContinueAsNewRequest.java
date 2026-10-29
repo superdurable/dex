@@ -6,6 +6,10 @@
 package io.superdurable.gen;
 
 /**
+ * <pre>
+ * Deprecated: TriggerContinueAsNew always returns UNIMPLEMENTED.
+ * </pre>
+ *
  * Protobuf type {@code dex.TriggerContinueAsNewRequest}
  */
 @com.google.protobuf.Generated
@@ -299,6 +303,10 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
+   * <pre>
+   * Deprecated: TriggerContinueAsNew always returns UNIMPLEMENTED.
+   * </pre>
+   *
    * Protobuf type {@code dex.TriggerContinueAsNewRequest}
    */
   public static final class Builder extends

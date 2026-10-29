@@ -199,7 +199,7 @@ export class Client {
         attributes: initialAttributeWrites,
         flowConfigOverride: {
           ...mapFlowConfig(options.configOverride),
-          workerTarget: { address: "", isHeadlessAddress: false, isPullMode: true },
+          workerTarget: { isPullMode: true },
         },
         flowAlreadyStartedOptions: {
           ignoreAlreadyStartedError: options.ignoreAlreadyStarted ?? false,

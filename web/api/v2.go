@@ -177,12 +177,11 @@ type V2ActionInputField struct {
 }
 
 type v2Handler struct {
-	client                          dexpb.FlowServiceClient
-	loadDefinitions                 V2DefinitionLoader
-	isStartFlowWorkerTargetHeadless bool
-	isStartFlowWorkerTargetPull     bool
-	checkStartFlowWorkerHealth      V2WorkerHealthChecker
-	serverEngine                    *ServerEngineResolver
+	client                      dexpb.FlowServiceClient
+	loadDefinitions             V2DefinitionLoader
+	isStartFlowWorkerTargetPull bool
+	checkStartFlowWorkerHealth  V2WorkerHealthChecker
+	serverEngine                *ServerEngineResolver
 }
 
 // V2DefinitionSnapshot is one request's immutable catalog revision.
@@ -199,6 +198,7 @@ type V2WorkerHealthChecker func(context.Context, string) error
 
 // V2HandlerConfig controls server-side v2 behavior.
 type V2HandlerConfig struct {
+	// Deprecated: IsStartFlowWorkerTargetHeadless has no effect because Dex Web starts Flows only on pull Workers.
 	IsStartFlowWorkerTargetHeadless bool
 	IsStartFlowWorkerTargetPull     bool
 	WorkerHealthChecker             V2WorkerHealthChecker
@@ -297,10 +297,9 @@ func RegisterDynamicV2Handlers(
 	}
 	handler := &v2Handler{
 		client: client, loadDefinitions: loader,
-		isStartFlowWorkerTargetHeadless: config.IsStartFlowWorkerTargetHeadless,
-		isStartFlowWorkerTargetPull:     config.IsStartFlowWorkerTargetPull,
-		checkStartFlowWorkerHealth:      config.WorkerHealthChecker,
-		serverEngine:                    NewServerEngineResolver(client),
+		isStartFlowWorkerTargetPull: config.IsStartFlowWorkerTargetPull,
+		checkStartFlowWorkerHealth:  config.WorkerHealthChecker,
+		serverEngine:                NewServerEngineResolver(client),
 	}
 	if handler.checkStartFlowWorkerHealth == nil {
 		handler.checkStartFlowWorkerHealth = checkV2WorkerPortHealth

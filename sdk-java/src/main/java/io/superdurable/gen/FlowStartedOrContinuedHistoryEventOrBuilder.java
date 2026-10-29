@@ -110,7 +110,7 @@ public interface FlowStartedOrContinuedHistoryEventOrBuilder extends
 
   /**
    * <pre>
-   * server-zd never sets this.
+   * Deprecated: Dex does not continue Flows as new and never sets this.
    * </pre>
    *
    * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -119,7 +119,7 @@ public interface FlowStartedOrContinuedHistoryEventOrBuilder extends
   boolean hasContinuedStart();
   /**
    * <pre>
-   * server-zd never sets this.
+   * Deprecated: Dex does not continue Flows as new and never sets this.
    * </pre>
    *
    * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -128,7 +128,7 @@ public interface FlowStartedOrContinuedHistoryEventOrBuilder extends
   io.superdurable.gen.FlowContinuedStart getContinuedStart();
   /**
    * <pre>
-   * server-zd never sets this.
+   * Deprecated: Dex does not continue Flows as new and never sets this.
    * </pre>
    *
    * <code>.dex.FlowContinuedStart continued_start = 11;</code>

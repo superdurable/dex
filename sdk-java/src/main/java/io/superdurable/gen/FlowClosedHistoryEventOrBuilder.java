@@ -70,7 +70,7 @@ public interface FlowClosedHistoryEventOrBuilder extends
 
   /**
    * <pre>
-   * server-zd never sets this.
+   * Deprecated: Dex does not continue Flows as new and never sets this.
    * </pre>
    *
    * <code>string continued_to_run_id = 5;</code>
@@ -79,7 +79,7 @@ public interface FlowClosedHistoryEventOrBuilder extends
   java.lang.String getContinuedToRunId();
   /**
    * <pre>
-   * server-zd never sets this.
+   * Deprecated: Dex does not continue Flows as new and never sets this.
    * </pre>
    *
    * <code>string continued_to_run_id = 5;</code>

@@ -58,7 +58,7 @@ such as `DEX_WEB_PORT` and `DEX_WEB_SERVICE_HOST`.
 | `--port` | `DEX_WEB_HTTP_PORT_NUMBER` | `8802` |
 | `--flow-service-address` | `DEX_WEB_FLOW_SERVICE_ADDRESS` | `127.0.0.1:8801` |
 | `--flow-rendering-dir` | `DEX_WEB_FLOW_RENDERING_DIRECTORY` | empty |
-| `--start-flow-worker-target-headless` | `DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS` | `false` |
+| `--start-flow-worker-target-headless` | `DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS` | `false`; deprecated, no effect |
 | `--start-flow-worker-target-pull` | `DEX_WEB_START_FLOW_WORKER_TARGET_PULL` | `false` |
 | `--tls` | `DEX_WEB_TLS` | `false` |
 | `--tls-ca-file` | `DEX_WEB_TLS_CA_FILE` | empty; system trust roots |
@@ -177,46 +177,28 @@ booleans, datetime values, optional fields, and nullable fields. Integer input
 stays as decimal text until the request is serialized, so int64 values do not
 pass through JavaScript floating-point numbers.
 
-For an address target, Dex Web asks for a plaintext Worker gRPC `host:port` and checks it from the BFF when the address loses focus
-and again before starting. An unreachable port shows a warning and blocks the
-start until the operator explicitly selects **Bypass worker health check**.
-The probe opens a TCP connection and does not invoke a Worker method.
-For a pull target, Dex Web sends no address and skips the port check. It does not
+Dex Web starts every Flow on pull Workers and sends no Worker address. It does not
 check whether a pull Worker is currently registered, because registration can change
 between the check and dispatch.
 
-`POST /api/v2/start` accepts `flowType`, `flowId`, raw JSON `input`, and either
-`workerTargetAddress` or `workerTargetPull: true`. Supplying both returns HTTP 400.
-An explicit `workerTargetPull: false` requires an address, even when the pull
-default is enabled.
-With an address, it also accepts `bypassWorkerHealthCheck`; false performs the
-server-side port check and returns `WORKER_UNHEALTHY` with HTTP 412 when the
-target is unreachable. `POST /api/v2/worker-health` checks the same address for
-the dialog. Start requires `X-Dex-Flow-Definition-Revision`, reloads the current
+`POST /api/v2/start` accepts `flowType`, `flowId`, raw JSON `input`, and an
+optional `workerTargetPull: true`. It returns HTTP 400 for `workerTargetAddress`
+or `workerTargetPull: false`, because Dex routes Flow work to pull Workers. It
+accepts and ignores `bypassWorkerHealthCheck`. `POST /api/v2/worker-health`
+still reports whether Dex Web can open a TCP connection to a `host:port`; the
+probe does not invoke a Worker method. Start requires `X-Dex-Flow-Definition-Revision`, reloads the current
 definition snapshot, validates every input field again, and rejects unknown
 fields. The Server chooses the start Step type and generates the request ID. It derives
 `skipWaitFor` from the validated graph's Start Step phase: `execute` starts at
 Execute, while `wait_for+execute` retains WaitFor. Missing, repeated, or unknown
 Start phases are invalid definitions; the browser cannot supply Step options.
-The browser cannot set Worker headless routing.
 
-Configure headless routing once for address targets started from this Dex Web
-instance:
+`--start-flow-worker-target-headless` and
+`DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS` are deprecated and have no effect.
+Dex Web still accepts them so existing deployments keep starting.
 
-```bash
-dex-web --start-flow-worker-target-headless=false
-```
-
-The equivalent environment variable is
-`DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS`. The default is false and the value
-is immutable after startup. Set it to true when the entered Worker addresses
-are Kubernetes headless Service targets.
-
-For deployments using pull Workers, `--start-flow-worker-target-pull` selects
-a pull target when an API request omits both target fields. The equivalent
-environment variable is `DEX_WEB_START_FLOW_WORKER_TARGET_PULL`. The default is
-false; an explicit address still selects address routing. Headless routing
-applies only to address targets, so both settings can be enabled together.
+`--start-flow-worker-target-pull` and its environment variable
+`DEX_WEB_START_FLOW_WORKER_TARGET_PULL` default to false.
 `GET /api/v2/catalog` reports this default so the dialog opens with **Pull Worker**
 selected when it is true. The catalog also reports `serverEngine`:
 `zd` or `unspecified` when the FlowService does not
@@ -636,11 +618,6 @@ accepts an optional `runAttempt` and returns the new `runAttempt`.
 starts `dex-server-zd dev`, standalone `dex-web`, and the Go SDK pull Worker
 from `sdk-go/integ`. Set `DEX_SERVER_ZD_BINARY` to a `dex-server-zd` binary from
 this worktree or a server-zd release, and build `web/assets/dist` first.
-
-To populate Web with a 90-execution Flow containing serial, fan-out, and fan-in
-sections, run the [Large Step Graph demo](./demo/large-step-graph).
-To exercise the widest layout, run the [90-way fan-out demo](./demo/fan-out-90),
-which creates `Step1`, 90 parallel Steps, and no close-decision graph edges.
 
 ## Frontend development
 

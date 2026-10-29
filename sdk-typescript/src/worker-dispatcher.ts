@@ -1112,7 +1112,7 @@ function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig {
         : config?.stepDurability === "async"
           ? ProtoStepDurability.STEP_DURABILITY_ASYNC
           : undefined,
-    workerTarget: { address: "", isHeadlessAddress: false, isPullMode: true },
+    workerTarget: { isPullMode: true },
   });
 }
 

@@ -29,27 +29,22 @@ func testPullWorkerTargetValidation(t *testing.T) {
 	runtime := startPullDispatchService(t, serverZDTestConfig{})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	for _, target := range []*dexpb.WorkerTarget{
-		{Address: "127.0.0.1:9000", IsPullMode: true},
-		{IsPullMode: true, IsHeadlessAddress: true},
-	} {
-		_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
-			RequestId:        newRequestID(),
-			FlowId:           "invalid-pull-target-" + uuid.NewString(),
-			FlowType:         "PullTargetValidationFlow",
-			FlowStartOptions: withWorkerTarget(nil, target),
-		})
-		require.Equal(t, codes.InvalidArgument, status.Code(err))
-	}
-	flowID := "pull-target-update-" + uuid.NewString()
 	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:        newRequestID(),
+		FlowId:           "invalid-pull-target-" + uuid.NewString(),
+		FlowType:         "PullTargetValidationFlow",
+		FlowStartOptions: withWorkerTarget(nil, &dexpb.WorkerTarget{}),
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	flowID := "pull-target-update-" + uuid.NewString()
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId: newRequestID(), FlowId: flowID, FlowType: "PullTargetValidationFlow",
 		FlowTimeoutSeconds: 120, FlowStartOptions: withWorkerTarget(nil, &dexpb.WorkerTarget{IsPullMode: true}),
 	})
 	require.NoError(t, err)
 	_, err = runtime.FlowClient.UpdateFlowConfig(ctx, &dexpb.UpdateFlowConfigRequest{
 		FlowId: flowID, FlowConfig: &dexpb.FlowConfig{
-			WorkerTarget: &dexpb.WorkerTarget{Address: "127.0.0.1:9000", IsPullMode: true},
+			WorkerTarget: &dexpb.WorkerTarget{},
 		},
 	})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))

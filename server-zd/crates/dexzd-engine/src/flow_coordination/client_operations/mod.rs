@@ -76,10 +76,7 @@ impl FlowCoordinatorRegistry {
             resolved_timeout_policy,
             effective_flow_config: Some(effective_flow_config),
             // Validation accepted only pull targets, which normalize to this value.
-            worker_target: Some(WorkerTarget {
-                is_pull_mode: true,
-                ..WorkerTarget::default()
-            }),
+            worker_target: Some(WorkerTarget { is_pull_mode: true }),
             hard_delete_objects: hard_delete_references(uploads.as_ref()),
         };
         let command = unstamped_flow_command(&flow, None, flow_command::Command::FlowStart(start));

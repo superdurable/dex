@@ -271,7 +271,7 @@ func (w *rawPullWorker) serve(queue string, stream dexpb.WorkerTaskService_PollW
 				}}
 				if w.hasInvalidSubFlowTarget {
 					waitingCondition.SubFlowConditions[0].Options = &dexpb.SubFlowOptions{FlowConfigOverride: &dexpb.FlowConfig{
-						WorkerTarget: &dexpb.WorkerTarget{Address: "127.0.0.1:9000", IsPullMode: true},
+						WorkerTarget: &dexpb.WorkerTarget{},
 					}}
 				}
 			}
@@ -720,7 +720,7 @@ func testPullSubFlowRejectsInvalidTarget(t *testing.T) {
 
 	// zd-bug #1009: server-zd fails the Flow as an internal error.
 	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL, result.GetErrorType(), result.GetErrorMessage())
-	require.Equal(t, "server-zd does not support Worker target addresses", result.GetErrorMessage())
+	require.Equal(t, "worker_target is empty", result.GetErrorMessage())
 
 	require.Less(t, time.Since(startedAt), 10*time.Second)
 }

@@ -327,7 +327,7 @@ fn validate_effective_flow_config(flow_config: &FlowConfig) -> Result<(), String
     let Some(target) = flow_config.worker_target.as_ref() else {
         return Err("SubFlow requires a pull Worker target".to_owned());
     };
-    if !target.is_pull_mode || !target.address.is_empty() || target.is_headless_address {
+    if !target.is_pull_mode {
         return Err("SubFlow requires a pull Worker target".to_owned());
     }
     Ok(())

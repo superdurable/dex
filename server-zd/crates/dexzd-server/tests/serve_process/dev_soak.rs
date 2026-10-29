@@ -244,10 +244,7 @@ async fn write_cycle_flows(flow_client: &mut FlowServiceClient<Channel>, cycle: 
                 flow_type: FLOW_TYPE.to_owned(),
                 flow_start_options: Some(FlowStartOptions {
                     flow_config_override: Some(FlowConfig {
-                        worker_target: Some(WorkerTarget {
-                            is_pull_mode: true,
-                            ..WorkerTarget::default()
-                        }),
+                        worker_target: Some(WorkerTarget { is_pull_mode: true }),
                         ..FlowConfig::default()
                     }),
                     attributes: vec![

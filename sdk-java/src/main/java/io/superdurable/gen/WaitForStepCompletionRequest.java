@@ -197,11 +197,7 @@ private static final long serialVersionUID = 0L;
   private int internalHandlerTimeoutSeconds_ = 0;
   /**
    * <pre>
-   * Bounds one internal Temporal Update handler generation.
-   * Use a positive value only to reclaim accepted waits left in flight after callers exit.
-   * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
-   * start a new generation. Zero disables rollover; each rollover adds Update history.
-   * server-zd ignores this field.
+   * Deprecated: Dex rejects a negative value and otherwise ignores this field.
    * </pre>
    *
    * <code>int32 internal_handler_timeout_seconds = 5;</code>
@@ -961,11 +957,7 @@ private static final long serialVersionUID = 0L;
     private int internalHandlerTimeoutSeconds_ ;
     /**
      * <pre>
-     * Bounds one internal Temporal Update handler generation.
-     * Use a positive value only to reclaim accepted waits left in flight after callers exit.
-     * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
-     * start a new generation. Zero disables rollover; each rollover adds Update history.
-     * server-zd ignores this field.
+     * Deprecated: Dex rejects a negative value and otherwise ignores this field.
      * </pre>
      *
      * <code>int32 internal_handler_timeout_seconds = 5;</code>
@@ -977,11 +969,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Bounds one internal Temporal Update handler generation.
-     * Use a positive value only to reclaim accepted waits left in flight after callers exit.
-     * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
-     * start a new generation. Zero disables rollover; each rollover adds Update history.
-     * server-zd ignores this field.
+     * Deprecated: Dex rejects a negative value and otherwise ignores this field.
      * </pre>
      *
      * <code>int32 internal_handler_timeout_seconds = 5;</code>
@@ -997,11 +985,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Bounds one internal Temporal Update handler generation.
-     * Use a positive value only to reclaim accepted waits left in flight after callers exit.
-     * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
-     * start a new generation. Zero disables rollover; each rollover adds Update history.
-     * server-zd ignores this field.
+     * Deprecated: Dex rejects a negative value and otherwise ignores this field.
      * </pre>
      *
      * <code>int32 internal_handler_timeout_seconds = 5;</code>

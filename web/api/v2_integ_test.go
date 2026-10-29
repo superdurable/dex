@@ -644,63 +644,53 @@ func TestV2Int64InputPreservesPrecision(t *testing.T) {
 }
 
 func TestV2StartFlowUsesDefinitionSchemaAndServerRouting(t *testing.T) {
-	for _, testCase := range []struct {
-		name       string
-		isHeadless bool
-	}{
-		{name: "ordinary target"},
-		{name: "headless target", isHeadless: true},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			client := &v2TestClient{}
-			definition := testV2Definition()
-			definition.Start = testV2StartDefinition()
-			mux := http.NewServeMux()
-			RegisterDynamicV2Handlers(mux, client, func(context.Context) (V2DefinitionSnapshot, error) {
-				return V2DefinitionSnapshot{
-					Definitions: map[string]V2Definition{"RefundFlow": definition},
-					Revision:    "sha256:start",
-				}, nil
-			}, V2HandlerConfig{
-				IsStartFlowWorkerTargetHeadless: testCase.isHeadless,
-				WorkerHealthChecker:             healthyV2WorkerHealthChecker,
-			})
-			requestBody := `{
-				"flowType":"RefundFlow","flowId":"refund-new","workerTargetAddress":" worker:9000 ",
-				"input":{"count":18446744073709551615,"optional":null,"labels":["a","b"]}
-			}`
-			staleRequest := httptest.NewRequest(http.MethodPost, "/api/v2/start", strings.NewReader(requestBody))
-			staleRequest.Header.Set(V2DefinitionRevisionHeader, "sha256:stale")
-			staleResponse := httptest.NewRecorder()
-			mux.ServeHTTP(staleResponse, staleRequest)
-			if staleResponse.Code != http.StatusConflict || len(client.startRequests) != 0 {
-				t.Fatalf("stale response = %d %q", staleResponse.Code, staleResponse.Body.String())
-			}
+	client := &v2TestClient{}
+	definition := testV2Definition()
+	definition.Start = testV2StartDefinition()
+	mux := http.NewServeMux()
+	RegisterDynamicV2Handlers(mux, client, func(context.Context) (V2DefinitionSnapshot, error) {
+		return V2DefinitionSnapshot{
+			Definitions: map[string]V2Definition{"RefundFlow": definition},
+			Revision:    "sha256:start",
+		}, nil
+	}, V2HandlerConfig{
+		IsStartFlowWorkerTargetHeadless: true,
+		WorkerHealthChecker:             healthyV2WorkerHealthChecker,
+	})
+	requestBody := `{
+		"flowType":"RefundFlow","flowId":"refund-new","workerTargetPull":true,
+		"input":{"count":18446744073709551615,"optional":null,"labels":["a","b"]}
+	}`
+	staleRequest := httptest.NewRequest(http.MethodPost, "/api/v2/start", strings.NewReader(requestBody))
+	staleRequest.Header.Set(V2DefinitionRevisionHeader, "sha256:stale")
+	staleResponse := httptest.NewRecorder()
+	mux.ServeHTTP(staleResponse, staleRequest)
+	if staleResponse.Code != http.StatusConflict || len(client.startRequests) != 0 {
+		t.Fatalf("stale response = %d %q", staleResponse.Code, staleResponse.Body.String())
+	}
 
-			request := httptest.NewRequest(http.MethodPost, "/api/v2/start", strings.NewReader(requestBody))
-			request.Header.Set(V2DefinitionRevisionHeader, "sha256:start")
-			response := httptest.NewRecorder()
-			mux.ServeHTTP(response, request)
-			if response.Code != http.StatusOK {
-				t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
-			}
-			if len(client.startRequests) != 1 {
-				t.Fatalf("StartFlow requests = %d", len(client.startRequests))
-			}
-			started := client.startRequests[0]
-			if started.GetFlowId() != "refund-new" || started.GetFlowType() != "RefundFlow" ||
-				started.GetStartStepType() != "StartRefund" || started.GetRequestId() == "" {
-				t.Fatalf("StartFlow request = %+v", started)
-			}
-			workerTarget := started.GetFlowStartOptions().GetFlowConfigOverride().GetWorkerTarget()
-			if workerTarget.GetAddress() != "worker:9000" || workerTarget.GetIsHeadlessAddress() != testCase.isHeadless {
-				t.Fatalf("Worker target = %+v", workerTarget)
-			}
-			if payload := string(started.GetStepInput().GetObjValue().GetPayload()); payload !=
-				`{"count":18446744073709551615,"optional":null,"labels":["a","b"]}` {
-				t.Fatalf("Start input = %s", payload)
-			}
-		})
+	request := httptest.NewRequest(http.MethodPost, "/api/v2/start", strings.NewReader(requestBody))
+	request.Header.Set(V2DefinitionRevisionHeader, "sha256:start")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+	}
+	if len(client.startRequests) != 1 {
+		t.Fatalf("StartFlow requests = %d", len(client.startRequests))
+	}
+	started := client.startRequests[0]
+	if started.GetFlowId() != "refund-new" || started.GetFlowType() != "RefundFlow" ||
+		started.GetStartStepType() != "StartRefund" || started.GetRequestId() == "" {
+		t.Fatalf("StartFlow request = %+v", started)
+	}
+	workerTarget := started.GetFlowStartOptions().GetFlowConfigOverride().GetWorkerTarget()
+	if !workerTarget.GetIsPullMode() {
+		t.Fatalf("Worker target = %+v", workerTarget)
+	}
+	if payload := string(started.GetStepInput().GetObjValue().GetPayload()); payload !=
+		`{"count":18446744073709551615,"optional":null,"labels":["a","b"]}` {
+		t.Fatalf("Start input = %s", payload)
 	}
 }
 
@@ -711,11 +701,11 @@ func TestV2StartFlowRejectsBrowserRoutingOverrideAndInvalidInput(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": definition})
 	for _, body := range []string{
-		`{"flowType":"RefundFlow","flowId":"","workerTargetAddress":"worker:9000","input":{"count":1,"labels":[]}}`,
-		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","isHeadlessAddress":true,"input":{"count":1,"labels":[]}}`,
-		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":{"count":1,"labels":[],"extra":true}}`,
-		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":{"count":18446744073709551616,"labels":[]}}`,
-		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"http://worker:9000","input":{"count":1,"labels":[]}}`,
+		`{"flowType":"RefundFlow","flowId":"","workerTargetPull":true,"input":{"count":1,"labels":[]}}`,
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetPull":true,"isHeadlessAddress":true,"input":{"count":1,"labels":[]}}`,
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetPull":true,"input":{"count":1,"labels":[],"extra":true}}`,
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetPull":true,"input":{"count":18446744073709551616,"labels":[]}}`,
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":{"count":1,"labels":[]}}`,
 	} {
 		response := performV2JSON(t, mux, http.MethodPost, "/api/v2/start", body)
 		if response.Code != http.StatusBadRequest {
@@ -728,36 +718,29 @@ func TestV2StartFlowRejectsBrowserRoutingOverrideAndInvalidInput(t *testing.T) {
 }
 
 func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
+	const addressNotSupported = "workerTargetAddress is not supported"
 	for _, testCase := range []struct {
-		name           string
-		serverEngine   dexpb.ServerEngine
-		workerTarget   string
-		isDefaultPull  bool
-		isHeadless     bool
-		wantStatus     int
-		wantPull       bool
-		wantAddress    string
-		wantHeadless   bool
-		wantHealthCall bool
-		wantError      string
+		name          string
+		serverEngine  dexpb.ServerEngine
+		workerTarget  string
+		isDefaultPull bool
+		isHeadless    bool
+		wantStatus    int
+		wantError     string
 	}{
-		{name: "address", workerTarget: `"workerTargetAddress":"worker:9000",`, wantStatus: http.StatusOK, wantAddress: "worker:9000", wantHealthCall: true},
-		{name: "pull", workerTarget: `"workerTargetPull":true,`, wantStatus: http.StatusOK, wantPull: true},
-		{name: "both", workerTarget: `"workerTargetAddress":"worker:9000","workerTargetPull":true,`, wantStatus: http.StatusBadRequest},
-		{name: "both with empty address", workerTarget: `"workerTargetAddress":"","workerTargetPull":true,`, wantStatus: http.StatusBadRequest},
-		{name: "neither", wantStatus: http.StatusBadRequest, wantError: "workerTargetAddress or workerTargetPull is required"},
-		{name: "neither on Temporal", serverEngine: dexpb.ServerEngine_SERVER_ENGINE_TEMPORAL, wantStatus: http.StatusBadRequest, wantError: "workerTargetAddress or workerTargetPull is required"},
-		{name: "neither on Cadence", serverEngine: dexpb.ServerEngine_SERVER_ENGINE_CADENCE, wantStatus: http.StatusBadRequest, wantError: "workerTargetAddress or workerTargetPull is required"},
-		{name: "explicit false without address", workerTarget: `"workerTargetPull":false,`, wantStatus: http.StatusBadRequest, wantError: "workerTargetAddress or workerTargetPull is required"},
-		{name: "default pull", isDefaultPull: true, wantStatus: http.StatusOK, wantPull: true},
-		{name: "explicit empty address does not use pull default", workerTarget: `"workerTargetAddress":"",`, isDefaultPull: true, wantStatus: http.StatusBadRequest},
-		{name: "explicit false does not use pull default", workerTarget: `"workerTargetPull":false,`, isDefaultPull: true, wantStatus: http.StatusBadRequest, wantError: "workerTargetAddress or workerTargetPull is required"},
-		{name: "explicit pull with pull default", workerTarget: `"workerTargetPull":true,`, isDefaultPull: true, wantStatus: http.StatusOK, wantPull: true},
-		{name: "explicit address overrides pull default", workerTarget: `"workerTargetAddress":"worker:9000",`, isDefaultPull: true, wantStatus: http.StatusOK, wantAddress: "worker:9000", wantHealthCall: true},
-		{name: "explicit false with address", workerTarget: `"workerTargetAddress":"worker:9000","workerTargetPull":false,`, isDefaultPull: true, wantStatus: http.StatusOK, wantAddress: "worker:9000", wantHealthCall: true},
-		{name: "headless address with pull default", workerTarget: `"workerTargetAddress":"worker:9000",`, isDefaultPull: true, isHeadless: true, wantStatus: http.StatusOK, wantAddress: "worker:9000", wantHeadless: true, wantHealthCall: true},
-		{name: "pull default with headless addresses", isDefaultPull: true, isHeadless: true, wantStatus: http.StatusOK, wantPull: true},
-		{name: "both with pull default", workerTarget: `"workerTargetAddress":"worker:9000","workerTargetPull":true,`, isDefaultPull: true, wantStatus: http.StatusBadRequest},
+		{name: "address", workerTarget: `"workerTargetAddress":"worker:9000",`, wantStatus: http.StatusBadRequest, wantError: addressNotSupported},
+		{name: "pull", workerTarget: `"workerTargetPull":true,`, wantStatus: http.StatusOK},
+		{name: "both", workerTarget: `"workerTargetAddress":"worker:9000","workerTargetPull":true,`, wantStatus: http.StatusBadRequest, wantError: addressNotSupported},
+		{name: "both with empty address", workerTarget: `"workerTargetAddress":"","workerTargetPull":true,`, wantStatus: http.StatusBadRequest, wantError: addressNotSupported},
+		{name: "neither", wantStatus: http.StatusOK},
+		{name: "neither on an unspecified engine", serverEngine: dexpb.ServerEngine_SERVER_ENGINE_UNSPECIFIED, wantStatus: http.StatusOK},
+		{name: "explicit false", workerTarget: `"workerTargetPull":false,`, wantStatus: http.StatusBadRequest, wantError: "workerTargetPull must be true"},
+		{name: "default pull", isDefaultPull: true, wantStatus: http.StatusOK},
+		{name: "explicit empty address with pull default", workerTarget: `"workerTargetAddress":"",`, isDefaultPull: true, wantStatus: http.StatusBadRequest, wantError: addressNotSupported},
+		{name: "explicit false with pull default", workerTarget: `"workerTargetPull":false,`, isDefaultPull: true, wantStatus: http.StatusBadRequest, wantError: "workerTargetPull must be true"},
+		{name: "explicit pull with pull default", workerTarget: `"workerTargetPull":true,`, isDefaultPull: true, wantStatus: http.StatusOK},
+		{name: "explicit address with pull default", workerTarget: `"workerTargetAddress":"worker:9000",`, isDefaultPull: true, wantStatus: http.StatusBadRequest, wantError: addressNotSupported},
+		{name: "headless setting has no effect", isHeadless: true, wantStatus: http.StatusOK},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			client := &v2TestClient{serverEngine: testCase.serverEngine}
@@ -789,11 +772,7 @@ func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 			if testCase.wantError != "" && !strings.Contains(response.Body.String(), testCase.wantError) {
 				t.Fatalf("target error = %q", response.Body.String())
 			}
-			expectedHealthCalls := 0
-			if testCase.wantHealthCall {
-				expectedHealthCalls = 1
-			}
-			if healthCalls != expectedHealthCalls {
+			if healthCalls != 0 {
 				t.Fatalf("Worker health calls = %d", healthCalls)
 			}
 			if testCase.wantStatus != http.StatusOK {
@@ -806,7 +785,7 @@ func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 				t.Fatalf("StartFlow requests = %d", len(client.startRequests))
 			}
 			target := client.startRequests[0].GetFlowStartOptions().GetFlowConfigOverride().GetWorkerTarget()
-			if target.GetIsPullMode() != testCase.wantPull || target.GetAddress() != testCase.wantAddress || target.GetIsHeadlessAddress() != testCase.wantHeadless {
+			if !target.GetIsPullMode() {
 				t.Fatalf("Worker target = %+v", target)
 			}
 		})
@@ -818,13 +797,11 @@ func TestV2StartFlowDefaultsToPullOnServerZD(t *testing.T) {
 		name         string
 		workerTarget string
 		wantStatus   int
-		wantPull     bool
-		wantAddress  string
 	}{
-		{name: "omitted target", wantStatus: http.StatusOK, wantPull: true},
-		{name: "explicit pull", workerTarget: `"workerTargetPull":true,`, wantStatus: http.StatusOK, wantPull: true},
+		{name: "omitted target", wantStatus: http.StatusOK},
+		{name: "explicit pull", workerTarget: `"workerTargetPull":true,`, wantStatus: http.StatusOK},
 		{name: "explicit false", workerTarget: `"workerTargetPull":false,`, wantStatus: http.StatusBadRequest},
-		{name: "explicit address", workerTarget: `"workerTargetAddress":"worker:9000","bypassWorkerHealthCheck":true,`, wantStatus: http.StatusOK, wantAddress: "worker:9000"},
+		{name: "explicit address", workerTarget: `"workerTargetAddress":"worker:9000","bypassWorkerHealthCheck":true,`, wantStatus: http.StatusBadRequest},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			client := &v2TestClient{serverEngine: dexpb.ServerEngine_SERVER_ENGINE_ZD}
@@ -849,7 +826,7 @@ func TestV2StartFlowDefaultsToPullOnServerZD(t *testing.T) {
 				return
 			}
 			target := client.startRequests[0].GetFlowStartOptions().GetFlowConfigOverride().GetWorkerTarget()
-			if target.GetIsPullMode() != testCase.wantPull || target.GetAddress() != testCase.wantAddress {
+			if !target.GetIsPullMode() {
 				t.Fatalf("Worker target = %+v", target)
 			}
 			if client.serverInfoCalls != 1 {
@@ -954,18 +931,18 @@ func TestV2StartFlowHandlesScalarConflict(t *testing.T) {
 		WorkerHealthChecker: healthyV2WorkerHealthChecker,
 	})
 	conflict := performV2JSON(t, localMux, http.MethodPost, "/api/v2/start",
-		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":9223372036854775807}`)
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetPull":true,"input":9223372036854775807}`)
 	if conflict.Code != http.StatusConflict || client.startRequests[0].GetStepInput().GetIntValue() != int64(9223372036854775807) {
 		t.Fatalf("conflict = %d %q request=%+v", conflict.Code, conflict.Body.String(), client.startRequests[0])
 	}
 
 }
 
-func TestV2StartFlowRequiresBypassWhenWorkerIsUnhealthy(t *testing.T) {
+func TestV2WorkerHealthReportsUnreachableAddressWithoutStartingFlows(t *testing.T) {
 	client := &v2TestClient{}
 	definition := testV2Definition()
 	definition.Start = testV2StartDefinition()
-	checkedAddresses := make([]string, 0, 2)
+	checkedAddresses := make([]string, 0, 1)
 	checker := func(_ context.Context, address string) error {
 		checkedAddresses = append(checkedAddresses, address)
 		return errors.New("connection refused")
@@ -984,21 +961,12 @@ func TestV2StartFlowRequiresBypassWhenWorkerIsUnhealthy(t *testing.T) {
 		t.Fatalf("health = %d %q", health.Code, health.Body.String())
 	}
 
-	requestBody := `{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":{"count":1,"labels":[]}}`
-	blocked := performV2JSON(t, mux, http.MethodPost, "/api/v2/start", requestBody)
-	if blocked.Code != http.StatusPreconditionFailed || !strings.Contains(blocked.Body.String(), v2WorkerUnhealthyResponseCode) {
-		t.Fatalf("blocked = %d %q", blocked.Code, blocked.Body.String())
-	}
-	if len(client.startRequests) != 0 {
-		t.Fatalf("StartFlow requests before bypass = %+v", client.startRequests)
-	}
-
 	bypassed := performV2JSON(t, mux, http.MethodPost, "/api/v2/start",
 		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","bypassWorkerHealthCheck":true,"input":{"count":1,"labels":[]}}`)
-	if bypassed.Code != http.StatusOK || len(client.startRequests) != 1 {
-		t.Fatalf("bypassed = %d %q requests=%d", bypassed.Code, bypassed.Body.String(), len(client.startRequests))
+	if bypassed.Code != http.StatusBadRequest || len(client.startRequests) != 0 {
+		t.Fatalf("address start = %d %q requests=%d", bypassed.Code, bypassed.Body.String(), len(client.startRequests))
 	}
-	if len(checkedAddresses) != 2 || checkedAddresses[0] != "worker:9000" || checkedAddresses[1] != "worker:9000" {
+	if len(checkedAddresses) != 1 || checkedAddresses[0] != "worker:9000" {
 		t.Fatalf("checked addresses = %#v", checkedAddresses)
 	}
 }

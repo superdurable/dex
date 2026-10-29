@@ -104,7 +104,7 @@ private static final long serialVersionUID = 0L;
   private int previousRunAttempt_ = 0;
   /**
    * <pre>
-   * server-zd only: the run attempt that was current before this time travel.
+   * The run attempt that was current before this time travel.
    * </pre>
    *
    * <code>int32 previous_run_attempt = 2;</code>
@@ -119,7 +119,7 @@ private static final long serialVersionUID = 0L;
   private int targetRunAttempt_ = 0;
   /**
    * <pre>
-   * server-zd only: the run attempt of the point this time travel returned to.
+   * The run attempt of the point this time travel returned to.
    * </pre>
    *
    * <code>int32 target_run_attempt = 3;</code>
@@ -134,7 +134,7 @@ private static final long serialVersionUID = 0L;
   private long targetEventId_ = 0L;
   /**
    * <pre>
-   * server-zd only: the event ID of the point this time travel returned to.
+   * The event ID of the point this time travel returned to.
    * </pre>
    *
    * <code>int64 target_event_id = 4;</code>
@@ -612,7 +612,7 @@ private static final long serialVersionUID = 0L;
     private int previousRunAttempt_ ;
     /**
      * <pre>
-     * server-zd only: the run attempt that was current before this time travel.
+     * The run attempt that was current before this time travel.
      * </pre>
      *
      * <code>int32 previous_run_attempt = 2;</code>
@@ -624,7 +624,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the run attempt that was current before this time travel.
+     * The run attempt that was current before this time travel.
      * </pre>
      *
      * <code>int32 previous_run_attempt = 2;</code>
@@ -640,7 +640,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the run attempt that was current before this time travel.
+     * The run attempt that was current before this time travel.
      * </pre>
      *
      * <code>int32 previous_run_attempt = 2;</code>
@@ -656,7 +656,7 @@ private static final long serialVersionUID = 0L;
     private int targetRunAttempt_ ;
     /**
      * <pre>
-     * server-zd only: the run attempt of the point this time travel returned to.
+     * The run attempt of the point this time travel returned to.
      * </pre>
      *
      * <code>int32 target_run_attempt = 3;</code>
@@ -668,7 +668,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the run attempt of the point this time travel returned to.
+     * The run attempt of the point this time travel returned to.
      * </pre>
      *
      * <code>int32 target_run_attempt = 3;</code>
@@ -684,7 +684,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the run attempt of the point this time travel returned to.
+     * The run attempt of the point this time travel returned to.
      * </pre>
      *
      * <code>int32 target_run_attempt = 3;</code>
@@ -700,7 +700,7 @@ private static final long serialVersionUID = 0L;
     private long targetEventId_ ;
     /**
      * <pre>
-     * server-zd only: the event ID of the point this time travel returned to.
+     * The event ID of the point this time travel returned to.
      * </pre>
      *
      * <code>int64 target_event_id = 4;</code>
@@ -712,7 +712,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the event ID of the point this time travel returned to.
+     * The event ID of the point this time travel returned to.
      * </pre>
      *
      * <code>int64 target_event_id = 4;</code>
@@ -728,7 +728,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the event ID of the point this time travel returned to.
+     * The event ID of the point this time travel returned to.
      * </pre>
      *
      * <code>int64 target_event_id = 4;</code>

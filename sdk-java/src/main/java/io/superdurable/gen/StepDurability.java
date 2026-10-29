@@ -8,7 +8,7 @@ package io.superdurable.gen;
 /**
  * <pre>
  * Was optimize_activity: false=SYNC, true=ASYNC. Timer is always optimized by the server.
- * On server-zd both durabilities record the same events. ASYNC advances without waiting for the commit; there is no local phase.
+ * Both durabilities record the same events. ASYNC advances without waiting for the commit; there is no local phase.
  * </pre>
  *
  * Protobuf enum {@code dex.StepDurability}

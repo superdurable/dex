@@ -518,10 +518,7 @@ impl Harness {
 }
 
 fn pull_worker() -> WorkerTarget {
-    WorkerTarget {
-        is_pull_mode: true,
-        ..WorkerTarget::default()
-    }
+    WorkerTarget { is_pull_mode: true }
 }
 
 fn settings() -> RunSettings {

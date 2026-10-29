@@ -67,10 +67,7 @@ async fn start_flow_at_step(
             step_options: Some(options),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -330,10 +327,7 @@ async fn timeout_handler_failure_starts_recovery_with_null_input() {
                     ..FlowTimeoutHandlerOptions::default()
                 }),
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()

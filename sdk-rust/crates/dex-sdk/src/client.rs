@@ -1228,11 +1228,7 @@ impl Client {
 
 pub(crate) fn map_pull_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {
     Ok(ProtoFlowConfig {
-        worker_target: Some(ProtoWorkerTarget {
-            address: String::new(),
-            is_headless_address: false,
-            is_pull_mode: true,
-        }),
+        worker_target: Some(ProtoWorkerTarget { is_pull_mode: true }),
         ..map_flow_config(config)?
     })
 }

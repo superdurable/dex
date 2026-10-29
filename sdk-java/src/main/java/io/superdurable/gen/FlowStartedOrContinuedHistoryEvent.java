@@ -288,7 +288,7 @@ private static final long serialVersionUID = 0L;
   public static final int CONTINUED_START_FIELD_NUMBER = 11;
   /**
    * <pre>
-   * server-zd never sets this.
+   * Deprecated: Dex does not continue Flows as new and never sets this.
    * </pre>
    *
    * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -300,7 +300,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * server-zd never sets this.
+   * Deprecated: Dex does not continue Flows as new and never sets this.
    * </pre>
    *
    * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -315,7 +315,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * server-zd never sets this.
+   * Deprecated: Dex does not continue Flows as new and never sets this.
    * </pre>
    *
    * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -1664,7 +1664,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.FlowContinuedStart, io.superdurable.gen.FlowContinuedStart.Builder, io.superdurable.gen.FlowContinuedStartOrBuilder> continuedStartBuilder_;
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -1676,7 +1676,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -1698,7 +1698,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -1718,7 +1718,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -1736,7 +1736,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -1763,7 +1763,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -1786,7 +1786,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -1796,7 +1796,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>.dex.FlowContinuedStart continued_start = 11;</code>
@@ -1814,7 +1814,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>.dex.FlowContinuedStart continued_start = 11;</code>

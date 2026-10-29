@@ -56,10 +56,7 @@ async fn start_flow_proposes_a_complete_start_command_and_returns_the_run_id() {
     );
     assert_eq!(
         start.worker_target,
-        Some(WorkerTarget {
-            is_pull_mode: true,
-            ..WorkerTarget::default()
-        })
+        Some(WorkerTarget { is_pull_mode: true })
     );
     assert_eq!(
         start.settings.unwrap().history_window_semantic_events,
@@ -71,16 +68,13 @@ async fn start_flow_proposes_a_complete_start_command_and_returns_the_run_id() {
 #[tokio::test(start_paused = true)]
 async fn start_flow_persists_default_config_and_respects_explicit_overrides() {
     let mut config = FlowCoordinationConfig::default();
-    let pull_target = WorkerTarget {
-        is_pull_mode: true,
-        ..WorkerTarget::default()
-    };
-    config.validation.default_flow_config.worker_target = Some(pull_target.clone());
+    let pull_target = WorkerTarget { is_pull_mode: true };
+    config.validation.default_flow_config.worker_target = Some(pull_target);
     let expected_default = FlowConfig {
         active_step_search_mode: Some(ActiveStepSearchMode::Disabled as i32),
         continue_as_new_threshold: Some(100),
         step_durability: Some(StepDurability::Sync as i32),
-        worker_target: Some(pull_target.clone()),
+        worker_target: Some(pull_target),
         ..FlowConfig::default()
     };
     let harness = FlowCoordinationHarness::with_config(&config);
@@ -133,7 +127,7 @@ async fn start_flow_persists_default_config_and_respects_explicit_overrides() {
         active_step_search_mode: Some(ActiveStepSearchMode::EnabledForAll as i32),
         continue_as_new_threshold: Some(25),
         step_durability: Some(StepDurability::Async as i32),
-        worker_target: Some(pull_target.clone()),
+        worker_target: Some(pull_target),
         ..FlowConfig::default()
     });
     harness
@@ -191,8 +185,8 @@ async fn invalid_requests_are_rejected_before_proposing() {
         .unwrap_err();
     assert_eq!(error.grpc_code(), grpc_code::INVALID_ARGUMENT);
 
-    let mut push_target = start_request("order-2");
-    push_target
+    let mut non_pull_target = start_request("order-2");
+    non_pull_target
         .flow_start_options
         .as_mut()
         .unwrap()
@@ -200,12 +194,11 @@ async fn invalid_requests_are_rejected_before_proposing() {
         .as_mut()
         .unwrap()
         .worker_target = Some(WorkerTarget {
-        address: "localhost:9000".to_owned(),
-        ..WorkerTarget::default()
+        is_pull_mode: false,
     });
     let error = harness
         .registry
-        .start_flow(TENANT, push_target)
+        .start_flow(TENANT, non_pull_target)
         .await
         .unwrap_err();
     assert_eq!(error.grpc_code(), grpc_code::INVALID_ARGUMENT);

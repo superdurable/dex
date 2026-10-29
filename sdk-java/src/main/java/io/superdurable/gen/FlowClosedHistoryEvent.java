@@ -175,7 +175,7 @@ private static final long serialVersionUID = 0L;
   private volatile java.lang.Object continuedToRunId_ = "";
   /**
    * <pre>
-   * server-zd never sets this.
+   * Deprecated: Dex does not continue Flows as new and never sets this.
    * </pre>
    *
    * <code>string continued_to_run_id = 5;</code>
@@ -196,7 +196,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * server-zd never sets this.
+   * Deprecated: Dex does not continue Flows as new and never sets this.
    * </pre>
    *
    * <code>string continued_to_run_id = 5;</code>
@@ -1142,7 +1142,7 @@ private static final long serialVersionUID = 0L;
     private java.lang.Object continuedToRunId_ = "";
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>string continued_to_run_id = 5;</code>
@@ -1162,7 +1162,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>string continued_to_run_id = 5;</code>
@@ -1183,7 +1183,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>string continued_to_run_id = 5;</code>
@@ -1200,7 +1200,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>string continued_to_run_id = 5;</code>
@@ -1214,7 +1214,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd never sets this.
+     * Deprecated: Dex does not continue Flows as new and never sets this.
      * </pre>
      *
      * <code>string continued_to_run_id = 5;</code>

@@ -7,7 +7,7 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * StepMethodPendingEvent describes a regular Step activity unresolved at flow closure.
+ * StepMethodPendingEvent describes a regular Step method unresolved at flow closure.
  * </pre>
  *
  * Protobuf type {@code dex.StepMethodPendingEvent}
@@ -318,7 +318,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * StepMethodPendingEvent describes a regular Step activity unresolved at flow closure.
+   * StepMethodPendingEvent describes a regular Step method unresolved at flow closure.
    * </pre>
    *
    * Protobuf type {@code dex.StepMethodPendingEvent}

@@ -45,12 +45,15 @@ it with `Ctrl-C`.
 The `/decode` endpoint converts known Dex `binary/protobuf` payloads to
 `json/protobuf`. The `/encode` endpoint performs the reverse conversion when
 the input includes a known Dex `messageType`. Other payloads pass through
-unchanged.
+unchanged. Known types are the messages still defined in `dex.proto`; payloads
+of the removed Go Server internal messages pass through unchanged.
 
 ## Services
 
 - **FlowService** — hosted by the server; SDKs call these RPCs
-- **WorkerService** — hosted by the worker; the server calls `WaitFor`, `Execute`, and `WorkerRpc`
+- **WorkerTaskService** — hosted by the server; pull Workers open task streams
+- **WorkerService** — describes the `WaitFor`, `Execute`, and `WorkerRpc` calls a
+  Worker serves; Dex delivers them over WorkerTaskService and never dials Workers
 
 `InvokeWaitForMethod` and `InvokeExecuteMethod` use a unary request and a
 server-streaming response. `InvokeWorkerRPC` remains unary. A Step response may

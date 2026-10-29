@@ -54,7 +54,7 @@ public interface WorkerErrorResponseOrBuilder extends
 
   /**
    * <pre>
-   * Pull Workers set the gRPC code push mode would return; push mode uses its transport status.
+   * gRPC status code that the Worker derives from the handler error.
    * </pre>
    *
    * <code>int32 grpc_status = 5;</code>

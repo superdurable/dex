@@ -28,7 +28,8 @@ public interface FlowConfigOrBuilder extends
 
   /**
    * <pre>
-   * server-zd ignores this field.
+   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+   * value in the Flow configuration, and otherwise ignores it.
    * </pre>
    *
    * <code>optional int32 continue_as_new_threshold = 2;</code>
@@ -37,7 +38,8 @@ public interface FlowConfigOrBuilder extends
   boolean hasContinueAsNewThreshold();
   /**
    * <pre>
-   * server-zd ignores this field.
+   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+   * value in the Flow configuration, and otherwise ignores it.
    * </pre>
    *
    * <code>optional int32 continue_as_new_threshold = 2;</code>
@@ -47,7 +49,8 @@ public interface FlowConfigOrBuilder extends
 
   /**
    * <pre>
-   * server-zd ignores this field.
+   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+   * value in the Flow configuration, and otherwise ignores it.
    * </pre>
    *
    * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
@@ -56,7 +59,8 @@ public interface FlowConfigOrBuilder extends
   boolean hasContinueAsNewPageSizeInBytes();
   /**
    * <pre>
-   * server-zd ignores this field.
+   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
+   * value in the Flow configuration, and otherwise ignores it.
    * </pre>
    *
    * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>

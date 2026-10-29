@@ -49,7 +49,7 @@ func parseCommandConfig(arguments []string, output io.Writer) (*commandConfig, e
 	flags.IntVar(&cfg.web.Port, "port", web.DefaultPort, "HTTP bind port")
 	flags.StringVar(&cfg.flowServiceAddress, "flow-service-address", "127.0.0.1:8801", "FlowService gRPC target")
 	flags.StringVar(&cfg.web.FlowRenderingDirectory, "flow-rendering-dir", "", "Flow Definition Graph JSON directory")
-	flags.BoolVar(&cfg.web.IsStartFlowWorkerTargetHeadless, "start-flow-worker-target-headless", false, "use headless routing for address targets")
+	flags.BoolVar(&cfg.web.IsStartFlowWorkerTargetHeadless, "start-flow-worker-target-headless", false, "deprecated: has no effect; Dex Web starts Flows on pull Workers")
 	flags.BoolVar(&cfg.web.IsStartFlowWorkerTargetPull, "start-flow-worker-target-pull", false, "default to pull Worker targets")
 	flags.BoolVar(&cfg.isTLSEnabled, "tls", false, "enable FlowService TLS")
 	flags.StringVar(&cfg.tlsCAFile, "tls-ca-file", "", "additional PEM CA certificates (requires TLS)")

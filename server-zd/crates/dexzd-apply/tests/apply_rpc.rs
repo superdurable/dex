@@ -148,10 +148,7 @@ impl Harness {
                 ..RunSettings::default()
             }),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
-            worker_target: Some(WorkerTarget {
-                is_pull_mode: true,
-                ..WorkerTarget::default()
-            }),
+            worker_target: Some(WorkerTarget { is_pull_mode: true }),
             ..FlowStartCommand::default()
         }));
         let started = harness.apply(start);

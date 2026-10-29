@@ -166,7 +166,7 @@ private static final long serialVersionUID = 0L;
   private int runAttempt_ = 0;
   /**
    * <pre>
-   * server-zd only: selects the run attempt whose lineage is returned. Zero selects the current
+   * Selects the run attempt whose lineage is returned. Zero selects the current
    * run attempt.
    * </pre>
    *
@@ -836,7 +836,7 @@ private static final long serialVersionUID = 0L;
     private int runAttempt_ ;
     /**
      * <pre>
-     * server-zd only: selects the run attempt whose lineage is returned. Zero selects the current
+     * Selects the run attempt whose lineage is returned. Zero selects the current
      * run attempt.
      * </pre>
      *
@@ -849,7 +849,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: selects the run attempt whose lineage is returned. Zero selects the current
+     * Selects the run attempt whose lineage is returned. Zero selects the current
      * run attempt.
      * </pre>
      *
@@ -866,7 +866,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: selects the run attempt whose lineage is returned. Zero selects the current
+     * Selects the run attempt whose lineage is returned. Zero selects the current
      * run attempt.
      * </pre>
      *

@@ -659,25 +659,10 @@ pub(crate) fn validate_and_canonicalize_pull_worker_target(
     let Some(target) = target else {
         return Err(invalid(path, "worker_target is required"));
     };
-    if !target.address.is_empty() {
-        return Err(unsupported(
-            format!("{path}.address"),
-            "Worker target addresses",
-        ));
-    }
     if !target.is_pull_mode {
         return Err(invalid(path, "worker_target is empty"));
     }
-    if target.is_headless_address {
-        return Err(invalid(
-            path,
-            "pull worker_target cannot use headless address",
-        ));
-    }
-    Ok(WorkerTarget {
-        is_pull_mode: true,
-        ..WorkerTarget::default()
-    })
+    Ok(WorkerTarget { is_pull_mode: true })
 }
 
 pub(crate) fn validate_start_options(

@@ -112,10 +112,7 @@ async fn commit_flow_start(node: &EngineNode, hasher: &PartitionHasher, flow_id:
                 max_active_step_executions: 10_000,
             }),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
-            worker_target: Some(WorkerTarget {
-                is_pull_mode: true,
-                ..WorkerTarget::default()
-            }),
+            worker_target: Some(WorkerTarget { is_pull_mode: true }),
             hard_delete_objects: Vec::new(),
             request_fingerprint: Vec::new(),
             ..FlowStartCommand::default()

@@ -143,7 +143,7 @@ private static final long serialVersionUID = 0L;
   private boolean includeContinuedAsNew_ = false;
   /**
    * <pre>
-   * server-zd ignores this field.
+   * Deprecated: Dex does not continue Flows as new and ignores this field.
    * </pre>
    *
    * <code>bool include_continued_as_new = 4;</code>
@@ -702,7 +702,7 @@ private static final long serialVersionUID = 0L;
     private boolean includeContinuedAsNew_ ;
     /**
      * <pre>
-     * server-zd ignores this field.
+     * Deprecated: Dex does not continue Flows as new and ignores this field.
      * </pre>
      *
      * <code>bool include_continued_as_new = 4;</code>
@@ -714,7 +714,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd ignores this field.
+     * Deprecated: Dex does not continue Flows as new and ignores this field.
      * </pre>
      *
      * <code>bool include_continued_as_new = 4;</code>
@@ -730,7 +730,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd ignores this field.
+     * Deprecated: Dex does not continue Flows as new and ignores this field.
      * </pre>
      *
      * <code>bool include_continued_as_new = 4;</code>

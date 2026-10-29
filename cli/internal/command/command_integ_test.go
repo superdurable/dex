@@ -403,7 +403,7 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	startResult := executeTestCommand(t, nil,
 		"flow", "start", "flow-1", "--flow-type", "OrderFlow", "--start-step-type", "StartOrder",
 		"--input", `{"order":42}`, "--attributes", `[{"key":"status","value":"new","index":{"type":"keyword"},"sync":true}]`,
-		"--config", `{"activeStepSearchMode":"all","continueAsNewThreshold":12,"stepDurability":"sync","workerTarget":{"address":"127.0.0.1:9000","headless":true}}`,
+		"--config", `{"activeStepSearchMode":"all","continueAsNewThreshold":12,"stepDurability":"sync"}`,
 		"--retry-policy", `{"initialInterval":"1500ms","backoffCoefficient":2,"maximumInterval":"5s","maximumAttempts":3}`,
 		"--step-options", `{"skipWaitFor":true}`, "--timeout-handler-options", `{"methodTimeoutSeconds":20,"loadChannelNames":["commands"]}`,
 		"--flow-timeout", "90s", "--flow-timeout-policy", "handler",
@@ -447,7 +447,7 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	if attribute.GetKey() != "status" || attribute.GetValue().GetStringValue() != "new" || attribute.GetIndexConfig().GetType() != dexpb.IndexType_INDEX_TYPE_KEYWORD || !attribute.GetSyncConfig().GetEnabled() {
 		t.Fatalf("unexpected start attributes: %#v", attribute)
 	}
-	if startRequest.GetFlowStartOptions().GetFlowConfigOverride().GetActiveStepSearchMode() != dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL || !startRequest.GetFlowStartOptions().GetFlowConfigOverride().GetWorkerTarget().GetIsHeadlessAddress() {
+	if startRequest.GetFlowStartOptions().GetFlowConfigOverride().GetActiveStepSearchMode() != dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL || startRequest.GetFlowStartOptions().GetFlowConfigOverride().GetWorkerTarget() != nil {
 		t.Fatalf("unexpected start config: %#v", startRequest.GetFlowStartOptions().GetFlowConfigOverride())
 	}
 	if service.waitRequest.GetWaitTimeSeconds() != 4 || !service.waitRequest.GetNeedsResults() {
@@ -464,6 +464,17 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	}
 	if service.continueAsNewRequest.GetFlowId() != "flow-1" {
 		t.Fatalf("unexpected continue-as-new request: %#v", service.continueAsNewRequest)
+	}
+}
+
+func TestFlowConfigRejectsWorkerTarget(t *testing.T) {
+	_, address := startTestFlowService(t)
+	app := NewApp(bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
+	err := app.Execute(context.Background(), []string{
+		"flow", "update-config", "flow-1", "--config", `{"workerTarget":{"address":"127.0.0.1:9000"}}`, "--yes", "--server", address,
+	})
+	if err == nil || !strings.Contains(err.Error(), "workerTarget is not supported") {
+		t.Fatalf("expected workerTarget rejection, got %v", err)
 	}
 }
 

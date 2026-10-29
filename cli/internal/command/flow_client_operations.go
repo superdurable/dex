@@ -26,17 +26,12 @@ import (
 )
 
 type flowConfigInput struct {
-	ActiveStepSearchMode         *string            `json:"activeStepSearchMode"`
-	ContinueAsNewThreshold       *int32             `json:"continueAsNewThreshold"`
-	ContinueAsNewPageSizeInBytes *int32             `json:"continueAsNewPageSizeInBytes"`
-	StepDurability               *string            `json:"stepDurability"`
-	WorkerTarget                 *workerTargetInput `json:"workerTarget"`
-	AttributeStoreNames          *[]string          `json:"attributeStoreNames"`
-}
-
-type workerTargetInput struct {
-	Address  string `json:"address"`
-	Headless bool   `json:"headless"`
+	ActiveStepSearchMode         *string         `json:"activeStepSearchMode"`
+	ContinueAsNewThreshold       *int32          `json:"continueAsNewThreshold"`
+	ContinueAsNewPageSizeInBytes *int32          `json:"continueAsNewPageSizeInBytes"`
+	StepDurability               *string         `json:"stepDurability"`
+	WorkerTarget                 json.RawMessage `json:"workerTarget"`
+	AttributeStoreNames          *[]string       `json:"attributeStoreNames"`
 }
 
 type flowRetryPolicyInput struct {
@@ -492,10 +487,7 @@ func parseFlowConfig(reader io.Reader, source string) (*dexpb.FlowConfig, error)
 		config.StepDurability = &durability
 	}
 	if input.WorkerTarget != nil {
-		if strings.TrimSpace(input.WorkerTarget.Address) == "" {
-			return nil, fmt.Errorf("workerTarget.address is required")
-		}
-		config.WorkerTarget = &dexpb.WorkerTarget{Address: input.WorkerTarget.Address, IsHeadlessAddress: input.WorkerTarget.Headless}
+		return nil, fmt.Errorf("workerTarget is not supported: Dex routes Flow work to pull Workers")
 	}
 	return config, nil
 }
