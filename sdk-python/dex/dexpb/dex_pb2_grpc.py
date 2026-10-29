@@ -48,6 +48,9 @@ class FlowServiceStub:
     SLA/SLO. sub_status WORKER_API_ERROR when from a Worker;
     raw worker code/detail/type in original_worker_error_*
     when available
+    Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
+    held by another RPC or a running Step
+    sub_status WORKER_API_ERROR
     ResourceExhausted — message size, Stream capacity, and search scan limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
     sub_status LONG_POLL_TIME_OUT or REQUEST_TIMEOUT
@@ -241,6 +244,9 @@ class FlowServiceServicer:
     SLA/SLO. sub_status WORKER_API_ERROR when from a Worker;
     raw worker code/detail/type in original_worker_error_*
     when available
+    Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
+    held by another RPC or a running Step
+    sub_status WORKER_API_ERROR
     ResourceExhausted — message size, Stream capacity, and search scan limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
     sub_status LONG_POLL_TIME_OUT or REQUEST_TIMEOUT
@@ -601,6 +607,9 @@ class FlowService:
     SLA/SLO. sub_status WORKER_API_ERROR when from a Worker;
     raw worker code/detail/type in original_worker_error_*
     when available
+    Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
+    held by another RPC or a running Step
+    sub_status WORKER_API_ERROR
     ResourceExhausted — message size, Stream capacity, and search scan limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
     sub_status LONG_POLL_TIME_OUT or REQUEST_TIMEOUT

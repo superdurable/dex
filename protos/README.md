@@ -70,23 +70,23 @@ in an incoming protocol message. `GetChannelMessages` returns all pending
 messages for one Channel in FIFO order. `DeleteChannelMessage` deletes one
 pending message by ID and returns `CHANNEL_MESSAGE_NOT_FOUND` when it is absent.
 
-Direct deletion verifies the pending message ID before committing. Cadence uses
-a best-effort path, so consumption may race deletion. Channel conditions
-continue to expose only Values to Step handlers.
+Direct deletion verifies the pending message ID before committing. Channel
+conditions continue to expose only Values to Step handlers.
 
 `InvokeWorkerRPCResponse.delete_from_channel` stages deletions with other RPC
 side effects. Set `InvokeRPCRequest.is_transactional` for one atomic read and
-write operation on supported backends. Dex validates all deletions before
+write operation. Dex validates all deletions before
 committing any side effect. Attribute locking enables transactional execution
 automatically, but Channel deletion alone does not. Nontransactional RPCs treat
-a missing deletion as a no-op. Cadence does not provide the same atomicity.
+a missing deletion as a no-op.
 
 ## RPC state loading
 
 Nontransactional RPC inputs and outputs travel directly between the API and
-Worker and are not persisted. `ExecuteRpcSignalRequest` carries only the RPC's
-state changes. Transactional RPC inputs and outputs are persisted. Persisted
-payloads and state changes use the configured Blob Store threshold.
+Worker and are not persisted. Dex commits only the RPC's state changes.
+Transactional RPC inputs and outputs are persisted, and a retry with the same
+request ID returns the recorded response. Persisted payloads and state changes
+use the configured Blob Store threshold.
 
 Worker RPC requests always contain ordinary Attribute values and size metadata
 for every known Channel and ChannelMap instance. AttributeMap entries and
@@ -114,24 +114,22 @@ winning Wait consumes messages. Retries reuse the first request snapshot for
 that logical method execution.
 
 WaitFor, Execute, timeout-handler, and RPC responses carry
-`ChannelMessageDeletion` side effects outside `StepDecision`. The interpreter
+`ChannelMessageDeletion` side effects outside `StepDecision`. Dex
 commits successful responses in this order: Attribute writes, best-effort
 Channel deletions, Channel publications, then the Step decision. A missing
 message is a no-op for these handler responses.
 
 Timeout-handler options are accepted only with a positive Flow timeout and a
 resolved `HANDLER` policy. The options become Execute settings for the synthetic
-timeout Step and survive start history, continue-as-new, SubFlow start, and Flow
-retry. A no-input recovery movement carries `Context.recovery_error` after the
-handler exhausts its retry policy.
+timeout Step and survive SubFlow start and Flow retry. A no-input recovery
+movement carries `Context.recovery_error` after the handler exhausts its retry
+policy.
 
 ## Worker targets
 
-`WorkerTarget.address` is a plaintext gRPC target. Set `is_headless_address` for a
-`host:port` whose DNS records represent individual WorkerService endpoints.
-
-Set `FlowConfig.worker_target` when starting a flow. `UpdateFlowConfig` can
-change the target for subsequent WorkerService calls while the flow is running.
+Dex routes all Flow work to connected pull Workers. `FlowConfig.worker_target`
+is optional. When it is set, `is_pull_mode` must be true. The removed
+`address` and `is_headless_address` fields are reserved.
 
 ## Resumable Streams
 
@@ -191,48 +189,40 @@ Missing, completed, and previously canceled executions are no-ops. Selection
 does not recurse into descendants or match future executions.
 
 A queued movement receives its normal Step execution ID before being marked
-complete. Dex invokes each active target's workflow cancellation handler;
-backend activity results that arrive after logical cancellation do not affect
+complete. Worker results that arrive after logical cancellation do not affect
 Flow state. Cancellation does not add a Dex semantic history event.
 
-`StepOptions.heartbeat_timeout_seconds` applies to regular wait-for and execute
-activities. Zero selects the one-minute default. Explicit values must be at
-least `interpreter.interpreterActivityConfig.minimumStepHeartbeatTimeout`,
-which defaults to ten seconds. Local activities ignore it, while an ASYNC
-fallback regular activity uses it. Dex does not generate automatic Step heartbeats. Worker
-heartbeat frames call the backend heartbeat API, and Stream frames count as
+`StepOptions.heartbeat_timeout_seconds` applies to every WaitFor and Execute
+attempt. Zero selects the one-minute default. Explicit values must be at least
+ten seconds. Dex does not generate automatic Step heartbeats. Worker heartbeat
+frames extend the attempt's heartbeat deadline, and Stream frames count as
 implicit heartbeats. A heartbeat Value is restored on the next attempt through
 `Context.last_heartbeat_value`. An explicit heartbeat without a Value clears
 the details. An implicit Stream heartbeat reuses the latest explicit heartbeat
-state, including cleared details. Effective regular and local method history
-retains the configured value in `StepMethodOptions`.
+state, including cleared details. Method history retains the configured value
+in `StepMethodOptions`.
 
 Step durability resolves from the method override, then `FlowConfig`, then
-SYNC. Regular attempts default to two hours. Retry total duration defaults to
-four hours. ASYNC uses a local Schedule-to-Close window of at most seven seconds
-and three attempts before regular fallback.
+SYNC. Both durabilities record the same events. ASYNC advances without waiting
+for the commit. Attempts default to two hours. Retry total duration defaults to
+four hours.
 
 ## Search flows
 
-`SearchFlowsRequest.include_continued_as_new` defaults to false. The Server
-adds a parenthesized exclusion before backend visibility pagination. Set it to
-true to inspect earlier Continue-as-New runs while retaining explicit query
-filters. Keep the query and inclusion flag unchanged across pages.
+`SearchFlowsRequest.include_continued_as_new` has no effect because the
+Server does not create Continue-as-New runs. Keep the query unchanged across
+pages.
 
 `SearchFlows` returns each execution's flow ID, run ID, flow type, status,
 start/close times, and all Indexed Attributes supplied by Dex visibility as
 `indexed_attributes`. Indexed Attribute values use the `Value` oneof; the response does not
 expose backend index types.
 
-Temporal type metadata preserves numeric types. Cadence visibility payloads do
-not include index types, so Dex infers numbers from JSON: integral JSON numbers
-become `int_value`, and other numbers become `double_value`.
-
 ## Web introspection
 
-`GetFlowSummary` returns Dex execution metadata. `GetHistoryEvents` converts
-Temporal/Cadence history into Dex semantic events, and `WaitForHistoryEvent`
-supports incremental refresh. `GetFlowState` returns the interpreter
+`GetFlowSummary` returns Dex execution metadata. `GetHistoryEvents` returns
+the Dex semantic events the Server records, and `WaitForHistoryEvent`
+supports incremental refresh. `GetFlowState` returns the current state
 snapshot for a running flow.
 
 External `SetAttributes` writes appear as `RpcExecutionCompleted` events with
@@ -242,99 +232,59 @@ Flow started/continued events expose the configured flow timeout as a protobuf
 duration. An absent duration means the flow has no timeout.
 
 Step method events expose the same `input`, `output`, and `context` structure
-for sync, async, and async-fallback execution. Regular Activity inputs come from
-scheduled history; successful local Activity inputs come from run-scoped
-external storage. A local failure that exhausts its retry budget before regular
-fallback has no snapshot and sets `input.unavailable=true`, as do missing or
-cleaned-up snapshots.
+for SYNC and ASYNC execution. A method whose Step input is not stored sets
+`input.unavailable=true`.
 
 Each event context includes the effective method timeout, heartbeat timeout,
 and retry policy.
-Regular Activity options come from scheduled metadata; local Activity options
-are retained with the stored request. Regular Activity input messages remain
-unchanged and use a null second Activity argument.
 
-SYNC retries expose only the immediately preceding failure as
+Retries expose only the immediately preceding failure as
 `context.last_failure_info`. `StepMethodFailure.attempt` identifies that attempt
-or the terminal attempt in `output.failure`. While a regular Step activity is
-retrying, `GetFlowState.active_step_executions.last_failure_info` exposes the
-backend pending-activity failure only when its deterministic activity ID still
-matches an active Step execution. ASYNC local-activity retries are not observable
-through backend describe; the failure becomes visible after execution falls
-back to a regular activity.
-
-ASYNC local and regular activities share one logical retry sequence. Maximum
-attempts and total duration apply across both phases, and attempts remain
-1-based and cumulative in Worker `Context` and semantic history. Fallback is
-immediate, without the local failure's transition delay.
-The regular policy subtracts consumed attempts and elapsed local duration, then
-sets its initial interval to the original backoff for the cumulative attempt,
-capped by the configured maximum interval. If either budget is exhausted, the
-local failure is terminal and produces the Step failed event without scheduling
-a regular activity.
+or the terminal attempt in `output.failure`. While a Step method is retrying,
+`GetFlowState.active_step_executions.last_failure_info` exposes its latest
+failure. Attempts are 1-based and cumulative in Worker `Context` and semantic
+history.
 
 `WorkerErrorResponse.stack_trace` carries an optional Worker-language stack.
-The server persists it in `InternalWorkerError` inside the activity failure and
-exposes it as `ServiceErrorResponse.original_worker_error_stack_trace` at the
-service and semantic-history boundaries. `StepMethodFailure` does not retain a
-separate backend stack. The Java Worker caps its UTF-8 value at 16 KiB; other
+The server persists it with the Step failure and exposes it as
+`ServiceErrorResponse.original_worker_error_stack_trace` at the service and
+semantic-history boundaries. `StepMethodFailure` does not retain a separate
+stack. The Java Worker caps its UTF-8 value at 16 KiB; other
 Worker SDKs may omit the field.
 
 `Context.recovery_error` carries the final failure that selected a recovery
 path. A failed WaitFor method passes it directly to Execute in the same run.
 A failed Execute method stores it in the server-owned
 `StepMovement.recovery_error_internal_only`, so the configured recovery Step
-retains the error while queued and across continue-as-new. Worker-provided
+retains the error while queued. Worker-provided
 movements cannot set this internal field. `RecoveryErrorInfo` retains only the
 failure detail and type; Worker stack traces and retry delays are not recovery
-inputs. If no `WorkerErrorResponse` exists, the interpreter synthesizes the
-recovery information from the backend application or timeout type.
+inputs. If no `WorkerErrorResponse` exists, Dex synthesizes the
+recovery information from the failure kind, such as a method or heartbeat
+timeout.
 
-`WorkerErrorResponse.retry_after_seconds` requests the next retry interval.
-Temporal applies it directly to the Activity failure's next-retry delay without
-persisting it in `InternalActivityError`. Cadence rejects a nonzero value with an
-`INVALID_USER_FLOW_CODE` validation error from the Step method Activity.
+`WorkerErrorResponse.retry_after_seconds` requests the next retry interval. A
+positive value replaces the retry policy's computed backoff for that retry.
 
 `ServiceErrorResponse.detail` and `original_worker_error_detail` are mutually exclusive.
 Worker responses use the original field; transport failures without a
 `WorkerErrorResponse` use `detail`. Consumers should prefer the original Worker
 detail and fall back to `detail`.
 
-`StepMethodFailure.backend_error` uses Temporal's application failure type,
-timeout type, or fallback failure message. Cadence uses the activity failure
-reason or timeout type. `details` is present only when the failure carries a
-decodable `InternalActivityError` or `InternalLocalStepActivityFailure`. The
-history client converts its activity error to `ServiceErrorResponse`; backend
-timeouts normally expose only `backend_error`.
-
-`LocalActivityMetadata` stores marker lineage only.
-`InternalLocalActivityInput` is the local-only runtime argument carrying the
-run start time and method options.
-`InternalLocalStepActivityFailure` carries the local attempt count, first
-attempt time, original method options, and nested `InternalActivityError` as one
-failure detail. A regular activity carries one `InternalActivityError` detail.
-Final workflow failures carry one `InternalFlowError`. Interpreter-originated
-failures set `server_detail`; activity-originated failures set `activity_error`.
-The service client converts both sources to `ServiceErrorResponse` at the public
-boundary.
-A fallback regular activity carries only its prior attempt count and
-first-attempt time in `Context`.
-`InternalAsyncStepInputSnapshot` is the run-scoped request and method-options
-record. Writing and reading these records uses the
-`blobStore.asyncStepInputSnapshotsEnabled` setting, which defaults to true when
-Blob Store is enabled. Set it to false to skip that optional history cost. None
-of these internal types is returned by `FlowService`.
+`StepMethodFailure.backend_error` carries the Server's failure detail, or the
+Worker error detail when the Server adds none. `details` carries the failure as
+a `ServiceErrorResponse`, including the original Worker error fields.
 
 `LoadBlobs` resolves batches of string/object blob arms. Callers should dedupe
 by value kind and blob ID before loading. Missing objects and unconfigured store
 IDs are omitted from the response map so callers can render them as unavailable.
 
 History events describe flows, step methods, RPCs, and Channel publications or deletions.
-They do not expose workflow tasks, activities, markers, or raw backend events.
+They do not expose internal commands or raw storage records.
 
-When a flow closes before a regular Step activity finishes, semantic history
-emits `step_wait_for_pending` or `step_execute_pending` at its scheduled event
-ID. Its time and phase report whether the backend activity started.
+When a flow closes before a Step method finishes, semantic history emits
+`step_wait_for_pending` or `step_execute_pending`. Its phase reports whether the
+method attempt was scheduled or had started on a Worker.
 
 ## Codegen
 

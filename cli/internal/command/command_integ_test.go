@@ -478,6 +478,21 @@ func TestFlowConfigRejectsWorkerTarget(t *testing.T) {
 	}
 }
 
+func TestFlowConfigAcceptsNullWorkerTarget(t *testing.T) {
+	service, address := startTestFlowService(t)
+	app := NewApp(bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
+	err := app.Execute(context.Background(), []string{
+		"flow", "update-config", "flow-1", "--config", `{"workerTarget":null,"stepDurability":"sync"}`, "--yes", "--server", address,
+	})
+	if err != nil {
+		t.Fatalf("expected null workerTarget to be accepted, got %v", err)
+	}
+	flowConfig := service.updateConfigRequest.GetFlowConfig()
+	if flowConfig.GetStepDurability() != dexpb.StepDurability_STEP_DURABILITY_SYNC || flowConfig.WorkerTarget != nil {
+		t.Fatalf("unexpected update-config request: %#v", service.updateConfigRequest)
+	}
+}
+
 func TestFlowMutationsRequireConfirmation(t *testing.T) {
 	service, address := startTestFlowService(t)
 	for _, args := range [][]string{

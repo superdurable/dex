@@ -40,7 +40,7 @@ type Config struct {
 	//
 	// Deprecated: it has no effect because Dex Web starts Flows only on pull Workers.
 	IsStartFlowWorkerTargetHeadless bool
-	// IsStartFlowWorkerTargetPull defaults false and selects pull routing when no target is supplied. Headless routing applies to address targets.
+	// IsStartFlowWorkerTargetPull defaults false and sets the catalog startFlowWorkerTargetPull flag that preselects pull in the Start Flow dialog. Starts always use pull Workers.
 	IsStartFlowWorkerTargetPull bool
 	// ConnectorSetupEnabled defaults false and enables Connector configuration APIs.
 	ConnectorSetupEnabled bool

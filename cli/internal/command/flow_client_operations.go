@@ -486,10 +486,15 @@ func parseFlowConfig(reader io.Reader, source string) (*dexpb.FlowConfig, error)
 		}
 		config.StepDurability = &durability
 	}
-	if input.WorkerTarget != nil {
+	if hasWorkerTarget(input.WorkerTarget) {
 		return nil, fmt.Errorf("workerTarget is not supported: Dex routes Flow work to pull Workers")
 	}
 	return config, nil
+}
+
+// hasWorkerTarget treats JSON null like an omitted workerTarget, matching earlier releases.
+func hasWorkerTarget(workerTarget json.RawMessage) bool {
+	return len(workerTarget) > 0 && !bytes.Equal(bytes.TrimSpace(workerTarget), []byte("null"))
 }
 
 func parseActiveStepSearchMode(value string) (dexpb.ActiveStepSearchMode, error) {
