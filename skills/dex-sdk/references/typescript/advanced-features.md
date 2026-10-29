@@ -33,7 +33,7 @@ Use `AsyncContext.recordHeartbeat` with the same codec used by `getLastHeartbeat
 
 Set `StartFlowOptions.configOverride.stepDurability` to `"async"` when most handlers are short. Leave ordinary `StepOptions.waitForDurability` and `executeDurability` unset, then set the applicable method to `"sync"` for known long work. WaitFor and Execute are independent.
 
-StepOptions also owns method timeouts, heartbeat timeout, retries, selected loads, locks, and failure routes. Do not infer durability from a large method timeout. Read [core StepOptions guidance](../core/step-options.md) for the five-second heuristic, regular fallback, shared budget, and child cancellation deadline.
+StepOptions also owns method timeouts, heartbeat timeout, retries, selected loads, locks, and failure routes. Do not infer durability from a large method timeout. Read [core StepOptions guidance](../core/step-options.md) for the replay-risk versus latency trade-off, shared budget, and child cancellation deadline.
 
 ## Timeout handlers
 

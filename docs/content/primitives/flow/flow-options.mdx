@@ -146,7 +146,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 
 With a positive **Timeout**, a Dex SDK uses **FAIL** by default. If the Flow has a timeout handler, it uses **HANDLER** instead. **HANDLER** is invalid when the Flow has no handler.
 
-**TimeoutHandlerOptions** is valid only with a positive **Timeout** and a final **HANDLER** policy. It uses Execute semantics: a method timeout limits each attempt, **Retry** can run multiple attempts, **HeartbeatTimeout** detects stalled regular attempts, and **Failure** can route exhausted retries to a registered no-input Step. The recovery Step receives null or unit input and reads the final error from the handler **Context**.
+**TimeoutHandlerOptions** is valid only with a positive **Timeout** and a final **HANDLER** policy. It uses Execute semantics: a method timeout limits each attempt, **Retry** can run multiple attempts, **HeartbeatTimeout** detects stalled attempts, and **Failure** can route exhausted retries to a registered no-input Step. The recovery Step receives null or unit input and reads the final error from the handler **Context**.
 
 The handler's attempt and retry clocks begin when the soft Flow timeout fires. They may extend past the original Flow deadline. If no failure target is configured, an exhausted handler fails the Flow.
 

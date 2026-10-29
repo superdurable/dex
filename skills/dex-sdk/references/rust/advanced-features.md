@@ -44,7 +44,7 @@ A transition may use `StepMovement::to_with_options` to override the target exec
 
 Set a short-operation default with `StartFlowOptions::new().config_override(FlowConfig::new().step_durability(StepDurability::Async))`. Leave ordinary methods at `StepDurability::Default`, then use `StepOptions::wait_for_durability(StepDurability::Sync)` or `execute_durability(StepDurability::Sync)` for known long work. The phases are independent.
 
-StepOptions also owns method timeouts, heartbeat timeout, retries, selected loads, locks, and failure routes. Do not infer durability from a large method timeout. Read [core StepOptions guidance](../core/step-options.md) for the five-second heuristic, fallback, shared retry budget, and child cancellation deadline.
+StepOptions also owns method timeouts, heartbeat timeout, retries, selected loads, locks, and failure routes. Do not infer durability from a large method timeout. Read [core StepOptions guidance](../core/step-options.md) for the replay-risk versus latency trade-off, shared retry budget, and child cancellation deadline.
 
 ## Waiting for durable acceptance
 

@@ -444,7 +444,7 @@ Attribute 写入这个 store 的表。
 ### 行为 {#attribute-store-behavior}
 
 - 只支持 **type: postgres**。其他 store 类型无法通过校验，因此启动会失败。
-- Step、RPC 和 SetAttributes 的提交从不等待表写入。server-zd 没有七秒的 local 阶段。
+- Step、RPC 和 SetAttributes 的提交从不等待表写入。
 - 行通常在提交后一秒内出现。应把这张表视为最终一致。
 - store 不可用时，Flow 继续运行。store 恢复后，server-zd 用最新的值写入积压的数据。
 - 首次标记后经过 **syncRetryPolicy.totalDuration** 仍未写入的 entry 会被丢弃。之后对同一 Attribute 的写入照常同步。
@@ -688,7 +688,7 @@ matching:
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
-| **matching.dispatchWait** | 10s | 为一次常规 attempt 寻找 Worker 的总时间。 |
+| **matching.dispatchWait** | 10s | 为一次 attempt 寻找 Worker 的总时间。 |
 | **matching.stickyWait** | 5s | 回退到 Flow type 队列之前，尝试已连接 sticky Worker 的时间。不得超过 **dispatchWait**。没有连接上一个 app Worker ID 的 stream 时，server-zd 立即使用 Flow type 队列。 |
 | **matching.maxConcurrentTasksCap** | 256 | 节点上一个 app Worker ID 最多可拥有的 stream 数。 |
 | **matching.maxStreams** | 100000 | 节点上已注册 Worker stream 的上限。 |

@@ -462,7 +462,7 @@ process restarts. The SDK generates one unless you set it explicitly.
 
 Dex waits for an available Worker within the matching dispatch budget. If none
 is available, a Step receives a retryable unavailable error that consumes a
-Step retry. An RPC caller receives an **Unavailable** error directly. The default regular dispatch wait is 10 seconds,
+Step retry. An RPC caller receives an **Unavailable** error directly. The default dispatch wait is 10 seconds,
 including up to 5 seconds for a sticky queue with connected streams. Shorter waits apply to calls
 that need to preserve time for execution. See [Pull Worker dispatch](/production/server-zd-operations#pull-worker-dispatch)
 for the wait settings.
@@ -473,7 +473,7 @@ Flow type queue and excludes that Worker from this dispatch, even if the Flow
 was sticky to it. This reassignment does not consume a Step attempt. If no
 capable Worker accepts within the dispatch wait, the Step follows its failure
 and retry policy with an error that names the Step or RPC. An RPC caller gets
-the named error directly after waiting up to the regular dispatch wait of 10
+the named error directly after waiting up to the dispatch wait of 10
 seconds. This reassignment requires a Dex Server release that supports it.
 Against older Servers, the Worker returns the not-registered error as before.
 
@@ -481,9 +481,6 @@ Delivery is at least once. A call can be assigned again when its Worker
 disconnects before Dex receives any output. Make external side effects
 idempotent, for example by using the Flow ID and Step execution ID as an
 idempotency key.
-
-With a pull Worker, the local phase of **ASYNC** durability lasts one attempt;
-later attempts receive the last heartbeat recorded after that phase.
 
 ## Capacity and shutdown
 
@@ -541,7 +538,7 @@ its CPU-count default is resolved. Invalid values fail Worker construction.
 
 RPC tasks include both API-direct and transactional **InvokeWorkerRPC** tasks.
 RPC and Step handlers count together against the task limit. Every Step task,
-WaitFor and Execute alike, including local (ASYNC first-phase) attempts, is
+WaitFor and Execute alike, is
 declined with **NO_CAPACITY** when the busy count reaches the task limit minus
 the reserve. RPC tasks can use the full limit. For example, a limit of eight
 and a reserve of two lets Steps start only while fewer than six handlers are busy.
@@ -549,8 +546,7 @@ and a reserve of two lets Steps start only while fewer than six handlers are bus
 Dex tries other Workers without consuming a Step attempt. If all Workers remain
 at their Step limit, a Step can wait until the dispatch wait expires, then receive
 **NO_WORKER_AVAILABLE**, consume an attempt, and follow its retry policy, as when
-all Workers are full. A local attempt waits the local dispatch wait and then falls
-back according to its policy.
+all Workers are full.
 Idle streams stay available on every queue. A queue that declines a Step for
 reserved RPC capacity keeps one additional idle stream until 30 seconds after
 its last decline. Other queues keep their configured idle count. The Worker does

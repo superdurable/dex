@@ -61,7 +61,6 @@ Every wait limit comes from the polling Step's Execute options, and the engine e
 - **Method timeout**: the maximum wait. It bounds one attempt; an omitted value uses the two-hour server default.
 - **Retry**: a few attempts with backoff for Worker crashes and transient errors, with a total duration equal to the maximum wait. The total duration is measured from the first attempt's schedule, includes every retry, and also cuts the in-flight attempt. An omitted total duration uses the four-hour server default, so always set it.
 - **Heartbeat timeout**: keep the one-minute default, so a stalled Worker is detected within a minute rather than after the whole attempt timeout.
-- **Durability**: override Execute to SYNC when the Flow default is ASYNC; the ASYNC local phase ignores heartbeat and method timeouts.
 
 When the method timeout or the total duration expires, the engine fails the Step with a timeout. Route Execute failure to a failure-record Step that reads the recovery error (detail and error type) and records the business failure; without an Execute-failure route the Flow fails. The last observed status is visible in the progress Stream and logs, not in the recovery error. To branch on which limit ended the wait, follow [recovery error types](error-handling.md#recovery-error-types); never compare the error type with a fixed string.
 

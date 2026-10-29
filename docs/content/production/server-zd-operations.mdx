@@ -522,8 +522,7 @@ store's tables.
 
 - Only **type: postgres** is supported. Any other store type fails validation,
   so startup fails.
-- Step, RPC, and SetAttributes commits never wait for the table write. server-zd
-  has no seven-second local phase.
+- Step, RPC, and SetAttributes commits never wait for the table write.
 - Rows normally appear within a second of the commit. Treat the table as
   eventually consistent.
 - While a store is unavailable, Flows keep running. When the store recovers,
@@ -807,7 +806,7 @@ matching:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| **matching.dispatchWait** | 10s | Total time to find a Worker for a regular attempt. |
+| **matching.dispatchWait** | 10s | Total time to find a Worker for one attempt. |
 | **matching.stickyWait** | 5s | Time to try a connected sticky Worker before using the Flow type queue. Must not exceed **dispatchWait**. When no stream for the previous app Worker ID is connected, server-zd uses the Flow type queue at once. |
 | **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. |
 | **matching.maxStreams** | 100000 | Most registered Worker streams on the node. |
