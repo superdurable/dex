@@ -11,9 +11,10 @@ default: help
 bins:
 	go build -o dex-samples ./cmd/server
 	go build -o dex-deal-dsl ./cmd/deal-dsl
+	go build -o dex-ai-agent ./cmd/ai-agent
 
 clean:
-	rm -f dex-samples dex-deal-dsl
+	rm -f dex-samples dex-deal-dsl dex-ai-agent
 
 dealDSLDemo:
 	./run-deal-dsl-demo.sh

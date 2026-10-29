@@ -30,6 +30,8 @@ import (
 )
 
 const (
+	// CustomerSummaryConnectionName names the OpenAI connection that both Connector Steps use.
+	CustomerSummaryConnectionName     = "customer-summary"
 	initializeCustomerSummaryStepType = "InitializeCustomerSummary"
 	generateCustomerSummaryStepType   = "GenerateCustomerSummary"
 	validateReconciliationStepType    = "ValidateCustomerSummaryReconciliation"
@@ -85,6 +87,7 @@ func (flow *CustomerSummaryConnectorFlow) GetSteps() []dex.StepDef {
 				Explanation: "Generate a customer summary with streamed model progress.",
 			},
 			Connection:          flow.connection,
+			ConnectionName:      CustomerSummaryConnectionName,
 			MapToOperationInput: mapToGenerateCustomerSummaryInput,
 			Completed:           sdkgo.GoTo(CustomerSummaryCompleted{}),
 			Failed:              sdkgo.GoTo(CustomerSummaryFailed{}),
@@ -106,9 +109,12 @@ func (flow *CustomerSummaryConnectorFlow) GetSteps() []dex.StepDef {
 				Explanation: "Retrieve an uncertain model response without repeating the mutation.",
 			},
 			Connection:          flow.connection,
+			ConnectionName:      CustomerSummaryConnectionName,
 			MapToOperationInput: mapToReconcileCustomerSummaryInput,
 			Found:               sdkgo.GoTo(CustomerSummaryReconciled{}),
-			Failed:              sdkgo.GoTo(CustomerSummaryReconcileFailed{}),
+			NotFound:            sdkgo.GoTo(CustomerSummaryReconcileFailed{}),
+			ProviderRejected:    sdkgo.GoTo(CustomerSummaryReconcileFailed{}),
+			InvalidResponse:     sdkgo.GoTo(CustomerSummaryReconcileFailed{}),
 			Defect:              sdkgo.GoTo(CustomerSummaryReconcileFailed{}),
 			ResultAttribute:     &reconciledCustomerSummary,
 		})),

@@ -1,0 +1,255 @@
+<!--
+Copyright (c) 2022-2026 Super Durable, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dex AI Agent</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+    --accent: #2f6fed; --user: #2f6fed; --user-text: #ffffff; --ok: #1e7f4f; --warn: #a15c00; --bad: #b42318;
+    --warn-bg: #fff6e5; --bad-bg: #fdecea; --ok-bg: #e8f5ee; --info-bg: #eef3fe;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b2029; --text: #e6e9ef; --muted: #98a2b3; --line: #2c3340;
+      --accent: #6b9bff; --user: #3a6fe0; --warn-bg: #3a2c12; --bad-bg: #3b1a17; --ok-bg: #16301f; --info-bg: #1d2a45;
+      --ok: #6fd39d; --warn: #f2b35b; --bad: #ff8a80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;
+    padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 17px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .pill { padding: 2px 10px; border-radius: 999px; font-size: 13px; background: var(--info-bg); color: var(--accent); }
+  .spacer { flex: 1; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
+  main { max-width: 860px; margin: 0 auto; padding: 16px 16px 120px; }
+  .banner { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: var(--bad-bg); color: var(--bad); }
+  .message { margin: 10px 0; display: flex; }
+  .message.user { justify-content: flex-end; }
+  .bubble { max-width: 80%; padding: 8px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .user .bubble { background: var(--user); color: var(--user-text); border-color: var(--user); }
+  .tool { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--line); background: var(--panel); border-radius: 0 8px 8px 0; font-size: 14px; }
+  .tool.done { border-color: var(--ok); } .tool.declined { border-color: var(--muted); }
+  .tool.failed, .tool.outcome_unknown { border-color: var(--bad); }
+  .tool pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.4 ui-monospace, Menlo, monospace; max-height: 9em; overflow: auto; }
+  .call { color: var(--muted); font-size: 13px; margin: 4px 0; }
+  .card { margin: 12px 0; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+  .card.warn { background: var(--warn-bg); border-color: transparent; }
+  .card.bad { background: var(--bad-bg); border-color: transparent; color: var(--bad); }
+  .card.info { background: var(--info-bg); border-color: transparent; }
+  .card h2 { margin: 0 0 6px; font-size: 15px; }
+  .card .actions { margin-top: 10px; display: flex; gap: 8px; }
+  form { position: fixed; bottom: 0; left: 0; right: 0; display: flex; gap: 8px; padding: 12px 16px; background: var(--panel); border-top: 1px solid var(--line); }
+  form input { flex: 1; font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); min-width: 0; }
+  .empty { text-align: center; color: var(--muted); margin-top: 18vh; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Dex AI Agent</h1>
+  <span id="status" class="pill" hidden></span>
+  <span id="meta" class="meta"></span>
+  <span class="spacer"></span>
+  <button id="new-agent" class="primary" type="button">New agent</button>
+</header>
+<main>
+  <div id="banner" class="banner" hidden></div>
+  <div id="conversation"></div>
+</main>
+<form id="composer" hidden>
+  <input id="text" autocomplete="off" placeholder="Message the agent">
+  <button class="primary" type="submit">Send</button>
+</form>
+<script>
+const statusLabels = {
+  waiting_for_user: "Waiting for you", waiting_for_answer: "Waiting for your answer", calling_model: "Calling the model",
+  waiting_for_approval: "Waiting for approval", waiting_for_timer: "Waiting on a timer", executing_tool: "Running a tool",
+};
+const outcomeLabels = { done: "done", declined: "declined", failed: "failed", outcome_unknown: "outcome unknown" };
+let flowId = decodeURIComponent(location.hash.slice(1));
+let lastRendered = "";
+let snapshot = null;
+
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+async function callAPI(method, path, body) {
+  const response = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body && JSON.stringify(body) });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || response.statusText);
+  return payload;
+}
+
+function showBanner(text) {
+  const banner = document.getElementById("banner");
+  banner.hidden = !text;
+  banner.textContent = text || "";
+}
+
+async function refresh() {
+  if (!flowId) { render(null); return; }
+  try {
+    snapshot = await callAPI("GET", "/ai-agent/agents/" + encodeURIComponent(flowId));
+    showBanner("");
+    render(snapshot);
+  } catch (error) {
+    showBanner(error instanceof TypeError
+      ? "The app is unreachable. The conversation is safe in Dex; this page reconnects when the app is back."
+      : error.message);
+  }
+}
+
+function render(current) {
+  const key = JSON.stringify(current) + flowId;
+  if (key === lastRendered) return;
+  lastRendered = key;
+  const conversation = document.getElementById("conversation");
+  const isNearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 80;
+  conversation.replaceChildren();
+  document.getElementById("composer").hidden = !current;
+  document.getElementById("status").hidden = !current;
+  if (!current) {
+    document.getElementById("meta").textContent = "";
+    conversation.append(element("p", "empty", "Start a new agent. With the mock model, try /fetch <url>, /publish <text>, /wait <seconds> or /ask <question>."));
+    return;
+  }
+  document.getElementById("status").textContent = statusLabels[current.status] || current.status;
+  document.getElementById("meta").textContent = flowId + " · model " + current.model;
+  for (const message of current.messages || []) conversation.append(renderMessage(message));
+  conversation.append(...renderPendingWork(current));
+  document.getElementById("text").placeholder = current.pendingQuestion ? "Answer the agent's question" : "Message the agent";
+  if (isNearBottom) window.scrollTo(0, document.body.scrollHeight);
+}
+
+function renderMessage(message) {
+  if (message.role === "tool") {
+    const node = element("div", "tool " + message.outcome);
+    node.append(element("strong", "", message.toolName + " · " + (outcomeLabels[message.outcome] || message.outcome)));
+    node.append(element("pre", "", message.content));
+    return node;
+  }
+  const node = element("div", "message " + message.role);
+  const bubble = element("div", "bubble", message.content || "");
+  for (const call of message.toolCalls || []) bubble.append(element("div", "call", "→ " + call.name + " " + call.arguments));
+  node.append(bubble);
+  return node;
+}
+
+function renderPendingWork(current) {
+  const cards = [];
+  if (current.lastModelFailure) {
+    const failure = current.lastModelFailure;
+    const card = element("div", "card bad");
+    card.append(element("h2", "", failure.isProviderApiError ? "The model provider's API failed" : "The model call did not finish (" + failure.kind + ")"));
+    card.append(element("div", "", failure.detail));
+    card.append(element("div", "meta", "Send another message to try again."));
+    cards.push(card);
+  }
+  if (current.status === "executing_tool" && current.pendingToolCalls && current.pendingToolCalls.length) {
+    cards.push(element("div", "card info", "Running " + current.pendingToolCalls[0].name + "…"));
+  }
+  if (current.pendingApproval) {
+    const call = current.pendingApproval;
+    const card = element("div", "card warn");
+    card.append(element("h2", "", "Approve " + call.name + "?"));
+    card.append(element("pre", "", call.arguments));
+    const actions = element("div", "actions");
+    const approve = element("button", "primary", "Approve");
+    const decline = element("button", "danger", "Decline");
+    approve.onclick = () => decide(call.id, true);
+    decline.onclick = () => decide(call.id, false);
+    actions.append(approve, decline);
+    card.append(actions);
+    cards.push(card);
+  }
+  if (current.pendingTimer) {
+    const card = element("div", "card info");
+    card.append(element("h2", "", "Waiting " + current.pendingTimer.seconds + " seconds on a durable Timer"));
+    const countdown = element("div", "meta countdown");
+    countdown.dataset.firesAt = current.pendingTimer.firesAt;
+    card.append(countdown);
+    cards.push(card);
+  }
+  if (current.pendingQuestion) {
+    const card = element("div", "card warn");
+    card.append(element("h2", "", "The agent asks"));
+    card.append(element("div", "", current.pendingQuestion.question));
+    cards.push(card);
+  }
+  if (current.queuedMessages > 0) {
+    cards.push(element("div", "meta", current.queuedMessages + " message(s) queued until the agent waits for you."));
+  }
+  return cards;
+}
+
+function updateCountdowns() {
+  for (const node of document.querySelectorAll(".countdown")) {
+    const seconds = Math.max(0, Math.round((Date.parse(node.dataset.firesAt) - Date.now()) / 1000));
+    node.textContent = seconds > 0 ? "Fires in " + seconds + "s" : "Fired. The agent continues when a Worker takes the next Step.";
+  }
+}
+
+async function decide(callId, isApproved) {
+  try {
+    await callAPI("POST", "/ai-agent/agents/" + encodeURIComponent(flowId) + "/approvals", { callId, isApproved });
+    await refresh();
+  } catch (error) { showBanner(error.message); }
+}
+
+document.getElementById("new-agent").onclick = async () => {
+  try {
+    const started = await callAPI("POST", "/ai-agent/agents");
+    location.hash = started.flowId;
+  } catch (error) { showBanner(error.message); }
+};
+
+document.getElementById("composer").onsubmit = async (event) => {
+  event.preventDefault();
+  const input = document.getElementById("text");
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    await callAPI("POST", "/ai-agent/agents/" + encodeURIComponent(flowId) + "/messages", { text });
+    input.value = "";
+    await refresh();
+  } catch (error) { showBanner(error.message); }
+};
+
+window.onhashchange = () => { flowId = decodeURIComponent(location.hash.slice(1)); lastRendered = ""; refresh(); };
+refresh();
+setInterval(refresh, 1000);
+setInterval(updateCountdowns, 250);
+</script>
+</body>
+</html>
