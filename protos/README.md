@@ -7,11 +7,12 @@ Protobuf + gRPC interface between Dex SDKs and the Dex server.
 - License: [Sustainable Use License 1.0](LICENSE), with legacy portions
   under their original terms ([`LEGACY_NOTICES.md`](LEGACY_NOTICES.md))
 
-## View Temporal protobuf payloads locally
+## Inspect legacy Go Server history
 
-Dex stores its internal Temporal payloads as binary protobuf. Run the local
-Codec Server to display those payloads as ProtoJSON in Temporal Cloud or a
-local Temporal Web UI:
+The `protos/codec-server` tool decodes known Dex protobuf payloads when
+inspecting legacy Go Server history in Temporal Cloud or a local Temporal
+Web UI. It is a local inspection tool; current Dex execution and semantic
+history do not require it. Start it with:
 
 ```bash
 dexcli codec-server
@@ -284,7 +285,8 @@ They do not expose internal commands or raw storage records.
 
 When a flow closes before a Step method finishes, semantic history emits
 `step_wait_for_pending` or `step_execute_pending`. Its phase reports whether the
-method attempt was scheduled or had started on a Worker.
+method attempt was scheduled or marked Running by the server before dispatch.
+`Started` does not confirm that a Worker received or executed the method.
 
 ## Codegen
 

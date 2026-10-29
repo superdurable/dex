@@ -654,8 +654,7 @@ func TestV2StartFlowUsesDefinitionSchemaAndServerRouting(t *testing.T) {
 			Revision:    "sha256:start",
 		}, nil
 	}, V2HandlerConfig{
-		IsStartFlowWorkerTargetHeadless: true,
-		WorkerHealthChecker:             healthyV2WorkerHealthChecker,
+		WorkerHealthChecker: healthyV2WorkerHealthChecker,
 	})
 	requestBody := `{
 		"flowType":"RefundFlow","flowId":"refund-new","workerTargetPull":true,
@@ -720,13 +719,11 @@ func TestV2StartFlowRejectsBrowserRoutingOverrideAndInvalidInput(t *testing.T) {
 func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 	const addressNotSupported = "workerTargetAddress is not supported"
 	for _, testCase := range []struct {
-		name          string
-		serverEngine  dexpb.ServerEngine
-		workerTarget  string
-		isDefaultPull bool
-		isHeadless    bool
-		wantStatus    int
-		wantError     string
+		name         string
+		serverEngine dexpb.ServerEngine
+		workerTarget string
+		wantStatus   int
+		wantError    string
 	}{
 		{name: "address", workerTarget: `"workerTargetAddress":"worker:9000",`, wantStatus: http.StatusBadRequest, wantError: addressNotSupported},
 		{name: "pull", workerTarget: `"workerTargetPull":true,`, wantStatus: http.StatusOK},
@@ -735,12 +732,6 @@ func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 		{name: "neither", wantStatus: http.StatusOK},
 		{name: "neither on an unspecified engine", serverEngine: dexpb.ServerEngine_SERVER_ENGINE_UNSPECIFIED, wantStatus: http.StatusOK},
 		{name: "explicit false", workerTarget: `"workerTargetPull":false,`, wantStatus: http.StatusBadRequest, wantError: "workerTargetPull must be true"},
-		{name: "default pull", isDefaultPull: true, wantStatus: http.StatusOK},
-		{name: "explicit empty address with pull default", workerTarget: `"workerTargetAddress":"",`, isDefaultPull: true, wantStatus: http.StatusBadRequest, wantError: addressNotSupported},
-		{name: "explicit false with pull default", workerTarget: `"workerTargetPull":false,`, isDefaultPull: true, wantStatus: http.StatusBadRequest, wantError: "workerTargetPull must be true"},
-		{name: "explicit pull with pull default", workerTarget: `"workerTargetPull":true,`, isDefaultPull: true, wantStatus: http.StatusOK},
-		{name: "explicit address with pull default", workerTarget: `"workerTargetAddress":"worker:9000",`, isDefaultPull: true, wantStatus: http.StatusBadRequest, wantError: addressNotSupported},
-		{name: "headless setting has no effect", isHeadless: true, wantStatus: http.StatusOK},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			client := &v2TestClient{serverEngine: testCase.serverEngine}
@@ -751,8 +742,6 @@ func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 			RegisterDynamicV2Handlers(mux, client, func(context.Context) (V2DefinitionSnapshot, error) {
 				return V2DefinitionSnapshot{Definitions: map[string]V2Definition{"RefundFlow": definition}}, nil
 			}, V2HandlerConfig{
-				IsStartFlowWorkerTargetPull:     testCase.isDefaultPull,
-				IsStartFlowWorkerTargetHeadless: testCase.isHeadless,
 				WorkerHealthChecker: func(context.Context, string) error {
 					healthCalls++
 					return nil
@@ -760,7 +749,7 @@ func TestV2StartFlowWorkerTargetSelection(t *testing.T) {
 			})
 			catalog := performV2JSON(t, mux, http.MethodGet, "/api/v2/catalog", "")
 			if catalog.Code != http.StatusOK ||
-				!strings.Contains(catalog.Body.String(), fmt.Sprintf(`"startFlowWorkerTargetPull":%t`, testCase.isDefaultPull)) ||
+				strings.Contains(catalog.Body.String(), `"startFlowWorkerTargetPull"`) ||
 				!strings.Contains(catalog.Body.String(), fmt.Sprintf(`"serverEngine":%q`, serverEngineName(testCase.serverEngine))) {
 				t.Fatalf("catalog = %d %q", catalog.Code, catalog.Body.String())
 			}
@@ -814,7 +803,7 @@ func TestV2StartFlowDefaultsToPullOnServerZD(t *testing.T) {
 			catalog := performV2JSON(t, mux, http.MethodGet, "/api/v2/catalog", "")
 			if catalog.Code != http.StatusOK ||
 				!strings.Contains(catalog.Body.String(), `"serverEngine":"zd"`) ||
-				!strings.Contains(catalog.Body.String(), `"startFlowWorkerTargetPull":false`) {
+				strings.Contains(catalog.Body.String(), `"startFlowWorkerTargetPull"`) {
 				t.Fatalf("catalog = %d %q", catalog.Code, catalog.Body.String())
 			}
 			body := `{"flowType":"RefundFlow","flowId":"new",` + testCase.workerTarget + `"input":{"count":1,"labels":[]}}`

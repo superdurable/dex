@@ -47,8 +47,8 @@ Kubernetes service-link variables such as **DEX_WEB_PORT**.
 | **--tls-ca-file** | **DEX_WEB_TLS_CA_FILE** | Empty; a PEM file added to the system roots. Requires **--tls**. |
 | **--tls-server-name** | **DEX_WEB_TLS_SERVER_NAME** | Empty; overrides the name checked against the server certificate. Requires **--tls**. |
 | **--flow-service-credential-file** | **DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE** | Empty; a file with the bearer token that Dex Web sends to FlowService. |
-| **--start-flow-worker-target-pull** | **DEX_WEB_START_FLOW_WORKER_TARGET_PULL** | **false**; selects a pull target when a start request names no Worker target. server-zd always uses pull. |
-| **--start-flow-worker-target-headless** | **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** | **false**; applies only to address targets, which server-zd cannot dispatch to. |
+
+Legacy Worker routing flags and environment variables remain accepted as deprecated no-ops and print a startup warning when provided. Start Flow always uses pull Workers.
 
 The credential file holds one bearer token. Surrounding whitespace is ignored.
 A missing or empty file fails startup. If the file later becomes empty or
@@ -171,7 +171,7 @@ The Go analyzer derives the schema from the input type of the Step registered wi
 
 The Server reloads the current definition revision and validates the complete input before calling **StartFlow**. It rejects unknown object fields, missing required fields, invalid nulls, type, enum, range, datetime, array, and map errors. The Server selects the start Step type and creates the request ID.
 
-The **POST /api/v2/start** request does not need a Worker target. Dex Web starts the Flow on a pull Worker. **workerTargetPull: true** is accepted. **workerTargetPull: false** without an address returns HTTP 400. Dex Web does not check for a registered pull Worker before starting, because registrations can change before dispatch. See [Run against server-zd](#run-against-server-zd).
+The **POST /api/v2/start** request does not need a Worker target. Dex Web starts the Flow on a pull Worker. **workerTargetPull: true** is accepted. **workerTargetPull: false** returns HTTP 400. Dex Web does not check for a registered pull Worker before starting, because registrations can change before dispatch. See [Run against server-zd](#run-against-server-zd).
 
 ## Worker routing
 
@@ -275,7 +275,7 @@ release stopped gracefully works in every mode.
 dexcli dev --flow-rendering-dir ./build
 ~~~
 
-On server-zd, Start Flow offers only pull Workers, as described in [Start Flow](#start-flow).
+Start Flow uses pull Workers, as described in [Start Flow](#start-flow).
 
 ### Run attempts {#run-attempts}
 

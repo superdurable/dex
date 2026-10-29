@@ -49,8 +49,8 @@ func parseCommandConfig(arguments []string, output io.Writer) (*commandConfig, e
 	flags.IntVar(&cfg.web.Port, "port", web.DefaultPort, "HTTP bind port")
 	flags.StringVar(&cfg.flowServiceAddress, "flow-service-address", "127.0.0.1:8801", "FlowService gRPC target")
 	flags.StringVar(&cfg.web.FlowRenderingDirectory, "flow-rendering-dir", "", "Flow Definition Graph JSON directory")
-	flags.BoolVar(&cfg.web.IsStartFlowWorkerTargetHeadless, "start-flow-worker-target-headless", false, "deprecated: has no effect; Dex Web starts Flows on pull Workers")
-	flags.BoolVar(&cfg.web.IsStartFlowWorkerTargetPull, "start-flow-worker-target-pull", false, "default to pull Worker targets")
+	flags.Bool("start-flow-worker-target-headless", false, "deprecated: has no effect; Dex Web starts Flows on pull Workers")
+	flags.Bool("start-flow-worker-target-pull", false, "deprecated: has no effect; Dex Web starts Flows on pull Workers")
 	flags.BoolVar(&cfg.isTLSEnabled, "tls", false, "enable FlowService TLS")
 	flags.StringVar(&cfg.tlsCAFile, "tls-ca-file", "", "additional PEM CA certificates (requires TLS)")
 	flags.StringVar(&cfg.tlsServerName, "tls-server-name", "", "TLS server name override (requires TLS)")
@@ -66,6 +66,13 @@ func parseCommandConfig(arguments []string, output io.Writer) (*commandConfig, e
 	}
 	if flags.NArg() != 0 {
 		return nil, fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	for _, name := range []string{"start-flow-worker-target-headless", "start-flow-worker-target-pull"} {
+		if isDeprecatedRoutingOptionProvided(arguments, name) {
+			if _, err := fmt.Fprintf(output, "warning: --%s and its environment variable are deprecated and have no effect; Dex Web starts Flows on pull Workers\n", name); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if cfg.shouldPrintVersion {
 		return cfg, nil
@@ -103,4 +110,20 @@ func (defaults *commandEnvironmentDefaults) applyDefault(option *flag.Flag) {
 			defaults.err = fmt.Errorf("%s: %w", environmentName, err)
 		}
 	}
+}
+
+func isDeprecatedRoutingOptionProvided(arguments []string, name string) bool {
+	environmentName := "DEX_WEB_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+	if _, exists := os.LookupEnv(environmentName); exists {
+		return true
+	}
+	for _, argument := range arguments {
+		if argument == "--" {
+			break
+		}
+		if strings.TrimLeft(strings.SplitN(argument, "=", 2)[0], "-") == name {
+			return true
+		}
+	}
+	return false
 }
