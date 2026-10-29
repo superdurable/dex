@@ -121,13 +121,13 @@ RETRY_SNAPSHOT_SERVER_STATEMENT = (
     "docs/content/primitives/step/step-options.mdx",
     "A retry of one **Execute** call reuses the [state snapshot](#selective-state-loading) loaded for its first attempt",
 )
-# Go Server code that holds a method's Attribute locks across its activity retries.
-RETRY_LOCK_SERVER_STATEMENT = (
-    "server/service/interpreter/workflowImpl.go",
-    "lockAttributeKeys := options.GetWaitForLockAttributeKeys()",
-    "lockAttributeKeys := options.GetExecuteLockAttributeKeys()",
-    "persistenceManager.UnlockKeys(lockAttributeKeys)",
+# Go Server functions that hold a method's Attribute locks across its activity retries, as (declaration, method).
+RETRY_LOCK_SERVER_PATH = "server/service/interpreter/workflowImpl.go"
+RETRY_LOCK_SERVER_METHODS = (
+    ("func (i *Interpreter) processStepExecution(", "WaitFor"),
+    ("func (i *Interpreter) invokeExecuteMethod(", "Execute"),
 )
+RETRY_LOCK_UNLOCK = "persistenceManager.UnlockKeys(lockAttributeKeys)"
 # Statements about Server v1.24.0 and SDK v1.23.0 behavior, as (tagged path, needles).
 RELEASE_1_24_STATEMENTS = (
     ("sdk-go/README.md", (
@@ -247,6 +247,37 @@ def rust_function_source(source: str, declaration: str, location: str) -> str:
     fail(f"{location} function `{declaration}` has no matching closing brace")
 
 
+def check_go_server_retry_locks(checkout: Path, tag: str) -> None:
+    """Checks that WaitFor and Execute load their locks before the method activity and unlock only after it returns."""
+    location = f"{tag}:{RETRY_LOCK_SERVER_PATH}"
+    source = git(checkout, "show", f"refs/tags/{tag}:{RETRY_LOCK_SERVER_PATH}")
+    for declaration, method in RETRY_LOCK_SERVER_METHODS:
+        function = go_function_source(source, declaration, location)
+        positions = require_ordered_text(function, location, declaration, (
+            f"lockAttributeKeys := options.Get{method}LockAttributeKeys()",
+            "persistenceManager.LoadSelectedAttributes(",
+            "lockAttributeKeys,",
+            "provider.ExecuteActivity(",
+            f"i.activities.I{method}M,",
+            RETRY_LOCK_UNLOCK,
+        ))
+        if RETRY_LOCK_UNLOCK in function[positions[0] : positions[-1]]:
+            fail(f"{location} function `{declaration}` unlocks {method} Attribute locks before its method activity returns")
+
+
+def require_ordered_text(block: str, location: str, declaration: str, needles: tuple[str, ...]) -> list[int]:
+    """Requires needles in order within one block and returns each needle's start position."""
+    positions = []
+    cursor = 0
+    for needle in needles:
+        position = block.find(needle, cursor)
+        if position < 0:
+            fail(f"{location} function `{declaration}` is missing required text in order: {needle!r}")
+        positions.append(position)
+        cursor = position + len(needle)
+    return positions
+
+
 def require_tagged_rust_function_text(checkout: Path, tag: str, path: str, declaration: str, *needles: str) -> None:
     location = f"{tag}:{path}"
     function = rust_function_source(git(checkout, "show", f"refs/tags/{tag}:{path}"), declaration, location)
@@ -309,12 +340,15 @@ REFERENCE_1_24_STATEMENTS = (
         "From server-zd v0.1.8, Attribute Sync never replaces a pending synced value",
         "server-zd v0.1.10 changes these application-visible behaviors:",
         "From server-zd v0.1.10, time travel returns FAILED_PRECONDITION when rebuilding the target point needs a permission or permission-mapping Attribute value",
+        "Concurrent transactional or locking RPCs to the same Flow run that share a request ID",
         "carry identical payloads run the Worker handler once while their shared in-flight task is active",
+        "Identical request IDs in different Flow runs do not share a task.",
         "as the Go Server already does for WaitFor and Execute",
         "GetFlowState reports a skipped Timer as SKIPPED",
     )),
     ("core/step-options.md", (
-        "On the Go Server, and on server-zd from v0.1.10, a retry of one logical method call reuses the state snapshot",
+        "On the Go Server, a WaitFor or Execute retry reuses the state snapshot loaded for that call's first attempt.",
+        "From server-zd v0.1.10, a WaitFor, Execute, or Flow timeout handler retry does the same.",
         "On the Go Server, WaitFor and Execute retries reuse that snapshot and keep its Attribute locks.",
         "From server-zd v0.1.10, every WaitFor, Execute, and Flow timeout handler retry does the same",
         "On both servers, the Attribute locks stay held through retry backoff",
@@ -1395,7 +1429,7 @@ def main() -> None:
     for statement_path, statement_needles in RELEASE_1_24_STATEMENTS:
         require_tagged_text(arguments.dex_root, server_baseline, statement_path, *statement_needles)
     require_tagged_text(arguments.dex_root, server_baseline, *RETRY_SNAPSHOT_SERVER_STATEMENT)
-    require_tagged_text(arguments.dex_root, server_baseline, *RETRY_LOCK_SERVER_STATEMENT)
+    check_go_server_retry_locks(arguments.dex_root, server_baseline)
     check_server_zd_search_tls(arguments.dex_root, SERVER_ZD_RELEASE, SDK_REFERENCES)
     check_go_server_close_cleanup(arguments.dex_root, server_baseline)
     check_flow_summary_rpc(arguments.dex_root, server_baseline, SERVER_ZD_RELEASE)
