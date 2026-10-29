@@ -5,12 +5,102 @@ sidebar_label: Dex Web
 
 # Dex Web
 
-Dex Web has no end-user authentication. When Dex Server **auth** is enabled,
-Web sends its configured **--flow-service-credential-file** bearer credential to
-FlowService for every request. Anyone who can reach the Web port can act with
-that credential. Protect the Web port with network controls or an
-authenticating proxy. See [server authentication](/production/server-operations#authentication)
-and [Dex Web access control](/production/server-operations#dex-web-access-control).
+Dex Web is the operator UI for Dex. It runs as a separate **dex-web** process that
+connects to a FlowService, such as [server-zd](/production/server-zd-operations).
+For local development, **dexcli dev** starts server-zd and Dex Web together.
+
+## Run dex-web {#run-dex-web}
+
+**dex-web** is a standalone binary with an embedded UI. It serves the UI,
+**/api/**, **/healthz**, and **/readyz**, and it does not start a server.
+
+~~~bash
+dex-web --flow-service-address 127.0.0.1:8801
+~~~
+
+Open [http://127.0.0.1:8802](http://127.0.0.1:8802). The **superdurable/dex-web**
+container image runs the same binary. It binds to **0.0.0.0:8802**, runs as UID
+and GID 65532, and includes the system CA bundle. Each push to the main branch
+publishes **superdurable/dex-web:latest**, and each **web/vX.Y.Z** release
+publishes **superdurable/dex-web:vX.Y.Z**. Mount Flow Definition Graph
+directories and token files read-only, with permissions that let that UID read
+them.
+
+~~~bash
+docker run --rm -p 8802:8802 \
+  -e DEX_WEB_FLOW_SERVICE_ADDRESS=host.docker.internal:8801 \
+  superdurable/dex-web:latest
+~~~
+
+Every setting accepts a flag or an environment variable. A flag overrides its
+environment variable. Settings do not change after startup, except the contents
+of the credential file. Other environment variables are ignored, including
+Kubernetes service-link variables such as **DEX_WEB_PORT**.
+
+| Flag | Environment variable | Default and meaning |
+| --- | --- | --- |
+| **--bind-address** | **DEX_WEB_BIND_ADDRESS** | **127.0.0.1**; the image sets **0.0.0.0**. Pass **0.0.0.0** when remote clients must connect. |
+| **--port** | **DEX_WEB_HTTP_PORT_NUMBER** | **8802**; the HTTP port. |
+| **--flow-service-address** | **DEX_WEB_FLOW_SERVICE_ADDRESS** | **127.0.0.1:8801**; the FlowService gRPC address. |
+| **--flow-rendering-dir** | **DEX_WEB_FLOW_RENDERING_DIRECTORY** | Empty; the Flow Definition Graph JSON directory that enables **v2**. |
+| **--tls** | **DEX_WEB_TLS** | **false**; encrypts and verifies the FlowService connection. |
+| **--tls-ca-file** | **DEX_WEB_TLS_CA_FILE** | Empty; a PEM file added to the system roots. Requires **--tls**. |
+| **--tls-server-name** | **DEX_WEB_TLS_SERVER_NAME** | Empty; overrides the name checked against the server certificate. Requires **--tls**. |
+| **--flow-service-credential-file** | **DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE** | Empty; a file with the bearer token that Dex Web sends to FlowService. |
+| **--start-flow-worker-target-pull** | **DEX_WEB_START_FLOW_WORKER_TARGET_PULL** | **false**; selects a pull target when a start request names no Worker target. server-zd always uses pull. |
+| **--start-flow-worker-target-headless** | **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** | **false**; applies only to address targets, which server-zd cannot dispatch to. |
+
+The credential file holds one bearer token. Surrounding whitespace is ignored.
+A missing or empty file fails startup. If the file later becomes empty or
+unreadable, RPCs fail until it is restored. Dex Web checks the file for a new
+token at most once per second, so an external agent can rotate short-lived
+tokens through it. The token stays in the Dex Web process and never reaches the
+browser. Use **--tls** when you send a credential to a remote FlowService.
+
+~~~bash
+dex-web --flow-service-address dex.example.com:443 --tls \
+  --flow-service-credential-file /var/run/secrets/dex/token
+~~~
+
+**/healthz** reports only that the process is alive. **/readyz** validates the
+current definition snapshot and then calls FlowService **HealthCheck** with the
+configured credential. Use **/readyz** to gate traffic and **/healthz** for
+liveness, so a FlowService outage does not restart Dex Web. On shutdown, Dex Web
+waits up to ten seconds for open HTTP requests.
+
+### Access control {#dex-web-access-control}
+
+Dex Web has no end-user authentication. Anyone who can reach its port acts with
+the configured FlowService credential, and Dex Web can show Flow inputs, outputs,
+Attributes, and Worker stack traces. Place it behind TLS and an
+authentication-enforcing reverse proxy or gateway, and authorize access by role.
+Do not expose Dex Web or FlowService directly to the public Internet. Audit
+access to production Flow details according to your data-handling policy.
+
+### The /api requests {#api-requests}
+
+**POST**, **PUT**, **PATCH**, and **DELETE** requests under **/api/**, including
+Flow search, must send **Content-Type: application/json**. A missing or
+different media type returns HTTP 415. Add the header to **curl** calls that use
+**-d**:
+
+~~~bash
+curl -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8802/api/...
+~~~
+
+Cross-origin browser requests return HTTP 403. Dex Web uses the browser's fetch
+metadata, so a same-origin request works behind a proxy that terminates TLS or
+rewrites the **Host** header. It needs no trusted-origin setting. The proxy must
+pass the **Sec-Fetch-Site** and **Origin** headers through unchanged. For a
+client that sends no fetch metadata, the **Origin** host must equal the request
+**Host**, so configure the proxy to keep the public **Host**. Forwarded headers
+do not override these checks. A client that sends neither **Origin** nor
+**Sec-Fetch-Site**, such as **curl**, is accepted when it sends JSON.
+
+These checks do not stop DNS rebinding. Restrict accepted host names at the
+reverse proxy, and keep direct access to the Dex Web port limited to trusted
+clients. When FlowService fails, the browser sees a generic message and the
+original error goes to the Dex Web log.
 
 Dex Web has two URL prefixes. **v1** is the existing Flows search, run details, and Flow Rendering workspace. **v2** is the operator workspace: a run list and filters on the left, and the Flow Definition Graph on the right.
 
@@ -75,27 +165,21 @@ When you select a run, the stage that holds the waiting Step opens, and the Step
 
 ## Start Flow
 
-The Run workspace shows **Start Flow** when the selected definition contains a generated start schema. The dialog asks for a Flow ID, a Worker target, and the start input. Choose **Worker address** and enter a plaintext gRPC address, or choose **Pull Worker** for a Worker connected to Dex Server. It renders nested objects, arrays, string-key maps, enums, booleans, datetime values, optional fields, and explicit null values. Fixed arrays keep their declared length. Integer values remain decimal text in the browser until serialization, so int64 values keep their exact precision.
-
-For an address target, Dex Web checks the Worker host and port from its backend when the address loses focus and again before starting. An unreachable port shows a warning and blocks the start. An operator can explicitly select **Bypass worker health check** to continue. The check opens a TCP connection and does not invoke a Worker method. A pull target has no address to check, so Dex Web starts without this check.
+The Run workspace shows **Start Flow** when the selected definition contains a generated start schema. The dialog asks for a Flow ID and the start input. The Flow runs on a [pull Worker](/production/pull-workers) that is connected to the server. It renders nested objects, arrays, string-key maps, enums, booleans, datetime values, optional fields, and explicit null values. Fixed arrays keep their declared length. Integer values remain decimal text in the browser until serialization, so int64 values keep their exact precision.
 
 The Go analyzer derives the schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. It supports nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps. A recursive or unsupported input produces a warning and omits the start schema without hiding the rest of the definition.
 
-The Server reloads the current definition revision and validates the complete input before calling **StartFlow**. It rejects unknown object fields, missing required fields, invalid nulls, type, enum, range, datetime, array, and map errors. It repeats the Worker port check for address targets unless the operator selected the bypass. The Server selects the start Step type and creates the request ID. The browser cannot choose headless routing.
+The Server reloads the current definition revision and validates the complete input before calling **StartFlow**. It rejects unknown object fields, missing required fields, invalid nulls, type, enum, range, datetime, array, and map errors. The Server selects the start Step type and creates the request ID.
 
-Set **--start-flow-worker-target-headless** or **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** for address targets entered through this Dex Web instance. The default is false. Set it to true when operators enter Kubernetes headless Service targets.
-
-The **POST /api/v2/start** request accepts **workerTargetAddress** or **workerTargetPull: true**. Sending both returns HTTP 400. If neither is supplied, **--start-flow-worker-target-pull** selects a pull target when true. Its default is false, and an explicit address still works. **workerTargetPull: false** requires an address even when the pull default is enabled. **DEX_WEB_START_FLOW_WORKER_TARGET_PULL** sets the same default through the environment. The dialog initially selects **Pull Worker** when this default is true. Headless routing applies only to address targets, so both settings can be enabled together. Dex Web does not check for a registered pull Worker before starting because registrations can change before dispatch.
-
-server-zd dispatches only to pull Workers. On server-zd, the dialog opens with **Pull Worker** selected and hides **Worker address**. A **POST /api/v2/start** request without either target field selects a pull target there, whatever **--start-flow-worker-target-pull** says. See [Run against server-zd](#run-against-server-zd).
+The **POST /api/v2/start** request does not need a Worker target. Dex Web starts the Flow on a pull Worker. **workerTargetPull: true** is accepted. **workerTargetPull: false** without an address returns HTTP 400. Dex Web does not check for a registered pull Worker before starting, because registrations can change before dispatch. See [Run against server-zd](#run-against-server-zd).
 
 ## Worker routing
 
-Flow detail shows the **Worker target**: a listening address, a headless address, or **Pull**. A pull Flow also shows **Flow type queue**, named after its Flow type, and **Sticky app Worker ID**, the last app Worker recorded as serving the Flow.
+Flow detail shows the **Worker target**, which is **Pull**. It also shows **Flow type queue**, named after its Flow type, and **Sticky app Worker ID**, the last app Worker recorded as serving the Flow.
 
-For pull Flows, active Steps and Step history show routing for **WaitFor** and **Execute**. **Serving app Worker ID** identifies the Worker that served the method. **Queue source** shows the queue that served the task: **Sticky queue** or **Flow type queue**. A Worker may serve a task from the Flow type queue even when its ID matches the **Dispatch sticky app Worker ID**. For older records without queue metadata, Dex infers the source from those IDs. A pending dispatch shows **—** until its queue is known. A failed dispatch may show its queue even if no serving Worker is known.
+Active Steps and Step history show routing for **WaitFor** and **Execute**. **Serving app Worker ID** identifies the Worker that served the method. **Queue source** shows the queue that served the task: **Sticky queue** or **Flow type queue**. A Worker may serve a task from the Flow type queue even when its ID matches the **Dispatch sticky app Worker ID**. For older records without queue metadata, Dex infers the source from those IDs. A pending dispatch shows **—** until its queue is known. A failed dispatch may show its queue even if no serving Worker is known.
 
-A dispatch failure distinguishes no available Worker, an unknown Step type or RPC name that exhausted the dispatch wait, and a Worker disconnect. For new Step failure records, an unknown registration appears as **Unknown Step type: dispatch timed out**. RPC history shows the serving app Worker ID for recorded invocations. Address targets show their address without pull routing fields. Older runs without routing metadata show **—**.
+A dispatch failure distinguishes no available Worker, an unknown Step type or RPC name that exhausted the dispatch wait, and a Worker disconnect. For new Step failure records, an unknown registration appears as **Unknown Step type: dispatch timed out**. RPC history shows the serving app Worker ID for recorded invocations. Older runs without routing metadata show **—**.
 
 ## Search and Summary
 
@@ -147,26 +231,9 @@ The browser condition only controls presentation. Every Action RPC must check th
 
 Work Queue does not add login or enforce authorization. **Working as** selects work; it does not grant the chosen permission. The trusted application boundary remains responsible for authenticating users, mapping roles to permissions, and limiting which permissions it sends. Deploy Dex Web behind that boundary.
 
-## Migrate embedded Web configuration {#migrate-embedded-web}
-
-The legacy **dex-server** no longer serves Dex Web on port 8802. Run **dex-web** separately and replace the old YAML settings with flags or environment variables. Command-line flags override environment variables.
-
-| Old YAML key | dex-web flag | Environment variable |
-| --- | --- | --- |
-| **web.flowServiceTarget** | **--flow-service-address** | **DEX_WEB_FLOW_SERVICE_ADDRESS** |
-| **web.flowServiceCredentialFile** | **--flow-service-credential-file** | **DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE** |
-| **web.bindAddress** | **--bind-address** | **DEX_WEB_BIND_ADDRESS** |
-| **web.port** | **--port** | **DEX_WEB_HTTP_PORT_NUMBER** |
-| **web.flowRenderingDirectory** | **--flow-rendering-dir** | **DEX_WEB_FLOW_RENDERING_DIRECTORY** |
-| **web.startFlowWorkerTargetHeadless** | **--start-flow-worker-target-headless** | **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** |
-| **web.startFlowWorkerTargetPull** | **--start-flow-worker-target-pull** | **DEX_WEB_START_FLOW_WORKER_TARGET_PULL** |
-
-The old embedded Web bound to **0.0.0.0** by default. Standalone **dex-web** defaults to **127.0.0.1**. Pass **--bind-address 0.0.0.0** when remote clients must connect, and protect that listener with your access controls. An empty old **web.flowServiceTarget** used **localhost:&lt;api.port&gt;**; set **--flow-service-address** explicitly if your API uses a port other than 8801.
-
 ## Run against server-zd {#run-against-server-zd}
 
-[server-zd](/production/server-zd-operations) does not serve Dex Web.
-Run standalone **dex-web** and point **--flow-service-address** at the server-zd
+[server-zd](/production/server-zd-operations) does not serve Dex Web. Point **--flow-service-address** at the server-zd
 gRPC address. When server-zd authentication is on, pass **--flow-service-credential-file**
 with a static token or service JWT. Dex Web also supports TLS for the upstream
 connection through **--tls**, **--tls-ca-file**, and **--tls-server-name**.
@@ -177,7 +244,7 @@ dex-web --bind-address 0.0.0.0 --port 8802 \
   --flow-service-credential-file /etc/dex/web-token
 ~~~
 
-For local development, **dexcli dev** starts server-zd and embedded Dex Web.
+For local development, **dexcli dev** starts server-zd and Dex Web.
 **--engine zd** remains accepted for existing scripts. The dexcli release package includes **dex-server-zd**, so a
 Homebrew install of dexcli needs no separate download. To use another
 **dex-server-zd** binary, pass **--zd-binary** or set **DEX_SERVER_ZD_BINARY**.
@@ -205,19 +272,15 @@ directory, because strict mode flushed every write. A directory that an earlier
 release stopped gracefully works in every mode.
 
 ~~~bash
-dexcli dev --engine zd --flow-rendering-dir ./build
+dexcli dev --flow-rendering-dir ./build
 ~~~
 
-Dex Web asks the Server for its engine and reports it as **serverEngine** in
-**GET /api/v2/catalog**. The value is **temporal**, **cadence**, **zd**, or
-**unspecified** when the Server does not report one. On server-zd, Start Flow
-offers only pull Workers, as described in [Start Flow](#start-flow).
+On server-zd, Start Flow offers only pull Workers, as described in [Start Flow](#start-flow).
 
 ### Run attempts {#run-attempts}
 
-On server-zd, time travel keeps the run ID and creates a new run attempt. Run
-attempts are numbered from 1. On the Go Dex Server, time travel creates a new
-run ID instead.
+Time travel keeps the run ID and creates a new run attempt. Run attempts are
+numbered from 1.
 
 The run details page shows a **Run attempt** selector in place of **Run
 chain**. The page opens from a **v1** run or from **Inspect** on **v2**.
@@ -231,15 +294,6 @@ the fork point no longer belong to the current attempt.
 
 **GET /api/flows/history** accepts an optional **runAttempt**. Zero or absent
 selects the current attempt. Each event and **GET /api/flows/summary** report
-**runAttempt**, which is zero on the Go Dex Server. **POST
+**runAttempt**. **POST
 /api/flows/time-travel** accepts an optional **runAttempt** and returns the new
 one.
-
-### Readiness {#readiness}
-
-**/healthz** reports only Web process liveness. **/readyz** validates the
-current definition snapshot and then checks FlowService. On server-zd, it calls
-FlowService **HealthCheck**, because a search can exceed the builtin search
-scan budget. On the Go Dex Server, it runs a one-result **SearchFlows**. That
-Server's **HealthCheck** does not reach Temporal or Cadence. Use **/readyz** to
-gate traffic and **/healthz** for liveness.

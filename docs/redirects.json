@@ -50,5 +50,21 @@
   {
     "from": "/zh-Hans/design-patterns/polling/iteration",
     "to": "/zh-Hans/design-patterns/polling"
+  },
+  {
+    "from": "/production/server-operations",
+    "to": "/production/server-zd-operations"
+  },
+  {
+    "from": "/zh-Hans/production/server-operations",
+    "to": "/zh-Hans/production/server-zd-operations"
+  },
+  {
+    "from": "/production/metrics",
+    "to": "/production/server-zd-operations"
+  },
+  {
+    "from": "/zh-Hans/production/metrics",
+    "to": "/zh-Hans/production/server-zd-operations"
   }
 ]

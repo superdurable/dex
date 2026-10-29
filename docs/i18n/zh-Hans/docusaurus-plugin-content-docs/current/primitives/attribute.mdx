@@ -338,7 +338,7 @@ SDK 默认使用普通 Attribute 的名称作为 index key。应用索引必须�
 | **DOUBLE** | **double1**、**double2**、… |
 | **DATETIME** | **datetime1**、**datetime2**、… |
 
-编号不会增加 namespace 的容量，仍须按目标 Temporal visibility store 的可用槽位分配。修改索引名不会删除旧的 Search Attribute 注册，也不会为已有 Flow execution 回填新索引。示例 schema 的验证使用新建本地 namespace；已有部署的迁移需单独安排。
+修改索引名不会为已有 Flow execution 回填新索引。示例 schema 的验证使用全新的本地 **dexcli dev** 实例；已有部署的迁移需单独安排。
 
 同一个通用 key 在不同 Flow type 中可以有不同业务含义。应用搜索必须限定 **FlowType**。翻页时保持查询不变。Dex Web 已按所选 Flow type 限定搜索范围。将调用方条件放在括号内再与应用范围组合，避免 OR 绕过限制。不要索引敏感数据或 PII。Customer Refund 示例中的 customer-email 是合成数据。
 
@@ -516,7 +516,7 @@ let progress = AttributeMap::new("primitive-attribute-progress")
 
 Hard-delete Attribute 适合保存短期使用的 secret，例如 Flow 只用几次、用完就丢弃的 API key。
 
-无论 value 大小，Dex 都只把 hard-delete Attribute 的 value 存在 Blob Store 中，Flow history 里只保留一个 reference。删除这个 Attribute，或把它设为 null，会永久删除存储的 value。之后，无论是 Dex API 还是 Flow history，都无法再恢复它。
+无论 value 大小，Dex 都只把 hard-delete Attribute 的 value 存在对象存储中，Flow history 里只保留一个 reference。删除这个 Attribute，或把它设为 null，会永久删除存储的 value。之后，无论是 Dex API 还是 Flow history，都无法再恢复它。
 
 从 server-zd v0.1.5 起，Flow run 关闭后、清除前，可以直接调用 FlowService 的 **SetAttributes** API 擦除 hard-delete Attribute。SDK Client 不提供这个 API，请用 **dexcli api call SetAttributes** 或其他 FlowService client 发送。将请求中每个 Attribute 都设为 null。每个 Attribute 必须仍存有 hard-delete value。擦除会永久删除存储的对象，run 仍保持关闭。对已关闭 run 的其他写入会返回 NOT_FOUND。
 
@@ -622,7 +622,7 @@ Hard-delete Attribute 有以下要求：
 
 - 只支持 string 和 object value（包括 bytes），不支持数值和 Boolean 类型。
 - 不能设置 index，也不能同步到 Attribute Store。**WaitForAttributeMatch** 和 Action condition 都不接受它。
-- 需要 Dex Server v1.11.0 或更高版本，并且启用 Blob Store。SDK 不会向更早版本的 Server 写入这个 Attribute；没有启用 Blob Store 的 Server 会拒绝写入。
+- 需要支持 hard-delete Attribute 的 server，例如 server-zd。SDK 不会向更早版本的 server 写入这个 Attribute。
 
 每个 Flow 对每个 Attribute key 只保存一份 value，并在原位置覆盖。需要注意以下影响：
 
@@ -630,10 +630,10 @@ Hard-delete Attribute 有以下要求：
 - 多个 Step 或 RPC 并发写同一个 key 时，最终的 value 不一定是最后提交的那次写入。
 - 如果 Flow ID 已经在运行，Flow start 或 SubFlow start 会失败，但仍然会覆盖正在运行的 Flow 的 value；initial value 为 null 时会删除它。
 - 复用同一个 Flow ID 的 Flow 共用这份存储的 value。
-- 已删除的 value 总是读作不存在，time travel 也不会恢复它。Flow retry 或重新启动的 SubFlow 从原来的 initial value 开始；如果之前的 run 已经删除了这个 value，新的 run 会读到不存在。
+- 已删除的 value 总是读作不存在，time travel 也不会恢复它。重新启动的 SubFlow 从原来的 initial value 开始；如果之前的 run 已经删除了这个 value，新的 run 会读到不存在。
 - 从定义上移除这个 option 后，已存储的 value 会一直保留，直到 Dex 删除这个 Flow。请先用 hard-delete 定义删除 value，再移除 option。
 
-value 会一直保存，直到被删除，或者 Dex 在 retention period 结束后删除这个 Flow。Dex 之外的 Blob Store 备份和 bucket versioning 可能会保留副本。参见 [Blob Store](/production/server-operations#blob-store)。
+value 会一直保存，直到被删除，或者 Dex 在 retention period 结束后删除这个 Flow。Dex 之外的对象存储备份和 bucket versioning 可能会保留副本。参见[对象存储](/production/server-zd-operations#对象存储)。
 
 ## Attribute Sync {#attribute-store-projection}
 
@@ -687,7 +687,7 @@ static DISPLAY_NAME: LazyLock<Attribute<String>> =
 </SdkSnippet>
 </SdkTabs>
 
-首先，在 Dex Server 配置中定义 Attribute Store：
+首先，在一个 YAML 文件中定义 Attribute Store：
 
 ```yaml
 attributeStore:
@@ -698,11 +698,11 @@ attributeStore:
       tableName: public.user_profiles
 ```
 
-同一配置也可以使用 MySQL、Databricks、Snowflake 或 MongoDB。请先创建目标。
+目前只支持 PostgreSQL 作为 Attribute Store。Redis 支持由 [issue 616](https://github.com/superdurable/dex/issues/616) 跟踪。请先创建目标。
 Attribute Sync 会异步写入最新状态，不会自动回填已有 Flow。目标契约、类型映射和
 重试行为请参阅[自定义 Attribute Store 运维](/production/attribute-store)。
 
-使用这个配置启动 Dex Server：
+使用这个文件启动本地 server：
 
 ```bash
 dexcli dev --attribute-store-config ./attribute-store.yaml

@@ -4,13 +4,15 @@ title: Custom Attribute Store
 
 # Custom Attribute Store operations
 
-Custom Attribute Store projects selected Flow Attribute writes into PostgreSQL,
-MySQL, Databricks, Snowflake, or MongoDB. Dex uses asynchronous, latest-state
-writes for one Flow at a time. Delivery is attempted at least once, so every
-destination write is idempotent.
+Custom Attribute Store projects selected Flow Attribute writes into PostgreSQL.
+Dex uses asynchronous, latest-state writes for one Flow at a time. Delivery is
+attempted at least once, so every destination write is idempotent.
 
-Dex never creates, migrates, or backfills a destination. Create the SQL table or
-MongoDB collection before starting Dex.
+PostgreSQL is the only supported Attribute Store. Redis support is tracked in
+[issue 616](https://github.com/superdurable/dex/issues/616).
+
+Dex never creates, migrates, or backfills a destination. Create the SQL table
+before starting the server.
 
 ## Configuration
 
@@ -21,10 +23,6 @@ attributeStore:
       type: postgres
       dsn: postgres://user:password@host/database
       tableName: public.flow_attributes
-    operational:
-      type: mysql
-      dsn: user:password@tcp(host:3306)/database
-      tableName: flow_attributes
     orders:
       type: postgres
       dsn: postgres://user:password@host/database
@@ -35,21 +33,6 @@ attributeStore:
         LineItems:
           tableName: public.order_line_items
           instanceKeyColumn: line_item_id
-    lakehouse:
-      type: databricks
-      dsn: token:secret@workspace:443/sql/1.0/warehouses/warehouse-id
-      tableName: analytics.reporting.flow_attributes
-      flowIdColumn: flow_id
-    warehouse:
-      type: snowflake
-      dsn: user:password@account/analytics/reporting
-      tableName: analytics.reporting.flow_attributes
-      flowIdColumn: flow_id
-    documents:
-      type: mongodb
-      dsn: mongodb://user:password@host:27017
-      databaseName: analytics
-      collectionName: flow_attributes
   schemaSyncInterval: 1m
   syncBatchSize: 100
   syncAttemptTimeout: 30s
@@ -61,45 +44,31 @@ attributeStore:
     totalDuration: 1h
 ```
 
-Every store requires **type** and **dsn**. Dex never logs DSNs. SQL stores also
-require **tableName**. MongoDB instead requires **databaseName** and
-**collectionName**; SQL fields and MongoDB fields cannot be mixed.
-
-PostgreSQL and MySQL accept **table** or **schema.table**. Databricks and
-Snowflake accept **table**, **schema.table**, or
-**catalog-or-database.schema.table**. Missing parts use the connection's current
-catalog or database and schema. Identifiers are parsed and quoted. Attribute
-values always use driver parameters.
+Every store requires **type: postgres**, **tableName**, and a DSN, which is
+**dsn** or an environment variable. server-zd never logs DSNs. **tableName** accepts **table** or **schema.table**.
+Identifiers are parsed and quoted. Attribute values always use driver
+parameters. See
+[Attribute Store sync](/production/server-zd-operations#attribute-store-configuration)
+for every key and its default.
 
 ## Startup contracts
 
-Dex connects, pings, and validates every destination during startup. One failure
-fails startup and closes already-opened clients.
+The server connects, pings, and validates every destination during startup. One
+failure fails startup and closes already-opened clients.
 
-For PostgreSQL and MySQL without **rowKey**, each table must have exactly one
-character-compatible primary key. Dex discovers that key and stores the Flow ID
-in it. This preserves the existing configuration and behavior for these stores.
-With **rowKey**, the primary key must be exactly the columns the template names,
-and each must be a character column.
-
-For Databricks and Snowflake, **flowIdColumn** must name an existing, non-null,
-non-generated string column. Values in that column must be logically unique.
-Dex does not scan for duplicates, create a constraint, or rely on warehouse
-primary-key enforcement. A SQL Warehouse must already be available for a
-Databricks connection.
+Without **rowKey**, each table must have exactly one character-compatible
+primary key. Dex discovers that key and stores the Flow ID in it. With
+**rowKey**, the primary key must be exactly the columns the template names, and
+each must be a character column.
 
 Every other required SQL column must have a default or generated value. This
 allows a partial insert to create a row. Attribute names match the remaining
 columns exactly, or by their snake_case form under **columnNaming**.
 
-For MongoDB, the configured collection must exist. Dex does not create the
-collection, change its validator, or create indexes.
-
 ## Row keys and column naming
 
-PostgreSQL and MySQL stores accept two optional settings. Without them, a store
-behaves as before. Databricks, Snowflake, and MongoDB reject both settings at
-startup.
+A store accepts two optional settings. Without them, it writes each Flow ID to
+its single primary-key column.
 
 **rowKey** splits each Flow ID into primary-key columns. Use it when a business
 ID is part of the Flow ID and you query by that ID, or when several Flow types
@@ -171,24 +140,19 @@ a Flow closes.
 
 A Flow that selects several stores writes each AttributeMap only to the stores
 that declare it. Other stores treat its instances as ordinary Attributes.
-Databricks, Snowflake, and MongoDB reject **attributeMaps** at startup.
 
 ## SQL writes and schema refresh
 
-PostgreSQL and MySQL retain their existing upsert statements. With a **rowKey**,
-the upsert writes every key column and resolves conflicts on the whole primary
-key. Databricks and
-Snowflake execute one parameterized **MERGE** for each batch from one Flow. Dex
-does not combine batches from different Flows and does not maintain a change
-log.
+Each batch from one Flow is one upsert. With a **rowKey**, the upsert writes
+every key column and resolves conflicts on the whole primary key. Dex does not
+combine batches from different Flows and does not maintain a change log.
 
-Each SQL store refreshes independently. The one-minute default receives uniform
+Each store refreshes independently. The one-minute default receives uniform
 90–110% jitter every cycle. A successful metadata query atomically replaces the
 immutable in-memory schema snapshot. A failed query retains the previous
-snapshot and retries after the next interval. MongoDB does not run a schema
-refresh loop.
+snapshot and retries after the next interval.
 
-Adding nullable or defaulted SQL columns is discovered without restarting Dex.
+Adding nullable or defaulted columns is discovered without restarting the server.
 A batch that writes a column missing from the current snapshot, in the store's
 table or an AttributeMap table, refreshes that store's schema before it writes.
 A column that no refresh has found missing refreshes at once; a column that a
@@ -196,7 +160,7 @@ refresh already found missing waits for the periodic refresh. An AttributeMap
 table may store only part of each value, so each field without a column
 triggers at most one refresh per process. Batches that arrive meanwhile wait
 for that refresh. A migration that adds a column
-therefore needs no Dex restart, as long as it completes before the Workers that
+therefore needs no server restart, as long as it completes before the Workers that
 write the column start.
 Removing or changing columns may cause later mutations to be filtered or
 retried, depending on whether local validation or SQL execution detects the
@@ -204,16 +168,16 @@ change.
 
 ### SQL type contract
 
-| Attribute value | PostgreSQL and MySQL | Databricks and Snowflake |
-| --- | --- | --- |
-| string | Character, varchar, or text; declared length is enforced | String, character, varchar, or text; declared length is enforced |
-| int64 | Signed integer or scale-zero numeric; range and precision are enforced | Integer types or scale-zero decimal/number/fixed; range and precision are enforced |
-| double | Floating or numeric | Floating types; finite values only |
-| bool | PostgreSQL boolean; MySQL boolean, tinyint(1), or bit(1) | Boolean |
-| SDK datetime | PostgreSQL timestamp with time zone; MySQL timestamp or datetime | Timestamp types; values are converted to UTC, including timestamps without a time zone |
-| JSON object | JSON or JSONB after validation | VARIANT through the destination's native JSON parser |
-| other object | PostgreSQL bytea or MySQL binary/varbinary/blob | Binary or varbinary |
-| null | Nullable columns only | Nullable columns only |
+| Attribute value | PostgreSQL column |
+| --- | --- |
+| string | Character, varchar, or text; declared length is enforced |
+| int64 | Signed integer or scale-zero numeric; range and precision are enforced |
+| double | Floating or numeric |
+| bool | Boolean |
+| SDK datetime | Timestamp with time zone |
+| JSON object | JSON or JSONB after validation |
+| other object | bytea |
+| null | Nullable columns only |
 
 SDK datetime values may use RFC3339 strings or JSON epoch seconds. Dex rejects
 oversized strings or binary values, out-of-range integers, excess decimal
@@ -224,90 +188,17 @@ that share one column, and nulls for required columns are logged and filtered
 one field at a time. Valid fields in the same batch still
 write. If every field is filtered, the sync batch succeeds without executing SQL.
 
-## MongoDB document contract
-
-Each Flow maps to one document. The document **_id** is the Flow ID, and synced
-Attributes are top-level fields:
-
-```json
-{
-  "_id": "customer-42",
-  "display_name": "Ada",
-  "profile": { "active": true },
-  "score": 17
-}
-```
-
-Dex uses an upsert with a partial field update. Attributes omitted from a batch
-remain unchanged. When one batch contains the same Attribute more than once,
-the last value wins.
-
-Strings, 64-bit integers, finite doubles, booleans, and null use native BSON
-values. JSON recursively becomes BSON documents, arrays, and scalar values;
-integers that fit in 64 bits remain integers. Other encoded objects become BSON
-binary values.
-
-The Attribute name **_id**, names containing a period or NUL, and names beginning
-with a dollar sign are logged and skipped. Other valid fields in the batch still
-write. If every field is invalid, the sync batch succeeds without contacting the
-collection.
-
-## Delivery and shutdown
+## Delivery and retries
 
 Attribute Sync stores latest state, not an event history. A later write may
-repeat after an ambiguous failure. SQL upserts, warehouse merges, and MongoDB
-upserts therefore use the Flow ID as their idempotency key.
+repeat after an ambiguous failure. Upserts therefore use the Flow ID as their
+idempotency key.
 
-A sync batch first runs a short local phase limited to seven seconds. It uses
-the configured backoff intervals and coefficient, but its attempts are bounded
-only by that seven-second window. Regular attempts default to 30 seconds and a
-one-hour total retry budget. Exhaustion skips that batch. Dex does not
-automatically replay old Attributes or backfill a newly configured store.
-
-Filtered writes, missing targets, and retry exhaustion emit error logs.
-
-CancelFlow and FailFlow are cooperative and may wait for active Steps, accepted
-locked or transactional RPCs, and multiple one-hour batch budgets. A canceled
-Flow closes with Canceled status on every backend. On the Temporal backend, new
-locked or transactional RPCs are rejected after terminal finalization begins.
-On the Cadence backend, SetAttributes calls and RPC results accepted during
-cleanup are drained for their Attribute writes; terminal processing does not
-start their next Steps. Terminate and engine timeouts are hard stops and may
-leave external storage behind the Flow's state.
-
-## server-zd {#server-zd}
-
-server-zd v0.1.3 or later also syncs Attributes. It uses the same
-**attributeStore** keys and table contract, with these differences:
-
-- Only **type: postgres** is supported.
-- Step, RPC, and SetAttributes commits never wait for the table write. server-zd
-  has no seven-second local phase.
-- Rows normally appear within a second of the commit. Treat the table as
-  eventually consistent.
-- Flows keep running while a store is unavailable. The backlog is written later
-  with the latest values.
-- Entries still pending **syncRetryPolicy.totalDuration** after they were first
-  marked are dropped. The Go Server measures it per batch instead. Later writes
-  of the same Attributes sync normally.
-- After time travel, the run's synced rows are rewritten with the state after
-  the time travel.
-- Each database needs a fencing table.
-- server-zd v0.1.3 closes a Flow without waiting for its synced Attributes.
-  Rows can land after the Flow completes.
-- server-zd v0.1.4 or later waits, like the Go Server. A Flow that a Step
-  decision, exhausted retries, or its timeout closes stays RUNNING until its
-  pending writes are written or dropped. WaitForFlow returns after the rows are
-  in the table.
-- **syncRetryPolicy.totalDuration** limits how long each pending write is
-  retried, not the whole close. During a PostgreSQL outage a close waits until
-  its pending writes are dropped. Synced writes accepted while the close waits,
-  including those of transactional RPCs admitted before it, extend the wait.
-- **StopFlow** and **Terminate** never wait. **StopFlow** closes the run as soon
-  as it commits. A later **SetAttributes** on that run returns NOT_FOUND. From
-  server-zd v0.1.5, it succeeds only when every write erases a currently stored
-  [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) with
-  null. Write what a Flow needs before stopping it.
+Writes never block a Step, RPC, or SetAttributes commit. Failed writes are
+retried until **syncRetryPolicy.totalDuration**, then dropped with an error log.
+Dex does not automatically replay old Attributes or backfill a newly configured
+store. Filtered writes, missing targets, and retry exhaustion emit error logs.
 
 See [Attribute Store sync](/production/server-zd-operations#attribute-store) in
-the server-zd operation guide.
+the server-zd operation guide for the fencing table, closing behavior,
+retries, and metrics.

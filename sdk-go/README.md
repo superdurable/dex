@@ -81,7 +81,7 @@ and [stable-key lookup layout](../docs/content/design-patterns/hash-partitioned-
 ## Action permission projection
 
 An RPC can declare a state-dependent Action in `GetRPCs`. Dex maintains the
-Temporal KeywordList Search Attribute `DexWorkQueuePermissions`:
+KeywordList Search Attribute `DexWorkQueuePermissions`:
 
 ```go
 func (flow RefundFlow) GetRPCs() []dex.RPCDef {
@@ -121,7 +121,7 @@ Projection-only Attribute locks are not required.
 
 The Server skips an upsert when no permission is added. Once a permission has
 matched, later state changes and empty mappings do not remove it. The set is
-carried across Continue-as-New and remains searchable after completion. An
+kept for the life of the Flow and remains searchable after completion. An
 upgrade preserves permissions that are still stored but does not reconstruct
 permissions removed before the upgrade. A new, independent Flow execution
 starts from its own initial Attributes. A changed Action definition is first
@@ -135,9 +135,7 @@ gateway must authorize the selected RPC against its statically registered
 permission and current state. Search Attribute contents are never proof that a
 caller is authorized or that the Action remains available.
 
-This feature requires the Temporal backend because it uses a KeywordList Search
-Attribute. Cadence rejects runtime Action mappings. Go SDK v0.10.2 requires
-Server protocol 2.
+Go SDK v0.10.2 requires Server protocol 2.
 
 ## Step and timeout-handler state loading
 
@@ -400,8 +398,7 @@ options := dex.StartFlowOptions{
 
 The hook is Execute-only, receives no input, and runs at most once after its
 durable timer fires or is skipped. It may use `Context` normally and return any
-`StepDecision`. Continue-as-new preserves its deadline; retry runs get
-a fresh timeout budget. Zero or nil timeout disables the feature.
+`StepDecision`. The deadline is preserved across Flow state transfers. Zero or nil timeout disables the feature.
 
 Use `dex.None` when a Step, RPC, or Channel has no application payload, and pass
 `nil` at every call site. It rejects accidental values unlike `any` and makes
@@ -437,12 +434,7 @@ Request IDs are optional for both durable waits. When omitted, the server
 derives a stable ID from the Step execution or Attribute condition. Reuse an
 override only for the same wait. `RequestTimeout` is the total SDK call budget
 across transparent transport reattachments. Zero waits indefinitely until the
-caller context is canceled. Temporal permits 10 in-flight Updates and 2,000
-total Updates in History per Workflow Execution. A caller timeout or
-cancellation does not finish an accepted durable wait, so an abandoned handler
-can retain one in-flight slot. Set `InternalHandlerTimeout` only when abandoned
-waits can approach that limit. An active call transparently starts another
-generation, which counts toward the 2,000-Update history limit. Prefer a value
+caller context is canceled. A caller timeout or cancellation does not finish an accepted durable wait. Set `InternalHandlerTimeout` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value
 comfortably longer than normal request timeouts and reconnect gaps. Zero
 disables timed rollover. Request expiry returns `*dex.RequestTimeoutError`.
 
@@ -858,8 +850,8 @@ the FlowService TLS option in a later release.
 
 ## Calling FlowService
 
-Client methods target the current run by sending an empty run ID. This follows
-Continue-as-New automatically. `StartFlow` and `TimeTravel` return run IDs for
+Client methods target the current run by sending an empty run ID. This always
+reaches the Flow's current run. `StartFlow` and `TimeTravel` return run IDs for
 diagnostics, while normal calls need only the flow ID.
 
 `ClientOptions.Credential` and `WorkerOptions.Credential` send a bearer
@@ -1175,7 +1167,7 @@ metadata report `dev`; neither value changes compatibility decisions.
 
 ## Search run inclusion
 
-Dex Server excludes ContinuedAsNew runs by default. Application queries still
+Searches exclude runs with the ContinuedAsNew status by default. server-zd never reports that status. Application queries still
 need `FlowType` when using shared index slots. An explicit inclusion option
 removes only the default exclusion; it does not override query filters. Keep
 the query, inclusion option, and page size consistent across pages.

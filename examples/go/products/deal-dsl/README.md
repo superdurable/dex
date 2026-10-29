@@ -171,7 +171,7 @@ runtime data, and provide the shared condition-message form.
 
 ## Tests
 
-`make e2eTests` runs the same comprehensive flow against real Dex, Temporal,
+`make e2eTests` runs the same comprehensive flow against real Dex (server-zd),
 pull Worker task streams, FlowService, PostgreSQL, REST handlers, and indexed search. That
 path starts Deal DSL PostgreSQL only for these tests, not for the default
 `dex-samples` suite.

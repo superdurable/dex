@@ -25,7 +25,6 @@ from dex import (
     FlowConfig,
     FlowTimeoutPolicy,
     IdReusePolicy,
-    RetryPolicy,
     StartFlowOptions,
     StepDurability,
 )
@@ -44,14 +43,7 @@ def example_start_flow_options() -> StartFlowOptions:
     return StartFlowOptions(
         timeout=timedelta(minutes=30),
         timeout_policy=FlowTimeoutPolicy.HANDLER,
-        start_delay=timedelta(minutes=5),
         id_reuse_policy=IdReusePolicy.DISALLOW,
-        retry_policy=RetryPolicy(
-            initial_interval=timedelta(minutes=1),
-            backoff_coefficient=2,
-            maximum_interval=timedelta(minutes=10),
-            maximum_attempts=3,
-        ),
         config_override=FlowConfig(step_durability=StepDurability.SYNC),
         ignore_already_started=True,
         request_id="start-order-123",

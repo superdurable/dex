@@ -11,11 +11,24 @@ commits every write to object storage before it acknowledges the write. The
 local disk is only a cache. A node rebuilds it from the latest snapshot and the
 command log in object storage.
 
-server-zd serves the same **FlowService** and **WorkerTaskService** API as the
-Go Dex Server, so the SDKs work without changes. It differs from the Go Dex
-Server in a few ways. For example, it supports only
-[pull Workers](/production/pull-workers). This page covers server-zd 0.1. For
-the Go Dex Server, see [Server operation](/production/server-operations).
+server-zd serves the **FlowService** and **WorkerTaskService** API. It supports
+only [pull Workers](/production/pull-workers). Run [Dex Web](/production/dex-web)
+as a separate process; server-zd does not serve it. For local development, run
+**dexcli dev**, which starts server-zd and Dex Web. This page covers server-zd
+0.1.
+
+## Unsupported features
+
+server-zd rejects these options with **INVALID_ARGUMENT**:
+
+- A Flow start delay, which is **flow_start_delay_seconds** greater than zero.
+  Tracked in [issue 995](https://github.com/superdurable/dex/issues/995).
+- A Flow-level retry policy, which is **retry_policy** in the Flow start
+  options. Tracked in [issue 996](https://github.com/superdurable/dex/issues/996).
+  Step-level retry is supported.
+
+The only Attribute Store is PostgreSQL. Redis is tracked in
+[issue 616](https://github.com/superdurable/dex/issues/616).
 
 ## Install and start
 
@@ -495,27 +508,20 @@ From server-zd v0.1.8, a transactional or locking RPC on a closed run returns
 NOT_FOUND with FLOW_NOT_EXISTS before a Worker runs its handler. A retry with an
 already recorded request ID returns its earlier reply. Other RPCs still run
 their handlers on a closed run that is not yet purged, so they can read it.
-server-zd rejects any write that such a handler returns. The Go Server behaves
-the same way: it rejects transactional and locking RPCs on a closed Flow, runs
-other RPC handlers, and rejects only their writes.
+server-zd rejects any write that such a handler returns.
 
 ## Attribute Store sync {#attribute-store}
 
-server-zd v0.1.3 or later can sync Attributes to PostgreSQL. This is the same
-feature as the Go Dex Server's
-[Custom Attribute Store](/production/attribute-store). A Flow marks an Attribute
-with **syncToAttributeStore** and lists a configured store name in its
-**FlowConfig**. server-zd then writes the Attribute to that store's tables.
+server-zd v0.1.3 or later can sync Attributes to PostgreSQL. See
+[Custom Attribute Store](/production/attribute-store) for the table contract. A
+Flow marks an Attribute with **syncToAttributeStore** and lists a configured
+store name in its **FlowConfig**. server-zd then writes the Attribute to that
+store's tables.
 
-The **attributeStore** section uses the Go Server's keys and table contract.
-Create the tables as that page describes. This section covers only what differs
-in server-zd.
+### Behavior {#attribute-store-behavior}
 
-### Differences from the Go Dex Server {#attribute-store-differences}
-
-- Only **type: postgres** is supported. The Go Server's **mysql**,
-  **databricks**, **snowflake**, and **mongodb** stores fail validation, so
-  startup fails. Keep those stores on the Go Server.
+- Only **type: postgres** is supported. Any other store type fails validation,
+  so startup fails.
 - Step, RPC, and SetAttributes commits never wait for the table write. server-zd
   has no seven-second local phase.
 - Rows normally appear within a second of the commit. Treat the table as
@@ -523,21 +529,20 @@ in server-zd.
 - While a store is unavailable, Flows keep running. When the store recovers,
   server-zd writes the backlog with the latest values.
 - Entries still pending **syncRetryPolicy.totalDuration** after they were first
-  marked are dropped. The Go Server instead gives each batch its own
-  **totalDuration** from its first attempt, and its batches wait in turn. Later
-  writes of the same Attributes sync normally.
+  marked are dropped. Later writes of the same Attributes sync normally.
 - After [time travel](/primitives/client/advanced#time-travel), server-zd
-  rewrites every row the run synced with the state after the time travel. The Go
-  Server does not rewrite them.
-- Each database needs a [fencing table](#attribute-store-fencing-table). The Go
-  Server needs none.
+  rewrites every row the run synced with the state after the time travel.
+- Each database needs a [fencing table](#attribute-store-fencing-table).
 - server-zd v0.1.3 closes a Flow without waiting for its synced Attributes.
   Rows can land after the Flow completes.
-- server-zd v0.1.4 or later waits, like the Go Server. A Step decision that
+- server-zd v0.1.4 or later waits. A Step decision that
   completes or fails the Flow, exhausted Step retries, or the Flow timeout stops
   the Steps at once. The run then stays RUNNING until every pending write is
-  written or dropped. WaitForFlow returns only then, so the rows are already in
-  the table.
+  written or dropped. WaitForFlow returns only then. Entries written before
+  the wait ended are in the table. A dropped entry does not guarantee the row's
+  value, because earlier writes of the same run may have committed. If
+  **dexzd_attribute_sync_dropped_entries_total** increases, compare the affected
+  rows with the Flow's Attributes and write the Attributes again.
 - While a close waits, SetAttributes, PublishToChannel, and RPCs that are
   neither transactional nor locking are accepted. Their synced writes extend
   the wait, and they start no Step.
@@ -559,9 +564,7 @@ in server-zd.
   [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) with
   null. This exception applies only before the run is purged. It deletes the
   stored objects without reopening the run. The run's Flow history records the
-  erase after the close. The Go Server accepts writes while a canceled or
-  failed run winds down. It rejects every write after the run closes. Write what
-  a Flow needs before stopping it.
+  erase after the close. Write what a Flow needs before stopping it.
 - Pending writes for a store that is no longer configured are dropped at once
   and counted in **dexzd_attribute_sync_dropped_entries_total**.
 
@@ -592,8 +595,8 @@ attributeStore:
     totalDuration: 1h
 ~~~
 
-The keys and defaults match the Go Server. As in the Go Server, an explicit zero
-for a duration, **syncBatchSize**, or a retry policy field means its default.
+An explicit zero for a duration, **syncBatchSize**, or a retry policy field
+means its default.
 The
 [example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
 shows the section with comments.
@@ -604,8 +607,7 @@ shows the section with comments.
 | **stores.NAME.type** | None | Must be **postgres**. |
 | **stores.NAME.dsn** | Empty | PostgreSQL connection string. When it is empty, server-zd reads an environment variable instead. Logs redact it. |
 | **stores.NAME.tableName** | None | Main table, as **table** or **schema.table**. |
-| **stores.NAME.rowKey**, **columnNaming**, and **attributeMaps** | Empty | Same as the Go Server. |
-| **stores.NAME.flowIdColumn**, **databaseName**, and **collectionName** | Empty | Must stay empty. Only Go warehouse and MongoDB stores use them. |
+| **stores.NAME.rowKey**, **columnNaming**, and **attributeMaps** | Empty | See [Custom Attribute Store](/production/attribute-store). |
 | **stores.NAME.fencingTableName** | **dexzd_attribute_sync_fencing** | Exists only in server-zd. See [Fencing table](#attribute-store-fencing-table). |
 | **schemaSyncInterval** | 1m | Time between table schema refreshes, with 90–110% jitter. A write to an unknown column refreshes the schema at once. |
 | **syncBatchSize** | 100 | Most Attributes and AttributeMap instances of one run that one transaction writes. A run with more pending values uses several transactions. |
@@ -672,7 +674,7 @@ at most 2.5 seconds. With a 60-second lease, it lasts at most 15 seconds.
 ### Retries and dropped entries {#attribute-store-retries}
 
 Failed writes are retried with the **syncRetryPolicy** backoff until
-**totalDuration**, like the Go Server. The failure decides what backs off:
+**totalDuration**. The failure decides what backs off:
 
 - **Store.** A connection failure, or another failure of the whole store, backs
   off every run of that store.
@@ -722,7 +724,7 @@ dexzd_attribute_sync_oldest_pending_age_seconds > 300
 
 **dex-server-zd dev** runs one local node with embedded object storage. Its
 **--attribute-store-config** flag reads only the **attributeStore** section of a
-Go Server configuration file. That section must define at least one store. The
+YAML file. That section must define at least one store. The
 **--config** overrides file must not also set **attributeStore**.
 
 ~~~bash
@@ -730,10 +732,8 @@ dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-stor
 ~~~
 
 The database still needs its tables and the fencing table.
-**dexcli dev --engine zd --attribute-store-config** passes the file to this
-flag. It needs dexcli v1.19.0 or later. The Go Server rejects
-**fencingTableName**, so a file it also loads must use the default fencing table
-name.
+**dexcli dev --attribute-store-config** passes the file to this
+flag. It needs dexcli v1.19.0 or later.
 
 ## Metrics {#metrics}
 
@@ -787,6 +787,53 @@ The full catalog, with types, histogram buckets, and Linux process metrics, is
 in the
 [server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/README.md#metrics).
 
+## Pull Worker dispatch {#pull-worker-dispatch}
+
+For Worker setup and capacity planning, see [Pull Workers](/production/pull-workers).
+server-zd runs as one node, so it owns every Worker queue itself. Workers and
+Clients connect to **api.listen**, which is **0.0.0.0:8801** by default.
+
+~~~yaml
+matching:
+  dispatchWait: 10s
+  stickyWait: 5s
+  maxConcurrentTasksCap: 256
+  maxStreams: 100000
+  maxQueueLength: 256
+  maxFlowTypes: 256
+  maxFlowTypeLength: 256
+  pingInterval: 20s
+~~~
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **matching.dispatchWait** | 10s | Total time to find a Worker for a regular attempt. |
+| **matching.stickyWait** | 5s | Time to try a connected sticky Worker before using the Flow type queue. Must not exceed **dispatchWait**. When no stream for the previous app Worker ID is connected, server-zd uses the Flow type queue at once. |
+| **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. |
+| **matching.maxStreams** | 100000 | Most registered Worker streams on the node. |
+| **matching.maxQueueLength** | 256 | Longest queue name, in characters. |
+| **matching.maxFlowTypes** | 256 | Most Flow types in one Worker registration. |
+| **matching.maxFlowTypeLength** | 256 | Longest registered Flow type, in characters. |
+| **matching.pingInterval** | 20s | Interval between **Ping** frames on idle Worker streams. |
+
+If no Worker is available within **dispatchWait**, a Step receives a retryable
+unavailable error that consumes a Step retry. An RPC caller receives an
+**Unavailable** error directly.
+
+Current SDKs send upstream **Pong** frames every 20 seconds while a task runs.
+Configure load balancers and proxies for long-lived HTTP/2 streams, and set
+their idle timeouts above both 20 seconds and **matching.pingInterval**, with
+margin for network delays. Workers that use older SDKs need idle timeouts above
+the longest task duration. Preserve bidirectional streaming through the public
+endpoint.
+
+## Streams {#streams}
+
+Set **streamStore.backend** to **disabled** (default) or **memory** to control
+best-effort [Streams](/primitives/stream). Memory Streams live in the server
+process and start empty after a restart. While the backend is disabled, a Stream
+write is dropped without failing the Step.
+
 ## Authentication
 
 Public API authentication is off by default. Configure **auth.authenticators**
@@ -806,9 +853,7 @@ auth:
       file: /etc/dex-server-zd/tokens.yaml
 ~~~
 
-The section uses the Go Dex Server's **auth** keys, so an existing Go Server
-section loads unchanged. **allowInsecureJWKSURL** exists only in server-zd. It
-allows a plain HTTP **jwksURL** on a trusted network. An empty **jwksURL**
+**allowInsecureJWKSURL** allows a plain HTTP **jwksURL** on a trusted network. An empty **jwksURL**
 discovers the key set through the issuer's OpenID configuration. **caFile** adds
 a PEM bundle to the system roots.
 
@@ -830,6 +875,25 @@ credential when it reconnects.
 **api.listen** serves plaintext gRPC, so bearer credentials cross the network in
 clear text. Terminate TLS in front of the server, or restrict the network to
 trusted callers.
+
+## Server and SDK protocol compatibility
+
+server-zd and each SDK release declare inclusive protocol intervals. A Worker
+can start when those intervals overlap. It negotiates the highest common
+protocol, then synchronizes Attribute indexes, then binds WorkerTaskService. The
+server and SDK artifact versions are diagnostic and do not decide compatibility.
+
+A new SDK can use an older server when it retains the older protocol, and a new
+server can use an older SDK while their intervals still overlap. A breaking
+server release raises its minimum protocol. Stop old Workers and their traffic
+before that server upgrade, then restart traffic. Alternatively, use isolated
+blue and green environments so deployments with disjoint intervals never
+communicate. Running Workers do not renegotiate after a server upgrade, so stop
+them explicitly before a breaking change.
+
+Protocol compatibility covers the Worker-to-server API only. It does not
+replace the compatibility rules for open Flows, including Flow type names, Step
+graphs, and persisted payloads.
 
 ## Backup and restore
 
@@ -855,30 +919,3 @@ To restore:
    restored prefix.
 
 Writes acknowledged after the restore point are lost.
-
-## Configuration mapping from the Go Dex Server {#configuration-mapping}
-
-server-zd rejects unknown keys, so a Go Server configuration file does not load
-as is. Copy only the keys in this table. The **auth** section is the exception:
-it loads unchanged.
-
-| Go Dex Server | server-zd | Notes |
-| --- | --- | --- |
-| **api.port** | **api.listen** | A full bind address. The default is **0.0.0.0:8801**. |
-| **api.maxWaitSeconds** and **api.grpcMaxMessageBytes** | Same keys | Same meaning and defaults: 60 seconds and 32 MiB. server-zd rejects a zero **maxWaitSeconds**, which the Go Server treats as the default. |
-| Temporal-specific **api** keys, such as **api.useTemporalSynchronousUpdateForAllRPCs** | None | Remove them. |
-| **auth.authenticators** | Same keys | Loads unchanged. **allowInsecureJWKSURL** exists only in server-zd. |
-| **matching.dispatchWait**, **stickyWait**, **maxConcurrentTasksCap**, **maxStreams**, **maxQueueLength**, **maxFlowTypes**, **maxFlowTypeLength**, and **pingInterval** | Same keys | Same defaults. |
-| **matching.localDispatchWait**, **localStickyWait**, and **localExecutionReserve** | None | Remove them. |
-| **streamStore** | **streamStore** | **backend** is **disabled** (default) or **memory**. There is no **redis** backend. Remove **redisURL**, **trimLeaseTTL**, and **trimLeaseRetry**. Memory Streams live in the process and start empty after a restart. |
-| Temporal or Cadence namespace retention and **blobStore.historyRetentionInDays** | **retention.closedFlowDuration** | A duration, such as **7days**, instead of whole days. It applies to runs that start after the change. |
-| **interpreter.temporal.prometheus.listenAddress** | **metrics.listen** | Metric names differ. See [Metrics](#metrics). |
-| **log** | **RUST_LOG** environment variable | Logs go to standard error. The default level is **info**. |
-| No key; **SearchFlows** uses Temporal or Cadence visibility | **search.backend** | **builtin** (default) or **paradedb**. |
-| No key | **search.paradeDbConnectionString** | PostgreSQL URL or keyword string for ParadeDB search. Supports **sslmode** (disable, allow, prefer, require, verify-ca, verify-full), **sslrootcert** (PEM file or system roots), **sslsni** (0 or 1), **sslnegotiation** (postgres or direct), and **connect_timeout** in seconds. Direct TLS requires PostgreSQL 17 or later. **sslmode=require** without **sslrootcert** encrypts the connection but does not verify the server certificate. With a PEM file in **sslrootcert**, **require** verifies the certificate chain against that file, but not the host name. **sslmode=verify-ca** verifies the chain against the PEM file in **sslrootcert**, or against the system roots when **sslrootcert** is absent. It never verifies the host name. **sslmode=verify-full** verifies the chain and the host name, against the PEM file in **sslrootcert** or against the system roots when **sslrootcert** is absent. **sslrootcert=system** uses the system roots and forces verify-full, whatever **sslmode** says. Without **sslnegotiation=direct**, **prefer** and **allow** do not verify the certificate, even with a PEM file in **sslrootcert**. **sslmode=allow** with **sslnegotiation=direct** is invalid. Without TLS parameters, the connection remains plaintext for compatibility with existing deployments. Explicit **sslmode=prefer** now attempts TLS without certificate verification; previously it remained plaintext. With **sslnegotiation=direct**, **sslmode=prefer** or a missing **sslmode** becomes **require**, and the **require** rules above apply, so TLS is mandatory and there is no plaintext fallback. |
-| **blobStore** | None | server-zd keeps every value under its object storage prefix. Hard-delete values can use **objectStore.hardDeleteStore**. |
-| **attributeStore** | **attributeStore** | Same keys, in server-zd v0.1.3 or later. Only **type: postgres** is supported. **flowIdColumn**, **databaseName**, and **collectionName** must stay empty. **fencingTableName** exists only in server-zd, and each database needs a fencing table. See [Attribute Store sync](#attribute-store). |
-| **interpreter** | None | server-zd uses no Temporal or Cadence backend. |
-| **membership** and **internal** | None | A cluster runs one node and has no internal listener. |
-| **web** | None | server-zd does not serve Dex Web. Run standalone **dex-web** and point **--flow-service-address** at server-zd. See [Run against server-zd](/production/dex-web#run-against-server-zd). |
-| **worker** | None | server-zd supports only pull Workers. |

@@ -4,11 +4,13 @@ title: 自定义 Attribute Store
 
 # 自定义 Attribute Store 运维
 
-自定义 Attribute Store 会把选定的 Flow Attribute 写入 PostgreSQL、MySQL、
-Databricks、Snowflake 或 MongoDB。Dex 以异步方式逐个 Flow 写入最新状态，
-并采用至少一次尝试语义，因此每种目标写入都具有幂等性。
+自定义 Attribute Store 会把选定的 Flow Attribute 写入 PostgreSQL。Dex 以异步方式逐个
+Flow 写入最新状态，并采用至少一次尝试语义，因此每种目标写入都具有幂等性。
 
-Dex 不会创建、迁移或回填目标。请在启动 Dex 前创建 SQL 表或 MongoDB collection。
+目前只支持 PostgreSQL 作为 Attribute Store。Redis 支持由
+[issue 616](https://github.com/superdurable/dex/issues/616) 跟踪。
+
+Dex 不会创建、迁移或回填目标。请在启动 server 前创建 SQL 表。
 
 ## 配置
 
@@ -19,10 +21,6 @@ attributeStore:
       type: postgres
       dsn: postgres://user:password@host/database
       tableName: public.flow_attributes
-    operational:
-      type: mysql
-      dsn: user:password@tcp(host:3306)/database
-      tableName: flow_attributes
     orders:
       type: postgres
       dsn: postgres://user:password@host/database
@@ -33,21 +31,6 @@ attributeStore:
         LineItems:
           tableName: public.order_line_items
           instanceKeyColumn: line_item_id
-    lakehouse:
-      type: databricks
-      dsn: token:secret@workspace:443/sql/1.0/warehouses/warehouse-id
-      tableName: analytics.reporting.flow_attributes
-      flowIdColumn: flow_id
-    warehouse:
-      type: snowflake
-      dsn: user:password@account/analytics/reporting
-      tableName: analytics.reporting.flow_attributes
-      flowIdColumn: flow_id
-    documents:
-      type: mongodb
-      dsn: mongodb://user:password@host:27017
-      databaseName: analytics
-      collectionName: flow_attributes
   schemaSyncInterval: 1m
   syncBatchSize: 100
   syncAttemptTimeout: 30s
@@ -59,40 +42,27 @@ attributeStore:
     totalDuration: 1h
 ```
 
-每个 store 都必须配置 **type** 和 **dsn**。Dex 绝不会记录 DSN。SQL store 还必须
-配置 **tableName**。MongoDB 则必须配置 **databaseName** 和 **collectionName**；
-SQL 字段与 MongoDB 字段不能混用。
-
-PostgreSQL 和 MySQL 接受 **table** 或 **schema.table**。Databricks 和 Snowflake
-接受 **table**、**schema.table** 或 **catalog-or-database.schema.table**。省略的部分
-使用连接当前的 catalog 或 database 与 schema。Dex 会解析并引用标识符，Attribute
-value 始终通过 driver 参数传递。
+每个 store 都必须配置 **type: postgres**、**tableName** 和 DSN（**dsn** 或环境变量）。
+server-zd 绝不会记录 DSN。**tableName** 接受 **table** 或 **schema.table**。Dex 会解析并引用
+标识符，Attribute value 始终通过 driver 参数传递。每个键及其默认值见
+[Attribute Store 同步](/production/server-zd-operations#attribute-store-configuration)。
 
 ## 启动契约
 
-Dex 在启动时连接、ping 并验证每个目标。任一目标失败都会导致启动失败，并关闭已经
+server 在启动时连接、ping 并验证每个目标。任一目标失败都会导致启动失败，并关闭已经
 打开的 client。
 
-对于未配置 **rowKey** 的 PostgreSQL 和 MySQL，每张表必须只有一个可存储字符串的
-primary key。Dex 会发现该 key，并把 Flow ID 写入其中。这两类 store 的现有配置和行为
-保持不变。配置了 **rowKey** 时，primary key 必须正好是模板命名的那些列，并且每一列
-都必须是字符串列。
-
-对于 Databricks 和 Snowflake，**flowIdColumn** 必须指向已有、非空、非 generated
-的字符串列。该列的值必须在逻辑上唯一。Dex 不会扫描重复值、创建约束，也不依赖
-warehouse 强制执行 primary key。Databricks 连接必须已有可用的 SQL Warehouse。
+未配置 **rowKey** 时，每张表必须只有一个可存储字符串的 primary key。Dex 会发现该 key，
+并把 Flow ID 写入其中。配置了 **rowKey** 时，primary key 必须正好是模板命名的那些列，
+并且每一列都必须是字符串列。
 
 其他必填 SQL 列都必须有 default 或 generated value，这样 partial insert 才能创建
 新行。Attribute name 精确匹配其余的列；配置 **columnNaming** 时按其 snake_case 形式
 匹配。
 
-对于 MongoDB，配置的 collection 必须已经存在。Dex 不会创建 collection、修改
-validator 或创建 index。
-
 ## Row key 与列名规则
 
-PostgreSQL 和 MySQL store 接受两个可选配置。不配置时，store 的行为与以前相同。
-Databricks、Snowflake 和 MongoDB 配置了它们时，启动失败。
+store 接受两个可选配置。不配置时，store 把每个 Flow ID 写入唯一的 primary key 列。
 
 **rowKey** 把每个 Flow ID 拆成 primary key 的各列。业务 ID 是 Flow ID 的一部分、
 需要按它查询时，或者多个 Flow type 描述同一个实体时使用它。模板由固定文字和占位符
@@ -151,40 +121,37 @@ schema refresh 时检查实例表，和 store 自己的表一样。
 重试预算用完。Flow 结束时，Dex 不会删除任何行。
 
 选择了多个 store 的 Flow，只把每个 AttributeMap 写入声明了它的 store。其他 store
-把它的实例当作普通 Attribute。Databricks、Snowflake 和 MongoDB 配置了
-**attributeMaps** 时，启动失败。
+把它的实例当作普通 Attribute。
 
 ## SQL 写入与 schema refresh
 
-PostgreSQL 和 MySQL 保留现有 upsert 语句。配置了 **rowKey** 时，upsert 写入每个
-key 列，并按整个 primary key 处理冲突。Databricks 和 Snowflake 对来自单个 Flow
-的每个 batch 执行一次参数化 **MERGE**。Dex 不会合并不同 Flow 的 batch，也不维护
-change log。
+来自单个 Flow 的每个 batch 是一次 upsert。配置了 **rowKey** 时，upsert 写入每个 key 列，
+并按整个 primary key 处理冲突。Dex 不会合并不同 Flow 的 batch，也不维护 change log。
 
-每个 SQL store 独立 refresh。默认一分钟间隔的每轮会加入均匀的 90–110% jitter。
+每个 store 独立 refresh。默认一分钟间隔的每轮会加入均匀的 90–110% jitter。
 metadata 查询成功后会原子替换内存中的 immutable schema snapshot；查询失败时继续
-使用旧 snapshot，并在下个间隔后重试。MongoDB 不运行 schema refresh loop。
+使用旧 snapshot，并在下个间隔后重试。
 
-新增 nullable 或有 default 的 SQL 列无需重启 Dex 即可被发现。一个 batch 要写的列
+新增 nullable 或有 default 的列无需重启 server 即可被发现。一个 batch 要写的列
 不在当前 snapshot 里时（store 的表或 AttributeMap 表），它会先刷新这个 store 的
 schema 再写。还没有被任何一次刷新确认缺失的列，立即刷新；已被确认缺失的列，等周期刷新再检查。
 AttributeMap 表可以只存每个值的一部分，所以每个没有对应列的字段在一个进程里最多触发
 一次刷新。同时到达的 batch 会等这次刷新完成。因此，只要迁移在写这一列的
-Worker 启动之前完成，新增列就不需要重启 Dex。删除或修改列后，
+Worker 启动之前完成，新增列就不需要重启 server。删除或修改列后，
 后续 mutation 可能在本地验证时被过滤，也可能在 SQL 执行失败后重试。
 
 ### SQL 类型契约
 
-| Attribute value | PostgreSQL 与 MySQL | Databricks 与 Snowflake |
-| --- | --- | --- |
-| string | Character、varchar 或 text；检查声明长度 | String、character、varchar 或 text；检查声明长度 |
-| int64 | 有符号整数或 scale 为零的 numeric；检查范围和精度 | 整数类型或 scale 为零的 decimal/number/fixed；检查范围和精度 |
-| double | 浮点或 numeric | 浮点类型；只能写入有限值 |
-| bool | PostgreSQL boolean；MySQL boolean、tinyint(1) 或 bit(1) | Boolean |
-| SDK datetime | PostgreSQL timestamp with time zone；MySQL timestamp 或 datetime | Timestamp 类型；包括无时区 timestamp 在内都转换为 UTC |
-| JSON object | 验证后的 JSON 或 JSONB | 通过目标原生 JSON parser 写入 VARIANT |
-| 其他 object | PostgreSQL bytea 或 MySQL binary/varbinary/blob | Binary 或 varbinary |
-| null | 仅 nullable 列 | 仅 nullable 列 |
+| Attribute value | PostgreSQL 列 |
+| --- | --- |
+| string | Character、varchar 或 text；检查声明长度 |
+| int64 | 有符号整数或 scale 为零的 numeric；检查范围和精度 |
+| double | 浮点或 numeric |
+| bool | Boolean |
+| SDK datetime | Timestamp with time zone |
+| JSON object | 验证后的 JSON 或 JSONB |
+| 其他 object | bytea |
+| null | 仅 nullable 列 |
 
 SDK datetime 可以使用 RFC3339 string 或 JSON epoch seconds。Dex 会拒绝过长的 string
 或 binary、越界 integer、超过 decimal precision 的值、非有限浮点值和非法 JSON。
@@ -194,74 +161,15 @@ name，以及对必填列写入 null，都会逐字段记录并过滤。
 同一 batch 中的有效字段仍会写入。如果所有字段都被过滤，sync batch 成功结束且不执行
 SQL。
 
-## MongoDB document 契约
-
-每个 Flow 对应一个 document。document 的 **_id** 是 Flow ID，同步的 Attribute
-作为顶层字段：
-
-```json
-{
-  "_id": "customer-42",
-  "display_name": "Ada",
-  "profile": { "active": true },
-  "score": 17
-}
-```
-
-Dex 通过 upsert 执行 partial field update。batch 中未出现的 Attribute 保持不变。
-同一 batch 中多次出现同名 Attribute 时，最后一个值生效。
-
-String、64-bit integer、有限 double、boolean 和 null 使用原生 BSON value。JSON 会
-递归转换为 BSON document、array 和 scalar；能够用 64-bit integer 表示的整数仍保持
-整数。其他 encoded object 保存为 BSON binary。
-
-Attribute name **_id**、包含句点或 NUL 的 name，以及以美元符号开头的 name 会被
-记录并跳过。batch 中其他有效字段仍会写入。如果所有字段都无效，sync batch 成功结束且
-不会访问 collection。
-
-## 交付与关闭
+## 交付与重试
 
 Attribute Sync 保存最新状态，而不是 event history。发生不确定失败后，后续写入可能
-重复。因此 SQL upsert、warehouse merge 和 MongoDB upsert 都使用 Flow ID 作为幂等 key。
+重复。因此 upsert 使用 Flow ID 作为幂等 key。
 
-Sync batch 先执行一个最多七秒的短暂 local 阶段。它使用配置的 backoff interval 和
-coefficient，但 attempt 只受七秒总窗口限制。Regular attempt 的单次 attempt 默认最多 30 秒，总重试
-预算默认一小时。预算耗尽后会跳过该 batch。Dex 不会自动重放旧 Attribute，也不会为
-新配置的 store 自动 backfill。
+写入从不阻塞 Step、RPC 或 SetAttributes 的提交。失败的写入会重试到
+**syncRetryPolicy.totalDuration**，之后丢弃并输出 error log。Dex 不会自动重放旧
+Attribute，也不会为新配置的 store 自动 backfill。过滤写入、目标缺失和重试耗尽都会输出
+error log。
 
-过滤写入、目标缺失和重试耗尽都会输出 error log。
-
-CancelFlow 和 FailFlow 是 cooperative 操作，可能等待 active Step、已接受的带锁或
-transactional RPC，以及多个一小时 batch budget。被取消的 Flow 在所有后端上都以
-Canceled 状态关闭。在 Temporal 后端上，terminal finalization 开始后，新的带锁或
-transactional RPC 会被拒绝。在 Cadence 后端上，cleanup 期间已经接受的 SetAttributes
-调用和 RPC result 会完成对应的 Attribute 写入，但 terminal processing 不会启动它们的
-next Step。Terminate 和 engine timeout 是 hard stop，可能使 external storage 落后于
-Flow state。
-
-## server-zd {#server-zd}
-
-server-zd v0.1.3 或更高版本也能同步 Attribute。它使用相同的 **attributeStore**
-键和表契约，但有以下差异：
-
-- 只支持 **type: postgres**。
-- Step、RPC 和 SetAttributes 的提交从不等待表写入。server-zd 没有七秒的 local 阶段。
-- 行通常在提交后一秒内出现。应把这张表视为最终一致。
-- store 不可用时，Flow 继续运行。积压的数据稍后用最新的值写入。
-- 首次标记后经过 **syncRetryPolicy.totalDuration** 仍未写入的 entry 会被丢弃。Go Server 则按 batch
-  分别计算。之后对同一 Attribute 的写入照常同步。
-- Time travel 之后，该 run 同步过的行会用 time travel 之后的状态重写。
-- 每个数据库都需要一张 fencing 表。
-- server-zd v0.1.3 关闭 Flow 时不等待同步的 Attribute，行可能在 Flow 完成之后才写入。
-- server-zd v0.1.4 或更高版本与 Go Server 一样会等待。因 Step 决策、重试耗尽或超时而关闭的 Flow
-  会保持 RUNNING，直到待写入的值都写完或被丢弃。WaitForFlow 在行写入表之后才返回。
-- **syncRetryPolicy.totalDuration** 限制的是每个待写入值的重试时长，而不是整个关闭。PostgreSQL
-  故障期间，关闭会一直等到待写入的值被丢弃。关闭等待期间接受的同步写入，包括在关闭之前已被接纳的
-  事务性 RPC 的写入，都会延长等待。
-- **StopFlow** 和 **Terminate** 从不等待。**StopFlow** 一提交，run 就会关闭。之后对该 run 的
-  **SetAttributes** 返回 NOT_FOUND。从 server-zd v0.1.5 起，只有请求中的每项写入都是把当前存储的
-  [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) 设为 null 时，才会被接受。
-  Flow 需要的数据请在停止之前写入。
-
-详见 server-zd 运维指南中的
+fencing 表、关闭行为、重试和 metrics 详见 server-zd 运维指南中的
 [Attribute Store 同步](/production/server-zd-operations#attribute-store)。

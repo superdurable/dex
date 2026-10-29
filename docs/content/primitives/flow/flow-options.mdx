@@ -23,8 +23,8 @@ Dex allows you to customize the behavior of a Flow execution.
 | **IDReusePolicy** | How to reuse existing Flow ID to start                                 |
 | **RequestID** | Idempotency key for retrying one start request.                        |
 | **AlreadyStartedOptions** | How to handle an already-started Flow.                                 |
-| **RetryPolicy** | Retry policy for one Flow execution after failure.                     |
-| **StartDelay** | Delay before the start Step to run.                   |
+| **RetryPolicy** | Not supported. server-zd rejects it with **INVALID_ARGUMENT**. See [RetryPolicy](#retry-policy). |
+| **StartDelay** | Not supported. server-zd rejects a positive value with **INVALID_ARGUMENT**. See [StartDelay](#start-delay). |
 | **Attributes** | Initial Attribute values.                            |
 | **FlowConfig** | Per-execution Flow configuration |
 
@@ -45,14 +45,7 @@ def example_start_flow_options() -> StartFlowOptions:
     return StartFlowOptions(
         timeout=timedelta(minutes=30),
         timeout_policy=FlowTimeoutPolicy.HANDLER,
-        start_delay=timedelta(minutes=5),
         id_reuse_policy=IdReusePolicy.DISALLOW,
-        retry_policy=RetryPolicy(
-            initial_interval=timedelta(minutes=1),
-            backoff_coefficient=2,
-            maximum_interval=timedelta(minutes=10),
-            maximum_attempts=3,
-        ),
         config_override=FlowConfig(step_durability=StepDurability.SYNC),
         ignore_already_started=True,
         request_id="start-order-123",
@@ -69,20 +62,12 @@ func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
 		return sdk.StartFlowOptions{}, err
 	}
 	timeout := 30 * time.Minute
-	startDelay := 5 * time.Minute
 	requestID := "start-order-123"
 	stepDurability := sdk.StepDurabilitySync
 	return sdk.StartFlowOptions{
 		Timeout:       &timeout,
 		TimeoutPolicy: sdk.TimeoutHandler,
-		StartDelay:    &startDelay,
 		IDReusePolicy: sdk.IDReuseDisallow,
-		RetryPolicy: &sdk.FlowRetryPolicy{
-			InitialInterval:    time.Minute,
-			BackoffCoefficient: 2,
-			MaximumInterval:    10 * time.Minute,
-			MaximumAttempts:    3,
-		},
 		Attributes: []sdk.InitialAttributeDef{initialStatus},
 		ConfigOverride: &sdk.FlowConfig{
 			StepDurability: &stepDurability,
@@ -101,15 +86,7 @@ private static StartFlowOptions exampleStartFlowOptions() {
     return StartFlowOptions.newBuilder()
             .timeout(Duration.ofMinutes(30))
             .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
-            .startDelay(Duration.ofMinutes(5))
             .idReusePolicy(IdReusePolicy.DISALLOW)
-            .retryPolicy(
-                    RetryPolicy.newBuilder()
-                            .initialInterval(Duration.ofMinutes(1))
-                            .backoffCoefficient(2)
-                            .maximumInterval(Duration.ofMinutes(10))
-                            .maximumAttempts(3)
-                            .build())
             .addAttribute(ExampleFlow.status, "queued")
             .configOverride(
                     FlowConfig.newBuilder()
@@ -129,14 +106,7 @@ export function exampleStartFlowOptions(): StartFlowOptions {
   return {
     timeoutMs: 30 * 60_000,
     timeoutPolicy: FlowTimeoutPolicy.HANDLER,
-    startDelayMs: 5 * 60_000,
     idReusePolicy: IdReusePolicy.DISALLOW,
-    retryPolicy: {
-      initialIntervalMs: 60_000,
-      backoffCoefficient: 2,
-      maximumIntervalMs: 10 * 60_000,
-      maximumAttempts: 3,
-    },
     attributes: [InitialAttribute.of(status, "queued")],
     configOverride: {
       stepDurability: "sync",
@@ -155,15 +125,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
     StartFlowOptions::new()
         .timeout(Duration::from_secs(30 * 60))
         .timeout_policy(FlowTimeoutPolicy::Handler)
-        .start_delay(Duration::from_secs(5 * 60))
         .id_reuse_policy(IdReusePolicy::Disallow)
-        .retry_policy(
-            RetryPolicy::new()
-                .initial_interval(Duration::from_secs(60))
-                .backoff_coefficient(2.0)
-                .maximum_interval(Duration::from_secs(10 * 60))
-                .maximum_attempts(3),
-        )
         .initial_attribute(&STATUS, "queued".to_owned())
         .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
         .ignore_already_started(true)
@@ -178,17 +140,17 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 
 **Timeout** is one durable timer for the whole Flow. Set **TimeoutPolicy** only when **Timeout** is positive.
 
-- **FAIL** — fail the Flow with a timeout error. **RetryPolicy** can retry it.
+- **FAIL** — fail the Flow with a timeout error.
 - **CANCEL** — cancel the Flow. It does not retry.
 - **HANDLER** — run one logical Flow timeout-handler execution.
 
-With a positive **Timeout**, a Dex SDK uses **FAIL** by default. If the Flow has a timeout handler, it uses **HANDLER** instead. **HANDLER** is invalid when the Flow has no handler. A retry starts with a new timeout budget.
+With a positive **Timeout**, a Dex SDK uses **FAIL** by default. If the Flow has a timeout handler, it uses **HANDLER** instead. **HANDLER** is invalid when the Flow has no handler.
 
 **TimeoutHandlerOptions** is valid only with a positive **Timeout** and a final **HANDLER** policy. It uses Execute semantics: a method timeout limits each attempt, **Retry** can run multiple attempts, **HeartbeatTimeout** detects stalled regular attempts, and **Failure** can route exhausted retries to a registered no-input Step. The recovery Step receives null or unit input and reads the final error from the handler **Context**.
 
 The handler's attempt and retry clocks begin when the soft Flow timeout fires. They may extend past the original Flow deadline. If no failure target is configured, an exhausted handler fails the Flow.
 
-Ordinary Attributes and all Channel size metadata load automatically. AttributeMap values and pending Channel messages require explicit selections in **TimeoutHandlerOptions**. The handler may stage Attribute writes, Channel deletions, and Channel publications before returning its decision. Flow retries preserve the options and start a new soft-timeout budget.
+Ordinary Attributes and all Channel size metadata load automatically. AttributeMap values and pending Channel messages require explicit selections in **TimeoutHandlerOptions**. The handler may stage Attribute writes, Channel deletions, and Channel publications before returning its decision. Flow-level retry does not exist, so the timeout handler runs once per Flow run.
 
 Set **TimeoutPolicy** to **HANDLER** to run this code when the timeout fires. This handler records why the Flow ended, then fails it with an application reason.
 
@@ -460,12 +422,12 @@ Worker replacement → retry the same downstream start identity → no duplicate
 
 ### RetryPolicy {#retry-policy}
 
-**RetryPolicy** retries one Flow execution after it fails. **MaximumAttempts** includes the first execution. **InitialInterval**, **BackoffCoefficient**, and **MaximumInterval** set the exponential backoff. A **FAIL** timeout can use this retry policy. A **CANCEL** timeout cannot.
+server-zd does not support a Flow-level **RetryPolicy**. A start request that sets one fails with **INVALID_ARGUMENT**. Tracked in [issue 996](https://github.com/superdurable/dex/issues/996). To retry work, use [Step retry](/primitives/step/step-options), which is supported.
 
 
 ### StartDelay {#start-delay}
 
-**StartDelay** accepts the Flow to start now, but waits before the **StartStep** can run. Use it for a one-off delay, for example, wait five minutes before processing a new order. Use a durable **Timer** loop for recurring work.
+server-zd does not support **StartDelay**. A start request with a positive delay fails with **INVALID_ARGUMENT**. Tracked in [issue 995](https://github.com/superdurable/dex/issues/995). To delay the first work, start the Flow without a delay and begin the **StartStep** with a durable **Timer** wait.
 
 ### Attributes {#attributes}
 
@@ -480,8 +442,7 @@ At start, Dex applies the supplied fields over the Dex Server defaults. Omitted 
 | Field | Behavior                                                                                                                        |
 |-------|---------------------------------------------------------------------------------------------------------------------------------|
 | **ActiveStepSearchMode** | Index every active Step, only Steps that ran **WaitFor**, or no active Steps. The built-in server default does not index active Steps. Set an explicit mode to opt in. |
-| **ContinueAsNewThreshold** | Continue as new after this many tracked events. Zero turns it off.                                                              |
-| **ContinueAsNewPageSizeBytes** | Limit each page of state carried into continue-as-new. Zero uses 1 MiB.|
+| **ContinueAsNewThreshold** | Continue as new after this many tracked events. Zero turns it off. **ContinueAsNewPageSizeBytes** limits each page of carried state; zero uses 1 MiB. |
 | **StepDurability** | Default durability for methods without a Step override. Dex resolves a method override first, then this value, then **SYNC**. |
 | **AttributeStoreNames** | Dex Server Attribute Stores for Attributes that opt in to attribute sync                                                        |
 

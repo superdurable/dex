@@ -240,10 +240,10 @@ StartFlowOptions options = StartFlowOptions.newBuilder()
         .build();
 ```
 
-`FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and permits Flow retry; `CANCEL`
-cancels without retry. `SubFlowOptions` exposes the same `timeoutPolicy(...)`
-override. Continue-as-new preserves the deadline and handler execution, while
-retry runs receive a fresh budget. A zero or absent timeout disables
+`FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and fails the Flow; `CANCEL`
+cancels it. `SubFlowOptions` exposes the same `timeoutPolicy(...)`
+override. The deadline and handler execution are preserved across Flow state
+transfers. A zero or absent timeout disables
 the feature.
 
 ### Canceling Step executions
@@ -533,7 +533,7 @@ Failure-policy recovery exposes the previous method error through
 `context.getRecoveryError()`. Wait-for recovery passes the error directly to
 execute in the same run. Execute recovery passes it to both methods of the
 configured recovery Step, including when that Step starts after
-continue-as-new:
+the Flow's state has been transferred to a new run:
 
 ```java
 RecoveryErrorInfo error = context.getRecoveryError();
@@ -542,7 +542,7 @@ if (error != null) {
 }
 ```
 
-To override the next Temporal retry interval, throw a retry request with the
+To override the next retry interval, throw a retry request with the
 current attempt failure as its cause:
 
 ```java
@@ -550,8 +550,7 @@ throw RetryAfterException.after(Duration.ofSeconds(30), currentFailure);
 ```
 
 The delay must be a positive whole number of seconds in the signed 32-bit
-range. Retry limits and method timeouts remain unchanged. Cadence rejects a
-dynamic retry interval with an `INVALID_USER_FLOW_CODE` validation error.
+range. Retry limits and method timeouts remain unchanged.
 Recovery exposes only the final failure type and detail; stack traces remain in
 failure history, and retry delays are scheduling metadata.
 
@@ -601,7 +600,7 @@ durable condition. Read it during `execute` with
 `SubFlow.getConditionResults(context, index)`. `allOf` results are terminal;
 an unfinished `anyOf` loser is a `RUNNING` snapshot. Obtain its deterministic
 Flow ID with `SubFlow.getFlowId(context, index)` before passing it to
-`Client.stopFlow`. Continue-as-new retains only each SubFlow Condition ID and
+`Client.stopFlow`. A state transfer retains only each SubFlow Condition ID and
 stable list position, not its starting input or options. SubFlows continue when
 their parent closes.
 
@@ -621,12 +620,7 @@ Request IDs are optional for both durable waits. When omitted, the server
 derives a stable ID from the Step execution or Attribute condition. Reuse an
 override only for the same wait. `requestTimeout` is the total SDK call budget
 across transparent transport reattachments. Zero waits indefinitely.
-Temporal permits 10 in-flight Updates and 2,000 total Updates in History per
-Workflow Execution. A caller timeout or cancellation does not finish an
-accepted durable wait, so an abandoned handler can retain one in-flight slot.
-Set `internalHandlerTimeout` only when abandoned waits can approach that limit.
-An active call transparently starts another generation, which counts toward the
-2,000-Update history limit. Prefer a value comfortably longer than normal
+A caller timeout or cancellation does not finish an accepted durable wait. Set `internalHandlerTimeout` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value comfortably longer than normal
 request timeouts and reconnect gaps. Zero disables timed rollover. Request
 expiry throws `RequestTimeoutException`.
 
@@ -958,7 +952,7 @@ Published JARs store the diagnostic SDK version in the
 
 ## Search run inclusion
 
-Dex Server excludes ContinuedAsNew runs by default. Application queries still
+Searches exclude runs with the ContinuedAsNew status by default. server-zd never reports that status. Application queries still
 need `FlowType` when using shared index slots. An explicit inclusion option
 removes only the default exclusion; it does not override query filters. Keep
 the query, inclusion option, and page size consistent across pages.

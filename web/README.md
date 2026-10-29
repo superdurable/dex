@@ -1,9 +1,7 @@
 # Dex Web
 
 The live Flow overview lists pending Channel messages with their server-assigned
-IDs and decoded values. Operators can delete a pending message. Temporal performs
-the deletion atomically; the Cadence query-plus-signal fallback is best effort and
-can race message consumption.
+IDs and decoded values. Operators can delete a pending message.
 
 Flow Definition Graphs show resource-read edges for AttributeMap and Channel
 message snapshots explicitly selected by Python RPC decorators. Channel size
@@ -14,7 +12,7 @@ live flow state, time travel points, and stop controls.
 
 The production Web server is Go. It serves an embedded React SPA and translates
 same-origin HTTP/JSON requests under `/api/` to Dex `FlowService` gRPC calls.
-Temporal/Cadence credentials and backend history never enter the browser.
+The FlowService credential never enters the browser.
 
 `GetHistoryEvents` returns the same `input`, `output`, and `context` step-event
 shape for sync, async, and async-fallback execution. Timeline, Execution graph,
@@ -123,9 +121,8 @@ source, shared renderer, or protobuf dependency changes. `--version` reports the
 build version.
 
 The Web bridge and command use `sdk-go/gen/dexpb` for generated FlowService
-types and have no dependency on the Go Server module. CLI and Codec Server use
+types. CLI and Codec Server use
 the same protobuf package so a dexcli process registers `dex.proto` once.
-The legacy Go Server no longer embeds Web; run `dex-web` separately.
 Standalone mode leaves local Connector setup disabled; use `dexcli dev` for
 that local development workflow.
 
@@ -168,7 +165,7 @@ the error names both files. Invalid analyzer output remains visible on **v1** Fl
 Rendering but does not appear as a **v2** Flow type.
 
 The v2 status filter sends each status's ExecutionStatus value, such as
-`TimedOut`, and shows its label, such as **Timed out**. Both Dex Servers reject
+`TimedOut`, and shows its label, such as **Timed out**. The server rejects
 the label in a visibility query.
 
 ### Start Flow
@@ -222,7 +219,7 @@ false; an explicit address still selects address routing. Headless routing
 applies only to address targets, so both settings can be enabled together.
 `GET /api/v2/catalog` reports this default so the dialog opens with **Pull Worker**
 selected when it is true. The catalog also reports `serverEngine`:
-`temporal`, `cadence`, `zd`, or `unspecified` when the FlowService does not
+`zd` or `unspecified` when the FlowService does not
 answer `GetServerInfo`.
 
 The v2 Work Queue is available at `/v2/work-queue`. Its **Working as** control

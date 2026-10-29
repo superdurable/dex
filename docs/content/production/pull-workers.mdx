@@ -25,13 +25,11 @@ greeting, and the greeting RPC reads it. See the [Go](https://github.com/superdu
 and [Rust](https://github.com/superdurable/dex/blob/main/sdk-rust/README.md#pull-mode)
 READMEs for startup details.
 
-Dex Web v2 can start a Flow through a pull Worker. In **Start Flow**, select
-**Pull Worker** instead of entering a Worker address. The start request can also
-send **workerTargetPull: true**. For deployments that use pull Workers by default,
-start standalone Dex Web with **--start-flow-worker-target-pull** so requests without a target use pull
-routing. Dex Web does not check whether a pull Worker is registered before the
-start; availability is determined when Dex dispatches work. See
-[Dex Web](/production/dex-web#start-flow) for the address option and config rules.
+Dex Web v2 starts a Flow through a pull Worker. **Start Flow** does not ask for a
+Worker address, and the start request can send **workerTargetPull: true**.
+Dex Web does not check whether a pull Worker is registered before the start;
+availability is determined when Dex dispatches work. See
+[Dex Web](/production/dex-web#start-flow).
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/production/pull_workers.py', go: 'examples/go/production/pull-workers/worker.go', java: 'examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java', typescript: 'examples/typescript/src/production/pull-workers.ts', rust: 'examples/rust/src/production/pull_workers.rs'}}>
 
@@ -466,7 +464,7 @@ Dex waits for an available Worker within the matching dispatch budget. If none
 is available, a Step receives a retryable unavailable error that consumes a
 Step retry. An RPC caller receives an **Unavailable** error directly. The default regular dispatch wait is 10 seconds,
 including up to 5 seconds for a sticky queue with connected streams. Shorter waits apply to calls
-that need to preserve time for execution. See [Server operation](/production/server-operations#pull-worker-routing)
+that need to preserve time for execution. See [Pull Worker dispatch](/production/server-zd-operations#pull-worker-dispatch)
 for the wait settings.
 
 When a pull Worker has the Flow type but lacks the requested Step type or RPC
@@ -513,8 +511,8 @@ declines, the steady-state bound after load drops is
 the Worker's app Worker ID queue. A queue with a recent reserve decline can keep
 one more idle stream for 30 seconds after its last decline. Allow up to **F + 1**
 additional streams when sizing **matching.maxConcurrentTasksCap**, which defaults
-to 256 streams per app Worker ID on each matching owner. **matching.maxStreams**
-defaults to 100,000 registered streams per Matching instance.
+to 256 streams per app Worker ID. **matching.maxStreams**
+defaults to 100,000 registered streams on the node.
 The transient peak during a burst remains bounded by the matching caps.
 **matching.maxQueueLength**,
 **matching.maxFlowTypes**, and **matching.maxFlowTypeLength** also limit
@@ -528,7 +526,7 @@ finishes an active call before a server-directed reconnect.
 
 ### Reserved RPC capacity
 
-SDK 1.15.0 reserves capacity so synchronous RPC calls can stay responsive while
+Since SDK 1.15.0, Workers reserve capacity so synchronous RPC calls can stay responsive while
 Steps run for a long time. Set **ReservedRPCTasks** in Go, **reservedRpcTasks** in
 Java and TypeScript, or **reserved_rpc_tasks** in Python and Rust. When unset, the reserve
 is one if the resolved task limit is at least two, otherwise zero. With the
@@ -666,31 +664,22 @@ pub fn get_pull_greeting_diagnostics(worker: &Worker) -> PullGreetingDiagnostics
 
 ## Scale to zero
 
-Configure the [Worker wake hook](/production/server-operations#worker-wake-hook)
-when Workers may scale to zero. If a pull Worker is unavailable, Dex sends a
-best-effort wake notification for the Flow type queue after the sticky wait and
-continues the same dispatch attempt. After successful dispatch, Dex sends an
-active notification. Size the dispatch wait and Step retries for Worker startup
-time; the wake notification does not guarantee that a Worker starts in time.
+server-zd has no Worker wake hook. When Workers may scale to zero, size the
+dispatch wait and Step retries for Worker startup time, so a Step retry can
+wait for a Worker to start.
 
 ## Server and network setup
 
-The **matching** role owns pull Worker queues. Keep at least one Matching
-instance running. Workers connect to an API instance on the public FlowService
-port; the API forwards their streams to the queue owner. Preserve bidirectional
-HTTP/2 streaming. The SDK sends upstream **Pong** frames every 20 seconds while
-a task runs. Upgrade the SDK to get this behavior. Dex sends **Ping** frames to
-idle streams at **matching.pingInterval**. Set load balancer and proxy idle
-timeouts above both 20 seconds and **matching.pingInterval**, with margin for
-network delays. Older SDKs need idle timeouts above the longest task duration.
-
-For one Server process, Dex uses a local membership ring. For multiple Server
-instances, configure **membership** and a private **internal.listen** on each
-process. Use the same backend namespace and membership seeds across instances.
-**internal.tokenFile** is required for the private listener. Allow only Dex replicas
-to reach it. The [Server operation](/production/server-operations#pull-worker-routing)
-page shows the matching limits, wait settings, and multi-node configuration.
+Workers connect to the server's FlowService port, which is **api.listen**. Preserve
+bidirectional HTTP/2 streaming through any load balancer or proxy. The SDK sends
+upstream **Pong** frames every 20 seconds while a task runs. Upgrade the SDK to
+get this behavior. Dex sends **Ping** frames to idle streams at
+**matching.pingInterval**. Set load balancer and proxy idle timeouts above both
+20 seconds and **matching.pingInterval**, with margin for network delays. Older
+SDKs need idle timeouts above the longest task duration. The
+[Pull Worker dispatch](/production/server-zd-operations#pull-worker-dispatch)
+section lists the matching limits and wait settings.
 
 All five SDKs, **dexcli**, and Dex Web can send the required bearer credential.
 Workers and Clients have separate credential options. See the
-[authentication settings](/production/server-operations#authentication).
+[authentication settings](/production/server-zd-operations#authentication).

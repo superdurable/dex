@@ -397,7 +397,7 @@ fn rpcs(&self) -> RpcList<Self> {
 
 Transactional commit 不会在 handler 运行期间提供 isolation。如果决策依赖整个 loaded Channel、ChannelMap 或 AttributeMap 保持不变，所有协作的 Step 与 RPC writer 都必须使用同一把 Attribute lock。该 lock 提供 isolation，并隐式使 RPC 具备 transactional 语义；它不会加载 collection content。
 
-Non-transactional RPC 遇到 missing deletion 时会把它当作 no-op，仍然 commit 其他成功的 effect。Cadence 的 Channel deletion validation 和 write 不具备相同的 atomic guarantee。Cadence caller 必须能容忍这项竞态。
+Non-transactional RPC 遇到 missing deletion 时会把它当作 no-op，仍然 commit 其他成功的 effect。
 
 ## RPC timeout
 

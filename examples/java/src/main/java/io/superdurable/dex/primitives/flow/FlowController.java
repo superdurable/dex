@@ -20,7 +20,6 @@ import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.FlowTimeoutPolicy;
 import io.superdurable.dex.IdReusePolicy;
-import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepDurability;
 import java.time.Duration;
@@ -44,15 +43,7 @@ public final class FlowController {
         return StartFlowOptions.newBuilder()
                 .timeout(Duration.ofMinutes(30))
                 .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
-                .startDelay(Duration.ofMinutes(5))
                 .idReusePolicy(IdReusePolicy.DISALLOW)
-                .retryPolicy(
-                        RetryPolicy.newBuilder()
-                                .initialInterval(Duration.ofMinutes(1))
-                                .backoffCoefficient(2)
-                                .maximumInterval(Duration.ofMinutes(10))
-                                .maximumAttempts(3)
-                                .build())
                 .addAttribute(ExampleFlow.status, "queued")
                 .configOverride(
                         FlowConfig.newBuilder()

@@ -22,9 +22,9 @@ title: 响应式更新
 
 Server 还会限制单次 transport attempt。这个 cap 完全是内部行为。SDK 会使用同一 logical Request ID 重新附着，因此它不会重置 **RequestTimeout**，也不会结束已经接受的 wait。
 
-**InternalHandlerTimeout** 是高级容量控制项。在 Temporal 后端上，一个 Flow 同时最多只能有 10 个在 Flow 内等待的 in-flight 请求，例如已经接受的 waits，以及带锁或 transactional 的 RPC。request timeout 或 cancellation 会结束 SDK 调用，但不会结束已经接受的 wait。因此，已经被调用方放弃的 wait 仍可能占用这 10 个 slots 中的一个，直到条件命中或 Flow 关闭。
+**InternalHandlerTimeout** 是高级容量控制项。request timeout 或 cancellation 会结束 SDK 调用，但不会结束已经接受的 wait。因此，已经被调用方放弃的 wait 仍会注册在 Flow 上，直到条件命中或 Flow 关闭。
 
-只有当被放弃的 waits 可能累积并接近这个上限时，才应把 **InternalHandlerTimeout** 设为正值。它到期后，Dex 会结束这个已经接受的 wait 并释放它的 slot。仍然活跃的 SDK 调用会透明地重新注册 wait 并继续等待。这个机制不会提高上限。每次重新注册都是 Flow 上的又一个已接受请求，也可能增加 Temporal Cloud Actions。这个值应明显长于常见的 **RequestTimeout** 和预期的重连间隔。如果 waits 通常会及时完成，或 Flow 会在被放弃的 waits 形成容量风险前关闭，应保持为 0。
+只有当被放弃的 waits 可能累积时，才应把 **InternalHandlerTimeout** 设为正值。它到期后，Dex 会结束这个已经接受的 wait。仍然活跃的 SDK 调用会透明地重新注册 wait 并继续等待。这个值应明显长于常见的 **RequestTimeout** 和预期的重连间隔。如果 waits 通常会及时完成，或 Flow 会在被放弃的 waits 形成容量风险前关闭，应保持为 0。
 
 | 设置 | 默认值 | 行为 |
 | --- | --- | --- |

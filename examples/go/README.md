@@ -118,7 +118,7 @@ publish, and RPC path covered by the existing product integ tests:
 make e2eTests
 ```
 
-Pass `--keep-running` to leave Dex, Temporal, entity-store PostgreSQL, and Dex
+Pass `--keep-running` to leave the dexcli dev server (server-zd), entity-store PostgreSQL, and Dex
 Web running after tests for manual exploration:
 
 ```bash
@@ -149,7 +149,7 @@ DEAL_DSL_API_URL=http://127.0.0.1:20804 make triggerDealDSLDemo
 runs update that process definition and create new full, refund, and pending
 executions.
 
-Set `KEEP_DEAL_DSL_DEMO=1` to leave PostgreSQL, Dex, Temporal, the worker,
+Set `KEEP_DEAL_DSL_DEMO=1` to leave PostgreSQL, the dexcli dev server (server-zd), the worker,
 and the REST/UI server running. The script prints all UI URLs and shutdown
 details.
 

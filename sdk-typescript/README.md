@@ -349,9 +349,9 @@ await client.startFlow(orders, "order-42", input, {
 });
 ```
 
-`FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and permits Flow retry; `CANCEL`
-cancels without retry. Continue-as-new preserves the durable timer's deadline;
-retry runs get a fresh budget. A zero or omitted timeout disables the
+`FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and fails the Flow; `CANCEL`
+cancels it. The durable timer's deadline is preserved across Flow state
+transfers. A zero or omitted timeout disables the
 feature.
 
 Opt an Attribute or AttributeMap into Attribute Store synchronization, then
@@ -427,12 +427,7 @@ Request IDs are optional for both durable waits. When omitted, the server
 derives a stable ID from the Step execution or Attribute condition. Reuse an
 override only for the same wait. `requestTimeoutMs` is the total SDK call budget
 across transparent transport reattachments. Omit it or use zero to wait
-indefinitely. Temporal permits 10 in-flight Updates and 2,000 total Updates in
-History per Workflow Execution. A caller timeout or cancellation does not
-finish an accepted durable wait, so an abandoned handler can retain one
-in-flight slot. Set `internalHandlerTimeoutMs` only when abandoned waits can
-approach that limit. An active call transparently starts another generation,
-which counts toward the 2,000-Update history limit. Prefer a value comfortably
+indefinitely. A caller timeout or cancellation does not finish an accepted durable wait. Set `internalHandlerTimeoutMs` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value comfortably
 longer than normal request timeouts and reconnect gaps. Zero disables timed
 rollover. Request expiry throws `RequestTimeoutError`.
 
@@ -795,7 +790,7 @@ version does not participate in compatibility decisions.
 
 ## Search run inclusion
 
-Dex Server excludes ContinuedAsNew runs by default. Application queries still
+Searches exclude runs with the ContinuedAsNew status by default. server-zd never reports that status. Application queries still
 need `FlowType` when using shared index slots. An explicit inclusion option
 removes only the default exclusion; it does not override query filters. Keep
 the query, inclusion option, and page size consistent across pages.

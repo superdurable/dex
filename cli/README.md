@@ -53,13 +53,12 @@ The local port conventions are:
 
 | Component | Default endpoint | Purpose |
 |---|---|---|
-| Dex Server | `127.0.0.1:8801` | FlowService and WorkerTaskService gRPC |
+| server-zd | `127.0.0.1:8801` | FlowService and WorkerTaskService gRPC |
 | Dex Web | `http://127.0.0.1:8802` | Dex Web HTTP UI and API |
-| SDK Worker | port `8803` | Application-owned WorkerService gRPC |
-| Codec Server | `http://127.0.0.1:8804` | Temporal payload Codec HTTP API |
+| Codec Server | `http://127.0.0.1:8804` | Payload Codec HTTP API |
 
 `dexcli dev` starts `dex-server-zd` and embedded Dex Web. An application
-starts its own SDK Worker. `dexcli codec-server` starts the Codec Server separately.
+starts its own SDK pull Worker. `dexcli codec-server` starts the Codec Server separately.
 
 server-zd is the only engine. `--engine zd` remains accepted as a no-op for
 existing scripts. The CLI uses the first
@@ -573,7 +572,7 @@ dexcli flow time-travel FLOW_ID [--run-id RUN_ID]
 
 With the default JSON output, `watch` writes one object per line and exits when
 the run becomes terminal.
-`--follow-runs` continues into the current run after Continue-As-New. Stop and
+`--follow-runs` keeps watching the Flow's current run when it changes. Stop and
 time travel operate on the current run by default; pass `--run-id` to target an
 exact run. All mutating Flow commands require `--yes`, including in
 non-interactive use.
@@ -591,7 +590,7 @@ dexcli flow start order-123 --flow-type OrderFlow --start-step-type StartOrder \
 ```
 
 `--config` accepts a JSON object with optional `activeStepSearchMode` (`all`,
-`wait-for`, or `disabled`), Continue-As-New thresholds, `stepDurability`
+`wait-for`, or `disabled`), state-transfer thresholds, `stepDurability`
 (`sync` or `async`), `workerTarget`, and `attributeStoreNames`. `--retry-policy`
 uses `initialInterval`, `backoffCoefficient`, `maximumInterval`, and
 `maximumAttempts`; intervals are Go duration strings. `--step-options` accepts

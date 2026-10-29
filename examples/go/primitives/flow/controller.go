@@ -60,20 +60,12 @@ func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
 		return sdk.StartFlowOptions{}, err
 	}
 	timeout := 30 * time.Minute
-	startDelay := 5 * time.Minute
 	requestID := "start-order-123"
 	stepDurability := sdk.StepDurabilitySync
 	return sdk.StartFlowOptions{
 		Timeout:       &timeout,
 		TimeoutPolicy: sdk.TimeoutHandler,
-		StartDelay:    &startDelay,
 		IDReusePolicy: sdk.IDReuseDisallow,
-		RetryPolicy: &sdk.FlowRetryPolicy{
-			InitialInterval:    time.Minute,
-			BackoffCoefficient: 2,
-			MaximumInterval:    10 * time.Minute,
-			MaximumAttempts:    3,
-		},
 		Attributes: []sdk.InitialAttributeDef{initialStatus},
 		ConfigOverride: &sdk.FlowConfig{
 			StepDurability: &stepDurability,

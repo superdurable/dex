@@ -169,12 +169,7 @@ Request IDs are optional for both durable waits. When omitted, the server
 derives a stable ID from the Step execution or Attribute condition. Reuse an
 override only for the same wait. `request_timeout` is the total SDK call budget
 across transparent transport reattachments. Zero waits indefinitely.
-Temporal permits 10 in-flight Updates and 2,000 total Updates in History per
-Workflow Execution. A caller timeout or cancellation does not finish an
-accepted durable wait, so an abandoned handler can retain one in-flight slot.
-Set `internal_handler_timeout` only when abandoned waits can approach that
-limit. An active call transparently starts another generation, which counts
-toward the 2,000-Update history limit. Prefer a value comfortably longer than
+A caller timeout or cancellation does not finish an accepted durable wait. Set `internal_handler_timeout` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value comfortably longer than
 normal request timeouts and reconnect gaps. Zero disables timed rollover.
 Request expiry returns `SdkError::RequestTimeout`.
 
@@ -270,9 +265,9 @@ let options = StartFlowOptions::new()
     .timeout_policy(FlowTimeoutPolicy::Handler);
 ```
 
-`Fail` produces `FlowErrorType::FlowTimeout` and permits Flow retry; `Cancel`
-cancels without retry. Continue-as-new preserves the deadline and handler
-execution, while retry runs receive a fresh budget. An absent or zero
+`Fail` produces `FlowErrorType::FlowTimeout` and fails the Flow; `Cancel`
+cancels it. The deadline and handler execution are preserved across Flow state
+transfers. An absent or zero
 timeout disables the feature.
 
 ## Rust SDK runtime
@@ -692,7 +687,7 @@ original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
 
 ## Search run inclusion
 
-Dex Server excludes ContinuedAsNew runs by default. Application queries still
+Searches exclude runs with the ContinuedAsNew status by default. server-zd never reports that status. Application queries still
 need `FlowType` when using shared index slots. An explicit inclusion option
 removes only the default exclusion; it does not override query filters. Keep
 the query, inclusion option, and page size consistent across pages.

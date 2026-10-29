@@ -19,7 +19,7 @@ use axum::{
     routing::get,
 };
 use dex_sdk::{
-    Client, FlowConfig, FlowTimeoutPolicy, IdReusePolicy, RetryPolicy, SdkResult, StartFlowOptions,
+    Client, FlowConfig, FlowTimeoutPolicy, IdReusePolicy, SdkResult, StartFlowOptions,
     StepDurability,
 };
 use serde::Deserialize;
@@ -52,15 +52,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
     StartFlowOptions::new()
         .timeout(Duration::from_secs(30 * 60))
         .timeout_policy(FlowTimeoutPolicy::Handler)
-        .start_delay(Duration::from_secs(5 * 60))
         .id_reuse_policy(IdReusePolicy::Disallow)
-        .retry_policy(
-            RetryPolicy::new()
-                .initial_interval(Duration::from_secs(60))
-                .backoff_coefficient(2.0)
-                .maximum_interval(Duration::from_secs(10 * 60))
-                .maximum_attempts(3),
-        )
         .initial_attribute(&STATUS, "queued".to_owned())
         .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
         .ignore_already_started(true)

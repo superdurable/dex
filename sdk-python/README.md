@@ -603,9 +603,9 @@ options = dex.StartFlowOptions(
 ```
 
 Register async hooks with `allow_async_handlers=True` and run them with
-`AsyncWorker`. `FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and permits Flow
-retry; `CANCEL` cancels without retry. Continue-as-new preserves the deadline,
-while retry runs receive a fresh budget. A zero or absent timeout
+`AsyncWorker`. `FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and fails the
+Flow; `CANCEL` cancels it. The deadline is preserved across Flow state
+transfers. A zero or absent timeout
 disables the feature.
 
 `Registry` validates every Flow, Step, RPC signature, durable name, lock, and
@@ -635,12 +635,7 @@ Request IDs are optional for both durable waits. When omitted, the server
 derives a stable ID from the Step execution or Attribute condition. Reuse an
 override only for the same wait. `request_timeout` is the total SDK call budget
 across transparent transport reattachments. Zero waits indefinitely.
-Temporal permits 10 in-flight Updates and 2,000 total Updates in History per
-Workflow Execution. A caller timeout or cancellation does not finish an
-accepted durable wait, so an abandoned handler can retain one in-flight slot.
-Set `internal_handler_timeout` only when abandoned waits can approach that
-limit. An active call transparently starts another generation, which counts
-toward the 2,000-Update history limit. Prefer a value comfortably longer than
+A caller timeout or cancellation does not finish an accepted durable wait. Set `internal_handler_timeout` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value comfortably longer than
 normal request timeouts and reconnect gaps. Zero disables timed rollover.
 Request expiry raises `RequestTimeoutError`.
 
@@ -685,7 +680,7 @@ SubFlow.
 Client calls raise concrete `DexServiceError` subclasses. Existing-Flow reads
 (`describe_flow`, `wait_for_flow`, and `time_travel`) raise
 `FlowNotFoundError` when the Flow does not exist. Mutations, RPCs, timer/Step
-waits, config updates, and continue-as-new triggers raise
+waits, config updates, and state-transfer triggers raise
 `FlowNotActiveOrNotFoundError` when no running Flow can accept the operation.
 
 RPCs also use this error when the target Flow cannot be found, including query-only
@@ -872,7 +867,7 @@ original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
 
 ## Search run inclusion
 
-Dex Server excludes ContinuedAsNew runs by default. Application queries still
+Searches exclude runs with the ContinuedAsNew status by default. server-zd never reports that status. Application queries still
 need `FlowType` when using shared index slots. An explicit inclusion option
 removes only the default exclusion; it does not override query filters. Keep
 the query, inclusion option, and page size consistent across pages.

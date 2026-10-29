@@ -14,7 +14,7 @@ Stream 适合传递能够改善用户体验的 nice-to-have 数据，而不是�
 - 进度条、诊断事件与实时预览
 - Step 仍在运行时展示的临时状态
 
-Stream 只提供 best-effort durability，底层使用 Redis 等内存存储。达到 capacity threshold 后触发 trim，或 storage backend 重启时，消息都可能丢失。需要 guaranteed durability 时，应使用 [Channel](/primitives/channel) 和 [Attribute](/primitives/attribute) 等其他 primitive。
+Stream 只提供 best-effort durability，底层使用内存存储。达到 capacity threshold 后触发 trim，或 storage backend 重启时，消息都可能丢失。需要 guaranteed durability 时，应使用 [Channel](/primitives/channel) 和 [Attribute](/primitives/attribute) 等其他 primitive。
 
 ## 定义并注册 Stream
 
@@ -290,4 +290,4 @@ Server 还会限制单条 Stream message 的大小，默认上限为 100 KiB。
 
 ### Best-effort storage
 
-多 server 部署可以使用 Redis，单机本地 server 可以使用 memory backend。memory backend 会在进程重启时丢失全部内容。Redis 可以跨应用重启保留数据，但 trim、Redis 数据丢失、禁用 Stream Store 或容量压力仍可能删除或拒绝消息。
+当 **streamStore.backend** 为 **memory** 时，Stream Store 把消息保存在内存中；**dexcli dev** 会设置它。生产 server 的默认值是 **disabled**，此时 Stream 写入会被丢弃。见 [Stream](/production/server-zd-operations#streams)。memory backend 会在 server 进程重启时丢失全部内容。trim 或容量压力也可能删除或拒绝消息。
