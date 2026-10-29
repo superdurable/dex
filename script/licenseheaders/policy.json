@@ -211,6 +211,7 @@
     "server-zd/integ"
   ],
   "legacy_licenses": {
+    "server": ["MIT"],
     "sdk-go": ["Apache-2.0"],
     "sdk-java": ["Apache-2.0"],
     "sdk-python": ["Apache-2.0"],

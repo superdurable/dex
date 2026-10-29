@@ -29,7 +29,6 @@ class Component:
     tag_prefix: str
     baseline_patterns: tuple[str, ...]
     paths: tuple[str, ...]
-    excluded_paths: tuple[str, ...] = ()
 
 
 SHARED_RUST_PATHS = (
@@ -136,10 +135,7 @@ def has_changes(component: Component, baseline: str | None) -> bool:
         result = git("ls-files", "--", *component.paths)
     else:
         result = git("diff", "--name-only", f"{baseline}..HEAD", "--", *component.paths)
-    return any(
-        not any(path == excluded or path.startswith(f"{excluded}/") for excluded in component.excluded_paths)
-        for path in result.stdout.splitlines()
-    )
+    return bool(result.stdout.splitlines())
 
 
 def tag_exists(tag: str) -> bool:

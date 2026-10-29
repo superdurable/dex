@@ -12,6 +12,9 @@ on:
   pull_request:
     paths:
       - server-zd/Dockerfile
+      - server-zd/LICENSE.md
+      - server-zd/LEGACY_NOTICES.md
+      - server-zd/LICENSES/**
       - .dockerignore
       - .github/workflows/server-zd-image-release.yml
       - .github/workflows/server-zd-image-main.yml

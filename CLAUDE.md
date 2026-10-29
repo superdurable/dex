@@ -560,7 +560,7 @@ file or directory meets its limit; stale entries fail the check.
 - Local tests use the in-process s3mock or the in-memory object store, never
   MinIO.
 
-### server-zd Rust conventions ported from the Server Go rules
+### server-zd Rust conventions ported from the Go rules
 
 These rules restate the applicable Server Go rules for `server-zd/**`. The
 Rust table (R1–R19) still applies.

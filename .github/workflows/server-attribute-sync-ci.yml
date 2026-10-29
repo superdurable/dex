@@ -7,7 +7,6 @@ on:
       - "server-zd/**"
       - "s3mock/**"
       - "protos/**"
-      - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/server-attribute-sync-ci.yml"
   workflow_dispatch:
 

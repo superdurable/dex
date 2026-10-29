@@ -32,7 +32,7 @@ Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside 
 - JDK 17+ and Gradle wrapper (for `sdk-java` / `examples/java`; test JDKs
   are Gradle toolchains downloaded automatically)
 - Python 3.9+ and uv (for `sdk-python` / `examples/python`)
-- Rust (see `server-zd/rust-toolchain.toml`) for the server; Docker for CI service dependencies
+- Rust 1.97.1 (pinned by `RUSTUP_TOOLCHAIN` in the server-zd workflows) for the server; Docker for CI service dependencies
 
 Install git hooks once per clone with `make githooks`. They reject Cursor
 co-author trailers and inline backticks in product-doc prose. Do not pass

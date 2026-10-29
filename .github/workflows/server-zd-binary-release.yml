@@ -12,6 +12,9 @@ on:
   pull_request:
     paths:
       - .github/workflows/server-zd-binary-release.yml
+      - server-zd/LICENSE.md
+      - server-zd/LEGACY_NOTICES.md
+      - server-zd/LICENSES/**
   workflow_dispatch:
     inputs:
       dry_run:

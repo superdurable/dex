@@ -69,6 +69,10 @@ queries and reports, turn on attribute sync and Dex writes it there for you.
 | [web/](web/) | Standalone Dex Web console and `dex-web` binary |
 | [cli/](cli/) | `dexcli` local development environment |
 | [protos/](protos/) | Protobuf IDL and codec server |
+| [s3mock/](s3mock/) | Local S3-compatible object store |
+| [blob-cache-go/](blob-cache-go/) | Shared Go disk blob cache |
+| [benchmark/](benchmark/) | Performance benchmarks |
+| [packages/](packages/) | Shared Web packages |
 | [sdk-go/](sdk-go/), [sdk-java/](sdk-java/), [sdk-python/](sdk-python/), [sdk-typescript/](sdk-typescript/), [sdk-rust/](sdk-rust/) | Application SDKs |
 | [examples/](examples/), [docs/](docs/), [skills/](skills/) | Runnable examples, product docs, and AI skills |
 

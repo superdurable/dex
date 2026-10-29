@@ -143,11 +143,17 @@ jobs:
               - '.github/workflows/server-zd-simulation-runner-ci.yml'
               - 'Makefile'
             server_zd_image:
+              - 'server-zd/LICENSE.md'
+              - 'server-zd/LEGACY_NOTICES.md'
+              - 'server-zd/LICENSES/**'
               - 'server-zd/Dockerfile'
               - '.dockerignore'
               - '.github/workflows/server-zd-image-release.yml'
               - '.github/workflows/server-zd-image-main.yml'
             server_zd_binary:
+              - 'server-zd/LICENSE.md'
+              - 'server-zd/LEGACY_NOTICES.md'
+              - 'server-zd/LICENSES/**'
               - '.github/workflows/server-zd-binary-release.yml'
             server_zd_minio:
               - '.github/workflows/server-zd-minio-nightly.yml'

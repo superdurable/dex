@@ -433,6 +433,7 @@ suites:
 
 - `make -C server-zd/integ compile`
 - `make -C server-zd/integ zdIntegTests`
+- `make -C server-zd/integ zdAttributeSyncIntegTests` for PostgreSQL integration.
 
 Always tee output: `make -C server-zd/integ compile 2>&1 | tee /tmp/test-<scope>.log`
 
@@ -659,7 +660,7 @@ file or directory meets its limit; stale entries fail the check.
 - Local tests use the in-process s3mock or the in-memory object store, never
   MinIO.
 
-### server-zd Rust conventions ported from the Server Go rules
+### server-zd Rust conventions ported from the Go rules
 
 These rules restate the applicable Server Go rules for `server-zd/**`. The
 Rust table (R1–R19) still applies.
