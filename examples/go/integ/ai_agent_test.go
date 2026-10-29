@@ -202,20 +202,12 @@ func TestAIAgentPostsToSlackThroughTheDexConnector(t *testing.T) {
 	flowID := app.startAgent(t)
 
 	app.sendUserMessage(t, flowID, "/slack Aurora ships today")
-	waiting := app.waitForSnapshot(t, flowID, "the Slack approval", func(snapshot aiagent.AgentSnapshot) bool {
-		return snapshot.Status == aiagent.StatusWaitingForApproval
-	})
-	app.restartAfterKill(t)
-	require.True(t, app.decideToolApproval(t, flowID, waiting.PendingApproval.ID, true))
 	posted := app.waitForToolResult(t, flowID, aiagent.ToolPostToSlack)
 	require.Equal(t, aiagent.OutcomeDone, posted.Outcome, posted.Content)
 	require.Equal(t, "Posted to Slack channel C0DEMO (message 1761700000.000100).", posted.Content)
+	require.Nil(t, app.getAgentSnapshot(t, flowID).PendingApproval, "a Slack post needs no approval")
 
 	app.sendUserMessage(t, flowID, "/slack This slow post never gets an answer")
-	waiting = app.waitForSnapshot(t, flowID, "the second Slack approval", func(snapshot aiagent.AgentSnapshot) bool {
-		return snapshot.Status == aiagent.StatusWaitingForApproval
-	})
-	require.True(t, app.decideToolApproval(t, flowID, waiting.PendingApproval.ID, true))
 	select {
 	case <-slowPostArrived:
 	case <-time.After(aiAgentConvergenceTimeout):

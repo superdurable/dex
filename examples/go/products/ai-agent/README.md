@@ -25,7 +25,7 @@ calls:
 | --- | --- |
 | `/fetch <url>` | `fetch_page` downloads a page (read-only, about 5 seconds) |
 | `/publish <text>` | `publish_note` appends a note to the notes file (needs approval) |
-| `/slack <text>` | `post_to_slack` posts to Slack through the Dex Slack connector (needs approval) |
+| `/slack <text>` | `post_to_slack` posts to Slack through the Dex Slack connector |
 | `/wait <seconds>` | `wait` waits on a durable Timer |
 | `/ask <question>` | `ask_user` waits for your answer |
 
@@ -82,13 +82,13 @@ post.
 | --- | --- |
 | `AwaitUser` | Waits on the `UserMessages` Channel. A message starts a model turn, or answers a pending `ask_user` question. |
 | `CallModel` | Replays the `Messages` Attribute to the model and stores the reply. Tool calls go to `PendingToolCalls`. |
-| `RouteTool` | Takes the next pending tool call and sends it to its wait, its approval or its execution. With none left, it calls the model again. |
+| `RouteTool` | Takes the next pending tool call and sends it to its wait, its approval, the Slack Step or its execution. With none left, it calls the model again. |
 | `AwaitToolApproval` | Waits on the `ToolApprovals` ChannelMap, keyed by tool call ID. |
 | `AwaitTimer` | Waits on a durable Timer for the `wait` tool. No process sleeps. |
 | `ExecuteTool` | Runs `fetch_page` or `publish_note` and records the result. It heartbeats between stages. |
 | `RecordModelFailure` | Failure route of `CallModel`. Records why the model failed and waits for the user. |
 | `RecordToolFailure` | Failure route of `ExecuteTool` and `PostToSlack`. Records the failure as the tool's result, so the model decides what to do next. |
-| `PostToSlack` | The Dex Slack connector's `postChannelMessage` Step. It ends in one of four branches: sent, provider rejected, uncertain or defect. |
+| `PostToSlack` | The Dex Slack connector's `postChannelMessage` Step. The app trusts its own Slack channel, so a post needs no approval. It ends in one of four branches: sent, provider rejected, uncertain or defect. |
 | `RecordSlackPost` | Records the connector's branch as the `post_to_slack` result. |
 
 The chat page reads everything through one RPC, `GetAgentSnapshot`. Dex Web
@@ -144,11 +144,16 @@ prefix of `ModelProviderError` messages, not by `RecoveryErrorInfo.ErrorType`.
    Start `./dex-ai-agent` again. The page reconnects by itself with the same
    conversation, and the result notes that Dex ran the read-only call again.
 3. While the agent waits on the Timer, kill the app again. Wait until the
-   countdown passes, then start the app. The agent continues right away.
-4. When it asks to post, kill and restart the app once more: the approval is
-   still there. Approve it. The message appears in the Slack channel once (for
-   a note, `cat $TMPDIR/dex-ai-agent/notes.jsonl`).
-5. Open Dex Web at http://127.0.0.1:8802 and find the Flow: its Step history
+   countdown passes, then start the app. The agent continues right away, and
+   its message appears in the Slack channel once.
+4. Change the code while a run waits: start another run, and while it waits on
+   the Timer, make `mapToolCallToSlackMessage` in `slack.go` add a line such as
+   "— posted by the Dex AI Agent", then rebuild and restart the app. When the
+   Timer fires, the agent posts the signed message once.
+5. To see an approval, ask it to publish a note. Kill and restart the app while
+   the approval card waits: the card is still there. Approve it, then
+   `cat $TMPDIR/dex-ai-agent/notes.jsonl`. The note is there once.
+6. Open Dex Web at http://127.0.0.1:8802 and find the Flow: its Step history
    shows each restart, the Slack Step shows its connector branches, and its
    Display shows the conversation stored in Dex.
 
