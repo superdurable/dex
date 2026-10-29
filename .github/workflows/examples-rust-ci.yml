@@ -55,15 +55,11 @@ jobs:
         run: make test
 
   integ:
-    name: Integration tests with dexcli dev (pull, ${{ matrix.engine }})
+    name: Integration tests with dexcli dev (pull, zd)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        engine: [zd]
     env:
-      DEX_INTEG_ENGINE: ${{ matrix.engine }}
+      DEX_INTEG_ENGINE: zd
       DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
       # With the workflow env, these match Server ZD CI, so its main cache restores here.
       CARGO_INCREMENTAL: "0"
@@ -104,6 +100,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: rust-examples-integration-services-${{ matrix.engine }}
+          name: rust-examples-integration-services-zd
           path: /tmp/test-rust-examples-integration-services.log
           if-no-files-found: ignore

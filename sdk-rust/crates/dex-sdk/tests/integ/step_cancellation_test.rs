@@ -18,19 +18,18 @@ use crate::step_cancellation_workflow::{
     CancellationBlockingExecute, CancellationBlockingWaitFor, CancellationScenario,
     CancellationState, StepCancellationWorkflow,
 };
-use crate::support::{DexDevTestEnvironment, flow_id, is_server_zd};
+use crate::support::{DexDevTestEnvironment, flow_id};
 
 #[test]
 #[ignore = "requires dexcli dev"]
 fn test_step_cancellation() {
-    let is_server_zd = is_server_zd();
     for scenario in CancellationScenario::ALL {
-        run_scenario(scenario, is_server_zd);
+        run_scenario(scenario);
     }
 }
 
-fn run_scenario(scenario: CancellationScenario, is_server_zd: bool) {
-    let state = CancellationState::new(scenario, is_server_zd);
+fn run_scenario(scenario: CancellationScenario) {
+    let state = CancellationState::new(scenario);
     let workflow = StepCancellationWorkflow::new(Arc::clone(&state));
     let environment = DexDevTestEnvironment::start(Registry::new().register(workflow));
     let client_workflow = StepCancellationWorkflow::new(Arc::clone(&state));
@@ -93,15 +92,9 @@ fn run_scenario(scenario: CancellationScenario, is_server_zd: bool) {
             return;
         }
         CancellationScenario::NoHeartbeat => {
-            if is_server_zd {
-                // server-zd cancels pull handlers without a recorded heartbeat.
-                assert!(state.cancellation_observed.wait(Duration::from_secs(8)));
-                assert!(state.handler_canceled.load(Ordering::SeqCst));
-            } else {
-                // The Go Server leaves a non-heartbeating handler running.
-                assert!(!state.handler_canceled.load(Ordering::SeqCst));
-                assert!(!state.late_handler_returned.is_set());
-            }
+            // server-zd cancels pull handlers without a recorded heartbeat.
+            assert!(state.cancellation_observed.wait(Duration::from_secs(8)));
+            assert!(state.handler_canceled.load(Ordering::SeqCst));
             assert!(state.late_handler_returned.wait(Duration::from_secs(8)));
         }
         _ => {
@@ -110,18 +103,9 @@ fn run_scenario(scenario: CancellationScenario, is_server_zd: bool) {
             assert!(state.context_reported_cancellation.load(Ordering::SeqCst));
         }
     }
-    let has_async_local_phase = matches!(
-        scenario,
-        CancellationScenario::LocalExecute | CancellationScenario::LocalTimeoutFallback
-    );
     // The Go Server runs local and remote ASYNC invocations; server-zd has no local one.
-    let expected_invocations = if has_async_local_phase && !is_server_zd {
-        2
-    } else {
-        1
-    };
     assert_eq!(
-        expected_invocations,
+        1,
         state.blocking_invocations.load(Ordering::SeqCst),
         "{}",
         scenario.name()

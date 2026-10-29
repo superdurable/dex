@@ -16,7 +16,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 var heartbeatRecoveryProgress = dex.DefineStream[string]("heartbeat-recovery-progress", 1<<20)
@@ -125,13 +124,8 @@ func (asyncHeartbeatStep) Execute(
 	if err != nil {
 		return nil, err
 	}
-	serverEngine, err := integrationServerEngine()
-	if err != nil {
-		return nil, err
-	}
 	// C2: server-zd persists ASYNC heartbeat checkpoints from the first attempt.
-	isServerZD := serverEngine == dexpb.ServerEngine_SERVER_ENGINE_ZD
-	shouldFindHeartbeat := (isServerZD && ctx.Attempt() > 1) || (ctx.Attempt() > 2)
+	shouldFindHeartbeat := ctx.Attempt() > 1
 	expectedCheckpoint := "unchanged"
 	if shouldFindHeartbeat {
 		expectedCheckpoint = fmt.Sprintf("attempt-%d", ctx.Attempt()-1)

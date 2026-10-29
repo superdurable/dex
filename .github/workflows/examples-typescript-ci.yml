@@ -63,15 +63,11 @@ jobs:
         run: npm test
 
   integ:
-    name: Integration tests with dexcli dev (${{ matrix.engine }}, pull)
+    name: Integration tests with dexcli dev (zd, pull)
     runs-on: ubuntu-latest
     timeout-minutes: 50
-    strategy:
-      fail-fast: false
-      matrix:
-        engine: [zd]
     env:
-      DEX_INTEG_ENGINE: ${{ matrix.engine }}
+      DEX_INTEG_ENGINE: zd
       DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
       # These CARGO_* and RUST* values match Server ZD CI, so its main cache restores here.
       CARGO_TERM_COLOR: always
@@ -119,6 +115,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: typescript-examples-integration-services-${{ matrix.engine }}
+          name: typescript-examples-integration-services-zd
           path: /tmp/test-typescript-examples-integration-services.log
           if-no-files-found: ignore

@@ -35,13 +35,9 @@ final class HeartbeatTestWorkflow implements Flow<Void> {
     final Stream<String> progress = Stream.define("heartbeat-progress", String.class, 1L << 20);
     private final HeartbeatStep start = new HeartbeatStep();
     private final Scenario scenario;
-    private final boolean isServerZD;
 
-    HeartbeatTestWorkflow(
-            final Scenario scenario,
-            final boolean isServerZD) {
+    HeartbeatTestWorkflow(final Scenario scenario) {
         this.scenario = scenario;
-        this.isServerZD = isServerZD;
     }
 
     @Override
@@ -65,8 +61,7 @@ final class HeartbeatTestWorkflow implements Flow<Void> {
             if (scenario == Scenario.LOCAL_IGNORES_VALUE) {
                 if (context.getAttempt() <= 3) {
                     // C2: server-zd persists ASYNC heartbeat checkpoints from the first attempt.
-                    if (isServerZD
-                            && context.getAttempt() > 1
+                    if (context.getAttempt() > 1
                             && (!context.hasLastHeartbeatValue()
                                     || !"local-checkpoint".equals(
                                             context.getLastHeartbeatValue(String.class)))) {

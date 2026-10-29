@@ -50,8 +50,6 @@ type flowSmokeEntry struct {
 	flags   flowSmokeFlags
 	// verifyAfterTrigger runs extra sample-specific assertions after the common smoke checks.
 	verifyAfterTrigger func(t *testing.T, flowID string)
-	// serverZDUnsupportedFeature names the feature that makes server-zd reject this sample.
-	serverZDUnsupportedFeature string
 }
 
 type flowHistoryPage struct {

@@ -143,13 +143,9 @@ jobs:
             uv.lock
 
   integration:
-    name: Integration tests (${{ matrix.engine }}, pull)
+    name: Integration tests (zd, pull)
     runs-on: ubuntu-latest
     timeout-minutes: 75
-    strategy:
-      fail-fast: false
-      matrix:
-        engine: [zd]
     permissions:
       contents: read
       id-token: write
@@ -208,19 +204,19 @@ jobs:
         fail_ci_if_error: true
         files: ./sdk-python/coverage/lcov.info
         flags: sdk-python-integration
-        name: sdk-python-integration-${{ matrix.engine }}
+        name: sdk-python-integration-zd
         use_oidc: true
     - name: Upload coverage report
       if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: sdk-python-integration-coverage-${{ matrix.engine }}
+        name: sdk-python-integration-coverage-zd
         path: sdk-python/coverage/
         if-no-files-found: ignore
     - name: Upload service logs
       if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: sdk-python-integration-services-${{ matrix.engine }}
+        name: sdk-python-integration-services-zd
         path: /tmp/test-python-sdk-integration-services.log
         if-no-files-found: ignore

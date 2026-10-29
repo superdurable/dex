@@ -31,11 +31,11 @@ Run all scenarios against an isolated `dexcli dev` stack from `sdk-rust`:
 
 ```bash
 ./run-integration-tests.sh
-DEX_INTEG_ENGINE=zd ./run-integration-tests.sh
 ```
 
-Each run starts a fresh Dex stack. All shared Workers and Clients use pull
-routing in both integration targets, including the Worker E2E scenarios.
+Each run starts a fresh server-zd stack. Set `DEX_SERVER_ZD_BINARY` to reuse a
+built `dex-server-zd`. All shared Workers and Clients use pull routing in both
+integration targets, including the Worker E2E scenarios.
 
 To collect production `dex-sdk` coverage from only these integration targets,
 install `cargo-llvm-cov` and run `./run-integration-tests.sh --coverage`.

@@ -18,12 +18,11 @@ Full integration verification:
 
 ```shell
 ./run-integration-tests.sh
-DEX_INTEG_ENGINE=zd ./run-integration-tests.sh
 ```
 
 Every test uses outbound Worker task streams and automatic pull routing.
-Each invocation starts its own `dexcli dev` environment. CI covers both the
-Temporal and server-zd engines.
+Each invocation starts its own `dexcli dev` environment on server-zd. Set
+`DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 ## Programming experience
 

@@ -68,6 +68,7 @@ jobs:
               - 'sdk-rust/crates/dex-blob-cache/**'
               - 'sdk-rust/crates/dex-blob-cache-jni/**'
               - 'cli/**'
+              - 'web/**'
               - 'server-zd/**'
               - 's3mock/**'
               - 'protos/**'
@@ -147,20 +148,6 @@ jobs:
               - '.github/workflows/server-zd-simulation-nightly.yml'
               - '.github/workflows/server-zd-simulation-runner-ci.yml'
               - 'Makefile'
-            server_zd_sdk:
-              - 'sdk-go/**'
-              - 'sdk-rust/**'
-              - 'sdk-python/**'
-              - 'sdk-typescript/**'
-              - 'sdk-java/**'
-              - 'server-zd/**'
-              - 's3mock/**'
-              - 'cli/**'
-              - 'web/**'
-              - 'protos/**'
-              - 'go.work'
-              - 'go.work.sum'
-              - '.github/workflows/server-zd-sdk-ci.yml'
             server_zd_image:
               - 'server-zd/Dockerfile'
               - '.dockerignore'
@@ -241,7 +228,6 @@ jobs:
           FILTER_S3MOCK: ${{ steps.filter.outputs.s3mock }}
           FILTER_SERVER_ZD: ${{ steps.filter.outputs.server_zd }}
           FILTER_SERVER_ZD_SIMULATION_RUNNER: ${{ steps.filter.outputs.server_zd_simulation_runner }}
-          FILTER_SERVER_ZD_SDK: ${{ steps.filter.outputs.server_zd_sdk }}
           FILTER_SERVER_ZD_IMAGE: ${{ steps.filter.outputs.server_zd_image }}
           FILTER_SERVER_ZD_BINARY: ${{ steps.filter.outputs.server_zd_binary }}
           FILTER_SERVER_ZD_MINIO: ${{ steps.filter.outputs.server_zd_minio }}
@@ -277,7 +263,6 @@ jobs:
               "Server CI"
               "Server ZD CI"
               "Server ZD Simulation Runner CI"
-              "Server ZD SDK CI"
               "Server All-in-One CI"
               "Web CI"
             )
@@ -299,7 +284,6 @@ jobs:
             [[ "$FILTER_S3MOCK" == "true" ]] && expected+=("S3mock CI")
             [[ "$FILTER_SERVER_ZD" == "true" ]] && expected+=("Server ZD CI")
             [[ "$FILTER_SERVER_ZD_SIMULATION_RUNNER" == "true" ]] && expected+=("Server ZD Simulation Runner CI")
-            [[ "$FILTER_SERVER_ZD_SDK" == "true" ]] && expected+=("Server ZD SDK CI")
             [[ "$FILTER_SERVER_ZD_IMAGE" == "true" ]] && expected+=("Server ZD image release")
             [[ "$FILTER_SERVER_ZD_BINARY" == "true" ]] && expected+=("Server ZD binary release")
             [[ "$FILTER_SERVER_ZD_MINIO" == "true" ]] && expected+=("Server ZD MinIO Nightly")
@@ -312,13 +296,12 @@ jobs:
 
           # ci:fast-merge stops the existing Temporal/Cadence engine, SDK, CLI, Web, and examples
           # suites from blocking the merge. They still run on the pull request and on main.
-          # The SDK suites on server-zd (Server ZD SDK CI) are non-blocking too; Server ZD CI still blocks.
+          # The SDK suites on server-zd are non-blocking too; Server ZD CI still blocks.
           if [[ "$EVENT_NAME" == "pull_request" && "$IS_FAST_MERGE" == "true" ]]; then
             non_blocking=(
               "Blob Cache Go CI"
               "Dex CLI CI"
               "Go SDK CI"
-              "Server ZD SDK CI"
               "Java SDK CI"
               "Python SDK CI"
               "Rust SDK CI"

@@ -10,12 +10,8 @@ Run the complete suite against a fresh `dexcli dev` environment:
 ./run-integration-tests.sh
 ```
 
-The suite always runs pull Workers. Set `DEX_INTEG_ENGINE=zd` to run against
-server-zd:
-
-```bash
-DEX_INTEG_ENGINE=zd ./run-integration-tests.sh
-```
+The suite always runs pull Workers against server-zd. Set
+`DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 The compile-oriented call-site modules remain part of strict static checking:
 

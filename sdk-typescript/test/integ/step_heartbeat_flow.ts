@@ -75,10 +75,7 @@ class StepHeartbeatStep implements Step<HeartbeatScenario> {
     await context.recordHeartbeat(`local-${invocation}`, stringCodec);
     this.flow.progress.write(context, `local-stream-${invocation}`);
     // C2: server-zd persists ASYNC heartbeat checkpoints from the first attempt.
-    if (
-      (this.flow.isServerZD && invocation > 1) ||
-      invocation > 2
-    ) {
+    if (invocation > 1) {
       if (context.getLastHeartbeatValue(stringCodec) !== `local-${invocation - 1}`) {
         throw new Error("regular retry did not restore its previous heartbeat");
       }
@@ -142,7 +139,6 @@ export class StepHeartbeatFlow implements Flow<HeartbeatScenario> {
   public readonly progress = new Stream("typescript-heartbeat-progress", stringCodec, 1 << 20);
   public readonly localInvocations = new Map<string, number>();
   public scenario: HeartbeatScenario = "value";
-  public isServerZD = false;
   private readonly start = new StepHeartbeatStep(this);
 
   public getFlowType(): string {

@@ -71,14 +71,10 @@ jobs:
         run: make unitTests
 
   e2e:
-    name: End-to-end tests (pull, ${{ matrix.engine }})
+    name: End-to-end tests (pull, zd)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        engine: [zd]
     env:
-      DEX_INTEG_ENGINE: ${{ matrix.engine }}
+      DEX_INTEG_ENGINE: zd
       DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
       # These CARGO_* and RUST* values match Server ZD CI, so its main cache restores here.
       CARGO_TERM_COLOR: always
@@ -119,6 +115,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: go-examples-e2e-services-${{ matrix.engine }}
+          name: go-examples-e2e-services-zd
           path: /tmp/test-go-examples-e2e-services.log
           if-no-files-found: ignore

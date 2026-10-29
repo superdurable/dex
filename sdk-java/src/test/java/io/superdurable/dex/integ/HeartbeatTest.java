@@ -50,9 +50,7 @@ public final class HeartbeatTest {
     private void assertHeartbeatRetry(
             final HeartbeatTestWorkflow.Scenario scenario,
             final String expectedOutput) throws Exception {
-        final HeartbeatTestWorkflow workflow = new HeartbeatTestWorkflow(
-                scenario,
-                IntegrationTestWaits.isServerZD());
+        final HeartbeatTestWorkflow workflow = new HeartbeatTestWorkflow(scenario);
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
                 cacheDirectory,
                 workflow)) {
