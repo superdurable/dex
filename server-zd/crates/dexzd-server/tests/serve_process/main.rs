@@ -32,7 +32,8 @@ use dexzd_object_store::{
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::worker_task_service_client::WorkerTaskServiceClient;
 use dexzd_protocol::dex::{
-    AttributeWrite, CloseDecision, CloseDecisionType, FlowConfig, FlowStartOptions, FlowStatus,
+    ActionPermissionMapping, ActionPermissionMappings, AttributeWrite, CloseDecision,
+    CloseDecisionType, EncodedObject, FlowConfig, FlowStartOptions, FlowStatus,
     GetFlowSummaryRequest, IndexConfig, IndexType, InvokeExecuteMethodResponse, SearchFlowsRequest,
     SearchFlowsResponseEntry, SetAttributesRequest, StartFlowRequest, StepDecision, StepOptions,
     Value, WaitForFlowRequest, WorkerTarget, value,
@@ -755,6 +756,156 @@ async fn paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write(
     proxy.shutdown().await;
     primary.shutdown().await;
     schema.drop_schema().await;
+}
+
+/// A Flow whose Server-managed DexWorkQueuePermissions is set stays searchable through ParadeDB.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn paradedb_search_finds_flows_with_work_queue_permissions() {
+    let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
+        return;
+    };
+    let schema = ParadeDbSchema::create(&database_url).await;
+    let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
+    let primary_endpoint = primary.endpoint();
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    let address = free_loopback_address();
+    let config_path = directory.path().join("permissions.yaml");
+    ServeConfig {
+        primary_endpoint: &primary_endpoint,
+        hard_delete_endpoint: None,
+        listen: address,
+        local_directory: &directory.path().join("store"),
+        lease_duration: HELD_LEASE_DURATION,
+        fail_if_held: true,
+        parade_db: Some(ParadeDbSettings {
+            connection_string: &database_url,
+            schema: schema.name(),
+        }),
+    }
+    .write(&config_path);
+    let mut server = ServeProcess::spawn(
+        &config_path,
+        address,
+        directory.path().join("permissions.log"),
+    );
+    let channel = server.wait_until_serving().await;
+    let mut flow_client = FlowServiceClient::new(channel);
+    let flow_id = "permission-flow";
+    let started = flow_client
+        .start_flow(StartFlowRequest {
+            flow_id: flow_id.to_owned(),
+            flow_type: FLOW_TYPE.to_owned(),
+            start_step_type: "IdleStep".to_owned(),
+            flow_start_options: Some(FlowStartOptions {
+                flow_config_override: Some(FlowConfig {
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    ..FlowConfig::default()
+                }),
+                ..FlowStartOptions::default()
+            }),
+            request_id: "permission-start".to_owned(),
+            ..StartFlowRequest::default()
+        })
+        .await
+        .expect("StartFlow succeeds")
+        .into_inner();
+    flow_client
+        .set_attributes(SetAttributesRequest {
+            flow_id: flow_id.to_owned(),
+            attributes: vec![AttributeWrite {
+                key: "reviewState".to_owned(),
+                value: Some(string_value("ready")),
+                index_config: Some(IndexConfig {
+                    enable: true,
+                    r#type: IndexType::Keyword as i32,
+                    index_key: "ReviewState".to_owned(),
+                }),
+                ..AttributeWrite::default()
+            }],
+            action_permission_mappings: Some(ActionPermissionMappings {
+                mappings: vec![ActionPermissionMapping {
+                    attribute_key: "reviewState".to_owned(),
+                    equal_values: vec![string_value("ready")],
+                    required_permission: "approve".to_owned(),
+                }],
+            }),
+            request_id: "permission-grant".to_owned(),
+            ..SetAttributesRequest::default()
+        })
+        .await
+        .expect("SetAttributes with an action permission mapping succeeds");
+
+    let expected_permissions = Value {
+        kind: Some(value::Kind::ObjValue(EncodedObject {
+            encoding: "json".to_owned(),
+            payload: br#"["approve"]"#.to_vec(),
+        })),
+    };
+    for query in [
+        format!("FlowType = '{FLOW_TYPE}'"),
+        "DexWorkQueuePermissions = 'approve'".to_owned(),
+    ] {
+        let entry = search_until_permitted(&mut flow_client, &query, flow_id, &server).await;
+        assert_eq!(entry.run_id, started.run_id);
+        let permissions: Vec<_> = entry
+            .indexed_attributes
+            .iter()
+            .filter(|attribute| attribute.key == "DexWorkQueuePermissions")
+            .collect();
+        assert_eq!(permissions.len(), 1, "{query}: {entry:?}");
+        assert_eq!(
+            permissions[0].value.as_ref(),
+            Some(&expected_permissions),
+            "{query}"
+        );
+    }
+
+    let exit_status = server.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(exit_status.code(), Some(0), "{}", server.log());
+    primary.shutdown().await;
+    schema.drop_schema().await;
+}
+
+/// Searches `query` until `flow_id` appears with DexWorkQueuePermissions.
+async fn search_until_permitted(
+    flow_client: &mut FlowServiceClient<Channel>,
+    query: &str,
+    flow_id: &str,
+    server: &ServeProcess,
+) -> SearchFlowsResponseEntry {
+    let deadline = tokio::time::Instant::now() + SEARCH_BUDGET;
+    loop {
+        let search_result = flow_client
+            .search_flows(SearchFlowsRequest {
+                query: query.to_owned(),
+                page_size: 10,
+                ..SearchFlowsRequest::default()
+            })
+            .await
+            .map(|response| response.into_inner().flow_runs);
+        let last_result = match search_result {
+            Ok(entries) => {
+                if let Some(entry) = entries.iter().find(|entry| {
+                    entry.flow_id == flow_id
+                        && entry
+                            .indexed_attributes
+                            .iter()
+                            .any(|attribute| attribute.key == "DexWorkQueuePermissions")
+                }) {
+                    return entry.clone();
+                }
+                format!("{entries:?}")
+            }
+            Err(status) if status.code() == tonic::Code::Unavailable => status.to_string(),
+            Err(status) => panic!("SearchFlows {query} failed: {status}"),
+        };
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "{flow_id} was not found with DexWorkQueuePermissions by {query} within {SEARCH_BUDGET:?}: {last_result}; server log: {}",
+            server.log()
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
 }
 
 /// Starts a pull Worker whose GreetStep completes the Flow with a greeting.
