@@ -434,6 +434,41 @@ server-zd 不发送服务端加密的请求头，因此使用 bucket 的默认�
 NOT_FOUND 和 FLOW_NOT_EXISTS。使用已记录的请求 ID 重试时，会返回先前的结果。其他 RPC 仍会在尚未清除的
 已关闭 run 上执行处理函数，因此可以读取该 run。处理函数返回的任何写入都会被 server-zd 拒绝。
 
+## History 窗口 {#history-window}
+
+server-zd 为每个 run 保留最近的一段 history 窗口。窗口包含 **FlowStart** 事件和大约最新的
+10,000 个 semantic event。更早的事件按每批 1,000 个清理。为 time travel 保留的被替换值超过
+256 MiB 时，窗口也会缩小。
+
+History 读取（例如 **dexcli flow history --all**）只返回保留的事件。
+[Time travel](/primitives/client/advanced#time-travel) 只能以窗口内的点为目标。Time travel
+到开头总是可用。
+
+| Key | 默认值 | 含义 |
+| --- | --- | --- |
+| **history.windowSemanticEvents** | 10000 | 清理之前窗口最多保留的 semantic event 数。 |
+| **history.pruneChunkSize** | 1000 | 每次清理的旧 semantic event 数。不得超过 **windowSemanticEvents**。 |
+| **history.maxRetainedSupersededBytes** | 268435456（256 MiB） | 窗口内为 time travel 保留的被替换值的最大字节数。 |
+
+每个 run 在启动时记录这些值。新值只对节点用它重启之后启动的 run 生效。
+
+## 限制 {#limits}
+
+server-zd 执行以下限制。超出限制的请求会立即失败，不会等待容量。
+
+| Key | 默认值 | 含义 |
+| --- | --- | --- |
+| **values.maxValueBytes** | 16777216（16 MiB） | 单个应用值序列化后的最大大小，例如 Attribute 值或 Channel 消息。更大的值会被拒绝。 |
+| **api.grpcMaxMessageBytes** | 33554432（32 MiB） | 收发的单条 gRPC 消息的最大大小。必须大于 **values.maxValueBytes**。 |
+| **limits.maxFlowStateBytes** | 67108864（64 MiB） | 一个 Flow run 物化状态的最大大小，包括当前的 Attribute 和 Channel。会超出它的 Step attempt 直接失败，不会重试。会超出它的 Client 或 RPC 写入以 RESOURCE_EXHAUSTED 失败。 |
+| **limits.maxFlowIdBytes** | 1000 | Flow ID 的最大长度，以 UTF-8 字节计。 |
+| **limits.maxRequestIdsPerRun** | 1000 | 一个 run 为去重保留的最新请求 ID 数。使用更早请求 ID 的重试会作为新请求执行。 |
+| **limits.maxLongPollWaitersPerFlow** | 1000 | 一个 Flow 上的最大并发 wait 数，例如 WaitForStepCompletion 和 WaitForAttributeMatch 调用。超出的 wait 以 RESOURCE_EXHAUSTED 失败。 |
+| **limits.maxLongPollWaitersPerNode** | 100000 | 节点上的最大并发 wait 数。超出的 wait 以 RESOURCE_EXHAUSTED 失败。 |
+| **limits.maxInFlightRpcsPerNode** | 1000 | 节点上同时进行的共享事务型或加锁 RPC 任务的最大数量。超出时，新的请求 ID 以 RESOURCE_EXHAUSTED 失败。 |
+
+每个 run 在启动时记录 **limits.maxFlowStateBytes** 和 **limits.maxRequestIdsPerRun**。新值只对节点用它重启之后启动的 run 生效。
+
 ## Attribute Store 同步 {#attribute-store}
 
 server-zd v0.1.3 或更高版本可以把 Attribute 同步到 PostgreSQL。表契约见

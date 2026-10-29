@@ -273,11 +273,11 @@ client.skip_timer("order-123", StepExecutionId::of(&charge_order), TimerId::by_c
 
 ## 触发 continue-as-new
 
-**TriggerContinueAsNew** 已弃用。Dex 不会把 Flow continue as new。这个调用总是以 **UNIMPLEMENTED** 失败。不要调用它。
+**TriggerContinueAsNew** 已弃用。Dex 不会把 Flow continue as new。这个调用总是以 **UNIMPLEMENTED** 失败。不要调用它。长期运行的 Flow 不需要滚动，因为 Dex Server 只保留[最近的 history 窗口](/production/server-zd-operations#history-window)。
 
 ## Time travel
 
-**TimeTravel** 从已有 Flow history 的某个点创建一个新 run。
+**TimeTravel** 从已有 Flow history 的某个点创建一个新 run。这个点必须位于[最近的 history 窗口](/production/server-zd-operations#history-window)内，否则调用以 **FAILED_PRECONDITION** 失败。Time travel 到开头总是可用。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/flow/controller.py', go: 'examples/go/primitives/flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java', typescript: 'examples/typescript/src/primitives/flow/controller.ts', rust: 'examples/rust/src/primitives/flow/controller.rs'}}>
 <SdkSnippet lang="python">

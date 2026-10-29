@@ -402,7 +402,7 @@ A non-transactional RPC treats a missing deletion as a no-op and still commits i
 
 An RPC timeout limits one Worker handler invocation.
 
-Every SDK declares the timeout with the RPC. Go places it in the static **RPCOptions** passed to **DefineRPC**. A Client invocation cannot override it, although the caller's context can stop waiting sooner. When the application does not set a timeout, Dex Server uses its default. The default maximum is 60 seconds.
+Every SDK declares the timeout with the RPC. Go places it in the static **RPCOptions** passed to **DefineRPC**. A Client invocation cannot override it, although the caller's context can stop waiting sooner. When the application does not set a timeout, Dex Server uses its default of 60 seconds, set by **api.defaultRpcTimeout**. An explicit timeout has no maximum.
 
 <SdkTabs
   examples={{

@@ -24,7 +24,7 @@ The server also caps one transport attempt. That cap is internal. The SDK reatta
 
 Each waiting call holds one wait slot on the Flow while it waits. A result, request timeout, cancellation, or caller disconnect frees the slot. Abandoned callers therefore do not accumulate.
 
-Dex Server limits concurrent waits on one Flow. server-zd allows 1,000 by default, set by **limits.maxLongPollWaitersPerFlow**. A wait beyond the limit fails with a resource-exhausted error. Keep the number of concurrent callers per Flow below it.
+Dex Server limits concurrent waits on one Flow. server-zd allows 1,000 by default, set by **limits.maxLongPollWaitersPerFlow**. A wait beyond the limit fails with a resource-exhausted error. Keep the number of concurrent callers per Flow below it. See [server-zd limits](/production/server-zd-operations#limits).
 
 **InternalHandlerTimeout** is deprecated. Dex rejects a negative value and otherwise ignores it. Leave it unset.
 

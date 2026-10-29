@@ -24,7 +24,7 @@ Server 还会限制单次 transport attempt。这个 cap 完全是内部行为�
 
 每个正在等待的调用在等待期间占用 Flow 的一个 wait slot。得到结果、request timeout、cancellation 或调用方断开连接都会释放这个 slot。因此，被放弃的调用不会累积。
 
-Dex Server 会限制单个 Flow 上的并发 wait 数量。server-zd 默认允许 1,000 个，由 **limits.maxLongPollWaitersPerFlow** 设置。超出上限的 wait 会以 resource-exhausted 错误失败。每个 Flow 的并发调用方数量应低于这个上限。
+Dex Server 会限制单个 Flow 上的并发 wait 数量。server-zd 默认允许 1,000 个，由 **limits.maxLongPollWaitersPerFlow** 设置。超出上限的 wait 会以 resource-exhausted 错误失败。每个 Flow 的并发调用方数量应低于这个上限。见 [server-zd 限制](/production/server-zd-operations#limits)。
 
 **InternalHandlerTimeout** 已弃用。Dex 会拒绝负值，其他值都会被忽略。不要设置它。
 
