@@ -33,6 +33,7 @@ const (
 	defaultTemporalUIPort     = 8233
 	defaultTemporalNamespace  = "default"
 	defaultZDStartupTimeout   = 60 * time.Second
+	zdBinaryName              = "dex-server-zd"
 	localSQLiteFileName       = "dex.sqlite.db"
 	localBlobStoreName        = "dex.blobs"
 	dexServerLogFileName      = "dex-server.log"
@@ -63,7 +64,8 @@ var flagOrder = []string{
 type Config struct {
 	// Engine defaults to temporal and selects the local Dex Server implementation.
 	Engine string
-	// ZDBinary defaults to DEX_SERVER_ZD_BINARY or dex-server-zd on PATH.
+	// ZDBinary defaults to DEX_SERVER_ZD_BINARY. When neither --zd-binary nor DEX_SERVER_ZD_BINARY is set, dexcli
+	// uses dex-server-zd from the running dexcli executable's directory, then its symlink-resolved directory, then PATH.
 	ZDBinary string
 	// ZDDataDirectory defaults to $HOME/.dex/zd/<dex-port> after the Dex port is selected.
 	ZDDataDirectory string
@@ -132,7 +134,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	)
 	flags.StringVar(&cfg.BindAddress, "bind-address", cfg.BindAddress, "address for local services")
 	flags.StringVar(&cfg.Engine, "engine", cfg.Engine, "Dex Server engine: temporal or zd")
-	flags.StringVar(&cfg.ZDBinary, "zd-binary", cfg.ZDBinary, "dex-server-zd executable (default DEX_SERVER_ZD_BINARY or PATH)")
+	flags.StringVar(&cfg.ZDBinary, "zd-binary", cfg.ZDBinary, "dex-server-zd executable (default DEX_SERVER_ZD_BINARY, then next to dexcli, then PATH)")
 	flags.StringVar(&cfg.ZDDataDirectory, "zd-data-dir", "", "zd state directory (default $HOME/.dex/zd/<dex-port>)")
 	flags.StringVar(&cfg.ZDConfigPath, "zd-config", "", "dex-server-zd YAML file with configuration overrides")
 	flags.StringVar(
@@ -267,12 +269,19 @@ func (c *Config) validate() error {
 				return fmt.Errorf("--%s cannot be used with --engine zd", name)
 			}
 		}
-		if c.ZDBinary == "" {
-			c.ZDBinary = "dex-server-zd"
-		}
-		binaryPath, err := exec.LookPath(c.ZDBinary)
+		invocationPath, err := dexcliInvocationPath(os.Args[0])
 		if err != nil {
-			return fmt.Errorf("dex-server-zd binary %q was not found; use --zd-binary or DEX_SERVER_ZD_BINARY: %w", c.ZDBinary, err)
+			// The resolved executable directory and PATH remain candidates.
+			invocationPath = ""
+		}
+		executablePath, err := os.Executable()
+		if err != nil {
+			// PATH lookup still works without the dexcli executable directory.
+			executablePath = ""
+		}
+		binaryPath, err := resolveZDBinary(c.ZDBinary, invocationPath, executablePath)
+		if err != nil {
+			return err
 		}
 		c.ZDBinary = binaryPath
 		if c.isExplicit("zd-data-dir") {
@@ -457,6 +466,80 @@ func (c *Config) isExplicit(flagName string) bool {
 
 func (c *Config) autoSQLiteDBFilename() string {
 	return filepath.Join(c.StateDirectory, "dev", strconv.Itoa(c.TemporalPort), localSQLiteFileName)
+}
+
+// resolveZDBinary returns the dex-server-zd executable path, or an error naming every location searched.
+// A non-empty configuredBinary comes from --zd-binary or DEX_SERVER_ZD_BINARY and is the only candidate.
+// Otherwise it searches the directory of invocationPath, the symlink-resolved directory of executablePath, then PATH.
+func resolveZDBinary(configuredBinary string, invocationPath string, executablePath string) (string, error) {
+	if configuredBinary != "" {
+		binaryPath, err := exec.LookPath(configuredBinary)
+		if err != nil {
+			return "", fmt.Errorf("dex-server-zd binary %q was not found; use --zd-binary or DEX_SERVER_ZD_BINARY: %w", configuredBinary, err)
+		}
+		return binaryPath, nil
+	}
+	searchedDirectories := dexcliExecutableDirectories(invocationPath, executablePath)
+	for _, directory := range searchedDirectories {
+		// A missing or non-executable sibling falls through to the next location.
+		if binaryPath, err := exec.LookPath(filepath.Join(directory, zdBinaryName)); err == nil {
+			return binaryPath, nil
+		}
+	}
+	binaryPath, err := exec.LookPath(zdBinaryName)
+	if err != nil {
+		searchedLocations := "PATH"
+		if len(searchedDirectories) > 0 {
+			searchedLocations = strings.Join(searchedDirectories, ", ") + ", or PATH"
+		}
+		return "", fmt.Errorf(
+			"dex-server-zd was not found in %s; reinstall dexcli, or use --zd-binary or DEX_SERVER_ZD_BINARY: %w",
+			searchedLocations, err)
+	}
+	return binaryPath, nil
+}
+
+// dexcliInvocationPath returns the absolute path dexcli was invoked through, keeping any symlink, or an error when
+// the path cannot be made absolute or a bare command name is not on PATH.
+// os.Executable cannot provide it because Linux reports the symlink target.
+func dexcliInvocationPath(argument string) (string, error) {
+	if argument == "" {
+		return "", fmt.Errorf("dexcli invocation path is empty")
+	}
+	if !strings.ContainsRune(argument, os.PathSeparator) && !strings.ContainsRune(argument, '/') {
+		lookedUpPath, err := exec.LookPath(argument)
+		if err != nil {
+			return "", fmt.Errorf("find dexcli invocation %q on PATH: %w", argument, err)
+		}
+		argument = lookedUpPath
+	}
+	absolutePath, err := filepath.Abs(argument)
+	if err != nil {
+		return "", fmt.Errorf("resolve dexcli invocation path %q: %w", argument, err)
+	}
+	return absolutePath, nil
+}
+
+// dexcliExecutableDirectories returns the directory of invocationPath, then the directory of the symlink-resolved
+// executablePath when different. Empty paths contribute no directory.
+func dexcliExecutableDirectories(invocationPath string, executablePath string) []string {
+	var directories []string
+	if invocationPath != "" {
+		directories = append(directories, filepath.Dir(invocationPath))
+	}
+	if executablePath == "" {
+		return directories
+	}
+	resolvedPath, err := filepath.EvalSymlinks(executablePath)
+	if err != nil {
+		// The unresolved directory is still a valid candidate.
+		resolvedPath = executablePath
+	}
+	resolvedDirectory := filepath.Dir(resolvedPath)
+	if len(directories) == 0 || resolvedDirectory != directories[0] {
+		directories = append(directories, resolvedDirectory)
+	}
+	return directories
 }
 
 // resolveZDConfigPath returns the absolute path of an existing regular zd configuration file, or an error naming

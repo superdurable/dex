@@ -27,10 +27,11 @@ class Dexcli < Formula
   end
 
   def install
-    bin.install "dexcli"
+    bin.install "dexcli", "dex-server-zd"
   end
 
   test do
     assert_match version.to_s, shell_output("#{bin}/dexcli version")
+    assert_match "dex-server-zd", shell_output("#{bin}/dex-server-zd --version")
   end
 end

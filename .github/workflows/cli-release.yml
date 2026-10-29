@@ -85,36 +85,15 @@ jobs:
           npm ci
           npm run check
           npm run build
-      - name: Build archives
+      - name: Build archives with bundled dex-server-zd
         working-directory: cli
         env:
-          GOWORK: "off"
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
-          mkdir -p dist
-          for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
-            os="${target%/*}"
-            arch="${target#*/}"
-            name="dexcli_${VERSION}_${os}_${arch}"
-            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
-              -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              -o "dist/${name}/dexcli" ./cmd/dexcli
-            if [[ "${target}" == "linux/amd64" ]]; then
-              runtime_version="$("dist/${name}/dexcli" version)"
-              [[ "${runtime_version}" == "dexcli ${VERSION} "* ]] || {
-                echo "dexcli runtime version does not match ${VERSION}: ${runtime_version}" >&2
-                exit 1
-              }
-            fi
-            cp LICENSE LEGACY_NOTICES.md "dist/${name}/"
-            cp -R LICENSES "dist/${name}/LICENSES"
-            tar -C "dist/${name}" -czf "dist/${name}.tar.gz" \
-              dexcli LICENSE LEGACY_NOTICES.md LICENSES
-            rm -r "dist/${name}"
-          done
-          cd dist
-          sha256sum -- ./*.tar.gz > checksums.txt
+          script/package-release.sh "${VERSION}" dist \
+            darwin/arm64 darwin/amd64 linux/arm64 linux/amd64
       - name: Generate Homebrew formula
         working-directory: cli
         env:

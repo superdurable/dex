@@ -119,6 +119,137 @@ func TestZDEngineFlags(t *testing.T) {
 	}
 }
 
+func TestZDBinaryPrecedence(t *testing.T) {
+	flagBinary := writeFakeExecutable(t, t.TempDir(), "dex-server-zd")
+	environmentBinary := writeFakeExecutable(t, t.TempDir(), "dex-server-zd")
+	pathDirectory := t.TempDir()
+	pathBinary := writeFakeExecutable(t, pathDirectory, "dex-server-zd")
+	t.Setenv("PATH", pathDirectory)
+
+	t.Setenv("DEX_SERVER_ZD_BINARY", environmentBinary)
+	config, err := parseConfig([]string{"--engine", "zd", "--zd-binary", flagBinary}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ZDBinary != flagBinary {
+		t.Fatalf("--zd-binary did not win: %q", config.ZDBinary)
+	}
+	config, err = parseConfig([]string{"--engine", "zd"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ZDBinary != environmentBinary {
+		t.Fatalf("DEX_SERVER_ZD_BINARY did not win over PATH: %q", config.ZDBinary)
+	}
+	t.Setenv("DEX_SERVER_ZD_BINARY", "")
+	config, err = parseConfig([]string{"--engine", "zd"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ZDBinary != pathBinary {
+		t.Fatalf("PATH fallback = %q, want %q", config.ZDBinary, pathBinary)
+	}
+
+	dexcliDirectory := t.TempDir()
+	dexcliPath := writeFakeExecutable(t, dexcliDirectory, "dexcli")
+	siblingBinary := writeFakeExecutable(t, dexcliDirectory, "dex-server-zd")
+	if resolved := mustResolveZDBinary(t, "", dexcliPath, dexcliPath); resolved != siblingBinary {
+		t.Fatalf("sibling did not win over PATH: %q, want %q", resolved, siblingBinary)
+	}
+	if resolved := mustResolveZDBinary(t, environmentBinary, dexcliPath, dexcliPath); resolved != environmentBinary {
+		t.Fatalf("configured binary did not win over sibling: %q", resolved)
+	}
+	missingBinary := filepath.Join(t.TempDir(), "missing")
+	if _, err := resolveZDBinary(missingBinary, dexcliPath, dexcliPath); err == nil || !strings.Contains(err.Error(), "was not found") {
+		t.Fatalf("missing configured binary fell back instead of failing: %v", err)
+	}
+}
+
+func TestZDBinarySiblingLookup(t *testing.T) {
+	pathDirectory := t.TempDir()
+	pathBinary := writeFakeExecutable(t, pathDirectory, "dex-server-zd")
+	t.Setenv("PATH", pathDirectory)
+
+	// Package managers such as Homebrew link bin entries to an install directory.
+	installDirectory := t.TempDir()
+	installedDexcli := writeFakeExecutable(t, installDirectory, "dexcli")
+	installedBinary := writeFakeExecutable(t, installDirectory, "dex-server-zd")
+	linkDirectory := t.TempDir()
+	linkedDexcli := filepath.Join(linkDirectory, "dexcli")
+	if err := os.Symlink(installedDexcli, linkedDexcli); err != nil {
+		t.Fatal(err)
+	}
+	// Linux os.Executable reports the target; macOS reports the invoked link.
+	for _, executablePath := range []string{installedDexcli, linkedDexcli} {
+		if resolved := mustResolveZDBinary(t, "", linkedDexcli, executablePath); realTestPath(t, resolved) != realTestPath(t, installedBinary) {
+			t.Fatalf("resolved-directory sibling with executable %q = %q, want %q", executablePath, resolved, installedBinary)
+		}
+	}
+
+	linkedBinary := writeFakeExecutable(t, linkDirectory, "dex-server-zd")
+	if resolved := mustResolveZDBinary(t, "", linkedDexcli, installedDexcli); resolved != linkedBinary {
+		t.Fatalf("invocation-directory sibling did not win over resolved directory: %q, want %q", resolved, linkedBinary)
+	}
+	if err := os.Remove(installedBinary); err != nil {
+		t.Fatal(err)
+	}
+	for _, executablePath := range []string{installedDexcli, linkedDexcli} {
+		if resolved := mustResolveZDBinary(t, "", linkedDexcli, executablePath); resolved != linkedBinary {
+			t.Fatalf("invocation-directory sibling with executable %q = %q, want %q", executablePath, resolved, linkedBinary)
+		}
+	}
+	if resolved := mustResolveZDBinary(t, "", "", installedDexcli); resolved != pathBinary {
+		t.Fatalf("resolved directory without a sibling did not use PATH: %q", resolved)
+	}
+
+	plainDirectory := t.TempDir()
+	plainDexcli := writeFakeExecutable(t, plainDirectory, "dexcli")
+	if err := os.WriteFile(filepath.Join(plainDirectory, "dex-server-zd"), []byte("not executable"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if resolved := mustResolveZDBinary(t, "", plainDexcli, plainDexcli); resolved != pathBinary {
+		t.Fatalf("non-executable sibling was not skipped: %q", resolved)
+	}
+	if resolved := mustResolveZDBinary(t, "", "", ""); resolved != pathBinary {
+		t.Fatalf("unknown dexcli path did not use PATH: %q", resolved)
+	}
+
+	t.Setenv("PATH", t.TempDir())
+	_, err := resolveZDBinary("", plainDexcli, plainDexcli)
+	if err == nil || !strings.Contains(err.Error(), plainDirectory) || !strings.Contains(err.Error(), "PATH") {
+		t.Fatalf("missing binary error does not name the searched locations: %v", err)
+	}
+}
+
+func TestDexcliInvocationPath(t *testing.T) {
+	commandDirectory := t.TempDir()
+	commandPath := writeFakeExecutable(t, commandDirectory, "dexcli-invocation-test")
+	t.Setenv("PATH", commandDirectory)
+	invocationPath, err := dexcliInvocationPath("dexcli-invocation-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invocationPath != commandPath {
+		t.Fatalf("bare command invocation path = %q, want %q", invocationPath, commandPath)
+	}
+
+	t.Chdir(commandDirectory)
+	invocationPath, err = dexcliInvocationPath("./dexcli-invocation-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if realTestPath(t, invocationPath) != realTestPath(t, commandPath) {
+		t.Fatalf("relative invocation path = %q, want %q", invocationPath, commandPath)
+	}
+
+	if _, err := dexcliInvocationPath("dexcli-missing-invocation-test"); err == nil {
+		t.Fatal("missing bare command did not fail")
+	}
+	if _, err := dexcliInvocationPath(""); err == nil {
+		t.Fatal("empty invocation path did not fail")
+	}
+}
+
 func TestZDSupervisorStartsWebAndStopsChild(t *testing.T) {
 	binary := buildFakeZDBinary(t)
 	testDirectory := t.TempDir()
@@ -307,6 +438,33 @@ func writeZDAttributeStoreTestConfig(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func writeFakeExecutable(t *testing.T, directory string, name string) string {
+	t.Helper()
+	path := filepath.Join(directory, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func mustResolveZDBinary(t *testing.T, configuredBinary string, invocationPath string, executablePath string) string {
+	t.Helper()
+	binaryPath, err := resolveZDBinary(configuredBinary, invocationPath, executablePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binaryPath
+}
+
+func realTestPath(t *testing.T, path string) string {
+	t.Helper()
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolvedPath
 }
 
 func buildFakeZDBinary(t *testing.T) string {

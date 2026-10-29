@@ -166,8 +166,10 @@ dex-server --config web-only.yaml start --services web
 ~~~
 
 本地开发时，**dexcli dev --engine zd** 会启动 server-zd 和 Dex Web，不启动 Temporal。
-从 server-zd release 安装 **dex-server-zd** 并放入 PATH，或设置
-**DEX_SERVER_ZD_BINARY**，或传入 **--zd-binary**。通过 **--zd-config** 传入一个
+dexcli 的发布包已包含 **dex-server-zd**，因此用 Homebrew 安装 dexcli 后无需另外下载。
+要使用其他 **dex-server-zd** 二进制文件，传入 **--zd-binary** 或设置
+**DEX_SERVER_ZD_BINARY**。两者都未设置时，dexcli 先使用 dexcli 可执行文件旁边的
+**dex-server-zd**，再使用 PATH 中的 **dex-server-zd**。通过 **--zd-config** 传入一个
 server-zd YAML 文件，可以覆盖已关闭 Flow 的保留时间、Stream 或搜索 backend 等设置。
 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md#start-locally)
 列出了全部 flag。
