@@ -6,6 +6,7 @@ on:
     paths:
       - "web/**"
       - "packages/flow-definition-renderer/**"
+      - "docs/src/data/flow-definitions/**"
       - "server/**"
       - "protos/**"
       - "sdk-go/integ/main_test.go"
@@ -16,6 +17,7 @@ on:
     paths:
       - "web/**"
       - "packages/flow-definition-renderer/**"
+      - "docs/src/data/flow-definitions/**"
       - "server/**"
       - "protos/**"
       - "sdk-go/integ/main_test.go"
