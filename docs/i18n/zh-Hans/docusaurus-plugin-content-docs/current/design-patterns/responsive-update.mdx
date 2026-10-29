@@ -16,20 +16,22 @@ title: 响应式更新
 
 ## 选择超时边界
 
-**RequestTimeout** 是 SDK 调用的总预算，覆盖所有透明 transport reattachment。正值会为每次 attempt 设置本地 transport deadline。总预算到期时，SDK 返回有类型的 request-timeout 错误。已经接受的 wait 仍可由使用同一 logical Request ID 的后续调用重新附着。
+**RequestTimeout** 是 SDK 调用的总预算，覆盖所有透明 transport reattachment。正值会为每次 attempt 设置本地 transport deadline。总预算到期时，SDK 返回有类型的 request-timeout 错误。之后针对同一条件的调用会从当前状态重新开始等待。
 
 普通 durable wait 应让 **RequestTimeout** 保持为 0。此时，它会一直等待，直到成功、Flow 关闭或调用方取消。在 HTTP 或 admission 边界，应显式设置应用响应预算。
 
-Server 还会限制单次 transport attempt。这个 cap 完全是内部行为。SDK 会使用同一 logical Request ID 重新附着，因此它不会重置 **RequestTimeout**，也不会结束已经接受的 wait。
+Server 还会限制单次 transport attempt。这个 cap 完全是内部行为。SDK 会使用同一 logical Request ID 重新附着，因此它不会重置 **RequestTimeout**。
 
-**InternalHandlerTimeout** 是高级容量控制项。request timeout 或 cancellation 会结束 SDK 调用，但不会结束已经接受的 wait。因此，已经被调用方放弃的 wait 仍会注册在 Flow 上，直到条件命中或 Flow 关闭。
+每个正在等待的调用在等待期间占用 Flow 的一个 wait slot。得到结果、request timeout、cancellation 或调用方断开连接都会释放这个 slot。因此，被放弃的调用不会累积。
 
-只有当被放弃的 waits 可能累积时，才应把 **InternalHandlerTimeout** 设为正值。它到期后，Dex 会结束这个已经接受的 wait。仍然活跃的 SDK 调用会透明地重新注册 wait 并继续等待。这个值应明显长于常见的 **RequestTimeout** 和预期的重连间隔。如果 waits 通常会及时完成，或 Flow 会在被放弃的 waits 形成容量风险前关闭，应保持为 0。
+Dex Server 会限制单个 Flow 上的并发 wait 数量。server-zd 默认允许 1,000 个，由 **limits.maxLongPollWaitersPerFlow** 设置。超出上限的 wait 会以 resource-exhausted 错误失败。每个 Flow 的并发调用方数量应低于这个上限。
+
+**InternalHandlerTimeout** 已弃用。Dex 会拒绝负值，其他值都会被忽略。不要设置它。
 
 | 设置 | 默认值 | 行为 |
 | --- | --- | --- |
 | **RequestTimeout** | 0 | 调用方可见的 SDK 总预算。0 表示等待到成功、Flow 关闭或调用方取消。 |
-| **InternalHandlerTimeout** | 0 | 回收被放弃的 accepted waits，避免其无限占用 in-flight slots。每次到期后，活跃调用会重新注册 wait。 |
+| 每个 Flow 的并发 wait | 1,000 | Server 上限 **limits.maxLongPollWaitersPerFlow**。超出上限的 wait 会以 resource-exhausted 错误失败。 |
 | Transport attempt cap | Server 管理 | 只触发透明 reattachment，不是应用可见的 timeout。 |
 
 ## 相关内容

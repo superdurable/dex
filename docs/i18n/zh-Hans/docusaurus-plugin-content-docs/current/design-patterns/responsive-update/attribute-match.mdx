@@ -12,7 +12,7 @@ title: 等待 Attribute 匹配
 
 Revision 是 watermark，不是事件流。如果状态快速地从 0 变成 1、2、3，一次等待大于 0 的调用可能直接返回 3。调用方不能假设会观察到每个中间值。
 
-普通 durable wait 应让 **RequestTimeout** 保持为 0。在 admission 边界应显式设置它。只有需要回收被放弃的 accepted waits，以避免它们逼近 Flow 的 in-flight 上限时，才应设置 **InternalHandlerTimeout**。详情请参阅[选择超时边界](/design-patterns/responsive-update#选择超时边界)。
+普通 durable wait 应让 **RequestTimeout** 保持为 0。在 admission 边界应显式设置它。每个 Flow 允许的并发 wait 数量有上限。详情请参阅[选择超时边界](/design-patterns/responsive-update#选择超时边界)。
 
 ## 在锁内推进 revision
 
