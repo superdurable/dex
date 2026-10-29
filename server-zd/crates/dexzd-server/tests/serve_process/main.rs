@@ -123,10 +123,7 @@ async fn sigterm_releases_the_lease_and_a_second_process_takes_over() {
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -312,10 +309,7 @@ async fn prefix_confined_missing_key_denials_allow_log_tail_recovery() {
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -667,10 +661,7 @@ async fn paradedb_outage_overflows_the_queue_and_rebuilds_every_committed_write(
             start_step_type: "IdleStep".to_owned(),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()
@@ -800,10 +791,7 @@ async fn run_greeting_flow(flow_client: &mut FlowServiceClient<Channel>, flow_id
             }),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()

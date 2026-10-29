@@ -80,19 +80,15 @@ func doTestTimerFlow(
 		FiringUnixTimestampSeconds: timerScheduledTimestamp + 86400*365,
 		Status:                     dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
 	}
-	expectedTimerInfos := &dexpb.GetCurrentTimerInfosQueryResponse{
-		StepExecutionCurrentTimerInfos: map[string]*dexpb.TimerInfoList{
-			"S1-1": {
-				Timers: []*dexpb.TimerInfo{
-					{
-						ConditionId:                "timer-cmd-id",
-						FiringUnixTimestampSeconds: timerScheduledTimestamp + 10,
-						Status:                     dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
-					},
-					timer2,
-					timer3,
-				},
+	expectedTimerInfos := map[string][]*dexpb.TimerInfo{
+		"S1-1": {
+			{
+				ConditionId:                "timer-cmd-id",
+				FiringUnixTimestampSeconds: timerScheduledTimestamp + 10,
+				Status:                     dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
 			},
+			timer2,
+			timer3,
 		},
 	}
 	requireTimerInfosEventually(t, ctx, runtime, flowId, expectedTimerInfos)
@@ -145,28 +141,27 @@ func doTestTimerFlow(
 	// Temporal reset reapplies later SkipTimer signals; server-zd reset discards them.
 	timer2.Status = resetTimerStatus
 	timer3.Status = resetTimerStatus
-	var timerInfos *dexpb.GetCurrentTimerInfosQueryResponse
+	var timerInfos map[string][]*dexpb.TimerInfo
 	require.Eventually(t, func() bool {
 		var queryErr error
 		if timerInfos, queryErr = queryCurrentTimerInfos(ctx, runtime, flowId); queryErr != nil {
 			return false
 		}
-		actualList := timerInfos.GetStepExecutionCurrentTimerInfos()["S1-1"]
-		if actualList == nil || len(actualList.GetTimers()) != 3 {
+		actualList := timerInfos["S1-1"]
+		if len(actualList) != 3 {
 			return false
 		}
-		return actualList.GetTimers()[0].GetStatus() == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING &&
-			actualList.GetTimers()[1].GetStatus() == resetTimerStatus &&
-			actualList.GetTimers()[2].GetStatus() == resetTimerStatus
+		return actualList[0].GetStatus() == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING &&
+			actualList[1].GetStatus() == resetTimerStatus &&
+			actualList[2].GetStatus() == resetTimerStatus
 	}, 15*time.Second, 200*time.Millisecond)
 	// Reset rebuilds firing times from workflow.Now; sync expected before compare.
-	for stepExecutionId, expectedList := range expectedTimerInfos.GetStepExecutionCurrentTimerInfos() {
-		actualList := timerInfos.GetStepExecutionCurrentTimerInfos()[stepExecutionId]
+	for stepExecutionId, expectedList := range expectedTimerInfos {
+		actualList := timerInfos[stepExecutionId]
 		require.NotNil(t, actualList)
-		require.Equal(t, len(expectedList.GetTimers()), len(actualList.GetTimers()))
-		for idx := range expectedList.GetTimers() {
-			expectedList.GetTimers()[idx].FiringUnixTimestampSeconds =
-				actualList.GetTimers()[idx].GetFiringUnixTimestampSeconds()
+		require.Equal(t, len(expectedList), len(actualList))
+		for idx := range expectedList {
+			expectedList[idx].FiringUnixTimestampSeconds = actualList[idx].GetFiringUnixTimestampSeconds()
 		}
 	}
 	assertTimerQueryResponseEqual(assertions, expectedTimerInfos, timerInfos)
@@ -186,23 +181,19 @@ func doTestTimerFlow(
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 }
 
-// queryCurrentTimerInfos reads Step timers through the Temporal query, or through GetFlowState in binary mode.
+// queryCurrentTimerInfos reads Step timers through GetFlowState, keyed by Step execution ID.
 func queryCurrentTimerInfos(
 	ctx context.Context,
 	runtime *integRuntime,
 	flowID string,
-) (*dexpb.GetCurrentTimerInfosQueryResponse, error) {
+) (map[string][]*dexpb.TimerInfo, error) {
 	state, err := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{FlowId: flowID})
 	if err != nil {
 		return nil, err
 	}
-	timerInfos := &dexpb.GetCurrentTimerInfosQueryResponse{
-		StepExecutionCurrentTimerInfos: map[string]*dexpb.TimerInfoList{},
-	}
+	timerInfos := map[string][]*dexpb.TimerInfo{}
 	for _, step := range state.GetActiveStepExecutions() {
-		timerInfos.StepExecutionCurrentTimerInfos[step.GetStepExecutionId()] = &dexpb.TimerInfoList{
-			Timers: step.GetTimers(),
-		}
+		timerInfos[step.GetStepExecutionId()] = step.GetTimers()
 	}
 	return timerInfos, nil
 
@@ -214,7 +205,7 @@ func requireTimerInfosEventually(
 	ctx context.Context,
 	runtime *integRuntime,
 	flowID string,
-	expected *dexpb.GetCurrentTimerInfosQueryResponse,
+	expected map[string][]*dexpb.TimerInfo,
 ) {
 	t.Helper()
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
@@ -228,19 +219,19 @@ func requireTimerInfosEventually(
 
 func assertTimerQueryResponseEqual(
 	assertions *assert.Assertions,
-	expected *dexpb.GetCurrentTimerInfosQueryResponse,
-	actual *dexpb.GetCurrentTimerInfosQueryResponse,
+	expected map[string][]*dexpb.TimerInfo,
+	actual map[string][]*dexpb.TimerInfo,
 ) {
-	for stepExecutionId, expectedList := range expected.GetStepExecutionCurrentTimerInfos() {
-		actualList := actual.GetStepExecutionCurrentTimerInfos()[stepExecutionId]
+	for stepExecutionId, expectedList := range expected {
+		actualList := actual[stepExecutionId]
 		if !assertions.NotNil(actualList) {
 			continue
 		}
-		if !assertions.Equal(len(expectedList.GetTimers()), len(actualList.GetTimers())) {
+		if !assertions.Equal(len(expectedList), len(actualList)) {
 			continue
 		}
-		for idx, expectedInfo := range expectedList.GetTimers() {
-			actualInfo := actualList.GetTimers()[idx]
+		for idx, expectedInfo := range expectedList {
+			actualInfo := actualList[idx]
 			abs := math.Abs(float64(
 				expectedInfo.GetFiringUnixTimestampSeconds() - actualInfo.GetFiringUnixTimestampSeconds(),
 			))

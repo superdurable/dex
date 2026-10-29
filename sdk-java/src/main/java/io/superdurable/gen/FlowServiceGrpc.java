@@ -1086,7 +1086,7 @@ public final class FlowServiceGrpc {
 
     /**
      * <pre>
-     * server-zd returns UNIMPLEMENTED.
+     * Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
      * </pre>
      */
     default void triggerContinueAsNew(io.superdurable.gen.TriggerContinueAsNewRequest request,
@@ -1340,7 +1340,7 @@ public final class FlowServiceGrpc {
 
     /**
      * <pre>
-     * server-zd returns UNIMPLEMENTED.
+     * Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
      * </pre>
      */
     public void triggerContinueAsNew(io.superdurable.gen.TriggerContinueAsNewRequest request,
@@ -1557,7 +1557,7 @@ public final class FlowServiceGrpc {
 
     /**
      * <pre>
-     * server-zd returns UNIMPLEMENTED.
+     * Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
      * </pre>
      */
     public com.google.protobuf.Empty triggerContinueAsNew(io.superdurable.gen.TriggerContinueAsNewRequest request) {
@@ -1797,7 +1797,7 @@ public final class FlowServiceGrpc {
 
     /**
      * <pre>
-     * server-zd returns UNIMPLEMENTED.
+     * Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
      * </pre>
      */
     public com.google.common.util.concurrent.ListenableFuture<com.google.protobuf.Empty> triggerContinueAsNew(

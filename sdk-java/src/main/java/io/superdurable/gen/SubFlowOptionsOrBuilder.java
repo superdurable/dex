@@ -29,7 +29,7 @@ public interface SubFlowOptionsOrBuilder extends
 
   /**
    * <pre>
-   * server-zd rejects a positive start delay with INVALID_ARGUMENT.
+   * Dex rejects a positive start delay with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>int32 flow_start_delay_seconds = 3;</code>
@@ -39,7 +39,7 @@ public interface SubFlowOptionsOrBuilder extends
 
   /**
    * <pre>
-   * server-zd rejects a set policy with INVALID_ARGUMENT.
+   * Dex rejects a set policy with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -48,7 +48,7 @@ public interface SubFlowOptionsOrBuilder extends
   boolean hasRetryPolicy();
   /**
    * <pre>
-   * server-zd rejects a set policy with INVALID_ARGUMENT.
+   * Dex rejects a set policy with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -57,7 +57,7 @@ public interface SubFlowOptionsOrBuilder extends
   io.superdurable.gen.FlowRetryPolicy getRetryPolicy();
   /**
    * <pre>
-   * server-zd rejects a set policy with INVALID_ARGUMENT.
+   * Dex rejects a set policy with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>

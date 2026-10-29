@@ -270,10 +270,7 @@ async fn start_chain_flow(
             step_options: Some(chain_step_options(durability)),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()

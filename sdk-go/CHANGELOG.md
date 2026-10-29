@@ -17,6 +17,10 @@
   the Worker target unset, preserving the existing routing. Pull Workers need only
   an outbound connection to the Dex Server configured by `FlowServiceAddress`;
   remove inbound Worker ports and callback routing from deployments.
+- Regenerate `gen/dexpb` from the cleaned Dex protocol. It drops the Go Server
+  internal services and messages, `WorkerTarget.Address`,
+  `WorkerTarget.IsHeadlessAddress`, and `LocalActivityMetadata` on Step method
+  responses. Only code that imports `dexpb` directly must remove these symbols.
 
 ### Fixed
 

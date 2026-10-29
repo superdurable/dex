@@ -65,14 +65,14 @@ func TestExecuteStartsAndStopsCodecServer(t *testing.T) {
 
 func TestCodecHTTPHandlerDecodesAndEncodesDexProtobuf(t *testing.T) {
 	codecServerHandler := newCodecServerHTTPHandler()
-	workflowInput := &dexpb.InterpreterWorkflowInput{
+	startFlowRequest := &dexpb.StartFlowRequest{
 		FlowType: "order",
 		StepInput: &dexpb.Value{
 			Kind: &dexpb.Value_StringValue{StringValue: "hello"},
 		},
 	}
 	binaryPayloadConverter := converter.NewProtoPayloadConverter()
-	binaryPayload, err := binaryPayloadConverter.ToPayload(workflowInput)
+	binaryPayload, err := binaryPayloadConverter.ToPayload(startFlowRequest)
 	require.NoError(t, err)
 
 	decodeResponse := postPayloads(t, codecServerHandler, "/decode", []*commonpb.Payload{binaryPayload}, "")
@@ -81,7 +81,7 @@ func TestCodecHTTPHandlerDecodesAndEncodesDexProtobuf(t *testing.T) {
 	require.Len(t, decodedPayloads, 1)
 	decodedPayload := decodedPayloads[0]
 	require.Equal(t, converter.MetadataEncodingProtoJSON, string(decodedPayload.Metadata[converter.MetadataEncoding]))
-	require.Equal(t, "dex.InterpreterWorkflowInput", string(decodedPayload.Metadata[converter.MetadataMessageType]))
+	require.Equal(t, "dex.StartFlowRequest", string(decodedPayload.Metadata[converter.MetadataMessageType]))
 
 	var decodedJSON map[string]interface{}
 	require.NoError(t, json.Unmarshal(decodedPayload.Data, &decodedJSON))
@@ -94,9 +94,9 @@ func TestCodecHTTPHandlerDecodesAndEncodesDexProtobuf(t *testing.T) {
 	require.Len(t, encodedPayloads, 1)
 	require.Equal(t, converter.MetadataEncodingProto, string(encodedPayloads[0].Metadata[converter.MetadataEncoding]))
 
-	roundTripInput := &dexpb.InterpreterWorkflowInput{}
-	require.NoError(t, binaryPayloadConverter.FromPayload(encodedPayloads[0], roundTripInput))
-	require.True(t, proto.Equal(workflowInput, roundTripInput))
+	roundTripRequest := &dexpb.StartFlowRequest{}
+	require.NoError(t, binaryPayloadConverter.FromPayload(encodedPayloads[0], roundTripRequest))
+	require.True(t, proto.Equal(startFlowRequest, roundTripRequest))
 }
 
 func TestCodecHTTPHandlerPassesThroughUnsupportedPayloads(t *testing.T) {
@@ -150,7 +150,7 @@ func TestCodecHTTPHandlerRejectsMalformedKnownProtobuf(t *testing.T) {
 	malformedPayload := &commonpb.Payload{
 		Metadata: map[string][]byte{
 			converter.MetadataEncoding:    []byte(converter.MetadataEncodingProto),
-			converter.MetadataMessageType: []byte("dex.InterpreterWorkflowInput"),
+			converter.MetadataMessageType: []byte("dex.StartFlowRequest"),
 		},
 		Data: []byte{0xff},
 	}
@@ -164,7 +164,7 @@ func TestCodecHTTPHandlerRejectsMalformedKnownProtoJSON(t *testing.T) {
 	malformedPayload := &commonpb.Payload{
 		Metadata: map[string][]byte{
 			converter.MetadataEncoding:    []byte(converter.MetadataEncodingProtoJSON),
-			converter.MetadataMessageType: []byte("dex.InterpreterWorkflowInput"),
+			converter.MetadataMessageType: []byte("dex.StartFlowRequest"),
 		},
 		Data: []byte("{"),
 	}

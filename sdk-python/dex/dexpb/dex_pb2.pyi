@@ -202,23 +202,6 @@ class InternalTimerStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     INTERNAL_TIMER_STATUS_PENDING: _ClassVar[InternalTimerStatus]
     INTERNAL_TIMER_STATUS_FIRED: _ClassVar[InternalTimerStatus]
     INTERNAL_TIMER_STATUS_SKIPPED: _ClassVar[InternalTimerStatus]
-
-class UpdateErrorType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = ()
-    UPDATE_ERROR_TYPE_UNSPECIFIED: _ClassVar[UpdateErrorType]
-    UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED: _ClassVar[UpdateErrorType]
-    UPDATE_ERROR_TYPE_INVALID_ARGUMENT: _ClassVar[UpdateErrorType]
-    UPDATE_ERROR_TYPE_FAILED_PRECONDITION: _ClassVar[UpdateErrorType]
-    UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED: _ClassVar[UpdateErrorType]
-    UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE: _ClassVar[UpdateErrorType]
-    UPDATE_ERROR_TYPE_SERVER_INTERNAL: _ClassVar[UpdateErrorType]
-    UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND: _ClassVar[UpdateErrorType]
-
-class SubFlowCompletionDeliveryStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = ()
-    SUB_FLOW_COMPLETION_DELIVERY_STATUS_UNSPECIFIED: _ClassVar[SubFlowCompletionDeliveryStatus]
-    SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED: _ClassVar[SubFlowCompletionDeliveryStatus]
-    SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND: _ClassVar[SubFlowCompletionDeliveryStatus]
 SERVER_ENGINE_UNSPECIFIED: ServerEngine
 SERVER_ENGINE_TEMPORAL: ServerEngine
 SERVER_ENGINE_CADENCE: ServerEngine
@@ -334,17 +317,6 @@ INTERNAL_TIMER_STATUS_UNSPECIFIED: InternalTimerStatus
 INTERNAL_TIMER_STATUS_PENDING: InternalTimerStatus
 INTERNAL_TIMER_STATUS_FIRED: InternalTimerStatus
 INTERNAL_TIMER_STATUS_SKIPPED: InternalTimerStatus
-UPDATE_ERROR_TYPE_UNSPECIFIED: UpdateErrorType
-UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED: UpdateErrorType
-UPDATE_ERROR_TYPE_INVALID_ARGUMENT: UpdateErrorType
-UPDATE_ERROR_TYPE_FAILED_PRECONDITION: UpdateErrorType
-UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED: UpdateErrorType
-UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE: UpdateErrorType
-UPDATE_ERROR_TYPE_SERVER_INTERNAL: UpdateErrorType
-UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND: UpdateErrorType
-SUB_FLOW_COMPLETION_DELIVERY_STATUS_UNSPECIFIED: SubFlowCompletionDeliveryStatus
-SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED: SubFlowCompletionDeliveryStatus
-SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND: SubFlowCompletionDeliveryStatus
 
 class ServerInfo(_message.Message):
     __slots__ = ("server_version", "minimum_supported_protocol_version", "current_protocol_version", "server_engine")
@@ -460,72 +432,6 @@ class PollWorkerTaskPing(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
-class DispatchTaskRequest(_message.Message):
-    __slots__ = ("queue", "fallback_queue", "flow_id", "sticky_wait", "dispatch_wait", "deadline", "task_id", "wait_for", "execute", "rpc", "supports_assignment_state", "excluded_app_worker_ids", "stop_after_unknown_name", "stop_when_queue_has_no_streams", "supports_unknown_name_error")
-    QUEUE_FIELD_NUMBER: _ClassVar[int]
-    FALLBACK_QUEUE_FIELD_NUMBER: _ClassVar[int]
-    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
-    STICKY_WAIT_FIELD_NUMBER: _ClassVar[int]
-    DISPATCH_WAIT_FIELD_NUMBER: _ClassVar[int]
-    DEADLINE_FIELD_NUMBER: _ClassVar[int]
-    TASK_ID_FIELD_NUMBER: _ClassVar[int]
-    WAIT_FOR_FIELD_NUMBER: _ClassVar[int]
-    EXECUTE_FIELD_NUMBER: _ClassVar[int]
-    RPC_FIELD_NUMBER: _ClassVar[int]
-    SUPPORTS_ASSIGNMENT_STATE_FIELD_NUMBER: _ClassVar[int]
-    EXCLUDED_APP_WORKER_IDS_FIELD_NUMBER: _ClassVar[int]
-    STOP_AFTER_UNKNOWN_NAME_FIELD_NUMBER: _ClassVar[int]
-    STOP_WHEN_QUEUE_HAS_NO_STREAMS_FIELD_NUMBER: _ClassVar[int]
-    SUPPORTS_UNKNOWN_NAME_ERROR_FIELD_NUMBER: _ClassVar[int]
-    queue: str
-    fallback_queue: str
-    flow_id: str
-    sticky_wait: _duration_pb2.Duration
-    dispatch_wait: _duration_pb2.Duration
-    deadline: _timestamp_pb2.Timestamp
-    task_id: str
-    wait_for: InvokeWaitForMethodRequest
-    execute: InvokeExecuteMethodRequest
-    rpc: InvokeWorkerRPCRequest
-    supports_assignment_state: bool
-    excluded_app_worker_ids: _containers.RepeatedScalarFieldContainer[str]
-    stop_after_unknown_name: bool
-    stop_when_queue_has_no_streams: bool
-    supports_unknown_name_error: bool
-    def __init__(self, queue: _Optional[str] = ..., fallback_queue: _Optional[str] = ..., flow_id: _Optional[str] = ..., sticky_wait: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., dispatch_wait: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., deadline: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., task_id: _Optional[str] = ..., wait_for: _Optional[_Union[InvokeWaitForMethodRequest, _Mapping]] = ..., execute: _Optional[_Union[InvokeExecuteMethodRequest, _Mapping]] = ..., rpc: _Optional[_Union[InvokeWorkerRPCRequest, _Mapping]] = ..., supports_assignment_state: _Optional[bool] = ..., excluded_app_worker_ids: _Optional[_Iterable[str]] = ..., stop_after_unknown_name: _Optional[bool] = ..., stop_when_queue_has_no_streams: _Optional[bool] = ..., supports_unknown_name_error: _Optional[bool] = ...) -> None: ...
-
-class DispatchTaskResponse(_message.Message):
-    __slots__ = ("wait_for", "execute", "rpc", "worker_error", "dispatch_error", "assigned", "unassigned", "served_by_app_worker_id", "rejected_by_app_worker_id", "queue_source")
-    WAIT_FOR_FIELD_NUMBER: _ClassVar[int]
-    EXECUTE_FIELD_NUMBER: _ClassVar[int]
-    RPC_FIELD_NUMBER: _ClassVar[int]
-    WORKER_ERROR_FIELD_NUMBER: _ClassVar[int]
-    DISPATCH_ERROR_FIELD_NUMBER: _ClassVar[int]
-    ASSIGNED_FIELD_NUMBER: _ClassVar[int]
-    UNASSIGNED_FIELD_NUMBER: _ClassVar[int]
-    SERVED_BY_APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
-    REJECTED_BY_APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
-    QUEUE_SOURCE_FIELD_NUMBER: _ClassVar[int]
-    wait_for: InvokeWaitForMethodOutput
-    execute: InvokeExecuteMethodOutput
-    rpc: InvokeWorkerRPCResponse
-    worker_error: WorkerErrorResponse
-    dispatch_error: DispatchTaskError
-    assigned: _empty_pb2.Empty
-    unassigned: _empty_pb2.Empty
-    served_by_app_worker_id: str
-    rejected_by_app_worker_id: str
-    queue_source: PullRoutingSource
-    def __init__(self, wait_for: _Optional[_Union[InvokeWaitForMethodOutput, _Mapping]] = ..., execute: _Optional[_Union[InvokeExecuteMethodOutput, _Mapping]] = ..., rpc: _Optional[_Union[InvokeWorkerRPCResponse, _Mapping]] = ..., worker_error: _Optional[_Union[WorkerErrorResponse, _Mapping]] = ..., dispatch_error: _Optional[_Union[DispatchTaskError, _Mapping]] = ..., assigned: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., unassigned: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., served_by_app_worker_id: _Optional[str] = ..., rejected_by_app_worker_id: _Optional[str] = ..., queue_source: _Optional[_Union[PullRoutingSource, str]] = ...) -> None: ...
-
-class DispatchTaskError(_message.Message):
-    __slots__ = ("reason", "detail")
-    REASON_FIELD_NUMBER: _ClassVar[int]
-    DETAIL_FIELD_NUMBER: _ClassVar[int]
-    reason: DispatchTaskErrorReason
-    detail: str
-    def __init__(self, reason: _Optional[_Union[DispatchTaskErrorReason, str]] = ..., detail: _Optional[str] = ...) -> None: ...
-
 class Value(_message.Message):
     __slots__ = ("internal_blob_id_for_string_value", "internal_blob_id_for_obj_value", "string_value", "obj_value", "int_value", "double_value", "bool_value", "null_value")
     INTERNAL_BLOB_ID_FOR_STRING_VALUE_FIELD_NUMBER: _ClassVar[int]
@@ -631,14 +537,6 @@ class Context(_message.Message):
     last_heartbeat_value: Value
     run_attempt: int
     def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., flow_started_timestamp: _Optional[int] = ..., step_execution_id: _Optional[str] = ..., first_attempt_timestamp: _Optional[int] = ..., attempt: _Optional[int] = ..., from_step_execution_id: _Optional[str] = ..., recovery_error: _Optional[_Union[RecoveryErrorInfo, _Mapping]] = ..., last_heartbeat_value: _Optional[_Union[Value, _Mapping]] = ..., run_attempt: _Optional[int] = ...) -> None: ...
-
-class LocalActivityMetadata(_message.Message):
-    __slots__ = ("current_step_execution_id", "from_step_execution_id")
-    CURRENT_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
-    FROM_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
-    current_step_execution_id: str
-    from_step_execution_id: str
-    def __init__(self, current_step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ...) -> None: ...
 
 class RetryPolicy(_message.Message):
     __slots__ = ("initial_interval_seconds", "backoff_coefficient", "maximum_interval_seconds", "maximum_attempts", "total_duration_seconds")
@@ -783,14 +681,10 @@ class AttributeStoreNames(_message.Message):
     def __init__(self, names: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class WorkerTarget(_message.Message):
-    __slots__ = ("address", "is_headless_address", "is_pull_mode")
-    ADDRESS_FIELD_NUMBER: _ClassVar[int]
-    IS_HEADLESS_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("is_pull_mode",)
     IS_PULL_MODE_FIELD_NUMBER: _ClassVar[int]
-    address: str
-    is_headless_address: bool
     is_pull_mode: bool
-    def __init__(self, address: _Optional[str] = ..., is_headless_address: _Optional[bool] = ..., is_pull_mode: _Optional[bool] = ...) -> None: ...
+    def __init__(self, is_pull_mode: _Optional[bool] = ...) -> None: ...
 
 class StartFlowRequest(_message.Message):
     __slots__ = ("flow_id", "flow_type", "flow_timeout_seconds", "flow_timeout_policy", "start_step_type", "step_input", "step_options", "flow_start_options", "request_id")
@@ -1143,24 +1037,6 @@ class GetFlowSummaryResponse(_message.Message):
     close_time: _timestamp_pb2.Timestamp
     run_attempt: int
     def __init__(self, flow_execution_id: _Optional[_Union[FlowExecutionID, _Mapping]] = ..., first_run_id: _Optional[str] = ..., request_id: _Optional[str] = ..., flow_type: _Optional[str] = ..., flow_status: _Optional[_Union[FlowStatus, str]] = ..., start_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., close_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., run_attempt: _Optional[int] = ...) -> None: ...
-
-class InternalAsyncStepInputSnapshot(_message.Message):
-    __slots__ = ("method_options", "wait_for_request", "execute_request")
-    METHOD_OPTIONS_FIELD_NUMBER: _ClassVar[int]
-    WAIT_FOR_REQUEST_FIELD_NUMBER: _ClassVar[int]
-    EXECUTE_REQUEST_FIELD_NUMBER: _ClassVar[int]
-    method_options: StepMethodOptions
-    wait_for_request: InvokeWaitForMethodRequest
-    execute_request: InvokeExecuteMethodRequest
-    def __init__(self, method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ..., wait_for_request: _Optional[_Union[InvokeWaitForMethodRequest, _Mapping]] = ..., execute_request: _Optional[_Union[InvokeExecuteMethodRequest, _Mapping]] = ...) -> None: ...
-
-class InternalLocalActivityInput(_message.Message):
-    __slots__ = ("current_run_started_timestamp", "method_options")
-    CURRENT_RUN_STARTED_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
-    METHOD_OPTIONS_FIELD_NUMBER: _ClassVar[int]
-    current_run_started_timestamp: int
-    method_options: StepMethodOptions
-    def __init__(self, current_run_started_timestamp: _Optional[int] = ..., method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ...) -> None: ...
 
 class GetHistoryEventsRequest(_message.Message):
     __slots__ = ("flow_id", "run_id", "start_internal_event_id", "estimate_page_size", "next_page_token", "run_attempt")
@@ -1770,38 +1646,6 @@ class WorkerErrorResponse(_message.Message):
     grpc_status: int
     def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ..., retry_after_seconds: _Optional[int] = ..., grpc_status: _Optional[int] = ...) -> None: ...
 
-class InternalActivityError(_message.Message):
-    __slots__ = ("server_detail", "worker_grpc_status", "worker_error", "pull_routing", "dispatch_task_error_reason")
-    SERVER_DETAIL_FIELD_NUMBER: _ClassVar[int]
-    WORKER_GRPC_STATUS_FIELD_NUMBER: _ClassVar[int]
-    WORKER_ERROR_FIELD_NUMBER: _ClassVar[int]
-    PULL_ROUTING_FIELD_NUMBER: _ClassVar[int]
-    DISPATCH_TASK_ERROR_REASON_FIELD_NUMBER: _ClassVar[int]
-    server_detail: str
-    worker_grpc_status: int
-    worker_error: InternalWorkerError
-    pull_routing: PullRouting
-    dispatch_task_error_reason: DispatchTaskErrorReason
-    def __init__(self, server_detail: _Optional[str] = ..., worker_grpc_status: _Optional[int] = ..., worker_error: _Optional[_Union[InternalWorkerError, _Mapping]] = ..., pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ..., dispatch_task_error_reason: _Optional[_Union[DispatchTaskErrorReason, str]] = ...) -> None: ...
-
-class InternalWorkerError(_message.Message):
-    __slots__ = ("detail", "error_type", "stack_trace")
-    DETAIL_FIELD_NUMBER: _ClassVar[int]
-    ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
-    STACK_TRACE_FIELD_NUMBER: _ClassVar[int]
-    detail: str
-    error_type: str
-    stack_trace: str
-    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ...) -> None: ...
-
-class InternalFlowError(_message.Message):
-    __slots__ = ("server_detail", "activity_error")
-    SERVER_DETAIL_FIELD_NUMBER: _ClassVar[int]
-    ACTIVITY_ERROR_FIELD_NUMBER: _ClassVar[int]
-    server_detail: str
-    activity_error: InternalActivityError
-    def __init__(self, server_detail: _Optional[str] = ..., activity_error: _Optional[_Union[InternalActivityError, _Mapping]] = ...) -> None: ...
-
 class ChannelInfo(_message.Message):
     __slots__ = ("size",)
     SIZE_FIELD_NUMBER: _ClassVar[int]
@@ -1847,8 +1691,7 @@ class InvokeWaitForMethodRequest(_message.Message):
     def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_instances: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_instances: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class InvokeWaitForMethodResponse(_message.Message):
-    __slots__ = ("local_activity_metadata", "upsert_attributes", "waiting_condition", "upsert_step_exe_locals", "record_events", "publish_to_channel", "delete_from_channel", "action_permission_mappings")
-    LOCAL_ACTIVITY_METADATA_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("upsert_attributes", "waiting_condition", "upsert_step_exe_locals", "record_events", "publish_to_channel", "delete_from_channel", "action_permission_mappings")
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     WAITING_CONDITION_FIELD_NUMBER: _ClassVar[int]
     UPSERT_STEP_EXE_LOCALS_FIELD_NUMBER: _ClassVar[int]
@@ -1856,7 +1699,6 @@ class InvokeWaitForMethodResponse(_message.Message):
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
-    local_activity_metadata: LocalActivityMetadata
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     waiting_condition: WaitingCondition
     upsert_step_exe_locals: _containers.RepeatedCompositeFieldContainer[KV]
@@ -1864,7 +1706,7 @@ class InvokeWaitForMethodResponse(_message.Message):
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
     action_permission_mappings: ActionPermissionMappings
-    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
+    def __init__(self, upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
 
 class StepMethodHeartbeat(_message.Message):
     __slots__ = ("value",)
@@ -1935,8 +1777,7 @@ class InvokeExecuteMethodRequest(_message.Message):
     def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., condition_results: _Optional[_Union[ConditionResults, _Mapping]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_instances: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_instances: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class InvokeExecuteMethodResponse(_message.Message):
-    __slots__ = ("local_activity_metadata", "step_decision", "upsert_attributes", "record_events", "upsert_step_exe_locals", "publish_to_channel", "delete_from_channel", "action_permission_mappings")
-    LOCAL_ACTIVITY_METADATA_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("step_decision", "upsert_attributes", "record_events", "upsert_step_exe_locals", "publish_to_channel", "delete_from_channel", "action_permission_mappings")
     STEP_DECISION_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
@@ -1944,7 +1785,6 @@ class InvokeExecuteMethodResponse(_message.Message):
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
-    local_activity_metadata: LocalActivityMetadata
     step_decision: StepDecision
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
@@ -1952,7 +1792,7 @@ class InvokeExecuteMethodResponse(_message.Message):
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
     action_permission_mappings: ActionPermissionMappings
-    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
+    def __init__(self, step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
 
 class InvokeExecuteMethodOutput(_message.Message):
     __slots__ = ("heartbeat", "stream_write", "result")
@@ -2188,30 +2028,6 @@ class ChannelResult(_message.Message):
     values: _containers.RepeatedCompositeFieldContainer[Value]
     def __init__(self, condition_id: _Optional[str] = ..., condition_status: _Optional[_Union[ConditionStatus, str]] = ..., channel_name: _Optional[str] = ..., values: _Optional[_Iterable[_Union[Value, _Mapping]]] = ...) -> None: ...
 
-class ContinueAsNewDumpRequest(_message.Message):
-    __slots__ = ("flow_id", "run_id", "page_num", "page_size_in_bytes")
-    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
-    RUN_ID_FIELD_NUMBER: _ClassVar[int]
-    PAGE_NUM_FIELD_NUMBER: _ClassVar[int]
-    PAGE_SIZE_IN_BYTES_FIELD_NUMBER: _ClassVar[int]
-    flow_id: str
-    run_id: str
-    page_num: int
-    page_size_in_bytes: int
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., page_num: _Optional[int] = ..., page_size_in_bytes: _Optional[int] = ...) -> None: ...
-
-class ContinueAsNewDumpResponse(_message.Message):
-    __slots__ = ("page_content", "page_num", "total_pages", "checksum")
-    PAGE_CONTENT_FIELD_NUMBER: _ClassVar[int]
-    PAGE_NUM_FIELD_NUMBER: _ClassVar[int]
-    TOTAL_PAGES_FIELD_NUMBER: _ClassVar[int]
-    CHECKSUM_FIELD_NUMBER: _ClassVar[int]
-    page_content: bytes
-    page_num: int
-    total_pages: int
-    checksum: str
-    def __init__(self, page_content: _Optional[bytes] = ..., page_num: _Optional[int] = ..., total_pages: _Optional[int] = ..., checksum: _Optional[str] = ...) -> None: ...
-
 class ChannelValues(_message.Message):
     __slots__ = ("messages",)
     MESSAGES_FIELD_NUMBER: _ClassVar[int]
@@ -2256,166 +2072,6 @@ class StepExecutionResumeInfo(_message.Message):
     wait_for_pull_routing: PullRouting
     def __init__(self, step_execution_id: _Optional[str] = ..., step: _Optional[_Union[StepMovement, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingConditionState, _Mapping]] = ..., step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., wait_for_pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ...) -> None: ...
 
-class StepExecutionCounterInfo(_message.Message):
-    __slots__ = ("step_type_started_count", "step_type_currently_executing_count", "total_currently_executing_count", "step_active_execution_nums")
-    class StepTypeStartedCountEntry(_message.Message):
-        __slots__ = ("key", "value")
-        KEY_FIELD_NUMBER: _ClassVar[int]
-        VALUE_FIELD_NUMBER: _ClassVar[int]
-        key: str
-        value: int
-        def __init__(self, key: _Optional[str] = ..., value: _Optional[int] = ...) -> None: ...
-    class StepTypeCurrentlyExecutingCountEntry(_message.Message):
-        __slots__ = ("key", "value")
-        KEY_FIELD_NUMBER: _ClassVar[int]
-        VALUE_FIELD_NUMBER: _ClassVar[int]
-        key: str
-        value: int
-        def __init__(self, key: _Optional[str] = ..., value: _Optional[int] = ...) -> None: ...
-    class StepActiveExecutionNumsEntry(_message.Message):
-        __slots__ = ("key", "value")
-        KEY_FIELD_NUMBER: _ClassVar[int]
-        VALUE_FIELD_NUMBER: _ClassVar[int]
-        key: str
-        value: StepExecutionNumbers
-        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[StepExecutionNumbers, _Mapping]] = ...) -> None: ...
-    STEP_TYPE_STARTED_COUNT_FIELD_NUMBER: _ClassVar[int]
-    STEP_TYPE_CURRENTLY_EXECUTING_COUNT_FIELD_NUMBER: _ClassVar[int]
-    TOTAL_CURRENTLY_EXECUTING_COUNT_FIELD_NUMBER: _ClassVar[int]
-    STEP_ACTIVE_EXECUTION_NUMS_FIELD_NUMBER: _ClassVar[int]
-    step_type_started_count: _containers.ScalarMap[str, int]
-    step_type_currently_executing_count: _containers.ScalarMap[str, int]
-    total_currently_executing_count: int
-    step_active_execution_nums: _containers.MessageMap[str, StepExecutionNumbers]
-    def __init__(self, step_type_started_count: _Optional[_Mapping[str, int]] = ..., step_type_currently_executing_count: _Optional[_Mapping[str, int]] = ..., total_currently_executing_count: _Optional[int] = ..., step_active_execution_nums: _Optional[_Mapping[str, StepExecutionNumbers]] = ...) -> None: ...
-
-class StaleSkipTimer(_message.Message):
-    __slots__ = ("step_execution_id", "timer_condition_id", "timer_condition_index")
-    STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
-    TIMER_CONDITION_ID_FIELD_NUMBER: _ClassVar[int]
-    TIMER_CONDITION_INDEX_FIELD_NUMBER: _ClassVar[int]
-    step_execution_id: str
-    timer_condition_id: str
-    timer_condition_index: int
-    def __init__(self, step_execution_id: _Optional[str] = ..., timer_condition_id: _Optional[str] = ..., timer_condition_index: _Optional[int] = ...) -> None: ...
-
-class ContinueAsNewDump(_message.Message):
-    __slots__ = ("steps_to_start_from_beginning", "step_executions_to_resume", "channel_received", "counter_info", "step_outputs", "stale_skip_timers", "attributes", "pending_attribute_sync_items", "dex_task_queue")
-    class ChannelReceivedEntry(_message.Message):
-        __slots__ = ("key", "value")
-        KEY_FIELD_NUMBER: _ClassVar[int]
-        VALUE_FIELD_NUMBER: _ClassVar[int]
-        key: str
-        value: ChannelValues
-        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[ChannelValues, _Mapping]] = ...) -> None: ...
-    STEPS_TO_START_FROM_BEGINNING_FIELD_NUMBER: _ClassVar[int]
-    STEP_EXECUTIONS_TO_RESUME_FIELD_NUMBER: _ClassVar[int]
-    CHANNEL_RECEIVED_FIELD_NUMBER: _ClassVar[int]
-    COUNTER_INFO_FIELD_NUMBER: _ClassVar[int]
-    STEP_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
-    STALE_SKIP_TIMERS_FIELD_NUMBER: _ClassVar[int]
-    ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
-    PENDING_ATTRIBUTE_SYNC_ITEMS_FIELD_NUMBER: _ClassVar[int]
-    DEX_TASK_QUEUE_FIELD_NUMBER: _ClassVar[int]
-    steps_to_start_from_beginning: _containers.RepeatedCompositeFieldContainer[StepMovement]
-    step_executions_to_resume: _containers.RepeatedCompositeFieldContainer[StepExecutionResumeInfo]
-    channel_received: _containers.MessageMap[str, ChannelValues]
-    counter_info: StepExecutionCounterInfo
-    step_outputs: _containers.RepeatedCompositeFieldContainer[StepCompletionOutput]
-    stale_skip_timers: _containers.RepeatedCompositeFieldContainer[StaleSkipTimer]
-    attributes: _containers.RepeatedCompositeFieldContainer[KV]
-    pending_attribute_sync_items: _containers.RepeatedCompositeFieldContainer[AttributeSyncItem]
-    dex_task_queue: str
-    def __init__(self, steps_to_start_from_beginning: _Optional[_Iterable[_Union[StepMovement, _Mapping]]] = ..., step_executions_to_resume: _Optional[_Iterable[_Union[StepExecutionResumeInfo, _Mapping]]] = ..., channel_received: _Optional[_Mapping[str, ChannelValues]] = ..., counter_info: _Optional[_Union[StepExecutionCounterInfo, _Mapping]] = ..., step_outputs: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., stale_skip_timers: _Optional[_Iterable[_Union[StaleSkipTimer, _Mapping]]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., pending_attribute_sync_items: _Optional[_Iterable[_Union[AttributeSyncItem, _Mapping]]] = ..., dex_task_queue: _Optional[str] = ...) -> None: ...
-
-class ContinueAsNewInput(_message.Message):
-    __slots__ = ("previous_internal_run_id",)
-    PREVIOUS_INTERNAL_RUN_ID_FIELD_NUMBER: _ClassVar[int]
-    previous_internal_run_id: str
-    def __init__(self, previous_internal_run_id: _Optional[str] = ...) -> None: ...
-
-class InterpreterWorkflowInput(_message.Message):
-    __slots__ = ("flow_type", "configured_flow_timeout_seconds", "flow_timeout_policy", "start_step_type", "step_input", "step_options", "init_attributes", "config", "is_resume_from_continue_as_new", "continue_as_new_input", "timeout_handler_options")
-    FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
-    CONFIGURED_FLOW_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
-    FLOW_TIMEOUT_POLICY_FIELD_NUMBER: _ClassVar[int]
-    START_STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
-    STEP_INPUT_FIELD_NUMBER: _ClassVar[int]
-    STEP_OPTIONS_FIELD_NUMBER: _ClassVar[int]
-    INIT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
-    CONFIG_FIELD_NUMBER: _ClassVar[int]
-    IS_RESUME_FROM_CONTINUE_AS_NEW_FIELD_NUMBER: _ClassVar[int]
-    CONTINUE_AS_NEW_INPUT_FIELD_NUMBER: _ClassVar[int]
-    TIMEOUT_HANDLER_OPTIONS_FIELD_NUMBER: _ClassVar[int]
-    flow_type: str
-    configured_flow_timeout_seconds: int
-    flow_timeout_policy: FlowTimeoutPolicy
-    start_step_type: str
-    step_input: Value
-    step_options: StepOptions
-    init_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
-    config: FlowConfig
-    is_resume_from_continue_as_new: bool
-    continue_as_new_input: ContinueAsNewInput
-    timeout_handler_options: FlowTimeoutHandlerOptions
-    def __init__(self, flow_type: _Optional[str] = ..., configured_flow_timeout_seconds: _Optional[int] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., init_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., config: _Optional[_Union[FlowConfig, _Mapping]] = ..., is_resume_from_continue_as_new: _Optional[bool] = ..., continue_as_new_input: _Optional[_Union[ContinueAsNewInput, _Mapping]] = ..., timeout_handler_options: _Optional[_Union[FlowTimeoutHandlerOptions, _Mapping]] = ...) -> None: ...
-
-class InterpreterWorkflowOutput(_message.Message):
-    __slots__ = ("step_completion_outputs",)
-    STEP_COMPLETION_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
-    step_completion_outputs: _containers.RepeatedCompositeFieldContainer[StepCompletionOutput]
-    def __init__(self, step_completion_outputs: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ...) -> None: ...
-
-class BlobStoreCleanupWorkflowInput(_message.Message):
-    __slots__ = ("store_id",)
-    STORE_ID_FIELD_NUMBER: _ClassVar[int]
-    store_id: str
-    def __init__(self, store_id: _Optional[str] = ...) -> None: ...
-
-class BlobStoreCleanupWorkflowOutput(_message.Message):
-    __slots__ = ("total_deleted",)
-    TOTAL_DELETED_FIELD_NUMBER: _ClassVar[int]
-    total_deleted: int
-    def __init__(self, total_deleted: _Optional[int] = ...) -> None: ...
-
-class InvokeWaitForMethodActivityInput(_message.Message):
-    __slots__ = ("worker_target", "request", "dex_task_queue", "dispatch_wait", "sticky_wait")
-    WORKER_TARGET_FIELD_NUMBER: _ClassVar[int]
-    REQUEST_FIELD_NUMBER: _ClassVar[int]
-    DEX_TASK_QUEUE_FIELD_NUMBER: _ClassVar[int]
-    DISPATCH_WAIT_FIELD_NUMBER: _ClassVar[int]
-    STICKY_WAIT_FIELD_NUMBER: _ClassVar[int]
-    worker_target: WorkerTarget
-    request: InvokeWaitForMethodRequest
-    dex_task_queue: str
-    dispatch_wait: _duration_pb2.Duration
-    sticky_wait: _duration_pb2.Duration
-    def __init__(self, worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., request: _Optional[_Union[InvokeWaitForMethodRequest, _Mapping]] = ..., dex_task_queue: _Optional[str] = ..., dispatch_wait: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., sticky_wait: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
-
-class InvokeWaitForMethodActivityOutput(_message.Message):
-    __slots__ = ("response", "served_by_app_worker_id", "pull_routing")
-    RESPONSE_FIELD_NUMBER: _ClassVar[int]
-    SERVED_BY_APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
-    PULL_ROUTING_FIELD_NUMBER: _ClassVar[int]
-    response: InvokeWaitForMethodResponse
-    served_by_app_worker_id: str
-    pull_routing: PullRouting
-    def __init__(self, response: _Optional[_Union[InvokeWaitForMethodResponse, _Mapping]] = ..., served_by_app_worker_id: _Optional[str] = ..., pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ...) -> None: ...
-
-class InvokeExecuteMethodActivityInput(_message.Message):
-    __slots__ = ("worker_target", "request", "dex_task_queue", "dispatch_wait", "sticky_wait")
-    WORKER_TARGET_FIELD_NUMBER: _ClassVar[int]
-    REQUEST_FIELD_NUMBER: _ClassVar[int]
-    DEX_TASK_QUEUE_FIELD_NUMBER: _ClassVar[int]
-    DISPATCH_WAIT_FIELD_NUMBER: _ClassVar[int]
-    STICKY_WAIT_FIELD_NUMBER: _ClassVar[int]
-    worker_target: WorkerTarget
-    request: InvokeExecuteMethodRequest
-    dex_task_queue: str
-    dispatch_wait: _duration_pb2.Duration
-    sticky_wait: _duration_pb2.Duration
-    def __init__(self, worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., request: _Optional[_Union[InvokeExecuteMethodRequest, _Mapping]] = ..., dex_task_queue: _Optional[str] = ..., dispatch_wait: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., sticky_wait: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
-
 class RecoveryErrorInfo(_message.Message):
     __slots__ = ("detail", "error_type")
     DETAIL_FIELD_NUMBER: _ClassVar[int]
@@ -2423,74 +2079,6 @@ class RecoveryErrorInfo(_message.Message):
     detail: str
     error_type: str
     def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ...) -> None: ...
-
-class InternalLocalStepActivityFailure(_message.Message):
-    __slots__ = ("local_activity_metadata", "first_attempt_timestamp", "method_options", "attempt", "activity_error", "pull_routing")
-    LOCAL_ACTIVITY_METADATA_FIELD_NUMBER: _ClassVar[int]
-    FIRST_ATTEMPT_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
-    METHOD_OPTIONS_FIELD_NUMBER: _ClassVar[int]
-    ATTEMPT_FIELD_NUMBER: _ClassVar[int]
-    ACTIVITY_ERROR_FIELD_NUMBER: _ClassVar[int]
-    PULL_ROUTING_FIELD_NUMBER: _ClassVar[int]
-    local_activity_metadata: LocalActivityMetadata
-    first_attempt_timestamp: int
-    method_options: StepMethodOptions
-    attempt: int
-    activity_error: InternalActivityError
-    pull_routing: PullRouting
-    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., first_attempt_timestamp: _Optional[int] = ..., method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ..., attempt: _Optional[int] = ..., activity_error: _Optional[_Union[InternalActivityError, _Mapping]] = ..., pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ...) -> None: ...
-
-class InvokeExecuteMethodActivityOutput(_message.Message):
-    __slots__ = ("response", "served_by_app_worker_id", "pull_routing")
-    RESPONSE_FIELD_NUMBER: _ClassVar[int]
-    SERVED_BY_APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
-    PULL_ROUTING_FIELD_NUMBER: _ClassVar[int]
-    response: InvokeExecuteMethodResponse
-    served_by_app_worker_id: str
-    pull_routing: PullRouting
-    def __init__(self, response: _Optional[_Union[InvokeExecuteMethodResponse, _Mapping]] = ..., served_by_app_worker_id: _Optional[str] = ..., pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ...) -> None: ...
-
-class DumpFlowForContinueAsNewActivityInput(_message.Message):
-    __slots__ = ("request",)
-    REQUEST_FIELD_NUMBER: _ClassVar[int]
-    request: ContinueAsNewDumpRequest
-    def __init__(self, request: _Optional[_Union[ContinueAsNewDumpRequest, _Mapping]] = ...) -> None: ...
-
-class DumpFlowForContinueAsNewActivityOutput(_message.Message):
-    __slots__ = ("response",)
-    RESPONSE_FIELD_NUMBER: _ClassVar[int]
-    response: ContinueAsNewDumpResponse
-    def __init__(self, response: _Optional[_Union[ContinueAsNewDumpResponse, _Mapping]] = ...) -> None: ...
-
-class InvokeWorkerRPCActivityInput(_message.Message):
-    __slots__ = ("rpc_prep", "request")
-    RPC_PREP_FIELD_NUMBER: _ClassVar[int]
-    REQUEST_FIELD_NUMBER: _ClassVar[int]
-    rpc_prep: PrepareRpcQueryResponse
-    request: InvokeRPCRequest
-    def __init__(self, rpc_prep: _Optional[_Union[PrepareRpcQueryResponse, _Mapping]] = ..., request: _Optional[_Union[InvokeRPCRequest, _Mapping]] = ...) -> None: ...
-
-class InvokeWorkerRPCActivityOutput(_message.Message):
-    __slots__ = ("response", "request_id", "served_by_app_worker_id")
-    RESPONSE_FIELD_NUMBER: _ClassVar[int]
-    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
-    SERVED_BY_APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
-    response: InvokeWorkerRPCResponse
-    request_id: str
-    served_by_app_worker_id: str
-    def __init__(self, response: _Optional[_Union[InvokeWorkerRPCResponse, _Mapping]] = ..., request_id: _Optional[str] = ..., served_by_app_worker_id: _Optional[str] = ...) -> None: ...
-
-class CleanupBlobStoreActivityInput(_message.Message):
-    __slots__ = ("store_id",)
-    STORE_ID_FIELD_NUMBER: _ClassVar[int]
-    store_id: str
-    def __init__(self, store_id: _Optional[str] = ...) -> None: ...
-
-class CleanupBlobStoreActivityOutput(_message.Message):
-    __slots__ = ("total_deleted",)
-    TOTAL_DELETED_FIELD_NUMBER: _ClassVar[int]
-    total_deleted: int
-    def __init__(self, total_deleted: _Optional[int] = ...) -> None: ...
 
 class AttributeSyncItem(_message.Message):
     __slots__ = ("config_name", "key", "value")
@@ -2502,160 +2090,6 @@ class AttributeSyncItem(_message.Message):
     value: Value
     def __init__(self, config_name: _Optional[str] = ..., key: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
-class SyncAttributeBatchActivityInput(_message.Message):
-    __slots__ = ("flow_id", "config_name", "items")
-    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
-    CONFIG_NAME_FIELD_NUMBER: _ClassVar[int]
-    ITEMS_FIELD_NUMBER: _ClassVar[int]
-    flow_id: str
-    config_name: str
-    items: _containers.RepeatedCompositeFieldContainer[AttributeSyncItem]
-    def __init__(self, flow_id: _Optional[str] = ..., config_name: _Optional[str] = ..., items: _Optional[_Iterable[_Union[AttributeSyncItem, _Mapping]]] = ...) -> None: ...
-
-class StartSubFlowActivityInput(_message.Message):
-    __slots__ = ("condition", "parent_flow_config", "parent_step_execution_id", "typed_rejection_enabled")
-    CONDITION_FIELD_NUMBER: _ClassVar[int]
-    PARENT_FLOW_CONFIG_FIELD_NUMBER: _ClassVar[int]
-    PARENT_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
-    TYPED_REJECTION_ENABLED_FIELD_NUMBER: _ClassVar[int]
-    condition: SubFlowCondition
-    parent_flow_config: FlowConfig
-    parent_step_execution_id: str
-    typed_rejection_enabled: bool
-    def __init__(self, condition: _Optional[_Union[SubFlowCondition, _Mapping]] = ..., parent_flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., parent_step_execution_id: _Optional[str] = ..., typed_rejection_enabled: _Optional[bool] = ...) -> None: ...
-
-class StartSubFlowActivityOutput(_message.Message):
-    __slots__ = ("immediate_flow_result",)
-    IMMEDIATE_FLOW_RESULT_FIELD_NUMBER: _ClassVar[int]
-    immediate_flow_result: FlowResult
-    def __init__(self, immediate_flow_result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
-
-class SubFlowCompletionSignalRequest(_message.Message):
-    __slots__ = ("sub_flow_id", "flow_result")
-    SUB_FLOW_ID_FIELD_NUMBER: _ClassVar[int]
-    FLOW_RESULT_FIELD_NUMBER: _ClassVar[int]
-    sub_flow_id: str
-    flow_result: FlowResult
-    def __init__(self, sub_flow_id: _Optional[str] = ..., flow_result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
-
-class ReportSubFlowCompletionActivityInput(_message.Message):
-    __slots__ = ("parent_flow_id", "request")
-    PARENT_FLOW_ID_FIELD_NUMBER: _ClassVar[int]
-    REQUEST_FIELD_NUMBER: _ClassVar[int]
-    parent_flow_id: str
-    request: SubFlowCompletionSignalRequest
-    def __init__(self, parent_flow_id: _Optional[str] = ..., request: _Optional[_Union[SubFlowCompletionSignalRequest, _Mapping]] = ...) -> None: ...
-
-class ReportSubFlowCompletionActivityOutput(_message.Message):
-    __slots__ = ("status",)
-    STATUS_FIELD_NUMBER: _ClassVar[int]
-    status: SubFlowCompletionDeliveryStatus
-    def __init__(self, status: _Optional[_Union[SubFlowCompletionDeliveryStatus, str]] = ...) -> None: ...
-
-class ExecuteRpcSignalRequest(_message.Message):
-    __slots__ = ("upsert_attributes", "step_decision", "record_events", "publish_to_channel", "is_set_attribute_api", "delete_from_channel", "is_delete_channel_message_api", "action_permission_mappings", "served_by_app_worker_id")
-    UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
-    STEP_DECISION_FIELD_NUMBER: _ClassVar[int]
-    RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
-    PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
-    IS_SET_ATTRIBUTE_API_FIELD_NUMBER: _ClassVar[int]
-    DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
-    IS_DELETE_CHANNEL_MESSAGE_API_FIELD_NUMBER: _ClassVar[int]
-    ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
-    SERVED_BY_APP_WORKER_ID_FIELD_NUMBER: _ClassVar[int]
-    upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
-    step_decision: StepDecision
-    record_events: _containers.RepeatedCompositeFieldContainer[KV]
-    publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
-    is_set_attribute_api: bool
-    delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
-    is_delete_channel_message_api: bool
-    action_permission_mappings: ActionPermissionMappings
-    served_by_app_worker_id: str
-    def __init__(self, upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., is_set_attribute_api: _Optional[bool] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., is_delete_channel_message_api: _Optional[bool] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ..., served_by_app_worker_id: _Optional[str] = ...) -> None: ...
-
-class SkipTimerSignalRequest(_message.Message):
-    __slots__ = ("step_execution_id", "timer_condition_id", "timer_condition_index")
-    STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
-    TIMER_CONDITION_ID_FIELD_NUMBER: _ClassVar[int]
-    TIMER_CONDITION_INDEX_FIELD_NUMBER: _ClassVar[int]
-    step_execution_id: str
-    timer_condition_id: str
-    timer_condition_index: int
-    def __init__(self, step_execution_id: _Optional[str] = ..., timer_condition_id: _Optional[str] = ..., timer_condition_index: _Optional[int] = ...) -> None: ...
-
-class StopFlowSignalRequest(_message.Message):
-    __slots__ = ("stop_type", "reason")
-    STOP_TYPE_FIELD_NUMBER: _ClassVar[int]
-    REASON_FIELD_NUMBER: _ClassVar[int]
-    stop_type: StopType
-    reason: str
-    def __init__(self, stop_type: _Optional[_Union[StopType, str]] = ..., reason: _Optional[str] = ...) -> None: ...
-
-class GetAttributesQueryRequest(_message.Message):
-    __slots__ = ("keys", "all_keys")
-    KEYS_FIELD_NUMBER: _ClassVar[int]
-    ALL_KEYS_FIELD_NUMBER: _ClassVar[int]
-    keys: _containers.RepeatedScalarFieldContainer[str]
-    all_keys: bool
-    def __init__(self, keys: _Optional[_Iterable[str]] = ..., all_keys: _Optional[bool] = ...) -> None: ...
-
-class GetAttributesQueryResponse(_message.Message):
-    __slots__ = ("attributes",)
-    ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
-    attributes: _containers.RepeatedCompositeFieldContainer[KV]
-    def __init__(self, attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
-
-class PrepareRpcQueryRequest(_message.Message):
-    __slots__ = ("load_attribute_map_instances", "load_channel_names", "load_channel_map_instances")
-    LOAD_ATTRIBUTE_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
-    LOAD_CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
-    LOAD_CHANNEL_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
-    load_attribute_map_instances: _containers.RepeatedScalarFieldContainer[str]
-    load_channel_names: _containers.RepeatedScalarFieldContainer[str]
-    load_channel_map_instances: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, load_attribute_map_instances: _Optional[_Iterable[str]] = ..., load_channel_names: _Optional[_Iterable[str]] = ..., load_channel_map_instances: _Optional[_Iterable[str]] = ...) -> None: ...
-
-class PrepareRpcQueryResponse(_message.Message):
-    __slots__ = ("attributes", "run_id", "flow_started_timestamp", "flow_type", "worker_target", "channel_infos", "loaded_channel_messages", "loaded_attribute_map_instances", "loaded_channel_names", "loaded_channel_map_instances", "dex_task_queue")
-    class ChannelInfosEntry(_message.Message):
-        __slots__ = ("key", "value")
-        KEY_FIELD_NUMBER: _ClassVar[int]
-        VALUE_FIELD_NUMBER: _ClassVar[int]
-        key: str
-        value: ChannelInfo
-        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[ChannelInfo, _Mapping]] = ...) -> None: ...
-    class LoadedChannelMessagesEntry(_message.Message):
-        __slots__ = ("key", "value")
-        KEY_FIELD_NUMBER: _ClassVar[int]
-        VALUE_FIELD_NUMBER: _ClassVar[int]
-        key: str
-        value: ChannelValues
-        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[ChannelValues, _Mapping]] = ...) -> None: ...
-    ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
-    RUN_ID_FIELD_NUMBER: _ClassVar[int]
-    FLOW_STARTED_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
-    FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
-    WORKER_TARGET_FIELD_NUMBER: _ClassVar[int]
-    CHANNEL_INFOS_FIELD_NUMBER: _ClassVar[int]
-    LOADED_CHANNEL_MESSAGES_FIELD_NUMBER: _ClassVar[int]
-    LOADED_ATTRIBUTE_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
-    LOADED_CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
-    LOADED_CHANNEL_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
-    DEX_TASK_QUEUE_FIELD_NUMBER: _ClassVar[int]
-    attributes: _containers.RepeatedCompositeFieldContainer[KV]
-    run_id: str
-    flow_started_timestamp: int
-    flow_type: str
-    worker_target: WorkerTarget
-    channel_infos: _containers.MessageMap[str, ChannelInfo]
-    loaded_channel_messages: _containers.MessageMap[str, ChannelValues]
-    loaded_attribute_map_instances: _containers.RepeatedScalarFieldContainer[str]
-    loaded_channel_names: _containers.RepeatedScalarFieldContainer[str]
-    loaded_channel_map_instances: _containers.RepeatedScalarFieldContainer[str]
-    dex_task_queue: str
-    def __init__(self, attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., run_id: _Optional[str] = ..., flow_started_timestamp: _Optional[int] = ..., flow_type: _Optional[str] = ..., worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_instances: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_instances: _Optional[_Iterable[str]] = ..., dex_task_queue: _Optional[str] = ...) -> None: ...
-
 class TimerInfo(_message.Message):
     __slots__ = ("condition_id", "firing_unix_timestamp_seconds", "status")
     CONDITION_ID_FIELD_NUMBER: _ClassVar[int]
@@ -2665,52 +2099,3 @@ class TimerInfo(_message.Message):
     firing_unix_timestamp_seconds: int
     status: InternalTimerStatus
     def __init__(self, condition_id: _Optional[str] = ..., firing_unix_timestamp_seconds: _Optional[int] = ..., status: _Optional[_Union[InternalTimerStatus, str]] = ...) -> None: ...
-
-class TimerInfoList(_message.Message):
-    __slots__ = ("timers",)
-    TIMERS_FIELD_NUMBER: _ClassVar[int]
-    timers: _containers.RepeatedCompositeFieldContainer[TimerInfo]
-    def __init__(self, timers: _Optional[_Iterable[_Union[TimerInfo, _Mapping]]] = ...) -> None: ...
-
-class GetCurrentTimerInfosQueryResponse(_message.Message):
-    __slots__ = ("step_execution_current_timer_infos",)
-    class StepExecutionCurrentTimerInfosEntry(_message.Message):
-        __slots__ = ("key", "value")
-        KEY_FIELD_NUMBER: _ClassVar[int]
-        VALUE_FIELD_NUMBER: _ClassVar[int]
-        key: str
-        value: TimerInfoList
-        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[TimerInfoList, _Mapping]] = ...) -> None: ...
-    STEP_EXECUTION_CURRENT_TIMER_INFOS_FIELD_NUMBER: _ClassVar[int]
-    step_execution_current_timer_infos: _containers.MessageMap[str, TimerInfoList]
-    def __init__(self, step_execution_current_timer_infos: _Optional[_Mapping[str, TimerInfoList]] = ...) -> None: ...
-
-class GetScheduledGreedyTimerTimesQueryResponse(_message.Message):
-    __slots__ = ("pending_scheduled",)
-    PENDING_SCHEDULED_FIELD_NUMBER: _ClassVar[int]
-    pending_scheduled: _containers.RepeatedCompositeFieldContainer[TimerInfo]
-    def __init__(self, pending_scheduled: _Optional[_Iterable[_Union[TimerInfo, _Mapping]]] = ...) -> None: ...
-
-class DebugDumpResponse(_message.Message):
-    __slots__ = ("config", "snapshot", "firing_timers_unix_timestamps", "active_step_executions")
-    CONFIG_FIELD_NUMBER: _ClassVar[int]
-    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
-    FIRING_TIMERS_UNIX_TIMESTAMPS_FIELD_NUMBER: _ClassVar[int]
-    ACTIVE_STEP_EXECUTIONS_FIELD_NUMBER: _ClassVar[int]
-    config: FlowConfig
-    snapshot: ContinueAsNewDump
-    firing_timers_unix_timestamps: _containers.RepeatedScalarFieldContainer[int]
-    active_step_executions: _containers.RepeatedCompositeFieldContainer[ActiveStepExecutionState]
-    def __init__(self, config: _Optional[_Union[FlowConfig, _Mapping]] = ..., snapshot: _Optional[_Union[ContinueAsNewDump, _Mapping]] = ..., firing_timers_unix_timestamps: _Optional[_Iterable[int]] = ..., active_step_executions: _Optional[_Iterable[_Union[ActiveStepExecutionState, _Mapping]]] = ...) -> None: ...
-
-class InvokeRpcUpdateResult(_message.Message):
-    __slots__ = ("response",)
-    RESPONSE_FIELD_NUMBER: _ClassVar[int]
-    response: InvokeRPCResponse
-    def __init__(self, response: _Optional[_Union[InvokeRPCResponse, _Mapping]] = ...) -> None: ...
-
-class StepExecutionNumbers(_message.Message):
-    __slots__ = ("numbers",)
-    NUMBERS_FIELD_NUMBER: _ClassVar[int]
-    numbers: _containers.RepeatedScalarFieldContainer[int]
-    def __init__(self, numbers: _Optional[_Iterable[int]] = ...) -> None: ...

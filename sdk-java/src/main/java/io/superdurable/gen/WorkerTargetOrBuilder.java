@@ -12,39 +12,7 @@ public interface WorkerTargetOrBuilder extends
 
   /**
    * <pre>
-   * Plaintext gRPC dial target, not an HTTP URL.
-   * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-   * </pre>
-   *
-   * <code>string address = 1;</code>
-   * @return The address.
-   */
-  java.lang.String getAddress();
-  /**
-   * <pre>
-   * Plaintext gRPC dial target, not an HTTP URL.
-   * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-   * </pre>
-   *
-   * <code>string address = 1;</code>
-   * @return The bytes for address.
-   */
-  com.google.protobuf.ByteString
-      getAddressBytes();
-
-  /**
-   * <pre>
-   * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-   * </pre>
-   *
-   * <code>bool is_headless_address = 2;</code>
-   * @return The isHeadlessAddress.
-   */
-  boolean getIsHeadlessAddress();
-
-  /**
-   * <pre>
-   * Routes work through a connected pull Worker; mutually exclusive with address.
+   * Routes work through a connected pull Worker. Dex requires true whenever a target is set.
    * </pre>
    *
    * <code>bool is_pull_mode = 3;</code>

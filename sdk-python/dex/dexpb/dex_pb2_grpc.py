@@ -42,42 +42,38 @@ class FlowServiceStub:
     NotFound          — unknown flow/run
     sub_status FLOW_NOT_EXISTS
     FailedPrecondition — closed/invalid flow state; blob-backed WaitForAttribute;
-    Dex application WorkerService failures (business errors
-    and unreachable/dial/transport to the app worker). These
-    must not use Unavailable so they do not count against
-    server SLA/SLO. sub_status WORKER_API_ERROR when from
-    WorkerService; raw worker code/detail/type in
-    original_worker_error_* when available
-    Aborted           — locking RPC attribute lock contention
+    Dex application Worker failures (business errors and
+    transport failures to the app worker). These must not
+    use Unavailable so they do not count against server
+    SLA/SLO. sub_status WORKER_API_ERROR when from a Worker;
+    raw worker code/detail/type in original_worker_error_*
+    when available
+    Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
+    held by another RPC or a running Step
     sub_status WORKER_API_ERROR
-    ResourceExhausted — worker connection pool / message size limits
+    ResourceExhausted — message size, Stream capacity, and search scan limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
     sub_status LONG_POLL_TIME_OUT or REQUEST_TIMEOUT
     Canceled          — caller canceled the RPC context
-    Unavailable       — Temporal/Cadence backend or Stream Store backend unavailable;
-    never Dex application WorkerService
-    server-zd also returns this when object storage is unavailable or it applies backpressure.
+    Unavailable       — object storage or the search backend is unavailable, or
+    the Server applies backpressure; never a Dex application Worker
     Internal          — unexpected / violated trusted invariant
-    Unimplemented     — Cadence: WaitForStepCompletion, WaitForAttribute,
-    locking InvokeRPC (Temporal sync update required)
+    Unimplemented     — TriggerContinueAsNew; SearchFlows without a configured
+    search backend
 
     Notable per-RPC behavior:
-    InvokeRPC — empty LockAttributeKeys uses query + WorkerService + optional
-    signal by default. IsTransactional requests transactional reads and writes.
-    Non-empty LockAttributeKeys enables transactional execution automatically;
-    Cadence returns Unimplemented for attribute locking.
-    WorkerService errors (app or transport-to-worker) → FailedPrecondition +
+    InvokeRPC — IsTransactional requests transactional reads and writes.
+    Non-empty LockAttributeKeys enables transactional execution automatically.
+    Worker errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
-    WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
-    retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Transport
-    timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Request timeout →
+    WaitForStepCompletion / WaitForAttribute — Transport timeout →
+    DeadlineExceeded + LONG_POLL_TIME_OUT. Request timeout →
     DeadlineExceeded + REQUEST_TIMEOUT. WaitForAttribute rejects waiting
     on blob-backed stored attributes with FailedPrecondition.
     WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
     LONG_POLL_TIME_OUT.
     WriteStream / ReadStream — independent of Flow existence and lifecycle.
-    Redis failures affect only Stream RPCs. Read timeout → DeadlineExceeded +
-    LONG_POLL_TIME_OUT.
+    Read timeout → DeadlineExceeded + LONG_POLL_TIME_OUT.
     ---------------------------------------------------------------------------
 
     Hosted by Dex server; SDKs call these RPCs.
@@ -242,42 +238,38 @@ class FlowServiceServicer:
     NotFound          — unknown flow/run
     sub_status FLOW_NOT_EXISTS
     FailedPrecondition — closed/invalid flow state; blob-backed WaitForAttribute;
-    Dex application WorkerService failures (business errors
-    and unreachable/dial/transport to the app worker). These
-    must not use Unavailable so they do not count against
-    server SLA/SLO. sub_status WORKER_API_ERROR when from
-    WorkerService; raw worker code/detail/type in
-    original_worker_error_* when available
-    Aborted           — locking RPC attribute lock contention
+    Dex application Worker failures (business errors and
+    transport failures to the app worker). These must not
+    use Unavailable so they do not count against server
+    SLA/SLO. sub_status WORKER_API_ERROR when from a Worker;
+    raw worker code/detail/type in original_worker_error_*
+    when available
+    Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
+    held by another RPC or a running Step
     sub_status WORKER_API_ERROR
-    ResourceExhausted — worker connection pool / message size limits
+    ResourceExhausted — message size, Stream capacity, and search scan limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
     sub_status LONG_POLL_TIME_OUT or REQUEST_TIMEOUT
     Canceled          — caller canceled the RPC context
-    Unavailable       — Temporal/Cadence backend or Stream Store backend unavailable;
-    never Dex application WorkerService
-    server-zd also returns this when object storage is unavailable or it applies backpressure.
+    Unavailable       — object storage or the search backend is unavailable, or
+    the Server applies backpressure; never a Dex application Worker
     Internal          — unexpected / violated trusted invariant
-    Unimplemented     — Cadence: WaitForStepCompletion, WaitForAttribute,
-    locking InvokeRPC (Temporal sync update required)
+    Unimplemented     — TriggerContinueAsNew; SearchFlows without a configured
+    search backend
 
     Notable per-RPC behavior:
-    InvokeRPC — empty LockAttributeKeys uses query + WorkerService + optional
-    signal by default. IsTransactional requests transactional reads and writes.
-    Non-empty LockAttributeKeys enables transactional execution automatically;
-    Cadence returns Unimplemented for attribute locking.
-    WorkerService errors (app or transport-to-worker) → FailedPrecondition +
+    InvokeRPC — IsTransactional requests transactional reads and writes.
+    Non-empty LockAttributeKeys enables transactional execution automatically.
+    Worker errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
-    WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
-    retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Transport
-    timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Request timeout →
+    WaitForStepCompletion / WaitForAttribute — Transport timeout →
+    DeadlineExceeded + LONG_POLL_TIME_OUT. Request timeout →
     DeadlineExceeded + REQUEST_TIMEOUT. WaitForAttribute rejects waiting
     on blob-backed stored attributes with FailedPrecondition.
     WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
     LONG_POLL_TIME_OUT.
     WriteStream / ReadStream — independent of Flow existence and lifecycle.
-    Redis failures affect only Stream RPCs. Read timeout → DeadlineExceeded +
-    LONG_POLL_TIME_OUT.
+    Read timeout → DeadlineExceeded + LONG_POLL_TIME_OUT.
     ---------------------------------------------------------------------------
 
     Hosted by Dex server; SDKs call these RPCs.
@@ -435,7 +427,7 @@ class FlowServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def TriggerContinueAsNew(self, request, context):
-        """server-zd returns UNIMPLEMENTED.
+        """Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -609,42 +601,38 @@ class FlowService:
     NotFound          — unknown flow/run
     sub_status FLOW_NOT_EXISTS
     FailedPrecondition — closed/invalid flow state; blob-backed WaitForAttribute;
-    Dex application WorkerService failures (business errors
-    and unreachable/dial/transport to the app worker). These
-    must not use Unavailable so they do not count against
-    server SLA/SLO. sub_status WORKER_API_ERROR when from
-    WorkerService; raw worker code/detail/type in
-    original_worker_error_* when available
-    Aborted           — locking RPC attribute lock contention
+    Dex application Worker failures (business errors and
+    transport failures to the app worker). These must not
+    use Unavailable so they do not count against server
+    SLA/SLO. sub_status WORKER_API_ERROR when from a Worker;
+    raw worker code/detail/type in original_worker_error_*
+    when available
+    Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
+    held by another RPC or a running Step
     sub_status WORKER_API_ERROR
-    ResourceExhausted — worker connection pool / message size limits
+    ResourceExhausted — message size, Stream capacity, and search scan limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
     sub_status LONG_POLL_TIME_OUT or REQUEST_TIMEOUT
     Canceled          — caller canceled the RPC context
-    Unavailable       — Temporal/Cadence backend or Stream Store backend unavailable;
-    never Dex application WorkerService
-    server-zd also returns this when object storage is unavailable or it applies backpressure.
+    Unavailable       — object storage or the search backend is unavailable, or
+    the Server applies backpressure; never a Dex application Worker
     Internal          — unexpected / violated trusted invariant
-    Unimplemented     — Cadence: WaitForStepCompletion, WaitForAttribute,
-    locking InvokeRPC (Temporal sync update required)
+    Unimplemented     — TriggerContinueAsNew; SearchFlows without a configured
+    search backend
 
     Notable per-RPC behavior:
-    InvokeRPC — empty LockAttributeKeys uses query + WorkerService + optional
-    signal by default. IsTransactional requests transactional reads and writes.
-    Non-empty LockAttributeKeys enables transactional execution automatically;
-    Cadence returns Unimplemented for attribute locking.
-    WorkerService errors (app or transport-to-worker) → FailedPrecondition +
+    InvokeRPC — IsTransactional requests transactional reads and writes.
+    Non-empty LockAttributeKeys enables transactional execution automatically.
+    Worker errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
-    WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
-    retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Transport
-    timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Request timeout →
+    WaitForStepCompletion / WaitForAttribute — Transport timeout →
+    DeadlineExceeded + LONG_POLL_TIME_OUT. Request timeout →
     DeadlineExceeded + REQUEST_TIMEOUT. WaitForAttribute rejects waiting
     on blob-backed stored attributes with FailedPrecondition.
     WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
     LONG_POLL_TIME_OUT.
     WriteStream / ReadStream — independent of Flow existence and lifecycle.
-    Redis failures affect only Stream RPCs. Read timeout → DeadlineExceeded +
-    LONG_POLL_TIME_OUT.
+    Read timeout → DeadlineExceeded + LONG_POLL_TIME_OUT.
     ---------------------------------------------------------------------------
 
     Hosted by Dex server; SDKs call these RPCs.
@@ -1381,8 +1369,8 @@ class FlowService:
 
 
 class WorkerServiceStub:
-    """Hosted by Dex worker; server calls these RPCs.
-    server-zd supports only pull Workers and never calls WorkerService.
+    """Describes the Step and RPC calls a Worker serves.
+    Dex delivers them over WorkerTaskService and never dials Workers.
     """
 
     def __init__(self, channel):
@@ -1409,8 +1397,8 @@ class WorkerServiceStub:
 
 
 class WorkerServiceServicer:
-    """Hosted by Dex worker; server calls these RPCs.
-    server-zd supports only pull Workers and never calls WorkerService.
+    """Describes the Step and RPC calls a Worker serves.
+    Dex delivers them over WorkerTaskService and never dials Workers.
     """
 
     def InvokeWaitForMethod(self, request, context):
@@ -1458,8 +1446,8 @@ def add_WorkerServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class WorkerService:
-    """Hosted by Dex worker; server calls these RPCs.
-    server-zd supports only pull Workers and never calls WorkerService.
+    """Describes the Step and RPC calls a Worker serves.
+    Dex delivers them over WorkerTaskService and never dials Workers.
     """
 
     @staticmethod
@@ -1609,207 +1597,6 @@ class WorkerTaskService:
             '/dex.WorkerTaskService/PollWorkerTask',
             dex__pb2.PollWorkerTaskRequest.SerializeToString,
             dex__pb2.PollWorkerTaskResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-
-class MatchingServiceStub:
-    """Hosted on the internal listener; server instances route tasks and Worker streams to queue owners.
-    Go Server internals; server-zd does not serve or persist them.
-    """
-
-    def __init__(self, channel):
-        """Constructor.
-
-        Args:
-            channel: A grpc.Channel.
-        """
-        self.DispatchTask = channel.unary_stream(
-                '/dex.MatchingService/DispatchTask',
-                request_serializer=dex__pb2.DispatchTaskRequest.SerializeToString,
-                response_deserializer=dex__pb2.DispatchTaskResponse.FromString,
-                _registered_method=True)
-        self.ForwardPollWorkerTask = channel.stream_stream(
-                '/dex.MatchingService/ForwardPollWorkerTask',
-                request_serializer=dex__pb2.PollWorkerTaskRequest.SerializeToString,
-                response_deserializer=dex__pb2.PollWorkerTaskResponse.FromString,
-                _registered_method=True)
-
-
-class MatchingServiceServicer:
-    """Hosted on the internal listener; server instances route tasks and Worker streams to queue owners.
-    Go Server internals; server-zd does not serve or persist them.
-    """
-
-    def DispatchTask(self, request, context):
-        """Streams Worker output frames and a final result or dispatch error.
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def ForwardPollWorkerTask(self, request_iterator, context):
-        """Proxies a Worker's queue stream from its receiving instance to the queue owner.
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-
-def add_MatchingServiceServicer_to_server(servicer, server):
-    rpc_method_handlers = {
-            'DispatchTask': grpc.unary_stream_rpc_method_handler(
-                    servicer.DispatchTask,
-                    request_deserializer=dex__pb2.DispatchTaskRequest.FromString,
-                    response_serializer=dex__pb2.DispatchTaskResponse.SerializeToString,
-            ),
-            'ForwardPollWorkerTask': grpc.stream_stream_rpc_method_handler(
-                    servicer.ForwardPollWorkerTask,
-                    request_deserializer=dex__pb2.PollWorkerTaskRequest.FromString,
-                    response_serializer=dex__pb2.PollWorkerTaskResponse.SerializeToString,
-            ),
-    }
-    generic_handler = grpc.method_handlers_generic_handler(
-            'dex.MatchingService', rpc_method_handlers)
-    server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('dex.MatchingService', rpc_method_handlers)
-
-
- # This class is part of an EXPERIMENTAL API.
-class MatchingService:
-    """Hosted on the internal listener; server instances route tasks and Worker streams to queue owners.
-    Go Server internals; server-zd does not serve or persist them.
-    """
-
-    @staticmethod
-    def DispatchTask(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_stream(
-            request,
-            target,
-            '/dex.MatchingService/DispatchTask',
-            dex__pb2.DispatchTaskRequest.SerializeToString,
-            dex__pb2.DispatchTaskResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def ForwardPollWorkerTask(request_iterator,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.stream_stream(
-            request_iterator,
-            target,
-            '/dex.MatchingService/ForwardPollWorkerTask',
-            dex__pb2.PollWorkerTaskRequest.SerializeToString,
-            dex__pb2.PollWorkerTaskResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-
-class InternalServiceStub:
-    """Server-internal only (interpreter CAN activity → API). Not SDK-facing.
-    Go Server internals; server-zd does not serve or persist them.
-    """
-
-    def __init__(self, channel):
-        """Constructor.
-
-        Args:
-            channel: A grpc.Channel.
-        """
-        self.DumpFlowForContinueAsNew = channel.unary_unary(
-                '/dex.InternalService/DumpFlowForContinueAsNew',
-                request_serializer=dex__pb2.ContinueAsNewDumpRequest.SerializeToString,
-                response_deserializer=dex__pb2.ContinueAsNewDumpResponse.FromString,
-                _registered_method=True)
-
-
-class InternalServiceServicer:
-    """Server-internal only (interpreter CAN activity → API). Not SDK-facing.
-    Go Server internals; server-zd does not serve or persist them.
-    """
-
-    def DumpFlowForContinueAsNew(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-
-def add_InternalServiceServicer_to_server(servicer, server):
-    rpc_method_handlers = {
-            'DumpFlowForContinueAsNew': grpc.unary_unary_rpc_method_handler(
-                    servicer.DumpFlowForContinueAsNew,
-                    request_deserializer=dex__pb2.ContinueAsNewDumpRequest.FromString,
-                    response_serializer=dex__pb2.ContinueAsNewDumpResponse.SerializeToString,
-            ),
-    }
-    generic_handler = grpc.method_handlers_generic_handler(
-            'dex.InternalService', rpc_method_handlers)
-    server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('dex.InternalService', rpc_method_handlers)
-
-
- # This class is part of an EXPERIMENTAL API.
-class InternalService:
-    """Server-internal only (interpreter CAN activity → API). Not SDK-facing.
-    Go Server internals; server-zd does not serve or persist them.
-    """
-
-    @staticmethod
-    def DumpFlowForContinueAsNew(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/dex.InternalService/DumpFlowForContinueAsNew',
-            dex__pb2.ContinueAsNewDumpRequest.SerializeToString,
-            dex__pb2.ContinueAsNewDumpResponse.FromString,
             options,
             channel_credentials,
             insecure,

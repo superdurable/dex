@@ -32,7 +32,7 @@ public interface TimeTravelForkHistoryEventOrBuilder extends
 
   /**
    * <pre>
-   * server-zd only: the run attempt that was current before this time travel.
+   * The run attempt that was current before this time travel.
    * </pre>
    *
    * <code>int32 previous_run_attempt = 2;</code>
@@ -42,7 +42,7 @@ public interface TimeTravelForkHistoryEventOrBuilder extends
 
   /**
    * <pre>
-   * server-zd only: the run attempt of the point this time travel returned to.
+   * The run attempt of the point this time travel returned to.
    * </pre>
    *
    * <code>int32 target_run_attempt = 3;</code>
@@ -52,7 +52,7 @@ public interface TimeTravelForkHistoryEventOrBuilder extends
 
   /**
    * <pre>
-   * server-zd only: the event ID of the point this time travel returned to.
+   * The event ID of the point this time travel returned to.
    * </pre>
    *
    * <code>int64 target_event_id = 4;</code>

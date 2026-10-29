@@ -144,7 +144,7 @@ func requireStepTimerStatusEventually(
 		if err != nil {
 			return false
 		}
-		for _, timer := range timerInfos.GetStepExecutionCurrentTimerInfos()[stepExecutionID].GetTimers() {
+		for _, timer := range timerInfos[stepExecutionID] {
 			if timer.GetConditionId() == timerConditionID {
 				return timer.GetStatus() == expectedStatus
 			}

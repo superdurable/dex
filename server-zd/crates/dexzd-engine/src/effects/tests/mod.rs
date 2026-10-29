@@ -992,10 +992,7 @@ impl EffectHarness {
                 request: Some(request),
                 settings: Some(settings),
                 resolved_timeout_policy: timeout_policy as i32,
-                worker_target: Some(WorkerTarget {
-                    is_pull_mode: true,
-                    ..WorkerTarget::default()
-                }),
+                worker_target: Some(WorkerTarget { is_pull_mode: true }),
                 ..FlowStartCommand::default()
             })),
             ..FlowCommand::default()

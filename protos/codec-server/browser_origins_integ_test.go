@@ -69,9 +69,9 @@ func TestCodecServerBrowserOrigins(t *testing.T) {
 
 func testCodecServerBrowserOrigin(t *testing.T, codecHTTPServer *httptest.Server, origin string, isAllowed bool) {
 	t.Helper()
-	workflowInput := &dexpb.InterpreterWorkflowInput{FlowType: "local-codec-test"}
+	startFlowRequest := &dexpb.StartFlowRequest{FlowType: "local-codec-test"}
 	binaryPayloadConverter := converter.NewProtoPayloadConverter()
-	binaryPayload, err := binaryPayloadConverter.ToPayload(workflowInput)
+	binaryPayload, err := binaryPayloadConverter.ToPayload(startFlowRequest)
 	require.NoError(t, err)
 	payloads := &commonpb.Payloads{Payloads: []*commonpb.Payload{binaryPayload}}
 
@@ -121,9 +121,9 @@ func testCodecServerBrowserOrigin(t *testing.T, codecHTTPServer *httptest.Server
 		if endpointPath == "/decode" {
 			require.Equal(t, converter.MetadataEncodingProtoJSON, string(payloads.Payloads[0].Metadata[converter.MetadataEncoding]))
 		} else {
-			roundTripInput := &dexpb.InterpreterWorkflowInput{}
-			require.NoError(t, binaryPayloadConverter.FromPayload(payloads.Payloads[0], roundTripInput))
-			require.True(t, proto.Equal(workflowInput, roundTripInput))
+			roundTripRequest := &dexpb.StartFlowRequest{}
+			require.NoError(t, binaryPayloadConverter.FromPayload(payloads.Payloads[0], roundTripRequest))
+			require.True(t, proto.Equal(startFlowRequest, roundTripRequest))
 		}
 	}
 }

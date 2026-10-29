@@ -289,7 +289,6 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	require.True(t, options.Attributes[1].GetSyncConfig().GetEnabled())
 	require.NotNil(t, options.FlowConfigOverride.ActiveStepSearchMode)
 	require.NotNil(t, options.FlowConfigOverride.StepDurability)
-	require.False(t, options.FlowConfigOverride.WorkerTarget.IsHeadlessAddress)
 	require.True(t, options.FlowConfigOverride.WorkerTarget.IsPullMode)
 	require.Equal(t, []string{"reporting", "audit"}, options.FlowConfigOverride.GetAttributeStoreNames().GetNames())
 	require.NotNil(t, options.FlowConfigOverride.AttributeStoreNames)

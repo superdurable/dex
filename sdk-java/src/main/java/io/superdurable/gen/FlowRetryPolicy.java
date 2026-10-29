@@ -7,7 +7,7 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * server-zd does not support Flow retry and rejects a set policy with INVALID_ARGUMENT.
+ * Dex does not support Flow retry and rejects a set policy with INVALID_ARGUMENT.
  * </pre>
  *
  * Protobuf type {@code dex.FlowRetryPolicy}
@@ -294,7 +294,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * server-zd does not support Flow retry and rejects a set policy with INVALID_ARGUMENT.
+   * Dex does not support Flow retry and rejects a set policy with INVALID_ARGUMENT.
    * </pre>
    *
    * Protobuf type {@code dex.FlowRetryPolicy}

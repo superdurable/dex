@@ -343,8 +343,6 @@ func TestWorkerPullGeneratedIdentityAndDefaultRouting(t *testing.T) {
 	subFlowOptions, err := mapSubFlowOptions(registered, SubFlowOptions{})
 	require.NoError(t, err)
 	require.True(t, subFlowOptions.FlowConfigOverride.WorkerTarget.IsPullMode)
-	require.Empty(t, startOptions.FlowConfigOverride.WorkerTarget.Address)
-	require.False(t, startOptions.FlowConfigOverride.WorkerTarget.IsHeadlessAddress)
 }
 
 func TestWorkerPullCancelCapacityAndStopDrain(t *testing.T) {

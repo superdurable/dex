@@ -27,7 +27,7 @@ public enum ServerEngine
   SERVER_ENGINE_UNSPECIFIED(0),
   /**
    * <pre>
-   * The Go Server running on Temporal.
+   * Deprecated: The Go Server running on Temporal. Dex no longer reports this engine.
    * </pre>
    *
    * <code>SERVER_ENGINE_TEMPORAL = 1;</code>
@@ -35,7 +35,7 @@ public enum ServerEngine
   SERVER_ENGINE_TEMPORAL(1),
   /**
    * <pre>
-   * The Go Server running on Cadence.
+   * Deprecated: The Go Server running on Cadence. Dex no longer reports this engine.
    * </pre>
    *
    * <code>SERVER_ENGINE_CADENCE = 2;</code>
@@ -72,7 +72,7 @@ public enum ServerEngine
   public static final int SERVER_ENGINE_UNSPECIFIED_VALUE = 0;
   /**
    * <pre>
-   * The Go Server running on Temporal.
+   * Deprecated: The Go Server running on Temporal. Dex no longer reports this engine.
    * </pre>
    *
    * <code>SERVER_ENGINE_TEMPORAL = 1;</code>
@@ -80,7 +80,7 @@ public enum ServerEngine
   public static final int SERVER_ENGINE_TEMPORAL_VALUE = 1;
   /**
    * <pre>
-   * The Go Server running on Cadence.
+   * Deprecated: The Go Server running on Cadence. Dex no longer reports this engine.
    * </pre>
    *
    * <code>SERVER_ENGINE_CADENCE = 2;</code>

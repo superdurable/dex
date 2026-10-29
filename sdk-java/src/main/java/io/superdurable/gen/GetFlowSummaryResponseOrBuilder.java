@@ -27,7 +27,7 @@ public interface GetFlowSummaryResponseOrBuilder extends
 
   /**
    * <pre>
-   * On server-zd this always equals run_id.
+   * Always equals run_id.
    * </pre>
    *
    * <code>string first_run_id = 2;</code>
@@ -36,7 +36,7 @@ public interface GetFlowSummaryResponseOrBuilder extends
   java.lang.String getFirstRunId();
   /**
    * <pre>
-   * On server-zd this always equals run_id.
+   * Always equals run_id.
    * </pre>
    *
    * <code>string first_run_id = 2;</code>
@@ -112,7 +112,7 @@ public interface GetFlowSummaryResponseOrBuilder extends
 
   /**
    * <pre>
-   * server-zd only: the current run attempt of this run.
+   * The current run attempt of this run.
    * </pre>
    *
    * <code>int32 run_attempt = 8;</code>

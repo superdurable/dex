@@ -14,11 +14,7 @@ fn start_flow_without_config_always_maps_pull_target() {
     assert_eq!(
         map_pull_flow_config(None).expect("map default StartFlow config"),
         dex_protocol::dex::FlowConfig {
-            worker_target: Some(dex_protocol::dex::WorkerTarget {
-                is_pull_mode: true,
-                address: String::new(),
-                is_headless_address: false,
-            }),
+            worker_target: Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true }),
             ..Default::default()
         }
     );
@@ -29,11 +25,7 @@ fn start_flow_override_always_maps_pull_target() {
     assert_eq!(
         map_pull_flow_config(Some(&FlowConfig::new())).expect("map explicit Flow config"),
         dex_protocol::dex::FlowConfig {
-            worker_target: Some(dex_protocol::dex::WorkerTarget {
-                is_pull_mode: true,
-                address: String::new(),
-                is_headless_address: false,
-            }),
+            worker_target: Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true }),
             ..Default::default()
         }
     );

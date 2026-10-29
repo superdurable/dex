@@ -85,7 +85,7 @@ private static final long serialVersionUID = 0L;
   private int flowStartDelaySeconds_ = 0;
   /**
    * <pre>
-   * server-zd rejects a positive start delay with INVALID_ARGUMENT.
+   * Dex rejects a positive start delay with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>int32 flow_start_delay_seconds = 3;</code>
@@ -100,7 +100,7 @@ private static final long serialVersionUID = 0L;
   private io.superdurable.gen.FlowRetryPolicy retryPolicy_;
   /**
    * <pre>
-   * server-zd rejects a set policy with INVALID_ARGUMENT.
+   * Dex rejects a set policy with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -112,7 +112,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * server-zd rejects a set policy with INVALID_ARGUMENT.
+   * Dex rejects a set policy with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -124,7 +124,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * server-zd rejects a set policy with INVALID_ARGUMENT.
+   * Dex rejects a set policy with INVALID_ARGUMENT.
    * </pre>
    *
    * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -895,7 +895,7 @@ private static final long serialVersionUID = 0L;
     private int flowStartDelaySeconds_ ;
     /**
      * <pre>
-     * server-zd rejects a positive start delay with INVALID_ARGUMENT.
+     * Dex rejects a positive start delay with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>int32 flow_start_delay_seconds = 3;</code>
@@ -907,7 +907,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd rejects a positive start delay with INVALID_ARGUMENT.
+     * Dex rejects a positive start delay with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>int32 flow_start_delay_seconds = 3;</code>
@@ -923,7 +923,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd rejects a positive start delay with INVALID_ARGUMENT.
+     * Dex rejects a positive start delay with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>int32 flow_start_delay_seconds = 3;</code>
@@ -941,7 +941,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.FlowRetryPolicy, io.superdurable.gen.FlowRetryPolicy.Builder, io.superdurable.gen.FlowRetryPolicyOrBuilder> retryPolicyBuilder_;
     /**
      * <pre>
-     * server-zd rejects a set policy with INVALID_ARGUMENT.
+     * Dex rejects a set policy with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -952,7 +952,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd rejects a set policy with INVALID_ARGUMENT.
+     * Dex rejects a set policy with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -967,7 +967,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd rejects a set policy with INVALID_ARGUMENT.
+     * Dex rejects a set policy with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -987,7 +987,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd rejects a set policy with INVALID_ARGUMENT.
+     * Dex rejects a set policy with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -1005,7 +1005,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd rejects a set policy with INVALID_ARGUMENT.
+     * Dex rejects a set policy with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -1030,7 +1030,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd rejects a set policy with INVALID_ARGUMENT.
+     * Dex rejects a set policy with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -1047,7 +1047,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd rejects a set policy with INVALID_ARGUMENT.
+     * Dex rejects a set policy with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -1059,7 +1059,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd rejects a set policy with INVALID_ARGUMENT.
+     * Dex rejects a set policy with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
@@ -1074,7 +1074,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd rejects a set policy with INVALID_ARGUMENT.
+     * Dex rejects a set policy with INVALID_ARGUMENT.
      * </pre>
      *
      * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>

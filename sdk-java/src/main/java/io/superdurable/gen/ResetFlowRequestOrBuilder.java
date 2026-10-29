@@ -116,7 +116,7 @@ public interface ResetFlowRequestOrBuilder extends
 
   /**
    * <pre>
-   * server-zd only: selects the run attempt whose history is searched for the reset point.
+   * Selects the run attempt whose history is searched for the reset point.
    * Zero selects the current run attempt.
    * </pre>
    *

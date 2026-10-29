@@ -189,7 +189,6 @@ impl WorkerDispatcher {
             let waiting_condition = context.finalize_step_outputs(handler_result)?;
             let outputs = context.take_outputs();
             Ok(InvokeWaitForMethodResponse {
-                local_activity_metadata: None,
                 upsert_attributes: outputs.attributes,
                 waiting_condition,
                 upsert_step_exe_locals: outputs.locals,
@@ -283,7 +282,6 @@ impl WorkerDispatcher {
             let decision = context.finalize_step_outputs(handler_result)?;
             let outputs = context.take_outputs();
             Ok(InvokeExecuteMethodResponse {
-                local_activity_metadata: None,
                 step_decision: Some(decision),
                 upsert_attributes: outputs.attributes,
                 record_events: outputs.events,
@@ -354,7 +352,6 @@ impl WorkerDispatcher {
             let decision = context.finalize_step_outputs(handler_result)?;
             let outputs = context.take_outputs();
             Ok(InvokeExecuteMethodResponse {
-                local_activity_metadata: None,
                 step_decision: Some(decision),
                 upsert_attributes: outputs.attributes,
                 record_events: outputs.events,

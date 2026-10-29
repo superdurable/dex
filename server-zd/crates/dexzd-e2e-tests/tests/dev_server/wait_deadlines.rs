@@ -131,10 +131,7 @@ async fn wait_rpcs_answer_go_timeouts_before_the_client_deadline() {
             start_step_type: "IdleStep".to_owned(),
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
-                    worker_target: Some(WorkerTarget {
-                        is_pull_mode: true,
-                        ..WorkerTarget::default()
-                    }),
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()

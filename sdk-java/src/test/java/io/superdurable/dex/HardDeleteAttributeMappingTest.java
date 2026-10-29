@@ -95,8 +95,7 @@ final class HardDeleteAttributeMappingTest {
                 final io.superdurable.gen.WorkerTarget target = request.getFlowStartOptions()
                         .getFlowConfigOverride().getWorkerTarget();
                 assertTrue(target.getIsPullMode());
-                assertEquals("", target.getAddress());
-                assertFalse(target.getIsHeadlessAddress());
+                assertEquals(io.superdurable.gen.WorkerTarget.newBuilder().setIsPullMode(true).build(), target);
             }
             assertEquals(io.superdurable.gen.StepDurability.STEP_DURABILITY_ASYNC,
                     service.startRequests.get(1).getFlowStartOptions().getFlowConfigOverride().getStepDurability());

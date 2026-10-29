@@ -84,7 +84,7 @@ private static final long serialVersionUID = 0L;
   private volatile java.lang.Object firstRunId_ = "";
   /**
    * <pre>
-   * On server-zd this always equals run_id.
+   * Always equals run_id.
    * </pre>
    *
    * <code>string first_run_id = 2;</code>
@@ -105,7 +105,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * On server-zd this always equals run_id.
+   * Always equals run_id.
    * </pre>
    *
    * <code>string first_run_id = 2;</code>
@@ -278,7 +278,7 @@ private static final long serialVersionUID = 0L;
   private int runAttempt_ = 0;
   /**
    * <pre>
-   * server-zd only: the current run attempt of this run.
+   * The current run attempt of this run.
    * </pre>
    *
    * <code>int32 run_attempt = 8;</code>
@@ -925,7 +925,7 @@ private static final long serialVersionUID = 0L;
     private java.lang.Object firstRunId_ = "";
     /**
      * <pre>
-     * On server-zd this always equals run_id.
+     * Always equals run_id.
      * </pre>
      *
      * <code>string first_run_id = 2;</code>
@@ -945,7 +945,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * On server-zd this always equals run_id.
+     * Always equals run_id.
      * </pre>
      *
      * <code>string first_run_id = 2;</code>
@@ -966,7 +966,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * On server-zd this always equals run_id.
+     * Always equals run_id.
      * </pre>
      *
      * <code>string first_run_id = 2;</code>
@@ -983,7 +983,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * On server-zd this always equals run_id.
+     * Always equals run_id.
      * </pre>
      *
      * <code>string first_run_id = 2;</code>
@@ -997,7 +997,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * On server-zd this always equals run_id.
+     * Always equals run_id.
      * </pre>
      *
      * <code>string first_run_id = 2;</code>
@@ -1455,7 +1455,7 @@ private static final long serialVersionUID = 0L;
     private int runAttempt_ ;
     /**
      * <pre>
-     * server-zd only: the current run attempt of this run.
+     * The current run attempt of this run.
      * </pre>
      *
      * <code>int32 run_attempt = 8;</code>
@@ -1467,7 +1467,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the current run attempt of this run.
+     * The current run attempt of this run.
      * </pre>
      *
      * <code>int32 run_attempt = 8;</code>
@@ -1483,7 +1483,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the current run attempt of this run.
+     * The current run attempt of this run.
      * </pre>
      *
      * <code>int32 run_attempt = 8;</code>

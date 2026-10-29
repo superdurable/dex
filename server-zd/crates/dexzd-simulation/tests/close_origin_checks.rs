@@ -113,10 +113,7 @@ fn start_without_attribute_stores() -> Command {
             max_active_step_executions: 10_000,
         }),
         resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
-        worker_target: Some(WorkerTarget {
-            is_pull_mode: true,
-            ..WorkerTarget::default()
-        }),
+        worker_target: Some(WorkerTarget { is_pull_mode: true }),
         ..FlowStartCommand::default()
     })
 }

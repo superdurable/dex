@@ -271,10 +271,7 @@ impl Harness {
             }),
             settings: Some(self.settings),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
-            worker_target: Some(WorkerTarget {
-                is_pull_mode: true,
-                ..WorkerTarget::default()
-            }),
+            worker_target: Some(WorkerTarget { is_pull_mode: true }),
             effective_flow_config: Some(flow_config),
             ..FlowStartCommand::default()
         }));
@@ -1228,10 +1225,7 @@ fn start_with_cancel_timeout(harness: &mut Harness) {
         }),
         settings: Some(harness.settings),
         resolved_timeout_policy: FlowTimeoutPolicy::Cancel as i32,
-        worker_target: Some(WorkerTarget {
-            is_pull_mode: true,
-            ..WorkerTarget::default()
-        }),
+        worker_target: Some(WorkerTarget { is_pull_mode: true }),
         effective_flow_config: Some(FlowConfig {
             attribute_store_names: Some(AttributeStoreNames {
                 names: vec![PRIMARY.to_owned()],

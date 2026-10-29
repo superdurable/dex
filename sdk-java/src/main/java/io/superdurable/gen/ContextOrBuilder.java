@@ -128,8 +128,8 @@ public interface ContextOrBuilder extends
 
   /**
    * <pre>
-   * server-zd only: the run attempt that dispatched this invocation. It starts at 1 and
-   * increases on each time travel. On server-zd, run_id stays the same across run attempts,
+   * The run attempt that dispatched this invocation. It starts at 1 and
+   * increases on each time travel. run_id stays the same across run attempts,
    * so combine both when an idempotency key must change after time travel.
    * </pre>
    *

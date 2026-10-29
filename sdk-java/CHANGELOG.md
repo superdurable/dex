@@ -14,6 +14,11 @@ and the `workerTarget(...)` builders on `WorkerOptions`, `ClientOptions`, and
 `FlowConfig`. Removed the `ClientOptions(String, WorkerTarget)` and
 `ClientOptions(String, WorkerTarget, ObjectMapper)` constructors.
 
+The generated `io.superdurable.gen` protocol classes no longer include the Go
+Server internal services and messages, the `WorkerTarget` address and headless
+fields, or the local activity metadata of Step method responses. Only code that
+uses these generated classes directly is affected.
+
 To migrate, delete Worker bind addresses, headless/advertised targets, and Worker
 mode selection. Configure only the Dex Server address. Replace target-bearing
 Client constructors with `ClientOptions(serverAddress)` or

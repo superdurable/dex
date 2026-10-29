@@ -29,9 +29,8 @@ import (
 )
 
 const (
-	maximumV2StartInputDepth      = 32
-	v2WorkerHealthCheckTimeout    = 2 * time.Second
-	v2WorkerUnhealthyResponseCode = "WORKER_UNHEALTHY"
+	maximumV2StartInputDepth   = 32
+	v2WorkerHealthCheckTimeout = 2 * time.Second
 )
 
 var integerJSONPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
@@ -82,7 +81,7 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	workerTarget, err := h.validateStartWorkerTarget(request.Context(), body.WorkerTargetAddress, body.WorkerTargetPull)
+	workerTarget, err := validateStartWorkerTarget(body.WorkerTargetAddress, body.WorkerTargetPull)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -91,13 +90,6 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
-	}
-	if !workerTarget.GetIsPullMode() && !body.BypassWorkerHealthCheck {
-		if err := h.checkWorkerTargetHealth(request.Context(), workerTarget.GetAddress()); err != nil {
-			warning := workerHealthWarning(workerTarget.GetAddress(), err)
-			WriteCodedError(response, http.StatusPreconditionFailed, v2WorkerUnhealthyResponseCode, warning)
-			return
-		}
 	}
 	requestID := uuid.NewString()
 	result, err := h.client.StartFlow(request.Context(), &dexpb.StartFlowRequest{
@@ -123,56 +115,41 @@ func (h *v2Handler) checkWorkerHealth(response http.ResponseWriter, request *htt
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	workerTarget, err := h.validateWorkerTarget(body.WorkerTargetAddress)
+	address, err := validateWorkerAddress(body.WorkerTargetAddress)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	if err := h.checkWorkerTargetHealth(request.Context(), workerTarget.GetAddress()); err != nil {
+	if err := h.checkWorkerTargetHealth(request.Context(), address); err != nil {
 		writeJSON(response, http.StatusOK, v2WorkerHealthResponse{
 			Healthy: false,
-			Warning: workerHealthWarning(workerTarget.GetAddress(), err),
+			Warning: workerHealthWarning(address, err),
 		})
 		return
 	}
 	writeJSON(response, http.StatusOK, v2WorkerHealthResponse{Healthy: true})
 }
 
-func (h *v2Handler) validateStartWorkerTarget(
-	ctx context.Context,
-	address *string,
-	isPull *bool,
-) (*dexpb.WorkerTarget, error) {
-	isPullTarget := isPull != nil && *isPull
-	if isPullTarget && address != nil {
-		return nil, fmt.Errorf("workerTargetPull and workerTargetAddress cannot both be set")
+// validateStartWorkerTarget returns a pull target because Dex routes Flow work only to pull Workers.
+func validateStartWorkerTarget(address *string, isPull *bool) (*dexpb.WorkerTarget, error) {
+	if address != nil {
+		return nil, fmt.Errorf("workerTargetAddress is not supported: Dex routes Flow work to pull Workers")
 	}
-	if isPullTarget || (address == nil && isPull == nil && h.isPullDefaultStartWorkerTarget(ctx)) {
-		return validateAndRewriteWorkerTarget(&dexpb.WorkerTarget{IsPullMode: true})
+	if isPull != nil && !*isPull {
+		return nil, fmt.Errorf("workerTargetPull must be true: Dex routes Flow work to pull Workers")
 	}
-	if address == nil {
-		return nil, fmt.Errorf("workerTargetAddress or workerTargetPull is required")
-	}
-	return h.validateWorkerTarget(*address)
+	return &dexpb.WorkerTarget{IsPullMode: true}, nil
 }
 
-// isPullDefaultStartWorkerTarget is true when configured, or when the Server supports only pull Workers.
-func (h *v2Handler) isPullDefaultStartWorkerTarget(ctx context.Context) bool {
-	return h.isStartFlowWorkerTargetPull ||
-		h.serverEngine.ResolveServerEngine(ctx) == dexpb.ServerEngine_SERVER_ENGINE_ZD
-}
-
-func (h *v2Handler) validateWorkerTarget(address string) (*dexpb.WorkerTarget, error) {
-	workerTarget, err := validateAndRewriteWorkerTarget(&dexpb.WorkerTarget{
-		Address: address, IsHeadlessAddress: h.isStartFlowWorkerTargetHeadless,
-	})
+func validateWorkerAddress(address string) (string, error) {
+	address, err := validateAndRewriteWorkerAddress(address)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	if _, _, err := net.SplitHostPort(workerTarget.GetAddress()); err != nil {
-		return nil, fmt.Errorf("worker_target %q must use host:port: %w", workerTarget.GetAddress(), err)
+	if _, _, err := net.SplitHostPort(address); err != nil {
+		return "", fmt.Errorf("worker_target %q must use host:port: %w", address, err)
 	}
-	return workerTarget, nil
+	return address, nil
 }
 
 func (h *v2Handler) checkWorkerTargetHealth(ctx context.Context, address string) error {

@@ -11,36 +11,6 @@ public interface InvokeExecuteMethodResponseOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <pre>
-   * Server-populated lineage input for local activity history.
-   * server-zd never sets this.
-   * </pre>
-   *
-   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-   * @return Whether the localActivityMetadata field is set.
-   */
-  boolean hasLocalActivityMetadata();
-  /**
-   * <pre>
-   * Server-populated lineage input for local activity history.
-   * server-zd never sets this.
-   * </pre>
-   *
-   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-   * @return The localActivityMetadata.
-   */
-  io.superdurable.gen.LocalActivityMetadata getLocalActivityMetadata();
-  /**
-   * <pre>
-   * Server-populated lineage input for local activity history.
-   * server-zd never sets this.
-   * </pre>
-   *
-   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
-   */
-  io.superdurable.gen.LocalActivityMetadataOrBuilder getLocalActivityMetadataOrBuilder();
-
-  /**
    * <code>.dex.StepDecision step_decision = 2;</code>
    * @return Whether the stepDecision field is set.
    */

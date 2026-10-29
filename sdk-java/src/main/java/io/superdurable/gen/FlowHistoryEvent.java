@@ -152,7 +152,7 @@ private static final long serialVersionUID = 0L;
   private int runAttempt_ = 0;
   /**
    * <pre>
-   * server-zd only: the run attempt that recorded this event.
+   * The run attempt that recorded this event.
    * </pre>
    *
    * <code>int32 run_attempt = 3;</code>
@@ -1490,7 +1490,7 @@ private static final long serialVersionUID = 0L;
     private int runAttempt_ ;
     /**
      * <pre>
-     * server-zd only: the run attempt that recorded this event.
+     * The run attempt that recorded this event.
      * </pre>
      *
      * <code>int32 run_attempt = 3;</code>
@@ -1502,7 +1502,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the run attempt that recorded this event.
+     * The run attempt that recorded this event.
      * </pre>
      *
      * <code>int32 run_attempt = 3;</code>
@@ -1518,7 +1518,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the run attempt that recorded this event.
+     * The run attempt that recorded this event.
      * </pre>
      *
      * <code>int32 run_attempt = 3;</code>

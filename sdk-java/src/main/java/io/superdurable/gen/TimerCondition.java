@@ -100,7 +100,7 @@ private static final long serialVersionUID = 0L;
   private long durationSeconds_ = 0L;
   /**
    * <pre>
-   * Worker-relative delay; interpreter clears this after converted to firing_unix_timestamp_seconds.
+   * Worker-relative delay; Dex converts it to firing_unix_timestamp_seconds.
    * </pre>
    *
    * <code>int64 duration_seconds = 2;</code>
@@ -115,7 +115,7 @@ private static final long serialVersionUID = 0L;
   private long firingUnixTimestampSeconds_ = 0L;
   /**
    * <pre>
-   * Interpreter-normalized deadline; workers leave this zero.
+   * Deadline that Dex computes from duration_seconds; workers leave this zero.
    * </pre>
    *
    * <code>int64 firing_unix_timestamp_seconds = 3;</code>
@@ -567,7 +567,7 @@ private static final long serialVersionUID = 0L;
     private long durationSeconds_ ;
     /**
      * <pre>
-     * Worker-relative delay; interpreter clears this after converted to firing_unix_timestamp_seconds.
+     * Worker-relative delay; Dex converts it to firing_unix_timestamp_seconds.
      * </pre>
      *
      * <code>int64 duration_seconds = 2;</code>
@@ -579,7 +579,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Worker-relative delay; interpreter clears this after converted to firing_unix_timestamp_seconds.
+     * Worker-relative delay; Dex converts it to firing_unix_timestamp_seconds.
      * </pre>
      *
      * <code>int64 duration_seconds = 2;</code>
@@ -595,7 +595,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Worker-relative delay; interpreter clears this after converted to firing_unix_timestamp_seconds.
+     * Worker-relative delay; Dex converts it to firing_unix_timestamp_seconds.
      * </pre>
      *
      * <code>int64 duration_seconds = 2;</code>
@@ -611,7 +611,7 @@ private static final long serialVersionUID = 0L;
     private long firingUnixTimestampSeconds_ ;
     /**
      * <pre>
-     * Interpreter-normalized deadline; workers leave this zero.
+     * Deadline that Dex computes from duration_seconds; workers leave this zero.
      * </pre>
      *
      * <code>int64 firing_unix_timestamp_seconds = 3;</code>
@@ -623,7 +623,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Interpreter-normalized deadline; workers leave this zero.
+     * Deadline that Dex computes from duration_seconds; workers leave this zero.
      * </pre>
      *
      * <code>int64 firing_unix_timestamp_seconds = 3;</code>
@@ -639,7 +639,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Interpreter-normalized deadline; workers leave this zero.
+     * Deadline that Dex computes from duration_seconds; workers leave this zero.
      * </pre>
      *
      * <code>int64 firing_unix_timestamp_seconds = 3;</code>

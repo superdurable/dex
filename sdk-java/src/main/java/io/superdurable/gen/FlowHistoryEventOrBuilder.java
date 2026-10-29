@@ -33,7 +33,7 @@ public interface FlowHistoryEventOrBuilder extends
 
   /**
    * <pre>
-   * server-zd only: the run attempt that recorded this event.
+   * The run attempt that recorded this event.
    * </pre>
    *
    * <code>int32 run_attempt = 3;</code>

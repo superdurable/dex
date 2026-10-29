@@ -92,7 +92,7 @@ private static final long serialVersionUID = 0L;
   private int runAttempt_ = 0;
   /**
    * <pre>
-   * server-zd only: the run attempt created by this time travel. run_id does not change there.
+   * The run attempt created by this time travel. run_id does not change.
    * </pre>
    *
    * <code>int32 run_attempt = 2;</code>
@@ -499,7 +499,7 @@ private static final long serialVersionUID = 0L;
     private int runAttempt_ ;
     /**
      * <pre>
-     * server-zd only: the run attempt created by this time travel. run_id does not change there.
+     * The run attempt created by this time travel. run_id does not change.
      * </pre>
      *
      * <code>int32 run_attempt = 2;</code>
@@ -511,7 +511,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the run attempt created by this time travel. run_id does not change there.
+     * The run attempt created by this time travel. run_id does not change.
      * </pre>
      *
      * <code>int32 run_attempt = 2;</code>
@@ -527,7 +527,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd only: the run attempt created by this time travel. run_id does not change there.
+     * The run attempt created by this time travel. run_id does not change.
      * </pre>
      *
      * <code>int32 run_attempt = 2;</code>

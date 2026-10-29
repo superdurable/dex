@@ -7,7 +7,7 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * server-zd never sets this.
+ * Deprecated: Dex does not continue Flows as new and never records this start.
  * </pre>
  *
  * Protobuf type {@code dex.FlowContinuedStart}
@@ -657,7 +657,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
   }
   /**
    * <pre>
-   * server-zd never sets this.
+   * Deprecated: Dex does not continue Flows as new and never records this start.
    * </pre>
    *
    * Protobuf type {@code dex.FlowContinuedStart}

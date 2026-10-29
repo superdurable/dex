@@ -54,7 +54,7 @@ public interface GetHistoryEventsRequestOrBuilder extends
 
   /**
    * <pre>
-   * server-zd only: selects the run attempt whose lineage is returned. Zero selects the current
+   * Selects the run attempt whose lineage is returned. Zero selects the current
    * run attempt.
    * </pre>
    *

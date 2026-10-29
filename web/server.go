@@ -36,9 +36,11 @@ type Config struct {
 	Port int
 	// FlowRenderingDirectory defaults empty and supplies Flow Definition Graph JSON files to Dex Web.
 	FlowRenderingDirectory string
-	// StartFlowWorkerTargetHeadless defaults false and applies headless routing to Dex Web address targets.
+	// StartFlowWorkerTargetHeadless defaults false and applied headless routing to Dex Web address targets.
+	//
+	// Deprecated: it has no effect because Dex Web starts Flows only on pull Workers.
 	IsStartFlowWorkerTargetHeadless bool
-	// IsStartFlowWorkerTargetPull defaults false and selects pull routing when no target is supplied. Headless routing applies to address targets.
+	// IsStartFlowWorkerTargetPull defaults false and sets the catalog startFlowWorkerTargetPull flag that preselects pull in the Start Flow dialog. Starts always use pull Workers.
 	IsStartFlowWorkerTargetPull bool
 	// ConnectorSetupEnabled defaults false and enables Connector configuration APIs.
 	ConnectorSetupEnabled bool
@@ -107,8 +109,7 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 				Revision:    snapshot.DefinitionRevision,
 			}, nil
 		}), api.V2HandlerConfig{
-			IsStartFlowWorkerTargetHeadless: cfg.IsStartFlowWorkerTargetHeadless,
-			IsStartFlowWorkerTargetPull:     cfg.IsStartFlowWorkerTargetPull,
+			IsStartFlowWorkerTargetPull: cfg.IsStartFlowWorkerTargetPull,
 		})
 	}
 	mux.HandleFunc("GET /api/flow-definitions", serveFlowDefinitions(flowDefinitions))

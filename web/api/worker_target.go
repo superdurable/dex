@@ -10,40 +10,9 @@ package api
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"strings"
-
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
-
-func validateAndRewriteWorkerTarget(target *dexpb.WorkerTarget) (*dexpb.WorkerTarget, error) {
-	if target == nil {
-		return nil, fmt.Errorf("worker_target is required")
-	}
-	if target.GetIsPullMode() {
-		if target.GetAddress() != "" {
-			return nil, fmt.Errorf("pull worker_target cannot specify address")
-		}
-		if target.GetIsHeadlessAddress() {
-			return nil, fmt.Errorf("pull worker_target cannot use headless address")
-		}
-		return &dexpb.WorkerTarget{IsPullMode: true}, nil
-	}
-	address, err := validateAndRewriteWorkerAddress(target.GetAddress())
-	if err != nil {
-		return nil, err
-	}
-	if target.GetIsHeadlessAddress() {
-		if _, _, err := net.SplitHostPort(address); err != nil {
-			return nil, fmt.Errorf("headless worker_target %q must use host:port: %w", address, err)
-		}
-	}
-	return &dexpb.WorkerTarget{
-		Address:           address,
-		IsHeadlessAddress: target.GetIsHeadlessAddress(),
-	}, nil
-}
 
 func validateAndRewriteWorkerAddress(address string) (string, error) {
 	address = strings.TrimSpace(address)

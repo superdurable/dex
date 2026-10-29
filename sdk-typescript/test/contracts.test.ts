@@ -360,9 +360,7 @@ test("SubFlows always send the exact pull Worker target with and without config 
       stepInput: encodeValue(voidCodec, undefined),
     }));
     const mappedConfig = response.waitingCondition?.subFlowConditions[0]?.options?.flowConfigOverride;
-    assert.deepEqual(mappedConfig?.workerTarget, {
-      address: "", isHeadlessAddress: false, isPullMode: true,
-    });
+    assert.deepEqual(mappedConfig?.workerTarget, { isPullMode: true });
     assert.equal(mappedConfig?.continueAsNewThreshold, configOverride?.continueAsNewThreshold);
   }
 });

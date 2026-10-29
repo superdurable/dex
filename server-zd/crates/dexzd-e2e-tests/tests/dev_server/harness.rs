@@ -358,10 +358,7 @@ pub(crate) fn force_complete(output: dexzd_protocol::dex::Value) -> StepDecision
 pub(crate) fn pull_mode_start_options() -> FlowStartOptions {
     FlowStartOptions {
         flow_config_override: Some(FlowConfig {
-            worker_target: Some(WorkerTarget {
-                is_pull_mode: true,
-                ..WorkerTarget::default()
-            }),
+            worker_target: Some(WorkerTarget { is_pull_mode: true }),
             ..FlowConfig::default()
         }),
         ..FlowStartOptions::default()

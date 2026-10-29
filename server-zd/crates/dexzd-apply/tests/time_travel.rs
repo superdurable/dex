@@ -194,10 +194,7 @@ impl Harness {
             request: Some(request),
             settings: Some(self.settings),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
-            worker_target: Some(WorkerTarget {
-                is_pull_mode: true,
-                ..WorkerTarget::default()
-            }),
+            worker_target: Some(WorkerTarget { is_pull_mode: true }),
             hard_delete_objects: Vec::new(),
             request_fingerprint: Vec::new(),
             ..FlowStartCommand::default()

@@ -568,10 +568,7 @@ fn start_request(flow_id: &str, store_name: &str, writes: Vec<AttributeWrite>) -
         flow_start_options: Some(FlowStartOptions {
             attributes: writes,
             flow_config_override: Some(FlowConfig {
-                worker_target: Some(WorkerTarget {
-                    is_pull_mode: true,
-                    ..WorkerTarget::default()
-                }),
+                worker_target: Some(WorkerTarget { is_pull_mode: true }),
                 attribute_store_names: Some(AttributeStoreNames {
                     names: vec![store_name.to_owned()],
                 }),

@@ -8,7 +8,7 @@ package io.superdurable.gen;
 /**
  * <pre>
  * PendingStepMethodPhase reports the latest persisted backend lifecycle event.
- * On server-zd, SCHEDULED waits for locks or dispatch. STARTED means an attempt is running.
+ * SCHEDULED waits for locks or dispatch. STARTED means an attempt is running.
  * </pre>
  *
  * Protobuf enum {@code dex.PendingStepMethodPhase}

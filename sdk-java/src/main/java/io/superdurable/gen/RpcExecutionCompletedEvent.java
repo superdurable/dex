@@ -7,8 +7,8 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * Successful RPC history projection. Updates include input/output; signals include
- * them only when configured.
+ * Successful RPC history projection. Transactional RPCs include input/output; other RPCs
+ * omit them.
  * </pre>
  *
  * Protobuf type {@code dex.RpcExecutionCompletedEvent}
@@ -695,8 +695,8 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Successful RPC history projection. Updates include input/output; signals include
-   * them only when configured.
+   * Successful RPC history projection. Transactional RPCs include input/output; other RPCs
+   * omit them.
    * </pre>
    *
    * Protobuf type {@code dex.RpcExecutionCompletedEvent}

@@ -28,7 +28,6 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private WorkerTarget() {
-    address_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -49,75 +48,11 @@ private static final long serialVersionUID = 0L;
             io.superdurable.gen.WorkerTarget.class, io.superdurable.gen.WorkerTarget.Builder.class);
   }
 
-  public static final int ADDRESS_FIELD_NUMBER = 1;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object address_ = "";
-  /**
-   * <pre>
-   * Plaintext gRPC dial target, not an HTTP URL.
-   * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-   * </pre>
-   *
-   * <code>string address = 1;</code>
-   * @return The address.
-   */
-  @java.lang.Override
-  public java.lang.String getAddress() {
-    java.lang.Object ref = address_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      address_ = s;
-      return s;
-    }
-  }
-  /**
-   * <pre>
-   * Plaintext gRPC dial target, not an HTTP URL.
-   * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-   * </pre>
-   *
-   * <code>string address = 1;</code>
-   * @return The bytes for address.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getAddressBytes() {
-    java.lang.Object ref = address_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      address_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int IS_HEADLESS_ADDRESS_FIELD_NUMBER = 2;
-  private boolean isHeadlessAddress_ = false;
-  /**
-   * <pre>
-   * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-   * </pre>
-   *
-   * <code>bool is_headless_address = 2;</code>
-   * @return The isHeadlessAddress.
-   */
-  @java.lang.Override
-  public boolean getIsHeadlessAddress() {
-    return isHeadlessAddress_;
-  }
-
   public static final int IS_PULL_MODE_FIELD_NUMBER = 3;
   private boolean isPullMode_ = false;
   /**
    * <pre>
-   * Routes work through a connected pull Worker; mutually exclusive with address.
+   * Routes work through a connected pull Worker. Dex requires true whenever a target is set.
    * </pre>
    *
    * <code>bool is_pull_mode = 3;</code>
@@ -142,12 +77,6 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(address_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, address_);
-    }
-    if (isHeadlessAddress_ != false) {
-      output.writeBool(2, isHeadlessAddress_);
-    }
     if (isPullMode_ != false) {
       output.writeBool(3, isPullMode_);
     }
@@ -155,13 +84,6 @@ private static final long serialVersionUID = 0L;
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(address_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, address_);
-    }
-    if (isHeadlessAddress_ != false) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(2, isHeadlessAddress_);
-    }
     if (isPullMode_ != false) {
       size += com.google.protobuf.CodedOutputStream
         .computeBoolSize(3, isPullMode_);
@@ -190,10 +112,6 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.WorkerTarget other = (io.superdurable.gen.WorkerTarget) obj;
 
-    if (!getAddress()
-        .equals(other.getAddress())) return false;
-    if (getIsHeadlessAddress()
-        != other.getIsHeadlessAddress()) return false;
     if (getIsPullMode()
         != other.getIsPullMode()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -207,11 +125,6 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    hash = (37 * hash) + ADDRESS_FIELD_NUMBER;
-    hash = (53 * hash) + getAddress().hashCode();
-    hash = (37 * hash) + IS_HEADLESS_ADDRESS_FIELD_NUMBER;
-    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
-        getIsHeadlessAddress());
     hash = (37 * hash) + IS_PULL_MODE_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
         getIsPullMode());
@@ -346,8 +259,6 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      address_ = "";
-      isHeadlessAddress_ = false;
       isPullMode_ = false;
       return this;
     }
@@ -383,12 +294,6 @@ private static final long serialVersionUID = 0L;
     private void buildPartial0(io.superdurable.gen.WorkerTarget result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.address_ = address_;
-      }
-      if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.isHeadlessAddress_ = isHeadlessAddress_;
-      }
-      if (((from_bitField0_ & 0x00000004) != 0)) {
         result.isPullMode_ = isPullMode_;
       }
     }
@@ -405,14 +310,6 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.WorkerTarget other) {
       if (other == io.superdurable.gen.WorkerTarget.getDefaultInstance()) return this;
-      if (!other.getAddress().isEmpty()) {
-        address_ = other.address_;
-        bitField0_ |= 0x00000001;
-        onChanged();
-      }
-      if (other.getIsHeadlessAddress() != false) {
-        setIsHeadlessAddress(other.getIsHeadlessAddress());
-      }
       if (other.getIsPullMode() != false) {
         setIsPullMode(other.getIsPullMode());
       }
@@ -442,19 +339,9 @@ private static final long serialVersionUID = 0L;
             case 0:
               done = true;
               break;
-            case 10: {
-              address_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000001;
-              break;
-            } // case 10
-            case 16: {
-              isHeadlessAddress_ = input.readBool();
-              bitField0_ |= 0x00000002;
-              break;
-            } // case 16
             case 24: {
               isPullMode_ = input.readBool();
-              bitField0_ |= 0x00000004;
+              bitField0_ |= 0x00000001;
               break;
             } // case 24
             default: {
@@ -474,151 +361,10 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.lang.Object address_ = "";
-    /**
-     * <pre>
-     * Plaintext gRPC dial target, not an HTTP URL.
-     * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-     * </pre>
-     *
-     * <code>string address = 1;</code>
-     * @return The address.
-     */
-    public java.lang.String getAddress() {
-      java.lang.Object ref = address_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        address_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <pre>
-     * Plaintext gRPC dial target, not an HTTP URL.
-     * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-     * </pre>
-     *
-     * <code>string address = 1;</code>
-     * @return The bytes for address.
-     */
-    public com.google.protobuf.ByteString
-        getAddressBytes() {
-      java.lang.Object ref = address_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        address_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <pre>
-     * Plaintext gRPC dial target, not an HTTP URL.
-     * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-     * </pre>
-     *
-     * <code>string address = 1;</code>
-     * @param value The address to set.
-     * @return This builder for chaining.
-     */
-    public Builder setAddress(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      address_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Plaintext gRPC dial target, not an HTTP URL.
-     * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-     * </pre>
-     *
-     * <code>string address = 1;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearAddress() {
-      address_ = getDefaultInstance().getAddress();
-      bitField0_ = (bitField0_ & ~0x00000001);
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Plaintext gRPC dial target, not an HTTP URL.
-     * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-     * </pre>
-     *
-     * <code>string address = 1;</code>
-     * @param value The bytes for address to set.
-     * @return This builder for chaining.
-     */
-    public Builder setAddressBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      address_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-
-    private boolean isHeadlessAddress_ ;
-    /**
-     * <pre>
-     * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-     * </pre>
-     *
-     * <code>bool is_headless_address = 2;</code>
-     * @return The isHeadlessAddress.
-     */
-    @java.lang.Override
-    public boolean getIsHeadlessAddress() {
-      return isHeadlessAddress_;
-    }
-    /**
-     * <pre>
-     * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-     * </pre>
-     *
-     * <code>bool is_headless_address = 2;</code>
-     * @param value The isHeadlessAddress to set.
-     * @return This builder for chaining.
-     */
-    public Builder setIsHeadlessAddress(boolean value) {
-
-      isHeadlessAddress_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * server-zd accepts only is_pull_mode and rejects address targets with INVALID_ARGUMENT.
-     * </pre>
-     *
-     * <code>bool is_headless_address = 2;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearIsHeadlessAddress() {
-      bitField0_ = (bitField0_ & ~0x00000002);
-      isHeadlessAddress_ = false;
-      onChanged();
-      return this;
-    }
-
     private boolean isPullMode_ ;
     /**
      * <pre>
-     * Routes work through a connected pull Worker; mutually exclusive with address.
+     * Routes work through a connected pull Worker. Dex requires true whenever a target is set.
      * </pre>
      *
      * <code>bool is_pull_mode = 3;</code>
@@ -630,7 +376,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Routes work through a connected pull Worker; mutually exclusive with address.
+     * Routes work through a connected pull Worker. Dex requires true whenever a target is set.
      * </pre>
      *
      * <code>bool is_pull_mode = 3;</code>
@@ -640,20 +386,20 @@ private static final long serialVersionUID = 0L;
     public Builder setIsPullMode(boolean value) {
 
       isPullMode_ = value;
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * Routes work through a connected pull Worker; mutually exclusive with address.
+     * Routes work through a connected pull Worker. Dex requires true whenever a target is set.
      * </pre>
      *
      * <code>bool is_pull_mode = 3;</code>
      * @return This builder for chaining.
      */
     public Builder clearIsPullMode() {
-      bitField0_ = (bitField0_ & ~0x00000004);
+      bitField0_ = (bitField0_ & ~0x00000001);
       isPullMode_ = false;
       onChanged();
       return this;

@@ -346,10 +346,7 @@ fn greeting_start_request(flow_id: &str) -> StartFlowRequest {
         }),
         flow_start_options: Some(FlowStartOptions {
             flow_config_override: Some(FlowConfig {
-                worker_target: Some(WorkerTarget {
-                    is_pull_mode: true,
-                    ..WorkerTarget::default()
-                }),
+                worker_target: Some(WorkerTarget { is_pull_mode: true }),
                 ..FlowConfig::default()
             }),
             ..FlowStartOptions::default()

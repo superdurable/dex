@@ -18,8 +18,6 @@ examples/go/deepverify
 cli/dexcli
 bin/dexcli-tls-darwin-arm64
 cli/internal/command/testfixtures/registered-type-names/mainpackage/mainpackage
-web/large-step-graph
-web/fan-out-90
 .bin/
 .build/
 vendor/

@@ -941,12 +941,9 @@ impl Workload<'_> {
     async fn start_flow(&self, request: StartFlowRequest, settings: RunSettings) -> FlowRun {
         let flow_id = request.flow_id.clone();
         let run_id = self.next_run_id();
-        let pull_target = WorkerTarget {
-            is_pull_mode: true,
-            ..WorkerTarget::default()
-        };
+        let pull_target = WorkerTarget { is_pull_mode: true };
         let mut validation_config = ValidationConfig::default();
-        validation_config.default_flow_config.worker_target = Some(pull_target.clone());
+        validation_config.default_flow_config.worker_target = Some(pull_target);
         validation_config
             .attribute_store_names
             .insert(ATTRIBUTE_STORE_NAME.to_owned());

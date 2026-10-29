@@ -8,7 +8,7 @@ package io.superdurable.gen;
 /**
  * <pre>
  * Distinguishes no available Worker, a disconnected Worker, and a missing Step or RPC registration.
- * Go and server-zd persist it in Step method failure events.
+ * Dex persists it in Step method failure events.
  * </pre>
  *
  * Protobuf enum {@code dex.DispatchTaskErrorReason}
