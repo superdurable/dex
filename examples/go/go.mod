@@ -11,7 +11,7 @@ require (
 	github.com/superdurable/dex-connectors-library/connectors/slack v1.2.0
 	github.com/superdurable/dex-connectors-library/sdkgo v0.33.0
 	github.com/superdurable/dex/blob-cache-go v0.1.2
-	github.com/superdurable/dex/sdk-go v1.25.0
+	github.com/superdurable/dex/sdk-go v1.26.0
 )
 
 require (

@@ -133,8 +133,8 @@ github.com/superdurable/dex-connectors-library/sdkgo v0.33.0 h1:JwoihRy34FqXAN5s
 github.com/superdurable/dex-connectors-library/sdkgo v0.33.0/go.mod h1:OtrqqFir3pwN0Jw0tLw0E+4DaJnkoHwALHaGDmgWqbo=
 github.com/superdurable/dex/blob-cache-go v0.1.2 h1:vHwmUZl59GkpTdrcwouj47rnKdx45ETfZdtfxn/vzSM=
 github.com/superdurable/dex/blob-cache-go v0.1.2/go.mod h1:Atepb7+sztvDCztVKmlvEKCSKFCkHKtDhoFYjaFmtEw=
-github.com/superdurable/dex/sdk-go v1.25.0 h1:yISYgl3eOnxIupYlRYymIHNwKbeNVIlhuOWe86UpWj4=
-github.com/superdurable/dex/sdk-go v1.25.0/go.mod h1:bmi+YWb2SuoQEEcili2+I0ePs+W1yVHGx/OD1bl71W0=
+github.com/superdurable/dex/sdk-go v1.26.0 h1:chk6TztQQjWbFwbLtNf/otm19Sq21YCINdUglZnu8q0=
+github.com/superdurable/dex/sdk-go v1.26.0/go.mod h1:bmi+YWb2SuoQEEcili2+I0ePs+W1yVHGx/OD1bl71W0=
 github.com/twitchyliquid64/golang-asm v0.15.1 h1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS4MhqMhdFk5YI=
 github.com/twitchyliquid64/golang-asm v0.15.1/go.mod h1:a1lVb/DtPvCB8fslRZhAngC2+aY1QWCk3Cedj/Gdt08=
 github.com/ugorji/go/codec v1.2.12 h1:9LC83zGrHhuUA9l16C9AHXAqEV/2wBQ4nkvumAE65EE=

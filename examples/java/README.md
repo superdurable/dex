@@ -1,6 +1,6 @@
 # Dex Java examples
 
-These examples target `io.superdurable:dex-sdk:1.25.0` (`io.superdurable.dex`).
+These examples target `io.superdurable:dex-sdk:1.26.0` (`io.superdurable.dex`).
 
 The sample process runs one pull Worker and an HTTP controller on port `8080`.
 The Worker needs only an outbound connection to the Dex Server. One Registry and disk BlobCache are shared by its

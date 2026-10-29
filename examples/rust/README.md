@@ -5,7 +5,7 @@
 Runnable Rust examples for Dex Flows, Steps, and application patterns.
 
 This application mirrors the examples shared by the Java, Python, and TypeScript
-applications. It intentionally depends on the published `dex-sdk = "=1.25.0"`
+applications. It intentionally depends on the published `dex-sdk = "=1.26.0"`
 crate without a repository path override.
 
 RPC and mutation calls can return `SdkError::FlowNotActiveOrNotFound` when the Flow is missing

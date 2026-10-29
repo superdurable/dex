@@ -1,6 +1,6 @@
 # Dex Go examples
 
-These examples target `github.com/superdurable/dex/sdk-go v1.25.0` and use pull
+These examples target `github.com/superdurable/dex/sdk-go v1.26.0` and use pull
 Workers. Worker routing is automatic.
 
 `dex.None` marks a nil-only Step, RPC, or Channel payload. Calls pass `nil`.
