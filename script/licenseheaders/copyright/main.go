@@ -50,13 +50,14 @@ type config struct {
 }
 
 type policy struct {
-	Cutoff                  string            `json:"cutoff"`
-	IncludedPrefixes        []string          `json:"included_prefixes"`
-	ForcedNewPrefixes       []string          `json:"forced_new_prefixes"`
-	ThirdPartyMixedPrefixes []string          `json:"third_party_mixed_prefixes"`
-	ReviewedMixedPaths      []string          `json:"reviewed_mixed_paths"`
-	ExcludedPrefixes        []string          `json:"excluded_prefixes"`
-	RetainedLicensePrefixes map[string]string `json:"retained_license_prefixes"`
+	Cutoff                        string            `json:"cutoff"`
+	IncludedPrefixes              []string          `json:"included_prefixes"`
+	ForcedNewPrefixes             []string          `json:"forced_new_prefixes"`
+	ThirdPartyMixedPrefixes       []string          `json:"third_party_mixed_prefixes"`
+	ReviewedMixedPaths            []string          `json:"reviewed_mixed_paths"`
+	ReviewedMixedOverridePrefixes []string          `json:"reviewed_mixed_override_prefixes"`
+	ExcludedPrefixes              []string          `json:"excluded_prefixes"`
+	RetainedLicensePrefixes       map[string]string `json:"retained_license_prefixes"`
 }
 
 type manifest struct {
@@ -333,6 +334,9 @@ func (task *headerTask) expectedHeaderFor(relativePath string, absolutePath stri
 	}
 	if hasAnyPrefix(relativePath, task.policy.ThirdPartyMixedPrefixes) {
 		return expectedHeader{classification: "third-party-mixed", templateID: "third-party-mixed"}, true, nil
+	}
+	if hasAnyPrefix(relativePath, task.policy.ReviewedMixedOverridePrefixes) && containsPath(task.policy.ReviewedMixedPaths, relativePath) {
+		return expectedHeader{classification: "mixed", templateID: "mixed"}, true, nil
 	}
 	if hasAnyPrefix(relativePath, task.policy.ForcedNewPrefixes) {
 		return expectedHeader{classification: "new", templateID: "new"}, true, nil

@@ -1,0 +1,222 @@
+// Legacy Materials in this file remain under their original licenses.
+// See LEGACY_NOTICES.md.
+
+// Modifications Copyright (c) 2026 Super Durable, Inc.
+//
+// Modifications after the Legacy Cutoff are licensed under the
+// Sustainable Use License 1.0.
+// Legacy Materials remain under their original licenses.
+// See LICENSE and LEGACY_NOTICES.md.
+
+package integ
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/server-zd/integ/workflow/command_thread_completion"
+	"google.golang.org/protobuf/proto"
+)
+
+func TestCommandThreadCompletionTemporal(t *testing.T) {
+	for i := 0; i < *repeatIntegTest; i++ {
+		doTestCommandThreadCompletion(t, nil)
+		smallWaitForFastTest()
+
+		doTestCommandThreadCompletion(t, &dexpb.FlowConfig{
+			ContinueAsNewThreshold: ptr.Any(int32(1)),
+		})
+		smallWaitForFastTest()
+	}
+}
+
+func TestAnyCommandCompletedTemporal(t *testing.T) {
+	doTestAnyCommandCompleted(t)
+}
+
+func doTestAnyCommandCompleted(t *testing.T) {
+	workerHandler := command_thread_completion.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, serverZDTestConfig{})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := "any_cmd_can_test_" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           command_thread_completion.WorkflowType,
+		FlowTimeoutSeconds: 60,
+
+		StartStepType: command_thread_completion.StateAnyCmd,
+		StepInput:     nullValue(),
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			FlowConfigOverride: &dexpb.FlowConfig{
+				ContinueAsNewThreshold: ptr.Any(int32(1)),
+			},
+		}, workerTarget),
+	})
+	require.NoError(t, err)
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		_, publishErr := flowClient.PublishToChannel(context.Background(), &dexpb.PublishToChannelRequest{
+			FlowId: flowId,
+			Messages: []*dexpb.ChannelMessage{
+				{
+					ChannelName: "any-cmd-signal",
+					Value:       stringValue("signal-data"),
+				},
+			},
+		})
+		if publishErr != nil {
+			t.Logf("Warning: Failed to send signal: %v", publishErr)
+		}
+	}()
+
+	assertions := assert.New(t)
+
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		NeedsResults:    true,
+		WaitTimeSeconds: 20,
+	})
+	if err != nil {
+		assertions.False(
+			strings.Contains(err.Error(), "420"),
+			"Workflow took too long to complete, which means that ANY_COMMAND_COMPLETED command was not completed as expected.",
+		)
+	}
+	require.NoError(t, err)
+
+	result := workerHandler.GetTestResult()
+	history := result.InvokeHistory
+	data := result.InvokeData
+
+	assertions.Equalf(map[string]int64{
+		"S3_execute":          1,
+		"S3_waitFor":          1,
+		"StateAnyCmd_execute": 1,
+		"StateAnyCmd_waitFor": 1,
+	}, history, "State execution history mismatch: %v", history)
+
+	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	assertions.Empty(response.GetResults())
+	signalReceived, ok := data["any_cmd_signal_received"].(bool)
+	assertions.True(ok, "any_cmd_signal_received data should be present")
+	assertions.True(signalReceived)
+	timerFired, ok := data["any_cmd_timer_fired"].(bool)
+	assertions.True(ok, "any_cmd_timer_fired data should be present")
+	assertions.False(timerFired, "long timer should not fire after the signal completes the wait")
+}
+
+func doTestCommandThreadCompletion(
+	t *testing.T,
+	flowConfig *dexpb.FlowConfig,
+) {
+	workerHandler := command_thread_completion.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, serverZDTestConfig{})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := command_thread_completion.WorkflowType + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           command_thread_completion.WorkflowType,
+		FlowTimeoutSeconds: 30,
+
+		StartStepType: command_thread_completion.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
+		}, workerTarget),
+	})
+	require.NoError(t, err)
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		_, publishErr := flowClient.PublishToChannel(context.Background(), &dexpb.PublishToChannelRequest{
+			FlowId: flowId,
+			Messages: []*dexpb.ChannelMessage{
+				{
+					ChannelName: "test-signal",
+					Value:       stringValue("signal-data"),
+				},
+			},
+		})
+		if publishErr != nil {
+			t.Logf("Warning: Failed to send signal: %v", publishErr)
+		}
+	}()
+
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:       flowId,
+		NeedsResults: true,
+	})
+	require.NoError(t, err)
+
+	result := workerHandler.GetTestResult()
+	history := result.InvokeHistory
+	data := result.InvokeData
+	assertions := assert.New(t)
+
+	assertions.Equalf(map[string]int64{
+		"S1_waitFor": 1,
+		"S1_execute": 1,
+		"S2_waitFor": 1,
+		"S2_execute": 1,
+		"S3_waitFor": 1,
+		"S3_execute": 1,
+	}, history, "Command thread completion test failed - state execution history mismatch: %v", history)
+
+	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	assertions.Empty(response.GetResults())
+
+	s1TimerFired, ok := data["s1_timer_fired"].(bool)
+	assertions.True(ok)
+	assertions.True(s1TimerFired)
+
+	s1SignalReceived, ok := data["s1_signal_received"].(bool)
+	assertions.True(ok)
+	assertions.True(s1SignalReceived)
+
+	s1ChannelReceived, ok := data["s1_channel_received"].(bool)
+	assertions.True(ok)
+	assertions.True(s1ChannelReceived)
+
+	s2ChannelReceived, ok := data["s2_channel_received"].(bool)
+	assertions.True(ok)
+	assertions.True(s2ChannelReceived)
+
+	if s2ChannelReceived {
+		channelValue, ok := data["s2_channel_value"].(*dexpb.Value)
+		assertions.True(ok)
+		if ok {
+			expected := &dexpb.Value{
+				Kind: &dexpb.Value_ObjValue{
+					ObjValue: &dexpb.EncodedObject{
+						Encoding: "json",
+						Payload:  []byte("channel-data"),
+					},
+				},
+			}
+			assertions.True(proto.Equal(expected, channelValue))
+		}
+	}
+
+	s3TimerFired, ok := data["s3_timer_fired"].(bool)
+	assertions.True(ok)
+	assertions.True(s3TimerFired)
+}

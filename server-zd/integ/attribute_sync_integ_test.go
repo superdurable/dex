@@ -1,0 +1,603 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+//go:build attributestore_integration
+
+package integ
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/server-zd/integ/internal/testconfig"
+	"github.com/superdurable/dex/server-zd/integ/workflow/signal"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+func TestAttributeSyncTemporal(t *testing.T) {
+	doTestAttributeSync(t)
+}
+
+func TestMongoDBAttributeSyncTemporal(t *testing.T) {
+	t.Skip("server-zd does not support mongodb Attribute Store (C26)")
+}
+
+func TestAttributeSyncFlowTimeoutTemporal(t *testing.T) {
+	doTestAttributeSyncFlowTimeout(t)
+}
+
+func TestAttributeSyncRetryExhaustionTemporal(t *testing.T) {
+	doTestAttributeSyncRetryExhaustion(t)
+}
+
+func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	postgresDSN := os.Getenv("DEX_ATTRIBUTE_STORE_POSTGRES_DSN")
+	if postgresDSN == "" {
+		postgresDSN = "postgres://dex:dex@127.0.0.1:55432/dex?sslmode=disable"
+	}
+	database, err := sql.Open("pgx", postgresDSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	tableName := "flow_attributes_rpc_graceful_" + strings.ReplaceAll(newRequestID(), "-", "")
+	_, err = database.ExecContext(ctx, fmt.Sprintf(
+		`CREATE TABLE public.%s (flow_id TEXT PRIMARY KEY, message TEXT)`,
+		tableName,
+	))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, dropErr := database.ExecContext(context.Background(), "DROP TABLE IF EXISTS public."+tableName)
+		require.NoError(t, dropErr)
+	})
+	runtime := startDexService(t, serverZDTestConfig{
+
+		// server-zd runs IsTransactional RPCs as the Go Server runs every RPC with this setting.
+
+		AttributeStore: testconfig.AttributeStoreConfig{
+			Stores: map[string]testconfig.AttributeStoreConfigEntry{
+				"reporting": {
+					Type:      testconfig.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + tableName,
+				},
+			},
+		},
+	})
+	lockTransaction, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	lockReleased := false
+	t.Cleanup(func() {
+		if !lockReleased {
+			require.NoError(t, lockTransaction.Rollback())
+		}
+	})
+	_, err = lockTransaction.ExecContext(ctx, "LOCK TABLE public."+tableName+" IN ACCESS EXCLUSIVE MODE")
+	require.NoError(t, err)
+	handler := newFinalizingRPCHandler(true)
+	workerTarget := startWorker(t, handler)
+	flowID := terminalRPCFlowType + "-graceful-" + newRequestID()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           terminalRPCFlowType,
+		FlowTimeoutSeconds: 30,
+		StartStepType:      terminalRPCFinishStep,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				syncedStringAttribute("message", "graceful-finalization"),
+			},
+			FlowConfigOverride: &dexpb.FlowConfig{
+				AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"reporting"}},
+				WorkerTarget:        workerTarget,
+			},
+		},
+	})
+	require.NoError(t, err)
+	select {
+	case <-handler.finishExecuted:
+	case <-ctx.Done():
+		require.FailNow(t, "graceful step did not start", ctx.Err())
+	}
+	acceptedResponse, err := runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCAccepted, IsTransactional: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, terminalRPCAcceptedOutput, acceptedResponse.GetOutput().GetStringValue())
+	close(handler.releaseFinish)
+	assertRPCUpdateRejectedAfterStop(t, ctx, runtime.FlowClient, flowID, handler)
+	require.Eventually(t, func() bool {
+		_, waitErr := runtime.FlowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+			FlowId: flowID,
+			Match: &dexpb.AttributeMatch{
+				Key:      "message",
+				Operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL,
+				Operand:  &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "never"}},
+			},
+			RequestId:             newRequestID(),
+			RequestTimeoutSeconds: 1,
+		})
+		if status.Code(waitErr) != codes.FailedPrecondition {
+			return false
+		}
+		return grpcServiceErrorResponse(t, waitErr).GetSubStatus() ==
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING
+	}, 5*time.Second, 20*time.Millisecond)
+	require.NoError(t, lockTransaction.Commit())
+	lockReleased = true
+	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	assertAcceptedRPCResultInHistory(
+		t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
+	)
+}
+
+func doTestAttributeSync(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	postgresDSN := os.Getenv("DEX_ATTRIBUTE_STORE_POSTGRES_DSN")
+	if postgresDSN == "" {
+		postgresDSN = "postgres://dex:dex@127.0.0.1:55432/dex?sslmode=disable"
+	}
+	database, err := sql.Open("pgx", postgresDSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	tableNames := []string{
+		"flow_attributes_" + strings.ReplaceAll(newRequestID(), "-", ""),
+		"flow_attributes_audit_" + strings.ReplaceAll(newRequestID(), "-", ""),
+	}
+	for _, tableName := range tableNames {
+		_, err = database.ExecContext(ctx, fmt.Sprintf(
+			`CREATE TABLE public.%s (flow_id TEXT PRIMARY KEY, message TEXT, document JSONB)`,
+			tableName,
+		))
+		require.NoError(t, err)
+	}
+	t.Cleanup(func() {
+		for _, tableName := range tableNames {
+			_, dropErr := database.ExecContext(context.Background(), "DROP TABLE IF EXISTS public."+tableName)
+			require.NoError(t, dropErr)
+		}
+	})
+
+	runtime := startDexService(t, withAttributeSyncBlobCache(t, serverZDTestConfig{
+
+		AttributeStore: testconfig.AttributeStoreConfig{
+			Stores: map[string]testconfig.AttributeStoreConfigEntry{
+				"reporting": {
+					Type:      testconfig.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + tableNames[0],
+				},
+				"audit": {
+					Type:      testconfig.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + tableNames[1],
+				},
+			},
+			SyncBatchSize: 2,
+		},
+	}))
+	workerTarget := startWorker(t, signal.NewHandler())
+	for _, invalidStoreNames := range [][]string{{"reporting", "reporting"}, {"unknown"}, {""}} {
+		_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+			RequestId:     newRequestID(),
+			FlowId:        "attribute-sync-invalid-" + newRequestID(),
+			FlowType:      "attribute-sync",
+			StartStepType: "start",
+			FlowStartOptions: &dexpb.FlowStartOptions{
+				FlowConfigOverride: &dexpb.FlowConfig{
+					AttributeStoreNames: &dexpb.AttributeStoreNames{Names: invalidStoreNames},
+				},
+			},
+		})
+		require.Error(t, err)
+	}
+	lockTransaction, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	lockReleased := false
+	t.Cleanup(func() {
+		if !lockReleased {
+			require.NoError(t, lockTransaction.Rollback())
+		}
+	})
+	for _, tableName := range tableNames {
+		_, err = lockTransaction.ExecContext(ctx, "LOCK TABLE public."+tableName+" IN ACCESS EXCLUSIVE MODE")
+		require.NoError(t, err)
+	}
+	flowID := "attribute-sync-" + newRequestID()
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           "attribute-sync",
+		FlowTimeoutSeconds: 30,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				syncedStringAttribute("message", strings.Repeat("cache-backed-string", 8)),
+				syncedObjectAttribute("document", `{"source":"blob-cache"}`),
+			},
+			FlowConfigOverride: &dexpb.FlowConfig{
+				AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"reporting", "audit"}},
+				WorkerTarget:        workerTarget,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	terminalWrite := &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowID,
+		Attributes: []*dexpb.AttributeWrite{
+			syncedStringAttribute("message", "terminal-signal"),
+		},
+	}
+
+	// C30: server-zd closes the run when StopFlow commits, so the write must come first.
+	_, err = runtime.FlowClient.SetAttributes(ctx, terminalWrite)
+	require.NoError(t, err)
+
+	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId:   flowID,
+		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
+	})
+	require.NoError(t, err)
+
+	// C30: a write after StopFlow finds no open run.
+	_, err = runtime.FlowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId:  newRequestID(),
+		FlowId:     flowID,
+		Attributes: []*dexpb.AttributeWrite{syncedStringAttribute("message", "after-stop")},
+	})
+	require.Equal(t, codes.NotFound, status.Code(err), "SetAttributes after StopFlow: %v", err)
+
+	require.NoError(t, lockTransaction.Commit())
+	lockReleased = true
+	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
+
+	requireAttributeStoreRows(t, func(collect require.TestingT) {
+		for _, tableName := range tableNames {
+			var message string
+			var document string
+			queryErr := database.QueryRowContext(
+				ctx,
+				"SELECT message, document::text FROM public."+tableName+" WHERE flow_id = $1",
+				flowID,
+			).Scan(&message, &document)
+			require.NoError(collect, queryErr)
+			require.Equal(collect, "terminal-signal", message)
+			require.JSONEq(collect, `{"source":"blob-cache"}`, document)
+		}
+	})
+}
+
+func doTestAttributeSyncFlowTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
+	defer cancel()
+
+	postgresDSN := os.Getenv("DEX_ATTRIBUTE_STORE_POSTGRES_DSN")
+	if postgresDSN == "" {
+		postgresDSN = "postgres://dex:dex@127.0.0.1:55432/dex?sslmode=disable"
+	}
+	database, err := sql.Open("pgx", postgresDSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	tableName := "flow_attributes_timeout_" + strings.ReplaceAll(newRequestID(), "-", "")
+	_, err = database.ExecContext(ctx, fmt.Sprintf(
+		`CREATE TABLE public.%s (flow_id TEXT PRIMARY KEY, message TEXT)`,
+		tableName,
+	))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, dropErr := database.ExecContext(context.Background(), "DROP TABLE IF EXISTS public."+tableName)
+		require.NoError(t, dropErr)
+	})
+
+	runtime := startDexService(t, serverZDTestConfig{
+
+		AttributeStore: testconfig.AttributeStoreConfig{
+			Stores: map[string]testconfig.AttributeStoreConfigEntry{
+				"reporting": {
+					Type:      testconfig.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + tableName,
+				},
+			},
+		},
+	})
+	handler := &timeoutAttributeSyncHandler{started: make(chan struct{}, 1)}
+	workerTarget := startWorker(t, handler)
+	lockTransaction, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	lockReleased := false
+	t.Cleanup(func() {
+		if !lockReleased {
+			require.NoError(t, lockTransaction.Rollback())
+		}
+	})
+	_, err = lockTransaction.ExecContext(ctx, "LOCK TABLE public."+tableName+" IN ACCESS EXCLUSIVE MODE")
+	require.NoError(t, err)
+
+	flowID := "attribute-sync-timeout-" + newRequestID()
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           "attribute-sync-timeout",
+		FlowTimeoutSeconds: 10,
+		StartStepType:      signal.State1,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				syncedStringAttribute("message", "persisted-after-timeout"),
+			},
+			FlowConfigOverride: &dexpb.FlowConfig{
+				AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"reporting"}},
+				WorkerTarget:        workerTarget,
+			},
+		},
+	})
+	require.NoError(t, err)
+	select {
+	case <-handler.started:
+	case <-ctx.Done():
+		require.FailNow(t, "Flow Step did not start", ctx.Err())
+	}
+	probe := timeoutAttributeSyncProbe{ctx: ctx, runtime: runtime, flowID: flowID}
+	require.Eventually(t, probe.isStepCanceled, 15*time.Second, 50*time.Millisecond)
+	require.NoError(t, lockTransaction.Commit())
+	lockReleased = true
+
+	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, response.GetFlowStatus())
+	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT, response.GetErrorType())
+	requireAttributeStoreRows(t, func(collect require.TestingT) {
+		var message string
+		queryErr := database.QueryRowContext(
+			ctx,
+			"SELECT message FROM public."+tableName+" WHERE flow_id = $1",
+			flowID,
+		).Scan(&message)
+		require.NoError(collect, queryErr)
+		require.Equal(collect, "persisted-after-timeout", message)
+	})
+}
+
+type timeoutAttributeSyncHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	started chan struct{}
+}
+
+func (h *timeoutAttributeSyncHandler) InvokeWaitForMethod(
+	ctx context.Context,
+	_ *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	select {
+	case h.started <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return &dexpb.InvokeWaitForMethodResponse{
+		WaitingCondition: &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
+				{ChannelName: "never-published"},
+			},
+		},
+	}, nil
+}
+
+type timeoutAttributeSyncProbe struct {
+	ctx     context.Context
+	runtime *integRuntime
+	flowID  string
+}
+
+func (p timeoutAttributeSyncProbe) isStepCanceled() bool {
+
+	// DebugDump is a Temporal query; GetFlowState reports server-zd's active Steps.
+	state, err := p.runtime.FlowClient.GetFlowState(p.ctx, &dexpb.GetFlowStateRequest{FlowId: p.flowID})
+	if err != nil {
+		return false
+	}
+	for _, execution := range state.GetActiveStepExecutions() {
+		if execution.GetStepType() == signal.State1 {
+			return false
+		}
+	}
+	return true
+
+}
+
+func doTestAttributeSyncRetryExhaustion(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	postgresDSN := os.Getenv("DEX_ATTRIBUTE_STORE_POSTGRES_DSN")
+	if postgresDSN == "" {
+		postgresDSN = "postgres://dex:dex@127.0.0.1:55432/dex?sslmode=disable"
+	}
+	database, err := sql.Open("pgx", postgresDSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	tableSuffix := strings.ReplaceAll(newRequestID(), "-", "")
+	failingTable := "flow_attributes_failing_" + tableSuffix
+	healthyTable := "flow_attributes_healthy_" + tableSuffix
+	for _, tableName := range []string{failingTable, healthyTable} {
+		_, err = database.ExecContext(ctx, fmt.Sprintf(
+			`CREATE TABLE public.%s (flow_id TEXT PRIMARY KEY, message TEXT)`,
+			tableName,
+		))
+		require.NoError(t, err)
+	}
+	t.Cleanup(func() {
+		for _, tableName := range []string{failingTable, healthyTable} {
+			_, dropErr := database.ExecContext(context.Background(), "DROP TABLE IF EXISTS public."+tableName)
+			require.NoError(t, dropErr)
+		}
+	})
+
+	runtime := startDexService(t, serverZDTestConfig{
+
+		AttributeStore: testconfig.AttributeStoreConfig{
+			Stores: map[string]testconfig.AttributeStoreConfigEntry{
+				"failing": {
+					Type:      testconfig.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + failingTable,
+				},
+				"healthy": {
+					Type:      testconfig.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + healthyTable,
+				},
+			},
+			SyncBatchSize:      1,
+			SyncAttemptTimeout: time.Second,
+			SyncRetryPolicy: &testconfig.RetryPolicy{
+				InitialInterval:    time.Second,
+				MaximumInterval:    time.Second,
+				BackoffCoefficient: 1,
+				TotalDuration:      time.Second,
+			},
+		},
+	})
+	workerTarget := startWorker(t, signal.NewHandler())
+	_, err = database.ExecContext(ctx, "DROP TABLE public."+failingTable)
+	require.NoError(t, err)
+
+	flowID := "attribute-sync-retry-" + newRequestID()
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           "attribute-sync-retry",
+		FlowTimeoutSeconds: 25,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				syncedStringAttribute("message", "skipped"),
+			},
+			FlowConfigOverride: &dexpb.FlowConfig{
+				AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"failing"}},
+				WorkerTarget:        workerTarget,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = runtime.FlowClient.UpdateFlowConfig(ctx, &dexpb.UpdateFlowConfigRequest{
+		FlowId: flowID,
+		FlowConfig: &dexpb.FlowConfig{
+			AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"healthy", "healthy"}},
+		},
+	})
+	require.Error(t, err)
+
+	_, err = runtime.FlowClient.UpdateFlowConfig(ctx, &dexpb.UpdateFlowConfigRequest{
+		FlowId: flowID,
+		FlowConfig: &dexpb.FlowConfig{
+			AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"healthy"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		storeNames, queryErr := currentAttributeStoreNames(ctx, runtime, flowID)
+		return queryErr == nil && len(storeNames) == 1 && storeNames[0] == "healthy"
+	}, 20*time.Second, 50*time.Millisecond)
+
+	_, err = runtime.FlowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowID,
+		Attributes: []*dexpb.AttributeWrite{
+			syncedStringAttribute("message", "persisted"),
+		},
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var persisted string
+		queryErr := database.QueryRowContext(
+			ctx,
+			"SELECT message FROM public."+healthyTable+" WHERE flow_id = $1",
+			flowID,
+		).Scan(&persisted)
+		return queryErr == nil && persisted == "persisted"
+	}, 20*time.Second, 50*time.Millisecond)
+
+	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId:   flowID,
+		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
+	})
+	require.NoError(t, err)
+	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
+
+	var message string
+	err = database.QueryRowContext(
+		ctx,
+		"SELECT message FROM public."+healthyTable+" WHERE flow_id = $1",
+		flowID,
+	).Scan(&message)
+	require.NoError(t, err)
+	require.Equal(t, "persisted", message)
+}
+
+func currentAttributeStoreNames(ctx context.Context, runtime *integRuntime, flowID string) ([]string, error) {
+	// DebugDump is a Temporal query; GetFlowState returns server-zd's FlowConfig.
+	state, err := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{FlowId: flowID})
+	return state.GetFlowConfig().GetAttributeStoreNames().GetNames(), err
+
+}
+
+// attributeStoreRowWait covers server-zd's write retries while a test holds a table lock.
+const attributeStoreRowWait = 30 * time.Second
+
+// requireAttributeStoreRows checks once on the Go Server, which syncs before closing.
+// C24: server-zd syncs after commit, so binary mode polls.
+func requireAttributeStoreRows(t *testing.T, assertRows func(collect require.TestingT)) {
+	t.Helper()
+
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		assertRows(collect)
+	}, attributeStoreRowWait, 50*time.Millisecond)
+}
+
+// withAttributeSyncBlobCache offloads every Value to S3 through the blob cache.
+// C5: server-zd keeps Values in its log, without an S3 Blob Store or blob cache.
+func withAttributeSyncBlobCache(t *testing.T, testConfig serverZDTestConfig) serverZDTestConfig {
+
+	return testConfig
+}
+
+func syncedStringAttribute(key, value string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
+		Key:        key,
+		Value:      stringValue(value),
+		SyncConfig: &dexpb.AttributeSyncConfig{Enabled: true},
+	}
+}
+
+func syncedObjectAttribute(key, value string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
+		Key:        key,
+		Value:      objJSONValue(value),
+		SyncConfig: &dexpb.AttributeSyncConfig{Enabled: true},
+	}
+}

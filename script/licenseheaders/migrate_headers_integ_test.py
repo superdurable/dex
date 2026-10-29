@@ -47,6 +47,7 @@ class MigrationIntegrationTest(unittest.TestCase):
                 classifications["sdk-python/tests/iwfcompat/basic_flow.py"],
                 "third-party-mixed",
             )
+            self.assertEqual(classifications["web/copied.go"], "mixed")
             self.assertEqual(classifications["web/server.go"], "new")
             self.assertEqual(classifications["web/app.tsx"], "new")
             self.assertEqual(classifications["web/site.css"], "new")
@@ -119,6 +120,7 @@ class MigrationIntegrationTest(unittest.TestCase):
         )
         self.write(root, "server/legacy.go", legacy_header + "package server\n\nfunc Legacy() int { return 1 }\n")
         self.write(root, "server/unchanged.go", legacy_header + "package server\n\nfunc Unchanged() int { return 1 }\n")
+        self.write(root, "server/reviewed.go", legacy_header + "package server\n\nfunc Reviewed() int { return 7 }\n")
         self.write(root, "docs/legacy.py", "print('legacy docs')\n")
         self.write(root, "examples/go/main.go", legacy_header + "package main\n")
         self.git(root, "add", ".")
@@ -149,6 +151,7 @@ class MigrationIntegrationTest(unittest.TestCase):
             "sdk-python/tests/iwfcompat/basic_flow.py",
             "class BasicFlow:\n    pass\n",
         )
+        self.write(root, "web/copied.go", (root / "server/reviewed.go").read_text())
         self.write(root, "web/server.go", "package web\n")
         self.write(root, "web/app.tsx", "export const App = () => null;\n")
         self.write(root, "web/site.css", "body { color: black; }\n")
@@ -169,7 +172,8 @@ class MigrationIntegrationTest(unittest.TestCase):
             "retained_license_prefixes": {
                 "examples/go": "mit",
             },
-            "reviewed_mixed_paths": [],
+            "reviewed_mixed_paths": ["web/copied.go", "protos/api.proto"],
+            "reviewed_mixed_override_prefixes": ["web"],
             "repair_from_head_paths": [],
             "legacy_licenses": {"server": ["MIT"]},
         }

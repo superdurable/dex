@@ -545,7 +545,13 @@ def is_included(path: str, policy: dict[str, Any]) -> bool:
 
 
 def is_forced_new(path: str, policy: dict[str, Any]) -> bool:
-    return any(has_prefix(path, prefix) for prefix in policy["forced_new_prefixes"])
+    is_reviewed_override = path in policy["reviewed_mixed_paths"] and any(
+        has_prefix(path, prefix)
+        for prefix in policy.get("reviewed_mixed_override_prefixes", [])
+    )
+    return not is_reviewed_override and any(
+        has_prefix(path, prefix) for prefix in policy["forced_new_prefixes"]
+    )
 
 
 def is_third_party_mixed(path: str, policy: dict[str, Any]) -> bool:

@@ -16,3 +16,7 @@ fmt-check:
 
 build-server:
 	cargo build --release --locked -p dexzd-server --bin dex-server-zd
+
+.PHONY: zdIntegTests
+zdIntegTests:
+	$(MAKE) -C integ zdIntegTests $(if $(dexServerZDBinary),dexServerZDBinary=$(abspath $(dexServerZDBinary))) $(if $(totalPartitions),totalPartitions=$(totalPartitions)) $(if $(partitionNum),partitionNum=$(partitionNum)) $(if $(zdIntegTestJSON),zdIntegTestJSON=$(abspath $(zdIntegTestJSON)))

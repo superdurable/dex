@@ -1,0 +1,152 @@
+// Legacy Materials in this file remain under their original licenses.
+// See LEGACY_NOTICES.md.
+
+// Modifications Copyright (c) 2026 Super Durable, Inc.
+//
+// Modifications after the Legacy Cutoff are licensed under the
+// Sustainable Use License 1.0.
+// Legacy Materials remain under their original licenses.
+// See LICENSE and LEGACY_NOTICES.md.
+
+package integ
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/server-zd/integ/workflow/parallel"
+	"google.golang.org/protobuf/proto"
+)
+
+func TestParallelFlowTemporal(t *testing.T) {
+	for i := 0; i < *repeatIntegTest; i++ {
+		doTestParallelFlow(t, nil)
+		smallWaitForFastTest()
+		doTestParallelFlow(
+			t,
+
+			minimumContinueAsNewAsyncDurabilityConfig(),
+		)
+		smallWaitForFastTest()
+	}
+}
+
+func doTestParallelFlow(
+	t *testing.T,
+	flowConfig *dexpb.FlowConfig,
+) {
+	workerHandler := parallel.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, serverZDTestConfig{})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := parallel.WorkflowType + "-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           parallel.WorkflowType,
+		FlowTimeoutSeconds: 10,
+
+		StartStepType: parallel.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
+		}, workerTarget),
+	})
+	require.NoError(t, err)
+
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		NeedsResults:    true,
+		WaitTimeSeconds: 30,
+	})
+	require.NoError(t, err)
+
+	history := workerHandler.GetTestResult().InvokeHistory
+	require.Equalf(t, map[string]int64{
+		"S1_waitFor":   1,
+		"S1_execute":   1,
+		"S11_waitFor":  1,
+		"S11_execute":  1,
+		"S12_waitFor":  1,
+		"S12_execute":  1,
+		"S13_waitFor":  1,
+		"S13_execute":  1,
+		"S111_waitFor": 1,
+		"S111_execute": 1,
+		"S112_waitFor": 1,
+		"S112_execute": 1,
+		"S121_waitFor": 1,
+		"S121_execute": 1,
+		"S122_waitFor": 1,
+		"S122_execute": 1,
+	}, history, "parallel test fail, %v", history)
+
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	expectedResults := []*dexpb.StepCompletionOutput{
+		{
+			CompletedStepType:        parallel.State13,
+			CompletedStepExecutionId: parallel.State13 + "-1",
+			CompletedStepOutput: encodedObjectValue(
+				"json",
+				[]byte("from "+parallel.State13),
+			),
+		},
+		{
+			CompletedStepType:        parallel.State111,
+			CompletedStepExecutionId: parallel.State111 + "-1",
+			CompletedStepOutput: encodedObjectValue(
+				"json",
+				[]byte("from "+parallel.State111),
+			),
+		},
+		{
+			CompletedStepType:        parallel.State112,
+			CompletedStepExecutionId: parallel.State112 + "-1",
+			CompletedStepOutput: encodedObjectValue(
+				"json",
+				[]byte("from "+parallel.State112),
+			),
+		},
+		{
+			CompletedStepType:        parallel.State121,
+			CompletedStepExecutionId: parallel.State121 + "-1",
+			CompletedStepOutput: encodedObjectValue(
+				"json",
+				[]byte("from "+parallel.State121),
+			),
+		},
+		{
+			CompletedStepType:        parallel.State122,
+			CompletedStepExecutionId: parallel.State122 + "-1",
+			CompletedStepOutput: encodedObjectValue(
+				"json",
+				[]byte("from "+parallel.State122),
+			),
+		},
+	}
+	require.Len(t, response.GetResults(), len(expectedResults))
+	for _, expected := range expectedResults {
+		require.True(t, proto.Equal(expected, findParallelResult(response.GetResults(), expected)))
+	}
+}
+
+func findParallelResult(
+	results []*dexpb.StepCompletionOutput,
+	expected *dexpb.StepCompletionOutput,
+) *dexpb.StepCompletionOutput {
+	for _, result := range results {
+		if result.GetCompletedStepType() == expected.GetCompletedStepType() &&
+			result.GetCompletedStepExecutionId() == expected.GetCompletedStepExecutionId() {
+			return result
+		}
+	}
+	panic(fmt.Sprintf("missing result for step %s", expected.GetCompletedStepType()))
+}

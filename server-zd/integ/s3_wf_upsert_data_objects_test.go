@@ -1,0 +1,119 @@
+// Legacy Materials in this file remain under their original licenses.
+// See LEGACY_NOTICES.md.
+
+// Modifications Copyright (c) 2026 Super Durable, Inc.
+//
+// Modifications after the Legacy Cutoff are licensed under the
+// Sustainable Use License 1.0.
+// Legacy Materials remain under their original licenses.
+// See LICENSE and LEGACY_NOTICES.md.
+
+package integ
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	s3_upsert_data_objects "github.com/superdurable/dex/server-zd/integ/workflow/s3-upsert-data-objects"
+	"google.golang.org/protobuf/proto"
+)
+
+func TestS3WorkflowUpsertDataObjectsTemporal(t *testing.T) {
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestWorkflowWithS3UpsertDataObjects(t, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
+	}
+}
+
+func doTestWorkflowWithS3UpsertDataObjects(t *testing.T, lazyLoading bool) {
+	runtime := startDexService(t, serverZDTestConfig{
+
+		ObjectPayloadThresholdBytes: 10,
+		LazyLoading:                 ptr.Any(lazyLoading),
+	})
+	workerHandler := s3_upsert_data_objects.NewHandler(runtime.FlowClient)
+	workerTarget := startWorker(t, workerHandler)
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := s3_upsert_data_objects.WorkflowType + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           s3_upsert_data_objects.WorkflowType,
+		FlowTimeoutSeconds: 100,
+
+		StartStepType:    s3_upsert_data_objects.State1,
+		StepInput:        objJSONValue(`"test"`),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
+	require.NoError(t, err)
+
+	history := workerHandler.GetTestResult().InvokeData
+	require.Equal(t, int64(1), history["S1_waitFor"])
+	require.Equal(t, int64(1), history["S1_execute"])
+	require.Equal(t, int64(1), history["S2_waitFor"])
+	require.Equal(t, int64(1), history["S2_execute"])
+	require.Equal(t, true, history["S2_received_large_obj1"])
+	require.Equal(t, true, history["S2_received_large_obj2"])
+	require.Equal(t, true, history["S2_received_small_obj3"])
+	require.Equal(t, s3_upsert_data_objects.LargeDataContent1, history["S2_large_obj1_data"])
+	require.Equal(t, s3_upsert_data_objects.LargeDataContent2, history["S2_large_obj2_data"])
+	require.Equal(t, s3_upsert_data_objects.SmallDataContent3, history["S2_small_obj3_data"])
+
+	requireServerZDValueReferences(
+		t,
+		history,
+		lazyLoading,
+		[]string{
+			"S2_" + s3_upsert_data_objects.TestDataObjKey1 + "_is_reference",
+			"S2_" + s3_upsert_data_objects.TestDataObjKey2 + "_is_reference",
+		},
+		[]string{"S2_" + s3_upsert_data_objects.TestDataObjKey3 + "_is_reference"},
+	)
+
+	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+		FlowId: flowId,
+		Keys: []string{
+			s3_upsert_data_objects.TestDataObjKey1,
+			s3_upsert_data_objects.TestDataObjKey2,
+			s3_upsert_data_objects.TestDataObjKey3,
+		},
+	})
+	require.NoError(t, err)
+	retrieved := attributeMap(getResult.GetAttributes())
+	blobId1 := blobIdFromValue(retrieved[s3_upsert_data_objects.TestDataObjKey1])
+	blobId2 := blobIdFromValue(retrieved[s3_upsert_data_objects.TestDataObjKey2])
+	if lazyLoading {
+		require.NotEmpty(t, blobId1)
+		require.NotEmpty(t, blobId2)
+		require.Empty(t, blobIdFromValue(retrieved[s3_upsert_data_objects.TestDataObjKey3]))
+	} else {
+		require.Empty(t, blobId1)
+		require.Empty(t, blobId2)
+		require.True(t, proto.Equal(
+			objJSONValue("\""+s3_upsert_data_objects.LargeDataContent1+"\""),
+			retrieved[s3_upsert_data_objects.TestDataObjKey1],
+		))
+		require.True(t, proto.Equal(
+			objJSONValue("\""+s3_upsert_data_objects.LargeDataContent2+"\""),
+			retrieved[s3_upsert_data_objects.TestDataObjKey2],
+		))
+	}
+
+}

@@ -1,0 +1,386 @@
+// Legacy Materials in this file remain under their original licenses.
+// See LEGACY_NOTICES.md.
+
+// Modifications Copyright (c) 2026 Super Durable, Inc.
+//
+// Modifications after the Legacy Cutoff are licensed under the
+// Sustainable Use License 1.0.
+// Legacy Materials remain under their original licenses.
+// See LICENSE and LEGACY_NOTICES.md.
+
+package rpc
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/server-zd/integ/workflow/common"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+/**
+ * This test flow has two steps, using WorkerServiceServer to implement the flow directly.
+ *
+ * Step1:
+ *		- WaitFor updates attribute data and then waits until the channel has been published to
+ * 		- Execute method moves to Step2
+ * Step2:
+ *		- WaitFor method does nothing
+ *      - Execute method will gracefully complete flow
+ */
+const (
+	WorkflowType                      = "rpc"
+	State1                            = "S1"
+	State2                            = "S2"
+	TestInterStateChannelName         = "test-TestInterStateChannelName"
+	RPCName                           = "test-RPCName"
+	RPCNameReadOnly                   = "test-RPC-readonly"
+	RPCNameError                      = "test-RPC-error"
+	RPCNameDeleteMissingTransactional = "test-RPC-delete-missing-transactional"
+	RPCNameDeleteMissingSignal        = "test-RPC-delete-missing-signal"
+	RPCNameSnapshot                   = "test-RPC-snapshot"
+	RPCNameSnapshotDefault            = "test-RPC-snapshot-default"
+	RPCNameSnapshotTransactional      = "test-RPC-snapshot-transactional"
+	RPCNameSnapshotLocked             = "test-RPC-snapshot-locked"
+	RPCNameMove                       = "test-RPC-move"
+
+	TestDataAttributeKey = "test-data-attribute"
+
+	TestSearchAttributeKeywordKey    = "CustomKeywordField"
+	TestSearchAttributeKeywordValue1 = "keyword-value1"
+	TestSearchAttributeKeywordValue2 = "keyword-value2"
+
+	TestSearchAttributeIntKey    = "CustomIntField"
+	TestSearchAttributeBoolKey   = "CustomBoolField"
+	TestSearchAttributeIntValue1 = 1
+	TestSearchAttributeIntValue2 = 2
+
+	WorkerApiErrorDetails = "test-details"
+	WorkerApiErrorType    = "test-type"
+)
+
+type handler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	invokeHistoryMutex sync.Mutex
+	invokeHistory      map[string]int64
+	invokeData         sync.Map
+}
+
+func NewHandler() *handler {
+	return &handler{
+		invokeHistory: make(map[string]int64),
+		invokeData:    sync.Map{},
+	}
+}
+
+var TestDataAttributeVal1 = jsonObjValue("test-data-attribute-value1")
+
+var TestDataAttributeVal2 = jsonObjValue("test-data-attribute-value2")
+
+var TestInput = jsonObjValue("test-input-value")
+
+var TestOutput = jsonObjValue("test-output-value")
+
+var TestRecordEvent = jsonObjValue("test-record-event-value")
+
+var TestInterstateChannelValue = jsonObjValue("test-interstatechannel-value")
+
+func (h *handler) InvokeWorkerRPC(
+	_ context.Context,
+	request *dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
+	common.LogRequest("received worker rpc request, ", request)
+
+	flowContext := request.GetContext()
+	if flowContext.GetFlowId() == "" || flowContext.GetRunId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid context in the request")
+	}
+	if request.GetFlowType() != WorkflowType ||
+		(request.GetRpcName() != RPCName &&
+			request.GetRpcName() != RPCNameReadOnly &&
+			request.GetRpcName() != RPCNameError &&
+			request.GetRpcName() != RPCNameDeleteMissingTransactional &&
+			request.GetRpcName() != RPCNameDeleteMissingSignal &&
+			request.GetRpcName() != RPCNameSnapshot &&
+			request.GetRpcName() != RPCNameSnapshotDefault &&
+			request.GetRpcName() != RPCNameSnapshotTransactional &&
+			request.GetRpcName() != RPCNameSnapshotLocked &&
+			request.GetRpcName() != RPCNameMove) {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid rpc name: %s", request.GetRpcName()))
+	}
+
+	h.invokeData.Store(request.GetRpcName()+"-input", request.GetInput())
+	h.invokeData.Store(request.GetRpcName()+"-attributes", request.GetAttributes())
+	h.invokeData.Store(request.GetRpcName()+"-request", request)
+
+	if request.GetRpcName() == RPCNameSnapshot ||
+		request.GetRpcName() == RPCNameSnapshotDefault ||
+		request.GetRpcName() == RPCNameSnapshotTransactional ||
+		request.GetRpcName() == RPCNameSnapshotLocked {
+		return &dexpb.InvokeWorkerRPCResponse{Output: TestOutput}, nil
+	}
+	if request.GetRpcName() == RPCNameMove {
+		messageID := request.GetInput().GetStringValue()
+		response := &dexpb.InvokeWorkerRPCResponse{
+			Output: TestOutput,
+			DeleteFromChannel: []*dexpb.ChannelMessageDeletion{{
+				ChannelName: "source",
+				MessageId:   messageID,
+			}},
+		}
+		for _, message := range request.GetLoadedChannelMessages()["source"].GetMessages() {
+			if message.GetMessageId() == messageID {
+				response.PublishToChannel = []*dexpb.ChannelMessage{{
+					ChannelName: "destination",
+					Value:       message.GetValue(),
+				}}
+				break
+			}
+		}
+		return response, nil
+	}
+
+	if request.GetRpcName() == RPCNameReadOnly {
+		return &dexpb.InvokeWorkerRPCResponse{
+			Output: TestOutput,
+		}, nil
+	}
+	if request.GetRpcName() == RPCNameError {
+		workerErr := &dexpb.WorkerErrorResponse{
+			Detail:    WorkerApiErrorDetails,
+			ErrorType: WorkerApiErrorType,
+		}
+		st := status.New(codes.Unavailable, "worker RPC failed")
+		st, err := st.WithDetails(workerErr)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		return nil, st.Err()
+	}
+	if request.GetRpcName() == RPCNameDeleteMissingTransactional ||
+		request.GetRpcName() == RPCNameDeleteMissingSignal {
+		return &dexpb.InvokeWorkerRPCResponse{
+			Output: TestOutput,
+			UpsertAttributes: []*dexpb.AttributeWrite{
+				dataObjectWrite(TestDataAttributeKey, request.GetRpcName()),
+			},
+			RecordEvents: []*dexpb.KV{{Key: "deletion", Value: TestRecordEvent}},
+			DeleteFromChannel: []*dexpb.ChannelMessageDeletion{{
+				ChannelName: "source",
+				MessageId:   "missing",
+			}},
+			PublishToChannel: []*dexpb.ChannelMessage{{
+				ChannelName: "destination",
+				MessageId:   "worker-supplied",
+				Value:       TestInterstateChannelValue,
+			}},
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{{StepType: State2}},
+			},
+		}, nil
+	}
+
+	return &dexpb.InvokeWorkerRPCResponse{
+		Output: TestOutput,
+		StepDecision: &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{
+				{StepType: State2},
+			},
+		},
+		UpsertAttributes: []*dexpb.AttributeWrite{
+			indexedKeywordWrite(TestSearchAttributeKeywordKey, TestSearchAttributeKeywordValue2),
+			indexedIntWrite(TestSearchAttributeIntKey, TestSearchAttributeIntValue2),
+			dataObjectWrite(TestDataAttributeKey, "test-data-attribute-value2"),
+		},
+		RecordEvents: []*dexpb.KV{
+			{Key: "test-key", Value: TestRecordEvent},
+		},
+		PublishToChannel: []*dexpb.ChannelMessage{
+			{
+				ChannelName: TestInterStateChannelName,
+				Value:       TestInterstateChannelValue,
+			},
+		},
+	}, nil
+}
+
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	common.LogRequest("received waitFor request, ", request)
+
+	if err := validateStepContext(request.GetContext()); err != nil {
+		return nil, err
+	}
+
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	h.incrementInvokeHistory(request.GetStepType() + "_waitFor")
+
+	switch request.GetStepType() {
+	case State1:
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*dexpb.ChannelCondition{
+					{ChannelName: TestInterStateChannelName},
+				},
+			},
+			UpsertAttributes: []*dexpb.AttributeWrite{
+				indexedKeywordWrite(TestSearchAttributeKeywordKey, TestSearchAttributeKeywordValue1),
+				indexedIntWrite(TestSearchAttributeIntKey, TestSearchAttributeIntValue1),
+				indexedBoolWrite(TestSearchAttributeBoolKey, false),
+				dataObjectWrite(TestDataAttributeKey, "test-data-attribute-value1"),
+			},
+		}, nil
+	case State2:
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+}
+
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	common.LogRequest("received execute request, ", request)
+
+	if err := validateStepContext(request.GetContext()); err != nil {
+		return nil, err
+	}
+
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	h.incrementInvokeHistory(request.GetStepType() + "_execute")
+
+	switch request.GetStepType() {
+	case State1:
+		channelResults := request.GetConditionResults().GetChannelResults()
+		if len(channelResults) == 0 ||
+			channelResults[0].GetConditionStatus() != dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED ||
+			channelResults[0].GetChannelName() != TestInterStateChannelName {
+			return nil, status.Error(codes.InvalidArgument, "the channel should be received")
+		}
+		values := channelResults[0].GetValues()
+		if len(values) > 0 {
+			h.invokeData.Store(TestInterStateChannelName, values[0])
+		}
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
+					{StepType: State2},
+				},
+			},
+		}, nil
+	case State2:
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				CloseDecision: common.GracefulCompleteDecision(nil),
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+}
+
+func (h *handler) GetTestResult() common.TestResult {
+	h.invokeHistoryMutex.Lock()
+	invokeHistory := make(map[string]int64, len(h.invokeHistory))
+	for key, value := range h.invokeHistory {
+		invokeHistory[key] = value
+	}
+	h.invokeHistoryMutex.Unlock()
+
+	invokeData := make(map[string]interface{})
+	h.invokeData.Range(func(key, value interface{}) bool {
+		invokeData[key.(string)] = value
+		return true
+	})
+	return common.TestResult{InvokeHistory: invokeHistory, InvokeData: invokeData}
+}
+
+func (h *handler) incrementInvokeHistory(key string) {
+	h.invokeHistoryMutex.Lock()
+	defer h.invokeHistoryMutex.Unlock()
+	h.invokeHistory[key]++
+}
+
+func validateStepContext(stepContext *dexpb.Context) error {
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
+	}
+	return nil
+}
+
+func jsonObjValue(payload string) *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
+				Encoding: "json",
+				Payload:  []byte(payload),
+			},
+		},
+	}
+}
+
+func indexedKeywordWrite(key, value string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
+		Key: key,
+		Value: &dexpb.Value{
+			Kind: &dexpb.Value_StringValue{StringValue: value},
+		},
+		IndexConfig: &dexpb.IndexConfig{
+			Enable: true,
+			Type:   dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		},
+	}
+}
+
+func indexedIntWrite(key string, value int64) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
+		Key: key,
+		Value: &dexpb.Value{
+			Kind: &dexpb.Value_IntValue{IntValue: value},
+		},
+		IndexConfig: &dexpb.IndexConfig{
+			Enable: true,
+			Type:   dexpb.IndexType_INDEX_TYPE_INT,
+		},
+	}
+}
+
+func indexedBoolWrite(key string, value bool) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
+		Key: key,
+		Value: &dexpb.Value{
+			Kind: &dexpb.Value_BoolValue{BoolValue: value},
+		},
+		IndexConfig: &dexpb.IndexConfig{
+			Enable: true,
+			Type:   dexpb.IndexType_INDEX_TYPE_BOOL,
+		},
+	}
+}
+
+func dataObjectWrite(key, payload string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
+		Key:   key,
+		Value: jsonObjValue(payload),
+	}
+}

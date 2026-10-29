@@ -123,10 +123,12 @@ jobs:
         run: cargo build -p dexzd-server --bin dex-server-zd
       - uses: actions/setup-go@v7
         with:
-          go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
+          go-version-file: server-zd/integ/go.mod
+          cache-dependency-path: |
+            server-zd/integ/go.sum
+            sdk-go/go.sum
       - name: Attribute Sync integration tests against server-zd
-        working-directory: server
+        working-directory: server-zd/integ
         env:
           GOWORK: "off"
-        run: make zdAttributeSyncIntegTests dexServerZDBinary=../server-zd/target/debug/dex-server-zd
+        run: make zdAttributeSyncIntegTests dexServerZDBinary=../target/debug/dex-server-zd
