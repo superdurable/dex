@@ -460,7 +460,7 @@ server-zd 执行以下限制。被限制拒绝的请求会立即失败，不会�
 | --- | --- | --- |
 | **values.maxValueBytes** | 16777216（16 MiB） | 单个应用值序列化后的最大大小，例如 Attribute 值或 Channel 消息。更大的值会被拒绝。 |
 | **api.grpcMaxMessageBytes** | 33554432（32 MiB） | 收发的单条 gRPC 消息的最大大小。必须大于 **values.maxValueBytes**。 |
-| **limits.maxFlowStateBytes** | 67108864（64 MiB） | 一个 Flow run 的存储预算。它计入当前状态、Attribute 和 Channel 的值，以及为 time travel 保留的被替换值。server-zd 只对 Flow 启动、Client Attribute 写入、Client Channel 发布、Step heartbeat 和 Step 完成检查它，并且只在这条命令让 run 的当前存储增长并超出预算时检查。这样的 Flow 启动或 Client 写入以 RESOURCE_EXHAUSTED 失败。这样的 Step heartbeat 或完成会让 attempt 失败，不会重试。其他写入（例如 RPC 写入）不受检查，所以这个预算并不限制 run 的全部状态。 |
+| **limits.maxFlowStateBytes** | 67108864（64 MiB） | 一个 Flow run 的存储预算。它计入当前状态、Attribute 和 Channel 的值，以及为 time travel 保留的被替换值。server-zd 只对 Flow 启动、Client Attribute 写入、Client Channel 发布、Step heartbeat 和 Step 完成检查它，并且只在这条命令增加 run 的当前存储、而 run 的总存储超出预算时检查。这样的 Flow 启动或 Client 写入以 RESOURCE_EXHAUSTED 失败。这样的 Step heartbeat 或完成会让 attempt 失败，不会重试。其他写入（例如事务型 RPC 写入）不受检查，所以这个预算并不限制 run 的全部状态。 |
 | **limits.maxFlowIdBytes** | 1000 | Flow ID 的最大长度，以 UTF-8 字节计。 |
 | **limits.maxRequestIdsPerRun** | 1000 | 一个 run 为去重保留的最新请求 ID 数。使用更早请求 ID 的重试会作为新请求执行。 |
 | **limits.maxLongPollWaitersPerFlow** | 1000 | 一个 Flow 上的最大并发 wait 数，例如 WaitForStepCompletion 和 WaitForAttributeMatch 调用。超出的 wait 以 RESOURCE_EXHAUSTED 失败。 |
