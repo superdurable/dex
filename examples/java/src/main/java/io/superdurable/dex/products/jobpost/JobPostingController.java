@@ -18,7 +18,6 @@ package io.superdurable.dex.products.jobpost;
 
 import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.Client;
-import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.WaitForAttributeOptions;
 import org.springframework.http.ResponseEntity;
@@ -58,7 +57,6 @@ public class JobPostingController {
                 .addAttribute(flow.jobDescription, description)
                 .addAttribute(flow.lastUpdateTimeMillis, System.currentTimeMillis())
                 .addAttribute(flow.updateVersion, 0)
-                .configOverride(FlowConfig.newBuilder().continueAsNewThreshold(10).build())
                 .build();
         client.startFlow(flow, flowId, null, options);
         return ResponseEntity.ok(String.format("started workflowId: %s", flowId));

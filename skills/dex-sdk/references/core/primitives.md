@@ -22,15 +22,15 @@ When multiple **AnyOf** alternatives are ready in one evaluation, Dex selects th
 
 Use multiple next Steps for parallel work. Use cancellation deliberately when a first-winner branch makes siblings unnecessary.
 
-Step durability resolves in this order: a method override, FlowConfig, then **SYNC**. WaitFor and Execute can override durability independently. Applications dominated by short idempotent operations can set a Flow-level **ASYNC** default and override known long-running methods to **SYNC**.
+Step durability resolves in this order: a method override, FlowConfig, then **SYNC**. WaitFor and Execute can override durability independently. Applications dominated by short idempotent operations can set a Flow-level **ASYNC** default and override long-running or replay-sensitive methods to **SYNC**. **ASYNC** advances before the commit, so a node failure can replay a recent result.
 
 Every **WaitFor** and **Execute** call receives ordinary Attributes and Channel size metadata. AttributeMap values and pending Channel messages require method-specific selections in StepOptions. Select the whole map only when the method must enumerate instances; otherwise select exact instances. WaitFor and Execute use independent snapshots. Execute loads after Wait consumption, and retries reuse the first snapshot for that logical method call. Attribute locks do not load state.
 
-A long-running regular attempt must emit an explicit heartbeat or Stream message before its heartbeat timeout. A heartbeat value is a retry checkpoint. An explicit valueless heartbeat clears the checkpoint; a Stream message preserves its current state. The local phase of **ASYNC** durability ignores heartbeats but still emits Stream messages.
+A long-running attempt must emit an explicit heartbeat or Stream message before its heartbeat timeout. A heartbeat value is a retry checkpoint. An explicit valueless heartbeat clears the checkpoint; a Stream message preserves its current state.
 
 For an LLM call that may remain healthy without output for more than one minute, tell the application developer to raise **HeartbeatTimeout** above its one-minute default. Size it to the longest acceptable silent interval, and use the method timeout to cap the whole attempt. Do not add periodic heartbeats solely to mask provider silence; they prove only that application code is running, not that the upstream request is progressing.
 
-Read [StepOptions](step-options.md) for the ASYNC local phase, fallback, classification heuristic, shared retry budget, timeout boundary, and full policy checklist.
+Read [StepOptions](step-options.md) for the durability trade-off, shared retry budget, timeout boundary, and full policy checklist.
 
 Docs: https://docs.superdurable.io/primitives/step
 

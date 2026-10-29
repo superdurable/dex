@@ -84,13 +84,13 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 **SYNC** durability 会将 Step completion 同步记录到 Dex Server，并持久化到 storage。
 
-**ASYNC** durability 会异步完成这件事。每隔几秒，Dex Server 会 flush 累积的 Step completion 并持久化。它减少了 backend database 和 server 的大量开销，因此吞吐量高得多。
+**ASYNC** durability 会异步完成这件事。Dex Server 会在 Step completion 持久化之前就开始后续工作，并在大约 20 毫秒内批量提交这些 completion。它减少了 storage 和 server 的大量开销，因此吞吐量高得多。
+
+如果某个 Dex Server 节点在提交之前故障，最近的 **ASYNC** 结果会丢失。这个 method 会再次运行，基于该结果开始的后续工作也会再次运行。**ASYNC** method 以及它启动的工作都应具备幂等性。
 
 **SYNC** 是默认值。Dex 按这个顺序确定 durability：**StepOptions** 中的 method override、Flow 的 **FlowConfig**，最后是 **SYNC**。
 
-**SYNC** 的每次 attempt 都是 regular attempt。默认 method attempt timeout 是两小时，默认 heartbeat timeout 是一分钟。
-
-**ASYNC** 先执行一个短暂的 local 阶段，最多七秒和三次 attempt；如果 Step 仍然失败，再 fallback 到 regular attempt。用户设置的更短 retry duration 或更少 attempt 仍然生效。Local 阶段忽略 method timeout 和 heartbeat 设置。Fallback 之后，Dex 使用剩余 retry budget，并采用同样的两小时 method attempt 和一分钟 heartbeat 默认值。
+Durability 只改变 Dex Server 持久化结果的时机。两种模式下，retry policy、method timeout 和 heartbeat 设置都作用于每一次 attempt。默认 method attempt timeout 是两小时，默认 heartbeat timeout 是一分钟。
 
 两种 durability mode 的默认 retry total duration 都是四小时。显式设置的 retry duration 可以更短或更长。
 
@@ -168,7 +168,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ## Heartbeat {#heartbeat}
 
-在 regular attempt 中，Worker 必须在 **HeartbeatTimeout** 到期前发送 heartbeat 或 [Stream message](/primitives/stream)。换句话说，发送 Stream message 就是 implicit heartbeat。
+在每次 attempt 中，Worker 必须在 **HeartbeatTimeout** 到期前发送 heartbeat 或 [Stream message](/primitives/stream)。换句话说，发送 Stream message 就是 implicit heartbeat。
 
 **HeartbeatTimeout** 默认是一分钟。默认允许的最小值是 10 秒。
 
@@ -176,9 +176,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 如果要在一个持续发送 heartbeat 的 Step 中等待外部系统，使用 [Polling](/design-patterns/polling) 模式。
 
-Heartbeat 可以持久化 checkpoint value。下一次 regular attempt 会收到最新值，并从那里继续。显式发送不带 value 的 heartbeat 会清除之前的 checkpoint。Stream message 产生的 implicit heartbeat 会保留最新的显式状态，包括已经显式清空的状态。
-
-**ASYNC** durability 的 local 阶段忽略 heartbeat output，也不会把 checkpoint 传给 fallback 后的 regular attempt。Local 阶段仍会发送 Stream message。
+Heartbeat 可以持久化 checkpoint value。下一次 attempt 会收到最新值，并从那里继续。显式发送不带 value 的 heartbeat 会清除之前的 checkpoint。Stream message 产生的 implicit heartbeat 会保留最新的显式状态，包括已经显式清空的状态。
 
 <SdkTabs
   examples={{

@@ -57,7 +57,7 @@ interval + call timeout <= HeartbeatTimeout - 10s
 
 **ExecuteMethodTimeout** 和 **TotalDuration** 使用同一个最长等待时间。**ExecuteMethodTimeout** 默认是两小时，server 没有硬性上限。**ExecuteRetry** 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。
 
-**ASYNC** durability 的 local 阶段会忽略 heartbeat。如果 Flow 默认使用 **ASYNC**，请把 polling Step 的 **ExecuteDurability** 设为 **SYNC**。见 [Step options](/primitives/step/step-options#durability)。
+Polling Step 可以使用任一种 durability。两种模式下，heartbeat、checkpoint 和 timeout 的行为相同。见 [Step options](/primitives/step/step-options#durability)。
 
 ## 等待超时之后
 

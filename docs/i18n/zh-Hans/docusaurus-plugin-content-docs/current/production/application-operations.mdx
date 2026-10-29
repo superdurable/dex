@@ -98,7 +98,8 @@ dexcli flow history FLOW_ID --run-id RUN_ID --all --no-hydrate
 ~~~
 
 **dexcli flow inspect** 会返回当前 Flow 摘要和可用状态。**dexcli flow history** 会返回
-语义事件。使用 **--all** 获取每一页历史。若 payload 可能很大或敏感，请使用
+语义事件。使用 **--all** 获取每一页历史。Dex Server 只保留
+[最近的 history 窗口](/production/server-zd-operations#history-window)，因此 **--all** 返回的是保留的事件。若 payload 可能很大或敏感，请使用
 **--no-hydrate**：输出会保留 blob reference，而不会获取其中内容。
 
 ### 5. 使用 Dex SDK skill 进行调查

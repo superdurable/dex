@@ -28,7 +28,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/examples/go/server/httputil"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
 type controller struct {
@@ -94,9 +93,6 @@ func (controller *controller) create(request *gin.Context) {
 				descriptionAttr,
 				lastUpdateAttr,
 				updateVersionAttr,
-			},
-			ConfigOverride: &sdk.FlowConfig{
-				ContinueAsNewThreshold: ptr.Any(int32(10)),
 			},
 		},
 	)

@@ -507,7 +507,7 @@ Messages can arrive before a Step starts waiting. Dex Server keeps them in the C
 
 Dex assigns a UUIDv7 message ID when it accepts each publication. An RPC can list every pending message in FIFO order and delete one by ID. Listing does not consume messages. Only a message that is still pending can be deleted; a concurrent Step consumption or deletion returns the Channel-message-not-found error.
 
-This is queue state, not Flow history. After a Step consumes a message, it disappears from the Channel even though the publication and consumption remain observable in Flow history until retention removes them.
+This is queue state, not Flow history. After a Step consumes a message, it disappears from the Channel even though the publication and consumption remain observable in recent [Flow history](/production/server-zd-operations#history-window).
 
 Every Step method, timeout handler, and RPC always receives Channel size metadata. It must explicitly load pending messages before reading their IDs or Values. Deleting a message whose ID is already known does not require loading it. **StepOptions** selects state separately for **WaitFor** and **Execute**; **FlowTimeoutHandlerOptions** selects state for the timeout handler. Loading a Channel creates one invocation snapshot and does not consume messages. A loaded empty Channel returns an empty list; reading pending messages without loading the Channel is a usage error.
 

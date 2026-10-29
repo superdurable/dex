@@ -449,23 +449,20 @@ Worker 的内存。同一个 Dex Server 内的 Flow 类型名称必须唯一。a
 
 Dex 在 matching dispatch 等待时间内寻找可用 Worker。如果没有 Worker，Step 会收到
 可重试的 unavailable 错误，并消耗一次 Step 重试。RPC 调用方则直接收到
-**Unavailable** 错误。普通 dispatch
-默认等待 10 秒，其中有已连接 stream 的黏性队列最多等待 5 秒。需要保留执行时间的调用使用更短的等待。
+**Unavailable** 错误。dispatch
+默认等待 10 秒，其中有已连接 stream 的黏性队列最多等待 5 秒。等待时间不会超过这次 attempt 的 method deadline。
 等待设置见 [Pull Worker 分发](/production/server-zd-operations#pull-worker-dispatch)。
 
 如果拉取模式 Worker 注册了该 Flow 类型，却没有请求的 Step 类型或 RPC 名称，
 它会在运行 handler 前拒绝任务。Dex 会立即改用 Flow 类型队列，并在本次分配中
 排除该 Worker，即使 Flow 原本黏附于它。重新分配不会消耗 Step attempt。
 如果在 dispatch 等待时间内没有可处理任务的 Worker，Step 会按其失败和重试策略
-收到注明 Step 或 RPC 名称的错误；RPC 调用方会在最多等待常规 dispatch 等待时间
+收到注明 Step 或 RPC 名称的错误；RPC 调用方会在最多等待 dispatch 等待时间
 （10 秒）后直接收到该错误。此重新分配需要支持它的 Dex Server 版本。面对旧版
 Server，Worker 与之前一样返回未注册错误。
 
 任务至少投递一次。如果 Worker 在 Dex 收到任何输出前断开连接，同一个调用可能再次分配。
 外部副作用应具备幂等性，例如使用 Flow ID 和 Step execution ID 作为幂等键。
-
-使用拉取模式 Worker 时，**ASYNC** durability 的本地阶段只有一次 attempt；后续 attempt
-会收到该阶段结束后记录的上一次 heartbeat。
 
 ## 容量和关闭
 
@@ -517,12 +514,12 @@ Step 占用其余容量时，预留槽位可让 Flow 保持响应。
 
 RPC 任务包括 API 直接调用和事务型 **InvokeWorkerRPC** 任务。
 RPC 和 Step 的处理函数共同计入任务上限。当忙碌处理函数数量达到任务上限减去预留值时，
-Worker 会以 **NO_CAPACITY** 拒绝所有 Step 任务，包括 WaitFor、Execute 和本地（ASYNC 第一阶段）尝试。RPC 任务可以使用全部容量。
+Worker 会以 **NO_CAPACITY** 拒绝所有 Step 任务，包括 WaitFor 和 Execute。RPC 任务可以使用全部容量。
 例如，上限为八、预留值为二时，只有忙碌处理函数少于六个，才能启动新的 Step 任务。
 
 Dex 会尝试其他 Worker，不消耗 Step 尝试次数。如果所有 Worker 都持续达到 Step 容量上限，
 Step 最多等待到分发等待时间结束，然后收到 **NO_WORKER_AVAILABLE**、消耗一次尝试并遵循其重试策略，
-与所有 Worker 都已满载时相同。本地尝试等待本地分发等待时间，然后按照其策略回退。
+与所有 Worker 都已满载时相同。
 每个队列仍保留可用的空闲流。队列因预留 RPC 容量拒绝 Step 后，
 会多保留一条空闲 stream，直到最后一次拒绝后的 30 秒。其他队列维持配置的空闲数量。
 所有任务槽位都忙碌时，Worker 不会新建这条额外 stream。Step 积压较多的 Worker

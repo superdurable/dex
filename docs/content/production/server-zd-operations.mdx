@@ -510,6 +510,47 @@ already recorded request ID returns its earlier reply. Other RPCs still run
 their handlers on a closed run that is not yet purged, so they can read it.
 server-zd rejects any write that such a handler returns.
 
+## History window {#history-window}
+
+server-zd keeps a recent window of each run's history. The window holds the
+**FlowStart** event and about the newest 10,000 semantic events. Older events
+are pruned in chunks of 1,000. The window also shrinks when the superseded
+values kept for time travel exceed 256 MiB.
+
+History reads, such as **dexcli flow history --all**, return only the retained
+events. [Time travel](/primitives/client/advanced#time-travel) can target only
+a point inside the window. Time travel to the beginning is always available.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **history.windowSemanticEvents** | 10000 | Approximate number of the newest semantic events kept in the window. Pruning starts when the window exceeds this value plus one prune chunk. A semantic event can appear as several CLI history rows. |
+| **history.pruneChunkSize** | 1000 | Old semantic events pruned at a time. Must not exceed **windowSemanticEvents**. |
+| **history.maxRetainedSupersededBytes** | 268435456 (256 MiB) | Most superseded value bytes kept for time travel inside the window. |
+
+Each run records these values when it starts. A new value applies only to runs
+that start after the node restarts with it.
+
+## Limits {#limits}
+
+server-zd enforces these limits. A request that a limit rejects fails at once;
+it does not wait for capacity. The request ID limit never rejects a request; it
+evicts the oldest request IDs instead.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **values.maxValueBytes** | 16777216 (16 MiB) | Largest serialized application value, such as an Attribute value or a Channel message. A larger value is rejected. |
+| **api.grpcMaxMessageBytes** | 33554432 (32 MiB) | Largest incoming or outgoing gRPC message. Must exceed **values.maxValueBytes**. |
+| **limits.maxFlowStateBytes** | 67108864 (64 MiB) | Storage budget of one Flow run. It counts current state, Attribute and Channel values, and the superseded values kept for time travel. server-zd checks it only for a Flow start, a Client Attribute write, a Client Channel publish, a Step heartbeat, and a Step completion, and only when that command increases the run's current storage while its total storage exceeds the budget. Such a Flow start or Client write fails with RESOURCE_EXHAUSTED. Such a Step heartbeat or completion fails the attempt without retry. Other writes, such as transactional RPC writes, are not checked, so the budget does not bound all run state. |
+| **limits.maxFlowIdBytes** | 1000 | Longest Flow ID, in UTF-8 bytes. |
+| **limits.maxRequestIdsPerRun** | 1000 | Newest request IDs that one run keeps for deduplication. A retry with an older request ID runs as a new request. |
+| **limits.maxLongPollWaitersPerFlow** | 1000 | Most concurrent waits on one Flow, such as WaitForStepCompletion and WaitForAttributeMatch calls. A wait beyond it fails with RESOURCE_EXHAUSTED. |
+| **limits.maxLongPollWaitersPerNode** | 100000 | Most concurrent waits on the node. A wait beyond it fails with RESOURCE_EXHAUSTED. |
+| **limits.maxInFlightRpcsPerNode** | 1000 | Most shared transactional or locking RPC tasks in flight on the node. A new request ID beyond it fails with RESOURCE_EXHAUSTED. |
+
+Each run records **values.maxValueBytes**, **limits.maxFlowStateBytes**, and
+**limits.maxRequestIdsPerRun** when it starts. A new value applies only to runs that start after the node
+restarts with it.
+
 ## Attribute Store sync {#attribute-store}
 
 server-zd v0.1.3 or later can sync Attributes to PostgreSQL. See
@@ -522,8 +563,7 @@ store's tables.
 
 - Only **type: postgres** is supported. Any other store type fails validation,
   so startup fails.
-- Step, RPC, and SetAttributes commits never wait for the table write. server-zd
-  has no seven-second local phase.
+- Step, RPC, and SetAttributes commits never wait for the table write.
 - Rows normally appear within a second of the commit. Treat the table as
   eventually consistent.
 - While a store is unavailable, Flows keep running. When the store recovers,
@@ -807,7 +847,7 @@ matching:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| **matching.dispatchWait** | 10s | Total time to find a Worker for a regular attempt. |
+| **matching.dispatchWait** | 10s | Total time to find a Worker for one attempt. |
 | **matching.stickyWait** | 5s | Time to try a connected sticky Worker before using the Flow type queue. Must not exceed **dispatchWait**. When no stream for the previous app Worker ID is connected, server-zd uses the Flow type queue at once. |
 | **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. |
 | **matching.maxStreams** | 100000 | Most registered Worker streams on the node. |

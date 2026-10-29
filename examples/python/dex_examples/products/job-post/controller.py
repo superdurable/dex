@@ -18,7 +18,7 @@ import time
 from dataclasses import asdict
 from datetime import timedelta
 
-from dex import AttributeMatch, FlowConfig, StartFlowOptions, WaitForAttributeOptions
+from dex import AttributeMatch, StartFlowOptions, WaitForAttributeOptions
 from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
@@ -39,10 +39,7 @@ def create_job_post_blueprint(app_state: ExampleApp) -> Blueprint:
         flow = app_state.job_post
         flow_id = f"job_id_{int(time.time())}"
         options = (
-            StartFlowOptions(
-                timeout=timedelta(hours=24),
-                config_override=FlowConfig(continue_as_new_threshold=10),
-            )
+            StartFlowOptions(timeout=timedelta(hours=24))
             .with_attribute(flow.title, unquote(required_query("title")))
             .with_attribute(
                 flow.job_description,

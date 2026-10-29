@@ -16,20 +16,22 @@ The first two waits observe durable state. They are appropriate for a client-vis
 
 ## Choose the timeout boundary
 
-**RequestTimeout** is the SDK call's total budget. It covers every transparent transport reattachment. A positive value creates a local transport deadline for each attempt and returns a typed request-timeout error when the total budget expires. An already accepted wait remains available for a later call using the same logical Request ID.
+**RequestTimeout** is the SDK call's total budget. It covers every transparent transport reattachment. A positive value creates a local transport deadline for each attempt and returns a typed request-timeout error when the total budget expires. A later call for the same condition waits again from the current state.
 
 Leave **RequestTimeout** at 0 for an ordinary durable wait. The wait is then unlimited until it succeeds, the Flow closes, or the caller cancels it. At an HTTP or admission boundary, set the application's response budget explicitly.
 
-The server also caps one transport attempt. That cap is internal. The SDK reattaches with the same logical Request ID, so the cap does not reset **RequestTimeout** or end the accepted wait.
+The server also caps one transport attempt. That cap is internal. The SDK reattaches with the same logical Request ID, so the cap does not reset **RequestTimeout**.
 
-**InternalHandlerTimeout** is an advanced capacity control. A request timeout or cancellation ends the SDK call but does not end an accepted wait. An abandoned wait therefore stays registered on the Flow until the condition matches or the Flow closes.
+Each waiting call holds one wait slot on the Flow while it waits. A result, request timeout, cancellation, or caller disconnect frees the slot. Abandoned callers therefore do not accumulate.
 
-Set **InternalHandlerTimeout** to a positive value only when abandoned waits can accumulate. When it expires, Dex ends the accepted wait. An active SDK call transparently registers its wait again and keeps waiting. Prefer a value comfortably longer than normal **RequestTimeout** values and expected reconnect gaps. Keep it at 0 when waits reliably complete or the Flow closes before abandoned waits become a capacity risk.
+Dex Server limits concurrent waits on one Flow. server-zd allows 1,000 by default, set by **limits.maxLongPollWaitersPerFlow**. A wait beyond the limit fails with a resource-exhausted error. Keep the number of concurrent callers per Flow below it. See [server-zd limits](/production/server-zd-operations#limits).
+
+**InternalHandlerTimeout** is deprecated. Dex rejects a negative value and otherwise ignores it. Leave it unset.
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
 | **RequestTimeout** | 0 | Total caller-visible SDK budget. Zero waits until success, Flow closure, or caller cancellation. |
-| **InternalHandlerTimeout** | 0 | Reclaims abandoned accepted waits before they indefinitely hold in-flight slots. An active call registers its wait again after each expiry. |
+| Concurrent waits per Flow | 1,000 | Server limit **limits.maxLongPollWaitersPerFlow**. A wait beyond it fails with a resource-exhausted error. |
 | Transport attempt cap | Server-managed | Causes transparent reattachment only. It is not an application-facing timeout. |
 
 ## Related

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.56.1 - 2026-10-29
+
+- Correct server-zd behavior descriptions; baselines stay unchanged. ASYNC durability has no local phase: it batches commits within about 20 ms and advances before the commit, so a node failure can replay a recent result and the work started from it. Every attempt uses the same retry, method-timeout, and heartbeat settings and heartbeat checkpoints as SYNC. Remove the five-second heuristic, the seven-second local phase, its fallback and local dispatch wait, and the polling SYNC override, and frame the durability choice as replay risk versus latency. Synchronize the bundle and plugin manifests at 0.56.1.
+- Describe Internal handler timeout as deprecated and ignored in Core and the five language references. Remove accepted durable waits and handler generations, and document that a waiting call frees its slot when it returns or disconnects, with the 1,000-wait per-Flow limit and its resource-exhausted error. Remove handler rollover, and state that server-zd does not use a wait's Request ID instead of deriving one.
+- Document the server-zd limits for values, gRPC messages, Flow state, Flow IDs, request-ID deduplication, concurrent waits, and in-flight RPCs, the recent history window, and that time travel creates a new run attempt that must target a point inside that window or the beginning. The Flow state budget is checked only when a Flow start, Client Attribute write or Channel publish, Step heartbeat, or Step completion increases current storage while total storage exceeds it; transactional RPC writes are not checked. The request-ID limit evicts old IDs instead of rejecting.
+
 ## 0.56.0 - 2026-10-28
 
 - Advance the SDK baselines to their v1.26.0 tags, the CLI baseline to cli-v1.26.1 (cli-v1.26.0 was tagged without binaries), and refresh pinned source links. Add `DEX_WEB_BASELINE=web/v1.26.0`, because Dex Web is now released as its own standalone binary and image. Point `DEX_SERVER_BASELINE` at `server-zd/v0.1.11`, the server-zd release bundled by cli-v1.26.1, since the Go Server's `server/v1.25.0` source no longer exists on main. Synchronize the bundle and plugin manifests at 0.56.0.

@@ -84,13 +84,13 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 **SYNC** durability records the Step completion in Dex Server and persists it to storage synchronously.
 
-**ASYNC** durability does this asynchronously. Every few seconds, Dex Server flushes accumulated Step completions and persists them. It provides much higher throughput because it removes a lot of overhead from the backend database and server.
+**ASYNC** durability does this asynchronously. Dex Server starts the next work before the Step completion is persisted, and it batches these commits within about 20 milliseconds. It provides much higher throughput because it removes a lot of overhead from storage and the server.
+
+If a Dex Server node fails before the commit, a recent **ASYNC** result is lost. The method runs again, and so does any later work that started from that result. Make **ASYNC** methods and the work they start idempotent.
 
 **SYNC** is the default. Dex resolves durability in this order: a method override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**.
 
-**SYNC** runs every attempt as a regular attempt. Its default method attempt timeout is two hours, and its default heartbeat timeout is one minute.
-
-**ASYNC** first runs a short local phase of at most seven seconds and three attempts, then falls back to regular attempts if the Step still fails. A smaller user retry duration or attempt limit still applies. The local phase ignores the method timeout and heartbeat settings. After the fallback, Dex applies the remaining retry budget and the same two-hour method attempt and one-minute heartbeat defaults.
+Durability changes only when Dex Server persists a result. Retry policy, method timeout, and heartbeat settings apply to every attempt in both modes. The default method attempt timeout is two hours, and the default heartbeat timeout is one minute.
 
 The default total retry duration is four hours for both durability modes. An explicit retry duration may be shorter or longer.
 
@@ -168,7 +168,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ## Heartbeat {#heartbeat}
 
-During a regular attempt, the Worker must send a heartbeat or a [Stream message](/primitives/stream) before the **HeartbeatTimeout** expires. In other words, sending a Stream message is an implicit heartbeat.
+During an attempt, the Worker must send a heartbeat or a [Stream message](/primitives/stream) before the **HeartbeatTimeout** expires. In other words, sending a Stream message is an implicit heartbeat.
 
 **HeartbeatTimeout** defaults to one minute. The default allowed minimum is 10 seconds.
 
@@ -176,9 +176,7 @@ For example, an **Execute** method timeout of 60 seconds and a **HeartbeatTimeou
 
 To wait for an external system in one heartbeating Step, use the [Polling](/design-patterns/polling) pattern.
 
-A heartbeat can persist a checkpoint value. The next regular attempt receives the latest value and can resume from it. An explicit heartbeat without a value clears the previous checkpoint. An implicit heartbeat from a Stream message preserves the latest explicit state, including an explicitly cleared state.
-
-The local phase of **ASYNC** durability ignores heartbeat output and does not pass a checkpoint to the fallback regular attempts. Stream messages are still emitted during the local phase.
+A heartbeat can persist a checkpoint value. The next attempt receives the latest value and can resume from it. An explicit heartbeat without a value clears the previous checkpoint. An implicit heartbeat from a Stream message preserves the latest explicit state, including an explicitly cleared state.
 
 <SdkTabs
   examples={{

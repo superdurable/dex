@@ -56,7 +56,7 @@ Do not duplicate these limits in code. The Step does not compute a deadline. Nei
 
 Use one maximum-wait value for both **ExecuteMethodTimeout** and **TotalDuration**. **ExecuteMethodTimeout** defaults to two hours, and the server has no hard cap. Give **ExecuteRetry** a few attempts with backoff for transient errors and Worker crashes.
 
-The local phase of **ASYNC** durability ignores heartbeats. When the Flow default is **ASYNC**, set the polling Step's **ExecuteDurability** to **SYNC**. See [Step options](/primitives/step/step-options#durability).
+The polling Step can use either durability. Heartbeats, checkpoints, and timeouts behave the same in both modes. See [Step options](/primitives/step/step-options#durability).
 
 ## When the wait expires
 

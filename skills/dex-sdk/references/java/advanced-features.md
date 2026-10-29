@@ -71,9 +71,9 @@ Use `withCancelingSiblingSteps` for branches created by the same predecessor and
 
 Set a short-operation default through `StartFlowOptions.newBuilder().configOverride(FlowConfig.newBuilder().stepDurability(StepDurability.ASYNC).build())`. Leave ordinary methods at `StepDurability.DEFAULT`. Override known long methods with `StepOptions.Builder.waitForDurability(StepDurability.SYNC)` or `executeDurability(StepDurability.SYNC)`; the phases are independent.
 
-`StepOptions` also owns method timeouts, heartbeat timeout, retries, selected loads, locks, and failure routes. Do not infer durability from a long method timeout. Read [core StepOptions guidance](../core/step-options.md) for the five-second heuristic, fallback, and child-deadline requirement.
+`StepOptions` also owns method timeouts, heartbeat timeout, retries, selected loads, locks, and failure routes. Do not infer durability from a long method timeout. Read [core StepOptions guidance](../core/step-options.md) for the replay-risk versus latency trade-off and the child-deadline requirement.
 
-Choose Step durability from workload semantics. Async execution can optimize short handlers before falling back, but shares the logical retry budget. Method timeout and heartbeat behavior can differ between phases; verify the installed SDK docs and test Worker replacement.
+Choose Step durability from workload semantics. Async and Sync attempts use the same retry budget, method timeout, and heartbeat settings. Async can replay a recent result after a node failure, so keep side effects idempotent and test Worker replacement.
 
 ## BlobCache and Attribute Store
 

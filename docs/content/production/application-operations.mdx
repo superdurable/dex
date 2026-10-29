@@ -113,7 +113,9 @@ dexcli flow history FLOW_ID --run-id RUN_ID --all --no-hydrate
 
 **dexcli flow inspect** returns the current Flow summary and state when it is
 available. **dexcli flow history** returns semantic events. Use **--all** to
-retrieve every history page. Use **--no-hydrate** when payloads may be large or
+retrieve every history page. Dex Server keeps only a
+[recent history window](/production/server-zd-operations#history-window), so
+**--all** returns the retained events. Use **--no-hydrate** when payloads may be large or
 sensitive: the output retains blob references instead of fetching their
 contents.
 

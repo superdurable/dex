@@ -403,7 +403,7 @@ Non-transactional RPC 遇到 missing deletion 时会把它当作 no-op，仍然 
 
 RPC timeout 限制一次 Worker handler invocation。
 
-所有 SDK 都在 RPC definition 上声明 timeout。Go 将静态 **RPCOptions** 传给 **DefineRPC**。Client invocation 不能覆盖它，但 caller context 可以更早停止等待。应用不设置 timeout 时，Dex Server 使用自己的 default。默认最大值为 60 秒。
+所有 SDK 都在 RPC definition 上声明 timeout。Go 将静态 **RPCOptions** 传给 **DefineRPC**。Client invocation 不能覆盖它，但 caller context 可以更早停止等待。应用不设置 timeout 时，Dex Server 使用默认值 60 秒，由 **api.defaultRpcTimeout** 设置。显式设置的 timeout 没有上限。
 
 <SdkTabs
   examples={{
