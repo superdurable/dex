@@ -44,8 +44,8 @@ service-link 变量。
 | **--tls-ca-file** | **DEX_WEB_TLS_CA_FILE** | 空；加入系统根证书的 PEM 文件。需要 **--tls**。 |
 | **--tls-server-name** | **DEX_WEB_TLS_SERVER_NAME** | 空；覆盖用于校验 server 证书的名称。需要 **--tls**。 |
 | **--flow-service-credential-file** | **DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE** | 空；包含 Dex Web 发给 FlowService 的 bearer token 的文件。 |
-| **--start-flow-worker-target-pull** | **DEX_WEB_START_FLOW_WORKER_TARGET_PULL** | **false**；见[启动 Flow](#启动-flow)。 |
-| **--start-flow-worker-target-headless** | **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** | **false**；为兼容现有脚本而保留，server-zd 会忽略它。 |
+| **--start-flow-worker-target-pull** | **DEX_WEB_START_FLOW_WORKER_TARGET_PULL** | **false**；启动请求未指定 Worker target 时选择 pull target。server-zd 始终使用 pull。 |
+| **--start-flow-worker-target-headless** | **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** | **false**；只对 address target 生效，而 server-zd 无法向 address target 分发。 |
 
 credential 文件只包含一个 bearer token，前后的空白会被忽略。文件缺失或为空时启动失败。
 文件之后变空或不可读时，RPC 会失败，直到文件恢复。Dex Web 最多每秒检查一次文件中的新 token，
@@ -157,7 +157,7 @@ Go analyzer 从通过 **DefineStartStep** 注册的 Step 输入类型生成 sche
 
 Server 会重新加载当前 definition revision，并在调用 **StartFlow** 前完整验证 input。未知 object field、缺失 required field、非法 null，以及 type、enum、range、datetime、array 或 map 错误都会被拒绝。Server 选择 start Step type 并生成 request ID。
 
-**POST /api/v2/start** 请求不需要 Worker target，Dex Web 会在 pull Worker 上启动 Flow。**workerTargetPull: true** 会被接受，**workerTargetPull: false** 会被拒绝。Dex Web 启动 Flow 前不会检查 pull Worker 是否已注册，因为注册状态在 dispatch 前可能变化。参见[对接 server-zd](#run-against-server-zd)。
+**POST /api/v2/start** 请求不需要 Worker target，Dex Web 会在 pull Worker 上启动 Flow。**workerTargetPull: true** 会被接受。没有 address 的 **workerTargetPull: false** 返回 HTTP 400。Dex Web 启动 Flow 前不会检查 pull Worker 是否已注册，因为注册状态在 dispatch 前可能变化。参见[对接 server-zd](#run-against-server-zd)。
 
 ## Worker 路由
 
@@ -254,7 +254,7 @@ server-zd YAML 文件，可以覆盖已关闭 Flow 的保留时间、Stream 或�
 模式已经把每个写入刷到磁盘。早期 release 优雅停止后留下的目录在所有模式下都可以使用。
 
 ~~~bash
-dexcli dev --engine zd --flow-rendering-dir ./build
+dexcli dev --flow-rendering-dir ./build
 ~~~
 
 在 server-zd 上，Start Flow 只提供 pull Worker，详见[启动 Flow](#启动-flow)。

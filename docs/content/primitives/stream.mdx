@@ -346,4 +346,4 @@ The server also limits the size of each Stream message. The default is 100 KiB.
 
 ### Best-effort storage
 
-The Stream Store uses memory. Memory contents disappear when the server process restarts. Trimming, disabled storage, or capacity pressure can also remove or reject messages.
+The Stream Store keeps messages in memory when **streamStore.backend** is **memory**, which **dexcli dev** sets. The default for a production server is **disabled**, which drops Stream writes. See [Streams](/production/server-zd-operations#streams). Memory contents disappear when the server process restarts. Trimming or capacity pressure can also remove or reject messages.

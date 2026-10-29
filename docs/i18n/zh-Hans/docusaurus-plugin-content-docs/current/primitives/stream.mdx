@@ -290,4 +290,4 @@ Server 还会限制单条 Stream message 的大小，默认上限为 100 KiB。
 
 ### Best-effort storage
 
-Stream Store 使用 memory backend。memory backend 会在 server 进程重启时丢失全部内容。trim、禁用 Stream Store 或容量压力也可能删除或拒绝消息。
+当 **streamStore.backend** 为 **memory** 时，Stream Store 把消息保存在内存中；**dexcli dev** 会设置它。生产 server 的默认值是 **disabled**，此时 Stream 写入会被丢弃。见 [Stream](/production/server-zd-operations#streams)。memory backend 会在 server 进程重启时丢失全部内容。trim 或容量压力也可能删除或拒绝消息。

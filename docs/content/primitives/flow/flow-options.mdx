@@ -45,14 +45,7 @@ def example_start_flow_options() -> StartFlowOptions:
     return StartFlowOptions(
         timeout=timedelta(minutes=30),
         timeout_policy=FlowTimeoutPolicy.HANDLER,
-        start_delay=timedelta(minutes=5),
         id_reuse_policy=IdReusePolicy.DISALLOW,
-        retry_policy=RetryPolicy(
-            initial_interval=timedelta(minutes=1),
-            backoff_coefficient=2,
-            maximum_interval=timedelta(minutes=10),
-            maximum_attempts=3,
-        ),
         config_override=FlowConfig(step_durability=StepDurability.SYNC),
         ignore_already_started=True,
         request_id="start-order-123",
@@ -69,20 +62,12 @@ func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
 		return sdk.StartFlowOptions{}, err
 	}
 	timeout := 30 * time.Minute
-	startDelay := 5 * time.Minute
 	requestID := "start-order-123"
 	stepDurability := sdk.StepDurabilitySync
 	return sdk.StartFlowOptions{
 		Timeout:       &timeout,
 		TimeoutPolicy: sdk.TimeoutHandler,
-		StartDelay:    &startDelay,
 		IDReusePolicy: sdk.IDReuseDisallow,
-		RetryPolicy: &sdk.FlowRetryPolicy{
-			InitialInterval:    time.Minute,
-			BackoffCoefficient: 2,
-			MaximumInterval:    10 * time.Minute,
-			MaximumAttempts:    3,
-		},
 		Attributes: []sdk.InitialAttributeDef{initialStatus},
 		ConfigOverride: &sdk.FlowConfig{
 			StepDurability: &stepDurability,
@@ -101,15 +86,7 @@ private static StartFlowOptions exampleStartFlowOptions() {
     return StartFlowOptions.newBuilder()
             .timeout(Duration.ofMinutes(30))
             .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
-            .startDelay(Duration.ofMinutes(5))
             .idReusePolicy(IdReusePolicy.DISALLOW)
-            .retryPolicy(
-                    RetryPolicy.newBuilder()
-                            .initialInterval(Duration.ofMinutes(1))
-                            .backoffCoefficient(2)
-                            .maximumInterval(Duration.ofMinutes(10))
-                            .maximumAttempts(3)
-                            .build())
             .addAttribute(ExampleFlow.status, "queued")
             .configOverride(
                     FlowConfig.newBuilder()
@@ -129,14 +106,7 @@ export function exampleStartFlowOptions(): StartFlowOptions {
   return {
     timeoutMs: 30 * 60_000,
     timeoutPolicy: FlowTimeoutPolicy.HANDLER,
-    startDelayMs: 5 * 60_000,
     idReusePolicy: IdReusePolicy.DISALLOW,
-    retryPolicy: {
-      initialIntervalMs: 60_000,
-      backoffCoefficient: 2,
-      maximumIntervalMs: 10 * 60_000,
-      maximumAttempts: 3,
-    },
     attributes: [InitialAttribute.of(status, "queued")],
     configOverride: {
       stepDurability: "sync",
@@ -155,15 +125,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
     StartFlowOptions::new()
         .timeout(Duration::from_secs(30 * 60))
         .timeout_policy(FlowTimeoutPolicy::Handler)
-        .start_delay(Duration::from_secs(5 * 60))
         .id_reuse_policy(IdReusePolicy::Disallow)
-        .retry_policy(
-            RetryPolicy::new()
-                .initial_interval(Duration::from_secs(60))
-                .backoff_coefficient(2.0)
-                .maximum_interval(Duration::from_secs(10 * 60))
-                .maximum_attempts(3),
-        )
         .initial_attribute(&STATUS, "queued".to_owned())
         .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
         .ignore_already_started(true)

@@ -39,14 +39,7 @@ export function exampleStartFlowOptions(): StartFlowOptions {
   return {
     timeoutMs: 30 * 60_000,
     timeoutPolicy: FlowTimeoutPolicy.HANDLER,
-    startDelayMs: 5 * 60_000,
     idReusePolicy: IdReusePolicy.DISALLOW,
-    retryPolicy: {
-      initialIntervalMs: 60_000,
-      backoffCoefficient: 2,
-      maximumIntervalMs: 10 * 60_000,
-      maximumAttempts: 3,
-    },
     attributes: [InitialAttribute.of(status, "queued")],
     configOverride: {
       stepDurability: "sync",
