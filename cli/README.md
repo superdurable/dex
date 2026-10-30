@@ -359,8 +359,8 @@ during construction before their assignment, decorated Python Step classes, and
 Step classes that extend other classes fail closed with blocking diagnostics.
 So do rebound Dex import or module names, wildcard imports, Flow or Step
 objects passed to functions outside a field access or local constructor,
-TypeScript computed-key writes that the type checker cannot prove target a
-collection of primitives,
+TypeScript Flow or Step objects that escape (any use other than a field
+read, a declared method call, registration, a Dex target, or a checked alias),
 Python attribute-interception methods such as
 `__getattribute__`, methods reassigned outside the class body, and class or
 member decorators other than Dex `rpc`, `typing.final`, `dataclasses.dataclass`,
