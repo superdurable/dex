@@ -43,7 +43,7 @@ sources and Connector package manifests. The server-zd
 guidance covers v0.1.3 through v0.1.11.
 Each SDK and its language examples use that language's exact tag. **DEX_BASELINE**
 is the Go SDK pin, not a shared version for every language.
-The example dependency manifests in all five languages select SDK v1.25.0.
+At their baseline tags, the Go, Java, and Rust example manifests select SDK v1.25.0, and the Python and TypeScript example manifests select SDK v1.26.0.
 They are runnable source examples, not the API-version authority.
 API key Credentials need SDK v1.16.0. Their guidance therefore comes from each
 SDK's source and README at its language tag, not from the examples.
