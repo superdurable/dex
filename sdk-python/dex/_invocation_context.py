@@ -83,7 +83,9 @@ class InvocationContext:
         loaded_channel_map_instances: Sequence[str] = (),
         is_active: Callable[[], bool] | None = None,
         output_emitter: _StepOutputEmitter | None = None,
+        deadline: datetime | None = None,
     ) -> None:
+        self._deadline = None if method is InvocationMethod.RPC else deadline
         self._method = method
         self._flow = flow
         self._metadata = metadata
@@ -135,6 +137,10 @@ class InvocationContext:
     @property
     def first_attempt_at(self) -> datetime:
         return datetime.fromtimestamp(self._metadata.first_attempt_timestamp, UTC)
+
+    @property
+    def deadline(self) -> datetime | None:
+        return self._deadline
 
     @property
     def attempt(self) -> int:

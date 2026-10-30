@@ -1134,7 +1134,10 @@ class UnknownTaskCall(QueueCall):
 
 class UnknownTaskDispatcher:
     async def invoke_wait_for(
-        self, request: pb.InvokeWaitForMethodRequest, is_active: Callable[[], bool]
+        self,
+        request: pb.InvokeWaitForMethodRequest,
+        is_active: Callable[[], bool],
+        deadline: datetime | None = None,
     ) -> Any:
         if is_active():
             raise LookupError(f"Step {request.step_type} is not registered")
@@ -1840,7 +1843,10 @@ async def _reserve_pressure_is_queue_local_and_expires() -> None:
             self.gate = asyncio.Event()
 
         async def invoke_execute(
-            self, request: pb.InvokeExecuteMethodRequest, is_active: Callable[[], bool]
+            self,
+            request: pb.InvokeExecuteMethodRequest,
+            is_active: Callable[[], bool],
+            deadline: datetime | None = None,
         ) -> AsyncIterator[pb.InvokeExecuteMethodResponse]:
             await self.gate.wait()
             yield pb.InvokeExecuteMethodResponse()

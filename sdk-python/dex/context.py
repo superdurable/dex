@@ -109,6 +109,29 @@ class Context(Protocol):
         ...
 
     @property
+    def deadline(self) -> datetime | None:
+        """Return the current Step method attempt's absolute deadline.
+
+        This includes any shorter remaining RetryPolicy total duration. Use it
+        inside ``wait_for``, ``execute``, or a Flow timeout handler to budget
+        external work; each retry receives its own effective deadline.
+
+        Returns:
+            A timezone-aware UTC datetime with microsecond precision, or ``None``
+            for RPC handlers and tasks without a server-supplied deadline.
+
+        Examples:
+            Compute the remaining attempt budget in seconds inside a handler::
+
+                from datetime import datetime, timezone
+
+                deadline = context.deadline
+                if deadline is not None:
+                    remaining_seconds = (deadline - datetime.now(timezone.utc)).total_seconds()
+        """
+        ...
+
+    @property
     def attempt(self) -> int:
         """Return the one-based handler retry attempt.
 

@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from inspect import isawaitable, isgenerator
 from typing import Any, Callable, Generator, cast
 
@@ -74,6 +74,7 @@ class WorkerDispatcher:
         self,
         original: pb.InvokeWaitForMethodRequest,
         is_active: Callable[[], bool] | None = None,
+        deadline: datetime | None = None,
     ) -> Generator[pb.InvokeWaitForMethodOutput, None, None]:
         request = self._hydrator.wait_for_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -90,6 +91,7 @@ class WorkerDispatcher:
             loaded_channel_names=request.loaded_channel_names,
             loaded_channel_map_instances=request.loaded_channel_map_instances,
             is_active=is_active,
+            deadline=deadline,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         wait = step.step.wait_for(context, input)
@@ -125,11 +127,12 @@ class WorkerDispatcher:
         self,
         original: pb.InvokeExecuteMethodRequest,
         is_active: Callable[[], bool] | None = None,
+        deadline: datetime | None = None,
     ) -> Generator[pb.InvokeExecuteMethodOutput, None, None]:
         request = self._hydrator.execute_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
         if request.step_type == _TIMEOUT_HANDLER_STEP_TYPE:
-            response = yield from self._invoke_timeout_handler(request, flow)
+            response = yield from self._invoke_timeout_handler(request, flow, deadline)
             yield pb.InvokeExecuteMethodOutput(result=response)
             return
         step = flow.step(request.step_type)
@@ -150,6 +153,7 @@ class WorkerDispatcher:
             loaded_channel_names=request.loaded_channel_names,
             loaded_channel_map_instances=request.loaded_channel_map_instances,
             is_active=is_active,
+            deadline=deadline,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         decision = step.step.execute(context, input)
@@ -184,6 +188,7 @@ class WorkerDispatcher:
         self,
         request: pb.InvokeExecuteMethodRequest,
         flow: _RegisteredFlow,
+        deadline: datetime | None,
     ) -> Generator[pb.InvokeExecuteMethodOutput, None, pb.InvokeExecuteMethodResponse]:
         if request.HasField("step_input"):
             raise InvalidStepResultError(
@@ -212,6 +217,7 @@ class WorkerDispatcher:
             loaded_attribute_map_instances=request.loaded_attribute_map_instances,
             loaded_channel_names=request.loaded_channel_names,
             loaded_channel_map_instances=request.loaded_channel_map_instances,
+            deadline=deadline,
         )
         decision = flow.flow.handle_timeout(context)
         if isgenerator(decision):
