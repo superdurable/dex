@@ -378,6 +378,7 @@ registry = dex.Registry((flow,))
 Registry derives codecs from declared Python types and handler annotations.
 Built-in primitive types and dataclasses need no codec arguments. Register an
 explicit codec only for a custom encoding or a type Registry cannot derive.
+
 `PersistenceSchema.of(...)` accepts attributes, channels, and streams together and
 partitions them by definition type.
 
@@ -448,6 +449,47 @@ pip install dex-python-sdk==0.1.0
 ```
 
 See [samples](../examples/python) for use case examples.
+
+### JSON dataclasses
+
+Automatic JSON codecs support parameterized generic dataclasses such as
+`Result[Receipt]`, including nested generics, typed containers, `Optional[T]`, and
+`T | None`. Decoding restores nested dataclass instances. Missing keys use the
+field's `default` or `default_factory`; a missing required key raises `ValueError`
+with the dataclass and wire field name. Unknown keys are ignored.
+
+Field metadata controls the wire representation:
+
+- `field(metadata={"dex_json_name": "callId"})` uses `callId` instead of the
+  Python field name for encoding and decoding. Wire names must be non-empty and
+  unique within a dataclass.
+- `field(default=None, metadata={"dex_json_omit_default": True})` omits a field
+  only when it equals its declared default. This also supports `default_factory`;
+  the factory is called on each encode to obtain the comparison value, so use a
+  deterministic factory without side effects. Without this opt-in, default
+  values, empty containers, and `None` remain present in JSON.
+- `field(metadata={"dex_json_format": "rfc3339"})` formats a datetime field like
+  Go's `encoding/json`: UTC uses `Z` and trailing fractional zeroes are removed.
+  This requires a datetime or optional datetime field with an aware value and a
+  whole-minute timezone offset. Ordinary datetime fields keep their existing
+  `isoformat()` encoding. All datetime fields accept Go RFC3339 strings on
+  decode, including `Z`, numeric offsets, and fractional seconds. Python retains
+  microsecond precision; additional fractional digits are truncated.
+
+Metadata options can be combined on one field. Existing dataclasses retain their
+field names and encoded values unless metadata opts into a change.
+
+Unions select by JSON kind: null, boolean, number, string, array, or object.
+Alternatives must use different kinds. `Receipt | None`, `int | str`, and
+`int | bool` are supported. `int | float`, `str | datetime`, two dataclasses,
+or two list types are ambiguous and raise `TypeError` when the codec is resolved,
+including inside another dataclass. Use an explicit `JsonCodec` with a
+discriminator for these shapes. Union values always use JSON on the wire,
+including primitive alternatives.
+
+See `help(CodecRegistry)` for a complete generic dataclass example and
+[`tests/fixtures/json_codec`](tests/fixtures/json_codec) for a reproducible
+Go-to-Python wire fixture.
 
 ## Requirements
 

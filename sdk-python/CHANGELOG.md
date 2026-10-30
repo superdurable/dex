@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- Automatic JSON codecs now resolve parameterized generic dataclasses, nested
+  optional types, and unions whose alternatives have distinct JSON kinds.
+  Ambiguous unions fail during codec resolution instead of choosing by order.
+- Dataclass JSON decoding uses defaults and default factories for absent keys and
+  reports missing required wire keys with `ValueError`.
+- Dataclass fields support `dex_json_name` for wire names,
+  `dex_json_omit_default` for opt-in default omission, and
+  `dex_json_format="rfc3339"` for Go-compatible datetime formatting.
+  Existing field names and encoded defaults remain unchanged without metadata.
+
 ### Breaking changes
 
 - Removed push Workers and their inbound gRPC WorkerService listeners and lifecycle.
