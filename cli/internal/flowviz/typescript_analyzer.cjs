@@ -261,18 +261,15 @@ class TypeScriptAnalyzer {
     const statements = this.handlerStatements(handler);
     const locals = this.localMovements(handler.body);
     const outcomes = [];
+    const hiddenDecisions = [];
     this.walkStatements(statements,"",(expression,condition) => {
-      const found = this.decisionOutcomes(expression,condition,locals);
+      const found = this.decisionOutcomes(expression,condition,locals,hiddenDecisions);
       outcomes.push(...found);
       return found.length > 0;
     });
-    if (!outcomes.length) {
-      const nodeID = `unknown:${ownerID}:${this.span(handler).startLine}`;
-      this.graph.nodes.push({id:nodeID,kind:"unknown",name:"Dynamic Dex decision",span:this.span(handler)});
-      this.graph.edges.push({kind:"transition",from:ownerID,to:nodeID,label:"dynamic",span:this.span(handler)});
-      this.error("hidden_dex_decision","execute must directly return a Dex decision such as goTo or gracefulComplete",handler);
-      return;
-    }
+    if (!outcomes.length && !hiddenDecisions.length) hiddenDecisions.push(handler);
+    for (const hidden of hiddenDecisions) this.addHiddenDecision(ownerID,hidden);
+    if (!outcomes.length) return;
     if (outcomes.length > 1) {
       for (const outcome of outcomes) if (!outcome.condition) outcome.condition = "otherwise";
       this.graph.nodes.push({id:`decision-dispatch:${ownerID}`,kind:"decision_dispatch",name:"Decision",parentId:ownerID,phase:"execute",span:this.span(handler)});
@@ -294,6 +291,14 @@ class TypeScriptAnalyzer {
         this.graph.edges.push(edge);
       }
     }
+  }
+
+  addHiddenDecision(ownerID,node) {
+    const span = this.span(node);
+    const nodeID = `unknown:${ownerID}:${span.startLine}:${span.startColumn}`;
+    this.graph.nodes.push({id:nodeID,kind:"unknown",name:"Dynamic Dex decision",span});
+    this.graph.edges.push({kind:"transition",from:ownerID,to:nodeID,label:"dynamic",span});
+    this.error("hidden_dex_decision","execute must directly return a Dex decision such as goTo or gracefulComplete",node);
   }
 
   walkStatements(statements,condition,visit) {
@@ -327,18 +332,18 @@ class TypeScriptAnalyzer {
     return hasOutcome;
   }
 
-  decisionOutcomes(expression,condition,locals) {
+  decisionOutcomes(expression,condition,locals,hiddenDecisions) {
     expression = this.unwrap(expression);
     if (!expression) return [];
     if (this.ts.isConditionalExpression(expression)) {
       const branch = expression.condition.getText(this.tree);
       return [
-        ...this.decisionOutcomes(expression.whenTrue,this.combine(condition,branch),locals),
-        ...this.decisionOutcomes(expression.whenFalse,this.combine(condition,this.negate(branch)),locals),
+        ...this.decisionOutcomes(expression.whenTrue,this.combine(condition,branch),locals,hiddenDecisions),
+        ...this.decisionOutcomes(expression.whenFalse,this.combine(condition,this.negate(branch)),locals,hiddenDecisions),
       ];
     }
     const decisionType = this.decisionType(expression);
-    if (!decisionType) return [];
+    if (!decisionType) { hiddenDecisions.push(expression); return []; }
     return [{decisionType,condition,transitions:this.parseDecision(expression,locals),checkedChannels:this.checkedChannels(expression),span:this.span(expression)}];
   }
 

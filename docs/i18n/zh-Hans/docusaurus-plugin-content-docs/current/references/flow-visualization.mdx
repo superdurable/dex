@@ -95,7 +95,7 @@ Stream 关系描述的是应用可观察输出，而不是控制流。Flow Rende
 
 Go 的资源访问也可以位于处理方法调用的同一 package 函数和方法中。Analyzer 最多沿调用追踪六层，包括循环和函数字面量中的调用。作为参数传入的资源会绑定到对应形参，因此通过该形参的访问也算作对该资源的访问。
 
-Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查的 module 和 package。Python 分析要求 Python 3.11 或更高版本。Python analyzer 使用标准库 AST。它以隔离模式运行解释器，并且不加载 **site** module，因此 **.pth** 中的 import 行和 **sitecustomize** 都不会运行。它绝不会导入或执行应用模块。
+Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查的 module 和 package。Python 分析要求 Python 3.11 或更高版本。Python analyzer 使用标准库 AST。它以隔离模式运行解释器，并禁用 **site** 的自动初始化，因此 **.pth** 中的 import 行和 **sitecustomize** 都不会运行。它绝不会导入或执行应用模块。
 
 对于 Python，analyzer 可以识别同步 Step generator 通过 yield 发出的 Stream output，也可以识别异步 Step handler 中同步入队的 Stream 写入。在 RPC 或 Flow timeout handler 中使用 Step Stream progress 属于无效代码，会产生阻断诊断。
 
@@ -115,7 +115,7 @@ TypeScript analyzer 暂不支持以下功能：
 - 本地 handler 中的资源读取、写入、锁、state load 和 Stream 写入。定义图不包含本地 Step 的资源边，也不会报告未使用资源的 warning。
 - SubFlow，以及 Version 2.0 的 Indexed Attribute、Summary、Display、Action 和 start-input schema。
 
-把 decision 隐藏在 helper 中的 Execute 方法会产生 **hidden_dex_decision**。暂不支持 Java、Rust 和递归多文件分析。
+把 decision 隐藏在 helper 中的 Execute 方法会产生 **hidden_dex_decision**。在 TypeScript 中，Execute 的每个返回值只要不是可识别的 decision（例如 helper 调用或变量），都会单独产生 **hidden_dex_decision**，即使其他返回值可以识别。暂不支持 Java、Rust 和递归多文件分析。
 
 Version 1 不支持单文件中的多个 Flow、反射、动态 class、Dex 通配符导入、基于 getattr 的目标、monkeypatch，以及逃逸出处理方法的 movement 集合。
 

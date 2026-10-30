@@ -95,7 +95,7 @@ Ordinary business helpers and imported models are allowed. A helper must not hid
 
 Go resource access may also be in functions and methods of the same package that a handler calls. The analyzer follows those calls up to six levels deep, including calls inside loops and function literals. A resource passed as an argument is bound to the matching parameter, so access through that parameter counts for the resource.
 
-Go analysis requires a local Go toolchain. The input must belong to a module and package that can be type checked. Python analysis requires Python 3.11 or newer. The Python analyzer uses the standard-library AST. It runs the interpreter in isolated mode without the **site** module, so **.pth** import lines and **sitecustomize** never run. It never imports or executes the application module.
+Go analysis requires a local Go toolchain. The input must belong to a module and package that can be type checked. Python analysis requires Python 3.11 or newer. The Python analyzer uses the standard-library AST. It runs the interpreter in isolated mode with automatic **site** initialization disabled, so **.pth** import lines and **sitecustomize** never run. It never imports or executes the application module.
 
 For Python, the analyzer recognizes Stream outputs yielded by synchronous Step generators and synchronously enqueued Stream writes in asynchronous Step handlers. Step Stream progress in an RPC or Flow timeout handler is invalid and produces a blocking diagnostic.
 
@@ -115,7 +115,7 @@ The TypeScript analyzer does not support these features yet:
 - Resource reads, writes, locks, state loads, and Stream writes inside local handlers. The graph has no resource edges for local Steps and skips unused-resource warnings.
 - SubFlows, and the Version 2.0 Indexed Attributes, Summary, Display, Actions, and start-input schemas.
 
-An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. Java, Rust, and recursive multi-file analysis are not included.
+An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Java, Rust, and recursive multi-file analysis are not included.
 
 Version 1 does not support multiple Flows in one file, reflection, dynamic classes, wildcard Dex imports, getattr-based targets, monkeypatching, or movement collections that escape the handler.
 

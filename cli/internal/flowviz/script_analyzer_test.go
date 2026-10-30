@@ -289,6 +289,49 @@ func TestScriptDuplicateStepTypesAreBlocking(t *testing.T) {
 	}
 }
 
+func TestTypeScriptEveryHiddenDecisionIsBlocking(t *testing.T) {
+	cases := map[string]struct {
+		execute       string
+		hiddenCount   int
+		hasRecognized bool
+	}{
+		"helper in one branch":   {"if (_input) return forceComplete();\n    return chooseDecision();", 1, true},
+		"variable in one branch": {"const decision = forceComplete();\n    if (_input) return forceComplete();\n    return decision;", 1, true},
+		"conditional arm":        {"return _input ? forceComplete() : chooseDecision();", 1, true},
+		"every return hidden":    {"if (_input) return chooseDecision();\n    return chooseDecision();", 2, false},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			sourcePath := scriptFixture(t, "typescript")
+			source, err := os.ReadFile(sourcePath)
+			require.NoError(t, err)
+			modified := strings.Replace(string(source), "return forceComplete();", testCase.execute, 1)
+			modified += "\nfunction chooseDecision(): StepDecision {\n  return forceComplete();\n}\n"
+			require.NoError(t, os.WriteFile(sourcePath, []byte(modified), 0o644))
+			for _, schemaVersion := range []string{SchemaVersionV1, SchemaVersionV2} {
+				graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: schemaVersion})
+				require.NoError(t, err)
+				require.False(t, graph.Valid)
+				hiddenCount := 0
+				for _, diagnostic := range graph.Diagnostics {
+					if diagnostic.Code == "hidden_dex_decision" {
+						require.Equal(t, "error", diagnostic.Severity)
+						hiddenCount++
+					}
+				}
+				require.Equal(t, testCase.hiddenCount, hiddenCount, "%+v", graph.Diagnostics)
+				hasRecognized := false
+				for _, node := range graph.Nodes {
+					if node.Kind == "decision" && node.ParentID == "step:FinishStep" && node.Decision.Type == "forceComplete" {
+						hasRecognized = true
+					}
+				}
+				require.Equal(t, testCase.hasRecognized, hasRecognized)
+			}
+		})
+	}
+}
+
 func TestTypeScriptAnalyzerResolvesCompilerFromSourceProject(t *testing.T) {
 	sourcePath := scriptFixture(t, "typescript")
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))

@@ -28,6 +28,10 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 	t.Setenv("NODE_PATH", filepath.Join(repositoryRoot, "web", "node_modules"))
 	sources := typeScriptExampleFlowSources(t, repositoryRoot)
 	require.NotEmpty(t, sources)
+	// These Execute methods return a decision computed by a helper method.
+	hiddenDecisionSources := map[string]bool{
+		"examples/typescript/src/patterns/cron/cron-schedule-flow.ts": true,
+	}
 	for _, source := range sources {
 		relative, err := filepath.Rel(repositoryRoot, source)
 		require.NoError(t, err)
@@ -45,6 +49,7 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, string(first), string(second))
 			hasUnsupportedFeature := false
+			hasHiddenDecision := false
 			for _, diagnostic := range graph.Diagnostics {
 				if diagnostic.Severity != "error" {
 					continue
@@ -54,11 +59,15 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 					require.Contains(t, string(contents), "waitFor(")
 				case "multiple_flows":
 					require.Greater(t, strings.Count(string(contents), "getSteps("), 1)
+				case "hidden_dex_decision":
+					require.True(t, hiddenDecisionSources[filepath.ToSlash(relative)], diagnostic.Message)
+					hasHiddenDecision = true
 				default:
 					require.Failf(t, "unexpected TypeScript diagnostic", "%s: %s", diagnostic.Code, diagnostic.Message)
 				}
 				hasUnsupportedFeature = true
 			}
+			require.Equal(t, hiddenDecisionSources[filepath.ToSlash(relative)], hasHiddenDecision)
 			require.Equal(t, !hasUnsupportedFeature, graph.Valid, graph.Diagnostics)
 		})
 	}

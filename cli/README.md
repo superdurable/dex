@@ -339,8 +339,9 @@ import package or next to npm's `package.json`. The manifest maps exported
 factories to static config fields, branches, resources, and ConfigurationUI.
 Python resolves installed packages with `--python /path/to/venv/bin/python`;
 TypeScript walks `node_modules` from the source directory. Neither analyzer
-imports the application. Python runs with `-I -S`, so `.pth` import lines and
-`sitecustomize` never run; plain `.pth` directory lines are still searched.
+imports the application. Python runs with `-I -S`, which disables automatic
+`site` initialization, so `.pth` import lines and `sitecustomize` never run;
+plain `.pth` directory lines are still searched.
 A registration that calls a package without a manifest reports
 `connector_manifest_missing`, and two Steps with one Step type report
 `duplicate_step_type`.
