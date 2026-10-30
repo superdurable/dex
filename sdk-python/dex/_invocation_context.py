@@ -118,6 +118,10 @@ class InvocationContext:
         return self._metadata.run_id
 
     @property
+    def flow_started_at(self) -> datetime:
+        return datetime.fromtimestamp(self._metadata.flow_started_timestamp, UTC)
+
+    @property
     def step_execution_id(self) -> str:
         return self._metadata.step_execution_id
 
