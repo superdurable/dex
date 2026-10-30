@@ -180,9 +180,21 @@ Go node IDs use the Go type, as in **step:initializeThread**, even when an overr
 
 Python and TypeScript can register several instances of the same Step class when each instance has a distinct static Step type. **get_step_type** or **getStepType** can return a string literal, a class attribute initialized with a string literal, or an instance field assigned from a constructor argument whose value is a string literal at registration. Constructor defaults and static variable aliases are also readable. Each node ID uses that instance's Step type, such as **step:First** and **step:Second**.
 
-Transitions, **StepMovement**, Execute failure routing, and cancellation accept registered instances stored in variables or Flow fields, inline constructors with the same static Step type, and **StepRef** constructed with a string literal naming a registered Step type. A class target is readable when exactly one instance of that class is registered. Separate Connector factory calls also produce separate nodes when their static Step types differ.
+The analyzer reads Step methods only from the registered class itself. A Python Step class must extend only **Step** and **Generic**. A TypeScript Step class must not extend another class. Otherwise the analyzer reports **step_inheritance_unsupported**. Move the shared logic into a helper function and keep each Step method on the registered class.
 
-Computed Step types, dynamic targets, unknown **StepRef** names, and ambiguous class targets produce blocking diagnostics. A callback or helper that hides an Execute decision still produces **hidden_dex_decision**; resolving its instance's Step type does not make the callback body readable.
+An instance field is readable only when the class assigns it exactly once. The assignment must be a class attribute, a TypeScript property initializer or parameter property, or a direct statement in the constructor. A field assigned in another method, through **setattr**, **vars**, or **Object.assign**, or from outside the class is not readable. A Python Step class with a decorator, such as **dataclass**, also has unreadable fields. Assign each field in the constructor, or return a string literal from **get_step_type** or **getStepType**.
+
+The SDKs resolve an instance target by object identity. A target must be the registered object itself, not another object with the same Step type. Transitions, **StepMovement**, Execute failure routing, and cancellation accept these targets:
+
+- The registered instance, read through names that are each bound exactly once. These names include module variables, Flow class attributes or property initializers, Flow fields assigned once in the constructor, Step fields assigned in the constructor, and local variables.
+- A Step class when exactly one instance of that class is registered.
+- A **StepRef** constructed with a string literal that names a registered Step type. TypeScript must construct it with **new**.
+
+A constructor call written in a decision creates a new object that is not registered. The SDK rejects that target at runtime, so the analyzer reports **unknown_step_target**. Target the registered instance or a **StepRef** instead. Separate Connector factory calls also produce separate nodes when their static Step types differ.
+
+The analyzer accepts an instance only when it can prove which object a name holds. A name bound twice in one function or module is not provable. A reassignment, augmented assignment, loop variable, **with** target, walrus target, destructuring, **global** rebinding, or a second declaration in a nested TypeScript block all count as another binding. A constructor parameter that the constructor reassigns is not provable either.
+
+Computed Step types, unprovable targets, unknown **StepRef** names, and ambiguous class targets produce blocking diagnostics. A callback or helper that hides an Execute decision still produces **hidden_dex_decision**; resolving its instance's Step type does not make the callback body readable.
 
 ## Start inputs {#start-inputs}
 

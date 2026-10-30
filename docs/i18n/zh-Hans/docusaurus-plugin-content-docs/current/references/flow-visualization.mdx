@@ -180,9 +180,21 @@ Go 节点 ID 使用 Go type，例如 **step:initializeThread**，即使 override
 
 Python 和 TypeScript 可以注册同一个 Step class 的多个实例，但每个实例都必须有不同的静态 Step type。**get_step_type** 或 **getStepType** 可以返回字符串字面量、用字符串字面量初始化的 class 属性，或从构造参数赋值的实例字段；构造参数的值必须在注册处是字符串字面量。Analyzer 也能读取构造参数的默认值和静态变量别名。每个节点 ID 使用实例的 Step type，例如 **step:First** 和 **step:Second**。
 
-普通跳转、**StepMovement**、Execute 失败路由和取消操作支持变量或 Flow 字段中保存的已注册实例、具有相同静态 Step type 的内联构造调用，以及用字符串字面量指定已注册 Step type 的 **StepRef**。当某个 class 只注册了一个实例时，也可以用该 class 作为目标。同一个 Connector 的不同 factory 调用只要使用不同的静态 Step type，也会生成独立节点。
+Analyzer 只从已注册的 class 本身读取 Step 方法。Python Step class 只能继承 **Step** 和 **Generic**。TypeScript Step class 不能继承其他 class。否则 analyzer 会报告 **step_inheritance_unsupported**。请把共享逻辑移到 helper 函数中，并把每个 Step 方法保留在已注册的 class 上。
 
-计算得到的 Step type、动态目标、未注册的 **StepRef** 名称和存在歧义的 class 目标都会产生阻断诊断。Execute 决策隐藏在回调或 helper 中时，仍然会报告 **hidden_dex_decision**；实例的 Step type 可解析，并不代表回调中的决策也可解析。
+只有当 class 恰好为某个实例字段赋值一次时，analyzer 才能读取该字段。这次赋值必须是 class 属性、TypeScript 属性初始化器或参数属性，或者构造函数中的直接语句。在其他方法中赋值、通过 **setattr**、**vars** 或 **Object.assign** 赋值，或者从 class 外部赋值的字段都不可读取。带有装饰器（例如 **dataclass**）的 Python Step class，其字段同样不可读取。请在构造函数中为每个字段赋值，或者让 **get_step_type** 或 **getStepType** 返回字符串字面量。
+
+SDK 按对象身份解析实例目标。目标必须是已注册的那个对象本身，而不是另一个具有相同 Step type 的对象。普通跳转、**StepMovement**、Execute 失败路由和取消操作接受以下目标：
+
+- 已注册的实例，并且通过的每个名称都只绑定一次。这些名称包括模块变量、Flow class 属性或属性初始化器、在构造函数中只赋值一次的 Flow 字段、在构造函数中赋值的 Step 字段，以及局部变量。
+- 某个 Step class，前提是该 class 只注册了一个实例。
+- 用字符串字面量构造、且指向已注册 Step type 的 **StepRef**。TypeScript 必须用 **new** 构造它。
+
+在决策中直接写构造调用会创建一个未注册的新对象。SDK 会在运行时拒绝这个目标，因此 analyzer 会报告 **unknown_step_target**。请改为指向已注册的实例或使用 **StepRef**。同一个 Connector 的不同 factory 调用只要使用不同的静态 Step type，也会生成独立节点。
+
+只有当 analyzer 能证明某个名称持有哪个对象时，才会接受该实例。在同一个函数或模块中绑定两次的名称无法证明。重新赋值、增量赋值、循环变量、**with** 目标、海象运算符目标、解构、**global** 重新绑定，以及 TypeScript 嵌套代码块中的第二个声明，都算作另一次绑定。被构造函数重新赋值的构造参数同样无法证明。
+
+计算得到的 Step type、无法证明的目标、未注册的 **StepRef** 名称和存在歧义的 class 目标都会产生阻断诊断。Execute 决策隐藏在回调或 helper 中时，仍然会报告 **hidden_dex_decision**；实例的 Step type 可解析，并不代表回调中的决策也可解析。
 
 ## 启动输入 {#start-inputs}
 

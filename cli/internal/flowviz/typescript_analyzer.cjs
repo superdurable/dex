@@ -36,7 +36,10 @@ class TypeScriptAnalyzer {
     this.resources = new Map();
     this.registered = new Map();
     this.stepInstances = new Map();
-    this.instanceFields = new Map();
+    this.registeredIdentities = new Map();
+    this.resourceNodes = new Map();
+    this.targetFailures = new Map();
+    this.currentFrame = {};
     this.connectorSteps = new Map();
     this.failureTransitions = new Set();
     this.annotations = [];
@@ -54,6 +57,7 @@ class TypeScriptAnalyzer {
       if (this.ts.isFunctionDeclaration(statement) && statement.name && statement.body) this.functions.set(statement.name.text, statement);
       if (this.ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) this.indexValue(declaration.name, declaration.initializer);
     }
+    this.indexBindings();
     const flows = [...this.classes.values()].filter(declaration => this.method(declaration,"getSteps"));
     if (flows.length !== 1) {
       this.error(flows.length ? "multiple_flows" : "flow_not_found", "source must define exactly one Flow");
@@ -65,11 +69,11 @@ class TypeScriptAnalyzer {
     for (const member of flow.members) {
       if (this.ts.isPropertyDeclaration(member)) this.indexValue(member.name,member.initializer,"this.");
       if (this.ts.isConstructorDeclaration(member) && member.body) {
-        for (const [name,expression] of this.statementValues(member.body.statements)) this.values.set(name,expression);
+        this.walk(member.body,node => {
+          if (this.ts.isVariableDeclaration(node)) this.indexValue(node.name,node.initializer);
+          if (this.ts.isBinaryExpression(node) && node.operatorToken.kind === this.ts.SyntaxKind.EqualsToken) this.indexValue(node.left,node.right);
+        });
       }
-    }
-    for (const declaration of this.classes.values()) for (const member of declaration.members) {
-      if (this.ts.isPropertyDeclaration(member) && member.modifiers?.some(modifier => modifier.kind === this.ts.SyntaxKind.StaticKeyword)) this.indexValue(member.name,member.initializer,`${declaration.name.text}.`);
     }
     for (const [name,expression] of this.values) this.indexResource(name,expression);
     this.analyzeRegistration(this.method(flow,"getSteps"));
@@ -77,9 +81,9 @@ class TypeScriptAnalyzer {
       const connector = this.connectorSteps.get(stepName);
       if (connector) { this.uses.push(this.factoryResult(nodeID,connector)); continue; }
       const instance = this.stepInstances.get(stepName);
-      this.instanceFields = instance.fields;
+      this.currentFrame = {instance};
       this.analyzeStep(stepName,nodeID,instance.declaration);
-      this.instanceFields = new Map();
+      this.currentFrame = {};
     }
     this.analyzeTriggerBindings(this.method(flow,"getConnectorTriggerBindings"));
     return this.result();
@@ -149,6 +153,7 @@ class TypeScriptAnalyzer {
     if (typeof resourceName !== "string") { this.error("dynamic_resource_name",`resource ${name} must use a static name`,expression); return; }
     const nodeID = `resource:${kind}:${name}`;
     this.resources.set(name,nodeID);
+    this.resourceNodes.set(expression,nodeID);
     this.graph.nodes.push({id:nodeID,kind,name:resourceName,span:this.span(expression),resource:{valueType:this.resourceValueType(expression),map:constructor.endsWith("Map")}});
   }
 
@@ -169,20 +174,19 @@ class TypeScriptAnalyzer {
       for (const [index,argument] of node.arguments.entries()) {
         registrations++;
         const isStart = methodName === "startStep" && index === 0;
-        const target = this.stepTarget(argument,true);
+        const {target,instance,isReported} = this.registrationTarget(argument);
+        if (isReported) continue;
         if (!target) {
           this.reportMissingManifest(argument);
           this.dynamicTarget("registered Step type must be static",argument);
           continue;
         }
         if (this.registered.has(target)) { this.error("duplicate_step_type",`Step ${target} is registered more than once`,argument); continue; }
-        const instance = this.stepInstance(argument);
-        if (!instance && !this.connectorSteps.has(target)) {
-          this.dynamicTarget("registered Step must be a local instance or Connector factory, not a StepRef",argument);
-          continue;
-        }
         this.registered.set(target,`step:${target}`);
-        if (instance) this.stepInstances.set(target,instance);
+        if (instance) {
+          this.stepInstances.set(target,instance);
+          if (!this.registeredIdentities.has(instance.identity)) this.registeredIdentities.set(instance.identity,target);
+        }
         const declaration = instance?.declaration;
         this.graph.nodes.push({id:`step:${target}`,kind:"step",name:target,phase:this.method(declaration,"waitFor") ? "wait_for+execute":"execute",start:isStart,span:this.span(argument)});
         if (isStart) { starts++; this.graph.flow.startStepId = `step:${target}`; }
@@ -221,7 +225,7 @@ class TypeScriptAnalyzer {
   }
 
   reportMissingManifest(expression) {
-    expression = this.resolveValue(expression);
+    expression = this.resolvedValue(expression,this.currentFrame).node;
     if (!expression || !this.ts.isCallExpression(expression)) return;
     const callee = expression.expression.getText(this.tree);
     const message = this.missingFactories.get(callee) || this.missingFactories.get(`${callee.split(".")[0]}.`);
@@ -229,7 +233,7 @@ class TypeScriptAnalyzer {
   }
 
   factoryUse(expression) {
-    expression = this.resolveValue(expression);
+    expression = this.resolvedValue(expression,this.currentFrame).node;
     if (!expression || !this.ts.isCallExpression(expression)) return undefined;
     const identity = this.factories.get(expression.expression.getText(this.tree));
     if (!identity) return undefined;
@@ -250,58 +254,84 @@ class TypeScriptAnalyzer {
     return {...identity,fields,expression};
   }
 
-  stepTarget(expression,reportErrors=false) {
-    expression = this.resolveValue(expression);
-    if (!expression) return undefined;
-    if ((this.ts.isNewExpression(expression) || this.ts.isCallExpression(expression)) && this.dexName(expression.expression) === "StepRef") {
-      const argument = this.unwrap(expression.arguments?.[0]);
-      return expression.arguments?.length === 1 && argument && this.ts.isStringLiteral(argument) ? argument.text : undefined;
+  registrationTarget(argument) {
+    const {node,frame} = this.resolvedValue(argument,{});
+    if (!node) return {};
+    if (this.ts.isNewExpression(node) && this.dexName(node.expression) === "StepRef") {
+      this.dynamicTarget("registered Step must be a Step instance or Connector factory, not a StepRef",argument);
+      return {isReported:true};
     }
-    const use = this.factoryUse(expression);
-    if (use && use.factory.kind !== "trigger") {
-      const stepType = this.staticLiteral(use.fields.get(use.factory.fields.stepType));
-      if (typeof stepType !== "string" || !stepType) { this.error("connector_factory_step_type","Connector factory requires a non-empty static Step type",expression); return undefined; }
-      const previous = this.connectorSteps.get(stepType);
-      if (previous && previous.expression !== use.expression) this.error("duplicate_step_type",`Connector factories define Step type ${stepType} more than once`,expression);
-      else this.connectorSteps.set(stepType,use);
-      return stepType;
+    const connectorTarget = this.connectorStepTarget(node);
+    if (connectorTarget !== undefined) return {target:connectorTarget};
+    const instance = this.stepInstanceValue(node,frame);
+    if (!instance) {
+      const declaration = this.ts.isNewExpression(node) ? this.constructedClass(node,frame) : undefined;
+      if (declaration && this.extendsClause(declaration)) {
+        this.error("step_inheritance_unsupported",`Step class ${declaration.name.text} extends ${this.extendsClause(declaration).getText(this.tree)}; the analyzer reads Step methods only from classes that do not extend another class`,argument);
+        return {isReported:true};
+      }
+      return {};
     }
-    if (!reportErrors && this.ts.isIdentifier(expression) && this.classes.has(expression.text)) {
-      const candidates = [...this.stepInstances].filter(([,instance]) => instance.declaration.name.text === expression.text);
-      return candidates.length === 1 ? candidates[0][0] : undefined;
-    }
-    return this.stepInstance(expression,reportErrors)?.stepType;
+    return {target:this.instanceStepType(instance,true),instance};
   }
 
-  stepInstance(expression,reportErrors=false) {
-    expression = this.resolveValue(expression);
-    if (!expression) return undefined;
-    const constructor = this.ts.isNewExpression(expression) ? expression : undefined;
-    const declaration = this.classes.get((constructor?.expression || expression).getText(this.tree));
-    if (!declaration) return undefined;
-    const fields = new Map();
-    for (const member of declaration.members) if (this.ts.isPropertyDeclaration(member) && member.initializer) fields.set(`this.${this.propertyName(member.name)}`,member.initializer);
-    const initializer = declaration.members.find(member => this.ts.isConstructorDeclaration(member));
-    if (initializer && constructor) {
-      const argumentsByName = new Map();
-      for (const [index,parameter] of initializer.parameters.entries()) {
-        const argument = this.resolveValue(constructor.arguments?.[index] || parameter.initializer);
-        argumentsByName.set(parameter.name.getText(this.tree),argument);
-        if (parameter.modifiers?.length) fields.set(`this.${parameter.name.getText(this.tree)}`,argument);
-      }
-      for (const [name,value] of this.statementValues(initializer.body?.statements || [])) {
-        if (name.startsWith("this.")) fields.set(name,value && this.ts.isIdentifier(value) && argumentsByName.has(value.text) ? argumentsByName.get(value.text) : value);
-      }
+  connectorStepTarget(node) {
+    const use = this.factoryUse(node);
+    if (!use || use.factory.kind === "trigger") return undefined;
+    const stepType = this.staticLiteral(use.fields.get(use.factory.fields.stepType));
+    if (typeof stepType !== "string" || !stepType) { this.error("connector_factory_step_type","Connector factory requires a non-empty static Step type",node); return ""; }
+    const previous = this.connectorSteps.get(stepType);
+    if (previous && previous.expression !== use.expression) this.error("duplicate_step_type",`Connector factories define Step type ${stepType} more than once`,node);
+    else this.connectorSteps.set(stepType,use);
+    return stepType;
+  }
+
+  stepTarget(expression) {
+    const {node,frame} = this.resolvedValue(expression,this.currentFrame);
+    if (!node) return undefined;
+    if (this.ts.isNewExpression(node) && this.dexName(node.expression) === "StepRef") {
+      const argument = this.unwrap(node.arguments?.[0]);
+      return node.arguments?.length === 1 && argument && this.ts.isStringLiteral(argument) ? argument.text : undefined;
     }
-    const method = this.method(declaration,"getStepType");
-    if (!method) return {declaration,fields,stepType:declaration.name.text};
+    const connectorTarget = this.connectorStepTarget(node);
+    if (connectorTarget !== undefined) return connectorTarget || undefined;
+    if (this.ts.isClassDeclaration(node)) return this.classStepTarget(node,expression);
+    const instance = this.stepInstanceValue(node,frame);
+    if (!instance) return undefined;
+    const stepType = this.registeredIdentities.get(instance.identity);
+    if (!stepType) this.targetFailures.set(expression,"Step instance is not the registered instance; target the registered instance, its class, or a StepRef");
+    return stepType;
+  }
+
+  classStepTarget(declaration,expression) {
+    const candidates = [...this.stepInstances].filter(([,instance]) => instance.declaration === declaration).map(([stepType]) => stepType);
+    if (candidates.length === 1) return candidates[0];
+    this.targetFailures.set(expression,candidates.length ? `Step class ${declaration.name.text} has ${candidates.length} registered instances; target a registered instance or a StepRef` : `Step class ${declaration.name.text} has no registered instance`);
+    return undefined;
+  }
+
+  stepInstanceValue(node,frame) {
+    if (!node || !this.ts.isNewExpression(node)) return undefined;
+    const declaration = this.constructedClass(node,frame);
+    if (!declaration || this.extendsClause(declaration)) return undefined;
+    return {declaration,newExpression:node,frame,identity:`${node.pos}:${node.end}@${this.frameIdentity(frame)}`};
+  }
+
+  constructedClass(newExpression,frame) {
+    const {node} = this.resolvedValue(newExpression.expression,frame);
+    return node && this.ts.isClassDeclaration(node) && node.name && this.classes.get(node.name.text) === node ? node : undefined;
+  }
+
+  instanceStepType(instance,reportErrors) {
+    const method = this.method(instance.declaration,"getStepType");
+    if (!method) return instance.declaration.name.text;
     const returns = [];
-    this.walkStatements(this.handlerStatements(method),"",value => { returns.push(this.staticLiteral(value,new Set(),fields)); return true; });
+    this.walkStatements(this.handlerStatements(method),"",value => { returns.push(this.staticLiteral(value,{instance})); return true; });
     if (!returns.length || returns.some(value => typeof value !== "string" || value !== returns[0])) {
       if (reportErrors) this.error("dynamic_type_name","getStepType must return one static string literal or a field bound to a literal at registration",method);
       return undefined;
     }
-    return {declaration,fields,stepType:returns[0] || declaration.name.text};
+    return returns[0] || instance.declaration.name.text;
   }
 
   analyzeDecisions(ownerID,handler) {
@@ -328,12 +358,12 @@ class TypeScriptAnalyzer {
       decisionIDs.add(decisionID);
       const details = {type:outcome.decisionType};
       if (outcome.checkedChannels.length) details.checkedChannels = outcome.checkedChannels;
-      const cancellations = outcome.transitions.filter(transition => transition.kind === "cancel").map(transition => ({stepId:this.resolveTarget(transition.target,transition.span),scope:transition.label === "withCancelingSiblingSteps" ? "siblings" : "all"}));
+      const cancellations = outcome.transitions.filter(transition => transition.kind === "cancel").map(transition => ({stepId:this.resolveTarget(transition.target,transition.span,transition.targetNode),scope:transition.label === "withCancelingSiblingSteps" ? "siblings" : "all"}));
       if (cancellations.length) details.cancellations = cancellations;
       this.graph.nodes.push({id:decisionID,kind:"decision",name:outcome.decisionType,parentId:ownerID,condition:outcome.condition,phase:"execute",span:outcome.span,decision:details});
       for (const transition of outcome.transitions) {
         if (transition.kind === "terminal") continue;
-        const edge = {kind:transition.kind,from:decisionID,to:this.resolveTarget(transition.target,transition.span),label:transition.label,span:transition.span};
+        const edge = {kind:transition.kind,from:decisionID,to:this.resolveTarget(transition.target,transition.span,transition.targetNode),label:transition.label,span:transition.span};
         if (transition.multiplicity) edge.multiplicity = transition.multiplicity;
         this.graph.edges.push(edge);
       }
@@ -406,10 +436,10 @@ class TypeScriptAnalyzer {
     if (cancelingDecisions.has(name)) {
       const decision = this.unwrap(expression.arguments[0]);
       const transitions = decision && this.ts.isCallExpression(decision) ? this.parseDecision(decision,locals) : [];
-      for (const argument of expression.arguments.slice(1)) transitions.push({kind:"cancel",target:this.stepTarget(argument),label:name,span:this.span(argument)});
+      for (const argument of expression.arguments.slice(1)) transitions.push({kind:"cancel",target:this.stepTarget(argument),targetNode:argument,label:name,span:this.span(argument)});
       return transitions;
     }
-    if (name === "goTo") return [{kind:"transition",target:this.stepTarget(expression.arguments[0]),label:"goTo",span:this.span(expression)}];
+    if (name === "goTo") return [{kind:"transition",target:this.stepTarget(expression.arguments[0]),targetNode:expression.arguments[0],label:"goTo",span:this.span(expression)}];
     if (name === "goToMany") {
       if (!expression.arguments.length) this.dynamicTarget("goToMany must contain a statically analyzable movement",expression);
       return expression.arguments.flatMap(argument => {
@@ -442,7 +472,7 @@ class TypeScriptAnalyzer {
     expression = this.unwrap(expression);
     if (!expression || !this.ts.isCallExpression(expression) || !this.ts.isPropertyAccessExpression(expression.expression)) return undefined;
     if (expression.expression.name.text !== "of" || this.dexName(expression.expression.expression) !== "StepMovement" || !expression.arguments.length) return undefined;
-    return {kind:"transition",target:this.stepTarget(expression.arguments[0]),label:"fan-out",span:this.span(expression)};
+    return {kind:"transition",target:this.stepTarget(expression.arguments[0]),targetNode:expression.arguments[0],label:"fan-out",span:this.span(expression)};
   }
 
   callbackMovements(expression) {
@@ -528,7 +558,7 @@ class TypeScriptAnalyzer {
   addFailureTransition(ownerID,call) {
     if (!call.arguments.length) { this.dynamicTarget("execute failure recovery target must be static",call); return; }
     const target = this.stepTarget(call.arguments[0]);
-    const targetID = this.resolveTarget(target,this.span(call.arguments[0]));
+    const targetID = this.resolveTarget(target,this.span(call.arguments[0]),call.arguments[0]);
     if (this.failureTransitions.has(`${ownerID}\n${targetID}`)) return;
     this.failureTransitions.add(`${ownerID}\n${targetID}`);
     const declaration = this.stepInstances.get(target)?.declaration;
@@ -537,13 +567,13 @@ class TypeScriptAnalyzer {
     this.graph.edges.push(edge);
   }
 
-  resolveTarget(target,span) {
+  resolveTarget(target,span,targetNode) {
     if (this.registered.has(target)) return this.registered.get(target);
     const name = target || "Dynamic Step";
     const nodeID = `unknown:step:${name}`;
     if (!this.graph.nodes.some(node => node.id === nodeID)) this.graph.nodes.push({id:nodeID,kind:"unknown",name,span});
-    this.graph.valid = false;
-    this.graph.diagnostics.push({severity:"error",code:"unknown_step_target",message:target ? `Step ${target} is not registered in this Flow` : "Dex transition target must resolve to a registered Step instance, an unambiguous class, or a literal StepRef",...(span ? {span} : {})});
+    const message = target ? `Step ${target} is not registered in this Flow` : this.targetFailures.get(targetNode) || "Dex transition target must be a registered Step instance, a class with one registered instance, or a new StepRef with a string literal";
+    this.addDiagnostic({severity:"error",code:"unknown_step_target",message,...(span ? {span} : {})});
     return nodeID;
   }
 
@@ -579,6 +609,8 @@ class TypeScriptAnalyzer {
   }
 
   resourceFor(expression) {
+    const resolved = this.resolvedValue(expression,this.currentFrame).node;
+    if (this.resourceNodes.has(resolved)) return this.resourceNodes.get(resolved);
     const name = this.unwrap(expression)?.getText(this.tree);
     if (!name) return undefined;
     if (this.resources.has(name)) return this.resources.get(name);
@@ -586,25 +618,23 @@ class TypeScriptAnalyzer {
     return name.includes(".") ? this.resources.get(`this.${field}`) : undefined;
   }
 
-  staticLiteral(expression,seen=new Set(),fields=this.instanceFields) {
-    expression = this.resolveValue(expression,fields);
+  staticLiteral(expression,frame=this.currentFrame) {
+    expression = this.resolvedValue(expression,frame).node;
     if (!expression) return undefined;
     if (this.ts.isStringLiteral(expression) || this.ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
     if (this.ts.isNumericLiteral(expression)) return Number(expression.text);
     if (expression.kind === this.ts.SyntaxKind.TrueKeyword) return true;
     if (expression.kind === this.ts.SyntaxKind.FalseKeyword) return false;
     if (expression.kind === this.ts.SyntaxKind.NullKeyword) return null;
-    const name = expression.getText(this.tree);
-    if (this.values.has(name) && !seen.has(name)) { const next = new Set(seen); next.add(name); return this.staticLiteral(this.values.get(name),next,fields); }
     if (this.ts.isArrayLiteralExpression(expression)) {
-      const values = expression.elements.map(element => this.staticLiteral(element,seen,fields));
+      const values = expression.elements.map(element => this.staticLiteral(element,frame));
       return values.some(value => value === undefined) ? undefined : values;
     }
     if (this.ts.isObjectLiteralExpression(expression)) {
       const object = {};
       for (const property of expression.properties) {
         if (!this.ts.isPropertyAssignment(property)) return undefined;
-        const value = this.staticLiteral(property.initializer,seen,fields);
+        const value = this.staticLiteral(property.initializer,frame);
         if (value === undefined) return undefined;
         object[this.propertyName(property.name)] = value;
       }
@@ -624,46 +654,277 @@ class TypeScriptAnalyzer {
     return directives;
   }
 
-  statementValues(statements) {
-    const values = new Map();
-    for (const statement of statements) {
-      if (this.ts.isFunctionDeclaration(statement) || this.ts.isClassDeclaration(statement)) continue;
-      this.walk(statement,node => {
-        if (this.ts.isVariableDeclaration(node)) {
-          const name = node.name.getText(this.tree);
-          const isStatic = this.ts.isVariableStatement(statement) && node.parent === statement.declarationList && !values.has(name);
-          values.set(name,isStatic ? node.initializer : undefined);
-        } else if (this.ts.isBinaryExpression(node) && node.operatorToken.kind >= this.ts.SyntaxKind.FirstAssignment && node.operatorToken.kind <= this.ts.SyntaxKind.LastAssignment) {
-          const name = node.left.getText(this.tree);
-          const isStatic = this.ts.isExpressionStatement(statement) && statement.expression === node && node.operatorToken.kind === this.ts.SyntaxKind.EqualsToken && !values.has(name);
-          values.set(name,isStatic ? node.right : undefined);
-        } else if ((this.ts.isPrefixUnaryExpression(node) || this.ts.isPostfixUnaryExpression(node)) && [this.ts.SyntaxKind.PlusPlusToken,this.ts.SyntaxKind.MinusMinusToken].includes(node.operator)) {
-          values.set(node.operand.getText(this.tree),undefined);
-        }
-      });
-    }
-    return values;
-  }
-
-  resolveValue(expression,fields=this.instanceFields) {
-    const values = new Map([...this.values,...fields]);
-    for (let parent = expression?.parent; parent; parent = parent.parent) {
-      if (this.ts.isFunctionLike(parent) && parent.body && this.ts.isBlock(parent.body)) {
-        for (const parameter of parent.parameters) values.set(parameter.name.getText(this.tree),undefined);
-        for (const [name,value] of this.statementValues(parent.body.statements)) values.set(name,value);
-        break;
+  indexBindings() {
+    this.scopeBindings = new Map();
+    this.identifierWrites = [];
+    this.thisStores = new Map();
+    this.foreignStores = new Map();
+    this.foreignFieldResults = new Map();
+    this.dynamicClasses = new Set();
+    this.hasDynamicFields = false;
+    this.walk(this.tree,node => {
+      if (this.ts.isVariableDeclaration(node)) this.addBindingNames(node.name,node,this.enclosingScope(node),false);
+      else if (this.ts.isParameter(node)) this.addBindingNames(node.name,node,node.parent,false);
+      else if ((this.ts.isFunctionDeclaration(node) || this.ts.isClassDeclaration(node) || this.ts.isEnumDeclaration(node) || this.ts.isModuleDeclaration(node)) && node.name && this.ts.isIdentifier(node.name)) this.addBinding(node.name.text,node,this.enclosingScope(node),false);
+      else if ((this.ts.isImportClause(node) || this.ts.isNamespaceImport(node) || this.ts.isImportSpecifier(node) || this.ts.isImportEqualsDeclaration(node)) && node.name) this.addBinding(node.name.text,node,this.tree,false);
+      else if (this.ts.isBinaryExpression(node) && node.operatorToken.kind >= this.ts.SyntaxKind.FirstAssignment && node.operatorToken.kind <= this.ts.SyntaxKind.LastAssignment) this.recordWriteTarget(node.left,node);
+      else if ((this.ts.isPrefixUnaryExpression(node) || this.ts.isPostfixUnaryExpression(node)) && [this.ts.SyntaxKind.PlusPlusToken,this.ts.SyntaxKind.MinusMinusToken].includes(node.operator)) this.recordWriteTarget(node.operand,node);
+      else if (this.ts.isDeleteExpression(node)) this.recordWriteTarget(node.expression,node);
+      else if ((this.ts.isForOfStatement(node) || this.ts.isForInStatement(node)) && !this.ts.isVariableDeclarationList(node.initializer)) this.recordWriteTarget(node.initializer,node);
+      else if (this.ts.isCallExpression(node)) this.recordReflectiveWrite(node);
+    });
+    for (const [alias,imported] of this.imports) {
+      if (imported === "*") continue;
+      for (const bindings of this.scopeBindings.values()) for (const binding of bindings.get(alias) || []) {
+        if (!this.ts.isImportSpecifier(binding.declaration)) this.error("dex_alias_rebinding",`Dex import alias ${alias} must not be rebound`,binding.declaration);
       }
     }
-    const seen = new Set();
-    expression = this.unwrap(expression);
-    while (expression && values.has(expression.getText(this.tree))) {
-      const name = expression.getText(this.tree);
-      if (seen.has(name)) return undefined;
-      seen.add(name);
-      expression = this.unwrap(values.get(name));
-    }
-    return expression;
   }
+
+  addBindingNames(name,declaration,scope,isPattern) {
+    if (this.ts.isIdentifier(name)) { this.addBinding(name.text,declaration,scope,isPattern); return; }
+    for (const element of name.elements || []) if (this.ts.isBindingElement(element)) this.addBindingNames(element.name,declaration,scope,true);
+  }
+
+  addBinding(name,declaration,scope,isPattern) {
+    if (!this.scopeBindings.has(scope)) this.scopeBindings.set(scope,new Map());
+    const bindings = this.scopeBindings.get(scope);
+    if (!bindings.has(name)) bindings.set(name,[]);
+    bindings.get(name).push({declaration,isPattern});
+  }
+
+  enclosingScope(node) {
+    for (let parent = node.parent; parent; parent = parent.parent) if (parent === this.tree || this.ts.isFunctionLike(parent)) return parent;
+    return this.tree;
+  }
+
+  recordWriteTarget(target,writeNode) {
+    target = this.unwrap(target);
+    if (!target) return;
+    if (this.ts.isIdentifier(target)) this.identifierWrites.push({name:target.text,node:writeNode});
+    else if (this.ts.isPropertyAccessExpression(target)) {
+      const owner = this.selfReferenceClass(this.unwrap(target.expression));
+      const name = target.name.text;
+      if (!owner) { this.addForeignStore(name,target.expression); return; }
+      if (!this.thisStores.has(owner)) this.thisStores.set(owner,new Map());
+      const stores = this.thisStores.get(owner);
+      if (!stores.has(name)) stores.set(name,[]);
+      stores.get(name).push(target);
+    } else if (this.ts.isElementAccessExpression(target)) {
+      const owner = this.unwrap(target.expression);
+      if (owner?.kind === this.ts.SyntaxKind.ThisKeyword) this.markDynamicFields(owner);
+      const argument = this.unwrap(target.argumentExpression);
+      if (argument && (this.ts.isStringLiteral(argument) || this.ts.isNoSubstitutionTemplateLiteral(argument))) this.addForeignStore(argument.text,target.expression);
+    } else if (this.ts.isArrayLiteralExpression(target)) {
+      for (const element of target.elements) this.recordWriteTarget(this.ts.isSpreadElement(element) ? element.expression : element,writeNode);
+    } else if (this.ts.isObjectLiteralExpression(target)) {
+      for (const property of target.properties) {
+        if (this.ts.isPropertyAssignment(property)) this.recordWriteTarget(property.initializer,writeNode);
+        else if (this.ts.isShorthandPropertyAssignment(property)) this.recordWriteTarget(property.name,writeNode);
+        else if (this.ts.isSpreadAssignment(property)) this.recordWriteTarget(property.expression,writeNode);
+      }
+    } else if (this.ts.isBinaryExpression(target) && target.operatorToken.kind === this.ts.SyntaxKind.EqualsToken) this.recordWriteTarget(target.left,writeNode);
+  }
+
+  addForeignStore(name,owner) {
+    if (!this.foreignStores.has(name)) this.foreignStores.set(name,[]);
+    this.foreignStores.get(name).push(owner);
+  }
+
+  isForeignField(name) {
+    // A write through another object poisons the field unless that object is provably a fresh literal.
+    if (!this.foreignFieldResults.has(name)) {
+      this.foreignFieldResults.set(name,true);
+      const isForeign = (this.foreignStores.get(name) || []).some(owner => {
+        const {node} = this.resolvedValue(owner,{});
+        return !node || !(this.ts.isObjectLiteralExpression(node) || this.ts.isArrayLiteralExpression(node));
+      });
+      this.foreignFieldResults.set(name,isForeign);
+    }
+    return this.foreignFieldResults.get(name);
+  }
+
+  recordReflectiveWrite(call) {
+    const callee = this.unwrap(call.expression)?.getText(this.tree);
+    if (!["Object.assign","Object.defineProperty","Object.defineProperties","Object.setPrototypeOf","Reflect.set","Reflect.defineProperty","Reflect.setPrototypeOf"].includes(callee)) return;
+    const target = this.unwrap(call.arguments[0]);
+    if (target && (this.ts.isObjectLiteralExpression(target) || this.ts.isArrayLiteralExpression(target) || this.ts.isNewExpression(target))) return;
+    if (target?.kind === this.ts.SyntaxKind.ThisKeyword) this.markDynamicFields(target);
+    else this.hasDynamicFields = true;
+  }
+
+  markDynamicFields(thisNode) {
+    const owner = this.selfReferenceClass(thisNode);
+    if (owner) this.dynamicClasses.add(owner);
+    else this.hasDynamicFields = true;
+  }
+
+  resolvedValue(expression,frame) {
+    // Follows provable bindings; an Identifier or property access result means one was not provable.
+    let current = {node:this.unwrap(expression),frame};
+    const seen = new Set();
+    while (current.node) {
+      const key = `${current.node.pos}:${current.node.end}:${current.node.kind}@${this.frameIdentity(current.frame)}:${current.frame.initializer?.pos ?? ""}`;
+      if (seen.has(key)) break;
+      seen.add(key);
+      const following = this.ts.isIdentifier(current.node) ? this.nameValue(current.node,current.frame) : this.ts.isPropertyAccessExpression(current.node) ? this.propertyValue(current.node,current.frame) : undefined;
+      if (!following) break;
+      current = {node:this.unwrap(following.node),frame:following.frame};
+    }
+    return current;
+  }
+
+  frameIdentity(frame) { return frame.instance ? frame.instance.identity : ""; }
+
+  nameValue(identifier,frame) {
+    const scope = this.bindingScope(identifier);
+    const declaration = scope && this.staticBinding(scope,identifier.text);
+    if (!declaration) return undefined;
+    if (this.ts.isParameter(declaration)) return frame.initializer === scope ? frame.args.get(identifier.text) : undefined;
+    if (this.ts.isClassDeclaration(declaration)) return this.isUsedBeforeBinding(identifier,declaration,scope) ? undefined : {node:declaration,frame};
+    if (!this.ts.isVariableDeclaration(declaration) || !declaration.initializer || !this.isDirectStatement(declaration,scope) || this.isUsedBeforeBinding(identifier,declaration,scope)) return undefined;
+    return {node:declaration.initializer,frame:scope === this.tree ? {} : frame};
+  }
+
+  bindingScope(identifier) {
+    for (let node = identifier.parent; node; node = node.parent) {
+      if ((node === this.tree || this.ts.isFunctionLike(node)) && this.scopeBindings.get(node)?.has(identifier.text)) return node;
+    }
+    return undefined;
+  }
+
+  staticBinding(scope,name) {
+    const bindings = this.scopeBindings.get(scope).get(name);
+    if (bindings.length !== 1 || bindings[0].isPattern) return undefined;
+    if (this.identifierWrites.some(write => write.name === name && this.isWithin(write.node,scope))) return undefined;
+    return bindings[0].declaration;
+  }
+
+  isWithin(node,ancestor) {
+    for (let current = node; current; current = current.parent) if (current === ancestor) return true;
+    return false;
+  }
+
+  isDirectStatement(declaration,scope) {
+    const statement = declaration.parent?.parent;
+    if (!statement || !this.ts.isVariableStatement(statement)) return false;
+    return scope === this.tree ? statement.parent === this.tree : statement.parent === scope.body;
+  }
+
+  isUsedBeforeBinding(reference,declaration,scope) {
+    for (let node = reference.parent; node && node !== scope; node = node.parent) {
+      if (this.ts.isFunctionLike(node) || (this.ts.isPropertyDeclaration(node) && !this.isStatic(node))) return false;
+    }
+    return reference.getStart(this.tree) < declaration.end;
+  }
+
+  propertyValue(access,frame) {
+    const owner = this.resolvedValue(access.expression,frame);
+    const ownerClass = this.selfReferenceClass(owner.node);
+    const name = access.name.text;
+    if (!ownerClass) return owner.node && this.ts.isClassDeclaration(owner.node) ? this.classStaticValue(owner.node,name) : undefined;
+    if (ownerClass === this.flowClass) return this.flowFieldValue(name);
+    return owner.frame.instance?.declaration === ownerClass ? this.stepFieldValue(owner.frame.instance,name) : undefined;
+  }
+
+  selfReferenceClass(node) {
+    if (node?.kind !== this.ts.SyntaxKind.ThisKeyword) return undefined;
+    for (let current = node.parent; current; current = current.parent) {
+      if (this.ts.isArrowFunction(current)) continue;
+      if (this.ts.isFunctionDeclaration(current) || this.ts.isFunctionExpression(current) || this.ts.isClassStaticBlockDeclaration(current)) return undefined;
+      if ((this.ts.isMethodDeclaration(current) || this.ts.isConstructorDeclaration(current) || this.ts.isGetAccessor(current) || this.ts.isSetAccessor(current) || this.ts.isPropertyDeclaration(current)) && this.ts.isClassDeclaration(current.parent)) {
+        return this.isStatic(current) ? undefined : current.parent;
+      }
+    }
+    return undefined;
+  }
+
+  flowFieldValue(name) {
+    const declaration = this.flowClass;
+    if (this.hasDynamicFields || this.dynamicClasses.has(declaration) || this.isForeignField(name) || this.extendsClause(declaration)) return undefined;
+    const stores = this.fieldStores(declaration,name);
+    if (stores.length !== 1) return undefined;
+    if (this.ts.isPropertyDeclaration(stores[0])) return {node:stores[0].initializer,frame:{}};
+    if (this.ts.isParameter(stores[0])) return undefined;
+    return this.constructorStoreValue(declaration,stores[0],{});
+  }
+
+  stepFieldValue(instance,name) {
+    const declaration = instance.declaration;
+    if (this.hasDynamicFields || this.isForeignField(name) || !this.hasModeledConstruction(declaration)) return undefined;
+    const stores = this.fieldStores(declaration,name);
+    if (stores.length !== 1) return undefined;
+    if (this.ts.isPropertyDeclaration(stores[0])) return {node:stores[0].initializer,frame:{instance}};
+    const constructor = this.constructorOf(declaration);
+    const args = this.constructorArguments(constructor,instance);
+    if (!args) return undefined;
+    const frame = {instance,initializer:constructor,args};
+    if (this.ts.isParameter(stores[0])) return this.ts.isIdentifier(stores[0].name) && this.staticBinding(constructor,stores[0].name.text) ? args.get(stores[0].name.text) : undefined;
+    return this.constructorStoreValue(declaration,stores[0],frame);
+  }
+
+  classStaticValue(declaration,name) {
+    if (this.hasDynamicFields || this.isForeignField(name)) return undefined;
+    const members = declaration.members.filter(member => member.name && this.propertyName(member.name) === name && this.isStatic(member));
+    if (members.length !== 1 || !this.ts.isPropertyDeclaration(members[0]) || !members[0].initializer) return undefined;
+    return {node:members[0].initializer,frame:{}};
+  }
+
+  fieldStores(declaration,name) {
+    const stores = declaration.members.filter(member => this.ts.isPropertyDeclaration(member) && member.initializer && !this.isStatic(member) && this.propertyName(member.name) === name);
+    const constructor = this.constructorOf(declaration);
+    for (const parameter of constructor?.parameters || []) {
+      if (this.ts.isParameterPropertyDeclaration(parameter,constructor) && this.ts.isIdentifier(parameter.name) && parameter.name.text === name) stores.push(parameter);
+    }
+    return [...stores,...(this.thisStores.get(declaration)?.get(name) || [])];
+  }
+
+  constructorStoreValue(declaration,store,frame) {
+    const constructor = this.constructorOf(declaration);
+    const assignment = store.parent;
+    if (!constructor?.body || !this.ts.isBinaryExpression(assignment) || assignment.left !== store || assignment.operatorToken.kind !== this.ts.SyntaxKind.EqualsToken) return undefined;
+    if (!this.ts.isExpressionStatement(assignment.parent) || assignment.parent.parent !== constructor.body) return undefined;
+    let hasReturn = false;
+    this.walk(constructor.body,node => { if (this.ts.isReturnStatement(node) && this.enclosingScope(node) === constructor) hasReturn = true; });
+    return hasReturn ? undefined : {node:assignment.right,frame};
+  }
+
+  hasModeledConstruction(declaration) {
+    // Inheritance, decorators, reflective writes, or a leaked this can change fields the analyzer cannot see.
+    if (this.extendsClause(declaration) || this.dynamicClasses.has(declaration) || this.ts.getDecorators?.(declaration)?.length) return false;
+    const constructor = this.constructorOf(declaration);
+    if (!constructor?.body) return true;
+    for (const statement of constructor.body.statements) {
+      if (this.ts.isVariableStatement(statement)) continue;
+      const expression = this.ts.isExpressionStatement(statement) ? statement.expression : undefined;
+      if (expression && this.ts.isBinaryExpression(expression) && expression.operatorToken.kind === this.ts.SyntaxKind.EqualsToken && this.ts.isPropertyAccessExpression(expression.left) && expression.left.expression.kind === this.ts.SyntaxKind.ThisKeyword) continue;
+      return false;
+    }
+    let isThisLeaked = false;
+    this.walk(constructor.body,node => {
+      if (node.kind === this.ts.SyntaxKind.ThisKeyword && !(this.ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node)) isThisLeaked = true;
+    });
+    return !isThisLeaked;
+  }
+
+  constructorArguments(constructor,instance) {
+    const args = new Map();
+    if (!constructor) return args;
+    const call = instance.newExpression;
+    if (call.arguments?.some(argument => this.ts.isSpreadElement(argument))) return undefined;
+    const frame = {instance,initializer:constructor,args};
+    for (const [index,parameter] of constructor.parameters.entries()) {
+      if (!this.ts.isIdentifier(parameter.name) || parameter.dotDotDotToken) continue;
+      const argument = call.arguments?.[index];
+      if (argument) args.set(parameter.name.text,{node:argument,frame:instance.frame});
+      else if (parameter.initializer) args.set(parameter.name.text,{node:parameter.initializer,frame});
+    }
+    return args;
+  }
+
+  constructorOf(declaration) { return declaration.members.find(member => this.ts.isConstructorDeclaration(member) && member.body); }
+  extendsClause(declaration) { return declaration.heritageClauses?.find(clause => clause.token === this.ts.SyntaxKind.ExtendsKeyword)?.types[0]; }
+  isStatic(member) { return !!member.modifiers?.some(modifier => modifier.kind === this.ts.SyntaxKind.StaticKeyword); }
 
   typeName(declaration,methodName) {
     const method = this.method(declaration,methodName);
@@ -722,8 +983,12 @@ class TypeScriptAnalyzer {
   }
   error(code,message,node) {
     const span = this.span(node);
+    this.addDiagnostic({severity:"error",code,message,...(span ? {span} : {})});
+  }
+  addDiagnostic(diagnostic) {
     this.graph.valid = false;
-    this.graph.diagnostics.push({severity:"error",code,message,...(span ? {span} : {})});
+    const key = JSON.stringify(diagnostic);
+    if (!this.graph.diagnostics.some(existing => JSON.stringify(existing) === key)) this.graph.diagnostics.push(diagnostic);
   }
   result() { return {graph:this.graph,annotations:this.annotations,factories:this.uses}; }
 }

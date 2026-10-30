@@ -11,7 +11,7 @@ import json
 import sys
 
 
-class Analyzer(ConnectorAnalyzer):
+class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
     def __init__(self, path, source):
         self.path = path
         self.source = source
@@ -30,12 +30,15 @@ class Analyzer(ConnectorAnalyzer):
         self.functions = {}
         self.step_classes = {}
         self.flow_classes = {}
+        self.flow_class = None
         self.registered = {}
         self.step_instances = {}
-        self.instance_values = {}
-        self.instance_fields = {}
+        self.registered_identities = {}
+        self.current_frame = EvaluationFrame()
+        self.target_failures = {}
         self.parents = {}
         self.resources = {}
+        self.resource_calls = {}
         self.step_resources = {}
         self.failure_transitions = set()
         self.node_ids = set()
@@ -54,6 +57,7 @@ class Analyzer(ConnectorAnalyzer):
         self.index_imports()
         self.index_connector_imports()
         self.index_classes()
+        self.index_bindings()
         self.validate_dynamic_constructs()
         self.index_resources()
         if len(self.flow_classes) != 1:
@@ -64,10 +68,10 @@ class Analyzer(ConnectorAnalyzer):
                 self.add_node({"id": f"unknown:flow:{name}", "kind": "unknown", "name": name, "span": self.span(node)})
             return self.graph
         flow_name, flow_class = next(iter(self.flow_classes.items()))
+        self.flow_class = flow_class
         self.graph["flow"] = {"name": self.custom_type_name(flow_class, "get_flow_type", flow_name), "span": self.span(flow_class)}
         self.index_flow_fields(flow_class)
         self.index_connector_fields(flow_class)
-        self.index_instance_values(flow_class)
         self.analyze_registration(flow_class)
         for step_name, node_id in list(self.registered.items()):
             self.analyze_step(step_name, node_id)
@@ -101,13 +105,14 @@ class Analyzer(ConnectorAnalyzer):
                 self.flow_classes[node.name] = node
 
     def validate_dynamic_constructs(self):
-        imported_names = set(self.imports)
+        for name, imported in self.imports.items():
+            for bindings in self.scope_bindings.values():
+                for binding in bindings.get(name, []):
+                    statement = self.parents.get(binding)
+                    if isinstance(binding, ast.alias) and isinstance(statement, ast.ImportFrom) and statement.module == "dex" and binding.name == imported:
+                        continue
+                    self.error("dex_alias_rebinding", f"Dex import alias {name} must not be rebound", self.span(binding))
         for node in ast.walk(self.tree):
-            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                for target in targets:
-                    if isinstance(target, ast.Name) and target.id in imported_names:
-                        self.error("dex_alias_rebinding", f"Dex import alias {target.id} must not be rebound", self.span(target))
             if isinstance(node, ast.Call) and self.symbol(node.func) in {"getattr", "setattr", "__import__", "import_module"}:
                 self.error("dynamic_python", f"{self.symbol(node.func)} is not supported in Flow source", self.span(node))
                 self.add_node({"id": f"unknown:python:{node.lineno}", "kind": "unknown", "name": "Dynamic Python", "span": self.span(node)})
@@ -150,6 +155,7 @@ class Analyzer(ConnectorAnalyzer):
             node_id = f"resource:{kind}:{key}"
             self.resources[key] = node_id
             self.resources[target.id] = node_id
+            self.resource_calls[value] = node_id
             resource = self.resource_details(value)
             if resource["valueType"] == "unknown":
                 self.warning("unknown_resource_type", f"{kind} {resource_name} has no statically readable value type", self.span(value))
@@ -263,6 +269,7 @@ class Analyzer(ConnectorAnalyzer):
         node_id = f"resource:{kind}:{key}"
         self.resources[key] = node_id
         self.resources[target_name] = node_id
+        self.resource_calls[call] = node_id
         resource = self.resource_details(call)
         if resource["valueType"] == "unknown":
             self.warning("unknown_resource_type", f"{kind} {resource_name} has no statically readable value type", self.span(call))
@@ -281,12 +288,14 @@ class Analyzer(ConnectorAnalyzer):
             if node.func.attr not in {"start_step", "other_steps"}:
                 continue
             for index, argument in enumerate(node.args):
-                step_name = self.step_target(argument, report_errors=True)
                 is_start = node.func.attr == "start_step" and index == 0
-                registrations.append((step_name, is_start, argument))
+                registrations.append((argument, is_start))
         starts = 0
         seen = set()
-        for step_name, is_start, expression in registrations:
+        for expression, is_start in registrations:
+            step_name, instance = self.registration_target(expression)
+            if step_name is None:
+                continue
             if not step_name:
                 self.report_missing_connector_manifest(expression)
                 self.dynamic_target("registered Step type must be static", expression)
@@ -303,13 +312,9 @@ class Analyzer(ConnectorAnalyzer):
                     starts += 1
                     self.graph["flow"]["startStepId"] = node_id
                 continue
-            instance = self.step_instance(expression)
-            if instance is None:
-                self.dynamic_target(f"Step {step_name} must be defined in the source file", expression)
-                continue
-            class_name, fields, _ = instance
-            self.step_instances[step_name] = (class_name, fields)
-            step_class = self.step_classes[class_name]
+            self.step_instances[step_name] = instance
+            self.registered_identities.setdefault(instance.identity, step_name)
+            step_class = instance.declaration
             node_id = f"step:{step_name}"
             self.registered[step_name] = node_id
             self.add_node({
@@ -347,13 +352,13 @@ class Analyzer(ConnectorAnalyzer):
     def analyze_step(self, step_name, node_id):
         if step_name in self.connector_steps:
             return
-        class_name, fields = self.step_instances[step_name]
-        self.instance_fields = fields
-        step_class = self.step_classes[class_name]
+        instance = self.step_instances[step_name]
+        step_class = instance.declaration
+        self.current_frame = EvaluationFrame(instance)
         execute = self.method(step_class, "execute")
         if execute is None:
             self.error("step_handler_not_in_file", f"Step {step_name} execute must be defined in the source file", self.span(step_class))
-            self.instance_fields = {}
+            self.current_frame = EvaluationFrame()
             return
         self.analyze_decisions(node_id, execute, rpc=False)
         self.analyze_resources(node_id, execute, "execute")
@@ -362,21 +367,25 @@ class Analyzer(ConnectorAnalyzer):
             self.analyze_wait(node_id, step_name, wait_for)
         options = self.method(step_class, "get_step_options")
         if options is not None:
-            self.analyze_step_options(node_id, options)
-            for statement in options.body:
-                if isinstance(statement, ast.Return):
-                    expression = self.resolve_instance_value(statement.value)
-                    if expression is not None and expression is not statement.value:
-                        self.analyze_step_options(node_id, expression)
-        self.instance_fields = {}
+            self.analyze_step_options(node_id, options, self.current_frame)
+            for statement in self.function_returns(options):
+                if statement.value is None:
+                    continue
+                expression, frame = self.resolved_value(statement.value, self.current_frame)
+                if expression is not statement.value:
+                    self.analyze_step_options(node_id, expression, frame)
+        self.current_frame = EvaluationFrame()
 
-    def analyze_step_options(self, owner_id, expression):
+    def analyze_step_options(self, owner_id, expression, frame):
+        step_frame = self.current_frame
+        self.current_frame = frame
         for source in self.option_sources(expression):
             self.analyze_failure(owner_id, source)
             self.analyze_locks(owner_id, ast.walk(source), {
                 "wait_for_lock_attributes": "wait_for",
                 "execute_lock_attributes": "execute",
             })
+        self.current_frame = step_frame
 
     def option_sources(self, expression):
         sources = []
@@ -514,7 +523,7 @@ class Analyzer(ConnectorAnalyzer):
             for transition in outcome["transitions"]:
                 if transition["kind"] != "cancel":
                     continue
-                target_id = self.resolve_target(transition["target"], transition["span"])
+                target_id = self.resolve_target(transition["target"], transition["span"], transition.get("targetNode"))
                 scope = "siblings" if transition.get("label") == "with_canceling_sibling_steps" else "all"
                 details["cancellations"].append({"stepId": target_id, "scope": scope})
             self.add_node({
@@ -525,7 +534,7 @@ class Analyzer(ConnectorAnalyzer):
             for transition in outcome["transitions"]:
                 if transition["kind"] == "terminal":
                     continue
-                target_id = self.resolve_target(transition["target"], transition["span"])
+                target_id = self.resolve_target(transition["target"], transition["span"], transition.get("targetNode"))
                 self.add_edge(
                     transition["kind"], decision_id, target_id,
                     label=transition.get("label", ""), multiplicity=transition.get("multiplicity", ""),
@@ -763,15 +772,14 @@ class Analyzer(ConnectorAnalyzer):
                 self.dynamic_target("execute failure recovery target must be static", call)
                 continue
             target = self.step_target(call.args[0])
-            target_id = self.resolve_target(target, self.span(call.args[0]))
+            target_id = self.resolve_target(target, self.span(call.args[0]), call.args[0])
             transition = (owner_id, target_id)
             if transition in self.failure_transitions:
                 continue
             self.failure_transitions.add(transition)
             metadata = {}
             if target in self.step_instances:
-                class_name, _ = self.step_instances[target]
-                metadata["skipWaitFor"] = self.method(self.step_classes[class_name], "wait_for") is None
+                metadata["skipWaitFor"] = self.method(self.step_instances[target].declaration, "wait_for") is None
             self.add_edge("failure_transition", owner_id, target_id, label="Execute failure", span=self.span(call), metadata=metadata)
 
     def analyze_resources(self, owner_id, method, phase):
@@ -863,13 +871,13 @@ class Analyzer(ConnectorAnalyzer):
         if isinstance(expression.func, ast.Attribute) and expression.func.attr in {"with_canceling_steps", "with_canceling_sibling_steps"}:
             transitions = self.parse_decision(expression.func.value, condition, rpc, locals_map)
             for argument in expression.args:
-                transitions.append({"kind": "cancel", "target": self.step_target(argument), "label": expression.func.attr, "condition": condition, "span": self.span(argument)})
+                transitions.append({"kind": "cancel", "target": self.step_target(argument), "targetNode": argument, "label": expression.func.attr, "condition": condition, "span": self.span(argument)})
             return transitions
         symbol = self.symbol(expression.func)
         short = symbol.rsplit(".", 1)[-1]
         if short == "go_to" and self.is_dex_reference(expression.func, "go_to"):
             target = self.step_target(expression.args[0]) if expression.args else None
-            return [{"kind": "transition", "target": target, "label": "go_to", "condition": condition, "span": self.span(expression)}]
+            return [{"kind": "transition", "target": target, "targetNode": expression.args[0] if expression.args else None, "label": "go_to", "condition": condition, "span": self.span(expression)}]
         if short == "go_to_many" and self.is_dex_reference(expression.func, "go_to_many"):
             result = []
             for argument in expression.args:
@@ -922,7 +930,7 @@ class Analyzer(ConnectorAnalyzer):
             return None
         if not expression.args:
             return None
-        return {"kind": "transition", "target": self.step_target(expression.args[0]), "label": "fan-out", "condition": condition, "span": self.span(expression)}
+        return {"kind": "transition", "target": self.step_target(expression.args[0]), "targetNode": expression.args[0], "label": "fan-out", "condition": condition, "span": self.span(expression)}
 
     def local_movements(self, method):
         result = {}
@@ -996,13 +1004,16 @@ class Analyzer(ConnectorAnalyzer):
     def negate(self, condition):
         return f"not ({condition})"
 
-    def resolve_target(self, target, span):
+    def resolve_target(self, target, span, target_node=None):
         if target in self.registered:
             return self.registered[target]
         target_name = target or "Dynamic Step"
         node_id = f"unknown:step:{target_name}"
         self.add_node({"id": node_id, "kind": "unknown", "name": target_name, "span": span})
-        message = f"Step {target} is not registered in this Flow" if target else "Dex transition target must resolve to a registered Step instance, an unambiguous class, or a literal StepRef"
+        if target:
+            message = f"Step {target} is not registered in this Flow"
+        else:
+            message = self.target_failures.get(target_node, "Dex transition target must be a registered Step instance, a class with one registered instance, or a StepRef with a string literal")
         self.error("unknown_step_target", message, span)
         return node_id
 
@@ -1012,13 +1023,9 @@ class Analyzer(ConnectorAnalyzer):
         self.error("dynamic_step_target", message, span)
 
     def resource_for(self, expression, owner_id):
-        if self.unparse(expression) in self.instance_fields:
-            expression = self.resolve_instance_value(expression)
-            for name, value in self.instance_values.items():
-                if value is expression:
-                    resource = self.resources.get(name.removeprefix("self.")) or self.resources.get(name)
-                    if resource:
-                        return resource
+        value, _ = self.resolved_value(expression, self.current_frame)
+        if value in self.resource_calls:
+            return self.resource_calls[value]
         if isinstance(expression, ast.Name):
             return self.resources.get(expression.id)
         if isinstance(expression, ast.Attribute):
@@ -1033,106 +1040,58 @@ class Analyzer(ConnectorAnalyzer):
             return self.resources.get(expression.attr)
         return None
 
-    def index_instance_values(self, flow_class):
-        self.instance_values.update(self.assignment_values(self.tree.body))
-        for name, value in self.assignment_values(flow_class.body).items():
-            self.instance_values[f"self.{name}"] = value
-            self.instance_values[f"{flow_class.name}.{name}"] = value
-        initializer = self.method(flow_class, "__init__")
-        if initializer:
-            self.instance_values.update(self.assignment_values(initializer.body))
-        for class_name, declaration in self.classes.items():
-            for name, value in self.assignment_values(declaration.body).items():
-                self.instance_values[f"{class_name}.{name}"] = value
+    def registration_target(self, expression):
+        """Resolve one get_steps argument.
 
-    def assignment_values(self, statements):
-        values = {}
-        for statement in statements:
-            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                continue
-            for node in ast.walk(statement):
-                if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
-                    continue
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                for target in targets:
-                    name = self.unparse(target)
-                    is_static_assignment = node is statement and not isinstance(node, ast.AugAssign) and name not in values
-                    values[name] = node.value if is_static_assignment else None
-        return values
+        Returns (step_type, instance). The instance is None for a Connector factory
+        Step. An empty step_type means the registration is not static; None means
+        a diagnostic was already reported.
+        """
+        node, frame = self.resolved_value(expression, EvaluationFrame())
+        if isinstance(node, ast.Call) and self.is_dex_reference(node.func, "StepRef"):
+            self.dynamic_target("registered Step must be a Step instance or Connector factory, not a StepRef", expression)
+            return None, None
+        connector_target = self.connector_step_target(node) if isinstance(node, ast.Call) else None
+        if connector_target:
+            return connector_target, None
+        declaration = self.constructed_class(node, frame) if isinstance(node, ast.Call) else None
+        if declaration is not None and (self.local_step_base(declaration) or (declaration.name in self.step_classes and self.has_unknown_bases(declaration, "Step"))):
+            bases = ", ".join(self.unparse(base) for base in declaration.bases)
+            self.error("step_inheritance_unsupported", f"Step class {declaration.name} extends {bases}; the analyzer reads Step methods only from classes that extend Step directly", self.span(expression))
+            return None, None
+        instance = self.step_instance_value(node, frame)
+        if instance is None:
+            return "", None
+        return self.instance_step_type(instance, report_errors=True) or "", instance
 
-    def resolve_instance_value(self, expression, fields=None):
-        values = {**self.instance_values, **(self.instance_fields if fields is None else fields)}
-        parent = expression
-        while parent in self.parents:
-            parent = self.parents[parent]
-            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                for argument in [*parent.args.posonlyargs, *parent.args.args, *parent.args.kwonlyargs]:
-                    if argument.arg != "self":
-                        values[argument.arg] = None
-                values.update(self.assignment_values(parent.body))
-                break
-        seen = set()
-        while expression is not None and self.unparse(expression) in values:
-            name = self.unparse(expression)
-            if name in seen:
-                return None
-            seen.add(name)
-            expression = values[name]
-        return expression
-
-    def step_instance(self, expression, report_errors=False):
-        expression = self.resolve_instance_value(expression)
-        constructor = expression if isinstance(expression, ast.Call) else None
-        class_name = self.symbol(constructor.func if constructor else expression)
-        if class_name not in self.step_classes:
-            return None
-        declaration = self.step_classes[class_name]
-        fields = {f"self.{name}": value for name, value in self.assignment_values(declaration.body).items()}
-        initializer = self.method(declaration, "__init__")
-        if initializer and constructor:
-            parameters = [argument.arg for argument in [*initializer.args.posonlyargs, *initializer.args.args] if argument.arg != "self"]
-            keyword_parameters = [argument.arg for argument in initializer.args.kwonlyargs]
-            arguments = dict.fromkeys([*parameters, *keyword_parameters])
-            defaults = initializer.args.defaults
-            arguments.update(zip(parameters[len(parameters) - len(defaults):], defaults))
-            arguments.update(zip(keyword_parameters, initializer.args.kw_defaults))
-            arguments.update(zip(parameters, constructor.args))
-            arguments.update({keyword.arg: keyword.value for keyword in constructor.keywords if keyword.arg})
-            arguments = {name: self.resolve_instance_value(value) for name, value in arguments.items()}
-            for name, value in self.assignment_values(initializer.body).items():
-                if name.startswith("self."):
-                    fields[name] = arguments.get(value.id, value) if isinstance(value, ast.Name) else value
-            for name, value in list(fields.items()):
-                if isinstance(value, ast.Name) and value.id == "self":
-                    for flow_field, expression in self.instance_values.items():
-                        if flow_field.startswith("self."):
-                            fields[name + flow_field.removeprefix("self")] = expression
-        method = self.method(declaration, "get_step_type")
-        if method is None:
-            return class_name, fields, class_name
-        returns = [node.value for node in ast.walk(method) if isinstance(node, ast.Return)]
-        values = [self.resolve_instance_value(value, fields) for value in returns]
-        names = [value.value if isinstance(value, ast.Constant) and isinstance(value.value, str) else None for value in values]
-        if not names or names[0] is None or any(name != names[0] for name in names):
-            if report_errors:
-                self.error("dynamic_type_name", "get_step_type must return one static string literal or a field bound to a literal at registration", self.span(method))
-            return class_name, fields, None
-        return class_name, fields, names[0] or class_name
-
-    def step_target(self, expression, report_errors=False):
-        expression = self.resolve_instance_value(expression)
-        if isinstance(expression, ast.Call) and self.is_dex_reference(expression.func, "StepRef"):
-            if len(expression.args) == 1 and isinstance(expression.args[0], ast.Constant) and isinstance(expression.args[0].value, str):
-                return expression.args[0].value
-            return None
-        connector_target = self.connector_step_target(expression)
+    def step_target(self, expression):
+        node, frame = self.resolved_value(expression, self.current_frame)
+        if isinstance(node, ast.Call) and self.is_dex_reference(node.func, "StepRef"):
+            return self.step_reference_type(node)
+        connector_target = self.connector_step_target(node) if isinstance(node, ast.Call) else None
         if connector_target:
             return connector_target
-        if not report_errors and isinstance(expression, ast.Name) and expression.id in self.step_classes:
-            candidates = [step_type for step_type, (class_name, _) in self.step_instances.items() if class_name == expression.id]
-            return candidates[0] if len(candidates) == 1 else None
-        instance = self.step_instance(expression, report_errors)
-        return instance[2] if instance else None
+        if isinstance(node, ast.ClassDef):
+            return self.class_step_target(node, expression)
+        instance = self.step_instance_value(node, frame)
+        if instance is None:
+            return None
+        step_type = self.registered_identities.get(instance.identity)
+        if step_type is None:
+            self.target_failures[expression] = "Step instance is not the registered instance; target the registered instance, its class, or a StepRef"
+        return step_type
+
+    def class_step_target(self, declaration, expression):
+        if self.step_classes.get(declaration.name) is not declaration:
+            return None
+        candidates = [step_type for step_type, instance in self.step_instances.items() if instance.declaration is declaration]
+        if len(candidates) == 1:
+            return candidates[0]
+        if candidates:
+            self.target_failures[expression] = f"Step class {declaration.name} has {len(candidates)} registered instances; target a registered instance or a StepRef"
+        else:
+            self.target_failures[expression] = f"Step class {declaration.name} has no registered instance"
+        return None
 
     def custom_type_name(self, class_node, method_name, fallback):
         method = self.method(class_node, method_name)
@@ -1260,14 +1219,16 @@ class Analyzer(ConnectorAnalyzer):
         diagnostic = {"severity": "error", "code": code, "message": message}
         if span:
             diagnostic["span"] = span
-        self.graph["diagnostics"].append(diagnostic)
+        if diagnostic not in self.graph["diagnostics"]:
+            self.graph["diagnostics"].append(diagnostic)
         self.graph["valid"] = False
 
     def warning(self, code, message, span=None):
         diagnostic = {"severity": "warning", "code": code, "message": message}
         if span:
             diagnostic["span"] = span
-        self.graph["diagnostics"].append(diagnostic)
+        if diagnostic not in self.graph["diagnostics"]:
+            self.graph["diagnostics"].append(diagnostic)
 
     def span(self, node):
         return {

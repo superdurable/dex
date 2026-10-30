@@ -280,8 +280,7 @@ class ConnectorAnalyzer:
             if step_name in self.connector_steps:
                 factories.append(self.connector_use_result(node_id, self.connector_steps[step_name]))
                 continue
-            class_name, _ = self.step_instances[step_name]
-            step_class = self.step_classes[class_name]
+            step_class = self.step_instances[step_name].declaration
             first_line = min([step_class.lineno, *(decorator.lineno for decorator in step_class.decorator_list)]) - 1
             directives = []
             lines = self.source.splitlines()

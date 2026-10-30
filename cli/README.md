@@ -348,11 +348,15 @@ A registration that calls a package without a manifest reports
 
 Python and TypeScript register each Step instance by its static Step type.
 Several instances of one class may use different types returned as literals or
-bound through constructor arguments and class attributes. Targets may use static
-variables, Flow fields, matching inline constructors, or literal `StepRef`
-names. A class target requires one registered instance. Dynamic types and
-unresolved targets remain blocking diagnostics; decisions hidden in callbacks
-remain unsupported.
+bound through constructor arguments and class attributes. The SDKs resolve an
+instance target by object identity, so a target must reach the registered
+object through names that are each bound once: module variables, Flow fields,
+Step fields set in the constructor, or function locals. Literal `StepRef` names
+and a class with one registered instance also resolve. An inline constructor or
+any other instance is a different object and reports `unknown_step_target`.
+Rebound or shadowed names, fields changed outside the constructor, decorated
+Python Step classes, and Step classes that extend other classes fail closed with
+blocking diagnostics. Decisions hidden in callbacks remain unsupported.
 
 TypeScript analysis loads the `typescript` package only from the source
 project (`node_modules` or `NODE_PATH`). It reads Step registration, direct
