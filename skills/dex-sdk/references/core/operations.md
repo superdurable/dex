@@ -66,10 +66,12 @@ report `duplicate_step_type`. From cli-v1.28.1, the Python and TypeScript
 analyzers also resolve a Flow that registers several instances of one Step class
 (each instance's static Step type is its node), `StepRef("Type")` or
 `new StepRef("Type")` with a string literal, and the registered Step object
-itself, as a movement, execute-failure, timeout-handler failure, or cancellation
-target. They fail closed: a computed Step type, an unknown `StepRef` name, an
-ambiguous class target, or a Step object that escapes (is passed to other code,
-stored in a collection, returned, or cast) produces a blocking diagnostic, also
+itself, as a movement, execute-failure, or cancellation target. They fail closed: a
+computed Step type, an unknown `StepRef` name, or an ambiguous class target
+produces a blocking diagnostic. The TypeScript analyzer also rejects a Step or
+Flow object that escapes (is passed to other code, stored in a collection,
+returned, or cast); the Python analyzer rejects rebinding, reflection, and
+attribute interception but does not track every escape, also
 with `--lint app`. They assume imported code does not modify the Flow and that
 the source uses no eval, reflection, or prototype and global mutation. See the
 [Flow visualization reference](https://docs.superdurable.io/references/flow-visualization)
