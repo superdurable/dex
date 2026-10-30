@@ -69,8 +69,8 @@ analyzers also resolve a Flow that registers several instances of one Step class
 itself, as a movement, execute-failure, or cancellation target. They fail closed: a
 computed Step type, an unknown `StepRef` name, or an ambiguous class target
 produces a blocking diagnostic. The TypeScript analyzer also rejects a Step or
-Flow object that escapes (is passed to other code, stored in a collection,
-returned, or cast); the Python analyzer rejects rebinding, reflection, and
+Flow object used where it cannot prove the object is unchanged, such as a Step
+passed to an imported function or cast; the Python analyzer rejects rebinding, reflection, and
 attribute interception but does not track every escape, also
 with `--lint app`. They assume imported code does not modify the Flow and that
 the source uses no eval, reflection, or prototype and global mutation. See the
