@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, is_dataclass
+from dataclasses import is_dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any, cast
@@ -17,7 +17,7 @@ from typing import Any, cast
 from google.protobuf import struct_pb2
 
 from dex.attribute import AttributeIndex, IndexType
-from dex.codec import Codec, CodecRegistry, Value, WireKind
+from dex.codec import Codec, CodecRegistry, Value, WireKind, _encode_json_value
 from dex.dexpb import dex_pb2 as pb
 from dex.runtime_errors import ValueMappingError
 
@@ -213,7 +213,7 @@ class ValueMapper:
     def _encode_json_collection(value: object) -> bytes:
         def default(item: object) -> object:
             if is_dataclass(item) and not isinstance(item, type):
-                return asdict(item)
+                return _encode_json_value(item)
             if isinstance(item, datetime):
                 return item.isoformat()
             if isinstance(item, Enum):

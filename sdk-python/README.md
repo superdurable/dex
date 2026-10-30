@@ -480,12 +480,21 @@ Metadata options can be combined on one field. Existing dataclasses retain their
 field names and encoded values unless metadata opts into a change.
 
 Unions select by JSON kind: null, boolean, number, string, array, or object.
-Alternatives must use different kinds. `Receipt | None`, `int | str`, and
+A union declared directly, such as a Step input of `Receipt | None`, needs
+alternatives with different kinds. `Receipt | None`, `int | str`, and
 `int | bool` are supported. `int | float`, `str | datetime`, two dataclasses,
-or two list types are ambiguous and raise `TypeError` when the codec is resolved,
-including inside another dataclass. Use an explicit `JsonCodec` with a
-discriminator for these shapes. Union values always use JSON on the wire,
-including primitive alternatives.
+or two list types are ambiguous and raise `TypeError` when the codec is
+resolved. Use an explicit `JsonCodec` with a discriminator for these shapes.
+Union values always use JSON on the wire, including primitive alternatives.
+
+Unions inside dataclass fields and containers keep the decoding of earlier
+releases and never raise when the codec is resolved. Such a union decodes a
+value into a dataclass, Enum, or datetime alternative, or a container of those,
+when the value's JSON kind matches only that alternative. It returns any other
+value unchanged, without a type check. Fields typed by a type variable and
+`Mapping` or `Sequence` types follow the same rule: `Result[Receipt]` decodes a
+`Receipt`, but `Result[int]` returns the JSON value of its type-variable field
+unchanged. A `float` accepts a JSON integer and keeps it as an `int`.
 
 See `help(CodecRegistry)` for a complete generic dataclass example and
 [`tests/fixtures/json_codec`](tests/fixtures/json_codec) for a reproducible

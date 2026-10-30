@@ -8,15 +8,17 @@
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, make_dataclass
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, Optional, TypeVar
 
 import pytest
 
 from dex import CodecRegistry, JsonCodec, Value, WireKind
+from dex._value_mapper import ValueMapper
 
 from integ.json_codec_models import (
     CodecEnvelope,
@@ -26,7 +28,12 @@ from integ.json_codec_models import (
     CodecResult,
 )
 
+if TYPE_CHECKING:
+    from decimal import Context as TypeCheckingOnlyContext
+
 NestedT = TypeVar("NestedT")
+FirstT = TypeVar("FirstT")
+SecondT = TypeVar("SecondT")
 
 
 @dataclass
@@ -63,6 +70,70 @@ class LegacyPayload:
 @dataclass
 class OptionalTimestamp:
     observed_at: datetime | None = field(metadata={"dex_json_format": "rfc3339"})
+
+
+@dataclass
+class ReusedBase(Generic[NestedT]):
+    base_value: NestedT
+
+
+@dataclass
+class ReusedChild(ReusedBase[list[NestedT]], Generic[NestedT]):
+    child_value: NestedT
+
+
+@dataclass
+class ReusedLeaf(ReusedChild[CodecItem]):
+    pass
+
+
+@dataclass
+class OrderedPair(Generic[FirstT, SecondT]):
+    first: FirstT
+    second: SecondT
+
+
+@dataclass
+class SwappedPair(OrderedPair[SecondT, FirstT], Generic[FirstT, SecondT]):
+    pass
+
+
+@dataclass
+class UnboundMutation(Generic[NestedT]):
+    branch: str
+    value: NestedT | None = None
+
+
+@dataclass
+class IntegerBox(ReusedBase[int]):
+    pass
+
+
+@dataclass
+class ItemBox(ReusedBase[CodecItem]):
+    pass
+
+
+@dataclass
+class OptionalRatio:
+    ratio: float | None = None
+
+
+@dataclass
+class RequiredRatio:
+    ratio: float
+
+
+@dataclass
+class OptionalLegacyFields:
+    observed_at: datetime | None = None
+    status: LegacyStatus | None = None
+
+
+@dataclass
+class UnresolvedAnnotations:
+    context: "TypeCheckingOnlyContext | None" = None
+    callback: Callable[[int], int] | None = None
 
 
 def test_generic_dataclasses_substitute_nested_type_arguments() -> None:
@@ -136,13 +207,161 @@ def test_disjoint_json_unions_round_trip(type_hint: object, value: Any) -> None:
         list[int] | tuple[int, ...],
         LegacyStatus | str,
         Any | int,
-        CodecResult[int | float],
-        list[CodecResult[CodecItem | CodecFailure]],
     ],
 )
 def test_ambiguous_json_unions_fail_at_resolution(type_hint: object) -> None:
     with pytest.raises(TypeError, match="ambiguous JSON union"):
         CodecRegistry().resolve(type_hint)
+
+
+@pytest.mark.parametrize(
+    ("field_type", "payload"),
+    [
+        (int | float, 1),
+        (int | float, 1.5),
+        (int | float | None, None),
+        (Optional[Any], {"nested": [1, None]}),
+        (Any | None, "text"),
+        (Optional[Literal["first", "second"]], "unknown"),
+        (bytes | None, "raw"),
+        (Decimal | None, 1.5),
+        (str | datetime, "2026-10-30T07:00:00+00:00"),
+        (float | None, 1),
+        (int | None, "not-a-number"),
+        (CodecItem | CodecFailure, {"count": 1}),
+        (tuple[int, ...] | None, [1, 2]),
+        (list[int] | None, ["text"]),
+        (dict[str, int] | None, {"count": "text"}),
+        (list[int | str], [1, "text", 1.5]),
+        (Mapping[str, int], {"count": "text"}),
+        (Sequence[str], "text"),
+    ],
+)
+def test_nested_unions_and_abstract_containers_keep_earlier_json_values(
+    field_type: object, payload: Any
+) -> None:
+    holder = make_dataclass("LegacyHolder", [("value", field_type)])
+    codec = CodecRegistry().resolve(holder)
+    data = json.dumps({"value": payload}, separators=(",", ":"))
+    decoded = codec.decode(Value(WireKind.JSON, data))
+    assert decoded.value == payload
+    assert type(decoded.value) is type(payload)
+    assert codec.encode(decoded) == Value(WireKind.JSON, data)
+
+
+@pytest.mark.parametrize(
+    ("type_hint", "data", "expected"),
+    [
+        (
+            CodecResult[int | float],
+            '{"branch":"success","receipt":null,"value":1}',
+            CodecResult("success", 1, None),
+        ),
+        (
+            list[CodecResult[CodecItem | CodecFailure]],
+            '[{"branch":"success","receipt":null,"value":{"count":1}}]',
+            [CodecResult("success", {"count": 1}, None)],
+        ),
+    ],
+)
+def test_nested_ambiguous_unions_resolve_and_keep_json_values(
+    type_hint: object, data: str, expected: Any
+) -> None:
+    codec = CodecRegistry().resolve(type_hint)
+    assert codec.decode(Value(WireKind.JSON, data)) == expected
+
+
+def test_nested_optional_datetime_and_enum_fields_decode_typed_values() -> None:
+    codec = CodecRegistry().resolve(OptionalLegacyFields)
+    decoded = codec.decode(
+        Value(
+            WireKind.JSON,
+            '{"observed_at":"2026-10-30T07:00:00+00:00","status":"ready"}',
+        )
+    )
+    assert decoded == OptionalLegacyFields(
+        datetime(2026, 10, 30, 7, tzinfo=timezone.utc), LegacyStatus.READY
+    )
+
+
+def test_unparameterized_generic_with_optional_type_variable_keeps_json_values() -> (
+    None
+):
+    codec = CodecRegistry().resolve(UnboundMutation)
+    encoded = codec.encode(UnboundMutation("success", 3))
+    assert encoded == Value(WireKind.JSON, '{"branch":"success","value":3}')
+    assert codec.decode(encoded) == UnboundMutation("success", 3)
+    dynamic = ValueMapper(CodecRegistry()).encode_dynamic(UnboundMutation("success", 3))
+    assert dynamic.obj_value.payload == b'{"branch":"success","value":3}'
+
+
+@pytest.mark.parametrize("holder", [OptionalRatio, RequiredRatio])
+def test_float_fields_accept_json_integers_and_keep_their_bytes(
+    holder: type[Any],
+) -> None:
+    codec = CodecRegistry().resolve(holder)
+    decoded = codec.decode(Value(WireKind.JSON, '{"ratio":1}'))
+    assert type(decoded.ratio) is int
+    assert codec.encode(decoded) == Value(WireKind.JSON, '{"ratio":1}')
+
+
+def test_float_containers_accept_json_integers() -> None:
+    codec = CodecRegistry().resolve(list[float])
+    decoded = codec.decode(Value(WireKind.JSON, "[1,2.5]"))
+    assert decoded == [1, 2.5]
+    assert codec.encode(decoded) == Value(WireKind.JSON, "[1,2.5]")
+
+
+def test_inherited_type_variable_fields_decode_only_structured_bindings() -> None:
+    integer_codec = CodecRegistry().resolve(IntegerBox)
+    assert (
+        integer_codec.decode(Value(WireKind.JSON, '{"base_value":"7"}')).base_value
+        == "7"
+    )
+    item_codec = CodecRegistry().resolve(ItemBox)
+    decoded = item_codec.decode(Value(WireKind.JSON, '{"base_value":{"count":7}}'))
+    assert decoded == ItemBox(CodecItem(7))
+
+
+def test_unresolvable_annotations_resolve_and_encode_like_earlier_releases() -> None:
+    codec = CodecRegistry().resolve(UnresolvedAnnotations)
+    encoded = codec.encode(UnresolvedAnnotations())
+    assert encoded == Value(WireKind.JSON, '{"callback":null,"context":null}')
+    dynamic = ValueMapper(CodecRegistry()).encode_dynamic(UnresolvedAnnotations())
+    assert dynamic.obj_value.payload == b'{"callback":null,"context":null}'
+    with pytest.raises(NameError):
+        codec.decode(encoded)
+
+
+def test_reused_type_variables_bind_per_class() -> None:
+    codec = CodecRegistry().resolve(ReusedChild[CodecItem])
+    value = ReusedChild([CodecItem(1)], CodecItem(2))
+    decoded = codec.decode(codec.encode(value))
+    assert decoded == value
+    assert type(decoded.base_value[0]) is CodecItem
+    assert type(decoded.child_value) is CodecItem
+
+
+def test_permuted_type_variables_bind_by_position() -> None:
+    codec = CodecRegistry().resolve(SwappedPair[CodecItem, CodecFailure])
+    value = SwappedPair(CodecFailure("failed"), CodecItem(1))
+    decoded = codec.decode(codec.encode(value))
+    assert decoded == value
+    assert type(decoded.first) is CodecFailure
+    assert type(decoded.second) is CodecItem
+
+
+def test_multilevel_generic_hierarchy_binds_each_level() -> None:
+    codec = CodecRegistry().resolve(ReusedLeaf)
+    decoded = codec.decode(
+        Value(
+            WireKind.JSON,
+            '{"base_value":[{"count":1}],"child_value":{"count":2}}',
+        )
+    )
+    assert decoded == ReusedLeaf([CodecItem(1)], CodecItem(2))
+    assert type(decoded.base_value[0]) is CodecItem
+    assert type(decoded.child_value) is CodecItem
 
 
 def test_union_rejects_unmatched_json_kind_and_wrong_member_payload() -> None:
@@ -320,11 +539,38 @@ def test_existing_dataclass_payload_is_unchanged_without_metadata() -> None:
     assert codec.decode(encoded) == value
 
 
-def test_existing_homogeneous_tuple_payload_is_unchanged() -> None:
-    codec = CodecRegistry().resolve(tuple[int])
+@pytest.mark.parametrize("type_hint", [tuple[int], tuple[int, int]])
+def test_existing_homogeneous_tuple_payload_is_unchanged(type_hint: object) -> None:
+    codec = CodecRegistry().resolve(type_hint)
     encoded = codec.encode((1, 2, 3))
     assert encoded == Value(WireKind.JSON, "[1,2,3]")
     assert codec.decode(encoded) == (1, 2, 3)
+
+
+def test_dynamic_collections_encode_dataclasses_with_json_metadata() -> None:
+    values = ValueMapper(CodecRegistry())
+    receipt = CodecReceipt("call-1", datetime(2026, 10, 30, 7, tzinfo=timezone.utc))
+    expected = b'{"callId":"call-1","observedAt":"2026-10-30T07:00:00Z"}'
+    encoded = values.encode_dynamic([receipt]).obj_value.payload
+    assert encoded == b"[" + expected + b"]"
+    assert values.encode_dynamic({"receipt": receipt}).obj_value.payload == (
+        b'{"receipt":' + expected + b"}"
+    )
+    codec = CodecRegistry().resolve(list[CodecReceipt])
+    assert codec.decode(Value(WireKind.JSON, encoded.decode())) == [receipt]
+
+
+def test_dynamic_collections_of_plain_dataclasses_are_unchanged() -> None:
+    values = ValueMapper(CodecRegistry())
+    value = LegacyPayload(
+        "call-1", datetime(2026, 10, 30, 7, tzinfo=timezone.utc), CodecItem(42)
+    )
+    expected = b'{"call_id":"call-1","failure":null,"item":{"count":42},"labels":[],"observed_at":"2026-10-30T07:00:00+00:00","retry_count":0,"status":"ready"}'
+    assert values.encode_dynamic([value]).obj_value.payload == b"[" + expected + b"]"
+    assert values.encode_dynamic((value,)).obj_value.payload == b"[" + expected + b"]"
+    assert values.encode_dynamic({"k": value}).obj_value.payload == (
+        b'{"k":' + expected + b"}"
+    )
 
 
 def test_explicit_codec_overrides_automatic_union_validation() -> None:

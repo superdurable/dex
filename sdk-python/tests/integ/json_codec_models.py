@@ -49,3 +49,10 @@ class CodecResult(Generic[ResultT]):
 class CodecEnvelope(Generic[ResultT]):
     results: list[CodecResult[ResultT]]
     indexed: dict[str, CodecResult[ResultT]]
+
+
+@dataclass
+class CodecMutation(Generic[ResultT]):
+    branch: str
+    value: ResultT | None = None
+    receipt: CodecReceipt | None = None

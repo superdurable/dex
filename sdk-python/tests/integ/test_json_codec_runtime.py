@@ -13,10 +13,15 @@ from datetime import datetime, timedelta, timezone
 
 from .async_environment import AsyncDexDevTestEnvironment
 from .environment import DexDevTestEnvironment
-from .json_codec_flow import JsonCodecFlow
+from .json_codec_flow import (
+    JsonCodecFlow,
+    JsonCodecMutationFlow,
+    JsonCodecReceiptListFlow,
+)
 from .json_codec_models import (
     CodecEnvelope,
     CodecItem,
+    CodecMutation,
     CodecReceipt,
     CodecResult,
 )
@@ -49,12 +54,32 @@ async def _round_trip_through_async_worker() -> None:
         assert completed.single_output(CodecEnvelope[CodecItem]) == input
 
 
+def test_dynamic_json_outputs_use_codec_metadata_through_sync_worker() -> None:
+    receipt_list_flow = JsonCodecReceiptListFlow()
+    mutation_flow = JsonCodecMutationFlow()
+    receipt = _codec_receipt()
+    with DexDevTestEnvironment(receipt_list_flow, mutation_flow) as environment:
+        receipt_list_id = unique_id("json-codec-receipt-list")
+        environment.client.start_flow(receipt_list_flow, receipt_list_id, receipt)
+        completed = environment.client.wait_for_flow(
+            receipt_list_id, timedelta(seconds=30)
+        )
+        assert completed.single_output(list[CodecReceipt]) == [receipt]
+
+        mutation_id = unique_id("json-codec-mutation")
+        environment.client.start_flow(mutation_flow, mutation_id, receipt)
+        completed = environment.client.wait_for_flow(mutation_id, timedelta(seconds=30))
+        assert completed.single_output(CodecMutation[CodecItem]) == CodecMutation(
+            "success", CodecItem(42), receipt
+        )
+
+
 def _codec_envelope() -> CodecEnvelope[CodecItem]:
-    result = CodecResult(
-        "success",
-        CodecItem(42),
-        CodecReceipt(
-            "call-42", datetime(2026, 10, 30, 7, 0, 0, 120000, tzinfo=timezone.utc)
-        ),
-    )
+    result = CodecResult("success", CodecItem(42), _codec_receipt())
     return CodecEnvelope([result], {"result": result})
+
+
+def _codec_receipt() -> CodecReceipt:
+    return CodecReceipt(
+        "call-42", datetime(2026, 10, 30, 7, 0, 0, 120000, tzinfo=timezone.utc)
+    )
