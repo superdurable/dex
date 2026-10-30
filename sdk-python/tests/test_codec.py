@@ -11,7 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, make_dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, Optional, TypeVar
 
@@ -51,6 +51,10 @@ class InheritedResult(CodecResult[list[NestedT]], Generic[NestedT]):
 class RecursiveItem:
     count: int
     next_item: "Optional[RecursiveItem]" = None
+
+
+class LiteralStage(StrEnum):
+    SENT = "sent"
 
 
 class LegacyStatus(Enum):
@@ -386,6 +390,7 @@ def test_union_rejects_unmatched_json_kind_and_wrong_member_payload() -> None:
         (Literal[True] | int, "1", 1),
         (Literal[1, True] | None, "1", 1),
         (Literal[1, True] | None, "true", True),
+        (Literal[LiteralStage.SENT] | None, '"sent"', LiteralStage.SENT),
     ],
 )
 def test_direct_union_literal_alternatives_decode_members(
@@ -560,6 +565,10 @@ def test_dynamic_collections_reject_invalid_metadata_like_direct_values(
 def test_dynamic_collections_reject_invalid_metadata_in_untyped_fields() -> None:
     values = ValueMapper(CodecRegistry())
     holder = DuplicateWireNamesHolder(DuplicateWireNames(1, 2))
+    with pytest.raises(ValueMappingError, match="duplicate JSON field name 'same'"):
+        values.encode_dynamic(holder)
+    with pytest.raises(TypeError, match="duplicate JSON field name 'same'"):
+        CodecRegistry().resolve(DuplicateWireNamesHolder).encode(holder)
     with pytest.raises(ValueMappingError, match="duplicate JSON field name 'same'"):
         values.encode_dynamic([holder])
     with pytest.raises(ValueMappingError, match="duplicate JSON field name 'same'"):

@@ -697,7 +697,10 @@ def _encode_json_value(value: Any) -> Any:
                     default = definition.default_factory()
                 if item == default:
                     continue
-            encoded[_field_wire_name(definition)] = (
+            wire_name = _field_wire_name(definition)
+            if wire_name in encoded:
+                raise TypeError(f"duplicate JSON field name {wire_name!r}")
+            encoded[wire_name] = (
                 _encode_rfc3339_datetime(item)
                 if definition.metadata.get("dex_json_format") == "rfc3339"
                 and item is not None
