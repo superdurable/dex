@@ -354,9 +354,10 @@ object through names that are each bound once: module variables, Flow fields,
 Step fields set in the constructor, or function locals. Literal `StepRef` names
 and a class with one registered instance also resolve. An inline constructor or
 any other instance is a different object and reports `unknown_step_target`.
-Rebound or shadowed names, fields changed outside the constructor, decorated
-Python Step classes, and Step classes that extend other classes fail closed with
-blocking diagnostics. Decisions hidden in callbacks remain unsupported.
+Rebound or shadowed names, fields changed outside the constructor or read
+during construction before their assignment, decorated Python Step classes, and
+Step classes that extend other classes fail closed with blocking diagnostics.
+Decisions hidden in callbacks remain unsupported.
 
 TypeScript analysis loads the `typescript` package only from the source
 project (`node_modules` or `NODE_PATH`). It reads Step registration, direct

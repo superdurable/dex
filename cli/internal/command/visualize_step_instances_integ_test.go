@@ -210,6 +210,8 @@ func TestVisualizeScriptStepInstancesFailClosed(t *testing.T) {
 			{name: "class registered instead of instance", isValid: false, code: "dynamic_step_target", edits: [][2]string{{"        first = FIRST\n", "        first = RoutedStep\n"}}},
 			{name: "flow field and class field both bound", isValid: false, code: "dynamic_step_target", edits: [][2]string{{"    second = RoutedStep[str](\"Second\", FIRST, StepRef(\"Recovery\"))\n", "    second = RoutedStep[str](\"Second\", FIRST, StepRef(\"Recovery\"))\n\n    def __init__(self) -> None:\n        self.second = RoutedStep[str](\"Third\", FIRST, RECOVERY)\n"}}},
 			{name: "generic alias class target", isValid: false, code: "unknown_step_target", edits: [][2]string{{"go_to(StepRef(\"Second\"), step_input)", "go_to(RoutedStep[str], step_input)"}}},
+			{name: "flow field read before assignment", isValid: false, code: "unknown_step_target", edits: [][2]string{{"    second = RoutedStep[str](\"Second\", FIRST, StepRef(\"Recovery\"))\n", "    def __init__(self) -> None:\n        self.second = RoutedStep[str](\"Second\", self.first, StepRef(\"Recovery\"))\n        self.first = FIRST\n"}}},
+			{name: "flow field read after assignment", isValid: true, code: "", edits: [][2]string{{"    second = RoutedStep[str](\"Second\", FIRST, StepRef(\"Recovery\"))\n", "    def __init__(self) -> None:\n        self.first = FIRST\n        self.second = RoutedStep[str](\"Second\", self.first, StepRef(\"Recovery\"))\n"}}},
 			{name: "mixin base", isValid: false, code: "step_inheritance_unsupported", edits: [][2]string{{"class RoutedStep(Step[InputT], Generic[InputT]):", "class Routing:\n    pass\n\n\nclass RoutedStep(Step[InputT], Routing, Generic[InputT]):"}}},
 		},
 		"typescript": {
@@ -243,6 +245,8 @@ func TestVisualizeScriptStepInstancesFailClosed(t *testing.T) {
 			{name: "constructor helper call", isValid: false, code: "dynamic_type_name", edits: [][2]string{{"constructor(private readonly stepType: string, private readonly target: StepTarget<InputT>, private readonly recovery: StepTarget<InputT>) {}", "constructor(private readonly stepType: string, private readonly target: StepTarget<InputT>) { configure(this); }"}, {"const first = new RoutedStep<string>(", "function configure(step: object): void { void step; }\nconst first = new RoutedStep<string>("}}},
 			{name: "flow constructor field", isValid: true, code: "", edits: [][2]string{{"  private readonly second = new RoutedStep<string>(\"Second\", first, new StepRef(\"Recovery\"));", "  private readonly second: RoutedStep<string>;\n  constructor() { this.second = new RoutedStep<string>(\"Second\", first, new StepRef(\"Recovery\")); }"}}},
 			{name: "static class field", isValid: true, code: "", edits: [][2]string{{"    return this.stepType;", "    return RoutedStep.firstType;"}, {"  getStepType(): string {", "  static readonly firstType = \"First\";\n\n  getStepType(): string {"}, {"\"Second\"", "\"First\""}, {"\"Second\"", "\"First\""}, {"\"Second\"", "\"First\""}, {"\"Second\"", "\"First\""}, {".otherSteps(this.second, recovery)", ".otherSteps(recovery)"}}},
+			{name: "flow field read before declaration", isValid: false, code: "unknown_step_target", edits: [][2]string{{"  private readonly second = new RoutedStep<string>(\"Second\", first, new StepRef(\"Recovery\"));", "  private readonly second = new RoutedStep<string>(\"Second\", this.first, new StepRef(\"Recovery\"));\n  private readonly first = first;"}}},
+			{name: "flow field read after declaration", isValid: true, code: "", edits: [][2]string{{"  private readonly second = new RoutedStep<string>(\"Second\", first, new StepRef(\"Recovery\"));", "  private readonly first = first;\n  private readonly second = new RoutedStep<string>(\"Second\", this.first, new StepRef(\"Recovery\"));"}}},
 		},
 	}
 	for _, language := range []string{"python", "typescript"} {
@@ -273,6 +277,185 @@ func TestVisualizeScriptStepInstancesFailClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestVisualizeScriptConnectorStepTargets(t *testing.T) {
+	tests := []struct {
+		name     string
+		language string
+		isValid  bool
+		code     string
+		edits    [][2]string
+	}{
+		{name: "python StepRef to factory Step", language: "python", isValid: true},
+		{name: "python factory Step field", language: "python", isValid: true, edits: [][2]string{
+			{"class PrepareSearch(dex.Step[str]):\n", "class PrepareSearch(dex.Step[str]):\n    def __init__(self, search: dex.Step[str]) -> None:\n        self.search = search\n\n"},
+			{`dex.go_to(dex.StepRef("SearchCompanyArticles"), prepared)`, "dex.go_to(self.search, prepared)"},
+			{"self.prepare = PrepareSearch()", "self.prepare = PrepareSearch(self.search_company_articles)"},
+		}},
+		{name: "python factory field reassigned", language: "python", code: "dynamic_step_target", edits: [][2]string{
+			{"    def get_steps(self)", "    def reset_search(self) -> None:\n        self.search_company_articles = None\n\n    def get_steps(self)"},
+		}},
+		{name: "python factory field read before assignment", language: "python", code: "unknown_step_target", edits: [][2]string{
+			{"class PrepareSearch(dex.Step[str]):\n", "class PrepareSearch(dex.Step[str]):\n    def __init__(self, search: dex.Step[str]) -> None:\n        self.search = search\n\n"},
+			{`dex.go_to(dex.StepRef("SearchCompanyArticles"), prepared)`, "dex.go_to(self.search, prepared)"},
+			{"        self.prepare = PrepareSearch()\n", ""},
+			{"        self.finish = FinishSearch()\n", "        self.finish = FinishSearch()\n        self.prepare = PrepareSearch(self.search_company_articles)\n"},
+		}},
+		{name: "typescript factory Flow field through Step field", language: "typescript", isValid: true},
+		{name: "typescript factory Flow field through Flow", language: "typescript", isValid: true, edits: [][2]string{
+			{"constructor(private readonly searchCompanyArticles: Step<string>) {}", "constructor(private readonly flow: CompanyArticlesFlow) {}"},
+			{"goTo(this.searchCompanyArticles, prepared)", "goTo(this.flow.searchCompanyArticles, prepared)"},
+			{"new PrepareSearch(this.searchCompanyArticles)", "new PrepareSearch(this)"},
+		}},
+		{name: "typescript factory Flow field reassigned", language: "typescript", code: "dynamic_step_target", edits: [][2]string{
+			{"  getFlowType(): string {", "  resetSearch(): void {\n    (this as any).searchCompanyArticles = undefined;\n  }\n\n  getFlowType(): string {"},
+		}},
+		{name: "typescript factory Flow field read before assignment", language: "typescript", code: "unknown_step_target", edits: [][2]string{
+			{"    this.prepare = new PrepareSearch(this.searchCompanyArticles);\n", ""},
+			{"  constructor() {\n", "  constructor() {\n    this.prepare = new PrepareSearch(this.searchCompanyArticles);\n"},
+		}},
+		{name: "typescript factory Flow field read by property initializer", language: "typescript", code: "unknown_step_target", edits: [][2]string{
+			{"  private readonly prepare: PrepareSearch;\n", "  private readonly prepare = new PrepareSearch(this.searchCompanyArticles);\n"},
+			{"    this.prepare = new PrepareSearch(this.searchCompanyArticles);\n", ""},
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sourcePath := stepInstancesFixture(t, test.language)
+			source := pythonCompanyArticlesFlow
+			sourcePath = filepath.Join(filepath.Dir(sourcePath), "company_articles.py")
+			if test.language == "typescript" {
+				source = typeScriptCompanyArticlesFlow
+				sourcePath = strings.TrimSuffix(sourcePath, ".py") + ".ts"
+			}
+			for _, edit := range test.edits {
+				require.Contains(t, source, edit[0])
+				source = strings.Replace(source, edit[0], edit[1], 1)
+			}
+			require.NoError(t, os.WriteFile(sourcePath, []byte(source), 0o644))
+			graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2})
+			require.NoError(t, err)
+			require.Equal(t, test.isValid, graph.Valid, graph.Diagnostics)
+			if !test.isValid {
+				require.Contains(t, diagnosticCodes(graph.Diagnostics), test.code, graph.Diagnostics)
+				return
+			}
+			require.Equal(t, "step:PrepareSearch", graph.Flow.StartStepID)
+			require.True(t, hasDecisionEdge(graph, "step:PrepareSearch", "transition", "step:SearchCompanyArticles"))
+			var connector *flowviz.Node
+			for index := range graph.Nodes {
+				if graph.Nodes[index].ID == "step:SearchCompanyArticles" {
+					connector = &graph.Nodes[index]
+				}
+			}
+			require.NotNil(t, connector)
+			require.NotNil(t, connector.Metadata["connector"])
+		})
+	}
+}
+
+const pythonCompanyArticlesFlow = `import dex
+from catalog_connector import create_lookup
+
+ARTICLES = dex.Attribute("CompanyArticles", dict)
+
+
+# dex:group group-id:articles group-label:"Articles"
+# dex:explanation text:"Prepare the company article search."
+class PrepareSearch(dex.Step[str]):
+    def execute(self, context: dex.Context, step_input: str) -> dex.StepDecision:
+        prepared = step_input.strip()
+        return dex.go_to(dex.StepRef("SearchCompanyArticles"), prepared)
+
+
+# dex:group group-id:articles group-label:"Articles"
+# dex:explanation text:"Complete the Flow after the search."
+class FinishSearch(dex.Step[dict]):
+    def execute(self, context: dex.Context, step_input: dict) -> dex.StepDecision:
+        return dex.force_complete()
+
+
+class CompanyArticlesFlow(dex.Flow[str]):
+    def __init__(self) -> None:
+        self.finish = FinishSearch()
+        self.search_company_articles = create_lookup(
+            step_type="SearchCompanyArticles",
+            connection_name="primary",
+            annotations={"groupId": "articles", "groupLabel": "Articles", "explanation": "Search company articles."},
+            execute_failure=self.finish,
+            found=self.finish,
+            unavailable=self.finish,
+            result_attribute=ARTICLES,
+        )
+        self.prepare = PrepareSearch()
+
+    def get_steps(self) -> dex.StepList[str]:
+        return dex.StepList.start_step(self.prepare).other_steps(self.search_company_articles, self.finish)
+
+    def get_persistence_schema(self) -> dex.PersistenceSchema:
+        return dex.PersistenceSchema.of(ARTICLES)
+`
+
+const typeScriptCompanyArticlesFlow = `import {StepList, forceComplete, goTo, type Context, type Flow, type PersistenceSchema, type Step, type StepDecision} from "@superdurable/dex";
+import {createLookup} from "@dex-test/catalog";
+
+// dex:group group-id:articles group-label:"Articles"
+// dex:explanation text:"Complete the Flow after the search."
+class FinishSearch implements Step<unknown> {
+  getStepType(): string {
+    return "FinishSearch";
+  }
+
+  execute(_context: Context, _input: unknown): StepDecision {
+    return forceComplete();
+  }
+}
+
+// dex:group group-id:articles group-label:"Articles"
+// dex:explanation text:"Prepare the company article search."
+class PrepareSearch implements Step<string> {
+  constructor(private readonly searchCompanyArticles: Step<string>) {}
+
+  getStepType(): string {
+    return "PrepareSearch";
+  }
+
+  execute(_context: Context, input: string): StepDecision {
+    const prepared = input.trim();
+    return goTo(this.searchCompanyArticles, prepared);
+  }
+}
+
+export class CompanyArticlesFlow implements Flow<string> {
+  private readonly finish = new FinishSearch();
+  readonly searchCompanyArticles: Step<string>;
+  private readonly prepare: PrepareSearch;
+
+  constructor() {
+    this.searchCompanyArticles = createLookup({
+      stepType: "SearchCompanyArticles",
+      connectionName: "primary",
+      annotations: {groupId: "articles", groupLabel: "Articles", explanation: "Search company articles."},
+      executeFailure: this.finish,
+      found: this.finish,
+      unavailable: this.finish,
+    });
+    this.prepare = new PrepareSearch(this.searchCompanyArticles);
+  }
+
+  getFlowType(): string {
+    return "CompanyArticlesFlow";
+  }
+
+  getSteps() {
+    return StepList.startStep(this.prepare).otherSteps(this.searchCompanyArticles, this.finish);
+  }
+
+  getPersistenceSchema(): PersistenceSchema {
+    return {};
+  }
+}
+`
 
 func TestVisualizeScriptTwoConnectorInstances(t *testing.T) {
 	for _, language := range []string{"python", "typescript"} {

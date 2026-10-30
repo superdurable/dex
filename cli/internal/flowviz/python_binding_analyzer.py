@@ -236,9 +236,9 @@ class StepBindingAnalyzer:
         owner_class = self.self_reference_class(owner)
         if owner_class is not None:
             if owner_class is self.flow_class:
-                return self.flow_field_value(attribute.attr)
+                return self.flow_field_value(attribute.attr, attribute, frame)
             if owner_frame.instance is not None and owner_class is owner_frame.instance.declaration:
-                return self.step_field_value(owner_frame.instance, attribute.attr)
+                return self.step_field_value(owner_frame.instance, attribute.attr, attribute, frame)
             return None
         if isinstance(owner, ast.ClassDef):
             return self.class_attribute_value(owner, attribute.attr)
@@ -258,7 +258,7 @@ class StepBindingAnalyzer:
             return None
         return declaration
 
-    def flow_field_value(self, name):
+    def flow_field_value(self, name, read, read_frame):
         declaration = self.flow_class
         if self.has_dynamic_attributes or self.is_foreign_attribute(name) or self.has_unknown_bases(declaration, "Flow"):
             return None
@@ -268,9 +268,9 @@ class StepBindingAnalyzer:
             return None
         if class_bindings:
             return self.class_attribute_value(declaration, name)
-        return self.initializer_store_value(declaration, stores[0], EvaluationFrame())
+        return self.initializer_store_value(declaration, stores[0], EvaluationFrame(), read, read_frame)
 
-    def step_field_value(self, instance, name):
+    def step_field_value(self, instance, name, read, read_frame):
         declaration = instance.declaration
         if self.has_dynamic_attributes or self.is_foreign_attribute(name) or not self.has_modeled_construction(declaration):
             return None
@@ -286,7 +286,7 @@ class StepBindingAnalyzer:
         arguments = self.constructor_arguments(initializer, instance) if initializer else None
         if arguments is None:
             return None
-        return self.initializer_store_value(declaration, stores[0], EvaluationFrame(instance, initializer, arguments))
+        return self.initializer_store_value(declaration, stores[0], EvaluationFrame(instance, initializer, arguments), read, read_frame)
 
     def class_attribute_value(self, declaration, name):
         if self.has_dynamic_attributes or self.is_foreign_attribute(name):
@@ -295,16 +295,35 @@ class StepBindingAnalyzer:
         statement = self.assignment_statement(declaration, binding) if binding is not None else None
         return (statement.value, EvaluationFrame()) if statement else None
 
-    def initializer_store_value(self, declaration, store, frame):
+    def initializer_store_value(self, declaration, store, frame, read, read_frame):
         initializer = self.method(declaration, "__init__")
         statement = self.parents.get(store)
         if initializer is None or self.parents.get(statement) is not initializer or self.function_returns(initializer):
+            return None
+        if self.is_read_before_store(read, read_frame, statement, initializer):
             return None
         if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and statement.targets[0] is store:
             return statement.value, frame
         if isinstance(statement, ast.AnnAssign) and statement.target is store and statement.value is not None:
             return statement.value, frame
         return None
+
+    def is_read_before_store(self, read, read_frame, statement, initializer):
+        # Code that runs earlier in the same __init__ sees no field yet.
+        while read_frame.initializer is not None and self.is_within(read, read_frame.initializer):
+            read, read_frame = read_frame.instance.call, read_frame.instance.frame
+        node = read
+        while node is not None and node is not initializer:
+            parent = self.parents.get(node)
+            if parent is not initializer and isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and self.is_function_body(parent, node):
+                return False
+            node = parent
+        return node is not None and (read.lineno, read.col_offset) < (statement.end_lineno, statement.end_col_offset)
+
+    def is_within(self, node, ancestor):
+        while node is not None and node is not ancestor:
+            node = self.parents.get(node)
+        return node is ancestor
 
     def has_modeled_construction(self, declaration):
         # Decorators, other bases, and a leaked self can all change fields after construction.

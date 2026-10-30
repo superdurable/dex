@@ -182,7 +182,7 @@ Python 和 TypeScript 可以注册同一个 Step class 的多个实例，但每�
 
 Analyzer 只从已注册的 class 本身读取 Step 方法。Python Step class 只能继承 **Step** 和 **Generic**。TypeScript Step class 不能继承其他 class。否则 analyzer 会报告 **step_inheritance_unsupported**。请把共享逻辑移到 helper 函数中，并把每个 Step 方法保留在已注册的 class 上。
 
-只有当 class 恰好为某个实例字段赋值一次时，analyzer 才能读取该字段。这次赋值必须是 class 属性、TypeScript 属性初始化器或参数属性，或者构造函数中的直接语句。在其他方法中赋值、通过 **setattr**、**vars** 或 **Object.assign** 赋值，或者从 class 外部赋值的字段都不可读取。带有装饰器（例如 **dataclass**）的 Python Step class，其字段同样不可读取。请在构造函数中为每个字段赋值，或者让 **get_step_type** 或 **getStepType** 返回字符串字面量。
+只有当 class 恰好为某个实例字段赋值一次时，analyzer 才能读取该字段。这次赋值必须是 class 属性、TypeScript 属性初始化器或参数属性，或者构造函数中的直接语句。在其他方法中赋值、通过 **setattr**、**vars** 或 **Object.assign** 赋值，或者从 class 外部赋值的字段都不可读取。带有装饰器（例如 **dataclass**）的 Python Step class，其字段同样不可读取。构造期间读取某个字段的代码，必须在该字段赋值之后运行。因此，TypeScript 属性初始化器不能读取由构造函数赋值的字段。请在构造函数中为每个字段赋值，或者让 **get_step_type** 或 **getStepType** 返回字符串字面量。
 
 SDK 按对象身份解析实例目标。目标必须是已注册的那个对象本身，而不是另一个具有相同 Step type 的对象。普通跳转、**StepMovement**、Execute 失败路由和取消操作接受以下目标：
 

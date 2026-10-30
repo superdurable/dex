@@ -823,8 +823,8 @@ class TypeScriptAnalyzer {
     const ownerClass = this.selfReferenceClass(owner.node);
     const name = access.name.text;
     if (!ownerClass) return owner.node && this.ts.isClassDeclaration(owner.node) ? this.classStaticValue(owner.node,name) : undefined;
-    if (ownerClass === this.flowClass) return this.flowFieldValue(name);
-    return owner.frame.instance?.declaration === ownerClass ? this.stepFieldValue(owner.frame.instance,name) : undefined;
+    if (ownerClass === this.flowClass) return this.flowFieldValue(name,access,frame);
+    return owner.frame.instance?.declaration === ownerClass ? this.stepFieldValue(owner.frame.instance,name,access,frame) : undefined;
   }
 
   selfReferenceClass(node) {
@@ -839,21 +839,21 @@ class TypeScriptAnalyzer {
     return undefined;
   }
 
-  flowFieldValue(name) {
+  flowFieldValue(name,read,readFrame) {
     const declaration = this.flowClass;
     if (this.hasDynamicFields || this.dynamicClasses.has(declaration) || this.isForeignField(name) || this.extendsClause(declaration)) return undefined;
     const stores = this.fieldStores(declaration,name);
-    if (stores.length !== 1) return undefined;
+    if (stores.length !== 1 || this.isReadBeforeStore(read,readFrame,stores[0],declaration)) return undefined;
     if (this.ts.isPropertyDeclaration(stores[0])) return {node:stores[0].initializer,frame:{}};
     if (this.ts.isParameter(stores[0])) return undefined;
     return this.constructorStoreValue(declaration,stores[0],{});
   }
 
-  stepFieldValue(instance,name) {
+  stepFieldValue(instance,name,read,readFrame) {
     const declaration = instance.declaration;
     if (this.hasDynamicFields || this.isForeignField(name) || !this.hasModeledConstruction(declaration)) return undefined;
     const stores = this.fieldStores(declaration,name);
-    if (stores.length !== 1) return undefined;
+    if (stores.length !== 1 || this.isReadBeforeStore(read,readFrame,stores[0],declaration)) return undefined;
     if (this.ts.isPropertyDeclaration(stores[0])) return {node:stores[0].initializer,frame:{instance}};
     const constructor = this.constructorOf(declaration);
     const args = this.constructorArguments(constructor,instance);
@@ -877,6 +877,31 @@ class TypeScriptAnalyzer {
       if (this.ts.isParameterPropertyDeclaration(parameter,constructor) && this.ts.isIdentifier(parameter.name) && parameter.name.text === name) stores.push(parameter);
     }
     return [...stores,...(this.thisStores.get(declaration)?.get(name) || [])];
+  }
+
+  isReadBeforeStore(read,readFrame,store,declaration) {
+    // Construction code that runs before the store sees no field yet.
+    while (readFrame.instance && this.isConstructionCode(read,readFrame.instance.declaration)) {
+      read = readFrame.instance.newExpression;
+      readFrame = readFrame.instance.frame;
+    }
+    const constructor = this.constructorOf(declaration);
+    for (let node = read.parent; node; node = node.parent) {
+      if (constructor && node === constructor) return !this.ts.isPropertyDeclaration(store) && !this.ts.isParameter(store) && read.getStart(this.tree) < store.parent.end;
+      if (this.ts.isPropertyDeclaration(node) && node.parent === declaration && !this.isStatic(node)) return !this.ts.isPropertyDeclaration(store) || store.pos >= node.pos;
+      if (this.ts.isFunctionLike(node)) return false;
+    }
+    return false;
+  }
+
+  isConstructionCode(node,declaration) {
+    const constructor = this.constructorOf(declaration);
+    for (let current = node.parent; current; current = current.parent) {
+      if (constructor && current === constructor) return true;
+      if (this.ts.isPropertyDeclaration(current) && current.parent === declaration && !this.isStatic(current)) return true;
+      if (this.ts.isFunctionLike(current)) return false;
+    }
+    return false;
   }
 
   constructorStoreValue(declaration,store,frame) {
