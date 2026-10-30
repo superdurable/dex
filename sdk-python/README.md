@@ -485,6 +485,15 @@ meet the server minimum, which defaults to ten seconds. Asynchronous durability
 first allows at most three local attempts in seven seconds. The local phase ignores
 method timeouts and heartbeat frames before falling back to a regular activity.
 
+### Flow run start time
+
+`Context.flow_started_at` returns the current Flow run's server start time as a
+timezone-aware UTC `datetime` with one-second precision. It stays the same across
+Steps and retries in that run. It is available in `wait_for`, `execute`, Flow
+timeout handlers, and RPC handlers for both Worker and AsyncWorker. Compare it
+with `datetime.now(timezone.utc)` to measure the run's age. It matches
+`Client.describe_flow(flow_id).started_at` to the second.
+
 ### Step attempt deadline
 
 `Context.deadline` is the absolute deadline supplied by the Dex Server for the

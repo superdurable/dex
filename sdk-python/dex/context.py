@@ -70,6 +70,28 @@ class Context(Protocol):
         ...
 
     @property
+    def flow_started_at(self) -> datetime:
+        """Return when the current Flow run started.
+
+        The server supplies the same value across Steps and handler retries in
+        this run. It is available in ``wait_for``, ``execute``, Flow timeout
+        handlers, and RPC handlers. This is the run start time, rather than the
+        start time of the current Step or attempt.
+
+        Returns:
+            A timezone-aware UTC datetime with one-second precision.
+
+        Examples:
+            Measure the current run's age inside a handler::
+
+                from datetime import datetime, timezone
+
+                elapsed = datetime.now(timezone.utc) - context.flow_started_at
+                elapsed_seconds = elapsed.total_seconds()
+        """
+        ...
+
+    @property
     def step_execution_id(self) -> str:
         """Return the current Step execution's protocol identifier.
 
