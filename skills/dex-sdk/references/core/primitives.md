@@ -30,6 +30,10 @@ A long-running attempt must emit an explicit heartbeat or Stream message before 
 
 For an LLM call that may remain healthy without output for more than one minute, tell the application developer to raise **HeartbeatTimeout** above its one-minute default. Size it to the longest acceptable silent interval, and use the method timeout to cap the whole attempt. Do not add periodic heartbeats solely to mask provider silence; they prove only that application code is running, not that the upstream request is progressing.
 
+The Context exposes the Flow run's start time (Go **FlowStartedAt**, Java **getFlowStartedAt**, Python **flow_started_at** from SDK v1.28.0, TypeScript **flowStartedAt**, Rust **flow_started_at**). It is the same for every Step, retry, timeout handler, and RPC handler in one run, so derive a deterministic identity from the Flow ID plus the start time instead of reading the wall clock, which differs on each retry. Do not use it as a unique key across runs that reuse a Flow ID without including the run's other identifying values.
+
+A Flow may register several instances of one Step class under different Step types, such as a generic Step parameterized by its input type. Go routes by the instance's Step type. Python and TypeScript v1.28.0 route a movement, an execute-failure fallback, a timeout-handler failure fallback, or a cancellation selection by registered instance, by **StepRef** (a non-executable reference holding only a Step type), or by class. A class target is valid only when exactly one instance of that class is registered. Give each instance a distinct Step type, and use **StepRef** for a target that is defined elsewhere or would create a construction cycle. See the [Python](../python/primitives.md#flow-step-wait-decisions) and [TypeScript](../typescript/primitives.md) shapes.
+
 Read [StepOptions](step-options.md) for the durability trade-off, shared retry budget, timeout boundary, and full policy checklist.
 
 Docs: https://docs.superdurable.io/primitives/step

@@ -22,6 +22,12 @@ From server-zd v0.1.10, every WaitFor, Execute, and Flow timeout handler retry r
 
 A method timeout bounds each attempt. When an external call needs a stricter deadline than the method timeout, create a child context or use the installed SDK's cancellation mechanism around that call. Keep external mutations idempotent because an ASYNC result can replay after a node failure.
 
+## Budget work against the attempt deadline
+
+Each WaitFor, Execute, and Flow timeout handler attempt has an absolute deadline supplied by the Dex Server. Go exposes it through the Context's standard **Deadline**. Python and TypeScript v1.28.0 expose **Context.deadline** as a UTC instant, not a duration; RPC handlers and tasks without a supplied deadline have none, so check for absence first. The remaining retry total duration can shorten the deadline below the method timeout, and each retry gets its own deadline.
+
+Use it to size an external call's timeout and to decide whether another unit of work still fits before the attempt ends. Do not store it in a heartbeat checkpoint or in Step input, and do not recompute it from the method timeout; the Server value already accounts for the retry budget.
+
 ## Configure the complete method policy
 
 For every WaitFor and Execute method, decide the applicable:

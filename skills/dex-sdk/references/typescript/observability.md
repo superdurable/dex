@@ -8,9 +8,11 @@ Log `context.flowId`, `runId`, `stepExecutionId`, `attempt`, and handler name as
 
 Async long-running handlers should accept `AsyncContext`, recover a compact checkpoint, call `await context.recordHeartbeat(...)` before the heartbeat timeout, and pass `context.cancellationSignal` to abort-aware APIs.
 
+From SDK v1.28.0, `AsyncContext.recordHeartbeat` reports every failure through its returned Promise and never throws synchronously. It rejects with `Error` when the task is inactive, finished, cancelled, or its stream is closed, with `TypeError` when the Context cannot record heartbeats, and with `ValueMappingError` when the value cannot be encoded. Always `await` it or attach a rejection handler: an ignored rejection is an unhandled rejection, which terminates a Node.js process by default.
+
 server-zd enforces the Step HeartbeatTimeout for pull Workers and sends cancellation directly to the pull Worker. Record heartbeats within the timeout, stop promptly when the SDK reports cancellation, and keep side effects idempotent. Later attempts receive the last recorded heartbeat. See [pull Worker routing](../core/pull-workers.md).
 
-[Pinned heartbeat source](https://github.com/superdurable/dex/blob/sdk-typescript/v1.26.0/examples/typescript/src/primitives/heartbeat/heartbeat-flow.ts)
+[Pinned heartbeat source](https://github.com/superdurable/dex/blob/sdk-typescript/v1.28.0/examples/typescript/src/primitives/heartbeat/heartbeat-flow.ts)
 <!-- dex-source: examples/typescript/src/primitives/heartbeat/heartbeat-flow.ts -->
 ```typescript
 public async execute(context: AsyncContext, batches: number): Promise<StepDecision> {

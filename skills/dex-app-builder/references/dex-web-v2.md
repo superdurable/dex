@@ -1,6 +1,6 @@
 # Dex Web v2 and FDG 2.0
 
-Reference capability baselines: Dex Web `web/v1.26.0`, `cli-v1.26.1`, the
+Reference capability baselines: Dex Web `web/v1.28.0`, `cli-v1.28.0`, the
 server-zd release it bundles, and the SDK source baseline in
 [bundle-baselines.md](../../dex-sdk/references/core/bundle-baselines.md).
 These validate the guidance, not an instruction to upgrade an application.
@@ -11,7 +11,7 @@ loopback `dexcli dev`.
 
 ## Run Dex Web
 
-`dexcli dev` starts server-zd and an embedded Dex Web. A deployment runs the standalone `dex-web` binary or the `superdurable/dex-web` image next to the Dex Server. The Dex Server does not serve Dex Web, and no `dex-server` process or image does either. `dex-web` connects to an existing FlowService and never starts a Server. [Released standalone Web](https://github.com/superdurable/dex/blob/web/v1.26.0/web/README.md#run-standalone-dex-web)
+`dexcli dev` starts server-zd and an embedded Dex Web. A deployment runs the standalone `dex-web` binary or the `superdurable/dex-web` image next to the Dex Server. The Dex Server does not serve Dex Web, and no `dex-server` process or image does either. `dex-web` connects to an existing FlowService and never starts a Server. [Released standalone Web](https://github.com/superdurable/dex/blob/web/v1.28.0/web/README.md#run-standalone-dex-web)
 
 ```bash
 dex-web --flow-service-address dex-server-zd:8801 \
@@ -68,7 +68,7 @@ Use the captured dispatch sticky ID, queue source, and failure reason before cha
 
 ## Dex Web with server-zd
 
-Dex Web reads `GetServerInfo` and reports the engine in `GET /api/v2/catalog` as `serverEngine`: `zd`, or `unspecified` when the FlowService does not answer. Locally, `dexcli dev` serves server-zd and Dex Web together. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.26.0/web/README.md#run-against-server-zd)
+Dex Web reads `GetServerInfo` and reports the engine in `GET /api/v2/catalog` as `serverEngine`: `zd`, or `unspecified` when the FlowService does not answer. Locally, `dexcli dev` serves server-zd and Dex Web together. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.28.0/web/README.md#run-against-server-zd)
 
 - **Start Flow** always starts on pull Workers. The dialog asks only for the Flow ID and the Start input and has no Worker address or headless control.
 - Time travel keeps the run ID and creates a new run attempt. The run details page, which v1 run pages and v2 **Inspect** share, replaces **Run chain** with a **Run attempt** selector. Choosing an earlier attempt adds `?runAttempt=N` to the URL and shows that attempt's history. Live history and live state always belong to the current attempt. A **TimeTravelFork** event links to the previous attempt.

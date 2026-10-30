@@ -137,7 +137,7 @@ At application boundaries, preserve typed Dex failures until domain policy can d
 
 For terminal business reads, apply the [terminal read RPC rule](references/core/error-handling.md#terminal-read-rpc-rule): inspect RPC options and handler effects, read retained state through a typed read-only RPC, and never replace that snapshot with historical Step-output decoding. Verify this path with the [terminal entity read integration scenario](references/core/testing.md#terminal-entity-reads).
 
-Prefer the nearest official pattern to an ad hoc coordination loop. Preserve its Flow shape while replacing the domain and integrations. When changing a Go or Python Flow, use `dexcli visualize SOURCE` after the shape is explicit; the visualizer does not currently support Java, TypeScript, or Rust. In local development, as soon as the first graph renders, write it to a `--flow-rendering-dir`, start a long-lived `dexcli dev` for the user with that directory, and share the Dex Web URL before continuing; keep it running while you implement and test on separate isolated stacks.
+Prefer the nearest official pattern to an ad hoc coordination loop. Preserve its Flow shape while replacing the domain and integrations. When changing a Go, Python, or TypeScript Flow, use `dexcli visualize SOURCE` after the shape is explicit; the visualizer does not currently support Java or Rust. In local development, as soon as the first graph renders, write it to a `--flow-rendering-dir`, start a long-lived `dexcli dev` for the user with that directory, and share the Dex Web URL before continuing; keep it running while you implement and test on separate isolated stacks.
 
 ## Complete the vertical slice
 
