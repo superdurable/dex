@@ -17,7 +17,14 @@ from typing import Any, cast
 from google.protobuf import struct_pb2
 
 from dex.attribute import AttributeIndex, IndexType
-from dex.codec import Codec, CodecRegistry, Value, WireKind, _encode_json_value
+from dex.codec import (
+    Codec,
+    CodecRegistry,
+    Value,
+    WireKind,
+    _encode_json_value,
+    _validate_json_value_metadata,
+)
 from dex.dexpb import dex_pb2 as pb
 from dex.runtime_errors import ValueMappingError
 
@@ -87,6 +94,7 @@ class ValueMapper:
             codec = self._codecs.resolve(value_type)
         except TypeError:
             if isinstance(value, (list, tuple, dict)):
+                _validate_json_value_metadata(value, set())
                 return pb.Value(
                     obj_value=pb.EncodedObject(
                         encoding=_JSON_ENCODING,

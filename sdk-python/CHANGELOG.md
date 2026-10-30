@@ -10,13 +10,21 @@
   `Receipt | None`. A directly declared union needs alternatives with distinct
   JSON kinds. An ambiguous one fails during codec resolution instead of
   choosing by order.
+- A directly declared union accepts `Literal` alternatives, such as
+  `Literal["draft", "sent"] | None`. Encoding and decoding both enforce
+  `Literal` membership by exact type, so `true` never matches `Literal[1]`.
+  Decoding a value outside the `Literal` raises `ValueError`. `Literal` and
+  `Literal` unions inside dataclass fields and containers still return the JSON
+  value unchanged.
 - Dataclass JSON decoding uses defaults and default factories for absent keys and
   reports missing required wire keys with `ValueError`.
 - Dataclass fields support `dex_json_name` for wire names,
   `dex_json_omit_default` for opt-in default omission, and
   `dex_json_format="rfc3339"` for Go-compatible datetime formatting.
   The metadata also applies to lists, tuples, and dicts of dataclasses passed
-  as Flow outputs, heartbeats, events, and Step locals.
+  as Flow outputs, heartbeats, events, and Step locals. Invalid metadata in
+  such a collection, such as two fields with the same wire name, fails encoding
+  like a directly passed dataclass instead of dropping a field.
   Existing field names and encoded defaults remain unchanged without metadata.
 - `float` fields and items accept JSON integers, such as Go's encoding of a
   whole `float64`, and keep them as `int`.

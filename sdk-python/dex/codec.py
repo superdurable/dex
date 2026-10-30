@@ -301,13 +301,17 @@ class CodecRegistry:
     kinds. For example, ``Receipt | None`` and ``int | str`` work, but
     ``int | float``, ``str | datetime``, and unions of two dataclasses are
     ambiguous and raise TypeError during resolution. A custom codec can
-    implement a discriminator.
+    implement a discriminator. A ``Literal`` alternative, such as
+    ``Literal["draft", "sent"] | None``, uses the JSON kinds of its members.
+    Decoding raises ValueError for a value outside the ``Literal``. Members
+    match by exact type, so JSON ``true`` never matches ``Literal[1]``.
 
     Unions inside dataclass fields and containers keep the decoding of earlier
     releases and never raise during resolution. Such a union decodes a value
     into a dataclass, Enum, or datetime alternative, or a container of those,
     when the value's JSON kind matches only that alternative. Otherwise it
-    returns the JSON value unchanged, without a type check. Fields typed by a
+    returns the JSON value unchanged, without a type check. A nested
+    ``Literal`` also returns the JSON value unchanged. Fields typed by a
     type variable and ``Mapping`` or ``Sequence`` types follow the same rule:
     ``Result[Receipt]`` decodes a ``Receipt``, but ``Result[int]`` returns the
     JSON value of its type-variable field unchanged. A ``float`` accepts a JSON
@@ -711,6 +715,20 @@ def _encode_json_value(value: Any) -> Any:
     return value
 
 
+def _validate_json_value_metadata(value: Any, visited: set[object]) -> None:
+    """Validate the JSON metadata of every dataclass instance within ``value``."""
+    if is_dataclass(value) and not isinstance(value, type):
+        _validate_json_type(type(value), visited)
+        for definition in fields(value):
+            _validate_json_value_metadata(getattr(value, definition.name), visited)
+    elif isinstance(value, Mapping):
+        for item in value.values():
+            _validate_json_value_metadata(item, visited)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _validate_json_value_metadata(item, visited)
+
+
 def _encode_rfc3339_datetime(value: datetime) -> str:
     if not isinstance(value, datetime):
         raise TypeError("dex_json_format='rfc3339' requires datetime")
@@ -729,8 +747,18 @@ def _decode_json_union(value: Any, type_hint: object) -> Any:
     kind = _json_value_kind(value)
     for argument in get_args(type_hint):
         if kind in _json_alternative_kinds(argument):
+            if get_origin(argument) is Literal:
+                return _decode_json_literal(value, argument)
             return _decode_json_value(value, argument)
     raise TypeError(f"{type_hint} cannot decode JSON {kind}")
+
+
+def _decode_json_literal(value: Any, type_hint: object) -> Any:
+    for member in get_args(type_hint):
+        encoded = _encode_json_value(member)
+        if type(encoded) is type(value) and encoded == value:
+            return member
+    raise ValueError(f"{value!r} is not a member of {type_hint}")
 
 
 def _decode_json_value(value: Any, type_hint: object) -> Any:

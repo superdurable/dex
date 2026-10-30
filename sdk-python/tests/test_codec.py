@@ -19,6 +19,7 @@ import pytest
 
 from dex import CodecRegistry, JsonCodec, Value, WireKind
 from dex._value_mapper import ValueMapper
+from dex.runtime_errors import ValueMappingError
 
 from integ.json_codec_models import (
     CodecEnvelope,
@@ -374,6 +375,63 @@ def test_union_rejects_unmatched_json_kind_and_wrong_member_payload() -> None:
         codec.encode(42)
 
 
+@pytest.mark.parametrize(
+    ("type_hint", "data", "expected"),
+    [
+        (Literal["draft", "sent"] | None, '"sent"', "sent"),
+        (Literal["draft", "sent"] | None, "null", None),
+        (Literal[1, 2] | str, "2", 2),
+        (Literal[1, 2] | str, '"other"', "other"),
+        (Literal[True] | int, "true", True),
+        (Literal[True] | int, "1", 1),
+        (Literal[1, True] | None, "1", 1),
+        (Literal[1, True] | None, "true", True),
+    ],
+)
+def test_direct_union_literal_alternatives_decode_members(
+    type_hint: object, data: str, expected: Any
+) -> None:
+    codec = CodecRegistry().resolve(type_hint)
+    decoded = codec.decode(Value(WireKind.JSON, data))
+    assert decoded == expected
+    assert type(decoded) is type(expected)
+    assert codec.encode(decoded) == Value(WireKind.JSON, data)
+
+
+@pytest.mark.parametrize(
+    ("type_hint", "data"),
+    [
+        (Literal["draft", "sent"] | None, '"unknown"'),
+        (Literal[1, 2] | str, "3"),
+        (Literal[1, 2] | str, "1.0"),
+        (Literal[True] | int, "false"),
+        (Literal[1, True] | None, "2"),
+    ],
+)
+def test_direct_union_literal_alternatives_reject_non_members(
+    type_hint: object, data: str
+) -> None:
+    codec = CodecRegistry().resolve(type_hint)
+    with pytest.raises(ValueError, match="is not a member of"):
+        codec.decode(Value(WireKind.JSON, data))
+
+
+def test_direct_union_literal_rejects_boolean_for_numeric_members() -> None:
+    codec = CodecRegistry().resolve(Literal[0, 1] | None)
+    with pytest.raises(TypeError, match="cannot decode JSON boolean"):
+        codec.decode(Value(WireKind.JSON, "true"))
+
+
+@pytest.mark.parametrize(
+    "field_type", [Literal["first", "second"], Literal[1, 2] | None]
+)
+def test_nested_literal_fields_keep_earlier_json_values(field_type: object) -> None:
+    holder = make_dataclass("LegacyLiteralHolder", [("value", field_type)])
+    codec = CodecRegistry().resolve(holder)
+    assert codec.decode(Value(WireKind.JSON, '{"value":"unknown"}')).value == "unknown"
+    assert codec.decode(Value(WireKind.JSON, '{"value":3}')).value == 3
+
+
 def test_defaults_restore_absent_fields_and_factories_create_fresh_values() -> None:
     codec = CodecRegistry().resolve(CodecResult[int])
     payload = Value(WireKind.JSON, '{"branch":"success","value":42,"receipt":null}')
@@ -447,6 +505,65 @@ def test_duplicate_wire_names_fail_at_resolution() -> None:
 
     with pytest.raises(TypeError, match="duplicate JSON field name 'second'"):
         CodecRegistry().resolve(DuplicateNames)
+
+
+@dataclass
+class DuplicateWireNames:
+    left: int = field(metadata={"dex_json_name": "same"})
+    right: int = field(metadata={"dex_json_name": "same"})
+
+
+@dataclass
+class OmitWithoutDefault:
+    value: int = field(metadata={"dex_json_omit_default": True})
+
+
+@dataclass
+class NonBoolOmitDefault:
+    value: int = field(default=0, metadata={"dex_json_omit_default": "yes"})
+
+
+@dataclass
+class UnknownFormat:
+    value: datetime = field(metadata={"dex_json_format": "iso"})
+
+
+@dataclass
+class FormatOnInteger:
+    value: int = field(metadata={"dex_json_format": "rfc3339"})
+
+
+@dataclass
+class DuplicateWireNamesHolder:
+    item: Any
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        DuplicateWireNames(1, 2),
+        OmitWithoutDefault(1),
+        NonBoolOmitDefault(1),
+        UnknownFormat(datetime(2026, 10, 30, 7, tzinfo=timezone.utc)),
+        FormatOnInteger(1),
+    ],
+)
+def test_dynamic_collections_reject_invalid_metadata_like_direct_values(
+    value: Any,
+) -> None:
+    values = ValueMapper(CodecRegistry())
+    for dynamic_value in (value, [value], (value,), {"item": value}):
+        with pytest.raises(ValueMappingError):
+            values.encode_dynamic(dynamic_value)
+
+
+def test_dynamic_collections_reject_invalid_metadata_in_untyped_fields() -> None:
+    values = ValueMapper(CodecRegistry())
+    holder = DuplicateWireNamesHolder(DuplicateWireNames(1, 2))
+    with pytest.raises(ValueMappingError, match="duplicate JSON field name 'same'"):
+        values.encode_dynamic([holder])
+    with pytest.raises(ValueMappingError, match="duplicate JSON field name 'same'"):
+        values.encode_dynamic({"items": [{"item": DuplicateWireNames(1, 2)}]})
 
 
 def test_go_golden_json_decodes_dataclasses_and_reencodes_equivalently() -> None:
