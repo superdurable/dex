@@ -30,11 +30,13 @@ class Analyzer(ConnectorAnalyzer):
         self.functions = {}
         self.step_classes = {}
         self.flow_classes = {}
-        self.flow_fields = {}
         self.registered = {}
+        self.step_instances = {}
+        self.instance_values = {}
+        self.instance_fields = {}
+        self.parents = {}
         self.resources = {}
         self.step_resources = {}
-        self.step_options = {}
         self.failure_transitions = set()
         self.node_ids = set()
         self.initialize_connectors()
@@ -48,6 +50,7 @@ class Analyzer(ConnectorAnalyzer):
         except SyntaxError as error:
             self.error("python_parse_failed", error.msg, self.syntax_span(error))
             return self.graph
+        self.parents = {child: parent for parent in ast.walk(self.tree) for child in ast.iter_child_nodes(parent)}
         self.index_imports()
         self.index_connector_imports()
         self.index_classes()
@@ -64,6 +67,7 @@ class Analyzer(ConnectorAnalyzer):
         self.graph["flow"] = {"name": self.custom_type_name(flow_class, "get_flow_type", flow_name), "span": self.span(flow_class)}
         self.index_flow_fields(flow_class)
         self.index_connector_fields(flow_class)
+        self.index_instance_values(flow_class)
         self.analyze_registration(flow_class)
         for step_name, node_id in list(self.registered.items()):
             self.analyze_step(step_name, node_id)
@@ -171,18 +175,11 @@ class Analyzer(ConnectorAnalyzer):
                 continue
             class_name = self.symbol(value.func)
             if class_name in self.step_classes:
-                self.flow_fields[target.id] = class_name
                 self.index_step_resource_wiring(class_name, value, flow_class.name, local_resources)
 
         initializer = self.method(flow_class, "__init__")
         if initializer is None:
             return
-        local_values = {}
-        for statement in initializer.body:
-            if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
-                local_values[statement.targets[0].id] = statement.value
-            elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
-                local_values[statement.target.id] = statement.value
         for statement in initializer.body:
             target = None
             value = None
@@ -210,9 +207,7 @@ class Analyzer(ConnectorAnalyzer):
             target_name = self.target_attribute(targets[0]) if targets else None
             class_name = self.symbol(value.func)
             if target_name and class_name in self.step_classes:
-                self.flow_fields[target_name] = class_name
                 self.index_step_resource_wiring(class_name, value, flow_class.name, local_resources)
-                self.index_step_option_wiring(class_name, value, local_values)
 
     def index_step_resource_wiring(self, step_name, constructor, flow_name, local_resources):
         initializer = self.method(self.step_classes[step_name], "__init__")
@@ -241,54 +236,6 @@ class Analyzer(ConnectorAnalyzer):
             resource_id = parameter_resources.get(node.value.id)
             if field and resource_id:
                 self.step_resources.setdefault(step_name, {})[field] = resource_id
-
-    def index_step_option_wiring(self, step_name, constructor, local_values):
-        step_class = self.step_classes[step_name]
-        options_method = self.method(step_class, "get_step_options")
-        initializer = self.method(step_class, "__init__")
-        if options_method is None or initializer is None:
-            return
-        returned_fields = {
-            statement.value.attr
-            for statement in options_method.body
-            if isinstance(statement, ast.Return)
-            and isinstance(statement.value, ast.Attribute)
-            and isinstance(statement.value.value, ast.Name)
-            and statement.value.value.id == "self"
-        }
-        if not returned_fields:
-            return
-        field_parameters = {}
-        for statement in ast.walk(initializer):
-            if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
-                continue
-            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
-            if not targets or not isinstance(statement.value, ast.Name):
-                continue
-            field = self.target_attribute(targets[0])
-            if field in returned_fields:
-                field_parameters[field] = statement.value.id
-        parameters = [argument.arg for argument in initializer.args.args if argument.arg != "self"]
-        arguments = {}
-        for index, argument in enumerate(constructor.args):
-            if index < len(parameters):
-                arguments[parameters[index]] = argument
-        for keyword in constructor.keywords:
-            if keyword.arg:
-                arguments[keyword.arg] = keyword.value
-        for parameter in field_parameters.values():
-            expression = arguments.get(parameter)
-            if expression is None:
-                continue
-            expression = self.resolve_local_value(expression, local_values)
-            self.step_options.setdefault(step_name, []).append(expression)
-
-    def resolve_local_value(self, expression, local_values):
-        seen = set()
-        while isinstance(expression, ast.Name) and expression.id in local_values and expression.id not in seen:
-            seen.add(expression.id)
-            expression = local_values[expression.id]
-        return expression
 
     def flow_resource_for(self, expression, flow_name, local_resources):
         if isinstance(expression, ast.Name):
@@ -334,7 +281,7 @@ class Analyzer(ConnectorAnalyzer):
             if node.func.attr not in {"start_step", "other_steps"}:
                 continue
             for index, argument in enumerate(node.args):
-                step_name = self.step_target(argument)
+                step_name = self.step_target(argument, report_errors=True)
                 is_start = node.func.attr == "start_step" and index == 0
                 registrations.append((step_name, is_start, argument))
         starts = 0
@@ -356,16 +303,19 @@ class Analyzer(ConnectorAnalyzer):
                     starts += 1
                     self.graph["flow"]["startStepId"] = node_id
                 continue
-            if step_name not in self.step_classes:
+            instance = self.step_instance(expression)
+            if instance is None:
                 self.dynamic_target(f"Step {step_name} must be defined in the source file", expression)
                 continue
-            step_class = self.step_classes[step_name]
+            class_name, fields, _ = instance
+            self.step_instances[step_name] = (class_name, fields)
+            step_class = self.step_classes[class_name]
             node_id = f"step:{step_name}"
             self.registered[step_name] = node_id
             self.add_node({
                 "id": node_id,
                 "kind": "step",
-                "name": self.custom_type_name(step_class, "get_step_type", step_name),
+                "name": step_name,
                 "phase": "wait_for+execute" if self.method(step_class, "wait_for") else "execute",
                 "start": is_start,
                 "span": self.span(expression),
@@ -397,10 +347,13 @@ class Analyzer(ConnectorAnalyzer):
     def analyze_step(self, step_name, node_id):
         if step_name in self.connector_steps:
             return
-        step_class = self.step_classes[step_name]
+        class_name, fields = self.step_instances[step_name]
+        self.instance_fields = fields
+        step_class = self.step_classes[class_name]
         execute = self.method(step_class, "execute")
         if execute is None:
             self.error("step_handler_not_in_file", f"Step {step_name} execute must be defined in the source file", self.span(step_class))
+            self.instance_fields = {}
             return
         self.analyze_decisions(node_id, execute, rpc=False)
         self.analyze_resources(node_id, execute, "execute")
@@ -410,8 +363,12 @@ class Analyzer(ConnectorAnalyzer):
         options = self.method(step_class, "get_step_options")
         if options is not None:
             self.analyze_step_options(node_id, options)
-        for expression in self.step_options.get(step_name, []):
-            self.analyze_step_options(node_id, expression)
+            for statement in options.body:
+                if isinstance(statement, ast.Return):
+                    expression = self.resolve_instance_value(statement.value)
+                    if expression is not None and expression is not statement.value:
+                        self.analyze_step_options(node_id, expression)
+        self.instance_fields = {}
 
     def analyze_step_options(self, owner_id, expression):
         for source in self.option_sources(expression):
@@ -812,8 +769,9 @@ class Analyzer(ConnectorAnalyzer):
                 continue
             self.failure_transitions.add(transition)
             metadata = {}
-            if target in self.step_classes:
-                metadata["skipWaitFor"] = self.method(self.step_classes[target], "wait_for") is None
+            if target in self.step_instances:
+                class_name, _ = self.step_instances[target]
+                metadata["skipWaitFor"] = self.method(self.step_classes[class_name], "wait_for") is None
             self.add_edge("failure_transition", owner_id, target_id, label="Execute failure", span=self.span(call), metadata=metadata)
 
     def analyze_resources(self, owner_id, method, phase):
@@ -1044,7 +1002,7 @@ class Analyzer(ConnectorAnalyzer):
         target_name = target or "Dynamic Step"
         node_id = f"unknown:step:{target_name}"
         self.add_node({"id": node_id, "kind": "unknown", "name": target_name, "span": span})
-        message = f"Step {target} is not registered in this Flow" if target else "Dex transition target must be a registered static Step"
+        message = f"Step {target} is not registered in this Flow" if target else "Dex transition target must resolve to a registered Step instance, an unambiguous class, or a literal StepRef"
         self.error("unknown_step_target", message, span)
         return node_id
 
@@ -1054,6 +1012,13 @@ class Analyzer(ConnectorAnalyzer):
         self.error("dynamic_step_target", message, span)
 
     def resource_for(self, expression, owner_id):
+        if self.unparse(expression) in self.instance_fields:
+            expression = self.resolve_instance_value(expression)
+            for name, value in self.instance_values.items():
+                if value is expression:
+                    resource = self.resources.get(name.removeprefix("self.")) or self.resources.get(name)
+                    if resource:
+                        return resource
         if isinstance(expression, ast.Name):
             return self.resources.get(expression.id)
         if isinstance(expression, ast.Attribute):
@@ -1068,22 +1033,106 @@ class Analyzer(ConnectorAnalyzer):
             return self.resources.get(expression.attr)
         return None
 
-    def step_target(self, expression):
+    def index_instance_values(self, flow_class):
+        self.instance_values.update(self.assignment_values(self.tree.body))
+        for name, value in self.assignment_values(flow_class.body).items():
+            self.instance_values[f"self.{name}"] = value
+            self.instance_values[f"{flow_class.name}.{name}"] = value
+        initializer = self.method(flow_class, "__init__")
+        if initializer:
+            self.instance_values.update(self.assignment_values(initializer.body))
+        for class_name, declaration in self.classes.items():
+            for name, value in self.assignment_values(declaration.body).items():
+                self.instance_values[f"{class_name}.{name}"] = value
+
+    def assignment_values(self, statements):
+        values = {}
+        for statement in statements:
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            for node in ast.walk(statement):
+                if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                    continue
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    name = self.unparse(target)
+                    is_static_assignment = node is statement and not isinstance(node, ast.AugAssign) and name not in values
+                    values[name] = node.value if is_static_assignment else None
+        return values
+
+    def resolve_instance_value(self, expression, fields=None):
+        values = {**self.instance_values, **(self.instance_fields if fields is None else fields)}
+        parent = expression
+        while parent in self.parents:
+            parent = self.parents[parent]
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for argument in [*parent.args.posonlyargs, *parent.args.args, *parent.args.kwonlyargs]:
+                    if argument.arg != "self":
+                        values[argument.arg] = None
+                values.update(self.assignment_values(parent.body))
+                break
+        seen = set()
+        while expression is not None and self.unparse(expression) in values:
+            name = self.unparse(expression)
+            if name in seen:
+                return None
+            seen.add(name)
+            expression = values[name]
+        return expression
+
+    def step_instance(self, expression, report_errors=False):
+        expression = self.resolve_instance_value(expression)
+        constructor = expression if isinstance(expression, ast.Call) else None
+        class_name = self.symbol(constructor.func if constructor else expression)
+        if class_name not in self.step_classes:
+            return None
+        declaration = self.step_classes[class_name]
+        fields = {f"self.{name}": value for name, value in self.assignment_values(declaration.body).items()}
+        initializer = self.method(declaration, "__init__")
+        if initializer and constructor:
+            parameters = [argument.arg for argument in [*initializer.args.posonlyargs, *initializer.args.args] if argument.arg != "self"]
+            keyword_parameters = [argument.arg for argument in initializer.args.kwonlyargs]
+            arguments = dict.fromkeys([*parameters, *keyword_parameters])
+            defaults = initializer.args.defaults
+            arguments.update(zip(parameters[len(parameters) - len(defaults):], defaults))
+            arguments.update(zip(keyword_parameters, initializer.args.kw_defaults))
+            arguments.update(zip(parameters, constructor.args))
+            arguments.update({keyword.arg: keyword.value for keyword in constructor.keywords if keyword.arg})
+            arguments = {name: self.resolve_instance_value(value) for name, value in arguments.items()}
+            for name, value in self.assignment_values(initializer.body).items():
+                if name.startswith("self."):
+                    fields[name] = arguments.get(value.id, value) if isinstance(value, ast.Name) else value
+            for name, value in list(fields.items()):
+                if isinstance(value, ast.Name) and value.id == "self":
+                    for flow_field, expression in self.instance_values.items():
+                        if flow_field.startswith("self."):
+                            fields[name + flow_field.removeprefix("self")] = expression
+        method = self.method(declaration, "get_step_type")
+        if method is None:
+            return class_name, fields, class_name
+        returns = [node.value for node in ast.walk(method) if isinstance(node, ast.Return)]
+        values = [self.resolve_instance_value(value, fields) for value in returns]
+        names = [value.value if isinstance(value, ast.Constant) and isinstance(value.value, str) else None for value in values]
+        if not names or names[0] is None or any(name != names[0] for name in names):
+            if report_errors:
+                self.error("dynamic_type_name", "get_step_type must return one static string literal or a field bound to a literal at registration", self.span(method))
+            return class_name, fields, None
+        return class_name, fields, names[0] or class_name
+
+    def step_target(self, expression, report_errors=False):
+        expression = self.resolve_instance_value(expression)
+        if isinstance(expression, ast.Call) and self.is_dex_reference(expression.func, "StepRef"):
+            if len(expression.args) == 1 and isinstance(expression.args[0], ast.Constant) and isinstance(expression.args[0].value, str):
+                return expression.args[0].value
+            return None
         connector_target = self.connector_step_target(expression)
         if connector_target:
             return connector_target
-        if isinstance(expression, ast.Name):
-            return expression.id if expression.id in self.step_classes else None
-        if isinstance(expression, ast.Attribute):
-            if isinstance(expression.value, ast.Name) and expression.value.id == "self":
-                return self.flow_fields.get(expression.attr)
-            if expression.attr in self.flow_fields:
-                return self.flow_fields[expression.attr]
-            return expression.attr if expression.attr in self.step_classes else None
-        if isinstance(expression, ast.Call):
-            name = self.symbol(expression.func)
-            return name if name in self.step_classes else None
-        return None
+        if not report_errors and isinstance(expression, ast.Name) and expression.id in self.step_classes:
+            candidates = [step_type for step_type, (class_name, _) in self.step_instances.items() if class_name == expression.id]
+            return candidates[0] if len(candidates) == 1 else None
+        instance = self.step_instance(expression, report_errors)
+        return instance[2] if instance else None
 
     def custom_type_name(self, class_node, method_name, fallback):
         method = self.method(class_node, method_name)

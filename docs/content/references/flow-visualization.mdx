@@ -165,7 +165,7 @@ For Go, the default name is the Go type name without its package or pointer. A F
 
 Name each Flow type after its domain, such as **ApprovalFlow** or **ReplyFlow**. Do not name a Flow type just **Flow**. The package is not part of the name, so every Flow registered with one Worker needs a different type name. Dex Web, run history, and Flow searches show the name as written.
 
-A generic Flow or Step type has no default name. Declare a **GetFlowType** or **GetStepType** override that returns a non-empty name.
+For Go, a generic Flow or Step type has no default name. Declare a **GetFlowType** or **GetStepType** override that returns a non-empty name.
 
 A **GetFlowType** or **GetStepType** override can be declared in any file of the package or promoted from an embedded type, including one from another package. Every return statement in the override must return the same compile-time string. An empty string keeps the default name. Dex rejects a Step type that contains **/**, **$**, or **:**. A **StepRef** target names the registered Step type, not the Go type.
 
@@ -176,7 +176,13 @@ The analyzer reports a blocking diagnostic when it cannot know the registered na
 - **generic_step_type_name**: a generic Step type has no non-empty override.
 - **duplicate_step_type**: two registrations use one Step type, or one Go type is registered more than once. Step nodes are keyed by Go type, so a generic Step can be registered with only one type argument.
 
-Node IDs use the Go type, as in **step:initializeThread**, even when an override changes the Step type.
+Go node IDs use the Go type, as in **step:initializeThread**, even when an override changes the Step type.
+
+Python and TypeScript can register several instances of the same Step class when each instance has a distinct static Step type. **get_step_type** or **getStepType** can return a string literal, a class attribute initialized with a string literal, or an instance field assigned from a constructor argument whose value is a string literal at registration. Constructor defaults and static variable aliases are also readable. Each node ID uses that instance's Step type, such as **step:First** and **step:Second**.
+
+Transitions, **StepMovement**, Execute failure routing, and cancellation accept registered instances stored in variables or Flow fields, inline constructors with the same static Step type, and **StepRef** constructed with a string literal naming a registered Step type. A class target is readable when exactly one instance of that class is registered. Separate Connector factory calls also produce separate nodes when their static Step types differ.
+
+Computed Step types, dynamic targets, unknown **StepRef** names, and ambiguous class targets produce blocking diagnostics. A callback or helper that hides an Execute decision still produces **hidden_dex_decision**; resolving its instance's Step type does not make the callback body readable.
 
 ## Start inputs {#start-inputs}
 

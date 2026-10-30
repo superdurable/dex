@@ -346,6 +346,14 @@ A registration that calls a package without a manifest reports
 `connector_manifest_missing`, and two Steps with one Step type report
 `duplicate_step_type`.
 
+Python and TypeScript register each Step instance by its static Step type.
+Several instances of one class may use different types returned as literals or
+bound through constructor arguments and class attributes. Targets may use static
+variables, Flow fields, matching inline constructors, or literal `StepRef`
+names. A class target requires one registered instance. Dynamic types and
+unresolved targets remain blocking diagnostics; decisions hidden in callbacks
+remain unsupported.
+
 TypeScript analysis loads the `typescript` package only from the source
 project (`node_modules` or `NODE_PATH`). It reads Step registration, direct
 `goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd`,

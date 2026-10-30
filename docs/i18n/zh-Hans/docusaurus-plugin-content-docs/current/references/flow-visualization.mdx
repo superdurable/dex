@@ -165,7 +165,7 @@ Connector 节点在 **metadata.connector** 内输出 **connectorId**、**release
 
 请按业务领域命名每个 Flow type，例如 **ApprovalFlow** 或 **ReplyFlow**。不要把 Flow type 只命名为 **Flow**。名称不包含 package，因此同一个 Worker 注册的每个 Flow 都需要不同的 type 名称。Dex Web、run history 和 Flow 搜索都会原样显示这个名称。
 
-泛型 Flow 或 Step type 没有默认名称。请声明返回非空名称的 **GetFlowType** 或 **GetStepType** override。
+对于 Go，泛型 Flow 或 Step type 没有默认名称。请声明返回非空名称的 **GetFlowType** 或 **GetStepType** override。
 
 **GetFlowType** 或 **GetStepType** override 可以声明在 package 的任意文件中，也可以从嵌入类型提升而来，包括来自其他 package 的类型。Override 中的每条 return 语句都必须返回同一个 compile-time string。空字符串表示保留默认名称。Dex 会拒绝包含 **/**、**$** 或 **:** 的 Step type。**StepRef** target 指向注册的 Step type，而不是 Go type。
 
@@ -176,7 +176,13 @@ Analyzer 无法确定注册名称，或无法为每个 Step 生成独立节点�
 - **generic_step_type_name**：泛型 Step type 没有非空 override。
 - **duplicate_step_type**：两个注册使用同一个 Step type，或同一个 Go type 注册了多次。Step 节点以 Go type 为键，因此一个泛型 Step 只能用一个类型参数注册。
 
-节点 ID 使用 Go type，例如 **step:initializeThread**，即使 override 改变了 Step type 也是如此。
+Go 节点 ID 使用 Go type，例如 **step:initializeThread**，即使 override 改变了 Step type 也是如此。
+
+Python 和 TypeScript 可以注册同一个 Step class 的多个实例，但每个实例都必须有不同的静态 Step type。**get_step_type** 或 **getStepType** 可以返回字符串字面量、用字符串字面量初始化的 class 属性，或从构造参数赋值的实例字段；构造参数的值必须在注册处是字符串字面量。Analyzer 也能读取构造参数的默认值和静态变量别名。每个节点 ID 使用实例的 Step type，例如 **step:First** 和 **step:Second**。
+
+普通跳转、**StepMovement**、Execute 失败路由和取消操作支持变量或 Flow 字段中保存的已注册实例、具有相同静态 Step type 的内联构造调用，以及用字符串字面量指定已注册 Step type 的 **StepRef**。当某个 class 只注册了一个实例时，也可以用该 class 作为目标。同一个 Connector 的不同 factory 调用只要使用不同的静态 Step type，也会生成独立节点。
+
+计算得到的 Step type、动态目标、未注册的 **StepRef** 名称和存在歧义的 class 目标都会产生阻断诊断。Execute 决策隐藏在回调或 helper 中时，仍然会报告 **hidden_dex_decision**；实例的 Step type 可解析，并不代表回调中的决策也可解析。
 
 ## 启动输入 {#start-inputs}
 

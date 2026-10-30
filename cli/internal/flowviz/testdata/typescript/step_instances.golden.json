@@ -1,0 +1,540 @@
+{
+  "schemaVersion": "2.0",
+  "valid": true,
+  "source": {
+    "language": "typescript",
+    "path": "step_instances.ts"
+  },
+  "flow": {
+    "name": "StepInstancesFlow",
+    "startStepId": "step:First",
+    "span": {
+      "startLine": 36,
+      "startColumn": 1,
+      "endLine": 47,
+      "endColumn": 2
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:First",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:First",
+      "phase": "execute",
+      "span": {
+        "startLine": 24,
+        "startColumn": 3,
+        "endLine": 31,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "decision-dispatch:step:Second",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:Second",
+      "phase": "execute",
+      "span": {
+        "startLine": 24,
+        "startColumn": 3,
+        "endLine": 31,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "decision:step:First:26:38",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:First",
+      "condition": "input === \"instance\"",
+      "phase": "execute",
+      "span": {
+        "startLine": 26,
+        "startColumn": 38,
+        "endLine": 26,
+        "endColumn": 62
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:First:27:39",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:First",
+      "condition": "!(input === \"instance\") \u0026\u0026 input === \"reference\"",
+      "phase": "execute",
+      "span": {
+        "startLine": 27,
+        "startColumn": 39,
+        "endLine": 27,
+        "endColumn": 73
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:First:28:36",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:First",
+      "condition": "!(input === \"instance\") \u0026\u0026 !(input === \"reference\") \u0026\u0026 input === \"inline\"",
+      "phase": "execute",
+      "span": {
+        "startLine": 28,
+        "startColumn": 36,
+        "endLine": 28,
+        "endColumn": 103
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:First:29:38",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:First",
+      "condition": "!(input === \"instance\") \u0026\u0026 !(input === \"reference\") \u0026\u0026 !(input === \"inline\") \u0026\u0026 input === \"movement\"",
+      "phase": "execute",
+      "span": {
+        "startLine": 29,
+        "startColumn": 38,
+        "endLine": 29,
+        "endColumn": 129
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:First:30:12",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:First",
+      "condition": "!(input === \"instance\") \u0026\u0026 !(input === \"reference\") \u0026\u0026 !(input === \"inline\") \u0026\u0026 !(input === \"movement\")",
+      "phase": "execute",
+      "span": {
+        "startLine": 30,
+        "startColumn": 12,
+        "endLine": 30,
+        "endColumn": 135
+      },
+      "decision": {
+        "type": "gracefulComplete",
+        "cancellations": [
+          {
+            "stepId": "step:Second",
+            "scope": "all"
+          },
+          {
+            "stepId": "step:First",
+            "scope": "all"
+          },
+          {
+            "stepId": "step:Second",
+            "scope": "siblings"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:step:Second:26:38",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Second",
+      "condition": "input === \"instance\"",
+      "phase": "execute",
+      "span": {
+        "startLine": 26,
+        "startColumn": 38,
+        "endLine": 26,
+        "endColumn": 62
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Second:27:39",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Second",
+      "condition": "!(input === \"instance\") \u0026\u0026 input === \"reference\"",
+      "phase": "execute",
+      "span": {
+        "startLine": 27,
+        "startColumn": 39,
+        "endLine": 27,
+        "endColumn": 73
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Second:28:36",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Second",
+      "condition": "!(input === \"instance\") \u0026\u0026 !(input === \"reference\") \u0026\u0026 input === \"inline\"",
+      "phase": "execute",
+      "span": {
+        "startLine": 28,
+        "startColumn": 36,
+        "endLine": 28,
+        "endColumn": 103
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Second:29:38",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:Second",
+      "condition": "!(input === \"instance\") \u0026\u0026 !(input === \"reference\") \u0026\u0026 !(input === \"inline\") \u0026\u0026 input === \"movement\"",
+      "phase": "execute",
+      "span": {
+        "startLine": 29,
+        "startColumn": 38,
+        "endLine": 29,
+        "endColumn": 129
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:Second:30:12",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:Second",
+      "condition": "!(input === \"instance\") \u0026\u0026 !(input === \"reference\") \u0026\u0026 !(input === \"inline\") \u0026\u0026 !(input === \"movement\")",
+      "phase": "execute",
+      "span": {
+        "startLine": 30,
+        "startColumn": 12,
+        "endLine": 30,
+        "endColumn": 135
+      },
+      "decision": {
+        "type": "gracefulComplete",
+        "cancellations": [
+          {
+            "stepId": "step:First",
+            "scope": "all"
+          },
+          {
+            "stepId": "step:First",
+            "scope": "all"
+          },
+          {
+            "stepId": "step:Second",
+            "scope": "siblings"
+          }
+        ]
+      }
+    },
+    {
+      "id": "step:First",
+      "kind": "step",
+      "name": "First",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 45,
+        "startColumn": 31,
+        "endLine": 45,
+        "endColumn": 36
+      },
+      "metadata": {
+        "explanation": "Route the input to another registered Step instance."
+      }
+    },
+    {
+      "id": "step:Second",
+      "kind": "step",
+      "name": "Second",
+      "phase": "execute",
+      "span": {
+        "startLine": 45,
+        "startColumn": 49,
+        "endLine": 45,
+        "endColumn": 60
+      },
+      "metadata": {
+        "explanation": "Route the input to another registered Step instance."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:First:26:38",
+      "to": "step:Second",
+      "label": "goTo",
+      "span": {
+        "startLine": 26,
+        "startColumn": 38,
+        "endLine": 26,
+        "endColumn": 62
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:First:27:39",
+      "to": "step:Second",
+      "label": "goTo",
+      "span": {
+        "startLine": 27,
+        "startColumn": 39,
+        "endLine": 27,
+        "endColumn": 73
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:First:28:36",
+      "to": "step:Second",
+      "label": "goTo",
+      "span": {
+        "startLine": 28,
+        "startColumn": 36,
+        "endLine": 28,
+        "endColumn": 103
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:First:29:38",
+      "to": "step:First",
+      "label": "fan-out",
+      "span": {
+        "startLine": 29,
+        "startColumn": 84,
+        "endLine": 29,
+        "endColumn": 128
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:First:29:38",
+      "to": "step:Second",
+      "label": "fan-out",
+      "span": {
+        "startLine": 29,
+        "startColumn": 47,
+        "endLine": 29,
+        "endColumn": 82
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "cancel",
+      "from": "decision:step:First:30:12",
+      "to": "step:First",
+      "label": "withCancelingSteps",
+      "span": {
+        "startLine": 30,
+        "startColumn": 90,
+        "endLine": 30,
+        "endColumn": 110
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "cancel",
+      "from": "decision:step:First:30:12",
+      "to": "step:Second",
+      "label": "withCancelingSiblingSteps",
+      "span": {
+        "startLine": 30,
+        "startColumn": 113,
+        "endLine": 30,
+        "endColumn": 134
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "cancel",
+      "from": "decision:step:First:30:12",
+      "to": "step:Second",
+      "label": "withCancelingSteps",
+      "span": {
+        "startLine": 30,
+        "startColumn": 77,
+        "endLine": 30,
+        "endColumn": 88
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "transition",
+      "from": "decision:step:Second:26:38",
+      "to": "step:First",
+      "label": "goTo",
+      "span": {
+        "startLine": 26,
+        "startColumn": 38,
+        "endLine": 26,
+        "endColumn": 62
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "transition",
+      "from": "decision:step:Second:27:39",
+      "to": "step:Second",
+      "label": "goTo",
+      "span": {
+        "startLine": 27,
+        "startColumn": 39,
+        "endLine": 27,
+        "endColumn": 73
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "transition",
+      "from": "decision:step:Second:28:36",
+      "to": "step:Second",
+      "label": "goTo",
+      "span": {
+        "startLine": 28,
+        "startColumn": 36,
+        "endLine": 28,
+        "endColumn": 103
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "transition",
+      "from": "decision:step:Second:29:38",
+      "to": "step:First",
+      "label": "fan-out",
+      "span": {
+        "startLine": 29,
+        "startColumn": 47,
+        "endLine": 29,
+        "endColumn": 82
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "transition",
+      "from": "decision:step:Second:29:38",
+      "to": "step:First",
+      "label": "fan-out",
+      "span": {
+        "startLine": 29,
+        "startColumn": 84,
+        "endLine": 29,
+        "endColumn": 128
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "cancel",
+      "from": "decision:step:Second:30:12",
+      "to": "step:First",
+      "label": "withCancelingSteps",
+      "span": {
+        "startLine": 30,
+        "startColumn": 77,
+        "endLine": 30,
+        "endColumn": 88
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "cancel",
+      "from": "decision:step:Second:30:12",
+      "to": "step:First",
+      "label": "withCancelingSteps",
+      "span": {
+        "startLine": 30,
+        "startColumn": 90,
+        "endLine": 30,
+        "endColumn": 110
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "cancel",
+      "from": "decision:step:Second:30:12",
+      "to": "step:Second",
+      "label": "withCancelingSiblingSteps",
+      "span": {
+        "startLine": 30,
+        "startColumn": 113,
+        "endLine": 30,
+        "endColumn": 134
+      }
+    },
+    {
+      "id": "edge:0017",
+      "kind": "failure_transition",
+      "from": "step:First",
+      "to": "step:Second",
+      "label": "Execute failure",
+      "span": {
+        "startLine": 21,
+        "startColumn": 29,
+        "endLine": 21,
+        "endColumn": 66
+      },
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0018",
+      "kind": "failure_transition",
+      "from": "step:Second",
+      "to": "step:First",
+      "label": "Execute failure",
+      "span": {
+        "startLine": 21,
+        "startColumn": 29,
+        "endLine": 21,
+        "endColumn": 66
+      },
+      "metadata": {
+        "skipWaitFor": true
+      }
+    }
+  ],
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "instances",
+      "label": "Instances",
+      "stepIds": [
+        "step:Second",
+        "step:First"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
+}
