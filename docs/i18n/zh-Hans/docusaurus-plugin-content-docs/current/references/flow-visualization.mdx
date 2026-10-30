@@ -212,6 +212,7 @@ TypeScript 通过检查每个被追踪对象的每一次使用来证明字段。
 - 返回它、导出它或解构它。
 - 用 **as**、**satisfies** 或类型断言转换它。
 - 用计算键读取它，或者通过它写入，例如 **first.target = value** 或 **this[key] = value**。
+- 把它赋给由 class 体中的 setter 处理的字段名。
 - 在其他任何表达式中使用它，例如比较。
 
 逃逸会在逃逸的位置报告 **dynamic_class**。逃逸对象的字段，以及它通过字段能到达的每个对象的字段，都会变得不可读取。逃逸的 Connector Step 会报告 **dynamic_step_target**。对其他值进行计算键写入（例如 **words[index] = value**）不影响图。

@@ -212,6 +212,7 @@ Any other use is an escape. These uses are escapes:
 - Returning it, exporting it, or destructuring it.
 - Casting it with **as**, **satisfies**, or a type assertion.
 - Reading it with a computed key, or writing through it, such as **first.target = value** or **this[key] = value**.
+- Assigning it to a field name that a setter in the class body handles.
 - Using it in any other expression, such as a comparison.
 
 An escape reports **dynamic_class** at the escaping use. The fields of the escaped object, and of every object it can reach through its fields, become unreadable. An escaped Connector Step reports **dynamic_step_target**. A computed-key write on any other value, such as **words[index] = value**, does not affect the graph.

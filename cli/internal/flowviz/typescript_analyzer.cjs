@@ -886,6 +886,7 @@ class TypeScriptAnalyzer {
     if (this.ts.isParameter(parent) && parent.initializer === use) return this.ts.isIdentifier(parent.name) ? {binding:this.bindingKey(parent.name)} : {escape:"is destructured"};
     if (this.ts.isPropertyDeclaration(parent) && parent.initializer === use) {
       if (!this.ts.isClassDeclaration(parent.parent) || this.isStatic(parent) || this.ts.isComputedPropertyName(parent.name)) return {escape:"is stored in a static or computed field"};
+      if (this.declaresSetter(parent.parent,this.propertyName(parent.name))) return {escape:"is assigned through a setter"};
       return {field:[parent.parent,this.propertyName(parent.name)],isIntrinsic:true};
     }
     if (this.ts.isPropertyAccessExpression(parent) && parent.expression === use) return this.receiverUsePosition(use,parent,origins);
@@ -922,6 +923,7 @@ class TypeScriptAnalyzer {
     const target = this.unwrap(binary.left);
     if (this.ts.isIdentifier(target)) return {binding:this.bindingKey(target)};
     const owner = this.ts.isPropertyAccessExpression(target) ? this.selfReferenceClass(this.unwrap(target.expression)) : undefined;
+    if (owner && this.declaresSetter(owner,target.name.text)) return {escape:"is assigned through a setter"};
     if (owner) return {field:[owner,target.name.text],isIntrinsic:!this.isConstructorParameterReference(use,owner)};
     return {escape:"is stored in another object"};
   }
@@ -1006,6 +1008,15 @@ class TypeScriptAnalyzer {
       seen.add(declaration);
       const method = this.method(declaration,name);
       if (method) return !this.ts.isFunctionExpression(method);
+    }
+    return false;
+  }
+
+  declaresSetter(declaration,name) {
+    // A setter receives the assigned object as a parameter that the analyzer does not track.
+    for (let current = declaration, seen = new Set(); current && !seen.has(current); current = this.staticClass(this.extendsClause(current)?.expression)) {
+      seen.add(current);
+      if (current.members.some(member => this.ts.isSetAccessor(member) && !this.isStatic(member) && member.name && this.propertyName(member.name) === name)) return true;
     }
     return false;
   }
