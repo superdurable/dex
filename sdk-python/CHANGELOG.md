@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added and fixed
+
+- Add `Context.deadline`, a timezone-aware UTC datetime for the current Step method attempt; RPC handlers return `None`.
+
 ### Breaking changes
 
 - Removed push Workers and their inbound gRPC WorkerService listeners and lifecycle.

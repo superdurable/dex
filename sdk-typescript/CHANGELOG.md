@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added and fixed
+
+- Add `Context.deadline`, an absolute UTC Date for the current Step method attempt; RPC handlers return `undefined`.
+- Make `AsyncContext.recordHeartbeat` reject its returned Promise for every failure, including inactive tasks and closed streams, instead of throwing synchronously.
+
 ### Breaking change
 
 - Remove push Workers. Workers now always pull tasks from the Dex Server

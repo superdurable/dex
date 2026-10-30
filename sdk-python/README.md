@@ -485,6 +485,17 @@ meet the server minimum, which defaults to ten seconds. Asynchronous durability
 first allows at most three local attempts in seven seconds. The local phase ignores
 method timeouts and heartbeat frames before falling back to a regular activity.
 
+### Step attempt deadline
+
+`Context.deadline` is the absolute deadline supplied by the Dex Server for the
+current `wait_for`, `execute`, or Flow timeout handler attempt. It is a
+timezone-aware UTC `datetime` with microsecond precision, not a duration.
+Subtract `datetime.now(timezone.utc)` and call `total_seconds()` to budget
+remaining work after checking for `None`. A shorter remaining
+`RetryPolicy.total_duration` limits this deadline; each retry receives its own
+effective deadline. RPC handlers and tasks without a supplied deadline return
+`None`.
+
 ### Step progress and heartbeat recovery
 
 A synchronous handler yields every heartbeat and Stream write. The generator return

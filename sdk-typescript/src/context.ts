@@ -38,6 +38,23 @@ export interface Context {
   readonly recoveryError: RecoveryErrorInfo | undefined;
   /** UTC timestamp of the first handler attempt. */
   readonly firstAttemptAt: Date;
+  /**
+   * Absolute UTC deadline of the current Step method attempt, or `undefined` when absent.
+   *
+   * Available during `waitFor`, `execute`, and Flow timeout handlers. RPC handlers have no
+   * deadline. A shorter remaining RetryPolicy total duration limits this value. Each retry
+   * receives its own effective deadline. Dates have millisecond precision.
+   *
+   * @example
+   * Compute the remaining attempt budget in milliseconds inside a handler:
+   * ```ts
+   * const deadline = context.deadline;
+   * if (deadline !== undefined) {
+   *   const remainingMs = deadline.getTime() - Date.now();
+   * }
+   * ```
+   */
+  readonly deadline: Date | undefined;
   /** One-based handler retry attempt number. */
   readonly attempt: number;
   /**
@@ -205,6 +222,10 @@ export interface AsyncContext extends Context {
    * @param value - Value to persist, or `undefined` to clear existing details.
    * @param codec - Codec used to encode the Value; omitted for JSON.
    * @returns A Promise resolved after the Worker accepts the output frame locally.
+   * All failures reject this Promise; this method never throws synchronously.
+   * @throws {Error} The Promise rejects if the task is inactive, finished, cancelled, or its stream is closed.
+   * @throws {TypeError} The Promise rejects when the Context cannot record heartbeats.
+   * @throws {ValueMappingError} The Promise rejects if the heartbeat value cannot be encoded.
    */
   recordHeartbeat<T>(value: T | undefined, codec?: Codec<T>): Promise<void>;
 }

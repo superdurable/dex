@@ -459,7 +459,23 @@ Synchronous handlers stay valid — returning a plain `StepDecision` / `Wait` /
   timer-backed re-check) over one unbounded poll. `executeMethodTimeoutMs` /
 `waitForMethodTimeoutMs` clock the full async handler duration.
 
+### Step attempt deadline
+
+`Context.deadline` is the absolute deadline supplied by the Dex Server for the
+current `waitFor`, `execute`, or Flow timeout handler attempt. It is a `Date`
+representing a UTC instant with millisecond precision, not a duration.
+After checking for `undefined`, use `context.deadline.getTime() - Date.now()`
+for the remaining milliseconds. A shorter remaining `RetryPolicy.totalDurationMs`
+limits this deadline; each retry receives its own effective deadline.
+RPC handlers and tasks without a supplied deadline return `undefined`.
+
 ### Step progress and Streams
+
+`AsyncContext.recordHeartbeat` always reports failures through its returned
+Promise and never throws synchronously. The Promise rejects with `Error` when
+the task is inactive, finished, cancelled, or its stream is closed; with
+`TypeError` when the Context cannot record heartbeats; and with
+`ValueMappingError` when the value cannot be encoded.
 
 Annotate a Promise-returning Step handler with `AsyncContext` when it needs to
 record progress. The heartbeat value argument is required. Passing `undefined`
