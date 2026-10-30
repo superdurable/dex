@@ -376,14 +376,23 @@ func groupShapeWarnings(t *testing.T, diagnostics []flowviz.Diagnostic) []string
 	return warnings
 }
 
-func TestVisualizeV2RejectsPython(t *testing.T) {
+func TestVisualizeV2ReportsMissingPythonAnnotations(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
-	_, err := flowviz.Analyze(
+	graph, err := flowviz.Analyze(
 		context.Background(),
 		filepath.Join(repositoryRoot, "examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py"),
 		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
 	)
-	require.EqualError(t, err, "schema version 2.0 supports Go source only")
+	require.NoError(t, err)
+	require.False(t, graph.Valid)
+	require.Equal(t, flowviz.SchemaVersionV2, graph.SchemaVersion)
+	hasExplanationDiagnostic := false
+	for _, diagnostic := range graph.Diagnostics {
+		if diagnostic.Code == "v2_step_explanation" {
+			hasExplanationDiagnostic = true
+		}
+	}
+	require.True(t, hasExplanationDiagnostic)
 }
 
 func TestVisualizeV2ReportsMalformedNamedDirectives(t *testing.T) {

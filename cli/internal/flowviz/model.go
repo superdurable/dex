@@ -47,14 +47,16 @@ type V2Definition struct {
 }
 
 type ConnectorTriggerBinding struct {
-	ConnectorID          string                   `json:"connectorId"`
-	TriggerName          string                   `json:"triggerName"`
-	ConnectionName       string                   `json:"connectionName"`
-	BindingName          string                   `json:"bindingName"`
-	ModulePath           string                   `json:"modulePath"`
-	ModuleVersion        string                   `json:"moduleVersion"`
-	ConfigurationEnabled bool                     `json:"configurationEnabled"`
-	ConfigurationUI      ConnectorConfigurationUI `json:"configurationUI"`
+	ConnectorID          string                    `json:"connectorId"`
+	TriggerName          string                    `json:"triggerName"`
+	ConnectionName       string                    `json:"connectionName"`
+	BindingName          string                    `json:"bindingName"`
+	ModulePath           string                    `json:"modulePath"`
+	ModuleVersion        string                    `json:"moduleVersion"`
+	ReleaseTag           string                    `json:"releaseTag,omitempty"`
+	Package              *connectorPackageIdentity `json:"package,omitempty"`
+	ConfigurationEnabled bool                      `json:"configurationEnabled"`
+	ConfigurationUI      ConnectorConfigurationUI  `json:"configurationUI"`
 }
 
 type ConnectorConfigurationUI struct {

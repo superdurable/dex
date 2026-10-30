@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dex Connector package manifest",
+  "description": "Static factory metadata for Python and TypeScript Flow source analysis.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "connectorId",
+    "releaseTag",
+    "package",
+    "factories"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "connectorId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,62}$"
+    },
+    "releaseTag": {
+      "type": "string",
+      "pattern": "^connectors/[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)*/v[0-9]+\\.[0-9]+\\.[0-9]+(?:-rc\\.[0-9]+)?$"
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ecosystem",
+        "name",
+        "version"
+      ],
+      "properties": {
+        "ecosystem": {
+          "enum": [
+            "go",
+            "pypi",
+            "npm"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+.a-zA-Z0-9]*)$"
+        }
+      }
+    },
+    "factories": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/factory"
+      }
+    }
+  },
+  "$defs": {
+    "factory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "fields"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "query",
+            "mutation",
+            "trigger"
+          ]
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "triggerName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "connectionName"
+          ],
+          "properties": {
+            "stepType": {
+              "type": "string",
+              "minLength": 1
+            },
+            "connectionName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "annotations": {
+              "type": "string",
+              "minLength": 1
+            },
+            "bindingName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "configurationUI": {
+              "type": "string",
+              "minLength": 1
+            },
+            "resultAttribute": {
+              "type": "string",
+              "minLength": 1
+            },
+            "resultStream": {
+              "type": "string",
+              "minLength": 1
+            },
+            "progressStream": {
+              "type": "string",
+              "minLength": 1
+            },
+            "textStream": {
+              "type": "string",
+              "minLength": 1
+            },
+            "executeFailure": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "branches": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "field"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "field": {
+                "type": "string",
+                "minLength": 1
+              },
+              "optional": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          }
+        },
+        "configurationUI": {
+          "$ref": "#/$defs/configurationUI"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "trigger"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "triggerName"
+            ],
+            "properties": {
+              "fields": {
+                "required": [
+                  "bindingName"
+                ]
+              }
+            }
+          },
+          "else": {
+            "required": [
+              "operationId",
+              "branches"
+            ],
+            "properties": {
+              "fields": {
+                "required": [
+                  "stepType",
+                  "annotations"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "configurationUI": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "units"
+      ],
+      "properties": {
+        "units": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "unitId",
+              "label",
+              "required",
+              "bindings"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "unitId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "bindings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "port",
+                    "jsonPointer"
+                  ],
+                  "properties": {
+                    "port": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "jsonPointer": {
+                      "type": "string",
+                      "pattern": "^(?:/(?:[^~/]|~[01])*)*$"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

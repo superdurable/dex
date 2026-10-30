@@ -200,9 +200,7 @@ func TestVisualizeValidatesLintOption(t *testing.T) {
 	pythonSource := filepath.Join(t.TempDir(), "flow.py")
 	require.NoError(t, os.WriteFile(pythonSource, []byte(minimalPythonFlow), 0o644))
 	err = app.Execute(context.Background(), []string{"visualize", pythonSource, "--json", "--lint", flowviz.LintApplication})
-	require.Error(t, err)
-	require.Equal(t, 1, ExitCode(err))
-	require.Contains(t, err.Error(), "--lint app supports Go source only")
+	require.NoError(t, err)
 }
 
 func stateLoadsFixture(t *testing.T, relativePath string) string {

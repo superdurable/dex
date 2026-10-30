@@ -19,8 +19,9 @@ FlowService API without requiring a browser.
 brew install superdurable/tap/dexcli
 ```
 
-The Homebrew formula installs all runtime dependencies. Node.js is not required
-at runtime.
+The Homebrew formula installs the dependencies for the local development stack.
+TypeScript source visualization additionally requires Node.js and the
+`typescript` package in the application project.
 
 Every `dexcli` release archive also contains `dex-server-zd`, the Rust zd
 engine, next to `dexcli`. Homebrew installs both binaries, so
@@ -301,7 +302,7 @@ against the system root CAs.
 
 ## Visualize Flow source
 
-Render a static possible-path graph from one Go or Python Flow source file in
+Render a static possible-path graph from one Go, Python, or TypeScript Flow source file in
 your local browser:
 
 ```bash
@@ -318,6 +319,7 @@ with **--out**:
 dexcli visualize ./order_flow.py --json
 dexcli visualize ./order_flow.go --json --out ./build/order-flow
 dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund
+dexcli visualize ./order_flow.ts --language typescript --schema-version 2.0 --json
 dexcli dev --flow-rendering-dir ./build
 ```
 
@@ -328,6 +330,16 @@ diamonds. Channels, Attributes, RPCs, Streams, folded SubFlows, and diagnostics
 can be shown or hidden independently. Streams are hidden by default. Definitions
 are loaded once during startup; restart **dexcli dev** after changing the
 directory.
+
+Python and TypeScript FDG 2.0 read `dex:group` and `dex:explanation` comments
+directly above local Step classes, using `#` and `//`, respectively. Python
+decorators may appear between the comments and class. Connector packages ship
+[`dex-connector.json`](internal/flowviz/dex-connector.schema.json) inside the Python
+import package or next to npm's `package.json`. The manifest maps exported
+factories to static config fields, branches, resources, and ConfigurationUI.
+Python resolves installed packages with `--python /path/to/venv/bin/python`;
+TypeScript walks `node_modules` from the source directory. Neither analyzer
+imports the application. See the [Flow visualization reference](../docs/content/references/flow-visualization.mdx).
 
 Flow Definition Graph 2.0 also records the registered Go start Step type and a
 recursive start-input schema. The analyzer follows JSON field names, ignored
@@ -398,7 +410,8 @@ keyed by Go type, so registering one Go type or generic Step more than once
 produces `duplicate_step_type`. Regenerate definitions after upgrading **dexcli** so
 Dex Web v2 keys match the Worker.
 
-Version 2 is Go-only and adds ordered Step groups plus a Dex Web v2 contract.
+Version 2 supports Go, Python, and TypeScript and adds ordered Step groups and explanations.
+Go also reads the Dex Web v2 Indexed Attribute, Summary, Display, Action, and Start contracts.
 The contract declares Indexed Attributes, the fixed `GetDexSummary` and
 `GetDexDisplay` RPCs, editable Display fields, and conditional Action RPCs.
 Every Version 2 Step must declare exactly one `dex:group` and one
@@ -495,8 +508,9 @@ directive satisfies instance reads, not enumeration. An unknown name produces
 `invocation_load_directive`. Options that cannot be evaluated, such as values
 returned by another package, keep the default mode silent for that read.
 
-`--lint app` (Go only) adds checks that applications opt into. The state-load and start-input
-errors above are reported in every mode.
+`--lint app` adds the opt-in Go application checks below. Python and TypeScript
+also accept the flag and enforce FDG 2.0 Step groups and explanations. The
+state-load and start-input errors above are reported in every mode.
 
 | Code | Check |
 |---|---|
@@ -507,7 +521,7 @@ errors above are reported in every mode.
 | `cross_flow_read_not_found_unhandled` | a Step calls `InvokeRPC*` with no `errors.As` for `FlowNotActiveOrNotFoundError` or `FlowNotFoundError` on its call path |
 
 ```text
-dexcli visualize SOURCE [--language auto|go|python] [--schema-version 1.0|2.0]
+dexcli visualize SOURCE [--language auto|go|python|typescript] [--schema-version 1.0|2.0]
                          [--lint app]
                          [--open=true|false]
                          [--json [--out PATH_PREFIX|-]]

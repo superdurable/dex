@@ -507,6 +507,11 @@ func (resolver *connectorReleaseResolver) releaseMetadata(
 	if resolved, ok := resolver.localReleases[identity.ConnectorID]; ok {
 		return resolved.release, nil
 	}
+	var err error
+	identity, err = connectorReleaseModuleIdentity(identity)
+	if err != nil {
+		return connectorRelease{}, err
+	}
 	if !connectorReleaseIDPattern.MatchString(identity.ConnectorID) ||
 		!officialConnectorModulePattern.MatchString(identity.ModulePath) ||
 		!exactConnectorReleaseVersionPattern.MatchString(identity.ModuleVersion) {
@@ -514,7 +519,11 @@ func (resolver *connectorReleaseResolver) releaseMetadata(
 	}
 	tag := strings.TrimPrefix(identity.ModulePath, "github.com/superdurable/dex-connectors-library/") + "/" + identity.ModuleVersion
 	if verified, ok := resolver.verifiedReleases.Load(tag); ok {
-		return verified.(connectorRelease), nil
+		release := verified.(connectorRelease)
+		if release.ConnectorID != identity.ConnectorID {
+			return connectorRelease{}, fmt.Errorf("Connector release identity does not match Flow Definition")
+		}
+		return release, nil
 	}
 	digestBytes, err := resolver.download(ctx, tag, connectorReleaseDigestName, 1024)
 	if err != nil {

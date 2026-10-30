@@ -100,11 +100,8 @@ func flowDefinitionFromGraph(file string, graph []byte) (flowDefinition, error) 
 	if header.SchemaVersion != "1.0" && header.SchemaVersion != "2.0" {
 		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s has unsupported schemaVersion %q", file, header.SchemaVersion)
 	}
-	if header.Source.Language != "go" && header.Source.Language != "python" {
+	if header.Source.Language != "go" && header.Source.Language != "python" && header.Source.Language != "typescript" {
 		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s has unsupported source language %q", file, header.Source.Language)
-	}
-	if header.SchemaVersion == "2.0" && header.Source.Language != "go" {
-		return flowDefinition{}, fmt.Errorf("Flow Definition Graph 2.0 %s must use Go source", file)
 	}
 	if header.Nodes == nil || header.Edges == nil || header.Diagnostics == nil {
 		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s must contain nodes, edges, and diagnostics arrays", file)

@@ -5,13 +5,13 @@ sidebar_label: Flow 可视化
 
 # Flow 源码可视化
 
-**dexcli visualize** 可以把一个 Go 或 Python Flow 源文件转换为静态 Flow Definition Graph。图中包含能够从源码确定的所有可能路径，而不是某一次 Flow 运行及其历史。
+**dexcli visualize** 可以把一个 Go、Python 或 TypeScript Flow 源文件转换为静态 Flow Definition Graph。图中包含能够从源码确定的所有可能路径，而不是某一次 Flow 运行及其历史。
 
 ```bash
 dexcli visualize ./order_flow.go
 ```
 
-默认 schema version 是 1.0。Go 源码可以选择 Version 2.0，以启用 Dex Web v2：
+默认 schema version 是 1.0。Go、Python 和 TypeScript 源码都可以选择 Version 2.0，以启用 Dex Web v2：
 
 ```bash
 dexcli visualize ./refund_flow.go --schema-version 2.0
@@ -99,13 +99,45 @@ Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查�
 
 对于 Python，analyzer 可以识别同步 Step generator 通过 yield 发出的 Stream output，也可以识别异步 Step handler 中同步入队的 Stream 写入。在 RPC 或 Flow timeout handler 中使用 Step Stream progress 属于无效代码，会产生阻断诊断。
 
-首版不支持单文件中的多个 Flow、反射、动态 class、Dex 通配符导入、基于 getattr 的目标、monkeypatch，以及逃逸出处理方法的 movement 集合。TypeScript、Java、Rust 和递归多文件分析也不在首版范围内。
+TypeScript 分析需要 Node.js，并在源文件所在项目中安装 **typescript** package。它读取编译器 AST，不会导入应用模块。支持本地 Step class、静态 Flow field、**StepList.startStep**、**otherSteps**、直接返回的 Execute decision，以及 manifest 声明的 Connector factory。不支持的 WaitFor 定义和隐藏的 Execute decision 会产生 blocking diagnostic。暂不支持 Java、Rust 和递归多文件分析。
 
-Version 2.0 第一版只支持 Go。它保留所有 Version 1 字段，并要求 Step group 与 Dex Web v2 contract 和 Flow 位于同一文件。同一行内的具名 directive 参数可以任意排列。多条 directive 行保留源码顺序，并成为 UI 顺序。未知、重复、缺失或非法参数都会产生 blocking diagnostic。Indexed Attribute、Summary、Display 与 Action 规则见 [Dex Web](/production/dex-web)。
+Version 1 不支持单文件中的多个 Flow、反射、动态 class、Dex 通配符导入、基于 getattr 的目标、monkeypatch，以及逃逸出处理方法的 movement 集合。
+
+Version 2.0 保留所有 Version 1 字段，并要求 Step group 和 explanation 与 Flow 位于同一文件。同一行内的具名 directive 参数可以任意排列。多条 directive 行保留源码顺序，并成为 UI 顺序。未知、重复、缺失或非法参数都会产生 blocking diagnostic。Go analyzer 还会读取 Indexed Attribute、Summary、Display、Action 和 start-input schema；规则见 [Dex Web](/production/dex-web)。
 
 Version 2.0 会从通过 **DefineStartStep** 注册的 Step 输入类型生成 optional start-input schema。它遵循 JSON field name、忽略字段、pointer 和 **omitempty**。支持嵌套与 imported struct、具名 string/integer constant、**time.Time**、普通数值宽度、slice、固定数组和 string-key map。Integer bound 与 integer enum value 在 schema 中保持为十进制字符串。递归类型、超过 32 层的嵌套、非 string map key、interface、function、channel、byte slice、有冲突的匿名字段、JSON string encoding tag 和自定义 JSON codec 会产生 warning 并省略 start schema，但不会使图的其余部分失效。
 
 Version 2.0 会通过 config 中 canonical Connector SDK marker 与生成的字段 metadata 识别 **openai.NewCreateResponseStep** 等 operation-specific Connector factory，而不维护 connector 或函数名列表。Dex Web 会用应用名称的缩写显示这些 Step。**llm** Connector 可以连接任意模型服务商，它的 Step 会显示为 AI 模型步骤。通用 SDK 的 **MustNewQueryStep** 和 **MustNewMutationStep** escape hatch 仍然受支持。Factory 调用必须直接位于 **DefineStep** 或 **DefineStartStep** 中，并使用内联 config literal。Step type、annotations、具名 **GoTo** branch target（或通用 **GoToBranch** target）、**StepRef** 名称、Result Attribute、Stream 和 **ProceedToOnExecuteFailure** target 都必须能够静态确定。Factory annotations 直接提供 Step group 和 explanation，因此生成的 Step 不需要本地 directive。每个 Connector Step 只把当前 operation result 传给 branch target；进入 Connector Step 前，应把业务上下文持久化到 application Attribute。定义图会为每个 Connector branch 生成一条带标签的 transition，为 Result Attribute 生成 write relation，并为 structured/text Stream 生成 best-effort progress relation。动态 config、branch slice、target、annotation 或 resource reference 会产生 blocking diagnostic。参见 [Connector factory 示例](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go)。
+
+### Python 与 TypeScript Step annotations
+
+每个本地 Step class 上方必须各有一条 group directive 和 explanation directive。Python 使用 **#** 注释行；注释与 class 之间可以有 decorator。TypeScript 使用紧贴 class 上方的 **//** 注释行。注释与声明之间不能有空行。语法与 Go 相同：
+
+```text
+# dex:group group-id:lookup group-label:"Lookup"
+# dex:explanation text:"Look up a catalog record."
+```
+
+```text
+// dex:group group-id:lookup group-label:"Lookup"
+// dex:explanation text:"Look up a catalog record."
+```
+
+Group ID 必须为 kebab-case。共用同一 ID 的 Step 必须使用相同的非空 label。Explanation 用一个非空句子说明 Step 的作用。FDG 2.0 将其写入 **metadata.explanation**。缺失、重复或格式错误的 directive 都会阻断分析，启用 **--lint app** 时也一样。
+
+### Connector package manifest
+
+Python 或 npm Connector package 需要包含 **dex-connector.json**。Python 将它放在 import package 目录内。Analyzer 使用所选解释器已安装的 package 以及 Flow 源码目录解析 import；通过 **--python /path/to/venv/bin/python** 选择虚拟环境。npm 将它与 **package.json** 放在同一目录。TypeScript 从 Flow 源码目录开始，逐级向文件系统根目录查找 **node_modules** 中被导入的 package。支持具名 import alias 和 package namespace alias。分析过程不会执行导入的 Connector。
+
+[Manifest JSON schema](https://github.com/superdurable/dex/blob/main/cli/internal/flowviz/dex-connector.schema.json) 定义完整约定。Manifest 包含 **connectorId**、精确的 **releaseTag**（例如 **connectors/catalog/v1.2.3**）、含 **ecosystem**、**name**、**version** 的 **package** 对象，以及非空 **factories** 数组。Package ecosystem 可以是 **pypi**、**npm** 或 **go**；Python 和 TypeScript analyzer 分别要求 **pypi** 与 **npm**。Package version 是安装的精确版本，不必与 Connector release tag 相同。
+
+每个导出的 factory 声明 **name**、**kind**（**query**、**mutation** 或 **trigger**），以及把语义名称映射到源码 config 字段名的 **fields**。Query 和 mutation factory 必须声明 **operationId**、**stepType** 与 **annotations** 字段映射，以及具名 **branches**。每个 branch 包含 **id**、config **field**，以及可选的 **optional**。未接线的 optional branch 会显示为失败 decision。Trigger factory 必须声明 **triggerName** 和 **bindingName** 字段映射。所有 factory 都必须声明 **connectionName** 映射。
+
+可选映射 **resultAttribute**、**resultStream**、**progressStream** 和 **textStream** 指向已声明的资源。**configurationUI** 映射静态覆盖值；manifest 也可以提供默认 **configurationUI**，其中包含 **units**、各自的 **bindings** 和 JSON pointer。定义图会保留这些信息供 Dex Web 使用。可选的 **executeFailure** 映射指向静态恢复 Step，并生成 Execute 失败恢复边。
+
+Python factory 调用使用 keyword argument、一个内联 dictionary，或一个使用 keyword argument 的内联 config constructor。TypeScript 调用使用一个内联 object。Factory **annotations** 是包含 **groupId**、**groupLabel** 和 **explanation** 的静态对象；生成的 Step 使用这些值，不需要本地 class 注释。Branch field 引用已注册的本地 Step、静态 Step reference，或直接使用 **go_to** / **goTo** 包装。Trigger binding 必须从 **get_connector_trigger_bindings** / **getConnectorTriggerBindings** 以一个静态 list 或 array 返回。
+
+Connector 节点在 **metadata.connector** 内输出 **connectorId**、**releaseTag** 和 **package**，同时包含 operation identity、connection name、**configurationUI** 和 **configurationEnabled**。非空的静态 connection name 会启用自动配置；动态名称会产生 warning 并关闭自动配置。Dex Web 解析精确 release tag 并验证 release metadata。现有 Go **modulePath** / **moduleVersion** metadata 继续受支持，Go 定义图输出保持不变。该 manifest 只描述分析 metadata，不会给 SDK 增加运行时 Connector API。
 
 ## Flow 与 Step 名称 {#flow-and-step-names}
 
@@ -163,7 +195,7 @@ Options 可以是字面量、package 变量、带字段赋值的局部变量，�
 
 ## 应用 lint {#application-lints}
 
-**--lint app** 会增加检查，用于发现能够编译并通过默认分析的应用错误。该模式需要显式开启，只支持 Go。上文的状态加载诊断在所有模式下都会报告。
+**--lint app** 会增加检查，用于发现能够编译并通过默认分析的应用错误。下列应用检查适用于 Go。Python 和 TypeScript 也接受该选项，并执行相同的 FDG 2.0 group 和 explanation 要求。上文的状态加载诊断在所有模式下都会报告。
 
 ```bash
 dexcli visualize ./order_flow.go --schema-version 2.0 --json --lint app

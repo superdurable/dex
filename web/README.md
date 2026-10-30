@@ -225,6 +225,13 @@ store directory, the file names inside it, and the launch command, with
 **Copy** buttons that copy the absolute values. The page follows the Dex Web theme.
 
 The page groups Connector Steps by Connector ID and static connection name,
+including Python and TypeScript FDG 2.0 definitions. Their Connector metadata
+uses `releaseTag` and `package: {ecosystem, name, version}`; exact release tags
+resolve the same verified release artifacts as existing Go `modulePath` and
+`moduleVersion` identities. Mixed-language definitions can share one connection
+when they name the same Connector release and connection.
+
+Dex Web
 resolves the exact official Connector release or release candidate declared by the graph, verifies
 release and Studio UI checksums, and loads UI bundles in opaque-origin sandbox
 iframes. Each connection view in `GET /api/v2/connector-connections` carries
