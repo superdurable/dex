@@ -42,7 +42,17 @@ from dex.context import AsyncContext, Context
 from dex.dexpb import dex_pb2 as pb
 from dex.runtime_errors import FlowDefinitionError
 from dex.rpc_invoke_options import RPCInvokeOptions
-from dex.step import Step, StepDecision, StepList, StepMovement, StepOutput, _StepDef
+from dex.step import (
+    Step,
+    StepDecision,
+    StepList,
+    StepMovement,
+    StepOptions,
+    StepOutput,
+    StepRef,
+    StepTarget,
+    _StepDef,
+)
 from dex.stream import Stream
 from dex.wait import Wait
 
@@ -167,21 +177,25 @@ class RPCResult(Generic[OutputT]):
         output: The value decoded into the Client caller's expected output type.
         next_steps: Step movements applied atomically with handler persistence writes.
         canceling_steps: Flow-wide Step types canceled before next Steps are queued.
+            Each entry is a class, registered instance, or StepRef; narrow it before
+            use. The Worker validates entries when it applies this result, and an
+            invalid entry raises FlowDefinitionError.
     """
 
     output: OutputT
     next_steps: tuple[StepMovement[Any], ...] = ()
-    canceling_steps: tuple[type[Step[Any]], ...] = ()
+    canceling_steps: tuple[StepTarget[Any], ...] = ()
 
-    def with_canceling_steps(self, *steps: type[Step[Any]]) -> RPCResult[OutputT]:
+    def with_canceling_steps(self, *steps: StepTarget[Any]) -> RPCResult[OutputT]:
         """Return a result canceling all current executions of selected Step types.
 
         Dex resolves the selection after RPC persistence commits and before ``next_steps``.
         Finished, already-canceled, and absent executions are no-ops. RPCs cannot select
-        siblings because an RPC has no Step execution lineage.
+        siblings because an RPC has no Step execution lineage. The Worker validates
+        each target when it applies the returned result.
 
         Args:
-            *steps: Step classes registered with the current Flow.
+            *steps: Registered instances, StepRef values, or unambiguous Step classes.
 
         Returns:
             A new RPCResult containing the combined cancellation selectors.
@@ -323,7 +337,7 @@ class _RegisteredFlow:
     flow: Flow[Any]
     has_timeout_handler: bool
     steps: MappingProxyType[str, _RegisteredStep]
-    steps_by_class: MappingProxyType[type[Step[Any]], _RegisteredStep]
+    steps_by_class: MappingProxyType[type[Step[Any]], tuple[_RegisteredStep, ...]]
     start_step: _RegisteredStep | None
     rpcs: MappingProxyType[str, _RegisteredRPC]
     persistence: MappingProxyType[str, _PersistenceDefinition]
@@ -336,14 +350,28 @@ class _RegisteredFlow:
                 f"Flow {self.name} Step is not registered: {name}"
             ) from error
 
-    def step_class(self, step_class: type[Step[Any]]) -> _RegisteredStep:
-        try:
-            return self.steps_by_class[step_class]
-        except KeyError as error:
+    def step_target(self, target: StepTarget[Any]) -> _RegisteredStep:
+        if isinstance(target, StepRef):
+            return self.step(target.step_type)
+        if isinstance(target, type):
+            candidates = self.steps_by_class.get(target, ())
+            if len(candidates) > 1:
+                raise FlowDefinitionError(
+                    f"Flow {self.name} Step class {target.__qualname__} is ambiguous; "
+                    "use a registered Step instance or StepRef"
+                )
+            if candidates:
+                return candidates[0]
             raise FlowDefinitionError(
-                f"Flow {self.name} Step class is not registered: "
-                f"{step_class.__qualname__}"
-            ) from error
+                f"Flow {self.name} Step class is not registered: {target.__qualname__}"
+            )
+        for registered in self.steps.values():
+            if registered.step is target:
+                return registered
+        raise FlowDefinitionError(
+            f"Flow {self.name} Step instance is not registered: "
+            f"{type(target).__qualname__} {target.get_step_type()}"
+        )
 
     def rpc(self, name: str) -> _RegisteredRPC:
         try:
@@ -499,7 +527,9 @@ class Registry:
         if not isinstance(definitions, StepList):
             raise TypeError("Flow steps must be a StepList")
         registered_steps: dict[str, _RegisteredStep] = {}
-        registered_steps_by_class: dict[type[Step[Any]], _RegisteredStep] = {}
+        registered_steps_by_class: dict[
+            type[Step[Any]], tuple[_RegisteredStep, ...]
+        ] = {}
         start_step: _RegisteredStep | None = None
         for definition in definitions:
             if not isinstance(definition, _StepDef):
@@ -513,8 +543,6 @@ class Registry:
             if step_name in registered_steps:
                 raise ValueError(f"duplicate Step {step_name}")
             step_class = type(step)
-            if step_class in registered_steps_by_class:
-                raise ValueError(f"duplicate Step class {step_class.__qualname__}")
             input_type = Registry._step_handler_input_type(
                 step,
                 "execute",
@@ -535,7 +563,10 @@ class Registry:
                 type(step).wait_for is Step.wait_for,
             )
             registered_steps[step_name] = registered_step
-            registered_steps_by_class[step_class] = registered_step
+            registered_steps_by_class[step_class] = (
+                *registered_steps_by_class.get(step_class, ()),
+                registered_step,
+            )
             if definition.is_start_step:
                 start_step = registered_step
 
@@ -573,7 +604,7 @@ class Registry:
                 ),
                 *state_loads,
             )
-        return _RegisteredFlow(
+        registered_flow = _RegisteredFlow(
             flow_name,
             flow,
             Registry._validate_timeout_handler(
@@ -585,6 +616,53 @@ class Registry:
             MappingProxyType(registered_rpcs),
             MappingProxyType(persistence),
         )
+        for registered_step in registered_steps.values():
+            Registry._validate_step_targets(
+                registered_flow,
+                registered_step,
+                registered_step.step.get_step_options(),
+                set(),
+            )
+        return registered_flow
+
+    @staticmethod
+    def _validate_step_targets(
+        flow: _RegisteredFlow,
+        source: _RegisteredStep,
+        options: StepOptions | None,
+        visited: set[int],
+    ) -> None:
+        if options is None or id(options) in visited:
+            return
+        visited.add(id(options))
+        if options._execute_failure_target is None:
+            return
+        target = flow.step_target(options._execute_failure_target)
+        if not Registry._is_input_type_compatible(source.input_type, target.input_type):
+            raise FlowDefinitionError(
+                f"Flow {flow.name} Step {source.name} execute failure target "
+                f"{target.name} input {target.input_type!r} does not match "
+                f"{source.input_type!r}"
+            )
+        # Nested failure options apply to the fallback Step, as in the Go SDK.
+        Registry._validate_step_targets(
+            flow, target, options._execute_failure_options, visited
+        )
+
+    @staticmethod
+    def _is_input_type_compatible(source_type: object, target_type: object) -> bool:
+        if any(
+            input_type is Any or input_type is object or isinstance(input_type, TypeVar)
+            for input_type in (source_type, target_type)
+        ):
+            return True
+        return Registry._none_as_none_type(source_type) == Registry._none_as_none_type(
+            target_type
+        )
+
+    @staticmethod
+    def _none_as_none_type(input_type: object) -> object:
+        return type(None) if input_type is None else input_type
 
     @staticmethod
     def _validate_timeout_handler(
@@ -853,7 +931,9 @@ class Registry:
                 f"Step {step.get_step_type()} {handler_name} context must be "
                 f"{expected_context.__name__}"
             )
-        input_type = hints.get(input_parameter.name)
+        input_type = step.get_input_type()
+        if input_type is None:
+            input_type = hints.get(input_parameter.name)
         if input_type is None:
             raise TypeError(
                 f"Step {step.get_step_type()} {handler_name} input must be annotated"

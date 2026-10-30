@@ -375,7 +375,7 @@ test("registry rejects duplicate definitions", () => {
   assert.throws(() => new Registry([orders, orders]), FlowDefinitionError);
 });
 
-test("registry rejects duplicate Step classes", () => {
+test("registry rejects duplicate Step types", () => {
   class DuplicateStep implements Step<number> {
     public constructor(private readonly type: string) {}
 
@@ -395,12 +395,12 @@ test("registry rejects duplicate Step classes", () => {
 
     public getSteps(): StepList<number> {
       return StepList.startStep(new DuplicateStep("first")).otherSteps(
-        new DuplicateStep("second"),
+        new DuplicateStep("first"),
       );
     }
   }
 
-  assert.throws(() => new Registry([new DuplicateStepFlow()]), /duplicate Step class/);
+  assert.throws(() => new Registry([new DuplicateStepFlow()]), /duplicate Step first/);
 });
 
 test("value mapping failures have a stable error type", () => {
@@ -650,7 +650,7 @@ test("Step Stream writes emit every message on the active invocation", async () 
     [],
   );
   assert.throws(() => thinking.write(rpc, "value"), /require a Step Context/);
-  assert.throws(() => void rpc.recordHeartbeat("value"), /require an async Step Context/);
+  await assert.rejects(rpc.recordHeartbeat("value"), TypeError);
 });
 
 test("buffered text Stream flushes on timer and before the final result", async () => {

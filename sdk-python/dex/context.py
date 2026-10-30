@@ -70,6 +70,28 @@ class Context(Protocol):
         ...
 
     @property
+    def flow_started_at(self) -> datetime:
+        """Return when the current Flow run started.
+
+        The server supplies the same value across Steps and handler retries in
+        this run. It is available in ``wait_for``, ``execute``, Flow timeout
+        handlers, and RPC handlers. This is the run start time, rather than the
+        start time of the current Step or attempt.
+
+        Returns:
+            A timezone-aware UTC datetime with one-second precision.
+
+        Examples:
+            Measure the current run's age inside a handler::
+
+                from datetime import datetime, timezone
+
+                elapsed = datetime.now(timezone.utc) - context.flow_started_at
+                elapsed_seconds = elapsed.total_seconds()
+        """
+        ...
+
+    @property
     def step_execution_id(self) -> str:
         """Return the current Step execution's protocol identifier.
 
@@ -105,6 +127,29 @@ class Context(Protocol):
 
         Returns:
             A timezone-aware UTC time with one-second precision.
+        """
+        ...
+
+    @property
+    def deadline(self) -> datetime | None:
+        """Return the current Step method attempt's absolute deadline.
+
+        This includes any shorter remaining RetryPolicy total duration. Use it
+        inside ``wait_for``, ``execute``, or a Flow timeout handler to budget
+        external work; each retry receives its own effective deadline.
+
+        Returns:
+            A timezone-aware UTC datetime with microsecond precision, or ``None``
+            for RPC handlers and tasks without a server-supplied deadline.
+
+        Examples:
+            Compute the remaining attempt budget in seconds inside a handler::
+
+                from datetime import datetime, timezone
+
+                deadline = context.deadline
+                if deadline is not None:
+                    remaining_seconds = (deadline - datetime.now(timezone.utc)).total_seconds()
         """
         ...
 

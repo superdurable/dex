@@ -154,6 +154,30 @@ heterogeneous Steps with `.otherSteps(...)`. Use
 Non-starting Steps may use unrelated input types. `Flow` defaults to `void` for
 Flows without a start input.
 
+Steps are registered by `getStepType()`. Multiple instances of one class may
+return different Step types in the same Flow; duplicate Step types fail
+registration. `goTo`, `StepMovement.of`, `ExecuteFailure.proceedTo`,
+`FlowTimeoutHandlerFailure.proceedTo`, and decision or RPC cancellation
+selections accept a registered instance, `new StepRef("StepType")`, or a class.
+A class must have exactly one registered instance; otherwise select an instance
+or use StepRef. Instances match by identity and must belong to the containing
+Flow, so a new instance of a registered class is rejected. Each instance retains
+its own `inputCodec`, so a generic class can handle different input types in the
+same Flow.
+
+Registry validates declared execute-failure targets during construction. It also
+rejects an execute-failure target whose built-in scalar input codec, such as
+`stringCodec` or `doubleCodec`, differs from the failing Step's. It skips this
+check when either Step omits `inputCodec` or uses any other codec. Timeout-handler
+failure targets are validated when Flow start options are mapped.
+Handler-created movements and cancellation selections, including StepRef
+targets, are validated when the Worker applies the returned result; unknown Step
+types and ambiguous classes raise `FlowDefinitionError` during registration or
+start, and `InvalidStepResultError` for handler results. Errors include the Flow
+and target details. StepRef contains only a Step type and cannot execute or
+appear in a StepList. Its input is checked by the destination codec at runtime.
+See the runnable [generic Step instances test](test/integ/step-instances-flow.ts).
+
 `Worker.start()` synchronizes every registered Indexed Attribute with Dex
 Server before opening task streams. Existing indexes
 return immediately; failure or the default 120-second deadline aborts startup.
@@ -322,7 +346,7 @@ return withCancelingSteps(
 type. `withCancelingSiblingSteps` selects only executions whose
 `Context.fromStepExecutionId` matches the current execution. Both helpers return
 a new decision; repeated calls form a union, and Flow-wide selection wins for
-the same Step class. Unregistered selectors produce an invalid Step result.
+the same Step type. Unregistered selectors produce an invalid Step result.
 
 Dex resolves one snapshot after the current execution succeeds. Completed,
 already-canceled, and absent targets are no-ops. Next Steps created by that
@@ -459,7 +483,23 @@ Synchronous handlers stay valid — returning a plain `StepDecision` / `Wait` /
   timer-backed re-check) over one unbounded poll. `executeMethodTimeoutMs` /
 `waitForMethodTimeoutMs` clock the full async handler duration.
 
+### Step attempt deadline
+
+`Context.deadline` is the absolute deadline supplied by the Dex Server for the
+current `waitFor`, `execute`, or Flow timeout handler attempt. It is a `Date`
+representing a UTC instant with millisecond precision, not a duration.
+After checking for `undefined`, use `context.deadline.getTime() - Date.now()`
+for the remaining milliseconds. A shorter remaining `RetryPolicy.totalDurationMs`
+limits this deadline; each retry receives its own effective deadline.
+RPC handlers and tasks without a supplied deadline return `undefined`.
+
 ### Step progress and Streams
+
+`AsyncContext.recordHeartbeat` always reports failures through its returned
+Promise and never throws synchronously. The Promise rejects with `Error` when
+the task is inactive, finished, cancelled, or its stream is closed; with
+`TypeError` when the Context cannot record heartbeats; and with
+`ValueMappingError` when the value cannot be encoded.
 
 Annotate a Promise-returning Step handler with `AsyncContext` when it needs to
 record progress. The heartbeat value argument is required. Passing `undefined`

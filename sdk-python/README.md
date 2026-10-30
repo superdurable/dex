@@ -378,6 +378,7 @@ registry = dex.Registry((flow,))
 Registry derives codecs from declared Python types and handler annotations.
 Built-in primitive types and dataclasses need no codec arguments. Register an
 explicit codec only for a custom encoding or a type Registry cannot derive.
+
 `PersistenceSchema.of(...)` accepts attributes, channels, and streams together and
 partitions them by definition type.
 
@@ -449,6 +450,56 @@ pip install dex-python-sdk==0.1.0
 
 See [samples](../examples/python) for use case examples.
 
+### JSON dataclasses
+
+Automatic JSON codecs support parameterized generic dataclasses such as
+`Result[Receipt]`, including nested generics, typed containers, `Optional[T]`, and
+`T | None`. Decoding restores nested dataclass instances. Missing keys use the
+field's `default` or `default_factory`; a missing required key raises `ValueError`
+with the dataclass and wire field name. Unknown keys are ignored.
+
+Field metadata controls the wire representation:
+
+- `field(metadata={"dex_json_name": "callId"})` uses `callId` instead of the
+  Python field name for encoding and decoding. Wire names must be non-empty and
+  unique within a dataclass.
+- `field(default=None, metadata={"dex_json_omit_default": True})` omits a field
+  only when it equals its declared default. This also supports `default_factory`;
+  the factory is called on each encode to obtain the comparison value, so use a
+  deterministic factory without side effects. Without this opt-in, default
+  values, empty containers, and `None` remain present in JSON.
+- `field(metadata={"dex_json_format": "rfc3339"})` formats a datetime field like
+  Go's `encoding/json`: UTC uses `Z` and trailing fractional zeroes are removed.
+  This requires a datetime or optional datetime field with an aware value and a
+  whole-minute timezone offset. Ordinary datetime fields keep their existing
+  `isoformat()` encoding. All datetime fields accept Go RFC3339 strings on
+  decode, including `Z`, numeric offsets, and fractional seconds. Python retains
+  microsecond precision; additional fractional digits are truncated.
+
+Metadata options can be combined on one field. Existing dataclasses retain their
+field names and encoded values unless metadata opts into a change.
+
+Unions select by JSON kind: null, boolean, number, string, array, or object.
+A union declared directly, such as a Step input of `Receipt | None`, needs
+alternatives with different kinds. `Receipt | None`, `int | str`, and
+`int | bool` are supported. `int | float`, `str | datetime`, two dataclasses,
+or two list types are ambiguous and raise `TypeError` when the codec is
+resolved. Use an explicit `JsonCodec` with a discriminator for these shapes.
+Union values always use JSON on the wire, including primitive alternatives.
+
+Unions inside dataclass fields and containers keep the decoding of earlier
+releases and never raise when the codec is resolved. Such a union decodes a
+value into a dataclass, Enum, or datetime alternative, or a container of those,
+when the value's JSON kind matches only that alternative. It returns any other
+value unchanged, without a type check. Fields typed by a type variable and
+`Mapping` or `Sequence` types follow the same rule: `Result[Receipt]` decodes a
+`Receipt`, but `Result[int]` returns the JSON value of its type-variable field
+unchanged. A `float` accepts a JSON integer and keeps it as an `int`.
+
+See `help(CodecRegistry)` for a complete generic dataclass example and
+[`tests/fixtures/json_codec`](tests/fixtures/json_codec) for a reproducible
+Go-to-Python wire fixture.
+
 ## Requirements
 
 - Python 3.11+
@@ -468,6 +519,37 @@ Applications implement two generic interfaces from [`dex`](dex/):
   With `AsyncWorker` and `Registry(..., allow_async_handlers=True)`, Step
   coroutines use `AsyncContext`; async RPCs keep `Context`.
 
+Steps are registered by `get_step_type()`, which defaults to the class name.
+Multiple instances of one class may return different Step types in the same Flow.
+A duplicate Step type fails registration. `go_to`, `StepMovement.of`,
+`StepOptions.on_execute_failure_proceed_to`,
+`FlowTimeoutHandlerOptions.on_failure_proceed_to`, and decision or RPC
+cancellation selections accept a registered instance, `StepRef("StepType")`, or
+a class. A class must have exactly one registered instance; otherwise select an
+instance or use `StepRef`. Instances match by identity and must belong to the
+containing Flow, so a new instance of a registered class is rejected.
+
+Declared execute-failure targets are validated when the Registry is constructed.
+The Registry also rejects an execute-failure target whose input type differs from
+the failing Step's input type. It skips this check when either type is `Any`,
+`object`, or an unresolved TypeVar. Timeout-handler failure targets are validated
+when Flow start options are mapped. Handler-created movements and cancellation
+selections, including StepRef targets, are validated when the Worker applies the
+returned decision; unknown Step types and ambiguous classes raise
+`FlowDefinitionError` with the Flow and target details. StepRef contains only a
+Step type and cannot execute or be registered in a StepList. Its input is checked
+by the destination codec at runtime.
+
+For a generic Step whose input annotation is a TypeVar, override
+`get_input_type()` to return a concrete type supported by `CodecRegistry`. The
+override takes precedence over both `execute` and `wait_for` input annotations;
+Context and return annotations are still required. The default returns `None`,
+which preserves annotation inference; return `type(None)` for a Step that accepts
+no input. The Registry resolves the type through its codec registrations, so
+custom codecs work too. See the runnable
+[generic Step instances test](tests/integ/step_instances_flow.py), which registers
+integer and string instances and routes to both by instance and StepRef.
+
 `StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the
 two handler calls. Timer and channel conditions determine how long a Step waits.
 
@@ -484,6 +566,26 @@ method timeout and one-minute heartbeat timeout; an explicit heartbeat timeout m
 meet the server minimum, which defaults to ten seconds. Asynchronous durability
 first allows at most three local attempts in seven seconds. The local phase ignores
 method timeouts and heartbeat frames before falling back to a regular activity.
+
+### Flow run start time
+
+`Context.flow_started_at` returns the current Flow run's server start time as a
+timezone-aware UTC `datetime` with one-second precision. It stays the same across
+Steps and retries in that run. It is available in `wait_for`, `execute`, Flow
+timeout handlers, and RPC handlers for both Worker and AsyncWorker. Compare it
+with `datetime.now(timezone.utc)` to measure the run's age. It matches
+`Client.describe_flow(flow_id).started_at` to the second.
+
+### Step attempt deadline
+
+`Context.deadline` is the absolute deadline supplied by the Dex Server for the
+current `wait_for`, `execute`, or Flow timeout handler attempt. It is a
+timezone-aware UTC `datetime` with microsecond precision, not a duration.
+Subtract `datetime.now(timezone.utc)` and call `total_seconds()` to budget
+remaining work after checking for `None`. A shorter remaining
+`RetryPolicy.total_duration` limits this deadline; each retry receives its own
+effective deadline. RPC handlers and tasks without a supplied deadline return
+`None`.
 
 ### Step progress and heartbeat recovery
 

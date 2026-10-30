@@ -77,7 +77,8 @@ class AsyncTimeoutHandlerFlow(Flow[None]):
         self,
         context: AsyncContext,
     ) -> StepDecision:
-        del context
+        assert context.deadline is not None
+        assert context.deadline.utcoffset() == timedelta(0)
         await asyncio.sleep(0)
         return force_complete("expired")
 

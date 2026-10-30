@@ -11,7 +11,7 @@ import type { Context } from "./context.js";
 import type { Flow } from "./flow.js";
 import type { AttributeLock, AttributeMap, AttributeMapLoad } from "./persistence.js";
 import type { Channel, ChannelMap, ChannelMapLoad } from "./wait.js";
-import type { StepClass, StepMovement } from "./step.js";
+import type { StepTarget, StepMovement } from "./step.js";
 import { requireName } from "./validation.js";
 
 /**
@@ -23,8 +23,14 @@ export interface RPCResult<Output> {
   readonly output: Output;
   /** Step movements applied atomically with handler persistence writes. */
   readonly nextSteps?: readonly StepMovement<any>[];
-  /** Registered Step types canceled before `nextSteps` are scheduled. */
-  readonly cancelingSteps?: readonly StepClass<any>[];
+  /**
+   * Registered Step types canceled before `nextSteps` are scheduled.
+   *
+   * Entries are classes, registered instances, or StepRef values; narrow them before use.
+   * The Worker validates them when it applies this result. An invalid target fails the
+   * RPC with InvalidStepResultError.
+   */
+  readonly cancelingSteps?: readonly StepTarget<any>[];
 }
 
 /**
