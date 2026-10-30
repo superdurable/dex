@@ -683,6 +683,9 @@ class TypeScriptAnalyzer {
     this.foreignFieldResults = new Map();
     this.computedStores = [];
     this.unprovenComputedStores = [];
+    this.dynamicKeyStores = [];
+    this.namedWrites = [];
+    this.reflectiveWrites = [];
     this.receiverUses = [];
     this.dynamicClasses = new Set();
     this.hasDynamicFields = false;
@@ -700,13 +703,13 @@ class TypeScriptAnalyzer {
       else if (node.kind === this.ts.SyntaxKind.ThisKeyword) this.receiverUses.push(node);
       if ((this.ts.isCallExpression(node) || this.ts.isNewExpression(node)) && ["eval","Function"].includes(this.unwrap(node.expression)?.getText(this.tree))) this.error("dynamic_typescript",`${this.unwrap(node.expression).getText(this.tree)} is not supported in Flow source`,node);
     });
-    for (const target of this.computedStores) this.recordComputedStore(target);
+    for (const store of this.computedStores) this.recordComputedStore(store);
     for (const node of this.receiverUses) {
       const owner = this.selfReferenceClass(node);
       if (owner && !this.isModeledReceiverUse(node)) this.dynamicClasses.add(owner);
     }
-    // Runs after every store and receiver use is indexed, because field proofs read them.
-    if (this.unprovenComputedStores.some(target => !this.freshValueKind(target.expression,new Set()))) this.hasDynamicFields = true;
+    // Runs after every store and receiver use is indexed, because receiver proofs read them.
+    if (this.unprovenComputedStores.length && !this.hasTypedCollectionReceivers()) this.hasDynamicFields = true;
     for (const alias of this.imports.keys()) {
       for (const bindings of this.scopeBindings.values()) for (const binding of bindings.get(alias) || []) {
         if (!this.isDexImportBinding(binding.declaration)) this.error("dex_alias_rebinding",`Dex import alias ${alias} must not be rebound`,binding.declaration);
@@ -755,8 +758,9 @@ class TypeScriptAnalyzer {
     if (!target) return;
     const dexRoot = this.ts.isIdentifier(target) ? undefined : this.dexRootName(target);
     if (dexRoot) this.error("dex_alias_rebinding",`Dex import ${dexRoot} must not be modified`,writeNode);
-    if (this.ts.isIdentifier(target)) this.identifierWrites.push({name:target.text,node:writeNode});
+    if (this.ts.isIdentifier(target)) this.identifierWrites.push({name:target.text,node:writeNode,target});
     else if (this.ts.isPropertyAccessExpression(target)) {
+      this.namedWrites.push({target,name:target.name.text});
       const owner = this.selfReferenceClass(this.unwrap(target.expression));
       const name = target.name.text;
       if (!owner) { this.addForeignStore(name,target.expression); return; }
@@ -764,7 +768,7 @@ class TypeScriptAnalyzer {
       const stores = this.thisStores.get(owner);
       if (!stores.has(name)) stores.set(name,[]);
       stores.get(name).push(target);
-    } else if (this.ts.isElementAccessExpression(target)) this.computedStores.push(target);
+    } else if (this.ts.isElementAccessExpression(target)) this.computedStores.push({target,writeNode});
     else if (this.ts.isArrayLiteralExpression(target)) {
       for (const element of target.elements) this.recordWriteTarget(this.ts.isSpreadElement(element) ? element.expression : element,writeNode);
     } else if (this.ts.isObjectLiteralExpression(target)) {
@@ -776,69 +780,231 @@ class TypeScriptAnalyzer {
     } else if (this.ts.isBinaryExpression(target) && target.operatorToken.kind === this.ts.SyntaxKind.EqualsToken) this.recordWriteTarget(target.left,writeNode);
   }
 
-  recordComputedStore(target) {
+  recordComputedStore({target,writeNode}) {
     // A computed key can name any field, so the receiver or the key must be resolved.
     const receiver = this.localValue(target.expression);
+    const key = this.localValue(target.argumentExpression);
+    const isLiteralKey = !!key && (this.ts.isStringLiteral(key) || this.ts.isNoSubstitutionTemplateLiteral(key) || this.ts.isNumericLiteral(key));
+    if (!isLiteralKey) this.dynamicKeyStores.push({target,writeNode});
     if (receiver && (this.ts.isObjectLiteralExpression(receiver) || this.ts.isArrayLiteralExpression(receiver))) return;
     if (receiver?.kind === this.ts.SyntaxKind.ThisKeyword) { this.markDynamicFields(receiver); return; }
-    const key = this.localValue(target.argumentExpression);
-    if (key && (this.ts.isStringLiteral(key) || this.ts.isNoSubstitutionTemplateLiteral(key) || this.ts.isNumericLiteral(key))) this.addForeignStore(key.text,target.expression);
-    else this.unprovenComputedStores.push(target);
+    if (isLiteralKey) {
+      this.namedWrites.push({target,name:key.text});
+      this.addForeignStore(key.text,target.expression);
+    } else this.unprovenComputedStores.push(target);
   }
 
-  freshValueKind(expression,visiting) {
-    // Returns "primitive", "array", or "object" when expression is provably a new value no Flow or Step object aliases, otherwise undefined.
-    const node = this.unwrap(expression);
-    if (!node || visiting.has(node)) return undefined;
-    visiting.add(node);
+  hasTypedCollectionReceivers() {
+    // Static types prove a receiver is a collection only while nothing in the file can make them wrong.
+    const checker = this.typeChecker();
+    if (!checker) return false;
     try {
-      return this.doFreshValueKind(node,visiting);
-    } finally {
-      visiting.delete(node);
+      if (this.hasUnsoundTypeConversion(checker) || !this.dynamicKeyStores.every(store => this.isStepFreeStore(store,checker))) return false;
+      const classTypes = [];
+      this.walk(this.tree,node => {
+        const symbol = this.ts.isClassLike(node) ? checker.getTypeAtLocation(node).getSymbol() : undefined;
+        if (symbol) classTypes.push(checker.getDeclaredTypeOfSymbol(symbol));
+      });
+      return this.unprovenComputedStores.every(target => this.isTypedCollectionReceiver(target.expression,checker,classTypes));
+    } catch {
+      // A failed checker query proves nothing, so the conservative rule applies.
+      return false;
     }
   }
 
-  doFreshValueKind(node,visiting) {
-    if (this.ts.isObjectLiteralExpression(node)) return "object";
-    if (this.ts.isArrayLiteralExpression(node)) return "array";
-    if (this.ts.isStringLiteral(node) || this.ts.isNoSubstitutionTemplateLiteral(node) || this.ts.isTemplateExpression(node) || this.ts.isNumericLiteral(node)) return "primitive";
-    if (this.ts.isIdentifier(node)) {
-      const scope = this.bindingScope(node);
-      const declaration = scope && this.staticBinding(scope,node.text);
-      if (declaration && this.ts.isParameter(declaration)) return this.freshParameterKind(declaration,visiting);
-      const value = this.nameValue(node,{});
-      return value ? this.freshValueKind(value.node,visiting) : undefined;
+  typeChecker() {
+    // Returns the source project's type checker over this tree, or undefined when it cannot run.
+    if (this.checker === undefined) {
+      this.checker = null;
+      try {
+        const options = {...this.compilerOptions(),noEmit:true};
+        const host = this.ts.createCompilerHost(options,true);
+        const readSourceFile = host.getSourceFile.bind(host);
+        host.getSourceFile = (fileName,options,...rest) => {
+          if (path.resolve(fileName) !== path.resolve(this.path)) return readSourceFile(fileName,options,...rest);
+          // Module resolution reads the format that the host would have set on a new tree.
+          if (typeof options === "object") this.tree.impliedNodeFormat = options.impliedNodeFormat;
+          return this.tree;
+        };
+        const program = this.ts.createProgram({rootNames:[this.path],options,host});
+        const checker = program.getTypeChecker();
+        if (program.getSourceFile(this.path) === this.tree && typeof checker.isTypeAssignableTo === "function") {
+          this.program = program;
+          this.checker = checker;
+        }
+      } catch {
+        // A project whose checker cannot be built keeps the conservative rule.
+      }
     }
-    if (this.ts.isPropertyAccessExpression(node)) return this.freshFieldKind(node,visiting);
-    if (this.ts.isNewExpression(node)) {
-      const callee = this.unwrap(node.expression);
-      if (!this.isGlobalName(callee,["Array","Map","Set","Object"])) return undefined;
-      return callee.text === "Array" ? "array" : "object";
+    return this.checker || undefined;
+  }
+
+  compilerOptions() {
+    const configPath = this.ts.findConfigFile(path.dirname(this.path),this.ts.sys.fileExists);
+    if (!configPath) return {};
+    const config = this.ts.readConfigFile(configPath,this.ts.sys.readFile);
+    if (config.error) throw new Error(`cannot read TypeScript configuration ${configPath}`);
+    return this.ts.parseJsonConfigFileContent(config.config,this.ts.sys,path.dirname(configPath)).options;
+  }
+
+  hasUnsoundTypeConversion(checker) {
+    // Casts, any values, wider aliases, untyped or reflective writes, and changed standard objects can make a static type wrong.
+    if (this.reflectiveWrites.length || this.identifierWrites.some(write => !this.bindingScope(write.target))) return true;
+    if (this.namedWrites.some(write => this.isUntypedNamedWrite(write,checker))) return true;
+    let isUnsound = false;
+    this.walk(this.tree,node => { isUnsound = isUnsound || this.isUnsoundTypeNode(node,checker); });
+    return isUnsound;
+  }
+
+  isUntypedNamedWrite({target,name},checker) {
+    // Writes through any, unknown, or object skip declared types; writes on standard objects can replace methods.
+    let receiver = target.expression;
+    while (this.ts.isParenthesizedExpression(receiver) || this.ts.isNonNullExpression(receiver)) receiver = receiver.expression;
+    if (receiver.kind === this.ts.SyntaxKind.ThisKeyword && this.selfReferenceClass(receiver)) return false;
+    const receiverType = checker.getTypeAtLocation(receiver);
+    if (this.isUntypedView(receiverType,checker) || this.isDefaultLibrarySymbol(checker.getSymbolAtLocation(receiver))) return true;
+    const property = checker.getPropertyOfType(checker.getApparentType(receiverType),name);
+    return this.isDefaultLibrarySymbol(property) && !!(property.flags & this.ts.SymbolFlags.Method);
+  }
+
+  isUntypedView(type,checker) {
+    const flags = this.ts.TypeFlags;
+    if (type.flags & (flags.Any | flags.Unknown | flags.NonPrimitive | flags.TypeParameter)) return true;
+    if (type.isUnionOrIntersection()) return type.types.some(member => this.isUntypedView(member,checker));
+    return !!(type.flags & flags.Object) && !checker.getPropertiesOfType(type).length && !checker.getIndexInfosOfType(type).length && !type.getCallSignatures().length && !type.getConstructSignatures().length;
+  }
+
+  isUnsoundTypeNode(node,checker) {
+    // Prototype and global object access can replace standard methods; any values and assertions can retype a value.
+    const key = this.ts.isElementAccessExpression(node) ? this.localValue(node.argumentExpression) : undefined;
+    const name = this.ts.isPropertyAccessExpression(node) ? node.name.text : key && this.ts.isStringLiteral(key) ? key.text : undefined;
+    if (name === "prototype" || name === "__proto__") return true;
+    if (this.ts.isIdentifier(node) && ["globalThis","window","self","global"].includes(node.text) && this.isValueReference(node) && !this.bindingScope(node)) return true;
+    if ((this.ts.isAsExpression(node) || this.ts.isTypeAssertionExpression(node)) && this.isUnsoundAssertion(node,checker)) return true;
+    if (!this.ts.isExpression(node)) return false;
+    const contextualType = checker.getContextualType(node);
+    if (!contextualType) return false;
+    const type = checker.getTypeAtLocation(node);
+    if (type.flags & this.ts.TypeFlags.Any) return !(contextualType.flags & (this.ts.TypeFlags.Any | this.ts.TypeFlags.Unknown)) && !this.isPrimitiveType(contextualType);
+    return !this.ts.isObjectLiteralExpression(node) && !this.ts.isArrayLiteralExpression(node) && this.isWidenedAlias(type,contextualType,checker);
+  }
+
+  isValueReference(identifier) {
+    const parent = identifier.parent;
+    return !((this.ts.isPropertyAccessExpression(parent) || this.ts.isPropertyAssignment(parent) || this.ts.isPropertyDeclaration(parent) || this.ts.isMethodDeclaration(parent)) && parent.name === identifier);
+  }
+
+  isUnsoundAssertion(assertion,checker) {
+    // An assertion can claim an object type for a value that is not one, or widen a shared collection.
+    const operand = this.unwrapParentheses(assertion.expression);
+    if (this.ts.isObjectLiteralExpression(operand) || this.ts.isArrayLiteralExpression(operand)) return false;
+    const assertedType = checker.getTypeAtLocation(assertion);
+    if (assertedType.flags & (this.ts.TypeFlags.Any | this.ts.TypeFlags.Unknown) || this.isPrimitiveType(assertedType)) return false;
+    const operandType = checker.getTypeAtLocation(assertion.expression);
+    return !!(operandType.flags & this.ts.TypeFlags.Any) || !checker.isTypeAssignableTo(operandType,assertedType) || this.isWidenedAlias(operandType,assertedType,checker);
+  }
+
+  isWidenedAlias(sourceType,targetType,checker) {
+    // A wider view of a shared collection can store an object where the narrower view holds only Step-free values.
+    const flags = this.ts.TypeFlags;
+    if (sourceType === targetType || targetType.flags & (flags.Any | flags.Unknown)) return false;
+    if (targetType.isUnion()) return targetType.types.some(member => this.isWidenedAlias(sourceType,member,checker));
+    if (sourceType.isUnion()) return sourceType.types.some(member => this.isWidenedAlias(member,targetType,checker));
+    if (!(sourceType.flags & flags.Object)) return false;
+    const targetIndexes = checker.getIndexInfosOfType(targetType);
+    const slots = [
+      ...checker.getIndexInfosOfType(sourceType).map(info => [info.type,this.indexType(targetIndexes,info.keyType.flags & flags.NumberLike ? "0" : "")]),
+      ...checker.getPropertiesOfType(sourceType).filter(property => !(property.flags & this.ts.SymbolFlags.Method)).map(property => [checker.getTypeOfSymbol(property),checker.getTypeOfPropertyOfType(targetType,property.name) || this.indexType(targetIndexes,property.name)]),
+    ];
+    return slots.some(([sourceSlot,targetSlot]) => targetSlot && sourceSlot !== targetSlot && this.isCollectionBearing(sourceSlot,checker,0) && !this.isStepFreeValueType(targetSlot,checker,0));
+  }
+
+  indexType(indexInfos,name) {
+    const isNumeric = name !== "" && String(Number(name)) === name;
+    const info = indexInfos.find(candidate => isNumeric && candidate.keyType.flags & this.ts.TypeFlags.NumberLike) || indexInfos.find(candidate => candidate.keyType.flags & this.ts.TypeFlags.StringLike);
+    return info?.type;
+  }
+
+  isCollectionBearing(type,checker,depth) {
+    // Returns true when a value of type can contain an array, tuple, Map, Set, or index-signature record.
+    if (depth > 6) return false;
+    if (type.isUnionOrIntersection()) return type.types.some(member => this.isCollectionBearing(member,checker,depth+1));
+    if (!(type.flags & this.ts.TypeFlags.Object) || type.getCallSignatures().length || type.getConstructSignatures().length) return false;
+    if (checker.isArrayType(type) || checker.isTupleType(type) || this.isStandardCollection(type) || checker.getIndexInfosOfType(type).length) return true;
+    return checker.getPropertiesOfType(type).some(property => !(property.flags & this.ts.SymbolFlags.Method) && this.isCollectionBearing(checker.getTypeOfSymbol(property),checker,depth+1));
+  }
+
+  isStepFreeStore({target,writeNode},checker) {
+    // A dynamic key can replace a collection method, so its stored value must hold no object or function.
+    if (this.ts.isDeleteExpression(writeNode) || this.ts.isPrefixUnaryExpression(writeNode) || this.ts.isPostfixUnaryExpression(writeNode)) return true;
+    if (!this.ts.isBinaryExpression(writeNode) || this.unwrap(writeNode.left) !== target) return false;
+    const kind = writeNode.operatorToken.kind;
+    const isValueStore = [this.ts.SyntaxKind.EqualsToken,this.ts.SyntaxKind.QuestionQuestionEqualsToken,this.ts.SyntaxKind.BarBarEqualsToken,this.ts.SyntaxKind.AmpersandAmpersandEqualsToken].includes(kind);
+    return !isValueStore || this.isStepFreeValueType(checker.getTypeAtLocation(writeNode.right),checker,0);
+  }
+
+  isTypedCollectionReceiver(receiver,checker,classTypes) {
+    // The static type must be a Step-free collection, and every caller or writer of its root must be visible.
+    const type = checker.getTypeAtLocation(receiver);
+    if (!this.isStepFreeCollectionType(type,checker,0) || classTypes.some(classType => checker.isTypeAssignableTo(classType,type))) return false;
+    let root = receiver;
+    while (this.ts.isParenthesizedExpression(root) || this.ts.isNonNullExpression(root) || this.ts.isPropertyAccessExpression(root) || this.ts.isElementAccessExpression(root)) root = root.expression;
+    if (root.kind === this.ts.SyntaxKind.ThisKeyword) {
+      const owner = this.selfReferenceClass(root);
+      return !!owner && !this.dynamicClasses.has(owner) && !this.hasSubclass(owner);
     }
-    if (!this.ts.isCallExpression(node)) return undefined;
-    const callee = this.unwrap(node.expression);
-    if (this.isGlobalName(callee,["String","Number"])) return "primitive";
-    if (!callee || !this.ts.isPropertyAccessExpression(callee)) return undefined;
-    const method = callee.name.text;
-    // A store under the method's name can replace the standard method.
-    if (this.foreignStores.has(method)) return undefined;
-    const base = this.unwrap(callee.expression);
-    if (this.isGlobalName(base,["Array"]) && ["from","of"].includes(method)) return "array";
-    if (this.isGlobalName(base,["Object"]) && ["keys","values","entries"].includes(method)) return "array";
-    const baseKind = this.freshValueKind(base,visiting);
-    if (baseKind === "primitive" && method === "split") return "array";
-    if (baseKind === "primitive" && ["trim","toLowerCase","toUpperCase"].includes(method)) return "primitive";
+    if (!this.ts.isIdentifier(root)) return true;
+    const parameter = this.parameterDeclaration(checker.getSymbolAtLocation(root));
+    return !parameter || this.isDirectlyCalledParameter(parameter);
+  }
+
+  isStepFreeCollectionType(type,checker,depth) {
+    // Returns true for arrays, tuples, standard Maps and Sets, and index-only records whose contents are Step-free values.
+    const flags = this.ts.TypeFlags;
+    if (depth > 8) return false;
+    if (type.flags & (flags.Null | flags.Undefined)) return true;
+    if (type.isUnion()) return type.types.every(member => this.isStepFreeCollectionType(member,checker,depth+1));
+    if (!(type.flags & flags.Object)) return false;
+    if (checker.isArrayType(type) || checker.isTupleType(type) || this.isStandardCollection(type)) return checker.getTypeArguments(type).every(argument => this.isStepFreeValueType(argument,checker,depth+1));
+    const indexInfos = checker.getIndexInfosOfType(type);
+    if (!indexInfos.length || checker.getPropertiesOfType(type).length || type.getCallSignatures().length || type.getConstructSignatures().length) return false;
+    return indexInfos.every(info => this.isStepFreeValueType(info.type,checker,depth+1));
+  }
+
+  isStepFreeValueType(type,checker,depth) {
+    // Returns true when no value of type can be or hold a Flow, Step, function, or other object.
+    if (type.isUnion()) return type.types.every(member => this.isStepFreeValueType(member,checker,depth+1));
+    return this.isPrimitiveType(type) || this.isStepFreeCollectionType(type,checker,depth);
+  }
+
+  isPrimitiveType(type) {
+    const flags = this.ts.TypeFlags;
+    if (type.isUnion()) return type.types.every(member => this.isPrimitiveType(member));
+    return !!(type.flags & (flags.StringLike | flags.NumberLike | flags.BigIntLike | flags.BooleanLike | flags.EnumLike | flags.ESSymbolLike | flags.Null | flags.Undefined | flags.Void | flags.Never));
+  }
+
+  isStandardCollection(type) {
+    const symbol = type.getSymbol();
+    return !!(type.objectFlags & this.ts.ObjectFlags.Reference) && ["Map","Set","ReadonlyMap","ReadonlySet"].includes(symbol?.name) && this.isDefaultLibrarySymbol(symbol);
+  }
+
+  isDefaultLibrarySymbol(symbol) {
+    return !!symbol?.declarations?.some(declaration => this.program.isSourceFileDefaultLibrary(declaration.getSourceFile()));
+  }
+
+  parameterDeclaration(symbol) {
+    for (let node = symbol?.valueDeclaration; node; node = node.parent) {
+      if (this.ts.isParameter(node)) return node;
+      if (!this.ts.isBindingElement(node) && !this.ts.isObjectBindingPattern(node) && !this.ts.isArrayBindingPattern(node)) return undefined;
+    }
     return undefined;
   }
 
-  freshParameterKind(parameter,visiting) {
-    // A parameter is fresh only when every call of its unexported local function passes a fresh argument.
+  isDirectlyCalledParameter(parameter) {
+    // Callers outside the file or through an alias can pass any value, so calls must be visible and direct.
     const fn = parameter.parent;
-    if (!this.ts.isFunctionDeclaration(fn) || !fn.name || !this.ts.isIdentifier(parameter.name) || parameter.dotDotDotToken) return undefined;
-    if (fn.modifiers?.some(modifier => [this.ts.SyntaxKind.ExportKeyword,this.ts.SyntaxKind.DefaultKeyword].includes(modifier.kind))) return undefined;
-    const index = fn.parameters.filter(candidate => !this.ts.isIdentifier(candidate.name) || candidate.name.text !== "this").indexOf(parameter);
-    if (index < 0) return undefined;
-    const kinds = [];
+    if (!this.ts.isFunctionDeclaration(fn) || !fn.name || !this.ts.isIdentifier(parameter.name) || parameter.dotDotDotToken) return false;
+    if (fn.modifiers?.some(modifier => [this.ts.SyntaxKind.ExportKeyword,this.ts.SyntaxKind.DefaultKeyword].includes(modifier.kind))) return false;
     let isEveryReferenceCalled = true;
     this.walk(this.tree,node => {
       if (!isEveryReferenceCalled || !this.ts.isIdentifier(node) || node.text !== fn.name.text || node === fn.name) return;
@@ -846,22 +1012,9 @@ class TypeScriptAnalyzer {
       const scope = this.bindingScope(node);
       if (scope && this.scopeBindings.get(scope).get(node.text).every(binding => binding.declaration !== fn)) return;
       const call = node.parent;
-      if (!scope || this.staticBinding(scope,node.text) !== fn || !this.ts.isCallExpression(call) || call.expression !== node || call.arguments.slice(0,index+1).some(argument => this.ts.isSpreadElement(argument))) { isEveryReferenceCalled = false; return; }
-      const argument = call.arguments[index];
-      kinds.push(argument ? this.freshValueKind(argument,visiting) : parameter.initializer ? this.freshValueKind(parameter.initializer,visiting) : "primitive");
+      if (!scope || this.staticBinding(scope,node.text) !== fn || !this.ts.isCallExpression(call) || call.expression !== node || call.arguments.some(argument => this.ts.isSpreadElement(argument))) isEveryReferenceCalled = false;
     });
-    if (!isEveryReferenceCalled || kinds.some(kind => !kind)) return undefined;
-    return kinds.length && kinds.every(kind => kind === kinds[0]) ? kinds[0] : "object";
-  }
-
-  freshFieldKind(access,visiting) {
-    // An owned field is fresh when its only store is a fresh initializer and nothing else can write it.
-    const owner = this.selfReferenceClass(this.unwrap(access.expression));
-    const name = access.name.text;
-    if (!owner || this.dynamicClasses.has(owner) || this.foreignStores.has(name) || this.hasSubclass(owner)) return undefined;
-    const stores = this.fieldStores(owner,name);
-    if (stores.length !== 1 || !this.ts.isPropertyDeclaration(stores[0])) return undefined;
-    return this.freshValueKind(stores[0].initializer,visiting);
+    return isEveryReferenceCalled;
   }
 
   hasSubclass(declaration) {
@@ -872,11 +1025,6 @@ class TypeScriptAnalyzer {
       if (base && (!this.ts.isIdentifier(base) || base.text === declaration.name?.text)) isExtended = true;
     });
     return isExtended;
-  }
-
-  isGlobalName(expression,names) {
-    if (!expression || !this.ts.isIdentifier(expression) || !names.includes(expression.text) || this.bindingScope(expression)) return false;
-    return !this.foreignStores.has(expression.text) && !this.identifierWrites.some(write => write.name === expression.text);
   }
 
   localValue(expression) {
@@ -919,7 +1067,8 @@ class TypeScriptAnalyzer {
     const target = this.unwrap(call.arguments[0]);
     const dexRoot = this.dexRootName(target);
     if (dexRoot) this.error("dex_alias_rebinding",`Dex import ${dexRoot} must not be modified`,call);
-    if (target && (this.ts.isObjectLiteralExpression(target) || this.ts.isArrayLiteralExpression(target) || this.ts.isNewExpression(target))) return;
+    if (target && (this.ts.isObjectLiteralExpression(target) || this.ts.isArrayLiteralExpression(target))) return;
+    this.reflectiveWrites.push(call);
     if (target?.kind === this.ts.SyntaxKind.ThisKeyword) { this.markDynamicFields(target); return; }
     const key = this.unwrap(call.arguments[1]);
     if (["Object.defineProperty","Reflect.set","Reflect.defineProperty"].includes(callee) && key && (this.ts.isStringLiteral(key) || this.ts.isNoSubstitutionTemplateLiteral(key))) this.addForeignStore(key.text,target);
@@ -1155,6 +1304,11 @@ class TypeScriptAnalyzer {
 
   unwrap(expression) {
     while (expression && (this.ts.isParenthesizedExpression(expression) || this.ts.isAsExpression(expression) || this.ts.isSatisfiesExpression(expression) || this.ts.isNonNullExpression(expression) || this.ts.isAwaitExpression(expression) || this.ts.isTypeAssertionExpression(expression))) expression = expression.expression;
+    return expression;
+  }
+
+  unwrapParentheses(expression) {
+    while (expression && this.ts.isParenthesizedExpression(expression)) expression = expression.expression;
     return expression;
   }
 
