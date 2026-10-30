@@ -69,6 +69,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             return self.graph
         flow_name, flow_class = next(iter(self.flow_classes.items()))
         self.flow_class = flow_class
+        self.validate_class_customization(flow_class)
         self.graph["flow"] = {"name": self.custom_type_name(flow_class, "get_flow_type", flow_name), "span": self.span(flow_class)}
         self.index_flow_fields(flow_class)
         self.index_connector_fields(flow_class)
@@ -112,12 +113,70 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                     if isinstance(binding, ast.alias) and isinstance(statement, ast.ImportFrom) and statement.module == "dex" and binding.name == imported:
                         continue
                     self.error("dex_alias_rebinding", f"Dex import alias {name} must not be rebound", self.span(binding))
+        for alias in self.module_aliases:
+            for bindings in self.scope_bindings.values():
+                for binding in bindings.get(alias, []):
+                    if not self.is_dex_module_import(binding, alias):
+                        self.error("dex_alias_rebinding", f"Dex module alias {alias} must not be rebound", self.span(binding))
         for node in ast.walk(self.tree):
-            if isinstance(node, ast.Call) and self.symbol(node.func) in {"getattr", "setattr", "__import__", "import_module"}:
+            if isinstance(node, ast.Call) and self.symbol(node.func) in {"getattr", "setattr", "__import__", "import_module", "exec", "eval", "globals", "locals"}:
                 self.error("dynamic_python", f"{self.symbol(node.func)} is not supported in Flow source", self.span(node))
                 self.add_node({"id": f"unknown:python:{node.lineno}", "kind": "unknown", "name": "Dynamic Python", "span": self.span(node)})
             if isinstance(node, ast.ClassDef) and any(keyword.arg == "metaclass" for keyword in node.keywords):
                 self.error("dynamic_class", f"class {node.name} uses a metaclass", self.span(node))
+            if self.is_builtins_reference(node):
+                self.error("dynamic_python", "builtins is not supported in Flow source", self.span(node))
+            if isinstance(node, ast.ImportFrom) and node.module != "dex" and any(imported.name == "*" for imported in node.names):
+                module = "." * node.level + (node.module or "")
+                self.error("wildcard_import", f"from {module} import * is not supported because it can rebind names the analyzer resolves", self.span(node))
+            dex_root = self.modified_dex_name(node)
+            if dex_root is not None:
+                self.error("dex_alias_rebinding", f"Dex name {dex_root} must not be modified", self.span(node))
+
+    def is_builtins_reference(self, node):
+        # Builtins reach setattr, exec, and globals under names the checks above do not see.
+        if isinstance(node, ast.Import):
+            return any(imported.name.split(".")[0] == "builtins" for imported in node.names)
+        if isinstance(node, ast.ImportFrom):
+            return node.module == "builtins"
+        return isinstance(node, ast.Name) and node.id == "__builtins__"
+
+    def is_dex_module_import(self, binding, alias):
+        if not isinstance(binding, ast.alias) or not isinstance(self.parents.get(binding), ast.Import):
+            return False
+        if binding.asname is not None:
+            return binding.name == "dex" and binding.asname == alias
+        return binding.name.split(".")[0] == "dex" and alias == "dex"
+
+    def modified_dex_name(self, node):
+        """Return the Dex import or module alias that node writes through, or None."""
+        if isinstance(node, (ast.Attribute, ast.Subscript)) and (isinstance(node.ctx, (ast.Store, ast.Del)) or getattr(node, "attr", "") == "__dict__"):
+            target = node.value
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "vars" and node.args:
+            target = node.args[0]
+        else:
+            return None
+        while isinstance(target, (ast.Attribute, ast.Subscript)):
+            target = target.value
+        if isinstance(target, ast.Name) and (target.id in self.imports or target.id in self.module_aliases):
+            return target.id
+        return None
+
+    def validate_class_customization(self, flow_class):
+        # The analyzer reads fields and methods from class bodies; these forms make another value answer the read.
+        for declaration in [*self.step_classes.values(), flow_class]:
+            intercepted = sorted(ATTRIBUTE_INTERCEPTION_METHODS & set(self.scope_bindings.get(declaration, {})))
+            if intercepted:
+                self.error("dynamic_class", f"class {declaration.name} defines {', '.join(intercepted)}, so its attribute reads are not static", self.span(declaration))
+            if self.has_dynamic_attributes:
+                self.error("dynamic_class", f"class {declaration.name} attributes can change through __dict__, vars, __setattr__, __delattr__, or __class__", self.span(declaration))
+            if self.has_escaped_receiver(declaration):
+                self.error("dynamic_class", f"class {declaration.name} passes its receiver outside a field access or a local class constructor", self.span(declaration))
+            methods = [statement.name for statement in declaration.body if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            stores = self.self_attribute_stores.get(declaration, {})
+            reassigned = sorted({name for name in methods if name in stores or self.is_foreign_attribute(name)})
+            if reassigned:
+                self.error("dynamic_class", f"class {declaration.name} method {', '.join(reassigned)} is reassigned outside the class body", self.span(declaration))
 
     def index_resources(self):
         self.index_resource_statements(self.tree.body, "")

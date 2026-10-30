@@ -357,6 +357,11 @@ any other instance is a different object and reports `unknown_step_target`.
 Rebound or shadowed names, fields changed outside the constructor or read
 during construction before their assignment, decorated Python Step classes, and
 Step classes that extend other classes fail closed with blocking diagnostics.
+So do rebound Dex import or module names, wildcard imports, Flow or Step
+objects passed to functions outside a field access or local constructor,
+TypeScript computed-key writes, Python attribute-interception methods such as
+`__getattribute__`, and methods reassigned outside the class body. The analyzer
+does not follow objects into other modules.
 Decisions hidden in callbacks remain unsupported.
 
 TypeScript analysis loads the `typescript` package only from the source

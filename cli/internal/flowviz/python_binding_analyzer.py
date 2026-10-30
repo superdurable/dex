@@ -8,6 +8,21 @@
 
 import ast
 
+# Each of these lets a class answer attribute reads, writes, or construction differently from its body.
+ATTRIBUTE_INTERCEPTION_METHODS = {
+    "__getattr__",
+    "__getattribute__",
+    "__setattr__",
+    "__delattr__",
+    "__get__",
+    "__set__",
+    "__delete__",
+    "__set_name__",
+    "__new__",
+    "__init_subclass__",
+    "__class_getitem__",
+}
+
 
 class EvaluationFrame:
     # The Step object that self names, and the constructor arguments bound while its __init__ runs.
@@ -38,6 +53,7 @@ class StepBindingAnalyzer:
         self.self_attribute_stores = {}
         self.foreign_attribute_stores = {}
         self.foreign_attribute_results = {}
+        self.escaped_receiver_results = {}
         self.has_dynamic_attributes = False
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Attribute):
@@ -45,7 +61,10 @@ class StepBindingAnalyzer:
                     self.has_dynamic_attributes = True
                 if not isinstance(node.ctx, (ast.Store, ast.Del)) or self.is_annotation_only_target(node):
                     continue
-                owner = self.attribute_owner_class(node)
+                if node.attr == "__class__":
+                    self.has_dynamic_attributes = True
+                # A store through a rebound or nested-function self lands on another object.
+                owner = self.self_reference_class(node.value)
                 if owner is None:
                     self.foreign_attribute_stores.setdefault(node.attr, []).append(node.value)
                 else:
@@ -121,17 +140,6 @@ class StepBindingAnalyzer:
     def is_annotation_only_target(self, node):
         statement = self.parents.get(node)
         return isinstance(statement, ast.AnnAssign) and statement.target is node and statement.value is None
-
-    def attribute_owner_class(self, attribute):
-        if not isinstance(attribute.value, ast.Name) or attribute.value.id != "self":
-            return None
-        node = attribute
-        while node is not None:
-            parent = self.parents.get(node)
-            if isinstance(parent, ast.ClassDef) and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                return parent
-            node = parent
-        return None
 
     def binding_scope(self, name_node):
         # Class bodies are visible only to code directly inside them, never to their methods.
@@ -260,7 +268,7 @@ class StepBindingAnalyzer:
 
     def flow_field_value(self, name, read, read_frame):
         declaration = self.flow_class
-        if self.has_dynamic_attributes or self.is_foreign_attribute(name) or self.has_unknown_bases(declaration, "Flow"):
+        if self.has_dynamic_attributes or self.is_foreign_attribute(name) or not self.has_modeled_construction(declaration, "Flow"):
             return None
         class_bindings = self.scope_bindings.get(declaration, {}).get(name, [])
         stores = self.self_attribute_stores.get(declaration, {}).get(name, [])
@@ -272,7 +280,7 @@ class StepBindingAnalyzer:
 
     def step_field_value(self, instance, name, read, read_frame):
         declaration = instance.declaration
-        if self.has_dynamic_attributes or self.is_foreign_attribute(name) or not self.has_modeled_construction(declaration):
+        if self.has_dynamic_attributes or self.is_foreign_attribute(name) or not self.has_modeled_construction(declaration, "Step"):
             return None
         class_bindings = self.scope_bindings.get(declaration, {}).get(name, [])
         stores = self.self_attribute_stores.get(declaration, {}).get(name, [])
@@ -325,17 +333,39 @@ class StepBindingAnalyzer:
             node = self.parents.get(node)
         return node is ancestor
 
-    def has_modeled_construction(self, declaration):
+    def has_modeled_construction(self, declaration, dex_base):
         # Decorators, other bases, and a leaked self can all change fields after construction.
-        if declaration.decorator_list or self.has_unknown_bases(declaration, "Step"):
+        if declaration.decorator_list or self.has_unknown_bases(declaration, dex_base) or self.has_escaped_receiver(declaration):
             return False
         initializer = self.method(declaration, "__init__")
-        if initializer is None:
+        return initializer is None or not self.function_returns(initializer)
+
+    def has_escaped_receiver(self, declaration):
+        # Code outside the analysis may change a receiver that leaves an attribute base or a local constructor call.
+        if declaration not in self.escaped_receiver_results:
+            self.escaped_receiver_results[declaration] = any(
+                isinstance(node, ast.Name) and node.id == receiver and not self.is_modeled_receiver_use(node)
+                for receiver, method in self.receiver_methods(declaration)
+                for node in ast.walk(method)
+            )
+        return self.escaped_receiver_results[declaration]
+
+    def receiver_methods(self, declaration):
+        for method in declaration.body:
+            if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            positional = [*method.args.posonlyargs, *method.args.args]
+            if positional and not any(self.symbol(decorator) == "staticmethod" for decorator in method.decorator_list):
+                yield positional[0].arg, method
+
+    def is_modeled_receiver_use(self, node):
+        parent = self.parents.get(node)
+        if isinstance(parent, ast.Attribute):
             return True
-        for node in self.function_nodes(initializer):
-            if isinstance(node, ast.Name) and node.id == "self" and not isinstance(self.parents.get(node), ast.Attribute):
-                return False
-        return not self.function_returns(initializer)
+        if not isinstance(parent, ast.Call) or not (node in parent.args or any(keyword.value is node for keyword in parent.keywords)):
+            return False
+        function = parent.func.value if isinstance(parent.func, ast.Subscript) else parent.func
+        return isinstance(function, ast.Name) and isinstance(self.static_binding(self.binding_scope(function), function.id), ast.ClassDef)
 
     def has_unknown_bases(self, declaration, dex_base):
         for base in declaration.bases:

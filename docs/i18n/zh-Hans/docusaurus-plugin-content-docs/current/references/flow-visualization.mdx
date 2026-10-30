@@ -117,7 +117,7 @@ TypeScript analyzer 暂不支持以下功能：
 
 把 decision 隐藏在 helper 中的 Execute 方法会产生 **hidden_dex_decision**。在 TypeScript 中，Execute 的每个返回值只要不是可识别的 decision（例如 helper 调用或变量），都会单独产生 **hidden_dex_decision**，即使其他返回值可以识别。暂不支持 Java、Rust 和递归多文件分析。
 
-Version 1 不支持单文件中的多个 Flow、反射、动态 class、Dex 通配符导入、基于 getattr 的目标、monkeypatch，以及逃逸出处理方法的 movement 集合。
+Version 1 不支持单文件中的多个 Flow、反射、动态 class、通配符导入、基于 getattr 的目标、monkeypatch，以及逃逸出处理方法的 movement 集合。
 
 Version 2.0 保留所有 Version 1 字段，并要求 Step group 和 explanation 与 Flow 位于同一文件。同一行内的具名 directive 参数可以任意排列。多条 directive 行保留源码顺序，并成为 UI 顺序。未知、重复、缺失或非法参数都会产生 blocking diagnostic。Go analyzer 还会读取 Indexed Attribute、Summary、Display、Action 和 start-input schema；规则见 [Dex Web](/production/dex-web)。
 
@@ -193,6 +193,14 @@ SDK 按对象身份解析实例目标。目标必须是已注册的那个对象�
 在决策中直接写构造调用会创建一个未注册的新对象。SDK 会在运行时拒绝这个目标，因此 analyzer 会报告 **unknown_step_target**。请改为指向已注册的实例或使用 **StepRef**。同一个 Connector 的不同 factory 调用只要使用不同的静态 Step type，也会生成独立节点。
 
 只有当 analyzer 能证明某个名称持有哪个对象时，才会接受该实例。在同一个函数或模块中绑定两次的名称无法证明。重新赋值、增量赋值、循环变量、**with** 目标、海象运算符目标、解构、**global** 重新绑定，以及 TypeScript 嵌套代码块中的第二个声明，都算作另一次绑定。被构造函数重新赋值的构造参数同样无法证明。
+
+字段是否可读，还取决于 Flow 或 Step 对象的使用方式。**self** 或 **this** 只能用于读取或赋值字段，或者传给同一文件中某个 class 的构造函数。把它传给其他函数、存入变量，或者重新绑定 **self**，都会让该 class 的字段不可读取，并报告 **dynamic_class**。带有装饰器的 Flow class，或者构造函数返回了值，其字段同样不可读取。Analyzer 不会追踪进入其他模块的对象，因此不要把 Flow 或 Step 对象传给源文件之外的代码。
+
+TypeScript 中使用计算键的写入（例如 **target[key] = value**）会让字段不可读取。例外情况是：键是字符串常量，或者对象是新建的对象字面量或数组字面量。与字段同名的 TypeScript getter 或 setter 同样会让该字段不可读取。
+
+Analyzer 只从 class 本身读取 Flow 和 Step 方法。Python Flow 或 Step class 如果定义了 **__getattr__**、**__getattribute__**、**__setattr__**、**__delattr__**、**__get__**、**__set__**、**__delete__**、**__set_name__**、**__new__**、**__init_subclass__** 或 **__class_getitem__**，会报告 **dynamic_class**。在两种语言中，在 class 之外重新赋值 Flow 或 Step 方法都会报告 **dynamic_class**。Python 的 **__dict__**、**vars**、**__setattr__** 和 **__class__** 赋值，以及 analyzer 无法解析的 TypeScript 反射写入或计算键写入，也会报告 **dynamic_class**。
+
+Analyzer 只通过 **dex** 或 **@superdurable/dex** 的导入识别 Dex API。在任何作用域中重新绑定 Dex 导入别名或 **dex** 模块名，都会报告 **dex_alias_rebinding**。为 Dex 导入的属性赋值也会报告该诊断。Python 中从任何模块进行通配符导入都会报告 **wildcard_import**，因为它可能重新绑定 Dex 名称。Python 的 **exec**、**eval**、**globals**、**locals** 和 **builtins** 模块会报告 **dynamic_python**。TypeScript 的 **eval** 和 **Function** 会报告 **dynamic_typescript**。
 
 计算得到的 Step type、无法证明的目标、未注册的 **StepRef** 名称和存在歧义的 class 目标都会产生阻断诊断。Execute 决策隐藏在回调或 helper 中时，仍然会报告 **hidden_dex_decision**；实例的 Step type 可解析，并不代表回调中的决策也可解析。
 

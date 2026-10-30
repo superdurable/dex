@@ -77,6 +77,7 @@ class TypeScriptAnalyzer {
     }
     for (const [name,expression] of this.values) this.indexResource(name,expression);
     this.analyzeRegistration(this.method(flow,"getSteps"));
+    this.validateClassCustomization();
     for (const [stepName,nodeID] of this.registered) {
       const connector = this.connectorSteps.get(stepName);
       if (connector) { this.uses.push(this.factoryResult(nodeID,connector)); continue; }
@@ -198,6 +199,18 @@ class TypeScriptAnalyzer {
       this.error("duplicate_step_type",`Step type ${stepType} is registered by more than one Step`,steps);
     }
     if (!registrations && !steps.getText(this.tree).includes("StepList.empty")) this.error("dynamic_step_registration","getSteps must directly call StepList.startStep, withoutStartStep, or otherSteps",steps);
+  }
+
+  validateClassCustomization() {
+    // The analyzer reads fields and methods from class bodies; these forms make another value answer the read.
+    const declarations = new Set([this.flowClass,...[...this.stepInstances.values()].map(instance => instance.declaration)]);
+    for (const declaration of declarations) {
+      const className = declaration.name?.text || "anonymous";
+      if (this.hasDynamicFields || this.dynamicClasses.has(declaration)) this.error("dynamic_class",`class ${className} fields and methods can change through computed or reflective writes or an escaped this`,declaration);
+      const methods = declaration.members.filter(member => member.name && !this.isStatic(member) && (this.ts.isMethodDeclaration(member) || (this.ts.isPropertyDeclaration(member) && member.initializer && this.method(declaration,this.propertyName(member.name)) === this.unwrap(member.initializer))));
+      const reassigned = [...new Set(methods.map(member => this.propertyName(member.name)))].filter(name => this.thisStores.get(declaration)?.has(name) || this.isForeignField(name)).sort();
+      if (reassigned.length) this.error("dynamic_class",`class ${className} method ${reassigned.join(", ")} is reassigned outside the class body`,declaration);
+    }
   }
 
   analyzeStep(stepName,nodeID,declaration) {
@@ -660,25 +673,53 @@ class TypeScriptAnalyzer {
     this.thisStores = new Map();
     this.foreignStores = new Map();
     this.foreignFieldResults = new Map();
+    this.computedStores = [];
+    this.receiverUses = [];
     this.dynamicClasses = new Set();
     this.hasDynamicFields = false;
     this.walk(this.tree,node => {
       if (this.ts.isVariableDeclaration(node)) this.addBindingNames(node.name,node,this.enclosingScope(node),false);
       else if (this.ts.isParameter(node)) this.addBindingNames(node.name,node,node.parent,false);
       else if ((this.ts.isFunctionDeclaration(node) || this.ts.isClassDeclaration(node) || this.ts.isEnumDeclaration(node) || this.ts.isModuleDeclaration(node)) && node.name && this.ts.isIdentifier(node.name)) this.addBinding(node.name.text,node,this.enclosingScope(node),false);
+      else if ((this.ts.isFunctionExpression(node) || this.ts.isClassExpression(node)) && node.name) this.addBinding(node.name.text,node,this.ts.isFunctionExpression(node) ? node : this.enclosingScope(node),false);
       else if ((this.ts.isImportClause(node) || this.ts.isNamespaceImport(node) || this.ts.isImportSpecifier(node) || this.ts.isImportEqualsDeclaration(node)) && node.name) this.addBinding(node.name.text,node,this.tree,false);
       else if (this.ts.isBinaryExpression(node) && node.operatorToken.kind >= this.ts.SyntaxKind.FirstAssignment && node.operatorToken.kind <= this.ts.SyntaxKind.LastAssignment) this.recordWriteTarget(node.left,node);
       else if ((this.ts.isPrefixUnaryExpression(node) || this.ts.isPostfixUnaryExpression(node)) && [this.ts.SyntaxKind.PlusPlusToken,this.ts.SyntaxKind.MinusMinusToken].includes(node.operator)) this.recordWriteTarget(node.operand,node);
       else if (this.ts.isDeleteExpression(node)) this.recordWriteTarget(node.expression,node);
       else if ((this.ts.isForOfStatement(node) || this.ts.isForInStatement(node)) && !this.ts.isVariableDeclarationList(node.initializer)) this.recordWriteTarget(node.initializer,node);
       else if (this.ts.isCallExpression(node)) this.recordReflectiveWrite(node);
+      else if (node.kind === this.ts.SyntaxKind.ThisKeyword) this.receiverUses.push(node);
+      if ((this.ts.isCallExpression(node) || this.ts.isNewExpression(node)) && ["eval","Function"].includes(this.unwrap(node.expression)?.getText(this.tree))) this.error("dynamic_typescript",`${this.unwrap(node.expression).getText(this.tree)} is not supported in Flow source`,node);
     });
-    for (const [alias,imported] of this.imports) {
-      if (imported === "*") continue;
-      for (const bindings of this.scopeBindings.values()) for (const binding of bindings.get(alias) || []) {
-        if (!this.ts.isImportSpecifier(binding.declaration)) this.error("dex_alias_rebinding",`Dex import alias ${alias} must not be rebound`,binding.declaration);
-      }
+    for (const target of this.computedStores) this.recordComputedStore(target);
+    for (const node of this.receiverUses) {
+      const owner = this.selfReferenceClass(node);
+      if (owner && !this.isModeledReceiverUse(node)) this.dynamicClasses.add(owner);
     }
+    for (const alias of this.imports.keys()) {
+      for (const bindings of this.scopeBindings.values()) for (const binding of bindings.get(alias) || []) {
+        if (!this.isDexImportBinding(binding.declaration)) this.error("dex_alias_rebinding",`Dex import alias ${alias} must not be rebound`,binding.declaration);
+      }
+      for (const write of this.identifierWrites) if (write.name === alias) this.error("dex_alias_rebinding",`Dex import alias ${alias} must not be rebound`,write.node);
+    }
+  }
+
+  isDexImportBinding(declaration) {
+    const clause = this.ts.isImportSpecifier(declaration) ? declaration.parent.parent : this.ts.isNamespaceImport(declaration) ? declaration.parent : undefined;
+    return !!clause && this.ts.isImportClause(clause) && clause.parent.moduleSpecifier.text === "@superdurable/dex";
+  }
+
+  isModeledReceiverUse(node) {
+    // Unseen code may change a this used outside a property base or a local constructor argument.
+    let use = node;
+    while (use.parent && this.unwrap(use.parent) !== use.parent) use = use.parent;
+    const parent = use.parent;
+    if ((this.ts.isPropertyAccessExpression(parent) || this.ts.isElementAccessExpression(parent)) && parent.expression === use) return true;
+    if (!this.ts.isNewExpression(parent) || !parent.arguments?.includes(use)) return false;
+    const callee = this.unwrap(parent.expression);
+    const scope = callee && this.ts.isIdentifier(callee) ? this.bindingScope(callee) : undefined;
+    const declaration = scope && this.staticBinding(scope,callee.text);
+    return !!declaration && this.ts.isClassDeclaration(declaration);
   }
 
   addBindingNames(name,declaration,scope,isPattern) {
@@ -701,6 +742,8 @@ class TypeScriptAnalyzer {
   recordWriteTarget(target,writeNode) {
     target = this.unwrap(target);
     if (!target) return;
+    const dexRoot = this.ts.isIdentifier(target) ? undefined : this.dexRootName(target);
+    if (dexRoot) this.error("dex_alias_rebinding",`Dex import ${dexRoot} must not be modified`,writeNode);
     if (this.ts.isIdentifier(target)) this.identifierWrites.push({name:target.text,node:writeNode});
     else if (this.ts.isPropertyAccessExpression(target)) {
       const owner = this.selfReferenceClass(this.unwrap(target.expression));
@@ -710,12 +753,8 @@ class TypeScriptAnalyzer {
       const stores = this.thisStores.get(owner);
       if (!stores.has(name)) stores.set(name,[]);
       stores.get(name).push(target);
-    } else if (this.ts.isElementAccessExpression(target)) {
-      const owner = this.unwrap(target.expression);
-      if (owner?.kind === this.ts.SyntaxKind.ThisKeyword) this.markDynamicFields(owner);
-      const argument = this.unwrap(target.argumentExpression);
-      if (argument && (this.ts.isStringLiteral(argument) || this.ts.isNoSubstitutionTemplateLiteral(argument))) this.addForeignStore(argument.text,target.expression);
-    } else if (this.ts.isArrayLiteralExpression(target)) {
+    } else if (this.ts.isElementAccessExpression(target)) this.computedStores.push(target);
+    else if (this.ts.isArrayLiteralExpression(target)) {
       for (const element of target.elements) this.recordWriteTarget(this.ts.isSpreadElement(element) ? element.expression : element,writeNode);
     } else if (this.ts.isObjectLiteralExpression(target)) {
       for (const property of target.properties) {
@@ -724,6 +763,32 @@ class TypeScriptAnalyzer {
         else if (this.ts.isSpreadAssignment(property)) this.recordWriteTarget(property.expression,writeNode);
       }
     } else if (this.ts.isBinaryExpression(target) && target.operatorToken.kind === this.ts.SyntaxKind.EqualsToken) this.recordWriteTarget(target.left,writeNode);
+  }
+
+  recordComputedStore(target) {
+    // A computed key can name any field, so the receiver or the key must be resolved.
+    const receiver = this.localValue(target.expression);
+    if (receiver && (this.ts.isObjectLiteralExpression(receiver) || this.ts.isArrayLiteralExpression(receiver))) return;
+    if (receiver?.kind === this.ts.SyntaxKind.ThisKeyword) { this.markDynamicFields(receiver); return; }
+    const key = this.localValue(target.argumentExpression);
+    if (key && (this.ts.isStringLiteral(key) || this.ts.isNoSubstitutionTemplateLiteral(key) || this.ts.isNumericLiteral(key))) this.addForeignStore(key.text,target.expression);
+    else this.hasDynamicFields = true;
+  }
+
+  localValue(expression) {
+    // Follows only name bindings, so it reads no field while fields are still being indexed.
+    let node = this.unwrap(expression);
+    for (const seen = new Set(); node && this.ts.isIdentifier(node) && !seen.has(node);) {
+      seen.add(node);
+      node = this.unwrap(this.nameValue(node,{})?.node);
+    }
+    return node;
+  }
+
+  dexRootName(expression) {
+    let node = this.unwrap(expression);
+    while (node && (this.ts.isPropertyAccessExpression(node) || this.ts.isElementAccessExpression(node))) node = this.unwrap(node.expression);
+    return node && this.ts.isIdentifier(node) && this.imports.has(node.text) ? node.text : undefined;
   }
 
   addForeignStore(name,owner) {
@@ -748,8 +813,12 @@ class TypeScriptAnalyzer {
     const callee = this.unwrap(call.expression)?.getText(this.tree);
     if (!["Object.assign","Object.defineProperty","Object.defineProperties","Object.setPrototypeOf","Reflect.set","Reflect.defineProperty","Reflect.setPrototypeOf"].includes(callee)) return;
     const target = this.unwrap(call.arguments[0]);
+    const dexRoot = this.dexRootName(target);
+    if (dexRoot) this.error("dex_alias_rebinding",`Dex import ${dexRoot} must not be modified`,call);
     if (target && (this.ts.isObjectLiteralExpression(target) || this.ts.isArrayLiteralExpression(target) || this.ts.isNewExpression(target))) return;
-    if (target?.kind === this.ts.SyntaxKind.ThisKeyword) this.markDynamicFields(target);
+    if (target?.kind === this.ts.SyntaxKind.ThisKeyword) { this.markDynamicFields(target); return; }
+    const key = this.unwrap(call.arguments[1]);
+    if (["Object.defineProperty","Reflect.set","Reflect.defineProperty"].includes(callee) && key && (this.ts.isStringLiteral(key) || this.ts.isNoSubstitutionTemplateLiteral(key))) this.addForeignStore(key.text,target);
     else this.hasDynamicFields = true;
   }
 
@@ -832,8 +901,9 @@ class TypeScriptAnalyzer {
     for (let current = node.parent; current; current = current.parent) {
       if (this.ts.isArrowFunction(current)) continue;
       if (this.ts.isFunctionDeclaration(current) || this.ts.isFunctionExpression(current) || this.ts.isClassStaticBlockDeclaration(current)) return undefined;
-      if ((this.ts.isMethodDeclaration(current) || this.ts.isConstructorDeclaration(current) || this.ts.isGetAccessor(current) || this.ts.isSetAccessor(current) || this.ts.isPropertyDeclaration(current)) && this.ts.isClassDeclaration(current.parent)) {
-        return this.isStatic(current) ? undefined : current.parent;
+      if (this.ts.isMethodDeclaration(current) || this.ts.isConstructorDeclaration(current) || this.ts.isGetAccessor(current) || this.ts.isSetAccessor(current) || this.ts.isPropertyDeclaration(current)) {
+        // An object literal or class expression member binds this to its own object.
+        return this.isStatic(current) || !this.ts.isClassDeclaration(current.parent) ? undefined : current.parent;
       }
     }
     return undefined;
@@ -841,7 +911,7 @@ class TypeScriptAnalyzer {
 
   flowFieldValue(name,read,readFrame) {
     const declaration = this.flowClass;
-    if (this.hasDynamicFields || this.dynamicClasses.has(declaration) || this.isForeignField(name) || this.extendsClause(declaration)) return undefined;
+    if (this.hasDynamicFields || this.isForeignField(name) || !this.hasModeledClass(declaration)) return undefined;
     const stores = this.fieldStores(declaration,name);
     if (stores.length !== 1 || this.isReadBeforeStore(read,readFrame,stores[0],declaration)) return undefined;
     if (this.ts.isPropertyDeclaration(stores[0])) return {node:stores[0].initializer,frame:{}};
@@ -871,7 +941,8 @@ class TypeScriptAnalyzer {
   }
 
   fieldStores(declaration,name) {
-    const stores = declaration.members.filter(member => this.ts.isPropertyDeclaration(member) && member.initializer && !this.isStatic(member) && this.propertyName(member.name) === name);
+    // An accessor answers the read itself, so it counts as another store and the field stays unproven.
+    const stores = declaration.members.filter(member => ((this.ts.isPropertyDeclaration(member) && member.initializer) || this.ts.isGetAccessor(member) || this.ts.isSetAccessor(member)) && !this.isStatic(member) && this.propertyName(member.name) === name);
     const constructor = this.constructorOf(declaration);
     for (const parameter of constructor?.parameters || []) {
       if (this.ts.isParameterPropertyDeclaration(parameter,constructor) && this.ts.isIdentifier(parameter.name) && parameter.name.text === name) stores.push(parameter);
@@ -916,7 +987,7 @@ class TypeScriptAnalyzer {
 
   hasModeledConstruction(declaration) {
     // Inheritance, decorators, reflective writes, or a leaked this can change fields the analyzer cannot see.
-    if (this.extendsClause(declaration) || this.dynamicClasses.has(declaration) || this.ts.getDecorators?.(declaration)?.length) return false;
+    if (!this.hasModeledClass(declaration)) return false;
     const constructor = this.constructorOf(declaration);
     if (!constructor?.body) return true;
     for (const statement of constructor.body.statements) {
@@ -930,6 +1001,16 @@ class TypeScriptAnalyzer {
       if (node.kind === this.ts.SyntaxKind.ThisKeyword && !(this.ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node)) isThisLeaked = true;
     });
     return !isThisLeaked;
+  }
+
+  hasModeledClass(declaration) {
+    // Flow and Step classes share these checks; a constructor return replaces the constructed object.
+    if (this.extendsClause(declaration) || this.dynamicClasses.has(declaration) || this.ts.getDecorators?.(declaration)?.length) return false;
+    if (declaration.members.some(member => member.name && this.ts.isComputedPropertyName(member.name))) return false;
+    const constructor = this.constructorOf(declaration);
+    let hasReturn = false;
+    this.walk(constructor?.body,node => { if (this.ts.isReturnStatement(node) && this.enclosingScope(node) === constructor) hasReturn = true; });
+    return !hasReturn;
   }
 
   constructorArguments(constructor,instance) {
