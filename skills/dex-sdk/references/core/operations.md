@@ -62,7 +62,20 @@ fields, branches, resources, and ConfigurationUI, and carries the exact release
 tag that Dex Web resolves. The analyzer never imports or executes the
 application or the package. A registration that calls a package without a
 manifest reports `connector_manifest_missing`; two Steps with one Step type
-report `duplicate_step_type`. The TypeScript analyzer does not yet support
+report `duplicate_step_type`. From cli-v1.28.1, the Python and TypeScript
+analyzers also resolve a Flow that registers several instances of one Step class
+(each instance's static Step type is its node), `StepRef("Type")` or
+`new StepRef("Type")` with a string literal, and the registered Step object
+itself, as a movement, execute-failure, or cancellation target. They fail closed: a
+computed Step type, an unknown `StepRef` name, or an ambiguous class target
+produces a blocking diagnostic. The TypeScript analyzer also rejects a Step or
+Flow object used where it cannot prove the object is unchanged, such as a Step
+passed to an imported function or cast; the Python analyzer rejects rebinding, reflection, and
+attribute interception but does not track every escape, also
+with `--lint app`. They assume imported code does not modify the Flow and that
+the source uses no eval, reflection, or prototype and global mutation. See the
+[Flow visualization reference](https://docs.superdurable.io/references/flow-visualization)
+for the exact rules. The TypeScript analyzer does not yet support
 `waitFor`, more than one Flow per file, RPC handlers, `handleTimeout`, SubFlows,
 or resource edges for local Steps. Do not claim that Java or Rust source can
 publish this metadata, or that Python or TypeScript source can publish Indexed
@@ -143,7 +156,7 @@ Keep the API key in deployment secret management. Never put it in source, Flow s
 
 #### dexcli credentials
 
-Configure `dexcli` with either a bearer token or an API key, not both. For a bearer token, `--credential-file` takes precedence over `DEX_CREDENTIAL_FILE`, which takes precedence over `DEX_CREDENTIAL`. The CLI has no raw-token flag. Store a token in a protected file when possible; avoid putting one into shell history or process arguments. [Released CLI options](https://github.com/superdurable/dex/blob/cli-v1.28.0/cli/internal/command/options.go)
+Configure `dexcli` with either a bearer token or an API key, not both. For a bearer token, `--credential-file` takes precedence over `DEX_CREDENTIAL_FILE`, which takes precedence over `DEX_CREDENTIAL`. The CLI has no raw-token flag. Store a token in a protected file when possible; avoid putting one into shell history or process arguments. [Released CLI options](https://github.com/superdurable/dex/blob/cli-v1.28.1/cli/internal/command/options.go)
 
 With CLI v1.16.0, an API key uses three settings:
 
@@ -151,7 +164,7 @@ With CLI v1.16.0, an API key uses three settings:
 - `--token-url` or `DEX_TOKEN_URL` names the token endpoint, with the same HTTPS and loopback rule as the SDKs.
 - `--server-id` or `DEX_SERVER_ID` names the server that the endpoint scopes the token to. `dexcli` never derives it from `--server`.
 
-Combining API key settings with any bearer token setting is a usage error that exits with status 2. So is setting `--token-url` or `--server-id` without an API key. Each command exchanges the key for a new token before its first call. A failed exchange fails the command before any FlowService call. A long command refreshes the token in the background after 80% of its lifetime. Unlike the SDKs, `dexcli` does not retry a call that Dex rejects with UNAUTHENTICATED; rerun the command to obtain a fresh token. Errors redact the key and tokens as the SDK credentials do. [Released CLI authentication guide](https://github.com/superdurable/dex/blob/cli-v1.28.0/cli/README.md)
+Combining API key settings with any bearer token setting is a usage error that exits with status 2. So is setting `--token-url` or `--server-id` without an API key. Each command exchanges the key for a new token before its first call. A failed exchange fails the command before any FlowService call. A long command refreshes the token in the background after 80% of its lifetime. Unlike the SDKs, `dexcli` does not retry a call that Dex rejects with UNAUTHENTICATED; rerun the command to obtain a fresh token. Errors redact the key and tokens as the SDK credentials do. [Released CLI authentication guide](https://github.com/superdurable/dex/blob/cli-v1.28.1/cli/README.md)
 
 ```bash
 export DEX_API_KEY="$(cat ~/.dex/api-key)"
@@ -172,7 +185,7 @@ CLI v1.18.0 or later can reach a Dex endpoint behind a TLS-terminating gateway o
 - `--tls-ca-file` or `DEX_TLS_CA_FILE` adds the PEM certificates in the file to the system root CAs, for a server certificate issued by a private or self-signed CA. A file without a PEM certificate fails the command.
 - `dexcli` negotiates HTTP/2 with ALPN `h2`. A TLS-terminating load balancer or gateway must accept `h2` and forward gRPC to Dex over HTTP/2.
 
-Setting `--tls-ca-file` or `--tls-server-name` without TLS is a usage error that exits with status 2. TLS never falls back to plaintext. The bearer token or API key access token is sent on every call over either transport. Without TLS it crosses the network unencrypted, so use plaintext only on loopback or a protected network. These settings configure only the `dexcli` FlowService connection. The API key exchange at `--token-url` always verifies the token endpoint against the system root CAs. [Released CLI TLS guide](https://github.com/superdurable/dex/blob/cli-v1.28.0/cli/README.md#connect-over-tls)
+Setting `--tls-ca-file` or `--tls-server-name` without TLS is a usage error that exits with status 2. TLS never falls back to plaintext. The bearer token or API key access token is sent on every call over either transport. Without TLS it crosses the network unencrypted, so use plaintext only on loopback or a protected network. These settings configure only the `dexcli` FlowService connection. The API key exchange at `--token-url` always verifies the token endpoint against the system root CAs. [Released CLI TLS guide](https://github.com/superdurable/dex/blob/cli-v1.28.1/cli/README.md#connect-over-tls)
 
 ```bash
 dexcli --server orders.dex.example.com:443 --tls \
@@ -299,7 +312,7 @@ For local development, `dexcli dev` (CLI v1.26.1) runs `dex-server-zd` and embed
 - `--engine temporal` and every Temporal-specific flag (`--external-temporal-*`, `--temporal-*`, `--sqlite-db-filename`, `--verbose-engine-log`, and `--blob-store-dir`) fail with an error that names server-zd as the only engine. Remove them and use `--zd-data-dir` and `--zd-config`. A Temporal SQLite file cannot serve as a server-zd data directory.
 - `dexcli flow start --config` rejects a non-null `workerTarget`, because Dex routes Flow work to pull Workers. A null or absent `workerTarget` works.
 
-[Released CLI engine options](https://github.com/superdurable/dex/blob/cli-v1.28.0/cli/README.md)
+[Released CLI engine options](https://github.com/superdurable/dex/blob/cli-v1.28.1/cli/README.md)
 
 Time travel keeps the run ID and creates a new run attempt. Dex Web shows the run attempt and switches between attempts, and `GET /api/flows/summary` reports `runAttempt`. `dexcli flow summary` does not print it, so read it in Dex Web. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.28.0/web/README.md#run-against-server-zd)
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.57.1 - 2026-10-30
+
+- Advance the CLI baseline to cli-v1.28.1 and refresh its pinned source links. The Python and TypeScript SDK baselines stay at v1.28.0 because sdk-python/v1.28.1 and sdk-typescript/v1.28.1 contain no runtime change. The Go, Java, and Rust, Server, and Web baselines are unchanged. Synchronize the bundle and plugin manifests at 0.57.1.
+- Document that `dexcli visualize` and `--lint app` resolve Python and TypeScript Flows that register several instances of one Step class, `StepRef` literal targets (including connector factory Steps), and the registered Step object as a target, with fail-closed diagnostics and the documented assumptions. Link the Flow visualization reference from Core operations and the Python and TypeScript references.
+
 ## 0.57.0 - 2026-10-30
 
 - Advance the Python and TypeScript SDK baselines to their v1.28.0 tags, the CLI baseline to cli-v1.28.0, and the Dex Web baseline to web/v1.28.0; refresh pinned source links. The Go, Java, and Rust baselines and the Server baseline (server-zd/v0.1.11, bundled by cli-v1.28.0) stay unchanged. Synchronize the bundle and plugin manifests at 0.57.0.

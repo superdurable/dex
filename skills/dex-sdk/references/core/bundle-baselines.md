@@ -7,7 +7,7 @@ and lockfiles remain authoritative for application code.
 ```text
 DEX_BASELINE=sdk-go/v1.26.0
 DEX_SERVER_BASELINE=server-zd/v0.1.11
-DEX_CLI_BASELINE=cli-v1.28.0
+DEX_CLI_BASELINE=cli-v1.28.1
 DEX_WEB_BASELINE=web/v1.28.0
 DEX_JAVA_BASELINE=sdk-java/v1.26.0
 DEX_PYTHON_BASELINE=sdk-python/v1.28.0
@@ -20,7 +20,7 @@ The package validator rejects any drift between the two copies.
 
 Go, Java, and Rust are at their published v1.26.0 tags. Python and TypeScript
 are at v1.28.0. The Server baseline is server-zd/v0.1.11, the CLI is
-cli-v1.28.0, and Dex Web is web/v1.28.0. The
+cli-v1.28.1, and Dex Web is web/v1.28.0. The
 Temporal-based Go Server was removed in Dex 1.26; its final release is
 server/v1.25.0, and server-zd is the only Dex Server. cli-v1.26.0 was tagged
 without binaries, so never pin it. The CLI release package bundles
