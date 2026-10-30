@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Register multiple instances of one Step class under distinct Step types.
+  Route movements, execute-failure fallbacks, and cancellation selections by
+  registered instance or StepRef. Existing unambiguous class targets keep working.
+  Declared fallback targets are checked at registration; dynamic targets are
+  checked when returned by a handler.
+
 ### Breaking change
 
 - Remove push Workers. Workers now always pull tasks from the Dex Server

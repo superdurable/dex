@@ -67,6 +67,7 @@ import {
 } from "./errors.js";
 import {
   registeredFlow,
+  registeredStepTarget,
   registeredRPC,
   registeredRPCFlow,
   registeredStream,
@@ -1110,7 +1111,7 @@ function mapStepOptions(
   const executeFailureStep = options?.executeFailure?.step;
   const executeFailureDefinition = executeFailureStep === undefined
     ? undefined
-    : flow.stepsByClass.get(executeFailureStep);
+    : registeredStepTarget(flow, executeFailureStep);
   if (executeFailureStep !== undefined && executeFailureDefinition === undefined) {
     throw new TypeError("execute failure Step must belong to the Flow");
   }
@@ -1193,7 +1194,7 @@ function mapFlowTimeoutHandlerOptions(
   const failureStep = options.failure?.step;
   const failureDefinition = failureStep === undefined
     ? undefined
-    : flow.stepsByClass.get(failureStep);
+    : registeredStepTarget(flow, failureStep);
   if (failureStep !== undefined && failureDefinition === undefined) {
     throw new TypeError("timeout handler failure Step must belong to the Flow");
   }

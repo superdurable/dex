@@ -47,6 +47,7 @@ import { InvalidStepResultError, ValueMappingError } from "./errors.js";
 import {
   registeredFlowByName,
   registeredFlow,
+  registeredStepTarget,
   registeredRPCByName,
   registeredStep,
   type RegisteredFlow,
@@ -77,7 +78,7 @@ import type { RegisteredRPC } from "./rpc.js";
 import type {
   RetryPolicy,
   Step,
-  StepClass,
+  StepTarget,
   StepDecision,
   StepMovement,
   StepOptions,
@@ -583,12 +584,12 @@ function withCancellationSelection(
 
 function mapCancellationSteps(
   flow: RegisteredFlow,
-  steps: readonly StepClass<any>[] | undefined,
+  steps: readonly StepTarget<any>[] | undefined,
 ): string[] {
   const stepTypes: string[] = [];
   const seen = new Set<string>();
   for (const step of steps ?? []) {
-    const target = flow.stepsByClass.get(step);
+    const target = registeredStepTarget(flow, step);
     if (target === undefined) {
       throw new TypeError("cancellation Step must belong to the Flow");
     }
@@ -605,7 +606,7 @@ function rpcDecision(
   flow: RegisteredFlow,
   result: {
     nextSteps?: readonly StepMovement<any>[];
-    cancelingSteps?: readonly StepClass<any>[];
+    cancelingSteps?: readonly StepTarget<any>[];
   }
     | undefined,
 ): ProtoStepDecision | undefined {
@@ -628,7 +629,7 @@ function mapMovements(
 }
 
 function mapMovement(flow: RegisteredFlow, movement: StepMovement<any>): ProtoStepMovement {
-  const target = flow.stepsByClass.get(movement.step);
+  const target = registeredStepTarget(flow, movement.step);
   if (target === undefined) {
     throw new TypeError("Step movement target does not belong to Flow");
   }
@@ -651,7 +652,7 @@ function mapStepOptions(
   const failureTarget = options?.executeFailure?.step;
   const failureDefinition = failureTarget === undefined
     ? undefined
-    : flow.stepsByClass.get(failureTarget);
+    : registeredStepTarget(flow, failureTarget);
   if (failureTarget !== undefined && failureDefinition === undefined) {
     throw new TypeError("execute failure Step must belong to the Flow");
   }
@@ -904,7 +905,7 @@ function mapFlowTimeoutHandlerOptions(
   const failureStep = options.failure?.step;
   const failureDefinition = failureStep === undefined
     ? undefined
-    : flow.stepsByClass.get(failureStep);
+    : registeredStepTarget(flow, failureStep);
   if (failureStep !== undefined && failureDefinition === undefined) {
     throw new TypeError("timeout handler failure Step must belong to the Flow");
   }

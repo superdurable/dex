@@ -16,6 +16,7 @@ from datetime import timedelta
 from enum import Enum
 from typing import Any, Generator, Generic, Iterator, TypeVar
 
+from dex._utils import require_name
 from dex.attribute import AttributeLock, AttributeMap, AttributeMapLoad
 from dex.channel import Channel, ChannelMap, ChannelMapLoad
 from dex.context import Context
@@ -189,18 +190,18 @@ class StepOptions:
     execute_load_channels: tuple[Channel[Any], ...] = ()
     execute_load_channel_maps: tuple[ChannelMap[Any], ...] = ()
     execute_load_channel_map_instances: tuple[ChannelMapLoad, ...] = ()
-    _execute_failure_target: type[Step[Any]] | None = None
+    _execute_failure_target: StepTarget[Any] | None = None
     _execute_failure_options: StepOptions | None = None
 
     def on_execute_failure_proceed_to(
         self,
-        step: type[Step[Any]],
+        step: StepTarget[Any],
         options: StepOptions | None = None,
     ) -> StepOptions:
         """Return a copy that routes exhausted ``execute`` retries to another Step.
 
         Args:
-            step: The registered fallback Step.
+            step: Fallback class, registered instance, or StepRef; validated at registration.
             options: Optional options applied to the fallback movement.
 
         Returns:
@@ -213,6 +214,34 @@ class StepOptions:
         )
 
 
+@dataclass(frozen=True)
+class StepRef:
+    """Address a registered Step by its stable Step type without an implementation.
+
+    Use this reference with go_to, StepMovement, failure routing, or cancellation.
+    It cannot execute or appear in a StepList. Registry validates declared failure
+    routes; handler-created movements and cancellation selections are checked when
+    returned. Unknown types raise FlowDefinitionError. Input is checked by the
+    destination's codec rather than inferred from the reference.
+
+    Attributes:
+        step_type: Non-empty Step type returned by the destination's get_step_type.
+
+    Examples:
+        >>> movement = StepMovement.of(StepRef("Charge"), 42)
+    """
+
+    step_type: str
+
+    def __post_init__(self) -> None:
+        """Validate the Step type after construction.
+
+        Raises:
+            ValueError: If step_type is empty or whitespace-only.
+        """
+        require_name(self.step_type)
+
+
 class Step(Generic[InputT], ABC):
     """Define one typed unit of durable Flow application logic.
 
@@ -220,11 +249,23 @@ class Step(Generic[InputT], ABC):
     must remain deterministic with respect to their inputs and Context state; external
     side effects belong behind idempotent application integrations.
 
+    Attributes:
+        input_type: Optional per-instance codec type override for both handlers.
+
     Examples:
         >>> class Charge(Step[ChargeInput]):
         ...     def execute(self, context: Context, input: ChargeInput) -> StepDecision:
         ...         status.set(context, "charged")
         ...         return graceful_complete(input.order_id)
+    """
+
+    input_type: object | None = None
+    """Input type override resolved through the Registry's CodecRegistry.
+
+    Set this on each instance of a generic Step to replace its input annotations
+    for both execute and wait_for. None preserves annotation inference. Use
+    type(None) for an input with no value. Context and return annotations remain
+    required. An unsupported type raises FlowDefinitionError during registration.
     """
 
     @abstractmethod
@@ -293,6 +334,15 @@ class Step(Generic[InputT], ABC):
             Step-specific options, or ``None`` to use Flow and server defaults.
         """
         return None
+
+
+#: Destination class, registered instance, or StepRef; classes must identify exactly one registered instance.
+StepTarget = type[Step[InputT]] | Step[InputT] | StepRef
+"""Select a Step by class, registered instance, or stable Step type reference.
+
+Class targets require exactly one registered instance of that class. Multiple
+instances make the class ambiguous; select the instance or use StepRef instead.
+"""
 
 
 @dataclass(frozen=True)
@@ -371,18 +421,18 @@ class StepMovement(Generic[InputT]):
     """Schedule one registered Step with typed input and optional options.
 
     Attributes:
-        step: The destination Step class from the containing Registry.
+        step: Destination class, registered instance, or StepRef in this Flow.
         input: The value decoded by the destination Step's input codec.
         options: Optional per-movement StepOptions override.
     """
 
-    step: type[Step[InputT]]
+    step: StepTarget[InputT]
     input: InputT
     options: StepOptions | None = None
 
     @staticmethod
     def of(
-        step: type[Step[InputT]],
+        step: StepTarget[InputT],
         input: InputT,
         *,
         options: StepOptions | None = None,
@@ -390,7 +440,7 @@ class StepMovement(Generic[InputT]):
         """Create a typed movement to a Step.
 
         Args:
-            step: The registered destination Step.
+            step: Destination class, registered instance, or StepRef. A class must be unambiguous.
             input: A value compatible with the Step's input annotation.
             options: Optional per-movement options.
 
@@ -436,13 +486,13 @@ class StepDecision:
     reason: str = ""
     empty_channels: tuple[Channel[Any] | ChannelMap[Any], ...] = ()
     fallback: StepMovement[Any] | None = None
-    canceling_steps: tuple[type[Step[Any]], ...] = ()
-    canceling_sibling_steps: tuple[type[Step[Any]], ...] = ()
+    canceling_steps: tuple[StepTarget[Any], ...] = ()
+    canceling_sibling_steps: tuple[StepTarget[Any], ...] = ()
 
     def _has_output(self) -> bool:
         return self.output is not _NO_OUTPUT
 
-    def with_canceling_steps(self, *steps: type[Step[Any]]) -> StepDecision:
+    def with_canceling_steps(self, *steps: StepTarget[Any]) -> StepDecision:
         """Return a decision canceling all current executions of selected Step types.
 
         Dex resolves one snapshot after this Execute succeeds. Finished, already-canceled,
@@ -450,7 +500,7 @@ class StepDecision:
         Repeated calls take the union, and Flow-wide selection supersedes sibling selection.
 
         Args:
-            *steps: Step classes registered with the current Flow.
+            *steps: Registered instances, StepRef values, or unambiguous Step classes.
 
         Returns:
             A new decision containing the combined Flow-wide selectors.
@@ -467,7 +517,7 @@ class StepDecision:
             canceling_sibling_steps=sibling_steps,
         )
 
-    def with_canceling_sibling_steps(self, *steps: type[Step[Any]]) -> StepDecision:
+    def with_canceling_sibling_steps(self, *steps: StepTarget[Any]) -> StepDecision:
         """Return a decision canceling selected same-source Step executions.
 
         A sibling has the same ``Context.from_step_execution_id`` as the execution
@@ -475,7 +525,7 @@ class StepDecision:
         ``with_canceling_steps``. Flow-wide selection wins for the same Step type.
 
         Args:
-            *steps: Step classes registered with the current Flow.
+            *steps: Registered instances, StepRef values, or unambiguous Step classes.
 
         Returns:
             A new decision containing the combined sibling selectors.
@@ -490,9 +540,9 @@ class StepDecision:
 
 
 def _union_steps(
-    existing: tuple[type[Step[Any]], ...],
-    added: tuple[type[Step[Any]], ...],
-) -> tuple[type[Step[Any]], ...]:
+    existing: tuple[StepTarget[Any], ...],
+    added: tuple[StepTarget[Any], ...],
+) -> tuple[StepTarget[Any], ...]:
     combined = list(existing)
     for step in added:
         if all(step is not current for current in combined):
@@ -500,11 +550,11 @@ def _union_steps(
     return tuple(combined)
 
 
-def go_to(step: type[Step[InputT]], input: InputT) -> StepDecision:
+def go_to(step: StepTarget[InputT], input: InputT) -> StepDecision:
     """Create a decision that schedules one next Step.
 
     Args:
-        step: The registered destination Step.
+        step: Destination class, registered instance, or StepRef. A class must be unambiguous.
         input: A value compatible with the destination input annotation.
 
     Returns:

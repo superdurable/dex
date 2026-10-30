@@ -10,6 +10,7 @@ import type { Codec } from "./codec.js";
 import type { AsyncContext, Context } from "./context.js";
 import type { AttributeLock, AttributeMap, AttributeMapLoad } from "./persistence.js";
 import type { Channel, ChannelMap, ChannelMapLoad, Wait } from "./wait.js";
+import { requireName } from "./validation.js";
 
 /** Controls when a Step handler result is durably acknowledged. */
 export type StepDurability = "sync" | "async";
@@ -32,8 +33,8 @@ export interface RetryPolicy {
 
 /** Routes exhausted `execute` retries to a fallback Step. */
 export interface ExecuteFailure {
-  /** Registered fallback Step class. */
-  readonly step: StepClass<any>;
+  /** Fallback class, registered instance, or StepRef; validated at registration. */
+  readonly step: StepTarget<any>;
   /** Options applied to the fallback movement. */
   readonly options?: StepOptions;
 }
@@ -43,13 +44,13 @@ export const ExecuteFailure = Object.freeze({
   /**
    * Routes exhausted execution retries to another Step.
    * @typeParam Input - Fallback Step input type.
-   * @param step - Registered fallback Step class.
+   * @param step - Fallback class, registered instance, or StepRef; validated at registration.
    * @param options - Optional options for the fallback movement.
    * @returns The failure-routing settings.
    */
-  proceedTo<Input>(step: StepClass<Input>, options?: StepOptions): ExecuteFailure {
+  proceedTo<Input>(step: StepTarget<Input>, options?: StepOptions): ExecuteFailure {
     return {
-      step: step as StepClass<any>,
+      step: step as StepTarget<any>,
       ...(options === undefined ? {} : { options }),
     };
   },
@@ -163,6 +164,42 @@ type StepHandler<Input, Output> =
  */
 export type StepClass<Input> = abstract new (...arguments_: any[]) => Step<Input>;
 
+/**
+ * Addresses a registered Step by its stable Step type without an implementation.
+ *
+ * Use with goTo, StepMovement, failure routing, or cancellation. References cannot
+ * execute or appear in a StepList. Registry validates declared failure routes;
+ * handler-created movements and selections are checked when returned. Invalid
+ * declarations raise FlowDefinitionError. Invalid handler targets are reported as
+ * InvalidStepResultError. The destination codec validates input at runtime.
+ * @example
+ * ```ts
+ * const movement = StepMovement.of(new StepRef("Charge"), { orderId: "42" });
+ * ```
+ */
+export class StepRef {
+  /**
+   * Creates a reference to a Step type registered in the containing Flow.
+   * @param stepType - Non-empty type returned by the destination's getStepType.
+   * @throws TypeError If stepType is empty or whitespace-only.
+   */
+  public constructor(
+    /** Stable destination Step type. */
+    public readonly stepType: string,
+  ) {
+    requireName(stepType);
+    Object.freeze(this);
+  }
+}
+
+/**
+ * Selects a Step by class, registered instance, or stable Step type reference.
+ * Class targets require exactly one registered instance. When a class is
+ * ambiguous, use its registered instance or a StepRef instead.
+ * @typeParam Input - Destination input; StepRef inputs are checked at runtime.
+ */
+export type StepTarget<Input> = StepClass<Input> | Step<Input> | StepRef;
+
 interface StartStepDefinition<StartInput> {
   readonly step: Step<StartInput>;
   readonly isStartStep: true;
@@ -248,8 +285,8 @@ export class StepList<StartInput> {
  * @typeParam Input - Destination Step input type.
  */
 export interface StepMovement<Input> {
-  /** Registered destination Step class. */
-  readonly step: StepClass<Input>;
+  /** Destination class, registered instance, or StepRef in this Flow. */
+  readonly step: StepTarget<Input>;
   /** Value encoded for the destination Step. */
   readonly input: Input;
   /** Optional per-movement Step options. */
@@ -261,12 +298,12 @@ export const StepMovement = Object.freeze({
   /**
    * Creates a movement to one Step.
    * @typeParam Input - Destination Step input type.
-   * @param step - Registered destination Step class.
+   * @param step - Destination class, registered instance, or StepRef in this Flow.
    * @param input - Typed destination input.
    * @param options - Optional per-movement options.
    * @returns The new Step movement.
    */
-  of<Input>(step: StepClass<Input>, input: Input, options?: StepOptions): StepMovement<Input> {
+  of<Input>(step: StepTarget<Input>, input: Input, options?: StepOptions): StepMovement<Input> {
     return {
       step,
       input,
@@ -278,9 +315,9 @@ export const StepMovement = Object.freeze({
 /** Selects queued or active Step executions canceled by a decision. */
 export interface StepCancellationSelection {
   /** Registered Step types canceled across the current Flow. */
-  readonly cancelingSteps?: readonly StepClass<any>[];
+  readonly cancelingSteps?: readonly StepTarget<any>[];
   /** Registered Step types canceled only when they share the current scheduling source. */
-  readonly cancelingSiblingSteps?: readonly StepClass<any>[];
+  readonly cancelingSiblingSteps?: readonly StepTarget<any>[];
 }
 
 /** Describes the durable transition returned by `Step.execute`. */
@@ -325,7 +362,7 @@ export type StepDecision = (
  * @param input - Typed destination input.
  * @returns A next decision containing one movement.
  */
-export const goTo = <Input>(step: StepClass<Input>, input: Input): StepDecision =>
+export const goTo = <Input>(step: StepTarget<Input>, input: Input): StepDecision =>
   goToMany(StepMovement.of(step, input));
 
 /**
@@ -388,12 +425,12 @@ export const deadEnd = (): StepDecision => ({ kind: "deadEnd" });
  * and absent executions are no-ops. Steps scheduled by the same decision are excluded.
  * Repeated calls take the union, and Flow-wide selection supersedes sibling selection.
  * @param decision - Decision to copy.
- * @param steps - Step classes registered with the current Flow.
+ * @param steps - Registered instances, StepRef values, or unambiguous Step classes.
  * @returns A new decision containing the combined Flow-wide selectors.
  */
 export const withCancelingSteps = (
   decision: StepDecision,
-  ...steps: readonly StepClass<any>[]
+  ...steps: readonly StepTarget<any>[]
 ): StepDecision => {
   const cancelingSteps = unionSteps(decision.cancelingSteps, steps);
   const cancelingSiblingSteps = (decision.cancelingSiblingSteps ?? []).filter(
@@ -408,12 +445,12 @@ export const withCancelingSteps = (
  * A sibling has the same `Context.fromStepExecutionId` as the execution returning
  * the decision. Snapshot and no-op behavior match {@link withCancelingSteps}.
  * @param decision - Decision to copy.
- * @param steps - Step classes registered with the current Flow.
+ * @param steps - Registered instances, StepRef values, or unambiguous Step classes.
  * @returns A new decision containing the combined sibling selectors.
  */
 export const withCancelingSiblingSteps = (
   decision: StepDecision,
-  ...steps: readonly StepClass<any>[]
+  ...steps: readonly StepTarget<any>[]
 ): StepDecision => ({
   ...decision,
   cancelingSiblingSteps: unionSteps(decision.cancelingSiblingSteps, steps).filter(
@@ -422,9 +459,9 @@ export const withCancelingSiblingSteps = (
 });
 
 function unionSteps(
-  existing: readonly StepClass<any>[] | undefined,
-  added: readonly StepClass<any>[],
-): readonly StepClass<any>[] {
+  existing: readonly StepTarget<any>[] | undefined,
+  added: readonly StepTarget<any>[],
+): readonly StepTarget<any>[] {
   const combined = [...(existing ?? [])];
   for (const step of added) {
     if (!combined.includes(step)) {

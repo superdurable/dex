@@ -10,7 +10,10 @@ import { AttributeMap, IndexType, type Attribute, type PersistenceSchema } from 
 import { IndexType as ProtoIndexType } from "./gen/dex.js";
 import { FlowDefinitionError } from "./errors.js";
 import { registeredRPCs, type RegisteredRPC } from "./rpc.js";
-import { StepList, type Step, type StepClass, type StepDecision } from "./step.js";
+import {
+  StepList, StepRef, type Step, type StepClass, type StepDecision,
+  type StepOptions, type StepTarget,
+} from "./step.js";
 import { physicalMapName, requireName } from "./validation.js";
 import { Channel, ChannelMap } from "./wait.js";
 import type { AsyncContext } from "./context.js";
@@ -121,7 +124,8 @@ export interface RegisteredFlow {
   readonly flow: Flow<any>;
   readonly hasTimeoutHandler: boolean;
   readonly steps: readonly RegisteredStep[];
-  readonly stepsByClass: ReadonlyMap<StepClass<any>, RegisteredStep>;
+  readonly stepsByType: ReadonlyMap<string, RegisteredStep>;
+  readonly stepsByClass: ReadonlyMap<StepClass<any>, readonly RegisteredStep[]>;
   readonly startStep?: RegisteredStep;
   readonly rpcs: readonly RegisteredRPC[];
   readonly persistence: ReadonlyMap<
@@ -176,9 +180,35 @@ export function registeredFlowByName(registry: Registry, name: string): Register
 }
 
 export function registeredStep(flow: RegisteredFlow, name: string): RegisteredStep {
-  const registered = flow.steps.find((step) => step.name === name);
+  const registered = flow.stepsByType.get(name);
   if (registered === undefined) {
     throw new FlowDefinitionError(`Flow ${flow.name} Step is not registered: ${name}`);
+  }
+  return registered;
+}
+
+export function registeredStepTarget(
+  flow: RegisteredFlow, target: StepTarget<any>,
+): RegisteredStep {
+  if (target instanceof StepRef) {
+    return registeredStep(flow, target.stepType);
+  }
+  if (typeof target === "function") {
+    const candidates = flow.stepsByClass.get(target) ?? [];
+    if (candidates.length > 1) {
+      throw new FlowDefinitionError(
+        `Flow ${flow.name} Step class ${target.name} is ambiguous; use a registered Step instance or StepRef`,
+      );
+    }
+    const registered = candidates[0];
+    if (registered !== undefined) {
+      return registered;
+    }
+    throw new FlowDefinitionError(`Flow ${flow.name} Step class is not registered: ${target.name}`);
+  }
+  const registered = flow.steps.find((candidate) => candidate.step === target);
+  if (registered === undefined) {
+    throw new FlowDefinitionError(`Flow ${flow.name} Step instance is not registered`);
   }
   return registered;
 }
@@ -265,9 +295,9 @@ function doRegisterFlow(
   if (!(stepDefinitions instanceof StepList)) {
     throw new FlowDefinitionError(`Flow ${name} steps must be a StepList`);
   }
-  const stepNames = new Set<string>();
+  const stepsByType = new Map<string, RegisteredStep>();
   const steps: RegisteredStep[] = [];
-  const stepsByClass = new Map<StepClass<any>, RegisteredStep>();
+  const stepsByClass = new Map<StepClass<any>, readonly RegisteredStep[]>();
   let startStep: RegisteredStep | undefined;
   let hasStartStep = false;
   for (const definition of stepDefinitions) {
@@ -280,16 +310,13 @@ function doRegisterFlow(
     const step = definition.step;
     const stepClass = registeredStepClass(step);
     const stepName = stepType(name, step);
-    if (stepNames.has(stepName)) {
+    if (stepsByType.has(stepName)) {
       throw new FlowDefinitionError(`Flow ${name} has duplicate Step ${stepName}`);
     }
-    if (stepsByClass.has(stepClass)) {
-      throw new FlowDefinitionError(`Flow ${name} has duplicate Step class ${stepClass.name}`);
-    }
-    stepNames.add(stepName);
     const registered = { name: stepName, step, isStartStep: definition.isStartStep };
     steps.push(registered);
-    stepsByClass.set(stepClass, registered);
+    stepsByType.set(stepName, registered);
+    stepsByClass.set(stepClass, [...(stepsByClass.get(stepClass) ?? []), registered]);
     if (definition.isStartStep) {
       startStep = registered;
     }
@@ -339,17 +366,37 @@ function doRegisterFlow(
     }
     validateRPCStateLoads(name, registeredRPC, schema);
   }
-  return Object.freeze({
+  const registeredFlow = Object.freeze({
     name,
     flow,
     hasTimeoutHandler: typeof flow.handleTimeout === "function",
     steps: Object.freeze(steps),
+    stepsByType,
     stepsByClass,
     ...(startStep === undefined ? {} : { startStep }),
     rpcs,
     persistence,
     streams: new Set(schema.streams ?? []),
   });
+  for (const registeredStep of steps) {
+    validateStepTargets(registeredFlow, registeredStep.step.getStepOptions?.(), new Set());
+  }
+  return registeredFlow;
+}
+
+function validateStepTargets(
+  flow: RegisteredFlow,
+  options: StepOptions | undefined,
+  visited: Set<StepOptions>,
+): void {
+  if (options === undefined || visited.has(options)) {
+    return;
+  }
+  visited.add(options);
+  if (options.executeFailure !== undefined) {
+    registeredStepTarget(flow, options.executeFailure.step);
+    validateStepTargets(flow, options.executeFailure.options, visited);
+  }
 }
 
 function validateRPCStateLoads(

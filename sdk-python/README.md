@@ -468,6 +468,29 @@ Applications implement two generic interfaces from [`dex`](dex/):
   With `AsyncWorker` and `Registry(..., allow_async_handlers=True)`, Step
   coroutines use `AsyncContext`; async RPCs keep `Context`.
 
+Steps are registered by `get_step_type()`, which defaults to the class name.
+Multiple instances of one class may return different Step types in the same Flow.
+A duplicate Step type fails registration. `go_to`, `StepMovement.of`,
+`StepOptions.on_execute_failure_proceed_to`, and decision or RPC cancellation
+selections accept a registered instance, `StepRef("StepType")`, or a class.
+A class must have exactly one registered instance; otherwise select an instance
+or use `StepRef`. Instances must belong to the containing Flow.
+
+Declared execute-failure targets are validated when the Registry is constructed.
+Handler-created movements and cancellation selections are validated when returned;
+unknown Step types and ambiguous classes raise `FlowDefinitionError` with the Flow
+and target details. StepRef contains only a Step type and cannot execute or be
+registered in a StepList. Its input is checked by the destination codec at runtime.
+
+For a generic Step whose input annotation is a TypeVar, set `input_type` on each
+instance to a concrete type supported by `CodecRegistry`. The override takes
+precedence over both `execute` and `wait_for` input annotations; Context and return
+annotations are still required. `None` preserves annotation inference; use
+`type(None)` for a Step that accepts no input. The Registry resolves the override
+through its codec registrations, so custom codecs work too. See the runnable
+[generic Step instances test](tests/integ/step_instances_flow.py), which registers
+integer and string instances and routes to both by instance and StepRef.
+
 `StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the
 two handler calls. Timer and channel conditions determine how long a Step waits.
 
