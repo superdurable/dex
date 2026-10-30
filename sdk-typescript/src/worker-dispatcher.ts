@@ -107,6 +107,7 @@ export class WorkerDispatcher {
     original: InvokeWaitForMethodRequest,
     cancellationSignal: AbortSignal = new AbortController().signal,
     stepOutput?: StepOutputEmitter,
+    deadline?: Date,
   ): Promise<InvokeWaitForMethodResponse> {
     const request = await this.hydrateWaitFor(original);
     cancellationSignal.throwIfAborted();
@@ -126,6 +127,7 @@ export class WorkerDispatcher {
       request.loadedAttributeMapInstances,
       request.loadedChannelNames,
       request.loadedChannelMapInstances,
+      deadline,
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -168,12 +170,13 @@ export class WorkerDispatcher {
     original: InvokeExecuteMethodRequest,
     cancellationSignal: AbortSignal = new AbortController().signal,
     stepOutput?: StepOutputEmitter,
+    deadline?: Date,
   ): Promise<InvokeExecuteMethodResponse> {
     const request = await this.hydrateExecute(original);
     cancellationSignal.throwIfAborted();
     const flow = registeredFlowByName(this.registry, request.flowType);
     if (request.stepType === timeoutHandlerStepType) {
-      return this.invokeTimeoutHandler(request, flow, cancellationSignal, stepOutput);
+      return this.invokeTimeoutHandler(request, flow, cancellationSignal, stepOutput, deadline);
     }
     const step = registeredStep(flow, request.stepType);
     const context = new InvocationContext(
@@ -190,6 +193,7 @@ export class WorkerDispatcher {
       request.loadedAttributeMapInstances,
       request.loadedChannelNames,
       request.loadedChannelMapInstances,
+      deadline,
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -226,6 +230,7 @@ export class WorkerDispatcher {
     flow: RegisteredFlow,
     cancellationSignal: AbortSignal,
     stepOutput?: StepOutputEmitter,
+    deadline?: Date,
   ): Promise<InvokeExecuteMethodResponse> {
     try {
       if (request.stepInput !== undefined) {
@@ -248,6 +253,7 @@ export class WorkerDispatcher {
         request.loadedAttributeMapInstances,
         request.loadedChannelNames,
         request.loadedChannelMapInstances,
+        deadline,
       );
       try {
         const decision = await flow.flow.handleTimeout(context);

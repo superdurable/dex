@@ -705,16 +705,25 @@ class PullStream:
             await self._send_error(task.task_id, failure, status)
 
     async def _execute_async(self, task: pb.PollWorkerTask, kind: str | None) -> None:
+        deadline = (
+            task.deadline.ToDatetime(tzinfo=timezone.utc)
+            if task.HasField("deadline")
+            else None
+        )
         if kind == "wait_for":
             async for output in self.runtime._dispatcher.invoke_wait_for(
-                task.wait_for, self._active.is_set
+                task.wait_for,
+                self._active.is_set,
+                deadline,
             ):
                 await self._send_frame(
                     pb.PollWorkerTaskFrame(task_id=task.task_id, wait_for=output)
                 )
         elif kind == "execute":
             async for output in self.runtime._dispatcher.invoke_execute(
-                task.execute, self._active.is_set
+                task.execute,
+                self._active.is_set,
+                deadline,
             ):
                 await self._send_frame(
                     pb.PollWorkerTaskFrame(task_id=task.task_id, execute=output)
@@ -730,9 +739,16 @@ class PullStream:
             raise ValueError(f"unsupported Worker task request {kind}")
 
     def _execute_sync(self, task: pb.PollWorkerTask, kind: str | None) -> None:
+        deadline = (
+            task.deadline.ToDatetime(tzinfo=timezone.utc)
+            if task.HasField("deadline")
+            else None
+        )
         if kind == "wait_for":
             outputs = self.runtime._dispatcher.invoke_wait_for(
-                task.wait_for, self._active.is_set
+                task.wait_for,
+                self._active.is_set,
+                deadline,
             )
             for output in outputs:
                 self._send_from_thread(
@@ -740,7 +756,9 @@ class PullStream:
                 )
         elif kind == "execute":
             outputs = self.runtime._dispatcher.invoke_execute(
-                task.execute, self._active.is_set
+                task.execute,
+                self._active.is_set,
+                deadline,
             )
             for output in outputs:
                 self._send_from_thread(

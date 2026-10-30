@@ -650,7 +650,7 @@ test("Step Stream writes emit every message on the active invocation", async () 
     [],
   );
   assert.throws(() => thinking.write(rpc, "value"), /require a Step Context/);
-  assert.throws(() => void rpc.recordHeartbeat("value"), /require an async Step Context/);
+  await assert.rejects(rpc.recordHeartbeat("value"), TypeError);
 });
 
 test("buffered text Stream flushes on timer and before the final result", async () => {

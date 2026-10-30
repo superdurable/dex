@@ -61,6 +61,7 @@ export class InvocationContext implements AsyncContext {
   public readonly recoveryError: RecoveryErrorInfo | undefined;
   public readonly firstAttemptAt: Date;
   public readonly attempt: number;
+  public readonly deadline: Date | undefined;
   public readonly cancellationSignal: AbortSignal;
 
   private readonly attributes: Map<string, Value>;
@@ -94,6 +95,7 @@ export class InvocationContext implements AsyncContext {
     loadedAttributeMapInstances: readonly string[] = [],
     loadedChannelNames: readonly string[] = [],
     loadedChannelMapInstances: readonly string[] = [],
+    deadline?: Date,
   ) {
     if (metadata === undefined) {
       throw new TypeError("Worker request Context is required");
@@ -106,6 +108,7 @@ export class InvocationContext implements AsyncContext {
     this.recoveryError = metadata.recoveryError;
     this.firstAttemptAt = secondsDate(metadata.firstAttemptTimestamp);
     this.attempt = metadata.attempt;
+    this.deadline = method === "rpc" ? undefined : deadline;
     this.lastHeartbeatValue = metadata.lastHeartbeatValue;
     this.cancellationSignal = cancellationSignal;
     this.attributes = mapValues("Attribute", attributes);
@@ -129,7 +132,7 @@ export class InvocationContext implements AsyncContext {
     return decodeValue(codecOrJson(codec), this.lastHeartbeatValue);
   }
 
-  public recordHeartbeat<T>(value: T | undefined, codec?: Codec<T>): Promise<void> {
+  public async recordHeartbeat<T>(value: T | undefined, codec?: Codec<T>): Promise<void> {
     if (this.stepOutput === undefined) {
       throw new TypeError("Heartbeats require an async Step Context");
     }

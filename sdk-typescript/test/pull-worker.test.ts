@@ -697,10 +697,10 @@ for (const method of ["waitFor", "execute"] as const) {
         ? { $case: "waitFor", value: InvokeWaitForMethodRequest.create({ flowType: "TestFlow", stepType: "TestStep" }) }
         : { $case: "execute", value: InvokeExecuteMethodRequest.create({ flowType: "TestFlow", stepType: "TestStep" }) },
     } } });
-    const assertInactive = (output: StepOutputEmitter) => {
+    const assertInactive = async (output: StepOutputEmitter) => {
       assert.throws(() => output.writeStream({ streamName: "progress", streamCapacityBytes: 1024n, value: undefined }),
         /no longer active/);
-      assert.throws(() => void output.recordHeartbeat(undefined), /no longer active/);
+      await assert.rejects(output.recordHeartbeat(undefined), /no longer active/);
     };
     try {
       worker.start();
@@ -710,22 +710,22 @@ for (const method of ["waitFor", "execute"] as const) {
       await until(() => dispatcher.outputs.length === 1);
       stream.call.write({ frame: { $case: "cancelTask", value: { taskId: "cancelled" } } });
       await until(() => dispatcher.signals[0]!.aborted);
-      assertInactive(dispatcher.outputs[0]!);
+      await assertInactive(dispatcher.outputs[0]!);
       dispatcher.release();
       await stream.frame("taskFrame");
       await until(() => Reflect.get(worker, "busyTaskCount") === 0);
-      assertInactive(dispatcher.outputs[0]!);
+      await assertInactive(dispatcher.outputs[0]!);
 
       dispatcher.resetGate();
       stream.call.write(task("reassigned"));
       await until(() => dispatcher.outputs.length === 2);
-      assertInactive(dispatcher.outputs[0]!);
+      await assertInactive(dispatcher.outputs[0]!);
       await dispatcher.outputs[1]!.recordHeartbeat(undefined);
       await stream.frame("taskFrame", 2);
       dispatcher.release();
       await stream.frame("taskFrame", 3);
       await until(() => Reflect.get(worker, "busyTaskCount") === 0);
-      assertInactive(dispatcher.outputs[1]!);
+      await assertInactive(dispatcher.outputs[1]!);
       stream.call.write({ frame: { $case: "ping", value: {} } });
       await stream.frame("pong");
       assert.deepEqual(stream.frames.flatMap((request) => request.frame?.$case === "taskFrame"
@@ -781,7 +781,7 @@ test("pull Execute streams ordered progress, exactly one result, and failure aft
       await stream.frame("taskFrame", input === "success" ? 5 : 7);
       await until(() => Reflect.get(worker, "busyTaskCount") === 0);
       assert.throws(() => step.progress.write(step.completedContext!, "late"), /no longer active/);
-      assert.throws(() => void step.completedContext!.recordHeartbeat("late"), /no longer active/);
+      await assert.rejects(step.completedContext!.recordHeartbeat("late"), /no longer active/);
     }
     stream.call.write({ frame: { $case: "ping", value: {} } });
     await stream.frame("pong");
@@ -1184,4 +1184,53 @@ test("registration wait handles startup failure, cancellation, timeout, and defa
   const stopped = assert.rejects(pending.waitPullRegistered(), /stopped before registration/);
   await pending.close();
   await stopped;
+});
+
+test("Context heartbeat rejects without synchronous throws after its task stream closes", async () => {
+  class DisconnectedHeartbeatStep implements Step<string> {
+    public readonly inputCodec = stringCodec;
+    public context: AsyncContext | undefined;
+    public release!: () => void;
+    private readonly completion = new Promise<void>((resolve) => { this.release = resolve; });
+
+    public getStepType(): string { return "DisconnectedHeartbeatStep"; }
+
+    public async execute(context: AsyncContext, _input: string): Promise<StepDecision> {
+      this.context = context;
+      await this.completion;
+      return gracefulComplete();
+    }
+  }
+  const step = new DisconnectedHeartbeatStep();
+  const flow: Flow<string> = {
+    getFlowType: () => "DisconnectedHeartbeatFlow",
+    getSteps: () => StepList.startStep(step),
+  };
+  const hydrator = { hydrateAll: async (_flowId: string, values: readonly unknown[]) => values } as ValueHydrator;
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, () => 3);
+  const harness = await startHarness();
+  const worker = harness.workerWithDispatcher(dispatcher);
+  try {
+    worker.start();
+    const stream = await harness.nextStream();
+    stream.call.write(registered(false));
+    stream.call.write({ frame: { $case: "task", value: {
+      taskId: "disconnected-heartbeat", deadline: undefined,
+      request: { $case: "execute", value: InvokeExecuteMethodRequest.create({
+        context: ProtoContext.create({ flowId: "disconnected-flow", stepExecutionId: "step-1" }),
+        flowType: flow.getFlowType(), stepType: step.getStepType(), stepInput: encodeValue(stringCodec, "input"),
+      }) },
+    } } });
+    await until(() => step.context !== undefined);
+    stream.call.emit("error", { code: status.UNAVAILABLE, details: "stream closed" });
+    await until(() => step.context!.cancellationSignal.aborted);
+    let heartbeat: Promise<void> | undefined;
+    assert.doesNotThrow(() => { heartbeat = step.context!.recordHeartbeat("late"); });
+    assert.ok(heartbeat instanceof Promise);
+    await assert.rejects(heartbeat, Error);
+  } finally {
+    step.release();
+    await worker.close();
+    await harness.close();
+  }
 });

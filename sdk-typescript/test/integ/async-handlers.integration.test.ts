@@ -84,7 +84,9 @@ test("async RPC wakes a synchronous waiting Step on the same Worker", async () =
 });
 
 class AsyncTimeoutHandlerFlow extends SignalFlow {
-  public async handleTimeout(_context: Context): Promise<StepDecision> {
+  public async handleTimeout(context: Context): Promise<StepDecision> {
+    assert.ok(context.deadline instanceof Date);
+    assert.ok(context.deadline.getTime() > Date.now());
     await Promise.resolve();
     return forceComplete("expired");
   }
