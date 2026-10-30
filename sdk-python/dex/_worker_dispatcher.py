@@ -40,12 +40,12 @@ from dex.runtime_errors import InvalidStepResultError, ValueMappingError
 from dex.step import (
     DecisionKind,
     RetryPolicy,
-    Step,
     StepDecision,
     StepDurability,
     StepMovement,
     StepOptions,
     StepOutput,
+    StepTarget,
     WaitForFailurePolicy,
     _HeartbeatStepOutput,
     _StreamStepOutput,
@@ -846,7 +846,7 @@ class WorkerDispatcher:
     def _map_cancellation_steps(
         self,
         flow: _RegisteredFlow,
-        steps: tuple[type[Step[Any]], ...],
+        steps: tuple[StepTarget[Any], ...],
     ) -> list[str]:
         step_types: list[str] = []
         seen: set[str] = set()
@@ -902,9 +902,9 @@ class WorkerDispatcher:
     @staticmethod
     def _registered_movement_target(
         flow: _RegisteredFlow,
-        step: type[Step[Any]],
+        step: StepTarget[Any],
     ) -> _RegisteredStep:
-        return flow.step_class(step)
+        return flow.step_target(step)
 
     @staticmethod
     def _require_persistence_identity(

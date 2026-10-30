@@ -67,6 +67,7 @@ import {
 } from "./errors.js";
 import {
   registeredFlow,
+  registeredStepTarget,
   registeredRPC,
   registeredRPCFlow,
   registeredStream,
@@ -1110,10 +1111,7 @@ function mapStepOptions(
   const executeFailureStep = options?.executeFailure?.step;
   const executeFailureDefinition = executeFailureStep === undefined
     ? undefined
-    : flow.stepsByClass.get(executeFailureStep);
-  if (executeFailureStep !== undefined && executeFailureDefinition === undefined) {
-    throw new TypeError("execute failure Step must belong to the Flow");
-  }
+    : registeredStepTarget(flow, executeFailureStep);
   const executeFailureOptions =
     options?.executeFailure?.options ?? executeFailureDefinition?.step.getStepOptions?.();
   const waitForLoads = mapHandlerStateLoads(flow, {
@@ -1193,10 +1191,7 @@ function mapFlowTimeoutHandlerOptions(
   const failureStep = options.failure?.step;
   const failureDefinition = failureStep === undefined
     ? undefined
-    : flow.stepsByClass.get(failureStep);
-  if (failureStep !== undefined && failureDefinition === undefined) {
-    throw new TypeError("timeout handler failure Step must belong to the Flow");
-  }
+    : registeredStepTarget(flow, failureStep);
   if (failureDefinition !== undefined && failureDefinition.step.inputCodec !== voidCodec) {
     throw new TypeError("timeout handler failure Step must use voidCodec");
   }
