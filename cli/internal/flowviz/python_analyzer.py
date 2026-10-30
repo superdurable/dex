@@ -133,6 +133,35 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             if dex_root is not None:
                 self.error("dex_alias_rebinding", f"Dex name {dex_root} must not be modified", self.span(node))
 
+    def is_known_class_decorator(self, decorator):
+        # These return the decorated class itself and leave its methods in place.
+        if isinstance(decorator, ast.Call):
+            return self.imported_name(decorator.func) == "dataclasses.dataclass"
+        return self.imported_name(decorator) in {"typing.final", "typing_extensions.final", "dataclasses.dataclass"}
+
+    def is_known_method_decorator(self, decorator):
+        function = decorator.func if isinstance(decorator, ast.Call) else decorator
+        if self.is_dex_reference(function, "rpc"):
+            return True
+        if isinstance(decorator, ast.Name) and decorator.id in {"staticmethod", "classmethod"}:
+            return not any(decorator.id in bindings for bindings in self.scope_bindings.values())
+        return not isinstance(decorator, ast.Call) and self.imported_name(decorator) in {"typing.override", "typing_extensions.override", "typing.final", "typing_extensions.final"}
+
+    def imported_name(self, expression):
+        """Return the module-qualified name that expression reaches through an import, or None."""
+        if isinstance(expression, ast.Attribute):
+            module = self.imported_name(expression.value)
+            return f"{module}.{expression.attr}" if module else None
+        if not isinstance(expression, ast.Name):
+            return None
+        binding = self.static_binding(self.binding_scope(expression), expression.id)
+        statement = self.parents.get(binding)
+        if isinstance(binding, ast.alias) and isinstance(statement, ast.ImportFrom) and statement.level == 0:
+            return f"{statement.module}.{binding.name}"
+        if isinstance(binding, ast.alias) and isinstance(statement, ast.Import) and (binding.asname or "." not in binding.name):
+            return binding.name
+        return None
+
     def is_builtins_reference(self, node):
         # Builtins reach setattr, exec, and globals under names the checks above do not see.
         if isinstance(node, ast.Import):
@@ -172,7 +201,13 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                 self.error("dynamic_class", f"class {declaration.name} attributes can change through __dict__, vars, __setattr__, __delattr__, or __class__", self.span(declaration))
             if self.has_escaped_receiver(declaration):
                 self.error("dynamic_class", f"class {declaration.name} passes its receiver outside a field access or a local class constructor", self.span(declaration))
-            methods = [statement.name for statement in declaration.body if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            method_nodes = [statement for statement in declaration.body if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            decorators = [decorator for decorator in declaration.decorator_list if not self.is_known_class_decorator(decorator)]
+            decorators.extend(decorator for method in method_nodes for decorator in method.decorator_list if not self.is_known_method_decorator(decorator))
+            if decorators:
+                names = ", ".join(sorted({self.unparse(decorator) for decorator in decorators}))
+                self.error("dynamic_class", f"class {declaration.name} uses decorator {names}, which can replace the class or its methods", self.span(declaration))
+            methods = [method.name for method in method_nodes]
             stores = self.self_attribute_stores.get(declaration, {})
             reassigned = sorted({name for name in methods if name in stores or self.is_foreign_attribute(name)})
             if reassigned:

@@ -360,8 +360,10 @@ Step classes that extend other classes fail closed with blocking diagnostics.
 So do rebound Dex import or module names, wildcard imports, Flow or Step
 objects passed to functions outside a field access or local constructor,
 TypeScript computed-key writes, Python attribute-interception methods such as
-`__getattribute__`, and methods reassigned outside the class body. The analyzer
-does not follow objects into other modules.
+`__getattribute__`, methods reassigned outside the class body, and class or
+member decorators other than Dex `rpc`, `typing.final`, `dataclasses.dataclass`,
+`staticmethod`, `classmethod`, and `typing.override`. The analyzer does not
+follow objects into other modules.
 Decisions hidden in callbacks remain unsupported.
 
 TypeScript analysis loads the `typescript` package only from the source

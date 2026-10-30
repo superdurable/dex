@@ -235,6 +235,10 @@ func TestVisualizeScriptStepInstancesFailClosed(t *testing.T) {
 			{name: "decorated flow", isValid: false, code: "dynamic_step_target", edits: [][2]string{{"class StepInstancesFlow(Flow[str]):", "@replace_flow_fields\nclass StepInstancesFlow(Flow[str]):"}}},
 			{name: "Step self escapes to helper", isValid: false, code: "dynamic_type_name", edits: [][2]string{{"        destination = self.target\n", "        record_step(self)\n        destination = self.target\n"}}},
 			{name: "flow self passed to local class", isValid: true, code: "", edits: [][2]string{{"\n\nclass StepInstancesFlow", "\n\nclass FlowHolder:\n    def __init__(self, flow: object) -> None:\n        self.flow = flow\n\n\nclass StepInstancesFlow"}, {"    second = RoutedStep[str](\"Second\", FIRST, StepRef(\"Recovery\"))\n", "    second = RoutedStep[str](\"Second\", FIRST, StepRef(\"Recovery\"))\n\n    def __init__(self) -> None:\n        self.holder = FlowHolder(self)\n"}}},
+			{name: "decorated Step without field reads", isValid: false, code: "dynamic_class", edits: [][2]string{{"class RecoveryStep(Step[str]):", "@swap_step\nclass RecoveryStep(Step[str]):"}}},
+			{name: "decorated Step method", isValid: false, code: "dynamic_class", edits: [][2]string{{"    def get_step_type(self) -> str:\n        return \"Recovery\"", "    @swap_method\n    def get_step_type(self) -> str:\n        return \"Recovery\""}}},
+			{name: "final Step class", isValid: true, code: "", edits: [][2]string{{"from typing import Generic, TypeVar\n", "from typing import Generic, TypeVar, final\n"}, {"class RecoveryStep(Step[str]):", "@final\nclass RecoveryStep(Step[str]):"}}},
+			{name: "dataclass Step class without field reads", isValid: true, code: "", edits: [][2]string{{"from typing import Generic, TypeVar\n", "from dataclasses import dataclass\nfrom typing import Generic, TypeVar\n"}, {"class RecoveryStep(Step[str]):", "@dataclass\nclass RecoveryStep(Step[str]):"}}},
 		},
 		"typescript": {
 			{name: "unregistered instance same type", isValid: false, code: "unknown_step_target", edits: [][2]string{{"const first = new RoutedStep<string>(\"First\", new StepRef(\"Second\"), recovery);", "const first = new RoutedStep<string>(\"First\", new StepRef(\"Second\"), recovery);\nconst other = new RoutedStep<string>(\"Second\", new StepRef(\"First\"), recovery);"}, {"return goTo(destination, input);", "return goTo(other, input);"}}},
@@ -289,6 +293,8 @@ func TestVisualizeScriptStepInstancesFailClosed(t *testing.T) {
 			{name: "flow this escapes to helper", isValid: false, code: "dynamic_step_target", edits: [][2]string{{"  getFlowType(): string {", "  constructor() { configureFlow(this); }\n\n  getFlowType(): string {"}}},
 			{name: "decorated flow", isValid: false, code: "dynamic_step_target", edits: [][2]string{{"export class StepInstancesFlow", "@sealed\nexport class StepInstancesFlow"}}},
 			{name: "object literal method returns its own this", isValid: true, code: "", edits: [][2]string{{"const destination = this.target;", "const chain = {next() { return this; }}; void chain; const destination = this.target;"}}},
+			{name: "decorated Step without field reads", isValid: false, code: "dynamic_class", edits: [][2]string{{"class RecoveryStep implements Step<string> {", "@sealStep\nclass RecoveryStep implements Step<string> {"}}},
+			{name: "decorated Step method", isValid: false, code: "dynamic_class", edits: [][2]string{{"  getStepType(): string {\n    return \"Recovery\";", "  @swapMethod\n  getStepType(): string {\n    return \"Recovery\";"}}},
 		},
 	}
 	for _, language := range []string{"python", "typescript"} {

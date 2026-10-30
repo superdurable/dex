@@ -198,7 +198,7 @@ SDK 按对象身份解析实例目标。目标必须是已注册的那个对象�
 
 TypeScript 中使用计算键的写入（例如 **target[key] = value**）会让字段不可读取。例外情况是：键是字符串常量，或者对象是新建的对象字面量或数组字面量。与字段同名的 TypeScript getter 或 setter 同样会让该字段不可读取。
 
-Analyzer 只从 class 本身读取 Flow 和 Step 方法。Python Flow 或 Step class 如果定义了 **__getattr__**、**__getattribute__**、**__setattr__**、**__delattr__**、**__get__**、**__set__**、**__delete__**、**__set_name__**、**__new__**、**__init_subclass__** 或 **__class_getitem__**，会报告 **dynamic_class**。在两种语言中，在 class 之外重新赋值 Flow 或 Step 方法都会报告 **dynamic_class**。Python 的 **__dict__**、**vars**、**__setattr__** 和 **__class__** 赋值，以及 analyzer 无法解析的 TypeScript 反射写入或计算键写入，也会报告 **dynamic_class**。
+Analyzer 只从 class 本身读取 Flow 和 Step 方法。Python Flow 或 Step class 如果定义了 **__getattr__**、**__getattribute__**、**__setattr__**、**__delattr__**、**__get__**、**__set__**、**__delete__**、**__set_name__**、**__new__**、**__init_subclass__** 或 **__class_getitem__**，会报告 **dynamic_class**。在两种语言中，在 class 之外重新赋值 Flow 或 Step 方法都会报告 **dynamic_class**。Flow 或 Step class 及其成员上的装饰器也会报告该诊断，因为装饰器可以替换 class 或成员。例外情况是：Dex 的 **rpc** 装饰器、class 上的 Python **typing.final** 和 **dataclasses.dataclass**，以及方法上的 Python **staticmethod**、**classmethod** 和 **typing.override**。Python 的 **__dict__**、**vars**、**__setattr__** 和 **__class__** 赋值，以及 analyzer 无法解析的 TypeScript 反射写入或计算键写入，也会报告 **dynamic_class**。
 
 Analyzer 只通过 **dex** 或 **@superdurable/dex** 的导入识别 Dex API。在任何作用域中重新绑定 Dex 导入别名或 **dex** 模块名，都会报告 **dex_alias_rebinding**。为 Dex 导入的属性赋值也会报告该诊断。Python 中从任何模块进行通配符导入都会报告 **wildcard_import**，因为它可能重新绑定 Dex 名称。Python 的 **exec**、**eval**、**globals**、**locals** 和 **builtins** 模块会报告 **dynamic_python**。TypeScript 的 **eval** 和 **Function** 会报告 **dynamic_typescript**。
 

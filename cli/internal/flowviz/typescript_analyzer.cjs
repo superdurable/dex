@@ -207,10 +207,18 @@ class TypeScriptAnalyzer {
     for (const declaration of declarations) {
       const className = declaration.name?.text || "anonymous";
       if (this.hasDynamicFields || this.dynamicClasses.has(declaration)) this.error("dynamic_class",`class ${className} fields and methods can change through computed or reflective writes or an escaped this`,declaration);
+      const memberDecorators = declaration.members.flatMap(member => this.ts.getDecorators?.(member) || []).filter(decorator => !this.isDexRPCDecorator(decorator));
+      const decorators = [...(this.ts.getDecorators?.(declaration) || []),...memberDecorators];
+      if (decorators.length) this.error("dynamic_class",`class ${className} uses decorator ${[...new Set(decorators.map(decorator => decorator.expression.getText(this.tree)))].sort().join(", ")}, which can replace the class or its members`,declaration);
       const methods = declaration.members.filter(member => member.name && !this.isStatic(member) && (this.ts.isMethodDeclaration(member) || (this.ts.isPropertyDeclaration(member) && member.initializer && this.method(declaration,this.propertyName(member.name)) === this.unwrap(member.initializer))));
       const reassigned = [...new Set(methods.map(member => this.propertyName(member.name)))].filter(name => this.thisStores.get(declaration)?.has(name) || this.isForeignField(name)).sort();
       if (reassigned.length) this.error("dynamic_class",`class ${className} method ${reassigned.join(", ")} is reassigned outside the class body`,declaration);
     }
+  }
+
+  isDexRPCDecorator(decorator) {
+    const expression = this.unwrap(decorator.expression);
+    return this.dexName(this.ts.isCallExpression(expression) ? expression.expression : expression) === "rpc";
   }
 
   analyzeStep(stepName,nodeID,declaration) {
