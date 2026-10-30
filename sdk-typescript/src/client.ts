@@ -1112,9 +1112,6 @@ function mapStepOptions(
   const executeFailureDefinition = executeFailureStep === undefined
     ? undefined
     : registeredStepTarget(flow, executeFailureStep);
-  if (executeFailureStep !== undefined && executeFailureDefinition === undefined) {
-    throw new TypeError("execute failure Step must belong to the Flow");
-  }
   const executeFailureOptions =
     options?.executeFailure?.options ?? executeFailureDefinition?.step.getStepOptions?.();
   const waitForLoads = mapHandlerStateLoads(flow, {
@@ -1195,9 +1192,6 @@ function mapFlowTimeoutHandlerOptions(
   const failureDefinition = failureStep === undefined
     ? undefined
     : registeredStepTarget(flow, failureStep);
-  if (failureStep !== undefined && failureDefinition === undefined) {
-    throw new TypeError("timeout handler failure Step must belong to the Flow");
-  }
   if (failureDefinition !== undefined && failureDefinition.step.inputCodec !== voidCodec) {
     throw new TypeError("timeout handler failure Step must use voidCodec");
   }

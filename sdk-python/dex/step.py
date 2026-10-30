@@ -200,6 +200,10 @@ class StepOptions:
     ) -> StepOptions:
         """Return a copy that routes exhausted ``execute`` retries to another Step.
 
+        The fallback Step receives the failing Step's input, so Registry rejects a
+        fallback whose input type differs. The check is skipped for ``Any``,
+        ``object``, and unresolved TypeVar input types.
+
         Args:
             step: Fallback class, registered instance, or StepRef; validated at registration.
             options: Optional options applied to the fallback movement.
@@ -219,10 +223,13 @@ class StepRef:
     """Address a registered Step by its stable Step type without an implementation.
 
     Use this reference with go_to, StepMovement, failure routing, or cancellation.
-    It cannot execute or appear in a StepList. Registry validates declared failure
-    routes; handler-created movements and cancellation selections are checked when
-    returned. Unknown types raise FlowDefinitionError. Input is checked by the
-    destination's codec rather than inferred from the reference.
+    It cannot execute or appear in a StepList. The constructor never checks that the
+    Step type exists. Registry validates execute-failure routes declared by
+    get_step_options. Client validates timeout-handler failure routes when it maps
+    start options. A StepRef returned from a handler, in a movement or cancellation
+    selection, is validated only when the Worker applies that returned result.
+    Unknown types raise FlowDefinitionError. Input is checked by the destination's
+    codec rather than inferred from the reference.
 
     Attributes:
         step_type: Non-empty Step type returned by the destination's get_step_type.
@@ -249,23 +256,11 @@ class Step(Generic[InputT], ABC):
     must remain deterministic with respect to their inputs and Context state; external
     side effects belong behind idempotent application integrations.
 
-    Attributes:
-        input_type: Optional per-instance codec type override for both handlers.
-
     Examples:
         >>> class Charge(Step[ChargeInput]):
         ...     def execute(self, context: Context, input: ChargeInput) -> StepDecision:
         ...         status.set(context, "charged")
         ...         return graceful_complete(input.order_id)
-    """
-
-    input_type: object | None = None
-    """Input type override resolved through the Registry's CodecRegistry.
-
-    Set this on each instance of a generic Step to replace its input annotations
-    for both execute and wait_for. None preserves annotation inference. Use
-    type(None) for an input with no value. Context and return annotations remain
-    required. An unsupported type raises FlowDefinitionError during registration.
     """
 
     @abstractmethod
@@ -326,6 +321,43 @@ class Step(Generic[InputT], ABC):
             A non-empty name unique within the containing Flow.
         """
         return type(self).__name__
+
+    def get_input_type(self) -> object | None:
+        """Return the input type that overrides this Step's handler annotations.
+
+        Override it in a generic Step whose input annotation is a TypeVar, so each
+        registered instance can declare its concrete input type. Registry calls it
+        during registration and resolves the returned type through its
+        CodecRegistry for both ``execute`` and ``wait_for``. Return ``type(None)``
+        for a Step that receives no input value. Context and return annotations
+        remain required.
+
+        Returns:
+            The input type for this instance, or ``None`` to infer it from the
+            handler input annotations. The default returns ``None``.
+
+        Raises:
+            FlowDefinitionError: Raised by Registry, not by this method, when the
+                CodecRegistry has no codec for the returned type.
+
+        Examples:
+            >>> class Relay(Step[InputT], Generic[InputT]):
+            ...     def __init__(self, step_type: str, input_type: type[InputT]) -> None:
+            ...         self._step_type = step_type
+            ...         self._input_type = input_type
+            ...
+            ...     def get_step_type(self) -> str:
+            ...         return self._step_type
+            ...
+            ...     def get_input_type(self) -> object | None:
+            ...         return self._input_type
+            ...
+            ...     def execute(self, context: Context, input: InputT) -> StepDecision:
+            ...         return graceful_complete(input)
+            >>> numbers = Relay("RelayNumber", int)
+            >>> texts = Relay("RelayText", str)
+        """
+        return None
 
     def get_step_options(self) -> StepOptions | None:
         """Return this Step's static execution options.
@@ -420,6 +452,9 @@ class StepList(Generic[StartT]):
 class StepMovement(Generic[InputT]):
     """Schedule one registered Step with typed input and optional options.
 
+    Code that reads ``step`` must narrow it before using class members, because it
+    may hold a class, a registered instance, or a StepRef.
+
     Attributes:
         step: Destination class, registered instance, or StepRef in this Flow.
         input: The value decoded by the destination Step's input codec.
@@ -438,6 +473,10 @@ class StepMovement(Generic[InputT]):
         options: StepOptions | None = None,
     ) -> StepMovement[InputT]:
         """Create a typed movement to a Step.
+
+        The Worker validates the target when it applies the handler result that
+        returns this movement. An unknown StepRef, ambiguous class, or unregistered
+        instance raises FlowDefinitionError at that point.
 
         Args:
             step: Destination class, registered instance, or StepRef. A class must be unambiguous.
@@ -476,8 +515,10 @@ class StepDecision:
         reason: Human-readable force-failure reason.
         empty_channels: Channels that must be empty for conditional completion.
         fallback: Movement used when conditional completion cannot proceed.
-        canceling_steps: Flow-wide Step type cancellation selectors.
-        canceling_sibling_steps: Same-source Step type cancellation selectors.
+        canceling_steps: Flow-wide Step type cancellation selectors. Each entry is a
+            class, registered instance, or StepRef; narrow it before use.
+        canceling_sibling_steps: Same-source Step type cancellation selectors with
+            the same entry types as ``canceling_steps``.
     """
 
     kind: DecisionKind
@@ -498,6 +539,8 @@ class StepDecision:
         Dex resolves one snapshot after this Execute succeeds. Finished, already-canceled,
         and absent executions are no-ops. Steps scheduled by this decision are excluded.
         Repeated calls take the union, and Flow-wide selection supersedes sibling selection.
+        The Worker validates each target when it applies the returned decision. An
+        invalid target raises FlowDefinitionError at that point.
 
         Args:
             *steps: Registered instances, StepRef values, or unambiguous Step classes.
@@ -521,7 +564,7 @@ class StepDecision:
         """Return a decision canceling selected same-source Step executions.
 
         A sibling has the same ``Context.from_step_execution_id`` as the execution
-        returning this decision. Snapshot and no-op behavior match
+        returning this decision. Snapshot, no-op, and validation behavior match
         ``with_canceling_steps``. Flow-wide selection wins for the same Step type.
 
         Args:
@@ -553,6 +596,10 @@ def _union_steps(
 def go_to(step: StepTarget[InputT], input: InputT) -> StepDecision:
     """Create a decision that schedules one next Step.
 
+    The Worker validates the target when it applies the returned decision. An
+    unknown StepRef, ambiguous class, or unregistered instance raises
+    FlowDefinitionError at that point, not when this function is called.
+
     Args:
         step: Destination class, registered instance, or StepRef. A class must be unambiguous.
         input: A value compatible with the destination input annotation.
@@ -565,6 +612,9 @@ def go_to(step: StepTarget[InputT], input: InputT) -> StepDecision:
 
 def go_to_many(*movements: StepMovement[Any]) -> StepDecision:
     """Create a decision that schedules several next Steps.
+
+    The Worker validates each movement target when it applies the returned decision,
+    as described for ``go_to``.
 
     Args:
         *movements: Typed destination movements applied in argument order.

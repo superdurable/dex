@@ -6,6 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import {
+  booleanCodec, bytesCodec, doubleCodec, int64Codec, stringCodec, voidCodec, type Codec,
+} from "./codec.js";
 import { AttributeMap, IndexType, type Attribute, type PersistenceSchema } from "./persistence.js";
 import { IndexType as ProtoIndexType } from "./gen/dex.js";
 import { FlowDefinitionError } from "./errors.js";
@@ -208,7 +211,9 @@ export function registeredStepTarget(
   }
   const registered = flow.steps.find((candidate) => candidate.step === target);
   if (registered === undefined) {
-    throw new FlowDefinitionError(`Flow ${flow.name} Step instance is not registered`);
+    throw new FlowDefinitionError(
+      `Flow ${flow.name} Step instance is not registered: ${target.constructor.name} ${target.getStepType()}`,
+    );
   }
   return registered;
 }
@@ -379,13 +384,19 @@ function doRegisterFlow(
     streams: new Set(schema.streams ?? []),
   });
   for (const registeredStep of steps) {
-    validateStepTargets(registeredFlow, registeredStep.step.getStepOptions?.(), new Set());
+    validateStepTargets(
+      registeredFlow,
+      registeredStep,
+      registeredStep.step.getStepOptions?.(),
+      new Set(),
+    );
   }
   return registeredFlow;
 }
 
 function validateStepTargets(
   flow: RegisteredFlow,
+  source: RegisteredStep,
   options: StepOptions | undefined,
   visited: Set<StepOptions>,
 ): void {
@@ -393,10 +404,37 @@ function validateStepTargets(
     return;
   }
   visited.add(options);
-  if (options.executeFailure !== undefined) {
-    registeredStepTarget(flow, options.executeFailure.step);
-    validateStepTargets(flow, options.executeFailure.options, visited);
+  if (options.executeFailure === undefined) {
+    return;
   }
+  const target = registeredStepTarget(flow, options.executeFailure.step);
+  const sourceCodec = source.step.inputCodec;
+  const targetCodec = target.step.inputCodec;
+  if (!isInputCodecCompatible(sourceCodec, targetCodec)) {
+    throw new FlowDefinitionError(
+      `Flow ${flow.name} Step ${source.name} execute failure target ${target.name} input ${targetCodec?.typeName} does not match ${sourceCodec?.typeName}`,
+    );
+  }
+  // Nested failure options apply to the fallback Step, as in the Go SDK.
+  validateStepTargets(flow, target, options.executeFailure.options, visited);
+}
+
+const builtInScalarInputCodecs: ReadonlySet<Codec<any>> = new Set<Codec<any>>([
+  stringCodec, booleanCodec, int64Codec, doubleCodec, bytesCodec, voidCodec,
+]);
+
+function isInputCodecCompatible(
+  sourceCodec: Codec<any> | undefined,
+  targetCodec: Codec<any> | undefined,
+): boolean {
+  // Only built-in scalar codecs identify a type; other codec objects may be equivalent copies.
+  if (
+    sourceCodec === undefined || targetCodec === undefined ||
+    !builtInScalarInputCodecs.has(sourceCodec) || !builtInScalarInputCodecs.has(targetCodec)
+  ) {
+    return true;
+  }
+  return sourceCodec === targetCodec;
 }
 
 function validateRPCStateLoads(

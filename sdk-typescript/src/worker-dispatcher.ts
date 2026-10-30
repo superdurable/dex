@@ -596,9 +596,6 @@ function mapCancellationSteps(
   const seen = new Set<string>();
   for (const step of steps ?? []) {
     const target = registeredStepTarget(flow, step);
-    if (target === undefined) {
-      throw new TypeError("cancellation Step must belong to the Flow");
-    }
     if (seen.has(target.name)) {
       continue;
     }
@@ -636,9 +633,6 @@ function mapMovements(
 
 function mapMovement(flow: RegisteredFlow, movement: StepMovement<any>): ProtoStepMovement {
   const target = registeredStepTarget(flow, movement.step);
-  if (target === undefined) {
-    throw new TypeError("Step movement target does not belong to Flow");
-  }
   return ProtoStepMovement.create({
     stepType: target.name,
     stepInput: encodeValue(codecOrJson(target.step.inputCodec), movement.input),
@@ -659,9 +653,6 @@ function mapStepOptions(
   const failureDefinition = failureTarget === undefined
     ? undefined
     : registeredStepTarget(flow, failureTarget);
-  if (failureTarget !== undefined && failureDefinition === undefined) {
-    throw new TypeError("execute failure Step must belong to the Flow");
-  }
   const failureOptions = options?.executeFailure?.options ?? failureDefinition?.step.getStepOptions?.();
   const waitForLoads = mapHandlerStateLoads(flow, {
     attributeMaps: options?.waitForLoadAttributeMaps,
@@ -912,9 +903,6 @@ function mapFlowTimeoutHandlerOptions(
   const failureDefinition = failureStep === undefined
     ? undefined
     : registeredStepTarget(flow, failureStep);
-  if (failureStep !== undefined && failureDefinition === undefined) {
-    throw new TypeError("timeout handler failure Step must belong to the Flow");
-  }
   if (failureDefinition !== undefined && failureDefinition.step.inputCodec !== voidCodec) {
     throw new TypeError("timeout handler failure Step must use voidCodec");
   }

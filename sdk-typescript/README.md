@@ -156,20 +156,27 @@ Flows without a start input.
 
 Steps are registered by `getStepType()`. Multiple instances of one class may
 return different Step types in the same Flow; duplicate Step types fail
-registration. `goTo`, `StepMovement.of`, `ExecuteFailure.proceedTo`, and decision
-or RPC cancellation selections accept a registered instance,
-`new StepRef("StepType")`, or a class. A class must have exactly one registered
-instance; otherwise select an instance or use StepRef. Instances must belong to
-the containing Flow. Each instance retains its own `inputCodec`, so a generic
-class can handle different input types in the same Flow.
+registration. `goTo`, `StepMovement.of`, `ExecuteFailure.proceedTo`,
+`FlowTimeoutHandlerFailure.proceedTo`, and decision or RPC cancellation
+selections accept a registered instance, `new StepRef("StepType")`, or a class.
+A class must have exactly one registered instance; otherwise select an instance
+or use StepRef. Instances match by identity and must belong to the containing
+Flow, so a new instance of a registered class is rejected. Each instance retains
+its own `inputCodec`, so a generic class can handle different input types in the
+same Flow.
 
-Registry validates declared execute-failure targets during construction.
-Handler-created movements and cancellation selections are checked when returned;
-unknown Step types and ambiguous classes raise `FlowDefinitionError` during
-registration or `InvalidStepResultError` for handler decisions. Errors include
-the Flow and target details. StepRef contains only a Step type and cannot execute
-or appear in a StepList. Its input is checked by the destination codec at runtime. See the
-runnable [generic Step instances test](test/integ/step-instances-flow.ts).
+Registry validates declared execute-failure targets during construction. It also
+rejects an execute-failure target whose built-in scalar input codec, such as
+`stringCodec` or `doubleCodec`, differs from the failing Step's. It skips this
+check when either Step omits `inputCodec` or uses any other codec. Timeout-handler
+failure targets are validated when Flow start options are mapped.
+Handler-created movements and cancellation selections, including StepRef
+targets, are validated when the Worker applies the returned result; unknown Step
+types and ambiguous classes raise `FlowDefinitionError` during registration or
+start, and `InvalidStepResultError` for handler results. Errors include the Flow
+and target details. StepRef contains only a Step type and cannot execute or
+appear in a StepList. Its input is checked by the destination codec at runtime.
+See the runnable [generic Step instances test](test/integ/step-instances-flow.ts).
 
 `Worker.start()` synchronizes every registered Indexed Attribute with Dex
 Server before opening task streams. Existing indexes

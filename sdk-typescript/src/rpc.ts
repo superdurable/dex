@@ -23,7 +23,13 @@ export interface RPCResult<Output> {
   readonly output: Output;
   /** Step movements applied atomically with handler persistence writes. */
   readonly nextSteps?: readonly StepMovement<any>[];
-  /** Registered Step types canceled before `nextSteps` are scheduled. */
+  /**
+   * Registered Step types canceled before `nextSteps` are scheduled.
+   *
+   * Entries are classes, registered instances, or StepRef values; narrow them before use.
+   * The Worker validates them when it applies this result. An invalid target fails the
+   * RPC with InvalidStepResultError.
+   */
   readonly cancelingSteps?: readonly StepTarget<any>[];
 }
 

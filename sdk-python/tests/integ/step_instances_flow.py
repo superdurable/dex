@@ -10,7 +10,8 @@
 
 from __future__ import annotations
 
-from typing import Callable, Generic, TypeVar
+from datetime import timedelta
+from typing import Any, Callable, Generic, TypeVar
 
 from dex import (
     Context,
@@ -23,7 +24,9 @@ from dex import (
     StepOptions,
     StepRef,
     StepTarget,
+    Timer,
     Wait,
+    force_complete,
     go_to,
     go_to_many,
     graceful_complete,
@@ -40,11 +43,14 @@ class TypedInstanceStep(Step[InputT], Generic[InputT]):
         decide: Callable[[InputT], StepDecision],
     ) -> None:
         self._step_type = step_type
-        self.input_type = input_type
+        self._input_type = input_type
         self._decide = decide
 
     def get_step_type(self) -> str:
         return self._step_type
+
+    def get_input_type(self) -> object | None:
+        return self._input_type
 
     def wait_for(self, context: Context, input: InputT) -> Wait:
         return Wait.skip_immediately()
@@ -109,3 +115,61 @@ class InstanceRecoveryFlow(Flow[None]):
     def _complete(self, input: None) -> StepDecision:
         assert input is None
         return graceful_complete("recovered")
+
+
+class NumberFailureRecoveryFlow(Flow[int]):
+    def __init__(self, recovery_input_type: object) -> None:
+        self.recovery = TypedInstanceStep[Any](
+            "Recovery", recovery_input_type, graceful_complete
+        )
+        self.failure = FailingNumberStep(self.recovery)
+
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.failure).other_steps(self.recovery)
+
+
+class FailingNumberStep(Step[int]):
+    def __init__(self, target: StepTarget[Any]) -> None:
+        self._target = target
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_retry=RetryPolicy(maximum_attempts=1)
+        ).on_execute_failure_proceed_to(self._target)
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        raise RuntimeError("route exhausted execution to recovery")
+
+
+class AwaitTimeoutStep(Step[None]):
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.until(Timer.by_duration(timedelta(minutes=5)))
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete("timer fired")
+
+
+class TimeoutInstanceRecoveryFlow(Flow[None]):
+    def __init__(self) -> None:
+        self.waiting = AwaitTimeoutStep()
+        self.recovery = TypedInstanceStep[None](
+            "TimeoutRecovery", type(None), self._recover
+        )
+        self.alternate = TypedInstanceStep[None](
+            "AlternateRecovery", type(None), self._alternate
+        )
+
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.waiting).other_steps(
+            self.recovery, self.alternate
+        )
+
+    def handle_timeout(self, context: Context) -> StepDecision:
+        raise RuntimeError("route exhausted timeout handling to recovery")
+
+    def _recover(self, input: None) -> StepDecision:
+        assert input is None
+        return force_complete("recovered")
+
+    def _alternate(self, input: None) -> StepDecision:
+        return force_complete("alternate")

@@ -9,12 +9,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { Registry, StepRef, StepList, doubleCodec, goTo, type StepTarget } from "../src/index.js";
+import {
+  Registry, StepRef, StepList, doubleCodec, goTo, jsonCodec, stringCodec, type StepTarget,
+} from "../src/index.js";
 import { Context as ProtoContext, InvokeExecuteMethodRequest } from "../src/gen/dex.js";
 import { encodeValue, type ValueHydrator } from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
 import { registeredFlow, registeredStepTarget } from "../src/flow.js";
-import { FailingInstanceStep, StepInstancesFlow, TypedInstanceStep } from "./integ/step-instances-flow.js";
+import {
+  FailingInstanceStep, NumberFailureRecoveryFlow, StepInstancesFlow, TypedInstanceStep,
+} from "./integ/step-instances-flow.js";
 
 test("Registry rejects duplicate Step types", () => {
   class DuplicateTypesFlow extends StepInstancesFlow {
@@ -37,12 +41,21 @@ for (const target of [new StepRef("Missing"), TypedInstanceStep]) {
   });
 }
 
+test("Registry rejects an execute failure target with a different built-in input codec", () => {
+  assert.throws(
+    () => new Registry([new NumberFailureRecoveryFlow(stringCodec)]),
+    /execute failure target Recovery input string does not match number/,
+  );
+  new Registry([new NumberFailureRecoveryFlow(doubleCodec)]);
+  new Registry([new NumberFailureRecoveryFlow(jsonCodec({ typeName: "Number" }))]);
+});
+
 test("runtime target resolution rejects unknown, ambiguous, and unregistered instances", () => {
   const flow = new StepInstancesFlow();
   const registered = registeredFlow(new Registry([flow]), flow);
   assert.throws(() => registeredStepTarget(registered, new StepRef("Missing")), /not registered: Missing/);
   assert.throws(() => registeredStepTarget(registered, TypedInstanceStep), /ambiguous/);
-  assert.throws(() => registeredStepTarget(registered, new StepInstancesFlow().numbers), /instance is not registered/);
+  assert.throws(() => registeredStepTarget(registered, new StepInstancesFlow().numbers), /instance is not registered: TypedInstanceStep Numbers/);
   assert.equal(registeredStepTarget(registered, flow.numbers).name, "Numbers");
   assert.equal(registeredStepTarget(registered, new StepRef("Strings")).name, "Strings");
 });

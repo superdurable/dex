@@ -9,7 +9,7 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 import {
-  ExecuteFailure, StepList, StepMovement, StepRef, Wait, goTo, goToMany,
+  ExecuteFailure, StepList, StepMovement, StepRef, Timer, Wait, forceComplete, goTo, goToMany,
   gracefulComplete, doubleCodec, stringCodec, voidCodec,
   withCancelingSteps, withCancelingSiblingSteps,
   type Codec, type Context, type Flow, type Step, type StepDecision,
@@ -85,5 +85,63 @@ export class InstanceRecoveryFlow implements Flow<void> {
   private complete(input: void): StepDecision {
     if (input !== undefined) throw new TypeError("expected no recovery input");
     return gracefulComplete("recovered");
+  }
+}
+
+export class FailingNumberStep implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+  public constructor(private readonly target: StepTarget<any>) {}
+  public getStepType(): string { return "FailingNumberStep"; }
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: { maximumAttempts: 1 },
+      executeFailure: ExecuteFailure.proceedTo(this.target),
+    };
+  }
+  public execute(_context: Context, _input: number): StepDecision {
+    throw new Error("route exhausted execution to recovery");
+  }
+}
+
+export class NumberFailureRecoveryFlow implements Flow<number> {
+  private readonly recovery: TypedInstanceStep<any>;
+  private readonly failure: FailingNumberStep;
+  public constructor(recoveryInputCodec: Codec<any>) {
+    this.recovery = new TypedInstanceStep("Recovery", recoveryInputCodec, gracefulComplete);
+    this.failure = new FailingNumberStep(this.recovery);
+  }
+  public getFlowType(): string { return "NumberFailureRecoveryFlow"; }
+  public getSteps(): StepList<number> {
+    return StepList.startStep(this.failure).otherSteps(this.recovery);
+  }
+}
+
+class AwaitTimeoutStep implements Step<void> {
+  public readonly inputCodec = voidCodec;
+  public getStepType(): string { return "AwaitTimeoutStep"; }
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.until(Timer.byDuration(300_000));
+  }
+  public execute(_context: Context, _input: void): StepDecision {
+    return gracefulComplete("timer fired");
+  }
+}
+
+export class TimeoutInstanceRecoveryFlow implements Flow<void> {
+  public readonly recovery = new TypedInstanceStep("TimeoutRecovery", voidCodec, this.recover);
+  private readonly waiting = new AwaitTimeoutStep();
+  private readonly alternate = new TypedInstanceStep(
+    "AlternateRecovery", voidCodec, () => forceComplete("alternate"),
+  );
+  public getFlowType(): string { return "TimeoutInstanceRecoveryFlow"; }
+  public getSteps(): StepList<void> {
+    return StepList.startStep(this.waiting).otherSteps(this.recovery, this.alternate);
+  }
+  public handleTimeout(_context: Context): StepDecision {
+    throw new Error("route exhausted timeout handling to recovery");
+  }
+  private recover(input: void): StepDecision {
+    if (input !== undefined) throw new TypeError("expected no recovery input");
+    return forceComplete("recovered");
   }
 }

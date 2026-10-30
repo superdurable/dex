@@ -14,8 +14,12 @@ from typing import Any, cast
 import pytest
 
 from dex import (
+    CodecRegistry,
     FlowDefinitionError,
+    FlowTimeoutHandlerOptions,
     Registry,
+    RetryPolicy,
+    StartFlowOptions,
     StepDecision,
     StepList,
     StepRef,
@@ -32,7 +36,9 @@ from .shared import unique_id
 from .step_instances_flow import (
     FailingInstanceStep,
     InstanceRecoveryFlow,
+    NumberFailureRecoveryFlow,
     StepInstancesFlow,
+    TimeoutInstanceRecoveryFlow,
     TypedInstanceStep,
 )
 
@@ -55,6 +61,45 @@ def test_execute_failure_routes_by_instance_or_reference(reference: bool) -> Non
         environment.client.start_flow(flow, flow_id, None)
         result = environment.client.wait_for_flow(flow_id, timedelta(seconds=30))
         assert result.single_output(str) == "recovered"
+
+
+@pytest.mark.parametrize("reference", [False, True])
+def test_timeout_handler_failure_routes_by_instance_or_reference(
+    reference: bool,
+) -> None:
+    flow = TimeoutInstanceRecoveryFlow()
+    recovery: StepTarget[None] = (
+        StepRef("TimeoutRecovery") if reference else flow.recovery
+    )
+    with DexDevTestEnvironment(flow) as environment:
+        flow_id = unique_id("timeout-instance-recovery")
+        environment.client.start_flow(
+            flow,
+            flow_id,
+            None,
+            StartFlowOptions(
+                timeout=timedelta(seconds=2),
+                timeout_handler_options=FlowTimeoutHandlerOptions(
+                    retry=RetryPolicy(maximum_attempts=1)
+                ).on_failure_proceed_to(recovery),
+            ),
+        )
+        result = environment.client.wait_for_flow(flow_id, timedelta(seconds=30))
+        assert result.single_output(str) == "recovered"
+
+
+def test_registration_rejects_mismatched_execute_failure_input() -> None:
+    with pytest.raises(
+        FlowDefinitionError,
+        match="execute failure target Recovery input <class 'str'> does not match",
+    ):
+        Registry((NumberFailureRecoveryFlow(str),))
+    Registry((NumberFailureRecoveryFlow(int),))
+    codecs = CodecRegistry()
+    Registry(
+        (NumberFailureRecoveryFlow(Any),),
+        CodecRegistry({Any: codecs.resolve(int)}),
+    )
 
 
 def test_registration_rejects_duplicate_step_types() -> None:
@@ -89,7 +134,10 @@ def test_runtime_targets_reject_unknown_ambiguous_and_unregistered_instances() -
     with pytest.raises(FlowDefinitionError, match="ambiguous"):
         registered.step_target(TypedInstanceStep)
     other_flow = StepInstancesFlow()
-    with pytest.raises(FlowDefinitionError, match="instance is not registered"):
+    with pytest.raises(
+        FlowDefinitionError,
+        match="instance is not registered: TypedInstanceStep Numbers",
+    ):
         registered.step_target(other_flow.numbers)
     assert registered.step_target(flow.numbers).name == "Numbers"
     assert registered.step_target(StepRef("Strings")).name == "Strings"

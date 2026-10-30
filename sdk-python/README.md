@@ -471,23 +471,31 @@ Applications implement two generic interfaces from [`dex`](dex/):
 Steps are registered by `get_step_type()`, which defaults to the class name.
 Multiple instances of one class may return different Step types in the same Flow.
 A duplicate Step type fails registration. `go_to`, `StepMovement.of`,
-`StepOptions.on_execute_failure_proceed_to`, and decision or RPC cancellation
-selections accept a registered instance, `StepRef("StepType")`, or a class.
-A class must have exactly one registered instance; otherwise select an instance
-or use `StepRef`. Instances must belong to the containing Flow.
+`StepOptions.on_execute_failure_proceed_to`,
+`FlowTimeoutHandlerOptions.on_failure_proceed_to`, and decision or RPC
+cancellation selections accept a registered instance, `StepRef("StepType")`, or
+a class. A class must have exactly one registered instance; otherwise select an
+instance or use `StepRef`. Instances match by identity and must belong to the
+containing Flow, so a new instance of a registered class is rejected.
 
 Declared execute-failure targets are validated when the Registry is constructed.
-Handler-created movements and cancellation selections are validated when returned;
-unknown Step types and ambiguous classes raise `FlowDefinitionError` with the Flow
-and target details. StepRef contains only a Step type and cannot execute or be
-registered in a StepList. Its input is checked by the destination codec at runtime.
+The Registry also rejects an execute-failure target whose input type differs from
+the failing Step's input type. It skips this check when either type is `Any`,
+`object`, or an unresolved TypeVar. Timeout-handler failure targets are validated
+when Flow start options are mapped. Handler-created movements and cancellation
+selections, including StepRef targets, are validated when the Worker applies the
+returned decision; unknown Step types and ambiguous classes raise
+`FlowDefinitionError` with the Flow and target details. StepRef contains only a
+Step type and cannot execute or be registered in a StepList. Its input is checked
+by the destination codec at runtime.
 
-For a generic Step whose input annotation is a TypeVar, set `input_type` on each
-instance to a concrete type supported by `CodecRegistry`. The override takes
-precedence over both `execute` and `wait_for` input annotations; Context and return
-annotations are still required. `None` preserves annotation inference; use
-`type(None)` for a Step that accepts no input. The Registry resolves the override
-through its codec registrations, so custom codecs work too. See the runnable
+For a generic Step whose input annotation is a TypeVar, override
+`get_input_type()` to return a concrete type supported by `CodecRegistry`. The
+override takes precedence over both `execute` and `wait_for` input annotations;
+Context and return annotations are still required. The default returns `None`,
+which preserves annotation inference; return `type(None)` for a Step that accepts
+no input. The Registry resolves the type through its codec registrations, so
+custom codecs work too. See the runnable
 [generic Step instances test](tests/integ/step_instances_flow.py), which registers
 integer and string instances and routes to both by instance and StepRef.
 
