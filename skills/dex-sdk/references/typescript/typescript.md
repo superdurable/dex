@@ -61,6 +61,13 @@ run `dexcli visualize SOURCE --schema-version 2.0`. Follow the Core
 [FDG 2.0 guidance](../core/operations.md#fdg-20-management-metadata) for Connector
 package manifests.
 
+`dexcli visualize` and `--lint app` (cli-v1.28.1) accept several instances of one
+Step class and `new StepRef("Type")` with a string literal or the registered Step object as a
+movement, failure-routing, or cancellation target. They reject computed Step
+types, unknown names, ambiguous class targets, and a Step object that escapes
+into other code. Keep Step objects in the Flow file. See the
+[Flow visualization reference](https://docs.superdurable.io/references/flow-visualization).
+
 ## Minimal Flow
 
 [Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-typescript/v1.28.0/examples/typescript/src/primitives/flow/example-flow.ts)

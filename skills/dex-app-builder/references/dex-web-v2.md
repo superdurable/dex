@@ -1,6 +1,6 @@
 # Dex Web v2 and FDG 2.0
 
-Reference capability baselines: Dex Web `web/v1.28.0`, `cli-v1.28.0`, the
+Reference capability baselines: Dex Web `web/v1.28.0`, `cli-v1.28.1`, the
 server-zd release it bundles, and the SDK source baseline in
 [bundle-baselines.md](../../dex-sdk/references/core/bundle-baselines.md).
 These validate the guidance, not an instruction to upgrade an application.
