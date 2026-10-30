@@ -5,7 +5,7 @@
 ### Added and fixed
 
 - Add `Context.deadline`, an absolute UTC Date for the current Step method attempt; RPC handlers return `undefined`.
-- Make `AsyncContext.recordHeartbeat` reject its returned Promise for every failure, including inactive tasks and closed streams, instead of throwing synchronously.
+- Make `AsyncContext.recordHeartbeat` reject its returned Promise for every failure, including inactive tasks and closed streams, instead of throwing synchronously. A caller that does not await or catch the Promise now sees an unhandled rejection, which terminates a Node.js process by default; await `recordHeartbeat` or attach a rejection handler.
 
 ### Breaking change
 
