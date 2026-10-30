@@ -10,6 +10,9 @@ import ast
 import json
 import sys
 
+# Each of these builtins can run code or read and write attributes by computed name.
+DYNAMIC_BUILTIN_CALLS = {"getattr", "setattr", "delattr", "__import__", "import_module", "exec", "eval", "globals", "locals"}
+
 
 class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
     def __init__(self, path, source):
@@ -119,8 +122,11 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                     if not self.is_dex_module_import(binding, alias):
                         self.error("dex_alias_rebinding", f"Dex module alias {alias} must not be rebound", self.span(binding))
         for node in ast.walk(self.tree):
-            if isinstance(node, ast.Call) and self.symbol(node.func) in {"getattr", "setattr", "__import__", "import_module", "exec", "eval", "globals", "locals"}:
+            if isinstance(node, ast.Call) and self.symbol(node.func) in DYNAMIC_BUILTIN_CALLS:
                 self.error("dynamic_python", f"{self.symbol(node.func)} is not supported in Flow source", self.span(node))
+                self.add_node({"id": f"unknown:python:{node.lineno}", "kind": "unknown", "name": "Dynamic Python", "span": self.span(node)})
+            if self.is_dynamic_builtin_value(node):
+                self.error("dynamic_python", f"{node.id} is not supported as a value in Flow source", self.span(node))
                 self.add_node({"id": f"unknown:python:{node.lineno}", "kind": "unknown", "name": "Dynamic Python", "span": self.span(node)})
             if isinstance(node, ast.ClassDef) and any(keyword.arg == "metaclass" for keyword in node.keywords):
                 self.error("dynamic_class", f"class {node.name} uses a metaclass", self.span(node))
@@ -172,6 +178,13 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         if isinstance(binding, ast.alias) and isinstance(statement, ast.Import) and (binding.asname or "." not in binding.name):
             return binding.name
         return None
+
+    def is_dynamic_builtin_value(self, node):
+        # An alias or a callback argument calls these builtins where the call checks cannot see it.
+        if not isinstance(node, ast.Name) or not isinstance(node.ctx, ast.Load) or self.symbol(node) not in DYNAMIC_BUILTIN_CALLS | {"vars"}:
+            return False
+        parent = self.parents.get(node)
+        return not (isinstance(parent, ast.Call) and parent.func is node)
 
     def is_builtins_reference(self, node):
         # Builtins reach setattr, exec, and globals under names the checks above do not see.
