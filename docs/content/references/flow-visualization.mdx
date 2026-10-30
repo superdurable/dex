@@ -117,7 +117,7 @@ The TypeScript analyzer does not support these features yet:
 
 An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Java, Rust, and recursive multi-file analysis are not included.
 
-Version 1 does not support multiple Flows in one file, reflection, dynamic classes, wildcard Dex imports, getattr-based targets, monkeypatching, or movement collections that escape the handler.
+Version 1 does not support multiple Flows in one file, reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, or movement collections that escape the handler.
 
 Version 2.0 retains every Version 1 field and requires Step groups and explanations in the same file. Named directive parameters can appear in any order within a line. Multiple directive lines keep source order, which becomes UI order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. The Go analyzer also reads Indexed Attributes, Summary, Display, Actions, and start-input schemas. See [Dex Web](/production/dex-web) for those rules.
 
@@ -165,7 +165,7 @@ For Go, the default name is the Go type name without its package or pointer. A F
 
 Name each Flow type after its domain, such as **ApprovalFlow** or **ReplyFlow**. Do not name a Flow type just **Flow**. The package is not part of the name, so every Flow registered with one Worker needs a different type name. Dex Web, run history, and Flow searches show the name as written.
 
-A generic Flow or Step type has no default name. Declare a **GetFlowType** or **GetStepType** override that returns a non-empty name.
+For Go, a generic Flow or Step type has no default name. Declare a **GetFlowType** or **GetStepType** override that returns a non-empty name.
 
 A **GetFlowType** or **GetStepType** override can be declared in any file of the package or promoted from an embedded type, including one from another package. Every return statement in the override must return the same compile-time string. An empty string keeps the default name. Dex rejects a Step type that contains **/**, **$**, or **:**. A **StepRef** target names the registered Step type, not the Go type.
 
@@ -176,7 +176,58 @@ The analyzer reports a blocking diagnostic when it cannot know the registered na
 - **generic_step_type_name**: a generic Step type has no non-empty override.
 - **duplicate_step_type**: two registrations use one Step type, or one Go type is registered more than once. Step nodes are keyed by Go type, so a generic Step can be registered with only one type argument.
 
-Node IDs use the Go type, as in **step:initializeThread**, even when an override changes the Step type.
+Go node IDs use the Go type, as in **step:initializeThread**, even when an override changes the Step type.
+
+Python and TypeScript can register several instances of the same Step class when each instance has a distinct static Step type. **get_step_type** or **getStepType** can return a string literal, a class attribute initialized with a string literal, or an instance field assigned from a constructor argument whose value is a string literal at registration. Constructor defaults and static variable aliases are also readable. Each node ID uses that instance's Step type, such as **step:First** and **step:Second**.
+
+The analyzer reads Step methods only from the registered class itself. A Python Step class must extend only **Step** and **Generic**. A TypeScript Step class must not extend another class. Otherwise the analyzer reports **step_inheritance_unsupported**. Move the shared logic into a helper function and keep each Step method on the registered class.
+
+An instance field is readable only when the class assigns it exactly once. The assignment must be a class attribute, a TypeScript property initializer or parameter property, or a direct statement in the constructor. A field assigned in another method, through **setattr**, **vars**, or **Object.assign**, or from outside the class is not readable. A Python Step class with a decorator, such as **dataclass**, also has unreadable fields. Construction code that reads a field must run after the field is assigned. A TypeScript property initializer therefore cannot read a field that the constructor assigns. Assign each field in the constructor, or return a string literal from **get_step_type** or **getStepType**.
+
+The SDKs resolve an instance target by object identity. A target must be the registered object itself, not another object with the same Step type. Transitions, **StepMovement**, Execute failure routing, and cancellation accept these targets:
+
+- The registered instance, read through names that are each bound exactly once. These names include module variables, Flow class attributes or property initializers, Flow fields assigned once in the constructor, Step fields assigned in the constructor, and local variables.
+- A Step class when exactly one instance of that class is registered.
+- A **StepRef** constructed with a string literal that names a registered Step type. TypeScript must construct it with **new**.
+
+A constructor call written in a decision creates a new object that is not registered. The SDK rejects that target at runtime, so the analyzer reports **unknown_step_target**. Target the registered instance or a **StepRef** instead. Separate Connector factory calls also produce separate nodes when their static Step types differ.
+
+The analyzer accepts an instance only when it can prove which object a name holds. A name bound twice in one function or module is not provable. A reassignment, augmented assignment, loop variable, **with** target, walrus target, destructuring, **global** rebinding, or a second declaration in a nested TypeScript block all count as another binding. A constructor parameter that the constructor reassigns is not provable either.
+
+Fields also depend on how the Flow or Step object is used. In Python, use **self** only to read or assign a field, or pass it to the constructor of a class in the same file. Passing it to another function, storing it in a variable, or rebinding **self** makes the class fields unreadable and reports **dynamic_class**. In both languages, a Flow class with a decorator, or a constructor that returns a value, also has unreadable fields.
+
+TypeScript proves fields by checking every use of each tracked object. A tracked object is **this** inside a class body, an instance that a class in the same file constructs, or a Connector Step that a factory call returns. A tracked object may appear only in these positions:
+
+- A field read, such as **this.target** or **first.target**, including inside callbacks. A getter in the class body may return a tracked object, and reading that getter counts as a field read.
+- A call of a method that its class body declares, such as **this.retryOptions()**.
+- A field assignment through **this**, such as **this.target = target**.
+- Registration with **StepList.startStep**, **otherSteps**, or **withoutStartStep**.
+- A Dex target: **goTo**, **StepMovement.of**, **ExecuteFailure.proceedTo**, **FlowTimeoutHandlerFailure.proceedTo**, the Steps that **withCancelingSteps** or **withCancelingSiblingSteps** cancel, or the Execute failure or branch field of a Connector factory config.
+- An alias: a variable, a parameter default, a class field, or a constructor parameter of a class in the same file. Every use of an alias must follow the same rule. An alias may hold several objects.
+
+Any other use is an escape. These uses are escapes:
+
+- Passing the object to a function or to a constructor of a class outside the file, including **Object.assign**, **Reflect.set**, and **new Object**.
+- Storing it in an array, a **Map**, a **Set**, an object literal, or a spread.
+- Returning it, exporting it, or destructuring it.
+- Casting it with **as**, **satisfies**, or a type assertion.
+- Reading it with a computed key, or writing through it, such as **first.target = value** or **this[key] = value**.
+- Assigning it to a field name that a setter in the class body handles.
+- Using it in any other expression, such as a comparison.
+
+An escape reports **dynamic_class** at the escaping use. The fields of the escaped object, and of every object it can reach through its fields, become unreadable. An escaped Connector Step reports **dynamic_step_target**. A computed-key write on any other value, such as **words[index] = value**, does not affect the graph.
+
+A Flow object created outside its class, such as **export const approvalFlow = new ApprovalFlow()**, may be exported, returned, or passed to an imported function or constructor, such as **new Registry([approvalFlow])**. A field read through it, such as **approvalFlow.review**, is a tracked object. Any other use of the Flow object, such as a cast, a write, a reflective call, or a call of a helper in the same file, is an escape. A class from the same file that is used as a value other than with **new**, **extends**, **instanceof**, a static field read, an export, or a Dex target has unreadable static fields. Tracked objects that its instances store in fields, other than constructor arguments, escape too.
+
+Any access to **prototype**, **__proto__**, **globalThis**, **window**, **self**, or **global** makes every Flow and Step field unreadable. So does an assignment to an undeclared global name. A reflective write, such as **Object.assign**, **Object.defineProperty**, or **Reflect.set**, whose target is not an object or array literal also makes fields unreadable. A TypeScript getter or setter with a field's name makes that field unreadable.
+
+These checks rely on three assumptions. First, code in other modules does not modify Flow or Step objects. This includes code that receives a Flow object through an export, a return value, or an imported function such as a Registry. Second, the source does not run dynamic code or use reflection that the analyzer cannot see. Third, the source does not change prototypes or global objects in ways that the analyzer cannot see. The analyzer does not follow objects into other modules, so do not pass Flow or Step objects to code outside the source file.
+
+The analyzer reads Flow and Step methods only from the class body. A Python Flow or Step class that defines **__getattr__**, **__getattribute__**, **__setattr__**, **__delattr__**, **__get__**, **__set__**, **__delete__**, **__set_name__**, **__new__**, **__init_subclass__**, or **__class_getitem__** reports **dynamic_class**. A Flow or Step method reassigned outside the class body reports **dynamic_class** in both languages. A decorator on a Flow or Step class or on one of its members reports it too, because the decorator can replace the class or the member. The exceptions are the Dex **rpc** decorator, Python **typing.final** and **dataclasses.dataclass** on a class, and Python **staticmethod**, **classmethod**, and **typing.override** on a method. The built-in Python **property** is also allowed when it is the method's only decorator. Its name must not be a field or a Step or Flow method that Dex calls. A property **setter** or **deleter** still reports **dynamic_class**. So do Python **__dict__**, **vars**, **__setattr__**, and **__class__** assignments, and the TypeScript escapes and reflective writes described above.
+
+The analyzer recognizes Dex APIs only through imports of **dex** or **@superdurable/dex**. Rebinding a Dex import alias or the **dex** module name in any scope reports **dex_alias_rebinding**. Assigning an attribute of a Dex import reports it too. A Python wildcard import from any module reports **wildcard_import**, because it can rebind Dex names. Python **exec**, **eval**, **globals**, **locals**, **getattr**, **setattr**, **delattr**, and the **builtins** module report **dynamic_python**. So do these names and **vars** when they are used as values instead of called directly, such as through an alias or as a **map** argument. TypeScript **eval** and **Function** report **dynamic_typescript**.
+
+Computed Step types, unprovable targets, unknown **StepRef** names, and ambiguous class targets produce blocking diagnostics. A callback or helper that hides an Execute decision still produces **hidden_dex_decision**; resolving its instance's Step type does not make the callback body readable.
 
 ## Start inputs {#start-inputs}
 

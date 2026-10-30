@@ -346,6 +346,29 @@ A registration that calls a package without a manifest reports
 `connector_manifest_missing`, and two Steps with one Step type report
 `duplicate_step_type`.
 
+Python and TypeScript register each Step instance by its static Step type.
+Several instances of one class may use different types returned as literals or
+bound through constructor arguments and class attributes. The SDKs resolve an
+instance target by object identity, so a target must reach the registered
+object through names that are each bound once: module variables, Flow fields,
+Step fields set in the constructor, or function locals. Literal `StepRef` names
+and a class with one registered instance also resolve. An inline constructor or
+any other instance is a different object and reports `unknown_step_target`.
+Rebound or shadowed names, fields changed outside the constructor or read
+during construction before their assignment, decorated Python Step classes, and
+Step classes that extend other classes fail closed with blocking diagnostics.
+So do rebound Dex import or module names, wildcard imports, Flow or Step
+objects passed to functions outside a field access or local constructor,
+TypeScript Flow or Step objects that escape (any use other than a field
+read, a declared method call, registration, a Dex target, or a checked alias),
+Python attribute-interception methods such as
+`__getattribute__`, methods reassigned outside the class body, and class or
+member decorators other than Dex `rpc`, `typing.final`, `dataclasses.dataclass`,
+`staticmethod`, `classmethod`, `typing.override`, and a sole built-in `property`
+whose name is not a field or a Step or Flow method that Dex calls. The analyzer does not
+follow objects into other modules.
+Decisions hidden in callbacks remain unsupported.
+
 TypeScript analysis loads the `typescript` package only from the source
 project (`node_modules` or `NODE_PATH`). It reads Step registration, direct
 `goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd`,

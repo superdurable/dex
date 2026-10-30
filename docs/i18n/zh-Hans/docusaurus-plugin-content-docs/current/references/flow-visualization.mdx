@@ -117,7 +117,7 @@ TypeScript analyzer 暂不支持以下功能：
 
 把 decision 隐藏在 helper 中的 Execute 方法会产生 **hidden_dex_decision**。在 TypeScript 中，Execute 的每个返回值只要不是可识别的 decision（例如 helper 调用或变量），都会单独产生 **hidden_dex_decision**，即使其他返回值可以识别。暂不支持 Java、Rust 和递归多文件分析。
 
-Version 1 不支持单文件中的多个 Flow、反射、动态 class、Dex 通配符导入、基于 getattr 的目标、monkeypatch，以及逃逸出处理方法的 movement 集合。
+Version 1 不支持单文件中的多个 Flow、反射、动态 class、通配符导入、基于 getattr 的目标、monkeypatch，以及逃逸出处理方法的 movement 集合。
 
 Version 2.0 保留所有 Version 1 字段，并要求 Step group 和 explanation 与 Flow 位于同一文件。同一行内的具名 directive 参数可以任意排列。多条 directive 行保留源码顺序，并成为 UI 顺序。未知、重复、缺失或非法参数都会产生 blocking diagnostic。Go analyzer 还会读取 Indexed Attribute、Summary、Display、Action 和 start-input schema；规则见 [Dex Web](/production/dex-web)。
 
@@ -165,7 +165,7 @@ Connector 节点在 **metadata.connector** 内输出 **connectorId**、**release
 
 请按业务领域命名每个 Flow type，例如 **ApprovalFlow** 或 **ReplyFlow**。不要把 Flow type 只命名为 **Flow**。名称不包含 package，因此同一个 Worker 注册的每个 Flow 都需要不同的 type 名称。Dex Web、run history 和 Flow 搜索都会原样显示这个名称。
 
-泛型 Flow 或 Step type 没有默认名称。请声明返回非空名称的 **GetFlowType** 或 **GetStepType** override。
+对于 Go，泛型 Flow 或 Step type 没有默认名称。请声明返回非空名称的 **GetFlowType** 或 **GetStepType** override。
 
 **GetFlowType** 或 **GetStepType** override 可以声明在 package 的任意文件中，也可以从嵌入类型提升而来，包括来自其他 package 的类型。Override 中的每条 return 语句都必须返回同一个 compile-time string。空字符串表示保留默认名称。Dex 会拒绝包含 **/**、**$** 或 **:** 的 Step type。**StepRef** target 指向注册的 Step type，而不是 Go type。
 
@@ -176,7 +176,58 @@ Analyzer 无法确定注册名称，或无法为每个 Step 生成独立节点�
 - **generic_step_type_name**：泛型 Step type 没有非空 override。
 - **duplicate_step_type**：两个注册使用同一个 Step type，或同一个 Go type 注册了多次。Step 节点以 Go type 为键，因此一个泛型 Step 只能用一个类型参数注册。
 
-节点 ID 使用 Go type，例如 **step:initializeThread**，即使 override 改变了 Step type 也是如此。
+Go 节点 ID 使用 Go type，例如 **step:initializeThread**，即使 override 改变了 Step type 也是如此。
+
+Python 和 TypeScript 可以注册同一个 Step class 的多个实例，但每个实例都必须有不同的静态 Step type。**get_step_type** 或 **getStepType** 可以返回字符串字面量、用字符串字面量初始化的 class 属性，或从构造参数赋值的实例字段；构造参数的值必须在注册处是字符串字面量。Analyzer 也能读取构造参数的默认值和静态变量别名。每个节点 ID 使用实例的 Step type，例如 **step:First** 和 **step:Second**。
+
+Analyzer 只从已注册的 class 本身读取 Step 方法。Python Step class 只能继承 **Step** 和 **Generic**。TypeScript Step class 不能继承其他 class。否则 analyzer 会报告 **step_inheritance_unsupported**。请把共享逻辑移到 helper 函数中，并把每个 Step 方法保留在已注册的 class 上。
+
+只有当 class 恰好为某个实例字段赋值一次时，analyzer 才能读取该字段。这次赋值必须是 class 属性、TypeScript 属性初始化器或参数属性，或者构造函数中的直接语句。在其他方法中赋值、通过 **setattr**、**vars** 或 **Object.assign** 赋值，或者从 class 外部赋值的字段都不可读取。带有装饰器（例如 **dataclass**）的 Python Step class，其字段同样不可读取。构造期间读取某个字段的代码，必须在该字段赋值之后运行。因此，TypeScript 属性初始化器不能读取由构造函数赋值的字段。请在构造函数中为每个字段赋值，或者让 **get_step_type** 或 **getStepType** 返回字符串字面量。
+
+SDK 按对象身份解析实例目标。目标必须是已注册的那个对象本身，而不是另一个具有相同 Step type 的对象。普通跳转、**StepMovement**、Execute 失败路由和取消操作接受以下目标：
+
+- 已注册的实例，并且通过的每个名称都只绑定一次。这些名称包括模块变量、Flow class 属性或属性初始化器、在构造函数中只赋值一次的 Flow 字段、在构造函数中赋值的 Step 字段，以及局部变量。
+- 某个 Step class，前提是该 class 只注册了一个实例。
+- 用字符串字面量构造、且指向已注册 Step type 的 **StepRef**。TypeScript 必须用 **new** 构造它。
+
+在决策中直接写构造调用会创建一个未注册的新对象。SDK 会在运行时拒绝这个目标，因此 analyzer 会报告 **unknown_step_target**。请改为指向已注册的实例或使用 **StepRef**。同一个 Connector 的不同 factory 调用只要使用不同的静态 Step type，也会生成独立节点。
+
+只有当 analyzer 能证明某个名称持有哪个对象时，才会接受该实例。在同一个函数或模块中绑定两次的名称无法证明。重新赋值、增量赋值、循环变量、**with** 目标、海象运算符目标、解构、**global** 重新绑定，以及 TypeScript 嵌套代码块中的第二个声明，都算作另一次绑定。被构造函数重新赋值的构造参数同样无法证明。
+
+字段是否可读，还取决于 Flow 或 Step 对象的使用方式。在 Python 中，**self** 只能用于读取或赋值字段，或者传给同一文件中某个 class 的构造函数。把它传给其他函数、存入变量，或者重新绑定 **self**，都会让该 class 的字段不可读取，并报告 **dynamic_class**。在两种语言中，带有装饰器的 Flow class，或者构造函数返回了值，其字段同样不可读取。
+
+TypeScript 通过检查每个被追踪对象的每一次使用来证明字段。被追踪对象是 class 体中的 **this**、同一文件中的 class 构造的实例，或者 Connector factory 调用返回的 Connector Step。被追踪对象只能出现在以下位置：
+
+- 读取字段，例如 **this.target** 或 **first.target**，在回调中也可以。class 体中的 getter 可以返回被追踪对象，读取这个 getter 视为读取字段。
+- 调用其 class 体中声明的方法，例如 **this.retryOptions()**。
+- 通过 **this** 为字段赋值，例如 **this.target = target**。
+- 用 **StepList.startStep**、**otherSteps** 或 **withoutStartStep** 注册。
+- 作为 Dex 目标：**goTo**、**StepMovement.of**、**ExecuteFailure.proceedTo**、**FlowTimeoutHandlerFailure.proceedTo**、**withCancelingSteps** 或 **withCancelingSiblingSteps** 要取消的 Step，或者 Connector factory 配置中的 Execute 失败字段或分支字段。
+- 作为别名：变量、参数默认值、class 字段，或者同一文件中某个 class 的构造参数。别名的每一次使用都必须遵守同一规则。一个别名可以持有多个对象。
+
+其他任何使用都是逃逸（escape）。以下使用都是逃逸：
+
+- 把对象传给函数，或者传给文件外 class 的构造函数，包括 **Object.assign**、**Reflect.set** 和 **new Object**。
+- 把它存入数组、**Map**、**Set**、对象字面量或展开表达式。
+- 返回它、导出它或解构它。
+- 用 **as**、**satisfies** 或类型断言转换它。
+- 用计算键读取它，或者通过它写入，例如 **first.target = value** 或 **this[key] = value**。
+- 把它赋给由 class 体中的 setter 处理的字段名。
+- 在其他任何表达式中使用它，例如比较。
+
+逃逸会在逃逸的位置报告 **dynamic_class**。逃逸对象的字段，以及它通过字段能到达的每个对象的字段，都会变得不可读取。逃逸的 Connector Step 会报告 **dynamic_step_target**。对其他值进行计算键写入（例如 **words[index] = value**）不影响图。
+
+在 class 之外创建的 Flow 对象（例如 **export const approvalFlow = new ApprovalFlow()**）可以被导出、返回，或者传给导入的函数或构造函数，例如 **new Registry([approvalFlow])**。通过它读取的字段（例如 **approvalFlow.review**）是被追踪对象。对这个 Flow 对象的其他任何使用，例如类型转换、写入、反射调用，或者调用同一文件中的 helper，都是逃逸。同一文件中的 class 如果被当作值使用，而不是用于 **new**、**extends**、**instanceof**、读取静态字段、导出或 Dex 目标，它的静态字段就不可读取。它的实例存入字段的被追踪对象（构造参数除外）也会逃逸。
+
+任何对 **prototype**、**__proto__**、**globalThis**、**window**、**self** 或 **global** 的访问，都会让所有 Flow 和 Step 字段不可读取。为未声明的全局名称赋值也一样。目标不是对象字面量或数组字面量的反射写入（例如 **Object.assign**、**Object.defineProperty** 或 **Reflect.set**）同样会让字段不可读取。与字段同名的 TypeScript getter 或 setter 会让该字段不可读取。
+
+这些检查依赖三个假设。第一，其他模块中的代码不会修改 Flow 或 Step 对象，包括通过导出、返回值或导入的函数（例如 Registry）收到 Flow 对象的代码。第二，源代码不会运行动态代码，也不会使用 analyzer 看不到的反射。第三，源代码不会以 analyzer 看不到的方式修改原型或全局对象。Analyzer 不会追踪进入其他模块的对象，因此不要把 Flow 或 Step 对象传给源文件之外的代码。
+
+Analyzer 只从 class 本身读取 Flow 和 Step 方法。Python Flow 或 Step class 如果定义了 **__getattr__**、**__getattribute__**、**__setattr__**、**__delattr__**、**__get__**、**__set__**、**__delete__**、**__set_name__**、**__new__**、**__init_subclass__** 或 **__class_getitem__**，会报告 **dynamic_class**。在两种语言中，在 class 之外重新赋值 Flow 或 Step 方法都会报告 **dynamic_class**。Flow 或 Step class 及其成员上的装饰器也会报告该诊断，因为装饰器可以替换 class 或成员。例外情况是：Dex 的 **rpc** 装饰器、class 上的 Python **typing.final** 和 **dataclasses.dataclass**，以及方法上的 Python **staticmethod**、**classmethod** 和 **typing.override**。Python 内置的 **property** 作为方法唯一的装饰器时也允许使用。它的名称不能是字段，也不能是 Dex 调用的 Step 或 Flow 方法。property 的 **setter** 或 **deleter** 仍会报告 **dynamic_class**。Python 的 **__dict__**、**vars**、**__setattr__** 和 **__class__** 赋值，以及上文所述的 TypeScript 逃逸和反射写入，也会报告 **dynamic_class**。
+
+Analyzer 只通过 **dex** 或 **@superdurable/dex** 的导入识别 Dex API。在任何作用域中重新绑定 Dex 导入别名或 **dex** 模块名，都会报告 **dex_alias_rebinding**。为 Dex 导入的属性赋值也会报告该诊断。Python 中从任何模块进行通配符导入都会报告 **wildcard_import**，因为它可能重新绑定 Dex 名称。Python 的 **exec**、**eval**、**globals**、**locals**、**getattr**、**setattr**、**delattr** 和 **builtins** 模块会报告 **dynamic_python**。这些名称以及 **vars** 不是被直接调用、而是被当作值使用时（例如通过别名，或者作为 **map** 的参数），也会报告该诊断。TypeScript 的 **eval** 和 **Function** 会报告 **dynamic_typescript**。
+
+计算得到的 Step type、无法证明的目标、未注册的 **StepRef** 名称和存在歧义的 class 目标都会产生阻断诊断。Execute 决策隐藏在回调或 helper 中时，仍然会报告 **hidden_dex_decision**；实例的 Step type 可解析，并不代表回调中的决策也可解析。
 
 ## 启动输入 {#start-inputs}
 
