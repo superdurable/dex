@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.57.0 - 2026-10-30
+
+- Advance the Python and TypeScript SDK baselines to their v1.28.0 tags, the CLI baseline to cli-v1.28.0, and the Dex Web baseline to web/v1.28.0; refresh pinned source links. The Go, Java, and Rust baselines and the Server baseline (server-zd/v0.1.11, bundled by cli-v1.28.0) stay unchanged. Synchronize the bundle and plugin manifests at 0.57.0.
+- Document the attempt deadline in Core StepOptions guidance and the Python and TypeScript primitives: `Context.deadline` (absolute UTC instant, absent for RPC handlers) is shortened by the remaining retry total duration, sizes external call timeouts, and is never stored in a checkpoint or input. Document `Context.flow_started_at` (Python v1.28.0) next to the other SDKs' run start time for deterministic identities.
+- Document instance-addressed Steps: several instances of one Step class under distinct Step types, routing by registered instance, `StepRef`, or a class with exactly one instance, Python `get_input_type()` for generic Steps, and the TypeScript `StepTarget` type change and `FlowDefinitionError` behavior.
+- Document the Python JSON codec changes for generic dataclasses, `Optional`, unions, and `Literal`, the `dex_json_name`, `dex_json_omit_default`, and `dex_json_format="rfc3339"` field metadata for cross-language payloads, and the behavior change that union fields now decode typed values. Document that TypeScript `AsyncContext.recordHeartbeat` rejects its Promise instead of throwing synchronously.
+- Document FDG 2.0 for Python and TypeScript sources: `dex:group` and `dex:explanation` comments, `dex-connector.json` Connector package manifests, their diagnostics, and the remaining Go-only management metadata and TypeScript analyzer limits. Update the visualizer language support statement in the SDK entrypoint.
+
 ## 0.56.1 - 2026-10-29
 
 - Correct server-zd behavior descriptions; baselines stay unchanged. ASYNC durability has no local phase: it batches commits within about 20 ms and advances before the commit, so a node failure can replay a recent result and the work started from it. Every attempt uses the same retry, method-timeout, and heartbeat settings and heartbeat checkpoints as SYNC. Remove the five-second heuristic, the seven-second local phase, its fallback and local dispatch wait, and the polling SYNC override, and frame the durability choice as replay risk versus latency. Synchronize the bundle and plugin manifests at 0.56.1.

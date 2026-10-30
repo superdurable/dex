@@ -25,7 +25,7 @@ dexcli flow history <flow-id> --page-size 80 --timeout 30s --no-hydrate
 
 Flow detail shows the Worker target and, for pull Flows, the Flow type queue and sticky app Worker ID. Active Steps and Step history show serving app Worker IDs for WaitFor and Execute, the dispatch sticky app Worker ID, and the queue source. **Sticky queue** means the serving ID matches the sticky ID captured for that dispatch; otherwise a completed dispatch shows **Flow type queue**. Compare against that captured ID, not just the Flow's current sticky ID.
 
-Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage. [Released routing UI](https://github.com/superdurable/dex/blob/web/v1.26.0/web/app/flows/details/PullRouting.tsx)
+Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage. [Released routing UI](https://github.com/superdurable/dex/blob/web/v1.28.0/web/app/flows/details/PullRouting.tsx)
 
 Correlate reserve-decline counters with total handler occupancy and **M − R** Step admission before increasing capacity; follow [reserved RPC capacity](pull-workers.md#reserved-rpc-capacity).
 
@@ -43,14 +43,31 @@ Use **dexcli flow search**, **summary**, **state**, and **history** for narrower
 
 ## FDG 2.0 management metadata
 
-Dex Web can inspect Runs created by every SDK, but the current FDG 2.0
+Dex Web can inspect Runs created by every SDK, but the full FDG 2.0
 management-interface metadata is generated only by the Go analyzer. This
 includes Indexed Attribute presentation, Summary and Display RPC fields, Action
-forms and permissions, groups and explanations, and Action input capture hints.
-Do not claim that Java, Python, TypeScript, or Rust source can publish this
-metadata today. Those SDKs can operate Flows and use the supported Client and
-CLI surfaces, while a Dex Web v2 management experience that depends on this
-metadata currently requires a Go Flow definition.
+forms and permissions, and Action input capture hints.
+
+From cli-v1.28.0 and web/v1.28.0, the FDG 2.0 analyzer also reads Python and
+TypeScript source for Step groups and explanations and for Connector package
+manifests (`dex-connector.json`). Put `# dex:group` and `# dex:explanation`
+comments (Python) or `// dex:group` and `// dex:explanation` comments
+(TypeScript) directly above each local Step class, with no blank line between.
+The group ID is kebab-case, steps sharing an ID use the same non-empty label,
+and the explanation is one sentence that states what the Step does. A missing,
+duplicate, or malformed directive is a blocking error, also with `--lint app`.
+A Connector package ships `dex-connector.json` inside the Python import package
+or next to the npm `package.json`; it maps exported factories to static config
+fields, branches, resources, and ConfigurationUI, and carries the exact release
+tag that Dex Web resolves. The analyzer never imports or executes the
+application or the package. A registration that calls a package without a
+manifest reports `connector_manifest_missing`; two Steps with one Step type
+report `duplicate_step_type`. The TypeScript analyzer does not yet support
+`waitFor`, more than one Flow per file, RPC handlers, `handleTimeout`, SubFlows,
+or resource edges for local Steps. Do not claim that Java or Rust source can
+publish this metadata, or that Python or TypeScript source can publish Indexed
+Attributes, Summary, Display, or Actions. A Dex Web v2 management experience
+that depends on those currently requires a Go Flow definition.
 
 ## Local Connector credentials
 
@@ -126,7 +143,7 @@ Keep the API key in deployment secret management. Never put it in source, Flow s
 
 #### dexcli credentials
 
-Configure `dexcli` with either a bearer token or an API key, not both. For a bearer token, `--credential-file` takes precedence over `DEX_CREDENTIAL_FILE`, which takes precedence over `DEX_CREDENTIAL`. The CLI has no raw-token flag. Store a token in a protected file when possible; avoid putting one into shell history or process arguments. [Released CLI options](https://github.com/superdurable/dex/blob/cli-v1.26.1/cli/internal/command/options.go)
+Configure `dexcli` with either a bearer token or an API key, not both. For a bearer token, `--credential-file` takes precedence over `DEX_CREDENTIAL_FILE`, which takes precedence over `DEX_CREDENTIAL`. The CLI has no raw-token flag. Store a token in a protected file when possible; avoid putting one into shell history or process arguments. [Released CLI options](https://github.com/superdurable/dex/blob/cli-v1.28.0/cli/internal/command/options.go)
 
 With CLI v1.16.0, an API key uses three settings:
 
@@ -134,7 +151,7 @@ With CLI v1.16.0, an API key uses three settings:
 - `--token-url` or `DEX_TOKEN_URL` names the token endpoint, with the same HTTPS and loopback rule as the SDKs.
 - `--server-id` or `DEX_SERVER_ID` names the server that the endpoint scopes the token to. `dexcli` never derives it from `--server`.
 
-Combining API key settings with any bearer token setting is a usage error that exits with status 2. So is setting `--token-url` or `--server-id` without an API key. Each command exchanges the key for a new token before its first call. A failed exchange fails the command before any FlowService call. A long command refreshes the token in the background after 80% of its lifetime. Unlike the SDKs, `dexcli` does not retry a call that Dex rejects with UNAUTHENTICATED; rerun the command to obtain a fresh token. Errors redact the key and tokens as the SDK credentials do. [Released CLI authentication guide](https://github.com/superdurable/dex/blob/cli-v1.26.1/cli/README.md)
+Combining API key settings with any bearer token setting is a usage error that exits with status 2. So is setting `--token-url` or `--server-id` without an API key. Each command exchanges the key for a new token before its first call. A failed exchange fails the command before any FlowService call. A long command refreshes the token in the background after 80% of its lifetime. Unlike the SDKs, `dexcli` does not retry a call that Dex rejects with UNAUTHENTICATED; rerun the command to obtain a fresh token. Errors redact the key and tokens as the SDK credentials do. [Released CLI authentication guide](https://github.com/superdurable/dex/blob/cli-v1.28.0/cli/README.md)
 
 ```bash
 export DEX_API_KEY="$(cat ~/.dex/api-key)"
@@ -155,7 +172,7 @@ CLI v1.18.0 or later can reach a Dex endpoint behind a TLS-terminating gateway o
 - `--tls-ca-file` or `DEX_TLS_CA_FILE` adds the PEM certificates in the file to the system root CAs, for a server certificate issued by a private or self-signed CA. A file without a PEM certificate fails the command.
 - `dexcli` negotiates HTTP/2 with ALPN `h2`. A TLS-terminating load balancer or gateway must accept `h2` and forward gRPC to Dex over HTTP/2.
 
-Setting `--tls-ca-file` or `--tls-server-name` without TLS is a usage error that exits with status 2. TLS never falls back to plaintext. The bearer token or API key access token is sent on every call over either transport. Without TLS it crosses the network unencrypted, so use plaintext only on loopback or a protected network. These settings configure only the `dexcli` FlowService connection. The API key exchange at `--token-url` always verifies the token endpoint against the system root CAs. [Released CLI TLS guide](https://github.com/superdurable/dex/blob/cli-v1.26.1/cli/README.md#connect-over-tls)
+Setting `--tls-ca-file` or `--tls-server-name` without TLS is a usage error that exits with status 2. TLS never falls back to plaintext. The bearer token or API key access token is sent on every call over either transport. Without TLS it crosses the network unencrypted, so use plaintext only on loopback or a protected network. These settings configure only the `dexcli` FlowService connection. The API key exchange at `--token-url` always verifies the token endpoint against the system root CAs. [Released CLI TLS guide](https://github.com/superdurable/dex/blob/cli-v1.28.0/cli/README.md#connect-over-tls)
 
 ```bash
 dexcli --server orders.dex.example.com:443 --tls \
@@ -210,7 +227,7 @@ dex-web --flow-service-address dex.example.com:443 --tls \
 
 The image binds HTTP to `0.0.0.0:8802` and runs as UID/GID 65532, so mount token files and definition directories read-only with permissions that UID can read. `--version` reports the build version.
 
-`/healthz` reports Web process liveness, not upstream API readiness. Web starts while FlowService is unavailable; `/api/*` returns the existing mapped gRPC error until the Server recovers. `/readyz` validates the current Flow definition snapshot and then calls the FlowService health check, on every probe. Use `/readyz` for traffic gating and `/healthz` for liveness, because a FlowService outage must not restart Web. [Released Web readiness and settings](https://github.com/superdurable/dex/blob/web/v1.26.0/web/README.md#run-standalone-dex-web)
+`/healthz` reports Web process liveness, not upstream API readiness. Web starts while FlowService is unavailable; `/api/*` returns the existing mapped gRPC error until the Server recovers. `/readyz` validates the current Flow definition snapshot and then calls the FlowService health check, on every probe. Use `/readyz` for traffic gating and `/healthz` for liveness, because a FlowService outage must not restart Web. [Released Web readiness and settings](https://github.com/superdurable/dex/blob/web/v1.28.0/web/README.md#run-standalone-dex-web)
 
 ### Retired Go Server
 
@@ -282,9 +299,9 @@ For local development, `dexcli dev` (CLI v1.26.1) runs `dex-server-zd` and embed
 - `--engine temporal` and every Temporal-specific flag (`--external-temporal-*`, `--temporal-*`, `--sqlite-db-filename`, `--verbose-engine-log`, and `--blob-store-dir`) fail with an error that names server-zd as the only engine. Remove them and use `--zd-data-dir` and `--zd-config`. A Temporal SQLite file cannot serve as a server-zd data directory.
 - `dexcli flow start --config` rejects a non-null `workerTarget`, because Dex routes Flow work to pull Workers. A null or absent `workerTarget` works.
 
-[Released CLI engine options](https://github.com/superdurable/dex/blob/cli-v1.26.1/cli/README.md)
+[Released CLI engine options](https://github.com/superdurable/dex/blob/cli-v1.28.0/cli/README.md)
 
-Time travel keeps the run ID and creates a new run attempt. Dex Web shows the run attempt and switches between attempts, and `GET /api/flows/summary` reports `runAttempt`. `dexcli flow summary` does not print it, so read it in Dex Web. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.26.0/web/README.md#run-against-server-zd)
+Time travel keeps the run ID and creates a new run attempt. Dex Web shows the run attempt and switches between attempts, and `GET /api/flows/summary` reports `runAttempt`. `dexcli flow summary` does not print it, so read it in Dex Web. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.28.0/web/README.md#run-against-server-zd)
 
 ## Safe recovery
 

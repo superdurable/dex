@@ -1094,6 +1094,34 @@ def check_sdk_describe_flow(checkout: Path, baselines: dict[str, str], reference
     )
 
 
+RELEASE_1_28_TAGGED_STATEMENTS = (
+    ("python", "sdk-python/README.md", (
+        "`Context.flow_started_at` returns the current Flow run's server start time",
+        "`Context.deadline` is the absolute deadline supplied by the Dex Server",
+        "accept a registered instance, `StepRef(\"StepType\")`, or\na class.",
+        "override\n`get_input_type()` to return a concrete type supported by `CodecRegistry`.",
+        "`field(metadata={\"dex_json_name\": \"callId\"})`",
+        "`field(default=None, metadata={\"dex_json_omit_default\": True})`",
+        "`field(metadata={\"dex_json_format\": \"rfc3339\"})`",
+    )),
+    ("typescript", "sdk-typescript/README.md", (
+        "`Context.deadline` is the absolute deadline supplied by the Dex Server",
+        "selections accept a registered instance, `new StepRef(\"StepType\")`, or a class.",
+        "`AsyncContext.recordHeartbeat` always reports failures through its returned\nPromise and never throws synchronously.",
+    )),
+)
+
+
+def check_release_1_28_statements(checkout: Path, baselines: dict[str, str]) -> None:
+    """Checks the Python and TypeScript v1.28.0 README statements that the SDK references repeat."""
+    for language, path, needles in RELEASE_1_28_TAGGED_STATEMENTS:
+        require_tagged_text(checkout, baselines[language], path, *needles)
+    require_tagged_text(
+        checkout, baselines["typescript"], "sdk-typescript/src/context.ts",
+        "readonly flowStartedAt: Date;",
+    )
+
+
 def require_ancestor(checkout: Path, ancestor: str, descendant: str, label: str) -> None:
     result = subprocess.run(
         ["git", "merge-base", "--is-ancestor", ancestor, descendant],
@@ -1167,7 +1195,9 @@ def main() -> None:
     require_text(
         arguments.dex_root / "cli" / "README.md",
         "--schema-version 2.0",
-        "Go-only",
+        "Python and TypeScript FDG 2.0 read `dex:group` and `dex:explanation` comments",
+        "[`dex-connector.json`](internal/flowviz/dex-connector.schema.json)",
+        "`connector_manifest_missing`",
     )
     require_text(
         arguments.dex_root / "web" / "api" / "v2.go",
@@ -1254,6 +1284,7 @@ def main() -> None:
     check_sdk_describe_flow(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_flow_service_tls(arguments.dex_root, go_sdk_baseline, sdk_baselines, SDK_REFERENCES)
     check_pull_only_workers(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
+    check_release_1_28_statements(arguments.dex_root, sdk_baselines)
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,

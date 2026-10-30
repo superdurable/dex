@@ -1074,13 +1074,50 @@ class Release124ReferencesTest(unittest.TestCase):
                     mutate_page(self, self.check, self.references / page, needle, needle[:-1] + "?")
 
 
+class Release128StatementsTest(unittest.TestCase):
+    TAGS = {"python": "sdk-python/v1.28.0", "typescript": "sdk-typescript/v1.28.0"}
+    PATHS = {
+        "sdk-python/v1.28.0": ("sdk-python/README.md",),
+        "sdk-typescript/v1.28.0": ("sdk-typescript/README.md", "sdk-typescript/src/context.ts"),
+    }
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.sources = {}
+        for tag, paths in self.PATHS.items():
+            self.sources[tag] = tagged_sources(tag, *paths)
+            self.repository.commit_and_tag(tag, self.sources[tag])
+
+    def check(self):
+        CHECKER.check_release_1_28_statements(self.repository.root, self.TAGS)
+
+    def mutate_tag(self, tag: str, path: str, old: str):
+        self.repository.commit_and_tag(tag, {path: replace_once(self.sources[tag][path], old, old[:-1] + "?")})
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn(path, str(raised.exception))
+
+    def test_real_tagged_sources_pass(self):
+        self.check()
+
+    def test_each_tagged_statement_must_be_enforced(self):
+        for language, path, needles in CHECKER.RELEASE_1_28_TAGGED_STATEMENTS:
+            for needle in needles:
+                with self.subTest(language=language, needle=needle):
+                    self.setUp()
+                    self.mutate_tag(self.TAGS[language], path, needle)
+
+    def test_typescript_flow_started_at_must_exist(self):
+        self.mutate_tag(self.TAGS["typescript"], "sdk-typescript/src/context.ts", "readonly flowStartedAt: Date;")
+
+
 class FlowServiceTlsTest(unittest.TestCase):
     GO_TAG = "sdk-go/v1.26.0"
     SDK_TAGS = {
         "go": GO_TAG,
         "java": "sdk-java/v1.26.0",
-        "python": "sdk-python/v1.26.0",
-        "typescript": "sdk-typescript/v1.26.0",
+        "python": "sdk-python/v1.28.0",
+        "typescript": "sdk-typescript/v1.28.0",
         "rust": "sdk-rust/v1.26.0",
     }
     TAGGED_PATHS = {
@@ -1096,11 +1133,11 @@ class FlowServiceTlsTest(unittest.TestCase):
             "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
             "sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java",
         ),
-        "sdk-python/v1.26.0": (
+        "sdk-python/v1.28.0": (
             "sdk-python/dex/_credential_transport.py", "sdk-python/dex/_pull_worker.py",
             "sdk-python/dex/client_options.py", "sdk-python/dex/worker_options.py",
         ),
-        "sdk-typescript/v1.26.0": ("sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts",
+        "sdk-typescript/v1.28.0": ("sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts",
                                       "sdk-typescript/src/options.ts"),
         "sdk-rust/v1.26.0": (
             "sdk-rust/crates/dex-sdk/src/client.rs", "sdk-rust/crates/dex-sdk/src/worker.rs",
@@ -1219,11 +1256,11 @@ class FlowServiceTlsTest(unittest.TestCase):
                         "private final Credential credential;", "private final Credential credential;\n    private final Object tlsConfig;")
 
     def test_python_pull_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-python/v1.26.0", "sdk-python/dex/_pull_worker.py",
+        self.mutate_tag("sdk-python/v1.28.0", "sdk-python/dex/_pull_worker.py",
                         "return grpc.aio.insecure_channel(server_address)", "return grpc.aio.secure_channel(server_address)")
 
     def test_typescript_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-typescript/v1.26.0", "sdk-typescript/src/client.ts",
+        self.mutate_tag("sdk-typescript/v1.28.0", "sdk-typescript/src/client.ts",
                         "credentials.createInsecure()", "credentials.createSsl()")
 
     def test_rust_default_transport_must_match_baseline(self):
@@ -1259,8 +1296,8 @@ class PullOnlyWorkersTest(unittest.TestCase):
     SDK_TAGS = {
         "go": "sdk-go/v1.26.0",
         "java": "sdk-java/v1.26.0",
-        "python": "sdk-python/v1.26.0",
-        "typescript": "sdk-typescript/v1.26.0",
+        "python": "sdk-python/v1.28.0",
+        "typescript": "sdk-typescript/v1.28.0",
         "rust": "sdk-rust/v1.26.0",
     }
 
@@ -1323,11 +1360,11 @@ class PullOnlyWorkersTest(unittest.TestCase):
                         "\tPull *PullWorkerOptions\n", "\tPull *PullWorkerOptions\n\tBindAddress string\n")
 
     def test_python_worker_target_option_must_stay_removed(self):
-        self.mutate_tag("sdk-python/v1.26.0", "sdk-python/dex/client_options.py",
+        self.mutate_tag("sdk-python/v1.28.0", "sdk-python/dex/client_options.py",
                         "class ClientOptions", "worker_target = None\n\n\nclass ClientOptions")
 
     def test_typescript_bind_address_must_stay_removed(self):
-        self.mutate_tag("sdk-typescript/v1.26.0", "sdk-typescript/src/options.ts",
+        self.mutate_tag("sdk-typescript/v1.28.0", "sdk-typescript/src/options.ts",
                         "export interface WorkerOptions {", "export interface WorkerOptions {\n  bindAddress?: string;")
 
     def test_rust_pull_default_must_remain(self):

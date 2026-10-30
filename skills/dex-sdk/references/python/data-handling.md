@@ -10,11 +10,11 @@ Attributes hold current state; AttributeMaps partition it; Channels hold queued 
 
 Map instance names are non-empty and contain no `/`. Select exact instances for entity handlers. `AttributeMapNotLoadedError` means the snapshot omitted the entry, not that it does not exist.
 
-For append-only history, bound a `current` list, archive each full chunk under its zero-padded first sequence, and load one page-token instance instead of the whole map. For keyed records, keep a dictionary keyed by the full canonical value inside one stable hash bucket. The official email pattern trims ASCII whitespace, lowercases ASCII letters, rejects empty or non-ASCII values, computes wrapping FNV-1a 32-bit, and selects `hash % 1000`. See [sequential chunking](https://github.com/superdurable/dex/blob/sdk-python/v1.26.0/examples/python/dex_examples/patterns/sequentially-chunked-attribute-map/chunked_subscriber_flow.py) and [hash partitioning](https://github.com/superdurable/dex/blob/sdk-python/v1.26.0/examples/python/dex_examples/patterns/hash-partitioned-attribute-map/customer_directory_flow.py).
+For append-only history, bound a `current` list, archive each full chunk under its zero-padded first sequence, and load one page-token instance instead of the whole map. For keyed records, keep a dictionary keyed by the full canonical value inside one stable hash bucket. The official email pattern trims ASCII whitespace, lowercases ASCII letters, rejects empty or non-ASCII values, computes wrapping FNV-1a 32-bit, and selects `hash % 1000`. See [sequential chunking](https://github.com/superdurable/dex/blob/sdk-python/v1.28.0/examples/python/dex_examples/patterns/sequentially-chunked-attribute-map/chunked_subscriber_flow.py) and [hash partitioning](https://github.com/superdurable/dex/blob/sdk-python/v1.28.0/examples/python/dex_examples/patterns/hash-partitioned-attribute-map/customer_directory_flow.py).
 
 Use Stream for incremental output and Attribute for authoritative latest state. Persist read tokens. Buffered text adds a flush boundary; async writer `write` is synchronous while `context.heartbeat` is awaited. A sync buffered writer produces outputs that must be yielded.
 
-Share one BlobCache with Client and Worker for large payloads. Capacity/path are deployment concerns. BlobCache is payload locality, not general durable filesystem state. See pinned [async composition](https://github.com/superdurable/dex/blob/sdk-python/v1.26.0/examples/python/dex_examples/app.py) and [SDK guide](https://github.com/superdurable/dex/blob/sdk-python/v1.26.0/sdk-python/README.md).
+Share one BlobCache with Client and Worker for large payloads. Capacity/path are deployment concerns. BlobCache is payload locality, not general durable filesystem state. See pinned [async composition](https://github.com/superdurable/dex/blob/sdk-python/v1.28.0/examples/python/dex_examples/app.py) and [SDK guide](https://github.com/superdurable/dex/blob/sdk-python/v1.28.0/sdk-python/README.md).
 
 The default server threshold (`values.wireInlineThresholdBytes`) keeps payloads through 100 bytes inline and offloads payloads from 101 bytes. Treat the resulting references as opaque: hydration and cache lookup use the owning Flow ID with the reference.
 
@@ -22,11 +22,17 @@ server-zd records each Step method input with its Step execution, so history sho
 
 Python `None` uses the Value null arm and decodes back to `None`. In an Attribute write it deletes the Attribute, permanently for a hard-delete Attribute, and as a Flow completion output it is discarded. Return an explicit result object when terminal null and no output must differ.
 
+## JSON dataclass codec
+
+The automatic JSON codec resolves parameterized generic dataclasses such as `Result[Receipt]`, `Optional[T]` and `T | None`, `Mapping` and `Sequence` types, fixed-length tuples, `list[Any]`, and `Literal` alternatives. A directly declared union needs alternatives with distinct JSON kinds; an ambiguous union fails during codec resolution. Absent keys use the field default or `default_factory`, and a missing required key raises `ValueError`. A directly declared union, such as a Step input of `Receipt | None`, is strict: a value must match one alternative, and `Literal` alternatives enforce membership. A union inside a dataclass field or container is lenient. It decodes a value into a dataclass, Enum, or datetime alternative, or a container of those such as `list[Receipt]`, only when that alternative is the only one with the value's JSON kind, and decoding such a value can raise when it, or a dataclass, Enum, or datetime element inside it, does not fit. Elements typed by an inner union follow the same lenient rule. Any other value, such as a string in a `Receipt | None` field, is returned unchanged without a type check, and nested `Literal` unions are not enforced. Validate those fields in application code when the payload is untrusted. Before SDK v1.28.0 such fields always returned the raw JSON value. A whole-number JSON value for a `float` field decodes as `int`.
+
+Use field metadata when a payload must match another SDK's wire shape. `dex_json_name` sets a non-empty wire name that is unique within the dataclass. `dex_json_omit_default` omits a field only when it equals its declared default; a `default_factory` must be deterministic and free of side effects. `dex_json_format="rfc3339"` formats an aware datetime like Go (UTC as `Z`, trailing fractional zeroes removed). Fields without metadata keep their names and encoded defaults. Lists, tuples, and dicts of dataclasses passed as Flow outputs, heartbeats, events, and Step locals honor the same metadata, and invalid metadata fails encoding.
+
 ## Hard-delete Attributes
 
 Set `hard_delete_on_null=True` on `Attribute` or `AttributeMap` for a short-lived secret, such as an API key. Register the definition in `PersistenceSchema` as usual. Read the Core [hard-delete Attribute](../core/data-handling.md#hard-delete-attributes-for-short-lived-secrets) requirements and limitations first; it needs Python SDK v1.11.0.
 
-[Pinned SDK guide](https://github.com/superdurable/dex/blob/sdk-python/v1.26.0/sdk-python/README.md)
+[Pinned SDK guide](https://github.com/superdurable/dex/blob/sdk-python/v1.28.0/sdk-python/README.md)
 <!-- dex-source: sdk-python/README.md -->
 ```python
 api_key = dex.Attribute("api-key", str, hard_delete_on_null=True)
@@ -35,7 +41,7 @@ provider_tokens = dex.AttributeMap("provider-token", str, hard_delete_on_null=Tr
 
 Delete the secret as soon as the Flow no longer needs it. `delete`, or `set` with `None`, permanently deletes it. An AttributeMap deletes one instance:
 
-[Pinned SDK integration test](https://github.com/superdurable/dex/blob/sdk-python/v1.26.0/sdk-python/tests/integ/hard_delete_attribute_flow.py)
+[Pinned SDK integration test](https://github.com/superdurable/dex/blob/sdk-python/v1.28.0/sdk-python/tests/integ/hard_delete_attribute_flow.py)
 <!-- dex-source: sdk-python/tests/integ/hard_delete_attribute_flow.py -->
 ```python
     def execute(self, context: Context, input: None) -> StepDecision:
@@ -50,7 +56,7 @@ Delete the secret as soon as the Flow no longer needs it. `delete`, or `set` wit
 - Defining one with an `int`, `bool`, or `float` value type raises `TypeError`. Combining it with `index` or `sync_to_attribute_store` raises `ValueError`. A numeric or Boolean value raises when it is written.
 - `wait_for_attribute_match` rejects it before contacting Dex.
 - Workers still start against an older Server. A Step, RPC, or timeout handler result that writes one, or a `wait_for` result whose SubFlow start initializes one, then fails that attempt with `RuntimeError`. A Client checks the Server protocol once, before its first `start_flow` that initializes one, and raises instead of sending it.
-- Writes and deletes can become visible before the attempt commits. Keep handlers safe to repeat. Do not read-modify-write the value. See the [released API documentation](https://github.com/superdurable/dex/blob/sdk-python/v1.26.0/sdk-python/dex/attribute.py) for every limitation.
+- Writes and deletes can become visible before the attempt commits. Keep handlers safe to repeat. Do not read-modify-write the value. See the [released API documentation](https://github.com/superdurable/dex/blob/sdk-python/v1.28.0/sdk-python/dex/attribute.py) for every limitation.
 
 ## Attribute Store projection
 

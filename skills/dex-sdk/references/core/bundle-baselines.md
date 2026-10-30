@@ -7,19 +7,20 @@ and lockfiles remain authoritative for application code.
 ```text
 DEX_BASELINE=sdk-go/v1.26.0
 DEX_SERVER_BASELINE=server-zd/v0.1.11
-DEX_CLI_BASELINE=cli-v1.26.1
-DEX_WEB_BASELINE=web/v1.26.0
+DEX_CLI_BASELINE=cli-v1.28.0
+DEX_WEB_BASELINE=web/v1.28.0
 DEX_JAVA_BASELINE=sdk-java/v1.26.0
-DEX_PYTHON_BASELINE=sdk-python/v1.26.0
-DEX_TYPESCRIPT_BASELINE=sdk-typescript/v1.26.0
+DEX_PYTHON_BASELINE=sdk-python/v1.28.0
+DEX_TYPESCRIPT_BASELINE=sdk-typescript/v1.28.0
 DEX_RUST_BASELINE=sdk-rust/v1.26.0
 ```
 
 These values mirror the release metadata at the Dex Skills repository root.
 The package validator rejects any drift between the two copies.
 
-All five SDKs are at their published v1.26.0 tags. The Server baseline is
-server-zd/v0.1.11, the CLI is cli-v1.26.1, and Dex Web is web/v1.26.0. The
+Go, Java, and Rust are at their published v1.26.0 tags. Python and TypeScript
+are at v1.28.0. The Server baseline is server-zd/v0.1.11, the CLI is
+cli-v1.28.0, and Dex Web is web/v1.28.0. The
 Temporal-based Go Server was removed in Dex 1.26; its final release is
 server/v1.25.0, and server-zd is the only Dex Server. cli-v1.26.0 was tagged
 without binaries, so never pin it. The CLI release package bundles
@@ -34,11 +35,15 @@ keeps one extra idle pull stream after a reserved-RPC decline and sends a
 busy-stream Pong every 20 seconds in all five SDKs. v1.25.0 removes listening
 Workers from every SDK, so every Worker is a pull Worker. v1.26.0 removes the
 Go Server internals and the push fields (`WorkerTarget.Address`,
-`WorkerTarget.IsHeadlessAddress`) from the protocol bindings. The server-zd
+`WorkerTarget.IsHeadlessAddress`) from the protocol bindings. Python and
+TypeScript v1.28.0 add **Context.deadline**, instance-addressed Steps with
+**StepRef**, and (Python only) **Context.flow_started_at** and the extended
+JSON codec. cli-v1.28.0 and web/v1.28.0 add FDG 2.0 for Python and TypeScript
+sources and Connector package manifests. The server-zd
 guidance covers v0.1.3 through v0.1.11.
 Each SDK and its language examples use that language's exact tag. **DEX_BASELINE**
 is the Go SDK pin, not a shared version for every language.
-The example dependency manifests in all five languages select SDK v1.25.0.
+At their baseline tags, the Go, Java, and Rust example manifests select SDK v1.25.0, and the Python and TypeScript example manifests select SDK v1.26.0.
 They are runnable source examples, not the API-version authority.
 API key Credentials need SDK v1.16.0. Their guidance therefore comes from each
 SDK's source and README at its language tag, not from the examples.
