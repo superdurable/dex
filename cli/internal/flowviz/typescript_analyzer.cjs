@@ -820,13 +820,14 @@ class TypeScriptAnalyzer {
     if (this.isGlobalName(callee,["String","Number"])) return "primitive";
     if (!callee || !this.ts.isPropertyAccessExpression(callee)) return undefined;
     const method = callee.name.text;
+    // A store under the method's name can replace the standard method.
+    if (this.foreignStores.has(method)) return undefined;
     const base = this.unwrap(callee.expression);
     if (this.isGlobalName(base,["Array"]) && ["from","of"].includes(method)) return "array";
     if (this.isGlobalName(base,["Object"]) && ["keys","values","entries"].includes(method)) return "array";
     const baseKind = this.freshValueKind(base,visiting);
     if (baseKind === "primitive" && method === "split") return "array";
     if (baseKind === "primitive" && ["trim","toLowerCase","toUpperCase"].includes(method)) return "primitive";
-    if (baseKind === "array" && ["map","filter","slice","concat","flat","flatMap"].includes(method)) return "array";
     return undefined;
   }
 
@@ -835,7 +836,8 @@ class TypeScriptAnalyzer {
     const fn = parameter.parent;
     if (!this.ts.isFunctionDeclaration(fn) || !fn.name || !this.ts.isIdentifier(parameter.name) || parameter.dotDotDotToken) return undefined;
     if (fn.modifiers?.some(modifier => [this.ts.SyntaxKind.ExportKeyword,this.ts.SyntaxKind.DefaultKeyword].includes(modifier.kind))) return undefined;
-    const index = fn.parameters.indexOf(parameter);
+    const index = fn.parameters.filter(candidate => !this.ts.isIdentifier(candidate.name) || candidate.name.text !== "this").indexOf(parameter);
+    if (index < 0) return undefined;
     const kinds = [];
     let isEveryReferenceCalled = true;
     this.walk(this.tree,node => {
@@ -873,7 +875,8 @@ class TypeScriptAnalyzer {
   }
 
   isGlobalName(expression,names) {
-    return !!expression && this.ts.isIdentifier(expression) && names.includes(expression.text) && !this.bindingScope(expression);
+    if (!expression || !this.ts.isIdentifier(expression) || !names.includes(expression.text) || this.bindingScope(expression)) return false;
+    return !this.foreignStores.has(expression.text) && !this.identifierWrites.some(write => write.name === expression.text);
   }
 
   localValue(expression) {
