@@ -8,7 +8,7 @@
 
 import type { Credential } from "./credential.js";
 import type { Attribute, AttributeLock, AttributeMap, AttributeMapLoad } from "./persistence.js";
-import type { RetryPolicy, StepClass, StepDurability, StepOptions } from "./step.js";
+import type { RetryPolicy, StepDurability, StepOptions, StepTarget } from "./step.js";
 import type { Channel, ChannelMap, ChannelMapLoad } from "./wait.js";
 import { requireMapInstance, requireName } from "./validation.js";
 
@@ -111,8 +111,11 @@ export type FlowTimeoutPolicy =
 
 /** Routes exhausted Flow timeout-handler retries to an input-free Step. */
 export interface FlowTimeoutHandlerFailure {
-  /** Registered fallback Step whose input codec is {@link voidCodec}. */
-  readonly step: StepClass<void>;
+  /**
+   * Fallback Step class, registered instance, or StepRef whose input codec is {@link voidCodec}.
+   * Code that reads this field must narrow it before using class members.
+   */
+  readonly step: StepTarget<void>;
   /** Options applied when the fallback Step is scheduled. */
   readonly options?: StepOptions;
 }
@@ -121,12 +124,24 @@ export interface FlowTimeoutHandlerFailure {
 export const FlowTimeoutHandlerFailure = Object.freeze({
   /**
    * Routes exhausted timeout-handler retries to an input-free Step.
+   *
    * The Step receives `undefined` and reads the terminal handler failure from `Context.recoveryError`.
-   * @param step - Registered Step class with {@link voidCodec} as its input codec.
+   * Select the Step by class, registered instance, or StepRef. Use an instance or StepRef when the
+   * Flow registers more than one instance of the fallback Step class. The target is validated when
+   * Client or SubFlow start options are mapped, not when this function is called. An unknown,
+   * ambiguous, or unregistered target fails that start with FlowDefinitionError.
+   * @example
+   * ```ts
+   * const timeoutHandlerOptions: FlowTimeoutHandlerOptions = {
+   *   retry: { maximumAttempts: 1 },
+   *   failure: FlowTimeoutHandlerFailure.proceedTo(new StepRef("TimeoutRecovery")),
+   * };
+   * ```
+   * @param step - Fallback class, registered instance, or StepRef with {@link voidCodec} as its input codec.
    * @param options - Optional options for the fallback Step movement.
    * @returns The timeout-handler failure-routing settings.
    */
-  proceedTo(step: StepClass<void>, options?: StepOptions): FlowTimeoutHandlerFailure {
+  proceedTo(step: StepTarget<void>, options?: StepOptions): FlowTimeoutHandlerFailure {
     return { step, ...(options === undefined ? {} : { options }) };
   },
 });

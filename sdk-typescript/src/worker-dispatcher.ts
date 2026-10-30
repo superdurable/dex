@@ -47,6 +47,7 @@ import { InvalidStepResultError, ValueMappingError } from "./errors.js";
 import {
   registeredFlowByName,
   registeredFlow,
+  registeredStepTarget,
   registeredRPCByName,
   registeredStep,
   type RegisteredFlow,
@@ -77,7 +78,7 @@ import type { RegisteredRPC } from "./rpc.js";
 import type {
   RetryPolicy,
   Step,
-  StepClass,
+  StepTarget,
   StepDecision,
   StepMovement,
   StepOptions,
@@ -106,6 +107,7 @@ export class WorkerDispatcher {
     original: InvokeWaitForMethodRequest,
     cancellationSignal: AbortSignal = new AbortController().signal,
     stepOutput?: StepOutputEmitter,
+    deadline?: Date,
   ): Promise<InvokeWaitForMethodResponse> {
     const request = await this.hydrateWaitFor(original);
     cancellationSignal.throwIfAborted();
@@ -125,6 +127,7 @@ export class WorkerDispatcher {
       request.loadedAttributeMapInstances,
       request.loadedChannelNames,
       request.loadedChannelMapInstances,
+      deadline,
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -167,12 +170,13 @@ export class WorkerDispatcher {
     original: InvokeExecuteMethodRequest,
     cancellationSignal: AbortSignal = new AbortController().signal,
     stepOutput?: StepOutputEmitter,
+    deadline?: Date,
   ): Promise<InvokeExecuteMethodResponse> {
     const request = await this.hydrateExecute(original);
     cancellationSignal.throwIfAborted();
     const flow = registeredFlowByName(this.registry, request.flowType);
     if (request.stepType === timeoutHandlerStepType) {
-      return this.invokeTimeoutHandler(request, flow, cancellationSignal, stepOutput);
+      return this.invokeTimeoutHandler(request, flow, cancellationSignal, stepOutput, deadline);
     }
     const step = registeredStep(flow, request.stepType);
     const context = new InvocationContext(
@@ -189,6 +193,7 @@ export class WorkerDispatcher {
       request.loadedAttributeMapInstances,
       request.loadedChannelNames,
       request.loadedChannelMapInstances,
+      deadline,
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -225,6 +230,7 @@ export class WorkerDispatcher {
     flow: RegisteredFlow,
     cancellationSignal: AbortSignal,
     stepOutput?: StepOutputEmitter,
+    deadline?: Date,
   ): Promise<InvokeExecuteMethodResponse> {
     try {
       if (request.stepInput !== undefined) {
@@ -247,6 +253,7 @@ export class WorkerDispatcher {
         request.loadedAttributeMapInstances,
         request.loadedChannelNames,
         request.loadedChannelMapInstances,
+        deadline,
       );
       try {
         const decision = await flow.flow.handleTimeout(context);
@@ -583,15 +590,12 @@ function withCancellationSelection(
 
 function mapCancellationSteps(
   flow: RegisteredFlow,
-  steps: readonly StepClass<any>[] | undefined,
+  steps: readonly StepTarget<any>[] | undefined,
 ): string[] {
   const stepTypes: string[] = [];
   const seen = new Set<string>();
   for (const step of steps ?? []) {
-    const target = flow.stepsByClass.get(step);
-    if (target === undefined) {
-      throw new TypeError("cancellation Step must belong to the Flow");
-    }
+    const target = registeredStepTarget(flow, step);
     if (seen.has(target.name)) {
       continue;
     }
@@ -605,7 +609,7 @@ function rpcDecision(
   flow: RegisteredFlow,
   result: {
     nextSteps?: readonly StepMovement<any>[];
-    cancelingSteps?: readonly StepClass<any>[];
+    cancelingSteps?: readonly StepTarget<any>[];
   }
     | undefined,
 ): ProtoStepDecision | undefined {
@@ -628,10 +632,7 @@ function mapMovements(
 }
 
 function mapMovement(flow: RegisteredFlow, movement: StepMovement<any>): ProtoStepMovement {
-  const target = flow.stepsByClass.get(movement.step);
-  if (target === undefined) {
-    throw new TypeError("Step movement target does not belong to Flow");
-  }
+  const target = registeredStepTarget(flow, movement.step);
   return ProtoStepMovement.create({
     stepType: target.name,
     stepInput: encodeValue(codecOrJson(target.step.inputCodec), movement.input),
@@ -651,10 +652,7 @@ function mapStepOptions(
   const failureTarget = options?.executeFailure?.step;
   const failureDefinition = failureTarget === undefined
     ? undefined
-    : flow.stepsByClass.get(failureTarget);
-  if (failureTarget !== undefined && failureDefinition === undefined) {
-    throw new TypeError("execute failure Step must belong to the Flow");
-  }
+    : registeredStepTarget(flow, failureTarget);
   const failureOptions = options?.executeFailure?.options ?? failureDefinition?.step.getStepOptions?.();
   const waitForLoads = mapHandlerStateLoads(flow, {
     attributeMaps: options?.waitForLoadAttributeMaps,
@@ -904,10 +902,7 @@ function mapFlowTimeoutHandlerOptions(
   const failureStep = options.failure?.step;
   const failureDefinition = failureStep === undefined
     ? undefined
-    : flow.stepsByClass.get(failureStep);
-  if (failureStep !== undefined && failureDefinition === undefined) {
-    throw new TypeError("timeout handler failure Step must belong to the Flow");
-  }
+    : registeredStepTarget(flow, failureStep);
   if (failureDefinition !== undefined && failureDefinition.step.inputCodec !== voidCodec) {
     throw new TypeError("timeout handler failure Step must use voidCodec");
   }

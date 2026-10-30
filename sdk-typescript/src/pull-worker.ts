@@ -419,7 +419,7 @@ export class PullWorker {
       switch (task.request?.$case) {
         case "waitFor": {
           emitter = new PullStepOutputEmitter(poll, task.taskId, "waitFor", signal, (frame) => this.sendTaskFrame(poll, frame));
-          const result = await this.dispatcher.invokeWaitFor(task.request.value, signal, emitter);
+          const result = await this.dispatcher.invokeWaitFor(task.request.value, signal, emitter, task.deadline);
           this.sendTaskFrame(poll, { taskId: task.taskId, output: {
             $case: "waitFor", value: InvokeWaitForMethodOutput.create({ output: { $case: "result", value: result } }),
           } });
@@ -427,7 +427,7 @@ export class PullWorker {
         }
         case "execute": {
           emitter = new PullStepOutputEmitter(poll, task.taskId, "execute", signal, (frame) => this.sendTaskFrame(poll, frame));
-          const result = await this.dispatcher.invokeExecute(task.request.value, signal, emitter);
+          const result = await this.dispatcher.invokeExecute(task.request.value, signal, emitter, task.deadline);
           this.sendTaskFrame(poll, { taskId: task.taskId, output: {
             $case: "execute", value: InvokeExecuteMethodOutput.create({ output: { $case: "result", value: result } }),
           } });
@@ -660,9 +660,8 @@ class PullStepOutputEmitter implements StepOutputEmitter {
     this.isActive = false;
   }
 
-  public recordHeartbeat(value: Value | undefined): Promise<void> {
+  public async recordHeartbeat(value: Value | undefined): Promise<void> {
     this.sendOutput({ $case: "heartbeat", value: { value } });
-    return Promise.resolve();
   }
 
   public writeStream(write: StepStreamWrite): void {

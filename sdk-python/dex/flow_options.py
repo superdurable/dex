@@ -19,7 +19,7 @@ from dex._utils import require_map_instance
 from dex.attribute import Attribute, AttributeLock, AttributeMap, AttributeMapLoad
 from dex.channel import Channel, ChannelMap, ChannelMapLoad
 from dex.flow_config import FlowConfig
-from dex.step import RetryPolicy, Step, StepDurability, StepOptions
+from dex.step import RetryPolicy, StepDurability, StepOptions, StepTarget
 
 ValueT = TypeVar("ValueT")
 
@@ -122,25 +122,34 @@ class FlowTimeoutHandlerOptions:
     load_channels: tuple[Channel[Any], ...] = ()
     load_channel_maps: tuple[ChannelMap[Any], ...] = ()
     load_channel_map_instances: tuple[ChannelMapLoad, ...] = ()
-    _failure_target: type[Step[None]] | None = None
+    _failure_target: StepTarget[None] | None = None
     _failure_options: StepOptions | None = None
 
     def on_failure_proceed_to(
         self,
-        step: type[Step[None]],
+        step: StepTarget[None],
         options: StepOptions | None = None,
     ) -> FlowTimeoutHandlerOptions:
         """Return a copy routing exhausted retries to a registered no-input Step.
 
         The recovery Step receives ``None`` and reads the final handler failure from
-        ``Context.recovery_error``.
+        ``Context.recovery_error``. Select it by class, registered instance, or
+        StepRef. Use an instance or StepRef when the Flow registers more than one
+        instance of the recovery Step class. The target is validated when Client
+        or SubFlow start options are mapped, not when this method is called.
 
         Args:
-            step: A Step with ``None`` input registered by the timed-out Flow.
+            step: Recovery class, registered instance, or StepRef. It must belong to
+                the timed-out Flow and use ``None`` input.
             options: Optional execution overrides for the recovery movement.
 
         Returns:
             A new options value with failure routing configured.
+
+        Examples:
+            >>> options = FlowTimeoutHandlerOptions(
+            ...     retry=RetryPolicy(maximum_attempts=1),
+            ... ).on_failure_proceed_to(StepRef("TimeoutRecovery"))
         """
         return replace(self, _failure_target=step, _failure_options=options)
 

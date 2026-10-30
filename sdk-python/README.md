@@ -519,6 +519,37 @@ Applications implement two generic interfaces from [`dex`](dex/):
   With `AsyncWorker` and `Registry(..., allow_async_handlers=True)`, Step
   coroutines use `AsyncContext`; async RPCs keep `Context`.
 
+Steps are registered by `get_step_type()`, which defaults to the class name.
+Multiple instances of one class may return different Step types in the same Flow.
+A duplicate Step type fails registration. `go_to`, `StepMovement.of`,
+`StepOptions.on_execute_failure_proceed_to`,
+`FlowTimeoutHandlerOptions.on_failure_proceed_to`, and decision or RPC
+cancellation selections accept a registered instance, `StepRef("StepType")`, or
+a class. A class must have exactly one registered instance; otherwise select an
+instance or use `StepRef`. Instances match by identity and must belong to the
+containing Flow, so a new instance of a registered class is rejected.
+
+Declared execute-failure targets are validated when the Registry is constructed.
+The Registry also rejects an execute-failure target whose input type differs from
+the failing Step's input type. It skips this check when either type is `Any`,
+`object`, or an unresolved TypeVar. Timeout-handler failure targets are validated
+when Flow start options are mapped. Handler-created movements and cancellation
+selections, including StepRef targets, are validated when the Worker applies the
+returned decision; unknown Step types and ambiguous classes raise
+`FlowDefinitionError` with the Flow and target details. StepRef contains only a
+Step type and cannot execute or be registered in a StepList. Its input is checked
+by the destination codec at runtime.
+
+For a generic Step whose input annotation is a TypeVar, override
+`get_input_type()` to return a concrete type supported by `CodecRegistry`. The
+override takes precedence over both `execute` and `wait_for` input annotations;
+Context and return annotations are still required. The default returns `None`,
+which preserves annotation inference; return `type(None)` for a Step that accepts
+no input. The Registry resolves the type through its codec registrations, so
+custom codecs work too. See the runnable
+[generic Step instances test](tests/integ/step_instances_flow.py), which registers
+integer and string instances and routes to both by instance and StepRef.
+
 `StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the
 two handler calls. Timer and channel conditions determine how long a Step waits.
 
@@ -535,6 +566,26 @@ method timeout and one-minute heartbeat timeout; an explicit heartbeat timeout m
 meet the server minimum, which defaults to ten seconds. Asynchronous durability
 first allows at most three local attempts in seven seconds. The local phase ignores
 method timeouts and heartbeat frames before falling back to a regular activity.
+
+### Flow run start time
+
+`Context.flow_started_at` returns the current Flow run's server start time as a
+timezone-aware UTC `datetime` with one-second precision. It stays the same across
+Steps and retries in that run. It is available in `wait_for`, `execute`, Flow
+timeout handlers, and RPC handlers for both Worker and AsyncWorker. Compare it
+with `datetime.now(timezone.utc)` to measure the run's age. It matches
+`Client.describe_flow(flow_id).started_at` to the second.
+
+### Step attempt deadline
+
+`Context.deadline` is the absolute deadline supplied by the Dex Server for the
+current `wait_for`, `execute`, or Flow timeout handler attempt. It is a
+timezone-aware UTC `datetime` with microsecond precision, not a duration.
+Subtract `datetime.now(timezone.utc)` and call `total_seconds()` to budget
+remaining work after checking for `None`. A shorter remaining
+`RetryPolicy.total_duration` limits this deadline; each retry receives its own
+effective deadline. RPC handlers and tasks without a supplied deadline return
+`None`.
 
 ### Step progress and heartbeat recovery
 
