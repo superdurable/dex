@@ -1,0 +1,276 @@
+{
+  "schemaVersion": "2.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "workflow.py"
+  },
+  "flow": {
+    "name": "CatalogFlow",
+    "startStepId": "step:LookupRecord",
+    "span": {
+      "startLine": 27,
+      "startColumn": 1,
+      "endLine": 49,
+      "endColumn": 89
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:FinishStep:24:16",
+      "kind": "decision",
+      "name": "forceComplete",
+      "parentId": "step:FinishStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 24,
+        "startColumn": 16,
+        "endLine": 24,
+        "endColumn": 32
+      },
+      "decision": {
+        "type": "forceComplete"
+      }
+    },
+    {
+      "id": "decision:step:LookupRecord:optional:retry",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:LookupRecord",
+      "condition": "retry",
+      "phase": "execute",
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "resource:attribute:RESULT",
+      "kind": "attribute",
+      "name": "LookupResult",
+      "span": {
+        "startLine": 13,
+        "startColumn": 1,
+        "endLine": 13,
+        "endColumn": 41
+      },
+      "resource": {
+        "valueType": "dict"
+      }
+    },
+    {
+      "id": "resource:stream:PROGRESS",
+      "kind": "stream",
+      "name": "LookupProgress",
+      "span": {
+        "startLine": 14,
+        "startColumn": 1,
+        "endLine": 14,
+        "endColumn": 49
+      },
+      "resource": {
+        "valueType": "dict"
+      }
+    },
+    {
+      "id": "resource:stream:TEXT",
+      "kind": "stream",
+      "name": "LookupText",
+      "span": {
+        "startLine": 15,
+        "startColumn": 1,
+        "endLine": 15,
+        "endColumn": 40
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "step:FinishStep",
+      "kind": "step",
+      "name": "FinishStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 43,
+        "startColumn": 61,
+        "endLine": 43,
+        "endColumn": 72
+      },
+      "metadata": {
+        "explanation": "Complete the Flow after the lookup."
+      }
+    },
+    {
+      "id": "step:LookupRecord",
+      "kind": "step",
+      "name": "LookupRecord",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 43,
+        "startColumn": 36,
+        "endLine": 43,
+        "endColumn": 47
+      },
+      "metadata": {
+        "connector": {
+          "configurationEnabled": true,
+          "configurationUI": {
+            "units": [
+              {
+                "id": "query",
+                "unitId": "catalog.query",
+                "label": "Query",
+                "required": true,
+                "bindings": [
+                  {
+                    "port": "query",
+                    "jsonPointer": "/query"
+                  }
+                ]
+              }
+            ]
+          },
+          "connectionName": "primary",
+          "connectorId": "catalog",
+          "operationId": "lookupRecord",
+          "operationKind": "query",
+          "package": {
+            "ecosystem": "pypi",
+            "name": "dex-catalog",
+            "version": "1.2.3"
+          },
+          "releaseTag": "connectors/catalog/v1.2.3"
+        },
+        "connectorFactory": true,
+        "connectorOperationKind": "query",
+        "explanation": "Look up a catalog record."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "resource_write",
+      "from": "step:LookupRecord",
+      "to": "resource:attribute:RESULT",
+      "label": "Set",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "resource_write",
+      "from": "step:LookupRecord",
+      "to": "resource:stream:PROGRESS",
+      "label": "Write",
+      "metadata": {
+        "bestEffort": true,
+        "format": "structured",
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "resource_write",
+      "from": "step:LookupRecord",
+      "to": "resource:stream:TEXT",
+      "label": "Write",
+      "metadata": {
+        "bestEffort": true,
+        "format": "text",
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "failure_transition",
+      "from": "step:LookupRecord",
+      "to": "step:FinishStep",
+      "label": "Execute failure",
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "step:LookupRecord",
+      "to": "step:FinishStep",
+      "label": "found",
+      "span": {
+        "startLine": 30,
+        "startColumn": 23,
+        "endLine": 40,
+        "endColumn": 10
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "step:LookupRecord",
+      "to": "step:FinishStep",
+      "label": "unavailable",
+      "span": {
+        "startLine": 30,
+        "startColumn": 23,
+        "endLine": 40,
+        "endColumn": 10
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    }
+  ],
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "lookup",
+      "label": "Lookup",
+      "stepIds": [
+        "step:FinishStep",
+        "step:LookupRecord"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": [],
+    "connectorTriggerBindings": [
+      {
+        "connectorId": "catalog",
+        "triggerName": "recordChanged",
+        "connectionName": "primary",
+        "bindingName": "updates",
+        "modulePath": "",
+        "moduleVersion": "",
+        "releaseTag": "connectors/catalog/v1.2.3",
+        "package": {
+          "ecosystem": "pypi",
+          "name": "dex-catalog",
+          "version": "1.2.3"
+        },
+        "configurationEnabled": true,
+        "configurationUI": {
+          "units": []
+        }
+      }
+    ]
+  }
+}

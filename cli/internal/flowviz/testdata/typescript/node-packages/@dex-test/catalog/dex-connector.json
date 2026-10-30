@@ -1,0 +1,68 @@
+{
+  "connectorId": "catalog",
+  "releaseTag": "connectors/catalog/v1.2.3",
+  "package": {
+    "ecosystem": "npm",
+    "name": "@dex-test/catalog",
+    "version": "1.2.3"
+  },
+  "factories": [
+    {
+      "name": "createLookup",
+      "kind": "query",
+      "operationId": "lookupRecord",
+      "fields": {
+        "stepType": "stepType",
+        "connectionName": "connectionName",
+        "annotations": "annotations",
+        "resultAttribute": "resultAttribute",
+        "progressStream": "progressStream",
+        "textStream": "textStream",
+        "executeFailure": "executeFailure"
+      },
+      "branches": [
+        {
+          "id": "found",
+          "field": "found"
+        },
+        {
+          "id": "unavailable",
+          "field": "unavailable"
+        },
+        {
+          "id": "retry",
+          "field": "retry",
+          "optional": true
+        }
+      ],
+      "configurationUI": {
+        "units": [
+          {
+            "id": "query",
+            "unitId": "catalog.query",
+            "label": "Query",
+            "required": true,
+            "bindings": [
+              {
+                "port": "query",
+                "jsonPointer": "/query"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "createTrigger",
+      "kind": "trigger",
+      "triggerName": "recordChanged",
+      "fields": {
+        "connectionName": "connectionName",
+        "bindingName": "bindingName"
+      },
+      "configurationUI": {
+        "units": []
+      }
+    }
+  ]
+}

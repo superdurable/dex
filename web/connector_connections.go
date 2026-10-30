@@ -80,6 +80,8 @@ type connectorCatalogTriggerBinding struct {
 	BindingName          string                         `json:"bindingName"`
 	ModulePath           string                         `json:"modulePath"`
 	ModuleVersion        string                         `json:"moduleVersion"`
+	ReleaseTag           string                         `json:"releaseTag,omitempty"`
+	Package              *connectorPackageIdentity      `json:"package,omitempty"`
 	ConfigurationEnabled bool                           `json:"configurationEnabled"`
 	ConfigurationUI      api.V2ConnectorConfigurationUI `json:"configurationUI"`
 }
@@ -106,6 +108,8 @@ type connectorDefinitionIdentity struct {
 	ConnectionName       string                         `json:"connectionName"`
 	ModulePath           string                         `json:"modulePath"`
 	ModuleVersion        string                         `json:"moduleVersion"`
+	ReleaseTag           string                         `json:"releaseTag,omitempty"`
+	Package              *connectorPackageIdentity      `json:"package,omitempty"`
 	ConfigurationEnabled bool                           `json:"configurationEnabled"`
 	ConfigurationUI      api.V2ConnectorConfigurationUI `json:"configurationUI"`
 }
@@ -814,6 +818,7 @@ func connectorTriggerDefinitionForKey(
 			continue
 		}
 		for _, binding := range definition.Graph.V2.ConnectorTriggerBindings {
+			binding, _ = normalizeConnectorTriggerBinding(binding, nil)
 			if binding.ConnectorID != connectorID || binding.ConnectionName != connectionName ||
 				binding.TriggerName != triggerName || binding.BindingName != bindingName {
 				continue
@@ -889,7 +894,12 @@ func normalizeConnectorDefinitionIdentity(
 ) (connectorDefinitionIdentity, bool) {
 	override, found := overrides[identity.ConnectorID]
 	if !found {
-		return identity, false
+		canonical, err := connectorReleaseModuleIdentity(identity)
+		if err != nil {
+			identity.ConfigurationEnabled = false
+			return identity, false
+		}
+		return canonical, false
 	}
 	identity.ModulePath = override.ModulePath
 	identity.ModuleVersion = override.ModuleVersion
@@ -903,6 +913,14 @@ func normalizeConnectorTriggerBinding(
 ) (connectorCatalogTriggerBinding, bool) {
 	override, found := overrides[binding.ConnectorID]
 	if !found {
+		identity, err := connectorReleaseModuleIdentity(connectorDefinitionIdentity{
+			ReleaseTag: binding.ReleaseTag, Package: binding.Package, ModulePath: binding.ModulePath, ModuleVersion: binding.ModuleVersion,
+		})
+		if err != nil {
+			binding.ConfigurationEnabled = false
+		} else {
+			binding.ModulePath, binding.ModuleVersion = identity.ModulePath, identity.ModuleVersion
+		}
 		return binding, false
 	}
 	binding.ModulePath = override.ModulePath

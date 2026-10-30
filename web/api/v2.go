@@ -52,14 +52,23 @@ type V2Definition struct {
 
 // V2ConnectorTriggerBinding describes one configurable external Trigger binding.
 type V2ConnectorTriggerBinding struct {
-	ConnectorID          string                     `json:"connectorId"`
-	TriggerName          string                     `json:"triggerName"`
-	ConnectionName       string                     `json:"connectionName"`
-	BindingName          string                     `json:"bindingName"`
-	ModulePath           string                     `json:"modulePath"`
-	ModuleVersion        string                     `json:"moduleVersion"`
-	ConfigurationEnabled bool                       `json:"configurationEnabled"`
-	ConfigurationUI      V2ConnectorConfigurationUI `json:"configurationUI"`
+	ConnectorID          string                      `json:"connectorId"`
+	TriggerName          string                      `json:"triggerName"`
+	ConnectionName       string                      `json:"connectionName"`
+	BindingName          string                      `json:"bindingName"`
+	ModulePath           string                      `json:"modulePath"`
+	ModuleVersion        string                      `json:"moduleVersion"`
+	ReleaseTag           string                      `json:"releaseTag,omitempty"`
+	Package              *V2ConnectorPackageIdentity `json:"package,omitempty"`
+	ConfigurationEnabled bool                        `json:"configurationEnabled"`
+	ConfigurationUI      V2ConnectorConfigurationUI  `json:"configurationUI"`
+}
+
+// V2ConnectorPackageIdentity identifies an installed Connector SDK package independently of its release tag.
+type V2ConnectorPackageIdentity struct {
+	Ecosystem string `json:"ecosystem"`
+	Name      string `json:"name"`
+	Version   string `json:"version"`
 }
 
 // V2ConnectorConfigurationUI declares a Flow-owned composition of Connector UI units.

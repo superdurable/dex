@@ -41,7 +41,7 @@ type visualizeOptions struct {
 func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	flags := newFlagSet("dexcli visualize", a.stderr)
 	options := visualizeOptions{openBrowser: true}
-	flags.StringVar(&options.language, "language", "auto", "auto, go, or python")
+	flags.StringVar(&options.language, "language", "auto", "auto, go, python, or typescript")
 	flags.StringVar(&options.schemaVersion, "schema-version", flowviz.SchemaVersionV1, "Flow Definition Graph schema version: 1.0 or 2.0")
 	flags.StringVar(&options.lint, "lint", "", "also report the application lints: app")
 	flags.BoolVar(&options.json, "json", false, "write Flow Definition Graph JSON instead of opening Flow Rendering")
@@ -114,9 +114,9 @@ func parseVisualizeArgs(flags *flag.FlagSet, args []string) (string, error) {
 
 func validateVisualizeOptions(options visualizeOptions) error {
 	switch options.language {
-	case "", "auto", "go", "python":
+	case "", "auto", "go", "python", "typescript":
 	default:
-		return fmt.Errorf("language must be auto, go, or python")
+		return fmt.Errorf("language must be auto, go, python, or typescript")
 	}
 	if options.schemaVersion != flowviz.SchemaVersionV1 && options.schemaVersion != flowviz.SchemaVersionV2 {
 		return fmt.Errorf("schema-version must be 1.0 or 2.0")
@@ -230,9 +230,9 @@ func printVisualizeUsage(output io.Writer) {
 	fmt.Fprintln(output, "Usage: dexcli visualize SOURCE [flags]")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Flags:")
-	fmt.Fprintln(output, "  --language auto|go|python           source language (default auto)")
+	fmt.Fprintln(output, "  --language auto|go|python|typescript source language (default auto)")
 	fmt.Fprintln(output, "  --schema-version 1.0|2.0           Flow Definition Graph schema version (default 1.0)")
-	fmt.Fprintln(output, "  --lint app                          also report the application lints (Go only)")
+	fmt.Fprintln(output, "  --lint app                          also report the application lints (Go); validate FDG 2.0 annotations")
 	fmt.Fprintln(output, "  --json                              write Flow Definition Graph JSON instead of rendering")
 	fmt.Fprintln(output, "  --open                              open Flow Rendering in the default browser (default true)")
 	fmt.Fprintln(output, "  --out path-prefix|-                 JSON output prefix, or - for stdout (requires --json)")

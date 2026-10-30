@@ -21,7 +21,10 @@ import (
 //go:embed python_analyzer.py
 var pythonAnalyzerSource string
 
-func analyzePython(ctx context.Context, sourcePath string, source []byte, pythonPath string) (*Graph, error) {
+//go:embed python_connector_analyzer.py
+var pythonConnectorAnalyzerSource string
+
+func analyzePython(ctx context.Context, sourcePath string, source []byte, pythonPath string, schemaVersion string) (*Graph, error) {
 	if strings.TrimSpace(pythonPath) == "" {
 		pythonPath = "python3"
 	}
@@ -29,7 +32,7 @@ func analyzePython(ctx context.Context, sourcePath string, source []byte, python
 	if err != nil {
 		return nil, fmt.Errorf("encode Python analyzer input: %w", err)
 	}
-	command := exec.CommandContext(ctx, pythonPath, "-I", "-S", "-c", pythonAnalyzerSource)
+	command := exec.CommandContext(ctx, pythonPath, "-I", "-S", "-c", pythonConnectorAnalyzerSource+"\n"+pythonAnalyzerSource)
 	command.Stdin = bytes.NewReader(request)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -37,6 +40,7 @@ func analyzePython(ctx context.Context, sourcePath string, source []byte, python
 	command.Stderr = &stderr
 	if err := command.Run(); err != nil {
 		graph := NewGraph("python", sourcePath)
+		graph.SchemaVersion = schemaVersion
 		message := strings.TrimSpace(stderr.String())
 		if message == "" {
 			message = err.Error()
@@ -44,9 +48,9 @@ func analyzePython(ctx context.Context, sourcePath string, source []byte, python
 		graph.AddDiagnostic("error", "python_analyzer_failed", message, nil)
 		return graph, nil
 	}
-	var graph Graph
-	if err := json.Unmarshal(stdout.Bytes(), &graph); err != nil {
+	var result scriptAnalysis
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		return nil, fmt.Errorf("decode Python analyzer output: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	return &graph, nil
+	return result.definition(schemaVersion), nil
 }

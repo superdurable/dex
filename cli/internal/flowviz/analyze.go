@@ -44,22 +44,18 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 	if err != nil {
 		return nil, err
 	}
-	if schemaVersion == SchemaVersionV2 && language != "go" {
-		return nil, fmt.Errorf("schema version 2.0 supports Go source only")
-	}
 	isApplicationLint, err := resolveLint(options.Lint)
 	if err != nil {
 		return nil, err
-	}
-	if isApplicationLint && language != "go" {
-		return nil, fmt.Errorf("--lint app supports Go source only")
 	}
 	var graph *Graph
 	switch language {
 	case "go":
 		graph, err = analyzeGo(ctx, absolutePath, data, schemaVersion, isApplicationLint)
 	case "python":
-		graph, err = analyzePython(ctx, absolutePath, data, options.PythonPath)
+		graph, err = analyzePython(ctx, absolutePath, data, options.PythonPath, schemaVersion)
+	case "typescript":
+		graph, err = analyzeTypeScript(ctx, absolutePath, data, schemaVersion)
 	default:
 		panic("validated language was not handled")
 	}
@@ -71,17 +67,21 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 			graph.Groups = make([]StepGroup, 0)
 		}
 		if graph.V2 == nil {
-			graph.V2 = &V2Definition{
-				IndexedAttributes: make([]IndexedAttribute, 0),
-				Summary:           RPCView{RPCName: "GetDexSummary", Fields: make([]ViewField, 0)},
-				Display:           RPCView{RPCName: "GetDexDisplay", Fields: make([]ViewField, 0)},
-				Actions:           make([]Action, 0),
-			}
+			graph.V2 = newEmptyV2Definition()
 		}
 	}
 	graph.Source.Path = filepath.ToSlash(filepath.Clean(sourcePath))
 	graph.Normalize()
 	return graph, nil
+}
+
+func newEmptyV2Definition() *V2Definition {
+	return &V2Definition{
+		IndexedAttributes: make([]IndexedAttribute, 0),
+		Summary:           RPCView{RPCName: "GetDexSummary", Fields: make([]ViewField, 0)},
+		Display:           RPCView{RPCName: "GetDexDisplay", Fields: make([]ViewField, 0)},
+		Actions:           make([]Action, 0),
+	}
 }
 
 func resolveSchemaVersion(requested string) (string, error) {
@@ -130,14 +130,16 @@ func resolveLanguage(requested string, sourcePath string) (string, error) {
 			return "go", nil
 		case ".py":
 			return "python", nil
+		case ".ts", ".tsx", ".mts", ".cts":
+			return "typescript", nil
 		default:
 			return "", fmt.Errorf("cannot infer language from %s; use --language", filepath.Ext(sourcePath))
 		}
 	}
 	switch language {
-	case "go", "python":
+	case "go", "python", "typescript":
 		return language, nil
 	default:
-		return "", fmt.Errorf("language must be auto, go, or python")
+		return "", fmt.Errorf("language must be auto, go, python, or typescript")
 	}
 }

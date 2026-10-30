@@ -11,7 +11,7 @@ import json
 import sys
 
 
-class Analyzer:
+class Analyzer(ConnectorAnalyzer):
     def __init__(self, path, source):
         self.path = path
         self.source = source
@@ -37,6 +37,7 @@ class Analyzer:
         self.step_options = {}
         self.failure_transitions = set()
         self.node_ids = set()
+        self.initialize_connectors()
 
     def analyze(self):
         if sys.version_info < (3, 11):
@@ -48,6 +49,7 @@ class Analyzer:
             self.error("python_parse_failed", error.msg, self.syntax_span(error))
             return self.graph
         self.index_imports()
+        self.index_connector_imports()
         self.index_classes()
         self.validate_dynamic_constructs()
         self.index_resources()
@@ -61,6 +63,7 @@ class Analyzer:
         flow_name, flow_class = next(iter(self.flow_classes.items()))
         self.graph["flow"] = {"name": self.custom_type_name(flow_class, "get_flow_type", flow_name), "span": self.span(flow_class)}
         self.index_flow_fields(flow_class)
+        self.index_connector_fields(flow_class)
         self.analyze_registration(flow_class)
         for step_name, node_id in list(self.registered.items()):
             self.analyze_step(step_name, node_id)
@@ -338,11 +341,21 @@ class Analyzer:
         seen = set()
         for step_name, is_start, expression in registrations:
             if not step_name:
+                self.report_missing_connector_manifest(expression)
                 self.dynamic_target("registered Step type must be static", expression)
                 continue
             if step_name in seen:
+                self.error("duplicate_step_type", f"Step {step_name} is registered more than once", self.span(expression))
                 continue
             seen.add(step_name)
+            if step_name in self.connector_steps:
+                node_id = f"step:{step_name}"
+                self.registered[step_name] = node_id
+                self.add_node({"id": node_id, "kind": "step", "name": step_name, "phase": "execute", "start": is_start, "span": self.span(expression)})
+                if is_start:
+                    starts += 1
+                    self.graph["flow"]["startStepId"] = node_id
+                continue
             if step_name not in self.step_classes:
                 self.dynamic_target(f"Step {step_name} must be defined in the source file", expression)
                 continue
@@ -362,6 +375,9 @@ class Analyzer:
                 self.graph["flow"]["startStepId"] = node_id
         if starts > 1:
             self.error("multiple_start_steps", "Flow defines more than one start Step", self.span(method))
+        step_types = [node["name"] for node in self.graph["nodes"] if node["kind"] == "step"]
+        for step_type in sorted({name for name in step_types if step_types.count(name) > 1}):
+            self.error("duplicate_step_type", f"Step type {step_type} is registered by more than one Step", self.span(method))
         if not registrations and not self.has_static_empty_registration(method):
             self.error("dynamic_step_registration", "get_steps must directly call StepList.start_step or other_steps", self.span(method))
 
@@ -379,6 +395,8 @@ class Analyzer:
         )
 
     def analyze_step(self, step_name, node_id):
+        if step_name in self.connector_steps:
+            return
         step_class = self.step_classes[step_name]
         execute = self.method(step_class, "execute")
         if execute is None:
@@ -1051,6 +1069,9 @@ class Analyzer:
         return None
 
     def step_target(self, expression):
+        connector_target = self.connector_step_target(expression)
+        if connector_target:
+            return connector_target
         if isinstance(expression, ast.Name):
             return expression.id if expression.id in self.step_classes else None
         if isinstance(expression, ast.Attribute):
@@ -1229,8 +1250,9 @@ class Analyzer:
 
 def main():
     request = json.load(sys.stdin)
-    graph = Analyzer(request["path"], request["source"]).analyze()
-    json.dump(graph, sys.stdout, ensure_ascii=False, separators=(",", ":"))
+    analyzer = Analyzer(request["path"], request["source"])
+    graph = analyzer.analyze()
+    json.dump(analyzer.connector_analysis_result(graph), sys.stdout, ensure_ascii=False, separators=(",", ":"))
 
 
 main()

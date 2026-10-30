@@ -1,0 +1,68 @@
+{
+  "connectorId": "catalog",
+  "releaseTag": "connectors/catalog/v1.2.3",
+  "package": {
+    "ecosystem": "pypi",
+    "name": "dex-catalog",
+    "version": "1.2.3"
+  },
+  "factories": [
+    {
+      "name": "create_lookup",
+      "kind": "query",
+      "operationId": "lookupRecord",
+      "fields": {
+        "stepType": "step_type",
+        "connectionName": "connection_name",
+        "annotations": "annotations",
+        "resultAttribute": "result_attribute",
+        "progressStream": "progress_stream",
+        "textStream": "text_stream",
+        "executeFailure": "execute_failure"
+      },
+      "branches": [
+        {
+          "id": "found",
+          "field": "found"
+        },
+        {
+          "id": "unavailable",
+          "field": "unavailable"
+        },
+        {
+          "id": "retry",
+          "field": "retry",
+          "optional": true
+        }
+      ],
+      "configurationUI": {
+        "units": [
+          {
+            "id": "query",
+            "unitId": "catalog.query",
+            "label": "Query",
+            "required": true,
+            "bindings": [
+              {
+                "port": "query",
+                "jsonPointer": "/query"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "create_trigger",
+      "kind": "trigger",
+      "triggerName": "recordChanged",
+      "fields": {
+        "connectionName": "connection_name",
+        "bindingName": "binding_name"
+      },
+      "configurationUI": {
+        "units": []
+      }
+    }
+  ]
+}

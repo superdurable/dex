@@ -73,7 +73,7 @@ export interface FlowDefinitionGraph {
   schemaVersion: '1.0' | '2.0';
   valid: boolean;
   source: {
-    language: 'go' | 'python';
+    language: 'go' | 'python' | 'typescript';
     path: string;
   };
   flow: {
