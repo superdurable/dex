@@ -8,19 +8,22 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import math
-from dataclasses import asdict, dataclass, field, fields, is_dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import MISSING, Field, dataclass, field, fields, is_dataclass
 from datetime import datetime
 from enum import Enum
+from types import UnionType
 from typing import (
     Any,
     Callable,
     Generic,
-    Mapping,
+    Literal,
     Protocol,
-    Sequence,
     TypeVar,
+    Union,
     cast,
     get_args,
     get_origin,
@@ -288,12 +291,87 @@ class CodecRegistry:
 
     Explicit registrations take precedence over built-ins. The default registry
     supports primitive types, ``None``, ``datetime``, dataclasses, enums, and typed
-    list, tuple, mapping, and sequence containers.
+    list, tuple, mapping, and sequence containers. Parameterized generic
+    dataclasses substitute their type arguments recursively. Optional types and
+    unions use JSON, including when their alternatives have primitive codecs.
+
+    Unions select an alternative by JSON kind: null, boolean, number, string,
+    array, or object. Boolean values never select an integer alternative. A
+    union passed directly to :meth:`resolve` needs alternatives with disjoint
+    kinds. For example, ``Receipt | None`` and ``int | str`` work, but
+    ``int | float``, ``str | datetime``, and unions of two dataclasses are
+    ambiguous and raise TypeError during resolution. A custom codec can
+    implement a discriminator. A ``Literal`` alternative, such as
+    ``Literal["draft", "sent"] | None``, uses the JSON kinds of its members.
+    Decoding raises ValueError for a value outside the ``Literal``. Members
+    match by exact type, so JSON ``true`` never matches ``Literal[1]``.
+
+    Unions inside dataclass fields and containers keep the decoding of earlier
+    releases and never raise during resolution. Such a union decodes a value
+    into a dataclass, Enum, or datetime alternative, or a container of those,
+    when the value's JSON kind matches only that alternative. Otherwise it
+    returns the JSON value unchanged, without a type check. A nested
+    ``Literal`` also returns the JSON value unchanged. Fields typed by a
+    type variable and ``Mapping`` or ``Sequence`` types follow the same rule:
+    ``Result[Receipt]`` decodes a ``Receipt``, but ``Result[int]`` returns the
+    JSON value of its type-variable field unchanged. A ``float`` accepts a JSON
+    integer and keeps it as an ``int``.
+
+    Dataclass fields use their Python names unless
+    ``field(metadata={"dex_json_name": "callId"})`` specifies a non-empty wire
+    name. Names must be unique within the dataclass. Unknown input keys are
+    ignored. Absent keys use the declared default or default factory; a missing
+    required field raises ValueError. Explicit null for a defaulted field still
+    decodes as null. It raises TypeError when the field type checks values,
+    such as ``int``, a dataclass, or ``datetime``.
+
+    ``dex_json_omit_default=True`` in field metadata omits values equal to the
+    field's default. It requires a default or default factory. A factory is
+    called again for comparison on every encode, so it must be deterministic
+    and free of side effects. Without this opt-in, defaults and nulls are
+    included in encoded JSON.
+
+    Datetime fields decode ISO 8601 strings, including Go RFC3339 strings with
+    ``Z`` or numeric timezone offsets. Python retains microsecond precision;
+    additional fractional digits are truncated on decode. Encoding retains
+    ``datetime.isoformat()`` by default. Field metadata
+    ``dex_json_format="rfc3339"`` instead emits Go-compatible timestamps with
+    ``Z`` for UTC and no trailing fractional zeroes. This opt-in requires a
+    datetime or optional datetime field and an aware value whose timezone offset
+    is a whole number of minutes.
 
     Examples:
         >>> registry = CodecRegistry({Money: money_codec})
         >>> registry.resolve(Money) is money_codec
         True
+
+        A generic dataclass needs no explicit codec registration::
+
+            from dataclasses import dataclass, field
+            from datetime import datetime, timezone
+            from typing import Generic, TypeVar
+            from dex import CodecRegistry
+
+            ResultT = TypeVar("ResultT")
+
+            @dataclass
+            class Receipt:
+                call_id: str = field(metadata={"dex_json_name": "callId"})
+                observed_at: datetime = field(metadata={
+                    "dex_json_name": "observedAt", "dex_json_format": "rfc3339"
+                })
+
+            @dataclass
+            class Result(Generic[ResultT]):
+                value: ResultT
+                receipt: Receipt | None = None
+                failure: str | None = field(default=None, metadata={
+                    "dex_json_omit_default": True
+                })
+
+            codec = CodecRegistry().resolve(Result[int])
+            result = Result(42, Receipt("call-1", datetime.now(timezone.utc)))
+            assert codec.decode(codec.encode(result)) == result
     """
 
     def __init__(self, codecs: Mapping[object, Codec[Any]] | None = None) -> None:
@@ -315,7 +393,9 @@ class CodecRegistry:
             The registered, built-in, or automatically derived codec.
 
         Raises:
-            TypeError: If no codec can represent ``type_hint``.
+            TypeError: If no codec can represent ``type_hint``, ``type_hint`` is
+                a union with overlapping or unsupported alternatives, or
+                dataclass JSON metadata is invalid.
         """
         custom = self._codecs.get(type_hint)
         if custom is not None:
@@ -333,9 +413,14 @@ class CodecRegistry:
         if builtin is not None:
             return builtin
         if _supports_automatic_json(type_hint):
+            _validate_json_type(type_hint, set())
+            json_decoder = _decode_json_value
+            if get_origin(type_hint) in (Union, UnionType):
+                _validate_json_union_kinds(type_hint)
+                json_decoder = _decode_json_union
             return JsonCodec(
                 _type_name(type_hint),
-                lambda value: _decode_json_value(value, type_hint),
+                lambda value: json_decoder(value, type_hint),
                 _encode_json_value,
                 type_hint,
             )
@@ -344,40 +429,284 @@ class CodecRegistry:
         )
 
 
+_JSON_KINDS = frozenset({"null", "boolean", "number", "string", "array", "object"})
+
+
 def _supports_automatic_json(type_hint: object) -> bool:
     origin = get_origin(type_hint)
+    concrete_type = origin or type_hint
     return (
-        isinstance(type_hint, type)
-        and (is_dataclass(type_hint) or issubclass(type_hint, Enum))
-    ) or origin in (list, tuple, dict, Mapping, Sequence)
+        isinstance(concrete_type, type)
+        and (is_dataclass(concrete_type) or issubclass(concrete_type, Enum))
+    ) or origin in (list, tuple, dict, Mapping, Sequence, Union, UnionType)
+
+
+def _validate_json_type(type_hint: object, visited: set[object]) -> None:
+    origin = get_origin(type_hint)
+    concrete_type = origin or type_hint
+    if isinstance(concrete_type, type) and is_dataclass(concrete_type):
+        if type_hint in visited:
+            return
+        visited.add(type_hint)
+        _validate_json_dataclass(type_hint, concrete_type, visited)
+    elif origin in (list, tuple, dict, Mapping, Sequence, Union, UnionType):
+        for argument in get_args(type_hint):
+            _validate_json_type(argument, visited)
+
+
+def _validate_json_dataclass(
+    type_hint: object, concrete_type: type[Any], visited: set[object]
+) -> None:
+    wire_names: set[str] = set()
+    for definition in fields(concrete_type):
+        wire_name = _field_wire_name(definition)
+        if wire_name in wire_names:
+            raise TypeError(f"duplicate JSON field name {wire_name!r}")
+        wire_names.add(wire_name)
+        should_omit_default = definition.metadata.get("dex_json_omit_default", False)
+        if type(should_omit_default) is not bool:
+            raise TypeError("dex_json_omit_default must be a bool")
+        if (
+            should_omit_default
+            and definition.default is MISSING
+            and definition.default_factory is MISSING
+        ):
+            raise TypeError(
+                f"{definition.name}: dex_json_omit_default requires a default"
+            )
+        if definition.metadata.get("dex_json_format", "rfc3339") != "rfc3339":
+            raise TypeError(f"{definition.name}: dex_json_format requires 'rfc3339'")
+    try:
+        hints = _dataclass_json_field_hints(type_hint)
+    except Exception:
+        # Earlier releases resolved without evaluating annotations; decode reports this.
+        return
+    for definition in fields(concrete_type):
+        hint = hints[definition.name]
+        if "dex_json_format" in definition.metadata and hint not in (
+            datetime,
+            datetime | None,
+        ):
+            raise TypeError(
+                f"{definition.name}: dex_json_format requires a datetime or "
+                "optional datetime field"
+            )
+        _validate_json_type(hint, visited)
+
+
+def _validate_json_union_kinds(type_hint: object) -> None:
+    seen_kinds: set[str] = set()
+    for argument in get_args(type_hint):
+        kinds = _json_type_kinds(argument)
+        if kinds is None:
+            raise TypeError(
+                f"unsupported JSON union alternative {_type_name(argument)}"
+            )
+        if seen_kinds.intersection(kinds):
+            raise TypeError(
+                f"ambiguous JSON union {type_hint}: alternatives share a JSON kind"
+            )
+        seen_kinds.update(kinds)
+
+
+def _json_type_kinds(type_hint: object) -> frozenset[str] | None:
+    """Return the JSON kinds a type accepts, or None when they are unknown."""
+    origin = get_origin(type_hint)
+    concrete_type = origin or type_hint
+    if type_hint is Any:
+        return _JSON_KINDS
+    if type_hint is type(None):
+        return frozenset({"null"})
+    if type_hint is bool:
+        return frozenset({"boolean"})
+    if type_hint in (int, float):
+        return frozenset({"number"})
+    if type_hint in (str, datetime):
+        return frozenset({"string"})
+    if origin is Literal:
+        return _json_value_kinds(get_args(type_hint))
+    if isinstance(concrete_type, type) and is_dataclass(concrete_type):
+        return frozenset({"object"})
+    if isinstance(concrete_type, type) and issubclass(concrete_type, Enum):
+        return _json_value_kinds(member.value for member in concrete_type)
+    if concrete_type in (dict, Mapping):
+        return frozenset({"object"})
+    if concrete_type in (list, tuple, Sequence):
+        return frozenset({"array"})
+    return None
+
+
+def _json_value_kinds(values: Iterable[Any]) -> frozenset[str] | None:
+    try:
+        return frozenset(_json_value_kind(value) for value in values)
+    except TypeError:
+        return None
+
+
+def _json_value_kind(value: Any) -> str:
+    if value is None:
+        return "null"
+    if type(value) is bool:
+        return "boolean"
+    if type(value) in (int, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, (list, tuple)):
+        return "array"
+    if isinstance(value, Mapping):
+        return "object"
+    raise TypeError(f"unsupported JSON value {type(value).__name__}")
+
+
+def _needs_structured_json_decoding(type_hint: object) -> bool:
+    origin = get_origin(type_hint)
+    concrete_type = origin or type_hint
+    if type_hint is datetime:
+        return True
+    if isinstance(concrete_type, type) and (
+        is_dataclass(concrete_type) or issubclass(concrete_type, Enum)
+    ):
+        return True
+    return origin in (list, tuple, dict, Mapping, Sequence, Union, UnionType) and any(
+        _needs_structured_json_decoding(argument) for argument in get_args(type_hint)
+    )
+
+
+def _dataclass_json_field_hints(type_hint: object) -> dict[str, Any]:
+    concrete_type = cast(type[Any], get_origin(type_hint) or type_hint)
+    class_bindings: dict[type[Any], dict[Any, Any]] = {
+        concrete_type: dict(
+            zip(getattr(concrete_type, "__parameters__", ()), get_args(type_hint))
+        )
+    }
+    # The MRO lists each class before its bases, so its bindings are complete.
+    for parent_type in concrete_type.__mro__:
+        bindings = class_bindings.get(parent_type, {})
+        for base in parent_type.__dict__.get("__orig_bases__", ()):
+            base_type = get_origin(base)
+            if base_type is not None and base_type not in class_bindings:
+                class_bindings[base_type] = dict(
+                    zip(
+                        getattr(base_type, "__parameters__", ()),
+                        [
+                            _substitute_type_hint(argument, bindings)
+                            for argument in get_args(base)
+                        ],
+                    )
+                )
+    hints = get_type_hints(concrete_type)
+    owners: dict[str, type[Any]] = {}
+    for parent_type in reversed(concrete_type.__mro__):
+        owners.update(dict.fromkeys(inspect.get_annotations(parent_type), parent_type))
+    return {
+        definition.name: _substitute_type_hint(
+            hints[definition.name],
+            class_bindings.get(owners.get(definition.name, concrete_type), {}),
+        )
+        for definition in fields(concrete_type)
+    }
+
+
+def _substitute_type_hint(type_hint: Any, bindings: dict[Any, Any]) -> Any:
+    if isinstance(type_hint, TypeVar):
+        if type_hint not in bindings:
+            return type_hint
+        bound_type = bindings[type_hint]
+        # Earlier releases kept type-variable values; only structured bindings decode.
+        return bound_type if _needs_structured_json_decoding(bound_type) else Any
+    origin = get_origin(type_hint)
+    if origin is None:
+        return type_hint
+    original_arguments = get_args(type_hint)
+    arguments = tuple(
+        _substitute_type_hint(argument, bindings) for argument in original_arguments
+    )
+    if all(
+        argument is original
+        for argument, original in zip(arguments, original_arguments)
+    ):
+        return type_hint
+    if origin in (Union, UnionType):
+        return Union[arguments]
+    if hasattr(type_hint, "copy_with"):
+        return type_hint.copy_with(arguments)
+    return origin[arguments]
+
+
+def _field_wire_name(definition: Field[Any]) -> str:
+    wire_name = definition.metadata.get("dex_json_name", definition.name)
+    if not isinstance(wire_name, str) or not wire_name:
+        raise TypeError(f"{definition.name}: dex_json_name must be a non-empty string")
+    return wire_name
 
 
 def _type_name(type_hint: object) -> str:
     return getattr(type_hint, "__qualname__", str(type_hint))
 
 
+def _is_homogeneous_tuple(arguments: tuple[Any, ...]) -> bool:
+    if len(arguments) == 2 and arguments[1] is Ellipsis:
+        return True
+    return all(argument == arguments[0] for argument in arguments)
+
+
 def _matches_type(value: object, type_hint: object) -> bool:
     origin = get_origin(type_hint)
     arguments = get_args(type_hint)
-    if origin is list:
-        return isinstance(value, list) and all(
+    if type_hint is Any:
+        return True
+    if origin in (Union, UnionType):
+        return any(_matches_type(value, argument) for argument in arguments)
+    if origin is Literal:
+        return any(
+            type(value) is type(argument) and value == argument
+            for argument in arguments
+        )
+    if origin in (list, Sequence):
+        return isinstance(value, list if origin is list else (list, tuple)) and all(
             _matches_type(item, arguments[0]) for item in value
         )
     if origin is tuple:
-        return isinstance(value, tuple) and all(
-            _matches_type(item, arguments[0]) for item in value
+        if not isinstance(value, tuple):
+            return False
+        if _is_homogeneous_tuple(arguments):
+            return all(_matches_type(item, arguments[0]) for item in value)
+        return len(value) == len(arguments) and all(
+            _matches_type(item, argument) for item, argument in zip(value, arguments)
         )
     if origin in (dict, Mapping):
         return isinstance(value, Mapping) and all(
             _matches_type(key, arguments[0]) and _matches_type(item, arguments[1])
             for key, item in value.items()
         )
-    return isinstance(type_hint, type) and type(value) is type_hint
+    concrete_type = origin or type_hint
+    if concrete_type is float and type(value) is int:
+        return True
+    return isinstance(concrete_type, type) and type(value) is concrete_type
 
 
 def _encode_json_value(value: Any) -> Any:
     if is_dataclass(value) and not isinstance(value, type):
-        return _encode_json_value(asdict(value))
+        encoded = {}
+        for definition in fields(value):
+            item = getattr(value, definition.name)
+            if definition.metadata.get("dex_json_omit_default", False):
+                default = definition.default
+                if definition.default_factory is not MISSING:
+                    default = definition.default_factory()
+                if item == default:
+                    continue
+            wire_name = _field_wire_name(definition)
+            if wire_name in encoded:
+                raise TypeError(f"duplicate JSON field name {wire_name!r}")
+            encoded[wire_name] = (
+                _encode_rfc3339_datetime(item)
+                if definition.metadata.get("dex_json_format") == "rfc3339"
+                and item is not None
+                else _encode_json_value(item)
+            )
+        return encoded
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, Enum):
@@ -389,21 +718,92 @@ def _encode_json_value(value: Any) -> Any:
     return value
 
 
+def _validate_json_value_metadata(value: Any, visited: set[object]) -> None:
+    """Validate the JSON metadata of every dataclass instance within ``value``."""
+    if is_dataclass(value) and not isinstance(value, type):
+        _validate_json_type(type(value), visited)
+        for definition in fields(value):
+            _validate_json_value_metadata(getattr(value, definition.name), visited)
+    elif isinstance(value, Mapping):
+        for item in value.values():
+            _validate_json_value_metadata(item, visited)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _validate_json_value_metadata(item, visited)
+
+
+def _encode_rfc3339_datetime(value: datetime) -> str:
+    if not isinstance(value, datetime):
+        raise TypeError("dex_json_format='rfc3339' requires datetime")
+    offset = value.utcoffset()
+    if offset is None or offset.total_seconds() % 60:
+        raise ValueError(
+            "RFC3339 datetime requires a timezone with whole-minute offset"
+        )
+    timestamp = value.isoformat(timespec="seconds")
+    fraction = f".{value.microsecond:06d}".rstrip("0") if value.microsecond else ""
+    timestamp = timestamp[:19] + fraction + timestamp[19:]
+    return timestamp[:-6] + "Z" if timestamp.endswith("+00:00") else timestamp
+
+
+def _decode_json_union(value: Any, type_hint: object) -> Any:
+    kind = _json_value_kind(value)
+    for argument in get_args(type_hint):
+        if kind in _json_alternative_kinds(argument):
+            if get_origin(argument) is Literal:
+                return _decode_json_literal(value, argument)
+            return _decode_json_value(value, argument)
+    raise TypeError(f"{type_hint} cannot decode JSON {kind}")
+
+
+def _decode_json_literal(value: Any, type_hint: object) -> Any:
+    for member in get_args(type_hint):
+        encoded = _encode_json_value(member)
+        if type(encoded) is type(value) and encoded == value:
+            return member
+    raise ValueError(f"{value!r} is not a member of {type_hint}")
+
+
 def _decode_json_value(value: Any, type_hint: object) -> Any:
     origin = get_origin(type_hint)
     arguments = get_args(type_hint)
-    if isinstance(type_hint, type) and is_dataclass(type_hint):
+    concrete_type = origin or type_hint
+    if origin in (Union, UnionType):
+        kind = _json_value_kind(value)
+        candidates = [
+            argument
+            for argument in arguments
+            if kind in _json_alternative_kinds(argument)
+        ]
+        # Earlier releases returned nested union values as is.
+        if len(candidates) == 1 and _needs_structured_json_decoding(candidates[0]):
+            return _decode_json_value(value, candidates[0])
+        return value
+    if origin in (Mapping, Sequence) and not _needs_structured_json_decoding(type_hint):
+        # Earlier releases returned abstract container values as is.
+        return value
+    if isinstance(concrete_type, type) and is_dataclass(concrete_type):
         if not isinstance(value, Mapping):
             raise TypeError(f"{_type_name(type_hint)} requires a JSON object")
-        hints = get_type_hints(type_hint)
-        return type_hint(
-            **{
-                definition.name: _decode_json_value(
-                    value[definition.name], hints[definition.name]
+        hints = _dataclass_json_field_hints(type_hint)
+        decoded = {}
+        for definition in fields(concrete_type):
+            if not definition.init:
+                continue
+            wire_name = _field_wire_name(definition)
+            if wire_name not in value:
+                if (
+                    definition.default is not MISSING
+                    or definition.default_factory is not MISSING
+                ):
+                    continue
+                raise ValueError(
+                    f"{_type_name(type_hint)} missing required JSON field {wire_name!r}"
                 )
-                for definition in fields(type_hint)
-            }
-        )
+            decoded[definition.name] = _decode_json_value(
+                value[wire_name], hints[definition.name]
+            )
+        return concrete_type(**decoded)
     if type_hint is datetime:
         if not isinstance(value, str):
             raise TypeError("datetime requires a JSON string")
@@ -412,16 +812,38 @@ def _decode_json_value(value: Any, type_hint: object) -> Any:
         return type_hint(value)
     if origin is list:
         return [_decode_json_value(item, arguments[0]) for item in value]
+    if origin is Sequence:
+        if not isinstance(value, list):
+            raise TypeError(f"{type_hint} requires a JSON array")
+        return [_decode_json_value(item, arguments[0]) for item in value]
     if origin is tuple:
-        return tuple(_decode_json_value(item, arguments[0]) for item in value)
+        if _is_homogeneous_tuple(arguments):
+            return tuple(_decode_json_value(item, arguments[0]) for item in value)
+        if not isinstance(value, list):
+            raise TypeError(f"{type_hint} requires a JSON array")
+        if len(value) != len(arguments):
+            raise ValueError(f"{type_hint} requires {len(arguments)} items")
+        return tuple(
+            _decode_json_value(item, argument)
+            for item, argument in zip(value, arguments)
+        )
     if origin in (dict, Mapping):
+        if not isinstance(value, Mapping):
+            raise TypeError(f"{type_hint} requires a JSON object")
         return {
             _decode_json_value(key, arguments[0]): _decode_json_value(
                 item, arguments[1]
             )
             for key, item in value.items()
         }
+    if type_hint is float and type(value) is int:
+        return value
     if type_hint in (str, bool, int, float):
         if type(value) is not type_hint:
             raise TypeError(f"expected {_type_name(type_hint)}")
     return value
+
+
+def _json_alternative_kinds(type_hint: object) -> frozenset[str]:
+    kinds = _json_type_kinds(type_hint)
+    return _JSON_KINDS if kinds is None else kinds

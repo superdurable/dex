@@ -1,5 +1,6 @@
 .git
 .github
+sdk-python/tests/fixtures/json_codec/json_codec
 cli/dexcli
 bin/dexcli-tls-darwin-arm64
 cli/internal/command/testfixtures/registered-type-names/mainpackage/mainpackage

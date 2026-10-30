@@ -11,6 +11,7 @@
 *.out
 coverage.out
 sdk-go/coverage/
+sdk-python/tests/fixtures/json_codec/json_codec
 dex-server
 examples/go/dex-samples
 examples/go/dex-deal-dsl

@@ -17,6 +17,51 @@
 - Override `Step.get_input_type()` to give a generic Step instance a concrete
   input type. The Registry resolves it through its codec registrations for both
   handlers. The default returns `None` and keeps annotation inference.
+- Automatic JSON codecs now resolve parameterized generic dataclasses,
+  `Mapping` and `Sequence` types, fixed-length tuples with different item types,
+  `list[Any]`, and unions declared directly, such as a Step input of
+  `Receipt | None`. A directly declared union needs alternatives with distinct
+  JSON kinds. An ambiguous one fails during codec resolution instead of
+  choosing by order.
+- A directly declared union accepts `Literal` alternatives, such as
+  `Literal["draft", "sent"] | None`. Encoding and decoding both enforce
+  `Literal` membership by exact type, so `true` never matches `Literal[1]`.
+  Decoding a value outside the `Literal` raises `ValueError`. `Literal` and
+  `Literal` unions inside dataclass fields and containers still return the JSON
+  value unchanged.
+- Dataclass JSON decoding uses defaults and default factories for absent keys and
+  reports missing required wire keys with `ValueError`.
+- Dataclass fields support `dex_json_name` for wire names,
+  `dex_json_omit_default` for opt-in default omission, and
+  `dex_json_format="rfc3339"` for Go-compatible datetime formatting.
+  The metadata also applies to lists, tuples, and dicts of dataclasses passed
+  as Flow outputs, heartbeats, events, and Step locals. Invalid metadata in
+  such a collection, such as two fields with the same wire name, fails encoding
+  like a directly passed dataclass instead of dropping a field.
+  Existing field names and encoded defaults remain unchanged without metadata.
+- `float` fields and items accept JSON integers, such as Go's encoding of a
+  whole `float64`, and keep them as `int`.
+
+### Behavior changes
+
+- Optional and union fields, and unions inside containers, now decode a value
+  into a dataclass, generic dataclass, Enum, or datetime alternative, or a
+  container of those, when the value's JSON kind matches only that alternative.
+  Earlier releases returned the raw JSON value. A value that does not fit that
+  alternative, such as an object without a required key or an unknown Enum
+  value, now raises. Other union values are still returned unchanged without a
+  type check, and nested unions never fail during codec resolution.
+- Fields typed by a parameterized generic dataclass, `Mapping` or `Sequence`
+  fields of dataclasses, Enums, or datetimes, and type-variable fields that a
+  base class binds to those types now decode typed values instead of raw JSON.
+  Type-variable fields bound to other types keep their JSON values.
+- An absent key no longer raises `KeyError`. It uses the field default, or
+  raises `ValueError` for a required field. Decoding skips `init=False` fields
+  instead of failing.
+- A fixed-length tuple with different item types, such as `tuple[int, str]`,
+  decodes and checks each item by position and requires the declared length.
+  Earlier releases treated every item as the first item type and accepted any
+  length. Tuples with one repeated item type are unchanged.
 
 ### Compatibility
 
