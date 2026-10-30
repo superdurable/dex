@@ -67,17 +67,21 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 			graph.Groups = make([]StepGroup, 0)
 		}
 		if graph.V2 == nil {
-			graph.V2 = &V2Definition{
-				IndexedAttributes: make([]IndexedAttribute, 0),
-				Summary:           RPCView{RPCName: "GetDexSummary", Fields: make([]ViewField, 0)},
-				Display:           RPCView{RPCName: "GetDexDisplay", Fields: make([]ViewField, 0)},
-				Actions:           make([]Action, 0),
-			}
+			graph.V2 = newEmptyV2Definition()
 		}
 	}
 	graph.Source.Path = filepath.ToSlash(filepath.Clean(sourcePath))
 	graph.Normalize()
 	return graph, nil
+}
+
+func newEmptyV2Definition() *V2Definition {
+	return &V2Definition{
+		IndexedAttributes: make([]IndexedAttribute, 0),
+		Summary:           RPCView{RPCName: "GetDexSummary", Fields: make([]ViewField, 0)},
+		Display:           RPCView{RPCName: "GetDexDisplay", Fields: make([]ViewField, 0)},
+		Actions:           make([]Action, 0),
+	}
 }
 
 func resolveSchemaVersion(requested string) (string, error) {

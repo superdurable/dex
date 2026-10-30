@@ -341,9 +341,11 @@ class Analyzer(ConnectorAnalyzer):
         seen = set()
         for step_name, is_start, expression in registrations:
             if not step_name:
+                self.report_missing_connector_manifest(expression)
                 self.dynamic_target("registered Step type must be static", expression)
                 continue
             if step_name in seen:
+                self.error("duplicate_step_type", f"Step {step_name} is registered more than once", self.span(expression))
                 continue
             seen.add(step_name)
             if step_name in self.connector_steps:
@@ -373,6 +375,9 @@ class Analyzer(ConnectorAnalyzer):
                 self.graph["flow"]["startStepId"] = node_id
         if starts > 1:
             self.error("multiple_start_steps", "Flow defines more than one start Step", self.span(method))
+        step_types = [node["name"] for node in self.graph["nodes"] if node["kind"] == "step"]
+        for step_type in sorted({name for name in step_types if step_types.count(name) > 1}):
+            self.error("duplicate_step_type", f"Step type {step_type} is registered by more than one Step", self.span(method))
         if not registrations and not self.has_static_empty_registration(method):
             self.error("dynamic_step_registration", "get_steps must directly call StepList.start_step or other_steps", self.span(method))
 

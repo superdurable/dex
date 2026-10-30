@@ -11,11 +11,27 @@
     "span": {
       "startLine": 27,
       "startColumn": 1,
-      "endLine": 46,
+      "endLine": 49,
       "endColumn": 89
     }
   },
   "nodes": [
+    {
+      "id": "decision:step:FinishStep:24:16",
+      "kind": "decision",
+      "name": "forceComplete",
+      "parentId": "step:FinishStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 24,
+        "startColumn": 16,
+        "endLine": 24,
+        "endColumn": 32
+      },
+      "decision": {
+        "type": "forceComplete"
+      }
+    },
     {
       "id": "decision:step:LookupRecord:optional:retry",
       "kind": "decision",
@@ -49,7 +65,7 @@
         "startLine": 14,
         "startColumn": 1,
         "endLine": 14,
-        "endColumn": 42
+        "endColumn": 49
       },
       "resource": {
         "valueType": "dict"
@@ -63,7 +79,7 @@
         "startLine": 15,
         "startColumn": 1,
         "endLine": 15,
-        "endColumn": 33
+        "endColumn": 40
       },
       "resource": {
         "valueType": "str"

@@ -95,11 +95,27 @@ Stream 关系描述的是应用可观察输出，而不是控制流。Flow Rende
 
 Go 的资源访问也可以位于处理方法调用的同一 package 函数和方法中。Analyzer 最多沿调用追踪六层，包括循环和函数字面量中的调用。作为参数传入的资源会绑定到对应形参，因此通过该形参的访问也算作对该资源的访问。
 
-Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查的 module 和 package。Python 分析要求 Python 3.11 或更高版本。Python analyzer 在隔离模式下使用标准库 AST，绝不会导入或执行应用模块。
+Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查的 module 和 package。Python 分析要求 Python 3.11 或更高版本。Python analyzer 使用标准库 AST。它以隔离模式运行解释器，并且不加载 **site** module，因此 **.pth** 中的 import 行和 **sitecustomize** 都不会运行。它绝不会导入或执行应用模块。
 
 对于 Python，analyzer 可以识别同步 Step generator 通过 yield 发出的 Stream output，也可以识别异步 Step handler 中同步入队的 Stream 写入。在 RPC 或 Flow timeout handler 中使用 Step Stream progress 属于无效代码，会产生阻断诊断。
 
-TypeScript 分析需要 Node.js，并在源文件所在项目中安装 **typescript** package。它读取编译器 AST，不会导入应用模块。支持本地 Step class、静态 Flow field、**StepList.startStep**、**otherSteps**、直接返回的 Execute decision，以及 manifest 声明的 Connector factory。不支持的 WaitFor 定义和隐藏的 Execute decision 会产生 blocking diagnostic。暂不支持 Java、Rust 和递归多文件分析。
+TypeScript 分析需要 Node.js，并且源文件所在项目必须能通过 **node_modules** 或 **NODE_PATH** 解析到 **typescript** package。Analyzer 绝不会从 **dexcli** 的工作目录加载编译器。它读取编译器 AST，不会导入应用模块。它识别以下源码形态：
+
+- 通过 **StepList.startStep**、**StepList.withoutStartStep**、**otherSteps** 或 **StepList.empty** 注册的本地 Step class 和静态 Flow field。
+- 直接返回的 Execute decision：**goTo**、配合 **StepMovement.of** 的 **goToMany**、**gracefulComplete**、**forceComplete**、**forceFail**、**deadEnd** 和 **forceCompleteIfChannelsEmpty**。**withCancelingSteps** 和 **withCancelingSiblingSteps** 会加入取消关系。从 **@superdurable/dex** 具名导入、别名导入和 namespace 导入都受支持。
+- 来自 **if**、**switch**、条件表达式、循环和 **try** 块的条件。
+- **getStepOptions** 中的 **ExecuteFailure.proceedTo**，可以直接写出，也可以位于同一文件的 helper method 或 function 中。
+- Attribute、Channel、Stream 定义，以及 manifest 声明的 Connector factory。
+
+TypeScript analyzer 暂不支持以下功能：
+
+- WaitFor 方法。带有 **waitFor** 的 Step 会产生 blocking diagnostic **typescript_wait_for_unsupported**。
+- 单个文件中的多个 Flow。这会产生 **multiple_flows**。
+- RPC handler 和 **handleTimeout**。它们的 decision 不会显示，因此只由 RPC 调度的 Step 可能报告 **unreachable_step**。
+- 本地 handler 中的资源读取、写入、锁、state load 和 Stream 写入。定义图不包含本地 Step 的资源边，也不会报告未使用资源的 warning。
+- SubFlow，以及 Version 2.0 的 Indexed Attribute、Summary、Display、Action 和 start-input schema。
+
+把 decision 隐藏在 helper 中的 Execute 方法会产生 **hidden_dex_decision**。暂不支持 Java、Rust 和递归多文件分析。
 
 Version 1 不支持单文件中的多个 Flow、反射、动态 class、Dex 通配符导入、基于 getattr 的目标、monkeypatch，以及逃逸出处理方法的 movement 集合。
 
@@ -127,15 +143,17 @@ Group ID 必须为 kebab-case。共用同一 ID 的 Step 必须使用相同的�
 
 ### Connector package manifest
 
-Python 或 npm Connector package 需要包含 **dex-connector.json**。Python 将它放在 import package 目录内。Analyzer 使用所选解释器已安装的 package 以及 Flow 源码目录解析 import；通过 **--python /path/to/venv/bin/python** 选择虚拟环境。npm 将它与 **package.json** 放在同一目录。TypeScript 从 Flow 源码目录开始，逐级向文件系统根目录查找 **node_modules** 中被导入的 package。支持具名 import alias 和 package namespace alias。分析过程不会执行导入的 Connector。
+Python 或 npm Connector package 需要包含 **dex-connector.json**。Python 将它放在 import package 目录内。Analyzer 使用所选解释器已安装的 package 以及 Flow 源码目录解析 import；通过 **--python /path/to/venv/bin/python** 选择虚拟环境。它读取 site-packages 目录及其 **.pth** 文件中的普通目录行，因此支持基于路径的 editable install。它绝不会运行 **.pth** 中的 import 行，所以依赖 import hook 的 editable install 无法被找到。npm 将它与 **package.json** 放在同一目录。TypeScript 从 Flow 源码目录开始，逐级向文件系统根目录查找 **node_modules** 中被导入的 package。支持具名 import alias 和 package namespace alias。分析过程不会执行导入的 Connector。
 
-[Manifest JSON schema](https://github.com/superdurable/dex/blob/main/cli/internal/flowviz/dex-connector.schema.json) 定义完整约定。Manifest 包含 **connectorId**、精确的 **releaseTag**（例如 **connectors/catalog/v1.2.3**）、含 **ecosystem**、**name**、**version** 的 **package** 对象，以及非空 **factories** 数组。Package ecosystem 可以是 **pypi**、**npm** 或 **go**；Python 和 TypeScript analyzer 分别要求 **pypi** 与 **npm**。Package version 是安装的精确版本，不必与 Connector release tag 相同。
+[Manifest JSON schema](https://github.com/superdurable/dex/blob/main/cli/internal/flowviz/dex-connector.schema.json) 定义 manifest 结构。Manifest 包含 **connectorId**、精确的 **releaseTag**（例如 **connectors/catalog/v1.2.3**）、含 **ecosystem**、**name**、**version** 的 **package** 对象，以及非空 **factories** 数组。Package ecosystem 可以是 **pypi**、**npm** 或 **go**；Python 和 TypeScript analyzer 分别要求 **pypi** 与 **npm**。Package version 是安装的精确版本，不必与 Connector release tag 相同。CLI 还会执行 JSON Schema 无法表达的规则：factory name、branch ID 和 ConfigurationUI unit ID 必须唯一；映射的 config 字段名必须互不相同；同一 unit 内的 binding port 必须唯一。
 
 每个导出的 factory 声明 **name**、**kind**（**query**、**mutation** 或 **trigger**），以及把语义名称映射到源码 config 字段名的 **fields**。Query 和 mutation factory 必须声明 **operationId**、**stepType** 与 **annotations** 字段映射，以及具名 **branches**。每个 branch 包含 **id**、config **field**，以及可选的 **optional**。未接线的 optional branch 会显示为失败 decision。Trigger factory 必须声明 **triggerName** 和 **bindingName** 字段映射。所有 factory 都必须声明 **connectionName** 映射。
 
 可选映射 **resultAttribute**、**resultStream**、**progressStream** 和 **textStream** 指向已声明的资源。**configurationUI** 映射静态覆盖值；manifest 也可以提供默认 **configurationUI**，其中包含 **units**、各自的 **bindings** 和 JSON pointer。定义图会保留这些信息供 Dex Web 使用。可选的 **executeFailure** 映射指向静态恢复 Step，并生成 Execute 失败恢复边。
 
 Python factory 调用使用 keyword argument、一个内联 dictionary，或一个使用 keyword argument 的内联 config constructor。TypeScript 调用使用一个内联 object。Factory **annotations** 是包含 **groupId**、**groupLabel** 和 **explanation** 的静态对象；生成的 Step 使用这些值，不需要本地 class 注释。Branch field 引用已注册的本地 Step、静态 Step reference，或直接使用 **go_to** / **goTo** 包装。Trigger binding 必须从 **get_connector_trigger_bindings** / **getConnectorTriggerBindings** 以一个静态 list 或 array 返回。
+
+如果 Step 注册或 Trigger binding 调用的名称来自没有 **dex-connector.json** 的 package，会产生 **connector_manifest_missing**。消息会写明 package 和预期的 manifest 路径。Package 未安装时也会报告同一诊断。格式错误或字段类型错误的 manifest 会产生 **connector_manifest**，并写明出错的字段。两个 Step 使用同一 Step type 时会产生 **duplicate_step_type**，包括两个 factory 调用使用同一 Step type，以及 factory 的 Step type 与本地 Step 相同。
 
 Connector 节点在 **metadata.connector** 内输出 **connectorId**、**releaseTag** 和 **package**，同时包含 operation identity、connection name、**configurationUI** 和 **configurationEnabled**。非空的静态 connection name 会启用自动配置；动态名称会产生 warning 并关闭自动配置。Dex Web 解析精确 release tag 并验证 release metadata。现有 Go **modulePath** / **moduleVersion** metadata 继续受支持，Go 定义图输出保持不变。该 manifest 只描述分析 metadata，不会给 SDK 增加运行时 Connector API。
 

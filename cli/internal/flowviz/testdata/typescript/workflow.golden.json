@@ -9,24 +9,24 @@
     "name": "CatalogFlow",
     "startStepId": "step:LookupRecord",
     "span": {
-      "startLine": 23,
+      "startLine": 41,
       "startColumn": 1,
-      "endLine": 42,
+      "endLine": 70,
       "endColumn": 2
     }
   },
   "nodes": [
     {
-      "id": "decision:step:FinishStep:843",
+      "id": "decision:step:FinishStep:37:12",
       "kind": "decision",
       "name": "forceComplete",
       "parentId": "step:FinishStep",
       "phase": "execute",
       "span": {
-        "startLine": 20,
-        "startColumn": 22,
-        "endLine": 20,
-        "endColumn": 50
+        "startLine": 37,
+        "startColumn": 12,
+        "endLine": 37,
+        "endColumn": 27
       },
       "decision": {
         "type": "forceComplete"
@@ -48,10 +48,10 @@
       "kind": "attribute",
       "name": "LookupResult",
       "span": {
-        "startLine": 12,
+        "startLine": 24,
         "startColumn": 16,
-        "endLine": 12,
-        "endColumn": 70
+        "endLine": 24,
+        "endColumn": 83
       },
       "resource": {
         "valueType": "Record\u003cstring, unknown\u003e"
@@ -62,10 +62,10 @@
       "kind": "stream",
       "name": "LookupProgress",
       "span": {
-        "startLine": 13,
+        "startLine": 25,
         "startColumn": 18,
-        "endLine": 13,
-        "endColumn": 71
+        "endLine": 25,
+        "endColumn": 92
       },
       "resource": {
         "valueType": "Record\u003cstring, unknown\u003e"
@@ -76,10 +76,10 @@
       "kind": "stream",
       "name": "LookupText",
       "span": {
-        "startLine": 14,
+        "startLine": 26,
         "startColumn": 14,
-        "endLine": 14,
-        "endColumn": 46
+        "endLine": 26,
+        "endColumn": 59
       },
       "resource": {
         "valueType": "string"
@@ -91,10 +91,10 @@
       "name": "FinishStep",
       "phase": "execute",
       "span": {
-        "startLine": 38,
-        "startColumn": 66,
-        "endLine": 38,
-        "endColumn": 77
+        "startLine": 60,
+        "startColumn": 55,
+        "endLine": 60,
+        "endColumn": 66
       },
       "metadata": {
         "explanation": "Complete the Flow after the lookup."
@@ -107,10 +107,10 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 38,
-        "startColumn": 42,
-        "endLine": 38,
-        "endColumn": 53
+        "startLine": 60,
+        "startColumn": 31,
+        "endLine": 60,
+        "endColumn": 42
       },
       "metadata": {
         "connector": {
@@ -204,9 +204,9 @@
       "to": "step:FinishStep",
       "label": "found",
       "span": {
-        "startLine": 25,
+        "startLine": 43,
         "startColumn": 29,
-        "endLine": 35,
+        "endLine": 53,
         "endColumn": 5
       },
       "metadata": {
@@ -220,9 +220,9 @@
       "to": "step:FinishStep",
       "label": "unavailable",
       "span": {
-        "startLine": 25,
+        "startLine": 43,
         "startColumn": 29,
-        "endLine": 35,
+        "endLine": 53,
         "endColumn": 5
       },
       "metadata": {

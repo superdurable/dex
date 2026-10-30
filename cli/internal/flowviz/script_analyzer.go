@@ -9,6 +9,7 @@
 package flowviz
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -81,6 +82,7 @@ type connectorManifestBranch struct {
 var scriptConnectorIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
 var scriptConnectorReleaseTagPattern = regexp.MustCompile(`^connectors/[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)*/v[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?$`)
 var scriptConnectorPackageVersionPattern = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+.a-zA-Z0-9]*)$`)
+var scriptConnectorJSONPointerPattern = regexp.MustCompile(`^(?:/(?:[^~/]|~[01])*)*$`)
 
 func (analysis *scriptAnalysis) definition(schemaVersion string) *Graph {
 	graph := &analysis.Graph
@@ -141,7 +143,7 @@ func (analysis *scriptAnalysis) applyConnectorFactory(use scriptFactoryUse) {
 			analysis.Graph.AddDiagnostic("warning", "connector_trigger_binding_identity", "Connector Trigger binding requires a static binding name", use.Span)
 		}
 		if analysis.Graph.V2 == nil {
-			analysis.Graph.V2 = emptyScriptV2Definition()
+			analysis.Graph.V2 = newEmptyV2Definition()
 		}
 		analysis.Graph.V2.ConnectorTriggerBindings = append(analysis.Graph.V2.ConnectorTriggerBindings, ConnectorTriggerBinding{
 			ConnectorID: manifest.ConnectorID, TriggerName: factory.TriggerName, ConnectionName: connectionName, BindingName: bindingName,
@@ -236,7 +238,7 @@ func (analysis *scriptAnalysis) applyConnectorFactory(use scriptFactoryUse) {
 func (analysis *scriptAnalysis) applyStepAnnotations() {
 	analysis.Graph.Groups = []StepGroup{}
 	if analysis.Graph.V2 == nil {
-		analysis.Graph.V2 = emptyScriptV2Definition()
+		analysis.Graph.V2 = newEmptyV2Definition()
 	}
 	for _, annotations := range analysis.Annotations {
 		if len(annotations.Directives) > 0 || annotations.GroupID == "" {
@@ -325,7 +327,7 @@ func readConnectorPackageManifest(path string, language string) (connectorPackag
 		return connectorPackageManifest{}, fmt.Errorf("read Connector manifest: %w", err)
 	}
 	var manifest connectorPackageManifest
-	decoder := json.NewDecoder(strings.NewReader(string(contents)))
+	decoder := json.NewDecoder(bytes.NewReader(contents))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&manifest); err != nil {
 		return manifest, fmt.Errorf("decode Connector manifest: %w", err)
@@ -333,48 +335,120 @@ func readConnectorPackageManifest(path string, language string) (connectorPackag
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return manifest, fmt.Errorf("Connector manifest must contain one JSON object")
 	}
+	if err := validateConnectorManifestConfigurationUIPresence(contents); err != nil {
+		return manifest, err
+	}
 	expectedEcosystem := "pypi"
 	if language == "typescript" {
 		expectedEcosystem = "npm"
 	}
-	if !scriptConnectorIDPattern.MatchString(manifest.ConnectorID) || !scriptConnectorReleaseTagPattern.MatchString(manifest.ReleaseTag) ||
-		manifest.Package.Ecosystem != expectedEcosystem || strings.TrimSpace(manifest.Package.Name) == "" || !scriptConnectorPackageVersionPattern.MatchString(manifest.Package.Version) || len(manifest.Factories) == 0 {
-		return manifest, fmt.Errorf("Connector manifest requires an exact releaseTag and %s package identity", expectedEcosystem)
+	return manifest, validateConnectorPackageManifest(manifest, expectedEcosystem)
+}
+
+func validateConnectorPackageManifest(manifest connectorPackageManifest, expectedEcosystem string) error {
+	switch {
+	case !scriptConnectorIDPattern.MatchString(manifest.ConnectorID):
+		return fmt.Errorf("Connector manifest connectorId %q must be lowercase kebab-case", manifest.ConnectorID)
+	case !scriptConnectorReleaseTagPattern.MatchString(manifest.ReleaseTag):
+		return fmt.Errorf("Connector manifest releaseTag %q must be an exact tag such as connectors/<name>/v1.2.3", manifest.ReleaseTag)
+	case manifest.Package.Ecosystem != expectedEcosystem:
+		return fmt.Errorf("Connector manifest package.ecosystem %q must be %s", manifest.Package.Ecosystem, expectedEcosystem)
+	case strings.TrimSpace(manifest.Package.Name) == "":
+		return fmt.Errorf("Connector manifest package.name must be non-empty")
+	case !scriptConnectorPackageVersionPattern.MatchString(manifest.Package.Version):
+		return fmt.Errorf("Connector manifest package.version %q must be an exact version", manifest.Package.Version)
+	case len(manifest.Factories) == 0:
+		return fmt.Errorf("Connector manifest factories must be non-empty")
 	}
 	names := map[string]bool{}
 	for _, factory := range manifest.Factories {
-		if factory.Name == "" || names[factory.Name] || factory.Fields["connectionName"] == "" {
-			return manifest, fmt.Errorf("Connector manifest factory names and connectionName fields must be unique and non-empty")
+		if factory.Name == "" || names[factory.Name] {
+			return fmt.Errorf("Connector manifest factory names must be unique and non-empty: %q", factory.Name)
 		}
 		names[factory.Name] = true
-		usedFields := map[string]bool{}
-		for logicalName, fieldName := range factory.Fields {
-			if !containsString([]string{"stepType", "connectionName", "annotations", "bindingName", "configurationUI", "resultAttribute", "resultStream", "progressStream", "textStream", "executeFailure"}, logicalName) || strings.TrimSpace(fieldName) == "" || usedFields[fieldName] {
-				return manifest, fmt.Errorf("Connector manifest factory fields must map supported names to distinct non-empty fields")
-			}
-			usedFields[fieldName] = true
-		}
-		if err := validateScriptConnectorConfigurationUI(factory.ConfigurationUI); err != nil {
-			return manifest, err
-		}
-		if factory.Kind == "trigger" {
-			if factory.TriggerName == "" || factory.Fields["bindingName"] == "" {
-				return manifest, fmt.Errorf("Connector Trigger factory requires triggerName and bindingName")
-			}
-			continue
-		}
-		if (factory.Kind != "query" && factory.Kind != "mutation") || factory.OperationID == "" || factory.Fields["stepType"] == "" || factory.Fields["annotations"] == "" || len(factory.Branches) == 0 {
-			return manifest, fmt.Errorf("Connector Step factory requires kind, operationId, stepType, annotations, and branches")
-		}
-		branchIDs := map[string]bool{}
-		for _, branch := range factory.Branches {
-			if branch.ID == "" || branch.Field == "" || branchIDs[branch.ID] {
-				return manifest, fmt.Errorf("Connector factory branches require unique IDs and non-empty fields")
-			}
-			branchIDs[branch.ID] = true
+		if err := validateConnectorManifestFactory(factory); err != nil {
+			return fmt.Errorf("Connector manifest factory %s: %w", factory.Name, err)
 		}
 	}
-	return manifest, nil
+	return nil
+}
+
+func validateConnectorManifestFactory(factory connectorManifestFactory) error {
+	if factory.Fields["connectionName"] == "" {
+		return fmt.Errorf("fields.connectionName must be non-empty")
+	}
+	usedFields := map[string]bool{}
+	for logicalName, fieldName := range factory.Fields {
+		if !containsString([]string{"stepType", "connectionName", "annotations", "bindingName", "configurationUI", "resultAttribute", "resultStream", "progressStream", "textStream", "executeFailure"}, logicalName) {
+			return fmt.Errorf("fields.%s is not a supported field mapping", logicalName)
+		}
+		if strings.TrimSpace(fieldName) == "" || usedFields[fieldName] {
+			return fmt.Errorf("fields.%s must map to a distinct non-empty config field", logicalName)
+		}
+		usedFields[fieldName] = true
+	}
+	if err := validateScriptConnectorConfigurationUI(factory.ConfigurationUI); err != nil {
+		return err
+	}
+	if factory.Kind == "trigger" {
+		if factory.TriggerName == "" || factory.Fields["bindingName"] == "" {
+			return fmt.Errorf("Trigger factory requires triggerName and fields.bindingName")
+		}
+		return nil
+	}
+	if factory.Kind != "query" && factory.Kind != "mutation" {
+		return fmt.Errorf("kind %q must be query, mutation, or trigger", factory.Kind)
+	}
+	if factory.OperationID == "" || factory.Fields["stepType"] == "" || factory.Fields["annotations"] == "" || len(factory.Branches) == 0 {
+		return fmt.Errorf("Step factory requires operationId, fields.stepType, fields.annotations, and branches")
+	}
+	branchIDs := map[string]bool{}
+	for _, branch := range factory.Branches {
+		if branch.ID == "" || branch.Field == "" || branchIDs[branch.ID] {
+			return fmt.Errorf("branches require unique IDs and non-empty fields: %q", branch.ID)
+		}
+		branchIDs[branch.ID] = true
+	}
+	return nil
+}
+
+// Go zero values hide omitted schema-required ConfigurationUI members, so check them in the raw manifest.
+func validateConnectorManifestConfigurationUIPresence(contents []byte) error {
+	var manifest struct {
+		Factories []struct {
+			Name            string `json:"name"`
+			ConfigurationUI *struct {
+				Units *[]struct {
+					Required *bool `json:"required"`
+					Bindings *[]struct {
+						JSONPointer *string `json:"jsonPointer"`
+					} `json:"bindings"`
+				} `json:"units"`
+			} `json:"configurationUI"`
+		} `json:"factories"`
+	}
+	if err := json.Unmarshal(contents, &manifest); err != nil {
+		return fmt.Errorf("decode Connector manifest: %w", err)
+	}
+	for _, factory := range manifest.Factories {
+		if factory.ConfigurationUI == nil {
+			continue
+		}
+		if factory.ConfigurationUI.Units == nil {
+			return fmt.Errorf("Connector manifest factory %s: configurationUI requires units", factory.Name)
+		}
+		for _, unit := range *factory.ConfigurationUI.Units {
+			if unit.Required == nil || unit.Bindings == nil {
+				return fmt.Errorf("Connector manifest factory %s: configurationUI units require required and bindings", factory.Name)
+			}
+			for _, binding := range *unit.Bindings {
+				if binding.JSONPointer == nil {
+					return fmt.Errorf("Connector manifest factory %s: configurationUI bindings require jsonPointer", factory.Name)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func validateScriptConnectorConfigurationUI(configuration ConnectorConfigurationUI) error {
@@ -386,17 +460,16 @@ func validateScriptConnectorConfigurationUI(configuration ConnectorConfiguration
 		unitIDs[unit.ID] = true
 		ports := map[string]bool{}
 		for _, binding := range unit.Bindings {
-			if binding.Port == "" || ports[binding.Port] || (binding.JSONPointer != "" && !strings.HasPrefix(binding.JSONPointer, "/")) {
-				return fmt.Errorf("Connector ConfigurationUI bindings require unique ports and JSON pointers")
+			if binding.Port == "" || ports[binding.Port] {
+				return fmt.Errorf("Connector ConfigurationUI unit %s bindings require unique non-empty ports", unit.ID)
+			}
+			if !scriptConnectorJSONPointerPattern.MatchString(binding.JSONPointer) {
+				return fmt.Errorf("Connector ConfigurationUI unit %s binding %s has invalid JSON pointer %q", unit.ID, binding.Port, binding.JSONPointer)
 			}
 			ports[binding.Port] = true
 		}
 	}
 	return nil
-}
-
-func emptyScriptV2Definition() *V2Definition {
-	return &V2Definition{IndexedAttributes: []IndexedAttribute{}, Summary: RPCView{RPCName: "GetDexSummary", Fields: []ViewField{}}, Display: RPCView{RPCName: "GetDexDisplay", Fields: []ViewField{}}, Actions: []Action{}}
 }
 
 func (analysis *scriptAnalysis) hasNode(id string, kind string) bool {

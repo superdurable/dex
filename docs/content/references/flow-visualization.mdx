@@ -95,11 +95,27 @@ Ordinary business helpers and imported models are allowed. A helper must not hid
 
 Go resource access may also be in functions and methods of the same package that a handler calls. The analyzer follows those calls up to six levels deep, including calls inside loops and function literals. A resource passed as an argument is bound to the matching parameter, so access through that parameter counts for the resource.
 
-Go analysis requires a local Go toolchain. The input must belong to a module and package that can be type checked. Python analysis requires Python 3.11 or newer. The Python analyzer uses the standard-library AST in isolated mode. It never imports or executes the application module.
+Go analysis requires a local Go toolchain. The input must belong to a module and package that can be type checked. Python analysis requires Python 3.11 or newer. The Python analyzer uses the standard-library AST. It runs the interpreter in isolated mode without the **site** module, so **.pth** import lines and **sitecustomize** never run. It never imports or executes the application module.
 
 For Python, the analyzer recognizes Stream outputs yielded by synchronous Step generators and synchronously enqueued Stream writes in asynchronous Step handlers. Step Stream progress in an RPC or Flow timeout handler is invalid and produces a blocking diagnostic.
 
-TypeScript analysis requires Node.js and the **typescript** package installed in the source project. It reads the compiler AST without importing application modules. It recognizes local Step classes, static Flow fields, **StepList.startStep**, **otherSteps**, direct Execute decisions, and manifest-declared Connector factories. Unsupported WaitFor definitions and hidden Execute decisions produce blocking diagnostics. Java, Rust, and recursive multi-file analysis are not included.
+TypeScript analysis requires Node.js and the **typescript** package resolvable from the source project, through **node_modules** or **NODE_PATH**. The analyzer never loads a compiler from the **dexcli** working directory. It reads the compiler AST without importing application modules. It recognizes these source shapes:
+
+- Local Step classes and static Flow fields registered with **StepList.startStep**, **StepList.withoutStartStep**, **otherSteps**, or **StepList.empty**.
+- Execute decisions returned directly: **goTo**, **goToMany** with **StepMovement.of**, **gracefulComplete**, **forceComplete**, **forceFail**, **deadEnd**, and **forceCompleteIfChannelsEmpty**. **withCancelingSteps** and **withCancelingSiblingSteps** add cancellations. Named, aliased, and namespace imports of **@superdurable/dex** all work.
+- Conditions from **if**, **switch**, conditional expressions, loops, and **try** blocks.
+- **ExecuteFailure.proceedTo** in **getStepOptions**, directly or through a helper method or function in the same file.
+- Attribute, Channel, and Stream definitions, and manifest-declared Connector factories.
+
+The TypeScript analyzer does not support these features yet:
+
+- WaitFor methods. A Step with **waitFor** produces the blocking **typescript_wait_for_unsupported** diagnostic.
+- More than one Flow in one file. This produces **multiple_flows**.
+- RPC handlers and **handleTimeout**. Their decisions are not shown, so a Step that only an RPC schedules can report **unreachable_step**.
+- Resource reads, writes, locks, state loads, and Stream writes inside local handlers. The graph has no resource edges for local Steps and skips unused-resource warnings.
+- SubFlows, and the Version 2.0 Indexed Attributes, Summary, Display, Actions, and start-input schemas.
+
+An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. Java, Rust, and recursive multi-file analysis are not included.
 
 Version 1 does not support multiple Flows in one file, reflection, dynamic classes, wildcard Dex imports, getattr-based targets, monkeypatching, or movement collections that escape the handler.
 
@@ -127,15 +143,17 @@ The group ID must be kebab-case. Steps sharing an ID must use the same non-empty
 
 ### Connector package manifests
 
-A Python or npm Connector package ships **dex-connector.json**. Python places it inside the import package directory. The analyzer resolves imports through the selected interpreter's installed packages and the Flow source directory; **--python /path/to/venv/bin/python** selects a virtual environment. npm places it next to **package.json**. TypeScript resolves the imported package through **node_modules**, starting at the Flow source directory and walking toward the filesystem root. Named import aliases and package namespace aliases are supported. Analysis does not execute the imported Connector.
+A Python or npm Connector package ships **dex-connector.json**. Python places it inside the import package directory. The analyzer resolves imports through the selected interpreter's installed packages and the Flow source directory; **--python /path/to/venv/bin/python** selects a virtual environment. It reads site-packages directories and the plain directory lines of their **.pth** files, which covers path-based editable installs. It never runs **.pth** import lines, so an editable install that relies on an import hook is not found. npm places it next to **package.json**. TypeScript resolves the imported package through **node_modules**, starting at the Flow source directory and walking toward the filesystem root. Named import aliases and package namespace aliases are supported. Analysis does not execute the imported Connector.
 
-The [manifest JSON schema](https://github.com/superdurable/dex/blob/main/cli/internal/flowviz/dex-connector.schema.json) defines the complete contract. A manifest has **connectorId**, an exact **releaseTag** such as **connectors/catalog/v1.2.3**, a **package** object with **ecosystem**, **name**, and **version**, and a non-empty **factories** array. Package ecosystems are **pypi**, **npm**, or **go**; the Python and TypeScript analyzers require **pypi** and **npm**, respectively. Package versions are exact installed versions, independent of the Connector release tag.
+The [manifest JSON schema](https://github.com/superdurable/dex/blob/main/cli/internal/flowviz/dex-connector.schema.json) defines the manifest structure. A manifest has **connectorId**, an exact **releaseTag** such as **connectors/catalog/v1.2.3**, a **package** object with **ecosystem**, **name**, and **version**, and a non-empty **factories** array. Package ecosystems are **pypi**, **npm**, or **go**; the Python and TypeScript analyzers require **pypi** and **npm**, respectively. Package versions are exact installed versions, independent of the Connector release tag. The CLI also enforces rules that JSON Schema cannot express. Factory names, branch IDs, and ConfigurationUI unit IDs must be unique. Mapped config field names must be distinct. Binding ports must be unique within a unit.
 
 Each exported factory declares **name**, **kind** (**query**, **mutation**, or **trigger**), and **fields** mapping semantic names to source config field names. Query and mutation factories require **operationId**, **stepType** and **annotations** field mappings, and named **branches**. Every branch has an **id**, a config **field**, and optional **optional**. An unwired optional branch appears as a failure decision. Trigger factories require **triggerName** and a **bindingName** field mapping. All factories require a **connectionName** mapping.
 
 The optional mappings **resultAttribute**, **resultStream**, **progressStream**, and **textStream** identify declared resources. **configurationUI** maps a static override; the manifest may also provide a default **configurationUI** object containing **units**, their **bindings**, and JSON pointers. The graph preserves this information for Dex Web. An optional **executeFailure** mapping names a static recovery Step and adds an Execute failure edge.
 
 Python factory calls use keyword arguments, one inline dictionary, or one inline config constructor with keyword arguments. TypeScript calls use one inline object. Factory **annotations** is a static object with **groupId**, **groupLabel**, and **explanation**; generated Steps use those values instead of local class comments. Branch fields reference registered local Steps, static Step references, or a direct **go_to** / **goTo** wrapper. Trigger bindings must be returned as one static list or array from **get_connector_trigger_bindings** / **getConnectorTriggerBindings**.
+
+A Step registration or Trigger binding that calls a name from a package without **dex-connector.json** produces **connector_manifest_missing**. The message names the package and the expected manifest path. The same diagnostic reports a package that is not installed. A malformed manifest, or one with a wrong-typed field, produces **connector_manifest** and names the failing field. Two Steps with one Step type produce **duplicate_step_type**. That includes two factory calls with one Step type, and a factory Step type that matches a local Step.
 
 Connector nodes emit **connectorId**, **releaseTag**, and **package** inside **metadata.connector**, together with operation identity, connection name, **configurationUI**, and **configurationEnabled**. A non-empty static connection name enables automatic configuration; a dynamic name emits a warning and disables it. Dex Web resolves the exact release tag and verifies its release metadata. Existing Go **modulePath** / **moduleVersion** metadata remains supported, and Go graph output is unchanged. This manifest describes analysis metadata; it does not add runtime Connector APIs to an SDK.
 

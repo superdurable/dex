@@ -378,6 +378,10 @@ func (graph *Graph) addUnreachableWarnings() {
 }
 
 func (graph *Graph) addUnusedResourceWarnings() {
+	// The TypeScript analyzer does not read Step resource access yet.
+	if graph.Source.Language == "typescript" {
+		return
+	}
 	used := make(map[string]bool)
 	for _, edge := range graph.Edges {
 		if isResourceEdge(edge.Kind) {

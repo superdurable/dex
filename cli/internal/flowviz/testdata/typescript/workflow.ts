@@ -6,21 +6,39 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Attribute, StepDecision, StepList, Stream, type Flow, type Step } from "@superdurable/dex";
+import {
+  Attribute,
+  StepList,
+  Stream,
+  forceComplete,
+  jsonCodec,
+  stringCodec,
+  type Context,
+  type Flow,
+  type PersistenceSchema,
+  type Step,
+  type StepDecision,
+} from "@superdurable/dex";
 import { createLookup as lookupRecord, createTrigger } from "@dex-test/catalog";
 
-const result = new Attribute<Record<string, unknown>>("LookupResult");
-const progress = new Stream<Record<string, unknown>>("LookupProgress");
-const text = new Stream<string>("LookupText");
+const result = new Attribute("LookupResult", jsonCodec<Record<string, unknown>>());
+const progress = new Stream("LookupProgress", jsonCodec<Record<string, unknown>>(), 65_536);
+const text = new Stream("LookupText", stringCodec, 65_536);
 const connectionName = "primary";
 
 // dex:group group-id:lookup group-label:"Lookup"
 // dex:explanation text:"Complete the Flow after the lookup."
-class FinishStep implements Step {
-  execute() { return StepDecision.forceComplete(); }
+class FinishStep implements Step<unknown> {
+  public getStepType(): string {
+    return "FinishStep";
+  }
+
+  public execute(_context: Context, _input: unknown): StepDecision {
+    return forceComplete();
+  }
 }
 
-export class CatalogFlow implements Flow {
+export class CatalogFlow implements Flow<unknown> {
   private readonly finish = new FinishStep();
   private readonly lookup = lookupRecord({
     stepType: "LookupRecord",
@@ -34,9 +52,19 @@ export class CatalogFlow implements Flow {
     textStream: text,
   });
 
-  getFlowType() { return "CatalogFlow"; }
-  getSteps() { return StepList.startStep(this.lookup).otherSteps(this.finish); }
-  getConnectorTriggerBindings() {
+  public getFlowType(): string {
+    return "CatalogFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.lookup).otherSteps(this.finish);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {attributes: [result], streams: [progress, text]};
+  }
+
+  public getConnectorTriggerBindings() {
     return [createTrigger({connectionName, bindingName: "updates"})];
   }
 }

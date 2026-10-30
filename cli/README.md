@@ -339,7 +339,20 @@ import package or next to npm's `package.json`. The manifest maps exported
 factories to static config fields, branches, resources, and ConfigurationUI.
 Python resolves installed packages with `--python /path/to/venv/bin/python`;
 TypeScript walks `node_modules` from the source directory. Neither analyzer
-imports the application. See the [Flow visualization reference](../docs/content/references/flow-visualization.mdx).
+imports the application. Python runs with `-I -S`, so `.pth` import lines and
+`sitecustomize` never run; plain `.pth` directory lines are still searched.
+A registration that calls a package without a manifest reports
+`connector_manifest_missing`, and two Steps with one Step type report
+`duplicate_step_type`.
+
+TypeScript analysis loads the `typescript` package only from the source
+project (`node_modules` or `NODE_PATH`). It reads Step registration, direct
+`goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd`,
+`forceCompleteIfChannelsEmpty`, and cancellation decisions, plus
+`ExecuteFailure.proceedTo` in `getStepOptions`. WaitFor
+(`typescript_wait_for_unsupported`), several Flows in one file
+(`multiple_flows`), RPC and timeout handlers, handler resource access, SubFlows,
+and Version 2.0 views are not analyzed yet. See the [Flow visualization reference](../docs/content/references/flow-visualization.mdx).
 
 Flow Definition Graph 2.0 also records the registered Go start Step type and a
 recursive start-input schema. The analyzer follows JSON field names, ignored
@@ -620,7 +633,9 @@ details when supplied. Usage and missing-confirmation failures exit with status
 ## Build and test
 
 Requirements are Go 1.26+, Node.js 22+, and a `dex-server-zd` binary for dev
-integration tests. Set `DEX_SERVER_ZD_BINARY` or put it on PATH.
+integration tests. Set `DEX_SERVER_ZD_BINARY` or put it on PATH. The Flow
+visualization tests also run `python3` (3.11+) and load the TypeScript compiler
+from `web/node_modules`, so run `npm ci` in `web` first.
 
 ```bash
 make -C cli build

@@ -32,7 +32,7 @@ func analyzePython(ctx context.Context, sourcePath string, source []byte, python
 	if err != nil {
 		return nil, fmt.Errorf("encode Python analyzer input: %w", err)
 	}
-	command := exec.CommandContext(ctx, pythonPath, "-I", "-c", pythonConnectorAnalyzerSource+"\n"+pythonAnalyzerSource)
+	command := exec.CommandContext(ctx, pythonPath, "-I", "-S", "-c", pythonConnectorAnalyzerSource+"\n"+pythonAnalyzerSource)
 	command.Stdin = bytes.NewReader(request)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

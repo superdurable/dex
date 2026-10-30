@@ -7,12 +7,12 @@
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 from typing import final
-from dex import Attribute, Flow, Step, StepDecision, StepList, Stream
+from dex import Attribute, Flow, PersistenceSchema, Step, StepList, Stream, force_complete
 from catalog_connector import create_lookup as lookup_record, create_trigger
 
 RESULT = Attribute("LookupResult", dict)
-PROGRESS = Stream("LookupProgress", dict)
-TEXT = Stream("LookupText", str)
+PROGRESS = Stream("LookupProgress", dict, 65536)
+TEXT = Stream("LookupText", str, 65536)
 CONNECTION_NAME = "primary"
 
 
@@ -21,7 +21,7 @@ CONNECTION_NAME = "primary"
 @final
 class FinishStep(Step):
     def execute(self, context, step_input):
-        return StepDecision.force_complete()
+        return force_complete()
 
 
 class CatalogFlow(Flow):
@@ -41,6 +41,9 @@ class CatalogFlow(Flow):
 
     def get_steps(self):
         return StepList.start_step(self.lookup).other_steps(self.finish)
+
+    def get_persistence_schema(self):
+        return PersistenceSchema.of(RESULT, PROGRESS, TEXT)
 
     def get_connector_trigger_bindings(self):
         return [create_trigger(connection_name=CONNECTION_NAME, binding_name="updates")]
