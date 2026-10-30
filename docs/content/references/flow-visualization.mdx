@@ -196,7 +196,7 @@ The analyzer accepts an instance only when it can prove which object a name hold
 
 Fields also depend on how the Flow or Step object is used. Use **self** or **this** only to read or assign a field, or pass it to the constructor of a class in the same file. Passing it to another function, storing it in a variable, or rebinding **self** makes the class fields unreadable and reports **dynamic_class**. A Flow class with a decorator, or a constructor that returns a value, also has unreadable fields. The analyzer does not follow objects into other modules, so do not pass Flow or Step objects to code outside the source file.
 
-A TypeScript write with a computed key, such as **target[key] = value**, makes fields unreadable unless the analyzer can prove that the written object is not a Flow or Step object. A key that is a string constant always qualifies. So does a written object that is an object or array literal. For other writes, the analyzer uses the TypeScript type checker with the project's **tsconfig.json** when one exists. The written object's static type must be an array, a tuple, a **Map**, a **Set**, or a record type with only an index signature, such as a **Record** of string keys and string values. Its elements must be primitives or such collections. The stored value must be a primitive or such a collection too. Types such as **any**, **unknown**, **object**, a type parameter, or a class do not qualify. A parameter qualifies only when its function is unexported, in the same file, and only called directly.
+A TypeScript write with a computed key, such as **target[key] = value**, makes fields unreadable unless the analyzer can prove that the written object is not a Flow or Step object. A key that is a string constant always qualifies. So does a written object that is an object or array literal. For other writes, the analyzer uses the TypeScript type checker with the project's **tsconfig.json** when one exists. Without one, it uses the TypeScript defaults with the latest target and bundler module resolution. The written object's static type must be an array, a tuple, a **Map**, a **Set**, or a record type with only an index signature, such as a **Record** of string keys and string values. Its elements must be primitives or such collections. The stored value must be a primitive or such a collection too. Types such as **any**, **unknown**, **object**, a type parameter, or a class do not qualify. A parameter qualifies only when its function is unexported, in the same file, and only called directly.
 
 Static types can be wrong, so these forms remove the exception for the whole file:
 
@@ -205,6 +205,8 @@ Static types can be wrong, so these forms remove the exception for the whole fil
 - A conversion that gives a shared collection a wider element or property type.
 - A write through an **any**, **unknown**, or **object** value, or a reflective write such as **Object.assign** or **Reflect.set**.
 - A write to a standard method, a standard global object, or a global name. Any access to **prototype**, **__proto__**, or **globalThis** also counts.
+- A type error, or a **@ts-ignore**, **@ts-expect-error**, or **@ts-nocheck** comment. Unresolved imports and unused declarations do not count.
+- An overload signature, a type predicate such as **value is string[]**, or a class that extends anything other than a class declared in the same file or a standard **Error** class.
 
 If the type checker cannot run, no such write qualifies. A TypeScript getter or setter with a field's name also makes that field unreadable.
 

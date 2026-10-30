@@ -13,6 +13,9 @@ const { createRequire } = require("node:module");
 const terminalDecisions = new Set(["gracefulComplete", "forceComplete", "forceFail", "deadEnd", "forceCompleteIfChannelsEmpty"]);
 const cancelingDecisions = new Set(["withCancelingSteps", "withCancelingSiblingSteps"]);
 const codecValueTypes = {stringCodec:"string", booleanCodec:"boolean", int64Codec:"bigint", doubleCodec:"number", bytesCodec:"Uint8Array", voidCodec:"void"};
+// Unresolved names and modules become any, which other checks reject; unused declarations change no type.
+const standardErrorClasses = new Set(["Error", "AggregateError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError", "URIError"]);
+const typeNeutralDiagnosticCodes = new Set([2304, 2305, 2307, 2503, 2550, 2552, 2580, 2583, 2584, 2585, 2591, 2614, 2694, 2724, 2792, 6133, 6138, 6192, 6196, 6198, 6199, 6205, 7016]);
 
 class TypeScriptAnalyzer {
   constructor(request) {
@@ -841,7 +844,8 @@ class TypeScriptAnalyzer {
 
   compilerOptions() {
     const configPath = this.ts.findConfigFile(path.dirname(this.path),this.ts.sys.fileExists);
-    if (!configPath) return {};
+    // Without a tsconfig, a current target and bundler resolution avoid errors from an old default library.
+    if (!configPath) return {target:this.ts.ScriptTarget.Latest,module:this.ts.ModuleKind.ESNext,moduleResolution:this.ts.ModuleResolutionKind.Bundler};
     const config = this.ts.readConfigFile(configPath,this.ts.sys.readFile);
     if (config.error) throw new Error(`cannot read TypeScript configuration ${configPath}`);
     return this.ts.parseJsonConfigFileContent(config.config,this.ts.sys,path.dirname(configPath)).options;
@@ -849,11 +853,31 @@ class TypeScriptAnalyzer {
 
   hasUnsoundTypeConversion(checker) {
     // Casts, any values, wider aliases, untyped or reflective writes, and changed standard objects can make a static type wrong.
+    if (this.hasTypeErrors() || this.hasForeignBaseClass(checker)) return true;
     if (this.reflectiveWrites.length || this.identifierWrites.some(write => !this.bindingScope(write.target))) return true;
     if (this.namedWrites.some(write => this.isUntypedNamedWrite(write,checker))) return true;
     let isUnsound = false;
     this.walk(this.tree,node => { isUnsound = isUnsound || this.isUnsoundTypeNode(node,checker); });
     return isUnsound;
+  }
+
+  hasTypeErrors() {
+    // Type errors and suppressions let code run with values that its static types do not describe.
+    if (/@ts-(ignore|expect-error|nocheck)/.test(this.source)) return true;
+    return this.program.getSemanticDiagnostics(this.tree).some(diagnostic => diagnostic.category === this.ts.DiagnosticCategory.Error && !typeNeutralDiagnosticCodes.has(diagnostic.code));
+  }
+
+  hasForeignBaseClass(checker) {
+    // A subclass of a standard collection can override the methods whose return types prove a receiver.
+    let hasForeignBase = false;
+    this.walk(this.tree,node => {
+      const base = this.ts.isClassLike(node) ? this.unwrapParentheses(this.extendsClause(node)?.expression) : undefined;
+      if (!base || (this.ts.isIdentifier(base) && standardErrorClasses.has(base.text) && this.isDefaultLibrarySymbol(checker.getSymbolAtLocation(base)))) return;
+      const scope = this.ts.isIdentifier(base) ? this.bindingScope(base) : undefined;
+      const declaration = scope && this.staticBinding(scope,base.text);
+      if (!declaration || !this.ts.isClassDeclaration(declaration)) hasForeignBase = true;
+    });
+    return hasForeignBase;
   }
 
   isUntypedNamedWrite({target,name},checker) {
@@ -881,12 +905,18 @@ class TypeScriptAnalyzer {
     if (name === "prototype" || name === "__proto__") return true;
     if (this.ts.isIdentifier(node) && ["globalThis","window","self","global"].includes(node.text) && this.isValueReference(node) && !this.bindingScope(node)) return true;
     if ((this.ts.isAsExpression(node) || this.ts.isTypeAssertionExpression(node)) && this.isUnsoundAssertion(node,checker)) return true;
+    // Overload signatures and type predicates state types that their bodies need not satisfy.
+    if (this.ts.isTypePredicateNode(node) || ((this.ts.isFunctionDeclaration(node) || this.ts.isMethodDeclaration(node)) && !node.body && !this.isAmbientOrAbstract(node))) return true;
     if (!this.ts.isExpression(node)) return false;
     const contextualType = checker.getContextualType(node);
     if (!contextualType) return false;
     const type = checker.getTypeAtLocation(node);
     if (type.flags & this.ts.TypeFlags.Any) return !(contextualType.flags & (this.ts.TypeFlags.Any | this.ts.TypeFlags.Unknown)) && !this.isPrimitiveType(contextualType);
     return !this.ts.isObjectLiteralExpression(node) && !this.ts.isArrayLiteralExpression(node) && this.isWidenedAlias(type,contextualType,checker);
+  }
+
+  isAmbientOrAbstract(declaration) {
+    return !!(declaration.flags & this.ts.NodeFlags.Ambient) || !!(this.ts.getCombinedModifierFlags(declaration) & (this.ts.ModifierFlags.Ambient | this.ts.ModifierFlags.Abstract));
   }
 
   isValueReference(identifier) {
@@ -909,7 +939,7 @@ class TypeScriptAnalyzer {
     const flags = this.ts.TypeFlags;
     if (sourceType === targetType || targetType.flags & (flags.Any | flags.Unknown)) return false;
     if (targetType.isUnion()) return targetType.types.some(member => this.isWidenedAlias(sourceType,member,checker));
-    if (sourceType.isUnion()) return sourceType.types.some(member => this.isWidenedAlias(member,targetType,checker));
+    if (sourceType.isUnionOrIntersection()) return sourceType.types.some(member => this.isWidenedAlias(member,targetType,checker));
     if (!(sourceType.flags & flags.Object)) return false;
     const targetIndexes = checker.getIndexInfosOfType(targetType);
     const slots = [
@@ -1067,8 +1097,8 @@ class TypeScriptAnalyzer {
     const target = this.unwrap(call.arguments[0]);
     const dexRoot = this.dexRootName(target);
     if (dexRoot) this.error("dex_alias_rebinding",`Dex import ${dexRoot} must not be modified`,call);
-    if (target && (this.ts.isObjectLiteralExpression(target) || this.ts.isArrayLiteralExpression(target))) return;
     this.reflectiveWrites.push(call);
+    if (target && (this.ts.isObjectLiteralExpression(target) || this.ts.isArrayLiteralExpression(target))) return;
     if (target?.kind === this.ts.SyntaxKind.ThisKeyword) { this.markDynamicFields(target); return; }
     const key = this.unwrap(call.arguments[1]);
     if (["Object.defineProperty","Reflect.set","Reflect.defineProperty"].includes(callee) && key && (this.ts.isStringLiteral(key) || this.ts.isNoSubstitutionTemplateLiteral(key))) this.addForeignStore(key.text,target);
