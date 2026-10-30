@@ -147,6 +147,17 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             return not any(decorator.id in bindings for bindings in self.scope_bindings.values())
         return not isinstance(decorator, ast.Call) and self.imported_name(decorator) in {"typing.override", "typing_extensions.override", "typing.final", "typing_extensions.final"}
 
+    def is_unshadowed_property(self, declaration, method, decorator):
+        # A built-in property answers only its own name, which must not be a field or entry method.
+        if not isinstance(decorator, ast.Name) or decorator.id != "property" or len(method.decorator_list) != 1:
+            return False
+        if any("property" in bindings for bindings in self.scope_bindings.values()):
+            return False
+        name = method.name
+        if name.startswith("__") or name in DEX_ENTRY_METHOD_NAMES or len(self.scope_bindings.get(declaration, {}).get(name, [])) != 1:
+            return False
+        return name not in self.self_attribute_stores.get(declaration, {}) and not self.is_foreign_attribute(name)
+
     def imported_name(self, expression):
         """Return the module-qualified name that expression reaches through an import, or None."""
         if isinstance(expression, ast.Attribute):
@@ -203,7 +214,12 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                 self.error("dynamic_class", f"class {declaration.name} passes its receiver outside a field access or a local class constructor", self.span(declaration))
             method_nodes = [statement for statement in declaration.body if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))]
             decorators = [decorator for decorator in declaration.decorator_list if not self.is_known_class_decorator(decorator)]
-            decorators.extend(decorator for method in method_nodes for decorator in method.decorator_list if not self.is_known_method_decorator(decorator))
+            decorators.extend(
+                decorator
+                for method in method_nodes
+                for decorator in method.decorator_list
+                if not self.is_known_method_decorator(decorator) and not self.is_unshadowed_property(declaration, method, decorator)
+            )
             if decorators:
                 names = ", ".join(sorted({self.unparse(decorator) for decorator in decorators}))
                 self.error("dynamic_class", f"class {declaration.name} uses decorator {names}, which can replace the class or its methods", self.span(declaration))

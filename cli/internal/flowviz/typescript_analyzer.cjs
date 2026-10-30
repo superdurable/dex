@@ -682,6 +682,7 @@ class TypeScriptAnalyzer {
     this.foreignStores = new Map();
     this.foreignFieldResults = new Map();
     this.computedStores = [];
+    this.unprovenComputedStores = [];
     this.receiverUses = [];
     this.dynamicClasses = new Set();
     this.hasDynamicFields = false;
@@ -704,6 +705,8 @@ class TypeScriptAnalyzer {
       const owner = this.selfReferenceClass(node);
       if (owner && !this.isModeledReceiverUse(node)) this.dynamicClasses.add(owner);
     }
+    // Runs after every store and receiver use is indexed, because field proofs read them.
+    if (this.unprovenComputedStores.some(target => !this.freshValueKind(target.expression,new Set()))) this.hasDynamicFields = true;
     for (const alias of this.imports.keys()) {
       for (const bindings of this.scopeBindings.values()) for (const binding of bindings.get(alias) || []) {
         if (!this.isDexImportBinding(binding.declaration)) this.error("dex_alias_rebinding",`Dex import alias ${alias} must not be rebound`,binding.declaration);
@@ -780,7 +783,97 @@ class TypeScriptAnalyzer {
     if (receiver?.kind === this.ts.SyntaxKind.ThisKeyword) { this.markDynamicFields(receiver); return; }
     const key = this.localValue(target.argumentExpression);
     if (key && (this.ts.isStringLiteral(key) || this.ts.isNoSubstitutionTemplateLiteral(key) || this.ts.isNumericLiteral(key))) this.addForeignStore(key.text,target.expression);
-    else this.hasDynamicFields = true;
+    else this.unprovenComputedStores.push(target);
+  }
+
+  freshValueKind(expression,visiting) {
+    // Returns "primitive", "array", or "object" when expression is provably a new value no Flow or Step object aliases, otherwise undefined.
+    const node = this.unwrap(expression);
+    if (!node || visiting.has(node)) return undefined;
+    visiting.add(node);
+    try {
+      return this.doFreshValueKind(node,visiting);
+    } finally {
+      visiting.delete(node);
+    }
+  }
+
+  doFreshValueKind(node,visiting) {
+    if (this.ts.isObjectLiteralExpression(node)) return "object";
+    if (this.ts.isArrayLiteralExpression(node)) return "array";
+    if (this.ts.isStringLiteral(node) || this.ts.isNoSubstitutionTemplateLiteral(node) || this.ts.isTemplateExpression(node) || this.ts.isNumericLiteral(node)) return "primitive";
+    if (this.ts.isIdentifier(node)) {
+      const scope = this.bindingScope(node);
+      const declaration = scope && this.staticBinding(scope,node.text);
+      if (declaration && this.ts.isParameter(declaration)) return this.freshParameterKind(declaration,visiting);
+      const value = this.nameValue(node,{});
+      return value ? this.freshValueKind(value.node,visiting) : undefined;
+    }
+    if (this.ts.isPropertyAccessExpression(node)) return this.freshFieldKind(node,visiting);
+    if (this.ts.isNewExpression(node)) {
+      const callee = this.unwrap(node.expression);
+      if (!this.isGlobalName(callee,["Array","Map","Set","Object"])) return undefined;
+      return callee.text === "Array" ? "array" : "object";
+    }
+    if (!this.ts.isCallExpression(node)) return undefined;
+    const callee = this.unwrap(node.expression);
+    if (this.isGlobalName(callee,["String","Number"])) return "primitive";
+    if (!callee || !this.ts.isPropertyAccessExpression(callee)) return undefined;
+    const method = callee.name.text;
+    const base = this.unwrap(callee.expression);
+    if (this.isGlobalName(base,["Array"]) && ["from","of"].includes(method)) return "array";
+    if (this.isGlobalName(base,["Object"]) && ["keys","values","entries"].includes(method)) return "array";
+    const baseKind = this.freshValueKind(base,visiting);
+    if (baseKind === "primitive" && method === "split") return "array";
+    if (baseKind === "primitive" && ["trim","toLowerCase","toUpperCase"].includes(method)) return "primitive";
+    if (baseKind === "array" && ["map","filter","slice","concat","flat","flatMap"].includes(method)) return "array";
+    return undefined;
+  }
+
+  freshParameterKind(parameter,visiting) {
+    // A parameter is fresh only when every call of its unexported local function passes a fresh argument.
+    const fn = parameter.parent;
+    if (!this.ts.isFunctionDeclaration(fn) || !fn.name || !this.ts.isIdentifier(parameter.name) || parameter.dotDotDotToken) return undefined;
+    if (fn.modifiers?.some(modifier => [this.ts.SyntaxKind.ExportKeyword,this.ts.SyntaxKind.DefaultKeyword].includes(modifier.kind))) return undefined;
+    const index = fn.parameters.indexOf(parameter);
+    const kinds = [];
+    let isEveryReferenceCalled = true;
+    this.walk(this.tree,node => {
+      if (!isEveryReferenceCalled || !this.ts.isIdentifier(node) || node.text !== fn.name.text || node === fn.name) return;
+      if (this.ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) return;
+      const scope = this.bindingScope(node);
+      if (scope && this.scopeBindings.get(scope).get(node.text).every(binding => binding.declaration !== fn)) return;
+      const call = node.parent;
+      if (!scope || this.staticBinding(scope,node.text) !== fn || !this.ts.isCallExpression(call) || call.expression !== node || call.arguments.slice(0,index+1).some(argument => this.ts.isSpreadElement(argument))) { isEveryReferenceCalled = false; return; }
+      const argument = call.arguments[index];
+      kinds.push(argument ? this.freshValueKind(argument,visiting) : parameter.initializer ? this.freshValueKind(parameter.initializer,visiting) : "primitive");
+    });
+    if (!isEveryReferenceCalled || kinds.some(kind => !kind)) return undefined;
+    return kinds.length && kinds.every(kind => kind === kinds[0]) ? kinds[0] : "object";
+  }
+
+  freshFieldKind(access,visiting) {
+    // An owned field is fresh when its only store is a fresh initializer and nothing else can write it.
+    const owner = this.selfReferenceClass(this.unwrap(access.expression));
+    const name = access.name.text;
+    if (!owner || this.dynamicClasses.has(owner) || this.foreignStores.has(name) || this.hasSubclass(owner)) return undefined;
+    const stores = this.fieldStores(owner,name);
+    if (stores.length !== 1 || !this.ts.isPropertyDeclaration(stores[0])) return undefined;
+    return this.freshValueKind(stores[0].initializer,visiting);
+  }
+
+  hasSubclass(declaration) {
+    let isExtended = false;
+    this.walk(this.tree,node => {
+      if (!this.ts.isClassLike(node)) return;
+      const base = this.unwrap(this.extendsClause(node)?.expression);
+      if (base && (!this.ts.isIdentifier(base) || base.text === declaration.name?.text)) isExtended = true;
+    });
+    return isExtended;
+  }
+
+  isGlobalName(expression,names) {
+    return !!expression && this.ts.isIdentifier(expression) && names.includes(expression.text) && !this.bindingScope(expression);
   }
 
   localValue(expression) {

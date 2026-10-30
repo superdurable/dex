@@ -23,6 +23,21 @@ ATTRIBUTE_INTERCEPTION_METHODS = {
     "__class_getitem__",
 }
 
+# The SDK and the analyzer call these Step and Flow methods, so a property must not replace one.
+DEX_ENTRY_METHOD_NAMES = {
+    "__init__",
+    "execute",
+    "wait_for",
+    "get_step_type",
+    "get_input_type",
+    "get_step_options",
+    "get_flow_type",
+    "get_steps",
+    "get_persistence_schema",
+    "handle_timeout",
+    "get_connector_trigger_bindings",
+}
+
 
 class EvaluationFrame:
     # The Step object that self names, and the constructor arguments bound while its __init__ runs.
