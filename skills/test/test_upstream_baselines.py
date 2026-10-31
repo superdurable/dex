@@ -582,7 +582,7 @@ class SdkDescribeFlowTest(unittest.TestCase):
     def test_core_reference_must_not_present_describe_as_go_only(self):
         mutate_page(
             self, self.check, self.references / "core" / "error-handling.md",
-            "Java, Python, TypeScript, and Rust already have it at their v1.26.0 baselines.",
+            "Java, Python, TypeScript, and Rust already have it at their baselines.",
             "Only the Go SDK has it.",
         )
 
@@ -1212,6 +1212,102 @@ class ClientAttributeReadTest(unittest.TestCase):
 
     def test_each_reference_statement_must_be_enforced(self):
         for page, needles in CHECKER.CLIENT_ATTRIBUTE_READ_REFERENCES:
+            for needle in needles:
+                with self.subTest(page=page, needle=needle):
+                    mutate_page(self, self.check, self.references / page, needle, needle[:-1] + "?")
+
+
+class ServerZdSearchStatementsTest(unittest.TestCase):
+    TAG = "server-zd/v0.1.13"
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.statements = tuple(
+            statement for statement in CHECKER.SERVER_ZD_LATEST_STATEMENTS if statement[0] == self.TAG
+        )
+        self.sources = tagged_sources(self.TAG, *dict.fromkeys(path for _, path, _ in self.statements))
+        self.repository.commit_and_tag(self.TAG, self.sources)
+
+    def check(self):
+        CHECKER.check_server_zd_statements(self.repository.root, self.TAG, self.statements)
+
+    def test_statements_cover_the_search_backend(self):
+        paths = {path for _, path, _ in self.statements}
+        self.assertIn("server-zd/crates/dexzd-cluster-metadata/src/registry.rs", paths)
+        self.assertIn("server-zd/crates/dexzd-engine/src/effects/dispatch/worker_result.rs", paths)
+
+    def test_real_tagged_sources_pass(self):
+        self.check()
+
+    def test_each_tagged_statement_must_be_enforced(self):
+        for _, path, needles in self.statements:
+            for needle in needles:
+                with self.subTest(path=path, needle=needle):
+                    self.assertIn(needle, self.sources[path])
+                    self.repository.commit_and_tag(self.TAG, {path: self.sources[path].replace(needle, needle[:-1] + "?")})
+                    with self.assertRaises(SystemExit) as raised:
+                        self.check()
+                    self.assertIn(f"{self.TAG}:{path} is missing required text", str(raised.exception))
+                    self.repository.commit_and_tag(self.TAG, {path: self.sources[path]})
+
+
+class SearchSubStatusTest(unittest.TestCase):
+    TAGS = {
+        "go": "sdk-go/v1.30.0",
+        "java": "sdk-java/v1.30.0",
+        "python": "sdk-python/v1.30.0",
+        "typescript": "sdk-typescript/v1.30.0",
+        "rust": "sdk-rust/v1.26.0",
+    }
+    PAGES = tuple(page for page, _ in CHECKER.SEARCH_LIMIT_REFERENCES)
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        paths = {}
+        for language, path, _ in CHECKER.SEARCH_SUB_STATUS_TAGGED_STATEMENTS:
+            paths.setdefault(language, []).append(path)
+        for language, path in CHECKER.SEARCH_SUB_STATUS_UNMAPPED:
+            paths.setdefault(language, []).append(path)
+        self.sources = {}
+        for language, language_paths in paths.items():
+            tag = self.TAGS[language]
+            self.sources[tag] = tagged_sources(tag, *dict.fromkeys(language_paths))
+            self.repository.commit_and_tag(tag, self.sources[tag])
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.references = copy_references(Path(temporary.name), *self.PAGES)
+
+    def check(self):
+        CHECKER.check_search_sub_statuses(self.repository.root, self.TAGS, self.references)
+
+    def commit_and_expect_failure(self, tag: str, path: str, source: str):
+        self.repository.commit_and_tag(tag, {path: source})
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn(path, str(raised.exception))
+        self.repository.commit_and_tag(tag, {path: self.sources[tag][path]})
+
+    def test_real_tagged_sources_pass(self):
+        self.check()
+
+    def test_each_tagged_statement_must_be_enforced(self):
+        for language, path, needles in CHECKER.SEARCH_SUB_STATUS_TAGGED_STATEMENTS:
+            tag = self.TAGS[language]
+            for needle in needles:
+                with self.subTest(language=language, needle=needle):
+                    source = self.sources[tag][path]
+                    self.assertIn(needle, source)
+                    self.commit_and_expect_failure(tag, path, source.replace(needle, needle[:-1] + "?"))
+
+    def test_mapping_a_search_sub_status_fails(self):
+        for language, path in CHECKER.SEARCH_SUB_STATUS_UNMAPPED:
+            tag = self.TAGS[language]
+            for token in CHECKER.SEARCH_SUB_STATUS_TOKENS:
+                with self.subTest(path=path, token=token):
+                    self.commit_and_expect_failure(tag, path, self.sources[tag][path] + f"\n{token}\n")
+
+    def test_each_reference_statement_must_be_enforced(self):
+        for page, needles in CHECKER.SEARCH_LIMIT_REFERENCES:
             for needle in needles:
                 with self.subTest(page=page, needle=needle):
                     mutate_page(self, self.check, self.references / page, needle, needle[:-1] + "?")

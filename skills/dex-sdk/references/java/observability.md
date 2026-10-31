@@ -12,7 +12,7 @@ Long-running handlers must call `recordHeartbeat` before the configured heartbea
 
 server-zd enforces the Step HeartbeatTimeout for pull Workers and sends cancellation directly to the pull Worker. Record heartbeats within the timeout, stop promptly when the SDK reports cancellation, and keep side effects idempotent. Later attempts receive the last recorded heartbeat. See [pull Worker routing](../core/pull-workers.md).
 
-[Pinned Java heartbeat source](https://github.com/superdurable/dex/blob/sdk-java/v1.26.0/examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java)
+[Pinned Java heartbeat source](https://github.com/superdurable/dex/blob/sdk-java/v1.30.0/examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java -->
 ```java
 final int completedBatches = context.hasLastHeartbeatValue()
