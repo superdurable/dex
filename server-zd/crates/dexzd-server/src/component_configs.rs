@@ -22,7 +22,7 @@ use dexzd_stream_store::StreamStoreConfig;
 use dexzd_worker_dispatch::MatchingConfig;
 
 use crate::ServerError;
-use crate::config::{Config, StreamStoreBackend};
+use crate::config::{Config, StreamStoreBackend, available_cpu_count};
 
 /// The incarnation of this node's log stream; one node writes one stream until multi-node support.
 const LOG_STREAM_INCARNATION: u32 = 1;
@@ -64,6 +64,19 @@ impl ComponentConfigs {
             keyword_value_limit: None,
             ..ValidationConfig::default()
         };
+        let available_cpus = available_cpu_count();
+        let applier_lanes = config
+            .commit
+            .effective_applier_lanes(config.cluster.partition_count, available_cpus);
+        let max_background_jobs = config
+            .local_storage
+            .effective_max_background_jobs(available_cpus);
+        tracing::info!(
+            available_cpus,
+            applier_lanes,
+            max_background_jobs,
+            "resolved CPU-based performance settings"
+        );
         let mut run_settings = default_run_settings();
         run_settings.history_window_semantic_events = config.history.window_semantic_events;
         run_settings.history_prune_chunk_semantic_events = config.history.prune_chunk_size;
@@ -107,6 +120,16 @@ impl ComponentConfigs {
                         config.local_storage.block_cache_bytes,
                     )?,
                     max_total_wal_bytes: config.local_storage.max_wal_bytes,
+                    write_buffer_bytes: to_usize(
+                        "localStorage.writeBufferBytes",
+                        config.local_storage.write_buffer_bytes,
+                    )?,
+                    max_background_jobs: i32::try_from(max_background_jobs).map_err(|_| {
+                        ServerError::ConfigValueOutOfRange {
+                            field: "localStorage.maxBackgroundJobs",
+                        }
+                    })?,
+                    max_subcompactions: config.local_storage.max_subcompactions,
                 },
             },
             commit: CommitConfig {
@@ -119,6 +142,16 @@ impl ComponentConfigs {
                 max_in_flight_batches: to_usize(
                     "commit.maxInFlight",
                     u64::from(config.commit.max_in_flight),
+                )?,
+                max_batch_records: to_usize(
+                    "commit.maxBatchRecords",
+                    u64::from(config.commit.max_batch_records),
+                )?,
+                max_unapplied_bytes: config.commit.max_unapplied_bytes,
+                applier_lanes: to_usize("commit.applierLanes", u64::from(applier_lanes))?,
+                applier_queue_frames: to_usize(
+                    "commit.applierQueueFrames",
+                    u64::from(config.commit.applier_queue_frames),
                 )?,
                 ..CommitConfig::default()
             },

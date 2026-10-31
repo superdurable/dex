@@ -16,6 +16,11 @@ localStorage:
   blockCacheBytes: 268435456
   # Caps RocksDB write-ahead log files; the store stays near live data plus this cap.
   maxWalBytes: 268435456
+  # Memtable size of each of the 6 column families, 2 memtables each; raise maxWalBytes with it.
+  writeBufferBytes: 67108864
+  # null uses half the available CPUs, from 2 to 1024.
+  maxBackgroundJobs: null
+  maxSubcompactions: 1
   # Compacts the store in the background after startup replays this many log record bytes.
   compactAfterReplayBytes: 16777216
   # Keeps this many local stores set aside as <directory>.discarded-<uuidv7>; recovery deletes older ones.
@@ -27,6 +32,13 @@ commit:
   maxInFlight: 4
   sealAtBytes: 4194304
   multipartThresholdBytes: 8388608
+  maxBatchRecords: 10000
+  # Encoded command bytes awaiting local apply; submissions beyond it fail with UNAVAILABLE.
+  # Must be at least the smaller of api.grpcMaxMessageBytes and 32 MiB.
+  maxUnappliedBytes: 67108864
+  # null uses the larger of 8 and the available CPUs, at most cluster.partitionCount and 1024.
+  applierLanes: null
+  applierQueueFrames: 64
 lease:
   duration: 10s
   failIfHeld: false

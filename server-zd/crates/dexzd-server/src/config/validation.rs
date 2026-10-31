@@ -10,7 +10,12 @@ use std::time::Duration;
 
 use dexzd_keyspace::validate_node_identifier;
 
+use super::engine_config::MAX_APPLIER_LANES;
+use super::storage_config::{MAX_BACKGROUND_JOBS, MIN_WRITE_BUFFER_BYTES};
 use super::{Config, ConfigError, CredentialSource, SearchBackend};
+
+/// Largest encoded log record that the commit log accepts.
+const MAX_LOG_RECORD_BYTES: u64 = 32 * 1024 * 1024;
 
 impl Config {
     /// Checks cross-section limits and reports the first failing camelCase YAML field path.
@@ -102,7 +107,29 @@ impl Config {
         ensure(
             self.local_storage.max_wal_bytes >= 64 * 1024 * 1024,
             "localStorage.maxWalBytes",
-            "must be at least 64 MiB, the memtable size of one column family",
+            "must be at least 64 MiB, the default memtable size of one column family",
+        )?;
+        ensure(
+            self.local_storage.write_buffer_bytes >= MIN_WRITE_BUFFER_BYTES,
+            "localStorage.writeBufferBytes",
+            "must be at least 64 KiB, the RocksDB minimum",
+        )?;
+        ensure(
+            self.local_storage.write_buffer_bytes <= self.local_storage.max_wal_bytes,
+            "localStorage.writeBufferBytes",
+            "must be no larger than localStorage.maxWalBytes",
+        )?;
+        ensure(
+            self.local_storage
+                .max_background_jobs
+                .is_none_or(|jobs| (1..=MAX_BACKGROUND_JOBS).contains(&jobs)),
+            "localStorage.maxBackgroundJobs",
+            "must be between 1 and 1024 when set",
+        )?;
+        ensure(
+            self.local_storage.max_subcompactions > 0,
+            "localStorage.maxSubcompactions",
+            "must be positive",
         )?;
         if !self.dev.data_directory.as_os_str().is_empty() {
             ensure(
@@ -139,6 +166,30 @@ impl Config {
             self.commit.multipart_threshold_bytes >= self.commit.seal_at_bytes,
             "commit.multipartThresholdBytes",
             "must be no smaller than commit.sealAtBytes",
+        )?;
+        ensure(
+            self.commit.max_batch_records > 0,
+            "commit.maxBatchRecords",
+            "must be positive",
+        )?;
+        ensure(
+            u64::from(self.commit.max_unapplied_bytes)
+                >= self.api.grpc_max_message_bytes.min(MAX_LOG_RECORD_BYTES),
+            "commit.maxUnappliedBytes",
+            "must be at least the smaller of api.grpcMaxMessageBytes and 32 MiB, the largest log record",
+        )?;
+        let max_applier_lanes = self.cluster.partition_count.min(MAX_APPLIER_LANES);
+        ensure(
+            self.commit
+                .applier_lanes
+                .is_none_or(|lanes| (1..=max_applier_lanes).contains(&lanes)),
+            "commit.applierLanes",
+            "must be between 1 and the smaller of cluster.partitionCount and 1024 when set",
+        )?;
+        ensure(
+            self.commit.applier_queue_frames > 0,
+            "commit.applierQueueFrames",
+            "must be positive",
         )?;
         ensure(
             self.lease.duration > Duration::ZERO,

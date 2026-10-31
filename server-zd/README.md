@@ -193,7 +193,8 @@ with its default. Set at least `cluster.nodeId`, `objectStore.bucket`, and
 An invalid value fails startup with the YAML path of the rejected field.
 
 `localStorage.directory` needs room for the live state plus `localStorage.maxWalBytes` of RocksDB
-write-ahead log and up to four uncompacted 64 MiB level-0 files per column family. A compaction
+write-ahead log and up to four uncompacted level-0 files per column family, each about
+`localStorage.writeBufferBytes` (64 MiB by default). A compaction
 after a bulk replay returns the directory to about the live state size.
 
 When the local store is corrupt, is missing files, has an incompatible format, or cannot be
