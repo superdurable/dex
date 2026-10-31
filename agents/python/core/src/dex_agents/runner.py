@@ -9,13 +9,14 @@
 """The contract between the agent session Flow and a framework adapter.
 
 An adapter implements ``AgentFrameworkRunner`` for one agent framework. The
-session Flow calls it from durable Steps:
+session Flow runs in Step mode: every model call and every tool call is its
+own Dex Step. It calls the runner from those Steps:
 
 * ``build_user_message`` turns user text into a stored framework item.
-* ``run_turn`` runs or resumes the framework loop for one turn segment. It
-  runs model calls and READ tools inline, defers every other tool call, and
-  returns ``TurnCompleted`` or ``TurnSuspended``.
-* ``execute_deferred_tool_call`` runs one deferred tool call in its own Step.
+* ``run_model_step`` lets the framework make at most one model call, from the
+  start of the turn or resumed with final tool call records, and returns
+  ``TurnCompleted`` or ``ToolCallsRequested``. It runs no tool it can defer.
+* ``execute_deferred_tool_call`` runs one tool call in its own Step.
 """
 
 from __future__ import annotations
@@ -59,7 +60,8 @@ class ToolPolicy:
 
     Pass policies by tool name in ``AgentSessionOptions.tool_policies``. A
     policy overrides framework metadata, such as MCP ``readOnlyHint``, and the
-    session-level ``default_tool_effect``.
+    session-level ``default_tool_effect``. Every tool call runs in its own
+    Step; the policy picks that Step and whether it waits for approval.
 
     Example:
         >>> AgentSessionOptions(tool_policies={
@@ -89,15 +91,6 @@ class ToolPolicy:
         if self.requires_approval is not None:
             return self.requires_approval
         return self.effect in (ToolEffect.NON_IDEMPOTENT_WRITE, ToolEffect.UNCLASSIFIED)
-
-    @property
-    def should_defer(self) -> bool:
-        """Report whether the runner must defer calls instead of running them inline.
-
-        Returns:
-            ``False`` only for a ``READ`` tool that needs no approval.
-        """
-        return self.effect is not ToolEffect.READ or self.is_approval_required
 
 
 def resolve_tool_policy(
@@ -222,12 +215,12 @@ class FrameworkMessage:
 
 @dataclass(frozen=True, kw_only=True)
 class DeferredToolCall:
-    """Ask the session to run one tool call in a Dex Step.
+    """Ask the session to run one tool call in its own Dex Step.
 
-    Return these in ``TurnSuspended.deferred_tool_calls`` for every tool call
-    whose policy says ``should_defer``. The session records each call,
-    raises an interrupt when the policy requires approval, runs approved calls
-    in order, and then calls ``run_turn`` again with the final records.
+    Return one in ``ToolCallsRequested.tool_calls`` for every tool call of the
+    model response. The session records each call, starts one Step per call in
+    parallel, raises an interrupt first when the policy requires approval, and
+    calls ``run_model_step`` again once every call has a final record.
 
     Attributes:
         tool_call_id: Framework tool call ID. It must be non-empty, contain no
@@ -245,14 +238,14 @@ class DeferredToolCall:
 
 @dataclass(frozen=True, kw_only=True)
 class TurnCompleted:
-    """Report that the framework produced the turn's final answer.
+    """Report that the model call produced the turn's final answer.
 
     Attributes:
         new_messages: Every item the turn produced after its user message, in
-            order and across all segments of the turn: model output, tool
-            requests, tool results (including deferred ones), and the final
-            answer. The session appends them in one commit.
-        usage: Model usage of this segment only.
+            order and across all of its model calls: model output, tool
+            requests, tool results, and the final answer. The session appends
+            them in one commit.
+        usage: Usage of this model call only.
     """
 
     new_messages: Sequence[FrameworkMessage]
@@ -260,48 +253,50 @@ class TurnCompleted:
 
 
 @dataclass(frozen=True, kw_only=True)
-class TurnSuspended:
-    """Report that the framework paused for deferred tool calls.
+class ToolCallsRequested:
+    """Report that the model call asked for tools, which the session runs as Steps.
 
-    The session commits the run state and deferred calls in one Step result.
-    The turn's new messages stay inside ``framework_run_state`` until the turn
-    completes; the session stores no partial messages.
+    The session commits the run state and one record per tool call in one Step
+    result, then starts the tool call Steps in parallel. The turn's new
+    messages stay inside ``framework_run_state`` until the turn completes; the
+    session stores no partial messages.
 
     Attributes:
-        framework_run_state: Framework-serialized state that resumes the loop.
-            It must be non-empty. The session returns it unchanged as
-            ``AgentTurnContext.framework_run_state``.
-        deferred_tool_calls: At least one deferred call.
-        usage: Model usage of this segment only.
+        framework_run_state: Framework-serialized state that continues the
+            turn after the tools return. It must be non-empty. The session
+            returns it unchanged as ``AgentTurnContext.framework_run_state``.
+        tool_calls: At least one tool call, in the order the model made them.
+        usage: Usage of this model call only.
     """
 
     framework_run_state: str
-    deferred_tool_calls: Sequence[DeferredToolCall]
+    tool_calls: Sequence[DeferredToolCall]
     usage: AgentUsage = field(default_factory=AgentUsage)
 
 
-#: The result of one ``run_turn`` call.
-AgentTurnOutcome: TypeAlias = TurnCompleted | TurnSuspended
+#: The result of one ``run_model_step`` call.
+AgentTurnOutcome: TypeAlias = TurnCompleted | ToolCallsRequested
 
 
 @dataclass(frozen=True, kw_only=True)
 class AgentTurnContext:
-    """Give ``run_turn`` everything it needs to run or resume one turn segment.
+    """Give ``run_model_step`` everything it needs for one model call of a turn.
 
-    The session builds a new context for every ``RunAgentTurn`` attempt from
+    The session builds a new context for every ``RunModel`` attempt from
     committed state. A retry after a crash receives the same messages, run
-    state, and records as the failed attempt, with a larger ``attempt``.
+    state, and records as the failed attempt, with a larger ``attempt``, so
+    only that one model call runs again.
 
     Attributes:
         flow_id: Session ID, which is the Flow ID.
         turn_id: ``"turn-<n>"`` of the running turn.
-        attempt: One-based ``RunAgentTurn`` attempt.
+        attempt: One-based ``RunModel`` attempt.
         messages: Every stored message in sequence order. The last user
             message belongs to this turn.
-        framework_run_state: The value from the last ``TurnSuspended`` of this
-            turn, or ``None`` for the first segment.
-        tool_calls: This turn's deferred tool call records by tool call ID.
-            When resuming, every record is final.
+        framework_run_state: The value from this turn's last
+            ``ToolCallsRequested``, or ``None`` for the turn's first model call.
+        tool_calls: Every tool call record of this turn by tool call ID. When
+            ``RunModel`` runs, every record is final.
         tool_policies: Explicit policies from ``AgentSessionOptions``.
         default_tool_effect: Effect for a tool without policy or metadata.
         events: Writer for live events, bound to this turn and attempt.
@@ -323,7 +318,7 @@ class AgentTurnContext:
 
     @property
     def is_resuming(self) -> bool:
-        """Report whether this segment resumes a suspended framework run.
+        """Report whether this model call continues the turn after tool calls.
 
         Returns:
             ``True`` when ``framework_run_state`` is set.
@@ -338,8 +333,8 @@ class AgentTurnContext:
         """Return the policy for one tool call.
 
         An explicit policy wins over ``framework_effect``, which wins over
-        ``default_tool_effect``. Run the call inline only when the returned
-        policy's ``should_defer`` is ``False``.
+        ``default_tool_effect``. Put the returned policy in the
+        ``DeferredToolCall`` for that call.
 
         Args:
             tool_name: Tool name the model called.
@@ -406,9 +401,11 @@ class ToolExecutionError(Exception):
     Raise it from ``execute_deferred_tool_call`` when the tool ran and failed
     in a way the model can react to, such as invalid arguments. The session
     records ``FAILED`` with ``str(error)`` and does not retry. Any other
-    exception is a Step failure: an ``IDEMPOTENT_WRITE`` call retries, and once
-    its attempts run out, or at once for a single-attempt call, the session
-    records ``OUTCOME_UNKNOWN`` because the write may have taken effect.
+    exception is a Step failure. A ``READ`` or ``IDEMPOTENT_WRITE`` call
+    retries up to three attempts; a single-attempt call does not retry. When
+    the attempts run out, the session records ``FAILED`` for a ``READ`` call
+    and ``OUTCOME_UNKNOWN`` for a write, because the write may have taken
+    effect.
 
     Example:
         >>> raise ToolExecutionError("order 42 is already shipped")
@@ -421,7 +418,8 @@ class AgentFrameworkRunner(Protocol):
     Implement this protocol once per framework and pass the runner to
     ``AgentSessionFlow``. The session calls it from Steps, so every method may
     run again after a crash or retry: keep the runner stateless between calls
-    and derive everything from the arguments.
+    and derive everything from the arguments. Tool calls run in parallel
+    Steps, so ``execute_deferred_tool_call`` may run concurrently with itself.
 
     Example:
         >>> class EchoRunner:
@@ -429,7 +427,7 @@ class AgentFrameworkRunner(Protocol):
         ...         return FrameworkMessage(role=MessageRole.USER, text=text,
         ...                                 framework_item=json.dumps({"user": text}))
         ...
-        ...     async def run_turn(self, turn: AgentTurnContext) -> AgentTurnOutcome:
+        ...     async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
         ...         text = turn.messages[-1].text or ""
         ...         return TurnCompleted(new_messages=[FrameworkMessage(
         ...             role=MessageRole.ASSISTANT, text=text,
@@ -444,7 +442,8 @@ class AgentFrameworkRunner(Protocol):
     def build_user_message(self, text: str) -> FrameworkMessage:
         """Convert user text into the framework item the session stores.
 
-        The session calls it once per user message, before ``run_turn``.
+        The session calls it once per user message, before ``run_model_step``.
+        ``RecordTurnFailure`` also calls it for the turn-failure note.
 
         Args:
             text: The user message text.
@@ -454,35 +453,36 @@ class AgentFrameworkRunner(Protocol):
         """
         ...
 
-    async def run_turn(self, turn: AgentTurnContext) -> AgentTurnOutcome:
-        """Run or resume the framework loop for one turn segment.
+    async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
+        """Let the framework make at most one model call of the turn.
 
-        Without run state, rebuild framework input from ``turn.messages`` and
-        start the loop. With run state, restore the framework from it and
-        resume, giving every deferred call the result from its final record in
-        ``turn.tool_calls`` (``describe_tool_call_outcome`` renders it). Never
-        run a deferred tool here.
+        Without run state, rebuild framework input from ``turn.messages``. With
+        run state, restore the framework from it and give every tool call the
+        result from its final record in ``turn.tool_calls``
+        (``describe_tool_call_outcome`` renders it). Then let the framework make
+        one model call and stop it before it runs any tool.
 
-        Run model calls and tools whose policy has ``should_defer`` ``False``
-        inline. Defer every other call with the framework's own mechanism and
-        return ``TurnSuspended``. Return ``TurnCompleted`` once the framework
-        produces its final answer.
+        Return ``ToolCallsRequested`` with one ``DeferredToolCall`` per tool
+        call of the response, each with ``turn.resolve_tool_policy``. Return
+        ``TurnCompleted`` when the response is the final answer. Never run a
+        tool here, unless the framework cannot defer it; document such tools
+        as at-least-once.
 
         Args:
-            turn: Committed session state for this segment.
+            turn: Committed session state for this model call.
 
         Returns:
-            ``TurnCompleted`` or ``TurnSuspended``.
+            ``TurnCompleted`` or ``ToolCallsRequested``.
 
         Raises:
-            Exception: Any exception fails the attempt. ``RunAgentTurn`` retries
-                up to three attempts within 30 minutes, then records the turn
-                as failed in ``last_turn_error``.
+            Exception: Any exception fails the attempt. ``RunModel`` retries up
+                to three attempts within 30 minutes, then records the turn as
+                failed in ``last_turn_error``.
         """
         ...
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
-        """Run one deferred tool call exactly as the framework would.
+        """Run one tool call exactly as the framework would, in its own Step.
 
         Args:
             call: The approved record and its idempotency key.
@@ -493,6 +493,7 @@ class AgentFrameworkRunner(Protocol):
         Raises:
             ToolExecutionError: The tool failed in a way the model should see.
             Exception: Any other exception fails the Step attempt. After the
-                last attempt the record becomes ``OUTCOME_UNKNOWN``.
+                last attempt the record becomes ``FAILED`` for a ``READ`` call
+                and ``OUTCOME_UNKNOWN`` for a write.
         """
         ...

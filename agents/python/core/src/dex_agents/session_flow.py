@@ -6,7 +6,14 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""The shared agent session Flow that every framework adapter registers."""
+"""The shared agent session Flow that every framework adapter registers.
+
+The Flow runs in Step mode. Each model call is one ``RunModel`` Step. Each
+tool call is its own ``CallTool`` or ``CallSingleAttemptTool`` Step, after an
+``AwaitToolApproval`` Step when its policy requires approval. The tool call
+Steps of one model response run in parallel, and ``ResumeTurn`` waits for all
+of their results before the next ``RunModel``.
+"""
 
 from __future__ import annotations
 
@@ -28,11 +35,14 @@ from dex import (
     StepDecision,
     StepDurability,
     StepList,
+    StepMovement,
     StepOptions,
     Stream,
     Timer,
     Wait,
+    dead_end,
     go_to,
+    go_to_many,
     rpc,
 )
 from dex.condition import Condition
@@ -48,6 +58,7 @@ from dex_agents.persistence import (
     INTERRUPT_RESOLUTIONS,
     PENDING_INTERRUPTS,
     QUEUED_USER_MESSAGES,
+    TOOL_CALL_RESULTS,
     message_sequence_key,
 )
 from dex_agents.runner import (
@@ -56,10 +67,10 @@ from dex_agents.runner import (
     AgentTurnContext,
     DeferredToolExecution,
     FrameworkMessage,
+    ToolCallsRequested,
     ToolExecutionError,
     ToolPolicy,
     TurnCompleted,
-    TurnSuspended,
     build_turn_failure_note,
 )
 from dex_agents.values import (
@@ -79,6 +90,7 @@ from dex_agents.values import (
     ListAgentMessagesRequest,
     MessageRole,
     ResolveInterruptRequest,
+    ToolCallCompleted,
     ToolCallStatus,
     ToolEffect,
 )
@@ -144,8 +156,11 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     type, in a Registry created with ``allow_async_handlers=True`` and served
     by an ``AsyncWorker``. Framework adapters usually construct it for you.
 
-    The session never completes on its own: it waits for the next user message
-    after every turn. Stop it with ``AsyncClient.stop_flow``.
+    Every model call runs in its own ``RunModel`` Step and every tool call in
+    its own tool call Step, so each has its own retry policy, timeout, failure
+    route, and history entry. The session never completes on its own: it waits
+    for the next user message after every turn. Stop it with
+    ``AsyncClient.stop_flow``.
 
     Example:
         >>> flow = AgentSessionFlow(MyFrameworkRunner(agent), flow_type="TriageAgent")
@@ -166,6 +181,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         agent_usage: The ``AgentUsage`` Attribute.
         queued_user_messages: The ``QueuedUserMessages`` Channel.
         interrupt_resolutions: The ``InterruptResolutions`` ChannelMap.
+        tool_call_results: The internal ``ToolCallResults`` Channel.
         agent_events: This Flow type's ``AgentEvents`` Stream. Pass it to
             ``AsyncClient.read_stream`` or ``AsyncClient.list_stream_messages``.
     """
@@ -178,6 +194,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     agent_usage = AGENT_USAGE
     queued_user_messages = QUEUED_USER_MESSAGES
     interrupt_resolutions = INTERRUPT_RESOLUTIONS
+    tool_call_results = TOOL_CALL_RESULTS
 
     def __init__(
         self,
@@ -211,12 +228,13 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         )
         self._start_agent_session = StartAgentSession(self)
         self._await_user_message = AwaitUserMessage(self)
-        self._run_agent_turn = RunAgentTurn(self)
-        self._await_interrupt_resolution = AwaitInterruptResolution(self)
-        self._execute_tool_call = ExecuteToolCall(self)
-        self._execute_single_attempt_tool_call = ExecuteSingleAttemptToolCall(self)
+        self._run_model = RunModel(self)
+        self._await_tool_approval = AwaitToolApproval(self)
+        self._call_tool = CallTool(self)
+        self._call_single_attempt_tool = CallSingleAttemptTool(self)
         self._record_tool_failure = RecordToolFailure(self)
         self._record_tool_outcome_unknown = RecordToolOutcomeUnknown(self)
+        self._resume_turn = ResumeTurn(self)
         self._record_turn_failure = RecordTurnFailure(self)
 
     @property
@@ -253,12 +271,13 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         """
         return StepList.start_step(self._start_agent_session).other_steps(
             self._await_user_message,
-            self._run_agent_turn,
-            self._await_interrupt_resolution,
-            self._execute_tool_call,
-            self._execute_single_attempt_tool_call,
+            self._run_model,
+            self._await_tool_approval,
+            self._call_tool,
+            self._call_single_attempt_tool,
             self._record_tool_failure,
             self._record_tool_outcome_unknown,
+            self._resume_turn,
             self._record_turn_failure,
         )
 
@@ -277,6 +296,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             AGENT_USAGE,
             QUEUED_USER_MESSAGES,
             INTERRUPT_RESOLUTIONS,
+            TOOL_CALL_RESULTS,
             self.agent_events,
         )
 
@@ -413,24 +433,19 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         state = _append_messages(context, state, turn_id, [user_message])
         AGENT_STATE.set(
             context,
-            replace(
-                state,
-                status=AgentSessionStatus.RUNNING_TURN,
-                active_turn_id=turn_id,
-                executing_tool_call_id=None,
-            ),
+            replace(state, status=AgentSessionStatus.RUNNING_MODEL, active_turn_id=turn_id),
         )
         self._event_writer(context, turn_id).write_event(
             AgentEventType.TURN_STARTED, {"sequence": sequence}
         )
-        return go_to(self._run_agent_turn, None)
+        return go_to(self._run_model, None)
 
-    async def _run_turn_segment(self, context: AsyncContext) -> StepDecision:
+    async def _run_model_step(self, context: AsyncContext) -> StepDecision:
         state = _require_agent_state(context)
         turn_id = _require_active_turn_id(state)
         tool_calls = _turn_tool_calls(context, turn_id)
         if any(not tool_call.status.is_final for tool_call in tool_calls):
-            raise RuntimeError(f"turn {turn_id} resumed before every deferred tool call finished")
+            raise RuntimeError(f"turn {turn_id} resumed before every tool call finished")
         events = self._event_writer(context, turn_id)
         turn = AgentTurnContext(
             flow_id=context.flow_id,
@@ -445,12 +460,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             heartbeat=context.heartbeat,
         )
         async with _background_heartbeats(context):
-            outcome = await self._runner.run_turn(turn)
+            outcome = await self._runner.run_model_step(turn)
         if isinstance(outcome, TurnCompleted):
             return self._complete_turn(context, state, tool_calls, outcome, events)
-        if isinstance(outcome, TurnSuspended):
-            return self._suspend_turn(context, state, tool_calls, outcome, events)
-        raise TypeError("run_turn must return TurnCompleted or TurnSuspended")
+        if isinstance(outcome, ToolCallsRequested):
+            return self._start_tool_calls(context, state, tool_calls, outcome, events)
+        raise TypeError("run_model_step must return TurnCompleted or ToolCallsRequested")
 
     def _complete_turn(
         self,
@@ -474,7 +489,6 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 status=AgentSessionStatus.WAITING_FOR_USER_MESSAGE,
                 turn_count=state.turn_count + 1,
                 active_turn_id=None,
-                executing_tool_call_id=None,
                 last_turn_error=None,
             ),
         )
@@ -483,16 +497,16 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         )
         return go_to(self._await_user_message, None)
 
-    def _suspend_turn(
+    def _start_tool_calls(
         self,
         context: AsyncContext,
         state: AgentState,
         tool_calls: Sequence[AgentToolCall],
-        outcome: TurnSuspended,
+        outcome: ToolCallsRequested,
         events: AgentEventWriter,
     ) -> StepDecision:
         turn_id = _require_active_turn_id(state)
-        _validate_turn_suspension(outcome, tool_calls)
+        _validate_tool_calls_requested(outcome, tool_calls)
         FRAMEWORK_RUN_STATE.set(context, outcome.framework_run_state)
         now = datetime.now(UTC)
         deadline = (
@@ -500,44 +514,45 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             if self._options.interrupt_deadline is None
             else (now + self._options.interrupt_deadline).isoformat()
         )
-        interrupts: list[AgentInterrupt] = []
-        for index, deferred in enumerate(outcome.deferred_tool_calls):
-            requires_approval = deferred.policy.is_approval_required
-            AGENT_TOOL_CALLS.set(
-                context,
-                deferred.tool_call_id,
-                AgentToolCall(
-                    tool_call_id=deferred.tool_call_id,
-                    turn_id=turn_id,
-                    tool_name=deferred.tool_name,
-                    arguments=deferred.arguments,
-                    effect=deferred.policy.effect,
-                    requires_approval=requires_approval,
-                    status=(
-                        ToolCallStatus.AWAITING_APPROVAL
-                        if requires_approval
-                        else ToolCallStatus.APPROVED
-                    ),
-                    deferral_order=len(tool_calls) + index,
+        interrupts = _pending_interrupts(context)
+        movements: list[StepMovement[str]] = []
+        for index, requested in enumerate(outcome.tool_calls):
+            requires_approval = requested.policy.is_approval_required
+            tool_call = AgentToolCall(
+                tool_call_id=requested.tool_call_id,
+                turn_id=turn_id,
+                tool_name=requested.tool_name,
+                arguments=requested.arguments,
+                effect=requested.policy.effect,
+                requires_approval=requires_approval,
+                status=(
+                    ToolCallStatus.AWAITING_APPROVAL
+                    if requires_approval
+                    else ToolCallStatus.APPROVED
                 ),
+                deferral_order=len(tool_calls) + index,
             )
+            AGENT_TOOL_CALLS.set(context, tool_call.tool_call_id, tool_call)
             events.write_event(
                 AgentEventType.TOOL_CALL_DEFERRED,
                 {
-                    "tool_call_id": deferred.tool_call_id,
-                    "tool_name": deferred.tool_name,
-                    "effect": str(deferred.policy.effect),
+                    "tool_call_id": tool_call.tool_call_id,
+                    "tool_name": tool_call.tool_name,
+                    "effect": str(tool_call.effect),
                     "requires_approval": requires_approval,
                 },
             )
             if not requires_approval:
+                movements.append(
+                    StepMovement.of(self._tool_call_step(tool_call), tool_call.tool_call_id)
+                )
                 continue
             interrupt = AgentInterrupt(
-                interrupt_id=deferred.tool_call_id,
+                interrupt_id=tool_call.tool_call_id,
                 kind=InterruptKind.TOOL_APPROVAL,
-                tool_call_id=deferred.tool_call_id,
-                tool_name=deferred.tool_name,
-                arguments=deferred.arguments,
+                tool_call_id=tool_call.tool_call_id,
+                tool_name=tool_call.tool_name,
+                arguments=tool_call.arguments,
                 created_at=now.isoformat(),
                 deadline=deadline,
             )
@@ -551,89 +566,88 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     "deadline": interrupt.deadline,
                 },
             )
+            movements.append(StepMovement.of(self._await_tool_approval, tool_call.tool_call_id))
         PENDING_INTERRUPTS.set(context, interrupts)
         _record_usage(context, events, outcome.usage)
-        return self._route_tool_calls(context, state)
+        AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.RUNNING_TOOLS))
+        return go_to_many(
+            *movements,
+            StepMovement.of(self._resume_turn, len(outcome.tool_calls)),
+        )
 
-    def _wait_for_interrupt_resolutions(self, context: Context) -> Wait:
-        state = _require_agent_state(context)
-        awaiting = [
-            tool_call
-            for tool_call in _turn_tool_calls(context, state.active_turn_id)
-            if tool_call.status is ToolCallStatus.AWAITING_APPROVAL
-        ]
-        awaiting_ids = {tool_call.tool_call_id for tool_call in awaiting}
-        conditions: list[Condition] = [
-            INTERRUPT_RESOLUTIONS.for_one(tool_call.tool_call_id) for tool_call in awaiting
-        ]
-        # Resolved interrupts left PendingInterrupts, so their deadlines no longer apply.
-        deadlines = [
-            datetime.fromisoformat(interrupt.deadline)
-            for interrupt in _pending_interrupts(context)
-            if interrupt.deadline is not None and interrupt.interrupt_id in awaiting_ids
-        ]
-        if deadlines:
-            remaining = min(deadlines) - datetime.now(UTC)
+    def _wait_for_tool_approval(self, context: Context, tool_call_id: str) -> Wait:
+        conditions: list[Condition] = [INTERRUPT_RESOLUTIONS.for_one(tool_call_id)]
+        interrupt = _pending_interrupt(context, tool_call_id)
+        # After resolve_interrupt removed the interrupt, its deadline no longer applies.
+        if interrupt is not None and interrupt.deadline is not None:
+            remaining = datetime.fromisoformat(interrupt.deadline) - datetime.now(UTC)
             conditions.append(Timer.by_duration(max(remaining, timedelta(0))))
-        if not conditions:
-            return Wait.skip_immediately()
         return Wait.any_of(*conditions)
 
-    def _apply_interrupt_resolutions(self, context: AsyncContext) -> StepDecision:
-        state = _require_agent_state(context)
-        events = self._event_writer(context, state.active_turn_id)
-        awaiting = [
-            tool_call
-            for tool_call in _turn_tool_calls(context, state.active_turn_id)
-            if tool_call.status is ToolCallStatus.AWAITING_APPROVAL
-        ]
-        if context.has_timer_fired():
-            self._reject_expired_interrupts(context, awaiting, events)
-            return self._route_tool_calls(context, state)
-        for tool_call in awaiting:
-            resolutions = INTERRUPT_RESOLUTIONS.results(context, tool_call.tool_call_id)
-            if resolutions:
-                _resolve_tool_call(context, tool_call, resolutions[0], events)
-        return self._route_tool_calls(context, state)
-
-    def _reject_expired_interrupts(
-        self,
-        context: AsyncContext,
-        awaiting: Sequence[AgentToolCall],
-        events: AgentEventWriter,
-    ) -> None:
-        now = datetime.now(UTC)
-        pending = _pending_interrupts(context)
-        expired_ids = {
-            interrupt.interrupt_id
-            for interrupt in pending
-            if interrupt.deadline is not None and datetime.fromisoformat(interrupt.deadline) <= now
-        }
-        if not expired_ids:
-            return
+    def _apply_tool_approval(self, context: AsyncContext, tool_call_id: str) -> StepDecision:
+        tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
+        if tool_call.status.is_final:
+            return dead_end()
+        events = self._event_writer(context, tool_call.turn_id)
+        resolutions = INTERRUPT_RESOLUTIONS.results(context, tool_call_id)
+        if resolutions:
+            return self._resolve_tool_approval(context, tool_call, resolutions[0], events)
+        if not context.has_timer_fired():
+            raise RuntimeError(f"the approval wait for {tool_call_id} completed without an answer")
+        interrupt = _pending_interrupt(context, tool_call_id)
+        if interrupt is None or interrupt.deadline is None:
+            # resolve_interrupt answered first; the next wait consumes that answer.
+            return go_to(self._await_tool_approval, tool_call_id)
+        if datetime.fromisoformat(interrupt.deadline) > datetime.now(UTC):
+            return go_to(self._await_tool_approval, tool_call_id)
         PENDING_INTERRUPTS.set(
             context,
-            [interrupt for interrupt in pending if interrupt.interrupt_id not in expired_ids],
+            [
+                pending
+                for pending in _pending_interrupts(context)
+                if pending.interrupt_id != tool_call_id
+            ],
         )
-        for tool_call in awaiting:
-            if tool_call.tool_call_id in expired_ids:
-                _resolve_tool_call(
-                    context,
-                    tool_call,
-                    AgentInterruptResolution(
-                        approved=False, rejection_message=APPROVAL_DEADLINE_PASSED
-                    ),
-                    events,
-                )
+        return self._resolve_tool_approval(
+            context,
+            tool_call,
+            AgentInterruptResolution(approved=False, rejection_message=APPROVAL_DEADLINE_PASSED),
+            events,
+        )
 
-    async def _execute_deferred_tool_call(self, context: AsyncContext) -> StepDecision:
-        state = _require_agent_state(context)
-        tool_call = _executing_tool_call(context, state)
+    def _resolve_tool_approval(
+        self,
+        context: AsyncContext,
+        tool_call: AgentToolCall,
+        resolution: AgentInterruptResolution,
+        events: AgentEventWriter,
+    ) -> StepDecision:
+        events.write_event(
+            AgentEventType.INTERRUPT_RESOLVED,
+            {
+                "interrupt_id": tool_call.tool_call_id,
+                "approved": resolution.approved,
+                "rejection_message": resolution.rejection_message,
+            },
+        )
+        if resolution.approved:
+            approved = replace(tool_call, status=ToolCallStatus.APPROVED)
+            AGENT_TOOL_CALLS.set(context, approved.tool_call_id, approved)
+            return go_to(self._tool_call_step(approved), approved.tool_call_id)
+        rejected = replace(
+            tool_call,
+            status=ToolCallStatus.REJECTED,
+            rejection_message=resolution.rejection_message,
+        )
+        return _finish_tool_call(context, rejected, events)
+
+    async def _run_tool_call(self, context: AsyncContext, tool_call_id: str) -> StepDecision:
+        tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
         if tool_call.status.is_final:
-            return self._route_tool_calls(context, state)
+            return dead_end()
         if tool_call.status is not ToolCallStatus.APPROVED:
-            raise RuntimeError(f"tool call {tool_call.tool_call_id} is not approved")
-        events = self._event_writer(context, state.active_turn_id)
+            raise RuntimeError(f"tool call {tool_call_id} is not approved")
+        events = self._event_writer(context, tool_call.turn_id)
         events.write_tool_call_started(tool_call.tool_call_id, tool_call.tool_name)
         # Dex may redeliver a task without output to another Worker, at the same attempt.
         await context.heartbeat()
@@ -651,30 +665,29 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 finished = replace(tool_call, status=ToolCallStatus.SUCCEEDED, output=result.output)
             except ToolExecutionError as error:
                 finished = replace(tool_call, status=ToolCallStatus.FAILED, error=str(error))
-        return self._finish_tool_call(context, state, finished, events)
+        return _finish_tool_call(context, finished, events)
 
-    def _record_unknown_tool_outcome(self, context: AsyncContext) -> StepDecision:
-        state = _require_agent_state(context)
-        tool_call = _executing_tool_call(context, state)
-        if tool_call.status.is_final:
-            return self._route_tool_calls(context, state)
-        finished = replace(
-            tool_call, status=ToolCallStatus.OUTCOME_UNKNOWN, error=_recovery_detail(context)
-        )
-        return self._finish_tool_call(
-            context, state, finished, self._event_writer(context, state.active_turn_id)
-        )
-
-    def _finish_tool_call(
+    def _record_tool_recovery(
         self,
         context: AsyncContext,
-        state: AgentState,
-        finished: AgentToolCall,
-        events: AgentEventWriter,
+        tool_call_id: str,
+        status: ToolCallStatus,
     ) -> StepDecision:
-        AGENT_TOOL_CALLS.set(context, finished.tool_call_id, finished)
-        events.write_tool_call_finished(finished.tool_call_id, finished.tool_name, finished.status)
-        return self._route_tool_calls(context, state)
+        tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
+        if tool_call.status.is_final:
+            return dead_end()
+        finished = replace(tool_call, status=status, error=_recovery_detail(context))
+        return _finish_tool_call(context, finished, self._event_writer(context, tool_call.turn_id))
+
+    def _resume_turn_after_tool_calls(self, context: AsyncContext) -> StepDecision:
+        state = _require_agent_state(context)
+        tool_calls = _turn_tool_calls(context, _require_active_turn_id(state))
+        unfinished_count = sum(1 for tool_call in tool_calls if not tool_call.status.is_final)
+        if unfinished_count:
+            # A consumed result from an earlier turn must not resume this one early.
+            return go_to(self._resume_turn, unfinished_count)
+        AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.RUNNING_MODEL))
+        return go_to(self._run_model, None)
 
     def _fail_active_turn(self, context: AsyncContext) -> StepDecision:
         state = _require_agent_state(context)
@@ -698,7 +711,6 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 status=AgentSessionStatus.WAITING_FOR_USER_MESSAGE,
                 turn_count=state.turn_count + 1,
                 active_turn_id=None,
-                executing_tool_call_id=None,
                 last_turn_error=error,
             ),
         )
@@ -707,39 +719,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         )
         return go_to(self._await_user_message, None)
 
-    def _route_tool_calls(self, context: AsyncContext, state: AgentState) -> StepDecision:
-        tool_calls = _turn_tool_calls(context, state.active_turn_id)
-        if any(tool_call.status is ToolCallStatus.AWAITING_APPROVAL for tool_call in tool_calls):
-            AGENT_STATE.set(
-                context,
-                replace(
-                    state,
-                    status=AgentSessionStatus.WAITING_FOR_INTERRUPT,
-                    executing_tool_call_id=None,
-                ),
-            )
-            return go_to(self._await_interrupt_resolution, None)
-        approved = next(
-            (tool_call for tool_call in tool_calls if tool_call.status is ToolCallStatus.APPROVED),
-            None,
-        )
-        if approved is None:
-            AGENT_STATE.set(
-                context,
-                replace(state, status=AgentSessionStatus.RUNNING_TURN, executing_tool_call_id=None),
-            )
-            return go_to(self._run_agent_turn, None)
-        AGENT_STATE.set(
-            context,
-            replace(
-                state,
-                status=AgentSessionStatus.EXECUTING_TOOL,
-                executing_tool_call_id=approved.tool_call_id,
-            ),
-        )
-        if approved.effect in MULTI_ATTEMPT_TOOL_EFFECTS:
-            return go_to(self._execute_tool_call, None)
-        return go_to(self._execute_single_attempt_tool_call, None)
+    def _tool_call_step(self, tool_call: AgentToolCall) -> CallTool | CallSingleAttemptTool:
+        if tool_call.effect in MULTI_ATTEMPT_TOOL_EFFECTS:
+            return self._call_tool
+        return self._call_single_attempt_tool
 
     def _event_writer(self, context: AsyncContext, turn_id: str | None) -> AgentEventWriter:
         return AgentEventWriter(
@@ -798,8 +781,8 @@ class AwaitUserMessage(Step[None]):
         return self._session._begin_turn(context, messages[0].text)
 
 
-class RunAgentTurn(Step[None]):
-    """Run or resume the framework loop for one turn segment."""
+class RunModel(Step[None]):
+    """Make one model call of the active turn through the framework runner."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
@@ -818,11 +801,11 @@ class RunAgentTurn(Step[None]):
         context: AsyncContext,
         input: None,
     ) -> StepDecision:
-        return await self._session._run_turn_segment(context)
+        return await self._session._run_model_step(context)
 
 
-class AwaitInterruptResolution(Step[None]):
-    """Wait for an interrupt answer or deadline, then apply it."""
+class AwaitToolApproval(Step[str]):
+    """Wait for one tool call's approval or deadline, then run or reject it."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
@@ -832,24 +815,23 @@ class AwaitInterruptResolution(Step[None]):
         return StepOptions(
             wait_for_durability=StepDurability.SYNC,
             execute_durability=StepDurability.SYNC,
-            wait_for_load_attribute_maps=(AGENT_TOOL_CALLS,),
             execute_load_attribute_maps=(AGENT_TOOL_CALLS,),
             execute_lock_attributes=(PENDING_INTERRUPTS.lock(),),
         )
 
-    def wait_for(self, context: Context, input: None) -> Wait:
-        return self._session._wait_for_interrupt_resolutions(context)
+    def wait_for(self, context: Context, input: str) -> Wait:
+        return self._session._wait_for_tool_approval(context, input)
 
     async def execute(  # type: ignore[override]
         self,
         context: AsyncContext,
-        input: None,
+        input: str,
     ) -> StepDecision:
-        return self._session._apply_interrupt_resolutions(context)
+        return self._session._apply_tool_approval(context, input)
 
 
-class ExecuteToolCall(Step[None]):
-    """Run one idempotent or approved read tool call with up to three attempts."""
+class CallTool(Step[str]):
+    """Run one read or idempotent write tool call with up to three attempts."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
@@ -864,12 +846,12 @@ class ExecuteToolCall(Step[None]):
     async def execute(  # type: ignore[override]
         self,
         context: AsyncContext,
-        input: None,
+        input: str,
     ) -> StepDecision:
-        return await self._session._execute_deferred_tool_call(context)
+        return await self._session._run_tool_call(context, input)
 
 
-class ExecuteSingleAttemptToolCall(Step[None]):
+class CallSingleAttemptTool(Step[str]):
     """Run one non-idempotent or unclassified tool call exactly once."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
@@ -885,13 +867,13 @@ class ExecuteSingleAttemptToolCall(Step[None]):
     async def execute(  # type: ignore[override]
         self,
         context: AsyncContext,
-        input: None,
+        input: str,
     ) -> StepDecision:
-        return await self._session._execute_deferred_tool_call(context)
+        return await self._session._run_tool_call(context, input)
 
 
-class RecordToolFailure(Step[None]):
-    """Record an unknown outcome for a multi-attempt tool call whose attempts ran out."""
+class RecordToolFailure(Step[str]):
+    """Record a ``CallTool`` call whose attempts ran out: failed for reads, unknown for writes."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
@@ -906,12 +888,18 @@ class RecordToolFailure(Step[None]):
     async def execute(  # type: ignore[override]
         self,
         context: AsyncContext,
-        input: None,
+        input: str,
     ) -> StepDecision:
-        return self._session._record_unknown_tool_outcome(context)
+        tool_call = AGENT_TOOL_CALLS.get(context, input)
+        status = (
+            ToolCallStatus.FAILED
+            if tool_call.effect is ToolEffect.READ
+            else ToolCallStatus.OUTCOME_UNKNOWN
+        )
+        return self._session._record_tool_recovery(context, input, status)
 
 
-class RecordToolOutcomeUnknown(Step[None]):
+class RecordToolOutcomeUnknown(Step[str]):
     """Record that a single-attempt tool call stopped without a result."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
@@ -927,9 +915,33 @@ class RecordToolOutcomeUnknown(Step[None]):
     async def execute(  # type: ignore[override]
         self,
         context: AsyncContext,
-        input: None,
+        input: str,
     ) -> StepDecision:
-        return self._session._record_unknown_tool_outcome(context)
+        return self._session._record_tool_recovery(context, input, ToolCallStatus.OUTCOME_UNKNOWN)
+
+
+class ResumeTurn(Step[int]):
+    """Wait for every tool call result of the model response, then call the model again."""
+
+    def __init__(self, session: AgentSessionFlow) -> None:
+        self._session = session
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            wait_for_durability=StepDurability.SYNC,
+            execute_durability=StepDurability.SYNC,
+            execute_load_attribute_maps=(AGENT_TOOL_CALLS,),
+        )
+
+    def wait_for(self, context: Context, input: int) -> Wait:
+        return Wait.until(TOOL_CALL_RESULTS.for_n(input))
+
+    async def execute(  # type: ignore[override]
+        self,
+        context: AsyncContext,
+        input: int,
+    ) -> StepDecision:
+        return self._session._resume_turn_after_tool_calls(context)
 
 
 class RecordTurnFailure(Step[None]):
@@ -968,6 +980,17 @@ async def _record_heartbeats(context: AsyncContext) -> None:
     while True:
         await asyncio.sleep(BACKGROUND_HEARTBEAT_INTERVAL.total_seconds())
         await context.heartbeat()
+
+
+def _finish_tool_call(
+    context: AsyncContext,
+    finished: AgentToolCall,
+    events: AgentEventWriter,
+) -> StepDecision:
+    AGENT_TOOL_CALLS.set(context, finished.tool_call_id, finished)
+    TOOL_CALL_RESULTS.publish(context, ToolCallCompleted(tool_call_id=finished.tool_call_id))
+    events.write_tool_call_finished(finished.tool_call_id, finished.tool_name, finished.status)
+    return dead_end()
 
 
 def _append_messages(
@@ -1021,38 +1044,6 @@ def _turn_tool_calls(context: Context, turn_id: str | None) -> list[AgentToolCal
     )
 
 
-def _executing_tool_call(context: Context, state: AgentState) -> AgentToolCall:
-    tool_call_id = state.executing_tool_call_id
-    if tool_call_id is None:
-        raise RuntimeError("the session has no executing tool call")
-    return AGENT_TOOL_CALLS.get(context, tool_call_id)
-
-
-def _resolve_tool_call(
-    context: Context,
-    tool_call: AgentToolCall,
-    resolution: AgentInterruptResolution,
-    events: AgentEventWriter,
-) -> None:
-    if resolution.approved:
-        resolved = replace(tool_call, status=ToolCallStatus.APPROVED)
-    else:
-        resolved = replace(
-            tool_call,
-            status=ToolCallStatus.REJECTED,
-            rejection_message=resolution.rejection_message,
-        )
-    AGENT_TOOL_CALLS.set(context, tool_call.tool_call_id, resolved)
-    events.write_event(
-        AgentEventType.INTERRUPT_RESOLVED,
-        {
-            "interrupt_id": tool_call.tool_call_id,
-            "approved": resolution.approved,
-            "rejection_message": resolution.rejection_message,
-        },
-    )
-
-
 def _record_usage(context: Context, events: AgentEventWriter, usage: AgentUsage) -> None:
     session_usage = _agent_usage(context).combined_with(usage)
     AGENT_USAGE.set(context, session_usage)
@@ -1072,21 +1063,23 @@ def _usage_payload(usage: AgentUsage) -> dict[str, int]:
     }
 
 
-def _validate_turn_suspension(
-    outcome: TurnSuspended,
+def _validate_tool_calls_requested(
+    outcome: ToolCallsRequested,
     tool_calls: Sequence[AgentToolCall],
 ) -> None:
     if not outcome.framework_run_state:
-        raise ValueError("TurnSuspended needs a non-empty framework_run_state")
-    if not outcome.deferred_tool_calls:
-        raise ValueError("TurnSuspended needs at least one deferred tool call")
+        raise ValueError("ToolCallsRequested needs a non-empty framework_run_state")
+    if not outcome.tool_calls:
+        raise ValueError("ToolCallsRequested needs at least one tool call")
     seen_ids = {tool_call.tool_call_id for tool_call in tool_calls}
-    for deferred in outcome.deferred_tool_calls:
-        if not deferred.tool_call_id.strip() or "/" in deferred.tool_call_id:
-            raise ValueError(f"tool call ID {deferred.tool_call_id!r} is empty or contains '/'")
-        if deferred.tool_call_id in seen_ids:
-            raise ValueError(f"tool call {deferred.tool_call_id} was already deferred in this turn")
-        seen_ids.add(deferred.tool_call_id)
+    for requested in outcome.tool_calls:
+        if not requested.tool_call_id.strip() or "/" in requested.tool_call_id:
+            raise ValueError(f"tool call ID {requested.tool_call_id!r} is empty or contains '/'")
+        if requested.tool_call_id in seen_ids:
+            raise ValueError(
+                f"tool call {requested.tool_call_id} was already requested in this turn"
+            )
+        seen_ids.add(requested.tool_call_id)
 
 
 def _recovery_detail(context: Context) -> str:
@@ -1115,6 +1108,17 @@ def _require_active_turn_id(state: AgentState) -> str:
 
 def _pending_interrupts(context: Context) -> list[AgentInterrupt]:
     return list(cast(list[AgentInterrupt] | None, PENDING_INTERRUPTS.get(context)) or [])
+
+
+def _pending_interrupt(context: Context, interrupt_id: str) -> AgentInterrupt | None:
+    return next(
+        (
+            interrupt
+            for interrupt in _pending_interrupts(context)
+            if interrupt.interrupt_id == interrupt_id
+        ),
+        None,
+    )
 
 
 def _agent_usage(context: Context) -> AgentUsage:

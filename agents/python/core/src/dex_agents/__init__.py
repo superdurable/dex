@@ -10,8 +10,8 @@
 
 ``AgentSessionFlow`` runs one agent session per Flow execution. A framework
 adapter implements ``AgentFrameworkRunner`` and passes it to the Flow; the
-Flow owns the conversation, tool approvals, deferred tool execution, and live
-events. See the package README for the full contract.
+Flow runs every model call and every tool call as its own Step, and owns the
+conversation, tool approvals, and live events. See the package README for the full contract.
 """
 
 from dex_agents.client import AgentSessionClient
@@ -26,6 +26,7 @@ from dex_agents.persistence import (
     INTERRUPT_RESOLUTIONS,
     PENDING_INTERRUPTS,
     QUEUED_USER_MESSAGES,
+    TOOL_CALL_RESULTS,
     message_sequence_key,
 )
 from dex_agents.runner import (
@@ -40,11 +41,11 @@ from dex_agents.runner import (
     DeferredToolCall,
     DeferredToolExecution,
     FrameworkMessage,
+    ToolCallsRequested,
     ToolExecutionError,
     ToolExecutionResult,
     ToolPolicy,
     TurnCompleted,
-    TurnSuspended,
     build_turn_failure_note,
     describe_tool_call_outcome,
     resolve_tool_policy,
@@ -67,6 +68,7 @@ from dex_agents.values import (
     ListAgentMessagesRequest,
     MessageRole,
     ResolveInterruptRequest,
+    ToolCallCompleted,
     ToolCallStatus,
     ToolEffect,
 )
@@ -84,6 +86,7 @@ __all__ = [
     "OUTCOME_UNKNOWN_TOOL_RESULT",
     "PENDING_INTERRUPTS",
     "QUEUED_USER_MESSAGES",
+    "TOOL_CALL_RESULTS",
     "TURN_FAILURE_NOTE_FOOTER",
     "TURN_FAILURE_NOTE_HEADER",
     "AgentEvent",
@@ -113,13 +116,14 @@ __all__ = [
     "ListAgentMessagesRequest",
     "MessageRole",
     "ResolveInterruptRequest",
+    "ToolCallCompleted",
     "ToolCallStatus",
+    "ToolCallsRequested",
     "ToolEffect",
     "ToolExecutionError",
     "ToolExecutionResult",
     "ToolPolicy",
     "TurnCompleted",
-    "TurnSuspended",
     "build_turn_failure_note",
     "describe_tool_call_outcome",
     "message_sequence_key",
