@@ -11,6 +11,24 @@ import flowDefinition from '@site/src/data/flow-definitions/ai-agent.json';
 
 会话状态由 Dex 管理。Agent 每次调用模型时都会从 durable state 重新构造输入，因此不依赖 LLM provider 的 conversation API。
 
+## Agent framework {#agent-frameworks}
+
+已经用 agent framework 写好的 Agent 不需要重写就能运行在 Dex 上。Framework adapter 把 Agent 包装成 session Flow，每个 session 对应一个 Flow。Framework 每个 Step 只调用一次模型，随后每个 tool call 作为独立的 Step 并行执行。崩溃时只会重跑当时正在执行的那一次调用。整个循环不会重放，所以代码改动会在下一个 Step 生效。
+
+每个 tool 都有一个 **ToolPolicy**，标明它是读操作、幂等写操作，还是只能执行一次的写操作。读操作和幂等写操作会重试，其他写操作只尝试一次。需要审批的 tool call 会在独立的 Step 中等待，直到有人回复。
+
+| Framework | 语言 | Adapter |
+| --- | --- | --- |
+| Pydantic AI | Python | [pydantic-ai](https://github.com/superdurable/dex/tree/main/agents/python/pydantic-ai) |
+| LangChain 和 LangGraph | Python | [langgraph](https://github.com/superdurable/dex/tree/main/agents/python/langgraph) |
+| OpenAI Agents SDK | Python、TypeScript | [Python](https://github.com/superdurable/dex/tree/main/agents/python/openai-agents)、[TypeScript](https://github.com/superdurable/dex/tree/main/agents/typescript/openai-agents) |
+| Google ADK | Python | [google-adk](https://github.com/superdurable/dex/tree/main/agents/python/google-adk) |
+| Vercel AI SDK | TypeScript | [vercel-ai](https://github.com/superdurable/dex/tree/main/agents/typescript/vercel-ai) |
+| Mastra | TypeScript | [mastra](https://github.com/superdurable/dex/tree/main/agents/typescript/mastra) |
+| Claude Agent SDK | Python、TypeScript | [Python](https://github.com/superdurable/dex/tree/main/agents/python/claude-agent-sdk)、[TypeScript](https://github.com/superdurable/dex/tree/main/agents/typescript/claude-agent-sdk) |
+
+Claude Agent SDK 在 CLI 子进程中运行自己的循环，因此它的 adapter 把每一整轮作为一个 Step 执行。这些 adapter 从 Dex 仓库安装；每个 adapter 的 README 说明了安装方法、可运行的示例和选项。
+
 ## Flow 设计
 
 这个交互式 definition graph 由可运行的 Python Flow 生成。
