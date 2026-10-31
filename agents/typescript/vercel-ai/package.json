@@ -1,0 +1,45 @@
+{
+  "name": "@superdurable/dex-agents-vercel-ai",
+  "version": "0.1.0",
+  "description": "Durable Vercel AI SDK agent sessions on Dex",
+  "license": "LicenseRef-Sustainable-Use-1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superdurable/dex.git",
+    "directory": "agents/typescript/vercel-ai"
+  },
+  "homepage": "https://github.com/superdurable/dex/tree/main/agents/typescript/vercel-ai#readme",
+  "type": "module",
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0"
+  },
+  "files": [
+    "dist/src",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:integration": "npm run build && node --test --test-concurrency=1 --test-timeout=240000 'dist/test/integ/*.integration.test.js'"
+  },
+  "dependencies": {
+    "@superdurable/dex-agents": "file:../core"
+  },
+  "peerDependencies": {
+    "@superdurable/dex": "1.30.0",
+    "ai": "^7.0.159"
+  },
+  "devDependencies": {
+    "@superdurable/dex": "1.30.0",
+    "@types/node": "22.20.5",
+    "ai": "^7.0.159",
+    "typescript": "5.9.3",
+    "zod": "^4.1.8"
+  }
+}
