@@ -8,9 +8,9 @@
 
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, configure, fireEvent, getConfig, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreferencesProvider } from '@/app/providers';
 import {
   historyTestServer,
@@ -243,15 +243,20 @@ describe('run attempts on the run page', () => {
     expect(dex.historyRequests.every((params) => !params.has('runAttempt'))).toBe(true);
   });
 
-  it('keeps the run chain for Servers without run attempts', async () => {
+  it('keeps the run chain and reads history from the start for Servers without run attempts', async () => {
     const dex = fakeDex();
+    const historyRequests: URLSearchParams[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     dex.fetch.mockImplementation(async (input: string) => {
       const url = new URL(input, 'http://dex.test');
       if (url.pathname === '/api/flows/summary') return new Response(JSON.stringify({ ...summary(0), runAttempt: undefined }));
       if (url.pathname === '/api/flows/state') return new Response(JSON.stringify(emptyState));
       if (url.pathname === '/api/flows/history') {
+        historyRequests.push(url.searchParams);
         return new Response(JSON.stringify({ events: firstAttemptLineage.map((event) => ({ ...event, runAttempt: 0 })), nextPageToken: '', nextInternalEventId: 0 }));
       }
+      // This Server cannot report the newest event, so the page falls back to reading forward.
+      if (isNewestEventProbe(url)) return new Response(JSON.stringify({ error: 'wait is not supported' }), { status: 501 });
       throw new Error(`unexpected request ${input}`);
     });
     vi.stubGlobal('fetch', dex.fetch);
@@ -259,6 +264,13 @@ describe('run attempts on the run page', () => {
 
     await screen.findByText('Run chain');
     expect(screen.queryByRole('combobox', { name: 'Run attempt' })).toBeNull();
+    await waitFor(() => expect(latestEventNumber()).toBe('#3'));
+    expect(historyReads(historyRequests)).toEqual([['1', '2'], ['1', '1000']]);
+    expect(warn).toHaveBeenCalledWith(
+      'Unable to locate the newest history event; reading history from the start.',
+      expect.any(Error),
+    );
+    warn.mockRestore();
   });
 });
 
@@ -370,7 +382,15 @@ function crossPageHistory(waitForEventId: number, executeEventId: number, lastEv
   });
 }
 
-describe('paged Timeline on the run page', () => {
+// Each page renders up to 1000 rows, which takes about a second on slow CI runners.
+describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
+  let asyncUtilTimeout = 0;
+  beforeAll(() => {
+    asyncUtilTimeout = getConfig().asyncUtilTimeout;
+    configure({ asyncUtilTimeout: 10_000 });
+  });
+  afterAll(() => configure({ asyncUtilTimeout }));
+
   beforeEach(() => {
     vi.stubGlobal('localStorage', memoryStorage({ 'dex.run.selected-tab': 'timeline' }));
     vi.stubGlobal('ResizeObserver', class {
@@ -381,13 +401,13 @@ describe('paged Timeline on the run page', () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it('renders the newest page of a 20,000-event history within the time budget', async () => {
+  it('renders the newest page of a 20,000-event history within the time budget', { timeout: 60_000 }, async () => {
     const server = historyTestServer(sequentialStepHistory(20_000));
     vi.stubGlobal('fetch', pagedDex(server).fetch);
     const startedAt = performance.now();
     renderRun();
 
-    await waitFor(() => expect(timelineRowIDs()).toHaveLength(1000), { timeout: 10_000 });
+    await waitFor(() => expect(timelineRowIDs()).toHaveLength(1000), { timeout: 30_000 });
     const elapsedMs = performance.now() - startedAt;
 
     expect(elapsedMs).toBeLessThan(8000);
@@ -399,25 +419,26 @@ describe('paged Timeline on the run page', () => {
   });
 
   it('pages to older and newer events', async () => {
-    const server = historyTestServer(sequentialStepHistory(2500));
+    // Two full 1000-event pages and a short oldest page.
+    const server = historyTestServer(sequentialStepHistory(2100));
     vi.stubGlobal('fetch', pagedDex(server).fetch);
     renderRun();
 
-    await waitFor(() => expect(timelineRowIDs()[0]).toBe('2500'));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
     fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
-    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1500'));
-    expect(timelineRowIDs().at(-1)).toBe('501');
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1100'));
+    expect(timelineRowIDs().at(-1)).toBe('101');
     fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
-    await waitFor(() => expect(timelineRowIDs()[0]).toBe('500'));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('100'));
     expect(timelineRowIDs().at(-1)).toBe('1');
     expect((screen.getByRole('button', { name: 'Older events' }) as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'Newer events' }));
-    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1500'));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1100'));
     fireEvent.click(screen.getByRole('button', { name: 'Newer events' }));
-    await waitFor(() => expect(timelineRowIDs()[0]).toBe('2500'));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
     // The fetched page stays even at the end, so the view does not switch windows.
-    expect(timelineRowIDs().at(-1)).toBe('1501');
+    expect(timelineRowIDs().at(-1)).toBe('1101');
     expect((screen.getByRole('button', { name: 'Newer events' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Newest' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Newest' })).toBeNull());

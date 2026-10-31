@@ -8,15 +8,23 @@
 
 export type TimezonePreference = 'local' | 'UTC';
 
+// Building a formatter is costly, and a Timeline page formats up to 1000 dates per render.
+const dateFormatters = new Map<TimezonePreference, Intl.DateTimeFormat>();
+
 export function formatDate(value: string | null, timezone: TimezonePreference): string {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'medium',
-    timeZone: timezone === 'UTC' ? 'UTC' : undefined,
-  }).format(date);
+  let formatter = dateFormatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+      timeZone: timezone === 'UTC' ? 'UTC' : undefined,
+    });
+    dateFormatters.set(timezone, formatter);
+  }
+  return formatter.format(date);
 }
 
 /** Time only, for a narrow column where the date would not fit and rarely differs. */

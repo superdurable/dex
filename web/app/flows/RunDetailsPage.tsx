@@ -440,6 +440,11 @@ export function RunDetailsPage({
     }
   }, [jumpInTimeline, selectedEvent]);
 
+  const selectTimelineEvent = useCallback((event: FlowHistoryEvent) => {
+    highlightEvent(null);
+    setSelectedEvent(event);
+  }, [highlightEvent]);
+
   const selectRelatedEvent = useCallback((eventId: number) => {
     const target = selectionEvents.find((event) => event.eventId === eventId);
     if (!target) return;
@@ -719,10 +724,7 @@ export function RunDetailsPage({
               flowId={flowId}
               events={displayedTimelineEvents}
               selectedEvent={selectedEvent}
-              onSelectEvent={(event) => {
-                highlightEvent(null);
-                setSelectedEvent(event);
-              }}
+              onSelectEvent={selectTimelineEvent}
               relations={selectedEvent ? selectedRelations : undefined}
               paging={{
                 hasOlder: timelineWindow?.hasOlder ?? false,

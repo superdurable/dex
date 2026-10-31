@@ -6,11 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { formatDate } from '@/lib/format';
+import { formatDate, type TimezonePreference } from '@/lib/format';
 import type { EventIdRange } from '@/lib/historyRelations';
 import { durabilityLabel, flowErrorTypeLabel } from '@/lib/semantic';
 import { positiveRunAttempt, runAttemptSearch } from '@/lib/timeTravel';
@@ -257,6 +257,17 @@ export function Timeline({
     else stubElements.current.delete(id);
   }, []);
 
+  const registerEventCard = useCallback((eventId: number, node: HTMLDivElement | null) => {
+    if (node) eventCards.current.set(eventId, node);
+    else eventCards.current.delete(eventId);
+  }, []);
+
+  const selectRow = useCallback((event: FlowHistoryEvent) => {
+    setInteractionStepLinkID(null);
+    setPinnedStepLinkID(null);
+    onSelectEvent(event);
+  }, [onSelectEvent]);
+
   if (!events.length) return <div className="card empty-state"><h3>No semantic events loaded</h3></div>;
   const startMs = events.reduce((earliest, event) => {
     const eventMs = event.eventTime ? Date.parse(event.eventTime) : 0;
@@ -392,62 +403,23 @@ export function Timeline({
           </svg>
         )}
         {orderedEvents.map((event) => {
-          const eventMs = event.eventTime ? Date.parse(event.eventTime) : 0;
-          const relative = startMs && eventMs ? Math.max(0, Math.round((eventMs - startMs) / 1000)) : null;
-          const selected = selectedEvent?.eventId === event.eventId;
           const linked = activeStepLink?.fromEventId === event.eventId || activeStepLink?.toEventId === event.eventId;
-          const counterpart = activeStepLink?.id === selectedStepLink?.id && linked && !selected;
-          const highlighted = highlightedEventId === event.eventId;
-          const previousRunId = previousRunID(event);
-          const previousRunTarget = previousRunLink(flowId, event);
+          const selected = selectedEvent?.eventId === event.eventId;
           return (
-            <article
-              className={`timeline-row${stepMethodClass(event)}${selected ? ' selected' : ''}${linked ? ' link-highlighted' : ''}${counterpart ? ' link-counterpart' : ''}${highlighted ? ' jump-highlighted' : ''}`}
-              data-event-id={event.eventId}
+            <TimelineRow
+              counterpart={activeStepLink?.id === selectedStepLink?.id && linked && !selected}
+              event={event}
+              flowId={flowId}
+              highlighted={highlightedEventId === event.eventId}
               key={event.eventId}
-              onClick={() => {
-                setInteractionStepLinkID(null);
-                setPinnedStepLinkID(null);
-                onSelectEvent(event);
-              }}
-            >
-              <div className="timeline-time">
-                <b>{formatDate(event.eventTime, timezone)}</b>
-                {relative !== null && <span>+{relative}s</span>}
-              </div>
-              <div className="timeline-rail">
-                <span
-                  className={`timeline-dot tone-${eventTone(event)}${linked ? ' link-highlighted' : ''}`}
-                />
-              </div>
-              <div
-                className="event-card"
-                ref={(node) => {
-                  if (node) eventCards.current.set(event.eventId, node);
-                  else eventCards.current.delete(event.eventId);
-                }}
-              >
-                <header>
-                  <div>
-                    <span className="event-id">#{event.eventId}</span>
-                    <h3>
-                      {previousRunTarget ? (
-                        <Link
-                          className="event-run-link"
-                          title={previousRunId}
-                          to={previousRunTarget}
-                        >
-                          {event.type === 'TimeTravelFork' ? 'Time Travel fork' : 'Flow continued'}
-                        </Link>
-                      ) : eventTitle(event)}
-                    </h3>
-                    {executionSummary(event) && <p>{executionSummary(event)}</p>}
-                  </div>
-                  <span className={`event-type tone-${eventTone(event)}`}>{eventTypeLabel(event)}</span>
-                </header>
-                <EventHighlights event={event} showRunAttempt={spansRunAttempts} />
-              </div>
-            </article>
+              linked={linked}
+              onSelect={selectRow}
+              registerEventCard={registerEventCard}
+              selected={selected}
+              showRunAttempt={spansRunAttempts}
+              startMs={startMs}
+              timezone={timezone}
+            />
           );
         })}
         <TimelineEdgeStubs
@@ -461,6 +433,76 @@ export function Timeline({
     </div>
   );
 }
+
+/** Memoized so a selection or link hover re-renders only the rows it changes, not the whole page. */
+const TimelineRow = memo(function TimelineRow({
+  event,
+  flowId,
+  timezone,
+  startMs,
+  selected,
+  linked,
+  counterpart,
+  highlighted,
+  showRunAttempt,
+  onSelect,
+  registerEventCard,
+}: {
+  event: FlowHistoryEvent;
+  flowId: string;
+  timezone: TimezonePreference;
+  startMs: number;
+  selected: boolean;
+  linked: boolean;
+  counterpart: boolean;
+  highlighted: boolean;
+  showRunAttempt: boolean;
+  onSelect: (event: FlowHistoryEvent) => void;
+  registerEventCard: (eventId: number, node: HTMLDivElement | null) => void;
+}) {
+  const eventMs = event.eventTime ? Date.parse(event.eventTime) : 0;
+  const relative = startMs && eventMs ? Math.max(0, Math.round((eventMs - startMs) / 1000)) : null;
+  const previousRunId = previousRunID(event);
+  const previousRunTarget = previousRunLink(flowId, event);
+  return (
+    <article
+      className={`timeline-row${stepMethodClass(event)}${selected ? ' selected' : ''}${linked ? ' link-highlighted' : ''}${counterpart ? ' link-counterpart' : ''}${highlighted ? ' jump-highlighted' : ''}`}
+      data-event-id={event.eventId}
+      onClick={() => onSelect(event)}
+    >
+      <div className="timeline-time">
+        <b>{formatDate(event.eventTime, timezone)}</b>
+        {relative !== null && <span>+{relative}s</span>}
+      </div>
+      <div className="timeline-rail">
+        <span
+          className={`timeline-dot tone-${eventTone(event)}${linked ? ' link-highlighted' : ''}`}
+        />
+      </div>
+      <div className="event-card" ref={(node) => registerEventCard(event.eventId, node)}>
+        <header>
+          <div>
+            <span className="event-id">#{event.eventId}</span>
+            <h3>
+              {previousRunTarget ? (
+                <Link
+                  className="event-run-link"
+                  title={previousRunId}
+                  to={previousRunTarget}
+                >
+                  {event.type === 'TimeTravelFork' ? 'Time Travel fork' : 'Flow continued'}
+                </Link>
+              ) : eventTitle(event)}
+            </h3>
+            {executionSummary(event) && <p>{executionSummary(event)}</p>}
+          </div>
+          <span className={`event-type tone-${eventTone(event)}`}>{eventTypeLabel(event)}</span>
+        </header>
+        <EventHighlights event={event} showRunAttempt={showRunAttempt} />
+      </div>
+    </article>
+  );
+});
 
 function TimelinePager({ paging }: { paging: TimelinePaging }) {
   return (
