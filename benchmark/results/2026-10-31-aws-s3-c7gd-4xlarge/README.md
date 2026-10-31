@@ -2,7 +2,7 @@
 
 One server-zd node on a c7gd.4xlarge (16 vCPU Graviton3, local NVMe) in us-west-2b, with the log in S3 Standard. A c7g.8xlarge load host in the same zone ran `dexbench` with 16 gRPC connections. No cluster placement group had Spot capacity for the server, so it ran outside the group, in the same zone.
 
-- server-zd: commit `3784ba838`, merged as `f2e9dd611` (#1131, the Worker dispatch fix for #1118).
+- server-zd: the final trials used commit `3784ba838`, merged as `f2e9dd611` (#1131, the Worker dispatch fix for #1118). The search rounds used `b4a733cce`, an earlier revision of #1131 without its lost-wakeup fix.
 - Server settings beyond the defaults: `commit.maxUnappliedBytes: 268435456`, `limits.maxInFlightRpcsPerNode: 4096`, `localStorage.blockCacheBytes: 8589934592`, `localStorage.writeBufferBytes: 134217728`. Rounds 03 and 05 raise `limits.maxInFlightRpcsPerNode` to 16,384.
 - Each point: a newly started server, 10 s warmup, 45 s measurement.
 - Search rounds ran with `DEXBENCH_PROFILE=1`, so each point has a perf profile and thread stacks.
@@ -25,7 +25,7 @@ Median and maximum of three runs, from `04-final-trials` and `05-final-trials-rp
 | S5 Attribute reads | 256 | 11,258 reads/s | 11,259 | 11,257 · 11,258 · 11,259 |
 | S6 Channel wakes | 64 | 227 wakes/s; p50 84 ms | 239 | 217 · 227 · 239 |
 
-Server CPU was 78–86% of the host at the S1–S4 points. S5 is limited by the 15 Gbps network, at about 28% CPU. The load host stayed below 47% of its CPU.
+Server CPU was 77–86% of the host at the S1–S4 points. S5 is limited by the 15 Gbps network, at about 28% CPU. The load host mean CPU stayed below 47%.
 
 ## Rounds
 
@@ -33,6 +33,6 @@ Server CPU was 78–86% of the host at the S1–S4 points. S5 is limited by the 
 | --- | --- | --- |
 | `01-search` | Every scenario around and above the previous peaks | S2 rises to 9,829 Steps/s at C=8,192 with no collapse. S3 is flat at 9.4k–9.8k from 256 to 4,096. The Spot server was reclaimed during plain RPC at C=2,048, so that point and the four after it failed. |
 | `02-search` | On a new server: S2 at 12,288 and 16,384, the failed points, and higher S1 and Attribute-locking RPC concurrency | S2 stays at 9.8k–9.9k up to C=16,384. Plain RPC is flat at 41k–45k from 128 to 2,048. Attribute-locking RPC still rises at C=4,096, the RPC limit. |
-| `03-rpc-locking-limit` | Attribute-locking RPC at 6,144 and 8,192 with a 16,384 RPC limit | 12,854 and 13,312 RPCs/s |
+| `03-rpc-locking-limit` | On `3784ba838`: Attribute-locking RPC at 6,144 and 8,192 with a 16,384 RPC limit | 12,854 and 13,312 RPCs/s |
 | `04-final-trials` | Three runs of each chosen point, profiling off | The table above |
 | `05-final-trials-rpc-locking` | Three runs of Attribute-locking RPC at 8,192 with the 16,384 limit | 13,124 RPCs/s median |

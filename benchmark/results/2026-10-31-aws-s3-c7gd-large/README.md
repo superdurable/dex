@@ -2,7 +2,7 @@
 
 One server-zd node on a c7gd.large (2 vCPU Graviton3, local NVMe) in us-west-2b, with the log in S3 Standard. A c7g.8xlarge load host in the same zone ran `dexbench` with 4 gRPC connections. The server used the default configuration.
 
-- server-zd: commit `3784ba838`, merged as `f2e9dd611` (#1131, the Worker dispatch fix for #1118).
+- server-zd: the final trials used commit `3784ba838`, merged as `f2e9dd611` (#1131, the Worker dispatch fix for #1118). The search rounds used `b4a733cce`, an earlier revision of #1131 without its lost-wakeup fix.
 - Each point: a newly started server, 10 s warmup, 45 s measurement.
 - Search rounds ran with `DEXBENCH_PROFILE=1`, so each point has a perf profile and thread stacks. The profile slows a 2-vCPU server noticeably, so search numbers are lower than the final trials.
 - `config.env` in each round records the exact settings. `benchmark/aws/reproduce.sh <round directory>` reruns a round.
@@ -27,6 +27,6 @@ Server CPU was 92–98% of both cores at every throughput point. The load host s
 
 | Round | What it did | Outcome |
 | --- | --- | --- |
-| `01-search` | Every scenario at three concurrencies around the previous peaks | S2 and S3 are flat above C=512 and C=32. Plain RPC is best at C=32. Attribute-locking RPC at C=1,024 hit the default 1,000 in-flight RPC limit, so that point is invalid. |
+| `01-search` | S1–S4 at three concurrencies around the previous peaks, S5 and S6 at one | S2 and S3 are flat above C=512 and C=32. Plain RPC is best at C=32. Attribute-locking RPC at C=1,024 hit the default 1,000 in-flight RPC limit, so that point is invalid. |
 | `02-search` | Edges: S2 at 768, plain RPC at 16, Attribute-locking RPC at 384 and 768, S5 at 256 and 1,024 | Attribute-locking RPC peaks at C=768. Plain RPC at 16 equals 32. S5 is best at 256. |
 | `03-final-trials` | Three runs of each chosen point, profiling off | The table above |

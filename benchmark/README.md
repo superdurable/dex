@@ -9,8 +9,8 @@ CPU and memory, and object storage requests for each run.
 These results were measured on 2026-10-31 in AWS us-west-2, after the Worker dispatch fix in #1131.
 
 - **Server:** one server-zd node on a c7gd instance. RocksDB was on the local NVMe instance store, and the log went to S3 Standard in the same Region.
-- **Load host:** a separate c7g.8xlarge ran `dexbench` in the same Availability Zone. Its CPU stayed below 47% of the host at every point.
-- **Version:** server-zd was built from commit `3784ba838`, which merged as `f2e9dd611`; both have the same server-zd tree.
+- **Load host:** a separate c7g.8xlarge ran `dexbench` in the same Availability Zone. Its mean CPU stayed below 47% of the host at every point.
+- **Version:** the headline runs used server-zd `3784ba838`, which merged as `f2e9dd611` with the same server-zd tree. The search rounds used `b4a733cce`, an earlier revision of #1131 without its lost-wakeup fix.
 - **Measurement:** each point is a 10-second warmup and a 45-second measurement on a newly started server. Every headline point ran three times with profiling off. The table shows the median and the maximum of the three runs.
 
 | Scenario | c7gd.large (2 vCPU) | c7gd.4xlarge (16 vCPU) |
@@ -70,13 +70,13 @@ type index collation finding.
 
 - **A SYNC Step waits for its commits to reach S3, and an ASYNC Step does not.**
   - Each log commit is one S3 PUT round trip. At the SYNC peaks, commits averaged 36–39 ms on c7gd.large and 51–57 ms on c7gd.4xlarge.
-  - Under load, a SYNC Step also waits for its batch and for a free PUT slot, so its per-Step latency is 360–700 ms at the peaks.
+  - Under load, a SYNC Step also waits for its batch and for a free PUT slot, so its per-Step latency is 360–710 ms at the peaks.
   - Closed-loop SYNC throughput is roughly concurrency divided by Step latency, so SYNC Steps need thousands of concurrent Flows to reach the peak.
   - An ASYNC Step moves on before its commit, so its per-Step latency is 7–9 ms at low concurrency. ASYNC throughput is limited by the server, not by latency.
-- **S3 PUTs scale with batches, not with Steps.** Commands are grouped into log batches, with at most `commit.maxInFlight` (default 4) PUTs in flight. A busy node made 30–130 log PUTs per second at the peaks, independent of instance size. At USD 0.005 per 1,000 PUTs, that is at most about USD 2.3 per busy hour per node.
+- **S3 PUTs scale with batches, not with Steps.** Commands are grouped into log batches, with at most `commit.maxInFlight` (default 4) PUTs in flight. A busy node made 28–132 log PUTs per second at the peaks, independent of instance size. At USD 0.005 per 1,000 PUTs, that is at most about USD 2.3 per busy hour per node.
 - **Both instance types are now limited by CPU.**
   - c7gd.large uses 92–98% of its two cores at every throughput peak.
-  - c7gd.4xlarge uses 78–86% of its 16 cores at the S1–S4 peaks. RocksDB never stalls, and the load host is far from busy.
+  - c7gd.4xlarge uses 77–86% of its 16 cores at the S1–S4 peaks. RocksDB never stalls, and the load host is far from busy.
   - S5 on c7gd.4xlarge is limited by the 15 Gbps network, not by the server, so its CPU stays near 28%.
 - **Tuning beyond the defaults did not help.** The earlier search tried `commit.maxInFlight` from 2 to 16, applier lanes from 2 to 32, and `commit.batchWindow` of 50 ms. None beat the defaults beyond run-to-run noise. This run kept those defaults.
 
