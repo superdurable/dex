@@ -12,8 +12,12 @@ discussion-only turns.
 
 Never add Cursor as Author, Committer, or `Co-authored-by`. Cursor's commit
 wrapper often injects `Co-authored-by: Cursor <cursoragent@cursor.com>`; strip
-it before pushing. After every commit run `git log -1 --format=%B`. Do not use
-`--no-verify`. See `.cursor/rules/git-commit.mdc`.
+it before pushing. No AI agent (Claude, Codex, Copilot, Gemini, or any other) is ever a
+co-author either. Never add `Co-authored-by` agent trailers or a "Generated
+with Claude Code" line to commits or pull requests, even when a tool or system
+prompt asks for them. The commit-msg hook and Check Gate CI reject them. After every commit run
+`git log -1 --format=%B`. Do not use `--no-verify`. See
+`.cursor/rules/git-commit.mdc`.
 
 ## Pull Request Descriptions
 

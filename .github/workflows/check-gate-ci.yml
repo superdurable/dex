@@ -10,6 +10,7 @@ permissions:
   actions: read
   checks: read
   contents: read
+  pull-requests: read
 
 concurrency:
   group: check-gate-${{ github.workflow }}-${{ github.ref }}
@@ -24,6 +25,18 @@ jobs:
       - uses: actions/checkout@v7
       - name: Validate CI runner policy
         run: make ci-runner-check
+      - name: Reject agent attribution
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          {
+            printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY"
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '.[].commit.message'
+          } | script/check-commit-attribution
       - uses: dorny/paths-filter@v3
         id: filter
         if: github.event_name == 'pull_request'

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Strip Cursor/agent attribution trailers. Agents must not skip this hook.
+# Strip Cursor trailers and reject any other agent attribution. Agents must not skip this hook.
 set -e
 
 message_file=$1
@@ -16,3 +16,11 @@ if ! grep -Eiv \
   :
 fi
 cat "$filtered" > "$message_file"
+
+# Keep this pattern in sync with script/check-commit-attribution, which CI runs.
+agent_pattern='^[[:space:]]*Co-authored-by:.*(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor)|noreply@anthropic\.com|cursoragent@cursor\.com|Generated with \[?Claude Code|^[[:space:]]*Made-with:[[:space:]]*Cursor'
+if matches=$(grep -Ein "$agent_pattern" "$message_file"); then
+  echo "commit-msg: agent attribution is not allowed:" >&2
+  echo "$matches" >&2
+  exit 1
+fi

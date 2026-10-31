@@ -1,0 +1,14 @@
+#!/bin/sh
+# Reject AI agent attribution in commit messages or PR text read from stdin or files.
+# Usage: check-commit-attribution [FILE...]
+set -e
+
+# Keep this pattern in sync with .githooks/commit-msg.
+pattern='^[[:space:]]*Co-authored-by:.*(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor)|noreply@anthropic\.com|cursoragent@cursor\.com|Generated with \[?Claude Code|^[[:space:]]*Made-with:[[:space:]]*Cursor'
+
+if matches=$(cat "$@" | grep -Ein "$pattern"); then
+  echo "Agent attribution is not allowed in commit messages or pull requests:" >&2
+  echo "$matches" >&2
+  echo "Remove these lines. Author, Committer, and message must be the human user only." >&2
+  exit 1
+fi
