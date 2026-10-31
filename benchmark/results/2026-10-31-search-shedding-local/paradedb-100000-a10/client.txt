@@ -7,4 +7,4 @@ seeded 60000/100000
 seeded 70000/100000
 seeded 80000/100000
 seeded 90000/100000
-seed ready: 100000 rows, 2217.3 rows/s, 3689.2 WAL bytes/row
+seed ready: 100000 rows, 1880.4 rows/s, 2444.2 WAL bytes/row

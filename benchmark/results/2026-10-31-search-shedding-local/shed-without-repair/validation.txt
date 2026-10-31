@@ -1,0 +1,2 @@
+postgres-100000-a10 {"dexzd_search_projection_coalesced_changes_total": 9575, "dexzd_search_projection_dropped_updates_total{reason=\"close\"}": 81965, "dexzd_search_projection_dropped_updates_total{reason=\"intermediate\"}": 0, "dexzd_search_projection_dropped_updates_total{reason=\"start\"}": 89925, "dexzd_search_projection_rebuild_requests_total": 0, "dexzd_search_skipped_documents_total": 0}
+Validated the archived no-repair ten-Attribute seed, per-reason counters, row counts, throughput arithmetic, and container removal.

@@ -1,18 +1,30 @@
 {
   "source_file": "server.log.gz",
-  "source_sha256": "98e857ae9bf8fe6c6195c5af41002a656d914cd151e8785cbf62fd4156dc0ddc",
-  "source_compressed_bytes": 759046,
-  "line_count": 69059,
-  "projection_queue_overflow_count": 20,
+  "source_sha256": "c4533d6b042b90f04b6967c76783922e8bac07cc36748c66e7c5c99b68e9407c",
+  "source_compressed_bytes": 657443,
+  "line_count": 59773,
+  "projection_queue_overflow_count": 0,
   "error_level_line_count": 0,
   "overflow_match": "a committed frame could not be queued for the search projection; rebuilding its partition",
   "error_level_match": " ERROR ",
   "metrics_before_file": "metrics-before.openmetrics",
   "metrics_after_file": "metrics-after.openmetrics",
   "projection_counter_deltas": {
-    "dexzd_search_projection_coalesced_changes_total": 4062,
-    "dexzd_search_projection_dropped_updates_total": 0,
-    "dexzd_search_projection_rebuild_requests_total": 1602,
+    "dexzd_search_projection_coalesced_changes_total": 11878,
+    "dexzd_search_projection_dropped_updates_total{reason=\"intermediate\"}": 0,
+    "dexzd_search_projection_dropped_updates_total{reason=\"close\"}": 78904,
+    "dexzd_search_projection_dropped_updates_total{reason=\"start\"}": 87497,
+    "dexzd_search_projection_repaired_runs_total{reason=\"intermediate\"}": 0,
+    "dexzd_search_projection_repaired_runs_total{reason=\"close\"}": 19,
+    "dexzd_search_projection_repaired_runs_total{reason=\"start\"}": 87497,
+    "dexzd_search_projection_repair_overflow_total": 0,
+    "dexzd_search_projection_repair_pending": 0,
+    "dexzd_search_projection_rebuild_requests_total": 0,
     "dexzd_search_skipped_documents_total": 0
-  }
+  },
+  "projected_total": 100000,
+  "projected_running": 5000,
+  "projected_completed": 95000,
+  "absent_runs": 0,
+  "stale_running": 0
 }

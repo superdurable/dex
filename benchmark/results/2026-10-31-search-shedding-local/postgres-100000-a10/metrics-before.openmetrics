@@ -85,7 +85,7 @@ dexzd_object_store_requests_total{operation="put",object_kind="lease"} 2
 dexzd_object_store_requests_total{operation="put",object_kind="other"} 5
 dexzd_object_store_requests_total{operation="get",object_kind="manifest"} 3
 dexzd_object_store_requests_total{operation="get",object_kind="lease"} 1
-dexzd_object_store_requests_total{operation="get",object_kind="other"} 7
+dexzd_object_store_requests_total{operation="get",object_kind="other"} 4
 dexzd_object_store_requests_total{operation="list",object_kind="log"} 2
 dexzd_object_store_requests_total{operation="delete",object_kind="other"} 1
 # HELP dexzd_object_store_request_errors Failed object storage requests..
@@ -109,7 +109,7 @@ dexzd_snapshot_last_duration_seconds 0.0
 dexzd_snapshot_last_bytes 0
 # HELP dexzd_recovery_last_duration_seconds Last completed recovery duration..
 # TYPE dexzd_recovery_last_duration_seconds gauge
-dexzd_recovery_last_duration_seconds 0.037184416
+dexzd_recovery_last_duration_seconds 0.039425084
 # HELP dexzd_startup_read_retries Transient object storage reads retried during startup..
 # TYPE dexzd_startup_read_retries counter
 dexzd_startup_read_retries_total 0
@@ -186,13 +186,26 @@ dexzd_search_skipped_documents_total 0
 # HELP dexzd_search_projection_coalesced_changes Queued search changes superseded by newer changes..
 # TYPE dexzd_search_projection_coalesced_changes counter
 dexzd_search_projection_coalesced_changes_total 0
-# HELP dexzd_search_projection_dropped_updates Intermediate Running search updates dropped during overload..
+# HELP dexzd_search_projection_dropped_updates Search Upserts dropped during overload by priority..
 # TYPE dexzd_search_projection_dropped_updates counter
-dexzd_search_projection_dropped_updates_total 0
+dexzd_search_projection_dropped_updates_total{reason="intermediate"} 0
+dexzd_search_projection_dropped_updates_total{reason="close"} 0
+dexzd_search_projection_dropped_updates_total{reason="start"} 0
 # HELP dexzd_search_projection_rebuild_requests New pending search projection partition rebuild requests..
 # TYPE dexzd_search_projection_rebuild_requests counter
 dexzd_search_projection_rebuild_requests_total 0
+# HELP dexzd_search_projection_repair_pending Runs pending projection repair, including in-flight repairs..
+# TYPE dexzd_search_projection_repair_pending gauge
+dexzd_search_projection_repair_pending 0
+# HELP dexzd_search_projection_repaired_runs Committed documents successfully offered by projection repair, by original drop priority..
+# TYPE dexzd_search_projection_repaired_runs counter
+dexzd_search_projection_repaired_runs_total{reason="intermediate"} 0
+dexzd_search_projection_repaired_runs_total{reason="close"} 0
+dexzd_search_projection_repaired_runs_total{reason="start"} 0
+# HELP dexzd_search_projection_repair_overflow Dropped runs that overflowed the bounded projection repair set..
+# TYPE dexzd_search_projection_repair_overflow counter
+dexzd_search_projection_repair_overflow_total 0
 # HELP dexzd_local_storage_bytes Local SST and WAL bytes.
 # TYPE dexzd_local_storage_bytes gauge
-dexzd_local_storage_bytes 24567
+dexzd_local_storage_bytes 24548
 # EOF

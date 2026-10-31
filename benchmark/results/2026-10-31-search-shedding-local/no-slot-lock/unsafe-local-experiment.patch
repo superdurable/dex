@@ -1,0 +1,20 @@
+diff --git a/server-zd/crates/dexzd-search/src/sql_visibility/search_backend.rs b/server-zd/crates/dexzd-search/src/sql_visibility/search_backend.rs
+index 4f9f75c2d..7125b09db 100644
+--- a/server-zd/crates/dexzd-search/src/sql_visibility/search_backend.rs
++++ b/server-zd/crates/dexzd-search/src/sql_visibility/search_backend.rs
+@@ -163 +163 @@ impl SqlVisibilitySearchBackend {
+-        transaction: &tokio_postgres::Transaction<'_>,
++        _transaction: &tokio_postgres::Transaction<'_>,
+@@ -165,9 +165,3 @@ impl SqlVisibilitySearchBackend {
+-        super::slots::lock_attribute_slots_shared(transaction).await?;
+-        let version = super::slots::read_slot_registry_version(transaction).await?;
+-        if let Some(snapshot) = self.attribute_slot_snapshot()
+-            && snapshot.registry_version == version
+-        {
+-            return Ok(snapshot);
+-        }
+-        let snapshot = super::slots::load_attribute_slot_snapshot(transaction, version).await?;
+-        Ok(self.cache_attribute_slot_snapshot(snapshot))
++        Ok(self
++            .attribute_slot_snapshot()
++            .expect("PostgreSQL startup initializes its Attribute slot snapshot"))

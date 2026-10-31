@@ -1,0 +1,1 @@
+Server source matches HEAD; the safe release binary SHA-256 matches all primary points.

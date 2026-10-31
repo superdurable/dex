@@ -1,0 +1,70 @@
+   Compiling tokio v1.54.1
+   Compiling dexzd-metrics v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-metrics)
+   Compiling tokio-util v0.7.20
+   Compiling aws-smithy-async v1.3.1
+   Compiling tokio-rustls v0.26.6
+   Compiling h2 v0.4.20
+   Compiling aws-smithy-types v1.9.0
+   Compiling tower v0.5.3
+   Compiling tokio-stream v0.1.19
+   Compiling tokio-postgres v0.7.18
+   Compiling axum v0.8.9
+   Compiling aws-smithy-runtime-api v1.19.1
+   Compiling aws-smithy-eventstream v0.61.6
+   Compiling hyper v1.12.0
+   Compiling aws-smithy-schema v1.1.0
+   Compiling aws-smithy-http v0.64.2
+   Compiling aws-credential-types v1.3.1
+   Compiling aws-smithy-observability v0.3.0
+   Compiling tokio-postgres-rustls v0.14.0
+   Compiling aws-sigv4 v1.6.3
+   Compiling aws-smithy-checksums v0.65.0
+   Compiling dexzd-postgres-connection v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-postgres-connection)
+   Compiling aws-types v1.7.0
+   Compiling aws-smithy-json v0.65.0
+   Compiling aws-smithy-xml v0.64.0
+   Compiling hyper-util v0.1.21
+   Compiling aws-smithy-query v0.64.0
+   Compiling hyper-timeout v0.5.2
+   Compiling hyper-rustls v0.27.10
+   Compiling s3mock-server v0.1.1 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/s3mock/crates/s3mock-server)
+   Compiling tonic v0.14.6
+   Compiling aws-smithy-http-client v1.5.1
+   Compiling tonic-prost v0.14.6
+   Compiling dexzd-protocol v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-protocol)
+   Compiling aws-smithy-runtime v1.16.1
+   Compiling tonic-health v0.14.6
+   Compiling aws-runtime v1.10.2
+   Compiling aws-sdk-ssooidc v1.119.0
+   Compiling aws-sdk-sts v1.122.0
+   Compiling aws-sdk-sso v1.117.0
+   Compiling aws-sdk-s3 v1.155.0
+   Compiling dexzd-keyspace v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-keyspace)
+   Compiling dexzd-request-validation v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-request-validation)
+   Compiling dexzd-apply v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-apply)
+   Compiling dexzd-worker-dispatch v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-worker-dispatch)
+   Compiling dexzd-visibility-query v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-visibility-query)
+   Compiling dexzd-stream-store v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-stream-store)
+   Compiling aws-config v1.13.0
+   Compiling dexzd-attribute-store v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-attribute-store)
+   Compiling dexzd-object-store v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-object-store)
+   Compiling dexzd-storage v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-storage)
+   Compiling dexzd-log v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-log)
+   Compiling dexzd-cluster-metadata v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-cluster-metadata)
+   Compiling dexzd-engine v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-engine)
+   Compiling dexzd-search v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-search)
+   Compiling dexzd-api v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-api)
+   Compiling dexzd-server v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-server)
+    Finished `release` profile [optimized] target(s) in 45.46s
+     Running unittests src/lib.rs (server-zd/target/release/deps/dexzd_server-4ecba85d2937d67b)
+
+running 1 test
+payload_bytes=909 iterations=200000 profile=release
+trial=1 full_decode_s=0.173566 priority_decode_s=0.009247 queue_pipeline_s=0.252611
+trial=2 full_decode_s=0.170699 priority_decode_s=0.010157 queue_pipeline_s=0.255044
+trial=3 full_decode_s=0.164191 priority_decode_s=0.010022 queue_pipeline_s=0.253101
+trial=4 full_decode_s=0.173701 priority_decode_s=0.009656 queue_pipeline_s=0.254285
+trial=5 full_decode_s=0.172156 priority_decode_s=0.010662 queue_pipeline_s=0.252067
+test server_node::search_projection::committed_search_frames::tests::projection_queue_timing_probe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 72 filtered out; finished in 2.17s

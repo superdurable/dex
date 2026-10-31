@@ -16,31 +16,31 @@ dexzd_node_role{role="draining"} 0
 dexzd_lease_epoch 1
 # HELP dexzd_lease_renewals Lease renewal attempts..
 # TYPE dexzd_lease_renewals counter
-dexzd_lease_renewals_total{outcome="ok"} 58
+dexzd_lease_renewals_total{outcome="ok"} 57
 dexzd_lease_renewals_total{outcome="error"} 0
 # HELP dexzd_api_requests Completed public API requests..
 # TYPE dexzd_api_requests counter
 dexzd_api_requests_total{rpc_class="flow_write",code="ok"} 1000002
 dexzd_api_requests_total{rpc_class="flow_read",code="ok"} 950001
-dexzd_api_requests_total{rpc_class="worker_poll",code="ok"} 397800
+dexzd_api_requests_total{rpc_class="worker_poll",code="ok"} 392407
 dexzd_api_requests_total{rpc_class="worker_poll",code="cancelled"} 4
 # HELP dexzd_api_request_latency_seconds Completed unary public API request latency..
 # TYPE dexzd_api_request_latency_seconds histogram
-dexzd_api_request_latency_seconds_sum{rpc_class="flow_write"} 9048.232979609867
+dexzd_api_request_latency_seconds_sum{rpc_class="flow_write"} 8186.238442798907
 dexzd_api_request_latency_seconds_count{rpc_class="flow_write"} 1000002
-dexzd_api_request_latency_seconds_bucket{le="0.005",rpc_class="flow_write"} 599579
-dexzd_api_request_latency_seconds_bucket{le="0.025",rpc_class="flow_write"} 963983
-dexzd_api_request_latency_seconds_bucket{le="0.1",rpc_class="flow_write"} 989873
-dexzd_api_request_latency_seconds_bucket{le="0.5",rpc_class="flow_write"} 998819
-dexzd_api_request_latency_seconds_bucket{le="2.5",rpc_class="flow_write"} 1000002
+dexzd_api_request_latency_seconds_bucket{le="0.005",rpc_class="flow_write"} 608025
+dexzd_api_request_latency_seconds_bucket{le="0.025",rpc_class="flow_write"} 978072
+dexzd_api_request_latency_seconds_bucket{le="0.1",rpc_class="flow_write"} 993973
+dexzd_api_request_latency_seconds_bucket{le="0.5",rpc_class="flow_write"} 998820
+dexzd_api_request_latency_seconds_bucket{le="2.5",rpc_class="flow_write"} 999975
 dexzd_api_request_latency_seconds_bucket{le="+Inf",rpc_class="flow_write"} 1000002
-dexzd_api_request_latency_seconds_sum{rpc_class="flow_read"} 40347.254456400595
+dexzd_api_request_latency_seconds_sum{rpc_class="flow_read"} 37260.825482550645
 dexzd_api_request_latency_seconds_count{rpc_class="flow_read"} 950001
-dexzd_api_request_latency_seconds_bucket{le="0.005",rpc_class="flow_read"} 24723
-dexzd_api_request_latency_seconds_bucket{le="0.025",rpc_class="flow_read"} 455636
-dexzd_api_request_latency_seconds_bucket{le="0.1",rpc_class="flow_read"} 881145
-dexzd_api_request_latency_seconds_bucket{le="0.5",rpc_class="flow_read"} 946170
-dexzd_api_request_latency_seconds_bucket{le="2.5",rpc_class="flow_read"} 950001
+dexzd_api_request_latency_seconds_bucket{le="0.005",rpc_class="flow_read"} 16467
+dexzd_api_request_latency_seconds_bucket{le="0.025",rpc_class="flow_read"} 487948
+dexzd_api_request_latency_seconds_bucket{le="0.1",rpc_class="flow_read"} 897781
+dexzd_api_request_latency_seconds_bucket{le="0.5",rpc_class="flow_read"} 946822
+dexzd_api_request_latency_seconds_bucket{le="2.5",rpc_class="flow_read"} 949756
 dexzd_api_request_latency_seconds_bucket{le="+Inf",rpc_class="flow_read"} 950001
 dexzd_api_request_latency_seconds_sum{rpc_class="search"} 0.0
 dexzd_api_request_latency_seconds_count{rpc_class="search"} 0
@@ -60,34 +60,34 @@ dexzd_api_request_latency_seconds_bucket{le="2.5",rpc_class="worker_respond"} 0
 dexzd_api_request_latency_seconds_bucket{le="+Inf",rpc_class="worker_respond"} 0
 # HELP dexzd_commit_batches Durably committed batches..
 # TYPE dexzd_commit_batches counter
-dexzd_commit_batches_total 544089
+dexzd_commit_batches_total 531646
 # HELP dexzd_commit_records Committed commands..
 # TYPE dexzd_commit_records counter
 dexzd_commit_records_total 3100000
 # HELP dexzd_commit_bytes Committed encoded batch bytes..
 # TYPE dexzd_commit_bytes counter
-dexzd_commit_bytes_total 894956063
+dexzd_commit_bytes_total 894535679
 # HELP dexzd_commit_latency_seconds Time from batch seal to durable acknowledgement..
 # TYPE dexzd_commit_latency_seconds histogram
-dexzd_commit_latency_seconds_sum 1425.5966960489673
-dexzd_commit_latency_seconds_count 544089
-dexzd_commit_latency_seconds_bucket{le="0.01"} 534989
-dexzd_commit_latency_seconds_bucket{le="0.025"} 540453
-dexzd_commit_latency_seconds_bucket{le="0.05"} 542533
-dexzd_commit_latency_seconds_bucket{le="0.1"} 543072
-dexzd_commit_latency_seconds_bucket{le="0.25"} 543805
-dexzd_commit_latency_seconds_bucket{le="0.5"} 544022
-dexzd_commit_latency_seconds_bucket{le="1.0"} 544084
-dexzd_commit_latency_seconds_bucket{le="2.5"} 544089
-dexzd_commit_latency_seconds_bucket{le="+Inf"} 544089
+dexzd_commit_latency_seconds_sum 1315.2938897080058
+dexzd_commit_latency_seconds_count 531646
+dexzd_commit_latency_seconds_bucket{le="0.01"} 525735
+dexzd_commit_latency_seconds_bucket{le="0.025"} 529415
+dexzd_commit_latency_seconds_bucket{le="0.05"} 530629
+dexzd_commit_latency_seconds_bucket{le="0.1"} 531027
+dexzd_commit_latency_seconds_bucket{le="0.25"} 531390
+dexzd_commit_latency_seconds_bucket{le="0.5"} 531564
+dexzd_commit_latency_seconds_bucket{le="1.0"} 531614
+dexzd_commit_latency_seconds_bucket{le="2.5"} 531642
+dexzd_commit_latency_seconds_bucket{le="+Inf"} 531646
 # HELP dexzd_object_store_requests Object storage requests..
 # TYPE dexzd_object_store_requests counter
-dexzd_object_store_requests_total{operation="put",object_kind="log"} 544090
-dexzd_object_store_requests_total{operation="put",object_kind="snapshot"} 134
+dexzd_object_store_requests_total{operation="put",object_kind="log"} 531647
+dexzd_object_store_requests_total{operation="put",object_kind="snapshot"} 140
 dexzd_object_store_requests_total{operation="put",object_kind="manifest"} 6
-dexzd_object_store_requests_total{operation="put",object_kind="lease"} 59
+dexzd_object_store_requests_total{operation="put",object_kind="lease"} 58
 dexzd_object_store_requests_total{operation="put",object_kind="other"} 6
-dexzd_object_store_requests_total{operation="get",object_kind="snapshot"} 151
+dexzd_object_store_requests_total{operation="get",object_kind="snapshot"} 157
 dexzd_object_store_requests_total{operation="get",object_kind="manifest"} 16
 dexzd_object_store_requests_total{operation="get",object_kind="lease"} 1
 dexzd_object_store_requests_total{operation="get",object_kind="other"} 3
@@ -102,20 +102,20 @@ dexzd_object_store_request_errors_total{operation="list"} 0
 dexzd_object_store_request_errors_total{operation="delete"} 0
 # HELP dexzd_object_store_put_bytes Uploaded object bytes..
 # TYPE dexzd_object_store_put_bytes counter
-dexzd_object_store_put_bytes_total 4683414377
+dexzd_object_store_put_bytes_total 4654900497
 # HELP dexzd_snapshots Snapshot attempts..
 # TYPE dexzd_snapshots counter
 dexzd_snapshots_total{outcome="ok"} 4
 dexzd_snapshots_total{outcome="error"} 0
 # HELP dexzd_snapshot_last_duration_seconds Last successful snapshot duration..
 # TYPE dexzd_snapshot_last_duration_seconds gauge
-dexzd_snapshot_last_duration_seconds 12.738791041
+dexzd_snapshot_last_duration_seconds 7.378927708
 # HELP dexzd_snapshot_last_bytes Last successful snapshot bytes..
 # TYPE dexzd_snapshot_last_bytes gauge
-dexzd_snapshot_last_bytes 1770829796
+dexzd_snapshot_last_bytes 1769097029
 # HELP dexzd_recovery_last_duration_seconds Last completed recovery duration..
 # TYPE dexzd_recovery_last_duration_seconds gauge
-dexzd_recovery_last_duration_seconds 0.019932959
+dexzd_recovery_last_duration_seconds 0.019682125
 # HELP dexzd_startup_read_retries Transient object storage reads retried during startup..
 # TYPE dexzd_startup_read_retries counter
 dexzd_startup_read_retries_total 0
@@ -145,9 +145,9 @@ dexzd_flow_closes_total{close_status="terminated"} 0
 dexzd_flow_closes_total{close_status="canceled"} 0
 # HELP dexzd_flow_end_to_end_latency_seconds Committed Flow run start to close latency..
 # TYPE dexzd_flow_end_to_end_latency_seconds histogram
-dexzd_flow_end_to_end_latency_seconds_sum 39254.174066001266
+dexzd_flow_end_to_end_latency_seconds_sum 36367.83587400102
 dexzd_flow_end_to_end_latency_seconds_count 950000
-dexzd_flow_end_to_end_latency_seconds_bucket{le="1.0"} 949160
+dexzd_flow_end_to_end_latency_seconds_bucket{le="1.0"} 948786
 dexzd_flow_end_to_end_latency_seconds_bucket{le="10.0"} 950000
 dexzd_flow_end_to_end_latency_seconds_bucket{le="60.0"} 950000
 dexzd_flow_end_to_end_latency_seconds_bucket{le="600.0"} 950000
@@ -157,19 +157,19 @@ dexzd_flow_end_to_end_latency_seconds_bucket{le="86400.0"} 950000
 dexzd_flow_end_to_end_latency_seconds_bucket{le="+Inf"} 950000
 # HELP dexzd_step_schedule_to_start_latency_seconds Committed Step task to Worker delivery latency..
 # TYPE dexzd_step_schedule_to_start_latency_seconds histogram
-dexzd_step_schedule_to_start_latency_seconds_sum 19174.529851838775
+dexzd_step_schedule_to_start_latency_seconds_sum 18090.08105045356
 dexzd_step_schedule_to_start_latency_seconds_count 1050000
-dexzd_step_schedule_to_start_latency_seconds_bucket{le="0.005"} 452596
-dexzd_step_schedule_to_start_latency_seconds_bucket{le="0.025"} 774905
-dexzd_step_schedule_to_start_latency_seconds_bucket{le="0.1"} 1032357
+dexzd_step_schedule_to_start_latency_seconds_bucket{le="0.005"} 456298
+dexzd_step_schedule_to_start_latency_seconds_bucket{le="0.025"} 790210
+dexzd_step_schedule_to_start_latency_seconds_bucket{le="0.1"} 1035980
 dexzd_step_schedule_to_start_latency_seconds_bucket{le="0.5"} 1050000
 dexzd_step_schedule_to_start_latency_seconds_bucket{le="2.5"} 1050000
 dexzd_step_schedule_to_start_latency_seconds_bucket{le="10.0"} 1050000
 dexzd_step_schedule_to_start_latency_seconds_bucket{le="+Inf"} 1050000
 # HELP dexzd_worker_stream_events Delivered Worker tasks and closed Worker streams..
 # TYPE dexzd_worker_stream_events counter
-dexzd_worker_stream_events_total{event="delivered"} 1278787
-dexzd_worker_stream_events_total{event="closed"} 397804
+dexzd_worker_stream_events_total{event="delivered"} 1273097
+dexzd_worker_stream_events_total{event="closed"} 392411
 # HELP dexzd_attribute_sync_backlog_entries Attribute Sync entries waiting to be written..
 # TYPE dexzd_attribute_sync_backlog_entries gauge
 dexzd_attribute_sync_backlog_entries 0
@@ -191,14 +191,27 @@ dexzd_attribute_sync_fenced_writes_total 0
 dexzd_search_skipped_documents_total 0
 # HELP dexzd_search_projection_coalesced_changes Queued search changes superseded by newer changes..
 # TYPE dexzd_search_projection_coalesced_changes counter
-dexzd_search_projection_coalesced_changes_total 4062
-# HELP dexzd_search_projection_dropped_updates Intermediate Running search updates dropped during overload..
+dexzd_search_projection_coalesced_changes_total 17558
+# HELP dexzd_search_projection_dropped_updates Search Upserts dropped during overload by priority..
 # TYPE dexzd_search_projection_dropped_updates counter
-dexzd_search_projection_dropped_updates_total 0
+dexzd_search_projection_dropped_updates_total{reason="intermediate"} 0
+dexzd_search_projection_dropped_updates_total{reason="close"} 917338
+dexzd_search_projection_dropped_updates_total{reason="start"} 981494
 # HELP dexzd_search_projection_rebuild_requests New pending search projection partition rebuild requests..
 # TYPE dexzd_search_projection_rebuild_requests counter
-dexzd_search_projection_rebuild_requests_total 3322
+dexzd_search_projection_rebuild_requests_total 0
+# HELP dexzd_search_projection_repair_pending Runs pending projection repair, including in-flight repairs..
+# TYPE dexzd_search_projection_repair_pending gauge
+dexzd_search_projection_repair_pending 0
+# HELP dexzd_search_projection_repaired_runs Committed documents successfully offered by projection repair, by original drop priority..
+# TYPE dexzd_search_projection_repaired_runs counter
+dexzd_search_projection_repaired_runs_total{reason="intermediate"} 0
+dexzd_search_projection_repaired_runs_total{reason="close"} 90
+dexzd_search_projection_repaired_runs_total{reason="start"} 981494
+# HELP dexzd_search_projection_repair_overflow Dropped runs that overflowed the bounded projection repair set..
+# TYPE dexzd_search_projection_repair_overflow counter
+dexzd_search_projection_repair_overflow_total 0
 # HELP dexzd_local_storage_bytes Local SST and WAL bytes.
 # TYPE dexzd_local_storage_bytes gauge
-dexzd_local_storage_bytes 2236019787
+dexzd_local_storage_bytes 2216768709
 # EOF

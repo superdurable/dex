@@ -1,1 +1,1 @@
-dex-pgvis-bench-paradedb-13033
+dex-pgvis-bench-paradedb-63549

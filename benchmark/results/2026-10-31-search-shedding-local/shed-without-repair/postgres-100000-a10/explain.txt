@@ -1,0 +1,63 @@
+rare-flow-type
+                                                                          QUERY PLAN
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.41..19.86 rows=7 width=491) (actual time=0.022..0.056 rows=9 loops=1)
+   Buffers: shared hit=12
+   ->  Index Scan using dexzd_visibility_flow_type_idx on dexzd_visibility_runs  (cost=0.41..19.86 rows=7 width=491) (actual time=0.022..0.055 rows=9 loops=1)
+         Index Cond: ((tenant_id = '0'::text) AND (flow_type = 'searchRareFlow'::text))
+         Buffers: shared hit=12
+ Planning:
+   Buffers: shared hit=1091
+ Planning Time: 0.582 ms
+ Execution Time: 0.065 ms
+(9 rows)
+
+keyword-equality
+                                                                            QUERY PLAN
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.41..38.47 rows=17 width=491) (actual time=0.009..0.062 rows=17 loops=1)
+   Buffers: shared hit=20
+   ->  Index Scan using dexzd_visibility_keyword_01_idx on dexzd_visibility_runs  (cost=0.41..38.47 rows=17 width=491) (actual time=0.009..0.061 rows=17 loops=1)
+         Index Cond: ((tenant_id = '0'::text) AND (keyword_01 = 'rare'::text))
+         Buffers: shared hit=20
+ Planning:
+   Buffers: shared hit=17
+ Planning Time: 0.050 ms
+ Execution Time: 0.066 ms
+(9 rows)
+
+int-range
+                                                                           QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=8.35..8.36 rows=1 width=491) (actual time=0.053..0.054 rows=8 loops=1)
+   Buffers: shared hit=24
+   ->  Sort  (cost=8.35..8.36 rows=1 width=491) (actual time=0.053..0.053 rows=8 loops=1)
+         Sort Key: is_running DESC, close_time_ns DESC NULLS LAST, start_time_ns DESC, run_id COLLATE "C"
+         Sort Method: quicksort  Memory: 35kB
+         Buffers: shared hit=24
+         ->  Index Scan using dexzd_visibility_int_01_idx on dexzd_visibility_runs  (cost=0.29..8.34 rows=1 width=491) (actual time=0.012..0.037 rows=8 loops=1)
+               Index Cond: ((tenant_id = '0'::text) AND (int_01 >= 50000) AND (int_01 <= 50099))
+               Buffers: shared hit=13
+ Planning:
+   Buffers: shared hit=28
+ Planning Time: 0.054 ms
+ Execution Time: 0.060 ms
+(13 rows)
+
+start-time-desc
+                                                               QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=4154.55..4154.60 rows=21 width=490) (actual time=30.626..30.627 rows=21 loops=1)
+   Buffers: shared hit=2875
+   ->  Sort  (cost=4154.55..4197.51 rows=17184 width=490) (actual time=30.625..30.626 rows=21 loops=1)
+         Sort Key: start_time_ns DESC, run_id COLLATE "C"
+         Sort Method: top-N heapsort  Memory: 69kB
+         Buffers: shared hit=2875
+         ->  Seq Scan on dexzd_visibility_runs  (cost=0.00..3691.24 rows=17184 width=490) (actual time=0.006..28.190 rows=17194 loops=1)
+               Filter: (tenant_id = '0'::text)
+               Buffers: shared hit=2875
+ Planning:
+   Buffers: shared hit=14
+ Planning Time: 0.033 ms
+ Execution Time: 30.638 ms
+(13 rows)

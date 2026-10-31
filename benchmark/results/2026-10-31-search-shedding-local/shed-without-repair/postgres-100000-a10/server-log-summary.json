@@ -1,0 +1,25 @@
+{
+  "source_file": "server.log.gz",
+  "source_sha256": "f3fc52dcf74ded3f441635426afc206bc8ebf21bdd9523175863c985a804585e",
+  "source_compressed_bytes": 732610,
+  "line_count": 66665,
+  "projection_queue_overflow_count": 0,
+  "error_level_line_count": 0,
+  "overflow_match": "a committed frame could not be queued for the search projection; rebuilding its partition",
+  "error_level_match": " ERROR ",
+  "metrics_before_file": "metrics-before.openmetrics",
+  "metrics_after_file": "metrics-after.openmetrics",
+  "projection_counter_deltas": {
+    "dexzd_search_projection_coalesced_changes_total": 9575,
+    "dexzd_search_projection_dropped_updates_total{reason=\"intermediate\"}": 0,
+    "dexzd_search_projection_dropped_updates_total{reason=\"close\"}": 81965,
+    "dexzd_search_projection_dropped_updates_total{reason=\"start\"}": 89925,
+    "dexzd_search_projection_rebuild_requests_total": 0,
+    "dexzd_search_skipped_documents_total": 0
+  },
+  "projected_total": 17194,
+  "projected_running": 709,
+  "projected_completed": 16485,
+  "absent_runs": 82806,
+  "stale_running": 34
+}

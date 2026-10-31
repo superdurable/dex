@@ -1,0 +1,12 @@
+arm64
+ProductName:		macOS
+ProductVersion:		26.6.2
+BuildVersion:		25G83
+hw.model: Mac17,8
+hw.ncpu: 18
+hw.memsize: 51539607552
+
+Recorded UTC: 2026-10-31T17:00:40Z
+go version go1.26.5 darwin/arm64
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+Docker CPUs=10 memory_bytes=15765602304

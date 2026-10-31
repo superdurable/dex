@@ -17,7 +17,14 @@ import re
 ROOT = Path(__file__).resolve().parent
 COUNTERS = (
     "dexzd_search_projection_coalesced_changes_total",
-    "dexzd_search_projection_dropped_updates_total",
+    'dexzd_search_projection_dropped_updates_total{reason="intermediate"}',
+    'dexzd_search_projection_dropped_updates_total{reason="close"}',
+    'dexzd_search_projection_dropped_updates_total{reason="start"}',
+    'dexzd_search_projection_repaired_runs_total{reason="intermediate"}',
+    'dexzd_search_projection_repaired_runs_total{reason="close"}',
+    'dexzd_search_projection_repaired_runs_total{reason="start"}',
+    "dexzd_search_projection_repair_overflow_total",
+    "dexzd_search_projection_repair_pending",
     "dexzd_search_projection_rebuild_requests_total",
     "dexzd_search_skipped_documents_total",
 )
@@ -72,7 +79,22 @@ def summarize(point):
     assert summary["projection_counter_deltas"]["dexzd_search_skipped_documents_total"] == 0
     counts = (point / "projected-counts.txt").read_text().strip()
     runs = result["config"]["runs"]
-    assert counts == f"{runs}|{runs // 20}", (point, counts)
+    total, running = (int(value) for value in counts.split("|"))
+    assert not result["config"]["allow_shedding"]
+    assert total == runs and running == runs // 20, (point, counts)
+    assert after["dexzd_search_projection_repair_pending"] == 0, point
+    assert summary["projection_counter_deltas"]["dexzd_search_projection_repair_overflow_total"] == 0, summary
+    assert summary["projection_counter_deltas"]["dexzd_search_projection_rebuild_requests_total"] == 0, summary
+    summary["projected_total"] = total
+    summary["projected_running"] = running
+    summary["projected_completed"] = total - running
+    summary["absent_runs"] = runs - total
+    state_total, stale_running, impossible_completed, other_status = (
+        int(value) for value in (point / "projected-state.txt").read_text().strip().split("|")
+    )
+    assert state_total == total and stale_running == 0
+    assert impossible_completed == 0 and other_status == 0, point
+    summary["stale_running"] = stale_running
     assert (point / "container-removal.txt").read_text().splitlines() == [result["config"]["database_container"]]
     (point / "server-log-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary
@@ -84,4 +106,4 @@ if __name__ == "__main__":
     for point in points:
         summary = summarize(point)
         print(point.name, json.dumps(summary["projection_counter_deltas"], sort_keys=True))
-    print("Validated four ten-Attribute seed points, counters, projected counts, throughput arithmetic, and container removal.")
+    print("Validated four ten-Attribute seed points, per-reason counters, projection completion, row counts, throughput arithmetic, and container removal.")

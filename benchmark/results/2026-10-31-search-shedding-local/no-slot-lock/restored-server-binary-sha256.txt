@@ -1,0 +1,1 @@
+3f336301cbb8c4b37b50cf0a0360875052bf9c2ff8ae8d5179cb242b9a95dd7d  server-zd/target/release/dex-server-zd

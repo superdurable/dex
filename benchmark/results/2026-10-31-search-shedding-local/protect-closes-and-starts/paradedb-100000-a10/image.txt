@@ -1,0 +1,2 @@
+requested_image=paradedb/paradedb:0.26.1
+architecture=arm64 id=sha256:29bd8cc90a89ff15f8350f89b4849c2ef807aa9381c79febd1afb1a8a25fb706

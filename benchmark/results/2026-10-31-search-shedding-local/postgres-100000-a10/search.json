@@ -1,5 +1,6 @@
 {
   "config": {
+    "allow_shedding": false,
     "projection_only": true,
     "address": "127.0.0.1:18815",
     "backend": "postgres",
@@ -10,24 +11,24 @@
     "warmup": 10,
     "deep_page": 500,
     "timeout_ns": 30000000000,
-    "database_container": "dex-pgvis-bench-postgres-77014",
+    "database_container": "dex-pgvis-bench-postgres-40719",
     "backfill": false,
-    "git_commit": "adf4ad31782d6a787ed39820ff8331476d077a9b"
+    "git_commit": "579ca2373219fd0a13d42f7eed289246fa705ffa"
   },
-  "started_at": "2026-10-31T16:56:21.903059Z",
+  "started_at": "2026-10-31T18:16:38.107069Z",
   "machine": {
     "cpu_model": "Apple M5 Pro",
     "cores": 18,
     "ram_bytes": 51539607552,
     "os": "darwin",
     "architecture": "arm64",
-    "free_disk_bytes": 160099065856
+    "free_disk_bytes": 168949952512
   },
-  "seed_seconds": 30.579439042,
-  "catchup_seconds": 26.469102625,
-  "rows_per_second": 1752.8931111876993,
-  "wal_start": "0/19FC0D0",
-  "wal_end": "0/277E48E8",
-  "wal_bytes_per_row": 6353.40824,
+  "seed_seconds": 30.743926125,
+  "catchup_seconds": 31.059713042,
+  "rows_per_second": 1618.0276509592236,
+  "wal_start": "0/19B0528",
+  "wal_end": "0/1BA53DB0",
+  "wal_bytes_per_row": 4368.77448,
   "queries": null
 }

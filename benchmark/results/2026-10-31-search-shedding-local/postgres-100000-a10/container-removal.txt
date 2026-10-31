@@ -1,1 +1,1 @@
-dex-pgvis-bench-postgres-77014
+dex-pgvis-bench-postgres-40719

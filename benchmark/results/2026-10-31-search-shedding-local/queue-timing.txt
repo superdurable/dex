@@ -1,0 +1,23 @@
+   Compiling dexzd-metrics v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-metrics)
+   Compiling dexzd-object-store v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-object-store)
+   Compiling dexzd-worker-dispatch v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-worker-dispatch)
+   Compiling dexzd-storage v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-storage)
+   Compiling dexzd-cluster-metadata v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-cluster-metadata)
+   Compiling dexzd-log v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-log)
+   Compiling dexzd-search v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-search)
+   Compiling dexzd-engine v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-engine)
+   Compiling dexzd-api v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-api)
+   Compiling dexzd-server v0.1.0 (/Users/qlong/orca/workspaces/dex/pgvis-shedding/server-zd/crates/dexzd-server)
+    Finished `release` profile [optimized] target(s) in 21.81s
+     Running unittests src/lib.rs (server-zd/target/release/deps/dexzd_server-4ecba85d2937d67b)
+
+running 1 test
+payload_bytes=909 iterations=200000 profile=release
+trial=1 full_decode_s=0.188883 priority_decode_s=0.011088 queue_pipeline_s=0.287206
+trial=2 full_decode_s=0.184582 priority_decode_s=0.010711 queue_pipeline_s=0.272926
+trial=3 full_decode_s=0.178849 priority_decode_s=0.010487 queue_pipeline_s=0.283604
+trial=4 full_decode_s=0.181889 priority_decode_s=0.010422 queue_pipeline_s=0.272137
+trial=5 full_decode_s=0.170058 priority_decode_s=0.009655 queue_pipeline_s=0.265490
+test server_node::search_projection::committed_search_frames::tests::projection_queue_timing_probe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 2.34s

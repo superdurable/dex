@@ -1,0 +1,2 @@
+dex-shedding-round2-verify-postgres
+dex-shedding-round2-verify-paradedb

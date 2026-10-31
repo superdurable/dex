@@ -1,0 +1,44 @@
+--- a/server-zd/crates/dexzd-server/src/server_node/search_projection/committed_search_frames_tests.rs
++++ b/server-zd/crates/dexzd-server/src/server_node/search_projection/committed_search_frames_tests.rs
+@@ -664,0 +665,41 @@
++
++#[test]
++fn projection_queue_timing_probe() {
++    let mut command = committed_upsert(1);
++    if let StateWrite::Put { value, .. } = &mut command.committed.outcome.writes[0] {
++        let mut document = SearchDocumentRecord::decode(value.as_slice()).unwrap();
++        document.flow_type = "BenchmarkFlow".to_owned();
++        document.attributes = (0..10).map(|index| dexzd_protocol::dexzd::v1::SearchAttributeValue {
++            index_key: format!("SearchField{index:02}"),
++            index_type: dexzd_protocol::dex::IndexType::Keyword as i32,
++            value: Some(dexzd_protocol::dex::Value {
++                kind: Some(dexzd_protocol::dex::value::Kind::StringValue("x".repeat(64))),
++            }),
++        }).collect();
++        *value = document.encode_to_vec();
++    }
++    let changes = extract_search_document_changes(PARTITION, &command.committed.outcome).unwrap();
++    let SearchDocumentChange::Upsert { encoded_document, .. } = &changes[0] else { panic!("probe uses Upsert") };
++    eprintln!("payload_bytes={} iterations=200000 profile=release", encoded_document.len());
++    for trial in 1..=5 {
++        let started = std::time::Instant::now();
++        for _ in 0..200_000 {
++            std::hint::black_box(SearchDocumentRecord::decode(std::hint::black_box(encoded_document.as_slice())).unwrap());
++        }
++        let full_seconds = started.elapsed().as_secs_f64();
++        let started = std::time::Instant::now();
++        for _ in 0..200_000 {
++            std::hint::black_box(change_priority(std::hint::black_box(&changes[0])));
++        }
++        let priority_seconds = started.elapsed().as_secs_f64();
++        let frames = new_frames(100, 1024 * 1024);
++        let started = std::time::Instant::now();
++        for _ in 0..200_000 {
++            frames.record_command(&command);
++            finish_frame(&frames, 1);
++            let frame = take_frame(&frames).unwrap();
++            frames.finish_projected_frame(&frame);
++        }
++        eprintln!("trial={trial} full_decode_s={full_seconds:.6} priority_decode_s={priority_seconds:.6} queue_pipeline_s={:.6}", started.elapsed().as_secs_f64());
++    }
++}
