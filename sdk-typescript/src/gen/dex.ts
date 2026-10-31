@@ -872,6 +872,47 @@ export interface GetHistoryEventsResponse {
   events: FlowHistoryEvent[];
   nextPageToken: Uint8Array;
   nextInternalEventId: bigint;
+  /**
+   * The event IDs that the history window removed from this run, as of this
+   * response.
+   *
+   * The Server keeps a recent window of each run's history. It always keeps the
+   * FlowStartedOrContinued event, which is event 1, and it removes older events
+   * after it in chunks. The range therefore starts at event ID 2. Every event
+   * whose ID is inside this inclusive range is gone. No page and no run attempt
+   * returns it again. The range only grows while the run records new events.
+   *
+   * Use the range to classify a related event ID, such as
+   * StepMethodEventContext.from_event_id or
+   * StepMethodEventContext.wait_for_completed_event_id. An ID inside the range
+   * names a removed event. An ID outside the range was not removed as of this
+   * response. Such an ID can still name an event outside the run attempt lineage
+   * that GetHistoryEventsRequest.run_attempt selects, or an event the run has not
+   * recorded yet. The related IDs that Step method events carry always name
+   * events of their own lineage.
+   *
+   * Event IDs grow across the whole run, and removal follows that order, so the
+   * removed IDs form one range. The range is the same on every page and for
+   * every run attempt of the run. It can include IDs of events that belong only
+   * to other run attempts.
+   *
+   * Unset when the history window has removed no event. Also unset from a Server
+   * that does not report removed events.
+   */
+  prunedEventIdRange: HistoryEventIDRange | undefined;
+}
+
+/**
+ * HistoryEventIDRange is an inclusive range of history event IDs of one run.
+ *
+ * Both ends are history event IDs, the same values as FlowHistoryEvent.event_id.
+ * Both ends belong to the range, and a range always contains at least one ID.
+ */
+export interface HistoryEventIDRange {
+  /** The smallest event ID in the range. */
+  startEventId: bigint;
+  /** The largest event ID in the range. It is never smaller than start_event_id. */
+  endEventId: bigint;
 }
 
 export interface FlowHistoryEvent {
@@ -998,7 +1039,64 @@ export interface StepMethodEventContext {
   duration: Duration | undefined;
   methodOptions: StepMethodOptions | undefined;
   lastFailureInfo: StepMethodFailure | undefined;
-  pullRouting: PullRouting | undefined;
+  pullRouting:
+    | PullRouting
+    | undefined;
+  /**
+   * The event ID of the history event that started this Step execution.
+   *
+   * The event depends on what started the Step execution:
+   *   - The start Step: the FlowStartedOrContinued event.
+   *   - A Step decision: the StepExecuteCompleted event of
+   *     from_step_execution_id.
+   *   - A failure recovery Step: the StepExecuteFailed event of
+   *     from_step_execution_id.
+   *   - An RPC Step decision: the RpcExecutionCompleted event.
+   * Every event of the Step execution carries the same value.
+   *
+   * Use it to link a Step execution to its source without scanning history.
+   * The event can be on another history page. It can also belong to an earlier
+   * run attempt of the lineage after time travel. When the ID is inside
+   * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+   * the event.
+   *
+   * Zero when no history event started the Step execution, such as for the Flow
+   * timeout handler. Zero also for events that a Server recorded before it
+   * reported this field. Then find the source through from_step_execution_id.
+   */
+  fromEventId: bigint;
+  /**
+   * The event ID of the StepWaitForCompleted event of this Step execution.
+   *
+   * It is set only on Execute events: StepExecuteCompleted, StepExecuteFailed,
+   * and StepExecutePending. The Step's WaitFor must have completed. Use it to
+   * link Execute to the WaitFor that registered its waiting conditions. The
+   * event can be on another history page, or in an earlier run attempt of the
+   * lineage after time travel. When the ID is inside
+   * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+   * the event.
+   *
+   * Zero on WaitFor events. Zero also when the Step skipped WaitFor, or when
+   * WaitFor failed and the Step proceeded to Execute. Zero also for events that
+   * a Server recorded before it reported this field. Then find the WaitFor event
+   * through step_execution_id.
+   */
+  waitForCompletedEventId: bigint;
+  /**
+   * The event time of the StepWaitForCompleted event that
+   * wait_for_completed_event_id names.
+   *
+   * It stays available after the history window removes that event. The time
+   * from it to started_time is not only the condition wait. started_time is the
+   * start of the attempt that this event reports, so the difference also
+   * includes Execute dispatch and lock waits, and every earlier failed Execute
+   * attempt with its retry backoff. On a StepExecutePending event in the
+   * SCHEDULED phase whose Execute never started an attempt, started_time is
+   * when Execute was first scheduled, not an attempt start.
+   *
+   * Unset whenever wait_for_completed_event_id is zero.
+   */
+  waitForCompletedTime: Date | undefined;
 }
 
 export interface StepWaitForCompletedOutput {
@@ -1075,11 +1173,36 @@ export interface ChannelExternalDeleteEvent {
 export interface WaitForHistoryEventRequest {
   flowId: string;
   runId: string;
+  /**
+   * The first history event ID that the caller has not read. It must be
+   * positive.
+   *
+   * The call returns at once when the run already has an event with this ID or
+   * a larger one. Otherwise it waits until the run records such an event or
+   * closes. When the Server's long poll wait ends first, the call fails with
+   * DEADLINE_EXCEEDED and LONG_POLL_TIME_OUT; call it again to keep waiting.
+   */
   nextInternalEventId: bigint;
 }
 
 export interface WaitForHistoryEventResponse {
+  /**
+   * True when the run has an event whose ID is next_internal_event_id or
+   * larger. False when the run closed before it recorded such an event.
+   */
   eventAvailable: boolean;
+  /**
+   * The ID of the newest history event of the run when the call returned.
+   *
+   * It is not the first event at or after next_internal_event_id: it is the
+   * last event the run has recorded. Use it to find the newest history page,
+   * for example by calling with next_internal_event_id set to 1. The newest
+   * event always belongs to the current run attempt. A GetHistoryEvents read of
+   * an older run attempt can end before this ID.
+   *
+   * It is set when event_available is false too. Then it is the ID of the last
+   * event of the closed run.
+   */
   availableInternalEventId: bigint;
   flowStatus: FlowStatus;
 }
@@ -6983,7 +7106,7 @@ export const GetHistoryEventsRequest: MessageFns<GetHistoryEventsRequest> = {
 };
 
 function createBaseGetHistoryEventsResponse(): GetHistoryEventsResponse {
-  return { events: [], nextPageToken: new Uint8Array(0), nextInternalEventId: 0n };
+  return { events: [], nextPageToken: new Uint8Array(0), nextInternalEventId: 0n, prunedEventIdRange: undefined };
 }
 
 export const GetHistoryEventsResponse: MessageFns<GetHistoryEventsResponse> = {
@@ -6999,6 +7122,9 @@ export const GetHistoryEventsResponse: MessageFns<GetHistoryEventsResponse> = {
         throw new globalThis.Error("value provided for field message.nextInternalEventId of type int64 too large");
       }
       writer.uint32(24).int64(message.nextInternalEventId);
+    }
+    if (message.prunedEventIdRange !== undefined) {
+      HistoryEventIDRange.encode(message.prunedEventIdRange, writer.uint32(34).fork()).join();
     }
     return writer;
   },
@@ -7034,6 +7160,14 @@ export const GetHistoryEventsResponse: MessageFns<GetHistoryEventsResponse> = {
           message.nextInternalEventId = reader.int64() as bigint;
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.prunedEventIdRange = HistoryEventIDRange.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -7052,6 +7186,77 @@ export const GetHistoryEventsResponse: MessageFns<GetHistoryEventsResponse> = {
     message.nextPageToken = object.nextPageToken ?? new Uint8Array(0);
     message.nextInternalEventId = (object.nextInternalEventId !== undefined && object.nextInternalEventId !== null)
       ? BigInt(object.nextInternalEventId)
+      : 0n;
+    message.prunedEventIdRange = (object.prunedEventIdRange !== undefined && object.prunedEventIdRange !== null)
+      ? HistoryEventIDRange.fromPartial(object.prunedEventIdRange)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseHistoryEventIDRange(): HistoryEventIDRange {
+  return { startEventId: 0n, endEventId: 0n };
+}
+
+export const HistoryEventIDRange: MessageFns<HistoryEventIDRange> = {
+  encode(message: HistoryEventIDRange, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.startEventId !== 0n) {
+      if (BigInt.asIntN(64, message.startEventId) !== message.startEventId) {
+        throw new globalThis.Error("value provided for field message.startEventId of type int64 too large");
+      }
+      writer.uint32(8).int64(message.startEventId);
+    }
+    if (message.endEventId !== 0n) {
+      if (BigInt.asIntN(64, message.endEventId) !== message.endEventId) {
+        throw new globalThis.Error("value provided for field message.endEventId of type int64 too large");
+      }
+      writer.uint32(16).int64(message.endEventId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): HistoryEventIDRange {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseHistoryEventIDRange();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.startEventId = reader.int64() as bigint;
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.endEventId = reader.int64() as bigint;
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<HistoryEventIDRange>, I>>(base?: I): HistoryEventIDRange {
+    return HistoryEventIDRange.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<HistoryEventIDRange>, I>>(object: I): HistoryEventIDRange {
+    const message = createBaseHistoryEventIDRange();
+    message.startEventId = (object.startEventId !== undefined && object.startEventId !== null)
+      ? BigInt(object.startEventId)
+      : 0n;
+    message.endEventId = (object.endEventId !== undefined && object.endEventId !== null)
+      ? BigInt(object.endEventId)
       : 0n;
     return message;
   },
@@ -8483,6 +8688,9 @@ function createBaseStepMethodEventContext(): StepMethodEventContext {
     methodOptions: undefined,
     lastFailureInfo: undefined,
     pullRouting: undefined,
+    fromEventId: 0n,
+    waitForCompletedEventId: 0n,
+    waitForCompletedTime: undefined,
   };
 }
 
@@ -8517,6 +8725,21 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
     }
     if (message.pullRouting !== undefined) {
       PullRouting.encode(message.pullRouting, writer.uint32(82).fork()).join();
+    }
+    if (message.fromEventId !== 0n) {
+      if (BigInt.asIntN(64, message.fromEventId) !== message.fromEventId) {
+        throw new globalThis.Error("value provided for field message.fromEventId of type int64 too large");
+      }
+      writer.uint32(88).int64(message.fromEventId);
+    }
+    if (message.waitForCompletedEventId !== 0n) {
+      if (BigInt.asIntN(64, message.waitForCompletedEventId) !== message.waitForCompletedEventId) {
+        throw new globalThis.Error("value provided for field message.waitForCompletedEventId of type int64 too large");
+      }
+      writer.uint32(96).int64(message.waitForCompletedEventId);
+    }
+    if (message.waitForCompletedTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.waitForCompletedTime), writer.uint32(106).fork()).join();
     }
     return writer;
   },
@@ -8608,6 +8831,30 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
           message.pullRouting = PullRouting.decode(reader, reader.uint32());
           continue;
         }
+        case 11: {
+          if (tag !== 88) {
+            break;
+          }
+
+          message.fromEventId = reader.int64() as bigint;
+          continue;
+        }
+        case 12: {
+          if (tag !== 96) {
+            break;
+          }
+
+          message.waitForCompletedEventId = reader.int64() as bigint;
+          continue;
+        }
+        case 13: {
+          if (tag !== 106) {
+            break;
+          }
+
+          message.waitForCompletedTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8640,6 +8887,14 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
     message.pullRouting = (object.pullRouting !== undefined && object.pullRouting !== null)
       ? PullRouting.fromPartial(object.pullRouting)
       : undefined;
+    message.fromEventId = (object.fromEventId !== undefined && object.fromEventId !== null)
+      ? BigInt(object.fromEventId)
+      : 0n;
+    message.waitForCompletedEventId =
+      (object.waitForCompletedEventId !== undefined && object.waitForCompletedEventId !== null)
+        ? BigInt(object.waitForCompletedEventId)
+        : 0n;
+    message.waitForCompletedTime = object.waitForCompletedTime ?? undefined;
     return message;
   },
 };

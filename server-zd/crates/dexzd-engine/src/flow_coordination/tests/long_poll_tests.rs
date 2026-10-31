@@ -812,6 +812,47 @@ async fn wait_for_history_event_reports_available_events_and_closed_runs() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn wait_for_history_event_reports_the_newest_event_id() {
+    let harness = FlowCoordinationHarness::new();
+    let run_id = start_flow(&harness, "order-1").await.unwrap();
+    harness
+        .drive(harness.registry.stop_flow(
+            TENANT,
+            StopFlowRequest {
+                flow_id: "order-1".to_owned(),
+                ..StopFlowRequest::default()
+            },
+        ))
+        .await
+        .unwrap();
+    // The model applier records FlowStart as event 1 and the stop as event 2.
+    let newest_event_id = 2;
+    let request = |next_internal_event_id| WaitForHistoryEventRequest {
+        flow_id: "order-1".to_owned(),
+        run_id: run_id.to_string(),
+        next_internal_event_id,
+    };
+    let from_start = harness
+        .registry
+        .wait_for_history_event(TENANT, request(1))
+        .await
+        .unwrap();
+    assert!(from_start.event_available);
+    assert_eq!(
+        from_start.available_internal_event_id, newest_event_id,
+        "the newest event ID, not the first event at the cursor"
+    );
+    let past_the_end = harness
+        .registry
+        .wait_for_history_event(TENANT, request(newest_event_id + 1))
+        .await
+        .unwrap();
+    assert!(!past_the_end.event_available);
+    assert_eq!(past_the_end.available_internal_event_id, newest_event_id);
+    assert_eq!(past_the_end.flow_status, FlowStatus::Canceled as i32);
+}
+
+#[tokio::test(start_paused = true)]
 async fn waiter_limits_reject_registrations_and_free_slots_on_drop() {
     let config = FlowCoordinationConfig {
         max_long_poll_waiters_per_flow: 1,

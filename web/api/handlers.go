@@ -243,20 +243,12 @@ func (h *handler) getHistoryEvents(response http.ResponseWriter, request *http.R
 		writeGRPCError(response, err, "GetHistoryEvents")
 		return
 	}
-	events := make([]historyEvent, 0, len(result.GetEvents()))
-	for _, event := range result.GetEvents() {
-		mapped, mapErr := mapHistoryEvent(event)
-		if mapErr != nil {
-			WriteError(response, http.StatusBadGateway, mapErr.Error(), nil)
-			return
-		}
-		events = append(events, mapped)
+	page, err := mapHistoryPage(result)
+	if err != nil {
+		WriteError(response, http.StatusBadGateway, err.Error(), nil)
+		return
 	}
-	writeJSON(response, http.StatusOK, historyPage{
-		Events:              events,
-		NextPageToken:       base64.StdEncoding.EncodeToString(result.GetNextPageToken()),
-		NextInternalEventID: result.GetNextInternalEventId(),
-	})
+	writeJSON(response, http.StatusOK, page)
 }
 
 func (h *handler) getFlowState(response http.ResponseWriter, request *http.Request) {

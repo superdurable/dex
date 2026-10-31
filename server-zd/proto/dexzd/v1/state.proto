@@ -143,6 +143,8 @@ message RunRecord {
   int64 last_pruned_semantic_timestamp_micros = 55;
   // Set while a natural close waits for the Attribute Sync outbox; the status stays RUNNING.
   PendingFlowClose pending_close = 56;
+  // Largest event ID deleted by window pruning; 1 means none deleted, 0 means unknown and reads scan.
+  int64 max_pruned_event_id = 57;
 }
 
 // A natural close waiting for the run's Attribute Sync outbox; its Steps are canceled already.
@@ -190,6 +192,8 @@ message HistoryRowMetadata {
   bool is_external_input = 3;
   uint32 attempt = 4;
   int64 timestamp_micros = 5;
+  // Run's newest event ID when this record was written; zero for checkpoints and older rows.
+  int64 last_assigned_event_id = 6;
 }
 
 // Row of RunTable::AttemptRecord, keyed by attempt (4 bytes big-endian).
@@ -285,6 +289,12 @@ message StepExecutionRecord {
   dex.RecoveryErrorInfo recovery_error = 17;
   // Timer indexes skipped through SkipTimer, retained through Execute.
   repeated uint32 skipped_timer_indexes = 18;
+  // Event ID of the history event that started this execution; zero when none or in older rows.
+  int64 from_event_id = 19;
+  // Event ID of the StepWaitForCompleted event; zero before it and in older rows.
+  int64 wait_for_completed_event_id = 20;
+  // Event time of the StepWaitForCompleted event in microseconds; zero whenever field 20 is zero.
+  int64 wait_for_completed_at_micros = 21;
 }
 
 // Phase of one logical method call.

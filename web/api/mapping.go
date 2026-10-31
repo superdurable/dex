@@ -59,6 +59,30 @@ func mapStreamMessage(message *dexpb.StreamMessage) streamMessage {
 	}
 }
 
+func mapHistoryPage(response *dexpb.GetHistoryEventsResponse) (historyPage, error) {
+	events := make([]historyEvent, 0, len(response.GetEvents()))
+	for _, event := range response.GetEvents() {
+		mapped, err := mapHistoryEvent(event)
+		if err != nil {
+			return historyPage{}, err
+		}
+		events = append(events, mapped)
+	}
+	var prunedEventIDRange *historyEventIDRange
+	if pruned := response.GetPrunedEventIdRange(); pruned != nil {
+		prunedEventIDRange = &historyEventIDRange{
+			StartEventID: pruned.GetStartEventId(),
+			EndEventID:   pruned.GetEndEventId(),
+		}
+	}
+	return historyPage{
+		Events:              events,
+		NextPageToken:       base64.StdEncoding.EncodeToString(response.GetNextPageToken()),
+		NextInternalEventID: response.GetNextInternalEventId(),
+		PrunedEventIDRange:  prunedEventIDRange,
+	}, nil
+}
+
 func mapHistoryEvent(event *dexpb.FlowHistoryEvent) (historyEvent, error) {
 	var (
 		eventType string

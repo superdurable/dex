@@ -2743,6 +2743,7 @@ fn history_pages_a_full_flow_and_allocates_pending_ids_at_close() {
                         total_duration_seconds: 14_400,
                     }),
                 }),
+                from_event_id: 1,
                 ..StepMethodEventContext::default()
             })
         );
@@ -2799,6 +2800,7 @@ fn completed_method_contexts_include_effective_options_and_timing() {
         pull_routing: Some(wait_for_routing.clone()),
         ..StepMethodCompletedCommand::default()
     }));
+    let wait_for_completed_at = harness.now_micros;
     harness.start_attempt(StepMethod::Execute);
     let execute_started_at = harness.now_micros;
     let execute_routing = PullRouting {
@@ -2862,9 +2864,11 @@ fn completed_method_contexts_include_effective_options_and_timing() {
                 }),
             }),
             pull_routing: Some(wait_for_routing),
+            from_event_id: 1,
             ..StepMethodEventContext::default()
         })
     );
+    assert_eq!(events[1].event_id, 2);
     let Some(flow_history_event::Payload::StepExecuteCompleted(execute)) = &events[2].payload
     else {
         panic!("Execute completion event exists");
@@ -2894,6 +2898,9 @@ fn completed_method_contexts_include_effective_options_and_timing() {
                 }),
             }),
             pull_routing: Some(execute_routing),
+            from_event_id: 1,
+            wait_for_completed_event_id: 2,
+            wait_for_completed_time: Some(test_timestamp(wait_for_completed_at)),
             ..StepMethodEventContext::default()
         })
     );

@@ -11,12 +11,30 @@ public interface WaitForHistoryEventResponseOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
+   * <pre>
+   * True when the run has an event whose ID is next_internal_event_id or
+   * larger. False when the run closed before it recorded such an event.
+   * </pre>
+   *
    * <code>bool event_available = 1;</code>
    * @return The eventAvailable.
    */
   boolean getEventAvailable();
 
   /**
+   * <pre>
+   * The ID of the newest history event of the run when the call returned.
+   *
+   * It is not the first event at or after next_internal_event_id: it is the
+   * last event the run has recorded. Use it to find the newest history page,
+   * for example by calling with next_internal_event_id set to 1. The newest
+   * event always belongs to the current run attempt. A GetHistoryEvents read of
+   * an older run attempt can end before this ID.
+   *
+   * It is set when event_available is false too. Then it is the ID of the last
+   * event of the closed run.
+   * </pre>
+   *
    * <code>int64 available_internal_event_id = 2;</code>
    * @return The availableInternalEventId.
    */

@@ -1055,14 +1055,24 @@ class GetHistoryEventsRequest(_message.Message):
     def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., start_internal_event_id: _Optional[int] = ..., estimate_page_size: _Optional[int] = ..., next_page_token: _Optional[bytes] = ..., run_attempt: _Optional[int] = ...) -> None: ...
 
 class GetHistoryEventsResponse(_message.Message):
-    __slots__ = ("events", "next_page_token", "next_internal_event_id")
+    __slots__ = ("events", "next_page_token", "next_internal_event_id", "pruned_event_id_range")
     EVENTS_FIELD_NUMBER: _ClassVar[int]
     NEXT_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
     NEXT_INTERNAL_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
+    PRUNED_EVENT_ID_RANGE_FIELD_NUMBER: _ClassVar[int]
     events: _containers.RepeatedCompositeFieldContainer[FlowHistoryEvent]
     next_page_token: bytes
     next_internal_event_id: int
-    def __init__(self, events: _Optional[_Iterable[_Union[FlowHistoryEvent, _Mapping]]] = ..., next_page_token: _Optional[bytes] = ..., next_internal_event_id: _Optional[int] = ...) -> None: ...
+    pruned_event_id_range: HistoryEventIDRange
+    def __init__(self, events: _Optional[_Iterable[_Union[FlowHistoryEvent, _Mapping]]] = ..., next_page_token: _Optional[bytes] = ..., next_internal_event_id: _Optional[int] = ..., pruned_event_id_range: _Optional[_Union[HistoryEventIDRange, _Mapping]] = ...) -> None: ...
+
+class HistoryEventIDRange(_message.Message):
+    __slots__ = ("start_event_id", "end_event_id")
+    START_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
+    END_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
+    start_event_id: int
+    end_event_id: int
+    def __init__(self, start_event_id: _Optional[int] = ..., end_event_id: _Optional[int] = ...) -> None: ...
 
 class FlowHistoryEvent(_message.Message):
     __slots__ = ("event_id", "event_time", "run_attempt", "flow_started_or_continued", "flow_closed", "step_wait_for_completed", "step_wait_for_failed", "step_execute_completed", "step_execute_failed", "rpc_execution_completed", "channel_external_publish", "step_wait_for_pending", "step_execute_pending", "time_travel_fork", "channel_external_delete")
@@ -1240,7 +1250,7 @@ class PullRouting(_message.Message):
     def __init__(self, sticky_app_worker_id: _Optional[str] = ..., served_by_app_worker_id: _Optional[str] = ..., source: _Optional[_Union[PullRoutingSource, str]] = ...) -> None: ...
 
 class StepMethodEventContext(_message.Message):
-    __slots__ = ("step_execution_id", "from_step_execution_id", "step_type", "durability", "final_attempt", "started_time", "duration", "method_options", "last_failure_info", "pull_routing")
+    __slots__ = ("step_execution_id", "from_step_execution_id", "step_type", "durability", "final_attempt", "started_time", "duration", "method_options", "last_failure_info", "pull_routing", "from_event_id", "wait_for_completed_event_id", "wait_for_completed_time")
     STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     FROM_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -1251,6 +1261,9 @@ class StepMethodEventContext(_message.Message):
     METHOD_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     LAST_FAILURE_INFO_FIELD_NUMBER: _ClassVar[int]
     PULL_ROUTING_FIELD_NUMBER: _ClassVar[int]
+    FROM_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
+    WAIT_FOR_COMPLETED_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
+    WAIT_FOR_COMPLETED_TIME_FIELD_NUMBER: _ClassVar[int]
     step_execution_id: str
     from_step_execution_id: str
     step_type: str
@@ -1261,7 +1274,10 @@ class StepMethodEventContext(_message.Message):
     method_options: StepMethodOptions
     last_failure_info: StepMethodFailure
     pull_routing: PullRouting
-    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., durability: _Optional[_Union[StepDurability, str]] = ..., final_attempt: _Optional[int] = ..., started_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., duration: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ..., pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ...) -> None: ...
+    from_event_id: int
+    wait_for_completed_event_id: int
+    wait_for_completed_time: _timestamp_pb2.Timestamp
+    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., durability: _Optional[_Union[StepDurability, str]] = ..., final_attempt: _Optional[int] = ..., started_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., duration: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ..., pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ..., from_event_id: _Optional[int] = ..., wait_for_completed_event_id: _Optional[int] = ..., wait_for_completed_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
 class StepWaitForCompletedOutput(_message.Message):
     __slots__ = ("wait_for_condition", "upsert_attributes", "publish_to_channel", "record_events", "upsert_step_execution_locals", "delete_from_channel")

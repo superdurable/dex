@@ -35,6 +35,16 @@ public interface WaitForHistoryEventRequestOrBuilder extends
       getRunIdBytes();
 
   /**
+   * <pre>
+   * The first history event ID that the caller has not read. It must be
+   * positive.
+   *
+   * The call returns at once when the run already has an event with this ID or
+   * a larger one. Otherwise it waits until the run records such an event or
+   * closes. When the Server's long poll wait ends first, the call fails with
+   * DEADLINE_EXCEEDED and LONG_POLL_TIME_OUT; call it again to keep waiting.
+   * </pre>
+   *
    * <code>int64 next_internal_event_id = 3;</code>
    * @return The nextInternalEventId.
    */

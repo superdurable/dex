@@ -40,6 +40,7 @@ use crate::history::state_rebuild::rebuild_attempt_state;
 use crate::projections::attribute_sync::{
     has_attribute_store_names, mark_attribute_sync_entries, pending_attribute_sync_keys,
 };
+use crate::projections::history_event_links::PendingHistoryEvents;
 use crate::state_access::{FlowTransaction, read_flow_directory};
 use crate::steps::{
     arm_timer, configured_method_timeout_seconds, disarm_timer, invocation_retry_deadline_micros,
@@ -202,9 +203,7 @@ pub(crate) fn apply_time_travel(
             target_event_id: target.last_event_id,
         },
     ));
-    for event in reapplied_events {
-        cursor.add_event(event);
-    }
+    cursor.append_events(reapplied_events);
     if let Some((closing, is_closed_at_once)) = restored_closing {
         close_restored_attempt(transaction, &mut cursor, scope, closing, is_closed_at_once)?;
     } else {
@@ -604,8 +603,8 @@ fn reapply_external_inputs(
     scope: &CommandScope<'_>,
     inputs: &[FlowCommand],
     has_pending_remarks: bool,
-) -> Result<Vec<flow_history_event::Payload>, ApplyError> {
-    let mut events = Vec::new();
+) -> Result<PendingHistoryEvents, ApplyError> {
+    let mut events = PendingHistoryEvents::default();
     if inputs.is_empty() {
         return Ok(events);
     }
@@ -673,7 +672,7 @@ fn reapply_external_inputs(
             });
         };
         counters = replayed.counters;
-        events.extend(replayed.events);
+        events.append(replayed.events);
         keep_fork_effects(cursor, output.effects);
     }
     cursor.record = required_run_record(transaction, cursor)?;

@@ -29,6 +29,7 @@ use crate::command_handlers::command_replies::{error_reply, grpc_code, ok_reply}
 use crate::command_handlers::flow_close::{FlowClosing, close_flow};
 use crate::command_handlers::flow_data::{FlowDataRejection, PermissionRebuildUnavailable};
 use crate::command_handlers::run_cursor::RunCursor;
+use crate::projections::history_event_links::StepEventLink;
 use crate::projections::history_events;
 use crate::state_access::FlowTransaction;
 use crate::steps::attempt_snapshot::compute_attempt_snapshot;
@@ -257,17 +258,19 @@ pub(crate) fn apply_attempt_failed(
         worker_error.retry_after_seconds,
         command.is_non_retryable,
     );
-    if decision == RetryDecision::Exhausted {
+    let failed_event = if decision == RetryDecision::Exhausted {
         // Recorded before the attempt ends so the event keeps the final attempt snapshot.
-        history_events::record_method_failed(
+        Some(history_events::record_method_failed(
             transaction,
             cursor,
             &step,
             method,
             &failure,
             scope.now_micros,
-        )?;
-    }
+        )?)
+    } else {
+        None
+    };
     let end = match decision {
         RetryDecision::RetryAt { .. } => InvocationEnd::Retry,
         RetryDecision::Exhausted => InvocationEnd::Finished,
@@ -336,6 +339,12 @@ pub(crate) fn apply_attempt_failed(
                 let step_execution_id =
                     create_step_execution(transaction, cursor, scope.now_micros, &new_step)?
                         .expect("recovery Step has no untrusted input");
+                if let Some(failed_event) = failed_event {
+                    cursor.link_step_event(
+                        failed_event,
+                        StepEventLink::StartedStepExecution(step_execution_id.clone()),
+                    );
+                }
                 let mut recovery_step = cursor
                     .rows
                     .step_execution(transaction, &step_execution_id)?
@@ -748,7 +757,16 @@ pub(crate) fn apply_method_completed(
     if !command.app_worker_id.is_empty() {
         cursor.record.sticky_app_worker_id = command.app_worker_id.clone();
     }
-    history_events::record_method_completed(transaction, cursor, &step, command, scope.now_micros)?;
+    let completed_event = history_events::record_method_completed(
+        transaction,
+        cursor,
+        &step,
+        command,
+        scope.now_micros,
+    )?
+    .ok_or_else(|| ApplyError::InvariantViolation {
+        detail: "a matched Step method result recorded no event".to_owned(),
+    })?;
     end_running_attempt(transaction, cursor, &mut step, InvocationEnd::Finished)?;
     if let Some(invocation) = step.invocation.as_mut()
         && let Some(checkpoint) = invocation.heartbeat_checkpoint.take()
@@ -780,6 +798,10 @@ pub(crate) fn apply_method_completed(
                 return Ok(rejection.into());
             }
             step.wait_for_pull_routing = command.pull_routing.clone();
+            cursor.link_step_event(
+                completed_event,
+                StepEventLink::CompletedWaitFor(step.step_execution_id.clone()),
+            );
             wait_conditions::register_wait(
                 transaction,
                 cursor,
@@ -812,6 +834,7 @@ pub(crate) fn apply_method_completed(
                 scope,
                 &mut step,
                 response.step_decision.as_ref(),
+                completed_event,
             )?
         }
     };

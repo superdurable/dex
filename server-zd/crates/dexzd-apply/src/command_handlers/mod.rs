@@ -24,7 +24,7 @@ pub(crate) use command_scope::{
     CloseBarrierSource, CommandScope, HandlerOutput, ReplayedCommandCounters, ReplayedCommandOutput,
 };
 
-use dexzd_protocol::dex::ErrorSubStatus;
+use dexzd_protocol::dex::{ErrorSubStatus, FlowHistoryEvent};
 use dexzd_protocol::dexzd::v1::flow_command::Command;
 use dexzd_protocol::dexzd::v1::{
     CommandReply, FlowCommand, StepAttemptFailedCommand, StepAttemptFailureKind,
@@ -71,10 +71,12 @@ pub(crate) fn apply_replayed_command(
     command: &FlowCommand,
     behavior_version: BehaviorVersion,
     has_flow_closed: bool,
+    recorded_events: &[FlowHistoryEvent],
 ) -> Result<Result<Vec<crate::StateWrite>, CommandReply>, ApplyError> {
     let mut scope = CommandScope::new(command, behavior_version);
     scope.is_replay = true;
     scope.close_barrier_source = CloseBarrierSource::RecordedHistory { has_flow_closed };
+    scope.recorded_events = recorded_events;
     let (outcome, disposition) = apply_in_scope(context, state, &scope)?;
     match disposition {
         CommandDisposition::Applied => Ok(Ok(outcome.writes)),
@@ -140,6 +142,7 @@ fn apply_in_scope(
                             CommandScope::new(&recorded_failure, behavior_version);
                         failure_scope.is_replay = scope.is_replay;
                         failure_scope.close_barrier_source = scope.close_barrier_source;
+                        failure_scope.recorded_events = scope.recorded_events;
                         let cursor = match with_run(&transaction, &failure_scope)? {
                             Ok(cursor) => cursor,
                             Err(reply) => {
@@ -210,6 +213,7 @@ fn apply_in_scope(
                             CommandScope::new(&failure_command, behavior_version);
                         failure_scope.is_replay = scope.is_replay;
                         failure_scope.close_barrier_source = scope.close_barrier_source;
+                        failure_scope.recorded_events = scope.recorded_events;
                         return apply_in_scope(context, state, &failure_scope);
                     }
                     return Ok((

@@ -329,6 +329,139 @@ private static final long serialVersionUID = 0L;
     return pullRouting_ == null ? io.superdurable.gen.PullRouting.getDefaultInstance() : pullRouting_;
   }
 
+  public static final int FROM_EVENT_ID_FIELD_NUMBER = 11;
+  private long fromEventId_ = 0L;
+  /**
+   * <pre>
+   * The event ID of the history event that started this Step execution.
+   *
+   * The event depends on what started the Step execution:
+   * - The start Step: the FlowStartedOrContinued event.
+   * - A Step decision: the StepExecuteCompleted event of
+   * from_step_execution_id.
+   * - A failure recovery Step: the StepExecuteFailed event of
+   * from_step_execution_id.
+   * - An RPC Step decision: the RpcExecutionCompleted event.
+   * Every event of the Step execution carries the same value.
+   *
+   * Use it to link a Step execution to its source without scanning history.
+   * The event can be on another history page. It can also belong to an earlier
+   * run attempt of the lineage after time travel. When the ID is inside
+   * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+   * the event.
+   *
+   * Zero when no history event started the Step execution, such as for the Flow
+   * timeout handler. Zero also for events that a Server recorded before it
+   * reported this field. Then find the source through from_step_execution_id.
+   * </pre>
+   *
+   * <code>int64 from_event_id = 11;</code>
+   * @return The fromEventId.
+   */
+  @java.lang.Override
+  public long getFromEventId() {
+    return fromEventId_;
+  }
+
+  public static final int WAIT_FOR_COMPLETED_EVENT_ID_FIELD_NUMBER = 12;
+  private long waitForCompletedEventId_ = 0L;
+  /**
+   * <pre>
+   * The event ID of the StepWaitForCompleted event of this Step execution.
+   *
+   * It is set only on Execute events: StepExecuteCompleted, StepExecuteFailed,
+   * and StepExecutePending. The Step's WaitFor must have completed. Use it to
+   * link Execute to the WaitFor that registered its waiting conditions. The
+   * event can be on another history page, or in an earlier run attempt of the
+   * lineage after time travel. When the ID is inside
+   * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+   * the event.
+   *
+   * Zero on WaitFor events. Zero also when the Step skipped WaitFor, or when
+   * WaitFor failed and the Step proceeded to Execute. Zero also for events that
+   * a Server recorded before it reported this field. Then find the WaitFor event
+   * through step_execution_id.
+   * </pre>
+   *
+   * <code>int64 wait_for_completed_event_id = 12;</code>
+   * @return The waitForCompletedEventId.
+   */
+  @java.lang.Override
+  public long getWaitForCompletedEventId() {
+    return waitForCompletedEventId_;
+  }
+
+  public static final int WAIT_FOR_COMPLETED_TIME_FIELD_NUMBER = 13;
+  private com.google.protobuf.Timestamp waitForCompletedTime_;
+  /**
+   * <pre>
+   * The event time of the StepWaitForCompleted event that
+   * wait_for_completed_event_id names.
+   *
+   * It stays available after the history window removes that event. The time
+   * from it to started_time is not only the condition wait. started_time is the
+   * start of the attempt that this event reports, so the difference also
+   * includes Execute dispatch and lock waits, and every earlier failed Execute
+   * attempt with its retry backoff. On a StepExecutePending event in the
+   * SCHEDULED phase whose Execute never started an attempt, started_time is
+   * when Execute was first scheduled, not an attempt start.
+   *
+   * Unset whenever wait_for_completed_event_id is zero.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+   * @return Whether the waitForCompletedTime field is set.
+   */
+  @java.lang.Override
+  public boolean hasWaitForCompletedTime() {
+    return ((bitField0_ & 0x00000020) != 0);
+  }
+  /**
+   * <pre>
+   * The event time of the StepWaitForCompleted event that
+   * wait_for_completed_event_id names.
+   *
+   * It stays available after the history window removes that event. The time
+   * from it to started_time is not only the condition wait. started_time is the
+   * start of the attempt that this event reports, so the difference also
+   * includes Execute dispatch and lock waits, and every earlier failed Execute
+   * attempt with its retry backoff. On a StepExecutePending event in the
+   * SCHEDULED phase whose Execute never started an attempt, started_time is
+   * when Execute was first scheduled, not an attempt start.
+   *
+   * Unset whenever wait_for_completed_event_id is zero.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+   * @return The waitForCompletedTime.
+   */
+  @java.lang.Override
+  public com.google.protobuf.Timestamp getWaitForCompletedTime() {
+    return waitForCompletedTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : waitForCompletedTime_;
+  }
+  /**
+   * <pre>
+   * The event time of the StepWaitForCompleted event that
+   * wait_for_completed_event_id names.
+   *
+   * It stays available after the history window removes that event. The time
+   * from it to started_time is not only the condition wait. started_time is the
+   * start of the attempt that this event reports, so the difference also
+   * includes Execute dispatch and lock waits, and every earlier failed Execute
+   * attempt with its retry backoff. On a StepExecutePending event in the
+   * SCHEDULED phase whose Execute never started an attempt, started_time is
+   * when Execute was first scheduled, not an attempt start.
+   *
+   * Unset whenever wait_for_completed_event_id is zero.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.TimestampOrBuilder getWaitForCompletedTimeOrBuilder() {
+    return waitForCompletedTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : waitForCompletedTime_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -373,6 +506,15 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000010) != 0)) {
       output.writeMessage(10, getPullRouting());
     }
+    if (fromEventId_ != 0L) {
+      output.writeInt64(11, fromEventId_);
+    }
+    if (waitForCompletedEventId_ != 0L) {
+      output.writeInt64(12, waitForCompletedEventId_);
+    }
+    if (((bitField0_ & 0x00000020) != 0)) {
+      output.writeMessage(13, getWaitForCompletedTime());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -413,6 +555,18 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000010) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(10, getPullRouting());
+    }
+    if (fromEventId_ != 0L) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeInt64Size(11, fromEventId_);
+    }
+    if (waitForCompletedEventId_ != 0L) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeInt64Size(12, waitForCompletedEventId_);
+    }
+    if (((bitField0_ & 0x00000020) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(13, getWaitForCompletedTime());
     }
     return size;
   }
@@ -472,6 +626,15 @@ private static final long serialVersionUID = 0L;
       if (!getPullRouting()
           .equals(other.getPullRouting())) return false;
     }
+    if (getFromEventId()
+        != other.getFromEventId()) return false;
+    if (getWaitForCompletedEventId()
+        != other.getWaitForCompletedEventId()) return false;
+    if (hasWaitForCompletedTime() != other.hasWaitForCompletedTime()) return false;
+    if (hasWaitForCompletedTime()) {
+      if (!getWaitForCompletedTime()
+          .equals(other.getWaitForCompletedTime())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -512,6 +675,16 @@ private static final long serialVersionUID = 0L;
     if (hasPullRouting()) {
       hash = (37 * hash) + PULL_ROUTING_FIELD_NUMBER;
       hash = (53 * hash) + getPullRouting().hashCode();
+    }
+    hash = (37 * hash) + FROM_EVENT_ID_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+        getFromEventId());
+    hash = (37 * hash) + WAIT_FOR_COMPLETED_EVENT_ID_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+        getWaitForCompletedEventId());
+    if (hasWaitForCompletedTime()) {
+      hash = (37 * hash) + WAIT_FOR_COMPLETED_TIME_FIELD_NUMBER;
+      hash = (53 * hash) + getWaitForCompletedTime().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -648,6 +821,7 @@ private static final long serialVersionUID = 0L;
         internalGetMethodOptionsFieldBuilder();
         internalGetLastFailureInfoFieldBuilder();
         internalGetPullRoutingFieldBuilder();
+        internalGetWaitForCompletedTimeFieldBuilder();
       }
     }
     @java.lang.Override
@@ -683,6 +857,13 @@ private static final long serialVersionUID = 0L;
       if (pullRoutingBuilder_ != null) {
         pullRoutingBuilder_.dispose();
         pullRoutingBuilder_ = null;
+      }
+      fromEventId_ = 0L;
+      waitForCompletedEventId_ = 0L;
+      waitForCompletedTime_ = null;
+      if (waitForCompletedTimeBuilder_ != null) {
+        waitForCompletedTimeBuilder_.dispose();
+        waitForCompletedTimeBuilder_ = null;
       }
       return this;
     }
@@ -763,6 +944,18 @@ private static final long serialVersionUID = 0L;
             : pullRoutingBuilder_.build();
         to_bitField0_ |= 0x00000010;
       }
+      if (((from_bitField0_ & 0x00000400) != 0)) {
+        result.fromEventId_ = fromEventId_;
+      }
+      if (((from_bitField0_ & 0x00000800) != 0)) {
+        result.waitForCompletedEventId_ = waitForCompletedEventId_;
+      }
+      if (((from_bitField0_ & 0x00001000) != 0)) {
+        result.waitForCompletedTime_ = waitForCompletedTimeBuilder_ == null
+            ? waitForCompletedTime_
+            : waitForCompletedTimeBuilder_.build();
+        to_bitField0_ |= 0x00000020;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -813,6 +1006,15 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasPullRouting()) {
         mergePullRouting(other.getPullRouting());
+      }
+      if (other.getFromEventId() != 0L) {
+        setFromEventId(other.getFromEventId());
+      }
+      if (other.getWaitForCompletedEventId() != 0L) {
+        setWaitForCompletedEventId(other.getWaitForCompletedEventId());
+      }
+      if (other.hasWaitForCompletedTime()) {
+        mergeWaitForCompletedTime(other.getWaitForCompletedTime());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -900,6 +1102,23 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000200;
               break;
             } // case 82
+            case 88: {
+              fromEventId_ = input.readInt64();
+              bitField0_ |= 0x00000400;
+              break;
+            } // case 88
+            case 96: {
+              waitForCompletedEventId_ = input.readInt64();
+              bitField0_ |= 0x00000800;
+              break;
+            } // case 96
+            case 106: {
+              input.readMessage(
+                  internalGetWaitForCompletedTimeFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00001000;
+              break;
+            } // case 106
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1820,6 +2039,446 @@ private static final long serialVersionUID = 0L;
         pullRouting_ = null;
       }
       return pullRoutingBuilder_;
+    }
+
+    private long fromEventId_ ;
+    /**
+     * <pre>
+     * The event ID of the history event that started this Step execution.
+     *
+     * The event depends on what started the Step execution:
+     * - The start Step: the FlowStartedOrContinued event.
+     * - A Step decision: the StepExecuteCompleted event of
+     * from_step_execution_id.
+     * - A failure recovery Step: the StepExecuteFailed event of
+     * from_step_execution_id.
+     * - An RPC Step decision: the RpcExecutionCompleted event.
+     * Every event of the Step execution carries the same value.
+     *
+     * Use it to link a Step execution to its source without scanning history.
+     * The event can be on another history page. It can also belong to an earlier
+     * run attempt of the lineage after time travel. When the ID is inside
+     * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+     * the event.
+     *
+     * Zero when no history event started the Step execution, such as for the Flow
+     * timeout handler. Zero also for events that a Server recorded before it
+     * reported this field. Then find the source through from_step_execution_id.
+     * </pre>
+     *
+     * <code>int64 from_event_id = 11;</code>
+     * @return The fromEventId.
+     */
+    @java.lang.Override
+    public long getFromEventId() {
+      return fromEventId_;
+    }
+    /**
+     * <pre>
+     * The event ID of the history event that started this Step execution.
+     *
+     * The event depends on what started the Step execution:
+     * - The start Step: the FlowStartedOrContinued event.
+     * - A Step decision: the StepExecuteCompleted event of
+     * from_step_execution_id.
+     * - A failure recovery Step: the StepExecuteFailed event of
+     * from_step_execution_id.
+     * - An RPC Step decision: the RpcExecutionCompleted event.
+     * Every event of the Step execution carries the same value.
+     *
+     * Use it to link a Step execution to its source without scanning history.
+     * The event can be on another history page. It can also belong to an earlier
+     * run attempt of the lineage after time travel. When the ID is inside
+     * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+     * the event.
+     *
+     * Zero when no history event started the Step execution, such as for the Flow
+     * timeout handler. Zero also for events that a Server recorded before it
+     * reported this field. Then find the source through from_step_execution_id.
+     * </pre>
+     *
+     * <code>int64 from_event_id = 11;</code>
+     * @param value The fromEventId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFromEventId(long value) {
+
+      fromEventId_ = value;
+      bitField0_ |= 0x00000400;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The event ID of the history event that started this Step execution.
+     *
+     * The event depends on what started the Step execution:
+     * - The start Step: the FlowStartedOrContinued event.
+     * - A Step decision: the StepExecuteCompleted event of
+     * from_step_execution_id.
+     * - A failure recovery Step: the StepExecuteFailed event of
+     * from_step_execution_id.
+     * - An RPC Step decision: the RpcExecutionCompleted event.
+     * Every event of the Step execution carries the same value.
+     *
+     * Use it to link a Step execution to its source without scanning history.
+     * The event can be on another history page. It can also belong to an earlier
+     * run attempt of the lineage after time travel. When the ID is inside
+     * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+     * the event.
+     *
+     * Zero when no history event started the Step execution, such as for the Flow
+     * timeout handler. Zero also for events that a Server recorded before it
+     * reported this field. Then find the source through from_step_execution_id.
+     * </pre>
+     *
+     * <code>int64 from_event_id = 11;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFromEventId() {
+      bitField0_ = (bitField0_ & ~0x00000400);
+      fromEventId_ = 0L;
+      onChanged();
+      return this;
+    }
+
+    private long waitForCompletedEventId_ ;
+    /**
+     * <pre>
+     * The event ID of the StepWaitForCompleted event of this Step execution.
+     *
+     * It is set only on Execute events: StepExecuteCompleted, StepExecuteFailed,
+     * and StepExecutePending. The Step's WaitFor must have completed. Use it to
+     * link Execute to the WaitFor that registered its waiting conditions. The
+     * event can be on another history page, or in an earlier run attempt of the
+     * lineage after time travel. When the ID is inside
+     * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+     * the event.
+     *
+     * Zero on WaitFor events. Zero also when the Step skipped WaitFor, or when
+     * WaitFor failed and the Step proceeded to Execute. Zero also for events that
+     * a Server recorded before it reported this field. Then find the WaitFor event
+     * through step_execution_id.
+     * </pre>
+     *
+     * <code>int64 wait_for_completed_event_id = 12;</code>
+     * @return The waitForCompletedEventId.
+     */
+    @java.lang.Override
+    public long getWaitForCompletedEventId() {
+      return waitForCompletedEventId_;
+    }
+    /**
+     * <pre>
+     * The event ID of the StepWaitForCompleted event of this Step execution.
+     *
+     * It is set only on Execute events: StepExecuteCompleted, StepExecuteFailed,
+     * and StepExecutePending. The Step's WaitFor must have completed. Use it to
+     * link Execute to the WaitFor that registered its waiting conditions. The
+     * event can be on another history page, or in an earlier run attempt of the
+     * lineage after time travel. When the ID is inside
+     * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+     * the event.
+     *
+     * Zero on WaitFor events. Zero also when the Step skipped WaitFor, or when
+     * WaitFor failed and the Step proceeded to Execute. Zero also for events that
+     * a Server recorded before it reported this field. Then find the WaitFor event
+     * through step_execution_id.
+     * </pre>
+     *
+     * <code>int64 wait_for_completed_event_id = 12;</code>
+     * @param value The waitForCompletedEventId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setWaitForCompletedEventId(long value) {
+
+      waitForCompletedEventId_ = value;
+      bitField0_ |= 0x00000800;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The event ID of the StepWaitForCompleted event of this Step execution.
+     *
+     * It is set only on Execute events: StepExecuteCompleted, StepExecuteFailed,
+     * and StepExecutePending. The Step's WaitFor must have completed. Use it to
+     * link Execute to the WaitFor that registered its waiting conditions. The
+     * event can be on another history page, or in an earlier run attempt of the
+     * lineage after time travel. When the ID is inside
+     * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+     * the event.
+     *
+     * Zero on WaitFor events. Zero also when the Step skipped WaitFor, or when
+     * WaitFor failed and the Step proceeded to Execute. Zero also for events that
+     * a Server recorded before it reported this field. Then find the WaitFor event
+     * through step_execution_id.
+     * </pre>
+     *
+     * <code>int64 wait_for_completed_event_id = 12;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearWaitForCompletedEventId() {
+      bitField0_ = (bitField0_ & ~0x00000800);
+      waitForCompletedEventId_ = 0L;
+      onChanged();
+      return this;
+    }
+
+    private com.google.protobuf.Timestamp waitForCompletedTime_;
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder> waitForCompletedTimeBuilder_;
+    /**
+     * <pre>
+     * The event time of the StepWaitForCompleted event that
+     * wait_for_completed_event_id names.
+     *
+     * It stays available after the history window removes that event. The time
+     * from it to started_time is not only the condition wait. started_time is the
+     * start of the attempt that this event reports, so the difference also
+     * includes Execute dispatch and lock waits, and every earlier failed Execute
+     * attempt with its retry backoff. On a StepExecutePending event in the
+     * SCHEDULED phase whose Execute never started an attempt, started_time is
+     * when Execute was first scheduled, not an attempt start.
+     *
+     * Unset whenever wait_for_completed_event_id is zero.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+     * @return Whether the waitForCompletedTime field is set.
+     */
+    public boolean hasWaitForCompletedTime() {
+      return ((bitField0_ & 0x00001000) != 0);
+    }
+    /**
+     * <pre>
+     * The event time of the StepWaitForCompleted event that
+     * wait_for_completed_event_id names.
+     *
+     * It stays available after the history window removes that event. The time
+     * from it to started_time is not only the condition wait. started_time is the
+     * start of the attempt that this event reports, so the difference also
+     * includes Execute dispatch and lock waits, and every earlier failed Execute
+     * attempt with its retry backoff. On a StepExecutePending event in the
+     * SCHEDULED phase whose Execute never started an attempt, started_time is
+     * when Execute was first scheduled, not an attempt start.
+     *
+     * Unset whenever wait_for_completed_event_id is zero.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+     * @return The waitForCompletedTime.
+     */
+    public com.google.protobuf.Timestamp getWaitForCompletedTime() {
+      if (waitForCompletedTimeBuilder_ == null) {
+        return waitForCompletedTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : waitForCompletedTime_;
+      } else {
+        return waitForCompletedTimeBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * The event time of the StepWaitForCompleted event that
+     * wait_for_completed_event_id names.
+     *
+     * It stays available after the history window removes that event. The time
+     * from it to started_time is not only the condition wait. started_time is the
+     * start of the attempt that this event reports, so the difference also
+     * includes Execute dispatch and lock waits, and every earlier failed Execute
+     * attempt with its retry backoff. On a StepExecutePending event in the
+     * SCHEDULED phase whose Execute never started an attempt, started_time is
+     * when Execute was first scheduled, not an attempt start.
+     *
+     * Unset whenever wait_for_completed_event_id is zero.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+     */
+    public Builder setWaitForCompletedTime(com.google.protobuf.Timestamp value) {
+      if (waitForCompletedTimeBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        waitForCompletedTime_ = value;
+      } else {
+        waitForCompletedTimeBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00001000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The event time of the StepWaitForCompleted event that
+     * wait_for_completed_event_id names.
+     *
+     * It stays available after the history window removes that event. The time
+     * from it to started_time is not only the condition wait. started_time is the
+     * start of the attempt that this event reports, so the difference also
+     * includes Execute dispatch and lock waits, and every earlier failed Execute
+     * attempt with its retry backoff. On a StepExecutePending event in the
+     * SCHEDULED phase whose Execute never started an attempt, started_time is
+     * when Execute was first scheduled, not an attempt start.
+     *
+     * Unset whenever wait_for_completed_event_id is zero.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+     */
+    public Builder setWaitForCompletedTime(
+        com.google.protobuf.Timestamp.Builder builderForValue) {
+      if (waitForCompletedTimeBuilder_ == null) {
+        waitForCompletedTime_ = builderForValue.build();
+      } else {
+        waitForCompletedTimeBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00001000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The event time of the StepWaitForCompleted event that
+     * wait_for_completed_event_id names.
+     *
+     * It stays available after the history window removes that event. The time
+     * from it to started_time is not only the condition wait. started_time is the
+     * start of the attempt that this event reports, so the difference also
+     * includes Execute dispatch and lock waits, and every earlier failed Execute
+     * attempt with its retry backoff. On a StepExecutePending event in the
+     * SCHEDULED phase whose Execute never started an attempt, started_time is
+     * when Execute was first scheduled, not an attempt start.
+     *
+     * Unset whenever wait_for_completed_event_id is zero.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+     */
+    public Builder mergeWaitForCompletedTime(com.google.protobuf.Timestamp value) {
+      if (waitForCompletedTimeBuilder_ == null) {
+        if (((bitField0_ & 0x00001000) != 0) &&
+          waitForCompletedTime_ != null &&
+          waitForCompletedTime_ != com.google.protobuf.Timestamp.getDefaultInstance()) {
+          getWaitForCompletedTimeBuilder().mergeFrom(value);
+        } else {
+          waitForCompletedTime_ = value;
+        }
+      } else {
+        waitForCompletedTimeBuilder_.mergeFrom(value);
+      }
+      if (waitForCompletedTime_ != null) {
+        bitField0_ |= 0x00001000;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * The event time of the StepWaitForCompleted event that
+     * wait_for_completed_event_id names.
+     *
+     * It stays available after the history window removes that event. The time
+     * from it to started_time is not only the condition wait. started_time is the
+     * start of the attempt that this event reports, so the difference also
+     * includes Execute dispatch and lock waits, and every earlier failed Execute
+     * attempt with its retry backoff. On a StepExecutePending event in the
+     * SCHEDULED phase whose Execute never started an attempt, started_time is
+     * when Execute was first scheduled, not an attempt start.
+     *
+     * Unset whenever wait_for_completed_event_id is zero.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+     */
+    public Builder clearWaitForCompletedTime() {
+      bitField0_ = (bitField0_ & ~0x00001000);
+      waitForCompletedTime_ = null;
+      if (waitForCompletedTimeBuilder_ != null) {
+        waitForCompletedTimeBuilder_.dispose();
+        waitForCompletedTimeBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * The event time of the StepWaitForCompleted event that
+     * wait_for_completed_event_id names.
+     *
+     * It stays available after the history window removes that event. The time
+     * from it to started_time is not only the condition wait. started_time is the
+     * start of the attempt that this event reports, so the difference also
+     * includes Execute dispatch and lock waits, and every earlier failed Execute
+     * attempt with its retry backoff. On a StepExecutePending event in the
+     * SCHEDULED phase whose Execute never started an attempt, started_time is
+     * when Execute was first scheduled, not an attempt start.
+     *
+     * Unset whenever wait_for_completed_event_id is zero.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+     */
+    public com.google.protobuf.Timestamp.Builder getWaitForCompletedTimeBuilder() {
+      bitField0_ |= 0x00001000;
+      onChanged();
+      return internalGetWaitForCompletedTimeFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * The event time of the StepWaitForCompleted event that
+     * wait_for_completed_event_id names.
+     *
+     * It stays available after the history window removes that event. The time
+     * from it to started_time is not only the condition wait. started_time is the
+     * start of the attempt that this event reports, so the difference also
+     * includes Execute dispatch and lock waits, and every earlier failed Execute
+     * attempt with its retry backoff. On a StepExecutePending event in the
+     * SCHEDULED phase whose Execute never started an attempt, started_time is
+     * when Execute was first scheduled, not an attempt start.
+     *
+     * Unset whenever wait_for_completed_event_id is zero.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+     */
+    public com.google.protobuf.TimestampOrBuilder getWaitForCompletedTimeOrBuilder() {
+      if (waitForCompletedTimeBuilder_ != null) {
+        return waitForCompletedTimeBuilder_.getMessageOrBuilder();
+      } else {
+        return waitForCompletedTime_ == null ?
+            com.google.protobuf.Timestamp.getDefaultInstance() : waitForCompletedTime_;
+      }
+    }
+    /**
+     * <pre>
+     * The event time of the StepWaitForCompleted event that
+     * wait_for_completed_event_id names.
+     *
+     * It stays available after the history window removes that event. The time
+     * from it to started_time is not only the condition wait. started_time is the
+     * start of the attempt that this event reports, so the difference also
+     * includes Execute dispatch and lock waits, and every earlier failed Execute
+     * attempt with its retry backoff. On a StepExecutePending event in the
+     * SCHEDULED phase whose Execute never started an attempt, started_time is
+     * when Execute was first scheduled, not an attempt start.
+     *
+     * Unset whenever wait_for_completed_event_id is zero.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder> 
+        internalGetWaitForCompletedTimeFieldBuilder() {
+      if (waitForCompletedTimeBuilder_ == null) {
+        waitForCompletedTimeBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder>(
+                getWaitForCompletedTime(),
+                getParentForChildren(),
+                isClean());
+        waitForCompletedTime_ = null;
+      }
+      return waitForCompletedTimeBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StepMethodEventContext)

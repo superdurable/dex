@@ -521,6 +521,12 @@ History reads, such as **dexcli flow history --all**, return only the retained
 events. [Time travel](/primitives/client/advanced#time-travel) can target only
 a point inside the window. Time travel to the beginning is always available.
 
+Each history page also reports the range of event IDs that the window removed.
+Step method events record the event ID of the event that started their Step
+execution. Execute events also record the event ID of the Step's WaitFor
+completion. A client can use these IDs to tell a removed related event from one
+on another page.
+
 | Key | Default | Meaning |
 | --- | --- | --- |
 | **history.windowSemanticEvents** | 10000 | Approximate number of the newest semantic events kept in the window. Pruning starts when the window exceeds this value plus one prune chunk. A semantic event can appear as several CLI history rows. |

@@ -23,6 +23,7 @@ use dexzd_protocol::dexzd::v1::{
 
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::{RunCursor, timestamp};
+use crate::projections::history_event_links::HistoryEventIndex;
 use crate::state_access::FlowTransaction;
 use crate::steps::wait_conditions::wire_condition_results;
 use crate::steps::{
@@ -38,7 +39,7 @@ pub(crate) fn record_flow_started(
     cursor: &mut RunCursor,
     request: &dexzd_protocol::dex::StartFlowRequest,
     flow_config: &dexzd_protocol::dex::FlowConfig,
-) {
+) -> HistoryEventIndex {
     let options = request.flow_start_options.clone().unwrap_or_default();
     let initial_attributes = options
         .attributes
@@ -72,7 +73,7 @@ pub(crate) fn record_flow_started(
             ),
         ),
     };
-    cursor.add_event(flow_history_event::Payload::FlowStartedOrContinued(event));
+    cursor.add_event(flow_history_event::Payload::FlowStartedOrContinued(event))
 }
 
 pub(crate) fn record_flow_closed(
@@ -142,6 +143,8 @@ fn method_context(
         invocation.first_attempt_at_micros
     };
     let duration_micros = event_at_micros.saturating_sub(started_at_micros);
+    let has_wait_for_completed =
+        method == StepMethod::Execute && step.wait_for_completed_event_id > 0;
     StepMethodEventContext {
         step_execution_id: step.step_execution_id.clone(),
         from_step_execution_id: step.from_step_execution_id.clone(),
@@ -157,6 +160,14 @@ fn method_context(
         }),
         method_options: Some(effective_method_options(step, method)),
         last_failure_info: invocation.last_failure.clone(),
+        from_event_id: step.from_event_id,
+        wait_for_completed_event_id: if has_wait_for_completed {
+            step.wait_for_completed_event_id
+        } else {
+            0
+        },
+        wait_for_completed_time: has_wait_for_completed
+            .then(|| timestamp(step.wait_for_completed_at_micros)),
         ..StepMethodEventContext::default()
     }
 }
@@ -261,13 +272,15 @@ fn method_input(cursor: &RunCursor, step: &StepExecutionRecord) -> StepMethodEve
 
 /// Records `step_wait_for_completed` or `step_execute_completed` before the attempt ends, so
 /// the input is the attempt's snapshot.
+///
+/// Returns the recorded event, or `None` when the command carries no response.
 pub(crate) fn record_method_completed(
     transaction: &FlowTransaction<'_>,
     cursor: &mut RunCursor,
     step: &StepExecutionRecord,
     command: &StepMethodCompletedCommand,
     completed_at_micros: i64,
-) -> Result<(), ApplyError> {
+) -> Result<Option<HistoryEventIndex>, ApplyError> {
     let _ = transaction;
     let invocation = step
         .invocation
@@ -314,12 +327,12 @@ pub(crate) fn record_method_completed(
                 context: Some(context),
             })
         }
-        None => return Ok(()),
+        None => return Ok(None),
     };
-    cursor.add_event(payload);
-    Ok(())
+    Ok(Some(cursor.add_event(payload)))
 }
 
+/// Records `step_wait_for_failed` or `step_execute_failed` and returns the recorded event.
 pub(crate) fn record_method_failed(
     transaction: &FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -327,7 +340,7 @@ pub(crate) fn record_method_failed(
     method: StepMethod,
     failure: &StepMethodFailure,
     failed_at_micros: i64,
-) -> Result<(), ApplyError> {
+) -> Result<HistoryEventIndex, ApplyError> {
     let _ = transaction;
     let invocation = step
         .invocation
@@ -358,8 +371,7 @@ pub(crate) fn record_method_failed(
             })
         }
     };
-    cursor.add_event(payload);
-    Ok(())
+    Ok(cursor.add_event(payload))
 }
 
 /// Reply for a started run.

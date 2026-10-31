@@ -29,6 +29,7 @@ use crate::command_handlers::flow_data::{
 };
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor, flow_not_found_reply};
 use crate::command_handlers::{CommandScope, HandlerResult};
+use crate::projections::history_event_links::StepEventLink;
 use crate::state_access::FlowTransaction;
 use crate::steps::{
     NewStepExecution, cancel_steps_by_type, create_step_execution, wait_conditions,
@@ -119,6 +120,7 @@ pub(crate) fn apply_rpc_committed(
     )?;
     // InvokeRPC admits no transactional call during cleanup; earlier ones commit, as in Go.
     // As in the Go Server, an RPC result starts no Step during terminal cleanup.
+    let mut started_step_execution_ids = Vec::new();
     if let Some(decision) = response.step_decision.as_ref()
         && !is_terminal_cleanup_in_progress(&cursor)
     {
@@ -140,10 +142,9 @@ pub(crate) fn apply_rpc_committed(
                 from_step_execution_id: &source,
                 is_timeout_handler: false,
             };
-            if let Err(rejection) =
-                create_step_execution(transaction, &mut cursor, scope.now_micros, &new_step)?
-            {
-                return Ok(reject_value(rejection));
+            match create_step_execution(transaction, &mut cursor, scope.now_micros, &new_step)? {
+                Ok(step_execution_id) => started_step_execution_ids.push(step_execution_id),
+                Err(rejection) => return Ok(reject_value(rejection)),
             }
         }
     }
@@ -174,7 +175,7 @@ pub(crate) fn apply_rpc_committed(
     if let Err(rejection) = validate_ephemeral_response_values(transaction, &cursor, response)? {
         return Ok(reject_value(rejection));
     }
-    cursor.add_event(flow_history_event::Payload::RpcExecutionCompleted(
+    let rpc_event = cursor.add_event(flow_history_event::Payload::RpcExecutionCompleted(
         RpcExecutionCompletedEvent {
             rpc_name: request.rpc_name.clone(),
             input: if is_transactional {
@@ -196,6 +197,12 @@ pub(crate) fn apply_rpc_committed(
             ..RpcExecutionCompletedEvent::default()
         },
     ));
+    for step_execution_id in started_step_execution_ids {
+        cursor.link_step_event(
+            rpc_event,
+            StepEventLink::StartedStepExecution(step_execution_id),
+        );
+    }
     // The commit of an RPC admitted before cleanup may be the last thing a close waits for.
     finalize_pending_close_if_ready(transaction, &mut cursor, scope)?;
     let reply = CommandReply {

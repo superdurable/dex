@@ -444,6 +444,10 @@ History 读取（例如 **dexcli flow history --all**）只返回保留的事件
 [Time travel](/primitives/client/advanced#time-travel) 只能以窗口内的点为目标。Time travel
 到开头总是可用。
 
+每个 history 页面还会报告窗口清理掉的事件 ID 范围。Step method 事件会记录启动其 Step execution
+的事件 ID。Execute 事件还会记录该 Step 的
+WaitFor 完成事件 ID。客户端可以用这些 ID 区分已被清理的关联事件和位于其他页面的关联事件。
+
 | Key | 默认值 | 含义 |
 | --- | --- | --- |
 | **history.windowSemanticEvents** | 10000 | 窗口保留的最新 semantic event 的大致数量。窗口超过这个值加一个清理批次时才开始清理。一个 semantic event 可能显示为多行 CLI history。 |

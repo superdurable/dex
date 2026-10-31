@@ -131,6 +131,16 @@ private static final long serialVersionUID = 0L;
   public static final int NEXT_INTERNAL_EVENT_ID_FIELD_NUMBER = 3;
   private long nextInternalEventId_ = 0L;
   /**
+   * <pre>
+   * The first history event ID that the caller has not read. It must be
+   * positive.
+   *
+   * The call returns at once when the run already has an event with this ID or
+   * a larger one. Otherwise it waits until the run records such an event or
+   * closes. When the Server's long poll wait ends first, the call fails with
+   * DEADLINE_EXCEEDED and LONG_POLL_TIME_OUT; call it again to keep waiting.
+   * </pre>
+   *
    * <code>int64 next_internal_event_id = 3;</code>
    * @return The nextInternalEventId.
    */
@@ -631,6 +641,16 @@ private static final long serialVersionUID = 0L;
 
     private long nextInternalEventId_ ;
     /**
+     * <pre>
+     * The first history event ID that the caller has not read. It must be
+     * positive.
+     *
+     * The call returns at once when the run already has an event with this ID or
+     * a larger one. Otherwise it waits until the run records such an event or
+     * closes. When the Server's long poll wait ends first, the call fails with
+     * DEADLINE_EXCEEDED and LONG_POLL_TIME_OUT; call it again to keep waiting.
+     * </pre>
+     *
      * <code>int64 next_internal_event_id = 3;</code>
      * @return The nextInternalEventId.
      */
@@ -639,6 +659,16 @@ private static final long serialVersionUID = 0L;
       return nextInternalEventId_;
     }
     /**
+     * <pre>
+     * The first history event ID that the caller has not read. It must be
+     * positive.
+     *
+     * The call returns at once when the run already has an event with this ID or
+     * a larger one. Otherwise it waits until the run records such an event or
+     * closes. When the Server's long poll wait ends first, the call fails with
+     * DEADLINE_EXCEEDED and LONG_POLL_TIME_OUT; call it again to keep waiting.
+     * </pre>
+     *
      * <code>int64 next_internal_event_id = 3;</code>
      * @param value The nextInternalEventId to set.
      * @return This builder for chaining.
@@ -651,6 +681,16 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * The first history event ID that the caller has not read. It must be
+     * positive.
+     *
+     * The call returns at once when the run already has an event with this ID or
+     * a larger one. Otherwise it waits until the run records such an event or
+     * closes. When the Server's long poll wait ends first, the call fails with
+     * DEADLINE_EXCEEDED and LONG_POLL_TIME_OUT; call it again to keep waiting.
+     * </pre>
+     *
      * <code>int64 next_internal_event_id = 3;</code>
      * @return This builder for chaining.
      */

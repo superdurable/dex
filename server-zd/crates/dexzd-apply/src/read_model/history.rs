@@ -11,14 +11,18 @@ use std::ops::Range;
 
 use dexzd_keyspace::row_keys::{history_record_key, prefix_range};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, run_table_prefix};
-use dexzd_protocol::dex::{FlowHistoryEvent, GetHistoryEventsResponse};
+use dexzd_protocol::dex::{FlowHistoryEvent, GetHistoryEventsResponse, HistoryEventIdRange};
 use dexzd_protocol::dexzd::v1::HistoryRecord;
 
+use crate::history::genesis_seq;
 use crate::read_model::{ReadModelError, RunView};
 use crate::{ApplyError, FlowStateReader};
 
 /// Most History rows read by one scan call.
 const MAX_HISTORY_SCAN_ROWS: usize = 256;
+
+/// FlowStart records the first event of every run, so window pruning removes IDs from 2.
+const FIRST_PRUNABLE_EVENT_ID: i64 = 2;
 
 /// Reads one page of events from an attempt's lineage, using event IDs as cursors.
 pub fn get_history_events(
@@ -79,10 +83,12 @@ pub fn get_history_events(
     } else {
         Vec::new()
     };
+    let pruned_event_id_range = pruned_event_id_range(&view)?;
     Ok(GetHistoryEventsResponse {
         events,
         next_page_token,
         next_internal_event_id,
+        pruned_event_id_range,
     })
 }
 
@@ -122,6 +128,7 @@ struct HistoryRecordRows<'view, 'reader> {
 /// The first record with events in a scanned seq range.
 struct FirstEventRecord {
     seq: u64,
+    first_event_id: i64,
     last_event_id: i64,
 }
 
@@ -311,13 +318,14 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
             };
             next_seq = last_seq.saturating_add(1);
             for (seq, record) in records {
-                if let Some(event) = record.events.last() {
+                if let (Some(first), Some(last)) = (record.events.first(), record.events.last()) {
                     if is_first_chunk {
                         *chunk_rows = 1;
                     }
                     return Ok(Some(FirstEventRecord {
                         seq,
-                        last_event_id: event.event_id,
+                        first_event_id: first.event_id,
+                        last_event_id: last.event_id,
                     }));
                 }
             }
@@ -390,4 +398,37 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
                 })
             })
     }
+}
+
+/// Returns the event IDs that window pruning removed, or `None` when it removed none.
+///
+/// Runs whose window advanced before `max_pruned_event_id` existed scan for their first kept event.
+fn pruned_event_id_range(
+    view: &RunView<'_>,
+) -> Result<Option<HistoryEventIdRange>, ReadModelError> {
+    let genesis_seq = genesis_seq(&view.transaction, view.rows)?;
+    // Pruning deletes rows only below the window start, so an unmoved window deleted none.
+    if view.record.window_start_seq <= genesis_seq.saturating_add(1) {
+        return Ok(None);
+    }
+    let end_event_id = if view.record.max_pruned_event_id > 0 {
+        view.record.max_pruned_event_id
+    } else {
+        let history = HistoryRecordRows::new(view);
+        let mut chunk_rows = 1;
+        match history.find_first_event_record(
+            genesis_seq.saturating_add(1),
+            view.record.next_run_seq,
+            &mut chunk_rows,
+        )? {
+            Some(record) => record.first_event_id.saturating_sub(1),
+            None => view.record.next_event_id.saturating_sub(1),
+        }
+    };
+    Ok(
+        (end_event_id >= FIRST_PRUNABLE_EVENT_ID).then_some(HistoryEventIdRange {
+            start_event_id: FIRST_PRUNABLE_EVENT_ID,
+            end_event_id,
+        }),
+    )
 }

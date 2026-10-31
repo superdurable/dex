@@ -419,10 +419,12 @@ impl RunRows {
         transaction.get_message(ColumnFamily::Flow, &key, "search document")
     }
 
+    /// Writes the record and its metadata; `last_assigned_event_id` is the run's newest event ID.
     pub(crate) fn put_history_record(
         &self,
         transaction: &mut FlowTransaction<'_>,
         record: &HistoryRecord,
+        last_assigned_event_id: i64,
     ) {
         let key = history_record_key(self.flow_hash, self.run_id, record.seq);
         let row_size_bytes = u64::try_from(key.len() + record.encoded_len())
@@ -443,6 +445,7 @@ impl RunRows {
                 is_external_input: record.is_external_input,
                 attempt: record.attempt,
                 timestamp_micros: record.timestamp_micros,
+                last_assigned_event_id,
             },
         );
     }

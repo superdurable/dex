@@ -17,6 +17,10 @@ use crate::command_handlers::{
     CommandScope, HandlerOutput, ReplayedCommandCounters, ReplayedCommandOutput,
 };
 use crate::history;
+use crate::projections::history_event_links::{
+    HistoryEventIndex, PendingHistoryEvents, StepEventLink, resolve_step_event_links,
+    with_recorded_event_ids,
+};
 use crate::projections::search_document;
 use crate::state_access::{FlowTransaction, RunRows};
 use crate::values::{ValueIdAllocator, ValueLimits};
@@ -58,7 +62,7 @@ pub(crate) struct RunCursor {
     /// Next index of a Channel message this command publishes.
     pub(crate) next_channel_message_index: u64,
     pub(crate) indexed_attribute_writes: Vec<AttributeWrite>,
-    events: Vec<flow_history_event::Payload>,
+    events: PendingHistoryEvents,
     pub(crate) effects: Vec<ApplyEffect>,
     /// Set by TimeTravel: the command starts a new attempt and writes its start checkpoint.
     pub(crate) is_starting_attempt: bool,
@@ -138,7 +142,7 @@ impl RunCursor {
             values: ValueIdAllocator::new(seq),
             next_channel_message_index: 0,
             indexed_attribute_writes: Vec::new(),
-            events: Vec::new(),
+            events: PendingHistoryEvents::default(),
             effects: Vec::new(),
             is_starting_attempt: false,
             has_used_history_window_page: false,
@@ -163,8 +167,18 @@ impl RunCursor {
         }
     }
 
-    pub(crate) fn add_event(&mut self, payload: flow_history_event::Payload) {
-        self.events.push(payload);
+    pub(crate) fn add_event(&mut self, payload: flow_history_event::Payload) -> HistoryEventIndex {
+        self.events.push(payload)
+    }
+
+    /// Stores `event`'s ID on a Step execution once the command records its events.
+    pub(crate) fn link_step_event(&mut self, event: HistoryEventIndex, link: StepEventLink) {
+        self.events.link(event, link);
+    }
+
+    /// Appends events that a replayed input produced, with their Step execution links.
+    pub(crate) fn append_events(&mut self, events: PendingHistoryEvents) {
+        self.events.append(events);
     }
 
     pub(crate) fn add_effect(&mut self, effect: ApplyEffect) {
@@ -186,11 +200,12 @@ impl RunCursor {
         kind: HistoryKind,
     ) -> Result<HandlerOutput, ApplyError> {
         if scope.is_replay {
-            return Ok(self.finish_replayed(transaction, reply));
+            return self.finish_replayed(transaction, scope, reply);
         }
         let event_time = timestamp(scope.now_micros);
-        let mut events = Vec::with_capacity(self.events.len());
-        for payload in std::mem::take(&mut self.events) {
+        let (payloads, links) = std::mem::take(&mut self.events).into_parts();
+        let mut events = Vec::with_capacity(payloads.len());
+        for payload in payloads {
             let event_id = self.record.next_event_id.max(1);
             self.record.next_event_id = event_id + 1;
             events.push(FlowHistoryEvent {
@@ -200,6 +215,13 @@ impl RunCursor {
                 payload: Some(payload),
             });
         }
+        resolve_step_event_links(
+            transaction,
+            self.rows,
+            &links,
+            &mut events,
+            scope.now_micros,
+        )?;
         if kind.is_semantic {
             self.record.semantic_event_count += 1;
         }
@@ -220,6 +242,7 @@ impl RunCursor {
                 pending_step_methods,
                 reapplied_inputs: std::mem::take(&mut self.reapplied_inputs),
             },
+            self.record.next_event_id - 1,
         );
         search_document::refresh_search_document(transaction, &self, scope)?;
         history::after_command(transaction, &mut self, kind)?;
@@ -241,13 +264,30 @@ impl RunCursor {
     }
 
     /// Saves the run record only; history, counters, and pruning belong to the recorded command.
+    ///
+    /// A rebuild resolves event links with the recorded event IDs; reapplied input keeps them.
     fn finish_replayed(
-        self,
+        mut self,
         transaction: &mut FlowTransaction<'_>,
+        scope: &CommandScope<'_>,
         reply: CommandReply,
-    ) -> HandlerOutput {
+    ) -> Result<HandlerOutput, ApplyError> {
+        if scope.is_history_rebuild() {
+            let (payloads, links) = std::mem::take(&mut self.events).into_parts();
+            let mut events = with_recorded_event_ids(payloads, scope.recorded_events);
+            resolve_step_event_links(
+                transaction,
+                self.rows,
+                &links,
+                &mut events,
+                scope.now_micros,
+            )?;
+            for payload in events.into_iter().filter_map(|event| event.payload) {
+                self.events.push(payload);
+            }
+        }
         self.rows.put_run_record(transaction, &self.record);
-        HandlerOutput {
+        Ok(HandlerOutput {
             reply,
             effects: self.effects,
             run_id: Some(self.rows.run_id),
@@ -258,7 +298,7 @@ impl RunCursor {
                     next_channel_message_index: self.next_channel_message_index,
                 },
             }),
-        }
+        })
     }
 }
 

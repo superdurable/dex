@@ -116,6 +116,7 @@ fn replay_command(
         &command,
         behavior_version,
         has_flow_closed(history_record),
+        &history_record.events,
     )?;
     let writes = match replayed {
         Ok(writes) => writes,

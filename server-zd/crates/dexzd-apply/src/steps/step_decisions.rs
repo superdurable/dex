@@ -21,17 +21,21 @@ use crate::ApplyError;
 use crate::command_handlers::CommandScope;
 use crate::command_handlers::flow_close::{FlowClosing, close_flow};
 use crate::command_handlers::run_cursor::RunCursor;
+use crate::projections::history_event_links::{HistoryEventIndex, StepEventLink};
 use crate::state_access::FlowTransaction;
 use crate::steps::{InvocationEnd, NewStepExecution, create_step_execution, end_running_attempt};
 use crate::values::{ValueHolder, ValueRejection, release_stored_value, store_value};
 
 /// Applies the decision of a finished Execute and completes the Step.
+///
+/// `deciding_event` is the Execute's StepExecuteCompleted event, which starts the next Steps.
 pub(crate) fn apply_step_decision(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
     step: &mut StepExecutionRecord,
     decision: Option<&StepDecision>,
+    deciding_event: HistoryEventIndex,
 ) -> Result<Result<(), ValueRejection>, ApplyError> {
     let decision = decision.cloned().unwrap_or_default();
     finish_step(transaction, cursor, step, StepExecutionPhase::Completed)?;
@@ -131,10 +135,12 @@ pub(crate) fn apply_step_decision(
                 from_step_execution_id: &step.step_execution_id,
                 is_timeout_handler: false,
             };
-            if let Err(rejection) =
-                create_step_execution(transaction, cursor, scope.now_micros, &new_step)?
-            {
-                return Ok(Err(rejection));
+            match create_step_execution(transaction, cursor, scope.now_micros, &new_step)? {
+                Ok(step_execution_id) => cursor.link_step_event(
+                    deciding_event,
+                    StepEventLink::StartedStepExecution(step_execution_id),
+                ),
+                Err(rejection) => return Ok(Err(rejection)),
             }
         }
     }
