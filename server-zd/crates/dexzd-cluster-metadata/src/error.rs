@@ -8,6 +8,7 @@
 
 use dexzd_keyspace::{NodeIdentifierError, PartitionHashError};
 use dexzd_object_store::ObjectStoreError;
+use dexzd_protocol::dex::IndexType;
 
 /// Failure to read or change cluster metadata.
 #[derive(Debug, thiserror::Error)]
@@ -95,6 +96,22 @@ pub enum MetadataError {
         existing_type: i32,
         /// Requested index type.
         requested_type: i32,
+    },
+    /// A tenant has no remaining slots for this Attribute index type.
+    #[error(
+        "tenant {tenant_id} Attribute index type {index_type:?} exceeds limit {limit}; registered keys: {registered_keys:?}; rejected new keys: {rejected_keys:?}"
+    )]
+    AttributeIndexCapacityExceeded {
+        /// Tenant whose capacity is exhausted.
+        tenant_id: u64,
+        /// Public Dex index type.
+        index_type: IndexType,
+        /// Maximum distinct keys for the type.
+        limit: usize,
+        /// Keys occupying this tenant's slots for the type.
+        registered_keys: Vec<String>,
+        /// New keys rejected for this tenant and type; empty during startup validation.
+        rejected_keys: Vec<String>,
     },
     /// Another process holds the requested node lease.
     #[error("node {node_id:?} lease is held by another process until {expires_at_unix_micros}")]

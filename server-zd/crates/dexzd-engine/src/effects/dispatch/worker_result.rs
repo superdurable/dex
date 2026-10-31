@@ -10,9 +10,9 @@
 //! validation, and the per-run value size limit.
 
 use dexzd_protocol::dex::{
-    AttributeWrite, FlowConfig, InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, Kv,
-    PollWorkerTaskFrame, PullRouting, Value, invoke_execute_method_output,
-    invoke_wait_for_method_output, poll_worker_task_frame, value,
+    AttributeWrite, ErrorSubStatus, FlowConfig, InvokeExecuteMethodResponse,
+    InvokeWaitForMethodResponse, Kv, PollWorkerTaskFrame, PullRouting, Value,
+    invoke_execute_method_output, invoke_wait_for_method_output, poll_worker_task_frame, value,
 };
 use dexzd_protocol::dexzd::v1::{
     HardDeleteObjectReference, StepAttemptFailureKind, StepInvocationKey, StepMethod,
@@ -158,6 +158,13 @@ pub(crate) fn check_worker_result(
         }
     };
     if let Err(error) = validation {
+        if error.sub_status == ErrorSubStatus::IndexedKeywordTooLong {
+            return WorkerResultCheck::Invalid {
+                kind: StepAttemptFailureKind::ValueTooLarge,
+                detail: error.message,
+                is_non_retryable: true,
+            };
+        }
         return WorkerResultCheck::Invalid {
             kind: StepAttemptFailureKind::InvalidResponse,
             // Apply shows applications only the message; history and logs keep the field path.

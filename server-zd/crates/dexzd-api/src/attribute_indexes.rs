@@ -10,12 +10,12 @@ use std::sync::Arc;
 
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{
-    AttributeIndexDeclaration, MetadataError, read_attribute_index_registry,
-    register_attribute_indexes,
+    AttributeIndexCapacity, AttributeIndexDeclaration, MetadataError,
+    read_attribute_index_registry, register_attribute_indexes,
 };
 use dexzd_keyspace::TenantId;
 use dexzd_object_store::ObjectStore;
-use dexzd_protocol::dex::{IndexType, SyncAttributeIndexRequest};
+use dexzd_protocol::dex::{ErrorSubStatus, IndexType, SyncAttributeIndexRequest};
 use dexzd_protocol::dexzd::v1::AttributeIndexRegistry;
 use dexzd_visibility_query::FieldRegistry;
 use tokio::sync::Mutex;
@@ -28,15 +28,21 @@ use crate::FlowOperationError;
 pub struct AttributeIndexes {
     object_store: Arc<dyn ObjectStore>,
     clock: Arc<dyn WallClock>,
+    capacity: Option<AttributeIndexCapacity>,
     cached_registry: Mutex<Option<AttributeIndexRegistry>>,
 }
 
 impl AttributeIndexes {
     /// Creates a registry client that reads and writes `object_store`.
-    pub fn new(object_store: Arc<dyn ObjectStore>, clock: Arc<dyn WallClock>) -> Self {
+    pub fn new(
+        object_store: Arc<dyn ObjectStore>,
+        clock: Arc<dyn WallClock>,
+        capacity: Option<AttributeIndexCapacity>,
+    ) -> Self {
         Self {
             object_store,
             clock,
+            capacity,
             cached_registry: Mutex::new(None),
         }
     }
@@ -44,7 +50,7 @@ impl AttributeIndexes {
     /// Validates and registers the declarations of `request` for `tenant_id`.
     ///
     /// Returns `InvalidArgument` for an empty name or unknown type, `FailedPrecondition` when a
-    /// name is registered with another type, and `Unavailable` when object storage fails.
+    /// name is registered with another type or capacity is exhausted, and `Unavailable` when object storage fails.
     pub async fn sync_attribute_indexes(
         &self,
         tenant_id: TenantId,
@@ -75,6 +81,7 @@ impl AttributeIndexes {
             self.clock.as_ref(),
             tenant_id.0,
             &declarations,
+            self.capacity.as_ref(),
         )
         .await
         .map_err(registry_error)?;
@@ -121,6 +128,11 @@ fn registry_error(error: MetadataError) -> FlowOperationError {
         MetadataError::AttributeIndexConflict { .. } => {
             FlowOperationError::failed_precondition(error.to_string())
         }
+        MetadataError::AttributeIndexCapacityExceeded { .. } => FlowOperationError::Rejected {
+            code: tonic::Code::FailedPrecondition,
+            sub_status: ErrorSubStatus::AttributeIndexCapacityExceeded,
+            message: error.to_string(),
+        },
         MetadataError::Store(_) => FlowOperationError::Unavailable {
             detail: error.to_string(),
         },

@@ -255,8 +255,12 @@ impl FlowCoordinatorRegistry {
         )
         .map_err(|error| {
             FlowCoordinationError::rejected(
-                grpc_code::INTERNAL,
-                ErrorSubStatus::Uncategorized,
+                if error.sub_status == ErrorSubStatus::IndexedKeywordTooLong {
+                    grpc_code::INVALID_ARGUMENT
+                } else {
+                    grpc_code::INTERNAL
+                },
+                error.sub_status,
                 error.message,
             )
         })?;

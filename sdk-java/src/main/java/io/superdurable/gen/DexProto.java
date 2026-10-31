@@ -1513,7 +1513,7 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "_THAN\020\003\0222\n.ATTRIBUTE_MATCH_OPERATOR_GREA" +
       "TER_THAN_OR_EQUAL\020\004\022&\n\"ATTRIBUTE_MATCH_O" +
       "PERATOR_LESS_THAN\020\005\022/\n+ATTRIBUTE_MATCH_O" +
-      "PERATOR_LESS_THAN_OR_EQUAL\020\006*\360\002\n\016ErrorSu" +
+      "PERATOR_LESS_THAN_OR_EQUAL\020\006*\327\003\n\016ErrorSu" +
       "bStatus\022 \n\034ERROR_SUB_STATUS_UNSPECIFIED\020" +
       "\000\022\"\n\036ERROR_SUB_STATUS_UNCATEGORIZED\020\001\022)\n" +
       "%ERROR_SUB_STATUS_FLOW_ALREADY_STARTED\020\002" +
@@ -1522,90 +1522,93 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "#ERROR_SUB_STATUS_LONG_POLL_TIME_OUT\020\005\022." +
       "\n*ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_F" +
       "OUND\020\006\022$\n ERROR_SUB_STATUS_REQUEST_TIMEO" +
-      "UT\020\007\022!\n\035ERROR_SUB_STATUS_FLOW_CLOSING\020\010*" +
-      "\213\002\n\021CloseDecisionType\022#\n\037CLOSE_DECISION_" +
-      "TYPE_UNSPECIFIED\020\000\0228\n4CLOSE_DECISION_TYP" +
-      "E_FORCE_COMPLETE_ON_CHANNELS_EMPTY\020\001\022)\n%" +
-      "CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE\020\002\022" +
-      "&\n\"CLOSE_DECISION_TYPE_FORCE_COMPLETE\020\003\022" +
-      "\"\n\036CLOSE_DECISION_TYPE_FORCE_FAIL\020\004\022 \n\034C" +
-      "LOSE_DECISION_TYPE_DEAD_END\020\005*\310\001\n\024Waitin" +
-      "gConditionType\022&\n\"WAITING_CONDITION_TYPE" +
-      "_UNSPECIFIED\020\000\022(\n$WAITING_CONDITION_TYPE" +
-      "_ALL_COMPLETED\020\001\022(\n$WAITING_CONDITION_TY" +
-      "PE_ANY_COMPLETED\020\002\0224\n0WAITING_CONDITION_" +
-      "TYPE_ANY_COMBINATION_COMPLETED\020\003*\307\001\n\022Sub" +
-      "FlowReusePolicy\022%\n!SUB_FLOW_REUSE_POLICY" +
-      "_UNSPECIFIED\020\000\022 \n\034SUB_FLOW_REUSE_POLICY_" +
-      "ATTACH\020\001\022>\n:SUB_FLOW_REUSE_POLICY_RESTAR" +
-      "T_IF_PREVIOUS_EXITS_ABNORMALLY\020\002\022(\n$SUB_" +
-      "FLOW_REUSE_POLICY_ALWAYS_RESTART\020\003*q\n\017Co" +
-      "nditionStatus\022 \n\034CONDITION_STATUS_UNSPEC" +
-      "IFIED\020\000\022\034\n\030CONDITION_STATUS_WAITING\020\001\022\036\n" +
-      "\032CONDITION_STATUS_COMPLETED\020\002*\243\001\n\023Intern" +
-      "alTimerStatus\022%\n!INTERNAL_TIMER_STATUS_U" +
-      "NSPECIFIED\020\000\022!\n\035INTERNAL_TIMER_STATUS_PE" +
-      "NDING\020\001\022\037\n\033INTERNAL_TIMER_STATUS_FIRED\020\002" +
-      "\022!\n\035INTERNAL_TIMER_STATUS_SKIPPED\020\0032\226\017\n\013" +
-      "FlowService\0228\n\rGetServerInfo\022\026.google.pr" +
-      "otobuf.Empty\032\017.dex.ServerInfo\022:\n\tStartFl" +
-      "ow\022\025.dex.StartFlowRequest\032\026.dex.StartFlo" +
-      "wResponse\022H\n\020PublishToChannel\022\034.dex.Publ" +
-      "ishToChannelRequest\032\026.google.protobuf.Em" +
-      "pty\022U\n\022GetChannelMessages\022\036.dex.GetChann" +
-      "elMessagesRequest\032\037.dex.GetChannelMessag" +
-      "esResponse\022P\n\024DeleteChannelMessage\022 .dex" +
-      ".DeleteChannelMessageRequest\032\026.google.pr" +
-      "otobuf.Empty\022>\n\013WriteStream\022\027.dex.WriteS" +
-      "treamRequest\032\026.google.protobuf.Empty\022=\n\n" +
-      "ReadStream\022\026.dex.ReadStreamRequest\032\027.dex" +
-      ".ReadStreamResponse\022U\n\022ListStreamMessage" +
-      "s\022\036.dex.ListStreamMessagesRequest\032\037.dex." +
-      "ListStreamMessagesResponse\0228\n\010StopFlow\022\024" +
-      ".dex.StopFlowRequest\032\026.google.protobuf.E" +
-      "mpty\022F\n\rGetAttributes\022\031.dex.GetAttribute" +
-      "sRequest\032\032.dex.GetAttributesResponse\022B\n\r" +
-      "SetAttributes\022\031.dex.SetAttributesRequest" +
-      "\032\026.google.protobuf.Empty\022:\n\tLoadBlobs\022\025." +
-      "dex.LoadBlobsRequest\032\026.dex.LoadBlobsResp" +
-      "onse\0227\n\013WaitForFlow\022\027.dex.WaitForFlowReq" +
-      "uest\032\017.dex.FlowResult\022@\n\013SearchFlows\022\027.d" +
-      "ex.SearchFlowsRequest\032\030.dex.SearchFlowsR" +
-      "esponse\022W\n\024SyncAttributeIndexes\022\036.dex.Sy" +
-      "ncAttributeIndexRequest\032\037.dex.SyncAttrib" +
-      "uteIndexResponse\022I\n\016GetFlowSummary\022\032.dex" +
-      ".GetFlowSummaryRequest\032\033.dex.GetFlowSumm" +
-      "aryResponse\022O\n\020GetHistoryEvents\022\034.dex.Ge" +
-      "tHistoryEventsRequest\032\035.dex.GetHistoryEv" +
-      "entsResponse\022X\n\023WaitForHistoryEvent\022\037.de" +
-      "x.WaitForHistoryEventRequest\032 .dex.WaitF" +
-      "orHistoryEventResponse\022C\n\014GetFlowState\022\030" +
-      ".dex.GetFlowStateRequest\032\031.dex.GetFlowSt" +
-      "ateResponse\022:\n\tResetFlow\022\025.dex.ResetFlow" +
-      "Request\032\026.dex.ResetFlowResponse\022:\n\tInvok" +
-      "eRPC\022\025.dex.InvokeRPCRequest\032\026.dex.Invoke" +
-      "RPCResponse\022:\n\tSkipTimer\022\025.dex.SkipTimer",
-      "Request\032\026.google.protobuf.Empty\022H\n\020Updat" +
-      "eFlowConfig\022\034.dex.UpdateFlowConfigReques" +
-      "t\032\026.google.protobuf.Empty\022^\n\025WaitForStep" +
-      "Completion\022!.dex.WaitForStepCompletionRe" +
-      "quest\032\".dex.WaitForStepCompletionRespons" +
-      "e\022O\n\020WaitForAttribute\022\034.dex.WaitForAttri" +
-      "buteRequest\032\035.dex.WaitForAttributeRespon" +
-      "se\022P\n\024TriggerContinueAsNew\022 .dex.Trigger" +
-      "ContinueAsNewRequest\032\026.google.protobuf.E" +
-      "mpty\0226\n\013HealthCheck\022\026.google.protobuf.Em" +
-      "pty\032\017.dex.HealthInfo2\221\002\n\rWorkerService\022X" +
-      "\n\023InvokeWaitForMethod\022\037.dex.InvokeWaitFo" +
-      "rMethodRequest\032\036.dex.InvokeWaitForMethod" +
-      "Output0\001\022X\n\023InvokeExecuteMethod\022\037.dex.In" +
-      "vokeExecuteMethodRequest\032\036.dex.InvokeExe" +
-      "cuteMethodOutput0\001\022L\n\017InvokeWorkerRPC\022\033." +
-      "dex.InvokeWorkerRPCRequest\032\034.dex.InvokeW" +
-      "orkerRPCResponse2b\n\021WorkerTaskService\022M\n" +
-      "\016PollWorkerTask\022\032.dex.PollWorkerTaskRequ" +
-      "est\032\033.dex.PollWorkerTaskResponse(\0010\001B!\n\023" +
-      "io.superdurable.genB\010DexProtoP\001b\006proto3"
+      "UT\020\007\022!\n\035ERROR_SUB_STATUS_FLOW_CLOSING\020\010\022" +
+      "6\n2ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPA" +
+      "CITY_EXCEEDED\020\t\022-\n)ERROR_SUB_STATUS_INDE" +
+      "XED_KEYWORD_TOO_LONG\020\n*\213\002\n\021CloseDecision" +
+      "Type\022#\n\037CLOSE_DECISION_TYPE_UNSPECIFIED\020" +
+      "\000\0228\n4CLOSE_DECISION_TYPE_FORCE_COMPLETE_" +
+      "ON_CHANNELS_EMPTY\020\001\022)\n%CLOSE_DECISION_TY" +
+      "PE_GRACEFUL_COMPLETE\020\002\022&\n\"CLOSE_DECISION" +
+      "_TYPE_FORCE_COMPLETE\020\003\022\"\n\036CLOSE_DECISION" +
+      "_TYPE_FORCE_FAIL\020\004\022 \n\034CLOSE_DECISION_TYP" +
+      "E_DEAD_END\020\005*\310\001\n\024WaitingConditionType\022&\n" +
+      "\"WAITING_CONDITION_TYPE_UNSPECIFIED\020\000\022(\n" +
+      "$WAITING_CONDITION_TYPE_ALL_COMPLETED\020\001\022" +
+      "(\n$WAITING_CONDITION_TYPE_ANY_COMPLETED\020" +
+      "\002\0224\n0WAITING_CONDITION_TYPE_ANY_COMBINAT" +
+      "ION_COMPLETED\020\003*\307\001\n\022SubFlowReusePolicy\022%" +
+      "\n!SUB_FLOW_REUSE_POLICY_UNSPECIFIED\020\000\022 \n" +
+      "\034SUB_FLOW_REUSE_POLICY_ATTACH\020\001\022>\n:SUB_F" +
+      "LOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXI" +
+      "TS_ABNORMALLY\020\002\022(\n$SUB_FLOW_REUSE_POLICY" +
+      "_ALWAYS_RESTART\020\003*q\n\017ConditionStatus\022 \n\034" +
+      "CONDITION_STATUS_UNSPECIFIED\020\000\022\034\n\030CONDIT" +
+      "ION_STATUS_WAITING\020\001\022\036\n\032CONDITION_STATUS" +
+      "_COMPLETED\020\002*\243\001\n\023InternalTimerStatus\022%\n!" +
+      "INTERNAL_TIMER_STATUS_UNSPECIFIED\020\000\022!\n\035I" +
+      "NTERNAL_TIMER_STATUS_PENDING\020\001\022\037\n\033INTERN" +
+      "AL_TIMER_STATUS_FIRED\020\002\022!\n\035INTERNAL_TIME" +
+      "R_STATUS_SKIPPED\020\0032\226\017\n\013FlowService\0228\n\rGe" +
+      "tServerInfo\022\026.google.protobuf.Empty\032\017.de" +
+      "x.ServerInfo\022:\n\tStartFlow\022\025.dex.StartFlo" +
+      "wRequest\032\026.dex.StartFlowResponse\022H\n\020Publ" +
+      "ishToChannel\022\034.dex.PublishToChannelReque" +
+      "st\032\026.google.protobuf.Empty\022U\n\022GetChannel" +
+      "Messages\022\036.dex.GetChannelMessagesRequest" +
+      "\032\037.dex.GetChannelMessagesResponse\022P\n\024Del" +
+      "eteChannelMessage\022 .dex.DeleteChannelMes" +
+      "sageRequest\032\026.google.protobuf.Empty\022>\n\013W" +
+      "riteStream\022\027.dex.WriteStreamRequest\032\026.go" +
+      "ogle.protobuf.Empty\022=\n\nReadStream\022\026.dex." +
+      "ReadStreamRequest\032\027.dex.ReadStreamRespon" +
+      "se\022U\n\022ListStreamMessages\022\036.dex.ListStrea" +
+      "mMessagesRequest\032\037.dex.ListStreamMessage" +
+      "sResponse\0228\n\010StopFlow\022\024.dex.StopFlowRequ" +
+      "est\032\026.google.protobuf.Empty\022F\n\rGetAttrib" +
+      "utes\022\031.dex.GetAttributesRequest\032\032.dex.Ge" +
+      "tAttributesResponse\022B\n\rSetAttributes\022\031.d" +
+      "ex.SetAttributesRequest\032\026.google.protobu" +
+      "f.Empty\022:\n\tLoadBlobs\022\025.dex.LoadBlobsRequ" +
+      "est\032\026.dex.LoadBlobsResponse\0227\n\013WaitForFl" +
+      "ow\022\027.dex.WaitForFlowRequest\032\017.dex.FlowRe" +
+      "sult\022@\n\013SearchFlows\022\027.dex.SearchFlowsReq" +
+      "uest\032\030.dex.SearchFlowsResponse\022W\n\024SyncAt" +
+      "tributeIndexes\022\036.dex.SyncAttributeIndexR" +
+      "equest\032\037.dex.SyncAttributeIndexResponse\022" +
+      "I\n\016GetFlowSummary\022\032.dex.GetFlowSummaryRe" +
+      "quest\032\033.dex.GetFlowSummaryResponse\022O\n\020Ge" +
+      "tHistoryEvents\022\034.dex.GetHistoryEventsReq" +
+      "uest\032\035.dex.GetHistoryEventsResponse\022X\n\023W" +
+      "aitForHistoryEvent\022\037.dex.WaitForHistoryE" +
+      "ventRequest\032 .dex.WaitForHistoryEventRes" +
+      "ponse\022C\n\014GetFlowState\022\030.dex.GetFlowState" +
+      "Request\032\031.dex.GetFlowStateResponse\022:\n\tRe" +
+      "setFlow\022\025.dex.ResetFlowRequest\032\026.dex.Res",
+      "etFlowResponse\022:\n\tInvokeRPC\022\025.dex.Invoke" +
+      "RPCRequest\032\026.dex.InvokeRPCResponse\022:\n\tSk" +
+      "ipTimer\022\025.dex.SkipTimerRequest\032\026.google." +
+      "protobuf.Empty\022H\n\020UpdateFlowConfig\022\034.dex" +
+      ".UpdateFlowConfigRequest\032\026.google.protob" +
+      "uf.Empty\022^\n\025WaitForStepCompletion\022!.dex." +
+      "WaitForStepCompletionRequest\032\".dex.WaitF" +
+      "orStepCompletionResponse\022O\n\020WaitForAttri" +
+      "bute\022\034.dex.WaitForAttributeRequest\032\035.dex" +
+      ".WaitForAttributeResponse\022P\n\024TriggerCont" +
+      "inueAsNew\022 .dex.TriggerContinueAsNewRequ" +
+      "est\032\026.google.protobuf.Empty\0226\n\013HealthChe" +
+      "ck\022\026.google.protobuf.Empty\032\017.dex.HealthI" +
+      "nfo2\221\002\n\rWorkerService\022X\n\023InvokeWaitForMe" +
+      "thod\022\037.dex.InvokeWaitForMethodRequest\032\036." +
+      "dex.InvokeWaitForMethodOutput0\001\022X\n\023Invok" +
+      "eExecuteMethod\022\037.dex.InvokeExecuteMethod" +
+      "Request\032\036.dex.InvokeExecuteMethodOutput0" +
+      "\001\022L\n\017InvokeWorkerRPC\022\033.dex.InvokeWorkerR" +
+      "PCRequest\032\034.dex.InvokeWorkerRPCResponse2" +
+      "b\n\021WorkerTaskService\022M\n\016PollWorkerTask\022\032" +
+      ".dex.PollWorkerTaskRequest\032\033.dex.PollWor" +
+      "kerTaskResponse(\0010\001B!\n\023io.superdurable.g" +
+      "enB\010DexProtoP\001b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,

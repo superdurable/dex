@@ -29,7 +29,8 @@ pub use manifest::{
     read_manifest, update_manifest, update_partition_snapshot,
 };
 pub use registry::{
-    AttributeIndexDeclaration, read_attribute_index_registry, register_attribute_indexes,
+    AttributeIndexCapacity, AttributeIndexDeclaration, read_attribute_index_registry,
+    register_attribute_indexes, validate_attribute_index_capacity,
 };
 
 /// First behavior version supported by this binary.

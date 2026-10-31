@@ -15,6 +15,8 @@ use dexzd_protocol::dex::{
     StepDurability, StepOptions, Value, WorkerTarget, value,
 };
 
+use crate::keyword_index::{KeywordValueLimit, validate_indexed_keyword};
+
 /// Identifies how the caller handles a validation failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValidationCategory {
@@ -34,6 +36,8 @@ pub struct ValidationError {
     pub message: String,
     /// Error handling category for the API or engine.
     pub category: ValidationCategory,
+    /// Dex error sub-status attached by ingress handlers.
+    pub sub_status: dex::ErrorSubStatus,
 }
 
 /// Supplies limits and server capabilities used by pure validators.
@@ -51,6 +55,8 @@ pub struct ValidationConfig {
     /// Whether hard-delete Attribute writes have blob storage.
     /// Defaults to false.
     pub has_blob_store: bool,
+    /// Optional indexed Keyword byte limit; defaults to None (unlimited).
+    pub keyword_value_limit: Option<KeywordValueLimit>,
 }
 
 impl Default for ValidationConfig {
@@ -66,6 +72,7 @@ impl Default for ValidationConfig {
             },
             attribute_store_names: HashSet::new(),
             has_blob_store: false,
+            keyword_value_limit: None,
         }
     }
 }
@@ -83,6 +90,7 @@ pub(crate) fn invalid(path: impl Into<String>, message: impl Into<String>) -> Va
         field_path: path.into(),
         message: message.into(),
         category: ValidationCategory::InvalidArgument,
+        sub_status: dex::ErrorSubStatus::Uncategorized,
     }
 }
 
@@ -194,6 +202,7 @@ pub(crate) fn validate_attribute_writes(
             ));
         }
         validate_hard_delete_write(&item_path, write, config, false)?;
+        validate_indexed_keyword(&item_path, write, config)?;
     }
     Ok(())
 }

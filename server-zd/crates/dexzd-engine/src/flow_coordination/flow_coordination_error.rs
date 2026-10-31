@@ -201,6 +201,6 @@ impl From<ApplyError> for FlowCoordinationError {
 
 impl From<ValidationError> for FlowCoordinationError {
     fn from(error: ValidationError) -> Self {
-        Self::invalid_argument(error.message)
+        Self::rejected(grpc_code::INVALID_ARGUMENT, error.sub_status, error.message)
     }
 }

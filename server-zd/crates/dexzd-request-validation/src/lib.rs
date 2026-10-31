@@ -9,11 +9,13 @@
 //! Validate untrusted Dex client requests and Worker responses before state changes.
 
 mod client;
+mod keyword_index;
 mod shared;
 mod waiting;
 mod worker;
 
 pub use client::{ClientRequest, validate_client_request, validate_start_flow_request};
+pub use keyword_index::KeywordValueLimit;
 pub use shared::{ValidationCategory, ValidationConfig, ValidationError, quote_go_string};
 pub use waiting::validate_waiting_condition;
 pub use worker::{WorkerResponse, validate_worker_response};

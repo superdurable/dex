@@ -61,6 +61,7 @@ impl ComponentConfigs {
             )?,
             attribute_store_names: config.attribute_store.stores.keys().cloned().collect(),
             has_blob_store: true,
+            keyword_value_limit: None,
             ..ValidationConfig::default()
         };
         let mut run_settings = default_run_settings();
