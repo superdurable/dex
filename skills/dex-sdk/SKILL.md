@@ -68,6 +68,7 @@ Then load only the references required by the task:
 | Recovery Step that branches on a timeout or other failure type | [Recovery error types](references/core/error-handling.md#recovery-error-types) | selected language's **error-handling.md** |
 | Server deployment, Dex Web deployment, or the retired Go Server | [Operations](references/core/operations.md) | language entry for Client and Worker setup |
 | server-zd, Attribute Store sync, or `dexcli dev` | [server-zd](references/core/operations.md#server-zd) | language entry for pull Worker options |
+| Search backend choice, Indexed Attribute capacity, or Keyword length limits | [Search backends](references/core/operations.md#search-backends) and [Indexed search limits](references/core/error-handling.md#indexed-search-limits) | selected language's **error-handling.md** |
 | Pull Worker routing, capacity, shutdown, or retry | [Pull Workers](references/core/pull-workers.md) and [Operations](references/core/operations.md) | selected language's entry and **observability.md** |
 | Public API authentication, bearer credentials, API key exchange, Go FlowService TLS, or `dexcli` TLS | [Operations](references/core/operations.md#public-api-authentication) | selected language's entry |
 | Connector selection, local credentials, or named connections | [Operations](references/core/operations.md) | language entry for runtime support |

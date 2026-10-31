@@ -14,7 +14,11 @@ For an explicitly best-effort external `Client.WriteStream`, an `errors.As` matc
 
 ## Flow close cleanup
 
-From Go SDK v1.20.0 or later, match `*dex.FlowClosingError` with `errors.As` when a cleanup-sensitive Client call is rejected. Its `ServiceError.SubStatus` is `dex.ErrorSubStatusFlowClosing`, and the service code is FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether to retry or take another action. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/dex/errors.go)
+From Go SDK v1.20.0 or later, match `*dex.FlowClosingError` with `errors.As` when a cleanup-sensitive Client call is rejected. Its `ServiceError.SubStatus` is `dex.ErrorSubStatusFlowClosing`, and the service code is FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether to retry or take another action. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.30.0/sdk-go/dex/errors.go)
+
+## Indexed search limits
+
+With server-zd `search.backend: postgres`, read the shared [indexed search limits](../core/error-handling.md#indexed-search-limits) first. At Go SDK v1.30.0, a StartFlow or RPC rejected for an indexed Keyword value over 1,024 bytes returns `*dex.ServiceError` with `Code` `codes.InvalidArgument` and `SubStatus` `dex.ErrorSubStatusUncategorized`; no concrete error type matches it. A Worker whose Attribute index registration exceeds capacity fails `Worker.Start` with an error that wraps the gRPC FailedPrecondition status after `dex: sync attribute indexes:`. The generated `dexpb.ErrorSubStatus_ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED` and `dexpb.ErrorSubStatus_ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG` values exist only in the protocol bindings; do not branch on them. A Flow that fails because a Step result carried such a value reports Flow error type `dex.FlowErrorWorkerMethod` at Go SDK v1.30.0. [Released Flow error type mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.30.0/sdk-go/dex/proto_mapper.go) Validate indexed Keyword lengths before the write. [Released Go error mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.30.0/sdk-go/dex/errors.go)
 
 ## StartFlow error handling
 
@@ -58,7 +62,7 @@ Match `Client.GetAttributes` errors with `errors.As`. Follow the shared [Attribu
 - `*dex.ServiceError`, or a concrete service error wrapping it: another server failure, including a failed LoadBlobs request.
 - A plain error: an empty Flow ID, no reads, a nil read or destination, an invalid instance, a duplicate read, an invalid server response, a large value that LoadBlobs omits, another failure that is not a gRPC status, or a context error.
 
-On every error the result is the zero `AttributeReadResult` and no destination has been written. Every error names the Flow ID, and an error about one read also names its Attribute or physical key. [Released Go Client API](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/dex/client_attributes.go)
+On every error the result is the zero `AttributeReadResult` and no destination has been written. Every error names the Flow ID, and an error about one read also names its Attribute or physical key. [Released Go Client API](https://github.com/superdurable/dex/blob/sdk-go/v1.30.0/sdk-go/dex/client_attributes.go)
 
 ## Retry ownership
 
@@ -70,9 +74,9 @@ Before non-idempotent external work, use an idempotency key derived from durable
 
 Use Execute/WaitFor failure policies for automatic recovery, operator Channels for manual recovery, and a timeout handler for Flow-deadline semantics. Compensation must be idempotent and identify the original commit.
 
-A recovery path reads the final failure with **ctx.RecoveryError()**. It returns nil outside a recovery path. With Go SDK v1.17.0, recognize Dex time limits with **IsMethodTimeout()**, **IsHeartbeatTimeout()**, and **IsRetryTotalDurationExceeded()** on that value. Do not compare **ErrorType** with a fixed string, because each Dex backend spells these error types differently. The methods are nil-safe, so call them before the nil check. Keep a final branch for every other failure, which keeps the Worker's reported **ErrorType** and **Detail**. Read the documented false cases in [recovery error types](../core/error-handling.md#recovery-error-types): a Worker API failure recorded before the method timeout, a retry total duration that ends between attempts, and backend differences. The [released API documentation](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/dex/context.go) includes a complete recovery Step for an Execute failure route. The README shows a timeout-handler recovery Step:
+A recovery path reads the final failure with **ctx.RecoveryError()**. It returns nil outside a recovery path. With Go SDK v1.17.0, recognize Dex time limits with **IsMethodTimeout()**, **IsHeartbeatTimeout()**, and **IsRetryTotalDurationExceeded()** on that value. Do not compare **ErrorType** with a fixed string, because each Dex backend spells these error types differently. The methods are nil-safe, so call them before the nil check. Keep a final branch for every other failure, which keeps the Worker's reported **ErrorType** and **Detail**. Read the documented false cases in [recovery error types](../core/error-handling.md#recovery-error-types): a Worker API failure recorded before the method timeout, a retry total duration that ends between attempts, and backend differences. The [released API documentation](https://github.com/superdurable/dex/blob/sdk-go/v1.30.0/sdk-go/dex/context.go) includes a complete recovery Step for an Execute failure route. The README shows a timeout-handler recovery Step:
 
-[Pinned SDK README](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/README.md)
+[Pinned SDK README](https://github.com/superdurable/dex/blob/sdk-go/v1.30.0/sdk-go/README.md)
 <!-- dex-source: sdk-go/README.md -->
 ```go
 type timeoutRecoveryStep struct {

@@ -26,7 +26,11 @@ For an idempotent start, set one stable `StartFlowOptions.Builder.requestId(...)
 
 ## Flow close cleanup
 
-From Java SDK v1.20.0 or later, catch `FlowClosingException` from `io.superdurable.dex.exceptions` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released exception](https://github.com/superdurable/dex/blob/sdk-java/v1.26.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowClosingException.java)
+From Java SDK v1.20.0 or later, catch `FlowClosingException` from `io.superdurable.dex.exceptions` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released exception](https://github.com/superdurable/dex/blob/sdk-java/v1.30.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowClosingException.java)
+
+## Indexed search limits
+
+With server-zd `search.backend: postgres`, read the shared [indexed search limits](../core/error-handling.md#indexed-search-limits) first. At Java SDK v1.30.0, a StartFlow or RPC rejected for an indexed Keyword value over 1,024 bytes throws `DexServiceException` with `getCode()` `Status.Code.INVALID_ARGUMENT` and `getSubStatus()` `ErrorSubStatus.UNCATEGORIZED`; no subclass matches it. A Worker whose Attribute index registration exceeds capacity throws `IllegalStateException("cannot synchronize Attribute indexes")` from `start()`, caused by the gRPC FailedPrecondition error. The generated `io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED` and `ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG` values exist only in the protocol bindings; do not branch on them. A Flow that fails because a Step result carried such a value reports Flow error type `FlowErrorType.WORKER_API_FAILED` at Java SDK v1.30.0. [Released Flow error type mapping](https://github.com/superdurable/dex/blob/sdk-java/v1.30.0/sdk-java/src/main/java/io/superdurable/dex/Client.java) Validate indexed Keyword lengths before the write. [Released Java error mapping](https://github.com/superdurable/dex/blob/sdk-java/v1.30.0/sdk-java/src/main/java/io/superdurable/dex/GrpcExceptionTranslator.java)
 
 ## Query-only Get failures
 
@@ -34,7 +38,7 @@ Follow the shared [missing query target rule](../core/error-handling.md#missing-
 
 ## Closed-Flow races
 
-`FlowNotActiveOrNotFoundException` says the mutation found no active target; it does not say the requested action succeeded. Catch it only where the operation contract is known. First reconcile from authoritative domain state and operation invariants. `Client.describeFlow(flowId)` reads the current or latest run without waiting. It returns `FlowInfo` with `getFlowId()`, `getRunId()`, `getFlowType()`, `getStatus()`, and `getStartedAt()`; it has no close time. See the [released Client](https://github.com/superdurable/dex/blob/sdk-java/v1.26.0/sdk-java/src/main/java/io/superdurable/dex/Client.java) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-java/v1.26.0/sdk-java/src/main/java/io/superdurable/dex/FlowInfo.java). Call `describeFlow` and inspect `FlowStatus` only when an otherwise unknown terminal distinction changes the outcome:
+`FlowNotActiveOrNotFoundException` says the mutation found no active target; it does not say the requested action succeeded. Catch it only where the operation contract is known. First reconcile from authoritative domain state and operation invariants. `Client.describeFlow(flowId)` reads the current or latest run without waiting. It returns `FlowInfo` with `getFlowId()`, `getRunId()`, `getFlowType()`, `getStatus()`, and `getStartedAt()`; it has no close time. See the [released Client](https://github.com/superdurable/dex/blob/sdk-java/v1.30.0/sdk-java/src/main/java/io/superdurable/dex/Client.java) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-java/v1.30.0/sdk-java/src/main/java/io/superdurable/dex/FlowInfo.java). Call `describeFlow` and inspect `FlowStatus` only when an otherwise unknown terminal distinction changes the outcome:
 
 - Treat `COMPLETED` as idempotent success only when successful completion guarantees the requested condition.
 - For any other terminal status or a subsequent `FlowNotFoundException`, record or return an explicit domain failure or unknown outcome instead of retrying a terminal fact indefinitely.
@@ -53,7 +57,7 @@ For an explicitly best-effort external `Client.writeStream`, catch `DexServiceEx
 - Test both `waitFor` and `execute` exhaustion when both are configured.
 - Never use a recovery Step as a generic exception sink.
 
-[Pinned heartbeat/cancellation source](https://github.com/superdurable/dex/blob/sdk-java/v1.26.0/examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java)
+[Pinned heartbeat/cancellation source](https://github.com/superdurable/dex/blob/sdk-java/v1.30.0/examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java -->
 ```java
 if (context.isCancellationRequested()) {

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release used by core operations guidance.
 SERVER_ZD_RELEASE = "server-zd/v0.1.6"
-SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.11"
+SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.13"
 POSTGRES_CONNECTION_PATH = "server-zd/crates/dexzd-postgres-connection/src/lib.rs"
 POSTGRES_TLS_PATH = "server-zd/crates/dexzd-postgres-connection/src/tls.rs"
 POSTGRES_DSN_PATH = "server-zd/crates/dexzd-postgres-connection/src/dsn.rs"
@@ -54,7 +54,7 @@ SERVER_ZD_STATEMENTS = (
         "cleanup fail with FAILED_PRECONDITION and FLOW_CLOSING",
     )),
     ("server-zd/v0.1.4", "docs/content/production/server-zd-operations.mdx", (
-        "server-zd v0.1.4 or later waits, like the Go Server.",
+        "server-zd v0.1.4 or later waits",
         "Transactional or locking RPCs, WaitForStepCompletion, WaitForAttribute, and",
         "**syncRetryPolicy.totalDuration** limits how long each pending write is",
         "Pending writes for a store that is no longer configured are dropped at once",
@@ -119,6 +119,153 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "Selects the Attribute Store backend; dex-server-zd supports only `postgres`.",
     )),
     ("server-zd/v0.1.11", "server-zd/config/dex-server-zd.example.yaml", ("pingInterval: 20s",)),
+    ("server-zd/v0.1.13", "server-zd/crates/dexzd-search/src/sql_visibility/projection/projector.rs", (
+        "System attributes, such as DexWorkQueuePermissions, are projected into dedicated columns.",
+    )),
+    ("server-zd/v0.1.13", "server-zd/crates/dexzd-search/src/sql_visibility/migration.sql", (
+        "CREATE TABLE IF NOT EXISTS dexzd_visibility_runs (",
+        "CREATE TABLE IF NOT EXISTS dexzd_visibility_progress (",
+        "CREATE TABLE IF NOT EXISTS dexzd_visibility_skipped_documents (",
+    )),
+    ("server-zd/v0.1.13", "docs/content/production/server-zd-operations.mdx", (
+        "Choose **search.backend: postgres** to run indexed search on PostgreSQL 15 or\nnewer without extensions.",
+        "Choose ParadeDB when you need more indexed Attributes\nthan the PostgreSQL slot limits allow.",
+        "Each tenant has 10 Keyword slots and 3 slots each for Int, Datetime, Double,\nBool, KeywordArray, and Text.",
+        "System fields, including **DexWorkQueuePermissions**, do not consume slots.",
+        "Startup also fails if the existing registry exceeds these limits. The registry\nhas no delete operation. "
+        "A full registry requires a new server.",
+        "An indexed Keyword value or KeywordArray element may contain at most 1024\nUTF-8 bytes. "
+        "A larger new write returns **INVALID_ARGUMENT**.",
+        "positive Keyword predicates\ndo not match a stored KeywordArray.",
+        "A schema records its search backend. Starting with a different backend fails.",
+        "Startup then fails with an Attribute slot registry mismatch.",
+        "| **commit.maxUnappliedBytes** | 67108864 (64 MiB) |",
+    )),
+    ("server-zd/v0.1.13", "server-zd/config/dex-server-zd.example.yaml", (
+        "  postgresConnectionString: \"\"\n  postgresConnectionPoolSize: 10\n  postgresSchema: public",
+        "  builtinScanBudgetDocuments: 100000",
+    )),
+    ("server-zd/v0.1.13", "server-zd/crates/dexzd-server/src/config/service_config.rs", (
+        "loading reads DEX_ZD_POSTGRES_CONNECTION_STRING; serialization redacts non-empty values.",
+        "/// that would exceed the budget fails with ResourceExhausted.",
+    )),
+    ("server-zd/v0.1.13", "server-zd/crates/dexzd-cluster-metadata/src/registry.rs", (
+        "(IndexType::Keyword, 10),", "(IndexType::Int, 3),", "(IndexType::Double, 3),", "(IndexType::Bool, 3),",
+        "(IndexType::Datetime, 3),", "(IndexType::KeywordArray, 3),", "(IndexType::Text, 3),",
+    )),
+    ("server-zd/v0.1.13", "server-zd/crates/dexzd-server/src/server_node.rs", (
+        "(config.search.backend == SearchBackendKind::Postgres)\n"
+        "                .then(dexzd_cluster_metadata::AttributeIndexCapacity::postgres),",
+    )),
+    ("server-zd/v0.1.13", "server-zd/crates/dexzd-server/src/component_configs.rs", (
+        "keyword_value_limit: (config.search.backend == crate::config::SearchBackend::Postgres)\n"
+        "                .then(dexzd_request_validation::KeywordValueLimit::postgres),",
+    )),
+    ("server-zd/v0.1.13", "server-zd/crates/dexzd-api/src/attribute_indexes.rs", (
+        "code: tonic::Code::FailedPrecondition,\n            sub_status: ErrorSubStatus::AttributeIndexCapacityExceeded,",
+    )),
+    ("server-zd/v0.1.13", "server-zd/crates/dexzd-request-validation/src/keyword_index.rs", (
+        "maximum_bytes: 1024,", "error.sub_status = ErrorSubStatus::IndexedKeywordTooLong;",
+    )),
+    ("server-zd/v0.1.13", "server-zd/crates/dexzd-engine/src/effects/dispatch/worker_result.rs", (
+        "if error.sub_status == ErrorSubStatus::IndexedKeywordTooLong {\n"
+        "            return WorkerResultCheck::Invalid {\n"
+        "                kind: StepAttemptFailureKind::ValueTooLarge,\n"
+        "                detail: error.message,\n"
+        "                is_non_retryable: true,",
+    )),
+    ("server-zd/v0.1.13", "server-zd/crates/dexzd-engine/src/flow_coordination/client_operations/rpc_invocation.rs", (
+        "if error.sub_status == ErrorSubStatus::IndexedKeywordTooLong {\n                    grpc_code::INVALID_ARGUMENT",
+    )),
+    ("server-zd/v0.1.13", "server-zd/crates/dexzd-apply/src/steps/step_results.rs", (
+        'StepAttemptFailureKind::ValueTooLarge => "ValueTooLarge",',
+    )),
+)
+# Per language: (tagged path, needles) showing that the public error model does not map the search sub-statuses.
+SEARCH_SUB_STATUS_TAGGED_STATEMENTS = (
+    ("go", "sdk-go/gen/dexpb/dex.pb.go", (
+        "ErrorSubStatus_ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED ErrorSubStatus = 9",
+        "ErrorSubStatus_ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG ErrorSubStatus = 10",
+    )),
+    ("go", "sdk-go/dex/errors.go", ("\tdefault:\n\t\treturn ErrorSubStatusUncategorized\n",)),
+    ("go", "sdk-go/dex/worker.go", ('return fmt.Errorf("dex: sync attribute indexes: %w", err)',)),
+    ("java", "sdk-java/src/main/java/io/superdurable/gen/ErrorSubStatus.java", (
+        "ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED(9),", "ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG(10),",
+    )),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/GrpcExceptionTranslator.java", (
+        "            default:\n                return ErrorSubStatus.UNCATEGORIZED;",
+    )),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/Worker.java", (
+        'throw new IllegalStateException("cannot synchronize Attribute indexes", failure);',
+    )),
+    ("python", "sdk-python/dex/dexpb/dex_pb2.pyi", (
+        "ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED: ErrorSubStatus",
+        "ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG: ErrorSubStatus",
+    )),
+    ("python", "sdk-python/dex/_grpc_errors.py", ("return statuses.get(value, ErrorSubStatus.UNCATEGORIZED)",)),
+    ("python", "sdk-python/dex/worker.py", ('raise RuntimeError("cannot synchronize Attribute indexes") from failure',)),
+    ("python", "sdk-python/dex/async_worker.py", ('raise RuntimeError("cannot synchronize Attribute indexes") from failure',)),
+    ("typescript", "sdk-typescript/src/gen/dex.ts", (
+        "ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED = 9,", "ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG = 10,",
+    )),
+    ("typescript", "sdk-typescript/src/grpc-status.ts", ("    default:\n      return ErrorSubStatus.UNCATEGORIZED;",)),
+    ("typescript", "sdk-typescript/src/worker.ts", (
+        "const startupError = new Error(`cannot start TypeScript ${endpoint}`, { cause: failure });",
+    )),
+    ("rust", "sdk-rust/crates/dex-sdk/src/sdk_error.rs", (
+        "        _ => ErrorSubStatus::Uncategorized,", "ErrorSubStatus::Uncategorized => Self::Service { service },",
+    )),
+    ("rust", "sdk-rust/crates/dex-sdk/src/worker.rs", ("return Err(service_error(status));",)),
+    ("go", "sdk-go/dex/proto_mapper.go", (
+        "case dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL:\n\t\treturn FlowErrorWorkerMethod, nil",
+    )),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/Client.java", (
+        "case FLOW_ERROR_TYPE_WORKER_API_FAIL:\n                return FlowErrorType.WORKER_API_FAILED;",
+    )),
+    ("python", "sdk-python/dex/flow_result.py", (
+        "pb.FLOW_ERROR_TYPE_WORKER_API_FAIL: FlowErrorType.WORKER_API_FAILED,",
+    )),
+    ("typescript", "sdk-typescript/src/flow-result.ts", (
+        "case ProtoFlowErrorType.FLOW_ERROR_TYPE_WORKER_API_FAIL:\n      return FlowErrorType.WORKER_API_FAILED;",
+    )),
+    ("rust", "sdk-rust/crates/dex-sdk/src/client.rs", (
+        "Some(ProtoFlowErrorType::WorkerApiFail) => Some(FlowErrorType::WorkerApiFailed),",
+    )),
+)
+# Per language: hand-written public error sources that must not name the search sub-statuses yet.
+SEARCH_SUB_STATUS_UNMAPPED = (
+    ("go", "sdk-go/dex/errors.go"),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/GrpcExceptionTranslator.java"),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/exceptions/ErrorSubStatus.java"),
+    ("python", "sdk-python/dex/_grpc_errors.py"),
+    ("python", "sdk-python/dex/runtime_errors.py"),
+    ("typescript", "sdk-typescript/src/grpc-status.ts"),
+    ("typescript", "sdk-typescript/src/errors.ts"),
+    ("rust", "sdk-rust/crates/dex-sdk/src/sdk_error.rs"),
+)
+SEARCH_SUB_STATUS_TOKENS = ("ATTRIBUTE_INDEX_CAPACITY", "AttributeIndexCapacity", "INDEXED_KEYWORD", "IndexedKeyword")
+SEARCH_LIMIT_REFERENCES = (
+    ("core/operations.md", (
+        "### Search backends",
+        "Each tenant has 10 Keyword slots and 3 slots each for Int, Double, Datetime, Bool, KeywordArray, and Text.",
+        "fails with FAILED_PRECONDITION and sub-status ATTRIBUTE_INDEX_CAPACITY_EXCEEDED, so the Worker fails to start.",
+        "The registry has no delete operation, so a full registry needs a new server.",
+        "fails with INVALID_ARGUMENT and sub-status INDEXED_KEYWORD_TOO_LONG",
+        "a positive Keyword condition does not match a KeywordArray value stored under a key registered as Keyword.",
+        "server-zd v0.1.12 fixes ParadeDB search for Flows that carry the Server-managed **DexWorkQueuePermissions** Attribute",
+        "`commit.maxUnappliedBytes` (default 64 MiB)",
+    )),
+    ("core/error-handling.md", (
+        "## Indexed search limits",
+        "A Flow that fails this way reports a Worker API failure as its Flow error type, a recovery Step receives error type **ValueTooLarge**",
+        "A Client call reports either failure as the SDK's generic service error with the Uncategorized sub-status.",
+    )),
+    ("core/primitives.md", ("every application on the server shares at most **keyword1** through **keyword10**",)),
+    ("go/error-handling.md", ("## Indexed search limits", "reports Flow error type `dex.FlowErrorWorkerMethod`", "`SubStatus` `dex.ErrorSubStatusUncategorized`")),
+    ("java/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType.WORKER_API_FAILED`", "`getSubStatus()` `ErrorSubStatus.UNCATEGORIZED`")),
+    ("python/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType.WORKER_API_FAILED`", "`sub_status` `ErrorSubStatus.UNCATEGORIZED`")),
+    ("typescript/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType.WORKER_API_FAILED`", "`subStatus` is `ErrorSubStatus.UNCATEGORIZED`")),
+    ("rust/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType::WorkerApiFailed`", "`sub_status()` is `ErrorSubStatus::Uncategorized`")),
 )
 
 
@@ -307,7 +454,7 @@ REFERENCE_1_24_STATEMENTS = (
         "Retries keep their locks until the method call ends from server-zd v0.1.10.",
         "a hard-delete Attribute needs v0.1.10 or later",
     )),
-    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.11.",)),
+    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.13.",)),
     ("go/go.md", ("From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity",)),
     ("java/java.md", ("From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
     ("python/python.md", ("From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
@@ -1088,7 +1235,7 @@ def check_sdk_describe_flow(checkout: Path, baselines: dict[str, str], reference
         references / "core" / "error-handling.md",
         "Java **Client.describeFlow**, Python **Client.describe_flow** or **AsyncClient.describe_flow**, "
         "TypeScript **Client.describeFlow**, or Rust **Client::describe_flow**.",
-        "Java, Python, TypeScript, and Rust already have it at their v1.26.0 baselines.",
+        "Java, Python, TypeScript, and Rust already have it at their baselines.",
         "It returns the Flow ID, run ID, Flow type, status, and start time.",
         "A missing Flow returns the SDK's typed Flow-not-found error.",
     )
@@ -1215,6 +1362,20 @@ def check_client_attribute_reads(checkout: Path, baselines: dict[str, str], refe
             if declaration.search(git(checkout, "show", f"refs/tags/{tag}:{path}")):
                 fail(f"{tag}:{path} declares a public Client Attribute read; document it for {language}")
     for page, needles in CLIENT_ATTRIBUTE_READ_REFERENCES:
+        require_text(references / page, *needles)
+
+
+def check_search_sub_statuses(checkout: Path, baselines: dict[str, str], references: Path) -> None:
+    """Checks that each SDK baseline reports the search sub-statuses as uncategorized, as the references say."""
+    for language, path, needles in SEARCH_SUB_STATUS_TAGGED_STATEMENTS:
+        require_tagged_text(checkout, baselines[language], path, *needles)
+    for language, path in SEARCH_SUB_STATUS_UNMAPPED:
+        tag = baselines[language]
+        source = git(checkout, "show", f"refs/tags/{tag}:{path}")
+        for token in SEARCH_SUB_STATUS_TOKENS:
+            if token in source:
+                fail(f"{tag}:{path} maps a search sub-status ({token}); document its typed error for {language}")
+    for page, needles in SEARCH_LIMIT_REFERENCES:
         require_text(references / page, *needles)
 
 
@@ -1382,6 +1543,7 @@ def main() -> None:
     check_pull_only_workers(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_release_1_28_statements(arguments.dex_root, sdk_baselines)
     check_client_attribute_reads(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
+    check_search_sub_statuses(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,

@@ -52,6 +52,8 @@ Assign every application Indexed Attribute an explicit generic index key from a 
 
 Generic slots can mean different things for different Flow types. Application run searches using a generic slot must constrain **FlowType**. Combine that scope predicate with parenthesized caller filters so an OR cannot bypass it. Do not index sensitive data or PII.
 
+Size the pool for the server's search backend. With server-zd `search.backend: postgres`, every application on the server shares at most **keyword1** through **keyword10** and three keys each of KeywordArray, Text, Int, Double, Bool, and Datetime. Registrations are permanent, so a test or abandoned registration uses a slot for good. Keep one index type per key. Keep each indexed Keyword value and KeywordArray element at most 1,024 UTF-8 bytes; index longer text as Text, or index a short derived key instead. Builtin and ParadeDB search have neither limit. See [search backends](operations.md#search-backends).
+
 For a short-lived secret that the Flow itself must hold, such as an API key, define a hard-delete Attribute or AttributeMap. Dex keeps its values out of Flow history and permanently deletes them on delete or a null write. It supports only string and object values. It cannot be indexed, synced to an Attribute Store, or used with WaitForAttributeMatch. Writes can become visible before the attempt commits. Read [hard-delete Attributes](data-handling.md#hard-delete-attributes-for-short-lived-secrets) for every requirement and limitation before using one.
 
 Read [data-handling.md](data-handling.md) for large values, map chunking, BlobCache locality, hard-delete secrets, and external projections.

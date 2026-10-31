@@ -25,7 +25,7 @@ dexcli flow history <flow-id> --page-size 80 --timeout 30s --no-hydrate
 
 Flow detail shows the Worker target and, for pull Flows, the Flow type queue and sticky app Worker ID. Active Steps and Step history show serving app Worker IDs for WaitFor and Execute, the dispatch sticky app Worker ID, and the queue source. **Sticky queue** means the serving ID matches the sticky ID captured for that dispatch; otherwise a completed dispatch shows **Flow type queue**. Compare against that captured ID, not just the Flow's current sticky ID.
 
-Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage. [Released routing UI](https://github.com/superdurable/dex/blob/web/v1.28.0/web/app/flows/details/PullRouting.tsx)
+Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage. [Released routing UI](https://github.com/superdurable/dex/blob/web/v1.30.0/web/app/flows/details/PullRouting.tsx)
 
 Correlate reserve-decline counters with total handler occupancy and **M − R** Step admission before increasing capacity; follow [reserved RPC capacity](pull-workers.md#reserved-rpc-capacity).
 
@@ -122,7 +122,7 @@ The Dex Server is server-zd. Run `dex-server-zd serve --config FILE` from a rele
 
 ### Public API authentication
 
-Public FlowService authentication is off by default. Configure `auth.authenticators` to require a bearer credential on every FlowService and WorkerTaskService call. Static token authenticators read SHA-256 hashes from a YAML token file; JWT authenticators verify issuer, audience, signature, and validity against a cached key set. Health checks remain open. Protect the plaintext gRPC network path, and keep token values out of source, logs, Flow state, and rendered definitions. [Released authentication configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.11/server-zd/config/dex-server-zd.example.yaml)
+Public FlowService authentication is off by default. Configure `auth.authenticators` to require a bearer credential on every FlowService and WorkerTaskService call. Static token authenticators read SHA-256 hashes from a YAML token file; JWT authenticators verify issuer, audience, signature, and validity against a cached key set. Health checks remain open. Protect the plaintext gRPC network path, and keep token values out of source, logs, Flow state, and rendered definitions. [Released authentication configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.13/server-zd/config/dex-server-zd.example.yaml)
 
 Clients and Workers have separate credential options in all five SDKs. Supply a rotating file credential where available, or a current-token provider that can be called for every FlowService call and each pull stream opening. With auth enabled, a missing credential is rejected and a failed credential prevents the call; a rotated token is picked up on a later call or stream reconnect. See the language handbook for exact names.
 
@@ -136,9 +136,9 @@ With TLS, **FlowServiceAddress** accepts **host:port**, **dns:///host:port**, or
 
 **NewClient** and **NewWorker** reject an invalid TLS address or **ServerName**, a port outside 1–65535, a failure to load system roots when adding CAs, or a nonempty PEM bundle without a parseable certificate. Connections open on demand. Certificate, name, and handshake failures appear as gRPC **Unavailable** on the first Client call or from **Worker.Start**. An unavailable **GetServerInfo** reports a FlowService connection failure; an unimplemented call retains the incompatible-server diagnosis. Bearer, file, and API key Credentials work over either transport. **APIKeyCredential** exchanges with its token endpoint through its own HTTP client and trust settings; **FlowServiceTLS** does not configure that connection.
 
-At server-zd v0.1.6 and later, **api.listen** serves plaintext FlowService gRPC. Terminate TLS in a gateway or load balancer in front of the Server. **dexcli** has separate **--tls**, **--tls-ca-file**, and **--tls-server-name** settings for its own FlowService connection. Dex Web connects with plaintext gRPC unless **--tls** is set; its bearer-token file controls authentication, not transport encryption. [Go TLS API](https://github.com/superdurable/dex/blob/sdk-go/v1.29.0/sdk-go/dex/flow_service_tls.go) · [Server configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.11/server-zd/config/dex-server-zd.example.yaml) · [server-zd v0.1.6 release](https://github.com/superdurable/dex/releases/tag/server-zd/v0.1.6) · [CLI TLS](#dexcli-tls-transport)
+At server-zd v0.1.6 and later, **api.listen** serves plaintext FlowService gRPC. Terminate TLS in a gateway or load balancer in front of the Server. **dexcli** has separate **--tls**, **--tls-ca-file**, and **--tls-server-name** settings for its own FlowService connection. Dex Web connects with plaintext gRPC unless **--tls** is set; its bearer-token file controls authentication, not transport encryption. [Go TLS API](https://github.com/superdurable/dex/blob/sdk-go/v1.30.0/sdk-go/dex/flow_service_tls.go) · [Server configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.13/server-zd/config/dex-server-zd.example.yaml) · [server-zd v0.1.6 release](https://github.com/superdurable/dex/releases/tag/server-zd/v0.1.6) · [CLI TLS](#dexcli-tls-transport)
 
-At the v1.26.0 language baselines, Java **ClientOptions** and **WorkerOptions**, Python **ClientOptions** and **WorkerOptions**, TypeScript **ClientOptions** and **WorkerOptions**, and Rust **ClientOptions** and **WorkerOptions** have no FlowService TLS option; their default FlowService connections use plaintext. Do not apply the Go option names to those SDKs. See each language handbook for its pinned source.
+At the Java, Python, and TypeScript v1.30.0 baselines and the Rust v1.26.0 baseline, Java **ClientOptions** and **WorkerOptions**, Python **ClientOptions** and **WorkerOptions**, TypeScript **ClientOptions** and **WorkerOptions**, and Rust **ClientOptions** and **WorkerOptions** have no FlowService TLS option; their default FlowService connections use plaintext. Do not apply the Go option names to those SDKs. See each language handbook for its pinned source.
 
 #### API key Credential
 
@@ -156,7 +156,7 @@ Keep the API key in deployment secret management. Never put it in source, Flow s
 
 #### dexcli credentials
 
-Configure `dexcli` with either a bearer token or an API key, not both. For a bearer token, `--credential-file` takes precedence over `DEX_CREDENTIAL_FILE`, which takes precedence over `DEX_CREDENTIAL`. The CLI has no raw-token flag. Store a token in a protected file when possible; avoid putting one into shell history or process arguments. [Released CLI options](https://github.com/superdurable/dex/blob/cli-v1.28.1/cli/internal/command/options.go)
+Configure `dexcli` with either a bearer token or an API key, not both. For a bearer token, `--credential-file` takes precedence over `DEX_CREDENTIAL_FILE`, which takes precedence over `DEX_CREDENTIAL`. The CLI has no raw-token flag. Store a token in a protected file when possible; avoid putting one into shell history or process arguments. [Released CLI options](https://github.com/superdurable/dex/blob/cli-v1.30.0/cli/internal/command/options.go)
 
 With CLI v1.16.0, an API key uses three settings:
 
@@ -164,7 +164,7 @@ With CLI v1.16.0, an API key uses three settings:
 - `--token-url` or `DEX_TOKEN_URL` names the token endpoint, with the same HTTPS and loopback rule as the SDKs.
 - `--server-id` or `DEX_SERVER_ID` names the server that the endpoint scopes the token to. `dexcli` never derives it from `--server`.
 
-Combining API key settings with any bearer token setting is a usage error that exits with status 2. So is setting `--token-url` or `--server-id` without an API key. Each command exchanges the key for a new token before its first call. A failed exchange fails the command before any FlowService call. A long command refreshes the token in the background after 80% of its lifetime. Unlike the SDKs, `dexcli` does not retry a call that Dex rejects with UNAUTHENTICATED; rerun the command to obtain a fresh token. Errors redact the key and tokens as the SDK credentials do. [Released CLI authentication guide](https://github.com/superdurable/dex/blob/cli-v1.28.1/cli/README.md)
+Combining API key settings with any bearer token setting is a usage error that exits with status 2. So is setting `--token-url` or `--server-id` without an API key. Each command exchanges the key for a new token before its first call. A failed exchange fails the command before any FlowService call. A long command refreshes the token in the background after 80% of its lifetime. Unlike the SDKs, `dexcli` does not retry a call that Dex rejects with UNAUTHENTICATED; rerun the command to obtain a fresh token. Errors redact the key and tokens as the SDK credentials do. [Released CLI authentication guide](https://github.com/superdurable/dex/blob/cli-v1.30.0/cli/README.md)
 
 ```bash
 export DEX_API_KEY="$(cat ~/.dex/api-key)"
@@ -185,7 +185,7 @@ CLI v1.18.0 or later can reach a Dex endpoint behind a TLS-terminating gateway o
 - `--tls-ca-file` or `DEX_TLS_CA_FILE` adds the PEM certificates in the file to the system root CAs, for a server certificate issued by a private or self-signed CA. A file without a PEM certificate fails the command.
 - `dexcli` negotiates HTTP/2 with ALPN `h2`. A TLS-terminating load balancer or gateway must accept `h2` and forward gRPC to Dex over HTTP/2.
 
-Setting `--tls-ca-file` or `--tls-server-name` without TLS is a usage error that exits with status 2. TLS never falls back to plaintext. The bearer token or API key access token is sent on every call over either transport. Without TLS it crosses the network unencrypted, so use plaintext only on loopback or a protected network. These settings configure only the `dexcli` FlowService connection. The API key exchange at `--token-url` always verifies the token endpoint against the system root CAs. [Released CLI TLS guide](https://github.com/superdurable/dex/blob/cli-v1.28.1/cli/README.md#connect-over-tls)
+Setting `--tls-ca-file` or `--tls-server-name` without TLS is a usage error that exits with status 2. TLS never falls back to plaintext. The bearer token or API key access token is sent on every call over either transport. Without TLS it crosses the network unencrypted, so use plaintext only on loopback or a protected network. These settings configure only the `dexcli` FlowService connection. The API key exchange at `--token-url` always verifies the token endpoint against the system root CAs. [Released CLI TLS guide](https://github.com/superdurable/dex/blob/cli-v1.30.0/cli/README.md#connect-over-tls)
 
 ```bash
 dexcli --server orders.dex.example.com:443 --tls \
@@ -202,7 +202,7 @@ Client API **ResourceExhausted** can identify capacity or rate limits rather tha
 
 ### Pull Worker server setup
 
-The node that holds the lease owns every pull Worker queue. Workers and Clients connect to `api.listen`. Preserve bidirectional HTTP/2 streaming and make load-balancer idle timeouts longer than `matching.pingInterval` (20 seconds by default). [Released routing configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.11/server-zd/config/dex-server-zd.example.yaml)
+The node that holds the lease owns every pull Worker queue. Workers and Clients connect to `api.listen`. Preserve bidirectional HTTP/2 streaming and make load-balancer idle timeouts longer than `matching.pingInterval` (20 seconds by default). [Released routing configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.13/server-zd/config/dex-server-zd.example.yaml)
 
 From SDK v1.23.0, SDKs send an upstream Pong every 20 seconds while a task runs. Set proxy and load balancer idle timeouts above 20 seconds and **matching.pingInterval**; older SDKs need a timeout above the longest task.
 
@@ -240,7 +240,7 @@ dex-web --flow-service-address dex.example.com:443 --tls \
 
 The image binds HTTP to `0.0.0.0:8802` and runs as UID/GID 65532, so mount token files and definition directories read-only with permissions that UID can read. `--version` reports the build version.
 
-`/healthz` reports Web process liveness, not upstream API readiness. Web starts while FlowService is unavailable; `/api/*` returns the existing mapped gRPC error until the Server recovers. `/readyz` validates the current Flow definition snapshot and then calls the FlowService health check, on every probe. Use `/readyz` for traffic gating and `/healthz` for liveness, because a FlowService outage must not restart Web. [Released Web readiness and settings](https://github.com/superdurable/dex/blob/web/v1.28.0/web/README.md#run-standalone-dex-web)
+`/healthz` reports Web process liveness, not upstream API readiness. Web starts while FlowService is unavailable; `/api/*` returns the existing mapped gRPC error until the Server recovers. `/readyz` validates the current Flow definition snapshot and then calls the FlowService health check, on every probe. Use `/readyz` for traffic gating and `/healthz` for liveness, because a FlowService outage must not restart Web. [Released Web readiness and settings](https://github.com/superdurable/dex/blob/web/v1.30.0/web/README.md#run-standalone-dex-web)
 
 ### Retired Go Server
 
@@ -276,6 +276,18 @@ server-zd v0.1.10 changes these application-visible behaviors:
 
 server-zd v0.1.9 removed a fixed latency of about 40 ms from small requests such as commits, RPCs, and Step completions. server-zd v0.1.11 adds a macOS Intel (amd64) `dex-server-zd` binary and changes no server behavior. See the [server-zd v0.1.10 release](https://github.com/superdurable/dex/releases/tag/server-zd/v0.1.10) and the [v0.1.11 release](https://github.com/superdurable/dex/releases/tag/server-zd/v0.1.11).
 
+server-zd v0.1.12 fixes ParadeDB search for Flows that carry the Server-managed **DexWorkQueuePermissions** Attribute, which is every Flow with an action permission mapping. Earlier releases left those Flows out of `search.backend: paradedb`. They reappear on their next commit. To restore all of them at once, stop the server, truncate `dexzd_visibility_runs`, `dexzd_visibility_progress`, and `dexzd_visibility_skipped_documents` in the configured schema, and start it again; startup rebuilds every partition from committed state. Builtin search was not affected. v0.1.12 also ignores the removed `WorkerTarget.address` and `WorkerTarget.is_headless_address` fields instead of rejecting a non-empty value. See the [v0.1.12 release](https://github.com/superdurable/dex/releases/tag/server-zd/v0.1.12).
+
+server-zd v0.1.13 changes these operator-visible behaviors. Upgrade every node, including standbys; builtin and ParadeDB search need no configuration change.
+
+- A new `search.backend: postgres` serves SearchFlows from plain PostgreSQL with fixed per-type Attribute index capacity and a Keyword length limit. See [search backends](#search-backends).
+- SearchFlows SQL on PostgreSQL and ParadeDB uses indexes for queries that filter only on system fields such as **FlowType** and for deep default-order pages, and projection writes are batched. **GetHistoryEvents** reads rows in proportion to the page size instead of the whole run.
+- Each history page reports the event ID range that the [history window](#server-zd) removed. The range starts at event 2 because FlowStart is always kept, so the first retained event after FlowStart is the range end plus one. Step method events carry the event ID that started their Step execution, and Execute events also carry the event ID and time of the Step's WaitFor completion. No SDK Client exposes history reads; Dex Web and FlowService clients use these fields.
+- Optional `commit.*` and `localStorage.*` tunables. See [performance tunables](#performance-tunables).
+- The metric `dexzd_search_skipped_documents_total` counts search documents that an external search backend omitted.
+
+See the [v0.1.13 release](https://github.com/superdurable/dex/releases/tag/server-zd/v0.1.13).
+
 server-zd does not serve Dex Web. Run the standalone [Dex Web](#deploy-dex-web) and point `--flow-service-address` at the server-zd plaintext gRPC address. When server-zd authentication is on, also pass `--flow-service-credential-file`.
 
 From server-zd v0.1.6, `search.paradeDbConnectionString` accepts PostgreSQL URL or keyword-string TLS parameters: `sslmode=disable|allow|prefer|require|verify-ca|verify-full`, `sslrootcert` as a PEM CA file or `system` roots, `sslsni=0|1`, and `sslnegotiation=postgres|direct`. Direct negotiation requires PostgreSQL 17 or later; `sslmode=allow` with `sslnegotiation=direct` is invalid. Explicit `sslmode=prefer` first attempts TLS without certificate verification and uses plaintext when the server declines TLS. A string without TLS parameters stays plaintext.
@@ -303,7 +315,7 @@ The [server-zd Attribute Store guide](https://docs.superdurable.io/production/se
 
 For local development, `dexcli dev` (CLI v1.26.1) runs `dex-server-zd` and embedded Dex Web. server-zd is the only engine, and `--engine zd` is accepted with no effect.
 
-- The CLI uses the first `dex-server-zd` it finds: `--zd-binary`, then `DEX_SERVER_ZD_BINARY`, then the directory of the running `dexcli` executable, then PATH. Every `dexcli` release package contains the bundled `dex-server-zd`, server-zd/v0.1.11 for CLI v1.26.1, so Homebrew installs need no separate download.
+- The CLI uses the first `dex-server-zd` it finds: `--zd-binary`, then `DEX_SERVER_ZD_BINARY`, then the directory of the running `dexcli` executable, then PATH. Every `dexcli` release package contains the bundled `dex-server-zd`, server-zd/v0.1.13 for CLI v1.30.0, so Homebrew installs need no separate download.
 - State persists in `$HOME/.dex/zd/<dex-port>` unless `--zd-data-dir` names another directory.
 - Dev defaults to process-crash-safe durability: acknowledged writes survive a process kill, but not necessarily a host crash or power loss. It takes over its previous lease at once when the data directory supports file locks. An uncleanly stopped relaxed data directory refuses startup; the error names the directory and says to delete it. A directory that an earlier release stopped gracefully works in every mode. A directory left after an earlier release crashed or was killed is refused in the default and `relaxed` modes. Delete that directory to start empty, or set `dev.durabilityMode: strict` in the `--zd-config` file only if every earlier run used strict. After the first start with this rule, the directory is stamped and any mode works.
 - `--zd-config FILE` passes a `dex-server-zd` YAML file with configuration overrides, such as closed Flow retention, Streams, or the search backend.
@@ -312,9 +324,35 @@ For local development, `dexcli dev` (CLI v1.26.1) runs `dex-server-zd` and embed
 - `--engine temporal` and every Temporal-specific flag (`--external-temporal-*`, `--temporal-*`, `--sqlite-db-filename`, `--verbose-engine-log`, and `--blob-store-dir`) fail with an error that names server-zd as the only engine. Remove them and use `--zd-data-dir` and `--zd-config`. A Temporal SQLite file cannot serve as a server-zd data directory.
 - `dexcli flow start --config` rejects a non-null `workerTarget`, because Dex routes Flow work to pull Workers. A null or absent `workerTarget` works.
 
-[Released CLI engine options](https://github.com/superdurable/dex/blob/cli-v1.28.1/cli/README.md)
+[Released CLI engine options](https://github.com/superdurable/dex/blob/cli-v1.30.0/cli/README.md)
 
-Time travel keeps the run ID and creates a new run attempt. Dex Web shows the run attempt and switches between attempts, and `GET /api/flows/summary` reports `runAttempt`. `dexcli flow summary` does not print it, so read it in Dex Web. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.28.0/web/README.md#run-against-server-zd)
+Time travel keeps the run ID and creates a new run attempt. Dex Web shows the run attempt and switches between attempts, and `GET /api/flows/summary` reports `runAttempt`. `dexcli flow summary` does not print it, so read it in Dex Web. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.30.0/web/README.md#run-against-server-zd)
+
+From web/v1.29.0, the Dex Web Run page loads only the newest history window of the selected run, at most 1,000 semantic events, and Live drops the oldest loaded events as new ones arrive. Timeline shows one window per page, newest first, with **Older events**, **Newer events**, and **Newest**. Event numbers are event IDs, so they stay stable across pages and pruning. A related event on another page ends in a stub that loads its page, and an event that the server-zd history window removed shows as a muted **pruned** stub. Execution graph, Overview, and the v2 canvas read only the newest window, so Step executions recorded before it do not appear there, and the v2 canvas marks per-Step counts as lower bounds. Page Timeline back, or run `dexcli flow history`, before concluding that an older Step never ran. [Released Run page behavior](https://github.com/superdurable/dex/blob/web/v1.30.0/web/README.md)
+
+### Search backends
+
+`search.backend` selects how server-zd serves SearchFlows. Choose it before production traffic, because a schema used by one external backend refuses the other.
+
+- `builtin` (default) searches the committed local search documents and needs no database. One query inspects at most `search.builtinScanBudgetDocuments` documents (default 100,000). A query without ORDER BY stops once its page is full. A query with ORDER BY inspects every run, or every run of one Flow type when it pins `FlowType = X`. A query that would exceed the budget fails with RESOURCE_EXHAUSTED.
+- `paradedb` projects search documents into ParadeDB through `search.paradeDbConnectionString`. Its first startup needs a role that may create the `pg_search` extension, unless it is already installed. It has no fixed Attribute index capacity.
+- `postgres`, from server-zd v0.1.13, projects into PostgreSQL 15 or newer and needs no extension. It limits Attribute index capacity and Keyword length, as listed below. Choose ParadeDB instead when the application needs more indexed Attributes than these limits allow.
+
+Configure `postgres` with `search.postgresConnectionString`, `search.postgresConnectionPoolSize` (default 10), and `search.postgresSchema` (default `public`). An empty connection string reads `DEX_ZD_POSTGRES_CONNECTION_STRING`. The connection accepts the same TLS parameters as `search.paradeDbConnectionString`, and serialized configuration redacts it. Both external backends project asynchronously, and SearchFlows waits up to `search.readYourWritesWait` for commits made before the request.
+
+With `search.backend: postgres`, these limits apply:
+
+- **Index capacity.** Each tenant has 10 Keyword slots and 3 slots each for Int, Double, Datetime, Bool, KeywordArray, and Text. Registrations take slots in registration order. System fields, such as **DexWorkQueuePermissions**, take none. Every application on the server shares this registry. A Worker registration that adds an index key beyond a type's capacity fails with FAILED_PRECONDITION and sub-status ATTRIBUTE_INDEX_CAPACITY_EXCEEDED, so the Worker fails to start. Re-registering existing keys still succeeds. Startup also fails when the existing registry exceeds the limits. The registry has no delete operation, so a full registry needs a new server. Plan index keys with the [generic slot pool](primitives.md#attribute).
+- **Keyword length.** An indexed Keyword value or KeywordArray element may contain at most 1,024 UTF-8 bytes. A StartFlow initial Attribute, an RPC handler write, or a SetAttributes call made directly through FlowService over the limit fails with INVALID_ARGUMENT and sub-status INDEXED_KEYWORD_TOO_LONG, and nothing from that request commits. A Worker Step result that carries one, including SubFlow initial Attributes, fails the Step attempt without retry. See [indexed search limits](error-handling.md#indexed-search-limits). Text indexes and non-indexed values are not limited. A document committed earlier with an oversized value is omitted from search and counted in `dexzd_search_skipped_documents_total`; its Flow state stays committed.
+- **Backfill.** A newly registered Attribute uses a slower query path until its background backfill finishes. Results stay correct meanwhile.
+- **Query cost.** Negative predicates, such as `!=` and `NOT IN`, often cannot use an index. Explicit `ORDER BY StartTime` and `ORDER BY CloseTime` sort every matching row. Text matches all query terms and does not rank by BM25 relevance.
+- **One result difference.** Results match builtin search, except that a positive Keyword condition does not match a KeywordArray value stored under a key registered as Keyword. Keep one index type per key.
+
+To switch between `postgres` and `paradedb`, point the server at a new database or schema; the projection rebuilds from committed state on startup. A schema created by the other backend fails startup. Restoring an older object storage prefix can leave the PostgreSQL Attribute registry ahead of the restored one, and startup then fails with an Attribute slot registry mismatch. Before restarting a restored node, configure a new `search.postgresSchema` or a new database. See the [server-zd search guide](https://docs.superdurable.io/production/server-zd-operations#postgresql-search) and the [released search configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.13/server-zd/config/dex-server-zd.example.yaml).
+
+### Performance tunables
+
+From server-zd v0.1.13, optional `commit.*` and `localStorage.*` keys tune throughput and memory, not Flow results. Change them only when a load test shows a bottleneck. `commit.applierLanes` defaults to the larger of 8 and the available CPUs, at most `cluster.partitionCount` and 1024. `localStorage.maxBackgroundJobs` defaults to half the available CPUs, from 2 to 1024; the node logs both values at startup. `commit.maxUnappliedBytes` (default 64 MiB) bounds accepted commands not yet applied locally. A smaller value makes more requests fail with UNAVAILABLE under load. `localStorage.writeBufferBytes` sets one RocksDB memtable per column family, so memtables can use 12 times its value; raise `localStorage.maxWalBytes` with it. See [performance tuning](https://docs.superdurable.io/production/server-zd-operations#performance-tuning).
 
 ## Safe recovery
 
