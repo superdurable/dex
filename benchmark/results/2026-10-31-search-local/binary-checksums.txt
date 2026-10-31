@@ -1,0 +1,2 @@
+b4792be284cf52c374ec3bd8d6907183dbb0c8f764efa9de98bf332e37b4366b  benchmark/bin/dexbench
+004389adfcb8d1734f422d7678ce6d7408771e12c024cf73408d6fef8263b210  server-zd/target/release/dex-server-zd

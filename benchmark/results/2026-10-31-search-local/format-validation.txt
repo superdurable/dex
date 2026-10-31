@@ -1,0 +1,2 @@
+gofmt: clean
+bash -n benchmark/search-local.sh: passed

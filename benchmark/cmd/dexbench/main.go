@@ -37,9 +37,11 @@ func main() {
 
 func execute(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: dexbench run [flags] | report FILE... | chart FILE... | sample --pid PID --out FILE | merge-server --result FILE --samples FILE")
+		return fmt.Errorf("usage: dexbench run [flags] | search [flags] | report FILE... | chart FILE... | sample --pid PID --out FILE | merge-server --result FILE --samples FILE")
 	}
 	switch args[0] {
+	case "search":
+		return runSearch(args[1:])
 	case "run":
 		return run(args[1:])
 	case "report":

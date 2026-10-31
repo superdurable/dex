@@ -1,0 +1,10 @@
+{
+  "source_file": "server.log.gz",
+  "source_sha256": "06300d943496945aa4cef7513fe41055738fdcdc7c7cea3b7a41d5de9a477a3f",
+  "source_compressed_bytes": 787101,
+  "line_count": 70438,
+  "projection_queue_overflow_count": 2002,
+  "error_level_line_count": 0,
+  "overflow_match": "a committed frame could not be queued for the search projection; rebuilding its partition",
+  "error_level_match": " ERROR "
+}

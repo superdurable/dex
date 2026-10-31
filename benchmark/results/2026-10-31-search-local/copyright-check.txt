@@ -1,0 +1,1 @@
+cd script/licenseheaders/copyright && GOWORK=off go run . -rootDir "../../.." -verifyOnly

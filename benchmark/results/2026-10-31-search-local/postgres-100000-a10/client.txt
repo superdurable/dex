@@ -1,0 +1,19 @@
+seeded 10000/100000
+seeded 20000/100000
+seeded 30000/100000
+seeded 40000/100000
+seeded 50000/100000
+seeded 60000/100000
+seeded 70000/100000
+seeded 80000/100000
+seeded 90000/100000
+seed ready: 100000 rows, 1992.3 rows/s, 6620.6 WAL bytes/row
+ready default-page-1: n=100 p50=0.530ms p99=1.131ms errors=map[]
+ready common-flow-type: n=100 p50=0.527ms p99=0.745ms errors=map[]
+ready rare-flow-type: n=100 p50=0.508ms p99=0.677ms errors=map[]
+ready start-time-desc: n=100 p50=69.114ms p99=76.802ms errors=map[]
+ready keyword-equality: n=100 p50=0.714ms p99=2.124ms errors=map[]
+ready int-range: n=100 p50=0.957ms p99=2.273ms errors=map[]
+ready keyword-array-contains: n=100 p50=6.089ms p99=8.527ms errors=map[]
+ready text-contains: n=100 p50=5.527ms p99=6.248ms errors=map[]
+ready default-page-500: n=100 p50=2.894ms p99=4.902ms errors=map[]

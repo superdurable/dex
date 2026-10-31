@@ -1,0 +1,29 @@
+{
+  "config": {
+    "projection_only": true,
+    "address": "127.0.0.1:18815",
+    "backend": "builtin",
+    "runs": 100000,
+    "attributes": 3,
+    "concurrency": 128,
+    "samples": 100,
+    "warmup": 10,
+    "deep_page": 500,
+    "timeout_ns": 30000000000,
+    "backfill": false,
+    "git_commit": "6b3109c2bd0231d13aa43d6dcc2fd0c52f6a943d"
+  },
+  "started_at": "2026-10-31T12:17:11.639229Z",
+  "machine": {
+    "cpu_model": "Apple M5 Pro",
+    "cores": 18,
+    "ram_bytes": 51539607552,
+    "os": "darwin",
+    "architecture": "arm64",
+    "free_disk_bytes": 181644328960
+  },
+  "seed_seconds": 24.483452167,
+  "catchup_seconds": 0.012449000000000154,
+  "rows_per_second": 4082.3156008004707,
+  "queries": null
+}
