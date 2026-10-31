@@ -52,7 +52,8 @@ if [[ "$backend" != builtin ]]; then
     sleep 1
   done
   printf '  %s: postgres://postgres:bench@127.0.0.1:%s/dexzd\n' "$connection_key" "$database_port" >> "$output_directory/zd-config.yaml"
-  docker image inspect "$image" --format '{{json .RepoTags}} {{.Architecture}} {{.Id}}' > "$output_directory/image.txt"
+  printf 'requested_image=%s\n' "$image" > "$output_directory/image.txt"
+  docker image inspect "$image" --format 'architecture={{.Architecture}} id={{.Id}}' >> "$output_directory/image.txt"
   docker exec "$container" psql -U postgres -d dexzd -XAtc 'SELECT version()' > "$output_directory/database-version.txt"
   arguments+=(--database-container "$container")
 fi
