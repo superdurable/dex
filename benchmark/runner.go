@@ -93,6 +93,7 @@ func NewRunner(config Config) (*Runner, error) {
 	runner.cache = cache
 	// Worker task slots are split across connections, rounded up so none is left without slots.
 	tasksPerWorker := (config.WorkerPool + config.Connections - 1) / config.Connections
+	runner.config.WorkerPool = tasksPerWorker * config.Connections
 	for index := 0; index < config.Connections; index++ {
 		connection, err := runner.openConnection(registry, tasksPerWorker)
 		if err != nil {

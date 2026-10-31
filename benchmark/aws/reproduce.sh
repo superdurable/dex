@@ -12,6 +12,8 @@ point_concurrency="${3:-}"
   exit 2
 }
 
+# Only the recorded server settings apply, so drop any exported in this shell.
+for name in $(compgen -e | grep '^DEXBENCH_ZD_' || true); do unset "$name"; done
 set -a
 # shellcheck source=/dev/null
 source "$results_dir/config.env"

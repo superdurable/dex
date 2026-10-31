@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs dex-server-zd and collects server-side data on the benchmark server host.
-# Usage: serve.sh start | stop | config | collect-start DIR | collect-stop DIR | host-info
+# Usage: serve.sh start | stop | status | config | collect-start DIR | collect-stop DIR | host-info
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,6 +20,7 @@ metrics_port="${DEXBENCH_METRICS_PORT:-9901}"
 config_path="$state_dir/zd-config.yaml"
 pid_path="$state_dir/server.pid"
 log_path="$state_dir/server.log"
+collectors_path="$state_dir/collectors.pid"
 
 # Maps each tunable variable to its server-zd YAML key; edit here when a key is renamed.
 tunable_keys="
@@ -98,7 +99,19 @@ is_running() {
   [[ -f "$pid_path" ]] && kill -0 "$(cat "$pid_path")" 2>/dev/null
 }
 
+# stop_collectors ends samplers and iostat left by a collect-start without a collect-stop.
+stop_collectors() {
+  if [[ -f "$collectors_path" ]]; then
+    local collector_pid
+    while read -r collector_pid; do
+      kill -TERM "$collector_pid" 2>/dev/null || true
+    done < "$collectors_path"
+    rm -f "$collectors_path"
+  fi
+}
+
 stop_server() {
+  stop_collectors
   if is_running; then
     local server_pid
     server_pid="$(cat "$pid_path")"
@@ -130,16 +143,19 @@ start_server() {
 collect_start() {
   local directory="$1"
   is_running || fail "server is not running"
+  stop_collectors
   mkdir -p "$directory"
   cp "$config_path" "$directory/zd-config.yaml"
   scrape_metrics "$directory/metrics-before.txt"
   nohup "$bench_binary" sample --pid "$(cat "$pid_path")" --out "$directory/server-samples.json" \
     </dev/null >"$directory/sampler.log" 2>&1 &
   echo $! > "$directory/.sampler.pid"
+  echo $! >> "$collectors_path"
   if [[ "$(uname -s)" == Linux ]] && command -v iostat >/dev/null; then
     # Line buffering keeps the report intact when iostat is terminated.
     nohup stdbuf -oL iostat -dxmy 5 </dev/null >"$directory/iostat.txt" 2>&1 &
     echo $! > "$directory/.iostat.pid"
+    echo $! >> "$collectors_path"
   else
     echo "iostat unavailable on this host" > "$directory/iostat.txt"
   fi
@@ -147,6 +163,7 @@ collect_start() {
 
 collect_stop() {
   local directory="$1" sampler_pid
+  [[ -f "$directory/.sampler.pid" ]] || fail "no sampler was started in $directory"
   sampler_pid="$(cat "$directory/.sampler.pid")"
   kill -TERM "$sampler_pid" 2>/dev/null || true
   for _ in $(seq 1 100); do
@@ -156,7 +173,8 @@ collect_stop() {
   if [[ -f "$directory/.iostat.pid" ]]; then
     kill -TERM "$(cat "$directory/.iostat.pid")" 2>/dev/null || true
   fi
-  rm -f "$directory/.sampler.pid" "$directory/.iostat.pid"
+  rm -f "$directory/.sampler.pid" "$directory/.iostat.pid" "$collectors_path"
+  [[ -s "$directory/server-samples.json" ]] || fail "the sampler wrote no samples; see $directory/sampler.log"
   scrape_metrics "$directory/metrics-after.txt"
   {
     local log_file
@@ -206,9 +224,10 @@ imds() {
 case "${1:-}" in
   start) start_server ;;
   stop) stop_server ;;
+  status) is_running ;;
   config) render_config ;;
   collect-start) collect_start "${2:?collect-start needs a directory}" ;;
   collect-stop) collect_stop "${2:?collect-stop needs a directory}" ;;
   host-info) host_info ;;
-  *) fail "usage: serve.sh start|stop|config|collect-start DIR|collect-stop DIR|host-info" ;;
+  *) fail "usage: serve.sh start|stop|status|config|collect-start DIR|collect-stop DIR|host-info" ;;
 esac

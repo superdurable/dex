@@ -61,10 +61,9 @@ func writeScenarioReport(output *strings.Builder, results []Result) {
 		output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n")
 	}
 	for _, result := range results {
-		cpuMean, rssMax := summarizeResources(result.Resources)
 		latency := result.Latency
-		resourceCells := fmt.Sprintf("%.1f | %s | %s | %s | %.1f", cpuMean, hostPercentCell(cpuMean, result.ServerCores),
-			loadHostCell(result), putRateCell(result), rssMax)
+		resourceCells := fmt.Sprintf("%s | %s | %s | %s | %s", serverCPUCell(result), serverHostCell(result),
+			loadHostCell(result), putRateCell(result), serverRSSCell(result))
 		if isStepScenario {
 			fmt.Fprintf(output, "| %d | %s | %d | %d | %.2f %s/s | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %s | %s |\n",
 				result.Config.Concurrency, settingsLabel(result), result.Successes, errorCount(result), result.ThroughputPerSecond,
@@ -85,11 +84,15 @@ func writeTrialSummary(output *strings.Builder, results []Result) {
 	type pointKey struct {
 		concurrency int
 		settings    string
+		connections int
+		workerPool  int
+		steps       int
 	}
 	var keys []pointKey
 	groups := map[pointKey][]Result{}
 	for _, result := range results {
-		key := pointKey{concurrency: result.Config.Concurrency, settings: settingsLabel(result)}
+		key := pointKey{concurrency: result.Config.Concurrency, settings: settingsLabel(result), connections: result.Config.Connections,
+			workerPool: result.Config.WorkerPool, steps: result.Config.Steps}
 		if _, found := groups[key]; !found {
 			keys = append(keys, key)
 		}
@@ -102,8 +105,14 @@ func writeTrialSummary(output *strings.Builder, results []Result) {
 	if !hasRepeats {
 		return
 	}
-	output.WriteString("\n| Concurrency | Settings | Trials | Median throughput | Max throughput | Median p99 ms |\n")
-	output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: |\n")
+	isStepScenario := isSequentialStepsScenario(results[0].Config.Scenario)
+	if isStepScenario {
+		output.WriteString("\n| Concurrency | Settings | Trials | Median throughput | Max throughput | Median Flow p99 ms | Median Step p99 ms |\n")
+		output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: | ---: |\n")
+	} else {
+		output.WriteString("\n| Concurrency | Settings | Trials | Median throughput | Max throughput | Median p99 ms |\n")
+		output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: |\n")
+	}
 	for _, key := range keys {
 		group := groups[key]
 		if len(group) < 2 {
@@ -111,13 +120,19 @@ func writeTrialSummary(output *strings.Builder, results []Result) {
 		}
 		throughputs := make([]float64, len(group))
 		tails := make([]float64, len(group))
+		stepTails := make([]float64, len(group))
 		for index, result := range group {
 			throughputs[index] = result.ThroughputPerSecond
 			tails[index] = result.Latency.P99
+			stepTails[index] = result.StepLatency.P99
 		}
 		sort.Float64s(throughputs)
-		fmt.Fprintf(output, "| %d | %s | %d | %.2f %s/s | %.2f %s/s | %.2f |\n", key.concurrency, key.settings, len(group),
+		fmt.Fprintf(output, "| %d | %s | %d | %.2f %s/s | %.2f %s/s | %.2f |", key.concurrency, key.settings, len(group),
 			median(throughputs), group[0].ThroughputUnit, throughputs[len(throughputs)-1], group[0].ThroughputUnit, median(tails))
+		if isStepScenario {
+			fmt.Fprintf(output, " %.2f |", median(stepTails))
+		}
+		output.WriteString("\n")
 	}
 }
 
@@ -169,11 +184,29 @@ func loadHostPercent(result Result) (float64, bool) {
 	return cpuMean / float64(result.Machine.Cores), true
 }
 
-func hostPercentCell(cpuMean float64, cores int) string {
-	if cores < 1 {
+// serverCPUCell shows the mean server CPU, or a dash when no server samples were recorded.
+func serverCPUCell(result Result) string {
+	if len(result.Resources) == 0 {
 		return "—"
 	}
-	return fmt.Sprintf("%.1f", cpuMean/float64(cores))
+	cpuMean, _ := summarizeResources(result.Resources)
+	return fmt.Sprintf("%.1f", cpuMean)
+}
+
+func serverHostCell(result Result) string {
+	if len(result.Resources) == 0 || result.ServerCores < 1 {
+		return "—"
+	}
+	cpuMean, _ := summarizeResources(result.Resources)
+	return fmt.Sprintf("%.1f", cpuMean/float64(result.ServerCores))
+}
+
+func serverRSSCell(result Result) string {
+	if len(result.Resources) == 0 {
+		return "—"
+	}
+	_, rssMax := summarizeResources(result.Resources)
+	return fmt.Sprintf("%.1f", rssMax)
 }
 
 func loadHostCell(result Result) string {

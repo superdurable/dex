@@ -9,6 +9,7 @@ region="${DEXBENCH_AWS_REGION:-us-west-2}"
 zone="${DEXBENCH_AZ:-${region}a}"
 key_name="${DEXBENCH_KEY_NAME:-}"
 shutdown_minutes="${DEXBENCH_SHUTDOWN_MINUTES:-150}"
+market="${DEXBENCH_MARKET:-spot}"
 state_file="${DEXBENCH_LAUNCH_STATE:-$HOME/.dexbench-$run_id.env}"
 name="dex-benchmark-$run_id"
 tag="Key=dex-benchmark,Value=$run_id"
@@ -75,7 +76,7 @@ create_infra() {
 }
 
 launch_instance() {
-  local role="$1" instance_type group profile_argument=() user_data ami instance_id
+  local role="$1" instance_type group profile_argument=() market_argument=() user_data ami instance_id attempt
   # shellcheck source=/dev/null
   source "$state_file"
   if [[ "$role" == server ]]; then
@@ -86,29 +87,44 @@ launch_instance() {
     instance_type="${DEXBENCH_LOAD_INSTANCE_TYPE:-c7g.4xlarge}"
     group="$DEXBENCH_LOAD_GROUP"
   fi
+  case "$market" in
+    spot) market_argument=(--instance-market-options 'MarketType=spot,SpotOptions={SpotInstanceType=one-time,InstanceInterruptionBehavior=terminate}') ;;
+    on-demand) ;;
+    *) echo "DEXBENCH_MARKET must be spot or on-demand" >&2; exit 2 ;;
+  esac
   user_data="$(mktemp)"
   {
     echo '#!/bin/bash'
     echo "shutdown -h +$shutdown_minutes"
-    echo 'dnf install -y sysstat'
+    echo 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y sysstat'
     if [[ "$role" == server ]]; then
       # Pick the instance store by model name; device numbering is not stable.
       echo "device=\$(lsblk -dpno NAME,MODEL | awk '/Instance Storage/ {print \$1; exit}')"
       # shellcheck disable=SC2016
-      echo 'mkfs.xfs -f "$device" && mkdir -p /mnt/nvme && mount "$device" /mnt/nvme && chown ec2-user: /mnt/nvme'
+      echo 'mkfs.ext4 -F "$device" && mkdir -p /mnt/nvme && mount "$device" /mnt/nvme && chown ubuntu: /mnt/nvme'
     fi
   } > "$user_data"
-  ami="$(aws_cli ssm get-parameter --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64 \
+  # Binaries are built on Ubuntu, so both hosts run the same Ubuntu release for a matching glibc.
+  ami="$(aws_cli ssm get-parameter --name /aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id \
     --query Parameter.Value --output text)"
-  instance_id="$(aws_cli ec2 run-instances --image-id "$ami" --instance-type "$instance_type" \
-    ${key_name:+--key-name "$key_name"} --subnet-id "$DEXBENCH_SUBNET" --security-group-ids "$group" \
-    ${profile_argument[@]+"${profile_argument[@]}"} --placement "GroupName=$DEXBENCH_PLACEMENT_GROUP" \
-    --instance-market-options 'MarketType=spot,SpotOptions={SpotInstanceType=one-time,InstanceInterruptionBehavior=terminate}' \
-    --instance-initiated-shutdown-behavior terminate --metadata-options HttpTokens=required \
-    --block-device-mappings 'DeviceName=/dev/xvda,Ebs={VolumeSize=20,VolumeType=gp3,DeleteOnTermination=true}' \
-    --user-data "file://$user_data" \
-    --tag-specifications "$(tag_spec instance "$role")" "$(tag_spec volume "$role")" "$(tag_spec spot-instances-request "$role")" \
-    --query 'Instances[0].InstanceId' --output text)"
+  local tag_specs=("$(tag_spec instance "$role")" "$(tag_spec volume "$role")")
+  if [[ "$market" == spot ]]; then tag_specs+=("$(tag_spec spot-instances-request "$role")"); fi
+  # A new instance profile can take a few seconds to become usable, so retry the launch.
+  for attempt in 1 2 3 4 5 6; do
+    if instance_id="$(aws_cli ec2 run-instances --image-id "$ami" --instance-type "$instance_type" \
+      ${key_name:+--key-name "$key_name"} --subnet-id "$DEXBENCH_SUBNET" --security-group-ids "$group" \
+      ${profile_argument[@]+"${profile_argument[@]}"} --placement "GroupName=$DEXBENCH_PLACEMENT_GROUP" \
+      ${market_argument[@]+"${market_argument[@]}"} \
+      --instance-initiated-shutdown-behavior terminate --metadata-options HttpTokens=required \
+      --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=20,VolumeType=gp3,DeleteOnTermination=true}' \
+      --user-data "file://$user_data" --tag-specifications "${tag_specs[@]}" \
+      --query 'Instances[0].InstanceId' --output text)"; then
+      break
+    fi
+    if (( attempt == 6 )); then rm -f "$user_data"; exit 1; fi
+    echo "launch attempt $attempt failed; retrying in 10 seconds" >&2
+    sleep 10
+  done
   rm -f "$user_data"
   aws_cli ec2 wait instance-running --instance-ids "$instance_id"
   aws_cli ec2 describe-instances --instance-ids "$instance_id" --output text \

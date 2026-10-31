@@ -213,7 +213,7 @@ The scripts live in `benchmark/aws/`:
 
 | Script | Runs on | Does |
 | --- | --- | --- |
-| `launch.sh` | your machine | Creates the bucket, endpoint, IAM role, security groups, placement group, and Spot instances |
+| `launch.sh` | your machine | Creates the bucket, endpoint, IAM role, security groups, placement group, and instances |
 | `serve.sh` | server host | Writes the server-zd config, starts and stops the server, and collects server-side data |
 | `run-remote.sh` | load host | Runs every point and writes the result set |
 | `reproduce.sh` | load host | Reruns points of a recorded result set |
@@ -221,28 +221,36 @@ The scripts live in `benchmark/aws/`:
 
 #### Prerequisites
 
-- The AWS CLI v2, `jq`, and `openssl` on your machine, with a profile that can
-  manage EC2, S3, and IAM.
+- The AWS CLI v2 and `openssl` on your machine, with a profile that can manage
+  EC2, S3, and IAM.
 - An EC2 key pair in the region.
-- Linux arm64 builds of `dexbench` and `dex-server-zd`. Build `dexbench` with
-  `cd benchmark && GOOS=linux GOARCH=arm64 go build -o dexbench ./cmd/dexbench`.
-  Use the linux_arm64 server-zd release asset, or build server-zd on the load
-  host.
+- Linux arm64 builds of `dexbench` and `dex-server-zd`. Both hosts run Ubuntu
+  24.04, so build both binaries on Ubuntu 24.04 arm64, such as on the load
+  host, to match its glibc. Build `dexbench` with
+  `cd benchmark && go build -buildvcs=true -o dexbench ./cmd/dexbench`, so
+  `config.env` records its revision.
+- The `DEXBENCH_ZD_APPLIER_LANES`, `DEXBENCH_ZD_APPLIER_QUEUE_FRAMES`,
+  `DEXBENCH_ZD_MAX_BATCH_RECORDS`, `DEXBENCH_ZD_MAX_UNAPPLIED_BYTES`,
+  `DEXBENCH_ZD_MAX_BACKGROUND_JOBS`, and `DEXBENCH_ZD_WRITE_BUFFER_BYTES`
+  settings need a server-zd build that includes PR #1110. Older builds reject
+  those keys at startup.
 
 #### Launch
 
-Use Spot instances in one Availability Zone and one cluster placement group.
-The server is a c7gd instance, so RocksDB runs on its local NVMe instance store.
+Put both hosts in one Availability Zone and one cluster placement group.
+Instances are Spot by default; set `DEXBENCH_MARKET=on-demand` for an
+on-demand instance, such as a load host larger than the Spot vCPU quota. The
+server is a c7gd instance, so RocksDB runs on its local NVMe instance store.
 A c7gd instance has the same Graviton3 CPU, vCPU count, and memory as the c7g
 of the same size. The load host needs no instance store. S3 traffic goes
 through a free gateway endpoint. The bucket expires objects after one day.
 
 ```bash
 export DEXBENCH_RUN_ID=2026-10-30-s3 DEXBENCH_AWS_PROFILE=<profile> DEXBENCH_AWS_REGION=us-west-2
-export DEXBENCH_KEY_NAME=<key pair>
+export DEXBENCH_AZ=us-west-2b DEXBENCH_KEY_NAME=<key pair>
 benchmark/aws/launch.sh infra
 DEXBENCH_SERVER_INSTANCE_TYPE=c7gd.large benchmark/aws/launch.sh server
-DEXBENCH_LOAD_INSTANCE_TYPE=c7g.4xlarge benchmark/aws/launch.sh load
+DEXBENCH_MARKET=on-demand DEXBENCH_LOAD_INSTANCE_TYPE=c7g.8xlarge benchmark/aws/launch.sh load
 ```
 
 `launch.sh infra` writes the resource IDs and the bucket name to
@@ -252,7 +260,9 @@ machine is open to your current IP address.
 
 Each instance runs `shutdown -h +150` at boot and terminates on shutdown. If
 you lose your connection, the instances delete themselves after two and a half
-hours. Set `DEXBENCH_SHUTDOWN_MINUTES` to change that limit.
+hours. Set `DEXBENCH_SHUTDOWN_MINUTES` to change that limit. The load host
+deletes its results with it, so copy the result directory off the load host
+before its timer runs out.
 
 #### Run
 
@@ -262,7 +272,7 @@ and copy `dexbench` there. Connect to the load host with `ssh -A`, so it can
 reach the server with your key. Then run from the clone on the load host:
 
 ```bash
-export DEXBENCH_SERVER_HOST=ec2-user@<server private IP>
+export DEXBENCH_SERVER_HOST=ubuntu@<server private IP>
 export DEXBENCH_SERVER_ADDRESS=<server private IP>
 export DEXBENCH_S3_BUCKET=<bucket from launch.sh>
 export DEXBENCH_BENCH_BINARY=$HOME/dexbench/dexbench
@@ -274,9 +284,15 @@ DEXBENCH_SCENARIOS=sequential-steps DEXBENCH_CONCURRENCY=1,128,256,512 \
 
 Each point uses a 10-second warmup and a 45-second measurement by default.
 A source build of server-zd reports only its crate version, so set
-`DEXBENCH_SERVER_ZD_COMMIT` to record its commit in `config.env`.
-Copy the result directory back with `scp -r` and commit it under
-`benchmark/results/`.
+`DEXBENCH_SERVER_ZD_COMMIT` to record its commit in `config.env`. The
+`dexbench` revision comes from the binary itself. Copy the result directory
+back with `scp -r` and commit it under `benchmark/results/`.
+
+A point that fails, for example because the server exits during startup, is
+counted and skipped, and the run continues. If `dexbench` itself fails, its
+JSON is kept as `<point id>.failed.json` and left out of the report. Each
+invocation writes to a new object storage prefix, `<run id>/<invocation>/<point
+id>`, recorded as `RECORDED_S3_PREFIX_ROOT` in `config.env`.
 
 #### Points and server settings
 
@@ -385,11 +401,14 @@ The s3mock region is `us-east-1`. Its numbers are not results.
 
 #### Clean up
 
-Terminate the server after its measurements, before you launch the next size:
+Terminate the server after its measurements, before you launch the next size.
+This keeps the load host and its results:
 
 ```bash
-benchmark/aws/teardown.sh instances
+benchmark/aws/teardown.sh server
 ```
+
+`teardown.sh instances` terminates every instance of the run.
 
 After the last run, delete everything:
 
@@ -399,6 +418,7 @@ benchmark/aws/teardown.sh
 
 It terminates the instances and deletes the placement group, security groups,
 gateway endpoint, IAM role and instance profile, and the bucket with its
-objects. It then lists each resource type by tag or name and fails if anything
+objects. It deletes only the bucket named in `~/.dexbench-<run id>.env` or
+`DEXBENCH_S3_BUCKET`, and only when its `dex-benchmark` tag matches the run. It then lists each resource type by tag or name and fails if anything
 remains. An S3 gateway endpoint that existed before `launch.sh` is left in
 place.

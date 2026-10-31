@@ -22,6 +22,9 @@ steps="${DEXBENCH_STEPS:-10}"
 scenarios="${DEXBENCH_SCENARIOS:-sequential-steps}"
 points_file="${DEXBENCH_POINTS:-}"
 run_id="${DEXBENCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
+# Each invocation writes under its own prefix, so rerunning a run ID never reuses objects.
+invocation_id="$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+prefix_root="$run_id/$invocation_id"
 output_dir="${DEXBENCH_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/dexbench-$run_id-XXXXXX")}"
 benchmark_binary="${DEXBENCH_BENCH_BINARY:-$repo_root/benchmark/bin/dexbench}"
 if [[ "$remote_mode" == local ]]; then
@@ -101,7 +104,7 @@ if compgen -G "$output_dir/*.json" >/dev/null; then
 fi
 if [[ -z "${DEXBENCH_BENCH_BINARY:-}" ]]; then
   mkdir -p "$repo_root/benchmark/bin"
-  (cd "$repo_root/benchmark" && env GOWORK=off go build -o "$benchmark_binary" ./cmd/dexbench)
+  (cd "$repo_root/benchmark" && env GOWORK=off go build -buildvcs=true -o "$benchmark_binary" ./cmd/dexbench)
 fi
 
 # Expand the points: one "variant concurrency [overrides]" line each.
@@ -143,9 +146,11 @@ fi
   echo "# Server host"
   remote "$(serve_command "" host-info)" | sed 's/^/server_/'
 } > "$output_dir/host.txt"
-remote "$(serve_command "DEXBENCH_S3_PREFIX=$run_id/base" config)" > "$output_dir/zd-config.yaml"
+remote "$(serve_command "DEXBENCH_S3_PREFIX=$prefix_root/base" config)" > "$output_dir/zd-config.yaml"
 { echo "# server-zd config before per-point overrides"; cat "$output_dir/zd-config.yaml"; } >> "$output_dir/host.txt"
 git_commit="${DEXBENCH_GIT_COMMIT:-$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || echo unknown)}"
+# The revision embedded in the dexbench binary identifies the load generator even off a clone.
+dexbench_revision="$(go version -m "$benchmark_binary" 2>/dev/null | awk '$2 == "vcs.revision" {r = $3} $2 == "vcs.modified" {m = $3} END {print (r == "" ? "unknown" : r) (m == "true" ? "-modified" : "")}' || echo unknown)"
 zd_version="$(sed -n 's/^server_zd_version=//p' "$output_dir/host.txt")"
 {
   echo "# Settings to rerun these points with benchmark/aws/reproduce.sh. Recorded values start with RECORDED_."
@@ -161,6 +166,8 @@ zd_version="$(sed -n 's/^server_zd_version=//p' "$output_dir/host.txt")"
   done
   printf 'RECORDED_RUN_ID=%q\n' "$run_id"
   printf 'RECORDED_GIT_COMMIT=%q\n' "$git_commit"
+  printf 'RECORDED_DEXBENCH_REVISION=%q\n' "$dexbench_revision"
+  printf 'RECORDED_S3_PREFIX_ROOT=%q\n' "$prefix_root"
   printf 'RECORDED_ZD_VERSION=%q\n' "$zd_version"
   printf 'RECORDED_ZD_COMMIT=%q\n' "${DEXBENCH_SERVER_ZD_COMMIT:-unknown}"
   while IFS='=' read -r key value; do
@@ -172,10 +179,86 @@ zd_version="$(sed -n 's/^server_zd_version=//p' "$output_dir/host.txt")"
 } > "$output_dir/config.env"
 
 stop_remote_server() { remote "$(serve_command "" stop)" || true; }
-trap stop_remote_server EXIT INT TERM
+
+# write_report summarizes every successful point; failed points keep their .failed.json files.
+write_report() {
+  local results=() path
+  for path in "$output_dir"/*.json; do
+    [[ -e "$path" && "$path" != *.failed.json ]] && results+=("$path")
+  done
+  if (( ${#results[@]} > 0 )); then
+    "$benchmark_binary" report "${results[@]}" > "$output_dir/report.md"
+    "$benchmark_binary" chart "${results[@]}" > "$output_dir/charts.html"
+  else
+    echo "No point produced a result." > "$output_dir/report.md"
+  fi
+}
+
+finish() {
+  stop_remote_server
+  write_report
+  echo "results: $output_dir ($failures failed points)"
+}
+failures=0
+trap finish EXIT
+trap 'exit 130' INT TERM
+
+# wait_for_server polls readiness in short rounds and fails fast when the server process exits.
+wait_for_server() {
+  local deadline=$((SECONDS + 300))
+  while (( SECONDS < deadline )); do
+    if "$benchmark_binary" wait-ready --address "$server_address:$api_port" --timeout 10s 2>/dev/null; then
+      return 0
+    fi
+    if ! remote "$(serve_command "" status)"; then
+      echo "server exited during startup" >&2
+      return 1
+    fi
+  done
+  echo "server was not ready within 300 seconds" >&2
+  return 1
+}
+
+# run_point runs one point; it returns non-zero when any step fails, leaving the run to continue.
+run_point() {
+  local variant="$1" point_concurrency="$2" overrides="$3" trial_flag="$4" point_id="$5"
+  local collect_dir="$server_state_dir/collect/$run_id/$point_id" point_dir="$output_dir/.work-$point_id"
+  local run_status=0 collect_status=0 result_path
+  mkdir -p "$point_dir"
+  if ! remote "$(serve_command "$overrides DEXBENCH_S3_PREFIX=$prefix_root/$point_id" start)" || ! wait_for_server; then
+    echo "server for $point_id did not start" >&2
+    remote "tail -50 $(printf '%q' "$server_state_dir/server.log")" >&2 || true
+    return 1
+  fi
+  remote "$(serve_command "$overrides" collect-start "$collect_dir")" || return 1
+  DEXBENCH_GIT_COMMIT="$git_commit" DEXBENCH_SERVER_VERSION="$zd_version" "$benchmark_binary" run \
+    --address "$server_address:$api_port" --metrics-url "http://$server_address:$metrics_port/metrics" \
+    --duration "$duration" --warmup "$warmup" --concurrency "$point_concurrency" --connections "$connections" \
+    --workers "$workers" --steps "$steps" --scenarios "$variant" --mode aws --trial "$trial_flag" \
+    --server-tunables "$(effective_tunables "$overrides")" --out "$point_dir" </dev/null || run_status=$?
+  remote "$(serve_command "$overrides" collect-stop "$collect_dir")" || collect_status=$?
+  stop_remote_server
+  fetch "$collect_dir" "$output_dir/$point_id.server" || collect_status=1
+  result_path="$(find "$point_dir" -name '*.json' | head -1)"
+  if [[ -z "$result_path" ]]; then
+    echo "$point_id wrote no result" >&2
+    return 1
+  fi
+  if (( run_status != 0 )); then
+    mv "$result_path" "$output_dir/$point_id.failed.json"
+    echo "$point_id failed; its result is $point_id.failed.json" >&2
+    return 1
+  fi
+  mv "$result_path" "$output_dir/$point_id.json"
+  rm -rf "$point_dir"
+  if (( collect_status != 0 )); then
+    echo "server-side collection for $point_id failed" >&2
+    return 1
+  fi
+  "$benchmark_binary" merge-server --result "$output_dir/$point_id.json" --samples "$output_dir/$point_id.server/server-samples.json"
+}
 
 point_index=0
-failures=0
 while read -r variant point_concurrency overrides; do
   for trial in $(seq 1 "$trials"); do
     point_index=$((point_index + 1))
@@ -183,41 +266,9 @@ while read -r variant point_concurrency overrides; do
     trial_flag=0
     if (( trials > 1 )); then point_id+="-t$trial"; trial_flag="$trial"; fi
     echo "== $point_id ${overrides:-default settings}" >&2
-    collect_dir="$server_state_dir/collect/$run_id/$point_id"
-    point_dir="$output_dir/.work-$point_id"
-    mkdir -p "$point_dir"
-    remote "$(serve_command "$overrides DEXBENCH_S3_PREFIX=$run_id/$point_id" start)"
-    if ! "$benchmark_binary" wait-ready --address "$server_address:$api_port" --timeout 300s; then
-      echo "server for $point_id did not become ready" >&2
-      remote "tail -50 $(printf '%q' "$server_state_dir/server.log")" >&2 || true
-      stop_remote_server
+    if ! run_point "$variant" "$point_concurrency" "$overrides" "$trial_flag" "$point_id"; then
       failures=$((failures + 1))
-      continue
+      stop_remote_server
     fi
-    remote "$(serve_command "$overrides" collect-start "$collect_dir")"
-    run_status=0
-    DEXBENCH_GIT_COMMIT="$git_commit" DEXBENCH_SERVER_VERSION="$zd_version" "$benchmark_binary" run \
-      --address "$server_address:$api_port" --metrics-url "http://$server_address:$metrics_port/metrics" \
-      --duration "$duration" --warmup "$warmup" --concurrency "$point_concurrency" --connections "$connections" \
-      --workers "$workers" --steps "$steps" --scenarios "$variant" --mode aws --trial "$trial_flag" \
-      --server-tunables "$(effective_tunables "$overrides")" --out "$point_dir" || run_status=$?
-    remote "$(serve_command "$overrides" collect-stop "$collect_dir")" || true
-    stop_remote_server
-    fetch "$collect_dir" "$output_dir/$point_id.server"
-    result_path="$(find "$point_dir" -name '*.json' | head -1)"
-    if [[ -n "$result_path" ]]; then
-      mv "$result_path" "$output_dir/$point_id.json"
-      if ! "$benchmark_binary" merge-server --result "$output_dir/$point_id.json" --samples "$output_dir/$point_id.server/server-samples.json"; then
-        echo "server samples for $point_id were not merged" >&2
-      fi
-    fi
-    rm -rf "$point_dir"
-    if (( run_status != 0 )); then failures=$((failures + 1)); echo "$point_id failed" >&2; fi
   done
 done < "$points_list"
-
-if compgen -G "$output_dir/*.json" >/dev/null; then
-  "$benchmark_binary" report "$output_dir"/*.json > "$output_dir/report.md"
-  "$benchmark_binary" chart "$output_dir"/*.json > "$output_dir/charts.html"
-fi
-echo "results: $output_dir ($failures failed points)"

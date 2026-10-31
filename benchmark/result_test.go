@@ -72,6 +72,13 @@ func TestReportSummarizesTrials(t *testing.T) {
 	}
 }
 
+func TestReportShowsDashWithoutServerSamples(t *testing.T) {
+	result := Result{Config: Config{Scenario: "rpc-plain", Target: "zd", Concurrency: 4}, Successes: 1, ThroughputUnit: "rpcs"}
+	if got := RenderReport([]Result{result}); !strings.Contains(got, "| — | — | — | — | — |") {
+		t.Fatalf("missing dashes for absent samples: %s", got)
+	}
+}
+
 func TestMergeServerSamplesKeepsMeasurementWindow(t *testing.T) {
 	start := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	result := Result{MeasurementStartedAt: start, MeasurementEndedAt: start.Add(10 * time.Second)}
