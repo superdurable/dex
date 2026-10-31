@@ -1,9 +1,9 @@
 # c7gd.4xlarge on S3, 2026-10-31
 
-These results are for server-zd on one c7gd.4xlarge (16 vCPU Graviton3, 32 GiB RAM) in AWS us-west-2b. RocksDB ran on the local NVMe instance store, and the log and blobs went to an S3 Standard bucket in the same Region. `dexbench` ran on a c7g.8xlarge in the same cluster placement group, over 8 gRPC connections. Load-host CPU stayed below 31% at every point.
+These results are for server-zd on one c7gd.4xlarge (16 vCPU Graviton3, 32 GiB RAM) in AWS us-west-2b. RocksDB ran on the local NVMe instance store, and the log and blobs went to an S3 Standard bucket in the same Region. `dexbench` ran on a c7g.8xlarge in the same cluster placement group, over 8 gRPC connections. Load-host mean CPU stayed below 31% at every point.
 
 - **server-zd:** built from commit `479ef22a9`, the head of PR #1110, which merged as `121a3c156`.
-- **dexbench:** built from commit `997b409e8`. Its measurement code matches main, except for one line that records the total number of Worker task slots.
+- **dexbench:** built from commit `997b409e8`. The binary carries no VCS stamp, so `config.env` records its revision as `unknown`. Its measurement code matches main, except for one line that records the total number of Worker task slots.
 - **Timing:** every point used a 10-second warmup and a 45-second measurement, on a newly started server with an empty local store and a new S3 prefix.
 
 ## Peak results
@@ -34,15 +34,15 @@ Everything else is the default. With PR #1110, the defaults on this host are 16 
 
 ## What limits this instance
 
-- **CPU is not the limit.** Server CPU stays at 60–80% of the 16 cores.
+- **CPU is not the limit.** Server CPU stays at 60–80% of the 16 cores at the S1–S4 peaks.
 - **RocksDB does not stall.** Its `LOG` shows no write stalls or stops.
-- **S3 PUTs are not the limit.** Commit latency averages 35–55 ms.
-- **The load host is not the limit.** Doubling the Worker task slots (`07-worker-slots`) does not change the result.
+- **S3 PUTs are not the limit.** Commit latency averages 32–71 ms per point, and 56–61 ms at the S2 headline.
+- **The load host is not the limit.** Raising the Worker task slots to 6,144 (`07-worker-slots`) does not change the result. That is three times the default at C=2,048 and twice at C=3,072.
 - **Throughput collapses above the peak concurrency.**
   - S2 falls from about 7.5k Steps/s at 2,048 Flows to 2.6k at 3,072. Its Step schedule-to-start latency grows from a few milliseconds to over 600 ms.
   - S3 and S4 `rpc-plain` also fall steadily as concurrency rises.
   - Issue #1118 tracks this collapse. Until it is fixed, run this instance at or below the peak concurrency.
-- **S5 is limited by the network.** Each read moves 160 KiB, so 11.3k reads/s is about 14 Gbps, close to the instance's 15 Gbps limit. Server CPU is only 27% there.
+- **S5 is limited by the network.** Each read moves 160 KiB, so 11.3k reads/s is about 14.8 Gbps, at the instance's 15 Gbps limit. Server CPU is only 28% there.
 - **Tuning has no effect.** `commit.maxInFlight` of 8 or 16, or 32 applier lanes, gives no gain beyond run-to-run noise.
 - **Run-to-run spread is about ±10% at the S2 peak.** One single run reached 8,506 Steps/s, and the three final trials ranged from 7,343 to 7,666.
 
@@ -55,7 +55,7 @@ Everything else is the default. With PR #1110, the defaults on this host are 16 
 | `03-scenarios` | S1, S4, S5, S6 | S1 keeps rising, and S4 `rpc-plain` falls with concurrency. |
 | `04-scenarios-extra` | S4 `rpc-plain` at 128 and 256; S1 at 3,072 and 4,096 | S1 peaks at 3,072. |
 | `05-rpc-plain-low-concurrency`, `06-rpc-plain-low-concurrency` | S4 `rpc-plain` at 32–96 | Peak of 34.6k RPCs/s at 48. |
-| `07-worker-slots` | S2 at 2,048 and 3,072 with twice the Worker task slots | No change, so the collapse is in the server. |
+| `07-worker-slots` | S2 at 2,048 and 3,072 with 6,144 Worker task slots | No change, so the collapse is in the server. |
 | `08-final-trials` | S2 at 1,536 and 2,048, S3 at 256, three trials each | The headline medians. |
 
 ## Reproduce

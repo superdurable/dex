@@ -3,7 +3,7 @@
 These results are for server-zd on one c7gd.large (2 vCPU Graviton3, 4 GiB RAM) in AWS us-west-2b. RocksDB ran on the local NVMe instance store, and the log and blobs went to an S3 Standard bucket in the same Region. `dexbench` ran on a c7g.8xlarge in the same cluster placement group, over 4 gRPC connections. Load-host CPU stayed below 11% at every point.
 
 - **server-zd:** built from commit `479ef22a9`, the head of PR #1110, which merged as `121a3c156`.
-- **dexbench:** built from commit `997b409e8`. Its measurement code matches main, except for one line that records the total number of Worker task slots.
+- **dexbench:** built from commit `997b409e8`. The binary carries no VCS stamp, so `config.env` records its revision as `unknown`. Its measurement code matches main, except for one line that records the total number of Worker task slots.
 - **Scripts:** `run-remote.sh` from the commits recorded in each `config.env`.
 - **Timing:** every point used a 10-second warmup and a 45-second measurement, on a newly started server with an empty local store and a new S3 prefix.
 
@@ -15,7 +15,7 @@ These results are for server-zd on one c7gd.large (2 vCPU Graviton3, 4 GiB RAM) 
 | S3 `sequential-steps-async` | 32 | **1,492 Steps/s**, median of 3 (max 1,529) | Step 7.1 / 51 ms | 186% | 92 |
 | S1 `start-complete` | 256 | 855 Flows/s | 279 / 650 ms | 192% | 108 |
 | S4 `rpc-plain` | 32 | 6,681 RPCs/s | 3.5 / 19.5 ms | 194% | 0 |
-| S4 `rpc-locking` | 256 | 1,324 RPCs/s | 151 / 712 ms | 192% | 111 |
+| S4 `rpc-locking` | 256 | 1,324 RPCs/s | 151 / 712 ms | 192% | 110 |
 | S5 `attribute-read-direct` | 512 | 6,034 reads/s | 85 / 137 ms | 197% | 0 |
 | S6 `channel-wake` | 64 | latency only | 106 / 258 ms | 105% | 109 |
 
@@ -23,10 +23,13 @@ All points use the default server-zd configuration. The only change is `api.list
 
 ## What limits this instance
 
-- **CPU.** Both cores are close to saturation at every peak.
-- **Tuning has no effect.** Changing applier lanes (2 or 8), `commit.batchWindow` (20 or 50 ms), or `commit.maxInFlight` (2, 4, or 8) moves S2 and S3 by less than the 5% run-to-run spread.
-- **Fewer PUTs in flight is worse.** With `commit.maxInFlight: 2`, CPU drops to about 75% and throughput falls. With only two PUTs in flight, the S3 round trip becomes the limit.
-- **Commit latency is the S3 round trip.** It averaged 32–38 ms per log batch.
+- **CPU.** Both cores are close to saturation at every throughput peak. S6 measures latency only, and it uses about half the CPU.
+- **No tunable beats the defaults.**
+  - Applier lanes (2 instead of 8) and `commit.batchWindow` (50 ms instead of the default 20 ms) stay within the 5% run-to-run spread.
+  - `commit.maxInFlight: 8` makes S2 7.5% slower.
+  - For S3, `commit.maxInFlight` of 2 or 8 stays within noise.
+- **Fewer PUTs in flight hurts S2.** With `commit.maxInFlight: 2`, S2 CPU drops to about 75% and throughput falls 14%. With only two PUTs in flight, the S3 round trip becomes the limit.
+- **Commit latency is the S3 round trip.** It averaged 30–41 ms per log batch, and 35–40 ms at the headline points.
 
 ## Rounds
 
@@ -35,10 +38,10 @@ Each directory is one `run-remote.sh` invocation, with its own `report.md`, `cha
 | Directory | Purpose | Outcome |
 | --- | --- | --- |
 | `01-concurrency` | S2 at 256–1,024 and S3 at 64–512, defaults | S2 peaks at 256, S3 at 64 or lower. Its first point reused an S3 prefix from an aborted run and replayed old state; treat it as a warmup. |
-| `02-tuning` | One setting changed per point at the peak | Every variant is within run-to-run noise of the default. S3 at 32 is the best S3 point. |
+| `02-tuning` | One setting changed per point at the peak | No variant beats the default. `maxInFlight` 2 and 8 make S2 slower. S3 at 32 is the best S3 point. |
 | `03-tuning` | `maxInFlight: 2` at higher concurrency; S2 at 384; S3 at 16 | None beats the defaults. |
 | `04-scenarios` | S1, S4, S5, S6 with defaults | S4 `rpc-plain` and S5 keep improving outside the tested range. |
-| `05-scenarios-extra` | S4 `rpc-plain` at 32 and 64, `rpc-locking` at 64, S5 at 512 and 1,024 | Peaks for `rpc-plain` (32) and S5 (512). |
+| `05-scenarios-extra` | S4 `rpc-plain` at 32 and 64, `rpc-locking` at 64, S5 at 512 and 1,024 | S5 peaks at 512. `rpc-plain` is best at 32, the lowest concurrency tested. |
 | `06-final-trials` | S2 at 256 and S3 at 32, three trials each | The headline medians. |
 
 ## Reproduce
