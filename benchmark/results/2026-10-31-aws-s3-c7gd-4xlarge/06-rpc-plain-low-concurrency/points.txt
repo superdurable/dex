@@ -1,0 +1,2 @@
+rpc-plain 32
+rpc-plain 48

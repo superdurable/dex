@@ -1,0 +1,2 @@
+rpc-plain 64
+rpc-plain 96

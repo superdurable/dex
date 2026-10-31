@@ -1,0 +1,13 @@
+start-complete 512
+start-complete 1024
+start-complete 2048
+rpc-plain 512
+rpc-plain 1024
+rpc-plain 2048
+rpc-locking 512
+rpc-locking 1024
+rpc-locking 2048
+attribute-read-direct 256
+attribute-read-direct 512
+attribute-read-direct 1024
+channel-wake 64
