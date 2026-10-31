@@ -127,7 +127,7 @@ func (benchmark *searchBenchmark) measureQuery(ctx context.Context, name, query,
 }
 
 func (benchmark *searchBenchmark) measureQuerySamples(ctx context.Context, name, query, token, phase string, shouldCheckBackfill bool, samples, warmup int) (SearchQueryResult, error) {
-	result := SearchQueryResult{Name: name, Query: query, Phase: phase, Errors: map[string]int{}}
+	result := SearchQueryResult{Name: name, Query: query, Phase: phase, Errors: map[string]int{}, WarmupErrors: map[string]int{}}
 	latencies := make([]time.Duration, 0, samples)
 	for index := -warmup; index < samples; index++ {
 		if shouldCheckBackfill {
@@ -143,6 +143,9 @@ func (benchmark *searchBenchmark) measureQuerySamples(ctx context.Context, name,
 		page, err := benchmark.searchPage(ctx, query, token)
 		elapsed := time.Since(started)
 		if index < 0 {
+			if err != nil {
+				result.WarmupErrors[err.Error()]++
+			}
 			continue
 		}
 		if err != nil {

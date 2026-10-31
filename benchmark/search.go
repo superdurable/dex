@@ -70,6 +70,7 @@ type SearchResult struct {
 
 // SearchQueryResult includes successful request percentiles and every failed attempt.
 type SearchQueryResult struct {
+	WarmupErrors    map[string]int `json:"warmup_errors,omitempty"`
 	Name            string         `json:"name"`
 	Query           string         `json:"query"`
 	Phase           string         `json:"phase"`
