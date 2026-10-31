@@ -216,6 +216,12 @@ SEARCH_SUB_STATUS_TAGGED_STATEMENTS = (
         "        _ => ErrorSubStatus::Uncategorized,", "ErrorSubStatus::Uncategorized => Self::Service { service },",
     )),
     ("rust", "sdk-rust/crates/dex-sdk/src/worker.rs", ("return Err(service_error(status));",)),
+    ("rust", "sdk-rust/crates/dex-protocol/build.rs", (
+        'let repository_proto = std::path::PathBuf::from("../../../protos/dex.proto");',
+    )),
+    ("rust", "protos/dex.proto", (
+        "ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED = 9;", "ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG = 10;",
+    )),
     ("go", "sdk-go/dex/proto_mapper.go", (
         "case dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL:\n\t\treturn FlowErrorWorkerMethod, nil",
     )),
@@ -265,7 +271,10 @@ SEARCH_LIMIT_REFERENCES = (
     ("java/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType.WORKER_API_FAILED`", "`getSubStatus()` `ErrorSubStatus.UNCATEGORIZED`")),
     ("python/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType.WORKER_API_FAILED`", "`sub_status` `ErrorSubStatus.UNCATEGORIZED`")),
     ("typescript/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType.WORKER_API_FAILED`", "`subStatus` is `ErrorSubStatus.UNCATEGORIZED`")),
-    ("rust/error-handling.md", ("## Indexed search limits", "reports Flow error type `FlowErrorType::WorkerApiFailed`", "`sub_status()` is `ErrorSubStatus::Uncategorized`")),
+    ("rust/error-handling.md", (
+        "## Indexed search limits", "reports Flow error type `FlowErrorType::WorkerApiFailed`", "`sub_status()` is `ErrorSubStatus::Uncategorized`",
+        "The generated `dex_protocol::dex::ErrorSubStatus::AttributeIndexCapacityExceeded` and `IndexedKeywordTooLong` values exist only in the protocol bindings",
+    )),
 )
 
 
@@ -1295,27 +1304,52 @@ CLIENT_ATTRIBUTE_READ_TAGGED_STATEMENTS = (
         "A closed\n  run stays readable until Dex purges it.",
     )),
     ("typescript", "sdk-typescript/src/client.ts", ("  public async getAttributes<",)),
-)
-# Per language without the API: (hand-written source tree, file suffix, search token, declaration pattern).
-# A baseline bump that adds a public Client Attribute read anywhere in the tree fails.
-CLIENT_ATTRIBUTE_READ_ABSENT = (
-    ("java", "sdk-java/src/main/java/io/superdurable/dex", ".java", "getAttributes", re.compile(
-        r"\bpublic\b[^;{}()=]*\bgetAttributes\s*\(\s*(?:@\w+\s+)*(?:final\s+)?String\b",
+    ("java", "sdk-java/README.md", (
+        "sends one request for all keys, so every value comes from the same committed\nstate, and no Worker runs.",
+        "so a closed run stays readable until Dex purges it.",
+        "`AttributeValues.get` returns `Optional.empty()` for an unset Attribute or\ninstance, and also for a stored value that decodes to `null`.",
+        "It throws\n`IllegalArgumentException` for a read that was not part of the call.",
+        "Every\ndefinition must be the exact object that a registered Flow's persistence\nschema returns;",
+        "A missing Flow fails with\n`FlowNotFoundException`.",
     )),
-    ("rust", "sdk-rust/crates/dex-sdk/src", ".rs", "get_attributes", re.compile(
-        r"\bpub\s+(?:async\s+)?fn\s+get_attributes\b",
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/Client.java", (
+        "    public AttributeValues getAttributes(final String flowId, final AttributeRead<?>... reads) {",
+        "    public AttributeValues getAttributes(\n            final String flowId,\n            final List<? extends AttributeRead<?>> reads) {",
+    )),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/AttributeValues.java", (
+        "    public <T> Optional<T> get(final AttributeRead<T> read) {",
+    )),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/AttributeMap.java", (
+        "    public AttributeMapInstance<T> instance(final String instance) {",
+    )),
+    ("rust", "sdk-rust/README.md", (
+        "Pass\na tuple of 1 to 12 reads.",
+        "The call returns a tuple of\n`Option<T>`, where `None` means the value is not set:",
+        "Client sends one server request, so all values come from the same commit. No\nWorker runs.",
+        "a closed run stays readable until it is purged.",
+        "same name, kind, Rust value type, index, `sync_to_attribute_store`, and\n`hard_delete_on_null` settings.",
+        "`AttributeMap::load` results select instances for\nhandler loading and do not compile as reads.",
+    )),
+    ("rust", "sdk-rust/crates/dex-sdk/src/client/attribute_reads.rs", (
+        "    pub fn get_attributes<Reads: AttributeReads>(",
+        "    (11, Read11)\n);",
+    )),
+    ("rust", "sdk-rust/crates/dex-sdk/src/attribute.rs", (
+        "    pub fn instance(&self, instance: impl Into<String>) -> AttributeMapInstance<T> {",
     )),
 )
 CLIENT_ATTRIBUTE_READ_REFERENCES = (
     ("core/primitives.md", (
         "### Read Attributes from outside a Flow",
         "Go has **Client.GetAttributes** from Go SDK v1.25.0.",
-        "The Java and Rust SDKs do not have this API yet; read Flow state there through a typed read-only RPC.",
+        "Java has **Client.getAttributes** from Java SDK v1.31.0. Rust has **Client::get_attributes** from Rust SDK v1.31.0.",
+        "Rust accepts at most 12 reads per call, and separate calls can read different commits;",
         "Hard-delete values are no exception: the call returns only committed values.",
-        "TypeScript requires the exact registered definition object.",
+        "Go, Python, and Rust compare by value:",
+        "Java and TypeScript require the exact registered definition object.",
     )),
     ("core/read-after-write.md", (
-        "| Client Attribute read (Go **GetAttributes**, Python **get_attributes**, TypeScript **getAttributes**)",
+        "| Client Attribute read (Go **GetAttributes**, Python **get_attributes**, TypeScript **getAttributes**, Java **getAttributes**, Rust **get_attributes**)",
         "| Step or RPC write or delete of a hard-delete Attribute | Typed read RPC, another Step or RPC, or a retried attempt |",
     )),
     ("go/primitives.md", (
@@ -1331,38 +1365,51 @@ CLIENT_ATTRIBUTE_READ_REFERENCES = (
         "## Client Attribute reads",
         "From TypeScript SDK v1.29.0, `client.getAttributes(flowId, ...reads)`",
     )),
-    ("java/primitives.md", ("The Java SDK does not have the Client Attribute read API yet",)),
-    ("rust/primitives.md", ("The Rust SDK does not have the Client Attribute read API yet",)),
+    ("java/primitives.md", (
+        "## Client Attribute reads",
+        "From Java SDK v1.31.0, `Client.getAttributes(flowId, reads...)`",
+        "The call takes varargs or a `List<? extends AttributeRead<?>>`",
+        "A stored value that decodes to `null` also reads as `Optional.empty()`",
+        "`get` throws `IllegalArgumentException` for a read that was not part of the call.",
+        "Each definition must be the exact object that a registered Flow's `getPersistenceSchema()` returns.",
+        "- `FlowNotFoundException`: the Flow does not exist, or its latest run is being purged.",
+    )),
+    ("rust/primitives.md", (
+        "## Client Attribute reads",
+        "From Rust SDK v1.31.0, `Client::get_attributes(flow_id, reads)`",
+        "The call blocks the calling thread",
+        "- **Tuple of 1 to 12 reads.**",
+        "so passing a `load()` result does not compile.",
+        "the same name, Attribute or AttributeMap kind, Rust value type, index, `sync_to_attribute_store`, and `hard_delete_on_null` settings.",
+        "- `SdkError::FlowNotFound`: the Flow does not exist, or its latest run is being purged.",
+        "Retry the call to read fresh state.",
+    )),
+    ("rust/error-handling.md", (
+        "One exception: a `ValueMapping` from `get_attributes` for a large value that could not be resolved is retryable,",
+    )),
 )
-
-
-def tagged_files_containing(checkout: Path, tag: str, tree: str, suffix: str, token: str) -> list[str]:
-    """Returns the tagged files under tree with suffix whose content contains token, skipping generated code."""
-    result = subprocess.run(
-        ["git", "grep", "-l", "-F", "-e", token, f"refs/tags/{tag}", "--", tree],
-        cwd=checkout,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode not in (0, 1):
-        fail(f"cannot search {tag}:{tree}: {result.stderr.strip()}")
-    prefix = f"refs/tags/{tag}:"
-    paths = [line.removeprefix(prefix) for line in result.stdout.splitlines()]
-    return [path for path in paths if path.endswith(suffix) and "/gen/" not in path]
+# Wording that described Java and Rust before they had the Client Attribute read.
+CLIENT_ATTRIBUTE_READ_RETIRED_WORDING = (
+    "SDK does not have the Client Attribute read API yet",
+    "do not have this API yet",
+    "Java and Rust do not have",
+    "Java, Rust | Not available yet",
+    "the SDK is Java or Rust",
+    "no Client Attribute read yet",
+)
 
 
 def check_client_attribute_reads(checkout: Path, baselines: dict[str, str], references: Path) -> None:
     """Checks the Client Attribute read statements against each SDK baseline and the references."""
     for language, path, needles in CLIENT_ATTRIBUTE_READ_TAGGED_STATEMENTS:
         require_tagged_text(checkout, baselines[language], path, *needles)
-    for language, tree, suffix, token, declaration in CLIENT_ATTRIBUTE_READ_ABSENT:
-        tag = baselines[language]
-        for path in tagged_files_containing(checkout, tag, tree, suffix, token):
-            if declaration.search(git(checkout, "show", f"refs/tags/{tag}:{path}")):
-                fail(f"{tag}:{path} declares a public Client Attribute read; document it for {language}")
     for page, needles in CLIENT_ATTRIBUTE_READ_REFERENCES:
         require_text(references / page, *needles)
+    for page in [*sorted(references.rglob("*.md")), references.parent / "SKILL.md"]:
+        content = page.read_text()
+        for wording in CLIENT_ATTRIBUTE_READ_RETIRED_WORDING:
+            if wording in content:
+                fail(f"{page} still says the Client Attribute read is unavailable: {wording}")
 
 
 def check_search_sub_statuses(checkout: Path, baselines: dict[str, str], references: Path) -> None:

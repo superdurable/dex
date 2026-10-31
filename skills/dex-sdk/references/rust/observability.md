@@ -1,6 +1,6 @@
 # Rust observability
 
-Observe a Dex application through durable identities and public Client APIs. Logs and metrics explain Worker execution; Flow status, typed snapshot RPC responses, heartbeats, and Streams explain durable application state.
+Observe a Dex application through durable identities and public Client APIs. Logs and metrics explain Worker execution; Flow status, `Client::get_attributes` reads, typed snapshot RPC responses, heartbeats, and Streams explain durable application state.
 
 ## Correlation fields
 
@@ -16,7 +16,7 @@ At shutdown, stop the Worker, join its thread, and close BlobCache. A panic in t
 
 ## Worker diagnostics
 
-With Rust SDK v1.16.0, Workers report errors and warnings through the **tracing** crate instead of printing to standard error. Examples are a disconnected or rejected task stream, a failed handler, and a failed RPC result. The SDK installs no subscriber. Install one at application startup, such as **tracing_subscriber::fmt().init()**, or these events are discarded. Retry behavior does not depend on the subscriber. [Released Worker diagnostics](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/sdk-rust/README.md)
+With Rust SDK v1.16.0, Workers report errors and warnings through the **tracing** crate instead of printing to standard error. Examples are a disconnected or rejected task stream, a failed handler, and a failed RPC result. The SDK installs no subscriber. Install one at application startup, such as **tracing_subscriber::fmt().init()**, or these events are discarded. Retry behavior does not depend on the subscriber. [Released Worker diagnostics](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/sdk-rust/README.md)
 
 ## Heartbeat progress
 
@@ -24,7 +24,7 @@ Heartbeat long-running Execute work at bounded intervals. On retry, resume from 
 
 server-zd enforces the Step HeartbeatTimeout for pull Workers and sends cancellation directly to the pull Worker. Record heartbeats within the timeout, stop promptly when the SDK reports cancellation, and keep side effects idempotent. Later attempts receive the last recorded heartbeat. See [pull Worker routing](../core/pull-workers.md).
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.26.0/examples/rust/src/primitives/heartbeat/flow.rs)
+[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/examples/rust/src/primitives/heartbeat/flow.rs)
 <!-- dex-source: examples/rust/src/primitives/heartbeat/flow.rs -->
 ```rust
 let completed_batches = context.last_heartbeat_value::<i32>()?.unwrap_or_default();

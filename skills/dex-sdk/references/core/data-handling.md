@@ -74,7 +74,7 @@ Check these constraints before choosing it:
 
 - Only string and object values are supported, including bytes. Definitions reject numeric and Boolean value types. When the declared type is broader, a write that encodes a number or Boolean fails. Null is always allowed. To store a numeric secret, such as a one-time code, wrap it in an object type with one field.
 - The option cannot be combined with an index or Attribute Store sync. A hard-delete value therefore never appears in Dex search or an external projection.
-- WaitForAttributeMatch rejects a hard-delete Attribute, and Action conditions cannot use one. When a caller needs the value, read it through the [Client Attribute read](primitives.md#read-attributes-from-outside-a-flow) where the SDK has it, or through an RPC. That read returns the committed value, and the SDK never caches it. Return it only to callers authorized to hold the secret.
+- WaitForAttributeMatch rejects a hard-delete Attribute, and Action conditions cannot use one. When a caller needs the value, read it through the [Client Attribute read](primitives.md#read-attributes-from-outside-a-flow) or through an RPC. That read returns the committed value, and the SDK never caches it. Return it only to callers authorized to hold the secret.
 - It requires SDK v1.11.0 or later.
 - SDKs fail closed against an older Server. A Worker fails the Step, RPC, or timeout-handler result that writes a hard-delete Attribute or starts a SubFlow with one. A Client fails a StartFlow that carries a hard-delete initial value.
 - On server-zd, a SubFlow whose initial Attributes include a hard-delete Attribute needs v0.1.10 or later. Earlier releases could stop the node on that start.

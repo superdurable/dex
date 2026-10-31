@@ -13,11 +13,11 @@ Choose the primitive from the behavior the application needs, not from a preferr
 | Stream | `Stream.define` | Best-effort progress | Not authoritative state; clients resume with tokens |
 | Timer | `Timer.byDuration`, `Timer.byTimestamp` | Durable deadlines | Timer readiness is not a Java sleep |
 | SubFlow | `SubFlow.run` | Independently managed durable child work | Decide parent lifetime and cancellation explicitly |
-| Client | `Client` | Lifecycle, RPCs, Attribute-match waits, Streams, search | Catch concrete SDK exceptions |
+| Client | `Client` | Lifecycle, committed Attribute reads, RPCs, Attribute-match waits, Streams, search | Catch concrete SDK exceptions |
 
 ## Wait composition
 
-[Pinned wait example](https://github.com/superdurable/dex/blob/sdk-java/v1.30.0/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
+[Pinned wait example](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java -->
 ```java
 case "any":
@@ -42,7 +42,7 @@ Use condition IDs when code must distinguish winners, and for every condition in
 
 ## Durable state and locking
 
-[Pinned Attribute example](https://github.com/superdurable/dex/blob/sdk-java/v1.30.0/examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java)
+[Pinned Attribute example](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java -->
 ```java
 @Override
@@ -66,7 +66,7 @@ An RPC without Attribute locks or `isTransactional` can query a retained termina
 
 Use `Client.readStream` for forward, one-at-a-time, optionally long-polling consumption. Use `Client.listStreamMessages` for non-blocking newest-first pages. Pass the typed Stream directly, and pass `getNextPageToken()` unchanged until it is empty.
 
-[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-java/v1.30.0/examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java)
+[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java -->
 ```java
 final StreamMessagesPage<String> page = client.listStreamMessages(
@@ -84,6 +84,47 @@ Return `StepDecision.goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `fo
 
 ## Client interaction
 
-Use `startFlow` for a new execution, `waitForFlow` for terminal status, a typed RPC stub for Flow-owned Attribute and Channel state, and Attribute match for blocking observation. Direct Client state methods are not part of the application API. Use bounded waits at service boundaries and continue polling after a long-poll timeout. `searchFlows` is for indexed discovery, not coordination.
+Use `startFlow` for a new execution, `waitForFlow` for terminal status, [`getAttributes`](#client-attribute-reads) for committed Attribute values, a typed RPC stub for writes of Flow-owned Attribute and Channel state and for reads that need Flow code or pending Channel messages, and Attribute match for blocking observation. The Client has no direct write method. Use bounded waits at service boundaries and continue polling after a long-poll timeout. `searchFlows` is for indexed discovery, not coordination.
 
-The Java SDK does not have the Client Attribute read API yet; the Go, Python, and TypeScript SDKs have it. To read Flow state from outside a Flow in Java, define a typed read-only RPC without Attribute locks, transactional execution, or returned durable effects, and invoke it through the Client. That RPC dispatches to a Worker, so it needs an available Worker, and it can read a retained closed run. Do not call the FlowService GetAttributes RPC through the generated protocol bindings; that skips the SDK's definition checks, typed decoding, and large-value hydration. See the shared [Attribute read rules](../core/primitives.md#read-attributes-from-outside-a-flow).
+## Client Attribute reads
+
+From Java SDK v1.31.0, `Client.getAttributes(flowId, reads...)` reads committed values of registered Attributes and AttributeMap instances in one FlowService request, without a Worker. Follow the shared [semantics and selection rule](../core/primitives.md#read-attributes-from-outside-a-flow). Pass singleton `Attribute` definitions, or AttributeMap instances selected with `AttributeMap.instance(key)`. There is no single-Attribute method; pass one read to read one value.
+
+[Released Java Client Attribute read](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/sdk-java/README.md)
+<!-- dex-source: sdk-java/README.md -->
+```java
+AttributeValues values = client.getAttributes(
+        "order-42",
+        orderFlow.orderStatus,
+        orderFlow.notes.instance("n1"));
+String status = values.get(orderFlow.orderStatus).orElse("new");
+Optional<Note> note = values.get(orderFlow.notes.instance("n1"));
+```
+
+The call takes varargs or a `List<? extends AttributeRead<?>>` of reads built at runtime. The Client copies the list before the request.
+
+[Released SDK integration test](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/sdk-java/src/test/java/io/superdurable/dex/integ/GetAttributesTest.java)
+<!-- dex-source: sdk-java/src/test/java/io/superdurable/dex/integ/GetAttributesTest.java -->
+```java
+final List<AttributeRead<?>> listReads =
+        new ArrayList<AttributeRead<?>>();
+listReads.add(WORKFLOW.count);
+listReads.add(WORKFLOW.quantities.instance(SET_QUANTITY_INSTANCE));
+final AttributeValues listValues = client.getAttributes(flowId, listReads);
+```
+
+- **Result.** The call returns an immutable `AttributeValues`. `get(read)` returns `Optional<T>` typed by the read. An unset Attribute or map instance reads as `Optional.empty()`. A stored value that decodes to `null` also reads as `Optional.empty()`, because `Optional` cannot hold `null`. An empty string, `0`, and `false` are set values.
+- **Lookup.** `get` throws `IllegalArgumentException` for a read that was not part of the call. That includes another `Attribute` object with the same name. A freshly created `notes.instance("n1")` for the same AttributeMap object and key finds the value. Repeated `get` calls return the same decoded object, so copy a mutable value before changing it.
+- **Definition identity.** Each definition must be the exact object that a registered Flow's `getPersistenceSchema()` returns. Another object with the same name and value class fails with `FlowDefinitionException` before any request. So does a definition from a second `hardDeleteOnNull()` call. Share the Flow's definition fields with the Client code, as `orderFlow.orderStatus` does above.
+- **Instance selector.** `AttributeMap.instance(key)` returns an `AttributeMapInstance<T>` for a Client read. It does not contact Dex. It throws `IllegalArgumentException` at once for a null or blank key or one that contains `/`. It is separate from the handler-side map loads (`@RPC(loadAttributeMapInstances = ...)` and `RPCInvokeOptions.Builder.addLoadAttributeMapInstance`) and from `get(context, key)` inside a Step or RPC.
+- **Hard-delete and large values.** Hard-delete Attributes are readable, and a deleted value reads as `Optional.empty()`. The Client loads large values through LoadBlobs and its `BlobCache` before it decodes them with the Client's `ObjectMapper`.
+
+The call is blocking. It throws these exceptions, and every message names the Flow ID:
+
+- `IllegalArgumentException` before any request: a blank Flow ID, no reads, a null read, a read that is not an `Attribute` or `AttributeMapInstance`, or two reads of the same key.
+- `FlowDefinitionException` before any request: no registered Flow declares that exact definition object.
+- `FlowNotFoundException`: the Flow does not exist, or its latest run is being purged. A closed run is still readable, so the call never throws `FlowNotActiveOrNotFoundException`. At a business Get boundary, return the not-found result directly.
+- `ValueMappingException`: a stored value cannot be loaded or decoded as its definition's value class.
+- `DexServiceException`: another FlowService or LoadBlobs failure. It keeps the gRPC code and Dex sub-status. Its message and `getDetail()` start with the call context, such as `getAttributes Flow order-42 Attributes order-status`, before the Server detail. `IllegalStateException` reports a malformed Server response.
+
+On any error the call returns no values. [Released Java Client API](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/sdk-java/src/main/java/io/superdurable/dex/Client.java) and [AttributeValues](https://github.com/superdurable/dex/blob/sdk-java/v1.31.0/sdk-java/src/main/java/io/superdurable/dex/AttributeValues.java)
