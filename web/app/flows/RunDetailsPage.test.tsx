@@ -475,7 +475,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
 
     await waitFor(() => expect(timelineRow(2).className).toContain('jump-highlighted'));
     expect(timelineRow(2).className).toContain('selected');
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('3000'));
