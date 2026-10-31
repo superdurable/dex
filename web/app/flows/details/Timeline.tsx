@@ -6,18 +6,23 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { formatDate } from '@/lib/format';
+import type { EventIdRange } from '@/lib/historyRelations';
 import { durabilityLabel, flowErrorTypeLabel } from '@/lib/semantic';
 import { positiveRunAttempt, runAttemptSearch } from '@/lib/timeTravel';
 import {
-  buildSelectedTimelineLinks,
-  displayEventNumber,
+  buildSelectedTimelineRelations,
   formatElapsedDuration,
   newestTimelineEvents,
+  PRUNED_RELATED_EVENT_EXPLANATION,
+  prunedRelatedEventTooltip,
+  timelineRelatedEventLabel,
+  type TimelineRelatedEvent,
+  type TimelineSelectedRelations,
 } from '@/lib/timeline';
 import { usePreferences } from '../../providers';
 import { eventTitle, eventTypeLabel } from './EventDetails';
@@ -37,10 +42,32 @@ interface StepLinkPath {
   durationWidth: number;
 }
 
+interface StubLinkPath {
+  id: string;
+  kind: TimelineRelatedEvent['kind'];
+  location: TimelineRelatedEvent['location'];
+  path: string;
+}
+
 interface StepLinkLayout {
   width: number;
   height: number;
   paths: StepLinkPath[];
+  stubPaths: StubLinkPath[];
+}
+
+/** Older and newer page navigation for a paged Timeline. */
+export interface TimelinePaging {
+  hasOlder: boolean;
+  hasNewer: boolean;
+  /** Whether the page is the newest window, which Live extends. */
+  isNewest: boolean;
+  isLoading: boolean;
+  canGoBack: boolean;
+  onOlder: () => void;
+  onNewer: () => void;
+  onNewest: () => void;
+  onBack: () => void;
 }
 
 function eventTone(event: FlowHistoryEvent) {
@@ -101,32 +128,54 @@ export function Timeline({
   events,
   selectedEvent,
   onSelectEvent,
+  relations,
+  paging,
+  prunedEventIdRange,
+  highlightedEventId = null,
+  onJumpToEvent,
 }: {
   flowId: string;
+  /** One page of events, at most one history window. */
   events: FlowHistoryEvent[];
   selectedEvent: FlowHistoryEvent | null;
   onSelectEvent: (event: FlowHistoryEvent) => void;
+  /** The selected event's related events; computed from this page when absent. */
+  relations?: TimelineSelectedRelations;
+  paging?: TimelinePaging;
+  prunedEventIdRange?: EventIdRange;
+  highlightedEventId?: number | null;
+  onJumpToEvent?: (eventId: number) => void;
 }) {
   const { timezone } = usePreferences();
   const timelineRef = useRef<HTMLDivElement>(null);
   const eventCards = useRef(new Map<number, HTMLDivElement>());
+  const stubElements = useRef(new Map<string, HTMLElement>());
   const orderedEvents = useMemo(() => newestTimelineEvents(events), [events]);
   const spansRunAttempts = useMemo(
     () => new Set(events.map((event) => positiveRunAttempt(event.runAttempt))).size > 1,
     [events],
   );
-  const eventNumbers = useMemo(() => new Map(
-    events.map((event) => [event.eventId, displayEventNumber(events, event)]),
-  ), [events]);
-  const stepLinks = useMemo(
-    () => buildSelectedTimelineLinks(events, selectedEvent?.eventId),
-    [events, selectedEvent?.eventId],
+  const computedRelations = useMemo(
+    () => relations ?? buildSelectedTimelineRelations(events, selectedEvent, {
+      hasOlder: paging?.hasOlder ?? false,
+      hasNewer: paging?.hasNewer ?? false,
+      prunedEventIdRange,
+    }),
+    [events, paging?.hasNewer, paging?.hasOlder, prunedEventIdRange, relations, selectedEvent],
   );
-  const linkLaneCount = Math.max(1, ...stepLinks.map((link) => link.lane + 1));
+  const stepLinks = computedRelations.links;
+  const stubs = computedRelations.stubs;
+  const linkLaneCount = Math.max(0, ...stepLinks.map((link) => link.lane + 1));
+  const railLaneCount = Math.max(1, linkLaneCount + stubs.length);
   const timelineStyle = {
-    '--timeline-link-rail-width': `${88 + (linkLaneCount - 1) * 48}px`,
+    '--timeline-link-rail-width': `${88 + (railLaneCount - 1) * 48}px`,
   } as CSSProperties;
-  const [stepLinkLayout, setStepLinkLayout] = useState<StepLinkLayout>({ width: 0, height: 0, paths: [] });
+  const [stepLinkLayout, setStepLinkLayout] = useState<StepLinkLayout>({
+    width: 0,
+    height: 0,
+    paths: [],
+    stubPaths: [],
+  });
   const [interactionStepLinkID, setInteractionStepLinkID] = useState<string | null>(null);
   const [pinnedStepLinkID, setPinnedStepLinkID] = useState<string | null>(null);
   const updateStepLinks = useCallback(() => {
@@ -162,8 +211,26 @@ export function Timeline({
         durationWidth,
       }];
     });
-    setStepLinkLayout({ width: timelineRect.width, height: timelineRect.height, paths });
-  }, [stepLinks]);
+    const selectedCard = selectedEvent ? eventCards.current.get(selectedEvent.eventId) : undefined;
+    const stubPaths = selectedCard ? stubs.flatMap((stub, offset) => {
+      const stubElement = stubElements.current.get(stub.id);
+      if (!stubElement) return [];
+      const cardRect = selectedCard.getBoundingClientRect();
+      const stubRect = stubElement.getBoundingClientRect();
+      const isOlder = stub.direction === 'older';
+      const cardX = cardRect.left - timelineRect.left;
+      const cardY = cardRect.top + cardRect.height * (isOlder ? 0.66 : 0.34) - timelineRect.top;
+      const stubX = stubRect.left - timelineRect.left;
+      const stubY = stubRect.top + stubRect.height / 2 - timelineRect.top;
+      const linkX = Math.min(cardX, stubX) - 22 - (linkLaneCount + offset) * 16;
+      // History flows from older to newer events, so the arrow points at the newer end.
+      const path = isOlder
+        ? `M ${stubX - 1} ${stubY} H ${linkX} V ${cardY} H ${cardX + 1}`
+        : `M ${cardX - 1} ${cardY} H ${linkX} V ${stubY} H ${stubX + 1}`;
+      return [{ id: stub.id, kind: stub.kind, location: stub.location, path }];
+    }) : [];
+    setStepLinkLayout({ width: timelineRect.width, height: timelineRect.height, paths, stubPaths });
+  }, [linkLaneCount, selectedEvent, stepLinks, stubs]);
 
   useLayoutEffect(() => {
     const timeline = timelineRef.current;
@@ -180,6 +247,16 @@ export function Timeline({
     };
   }, [orderedEvents, updateStepLinks]);
 
+  useEffect(() => {
+    if (highlightedEventId === null) return;
+    eventCards.current.get(highlightedEventId)?.scrollIntoView?.({ block: 'center' });
+  }, [highlightedEventId, orderedEvents]);
+
+  const registerStub = useCallback((id: string, node: HTMLElement | null) => {
+    if (node) stubElements.current.set(id, node);
+    else stubElements.current.delete(id);
+  }, []);
+
   if (!events.length) return <div className="card empty-state"><h3>No semantic events loaded</h3></div>;
   const startMs = events.reduce((earliest, event) => {
     const eventMs = event.eventTime ? Date.parse(event.eventTime) : 0;
@@ -192,15 +269,32 @@ export function Timeline({
   const pinnedStepLink = stepLinkLayout.paths.find((link) => link.id === pinnedStepLinkID);
   const activeStepLinkID = interactionStepLinkID ?? pinnedStepLink?.id ?? selectedStepLink?.id ?? null;
   const activeStepLink = stepLinkLayout.paths.find((link) => link.id === activeStepLinkID);
+  const firstEventId = orderedEvents[orderedEvents.length - 1].eventId;
+  const lastEventId = orderedEvents[0].eventId;
+  const showsPrunedBanner = prunedEventIdRange !== undefined && firstEventId === 1;
+  const newerStubs = stubs.filter((stub) => stub.direction === 'newer');
+  const olderStubs = stubs.filter((stub) => stub.direction === 'older');
   return (
     <div className="timeline-wrap">
       <div className="view-toolbar">
         <div>
           <h2>{events.length} events</h2>
+          {paging && (
+            <p className="muted timeline-page-range">
+              Events #{firstEventId} to #{lastEventId}{paging.isNewest ? ', newest page' : ''}
+            </p>
+          )}
         </div>
+        {paging && <TimelinePager paging={paging} />}
       </div>
+      {showsPrunedBanner && (
+        <div className="warning-banner timeline-pruned-banner" role="note" title={PRUNED_RELATED_EVENT_EXPLANATION}>
+          {prunedRangeMessage(prunedEventIdRange)}
+        </div>
+      )}
       <div className="timeline" ref={timelineRef} style={timelineStyle}>
-        {stepLinkLayout.paths.length > 0 && (
+        <TimelineEdgeStubs edge="newer" stubs={newerStubs} onJumpToEvent={onJumpToEvent} registerStub={registerStub} />
+        {(stepLinkLayout.paths.length > 0 || stepLinkLayout.stubPaths.length > 0) && (
           <svg
             aria-label="Step execution lineage and condition links"
             className="timeline-step-links"
@@ -217,6 +311,15 @@ export function Timeline({
                 <path d="M 0 0 L 6 3.5 L 0 7 z" />
               </marker>
             </defs>
+            {stepLinkLayout.stubPaths.map((stub) => (
+              <path
+                aria-hidden="true"
+                className={`timeline-stub-link kind-${stub.kind} location-${stub.location}`}
+                d={stub.path}
+                key={stub.id}
+                markerEnd={stub.kind === 'lineage' ? 'url(#timeline-lineage-arrow)' : 'url(#timeline-step-arrow)'}
+              />
+            ))}
             {stepLinkLayout.paths.map((link) => {
               const active = activeStepLinkID === link.id;
               const pinned = pinnedStepLinkID === link.id;
@@ -288,11 +391,12 @@ export function Timeline({
           const selected = selectedEvent?.eventId === event.eventId;
           const linked = activeStepLink?.fromEventId === event.eventId || activeStepLink?.toEventId === event.eventId;
           const counterpart = activeStepLink?.id === selectedStepLink?.id && linked && !selected;
+          const highlighted = highlightedEventId === event.eventId;
           const previousRunId = previousRunID(event);
           const previousRunTarget = previousRunLink(flowId, event);
           return (
             <article
-              className={`timeline-row${stepMethodClass(event)}${selected ? ' selected' : ''}${linked ? ' link-highlighted' : ''}${counterpart ? ' link-counterpart' : ''}`}
+              className={`timeline-row${stepMethodClass(event)}${selected ? ' selected' : ''}${linked ? ' link-highlighted' : ''}${counterpart ? ' link-counterpart' : ''}${highlighted ? ' jump-highlighted' : ''}`}
               data-event-id={event.eventId}
               key={event.eventId}
               onClick={() => {
@@ -319,7 +423,7 @@ export function Timeline({
               >
                 <header>
                   <div>
-                    <span className="event-id">#{eventNumbers.get(event.eventId)}</span>
+                    <span className="event-id">#{event.eventId}</span>
                     <h3>
                       {previousRunTarget ? (
                         <Link
@@ -340,9 +444,103 @@ export function Timeline({
             </article>
           );
         })}
+        <TimelineEdgeStubs edge="older" stubs={olderStubs} onJumpToEvent={onJumpToEvent} registerStub={registerStub} />
       </div>
     </div>
   );
+}
+
+function TimelinePager({ paging }: { paging: TimelinePaging }) {
+  return (
+    <div aria-label="Timeline pages" className="timeline-pager" role="group">
+      {paging.isLoading && <span className="muted">Loading…</span>}
+      {paging.canGoBack && (
+        <button className="button ghost" disabled={paging.isLoading} onClick={paging.onBack} type="button">
+          Back
+        </button>
+      )}
+      {!paging.isNewest && (
+        <button className="button ghost" disabled={paging.isLoading} onClick={paging.onNewest} type="button">
+          Newest
+        </button>
+      )}
+      <button
+        className="button ghost"
+        disabled={paging.isLoading || paging.isNewest || !paging.hasNewer}
+        onClick={paging.onNewer}
+        type="button"
+      >
+        Newer events
+      </button>
+      <button
+        className="button ghost"
+        disabled={paging.isLoading || !paging.hasOlder}
+        onClick={paging.onOlder}
+        type="button"
+      >
+        Older events
+      </button>
+    </div>
+  );
+}
+
+/** Ends links whose far end is on another page, or was pruned, at the top or bottom edge. */
+function TimelineEdgeStubs({
+  edge,
+  stubs,
+  onJumpToEvent,
+  registerStub,
+}: {
+  edge: 'newer' | 'older';
+  stubs: TimelineRelatedEvent[];
+  onJumpToEvent?: (eventId: number) => void;
+  registerStub: (id: string, node: HTMLElement | null) => void;
+}) {
+  if (!stubs.length) return null;
+  return (
+    <div className={`timeline-edge-stubs edge-${edge}`}>
+      <div className="timeline-edge-stub-list">
+        {stubs.map((stub) => {
+          const label = `↑ ${timelineRelatedEventLabel(stub)}`;
+          const jumpEventId = stub.location === 'other-page' ? stub.eventId : undefined;
+          if (jumpEventId !== undefined && onJumpToEvent) {
+            return (
+              <button
+                className={`timeline-edge-stub kind-${stub.kind}`}
+                data-related-event-location={stub.location}
+                key={stub.id}
+                onClick={() => onJumpToEvent(jumpEventId)}
+                ref={(node) => registerStub(stub.id, node)}
+                title={`Load the page with event #${jumpEventId}`}
+                type="button"
+              >
+                {label}
+              </button>
+            );
+          }
+          return (
+            <span
+              className={`timeline-edge-stub kind-${stub.kind} location-${stub.location}`}
+              data-related-event-location={stub.location}
+              key={stub.id}
+              ref={(node) => registerStub(stub.id, node)}
+              title={stub.location === 'pruned' ? prunedRelatedEventTooltip(stub) : undefined}
+            >
+              {label}
+              {stub.location === 'pruned' && <span className="timeline-pruned-badge">pruned</span>}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function prunedRangeMessage(range: EventIdRange): string {
+  const removed = range.firstEventId === range.lastEventId
+    ? `Event #${range.firstEventId} was`
+    : `Events #${range.firstEventId} to #${range.lastEventId} were`;
+  return `${removed} removed by the history window; FlowStart is kept.`;
 }
 
 function EventHighlights({ event, showRunAttempt }: { event: FlowHistoryEvent; showRunAttempt: boolean }) {

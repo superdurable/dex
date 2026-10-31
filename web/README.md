@@ -602,7 +602,7 @@ Dex Web reads `GetServerInfo` and reports the engine as `serverEngine` in
 only the Flow ID and Start input; requests can omit Worker target fields.
 
 On server-zd, Time Travel keeps the run ID and creates a new run attempt. The
-Run page reloads the whole history when the run attempt changes, because
+Run page reloads the newest history window when the run attempt changes, because
 events after the fork point no longer belong to the current lineage. The
 summary strip replaces **Run chain** with a **Run attempt** selector. Choosing
 an earlier attempt adds `?runAttempt=N` to the page URL and shows that
@@ -740,8 +740,28 @@ package. Product docs import the same renderer for checked-in Python example
 graphs.
 
 The Run page remembers the last selected Overview, Execution graph, Timeline, or
-Streams tab across browser refreshes. It automatically loads the complete semantic
-history for the selected run. A continued-as-new run remains on screen until the
+Streams tab across browser refreshes. It loads only the newest history window of
+the selected run: at most 1000 semantic events. It finds the newest event ID with
+`GET /api/flows/wait?nextInternalEventId=1`, which FlowStart already satisfies,
+and then reads the one page that ends there. It reads FlowStart with a separate
+two-event page, so start details and pull routing stay available. Live appends
+new events to the newest window and drops its oldest events. Refresh reloads
+only the newest window.
+
+Timeline shows one window per page, newest first, with **Older events**,
+**Newer events**, and **Newest**. Event numbers are event IDs, so they stay
+stable across pages and pruning. Condition-wait and lineage links are resolved
+by event ID. A link whose far end is on another page ends in an edge stub. The
+stub loads the page that holds the far end, highlights it, and offers **Back**.
+A far end removed by the server-zd history window shows as a muted **pruned**
+stub, and the oldest retained page names the removed event range. Selected
+event lists the same **Related events**. `web/lib/historyRelations.ts` is the
+only reader of the optional retained-history boundary and related event IDs.
+Without them, Dex Web scans the loaded page, and it infers pruning from a gap
+after FlowStart. Execution graph, Overview, and the v2 canvas read the newest
+window, so Step executions recorded before it do not appear there.
+
+A continued-as-new run remains on screen until the
 operator follows **Next run**; Dex Web never combines two runs into one graph or timeline.
 Timeline and Execution graph show an animated loading indicator while waiting
 for history. Empty states appear after loading finishes. Refreshing retains
@@ -752,8 +772,7 @@ steps, channels, completed outputs, stop, and time travel. Timeline and Executio
 Selected event in the sidebar, where the critical-action **Review time travel**
 entry opens the operation with that Step execution and its WaitFor or Execute
 method already selected. A history event time entered in the dialog is read in
-the page's time zone preference and sent as RFC 3339 UTC. Backend history IDs remain internal pagination and
-correlation details. A Time Travel-created run includes a **TimeTravelFork**
+the page's time zone preference and sent as RFC 3339 UTC. A Time Travel-created run includes a **TimeTravelFork**
 event whose source run links back to the preserved history.
 AttributeMap and ChannelMap instances with decimal-only names appear before
 other instances and sort by numeric value in live state and event details.

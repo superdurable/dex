@@ -63,6 +63,20 @@ Open the Flow by Flow ID and Run ID, choose **Timeline**, then select the
 Step event that is waiting, completed, or failed. The right-side **Selected
 event** panel identifies the event number and its type.
 
+The event number is the event ID. It stays the same on every page and after
+pruning. **Timeline** shows at most 1,000 events per page and opens on the
+newest page. Use **Older events** and **Newer events** to move between pages.
+Use **Newest** to return to the page that **Live** keeps extending.
+
+The **Selected event** panel lists **Related events**: the event's WaitFor, its
+source execution, and the executions it started. Each entry is loaded, on
+another page, or pruned. Select an entry on another page, or its stub at the
+top or bottom of **Timeline**, to load that page and highlight the event.
+**Back** returns to the previous page. Dex Server keeps only a
+[recent history window](/production/server-zd-operations#history-window). A
+pruned related event appears muted with a **pruned** badge. The oldest
+retained page states which event numbers were removed.
+
 <img
   src="/img/production/dex-web-timeline-step-input.png"
   alt="Dex Web Timeline with a WaitForCondition event selected and its Step input visible"

@@ -21,12 +21,14 @@ import {
 } from './canvas/model/run';
 import {
   loadCurrentRun,
-  loadRunHistory,
+  loadRecentRunHistory,
+  recentRunEvents,
   attemptCountFromRecord,
   overlayFromHistory,
   prependStepRecords,
   recordForExecution,
   type ExecutionRecord,
+  type RecentRunHistory,
   type RunOverlayBundle,
 } from './canvas/overlayFromHistory';
 import { DetailPanel } from './canvas/panel/DetailPanel';
@@ -122,6 +124,7 @@ export function V2Canvas({
   const [hydratedWaitEvent, setHydratedWaitEvent] = useState<FlowHistoryEvent | null>(null);
   const [hydratedExecuteEvent, setHydratedExecuteEvent] = useState<FlowHistoryEvent | null>(null);
   const blobCache = useRef(new Map<string, unknown>());
+  const recentRunHistory = useRef<RecentRunHistory | undefined>(undefined);
 
   useEffect(() => {
     setCatalog(definitions);
@@ -139,13 +142,15 @@ export function V2Canvas({
     setHydratedExecuteEvent(null);
     setSelectedExecutionId(null);
     setRunError('');
+    recentRunHistory.current = undefined;
     if (!flowId) return undefined;
     let cancelled = false;
     let timer: number | undefined;
     const load = async () => {
       try {
-        const { summary, events, state } = await loadCurrentRun(flowId);
+        const { summary, events, history, state } = await loadCurrentRun(flowId, recentRunHistory.current);
         if (cancelled) return;
+        recentRunHistory.current = history;
         setHistoryEvents(events);
         setCurrentBundle(overlayFromHistory({
           flowId,
@@ -417,7 +422,7 @@ export function V2Canvas({
     setLoadPreviousBusy(true);
     setPreviousEmpty(false);
     try {
-      const events = await loadRunHistory(flowId, previousCursor);
+      const events = recentRunEvents(await loadRecentRunHistory(flowId, previousCursor));
       const hop = overlayFromHistory({
         flowId,
         runId: previousCursor,

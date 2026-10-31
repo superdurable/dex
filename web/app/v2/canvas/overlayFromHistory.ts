@@ -6,14 +6,22 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { loadCompleteHistory } from '@/lib/history';
+import {
+  appendToNewestHistoryWindow,
+  createHistoryPageLoader,
+  loadLatestEventIdHint,
+  loadNewestHistoryWindow,
+  loadOldestRetainedEvents,
+  withFlowStart,
+  type HistoryWindow,
+} from '@/lib/history';
 import { readResponseJSON } from '@/lib/http';
+import { positiveRunAttempt } from '@/lib/timeTravel';
 import type {
   ActiveStepExecution,
   FlowHistoryEvent,
   FlowState,
   FlowSummary,
-  HistoryPage,
 } from '@/lib/types';
 import type { FdgConditionKind } from './model/fdg';
 import type { PhaseStatus, RunCondition, RunOverlay, StepExecution } from './model/run';
@@ -41,31 +49,60 @@ export interface RunOverlayBundle {
   records: ExecutionRecord[];
 }
 
-export async function loadRunHistory(flowId: string, runId: string): Promise<FlowHistoryEvent[]> {
-  const complete = await loadCompleteHistory(async (nextPageToken, startInternalEventId) => {
-    const params = new URLSearchParams({
-      flowId,
-      runId,
-      startInternalEventId: String(startInternalEventId),
-      estimatePageSize: '200',
-    });
-    if (nextPageToken) params.set('nextPageToken', nextPageToken);
-    return readResponseJSON<HistoryPage>(await fetch(`/api/flows/history?${params}`, { cache: 'no-store' }));
-  });
-  return complete.events;
+/** The newest history window of one run; executions before it are absent from the overlay. */
+export interface RecentRunHistory {
+  runId: string;
+  runAttempt: number;
+  flowStart: FlowHistoryEvent | null;
+  window: HistoryWindow;
 }
 
-export async function loadCurrentRun(flowId: string): Promise<{
+/** Loads the newest window, or appends to `previous` when it belongs to the same run attempt. */
+export async function loadRecentRunHistory(
+  flowId: string,
+  runId: string,
+  runAttempt = 0,
+  previous?: RecentRunHistory,
+): Promise<RecentRunHistory> {
+  const loadPage = createHistoryPageLoader(flowId, runId, 0);
+  if (previous && previous.runId === runId && previous.runAttempt === runAttempt) {
+    return { ...previous, window: await appendToNewestHistoryWindow(loadPage, previous.window, 0) };
+  }
+  const [latestEventIdHint, oldest] = await Promise.all([
+    loadLatestEventIdHint(flowId, runId),
+    loadOldestRetainedEvents(loadPage),
+  ]);
+  const flowStart = oldest.events[0]?.type === 'FlowStartedOrContinued' ? oldest.events[0] : null;
+  return {
+    runId,
+    runAttempt,
+    flowStart,
+    window: await loadNewestHistoryWindow(loadPage, latestEventIdHint),
+  };
+}
+
+export function recentRunEvents(history: RecentRunHistory): FlowHistoryEvent[] {
+  return withFlowStart(history.window.events, history.flowStart);
+}
+
+export async function loadCurrentRun(flowId: string, previous?: RecentRunHistory): Promise<{
   summary: FlowSummary;
   events: FlowHistoryEvent[];
+  history: RecentRunHistory;
   state: FlowState | null;
 }> {
   const summary = await readResponseJSON<FlowSummary>(
     await fetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, { cache: 'no-store' }),
   );
-  const events = await loadRunHistory(flowId, summary.runId);
+  const history = await loadRecentRunHistory(
+    flowId,
+    summary.runId,
+    positiveRunAttempt(summary.runAttempt),
+    previous,
+  );
+  const events = recentRunEvents(history);
   if (summary.flowStatusCode !== 1) {
-    return { summary, events, state: null };
+    return { summary, events, history, state: null };
   }
   try {
     const state = await readResponseJSON<FlowState>(
@@ -74,9 +111,9 @@ export async function loadCurrentRun(flowId: string): Promise<{
         { cache: 'no-store' },
       ),
     );
-    return { summary, events, state };
+    return { summary, events, history, state };
   } catch {
-    return { summary, events, state: null };
+    return { summary, events, history, state: null };
   }
 }
 
