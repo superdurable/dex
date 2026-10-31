@@ -18,8 +18,8 @@ import type {
 /**
  * Per-tool override of the effect and approval defaults.
  *
- * Pass policies by tool name in {@link AgentSessionFlowOptions.toolPolicies}. A policy wins over
- * framework metadata such as MCP annotations and over {@link AgentSessionFlowOptions.defaultToolEffect}.
+ * Pass policies by tool name in {@link AgentSessionOptions.toolPolicies}. A policy wins over
+ * framework metadata such as MCP annotations and over {@link AgentSessionOptions.defaultToolEffect}.
  *
  * @example
  * ```ts
@@ -39,7 +39,7 @@ export interface ToolPolicy {
   readonly requiresApproval?: boolean;
 }
 
-/** Effective policy of one tool, returned by {@link AgentTurnContext.resolveToolPolicy}. */
+/** Effective policy of one tool, returned by {@link resolveToolPolicy}. */
 export interface ResolvedToolPolicy {
   /** Effective effect after policies, framework metadata, and the session default. */
   readonly effect: ToolEffect;
@@ -47,21 +47,68 @@ export interface ResolvedToolPolicy {
   readonly requiresApproval: boolean;
   /**
    * Whether the runner must defer calls of this tool instead of running them inside `runTurn`.
-   * It is `true` when the effect is not `read` or the tool requires approval.
+   * It is `false` only for a `read` tool that needs no approval.
    */
-  readonly isDeferred: boolean;
+  readonly shouldDefer: boolean;
+}
+
+/**
+ * Returns the effective policy of one tool.
+ *
+ * Runners normally call {@link AgentTurnContext.resolveToolPolicy}. Call this function when an adapter
+ * classifies tools outside a turn, for example while building framework tool wrappers. Precedence: the
+ * tool's {@link ToolPolicy}, then `frameworkEffect`, then `defaultToolEffect`.
+ *
+ * @example
+ * ```ts
+ * const policy = resolveToolPolicy("refund_order", flow.options.toolPolicies, flow.options.defaultToolEffect);
+ * if (policy.shouldDefer) {
+ *   // wrap the tool so the framework defers it
+ * }
+ * ```
+ * @param toolName - Tool name as the model calls it.
+ * @param toolPolicies - Explicit policies by tool name.
+ * @param defaultToolEffect - Effect of a tool without a policy or framework metadata.
+ * @param frameworkEffect - Effect declared by framework metadata, or `undefined`.
+ * @returns The effective policy.
+ */
+export function resolveToolPolicy(
+  toolName: string,
+  toolPolicies: Readonly<Record<string, ToolPolicy>>,
+  defaultToolEffect: ToolEffect,
+  frameworkEffect?: ToolEffect,
+): ResolvedToolPolicy {
+  const policy = Object.hasOwn(toolPolicies, toolName) ? toolPolicies[toolName] : undefined;
+  const effect = policy?.effect ?? frameworkEffect ?? defaultToolEffect;
+  const requiresApproval =
+    policy?.requiresApproval ?? (effect === "non_idempotent_write" || effect === "unclassified");
+  return { effect, requiresApproval, shouldDefer: effect !== "read" || requiresApproval };
 }
 
 /**
  * Writes best-effort live events to the session's `AgentEvents` Stream.
  *
- * Every event carries the current turn ID and Step attempt. Consecutive `text_delta` or
- * `reasoning_delta` writes are coalesced for up to 100 milliseconds or 1,024 characters before they
- * reach the Stream. Writes after the handler returns are dropped. Stream delivery is best effort: a
- * retried turn writes its events again under a new attempt, so a UI rebuilds durable state with
- * `get_agent_snapshot`.
+ * Every event carries {@link turnId} and the Step {@link attempt}. Payload objects are written as JSON
+ * with sorted keys. Consecutive `text_delta` or `reasoning_delta` writes are coalesced for up to 100
+ * milliseconds or 1,024 characters before they reach the Stream. Writes after the handler returns are
+ * dropped. Stream delivery is best effort: a retried turn writes its events again under a new attempt,
+ * so a UI rebuilds durable state with `get_agent_snapshot`.
  */
 export interface AgentEventWriter {
+  /** Turn stamped on every event, or `null` outside a turn. */
+  readonly turnId: string | null;
+  /** One-based attempt of the Step that owns this writer. */
+  readonly attempt: number;
+  /**
+   * Writes one event with a JSON object payload.
+   *
+   * Prefer the typed methods for standard types. For an adapter-specific type, use an adapter prefix,
+   * such as `"vercel_ai.step_finished"`, so it never collides with an {@link AgentEventType}.
+   * @param type - Event type stored in `AgentEvent.type`.
+   * @param payload - JSON-compatible object stored as `AgentEvent.payload` text.
+   * @throws {TypeError} When the payload cannot be serialized as JSON.
+   */
+  writeEvent(type: string, payload: Readonly<Record<string, unknown>>): void;
   /**
    * Writes visible assistant text as a `text_delta` event.
    * @param text - Text chunk; empty chunks are ignored.
@@ -74,16 +121,17 @@ export interface AgentEventWriter {
    */
   writeReasoningDelta(text: string): void;
   /**
-   * Writes a `tool_call_started` event for a tool the runner runs inside `runTurn`.
+   * Writes a `tool_call_started` event. The session writes it for deferred calls; a runner writes it
+   * for `read` tools that run inside `runTurn`.
    * @param toolCallId - Framework tool call ID.
    * @param toolName - Tool name.
    */
   writeToolCallStarted(toolCallId: string, toolName: string): void;
   /**
-   * Writes a `tool_call_finished` event for a tool the runner ran inside `runTurn`.
+   * Writes a `tool_call_finished` event.
    * @param toolCallId - Framework tool call ID.
    * @param toolName - Tool name.
-   * @param status - `succeeded` or `failed` for an inline call.
+   * @param status - `succeeded` or `failed` for an inline call, or the final status the session recorded.
    */
   writeToolCallFinished(toolCallId: string, toolName: string, status: AgentToolCallStatus): void;
 }
@@ -93,15 +141,18 @@ export interface AgentEventWriter {
  *
  * A turn segment starts when the session begins a turn or resumes it after deferred tool calls, and
  * ends when the runner returns an {@link AgentTurnOutcome}. A crash or thrown error reruns the
- * segment from the same context on a later attempt, so model calls and `read` tools may run again.
- * Do not retain the context after `runTurn` settles.
+ * segment from the same committed state, so model calls and `read` tools may run again. Do not
+ * retain the context after `runTurn` settles.
  */
 export interface AgentTurnContext {
   /** Flow ID, which is the session ID. */
   readonly flowId: string;
   /** Turn ID, `turn-<n>`. */
   readonly turnId: string;
-  /** One-based `RunAgentTurn` attempt; a value above 1 means the segment is being rerun. */
+  /**
+   * One-based `RunAgentTurn` attempt. A rerun after a Worker crash may keep the same attempt when the
+   * crashed attempt sent no output, so do not rely on it to detect reruns.
+   */
   readonly attempt: number;
   /**
    * Every stored session message in ascending sequence order, including the user message that
@@ -113,39 +164,43 @@ export interface AgentTurnContext {
    * turn starts fresh.
    */
   readonly frameworkRunState: string | null;
+  /** Whether this segment resumes a suspended framework run, that is, `frameworkRunState` is set. */
+  readonly isResuming: boolean;
   /**
-   * Deferred tool call records of this turn, ordered by tool call ID. When resuming, every record is
-   * final; return its recorded result to the framework instead of calling the tool again. Use
-   * {@link describeToolCallResultForModel} when the framework needs result text.
+   * Deferred tool call records of this turn, in deferral order. When resuming, every record is final;
+   * return its recorded result to the framework instead of calling the tool again. Use
+   * {@link describeToolCallOutcome} when the framework needs result text.
    */
   readonly toolCalls: readonly AgentToolCall[];
-  /** Events writer for this segment. */
+  /** Events writer bound to this turn and attempt. */
   readonly events: AgentEventWriter;
   /** Signal aborted when Dex cancels the attempt; pass it to model and tool calls. */
   readonly cancellationSignal: AbortSignal;
   /** Absolute deadline of the current attempt, or `undefined` when Dex supplied none. */
   readonly deadline: Date | undefined;
   /**
-   * Returns the effective policy of a tool.
-   *
-   * Precedence: the tool's {@link ToolPolicy}, then `frameworkEffect`, then the session's default
-   * tool effect. Pass `frameworkEffect` when the framework declares one, for example with
-   * {@link toolEffectFromMcpToolAnnotations}.
-   *
+   * Returns the effective policy of a tool; see {@link resolveToolPolicy} for the precedence.
+   * Run the call inside `runTurn` only when {@link ResolvedToolPolicy.shouldDefer} is `false`.
    * @param toolName - Tool name as the model calls it.
-   * @param frameworkEffect - Effect declared by framework metadata, or `undefined`.
+   * @param frameworkEffect - Effect declared by framework metadata, for example from
+   * {@link toolEffectFromMcpToolAnnotations}, or `undefined`.
    * @returns The effective policy.
    */
   resolveToolPolicy(toolName: string, frameworkEffect?: ToolEffect): ResolvedToolPolicy;
   /**
+   * Returns this turn's record for a tool call ID.
+   * @param toolCallId - Framework tool call ID.
+   * @returns The record, or `undefined` when the turn never deferred that call.
+   */
+  recordedToolCall(toolCallId: string): AgentToolCall | undefined;
+  /**
    * Records a heartbeat for the current attempt.
    *
-   * The session already records one every 30 seconds while `runTurn` is pending, so call this only
-   * for extra liveness reporting.
-   *
+   * The session already records one every 20 seconds while `runTurn` is pending. Call it only from
+   * a long synchronous loop that could otherwise starve the event loop.
    * @returns A Promise that resolves when the Worker accepted the heartbeat.
    */
-  recordHeartbeat(): Promise<void>;
+  heartbeat(): Promise<void>;
 }
 
 /** One tool call that the runner deferred, returned in {@link TurnSuspended}. */
@@ -156,10 +211,8 @@ export interface DeferredToolCall {
   readonly toolName: string;
   /** Tool arguments as JSON text. */
   readonly arguments: string;
-  /** Effect from {@link AgentTurnContext.resolveToolPolicy}. */
-  readonly effect: ToolEffect;
-  /** Approval requirement from {@link AgentTurnContext.resolveToolPolicy}. */
-  readonly requiresApproval: boolean;
+  /** Policy from {@link AgentTurnContext.resolveToolPolicy}; it decides approval and the tool Step. */
+  readonly policy: ResolvedToolPolicy;
 }
 
 /** Outcome of a turn segment that produced the final answer. */
@@ -167,8 +220,9 @@ export interface TurnCompleted {
   /** Discriminator. */
   readonly kind: "completed";
   /**
-   * Every message the turn produced after its user message, across all of its segments, in order.
-   * The session appends them to `AgentMessages` and deletes the turn's tool call records.
+   * Every message the turn produced after its user message, across all of its segments, in order:
+   * model output, tool requests, tool results including deferred ones, and the final answer. The
+   * session appends them in one commit and deletes the turn's tool call records.
    */
   readonly newMessages: readonly FrameworkMessage[];
   /** Usage of this segment only; the session adds it to the cumulative usage. */
@@ -180,8 +234,9 @@ export interface TurnSuspended {
   /** Discriminator. */
   readonly kind: "suspended";
   /**
-   * Serialized framework state from which a later segment resumes the turn, including the messages
-   * this turn has produced so far. The session stores it opaquely in `FrameworkRunState`.
+   * Non-empty serialized framework state from which a later segment resumes the turn, including the
+   * messages this turn has produced so far. The session stores no partial messages; it keeps this
+   * value opaquely in `FrameworkRunState`.
    */
   readonly frameworkRunState: string;
   /**
@@ -196,38 +251,33 @@ export interface TurnSuspended {
 /** Result of {@link AgentFrameworkRunner.runTurn}. */
 export type AgentTurnOutcome = TurnCompleted | TurnSuspended;
 
-/** One deferred tool call that a tool Step asks the runner to run once. */
+/** One approved deferred tool call that a tool Step asks the runner to run once. */
 export interface DeferredToolExecution {
   /** Flow ID, which is the session ID. */
   readonly flowId: string;
-  /** Turn that deferred the call. */
-  readonly turnId: string;
-  /** Framework tool call ID. */
-  readonly toolCallId: string;
-  /** Tool name. */
-  readonly toolName: string;
-  /** Tool arguments as JSON text. */
-  readonly arguments: string;
-  /** Recorded effect; it selected `ExecuteToolCall` or `ExecuteSingleAttemptToolCall`. */
-  readonly effect: ToolEffect;
+  /** The approved record; its `effect` selected `ExecuteToolCall` or `ExecuteSingleAttemptToolCall`. */
+  readonly toolCall: AgentToolCall;
   /**
    * Stable key `<flowId>/<toolCallId>`, identical across attempts. Pass it to services that
    * deduplicate requests; `ExecuteToolCall` retries an `idempotent_write` call with the same key.
    */
   readonly idempotencyKey: string;
-  /** One-based attempt of the tool Step. */
+  /**
+   * One-based attempt of the tool Step. `idempotent_write` and approved `read` calls get up to three
+   * attempts; other calls get one.
+   */
   readonly attempt: number;
-  /** Events writer of the tool Step. */
+  /** Events writer bound to the turn and attempt. */
   readonly events: AgentEventWriter;
   /** Signal aborted when Dex cancels the attempt. */
   readonly cancellationSignal: AbortSignal;
   /** Absolute deadline of the current attempt, or `undefined`. */
   readonly deadline: Date | undefined;
   /**
-   * Records a heartbeat. The session already records one every 30 seconds.
+   * Records a heartbeat. The session already records one every 20 seconds.
    * @returns A Promise that resolves when the Worker accepted the heartbeat.
    */
-  recordHeartbeat(): Promise<void>;
+  heartbeat(): Promise<void>;
 }
 
 /** Successful result of one deferred tool call. */
@@ -271,7 +321,7 @@ export class ToolExecutionError extends Error {
  *
  * Contract:
  * - `runTurn` runs the framework loop. Model calls and `read` tools run inside it. Every tool whose
- *   {@link ResolvedToolPolicy.isDeferred} is `true` must be deferred with the framework's own
+ *   {@link ResolvedToolPolicy.shouldDefer} is `true` must be deferred with the framework's own
  *   mechanism and returned in {@link TurnSuspended}; it must never run inside `runTurn`.
  * - When `frameworkRunState` is set, `runTurn` restores the framework and resumes it. Every deferred
  *   call then has a final record in `toolCalls`, and the framework's tool wrapper returns that
@@ -322,7 +372,7 @@ export interface AgentFrameworkRunner {
    */
   runTurn(turn: AgentTurnContext): Promise<AgentTurnOutcome>;
   /**
-   * Runs the real tool for one deferred call exactly once per attempt.
+   * Runs the real tool for one approved deferred call.
    *
    * @param call - Deferred call to run.
    * @returns The tool output text.

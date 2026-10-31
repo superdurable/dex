@@ -141,7 +141,7 @@ export class AgentSessionTestClient {
    * @returns The state, or `undefined` before `StartAgentSession` committed.
    */
   public async readAgentState(sessionId: string): Promise<AgentState | undefined> {
-    const [state] = await this.client.getAttributes(sessionId, this.flow.persistence.agentState);
+    const [state] = await this.client.getAttributes(sessionId, this.flow.agentState);
     return state;
   }
 
@@ -154,7 +154,7 @@ export class AgentSessionTestClient {
   public async readToolCall(sessionId: string, toolCallId: string): Promise<AgentToolCall | undefined> {
     const [toolCall] = await this.client.getAttributes(
       sessionId,
-      this.flow.persistence.agentToolCalls.instance(toolCallId),
+      this.flow.agentToolCalls.instance(toolCallId),
     );
     return toolCall;
   }
@@ -167,9 +167,33 @@ export class AgentSessionTestClient {
   public async readPendingInterrupts(sessionId: string): Promise<readonly AgentInterrupt[]> {
     const [interrupts] = await this.client.getAttributes(
       sessionId,
-      this.flow.persistence.pendingInterrupts,
+      this.flow.pendingInterrupts,
     );
     return interrupts ?? [];
+  }
+
+  /**
+   * Polls `get_agent_snapshot` until a predicate holds; RPC failures while no Worker runs count as not ready.
+   * @param sessionId - Session Flow ID.
+   * @param predicate - Returns `true` for the awaited snapshot.
+   * @param description - What is awaited, for the timeout error.
+   * @param options - Timeout.
+   * @returns The first matching snapshot.
+   * @throws {Error} When the timeout passes.
+   */
+  public waitForAgentSnapshot(
+    sessionId: string,
+    predicate: (snapshot: AgentSnapshot) => boolean,
+    description: string,
+    options: AgentSessionWaitOptions = {},
+  ): Promise<AgentSnapshot> {
+    return pollUntil(
+      async () => {
+        const snapshot = await this.getAgentSnapshot(sessionId);
+        return predicate(snapshot) ? snapshot : undefined;
+      },
+      { description: `${description} in session ${sessionId}`, ...options },
+    );
   }
 
   /**
@@ -271,7 +295,7 @@ export class AgentSessionTestClient {
     do {
       const page = await this.client.listStreamMessages(
         sessionId,
-        this.flow.persistence.agentEvents,
+        this.flow.agentEvents,
         streamPageSize,
         pageToken,
       );

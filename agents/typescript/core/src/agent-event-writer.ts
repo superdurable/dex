@@ -9,7 +9,7 @@
 import type { Context, Stream } from "@superdurable/dex";
 
 import type { AgentEventWriter } from "./agent-framework-runner.js";
-import type { AgentEvent, AgentEventType, AgentToolCallStatus } from "./agent-session-values.js";
+import type { AgentEvent, AgentToolCallStatus } from "./agent-session-values.js";
 
 const deltaFlushIntervalMs = 100;
 const deltaFlushCharacters = 1024;
@@ -19,14 +19,26 @@ type DeltaEventType = "text_delta" | "reasoning_delta";
 export class StreamAgentEventWriter implements AgentEventWriter {
   private pendingDeltaType: DeltaEventType | undefined;
   private pendingDeltaText = "";
-  private deltaFlushTimer: NodeJS.Timeout | undefined;
+  private deltaFlushTimer: ReturnType<typeof setTimeout> | undefined;
   private isClosed = false;
 
   public constructor(
     private readonly context: Context,
     private readonly stream: Stream<AgentEvent>,
-    private readonly turnId: string | null,
+    public readonly turnId: string | null,
   ) {}
+
+  public get attempt(): number {
+    return this.context.attempt;
+  }
+
+  public writeEvent(type: string, payload: Readonly<Record<string, unknown>>): void {
+    if (this.isClosed) {
+      return;
+    }
+    this.flushPendingDelta();
+    this.writeStreamMessage(type, payload);
+  }
 
   public writeTextDelta(text: string): void {
     this.writeDelta("text_delta", text);
@@ -37,7 +49,7 @@ export class StreamAgentEventWriter implements AgentEventWriter {
   }
 
   public writeToolCallStarted(toolCallId: string, toolName: string): void {
-    this.writeAgentEvent("tool_call_started", { tool_call_id: toolCallId, tool_name: toolName });
+    this.writeEvent("tool_call_started", { tool_call_id: toolCallId, tool_name: toolName });
   }
 
   public writeToolCallFinished(
@@ -45,23 +57,10 @@ export class StreamAgentEventWriter implements AgentEventWriter {
     toolName: string,
     status: AgentToolCallStatus,
   ): void {
-    this.writeAgentEvent("tool_call_finished", {
+    this.writeEvent("tool_call_finished", {
       tool_call_id: toolCallId,
       tool_name: toolName,
       status,
-    });
-  }
-
-  public writeAgentEvent(type: AgentEventType, payload: Readonly<Record<string, unknown>>): void {
-    if (this.isClosed) {
-      return;
-    }
-    this.flushPendingDelta();
-    this.stream.write(this.context, {
-      type,
-      turnId: this.turnId,
-      attempt: this.context.attempt,
-      payload: JSON.stringify(payload),
     });
   }
 
@@ -102,11 +101,30 @@ export class StreamAgentEventWriter implements AgentEventWriter {
     if (type === undefined || text.length === 0 || this.isClosed) {
       return;
     }
+    this.writeStreamMessage(type, { text });
+  }
+
+  private writeStreamMessage(type: string, payload: Readonly<Record<string, unknown>>): void {
     this.stream.write(this.context, {
       type,
       turnId: this.turnId,
       attempt: this.context.attempt,
-      payload: JSON.stringify({ text }),
+      payload: stringifyWithSortedKeys(payload),
     });
   }
+}
+
+/** Serializes with sorted object keys, as the Python core does, so payload text is deterministic. */
+export function stringifyWithSortedKeys(value: unknown): string {
+  const text = JSON.stringify(value, (_key, nestedValue: unknown) => {
+    if (typeof nestedValue !== "object" || nestedValue === null || Array.isArray(nestedValue)) {
+      return nestedValue;
+    }
+    const record = nestedValue as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(record).sort().map((key) => [key, record[key]]));
+  });
+  if (text === undefined) {
+    throw new TypeError("event payload cannot be serialized as JSON");
+  }
+  return text;
 }

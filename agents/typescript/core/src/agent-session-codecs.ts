@@ -10,7 +10,6 @@ import { jsonCodec, type Codec } from "@superdurable/dex";
 
 import type {
   AgentEvent,
-  AgentEventType,
   AgentInterrupt,
   AgentInterruptResolution,
   AgentMessage,
@@ -52,19 +51,6 @@ const agentToolCallStatuses: readonly AgentToolCallStatus[] = [
   "failed",
   "outcome_unknown",
 ];
-const agentEventTypes: readonly AgentEventType[] = [
-  "turn_started",
-  "turn_completed",
-  "turn_failed",
-  "text_delta",
-  "reasoning_delta",
-  "tool_call_started",
-  "tool_call_finished",
-  "tool_call_deferred",
-  "interrupt_raised",
-  "interrupt_resolved",
-  "usage_recorded",
-];
 
 class WireRecordReader {
   private readonly record: Readonly<Record<string, unknown>>;
@@ -104,6 +90,11 @@ class WireRecordReader {
       throw new TypeError(`${this.typeName}.${field} must be an integer`);
     }
     return value;
+  }
+
+  public readIntegerOrDefault(field: string, defaultValue: number): number {
+    const value = this.record[field];
+    return value === undefined || value === null ? defaultValue : this.readInteger(field);
   }
 
   public readNullableInteger(field: string): number | null {
@@ -221,6 +212,7 @@ export function encodeAgentToolCall(value: AgentToolCall): unknown {
     output: value.output,
     error: value.error,
     rejection_message: value.rejectionMessage,
+    deferral_order: value.deferralOrder,
   };
 }
 
@@ -237,6 +229,7 @@ export function decodeAgentToolCall(value: unknown): AgentToolCall {
     output: reader.readNullableString("output"),
     error: reader.readNullableString("error"),
     rejectionMessage: reader.readNullableString("rejection_message"),
+    deferralOrder: reader.readIntegerOrDefault("deferral_order", 0),
   };
 }
 
@@ -319,7 +312,7 @@ export function encodeAgentEvent(value: AgentEvent): unknown {
 export function decodeAgentEvent(value: unknown): AgentEvent {
   const reader = new WireRecordReader(value, "AgentEvent");
   return {
-    type: reader.readEnum("type", agentEventTypes),
+    type: reader.readString("type"),
     turnId: reader.readNullableString("turn_id"),
     attempt: reader.readInteger("attempt"),
     payload: reader.readString("payload"),
@@ -345,7 +338,7 @@ export function decodeResolveInterruptInput(value: unknown): ResolveInterruptInp
 
 export function encodeAgentSnapshot(value: AgentSnapshot): unknown {
   return {
-    state: encodeAgentState(value.state),
+    state: value.state === null ? null : encodeAgentState(value.state),
     messages: value.messages.map(encodeAgentMessage),
     pending_interrupts: value.pendingInterrupts.map(encodeAgentInterrupt),
     tool_calls: value.toolCalls.map(encodeAgentToolCall),
@@ -357,12 +350,12 @@ export function encodeAgentSnapshot(value: AgentSnapshot): unknown {
 export function decodeAgentSnapshot(value: unknown): AgentSnapshot {
   const reader = new WireRecordReader(value, "AgentSnapshot");
   return {
-    state: decodeAgentState(reader.readObject("state")),
+    state: reader.readObject("state") == null ? null : decodeAgentState(reader.readObject("state")),
     messages: reader.readArray("messages").map(decodeAgentMessage),
     pendingInterrupts: reader.readArray("pending_interrupts").map(decodeAgentInterrupt),
     toolCalls: reader.readArray("tool_calls").map(decodeAgentToolCall),
     usage: decodeAgentUsage(reader.readObject("usage")),
-    queuedMessageCount: reader.readInteger("queued_message_count"),
+    queuedMessageCount: reader.readIntegerOrDefault("queued_message_count", 0),
   };
 }
 
@@ -374,7 +367,7 @@ export function decodeListAgentMessagesInput(value: unknown): ListAgentMessagesI
   const reader = new WireRecordReader(value, "ListAgentMessagesInput");
   return {
     beforeSequence: reader.readNullableInteger("before_sequence"),
-    limit: reader.readInteger("limit"),
+    limit: reader.readIntegerOrDefault("limit", 50),
   };
 }
 

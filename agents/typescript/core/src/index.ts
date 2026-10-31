@@ -8,6 +8,7 @@
 
 export {
   ToolExecutionError,
+  resolveToolPolicy,
   toolEffectFromMcpToolAnnotations,
   type AgentEventWriter,
   type AgentFrameworkRunner,
@@ -25,17 +26,22 @@ export {
 export {
   createAgentSessionFlow,
   type AgentSessionFlow,
-  type AgentSessionFlowOptions,
+  type AgentSessionOptions,
+  type ResolvedAgentSessionOptions,
 } from "./agent-session-flow.js";
 export {
   defaultAgentEventsCapacityBytes,
+  messageSequenceKey,
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
 export {
   addAgentUsage,
-  describeToolCallResultForModel,
+  approvalDeadlinePassed,
+  defaultRejectionToolResult,
+  describeToolCallOutcome,
   emptyAgentUsage,
   isFinalToolCallStatus,
+  outcomeUnknownToolResult,
   type AgentEvent,
   type AgentEventType,
   type AgentInterrupt,

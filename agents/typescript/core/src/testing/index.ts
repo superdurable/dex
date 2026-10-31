@@ -16,19 +16,14 @@ export {
 } from "./agent-test-environment.js";
 export {
   KillableWorkerProcess,
+  agentWorkerBlobCacheDirectoryVariable,
   agentWorkerReadyLine,
   agentWorkerServerAddressVariable,
   runAgentWorkerProcess,
   type KillableWorkerProcessOptions,
 } from "./agent-worker-process.js";
-export {
-  appendMarkerLine,
-  pollUntil,
-  readMarkerLines,
-  waitForMarkerFile,
-  writeMarkerFile,
-  type PollOptions,
-} from "./polling.js";
+export { FileGate, InvocationLog } from "./coordination.js";
+export { pollUntil, type PollOptions } from "./polling.js";
 export {
   PrivateDexEngine,
   findFreeLoopbackPort,

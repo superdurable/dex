@@ -11,17 +11,18 @@ import { join } from "node:path";
 import {
   ToolExecutionError,
   createAgentSessionFlow,
-  describeToolCallResultForModel,
+  describeToolCallOutcome,
   isFinalToolCallStatus,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
   type AgentTurnContext,
   type AgentTurnOutcome,
+  type DeferredToolCall,
   type DeferredToolExecution,
   type FrameworkMessage,
   type ToolExecutionResult,
 } from "../../src/index.js";
-import { appendMarkerLine, waitForMarkerFile } from "../../src/testing/index.js";
+import { FileGate, InvocationLog } from "../../src/testing/index.js";
 
 /** Flow type of the scripted agent in every test. */
 export const scriptedAgentFlowType = "ScriptedAgent";
@@ -50,25 +51,27 @@ type ScriptedItem =
 
 type ScriptedModelAction =
   | { readonly kind: "answer"; readonly text: string }
-  | { readonly kind: "call_tool"; readonly toolName: string };
+  | { readonly kind: "call_tools"; readonly toolNames: readonly string[] };
 
 interface ScriptedRunState {
   readonly turnItems: readonly ScriptedItem[];
-  readonly pendingToolCallId: string;
+  readonly pendingToolCallIds: readonly string[];
 }
 
 /**
  * A deterministic framework runner with a scripted model, so tests need no model key.
  *
  * User commands:
- * - `call <tool>`: the model calls `<tool>` once, then answers `<tool> -> <result>`.
+ * - `call <tool> [and <tool> ...]`: the model calls every listed tool in one response, then answers
+ *   `<tool> -> <result>` per tool, joined with ` | `.
  * - `history`: the model answers with every earlier user and assistant text it was replayed.
- * - `slow`: the runner records its attempt in `turn-attempts.log` and waits for `turn.release`.
+ * - `slow`: the runner records its attempt in `turn.log`, then waits at the `turn` FileGate.
  * - `slow stream`: like `slow`, after streaming partial text tagged with the attempt.
  * - anything else: the model answers `echo: <text>`.
  *
- * Tools append `<flowId> <toolCallId> ...` to `<tool>.log` in the marker directory on every real run.
- * `charge_card` then waits for `charge_card.release`.
+ * Tools record `<flowId> <toolCallId> ...` in the `<tool>.log` InvocationLog on every real run, and
+ * deferred tools also record `<flowId> <toolName>` in `deferred-tools.log` in run order.
+ * `charge_card` then waits at the `charge_card` FileGate.
  */
 export class ScriptedAgentRunner implements AgentFrameworkRunner {
   public constructor(private readonly markerDirectory: string) {}
@@ -83,31 +86,28 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
     if (turn.frameworkRunState !== null) {
       const runState = JSON.parse(turn.frameworkRunState) as ScriptedRunState;
       turnItems.push(...runState.turnItems);
-      const record = turn.toolCalls.find((toolCall) => toolCall.toolCallId === runState.pendingToolCallId);
-      if (record === undefined || !isFinalToolCallStatus(record.status)) {
-        throw new Error(`resumed turn ${turn.turnId} without a final record for ${runState.pendingToolCallId}`);
+      for (const pendingToolCallId of runState.pendingToolCallIds) {
+        const record = turn.recordedToolCall(pendingToolCallId);
+        if (record === undefined || !isFinalToolCallStatus(record.status)) {
+          throw new Error(`resumed turn ${turn.turnId} without a final record for ${pendingToolCallId}`);
+        }
+        turnItems.push({
+          kind: "tool_result",
+          toolCallId: record.toolCallId,
+          toolName: record.toolName,
+          output: describeToolCallOutcome(record),
+        });
       }
-      turnItems.push({
-        kind: "tool_result",
-        toolCallId: record.toolCallId,
-        toolName: record.toolName,
-        output: describeToolCallResultForModel(record),
-      });
     }
     const userText = lastUserText(history);
     if (userText === "slow" || userText === "slow stream") {
       if (userText === "slow stream") {
         turn.events.writeTextDelta(`partial text of attempt ${turn.attempt}`);
       }
-      appendMarkerLine(
-        join(this.markerDirectory, "turn-attempts.log"),
-        `${turn.flowId} ${turn.turnId} attempt ${turn.attempt}`,
-      );
-      await waitForMarkerFile(join(this.markerDirectory, "turn.release"), {
-        description: "turn release marker",
-        timeoutMs: 120_000,
-        signal: turn.cancellationSignal,
-      });
+      this.invocationLog("turn").record(`${turn.flowId} ${turn.turnId} attempt ${turn.attempt}`);
+      const gate = new FileGate(this.markerDirectory, "turn");
+      gate.markReached();
+      await gate.waitForRelease(turn.cancellationSignal);
     }
     let modelCalls = 0;
     for (;;) {
@@ -122,65 +122,71 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
           usage: { modelCalls, inputTokens: 10 * modelCalls, outputTokens: 5 * modelCalls, cachedInputTokens: 0, reasoningTokens: 0 },
         };
       }
-      const toolCallId = `${turn.turnId}-${action.toolName}`;
-      const toolArguments = JSON.stringify({ requested_by: userText });
-      turnItems.push({ kind: "tool_call", toolCallId, toolName: action.toolName, arguments: toolArguments });
-      const policy = turn.resolveToolPolicy(action.toolName);
-      if (!policy.isDeferred) {
-        turn.events.writeToolCallStarted(toolCallId, action.toolName);
-        const output = this.runReadTool(turn.flowId, toolCallId, action.toolName);
-        turn.events.writeToolCallFinished(toolCallId, action.toolName, "succeeded");
-        turnItems.push({ kind: "tool_result", toolCallId, toolName: action.toolName, output });
+      const deferredToolCalls: DeferredToolCall[] = [];
+      for (const toolName of action.toolNames) {
+        const toolCallId = `${turn.turnId}-${toolName}`;
+        const toolArguments = JSON.stringify({ requested_by: userText });
+        turnItems.push({ kind: "tool_call", toolCallId, toolName, arguments: toolArguments });
+        const policy = turn.resolveToolPolicy(toolName);
+        if (policy.shouldDefer) {
+          deferredToolCalls.push({ toolCallId, toolName, arguments: toolArguments, policy });
+          continue;
+        }
+        turn.events.writeToolCallStarted(toolCallId, toolName);
+        const output = this.runReadTool(turn.flowId, toolCallId, toolName);
+        turn.events.writeToolCallFinished(toolCallId, toolName, "succeeded");
+        turnItems.push({ kind: "tool_result", toolCallId, toolName, output });
+      }
+      if (deferredToolCalls.length === 0) {
         continue;
       }
-      const runState: ScriptedRunState = { turnItems, pendingToolCallId: toolCallId };
+      const runState: ScriptedRunState = {
+        turnItems,
+        pendingToolCallIds: deferredToolCalls.map((deferredToolCall) => deferredToolCall.toolCallId),
+      };
       return {
         kind: "suspended",
         frameworkRunState: JSON.stringify(runState),
-        deferredToolCalls: [
-          {
-            toolCallId,
-            toolName: action.toolName,
-            arguments: toolArguments,
-            effect: policy.effect,
-            requiresApproval: policy.requiresApproval,
-          },
-        ],
+        deferredToolCalls,
         usage: { modelCalls, inputTokens: 10 * modelCalls, outputTokens: 5 * modelCalls, cachedInputTokens: 0, reasoningTokens: 0 },
       };
     }
   }
 
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
-    appendMarkerLine(
-      join(this.markerDirectory, `${call.toolName}.log`),
-      `${call.flowId} ${call.toolCallId} attempt ${call.attempt}`,
+    const toolCall = call.toolCall;
+    this.invocationLog(toolCall.toolName).record(
+      `${call.flowId} ${toolCall.toolCallId} attempt ${call.attempt}`,
     );
-    switch (call.toolName) {
+    this.invocationLog("deferred-tools").record(`${call.flowId} ${toolCall.toolName}`);
+    switch (toolCall.toolName) {
       case "send_email":
         return { output: `email sent for ${call.idempotencyKey}` };
-      case "charge_card":
-        await waitForMarkerFile(join(this.markerDirectory, "charge_card.release"), {
-          description: "charge_card release marker",
-          timeoutMs: 120_000,
-          signal: call.cancellationSignal,
-        });
+      case "charge_card": {
+        const gate = new FileGate(this.markerDirectory, "charge_card");
+        gate.markReached();
+        await gate.waitForRelease(call.cancellationSignal);
         return { output: "card charged" };
+      }
       case "refund_order":
         return { output: "refund issued" };
       case "delete_account":
         throw new ToolExecutionError("account deletion is disabled");
       default:
-        throw new ToolExecutionError(`unknown tool ${call.toolName}`);
+        throw new ToolExecutionError(`unknown tool ${toolCall.toolName}`);
     }
   }
 
   private runReadTool(flowId: string, toolCallId: string, toolName: string): string {
-    appendMarkerLine(join(this.markerDirectory, `${toolName}.log`), `${flowId} ${toolCallId} inline`);
+    this.invocationLog(toolName).record(`${flowId} ${toolCallId} inline`);
     if (toolName === "get_weather") {
       return "sunny in Paris";
     }
     throw new ToolExecutionError(`unknown read tool ${toolName}`);
+  }
+
+  private invocationLog(name: string): InvocationLog {
+    return new InvocationLog(join(this.markerDirectory, `${name}.log`));
   }
 }
 
@@ -189,8 +195,7 @@ export function createScriptedAgentFlow(
   markerDirectory: string,
   flowOptions: { readonly flowType?: string; readonly interruptDeadlineMs?: number } = {},
 ): AgentSessionFlow {
-  return createAgentSessionFlow(new ScriptedAgentRunner(markerDirectory), {
-    flowType: flowOptions.flowType ?? scriptedAgentFlowType,
+  return createAgentSessionFlow(new ScriptedAgentRunner(markerDirectory), flowOptions.flowType ?? scriptedAgentFlowType, {
     ...(flowOptions.interruptDeadlineMs === undefined
       ? {}
       : { interruptDeadlineMs: flowOptions.interruptDeadlineMs }),
@@ -208,15 +213,23 @@ function decideScriptedModelAction(
 ): ScriptedModelAction {
   const userText = lastUserText(history);
   if (userText.startsWith("call ")) {
-    const toolName = userText.slice("call ".length).trim();
-    const result = turnItems.find(
-      (item): item is Extract<ScriptedItem, { kind: "tool_result" }> =>
-        item.kind === "tool_result" && item.toolName === toolName,
+    const toolNames = userText
+      .slice("call ".length)
+      .split(" and ")
+      .map((toolName) => toolName.trim());
+    const results = toolNames.map((toolName) =>
+      turnItems.find(
+        (item): item is Extract<ScriptedItem, { kind: "tool_result" }> =>
+          item.kind === "tool_result" && item.toolName === toolName,
+      ),
     );
-    if (result === undefined) {
-      return { kind: "call_tool", toolName };
+    if (results.some((result) => result === undefined)) {
+      return { kind: "call_tools", toolNames };
     }
-    return { kind: "answer", text: `${toolName} -> ${result.output}` };
+    return {
+      kind: "answer",
+      text: toolNames.map((toolName, index) => `${toolName} -> ${results[index]?.output}`).join(" | "),
+    };
   }
   if (userText === "history") {
     const earlierTexts = history

@@ -25,7 +25,6 @@ import {
   resolveInterruptInputCodec,
 } from "./agent-session-codecs.js";
 import {
-  agentMessageKey,
   createAgentSessionPersistence,
   defaultAgentEventsCapacityBytes,
   type AgentSessionPersistence,
@@ -44,23 +43,18 @@ import {
   agentSessionStepTypes,
   type AgentSessionConfig,
 } from "./agent-session-transitions.js";
-import {
-  emptyAgentUsage,
-  type AgentInterrupt,
-  type AgentMessage,
-  type AgentMessagesPage,
-  type AgentSessionStartInput,
-  type AgentSnapshot,
-  type AgentState,
-  type AgentToolCall,
-  type AgentUsage,
-  type AgentUserMessage,
-  type ListAgentMessagesInput,
-  type ResolveInterruptInput,
-  type ToolEffect,
+import type {
+  AgentMessagesPage,
+  AgentSessionStartInput,
+  AgentSnapshot,
+  AgentUserMessage,
+  ListAgentMessagesInput,
+  ResolveInterruptInput,
+  ToolEffect,
 } from "./agent-session-values.js";
 
 const snapshotMessageLimit = 200;
+const messagePageLimit = 200;
 const toolEffects: readonly ToolEffect[] = [
   "read",
   "idempotent_write",
@@ -68,27 +62,40 @@ const toolEffects: readonly ToolEffect[] = [
   "unclassified",
 ];
 
-/** Options of one agent session Flow, passed to {@link createAgentSessionFlow}. */
-export interface AgentSessionFlowOptions {
-  /**
-   * Flow type registered for this agent, such as `"TriageAgent"`. It must be unique within the
-   * Registry. Changing it for open sessions orphans them, so treat it as a stable name.
-   */
-  readonly flowType: string;
+/** Tool policies, live events, and approval deadline of one agent, passed to {@link createAgentSessionFlow}. */
+export interface AgentSessionOptions {
   /**
    * Policies by tool name. A policy overrides framework metadata and {@link defaultToolEffect}.
-   * Defaults to no policies.
+   * Defaults to none.
    */
   readonly toolPolicies?: Readonly<Record<string, ToolPolicy>>;
-  /** Effect of tools without a policy or framework metadata. Defaults to `"unclassified"`. */
-  readonly defaultToolEffect?: ToolEffect;
-  /** Byte budget of the `AgentEvents` Stream, shared by every session of this Flow type. Defaults to 10 MiB. */
-  readonly agentEventsCapacityBytes?: number;
   /**
-   * Milliseconds after an interrupt is raised at which `AwaitInterruptResolution` rejects it with
+   * Effect of a tool without a policy or framework metadata. Defaults to `"unclassified"`, so unknown
+   * tools run once and need approval.
+   */
+  readonly defaultToolEffect?: ToolEffect;
+  /**
+   * Approximate byte budget of the `AgentEvents` Stream, shared by every session of the Flow type.
+   * Defaults to 10 MiB.
+   */
+  readonly eventStreamCapacityBytes?: number;
+  /**
+   * Milliseconds an approval may stay pending before `AwaitInterruptResolution` rejects it with
    * `"approval deadline passed"`. Defaults to no deadline: approvals wait indefinitely.
    */
   readonly interruptDeadlineMs?: number;
+}
+
+/** Options applied by an {@link AgentSessionFlow}, with every default filled in. */
+export interface ResolvedAgentSessionOptions {
+  /** Policies by tool name. */
+  readonly toolPolicies: Readonly<Record<string, ToolPolicy>>;
+  /** Effect of a tool without a policy or framework metadata. */
+  readonly defaultToolEffect: ToolEffect;
+  /** Byte budget of the `AgentEvents` Stream. */
+  readonly eventStreamCapacityBytes: number;
+  /** Approval deadline in milliseconds, or `undefined` for none. */
+  readonly interruptDeadlineMs: number | undefined;
 }
 
 /**
@@ -96,11 +103,16 @@ export interface AgentSessionFlowOptions {
  *
  * Create one per agent with {@link createAgentSessionFlow}, register it in the process `Registry`, and
  * call its RPCs with `Client.invokeRPC`. The RPC names are `send_user_message`, `resolve_interrupt`,
- * `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core.
+ * `get_agent_snapshot`, and `list_agent_messages`, the same as the Python core. The session never
+ * completes on its own: it waits for the next user message after every turn. Stop it with
+ * `Client.stopFlow`.
+ *
+ * The Flow's persistence definitions are properties of the Flow; pass them to `Client.getAttributes`
+ * or the Stream reads.
  *
  * @example
  * ```ts
- * const flow = createAgentSessionFlow(runner, { flowType: "SupportAgent" });
+ * const flow = createAgentSessionFlow(runner, "SupportAgent");
  * const registry = new Registry([flow]);
  * // ... start a Worker and a Client with this registry ...
  * await client.startFlow(flow, sessionId, { initialMessage: null });
@@ -112,13 +124,16 @@ export interface AgentSessionFlowOptions {
  * }
  * ```
  */
-export interface AgentSessionFlow extends Flow<AgentSessionStartInput> {
-  /** Persistence definitions owned by this Flow, for Client reads from outside the Flow. */
-  readonly persistence: AgentSessionPersistence;
+export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSessionPersistence {
+  /** The framework runner passed to {@link createAgentSessionFlow}. */
+  readonly runner: AgentFrameworkRunner;
+  /** The options this Flow applies, with defaults filled in. */
+  readonly options: ResolvedAgentSessionOptions;
   /**
    * RPC `send_user_message`: queues one user message.
    *
-   * The session consumes queued messages in FIFO order whenever it is idle in `AwaitUserMessage`.
+   * The session starts one turn per queued message, in order, after the current turn ends.
+   * The RPC requires a running session.
    *
    * @param context - RPC Context supplied by Dex.
    * @param message - Message to queue.
@@ -128,8 +143,10 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput> {
   /**
    * RPC `resolve_interrupt`: approves or rejects one pending interrupt.
    *
-   * It locks `PendingInterrupts`, so a call that races `AwaitInterruptResolution` can fail with
-   * `RpcLockConflictError`; retry it. Resolving an interrupt twice is safe: the second call returns `false`.
+   * It removes the interrupt from `PendingInterrupts` and publishes the answer in one commit, so only
+   * one call succeeds per interrupt. It locks `PendingInterrupts`, so a call that races
+   * `AwaitInterruptResolution` can fail with `RpcLockConflictError`, which is safe to retry. The
+   * rejection message is dropped when `approved` is `true`.
    *
    * @param context - RPC Context supplied by Dex.
    * @param input - Interrupt ID and decision.
@@ -137,22 +154,27 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput> {
    */
   resolveInterrupt(context: Context, input: ResolveInterruptInput): RPCResult<boolean>;
   /**
-   * RPC `get_agent_snapshot`: returns the durable session view a UI rebuilds from.
+   * RPC `get_agent_snapshot`: returns the durable session view a UI renders.
    *
-   * It is a read-only RPC, so it also reads a retained closed session.
+   * It reads committed state without locks, so it also serves a retained closed session. It loads the
+   * whole `AgentMessages` map.
    *
    * @param context - RPC Context supplied by Dex.
    * @returns State, the last 200 messages, pending interrupts, the active turn's tool calls, usage,
-   * and the queued message count.
+   * and the queued message count. Before `StartAgentSession` commits, `state` is `null` and the lists
+   * are empty.
    */
   getAgentSnapshot(context: Context): RPCResult<AgentSnapshot>;
   /**
-   * RPC `list_agent_messages`: pages through stored messages from newest to oldest.
+   * RPC `list_agent_messages`: returns one page of stored messages, oldest first.
+   *
+   * Start with `beforeSequence` `null` for the newest page, then pass each page's
+   * `nextBeforeSequence` to walk back. It also serves a retained closed session.
    *
    * @param context - RPC Context supplied by Dex.
    * @param input - Exclusive upper sequence bound, or `null`, and a page size clamped to 1..200.
    * @returns Up to `limit` messages below `beforeSequence` in ascending order, and the bound of the
-   * next older page or `null`.
+   * next older page, or `null` when the page starts at the first message.
    */
   listAgentMessages(context: Context, input: ListAgentMessagesInput): RPCResult<AgentMessagesPage>;
 }
@@ -160,71 +182,85 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput> {
 /**
  * Creates the shared agent session Flow for one agent and its framework runner.
  *
- * Each call creates a distinct Flow with its own Step instances, persistence definitions, and RPC
- * methods, so one Registry can hold several agents under different Flow types. Adapter packages wrap
- * this function; applications usually call the adapter's factory instead.
+ * Construct it once per agent at application startup and pass the same object to the Registry and
+ * every Client call. Each call creates a distinct Flow with its own Step instances, persistence
+ * definitions, and RPC methods, so one Registry can hold several agents under different Flow types.
+ * Adapter packages wrap this function; applications usually call the adapter's factory instead.
+ *
+ * It is a function rather than a class because the Dex Client identifies an RPC by its method
+ * function, and two Flows of one class would share their RPC methods.
  *
  * @example
  * ```ts
- * const triage = createAgentSessionFlow(triageRunner, {
- *   flowType: "TriageAgent",
+ * const triage = createAgentSessionFlow(triageRunner, "TriageAgent", {
  *   toolPolicies: { lookup_customer: { effect: "read" } },
  *   interruptDeadlineMs: 24 * 60 * 60 * 1000,
  * });
- * const billing = createAgentSessionFlow(billingRunner, { flowType: "BillingAgent" });
+ * const billing = createAgentSessionFlow(billingRunner, "BillingAgent");
  * const registry = new Registry([triage, billing]);
  * ```
- * @param runner - Framework runner; the Flow keeps it for its lifetime.
- * @param options - Flow type and tool, Stream, and interrupt settings.
- * @returns A new Flow to register in exactly one Registry.
- * @throws {TypeError} When the Flow type is blank or an option is invalid.
- * @throws {RangeError} When a numeric option is not positive.
+ * @param runner - Framework runner; the Flow owns no other dependency.
+ * @param flowType - Flow type, unique within the Registry, such as `"TriageAgent"`. Keep it stable:
+ * running sessions resume by it.
+ * @param options - Tool policies, Stream capacity, and approval deadline. Defaults to all defaults.
+ * @returns A new Flow to register in one Registry.
+ * @throws {TypeError} When `flowType` is blank, the runner is incomplete, or an effect is unknown.
+ * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive.
  */
 export function createAgentSessionFlow(
   runner: AgentFrameworkRunner,
-  options: AgentSessionFlowOptions,
+  flowType: string,
+  options: AgentSessionOptions = {},
 ): AgentSessionFlow {
-  const config = resolveAgentSessionConfig(runner, options);
-  const persistence = createAgentSessionPersistence(config.agentEventsCapacityBytes);
+  const config = resolveAgentSessionConfig(runner, flowType, options);
+  const persistence = createAgentSessionPersistence(config.eventStreamCapacityBytes);
   const transitions = new AgentSessionTransitions(persistence, runner, config);
-  const rpcHandlers = new AgentSessionRpcHandlers(persistence);
+  const resolvedOptions: ResolvedAgentSessionOptions = Object.freeze({
+    toolPolicies: config.toolPolicies,
+    defaultToolEffect: config.defaultToolEffect,
+    eventStreamCapacityBytes: config.eventStreamCapacityBytes,
+    interruptDeadlineMs: config.interruptDeadlineMs,
+  });
 
   // A class per Flow gives each Flow its own RPC methods, which the Dex Client identifies by function.
   class AgentSessionFlowDefinition implements AgentSessionFlow {
-    private readonly steps: StepList<AgentSessionStartInput>;
-
-    public constructor(public readonly persistence: AgentSessionPersistence) {
-      this.steps = StepList.startStep<AgentSessionStartInput>(
-        new StartAgentSessionStep(transitions),
-      ).otherSteps(
-        new AwaitUserMessageStep(transitions),
-        new RunAgentTurnStep(transitions),
-        new AwaitInterruptResolutionStep(transitions),
-        new ToolCallExecutionStep(
-          transitions,
-          agentSessionStepTypes.executeToolCall,
-          3,
-          agentSessionStepTypes.recordToolFailure,
-        ),
-        new ToolCallExecutionStep(
-          transitions,
-          agentSessionStepTypes.executeSingleAttemptToolCall,
-          1,
-          agentSessionStepTypes.recordToolOutcomeUnknown,
-        ),
-        new ToolCallFailureRecordingStep(
-          transitions,
-          agentSessionStepTypes.recordToolFailure,
-          "failed",
-        ),
-        new ToolCallFailureRecordingStep(
-          transitions,
-          agentSessionStepTypes.recordToolOutcomeUnknown,
-          "outcome_unknown",
-        ),
-        new RecordTurnFailureStep(transitions),
-      );
-    }
+    public readonly runner = runner;
+    public readonly options = resolvedOptions;
+    public readonly agentState = persistence.agentState;
+    public readonly agentMessages = persistence.agentMessages;
+    public readonly frameworkRunState = persistence.frameworkRunState;
+    public readonly agentToolCalls = persistence.agentToolCalls;
+    public readonly pendingInterrupts = persistence.pendingInterrupts;
+    public readonly agentUsage = persistence.agentUsage;
+    public readonly queuedUserMessages = persistence.queuedUserMessages;
+    public readonly interruptResolutions = persistence.interruptResolutions;
+    public readonly agentEvents = persistence.agentEvents;
+    private readonly steps = StepList.startStep<AgentSessionStartInput>(
+      new StartAgentSessionStep(transitions),
+    ).otherSteps(
+      new AwaitUserMessageStep(transitions),
+      new RunAgentTurnStep(transitions),
+      new AwaitInterruptResolutionStep(transitions),
+      new ToolCallExecutionStep(
+        transitions,
+        agentSessionStepTypes.executeToolCall,
+        3,
+        agentSessionStepTypes.recordToolFailure,
+      ),
+      new ToolCallExecutionStep(
+        transitions,
+        agentSessionStepTypes.executeSingleAttemptToolCall,
+        1,
+        agentSessionStepTypes.recordToolOutcomeUnknown,
+      ),
+      new ToolCallFailureRecordingStep(transitions, agentSessionStepTypes.recordToolFailure, "failed"),
+      new ToolCallFailureRecordingStep(
+        transitions,
+        agentSessionStepTypes.recordToolOutcomeUnknown,
+        "outcome_unknown",
+      ),
+      new RecordTurnFailureStep(transitions),
+    );
 
     public getFlowType(): string {
       return config.flowType;
@@ -255,7 +291,11 @@ export function createAgentSessionFlow(
       outputCodec: booleanCodec,
     })
     public sendUserMessage(context: Context, message: AgentUserMessage): RPCResult<boolean> {
-      return rpcHandlers.sendUserMessage(context, message);
+      if (message.text.trim() === "") {
+        return { output: false };
+      }
+      persistence.queuedUserMessages.publish(context, { text: message.text });
+      return { output: true };
     }
 
     @rpc<ResolveInterruptInput, boolean>({
@@ -265,7 +305,19 @@ export function createAgentSessionFlow(
       lockAttributes: [persistence.pendingInterrupts.lock()],
     })
     public resolveInterrupt(context: Context, input: ResolveInterruptInput): RPCResult<boolean> {
-      return rpcHandlers.resolveInterrupt(context, input);
+      const pendingInterrupts = transitions.readPendingInterrupts(context);
+      if (!pendingInterrupts.some((interrupt) => interrupt.interruptId === input.interruptId)) {
+        return { output: false };
+      }
+      persistence.pendingInterrupts.set(
+        context,
+        pendingInterrupts.filter((interrupt) => interrupt.interruptId !== input.interruptId),
+      );
+      persistence.interruptResolutions.publish(context, input.interruptId, {
+        approved: input.approved,
+        rejectionMessage: input.approved ? null : input.rejectionMessage,
+      });
+      return { output: true };
     }
 
     @rpc<void, AgentSnapshot>({
@@ -274,7 +326,30 @@ export function createAgentSessionFlow(
       loadAttributeMaps: [persistence.agentMessages, persistence.agentToolCalls],
     })
     public getAgentSnapshot(context: Context): RPCResult<AgentSnapshot> {
-      return rpcHandlers.getAgentSnapshot(context);
+      const state = transitions.readOptionalAgentState(context);
+      if (state === null) {
+        return {
+          output: {
+            state: null,
+            messages: [],
+            pendingInterrupts: [],
+            toolCalls: [],
+            usage: transitions.readAgentUsage(context),
+            queuedMessageCount: 0,
+          },
+        };
+      }
+      const end = state.nextMessageSequence;
+      return {
+        output: {
+          state,
+          messages: transitions.readMessages(context, end - snapshotMessageLimit, end),
+          pendingInterrupts: transitions.readPendingInterrupts(context),
+          toolCalls: transitions.readTurnToolCalls(context, state.activeTurnId),
+          usage: transitions.readAgentUsage(context),
+          queuedMessageCount: context.channelSize(persistence.queuedUserMessages),
+        },
+      };
     }
 
     @rpc<ListAgentMessagesInput, AgentMessagesPage>({
@@ -287,143 +362,67 @@ export function createAgentSessionFlow(
       context: Context,
       input: ListAgentMessagesInput,
     ): RPCResult<AgentMessagesPage> {
-      return rpcHandlers.listAgentMessages(context, input);
-    }
-  }
-
-  return new AgentSessionFlowDefinition(persistence);
-}
-
-class AgentSessionRpcHandlers {
-  public constructor(private readonly persistence: AgentSessionPersistence) {}
-
-  public sendUserMessage(context: Context, message: AgentUserMessage): RPCResult<boolean> {
-    if (message.text.trim() === "") {
-      return { output: false };
-    }
-    this.persistence.queuedUserMessages.publish(context, { text: message.text });
-    return { output: true };
-  }
-
-  public resolveInterrupt(context: Context, input: ResolveInterruptInput): RPCResult<boolean> {
-    const pendingInterrupts = this.readPendingInterrupts(context);
-    if (!pendingInterrupts.some((interrupt) => interrupt.interruptId === input.interruptId)) {
-      return { output: false };
-    }
-    this.persistence.pendingInterrupts.set(
-      context,
-      pendingInterrupts.filter((interrupt) => interrupt.interruptId !== input.interruptId),
-    );
-    this.persistence.interruptResolutions.publish(context, input.interruptId, {
-      approved: input.approved,
-      rejectionMessage: input.rejectionMessage,
-    });
-    return { output: true };
-  }
-
-  public getAgentSnapshot(context: Context): RPCResult<AgentSnapshot> {
-    const state = this.readAgentState(context);
-    const messages = this.readMessagesBelow(context, null, snapshotMessageLimit);
-    const toolCalls = this.persistence.agentToolCalls;
-    const activeTurnToolCalls =
-      state.activeTurnId === null
-        ? []
-        : toolCalls
-            .getAllInstanceKeys(context)
-            .map((key): AgentToolCall => toolCalls.get(context, key))
-            .filter((toolCall) => toolCall.turnId === state.activeTurnId);
-    return {
-      output: {
-        state,
-        messages: messages.messages,
-        pendingInterrupts: this.readPendingInterrupts(context),
-        toolCalls: activeTurnToolCalls,
-        usage: (this.persistence.agentUsage.get(context) as AgentUsage | undefined) ?? emptyAgentUsage(),
-        queuedMessageCount: context.channelSize(this.persistence.queuedUserMessages),
-      },
-    };
-  }
-
-  public listAgentMessages(
-    context: Context,
-    input: ListAgentMessagesInput,
-  ): RPCResult<AgentMessagesPage> {
-    const limit = Math.min(snapshotMessageLimit, Math.max(1, Math.trunc(input.limit)));
-    return { output: this.readMessagesBelow(context, input.beforeSequence, limit) };
-  }
-
-  private readMessagesBelow(
-    context: Context,
-    beforeSequence: number | null,
-    limit: number,
-  ): AgentMessagesPage {
-    const messages = this.persistence.agentMessages;
-    const upperKey = beforeSequence === null ? undefined : agentMessageKey(beforeSequence);
-    const keys = messages
-      .getAllInstanceKeys(context)
-      .filter((key) => upperKey === undefined || key < upperKey);
-    const pageKeys = keys.slice(Math.max(0, keys.length - limit));
-    const page: AgentMessage[] = pageKeys.map((key) => messages.get(context, key));
-    const firstMessage = page[0];
-    return {
-      messages: page,
-      nextBeforeSequence:
-        firstMessage !== undefined && pageKeys.length < keys.length ? firstMessage.sequence : null,
-    };
-  }
-
-  private readAgentState(context: Context): AgentState {
-    return (
-      (this.persistence.agentState.get(context) as AgentState | undefined) ?? {
-        status: "waiting_for_user_message",
-        turnCount: 0,
-        activeTurnId: null,
-        nextMessageSequence: 1,
-        executingToolCallId: null,
-        lastTurnError: null,
+      const state = transitions.readOptionalAgentState(context);
+      if (state === null) {
+        return { output: { messages: [], nextBeforeSequence: null } };
       }
-    );
+      const limit = Math.max(1, Math.min(input.limit, messagePageLimit));
+      let end = state.nextMessageSequence;
+      if (input.beforeSequence !== null) {
+        end = Math.max(1, Math.min(input.beforeSequence, end));
+      }
+      const start = Math.max(1, end - limit);
+      return {
+        output: {
+          messages: transitions.readMessages(context, start, end),
+          nextBeforeSequence: start > 1 ? start : null,
+        },
+      };
+    }
   }
 
-  private readPendingInterrupts(context: Context): readonly AgentInterrupt[] {
-    return (this.persistence.pendingInterrupts.get(context) as readonly AgentInterrupt[] | undefined) ?? [];
-  }
+  return new AgentSessionFlowDefinition();
 }
 
 function resolveAgentSessionConfig(
   runner: AgentFrameworkRunner,
-  options: AgentSessionFlowOptions,
+  flowType: string,
+  options: AgentSessionOptions,
 ): AgentSessionConfig {
-  if (typeof runner?.runTurn !== "function" || typeof runner.buildUserMessage !== "function") {
+  if (
+    typeof runner?.buildUserMessage !== "function" ||
+    typeof runner.runTurn !== "function" ||
+    typeof runner.executeDeferredToolCall !== "function"
+  ) {
     throw new TypeError("createAgentSessionFlow requires an AgentFrameworkRunner");
   }
-  if (typeof options.flowType !== "string" || options.flowType.trim() === "") {
-    throw new TypeError("AgentSessionFlowOptions.flowType must be a non-blank string");
+  if (typeof flowType !== "string" || flowType.trim() === "") {
+    throw new TypeError("flowType must be a non-blank string");
   }
   const defaultToolEffect = options.defaultToolEffect ?? "unclassified";
-  requireToolEffect(defaultToolEffect, "AgentSessionFlowOptions.defaultToolEffect");
-  const toolPolicies = new Map<string, ToolPolicy>();
+  requireToolEffect(defaultToolEffect, "defaultToolEffect");
+  const toolPolicies: Record<string, ToolPolicy> = {};
   for (const [toolName, policy] of Object.entries(options.toolPolicies ?? {})) {
     requireToolEffect(policy.effect, `tool policy ${toolName}`);
-    toolPolicies.set(toolName, policy);
+    toolPolicies[toolName] = Object.freeze({ ...policy });
   }
-  const agentEventsCapacityBytes =
-    options.agentEventsCapacityBytes ?? defaultAgentEventsCapacityBytes;
-  if (!Number.isSafeInteger(agentEventsCapacityBytes) || agentEventsCapacityBytes <= 0) {
-    throw new RangeError("AgentSessionFlowOptions.agentEventsCapacityBytes must be a positive integer");
+  const eventStreamCapacityBytes =
+    options.eventStreamCapacityBytes ?? defaultAgentEventsCapacityBytes;
+  if (!Number.isSafeInteger(eventStreamCapacityBytes) || eventStreamCapacityBytes <= 0) {
+    throw new RangeError("eventStreamCapacityBytes must be a positive integer");
   }
   const interruptDeadlineMs = options.interruptDeadlineMs;
   if (
     interruptDeadlineMs !== undefined &&
     (!Number.isFinite(interruptDeadlineMs) || interruptDeadlineMs <= 0)
   ) {
-    throw new RangeError("AgentSessionFlowOptions.interruptDeadlineMs must be positive");
+    throw new RangeError("interruptDeadlineMs must be positive");
   }
   return {
-    flowType: options.flowType,
-    toolPolicies,
+    flowType,
+    toolPolicies: Object.freeze(toolPolicies),
     defaultToolEffect,
-    agentEventsCapacityBytes,
+    eventStreamCapacityBytes,
     interruptDeadlineMs,
   };
 }

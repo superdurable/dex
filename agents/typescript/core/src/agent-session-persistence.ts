@@ -35,14 +35,15 @@ export const defaultAgentEventsCapacityBytes = 10 * 1024 * 1024;
 /**
  * Persistence definitions registered by one agent session Flow.
  *
- * Every Flow returned by {@link createAgentSessionFlow} owns its own definition objects. Pass them to
- * `Client.getAttributes`, `Client.readStream`, or `Client.listStreamMessages` to read a session from
- * outside the Flow. The persisted names are wire contracts shared with the Python core.
+ * Every Flow returned by {@link createAgentSessionFlow} owns its own definition objects, available as
+ * properties of the Flow. Pass them to `Client.getAttributes`, `Client.readStream`, or
+ * `Client.listStreamMessages` to read a session from outside the Flow. The persisted names are wire
+ * contracts shared with the Python core.
  *
  * @example
  * ```ts
- * const [state] = await client.getAttributes(sessionId, flow.persistence.agentState);
- * const page = await client.listStreamMessages(sessionId, flow.persistence.agentEvents, 50);
+ * const [state, usage] = await client.getAttributes(sessionId, flow.agentState, flow.agentUsage);
+ * const page = await client.listStreamMessages(sessionId, flow.agentEvents, 50);
  * ```
  */
 export interface AgentSessionPersistence {
@@ -82,6 +83,20 @@ export function createAgentSessionPersistence(
   };
 }
 
-export function agentMessageKey(sequence: number): string {
+/**
+ * Returns the `AgentMessages` map instance of a message sequence.
+ *
+ * @example
+ * ```ts
+ * const [message] = await client.getAttributes(sessionId, flow.agentMessages.instance(messageSequenceKey(7)));
+ * ```
+ * @param sequence - Positive message sequence.
+ * @returns The sequence as a 12-digit zero-padded decimal, such as `"000000000007"`.
+ * @throws {RangeError} When `sequence` is not a positive safe integer.
+ */
+export function messageSequenceKey(sequence: number): string {
+  if (!Number.isSafeInteger(sequence) || sequence <= 0) {
+    throw new RangeError(`message sequence must be a positive integer: ${sequence}`);
+  }
   return String(sequence).padStart(12, "0");
 }

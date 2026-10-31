@@ -16,19 +16,23 @@ import {
 } from "@superdurable/dex";
 
 import { StreamAgentEventWriter } from "./agent-event-writer.js";
-import type {
-  AgentFrameworkRunner,
-  ResolvedToolPolicy,
-  ToolPolicy,
+import {
+  resolveToolPolicy,
+  type AgentFrameworkRunner,
+  type ResolvedToolPolicy,
+  type ToolPolicy,
 } from "./agent-framework-runner.js";
-import { agentMessageKey, type AgentSessionPersistence } from "./agent-session-persistence.js";
-import type {
-  AgentInterrupt,
-  AgentMessage,
-  AgentState,
-  AgentToolCall,
-  FrameworkMessage,
-  ToolEffect,
+import { messageSequenceKey, type AgentSessionPersistence } from "./agent-session-persistence.js";
+import {
+  addAgentUsage,
+  emptyAgentUsage,
+  type AgentInterrupt,
+  type AgentMessage,
+  type AgentState,
+  type AgentToolCall,
+  type AgentUsage,
+  type FrameworkMessage,
+  type ToolEffect,
 } from "./agent-session-values.js";
 
 export const agentSessionStepTypes = {
@@ -43,13 +47,14 @@ export const agentSessionStepTypes = {
   recordTurnFailure: "RecordTurnFailure",
 } as const;
 
-const heartbeatIntervalMs = 30_000;
+// Keeps liveness well inside the shortest heartbeat timeout, one minute.
+const heartbeatIntervalMs = 20_000;
 
 export interface AgentSessionConfig {
   readonly flowType: string;
-  readonly toolPolicies: ReadonlyMap<string, ToolPolicy>;
+  readonly toolPolicies: Readonly<Record<string, ToolPolicy>>;
   readonly defaultToolEffect: ToolEffect;
-  readonly agentEventsCapacityBytes: number;
+  readonly eventStreamCapacityBytes: number;
   readonly interruptDeadlineMs: number | undefined;
 }
 
@@ -61,10 +66,14 @@ export class AgentSessionTransitions {
     public readonly config: AgentSessionConfig,
   ) {}
 
+  public readOptionalAgentState(context: Context): AgentState | null {
+    return (this.persistence.agentState.get(context) as AgentState | undefined) ?? null;
+  }
+
   public readAgentState(context: Context): AgentState {
-    const state = this.persistence.agentState.get(context) as AgentState | undefined;
-    if (state === undefined) {
-      throw new Error(`AgentState is not set for session ${context.flowId}`);
+    const state = this.readOptionalAgentState(context);
+    if (state === null) {
+      throw new Error(`the agent session ${context.flowId} is not initialized`);
     }
     return state;
   }
@@ -77,34 +86,54 @@ export class AgentSessionTransitions {
     return (this.persistence.pendingInterrupts.get(context) as readonly AgentInterrupt[] | undefined) ?? [];
   }
 
+  public readAgentUsage(context: Context): AgentUsage {
+    return (this.persistence.agentUsage.get(context) as AgentUsage | undefined) ?? emptyAgentUsage();
+  }
+
   public readFrameworkRunState(context: Context): string | null {
     const runState = this.persistence.frameworkRunState.get(context) as string | undefined;
     return runState === undefined || runState === "" ? null : runState;
   }
 
-  /** Returns every stored message in ascending sequence order; requires the AgentMessages load. */
-  public readAllMessages(context: Context): AgentMessage[] {
-    const messages = this.persistence.agentMessages;
-    return messages
-      .getAllInstanceKeys(context)
-      .map((key) => messages.get(context, key))
-      .sort((left, right) => left.sequence - right.sequence);
+  /** Returns messages with sequences in [start, end); requires the AgentMessages load. */
+  public readMessages(context: Context, start: number, end: number): AgentMessage[] {
+    const messages: AgentMessage[] = [];
+    for (let sequence = Math.max(1, start); sequence < end; sequence += 1) {
+      messages.push(this.persistence.agentMessages.get(context, messageSequenceKey(sequence)));
+    }
+    return messages;
   }
 
-  /** Returns the turn's tool call records ordered by tool call ID; requires the AgentToolCalls load. */
-  public readTurnToolCalls(context: Context, turnId: string): AgentToolCall[] {
+  /** Returns the turn's tool call records in deferral order; requires the AgentToolCalls load. */
+  public readTurnToolCalls(context: Context, turnId: string | null): AgentToolCall[] {
+    if (turnId === null) {
+      return [];
+    }
     const toolCalls = this.persistence.agentToolCalls;
     return toolCalls
       .getAllInstanceKeys(context)
       .map((key) => toolCalls.get(context, key))
       .filter((toolCall) => toolCall.turnId === turnId)
-      .sort(compareToolCallIds);
+      .sort((left, right) => left.deferralOrder - right.deferralOrder);
+  }
+
+  public readExecutingToolCall(context: Context, state: AgentState): AgentToolCall {
+    const toolCallId = state.executingToolCallId;
+    if (toolCallId === null) {
+      throw new Error(`the agent session ${context.flowId} has no executing tool call`);
+    }
+    const toolCall = this.persistence.agentToolCalls.get(context, toolCallId) as AgentToolCall | undefined;
+    if (toolCall === undefined) {
+      throw new Error(`tool call ${toolCallId} has no record in session ${context.flowId}`);
+    }
+    return toolCall;
   }
 
   public writeToolCall(context: Context, toolCall: AgentToolCall): void {
     this.persistence.agentToolCalls.set(context, toolCall.toolCallId, toolCall);
   }
 
+  /** Appends messages, writes the advanced AgentState, and returns it. */
   public appendMessages(
     context: Context,
     state: AgentState,
@@ -126,16 +155,22 @@ export class AgentSessionTransitions {
         frameworkItem: frameworkMessage.frameworkItem,
         createdAt,
       };
-      this.persistence.agentMessages.set(context, agentMessageKey(nextMessageSequence), message);
+      this.persistence.agentMessages.set(context, messageSequenceKey(nextMessageSequence), message);
       nextMessageSequence += 1;
     }
-    return { ...state, nextMessageSequence };
+    const advancedState = { ...state, nextMessageSequence };
+    this.writeAgentState(context, advancedState);
+    return advancedState;
   }
 
   /** Appends the user message, opens the next turn, and moves to RunAgentTurn. */
-  public startTurn(context: Context, state: AgentState, text: string): StepDecision {
+  public beginTurn(context: Context, state: AgentState, text: string): StepDecision {
     const turnId = `turn-${state.turnCount + 1}`;
     const userMessage = this.runner.buildUserMessage(text);
+    if (userMessage.role !== "user") {
+      throw new TypeError("buildUserMessage must return a message with role user");
+    }
+    const sequence = state.nextMessageSequence;
     const stateWithMessage = this.appendMessages(context, state, turnId, [userMessage]);
     this.writeAgentState(context, {
       ...stateWithMessage,
@@ -143,7 +178,7 @@ export class AgentSessionTransitions {
       activeTurnId: turnId,
       executingToolCallId: null,
     });
-    this.writeEvents(context, turnId, (events) => events.writeAgentEvent("turn_started", {}));
+    this.writeEvents(context, turnId, (events) => events.writeEvent("turn_started", { sequence }));
     return goTo(new StepRef(agentSessionStepTypes.runAgentTurn), undefined);
   }
 
@@ -153,13 +188,10 @@ export class AgentSessionTransitions {
 
   /**
    * Picks the Step after a tool call record changed.
-   * Order: approvals first, then approved calls by tool call ID, then resume the turn.
+   * Order: approvals first, then approved calls in deferral order, then resume the turn.
    */
-  public routeToolCalls(
-    context: Context,
-    state: AgentState,
-    toolCalls: readonly AgentToolCall[],
-  ): StepDecision {
+  public routeToolCalls(context: Context, state: AgentState): StepDecision {
+    const toolCalls = this.readTurnToolCalls(context, state.activeTurnId);
     if (toolCalls.some((toolCall) => toolCall.status === "awaiting_approval")) {
       this.writeAgentState(context, {
         ...state,
@@ -169,23 +201,34 @@ export class AgentSessionTransitions {
       return goTo(new StepRef(agentSessionStepTypes.awaitInterruptResolution), undefined);
     }
     const approvedToolCall = toolCalls.find((toolCall) => toolCall.status === "approved");
-    if (approvedToolCall !== undefined) {
-      this.writeAgentState(context, {
-        ...state,
-        status: "executing_tool",
-        executingToolCallId: approvedToolCall.toolCallId,
-      });
-      return goTo(new StepRef(toolStepTypeForEffect(approvedToolCall.effect)), undefined);
+    if (approvedToolCall === undefined) {
+      this.writeAgentState(context, { ...state, status: "running_turn", executingToolCallId: null });
+      return goTo(new StepRef(agentSessionStepTypes.runAgentTurn), undefined);
     }
-    this.writeAgentState(context, { ...state, status: "running_turn", executingToolCallId: null });
-    return goTo(new StepRef(agentSessionStepTypes.runAgentTurn), undefined);
+    this.writeAgentState(context, {
+      ...state,
+      status: "executing_tool",
+      executingToolCallId: approvedToolCall.toolCallId,
+    });
+    return goTo(new StepRef(toolStepTypeForEffect(approvedToolCall.effect)), undefined);
   }
 
   public resolveToolPolicy(toolName: string, frameworkEffect?: ToolEffect): ResolvedToolPolicy {
-    const policy = this.config.toolPolicies.get(toolName);
-    const effect = policy?.effect ?? frameworkEffect ?? this.config.defaultToolEffect;
-    const requiresApproval = policy?.requiresApproval ?? requiresApprovalByDefault(effect);
-    return { effect, requiresApproval, isDeferred: effect !== "read" || requiresApproval };
+    return resolveToolPolicy(
+      toolName,
+      this.config.toolPolicies,
+      this.config.defaultToolEffect,
+      frameworkEffect,
+    );
+  }
+
+  public recordUsage(context: Context, usage: AgentUsage, events: StreamAgentEventWriter): void {
+    const sessionUsage = addAgentUsage(this.readAgentUsage(context), usage);
+    this.persistence.agentUsage.set(context, sessionUsage);
+    events.writeEvent("usage_recorded", {
+      recorded: usagePayload(usage),
+      session: usagePayload(sessionUsage),
+    });
   }
 
   public createEventWriter(context: Context, turnId: string | null): StreamAgentEventWriter {
@@ -205,7 +248,7 @@ export class AgentSessionTransitions {
     }
   }
 
-  /** Runs an operation while recording a heartbeat every 30 seconds. */
+  /** Runs an operation while recording a heartbeat every 20 seconds. */
   public async runWithHeartbeats<Result>(
     context: AsyncContext,
     operation: () => Promise<Result>,
@@ -237,13 +280,21 @@ export function toolStepTypeForEffect(effect: ToolEffect): string {
   }
 }
 
-function requiresApprovalByDefault(effect: ToolEffect): boolean {
-  return effect === "non_idempotent_write" || effect === "unclassified";
+/** Returns the text of the failure that selected a recovery Step. */
+export function readRecoveryDetail(context: Context): string {
+  const recoveryError = context.recoveryError;
+  if (recoveryError === undefined) {
+    return "unknown failure";
+  }
+  return recoveryError.detail !== "" ? recoveryError.detail : recoveryError.errorType;
 }
 
-export function compareToolCallIds(left: AgentToolCall, right: AgentToolCall): number {
-  if (left.toolCallId < right.toolCallId) {
-    return -1;
-  }
-  return left.toolCallId > right.toolCallId ? 1 : 0;
+function usagePayload(usage: AgentUsage): Record<string, number> {
+  return {
+    model_calls: usage.modelCalls,
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+    cached_input_tokens: usage.cachedInputTokens,
+    reasoning_tokens: usage.reasoningTokens,
+  };
 }

@@ -12,12 +12,12 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
-import type { AgentMessage } from "../../src/index.js";
+import { messageSequenceKey, type AgentMessage } from "../../src/index.js";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
+  InvocationLog,
   PrivateDexEngine,
-  readMarkerLines,
 } from "../../src/testing/index.js";
 import { createScriptedAgentFlow } from "../fixtures/scripted-agent-runner.js";
 
@@ -85,7 +85,18 @@ describe("agent session turns with an in-process Worker", () => {
       reasoningTokens: 0,
     });
 
-    const eventTypes = (await sessions.listAgentEvents(sessionId)).map((event) => event.type);
+    const events = await sessions.listAgentEvents(sessionId);
+    const turnStarted = events.find((event) => event.type === "turn_started" && event.turnId === "turn-2");
+    assert.deepEqual(JSON.parse(turnStarted?.payload ?? "null"), { sequence: 5 });
+    const turnCompleted = events.find((event) => event.type === "turn_completed" && event.turnId === "turn-1");
+    assert.deepEqual(JSON.parse(turnCompleted?.payload ?? "null"), { message_count: 3 });
+    const lastUsage = events.filter((event) => event.type === "usage_recorded").at(-1);
+    assert.equal(
+      lastUsage?.payload,
+      '{"recorded":{"cached_input_tokens":0,"input_tokens":10,"model_calls":1,"output_tokens":5,"reasoning_tokens":0},' +
+        '"session":{"cached_input_tokens":0,"input_tokens":30,"model_calls":3,"output_tokens":15,"reasoning_tokens":0}}',
+    );
+    const eventTypes = events.map((event) => event.type);
     for (const expectedType of [
       "turn_started",
       "tool_call_started",
@@ -123,6 +134,12 @@ describe("agent session turns with an in-process Worker", () => {
     assert.equal(snapshot.queuedMessageCount, 0);
     assert.equal(snapshot.usage.modelCalls, 1);
 
+    const [storedAnswer] = await environment.client.getAttributes(
+      sessionId,
+      sessions.flow.agentMessages.instance(messageSequenceKey(2)),
+    );
+    assert.equal(storedAnswer?.text, "echo: hello");
+
     const newestPage = await sessions.listAgentMessages(sessionId, null, 1);
     assert.deepEqual(newestPage.messages.map(describeMessage), ["2 turn-1 assistant echo: hello"]);
     assert.equal(newestPage.nextBeforeSequence, 2);
@@ -142,8 +159,13 @@ describe("agent session turns with an in-process Worker", () => {
     assert.equal(waitingState?.status, "waiting_for_interrupt");
     const waitingSnapshot = await sessions.getAgentSnapshot(sessionId);
     assert.deepEqual(
-      waitingSnapshot.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.effect, toolCall.status]),
-      [["turn-1-send_email", "unclassified", "awaiting_approval"]],
+      waitingSnapshot.toolCalls.map((toolCall) => [
+        toolCall.toolCallId,
+        toolCall.effect,
+        toolCall.status,
+        toolCall.deferralOrder,
+      ]),
+      [["turn-1-send_email", "unclassified", "awaiting_approval", 0]],
     );
 
     assert.equal(
@@ -155,7 +177,7 @@ describe("agent session turns with an in-process Worker", () => {
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     assert.equal(
       snapshot.messages.at(-1)?.text,
-      "send_email -> The user rejected the tool call: not today",
+      "send_email -> not today",
     );
     assert.deepEqual(toolLog("send_email", sessionId), []);
     const eventTypes = (await sessions.listAgentEvents(sessionId)).map((event) => event.type);
@@ -202,6 +224,39 @@ describe("agent session turns with an in-process Worker", () => {
     );
   });
 
+  test("deferred calls of one model response run approvals first, then in deferral order", async () => {
+    const sessionId = newSessionId("parallel");
+    await sessions.startSession(sessionId, "call send_email and refund_order and get_weather");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    const waitingSnapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      waitingSnapshot.toolCalls.map((toolCall) => [toolCall.toolName, toolCall.status, toolCall.deferralOrder]),
+      [
+        ["send_email", "awaiting_approval", 0],
+        ["refund_order", "approved", 1],
+      ],
+    );
+    assert.deepEqual(toolLog("refund_order", sessionId), []);
+    assert.deepEqual(toolLog("get_weather", sessionId), [`${sessionId} turn-1-get_weather inline`]);
+
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    assert.deepEqual(toolLog("deferred-tools", sessionId), [
+      `${sessionId} send_email`,
+      `${sessionId} refund_order`,
+    ]);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      `send_email -> email sent for ${sessionId}/turn-1-send_email | refund_order -> refund issued | ` +
+        "get_weather -> sunny in Paris",
+    );
+    assert.deepEqual(
+      snapshot.messages.map((message) => message.role),
+      ["user", "assistant", "assistant", "assistant", "tool", "tool", "tool", "assistant"],
+    );
+  });
+
   test("a second agent Flow type rejects an approval whose deadline passed", async () => {
     const sessionId = newSessionId("deadline");
     await deadlineSessions.startSession(sessionId, "call send_email");
@@ -214,7 +269,7 @@ describe("agent session turns with an in-process Worker", () => {
     const snapshot = await deadlineSessions.getAgentSnapshot(sessionId);
     assert.equal(
       snapshot.messages.at(-1)?.text,
-      "send_email -> The user rejected the tool call: approval deadline passed",
+      "send_email -> approval deadline passed",
     );
     assert.deepEqual(snapshot.pendingInterrupts, []);
     assert.deepEqual(toolLog("send_email", sessionId), []);
@@ -229,7 +284,7 @@ describe("agent session turns with an in-process Worker", () => {
   });
 
   function toolLog(toolName: string, sessionId: string): string[] {
-    return readMarkerLines(join(markerDirectory, `${toolName}.log`)).filter((line) =>
+    return new InvocationLog(join(markerDirectory, `${toolName}.log`)).names().filter((line) =>
       line.startsWith(`${sessionId} `),
     );
   }

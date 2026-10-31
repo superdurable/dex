@@ -13,14 +13,15 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, afterEach, before, describe, test } from "node:test";
 
+import { outcomeUnknownToolResult } from "../../src/index.js";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
+  FileGate,
+  InvocationLog,
   KillableWorkerProcess,
   PrivateDexEngine,
   pollUntil,
-  readMarkerLines,
-  writeMarkerFile,
 } from "../../src/testing/index.js";
 import {
   createScriptedAgentFlow,
@@ -91,7 +92,7 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
       snapshot.messages.at(-1)?.text,
       `send_email -> email sent for ${sessionId}/turn-1-send_email`,
     );
-    assert.deepEqual(readMarkerLines(join(markerDirectory, "send_email.log")), [
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "send_email.log")).names(), [
       `${sessionId} turn-1-send_email attempt 1`,
     ]);
   });
@@ -103,24 +104,27 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     await sessions.startSession(sessionId, "call charge_card");
     const interrupt = await sessions.waitForPendingInterrupt(sessionId, "charge_card");
     assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
-    const toolLogPath = join(markerDirectory, "charge_card.log");
-    await waitForMarkerLines(toolLogPath, 1);
+    const chargeGate = new FileGate(markerDirectory, "charge_card");
+    await chargeGate.waitUntilReached();
     const executingState = await sessions.readAgentState(sessionId);
     assert.equal(executingState?.status, "executing_tool");
     assert.equal(executingState?.executingToolCallId, "turn-1-charge_card");
     await waitForEvent(sessionId, "tool_call_started");
 
     await firstWorker.kill();
-    // Releasing first means a wrongful rerun would finish and log a second line.
-    writeMarkerFile(join(markerDirectory, "charge_card.release"));
+    // Releasing first means a wrongful rerun would finish and log a second invocation.
+    chargeGate.release();
     await startWorker(markerDirectory);
 
     await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     const toolResult = snapshot.messages.find((message) => message.role === "tool");
-    assert.match(toolResult?.toolOutput ?? "", /^The tool call outcome is unknown: /);
-    assert.match(snapshot.messages.at(-1)?.text ?? "", /^charge_card -> The tool call outcome is unknown: /);
-    assert.deepEqual(readMarkerLines(toolLogPath), [`${sessionId} turn-1-charge_card attempt 1`]);
+    assert.equal(toolResult?.toolOutput, outcomeUnknownToolResult);
+    assert.equal(snapshot.messages.at(-1)?.text, `charge_card -> ${outcomeUnknownToolResult}`);
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "charge_card.log")).names(), [
+      `${sessionId} turn-1-charge_card attempt 1`,
+    ]);
+    assert.equal(chargeGate.reachedCount(), 1);
     const finishedEvents = (await sessions.listAgentEvents(sessionId))
       .filter((event) => event.type === "tool_call_finished")
       .map((event) => JSON.parse(event.payload) as { status: string });
@@ -135,11 +139,11 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     const firstWorker = await startWorker(markerDirectory);
     const sessionId = `turn-rerun-${randomUUID()}`;
     await sessions.startSession(sessionId, "slow");
-    const attemptLogPath = join(markerDirectory, "turn-attempts.log");
-    await waitForMarkerLines(attemptLogPath, 1);
+    const turnGate = new FileGate(markerDirectory, "turn");
+    await turnGate.waitUntilReached();
 
     await firstWorker.kill();
-    writeMarkerFile(join(markerDirectory, "turn.release"));
+    turnGate.release();
     await startWorker(markerDirectory);
 
     const state = await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
@@ -150,7 +154,7 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
       ["slow", "slow turn done"],
     );
     // Dex re-delivers an attempt that produced no output, so the rerun may keep attempt 1.
-    assert.equal(readMarkerLines(attemptLogPath).length, 2);
+    assert.equal(turnGate.reachedCount(), 2);
     assert.equal(snapshot.usage.modelCalls, 1);
   });
 
@@ -162,13 +166,13 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     await waitForEvent(sessionId, "text_delta");
 
     await firstWorker.kill();
-    writeMarkerFile(join(markerDirectory, "turn.release"));
+    new FileGate(markerDirectory, "turn").release();
     await startWorker(markerDirectory);
 
     const state = await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
     assert.equal(state.lastTurnError, null);
     assert.deepEqual(
-      readMarkerLines(join(markerDirectory, "turn-attempts.log")).map(
+      new InvocationLog(join(markerDirectory, "turn.log")).names().map(
         (line) => line.split(" attempt ")[1],
       ),
       ["1", "2"],
@@ -197,11 +201,5 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
           : undefined,
       { description: `${eventType} event in session ${sessionId}` },
     );
-  }
-
-  async function waitForMarkerLines(path: string, count: number): Promise<void> {
-    await pollUntil(() => (readMarkerLines(path).length >= count ? true : undefined), {
-      description: `${count} lines in ${path}`,
-    });
   }
 });

@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,8 +17,13 @@ import { ChildProcessGroup } from "./child-process-group.js";
 
 /** Environment variable that carries the Dex Server address into a Worker child process. */
 export const agentWorkerServerAddressVariable = "DEX_AGENTS_SERVER_ADDRESS";
-/** Line a Worker child process prints once every queue is registered. */
-export const agentWorkerReadyLine = "dex-agents worker ready";
+/**
+ * Environment variable naming the BlobCache directory of a Worker child process. When it is unset,
+ * the child uses a new temporary directory and deletes it on exit.
+ */
+export const agentWorkerBlobCacheDirectoryVariable = "DEX_AGENTS_BLOB_CACHE_DIR";
+/** Line a Worker child process prints once every queue is registered; the same as the Python core. */
+export const agentWorkerReadyLine = "dex-agents test Worker ready";
 
 /** Options of {@link KillableWorkerProcess.start}. */
 export interface KillableWorkerProcessOptions {
@@ -123,9 +128,10 @@ export class KillableWorkerProcess {
 /**
  * Runs a pull Worker for the given Flows until SIGTERM or SIGINT; call it from a Worker child module.
  *
- * It reads the server address from {@link agentWorkerServerAddressVariable}, uses a fresh app Worker
- * ID and a temporary BlobCache, waits for pull registration, then prints {@link agentWorkerReadyLine}
- * to standard output. On SIGTERM or SIGINT it closes the Worker and exits with status 0.
+ * It reads the server address from {@link agentWorkerServerAddressVariable} and the BlobCache directory
+ * from {@link agentWorkerBlobCacheDirectoryVariable}, uses a fresh app Worker ID, waits for pull
+ * registration, then prints {@link agentWorkerReadyLine} to standard output. On SIGTERM or SIGINT it
+ * closes the Worker and exits with status 0.
  *
  * @param flows - Flows the Worker serves; build them exactly as the test's Client Registry does.
  * @returns A Promise that never resolves; the process exits on a signal.
@@ -136,7 +142,13 @@ export async function runAgentWorkerProcess(flows: readonly Flow<any>[]): Promis
   if (serverAddress === undefined || serverAddress === "") {
     throw new Error(`${agentWorkerServerAddressVariable} is not set`);
   }
-  const cacheDirectory = mkdtempSync(join(tmpdir(), "dex-agents-worker-cache-"));
+  const configuredCacheDirectory = process.env[agentWorkerBlobCacheDirectoryVariable];
+  const isCacheDirectoryOwned =
+    configuredCacheDirectory === undefined || configuredCacheDirectory === "";
+  const cacheDirectory = isCacheDirectoryOwned
+    ? mkdtempSync(join(tmpdir(), "dex-agents-worker-cache-"))
+    : configuredCacheDirectory;
+  mkdirSync(cacheDirectory, { recursive: true });
   const blobCache = openBlobCache({ directory: cacheDirectory, maxBytes: 64 * 1024 * 1024 });
   const worker = new Worker(new Registry(flows), blobCache, {
     serverAddress,
@@ -147,7 +159,9 @@ export async function runAgentWorkerProcess(flows: readonly Flow<any>[]): Promis
       await worker.close();
       blobCache.close();
     } finally {
-      rmSync(cacheDirectory, { recursive: true, force: true });
+      if (isCacheDirectoryOwned) {
+        rmSync(cacheDirectory, { recursive: true, force: true });
+      }
       process.exit(0);
     }
   };

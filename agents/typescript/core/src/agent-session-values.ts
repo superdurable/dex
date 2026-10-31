@@ -134,6 +134,11 @@ export interface AgentToolCall {
   readonly error: string | null;
   /** Rejection text after `rejected`, otherwise `null`. Wire field: `rejection_message`. */
   readonly rejectionMessage: string | null;
+  /**
+   * Zero-based order in which the turn deferred the call; approved calls run in this order.
+   * It extends the planned contract, as in the Python core. Wire field: `deferral_order`.
+   */
+  readonly deferralOrder: number;
 }
 
 /** One pending approval request, stored in the `PendingInterrupts` Attribute. */
@@ -188,11 +193,11 @@ export interface AgentUserMessage {
 }
 
 /**
- * Type of one {@link AgentEvent}.
+ * Standard type of one {@link AgentEvent}. Adapters may write other types with an adapter prefix.
  *
- * Payloads, as JSON text:
- * - `turn_started`: `{}`.
- * - `turn_completed`: `{"new_message_count"}`.
+ * Payloads are JSON objects with snake_case keys, serialized with sorted keys:
+ * - `turn_started`: `{"sequence"}`, the sequence of the user message that started the turn.
+ * - `turn_completed`: `{"message_count"}`, the number of messages the turn appended.
  * - `turn_failed`: `{"error"}`.
  * - `text_delta` and `reasoning_delta`: `{"text"}`.
  * - `tool_call_started`: `{"tool_call_id","tool_name"}`.
@@ -200,7 +205,8 @@ export interface AgentUserMessage {
  * - `tool_call_deferred`: `{"tool_call_id","tool_name","effect","requires_approval"}`.
  * - `interrupt_raised`: `{"interrupt_id","tool_call_id","tool_name","deadline"}`.
  * - `interrupt_resolved`: `{"interrupt_id","approved","rejection_message"}`.
- * - `usage_recorded`: the segment's usage with {@link AgentUsage} wire fields.
+ * - `usage_recorded`: `{"recorded","session"}`: segment and cumulative usage, each with
+ *   {@link AgentUsage} wire fields.
  */
 export type AgentEventType =
   | "turn_started"
@@ -217,8 +223,8 @@ export type AgentEventType =
 
 /** One best-effort live event, written to the `AgentEvents` Stream. */
 export interface AgentEvent {
-  /** Event type. Wire field: `type`. */
-  readonly type: AgentEventType;
+  /** An {@link AgentEventType} or an adapter-specific type such as `"vercel_ai.step"`. Wire field: `type`. */
+  readonly type: string;
   /** Turn the event belongs to, or `null`. Wire field: `turn_id`. */
   readonly turnId: string | null;
   /**
@@ -242,13 +248,13 @@ export interface ResolveInterruptInput {
 
 /** Output of the `get_agent_snapshot` RPC, enough for a UI to rebuild its view. */
 export interface AgentSnapshot {
-  /** Current session state. Wire field: `state`. */
-  readonly state: AgentState;
+  /** Current session state, or `null` before `StartAgentSession` committed. Wire field: `state`. */
+  readonly state: AgentState | null;
   /** Up to the last 200 messages in ascending sequence order. Wire field: `messages`. */
   readonly messages: readonly AgentMessage[];
   /** Interrupts that `resolve_interrupt` still accepts. Wire field: `pending_interrupts`. */
   readonly pendingInterrupts: readonly AgentInterrupt[];
-  /** Deferred tool call records of the active turn, ordered by tool call ID. Wire field: `tool_calls`. */
+  /** Deferred tool call records of the active turn, in deferral order. Wire field: `tool_calls`. */
   readonly toolCalls: readonly AgentToolCall[];
   /** Cumulative usage. Wire field: `usage`. */
   readonly usage: AgentUsage;
@@ -260,7 +266,7 @@ export interface AgentSnapshot {
 export interface ListAgentMessagesInput {
   /** Return messages with a smaller sequence, or `null` for the newest. Wire field: `before_sequence`. */
   readonly beforeSequence: number | null;
-  /** Page size; the session clamps it to 1..200. Wire field: `limit`. */
+  /** Page size; the session clamps it to 1..200. A missing wire value means 50. Wire field: `limit`. */
   readonly limit: number;
 }
 
@@ -323,40 +329,49 @@ export function isFinalToolCallStatus(status: AgentToolCallStatus): boolean {
   return status !== "awaiting_approval" && status !== "approved";
 }
 
+/** Tool result text the model sees for an `outcome_unknown` call; the same text as the Python core. */
+export const outcomeUnknownToolResult =
+  "The tool call's outcome is unknown: the Worker stopped while the tool ran, so it may " +
+  "or may not have taken effect. It was not retried.";
+
+/** Tool result text the model sees for a rejection without a message; the same text as the Python core. */
+export const defaultRejectionToolResult = "The user rejected this tool call.";
+
+/** Rejection message recorded when an approval deadline passes. */
+export const approvalDeadlinePassed = "approval deadline passed";
+
 /**
  * Returns the tool result text a runner shows the model for a final tool call record.
  *
  * Use it when resuming a framework whose tool result must be text. A runner whose framework has a
- * native rejection, such as a rejection message argument, may use `rejectionMessage` directly instead.
+ * native rejection, such as a rejection message argument, may pass `rejectionMessage` there instead.
+ * The texts match the Python core's `describe_tool_call_outcome`.
  *
  * @example
  * ```ts
- * const record = turn.toolCalls.find((call) => call.toolCallId === pendingCallId);
+ * const record = turn.recordedToolCall(pendingCallId);
  * if (record !== undefined && isFinalToolCallStatus(record.status)) {
- *   frameworkToolResult = describeToolCallResultForModel(record);
+ *   frameworkToolResult = describeToolCallOutcome(record);
  * }
  * ```
  * @param toolCall - Record whose status is final.
- * @returns The output for `succeeded`; otherwise one sentence naming the failure, rejection, or
- * unknown outcome, followed by the recorded error or rejection text.
+ * @returns The output for `succeeded`; `The tool call failed: <error>` for `failed`; the rejection
+ * message, or {@link defaultRejectionToolResult}, for `rejected`; {@link outcomeUnknownToolResult}
+ * for `outcome_unknown`.
  * @throws {TypeError} When the record status is `awaiting_approval` or `approved`.
  */
-export function describeToolCallResultForModel(toolCall: AgentToolCall): string {
+export function describeToolCallOutcome(toolCall: AgentToolCall): string {
   switch (toolCall.status) {
     case "succeeded":
       return toolCall.output ?? "";
     case "failed":
-      return `The tool call failed: ${toolCall.error ?? "no error text was recorded"}`;
+      return `The tool call failed: ${toolCall.error ?? "unknown error"}`;
     case "rejected":
-      return `The user rejected the tool call: ${toolCall.rejectionMessage ?? "no reason was given"}`;
+      return toolCall.rejectionMessage ?? defaultRejectionToolResult;
     case "outcome_unknown":
-      return (
-        "The tool call outcome is unknown: the Worker stopped while the tool was running, " +
-        "so the call may or may not have taken effect. Do not assume it succeeded. " +
-        (toolCall.error ?? "")
-      ).trimEnd();
+      return outcomeUnknownToolResult;
     case "awaiting_approval":
     case "approved":
-      throw new TypeError(`tool call ${toolCall.toolCallId} is not final: ${toolCall.status}`);
+      throw new TypeError(`tool call ${toolCall.toolCallId} has no final outcome yet`);
   }
 }
