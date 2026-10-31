@@ -127,8 +127,7 @@ effect of ASYNC most directly.
 Flow that stays open. The Flow has one `int64` counter Attribute, 8 bytes on
 the wire. The plain variant invokes an RPC that reads the counter and returns
 it. The locking variant invokes an RPC that locks the counter, reads it, and
-writes it back. The counter is below the inline limit, so it travels with the
-RPC task to the Worker, and the RPC returns only an `int64`. Each client uses its own Flow, so the lock has no
+writes it back. Both RPCs run on the Worker and return only the `int64`. Each client uses its own Flow, so the lock has no
 contention. The timed operation is one InvokeRPC call. Throughput is in RPCs
 per second. Keep the concurrency below the server's
 `limits.maxInFlightRpcsPerNode`, which defaults to 1000.
