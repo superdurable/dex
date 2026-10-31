@@ -529,31 +529,15 @@ impl Renderer<'_> {
         predicate: &Predicate,
         source: &FieldSource,
     ) -> Result<String, SqlTranslationError> {
-        let mut contains = |literal: &Literal| -> Result<String, SqlTranslationError> {
-            let (parameter, _) = literal_parameter(literal)?;
-            let bound = self.bind(parameter, "text");
-            if source.is_json_array {
-                Ok(format!(
-                    "CASE WHEN ({}) IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM jsonb_array_elements_text({}) AS element(value) WHERE element.value = {bound}) END",
-                    source.expression, source.expression
-                ))
-            } else if source.is_slot
-                || self.dialect == VisibilityDialect::Postgres
-                    && !dexzd_protocol::attribute_index::is_system_search_field(predicate.field())
-            {
-                Ok(format!("{} @> ARRAY[{bound}]", source.expression))
-            } else {
-                Ok(format!("{bound} = ANY({})", source.expression))
-            }
-        };
         let positive = match predicate.operator() {
-            Operator::Equal | Operator::NotEqual => contains(&predicate.literals()[0])?,
+            Operator::Equal | Operator::NotEqual => {
+                self.render_array_contains(predicate, source, &predicate.literals()[0])?
+            }
             Operator::In | Operator::NotIn => {
-                let parts: Vec<String> = predicate
-                    .literals()
-                    .iter()
-                    .map(&mut contains)
-                    .collect::<Result<_, _>>()?;
+                let mut parts = Vec::new();
+                for literal in predicate.literals() {
+                    parts.push(self.render_array_contains(predicate, source, literal)?);
+                }
                 format!("({})", parts.join(" OR "))
             }
             _ => {
@@ -565,46 +549,52 @@ impl Renderer<'_> {
         Ok(positive)
     }
 
+    fn render_array_contains(
+        &mut self,
+        predicate: &Predicate,
+        source: &FieldSource,
+        literal: &Literal,
+    ) -> Result<String, SqlTranslationError> {
+        let (parameter, _) = literal_parameter(literal)?;
+        let bound = self.bind(parameter, "text");
+        if source.is_json_array {
+            Ok(format!(
+                "CASE WHEN ({}) IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM jsonb_array_elements_text({}) AS element(value) WHERE element.value = {bound}) END",
+                source.expression, source.expression
+            ))
+        } else if source.is_slot
+            || self.dialect == VisibilityDialect::Postgres
+                && !dexzd_protocol::attribute_index::is_system_search_field(predicate.field())
+        {
+            Ok(format!("{} @> ARRAY[{bound}]", source.expression))
+        } else {
+            Ok(format!("{bound} = ANY({})", source.expression))
+        }
+    }
+
     fn render_text(
         &mut self,
         predicate: &Predicate,
         expression: &str,
         should_use_slots: bool,
     ) -> Result<String, SqlTranslationError> {
-        let mut matches_terms = |literal: &Literal| {
-            let Literal::String(value) = literal else {
-                return format!("CASE WHEN {expression} IS NULL THEN NULL ELSE FALSE END");
-            };
-            let terms = tokenize_text(value);
-            if terms.is_empty() {
-                return format!("CASE WHEN {expression} IS NULL THEN NULL ELSE FALSE END");
-            }
-            let bound = self.bind(SqlValue::TextArray(terms), "text[]");
-            let recheck =
-                format!("regexp_split_to_array(lower({expression}), '[^[:alnum:]]+') @> {bound}");
-            if let Some(assignment) = self.assignments.iter().find(|assignment| {
-                should_use_slots
-                    && self.dialect == VisibilityDialect::Postgres
-                    && assignment.tenant_id.to_string() == self.tenant_id
-                    && assignment.index_key == predicate.field()
-                    && assignment.index_type == IndexType::Text
-            }) {
-                let column = assignment.slot_column.clone();
-                let hashes = super::slots::text_term_hashes(value);
-                let hash_bound = self.bind(SqlValue::TextArray(hashes), "text[]");
-                format!("({column} @> {hash_bound} AND {recheck})")
-            } else {
-                recheck
-            }
-        };
         let positive = match predicate.operator() {
-            Operator::Equal | Operator::NotEqual => matches_terms(&predicate.literals()[0]),
+            Operator::Equal | Operator::NotEqual => self.render_text_terms(
+                predicate,
+                expression,
+                should_use_slots,
+                &predicate.literals()[0],
+            ),
             Operator::In | Operator::NotIn => {
-                let parts: Vec<String> = predicate
-                    .literals()
-                    .iter()
-                    .map(&mut matches_terms)
-                    .collect();
+                let mut parts = Vec::new();
+                for literal in predicate.literals() {
+                    parts.push(self.render_text_terms(
+                        predicate,
+                        expression,
+                        should_use_slots,
+                        literal,
+                    ));
+                }
                 format!("({})", parts.join(" OR "))
             }
             _ => {
@@ -614,6 +604,39 @@ impl Renderer<'_> {
             }
         };
         Ok(positive)
+    }
+
+    fn render_text_terms(
+        &mut self,
+        predicate: &Predicate,
+        expression: &str,
+        should_use_slots: bool,
+        literal: &Literal,
+    ) -> String {
+        let Literal::String(value) = literal else {
+            return format!("CASE WHEN {expression} IS NULL THEN NULL ELSE FALSE END");
+        };
+        let terms = tokenize_text(value);
+        if terms.is_empty() {
+            return format!("CASE WHEN {expression} IS NULL THEN NULL ELSE FALSE END");
+        }
+        let bound = self.bind(SqlValue::TextArray(terms), "text[]");
+        let recheck =
+            format!("regexp_split_to_array(lower({expression}), '[^[:alnum:]]+') @> {bound}");
+        if let Some(assignment) = self.assignments.iter().find(|assignment| {
+            should_use_slots
+                && self.dialect == VisibilityDialect::Postgres
+                && assignment.tenant_id.to_string() == self.tenant_id
+                && assignment.index_key == predicate.field()
+                && assignment.index_type == IndexType::Text
+        }) {
+            let column = assignment.slot_column.clone();
+            let hashes = super::slots::text_term_hashes(value);
+            let hash_bound = self.bind(SqlValue::TextArray(hashes), "text[]");
+            format!("({column} @> {hash_bound} AND {recheck})")
+        } else {
+            recheck
+        }
     }
 
     fn render_cursor(
