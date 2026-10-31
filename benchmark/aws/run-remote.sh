@@ -21,6 +21,8 @@ workers="${DEXBENCH_WORKERS:-0}"
 steps="${DEXBENCH_STEPS:-10}"
 scenarios="${DEXBENCH_SCENARIOS:-sequential-steps}"
 points_file="${DEXBENCH_POINTS:-}"
+# Profiling perturbs the measurement slightly; turn it off for headline trials.
+profile="${DEXBENCH_PROFILE:-1}"
 run_id="${DEXBENCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 # Each invocation writes under its own prefix, so rerunning a run ID never reuses objects.
 invocation_id="$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
@@ -40,7 +42,8 @@ server_state_dir="${DEXBENCH_STATE_DIR:-$server_home/state}"
 forwarded_settings="DEXBENCH_SERVER_HOME DEXBENCH_SERVER_ZD_BINARY DEXBENCH_SERVER_BENCH_BINARY DEXBENCH_STATE_DIR
 DEXBENCH_STORAGE_DIR DEXBENCH_LISTEN_HOST DEXBENCH_API_PORT DEXBENCH_METRICS_PORT DEXBENCH_NODE_ID
 DEXBENCH_S3_BUCKET DEXBENCH_S3_REGION DEXBENCH_S3_ENDPOINT DEXBENCH_S3_CREDENTIALS
-DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY"
+DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY
+DEXBENCH_PROFILE_SECONDS DEXBENCH_PROFILE_FREQUENCY DEXBENCH_CORE_DIR"
 
 # tunable_names lists the exported server settings; DEXBENCH_ZD_BINARY names the local run.sh binary.
 tunable_names() {
@@ -155,11 +158,12 @@ zd_version="$(sed -n 's/^server_zd_version=//p' "$output_dir/host.txt")"
 {
   echo "# Settings to rerun these points with benchmark/aws/reproduce.sh. Recorded values start with RECORDED_."
   for name in DEXBENCH_DURATION DEXBENCH_WARMUP DEXBENCH_CONNECTIONS DEXBENCH_TRIALS DEXBENCH_WORKERS DEXBENCH_STEPS \
-    DEXBENCH_S3_REGION DEXBENCH_STORAGE_DIR $(tunable_names); do
+    DEXBENCH_PROFILE DEXBENCH_S3_REGION DEXBENCH_STORAGE_DIR $(tunable_names); do
     case "$name" in
       DEXBENCH_DURATION) value="$duration" ;; DEXBENCH_WARMUP) value="$warmup" ;;
       DEXBENCH_CONNECTIONS) value="$connections" ;; DEXBENCH_TRIALS) value="$trials" ;;
       DEXBENCH_WORKERS) value="$workers" ;; DEXBENCH_STEPS) value="$steps" ;;
+      DEXBENCH_PROFILE) value="$profile" ;;
       *) value="${!name:-}" ;;
     esac
     [[ -n "$value" ]] && printf '%s=%q\n' "$name" "$value"
@@ -230,7 +234,11 @@ run_point() {
     remote "tail -50 $(printf '%q' "$server_state_dir/server.log")" >&2 || true
     return 1
   fi
-  remote "$(serve_command "$overrides" collect-start "$collect_dir")" || return 1
+  local profile_overrides=""
+  if [[ "$profile" == 1 ]]; then
+    profile_overrides="DEXBENCH_PROFILE_DELAY=$((warmup + duration / 3))"
+  fi
+  remote "$(serve_command "$overrides $profile_overrides" collect-start "$collect_dir")" || return 1
   DEXBENCH_GIT_COMMIT="$git_commit" DEXBENCH_SERVER_VERSION="$zd_version" "$benchmark_binary" run \
     --address "$server_address:$api_port" --metrics-url "http://$server_address:$metrics_port/metrics" \
     --duration "$duration" --warmup "$warmup" --concurrency "$point_concurrency" --connections "$connections" \

@@ -340,6 +340,10 @@ before its timer runs out.
 
 #### Run
 
+Wait for boot setup to finish on both hosts with `cloud-init status --wait`.
+It mounts the instance store, sets the core dump path, and installs `iostat`,
+`eu-stack`, and perf.
+
 Copy `dexbench`, `dex-server-zd`, and `serve.sh` to `~/dexbench/` on the
 server host. Clone this repository on the load host at the commit under test,
 and copy `dexbench` there. Connect to the load host with `ssh -A`, so it can
@@ -419,6 +423,8 @@ Other settings:
 | `DEXBENCH_S3_REGION` | `us-west-2` | Bucket region |
 | `DEXBENCH_S3_ENDPOINT` | empty | Custom S3 endpoint, such as a local s3mock |
 | `DEXBENCH_S3_CREDENTIALS` | `defaultChain` | `defaultChain` uses the instance profile |
+| `DEXBENCH_PROFILE` | `1` | `1` profiles the server in the middle of each measurement; `0` turns it off |
+| `DEXBENCH_PROFILE_SECONDS`, `DEXBENCH_PROFILE_FREQUENCY` | `10`, `49` | Length and sampling rate (Hz) of the perf profile |
 
 #### What each point collects
 
@@ -433,6 +439,24 @@ Next to `<point id>.json`, the directory `<point id>.server/` holds:
 - `rocksdb-stalls.txt`: counts of `Stalling writes` and `Stopping writes` in
   each RocksDB `LOG` file.
 - `server.log`: the server log.
+- `perf-report.txt` and `perf-script.txt.gz`: a perf profile with DWARF call
+  stacks, taken a third of the way into the measurement. `perf-script.txt.gz`
+  can be turned into a flame graph off the host.
+- `thread-stacks-1.txt` and `thread-stacks-2.txt`: `eu-stack` stacks of every
+  server thread, before and after the profile. Two snapshots show which
+  threads stay blocked in the same place.
+- `crash.txt`: written only when the server was not running at the end of the
+  point. It holds the backtrace of each core dump. The cores stay in
+  `/mnt/nvme/cores` on the server host, so copy one off before teardown when
+  you need it.
+
+The profile slows the server while it runs: `eu-stack` pauses every thread
+briefly, and perf copies each sampled stack. The profile is symbolized after
+the measurement. Set `DEXBENCH_PROFILE=0` for the trials whose numbers you
+report.
+
+Only cores written during the point are reported. Cores are never deleted, so
+a series of crashes can fill `/mnt/nvme`.
 
 `report.md` shows server CPU, its share of the server host, the load host CPU
 share, and PUT requests per second. A point whose load host CPU is above 70%
