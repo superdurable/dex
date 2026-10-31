@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use dexzd_engine::CommittedFlowCommand;
 use dexzd_keyspace::PartitionId;
 use dexzd_protocol::dexzd::v1::LogPosition;
-use dexzd_search::paradedb::{
+use dexzd_search::sql_visibility::{
     ProjectionVisibilityWait, SearchDocumentChange, extract_search_document_changes,
 };
 use dexzd_search::{SearchError, SearchRequest};

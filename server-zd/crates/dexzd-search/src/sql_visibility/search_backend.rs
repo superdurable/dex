@@ -23,8 +23,9 @@ use tokio::task::JoinHandle;
 use tokio_postgres::{Client, Config, Row};
 
 use super::{
-    PageCursor, SchemaError, SqlStatement, SqlTranslationError, ensure_schema, tenant_column_value,
-    translate_query,
+    AttributeIndexRegistryReader, AttributeSlot, PageCursor, SchemaError, SqlStatement,
+    SqlTranslationError, VisibilityDialect, assign_attribute_slots, ensure_schema_for_dialect,
+    tenant_column_value, translate_query_for_dialect,
 };
 use crate::page_token::PagePosition;
 use crate::search_backend::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE};
@@ -43,8 +44,11 @@ pub trait ProjectionVisibilityWait: Send + Sync {
 }
 
 /// Searches tenant runs through a bounded pool of PgBouncer-compatible connections.
-pub struct ParadeDbSearchBackend {
+pub struct SqlVisibilitySearchBackend {
     configuration: ConnectionSettings,
+    dialect: VisibilityDialect,
+    registry_reader: Option<Arc<dyn AttributeIndexRegistryReader>>,
+    attribute_slot_cache: Mutex<Option<(u64, Vec<AttributeSlot>)>>,
     slots: Vec<Mutex<ConnectionSlot>>,
     free_slots: StandardMutex<VecDeque<usize>>,
     available_slots: Semaphore,
@@ -52,7 +56,7 @@ pub struct ParadeDbSearchBackend {
     visibility_wait_timeout: Duration,
 }
 
-impl ParadeDbSearchBackend {
+impl SqlVisibilitySearchBackend {
     /// Opens `pool_size` connections, ensures the schema, and bounds projection visibility waits.
     pub async fn connect(
         configuration: &Config,
@@ -76,28 +80,127 @@ impl ParadeDbSearchBackend {
         visibility_wait: Option<Arc<dyn ProjectionVisibilityWait>>,
         visibility_wait_timeout: Duration,
     ) -> Result<Self, SearchError> {
+        Self::connect_dialect_with_settings(
+            configuration,
+            pool_size,
+            visibility_wait,
+            visibility_wait_timeout,
+            VisibilityDialect::ParadeDb,
+            None,
+        )
+        .await
+    }
+
+    /// Opens pooled connections for a dialect and shares its Attribute registry reader.
+    pub async fn connect_dialect_with_settings(
+        configuration: &ConnectionSettings,
+        pool_size: usize,
+        visibility_wait: Option<Arc<dyn ProjectionVisibilityWait>>,
+        visibility_wait_timeout: Duration,
+        dialect: VisibilityDialect,
+        registry_reader: Option<Arc<dyn AttributeIndexRegistryReader>>,
+    ) -> Result<Self, SearchError> {
+        if dialect == VisibilityDialect::Postgres && registry_reader.is_none() {
+            return Err(SearchError::Internal(
+                "PostgreSQL visibility requires an Attribute registry reader".into(),
+            ));
+        }
         if pool_size == 0 || visibility_wait_timeout.is_zero() {
             return Err(SearchError::Internal(
-                "ParadeDB search pool size and visibility wait timeout must be positive".into(),
+                "SQL visibility search pool size and visibility wait timeout must be positive"
+                    .into(),
             ));
         }
         let mut slots = Vec::with_capacity(pool_size);
         for slot_index in 0..pool_size {
             let mut slot = ConnectionSlot::open(configuration).await?;
             if slot_index == 0 {
-                slot.ensure_schema_with_timeout(configuration, SCHEMA_SETUP_TIMEOUT)
+                slot.ensure_schema_with_timeout(configuration, dialect, SCHEMA_SETUP_TIMEOUT)
                     .await?;
             }
             slots.push(Mutex::new(slot));
         }
         Ok(Self {
             configuration: configuration.clone(),
+            dialect,
+            registry_reader,
+            attribute_slot_cache: Mutex::new(None),
             slots,
             free_slots: StandardMutex::new((0..pool_size).collect()),
             available_slots: Semaphore::new(pool_size),
             visibility_wait,
             visibility_wait_timeout,
         })
+    }
+
+    pub(crate) fn dialect(&self) -> VisibilityDialect {
+        self.dialect
+    }
+
+    pub(crate) async fn attribute_slots(&self) -> Result<Vec<AttributeSlot>, SearchError> {
+        let Some(reader) = &self.registry_reader else {
+            return Ok(Vec::new());
+        };
+        let registry = reader.read_attribute_index_registry().await?;
+        let mut cached = self.attribute_slot_cache.lock().await;
+        if let Some((version, assignments)) = &*cached
+            && *version == registry.version
+        {
+            return Ok(assignments.clone());
+        }
+        let assignments = assign_attribute_slots(&registry)?;
+        *cached = Some((registry.version, assignments.clone()));
+        Ok(assignments)
+    }
+
+    pub(crate) async fn backfill_registered_attributes(&self) -> Result<(), SearchError> {
+        if self.dialect != VisibilityDialect::Postgres {
+            return Ok(());
+        }
+        let mut slot = self.lock_next_slot().await;
+        if slot.is_disconnected() {
+            slot.reconnect(&self.configuration).await?;
+        }
+        let transaction = slot.client.transaction().await.map_err(|source| {
+            classify_database_error(&self.configuration, "begin Attribute slot backfill", source)
+        })?;
+        transaction
+            .batch_execute("SET LOCAL statement_timeout = '15s'; SET LOCAL lock_timeout = '5s'")
+            .await
+            .map_err(|source| {
+                classify_database_error(
+                    &self.configuration,
+                    "bound Attribute slot backfill operations",
+                    source,
+                )
+            })?;
+        super::slots::lock_attribute_slots(&transaction).await?;
+        let assignments = self.attribute_slots().await?;
+        super::slots::backfill_attribute_slots(&transaction, &assignments).await?;
+        transaction.commit().await.map_err(|source| {
+            classify_database_error(
+                &self.configuration,
+                "commit Attribute slot backfill",
+                source,
+            )
+        })?;
+        Ok(())
+    }
+
+    async fn ready_attribute_slots(&self) -> Result<Vec<AttributeSlot>, SearchError> {
+        if self.dialect != VisibilityDialect::Postgres {
+            return Ok(Vec::new());
+        }
+        let assignments = self.attribute_slots().await?;
+        let mut slot = self.lock_next_slot().await;
+        if slot.is_disconnected() {
+            slot.reconnect(&self.configuration).await?;
+        }
+        super::slots::read_ready_slots(&slot.client, assignments)
+            .await
+            .map_err(|error| {
+                SearchError::Unavailable(self.configuration.redact_credentials(error.to_string()))
+            })
     }
 
     async fn query(&self, statement: &SqlStatement) -> Result<Vec<Row>, SearchError> {
@@ -121,7 +224,7 @@ impl ParadeDbSearchBackend {
                 Ok(Err(error)) => {
                     return Err(classify_database_error(
                         &self.configuration,
-                        "query ParadeDB visibility runs",
+                        "query SQL visibility runs",
                         error,
                     ));
                 }
@@ -131,7 +234,7 @@ impl ParadeDbSearchBackend {
                         slot.reconnect(&self.configuration).await?;
                     } else {
                         return Err(SearchError::Unavailable(format!(
-                            "query ParadeDB visibility runs timed out after {DATABASE_OPERATION_TIMEOUT:?}"
+                            "query SQL visibility runs timed out after {DATABASE_OPERATION_TIMEOUT:?}"
                         )));
                     }
                 }
@@ -171,7 +274,7 @@ impl ParadeDbSearchBackend {
 pub(super) struct PooledConnectionSlot<'a> {
     slot: MutexGuard<'a, ConnectionSlot>,
     slot_index: usize,
-    backend: &'a ParadeDbSearchBackend,
+    backend: &'a SqlVisibilitySearchBackend,
     _permit: SemaphorePermit<'a>,
 }
 
@@ -210,17 +313,19 @@ impl ConnectionSlot {
         let OpenConnection { client, driver } =
             configuration.connect().await.map_err(|error| match error {
                 ConnectionError::Timeout(timeout) => SearchError::Unavailable(format!(
-                    "connect to ParadeDB timed out after {timeout:?}"
+                    "connect to SQL visibility database timed out after {timeout:?}"
                 )),
-                ConnectionError::Database(source) => {
-                    classify_database_error(configuration, "connect to ParadeDB", source)
-                }
+                ConnectionError::Database(source) => classify_database_error(
+                    configuration,
+                    "connect to SQL visibility database",
+                    source,
+                ),
             })?;
         let connection_settings = configuration.clone();
         let connection_task = tokio::spawn(async move {
             if let Err(error) = driver.await {
                 let error = connection_settings.redact_credentials(error_with_sources(&error));
-                tracing::error!(%error, "ParadeDB search connection closed");
+                tracing::error!(%error, "SQL visibility search connection closed");
             }
         });
         Ok(Self {
@@ -233,14 +338,20 @@ impl ConnectionSlot {
     async fn ensure_schema_with_timeout(
         &mut self,
         configuration: &ConnectionSettings,
+        dialect: VisibilityDialect,
         timeout: Duration,
     ) -> Result<(), SearchError> {
-        match tokio::time::timeout(timeout, ensure_schema(&mut self.client)).await {
+        match tokio::time::timeout(
+            timeout,
+            ensure_schema_for_dialect(&mut self.client, dialect),
+        )
+        .await
+        {
             Ok(result) => result.map_err(|error| schema_search_error(configuration, error)),
             Err(_) => {
                 self.invalidate();
                 Err(SearchError::Unavailable(format!(
-                    "ensure ParadeDB visibility schema timed out after {timeout:?}"
+                    "ensure SQL visibility schema timed out after {timeout:?}"
                 )))
             }
         }
@@ -272,7 +383,7 @@ impl Drop for ConnectionSlot {
 }
 
 #[async_trait]
-impl SearchBackend for ParadeDbSearchBackend {
+impl SearchBackend for SqlVisibilitySearchBackend {
     async fn search(&self, request: SearchRequest<'_>) -> Result<SearchPage, SearchError> {
         let page_size = if request.page_size == 0 {
             DEFAULT_PAGE_SIZE
@@ -292,11 +403,14 @@ impl SearchBackend for ParadeDbSearchBackend {
             run_id: position.run_id.to_string(),
         });
         let limit = (page_size + 1) as i64;
-        let statement = translate_query(
+        let assignments = self.ready_attribute_slots().await?;
+        let statement = translate_query_for_dialect(
             &query,
             &tenant_column_value(request.tenant_id),
             limit,
             cursor.as_ref(),
+            self.dialect,
+            &assignments,
         )
         .map_err(translation_error)?;
         if let Some(visibility_wait) = &self.visibility_wait {
@@ -307,7 +421,7 @@ impl SearchBackend for ParadeDbSearchBackend {
             .await
             .map_err(|_| {
                 SearchError::Unavailable(format!(
-                    "wait for ParadeDB projection visibility timed out after {:?}",
+                    "wait for SQL visibility projection visibility timed out after {:?}",
                     self.visibility_wait_timeout
                 ))
             })??;
@@ -419,7 +533,11 @@ fn schema_search_error(configuration: &ConnectionSettings, error: SchemaError) -
         SchemaError::Database { operation, source } => {
             classify_database_error(configuration, operation, source)
         }
-        SchemaError::NewerVersion { .. } => SearchError::Internal(error.to_string()),
+        SchemaError::NewerVersion { .. }
+        | SchemaError::DialectMismatch { .. }
+        | SchemaError::UnsupportedPostgresVersion { .. } => {
+            SearchError::Internal(error.to_string())
+        }
     }
 }
 
@@ -477,7 +595,7 @@ mod tests {
             );
             let classified = classify_database_error(
                 &ConnectionSettings::from_config(Config::new()),
-                "connect to ParadeDB",
+                "connect to SQL visibility database",
                 error,
             );
             match (is_transient, classified) {
@@ -520,7 +638,7 @@ mod tests {
         assert!(matches!(
             classify_database_error(
                 &ConnectionSettings::from_config(Config::new()),
-                "connect to ParadeDB",
+                "connect to SQL visibility database",
                 error
             ),
             SearchError::Unavailable(message) if message.contains("SQLSTATE none")
@@ -619,7 +737,11 @@ mod tests {
             .expect("fake server accepts startup");
         let result = tokio::time::timeout(
             Duration::from_secs(1),
-            slot.ensure_schema_with_timeout(&connection_settings, Duration::from_millis(50)),
+            slot.ensure_schema_with_timeout(
+                &connection_settings,
+                super::VisibilityDialect::ParadeDb,
+                Duration::from_millis(50),
+            ),
         )
         .await
         .expect("schema setup has a client-side deadline");

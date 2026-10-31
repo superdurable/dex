@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{
     AttributeIndexCapacity, AttributeIndexDeclaration, MetadataError,
@@ -17,6 +18,8 @@ use dexzd_keyspace::TenantId;
 use dexzd_object_store::ObjectStore;
 use dexzd_protocol::dex::{ErrorSubStatus, IndexType, SyncAttributeIndexRequest};
 use dexzd_protocol::dexzd::v1::AttributeIndexRegistry;
+use dexzd_search::SearchError;
+use dexzd_search::sql_visibility::AttributeIndexRegistryReader;
 use dexzd_visibility_query::FieldRegistry;
 use tokio::sync::Mutex;
 
@@ -97,12 +100,10 @@ impl AttributeIndexes {
         tenant_id: TenantId,
     ) -> Result<FieldRegistry, FlowOperationError> {
         let mut cached_registry = self.cached_registry.lock().await;
-        if cached_registry.is_none() {
-            let registry = read_attribute_index_registry(self.object_store.as_ref())
-                .await
-                .map_err(registry_error)?;
-            *cached_registry = Some(registry);
-        }
+        let registry = read_attribute_index_registry(self.object_store.as_ref())
+            .await
+            .map_err(registry_error)?;
+        *cached_registry = Some(registry);
         let mut fields = FieldRegistry::new();
         for registration in cached_registry
             .iter()
@@ -139,5 +140,19 @@ fn registry_error(error: MetadataError) -> FlowOperationError {
         other => FlowOperationError::Internal {
             detail: other.to_string(),
         },
+    }
+}
+
+#[async_trait]
+impl AttributeIndexRegistryReader for AttributeIndexes {
+    async fn read_attribute_index_registry(&self) -> Result<AttributeIndexRegistry, SearchError> {
+        let mut cached_registry = self.cached_registry.lock().await;
+        let registry = read_attribute_index_registry(self.object_store.as_ref())
+            .await
+            .map_err(|error| {
+                SearchError::Unavailable(format!("read Attribute index registry: {error}"))
+            })?;
+        *cached_registry = Some(registry.clone());
+        Ok(registry)
     }
 }

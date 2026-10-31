@@ -513,6 +513,7 @@ async fn frozen_purge_reads_are_not_found_except_load_blobs_with_paradedb_search
     };
     let schema = ParadeDbSchema::create(&database_url).await;
     assert_frozen_purge_reads(Some(ParadeDbSettings {
+        is_postgres: false,
         connection_string: &database_url,
         schema: schema.name(),
     }))

@@ -2,12 +2,12 @@
 
 ## Purpose
 
-SearchFlows backends for server-zd: a builtin evaluator over local search documents and a ParadeDB projection.
+SearchFlows backends for server-zd: a builtin evaluator over local search documents and SQL visibility projections.
 
 ## ParadeDB projection
 
-`ParadeDbSearchBackend::connect` creates the visibility schema and opens exactly
-`pool_size` database connections. Construct `ParadeDbProjector` from an `Arc` of
+`SqlVisibilitySearchBackend::connect` creates the visibility schema and opens exactly
+`pool_size` database connections. Construct `SqlVisibilityProjector` from an `Arc` of
 that backend. Searches and projection batches share those connections; a busy
 pool queues work, including with pool sizes one and two. The caller's request
 deadline should cancel the search future if it remains queued too long.
@@ -41,3 +41,33 @@ An unindexable committed document is recorded in
 error. Construct the projector with `new_with_metric_recorder` to count these
 events. A later valid upsert or delete removes its skipped-document record.
 The progress position still advances after the skip.
+
+## SQL dialects and Attribute slots
+
+`sql_visibility` shares translation, rows, batched upserts, schema management,
+connection pooling, projection, and visibility waits between ParadeDB and plain
+PostgreSQL. `VisibilityDialect` is injected at connection construction.
+`migration.sql` owns shared tables and B-trees; `paradedb.sql` owns the extension
+and BM25 index; `postgres.sql` owns typed slots and partial B-tree/GIN indexes.
+PostgreSQL requires version 15 or newer and no extensions.
+
+The registry reader is constructor-injected and shared with the API registry
+cache. Slots follow per-tenant, per-type registration order and exclude system
+fields. JSONB buckets remain authoritative. New registrations backfill in
+bounded partition batches under an advisory transaction lock. Queries use JSONB
+until the assignment is ready. Text slots contain truncated SHA-256 term hashes
+and every Text match retains its exact JSONB recheck. The database tokenizer is
+shared by slot writes and the recheck, preserving database-locale behavior.
+
+The schema records its dialect. A mismatch refuses startup. Version-three
+ParadeDB schemas gain metadata without truncation or rebuilding. An empty
+progress table causes the server projection worker to rebuild committed data.
+The PostgreSQL backend enables registry capacity and 1024-byte Keyword ingress
+limits. Projection skips older oversized values through the existing poison
+record and metric path.
+
+Run database integration coverage through `DEX_ZD_PARADEDB_URL` or
+`DEX_ZD_POSTGRES_URL`. CI uses separate ParadeDB and vanilla `postgres:17`
+services, including differential predicates, paging, projection, and backfill.
+SearchFlows must keep `query_typed` unnamed so parameter-specific plans can use
+partial slot indexes.

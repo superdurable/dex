@@ -124,6 +124,8 @@ pub struct NodeMetrics {
     pub attribute_sync_dropped_entries: Counter,
     /// Attribute Store writes rejected because a newer owner raised the fencing token.
     pub attribute_sync_fenced_writes: Counter,
+    /// Committed search documents omitted because their indexed values are unsupported.
+    pub search_skipped_documents: Counter,
 }
 
 /// A lifecycle role for one node.
@@ -368,6 +370,11 @@ impl NodeMetrics {
             "Attribute Store writes rejected by a newer owner's fencing token.",
             metrics.attribute_sync_fenced_writes.clone(),
         );
+        registry.register(
+            "dexzd_search_skipped_documents",
+            "Committed documents omitted from the search projection.",
+            metrics.search_skipped_documents.clone(),
+        );
         registry.register_collector(Box::new(LocalStorageCollector {
             directory: local_store_directory,
             gauge: metrics.local_storage_bytes.clone(),
@@ -418,6 +425,7 @@ impl NodeMetrics {
             attribute_sync_write_failures: AttributeSyncWriteFailures::default(),
             attribute_sync_dropped_entries: Counter::default(),
             attribute_sync_fenced_writes: Counter::default(),
+            search_skipped_documents: Counter::default(),
         }
     }
 

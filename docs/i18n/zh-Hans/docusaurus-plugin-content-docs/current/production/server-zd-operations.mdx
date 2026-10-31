@@ -804,7 +804,7 @@ Flow type 名称、Step 图和已持久化的 payload。
 
 ## 备份和恢复
 
-对象存储前缀是唯一的数据源。本地存储从它重建。ParadeDB 搜索投影在启动后从本地存储
+对象存储前缀是唯一的数据源。本地存储从它重建。外部搜索投影在启动后从本地存储
 重建。配置了 **objectStore.hardDeleteStore** 时，它的前缀存放硬删除 Attribute 的值，
 也要用同样的方式保护。
 
@@ -820,3 +820,49 @@ Flow type 名称、Step 图和已持久化的 payload。
 4. 启动 server-zd。它会用恢复后的前缀中最新的快照和日志进行恢复。
 
 恢复时间点之后确认的写入会丢失。
+
+## PostgreSQL 搜索
+
+选择 **search.backend: postgres**，即可在 PostgreSQL 15 或更新版本上使用索引搜索，
+无需安装扩展。它不依赖 **pg_search**、**btree_gin** 或其他扩展。
+如果需要的索引 Attribute 数量超过 PostgreSQL 槽位上限，请选择 ParadeDB。
+
+~~~yaml
+search:
+  backend: postgres
+  postgresConnectionString: "postgres://USER:PASSWORD@HOST:5432/DATABASE"
+  postgresConnectionPoolSize: 10
+  postgresSchema: public
+  readYourWritesWait: 2s
+~~~
+
+服务端通过 PostgreSQL 协议连接 **postgresConnectionString**，不会绑定或发布这个地址。
+该字段为空时，读取 **DEX_ZD_POSTGRES_CONNECTION_STRING**。
+连接支持与 **paradeDbConnectionString** 相同的 TLS 选项，序列化配置时会隐藏连接字符串。
+连接池大小默认为 10，schema 默认为 **public**。
+
+每个租户有 10 个 Keyword 槽位，Int、Datetime、Double、Bool、KeywordArray 和 Text
+各有 3 个槽位。槽位按注册顺序分配，服务端上的应用共用 registry。
+某种类型的槽位用满后，再注册 Attribute 会返回 **FAILED_PRECONDITION**。
+如果已有 registry 超过这些上限，服务端也会拒绝启动。
+registry 没有删除操作，用满后需要使用新的 server。
+
+索引 Keyword 值以及 KeywordArray 中的每个元素最多包含 1024 个 UTF-8 字节。
+新的写入超过上限时返回 **INVALID_ARGUMENT**。
+如果被拒绝的是 Worker 的 Step 结果，该 Step 会失败。
+对于此前已提交的超长索引值，投影会跳过对应文档并记录 skipped document；
+Flow 状态仍然保持已提交。
+
+新注册的 Attribute 在槽位回填完成前使用现有 JSONB 查询路径。
+回填期间结果正确，但查询可能较慢。未注册的索引键也使用 JSONB。
+**!=** 和 **NOT IN** 等否定条件通常无法使用索引。
+显式 **ORDER BY StartTime** 和 **ORDER BY CloseTime** 会对所有匹配行排序，
+开销随匹配行数量增加。
+
+Text 匹配查询中的所有 term，不按 BM25 相关度排序。
+投影是异步的，两种外部搜索后端共用 **readYourWritesWait**。
+
+schema 会记录搜索后端。使用不同后端启动时，服务端会报错。
+在 PostgreSQL 和 ParadeDB 之间切换，需要指定新的 database 或 schema。
+服务端会自动从已提交状态重建搜索投影。
+已有的 ParadeDB 第三版 schema 会原地升级，不清空数据。

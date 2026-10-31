@@ -10,7 +10,7 @@ use dexzd_protocol::dex::IndexType;
 use dexzd_visibility_query::{Expression, Literal, Operator, Predicate, Query, SortDirection};
 use thiserror::Error;
 
-use super::{SearchRow, SqlStatement, SqlValue};
+use super::{AttributeSlot, SearchRow, SqlStatement, SqlValue, VisibilityDialect};
 
 pub(super) const SELECT_COLUMNS: &str = "tenant_id, run_id, workflow_id, workflow_type, flow_type, execution_status, start_time_ns, close_time_ns, dex_parent_flow_id, active_step_types, dex_work_queue_permissions, version, sa_keyword::text AS sa_keyword, sa_text::text AS sa_text, sa_number::text AS sa_number, sa_number_types::text AS sa_number_types, sa_datetime::text AS sa_datetime, sa_bool::text AS sa_bool, sa_wire::text AS sa_wire";
 pub(super) const DEFAULT_ORDER: &str = "ORDER BY is_running DESC, close_time_ns DESC NULLS LAST, start_time_ns DESC, run_id COLLATE \"C\" ASC";
@@ -46,7 +46,7 @@ impl PageCursor {
 #[non_exhaustive]
 pub enum SqlTranslationError {
     /// The query uses a feature this backend cannot express.
-    #[error("unsupported ParadeDB visibility query: {feature}")]
+    #[error("unsupported SQL visibility query: {feature}")]
     Unsupported { feature: String },
     /// The page size, tenant ID, or cursor is invalid.
     #[error("invalid ParadeDB pagination: {reason}")]
@@ -59,6 +59,25 @@ pub fn translate_query(
     tenant_id: &str,
     page_size: i64,
     cursor: Option<&PageCursor>,
+) -> Result<SqlStatement, SqlTranslationError> {
+    translate_query_for_dialect(
+        query,
+        tenant_id,
+        page_size,
+        cursor,
+        VisibilityDialect::ParadeDb,
+        &[],
+    )
+}
+
+/// Selects tenant runs using ready slots only for the PostgreSQL dialect.
+pub fn translate_query_for_dialect(
+    query: &Query,
+    tenant_id: &str,
+    page_size: i64,
+    cursor: Option<&PageCursor>,
+    dialect: VisibilityDialect,
+    assignments: &[AttributeSlot],
 ) -> Result<SqlStatement, SqlTranslationError> {
     if tenant_id.is_empty() {
         return Err(SqlTranslationError::InvalidPagination {
@@ -77,9 +96,13 @@ pub fn translate_query(
     }
     let mut renderer = Renderer {
         parameters: vec![SqlValue::Text(tenant_id.to_owned())],
+        dialect,
+        assignments,
+        tenant_id,
     };
     let predicate = renderer.render_expression(query.expression())?;
-    let has_application_field = contains_application_field(query.expression());
+    let has_application_field =
+        dialect == VisibilityDialect::ParadeDb && contains_application_field(query.expression());
     let filtered_predicate = if has_application_field {
         // Coalesce prevents pg_search pushdown from dropping empty arrays that satisfy IS NOT NULL.
         format!("coalesce(({predicate}), FALSE)")
@@ -128,11 +151,14 @@ pub fn translate_query(
     })
 }
 
-struct Renderer {
+struct Renderer<'registry> {
+    dialect: VisibilityDialect,
+    assignments: &'registry [AttributeSlot],
+    tenant_id: &'registry str,
     parameters: Vec<SqlValue>,
 }
 
-impl Renderer {
+impl Renderer<'_> {
     fn bind(&mut self, value: SqlValue, sql_type: &str) -> String {
         self.parameters.push(value);
         format!("${}::{sql_type}", self.parameters.len())
@@ -219,6 +245,23 @@ impl Renderer {
             return Ok(FieldSource {
                 expression: column.to_owned(),
                 is_json_array: false,
+                is_slot: false,
+            });
+        }
+        if self.dialect == VisibilityDialect::Postgres
+            && let Some(assignment) = self.assignments.iter().find(|assignment| {
+                assignment.tenant_id.to_string() == self.tenant_id
+                    && assignment.index_key == predicate.field()
+                    && assignment.index_type == predicate.index_type()
+            })
+            && predicate.index_type() != IndexType::Text
+            && !(predicate.index_type() == IndexType::KeywordArray
+                && matches!(predicate.operator(), Operator::IsNull | Operator::IsNotNull))
+        {
+            return Ok(FieldSource {
+                expression: assignment.slot_column.clone(),
+                is_json_array: false,
+                is_slot: true,
             });
         }
         let bucket = match predicate.index_type() {
@@ -248,6 +291,7 @@ impl Renderer {
         Ok(FieldSource {
             expression,
             is_json_array: predicate.index_type() == IndexType::KeywordArray,
+            is_slot: false,
         })
     }
 
@@ -278,7 +322,24 @@ impl Renderer {
             Operator::StartsWith => {
                 let (parameter, _) = literal_parameter(first)?;
                 let bound = self.bind(parameter, "text");
-                format!("left({expression}, char_length({bound})) = {bound}")
+                let recheck = format!("left({expression}, char_length({bound})) = {bound}");
+                if self.dialect == VisibilityDialect::Postgres {
+                    if let Literal::String(prefix) = first {
+                        let lower = format!("({expression}) COLLATE \"C\" >= {bound}");
+                        if let Some(successor) = prefix_successor(prefix) {
+                            let upper = self.bind(SqlValue::Text(successor), "text");
+                            format!(
+                                "({lower} AND ({expression}) COLLATE \"C\" < {upper} AND {recheck})"
+                            )
+                        } else {
+                            format!("({lower} AND {recheck})")
+                        }
+                    } else {
+                        recheck
+                    }
+                } else {
+                    recheck
+                }
             }
             Operator::Between => format!(
                 "({}) AND ({})",
@@ -323,6 +384,8 @@ impl Renderer {
                     "CASE WHEN ({}) IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM jsonb_array_elements_text({}) AS element(value) WHERE element.value = {bound}) END",
                     source.expression, source.expression
                 ))
+            } else if source.is_slot {
+                Ok(format!("{} @> ARRAY[{bound}]", source.expression))
             } else {
                 Ok(format!("{bound} = ANY({})", source.expression))
             }
@@ -363,8 +426,22 @@ impl Renderer {
             if terms.is_empty() {
                 return format!("CASE WHEN {expression} IS NULL THEN NULL ELSE FALSE END");
             }
+            let hashes = super::slots::text_term_hashes(value);
             let bound = self.bind(SqlValue::TextArray(terms), "text[]");
-            format!("regexp_split_to_array(lower({expression}), '[^[:alnum:]]+') @> {bound}")
+            let recheck =
+                format!("regexp_split_to_array(lower({expression}), '[^[:alnum:]]+') @> {bound}");
+            if let Some(assignment) = self.assignments.iter().find(|assignment| {
+                self.dialect == VisibilityDialect::Postgres
+                    && assignment.tenant_id.to_string() == self.tenant_id
+                    && assignment.index_key == predicate.field()
+                    && assignment.index_type == IndexType::Text
+            }) {
+                let column = assignment.slot_column.clone();
+                let hash_bound = self.bind(SqlValue::TextArray(hashes), "text[]");
+                format!("({column} @> {hash_bound} AND {recheck})")
+            } else {
+                recheck
+            }
         };
         let positive = match predicate.operator() {
             Operator::Equal | Operator::NotEqual => matches_terms(&predicate.literals()[0]),
@@ -436,6 +513,7 @@ impl Renderer {
 struct FieldSource {
     expression: String,
     is_json_array: bool,
+    is_slot: bool,
 }
 
 fn literal_parameter(literal: &Literal) -> Result<(SqlValue, &'static str), SqlTranslationError> {
@@ -450,7 +528,7 @@ fn literal_parameter(literal: &Literal) -> Result<(SqlValue, &'static str), SqlT
     }
 }
 
-fn tokenize_text(value: &str) -> Vec<String> {
+pub(crate) fn tokenize_text(value: &str) -> Vec<String> {
     value
         .to_lowercase()
         .split(|character: char| !character.is_alphanumeric())
@@ -481,4 +559,19 @@ fn contains_application_field(expression: &Expression) -> bool {
         ),
         _ => false,
     }
+}
+
+fn prefix_successor(prefix: &str) -> Option<String> {
+    let mut characters = prefix.chars().collect::<Vec<_>>();
+    while let Some(character) = characters.pop() {
+        let mut next = u32::from(character) + 1;
+        if (0xD800..=0xDFFF).contains(&next) {
+            next = 0xE000;
+        }
+        if let Some(successor) = char::from_u32(next) {
+            characters.push(successor);
+            return Some(characters.into_iter().collect());
+        }
+    }
+    None
 }

@@ -944,7 +944,7 @@ graphs, and persisted payloads.
 ## Backup and restore
 
 The object storage prefix is the only source of truth. The local store is
-rebuilt from it. A ParadeDB search projection is rebuilt from the local store
+rebuilt from it. An external search projection is rebuilt from the local store
 after startup. When **objectStore.hardDeleteStore** is configured, its prefix
 holds hard-delete Attribute values. Protect it the same way.
 
@@ -965,3 +965,54 @@ To restore:
    restored prefix.
 
 Writes acknowledged after the restore point are lost.
+
+## PostgreSQL search
+
+Choose **search.backend: postgres** to run indexed search on PostgreSQL 15 or
+newer without extensions. It does not require **pg_search**, **btree_gin**, or
+any other extension. Choose ParadeDB when you need more indexed Attributes
+than the PostgreSQL slot limits allow.
+
+~~~yaml
+search:
+  backend: postgres
+  postgresConnectionString: "postgres://USER:PASSWORD@HOST:5432/DATABASE"
+  postgresConnectionPoolSize: 10
+  postgresSchema: public
+  readYourWritesWait: 2s
+~~~
+
+The server connects to **postgresConnectionString** using the PostgreSQL
+protocol. It neither binds nor advertises that address. Leave the field empty
+to read **DEX_ZD_POSTGRES_CONNECTION_STRING**. The connection supports the same
+TLS options as **paradeDbConnectionString**, and serialized configuration
+redacts it. The default pool size is 10, and the default schema is **public**.
+
+Each tenant has 10 Keyword slots and 3 slots each for Int, Datetime, Double,
+Bool, KeywordArray, and Text. Registrations take slots in registration order.
+The registry is shared by the applications on the server. Registering another
+Attribute after a type reaches its limit returns **FAILED_PRECONDITION**.
+Startup also fails if the existing registry exceeds these limits. The registry
+has no delete operation. A full registry requires a new server.
+
+An indexed Keyword value or KeywordArray element may contain at most 1024
+UTF-8 bytes. A larger new write returns **INVALID_ARGUMENT**. A rejected
+Worker Step result causes that Step to fail. A previously committed document
+with an oversized indexed value is omitted from search and recorded as a
+skipped document; its Flow state remains committed.
+
+A newly registered Attribute uses the existing JSONB query path until its
+slot backfill finishes. Results stay correct during that window, but queries
+can be slower. Unregistered index keys also use JSONB. Negative predicates,
+such as **!=** and **NOT IN**, often cannot use an index. Explicit
+**ORDER BY StartTime** and **ORDER BY CloseTime** sort all matching rows.
+Their cost grows with the number of matching rows.
+
+Text matches all query terms. It does not rank results by BM25 relevance.
+Projection is asynchronous, and the same **readYourWritesWait** applies to
+both external search backends.
+
+A schema records its search backend. Starting with a different backend fails.
+To switch between PostgreSQL and ParadeDB, select a new database or schema.
+The server rebuilds its search projection from committed state automatically.
+Existing ParadeDB version-three schemas upgrade in place without clearing data.

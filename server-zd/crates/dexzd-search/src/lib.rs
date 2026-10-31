@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! SearchFlows backends for server-zd: a builtin evaluator over local search documents and a ParadeDB projection.
+//! SearchFlows backends for server-zd: a builtin evaluator over local search documents and SQL visibility projections.
 
 mod page_token;
 mod search_backend;
@@ -16,5 +16,5 @@ pub use search_backend::{SearchBackend, SearchError, SearchPage, SearchRequest};
 /// Builtin SearchFlows over committed local run documents.
 pub mod builtin;
 
-/// ParadeDB schema, projection rows, and visibility query translation.
-pub mod paradedb;
+/// SQL visibility schema, projection rows, and visibility query translation.
+pub mod sql_visibility;

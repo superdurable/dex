@@ -124,7 +124,7 @@ jobs:
           shared-key: server-zd-paradedb
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Compare ParadeDB and builtin search
-        run: cargo test -p dexzd-search paradedb::integration::paradedb_matches_builtin_evaluator -- --exact --nocapture
+        run: cargo test -p dexzd-search sql_visibility::integration::paradedb_matches_builtin_evaluator -- --exact --nocapture
       - name: Write the Postgres Attribute Store
         run: cargo test -p dexzd-attribute-store postgres_integration_tests -- --skip postgres_verify_full
       - name: Start PostgreSQL with a self-signed TLS certificate
@@ -211,7 +211,7 @@ jobs:
           set -euo pipefail
           : "${DEX_ZD_PARADEDB_TLS_URL:?the TLS ParadeDB URL is required}"
           : "${DEX_ZD_PARADEDB_TLS_CA_CERT:?the TLS ParadeDB CA certificate is required}"
-          cargo test -p dexzd-search paradedb::integration::paradedb_projection_and_search_use_direct_tls -- --exact 2>&1 | tee "$RUNNER_TEMP/paradedb-direct-tls-test.log"
+          cargo test -p dexzd-search sql_visibility::integration::paradedb_projection_and_search_use_direct_tls -- --exact 2>&1 | tee "$RUNNER_TEMP/paradedb-direct-tls-test.log"
           grep -Eq 'test result: ok\. 1 passed; 0 failed;' "$RUNNER_TEMP/paradedb-direct-tls-test.log"
       - name: Serve with ParadeDB search
         run: cargo test -p dexzd-server --test serve_process paradedb_search_projects_commits_and_rebuilds_on_startup -- --exact
@@ -227,3 +227,45 @@ jobs:
           set -o pipefail
           cargo test -p dexzd-e2e-tests --test dev_server attribute_sync::commit_to_table_p99_latency_stays_within_two_seconds_under_steady_load -- --exact --nocapture 2>&1 | tee "$RUNNER_TEMP/attribute-sync-latency.log"
           grep -q '^attribute_sync_commit_to_table_latency:' "$RUNNER_TEMP/attribute-sync-latency.log"
+
+  postgres:
+    name: PostgreSQL visibility parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: server-zd
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dexzd
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dexzd"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DEX_ZD_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/dexzd
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for the RocksDB bindings
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-postgres
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Compare PostgreSQL and builtin search, including projection
+        run: cargo test -p dexzd-search sql_visibility::integration::postgres_matches_builtin_evaluator -- --exact --nocapture
+      - name: Backfill slots, verify plans, and check dialect isolation
+        run: cargo test -p dexzd-search sql_visibility::slots::integration -- --nocapture
+      - name: Serve, recover, and search with PostgreSQL
+        run: cargo test -p dexzd-server --test serve_process postgres_ -- --nocapture

@@ -12,7 +12,7 @@ mod projector;
 pub use changes::{
     SearchDocumentChange, extract_batch_search_document_changes, extract_search_document_changes,
 };
-pub use projector::{ParadeDbProjector, ProjectionError, ProjectionMetricRecorder};
+pub use projector::{ProjectionError, ProjectionMetricRecorder, SqlVisibilityProjector};
 
 #[cfg(test)]
 mod integration;

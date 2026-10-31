@@ -11,17 +11,33 @@ use tokio_postgres::Client;
 use tokio_postgres::Transaction;
 use tokio_postgres::types::{ToSql, Type};
 
-use super::MIGRATION_SQL;
+use super::VisibilityDialect;
 
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 const SCHEMA_ADVISORY_LOCK: i64 = 5_589_034_107_693_961_330;
 
-/// A failure while creating or checking the ParadeDB visibility schema.
+/// A failure while creating or checking the SQL visibility schema.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum SchemaError {
+    /// The schema belongs to another visibility backend.
+    #[error(
+        "visibility schema dialect {found} does not match configured backend {expected}; use a new database or schema"
+    )]
+    DialectMismatch {
+        /// Dialect recorded by the schema.
+        found: String,
+        /// Dialect requested by the server.
+        expected: &'static str,
+    },
+    /// PostgreSQL is older than the minimum supported version.
+    #[error("PostgreSQL visibility requires PostgreSQL 15 or newer; server version is {found}")]
+    UnsupportedPostgresVersion {
+        /// Numeric PostgreSQL server version.
+        found: i32,
+    },
     /// The database has a schema newer than this binary supports.
-    #[error("ParadeDB visibility schema version {found} exceeds supported version {supported}")]
+    #[error("SQL visibility schema version {found} exceeds supported version {supported}")]
     NewerVersion {
         /// Version stored in ParadeDB.
         found: i32,
@@ -29,7 +45,7 @@ pub enum SchemaError {
         supported: i32,
     },
     /// A schema operation failed in Postgres.
-    #[error("{operation} ParadeDB visibility schema: {source}")]
+    #[error("{operation} SQL visibility schema: {source}")]
     Database {
         /// Failed schema operation.
         operation: &'static str,
@@ -41,6 +57,14 @@ pub enum SchemaError {
 
 /// Installs or upgrades the visibility schema atomically and rejects newer versions.
 pub async fn ensure_schema(client: &mut Client) -> Result<(), SchemaError> {
+    ensure_schema_for_dialect(client, VisibilityDialect::ParadeDb).await
+}
+
+/// Installs the requested dialect, preserving version-three ParadeDB documents in place.
+pub async fn ensure_schema_for_dialect(
+    client: &mut Client,
+    dialect: VisibilityDialect,
+) -> Result<(), SchemaError> {
     let transaction = client
         .transaction()
         .await
@@ -56,6 +80,7 @@ pub async fn ensure_schema(client: &mut Client) -> Result<(), SchemaError> {
             source,
         })?;
     if is_current_version(schema_version(&transaction).await?)? {
+        check_dialect(&transaction, dialect).await?;
         return commit_schema(transaction).await;
     }
     transaction
@@ -70,7 +95,24 @@ pub async fn ensure_schema(client: &mut Client) -> Result<(), SchemaError> {
         })?;
     let previous_version = schema_version(&transaction).await?;
     if is_current_version(previous_version)? {
+        check_dialect(&transaction, dialect).await?;
         return commit_schema(transaction).await;
+    }
+    if previous_version.is_some() {
+        check_dialect(&transaction, dialect).await?;
+    }
+    if dialect == VisibilityDialect::Postgres {
+        let row = transaction
+            .query_typed_one("SELECT current_setting('server_version_num')::integer", &[])
+            .await
+            .map_err(|source| SchemaError::Database {
+                operation: "read PostgreSQL version for",
+                source,
+            })?;
+        let found = row.get(0);
+        if found < 150_000 {
+            return Err(SchemaError::UnsupportedPostgresVersion { found });
+        }
     }
     transaction
         .batch_execute("CREATE TABLE IF NOT EXISTS dexzd_visibility_schema_version (id integer PRIMARY KEY CHECK (id = 1), version integer NOT NULL)")
@@ -79,11 +121,22 @@ pub async fn ensure_schema(client: &mut Client) -> Result<(), SchemaError> {
             operation: "create version table for",
             source,
         })?;
+    transaction.batch_execute("ALTER TABLE dexzd_visibility_schema_version ADD COLUMN IF NOT EXISTS dialect text NOT NULL DEFAULT 'paradedb'").await.map_err(|source| SchemaError::Database { operation: "add dialect to", source })?;
     transaction
-        .batch_execute(MIGRATION_SQL)
+        .batch_execute(include_str!("migration.sql"))
         .await
         .map_err(|source| SchemaError::Database {
             operation: "migrate",
+            source,
+        })?;
+    transaction
+        .batch_execute(match dialect {
+            VisibilityDialect::ParadeDb => include_str!("paradedb.sql"),
+            VisibilityDialect::Postgres => include_str!("postgres.sql"),
+        })
+        .await
+        .map_err(|source| SchemaError::Database {
+            operation: "migrate dialect of",
             source,
         })?;
     if previous_version.is_none_or(|version| version < 2) {
@@ -97,8 +150,8 @@ pub async fn ensure_schema(client: &mut Client) -> Result<(), SchemaError> {
     }
     transaction
         .execute_typed(
-            "INSERT INTO dexzd_visibility_schema_version (id, version) VALUES (1, $1::integer) ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version",
-            &[(&SCHEMA_VERSION as &(dyn ToSql + Sync), Type::INT4)],
+            "INSERT INTO dexzd_visibility_schema_version (id, version, dialect) VALUES (1, $1::integer, $2::text) ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, dialect = EXCLUDED.dialect",
+            &[(&SCHEMA_VERSION as &(dyn ToSql + Sync), Type::INT4), (&dialect.name(), Type::TEXT)],
         )
         .await
         .map_err(|source| SchemaError::Database {
@@ -111,7 +164,7 @@ pub async fn ensure_schema(client: &mut Client) -> Result<(), SchemaError> {
 async fn schema_version(transaction: &Transaction<'_>) -> Result<Option<i32>, SchemaError> {
     let table_row = transaction
         .query_typed_one(
-            "SELECT to_regclass('dexzd_visibility_schema_version') IS NOT NULL",
+            "SELECT to_regclass(format('%I.dexzd_visibility_schema_version', current_schema())) IS NOT NULL",
             &[],
         )
         .await
@@ -156,4 +209,21 @@ async fn commit_schema(transaction: Transaction<'_>) -> Result<(), SchemaError> 
             operation: "commit",
             source,
         })
+}
+
+async fn check_dialect(
+    transaction: &Transaction<'_>,
+    dialect: VisibilityDialect,
+) -> Result<(), SchemaError> {
+    let row = transaction.query_typed_opt("SELECT coalesce(to_jsonb(version_row)->>'dialect', 'paradedb') FROM dexzd_visibility_schema_version AS version_row WHERE id = 1", &[]).await.map_err(|source| SchemaError::Database { operation: "read dialect of", source })?;
+    if let Some(row) = row {
+        let found: String = row.get(0);
+        if found != dialect.name() {
+            return Err(SchemaError::DialectMismatch {
+                found,
+                expected: dialect.name(),
+            });
+        }
+    }
+    Ok(())
 }

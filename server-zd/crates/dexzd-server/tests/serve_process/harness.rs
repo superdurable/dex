@@ -228,6 +228,7 @@ pub(crate) struct ServeConfig<'a> {
 
 /// The ParadeDB database and schema that `search.backend: paradedb` uses.
 pub(crate) struct ParadeDbSettings<'a> {
+    pub(crate) is_postgres: bool,
     pub(crate) connection_string: &'a str,
     pub(crate) schema: &'a str,
 }
@@ -283,10 +284,17 @@ impl ServeConfig<'_> {
             None => String::new(),
         };
         let search = match &self.parade_db {
-            Some(parade_db) => format!(
-                "search:\n  backend: paradedb\n  paradeDbConnectionString: '{}'\n  paradeDbSchema: {}\n  paradeDbConnectionPoolSize: 2\n",
-                parade_db.connection_string, parade_db.schema
-            ),
+            Some(settings) => {
+                let (backend, prefix) = if settings.is_postgres {
+                    ("postgres", "postgres")
+                } else {
+                    ("paradedb", "paradeDb")
+                };
+                format!(
+                    "search:\n  backend: {backend}\n  {prefix}ConnectionString: '{}'\n  {prefix}Schema: {}\n  {prefix}ConnectionPoolSize: 2\n",
+                    settings.connection_string, settings.schema
+                )
+            }
             None => "search:\n  backend: builtin\n".to_owned(),
         };
         let contents = format!(
@@ -586,6 +594,10 @@ pub(crate) struct ParadeDbSchema {
 impl ParadeDbSchema {
     /// Installs `pg_search` and creates an empty schema with a name unique to this run.
     pub(crate) async fn create(database_url: &str) -> Self {
+        Self::create_for_dialect(database_url, false).await
+    }
+
+    pub(crate) async fn create_for_dialect(database_url: &str, is_postgres: bool) -> Self {
         let (client, connection) = tokio_postgres::connect(database_url, NoTls)
             .await
             .expect("the test connects to ParadeDB");
@@ -594,10 +606,12 @@ impl ParadeDbSchema {
                 eprintln!("the ParadeDB test connection closed: {error}");
             }
         });
-        client
-            .batch_execute("CREATE EXTENSION IF NOT EXISTS pg_search")
-            .await
-            .expect("pg_search is installed");
+        if !is_postgres {
+            client
+                .batch_execute("CREATE EXTENSION IF NOT EXISTS pg_search")
+                .await
+                .expect("pg_search is installed");
+        }
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the wall clock is after the Unix epoch")

@@ -15,7 +15,7 @@ use dexzd_apply::FlowStateReader;
 use dexzd_engine::{CommandCommitter, CommittedStateView};
 use dexzd_keyspace::{ColumnFamily, PartitionId, partition_meta_key};
 use dexzd_protocol::dexzd::v1::{LogPosition, PartitionMeta};
-use dexzd_search::paradedb::{ParadeDbProjector, ProjectionError};
+use dexzd_search::sql_visibility::{ProjectionError, SqlVisibilityProjector};
 use prost::Message;
 use tokio::sync::mpsc;
 
@@ -26,7 +26,7 @@ const MAX_RETRY_DELAY: Duration = Duration::from_secs(10);
 
 /// Projects committed frames into ParadeDB in commit order and rebuilds partitions it cannot follow.
 pub(crate) struct SearchProjectionWorker {
-    projector: ParadeDbProjector,
+    projector: SqlVisibilityProjector,
     committer: CommandCommitter,
     frames: Arc<CommittedSearchFrames>,
     queue: mpsc::Receiver<CommittedSearchFrame>,
@@ -54,7 +54,7 @@ impl SearchProjectionError {
 
 impl SearchProjectionWorker {
     pub(crate) fn new(
-        projector: ParadeDbProjector,
+        projector: SqlVisibilityProjector,
         committer: CommandCommitter,
         frames: Arc<CommittedSearchFrames>,
         queue: mpsc::Receiver<CommittedSearchFrame>,
@@ -75,8 +75,15 @@ impl SearchProjectionWorker {
         if !self.catch_up_partitions().await {
             return;
         }
+        let mut registry_refresh = tokio::time::interval(Duration::from_secs(1));
+        registry_refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
+                _ = registry_refresh.tick() => {
+                    if let Err(error) = self.projector.synchronize_attribute_slots().await {
+                        tracing::warn!(%error, "refreshing Attribute search slots failed");
+                    }
+                }
                 frame = self.queue.recv() => match frame {
                     Some(frame) => if !self.project_frame(frame).await { return; },
                     None => return,
@@ -127,7 +134,7 @@ impl SearchProjectionWorker {
         tracing::info!(
             partitions = self.partition_count,
             rebuilt_partitions,
-            "the ParadeDB search projection caught up"
+            "the SQL visibility search projection caught up"
         );
         true
     }
@@ -368,7 +375,7 @@ mod tests {
     use async_trait::async_trait;
     use dexzd_keyspace::PartitionId;
 
-    use dexzd_search::paradedb::ProjectionError;
+    use dexzd_search::sql_visibility::ProjectionError;
 
     use super::{PartitionRebuilder, SearchProjectionError, retry_partition_rebuild};
 

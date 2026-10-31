@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+aws-lc-rs.workspace = true
 dexzd-apply.workspace = true
 dexzd-keyspace.workspace = true
 dexzd-protocol.workspace = true

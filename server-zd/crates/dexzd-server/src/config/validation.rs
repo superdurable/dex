@@ -362,6 +362,28 @@ impl Config {
             "search.paradeDbSchema",
             "must be an unquoted PostgreSQL identifier of letters, digits, and underscores",
         )?;
+        if self.search.backend == SearchBackend::Postgres {
+            ensure(
+                !self.search.postgres_connection_string.trim().is_empty(),
+                "search.postgresConnectionString",
+                "is required for the postgres backend",
+            )?;
+        }
+        ensure(
+            self.search.postgres_connection_pool_size > 0,
+            "search.postgresConnectionPoolSize",
+            "must be positive",
+        )?;
+        ensure(
+            !self.search.postgres_schema.trim().is_empty(),
+            "search.postgresSchema",
+            "must be non-empty",
+        )?;
+        ensure(
+            is_unquoted_identifier(&self.search.postgres_schema),
+            "search.postgresSchema",
+            "must be an unquoted PostgreSQL identifier of letters, digits, and underscores",
+        )?;
         ensure(
             self.search.read_your_writes_wait > Duration::ZERO,
             "search.readYourWritesWait",
