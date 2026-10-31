@@ -166,7 +166,9 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 </SdkSnippet>
 </SdkTabs>
 
-## Read-only RPCs and terminal Flows
+## Read-only RPCs and terminal Flows {#read-only-rpcs-and-terminal-flows}
+
+To read stored Attribute values from outside the Flow, an application does not need a read-only RPC. The Client's **GetAttributes** reads committed values directly, without a Worker. See [Read Attributes](/primitives/client/basic#read-attributes). Use a read-only RPC when the read needs Flow-side logic, such as validation, authorization, Channel messages, or a derived view.
 
 An RPC without Attribute locks and without transactional execution starts with a read of the Flow. If its handler returns only an output and no durable effects, Dex returns that output without changing the Flow. That read can reach a retained terminal execution. A successful read-only RPC therefore does not prove that the Flow is active.
 

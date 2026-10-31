@@ -310,7 +310,21 @@ self.progress
 
 **StartFlowOptions** 可以在创建 Flow 时设置初始 Attribute。初始值与创建 Flow 是一个操作，所以第一个 Step 立刻能看到它们。见 [Flow options](/primitives/flow/flow-options#attributes)。
 
-Flow 启动后，应用通过 Flow RPC 读写 Attribute。Client 也可以用 **WaitForAttributeMatch**，等待 singleton Attribute 或某个 AttributeMap instance 满足 scalar 比较，并返回当前命中的值。见 [Client](/primitives/client/advanced#wait-for-an-attribute-match)。
+Flow 启动后，应用通过 Flow RPC 写入 Attribute。从 Flow 外读取 Attribute，见[从 Flow 外读取 Attribute](#read-from-outside-a-flow)。Client 也可以用 **WaitForAttributeMatch**，等待 singleton Attribute 或某个 AttributeMap instance 满足 scalar 比较，并返回当前命中的值。见 [Client](/primitives/client/advanced#wait-for-an-attribute-match)。
+
+## 从 Flow 外读取 Attribute {#read-from-outside-a-flow}
+
+:::note 仅支持 Go、Python 和 TypeScript
+
+Java 和 Rust 暂不支持 **GetAttributes**。在这两个 SDK 中，请通过[只读 RPC](/primitives/rpc#read-only-rpcs-and-terminal-flows) 读取 Attribute。
+
+:::
+
+Flow 外的应用代码用 Client 的 **GetAttributes** 读取 Attribute 值。一次调用可以读取任意组合的 singleton Attribute 和 AttributeMap instance，所有值都来自同一次提交。Dex Server 自己响应读取，不会运行 RPC handler 或 Worker。
+
+调用读取当前 run；没有打开的 run 时，读取最新 run。已关闭的 run 在 Dex 清除它之前仍可读取。调用只看到已提交的状态，而 RPC handler 还能看到它在同一次调用中先前的写入。Dex Server 在响应前解析 hard-delete 值；已删除的值和任何没有存储值的 Attribute 一样，读作未设置。
+
+如果读取需要 Flow 内的 validation、authorization、派生视图或 Attribute lock，RPC 仍是合适的选择。示例、各 SDK 中未设置值的表示和错误，见 [Client：读取 Attribute](/primitives/client/basic#read-attributes)。
 
 ## Indexed Attribute {#indexed-attributes}
 

@@ -142,6 +142,144 @@ let result = client.invoke_rpc("order-123", TRIGGER_RPC, "approved".to_owned())?
 
 ## Read and write Flow state
 
-Use Flow RPCs as the application boundary for Attribute, AttributeMap, Channel, and ChannelMap state. Define a typed RPC for each command or query, select only the state it needs, then call it with **InvokeRPC**. This keeps authorization, validation, locks, transactions, and state changes inside the Flow.
+Use Flow RPCs as the application boundary for changing Attribute, AttributeMap, Channel, and ChannelMap state. Define a typed RPC for each command, select only the state it needs, then call it with **InvokeRPC**. This keeps authorization, validation, locks, transactions, and state changes inside the Flow.
+
+To read stored Attribute values, call **GetAttributes**. It reads committed state directly from Dex Server. Use an RPC instead when the read needs Flow-side validation or authorization, Channel messages, a derived view, or Attribute locks. Existing read-only RPCs keep working, so an application can move to **GetAttributes** at its own pace.
 
 The Client still provides **WaitForAttributeMatch** as a blocking observation API. Use it when an application must wait for a known scalar Attribute condition rather than read an arbitrary state snapshot.
+
+## Read Attributes {#read-attributes}
+
+**GetAttributes** reads the values of registered Attributes and AttributeMap instances from outside the Flow. Pass one read per value: a singleton Attribute, or one AttributeMap instance. The API has only a batch form. To read one value, pass one read.
+
+The SDKs name it **GetAttributes** in Go, **get_attributes** in Python, and **getAttributes** in TypeScript.
+
+The Attribute primitive example reads a status Attribute, the **payment** instance of a progress AttributeMap, and an email Attribute that the Flow never sets.
+
+:::note Go, Python, and TypeScript only
+
+Java and Rust support for **GetAttributes** is not available yet. In those SDKs, read Attributes through a [read-only RPC](/primitives/rpc#read-only-rpcs-and-terminal-flows).
+
+:::
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/attribute/controller.py', go: 'examples/go/primitives/attribute/controller.go', typescript: 'examples/typescript/src/primitives/attribute/controller.ts'}}>
+<SdkSnippet lang="python">
+
+```python
+flow = app_state.attribute
+payment_progress = flow.progress.instance("payment")
+try:
+    values = await app_state.client.get_attributes(
+        required_query("workflowId"),
+        flow.status,
+        payment_progress,
+        flow.email,
+    )
+except FlowNotFoundError as error:
+    response = jsonify({"error": str(error)})
+    response.status_code = 404
+    return response
+return jsonify(
+    {
+        "status": values.get(flow.status, "not started"),
+        "paymentProgress": values.get(payment_progress, "not started"),
+        # This Flow never sets email, so get returns None.
+        "email": values.get(flow.email),
+    }
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// An unset value leaves its destination unchanged, so these defaults remain.
+status := "not started"
+paymentProgress := "not started"
+var email string
+result, err := controller.client.GetAttributes(
+	request.Request.Context(),
+	flowID,
+	sdk.ReadAttribute(Status, &status),
+	sdk.ReadAttributeMapInstance(Progress, "payment", &paymentProgress),
+	sdk.ReadAttribute(Email, &email),
+)
+var notFound *sdk.FlowNotFoundError
+if errors.As(err, &notFound) {
+	request.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	return
+}
+if err != nil {
+	httputil.Respond(request, nil, err)
+	return
+}
+// This Flow never sets Email, so IsSet reports false.
+var emailOrNil *string
+if result.IsSet(Email) {
+	emailOrNil = &email
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const workflowId = String(request.query.workflowId ?? "");
+if (workflowId === "") {
+  response.status(400).json({ error: "workflowId is required" });
+  return;
+}
+try {
+  const [status, paymentProgress, email] = await client.getAttributes(
+    workflowId,
+    attributeFlow.status,
+    attributeFlow.progress.instance("payment"),
+    attributeFlow.email,
+  );
+  response.json({
+    status: status ?? "not started",
+    paymentProgress: paymentProgress ?? "not started",
+    // This Flow never sets email, so it reads as undefined.
+    email: email ?? null,
+  });
+} catch (error) {
+  if (error instanceof FlowNotFoundError) {
+    response.status(404).json({ error: error.message });
+    return;
+  }
+  throw error;
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Run the HTTP example from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). Its **Read Attributes** endpoint is available in the Go, Python, and TypeScript example servers.
+
+The read has these semantics:
+
+- **One commit.** The Client sends every read in one server request. All values come from the same committed state.
+- **Current or latest run.** The call reads the current run, or the latest run when no run is open. A closed run stays readable until Dex purges it.
+- **No Worker.** Dex Server answers the read itself. It dispatches nothing to a Worker, uses no Worker capacity, and works while no Worker is running.
+- **Committed state only.** The call does not see writes that a running Step or RPC has made but not yet committed. An RPC handler, by contrast, also sees the writes it made earlier in the same invocation. **GetAttributes** takes no Attribute locks, so use an RPC for a read-modify-write.
+- **Large and hard-delete values.** Dex Server resolves [hard-delete](/primitives/attribute#hard-delete-attributes) values before it responds, and a deleted value reads as unset. The Client loads other large values from blob storage, then decodes every value with its definition. The call returns values only after all of them decode.
+
+An Attribute or AttributeMap instance without a stored value is unset. Each SDK represents an unset read in its own way:
+
+| SDK | Unset read |
+| --- | --- |
+| Go | The destination keeps its previous value. **AttributeReadResult.IsSet** and **IsMapInstanceSet** return false. |
+| Python | The read is absent from the returned **AttributeValues**. **values.get(read, default)** returns the default, **read in values** is false, and **values[read]** raises **KeyError**. |
+| TypeScript | The tuple element is **undefined**. |
+
+In Python and TypeScript, a stored value that decodes to **None** or **null** is still set.
+
+Each read must use a definition that a Flow in the Client's Registry declares. A definition from any registered Flow is accepted. Dex reads the key by name and does not check that the target Flow's type declares it, so a same-named Attribute with another value type fails to decode.
+
+The call reports these errors:
+
+- A Flow ID that does not exist, or whose latest run is being purged, returns a Flow-not-found error: **FlowNotFoundError** in Go, Python, and TypeScript.
+- A definition that is not registered in the Client's Registry, or that does not match the registered definition, returns **FlowDefinitionError** before any request. Go and Python compare the definition with the registered one, including its value type. TypeScript requires the exact registered definition object.
+- An empty Flow ID, no reads, or two reads of the same value are rejected before any request.
+- In Python and TypeScript, passing an AttributeMap without **instance** raises a **TypeError** before any request. In Go, **ReadAttribute** accepts only an Attribute and **ReadAttributeMapInstance** only an AttributeMap, so the compiler rejects this mistake.
+- A stored value that cannot be decoded returns **ValueMappingError**.

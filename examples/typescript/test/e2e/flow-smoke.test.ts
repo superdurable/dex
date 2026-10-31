@@ -20,6 +20,7 @@ import test from "node:test";
 
 import { loadEnv } from "../../src/config/env.js";
 import { startSampleServer, type SampleServer } from "../../src/main.js";
+import { attributeFlow } from "../../src/primitives/attribute/attribute-flow.js";
 import {
   assertFlowSmokeNoUnexpectedFailures,
   assertFlowSmokeStartStep,
@@ -435,6 +436,43 @@ test("flow smoke all registered flows via controller", async (t) => {
     });
   }
 });
+
+test("attribute read returns committed values of a closed run", async () => {
+  const flowId = newFlowId("primitive-attribute-read");
+  await server.client.startFlow(attributeFlow, flowId, "read");
+  const result = await server.client.waitForFlow(flowId, 30_000);
+  assert.equal(result.status, "completed");
+
+  const response = await fetch(attributeReadUrl({ workflowId: flowId }));
+  const body = await response.text();
+  assert.equal(response.status, 200, body);
+  assert.deepEqual(JSON.parse(body), {
+    status: "completed",
+    paymentProgress: "authorized",
+    email: null,
+  });
+});
+
+test("attribute read returns not found for a missing Flow", async () => {
+  const flowId = newFlowId("primitive-attribute-read-missing");
+  const response = await fetch(attributeReadUrl({ workflowId: flowId }));
+  const body = await response.text();
+  assert.equal(response.status, 404, body);
+  const errorBody = JSON.parse(body) as Record<string, string>;
+  assert.deepEqual(Object.keys(errorBody), ["error"]);
+  assert.ok(errorBody.error?.includes(flowId), body);
+});
+
+test("attribute read requires workflowId", async () => {
+  const response = await fetch(attributeReadUrl({}));
+  const body = await response.text();
+  assert.equal(response.status, 400, body);
+  assert.deepEqual(JSON.parse(body), { error: "workflowId is required" });
+});
+
+function attributeReadUrl(query: Record<string, string>): string {
+  return `${context.baseUrl}/primitives/attribute/read?${new URLSearchParams(query)}`;
+}
 
 function availablePort(): Promise<number> {
   return new Promise((resolve, reject) => {

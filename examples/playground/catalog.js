@@ -431,11 +431,13 @@ window.PLAYGROUND_CATALOG = [
     id: "attribute",
     title: "Attribute",
     flowIdPrefix: "attribute",
+    note: "Read Attributes is available in Go, Python, and TypeScript.",
     endpoints: [
       endpoint("GET", "/primitives/attribute/start", "Start", [
         flowId(),
         query("message", { default: "hello from playground" }),
       ]),
+      endpoint("GET", "/primitives/attribute/read", "Read Attributes", [flowId()]),
     ],
   },
   {

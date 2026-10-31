@@ -22,6 +22,8 @@ package attribute
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -38,6 +40,7 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *AttributeFlow)
 	controller := &controller{client: client, flow: flow}
 	group := router.Group("/primitives/attribute")
 	group.GET("/start", controller.start)
+	group.GET("/read", controller.readAttributes)
 }
 
 func primitiveStartOptions() sdk.StartFlowOptions {
@@ -62,6 +65,43 @@ func (controller *controller) start(request *gin.Context) {
 		message,
 		primitiveStartOptions(),
 	)
+}
+
+func (controller *controller) readAttributes(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	// An unset value leaves its destination unchanged, so these defaults remain.
+	status := "not started"
+	paymentProgress := "not started"
+	var email string
+	result, err := controller.client.GetAttributes(
+		request.Request.Context(),
+		flowID,
+		sdk.ReadAttribute(Status, &status),
+		sdk.ReadAttributeMapInstance(Progress, "payment", &paymentProgress),
+		sdk.ReadAttribute(Email, &email),
+	)
+	var notFound *sdk.FlowNotFoundError
+	if errors.As(err, &notFound) {
+		request.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		httputil.Respond(request, nil, err)
+		return
+	}
+	// This Flow never sets Email, so IsSet reports false.
+	var emailOrNil *string
+	if result.IsSet(Email) {
+		emailOrNil = &email
+	}
+	httputil.Respond(request, gin.H{
+		"status":          status,
+		"paymentProgress": paymentProgress,
+		"email":           emailOrNil,
+	}, nil)
 }
 
 func invokeUpdateStatus(ctx context.Context, client *sdk.Client, flowID string) error {

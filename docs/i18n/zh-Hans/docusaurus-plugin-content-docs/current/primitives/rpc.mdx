@@ -167,7 +167,9 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 </SdkSnippet>
 </SdkTabs>
 
-## 只读 RPC 与 terminal Flow
+## 只读 RPC 与 terminal Flow {#read-only-rpcs-and-terminal-flows}
+
+从 Flow 外读取已存储的 Attribute 值，不需要只读 RPC。Client 的 **GetAttributes** 直接读取已提交的值，不经过 Worker。见[读取 Attribute](/primitives/client/basic#read-attributes)。当读取需要 Flow 内的逻辑，例如 validation、authorization、Channel 消息或派生视图时，使用只读 RPC。
 
 没有 Attribute lock 且没有启用 transactional execution 的 RPC 会先读取 Flow。如果 handler 只返回 output，不产生 durable effect，Dex 不会改变 Flow，而是直接返回 output。这次读取可以到达仍在 retention 内的 terminal execution。因此，只读 RPC 成功并不能证明 Flow 仍处于 active 状态。
 

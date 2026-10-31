@@ -16,7 +16,7 @@
 
 import { Router } from "express";
 
-import type { Client } from "@superdurable/dex";
+import { FlowNotFoundError, type Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
 import { attributeFlow } from "./attribute-flow.js";
@@ -29,6 +29,34 @@ export function createAttributeRouter(client: Client): Router {
     const message = String(request.query.message ?? "");
     const runId = await client.startFlow(attributeFlow, workflowId, message, startOptions());
     response.json({ flowID: workflowId, runID: runId });
+  });
+
+  router.get("/read", async (request, response) => {
+    const workflowId = String(request.query.workflowId ?? "");
+    if (workflowId === "") {
+      response.status(400).json({ error: "workflowId is required" });
+      return;
+    }
+    try {
+      const [status, paymentProgress, email] = await client.getAttributes(
+        workflowId,
+        attributeFlow.status,
+        attributeFlow.progress.instance("payment"),
+        attributeFlow.email,
+      );
+      response.json({
+        status: status ?? "not started",
+        paymentProgress: paymentProgress ?? "not started",
+        // This Flow never sets email, so it reads as undefined.
+        email: email ?? null,
+      });
+    } catch (error) {
+      if (error instanceof FlowNotFoundError) {
+        response.status(404).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
   });
 
   return router;
