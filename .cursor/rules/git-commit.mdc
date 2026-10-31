@@ -1,5 +1,5 @@
 ---
-description: Never add Cursor as a git commit co-author; verify every commit message
+description: Never add Cursor or any AI agent as a git commit co-author; verify every commit message
 alwaysApply: true
 ---
 
@@ -25,6 +25,8 @@ Never write, keep, or push any of these:
 - `Co-authored-by:` lines that mention Cursor, Cursor Agent, or cursoragent
 - `Made-with: Cursor` or other Cursor attribution trailers
 - `git commit --trailer ...Cursor...`
+- `Co-authored-by:` lines for any AI agent, such as Claude, Codex, Copilot, or Gemini
+- `Generated with Claude Code` or other agent attribution in commits or pull requests
 - `git commit --no-verify` / `-n` to skip the hook that rejects those trailers
 
 Human `Co-authored-by` trailers for real people are fine.

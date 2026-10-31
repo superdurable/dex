@@ -34,9 +34,10 @@ Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside 
 - Python 3.9+ and uv (for `sdk-python` / `examples/python`)
 - Rust 1.97.1 (pinned by `RUSTUP_TOOLCHAIN` in the server-zd workflows) for the server; Docker for CI service dependencies
 
-Install git hooks once per clone with `make githooks`. They reject Cursor
-co-author trailers and inline backticks in product-doc prose. Do not pass
-`--no-verify`.
+Install git hooks once per clone with `make githooks`. They strip Cursor
+co-author trailers, reject any other AI agent attribution, and reject inline
+backticks in product-doc prose. Do not pass `--no-verify`. Check Gate CI also
+rejects agent attribution in pull request commits, titles, and descriptions.
 
 ## Go workspace
 

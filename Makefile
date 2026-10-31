@@ -19,7 +19,7 @@ server-zd-simulation-runner-test: ## Verify nightly process supervision and seed
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
 
-githooks: ## Install commit-msg and pre-commit hooks (Cursor co-author + docs prose)
+githooks: ## Install commit-msg and pre-commit hooks (agent attribution + docs prose)
 	bash script/install-githooks
 
 docs-prose-check: ## Fail when product-doc MDX prose uses inline backticks
