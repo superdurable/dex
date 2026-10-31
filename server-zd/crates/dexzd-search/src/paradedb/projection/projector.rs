@@ -19,12 +19,13 @@ use thiserror::Error;
 use tokio_postgres::Transaction;
 use tokio_postgres::types::{ToSql, Type};
 
+use super::super::SearchRow;
 use super::super::row::is_system_field;
 use super::super::search_backend::{
     DATABASE_OPERATION_TIMEOUT, ParadeDbSearchBackend, database_error_message,
     is_transient_database_error,
 };
-use super::super::{SearchRow, SqlStatement, upsert_statement};
+use super::super::upsert::upsert_statements;
 use super::changes::{SearchDocumentChange, decode_search_index_key};
 use crate::SearchError;
 use crate::builtin::document::IndexedDocument;
@@ -345,12 +346,7 @@ async fn apply_batch_transaction(
             offered: applied_position.clone(),
         });
     }
-    let mut skipped_documents = Vec::new();
-    for change in changes {
-        if let Some(skipped) = apply_change(&transaction, partition_id, change).await? {
-            skipped_documents.push(skipped);
-        }
-    }
+    let skipped_documents = apply_changes(&transaction, partition_id, changes).await?;
     update_progress(&transaction, partition_id, applied_position).await?;
     transaction
         .commit()
@@ -415,11 +411,7 @@ async fn rebuild_transaction(
             break;
         };
         start = next_start;
-        for change in changes {
-            if let Some(skipped) = apply_change(&transaction, partition_id, &change).await? {
-                skipped_documents.push(skipped);
-            }
-        }
+        skipped_documents.extend(apply_changes(&transaction, partition_id, &changes).await?);
     }
     update_progress(&transaction, partition_id, applied_position).await?;
     transaction
@@ -489,40 +481,68 @@ fn read_rebuild_page(
     }))
 }
 
-async fn apply_change(
+async fn apply_changes(
     transaction: &Transaction<'_>,
     partition_id: PartitionId,
-    change: &SearchDocumentChange,
-) -> Result<Option<SkippedSearchDocument>, ProjectionError> {
-    match change {
-        SearchDocumentChange::Upsert {
-            tenant_id,
-            run_id,
-            encoded_document,
-        } => match row_from_document(partition_id, *tenant_id, *run_id, encoded_document) {
-            Ok(row) => {
-                let statement = upsert_statement(&row);
-                execute_statement(transaction, partition_id, *run_id, &statement).await?;
+    changes: &[SearchDocumentChange],
+) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
+    let mut pending_rows = Vec::new();
+    let mut skipped_documents = Vec::new();
+    for change in changes {
+        match change {
+            SearchDocumentChange::Upsert {
+                tenant_id,
+                run_id,
+                encoded_document,
+            } => match row_from_document(partition_id, *tenant_id, *run_id, encoded_document) {
+                Ok(row) => {
+                    pending_rows.push(row);
+                    delete_skipped_document(transaction, *tenant_id, *run_id).await?;
+                }
+                Err(reason) => {
+                    flush_upserts(transaction, &mut pending_rows).await?;
+                    delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
+                    record_skipped_document(
+                        transaction,
+                        partition_id,
+                        *tenant_id,
+                        *run_id,
+                        &reason,
+                    )
+                    .await?;
+                    skipped_documents.push(SkippedSearchDocument {
+                        partition_id,
+                        tenant_id: *tenant_id,
+                        run_id: *run_id,
+                        reason: reason.to_string(),
+                    });
+                }
+            },
+            SearchDocumentChange::Delete { tenant_id, run_id } => {
+                flush_upserts(transaction, &mut pending_rows).await?;
+                delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
                 delete_skipped_document(transaction, *tenant_id, *run_id).await?;
             }
-            Err(reason) => {
-                delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
-                record_skipped_document(transaction, partition_id, *tenant_id, *run_id, &reason)
-                    .await?;
-                return Ok(Some(SkippedSearchDocument {
-                    partition_id,
-                    tenant_id: *tenant_id,
-                    run_id: *run_id,
-                    reason: reason.to_string(),
-                }));
-            }
-        },
-        SearchDocumentChange::Delete { tenant_id, run_id } => {
-            delete_search_row(transaction, partition_id, *tenant_id, *run_id).await?;
-            delete_skipped_document(transaction, *tenant_id, *run_id).await?;
         }
     }
-    Ok(None)
+    flush_upserts(transaction, &mut pending_rows).await?;
+    Ok(skipped_documents)
+}
+
+async fn flush_upserts(
+    transaction: &Transaction<'_>,
+    pending_rows: &mut Vec<SearchRow>,
+) -> Result<(), ProjectionError> {
+    let statements = upsert_statements(pending_rows)
+        .map_err(|error| ProjectionError::InvalidState(error.to_string()))?;
+    for statement in statements {
+        transaction
+            .execute_typed(&statement.sql, &statement.typed_parameter_refs())
+            .await
+            .map_err(|source| database_error("upsert runs into", source))?;
+    }
+    pending_rows.clear();
+    Ok(())
 }
 
 async fn record_skipped_document(
@@ -631,19 +651,6 @@ fn row_from_document(
     Ok(row)
 }
 
-async fn execute_statement(
-    transaction: &Transaction<'_>,
-    partition_id: PartitionId,
-    run_id: RunId,
-    statement: &SqlStatement,
-) -> Result<(), ProjectionError> {
-    transaction
-        .execute_typed(&statement.sql, &statement.typed_parameter_refs())
-        .await
-        .map_err(|source| row_database_error(partition_id, run_id, source))?;
-    Ok(())
-}
-
 async fn lock_progress(
     transaction: &Transaction<'_>,
     partition_id: PartitionId,
@@ -747,6 +754,7 @@ fn database_error(operation: &'static str, source: tokio_postgres::Error) -> Pro
     }
 }
 
+#[cfg(test)]
 fn row_database_error(
     partition_id: PartitionId,
     run_id: RunId,
@@ -801,6 +809,27 @@ mod tests {
             seq: 1,
         };
         assert!(validate_position(&position).is_ok());
+    }
+
+    #[test]
+    fn projects_closed_documents_without_close_time() {
+        let tenant_id = TenantId(1);
+        let run_id = RunId([8; 16]);
+        let record = SearchDocumentRecord {
+            version: 1,
+            tenant_id: tenant_id.0,
+            flow_id: "closed-flow".into(),
+            run_id: run_id.as_bytes().to_vec(),
+            flow_type: "ClosedFlow".into(),
+            status: FlowStatus::Completed.into(),
+            started_at_micros: 1_000_000,
+            closed_at_micros: 0,
+            ..SearchDocumentRecord::default()
+        };
+        let row = row_from_document(PartitionId(3), tenant_id, run_id, &record.encode_to_vec())
+            .expect("closed document without close time is supported");
+        assert_eq!(row.execution_status, "Completed");
+        assert_eq!(row.close_time_ns, None);
     }
 
     #[test]

@@ -227,7 +227,7 @@ async fn paradedb_matches_builtin_evaluator() {
         .await
         .expect("record visibility schema version");
 
-    let documents = vec![
+    let mut documents = vec![
         run("r1", "flow-a", "Running", 1_000_000_000, None)
             .with("keyword", SearchValue::String("red".into()))
             .with("tags", SearchValue::StringArray(vec!["charge".into()]))
@@ -560,6 +560,54 @@ async fn paradedb_matches_builtin_evaluator() {
         assert!(error.message.contains("literal"), "{input}: {error}");
     }
 
+    for document in [
+        run(
+            "running-tie-a",
+            "flow-tie-a",
+            "Running",
+            1_000_000_000,
+            None,
+        ),
+        run(
+            "running-tie-b",
+            "flow-tie-b",
+            "Running",
+            1_000_000_000,
+            None,
+        ),
+        run(
+            "closed-tie",
+            "flow-closed-tie",
+            "Completed",
+            2_000_000_000,
+            Some(5_000_000_000),
+        ),
+        run(
+            "closed-null-a",
+            "flow-null-a",
+            "Completed",
+            2_000_000_000,
+            None,
+        ),
+        run(
+            "closed-null-b",
+            "flow-null-b",
+            "Failed",
+            2_000_000_000,
+            None,
+        ),
+    ] {
+        let row = SearchRow::from_document(parity_tenant_id, 1, &document, &application_fields)
+            .expect("map pagination document");
+        let statement = upsert_statement(&row);
+        client
+            .execute(&statement.sql, &statement.parameter_refs())
+            .await
+            .expect("insert pagination run");
+        rows.insert(row.run_id.clone(), row);
+        documents.push(document);
+    }
+
     for order in ["", "ORDER BY StartTime ASC", "ORDER BY CloseTime DESC"] {
         let query = parse_and_check(order, &registry).expect("ordered query");
         let mut expected: Vec<&Document> = documents.iter().collect();
@@ -571,31 +619,32 @@ async fn paradedb_matches_builtin_evaluator() {
                 _ => panic!("test run must have an ID"),
             })
             .collect();
-        let page_size: usize = 2;
-        let mut cursor = None;
-        let mut actual_ids = Vec::new();
-        loop {
-            let statement = translate_query(
-                &query,
-                &parity_tenant_column,
-                page_size as i64,
-                cursor.as_ref(),
-            )
-            .expect("ordered page");
-            let page = client
-                .query(&statement.sql, &statement.parameter_refs())
-                .await
-                .expect("ordered page SQL");
-            actual_ids.extend(page.iter().map(|row| row.get::<_, String>("run_id")));
-            if page.len() < page_size {
-                break;
+        for page_size in [1_usize, 2, 3] {
+            let mut cursor = None;
+            let mut actual_ids = Vec::new();
+            loop {
+                let statement = translate_query(
+                    &query,
+                    &parity_tenant_column,
+                    page_size as i64,
+                    cursor.as_ref(),
+                )
+                .expect("ordered page");
+                let page = client
+                    .query(&statement.sql, &statement.parameter_refs())
+                    .await
+                    .expect("ordered page SQL");
+                actual_ids.extend(page.iter().map(|row| row.get::<_, String>("run_id")));
+                if page.len() < page_size {
+                    break;
+                }
+                let last_id: String = page.last().expect("full page has final row").get("run_id");
+                cursor = Some(PageCursor::from_row(
+                    rows.get(&last_id).expect("cursor row"),
+                ));
             }
-            let last_id: String = page.last().expect("full page has final row").get("run_id");
-            cursor = Some(PageCursor::from_row(
-                rows.get(&last_id).expect("cursor row"),
-            ));
+            assert_eq!(actual_ids, expected_ids, "{order}, page size {page_size}");
         }
-        assert_eq!(actual_ids, expected_ids, "{order}");
     }
 
     let tenant_id = TenantId(1);

@@ -381,6 +381,83 @@ fn upsert_binds_outage_sized_keyword_and_wire_buckets() {
 }
 
 #[test]
+fn batched_upsert_keeps_highest_versions_and_first_equal_version() {
+    use super::upsert::upsert_statements;
+
+    let first = SearchRow::from_document(TenantId(1), 3, &document(), &[]).unwrap();
+    let mut newer = first.clone();
+    newer.version = 5;
+    newer.flow_type = "NewerFlow".into();
+    let mut equal_version = newer.clone();
+    equal_version.flow_type = "IgnoredFlow".into();
+    let mut other_tenant = first.clone();
+    other_tenant.tenant_id = "2".into();
+    let mut other_run = first.clone();
+    other_run.run_id = "run-2".into();
+    let statements =
+        upsert_statements(&[first, other_tenant, newer, equal_version, other_run]).unwrap();
+    assert_eq!(statements.len(), 1);
+    let statement = &statements[0];
+    assert_eq!(statement.parameters.len(), 39);
+    assert_eq!(statement.sql.matches("ON CONFLICT").count(), 1);
+    assert!(statement.sql.contains("), ($14::text"));
+    assert!(statement.sql.contains("), ($27::text"));
+    assert_eq!(statement.parameters[5], SqlValue::Text("NewerFlow".into()));
+    assert_eq!(statement.parameters[12], SqlValue::Int(5));
+    assert_eq!(statement.parameters[13], SqlValue::Text("2".into()));
+    assert_eq!(statement.parameters[28], SqlValue::Text("run-2".into()));
+    assert!(
+        !statement
+            .parameters
+            .contains(&SqlValue::Text("IgnoredFlow".into()))
+    );
+    assert!(
+        statement
+            .sql
+            .ends_with("WHERE EXCLUDED.version > dexzd_visibility_runs.version")
+    );
+    assert!(upsert_statements(&[]).unwrap().is_empty());
+}
+
+#[test]
+fn batched_upsert_chunks_by_row_and_parameter_limits() {
+    use super::upsert::upsert_statements;
+
+    let rows = (0..101)
+        .map(|index| {
+            let mut row = SearchRow::from_document(TenantId(1), 1, &document(), &[]).unwrap();
+            row.run_id = format!("run-{index}");
+            row
+        })
+        .collect::<Vec<_>>();
+    let statements = upsert_statements(&rows).unwrap();
+    assert_eq!(statements.len(), 2);
+    assert_eq!(statements[0].parameters.len(), 100 * 13);
+    assert_eq!(statements[1].parameters.len(), 13);
+
+    let mut boundary_row = rows[0].clone();
+    for index in 0..32_761 {
+        boundary_row.sa_wire.insert(
+            format!("field-{index}"),
+            SearchValue::String("value".into()),
+        );
+    }
+    let statements =
+        upsert_statements(&[rows[1].clone(), boundary_row.clone(), rows[2].clone()]).unwrap();
+    assert_eq!(statements.len(), 3);
+    assert_eq!(statements[1].parameters.len(), 65_535);
+    assert!(statements[1].sql.contains("$65535::text"));
+    for statement in &statements {
+        assert!(statement.parameters.len() <= 65_535);
+        assert!(!statement.sql.contains("$65536"));
+    }
+    boundary_row
+        .sa_keyword
+        .insert("extra".into(), SearchValue::String("value".into()));
+    assert!(upsert_statements(&[boundary_row]).is_err());
+}
+
+#[test]
 fn preserves_original_datetime_and_null_wire_values() {
     let original_datetime = dex::Value {
         kind: Some(dex::value::Kind::StringValue(
@@ -736,12 +813,13 @@ fn golden_sql_covers_operators_and_types() {
             ""
         };
         let expected_sql = format!(
-            "SELECT {} FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND coalesce(({expected_predicate}), FALSE){bm25_anchor} {} LIMIT ${}::bigint",
+            "SELECT {} FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND ({expected_predicate}){bm25_anchor} {} LIMIT ${}::bigint",
             super::query::SELECT_COLUMNS,
             super::query::DEFAULT_ORDER,
             values.len() + 2
         );
         assert_eq!(statement.sql, expected_sql, "{input}");
+        assert!(!statement.sql.contains("coalesce"), "{input}");
         let mut expected_parameters = vec![SqlValue::Text("tenant".into())];
         expected_parameters.extend(values);
         expected_parameters.push(SqlValue::Int(10));
@@ -758,7 +836,7 @@ fn tenant_scope_boolean_precedence_and_keyset_are_bound() {
     let query =
         parse_and_check("WorkflowId = 'a' OR WorkflowId = 'b'", &query_fields()).expect("OR query");
     let statement = translate_query(&query, "tenant-a", 3, None).expect("translate OR query");
-    assert!(statement.sql.contains("WHERE tenant_id = $1::text AND coalesce((((workflow_id) COLLATE \"C\" = $2::text) OR ((workflow_id) COLLATE \"C\" = $3::text)), FALSE)"));
+    assert!(statement.sql.contains("WHERE tenant_id = $1::text AND (((workflow_id) COLLATE \"C\" = $2::text) OR ((workflow_id) COLLATE \"C\" = $3::text))"));
     assert_eq!(
         statement.parameters,
         vec![
@@ -788,6 +866,8 @@ fn tenant_scope_boolean_precedence_and_keyset_are_bound() {
             .contains("close_time_ns IS NOT DISTINCT FROM $4::bigint")
     );
     assert!(statement.sql.contains("start_time_ns < $5::bigint"));
+    assert!(statement.sql.contains("is_running <= $3::boolean AND ("));
+    assert!(!statement.sql.contains("close_time_ns <="));
     assert_eq!(
         statement.parameters,
         vec![
@@ -799,6 +879,19 @@ fn tenant_scope_boolean_precedence_and_keyset_are_bound() {
             SqlValue::Int(2),
         ]
     );
+
+    for close_time_ns in [Some(200), None] {
+        let closed_cursor = PageCursor {
+            is_running: false,
+            close_time_ns,
+            ..cursor.clone()
+        };
+        let statement =
+            translate_query(&empty, "tenant-a", 2, Some(&closed_cursor)).expect("closed cursor");
+        assert!(statement.sql.contains("is_running <= $3::boolean AND ("));
+        assert!(!statement.sql.contains("close_time_ns <="));
+        assert_eq!(statement.parameters[2], SqlValue::Bool(false));
+    }
 
     let ascending =
         parse_and_check("ORDER BY StartTime ASC", &query_fields()).expect("start order");

@@ -105,6 +105,7 @@ impl ParadeDbSearchBackend {
         if slot.is_disconnected() {
             slot.reconnect(&self.configuration).await?;
         }
+        // Keep query_typed unnamed: custom plans let PostgreSQL use indexes for each request's predicates.
         for attempt in 0..2 {
             match tokio::time::timeout(
                 DATABASE_OPERATION_TIMEOUT,

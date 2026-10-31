@@ -80,7 +80,7 @@ pub fn translate_query(
     };
     let predicate = renderer.render_expression(query.expression())?;
     let mut sql = format!(
-        "SELECT {SELECT_COLUMNS} FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND coalesce(({predicate}), FALSE)"
+        "SELECT {SELECT_COLUMNS} FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND ({predicate})"
     );
     if contains_application_field(query.expression()) {
         sql.push_str(" AND tenant_id @@@ pdb.term($1::text)");
@@ -394,7 +394,7 @@ impl Renderer {
                 let close = self.bind(SqlValue::OptionalInt(cursor.close_time_ns), "bigint");
                 let start = self.bind(SqlValue::Int(cursor.start_time_ns), "bigint");
                 Ok(format!(
-                    "is_running < {running} OR (is_running = {running} AND ((close_time_ns IS NULL AND {close} IS NOT NULL) OR close_time_ns < {close} OR (close_time_ns IS NOT DISTINCT FROM {close} AND (start_time_ns < {start} OR (start_time_ns = {start} AND run_id COLLATE \"C\" > {run_id})))))"
+                    "is_running <= {running} AND (is_running < {running} OR (is_running = {running} AND ((close_time_ns IS NULL AND {close} IS NOT NULL) OR close_time_ns < {close} OR (close_time_ns IS NOT DISTINCT FROM {close} AND (start_time_ns < {start} OR (start_time_ns = {start} AND run_id COLLATE \"C\" > {run_id}))))))"
                 ))
             }
             Some(("StartTime", direction)) => {

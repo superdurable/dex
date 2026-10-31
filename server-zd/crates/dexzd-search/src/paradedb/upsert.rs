@@ -9,16 +9,92 @@
 use std::collections::BTreeMap;
 
 use dexzd_visibility_query::SearchValue;
+use thiserror::Error;
 
 use super::{SearchRow, SqlStatement, SqlValue};
 
 // PostgreSQL permits 100 function arguments; each JSONB field supplies a key and value.
 const MAX_JSONB_OBJECT_FIELDS: usize = 50;
 
+const MAX_UPSERT_ROWS: usize = 100;
+const MAX_BIND_PARAMETERS: usize = 65_535;
+
+#[derive(Debug, Error)]
+#[error(
+    "search row {run_id} in tenant {tenant_id} requires {parameter_count} bind parameters, exceeding {MAX_BIND_PARAMETERS}"
+)]
+pub(super) struct UpsertBatchError {
+    tenant_id: String,
+    run_id: String,
+    parameter_count: usize,
+}
+
 /// Builds an idempotent upsert for a versioned search row.
 #[must_use]
 pub fn upsert_statement(row: &SearchRow) -> SqlStatement {
-    let mut parameters = vec![
+    build_upsert_statement(&[row])
+}
+
+pub(super) fn upsert_statements(rows: &[SearchRow]) -> Result<Vec<SqlStatement>, UpsertBatchError> {
+    let mut statements = Vec::new();
+    let mut chunk = Vec::new();
+    let mut parameter_count = 0;
+    for row in rows {
+        let row_parameters = row_parameter_count(row);
+        if row_parameters > MAX_BIND_PARAMETERS {
+            return Err(UpsertBatchError {
+                tenant_id: row.tenant_id.clone(),
+                run_id: row.run_id.clone(),
+                parameter_count: row_parameters,
+            });
+        }
+        if chunk.len() == MAX_UPSERT_ROWS || parameter_count + row_parameters > MAX_BIND_PARAMETERS
+        {
+            statements.push(build_deduplicated_upsert(&chunk));
+            chunk.clear();
+            parameter_count = 0;
+        }
+        chunk.push(row);
+        parameter_count += row_parameters;
+    }
+    if !chunk.is_empty() {
+        statements.push(build_deduplicated_upsert(&chunk));
+    }
+    Ok(statements)
+}
+
+fn build_deduplicated_upsert(rows: &[&SearchRow]) -> SqlStatement {
+    let mut row_positions: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    let mut unique_rows: Vec<&SearchRow> = Vec::new();
+    for &row in rows {
+        let key = (row.tenant_id.as_str(), row.run_id.as_str());
+        if let Some(&position) = row_positions.get(&key) {
+            if row.version > unique_rows[position].version {
+                unique_rows[position] = row;
+            }
+        } else {
+            row_positions.insert(key, unique_rows.len());
+            unique_rows.push(row);
+        }
+    }
+    build_upsert_statement(&unique_rows)
+}
+
+fn build_upsert_statement(rows: &[&SearchRow]) -> SqlStatement {
+    let mut parameters = Vec::new();
+    let values = rows
+        .iter()
+        .map(|row| row_values(row, &mut parameters))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "INSERT INTO dexzd_visibility_runs (tenant_id, partition_id, run_id, workflow_id, workflow_type, flow_type, execution_status, start_time_ns, close_time_ns, dex_parent_flow_id, active_step_types, dex_work_queue_permissions, version, sa_keyword, sa_text, sa_number, sa_number_types, sa_datetime, sa_bool, sa_wire) VALUES {values} ON CONFLICT (tenant_id, run_id) DO UPDATE SET partition_id = EXCLUDED.partition_id, workflow_id = EXCLUDED.workflow_id, workflow_type = EXCLUDED.workflow_type, flow_type = EXCLUDED.flow_type, execution_status = EXCLUDED.execution_status, start_time_ns = EXCLUDED.start_time_ns, close_time_ns = EXCLUDED.close_time_ns, dex_parent_flow_id = EXCLUDED.dex_parent_flow_id, active_step_types = EXCLUDED.active_step_types, dex_work_queue_permissions = EXCLUDED.dex_work_queue_permissions, version = EXCLUDED.version, sa_keyword = EXCLUDED.sa_keyword, sa_text = EXCLUDED.sa_text, sa_number = EXCLUDED.sa_number, sa_number_types = EXCLUDED.sa_number_types, sa_datetime = EXCLUDED.sa_datetime, sa_bool = EXCLUDED.sa_bool, sa_wire = EXCLUDED.sa_wire WHERE EXCLUDED.version > dexzd_visibility_runs.version"
+    );
+    SqlStatement { sql, parameters }
+}
+
+fn row_values(row: &SearchRow, parameters: &mut Vec<SqlValue>) -> String {
+    let fixed_values = [
         SqlValue::Text(row.tenant_id.clone()),
         SqlValue::Int32(row.partition_id),
         SqlValue::Text(row.run_id.clone()),
@@ -33,17 +109,37 @@ pub fn upsert_statement(row: &SearchRow) -> SqlStatement {
         SqlValue::OptionalTextArray(row.dex_work_queue_permissions.clone()),
         SqlValue::Int(row.version),
     ];
-    let keyword_bucket = bucket_expression(&row.sa_keyword, &mut parameters);
-    let text_bucket = bucket_expression(&row.sa_text, &mut parameters);
-    let number_bucket = bucket_expression(&row.sa_number, &mut parameters);
-    let number_types_bucket = bucket_expression(&row.sa_number_types, &mut parameters);
-    let datetime_bucket = bucket_expression(&row.sa_datetime, &mut parameters);
-    let bool_bucket = bucket_expression(&row.sa_bool, &mut parameters);
-    let wire_bucket = bucket_expression(&row.sa_wire, &mut parameters);
-    let sql = format!(
-        "INSERT INTO dexzd_visibility_runs (tenant_id, partition_id, run_id, workflow_id, workflow_type, flow_type, execution_status, start_time_ns, close_time_ns, dex_parent_flow_id, active_step_types, dex_work_queue_permissions, version, sa_keyword, sa_text, sa_number, sa_number_types, sa_datetime, sa_bool, sa_wire) VALUES ($1::text, $2::integer, $3::text, $4::text, $5::text, $6::text, $7::text, $8::bigint, $9::bigint, $10::text, $11::text[], $12::text[], $13::bigint, {keyword_bucket}, {text_bucket}, {number_bucket}, {number_types_bucket}, {datetime_bucket}, {bool_bucket}, {wire_bucket}) ON CONFLICT (tenant_id, run_id) DO UPDATE SET partition_id = EXCLUDED.partition_id, workflow_id = EXCLUDED.workflow_id, workflow_type = EXCLUDED.workflow_type, flow_type = EXCLUDED.flow_type, execution_status = EXCLUDED.execution_status, start_time_ns = EXCLUDED.start_time_ns, close_time_ns = EXCLUDED.close_time_ns, dex_parent_flow_id = EXCLUDED.dex_parent_flow_id, active_step_types = EXCLUDED.active_step_types, dex_work_queue_permissions = EXCLUDED.dex_work_queue_permissions, version = EXCLUDED.version, sa_keyword = EXCLUDED.sa_keyword, sa_text = EXCLUDED.sa_text, sa_number = EXCLUDED.sa_number, sa_number_types = EXCLUDED.sa_number_types, sa_datetime = EXCLUDED.sa_datetime, sa_bool = EXCLUDED.sa_bool, sa_wire = EXCLUDED.sa_wire WHERE EXCLUDED.version > dexzd_visibility_runs.version"
-    );
-    SqlStatement { sql, parameters }
+    let fixed_types = [
+        "text", "integer", "text", "text", "text", "text", "text", "bigint", "bigint", "text",
+        "text[]", "text[]", "bigint",
+    ];
+    let mut placeholders = Vec::with_capacity(fixed_values.len());
+    for (value, sql_type) in fixed_values.into_iter().zip(fixed_types) {
+        parameters.push(value);
+        placeholders.push(format!("${}::{sql_type}", parameters.len()));
+    }
+    let keyword_bucket = bucket_expression(&row.sa_keyword, parameters);
+    let text_bucket = bucket_expression(&row.sa_text, parameters);
+    let number_bucket = bucket_expression(&row.sa_number, parameters);
+    let number_types_bucket = bucket_expression(&row.sa_number_types, parameters);
+    let datetime_bucket = bucket_expression(&row.sa_datetime, parameters);
+    let bool_bucket = bucket_expression(&row.sa_bool, parameters);
+    let wire_bucket = bucket_expression(&row.sa_wire, parameters);
+    format!(
+        "({}, {keyword_bucket}, {text_bucket}, {number_bucket}, {number_types_bucket}, {datetime_bucket}, {bool_bucket}, {wire_bucket})",
+        placeholders.join(", ")
+    )
+}
+
+fn row_parameter_count(row: &SearchRow) -> usize {
+    13 + 2
+        * (row.sa_keyword.len()
+            + row.sa_text.len()
+            + row.sa_number.len()
+            + row.sa_number_types.len()
+            + row.sa_datetime.len()
+            + row.sa_bool.len()
+            + row.sa_wire.len())
 }
 
 fn bucket_expression(

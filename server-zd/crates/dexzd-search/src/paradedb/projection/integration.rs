@@ -219,6 +219,91 @@ async fn skipped_reason(
         .map(|row| row.get(0))
 }
 
+async fn verify_ordered_batch_changes(
+    projector: &ParadeDbProjector,
+    backend: &ParadeDbSearchBackend,
+) {
+    let partition_id = PartitionId(6);
+    let tenant_id = TenantId(19);
+    let run_id = RunId([9; 16]);
+    let newest = document(tenant_id, run_id, 10);
+    let older = document(tenant_id, run_id, 1);
+    let deleted = SearchDocumentChange::Delete { tenant_id, run_id };
+    let invalid = SearchDocumentChange::Upsert {
+        tenant_id,
+        run_id,
+        encoded_document: vec![0xff],
+    };
+    for (sequence, changes, should_exist, should_be_skipped) in [
+        (
+            1,
+            vec![
+                upsert(tenant_id, run_id, &newest),
+                deleted.clone(),
+                upsert(tenant_id, run_id, &older),
+            ],
+            true,
+            false,
+        ),
+        (
+            2,
+            vec![
+                upsert(tenant_id, run_id, &newest),
+                invalid.clone(),
+                upsert(tenant_id, run_id, &older),
+            ],
+            true,
+            false,
+        ),
+        (
+            3,
+            vec![upsert(tenant_id, run_id, &newest), invalid],
+            false,
+            true,
+        ),
+        (
+            4,
+            vec![upsert(tenant_id, run_id, &older), deleted],
+            false,
+            false,
+        ),
+    ] {
+        let previous = (sequence > 1).then(|| position(sequence - 1));
+        projector
+            .apply_batch(
+                partition_id,
+                previous.as_ref(),
+                &position(sequence),
+                &changes,
+            )
+            .await
+            .expect("apply ordered changes within one batch");
+        assert_eq!(
+            !listed_runs(backend, tenant_id).await.is_empty(),
+            should_exist
+        );
+        assert_eq!(
+            skipped_reason(backend, tenant_id, run_id).await.is_some(),
+            should_be_skipped
+        );
+        if should_exist {
+            let slot = backend.lock_next_slot().await;
+            let stored = slot.client.query_typed_one(
+                "SELECT version FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND run_id = $2::text",
+                &[
+                    (&tenant_id.0.to_string() as &(dyn tokio_postgres::types::ToSql + Sync), tokio_postgres::types::Type::TEXT),
+                    (&run_id.to_string(), tokio_postgres::types::Type::TEXT),
+                ],
+            ).await.expect("read version after an ordering barrier");
+            assert_eq!(stored.get::<_, i64>(0), 1);
+        }
+        assert_eq!(
+            projector.read_progress(partition_id).await.unwrap(),
+            Some(position(sequence))
+        );
+    }
+}
+
 #[cfg(test)]
 pub(crate) async fn run_projector_scenarios_for_test(
     database_url: &str,
@@ -376,7 +461,9 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 Some(&position(11)),
                 &position(13),
                 &[
+                    upsert(tenant_id, first_run, &first_record),
                     upsert(tenant_id, first_run, &changed_record),
+                    upsert(tenant_id, first_run, &first_record),
                     upsert(tenant_id, second_run, &second_record),
                 ],
             )
@@ -387,6 +474,18 @@ pub(crate) async fn run_projector_scenarios_for_test(
             Some(position(13))
         );
         assert_eq!(skipped_reason(&backend, tenant_id, first_run).await, None);
+        let stored_version = {
+            let slot = backend.lock_next_slot().await;
+            slot.client.query_typed_one(
+                "SELECT version FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND run_id = $2::text",
+                &[
+                    (&tenant_id.0.to_string() as &(dyn tokio_postgres::types::ToSql + Sync), tokio_postgres::types::Type::TEXT),
+                    (&first_run.to_string(), tokio_postgres::types::Type::TEXT),
+                ],
+            ).await.expect("read deduplicated version").get::<_, i64>(0)
+        };
+        assert_eq!(stored_version, 2);
+
         projector
             .apply_batch(
                 partition_id,
@@ -550,6 +649,8 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await,
             Err(ProjectionError::StaleRebuild { .. })
         ));
+
+        verify_ordered_batch_changes(&projector, &backend).await;
 
         let mut held_slots = Vec::new();
         for _ in 0..pool_size {
