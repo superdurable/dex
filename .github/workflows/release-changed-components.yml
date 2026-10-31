@@ -7,6 +7,11 @@ on:
         description: Shared semantic version for every changed component
         required: true
         type: string
+      agents_version:
+        description: Agents packages version (tag agents/v<version>); empty skips the agents packages
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -44,6 +49,10 @@ jobs:
       cli: ${{ steps.plan.outputs.cli }}
       cli_tag: ${{ steps.plan.outputs.cli_tag }}
       cli_baseline: ${{ steps.plan.outputs.cli_baseline }}
+      agents: ${{ steps.plan.outputs.agents }}
+      agents_tag: ${{ steps.plan.outputs.agents_tag }}
+      agents_baseline: ${{ steps.plan.outputs.agents_baseline }}
+      agents_version: ${{ steps.plan.outputs.agents_version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -60,7 +69,10 @@ jobs:
         id: plan
         env:
           RELEASE_VERSION: ${{ inputs.version }}
-        run: python3 script/release/changed_components.py "${RELEASE_VERSION}" --output "${GITHUB_OUTPUT}"
+          AGENTS_VERSION: ${{ inputs.agents_version }}
+        run: >-
+          python3 script/release/changed_components.py "${RELEASE_VERSION}"
+          --agents-version "${AGENTS_VERSION}" --output "${GITHUB_OUTPUT}"
 
   reject-non-main:
     name: Reject non-main dispatch
@@ -103,6 +115,9 @@ jobs:
           CLI_SELECTED: ${{ needs.plan.outputs.cli }}
           CLI_TAG: ${{ needs.plan.outputs.cli_tag }}
           CLI_BASELINE: ${{ needs.plan.outputs.cli_baseline }}
+          AGENTS_SELECTED: ${{ needs.plan.outputs.agents }}
+          AGENTS_TAG: ${{ needs.plan.outputs.agents_tag }}
+          AGENTS_BASELINE: ${{ needs.plan.outputs.agents_baseline }}
         run: |
           selected=(
             "${GO_SELECTED}:${GO_TAG}:${GO_BASELINE}"
@@ -112,6 +127,7 @@ jobs:
             "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_TAG}:${TYPESCRIPT_BASELINE}"
             "${WEB_SELECTED}:${WEB_TAG}:${WEB_BASELINE}"
             "${CLI_SELECTED}:${CLI_TAG}:${CLI_BASELINE}"
+            "${AGENTS_SELECTED}:${AGENTS_TAG}:${AGENTS_BASELINE}"
           )
           for release in "${selected[@]}"; do
             if [[ "${release%%:*}" == "true" ]]; then
@@ -208,6 +224,64 @@ jobs:
           RUN_ID: ${{ steps.dispatch.outputs.run_id }}
         run: gh run watch "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" --exit-status
 
+  # PyPI and npm trusted publishing match the top-level workflow, so the agents publishers are dispatched, not called.
+  publish-agents:
+    name: Publish ${{ matrix.publisher.name }}
+    needs: [plan, create-releases]
+    if: needs.plan.outputs.agents == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        publisher:
+          - name: agents Python packages
+            workflow: agents-python-publish.yml
+          - name: agents TypeScript packages
+            workflow: agents-typescript-publish.yml
+    steps:
+      - name: Dispatch trusted publisher
+        id: dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AGENTS_VERSION: ${{ needs.plan.outputs.agents_version }}
+          PUBLISHER_NAME: ${{ matrix.publisher.name }}
+          PUBLISHER_WORKFLOW: ${{ matrix.publisher.workflow }}
+        run: |
+          title="Publish ${PUBLISHER_NAME} ${AGENTS_VERSION}"
+          gh workflow run "${PUBLISHER_WORKFLOW}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            -f "version=${AGENTS_VERSION}" \
+            -f "publish=true"
+          for _ in {1..30}; do
+            run_id="$({
+              gh run list \
+                --repo "${GITHUB_REPOSITORY}" \
+                --workflow "${PUBLISHER_WORKFLOW}" \
+                --event workflow_dispatch \
+                --branch main \
+                --limit 20 \
+                --json databaseId,displayTitle
+            } | jq -r --arg title "${title}" \
+              '.[] | select(.displayTitle == $title) | .databaseId' | head -n 1)"
+            if [[ -n "${run_id}" ]]; then
+              echo "run_id=${run_id}" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Dispatched ${PUBLISHER_WORKFLOW} run was not found" >&2
+          exit 1
+      - name: Wait for publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: gh run watch "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" --exit-status
+
   publish-web:
     name: Publish Dex Web
     needs: [plan, create-releases]
@@ -239,6 +313,7 @@ jobs:
       - publish-typescript
       - publish-web
       - publish-cli
+      - publish-agents
     runs-on: ubuntu-latest
     steps:
       - name: Report results
@@ -259,6 +334,8 @@ jobs:
           WEB_SELECTED: ${{ needs.plan.outputs.web }}
           WEB_RESULT: ${{ needs.publish-web.result }}
           CLI_RESULT: ${{ needs.publish-cli.result }}
+          AGENTS_SELECTED: ${{ needs.plan.outputs.agents }}
+          AGENTS_RESULT: ${{ needs.publish-agents.result }}
         run: |
           {
             echo "### Publication results"
@@ -272,7 +349,8 @@ jobs:
               "Rust SDK:${RUST_SELECTED}:${RUST_RESULT}" \
               "TypeScript SDK:${TYPESCRIPT_SELECTED}:${TYPESCRIPT_RESULT}" \
               "Dex Web:${WEB_SELECTED}:${WEB_RESULT}" \
-              "CLI:${CLI_SELECTED}:${CLI_RESULT}"; do
+              "CLI:${CLI_SELECTED}:${CLI_RESULT}" \
+              "Agents packages:${AGENTS_SELECTED}:${AGENTS_RESULT}"; do
               name="${result%%:*}"
               remainder="${result#*:}"
               selected="${remainder%%:*}"
@@ -291,7 +369,8 @@ jobs:
             "${RUST_SELECTED}:${RUST_RESULT}" \
             "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_RESULT}" \
             "${WEB_SELECTED}:${WEB_RESULT}" \
-            "${CLI_SELECTED}:${CLI_RESULT}"; do
+            "${CLI_SELECTED}:${CLI_RESULT}" \
+            "${AGENTS_SELECTED}:${AGENTS_RESULT}"; do
             if [[ "${result%%:*}" == "true" && "${result#*:}" != "success" ]]; then
               exit 1
             fi

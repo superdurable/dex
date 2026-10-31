@@ -3,14 +3,14 @@
 `dex-agents-claude-agent-sdk` (import `dex_agents_claude_agent_sdk`) runs an
 agent built with the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python)
 as a durable Dex agent session. It implements the
-[`dex-agents` runner contract](../core/README.md#the-runner-contract) and
+[`dex-agents` runner contract](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#the-runner-contract) and
 registers the shared agent session Flow, so a session keeps its conversation,
 approvals, and tool results across Worker restarts and waits for approval for
 as long as it takes.
 
 The Claude Agent SDK runs its agent loop in a Claude Code CLI subprocess that
 cannot stop after one model call, so this adapter is the plan's **whole-turn
-harness** ([agent framework adapters plan](../../../docs/design/plan/agent-framework-adapters.md)).
+harness** ([agent framework adapters plan](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md)).
 One `RunModel` Step runs a turn segment: the CLI makes the segment's model
 calls and inline tool calls itself, until it answers or defers a tool call.
 The session stores the CLI's transcript entries in Dex state, and the next
@@ -21,20 +21,18 @@ Tools that run inside the CLI wait for approval but cannot be recorded.
 
 ## Installation
 
-The package needs Python 3.11 or later, the released `dex-python-sdk==1.30.0`,
-`claude-agent-sdk>=0.2.176,<0.3`, and `mcp>=2.3,<3`. `uv.lock` pins
-`claude-agent-sdk` 0.2.176, which bundles Claude Code CLI 2.1.316. Inside this
-repository it depends on the core by path:
+The package needs Python 3.11 or later. It requires `dex-agents` at the same
+version, the released `dex-python-sdk==1.30.0`, `claude-agent-sdk>=0.2.176,<0.3`,
+and `mcp>=2.3,<3`. `uv.lock` pins `claude-agent-sdk` 0.2.176, which bundles
+Claude Code CLI 2.1.316:
 
-```toml
-[project]
-dependencies = ["claude-agent-sdk>=0.2.176,<0.3", "dex-agents", "dex-python-sdk==1.30.0", "mcp>=2.3,<3"]
-
-[tool.uv.sources]
-dex-agents = { path = "../core", editable = true }
+```bash
+pip install dex-agents-claude-agent-sdk
 ```
 
-Develop it with uv 0.12.2:
+Develop the package inside this repository with uv 0.12.2. There it resolves
+`dex-agents` from `../core` by path through `[tool.uv.sources]`; the published
+wheel requires `dex-agents==<same version>` from PyPI instead:
 
 ```bash
 cd agents/python/claude-agent-sdk
@@ -174,7 +172,7 @@ adapter is asked, and the adapter cannot see them.
 ## Effects and policies
 
 `ToolPolicy` and `default_tool_effect` work as in the
-[core](../core/README.md#effects-and-policies). Policies use a custom tool's
+[core](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#effects-and-policies). Policies use a custom tool's
 own name (`create_refund`, not `mcp__tools__create_refund`), a built-in name
 (`Bash`), or `mcp__<server>__<tool>` for a tool of an external MCP server.
 Without a policy, a custom tool's MCP annotations classify it:

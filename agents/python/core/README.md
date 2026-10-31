@@ -4,7 +4,7 @@
 framework adapters. It provides one durable agent session Flow,
 `AgentSessionFlow`, and the `AgentFrameworkRunner` contract that each
 framework adapter implements. The plan is
-[agent-framework-adapters.md](../../../docs/design/plan/agent-framework-adapters.md).
+[agent-framework-adapters.md](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 
 One Flow execution is one agent session; the Flow ID is the session ID. The
 session runs in **Step mode**: every model call is one `RunModel` Step, and
@@ -16,24 +16,30 @@ at most the one call that was running.
 
 ## Installation
 
-The package depends on the released `dex-python-sdk==1.30.0` and needs
-Python 3.11 or later. An adapter package depends on it by path:
+Applications usually install an adapter, which brings in this package. To
+build a runner of your own, install the core directly. It needs Python 3.11 or
+later and requires the released `dex-python-sdk==1.30.0`:
 
-```toml
-[project]
-dependencies = ["dex-agents", "dex-python-sdk==1.30.0", "<framework>==<version>"]
-
-[tool.uv.sources]
-dex-agents = { path = "../core", editable = true }
+```bash
+pip install dex-agents
 ```
 
-Develop the core itself with uv 0.12.2:
+`dex_agents.testing` ships in the same wheel, so an adapter's integration
+tests can start a private engine and Worker processes.
+
+Develop the package inside this repository with uv 0.12.2. The adapters in
+this repository resolve it from `../core` by path through
+`[tool.uv.sources]`; their published wheels require it from PyPI instead:
 
 ```bash
 cd agents/python/core
 uv sync --locked
 DEXCLI=/path/to/dexcli ./ci.sh
 ```
+
+An adapter requires `dex-agents==<same version>`. All agents packages share
+one version line; see the
+[compatibility table](https://github.com/superdurable/dex/blob/main/agents/README.md#versions-and-compatibility).
 
 ## Running an agent
 

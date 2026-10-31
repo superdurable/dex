@@ -3,8 +3,8 @@
 `dex-agents-openai-agents` (import `dex_agents_openai_agents`) runs
 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) agents as
 durable Dex agent sessions. It plugs the SDK into the shared session Flow of
-[`dex-agents`](../core/README.md). The plan is
-[agent-framework-adapters.md](../../../docs/design/plan/agent-framework-adapters.md).
+[`dex-agents`](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md). The plan is
+[agent-framework-adapters.md](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 
 One Flow execution is one agent session; the Flow ID is the session ID. The
 session runs in **Step mode**. Every model call is one `RunModel` Step. Every
@@ -14,20 +14,17 @@ call that was running, and a single-attempt write is never repeated silently.
 
 ## Installation
 
-The package needs Python 3.11 or later. It depends on the released
-`dex-python-sdk==1.30.0`, on `openai-agents>=0.24,<0.25` (0.24.0 is locked and
-tested), and on the core by path:
+The package needs Python 3.11 or later. It requires `dex-agents` at the same
+version, the released `dex-python-sdk==1.30.0`, and `openai-agents>=0.24,<0.25`
+(0.24.0 is locked and tested):
 
-```toml
-[project]
-dependencies = ["dex-agents-openai-agents", "dex-python-sdk==1.30.0"]
-
-[tool.uv.sources]
-dex-agents-openai-agents = { path = "agents/python/openai-agents", editable = true }
-dex-agents = { path = "agents/python/core", editable = true }
+```bash
+pip install dex-agents-openai-agents
 ```
 
-Develop the package itself with uv 0.12.2:
+Develop the package inside this repository with uv 0.12.2. There it resolves
+`dex-agents` from `../core` by path through `[tool.uv.sources]`; the published
+wheel requires `dex-agents==<same version>` from PyPI instead:
 
 ```bash
 cd agents/python/openai-agents

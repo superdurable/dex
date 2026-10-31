@@ -3,7 +3,7 @@
 `@superdurable/dex-agents-claude-agent-sdk` runs an agent built with the
 [Claude Agent SDK for TypeScript](https://github.com/anthropics/claude-agent-sdk-typescript)
 (`@anthropic-ai/claude-agent-sdk`) as a durable Dex agent session. It implements the
-[`@superdurable/dex-agents` runner contract](../core/README.md#the-runner-contract) and registers the
+[`@superdurable/dex-agents` runner contract](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md#the-runner-contract) and registers the
 shared agent session Flow, so a session keeps its conversation, approvals, and tool results across
 Worker restarts and waits for approval for as long as it takes.
 
@@ -14,39 +14,40 @@ tool call or answers. The session stores the CLI's transcript entries in Dex sta
 segment, turn, or attempt resumes the Claude session from them on any Worker. Custom tools that write
 run in their own Dex Steps; tools that run inside the CLI wait for approval but cannot be recorded.
 See the Claude Agent SDK row of the
-[agent framework adapters plan](../../../docs/design/plan/agent-framework-adapters.md). Its stored
+[agent framework adapters plan](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md). Its stored
 formats and its behavior match the Python adapter (`agents/python/claude-agent-sdk`).
 
 ## Installation
 
-The package is not published yet. Inside this repository it depends on the core by path:
-
-```json
-{
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.316",
-    "@superdurable/dex": "1.30.0",
-    "@superdurable/dex-agents": "file:../core",
-    "@superdurable/dex-agents-claude-agent-sdk": "file:../claude-agent-sdk",
-    "zod": "^4.0.0"
-  }
-}
-```
-
-Add `install-links=true` to the `.npmrc` next to your `package.json`, and build the core before you
-install, as the [core README](../core/README.md#installation) explains:
+Install the adapter with its peer dependencies, the session core and the Dex
+SDK, and `zod` 4:
 
 ```bash
-(cd ../core && npm ci && npm run build)
-npm ci
+npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
 ```
 
-Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.30.0, and
-`@anthropic-ai/claude-agent-sdk` `^0.3.316`. `package-lock.json` locks 0.3.316, which bundles Claude
-Code CLI 2.1.316 as an optional platform package; the adapter needs it unless you set
-`pathToClaudeCodeExecutable`. `zod` 4 is a peer dependency, the same one `tool()` schemas use. The Worker needs
-Claude Code credentials, such as `ANTHROPIC_API_KEY`, exactly as a plain Claude Agent SDK program
-does.
+The adapter depends on `@anthropic-ai/claude-agent-sdk` `^0.3.316`.
+`package-lock.json` locks 0.3.316, which bundles Claude Code CLI 2.1.316 as an
+optional platform package; the adapter needs it unless you set
+`pathToClaudeCodeExecutable`. `@superdurable/dex` and `@superdurable/dex-agents` are peer dependencies.
+The application installs exactly one copy of each, because the Dex Registry
+matches Flow classes and RPC registrations by identity, and the session
+recognizes `ToolExecutionError` only from its own copy of the core. `zod` 4 is a peer
+dependency, the same one `tool()` schemas use. Requirements: Node
+`^22.0.0 || ^24.0.0` and `@superdurable/dex` 1.30.0. The Worker needs Claude
+Code credentials, such as `ANTHROPIC_API_KEY`, exactly as a plain Claude Agent
+SDK program does.
+
+Develop the package inside this repository with `./ci.sh`. There
+`@superdurable/dex-agents` is a `file:../core` devDependency, and the
+package's `.npmrc` sets `install-links=true` so npm copies the built core
+instead of symlinking it; a symlinked core would load a second
+`@superdurable/dex`. Consumers of the published package need neither:
+
+```bash
+cd agents/typescript/claude-agent-sdk
+DEXCLI=/path/to/dexcli ./ci.sh
+```
 
 ## Running an agent
 
@@ -116,7 +117,7 @@ In this agent `lookup_order`, `Read`, and `Grep` run inside the turn. `create_re
 `AwaitToolApproval` for `resolve_interrupt` and then runs once in `CallSingleAttemptTool`. `Bash` has no policy, so the default effect,
 `unclassified`, makes every call wait for approval; after approval it runs inside the resumed turn.
 The session's RPCs, persistence, events, and Flow shape are the core's; see the
-[core README](../core/README.md).
+[core README](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md).
 
 ## API
 
@@ -166,7 +167,7 @@ or project settings can approve a tool before the adapter is asked, and the adap
 
 ## Effects and policies
 
-`ToolPolicy` and `defaultToolEffect` work as in the [core](../core/README.md#effects). Policies use a
+`ToolPolicy` and `defaultToolEffect` work as in the [core](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md#effects). Policies use a
 custom tool's own name (`create_refund`, not `mcp__tools__create_refund`), a built-in name (`Bash`),
 or `mcp__<server>__<tool>` for a tool of an external MCP server. Without a policy, a custom tool's MCP
 annotations classify it: `readOnlyHint` is `read`, and `idempotentHint` without `destructiveHint` is

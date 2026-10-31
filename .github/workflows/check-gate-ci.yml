@@ -45,6 +45,8 @@ jobs:
             agents:
               - 'agents/**'
               - '.github/workflows/agents-ci.yml'
+              - '.github/workflows/agents-python-publish.yml'
+              - '.github/workflows/agents-typescript-publish.yml'
             sdk_go:
               - 'sdk-go/**'
               - 'blob-cache-go/**'

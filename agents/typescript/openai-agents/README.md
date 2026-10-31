@@ -9,46 +9,37 @@ crashes and restarts, waits durably for tool approvals, and never runs a write
 twice silently.
 
 The package is an adapter for the shared session Flow in
-[`@superdurable/dex-agents`](../core/README.md). That package owns the Steps,
+[`@superdurable/dex-agents`](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md). That package owns the Steps,
 persistence, RPCs, live events, approvals, and crash recovery; this package
 translates between them and the OpenAI Agents SDK. The session contract is in
-[`docs/design/plan/agent-framework-adapters.md`](../../../docs/design/plan/agent-framework-adapters.md).
+[`docs/design/plan/agent-framework-adapters.md`](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 
 ## Installation
 
-The packages are not published yet. In this repository, depend on both by path,
-next to the released Dex SDK and the OpenAI Agents SDK:
+Install the adapter with its peer dependencies, the session core, the Dex SDK,
+and the OpenAI Agents SDK:
 
-```json
-{
-  "dependencies": {
-    "@openai/agents": "^0.21.0",
-    "@superdurable/dex": "1.30.0",
-    "@superdurable/dex-agents": "file:../core",
-    "@superdurable/dex-agents-openai-agents": "file:../openai-agents",
-    "zod": "^4.0.0"
-  }
-}
+```bash
+npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
 ```
 
-Add an `.npmrc` next to the application's `package.json`:
+`@superdurable/dex` and `@superdurable/dex-agents` are peer dependencies.
+The application installs exactly one copy of each, because the Dex Registry
+matches Flow classes and RPC registrations by identity, and the session
+recognizes `ToolExecutionError` only from its own copy of the core. `@openai/agents` is a peer dependency too.
+Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.30.0, and
+`@openai/agents` `^0.21.0` (tested with 0.21.0).
 
-```ini
-install-links=true
+Develop the package inside this repository with `./ci.sh`. There
+`@superdurable/dex-agents` is a `file:../core` devDependency, and the
+package's `.npmrc` sets `install-links=true` so npm copies the built core
+instead of symlinking it; a symlinked core would load a second
+`@superdurable/dex`. Consumers of the published package need neither:
+
+```bash
+cd agents/typescript/openai-agents
+DEXCLI=/path/to/dexcli ./ci.sh
 ```
-
-This is required. Without it npm symlinks the path dependencies, Node loads a
-second copy of `@superdurable/dex`, and the Registry rejects the Flow. npm packs
-the built output of a path dependency, so build `../core` and this package
-before `npm install`.
-
-`@openai/agents`, `@superdurable/dex`, and `@superdurable/dex-agents` are peer
-dependencies. The application installs exactly one copy of each, because the
-SDKs and the session core match their own classes by identity; the session
-recognizes `ToolExecutionError` only from its own copy of the core.
-Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.30.0,
-`@superdurable/dex-agents` `^0.1.0`, and `@openai/agents` `^0.21.0` (tested
-with 0.21.0).
 
 ## Example
 

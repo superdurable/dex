@@ -1,14 +1,22 @@
 [project]
 name = "dex-agents-claude-agent-sdk"
+# Every agents package shares one version; agents/script/stamp_agents_release_version.py sets it.
 version = "0.1.0"
 description = "Durable Claude Agent SDK sessions on Dex"
 authors = [{name = "Super Durable"}]
 readme = "README.md"
 license = "LicenseRef-Sustainable-Use-1.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Typing :: Typed",
+]
 dependencies = [
     "claude-agent-sdk>=0.2.176,<0.3",
-    "dex-agents",
+    "dex-agents==0.1.0",
     "dex-python-sdk==1.30.0",
     "jsonschema>=4,<5",
     "mcp>=2.3,<3",
@@ -17,6 +25,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/superdurable/dex/tree/main/agents/python/claude-agent-sdk"
 Repository = "https://github.com/superdurable/dex"
+Changelog = "https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md"
 
 [dependency-groups]
 dev = [

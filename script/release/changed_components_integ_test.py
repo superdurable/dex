@@ -18,7 +18,7 @@ SCRIPT = Path(__file__).with_name("changed_components.py")
 WEB_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-web-release.yml"
 CLI_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/cli-release.yml"
 CHANGED_COMPONENTS_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-changed-components.yml"
-COMPONENT_KEYS = ("go", "rust", "java", "python", "typescript", "web", "cli")
+COMPONENT_KEYS = ("go", "rust", "java", "python", "typescript", "web", "cli", "agents")
 BASELINE_TAGS = (
     "sdk-go/v0.1.0",
     "sdk-rust/v0.1.0",
@@ -27,6 +27,7 @@ BASELINE_TAGS = (
     "sdk-typescript/v0.1.0",
     "cli-v0.1.0",
     "web/v0.1.0",
+    "agents/v0.1.0",
 )
 INITIAL_FILES = (
     "sdk-go/client.go",
@@ -44,6 +45,7 @@ INITIAL_FILES = (
     "web/package.json",
     "packages/flow-definition-renderer/src/index.ts",
     "go.work",
+    "agents/python/core/pyproject.toml",
 )
 
 
@@ -86,10 +88,12 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
             changed_file.write("changed\n")
         self.commit(f"change {relative_path}")
 
-    def plan(self, version: str = "1.2.3") -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
+    def plan(
+        self, version: str = "1.2.3", *extra_arguments: str
+    ) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
         output = self.repository / "release-output"
         result = subprocess.run(
-            ("python3", str(SCRIPT), version, "--output", str(output)),
+            ("python3", str(SCRIPT), version, "--output", str(output), *extra_arguments),
             cwd=self.repository,
             check=False,
             text=True,
@@ -176,6 +180,65 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         result, _ = self.plan()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("sdk-go/v1.2.3", result.stderr)
+
+    def test_agents_change_without_agents_version_is_skipped(self) -> None:
+        self.change("agents/python/core/pyproject.toml")
+        result, values = self.plan()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_selected(values)
+        self.assertEqual(values["agents_tag"], "")
+        self.assertEqual(values["agents_version"], "")
+
+    def test_agents_change_releases_with_its_own_version(self) -> None:
+        self.change("agents/typescript/core/package.json")
+        self.change("sdk-go/client.go")
+        result, values = self.plan("1.2.3", "--agents-version", "0.2.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_selected(values, "go", "web", "cli", "agents")
+        self.assertEqual(values["agents_tag"], "agents/v0.2.0")
+        self.assertEqual(values["agents_baseline"], "agents/v0.1.0")
+        self.assertEqual(values["agents_version"], "0.2.0")
+        self.assertEqual(values["go_tag"], "sdk-go/v1.2.3")
+
+    def test_agents_version_without_agents_changes_is_skipped(self) -> None:
+        self.change("sdk-go/client.go")
+        result, values = self.plan("1.2.3", "--agents-version", "0.2.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_selected(values, "go", "web", "cli")
+
+    def test_agents_publish_workflow_change_selects_agents(self) -> None:
+        self.change(".github/workflows/agents-python-publish.yml")
+        result, values = self.plan("1.2.3", "--agents-version", "0.2.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_selected(values, "agents")
+
+    def test_missing_agents_baseline_selects_first_agents_release(self) -> None:
+        self.git("tag", "-d", "agents/v0.1.0")
+        result, values = self.plan("1.2.3", "--agents-version", "0.1.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_selected(values, "agents")
+        self.assertEqual(values["agents_tag"], "agents/v0.1.0")
+        self.assertEqual(values["agents_baseline"], "")
+
+    def test_existing_agents_tag_fails_preflight(self) -> None:
+        self.git("tag", "agents/v0.2.0")
+        self.change("agents/python/core/pyproject.toml")
+        result, _ = self.plan("1.2.3", "--agents-version", "0.2.0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("agents/v0.2.0", result.stderr)
+
+    def test_invalid_agents_version_fails(self) -> None:
+        result, _ = self.plan("1.2.3", "--agents-version", "v0.2")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid semantic version", result.stderr)
+
+    def test_coordinated_release_dispatches_agents_publishers(self) -> None:
+        coordinated_workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('--agents-version "${AGENTS_VERSION}"', coordinated_workflow)
+        for workflow in ("agents-python-publish.yml", "agents-typescript-publish.yml"):
+            self.assertIn(f"workflow: {workflow}", coordinated_workflow)
+        self.assertIn('gh workflow run "${PUBLISHER_WORKFLOW}"', coordinated_workflow)
+        self.assertIn('-f "publish=true"', coordinated_workflow)
 
     def test_docker_web_release_uses_web_path_tag(self) -> None:
         workflow = WEB_RELEASE_WORKFLOW.read_text(encoding="utf-8")
