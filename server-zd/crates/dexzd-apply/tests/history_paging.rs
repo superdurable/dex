@@ -11,9 +11,9 @@
 use std::cell::Cell;
 use std::collections::BTreeMap;
 
-use dexzd_apply::read_model::get_history_events;
+use dexzd_apply::read_model::{ReadModelError, get_history_events};
 use dexzd_apply::{
-    ApplyContext, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
+    ApplyContext, ApplyError, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
     apply_flow_command,
 };
 use dexzd_keyspace::row_keys::{
@@ -99,22 +99,45 @@ impl MemoryState {
     }
 }
 
-/// Counts the History column family rows that reads return.
+/// Counts the History column family reader calls and the rows they return.
 struct CountingReader<'state> {
     state: &'state MemoryState,
-    history_rows: Cell<usize>,
+    history_reads: Cell<HistoryReads>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct HistoryReads {
+    rows: usize,
+    calls: usize,
+}
+
+impl HistoryReads {
+    fn max(self, other: Self) -> Self {
+        Self {
+            rows: self.rows.max(other.rows),
+            calls: self.calls.max(other.calls),
+        }
+    }
 }
 
 impl<'state> CountingReader<'state> {
     fn new(state: &'state MemoryState) -> Self {
         Self {
             state,
-            history_rows: Cell::new(0),
+            history_reads: Cell::new(HistoryReads::default()),
         }
     }
 
-    fn take_history_rows(&self) -> usize {
-        self.history_rows.replace(0)
+    fn take_history_reads(&self) -> HistoryReads {
+        self.history_reads.replace(HistoryReads::default())
+    }
+
+    fn record_history_read(&self, rows: usize) {
+        let reads = self.history_reads.get();
+        self.history_reads.set(HistoryReads {
+            rows: reads.rows + rows,
+            calls: reads.calls + 1,
+        });
     }
 }
 
@@ -125,8 +148,8 @@ impl FlowStateReader for CountingReader<'_> {
         key: &[u8],
     ) -> Result<Option<Vec<u8>>, StateReadError> {
         let row = self.state.get(column_family, key)?;
-        if column_family == ColumnFamily::History && row.is_some() {
-            self.history_rows.set(self.history_rows.get() + 1);
+        if column_family == ColumnFamily::History {
+            self.record_history_read(usize::from(row.is_some()));
         }
         Ok(row)
     }
@@ -140,7 +163,7 @@ impl FlowStateReader for CountingReader<'_> {
     ) -> Result<Vec<StateRow>, StateReadError> {
         let rows = self.state.scan(column_family, start, end, limit)?;
         if column_family == ColumnFamily::History {
-            self.history_rows.set(self.history_rows.get() + rows.len());
+            self.record_history_read(rows.len());
         }
         Ok(rows)
     }
@@ -305,15 +328,16 @@ impl Harness {
         }
     }
 
-    /// Removes History rows below `seq`, as history pruning does after the window moves.
-    fn remove_history_before(&mut self, seq: u64) {
+    /// Removes History rows after the genesis record and below `seq`, as window pruning does.
+    fn remove_history_after_genesis_before(&mut self, seq: u64) {
         let flow_hash = self.context.flow_hash;
         let run_id = self.run_id;
-        let prefix = run_table_prefix(flow_hash, run_id, RunTable::HistoryRecord);
+        let genesis_seq = self.attempt_record(1).start_seq;
+        let start = history_record_key(flow_hash, run_id, genesis_seq + 1);
         let end = history_record_key(flow_hash, run_id, seq);
         self.state.rows.retain(|(column_family, key), _| {
             *column_family != ColumnFamily::History
-                || !key.starts_with(&prefix)
+                || key.as_slice() < start.as_slice()
                 || key.as_slice() >= end.as_slice()
         });
     }
@@ -430,7 +454,7 @@ impl Harness {
     }
 
     /// Pages through one lineage, compares every page with the reference, and returns the
-    /// largest number of History rows one page read.
+    /// most History reads one page used.
     fn assert_pages_match_reference(
         &self,
         start_event_id: i64,
@@ -452,8 +476,7 @@ impl Harness {
                 i32::try_from(run_attempt).expect("small attempt"),
             )
             .expect("the history page reads");
-            let rows = reader.take_history_rows();
-            stats.max_rows_per_page = stats.max_rows_per_page.max(rows);
+            stats.max_reads_per_page = stats.max_reads_per_page.max(reader.take_history_reads());
             stats.pages += 1;
             let actual = HistoryPage {
                 events: response.events,
@@ -492,7 +515,7 @@ struct HistoryPage {
 #[derive(Default)]
 struct PagingStats {
     pages: usize,
-    max_rows_per_page: usize,
+    max_reads_per_page: HistoryReads,
     events: Vec<FlowHistoryEvent>,
 }
 
@@ -522,11 +545,14 @@ fn is_ok(reply: &CommandReply) -> bool {
     matches!(reply.reply, Some(command_reply::Reply::Ok(_)))
 }
 
-/// Reads one event from each start and returns the most History rows one read used.
-fn assert_single_event_reads_match_reference(harness: &Harness, start_event_ids: &[i64]) -> usize {
+/// Reads one event from each start and returns the most History reads one read used.
+fn assert_single_event_reads_match_reference(
+    harness: &Harness,
+    start_event_ids: &[i64],
+) -> HistoryReads {
     let records = harness.history_records();
     let reader = CountingReader::new(&harness.state);
-    let mut max_rows = 0;
+    let mut max_reads = HistoryReads::default();
     for start_event_id in start_event_ids {
         let response = get_history_events(
             &reader,
@@ -548,9 +574,9 @@ fn assert_single_event_reads_match_reference(harness: &Harness, start_event_ids:
             expected,
             "single-event page from event {start_event_id}"
         );
-        max_rows = max_rows.max(reader.take_history_rows());
+        max_reads = max_reads.max(reader.take_history_reads());
     }
-    max_rows
+    max_reads
 }
 
 #[test]
@@ -573,20 +599,20 @@ fn paging_a_long_history_reads_rows_proportional_to_the_page() {
     assert_eq!(web_pages.pages, event_count.div_ceil(200));
     // A 200-event page spans about 234 rows; the seek adds a few rows per halving.
     assert!(
-        web_pages.max_rows_per_page < 600,
-        "a 200-event page read {} of {} History rows",
-        web_pages.max_rows_per_page,
+        web_pages.max_reads_per_page.rows < 600 && web_pages.max_reads_per_page.calls < 80,
+        "a 200-event page used {:?} for {} History rows",
+        web_pages.max_reads_per_page,
         records.len()
     );
-    let single_event_rows = assert_single_event_reads_match_reference(
+    let single_event_reads = assert_single_event_reads_match_reference(
         &harness,
         &[
             1, 2, 9_999, 10_000, 15_001, 19_999, 20_001, 20_002, 20_003, 30_000,
         ],
     );
     assert!(
-        single_event_rows < 100,
-        "a one-event page read {single_event_rows} History rows"
+        single_event_reads.rows < 100 && single_event_reads.calls < 60,
+        "a one-event page used {single_event_reads:?}"
     );
 
     for page_size in [0, 1_000] {
@@ -596,7 +622,7 @@ fn paging_a_long_history_reads_rows_proportional_to_the_page() {
 }
 
 #[test]
-fn paging_across_long_eventless_spans_reads_each_span_at_most_twice() {
+fn paging_across_eventless_spans_reads_each_span_about_once() {
     const SPAN_ROWS: usize = 600;
     let mut harness = Harness::new(settings(1_000_000, 10_000));
     for round in 0..2_000 {
@@ -611,17 +637,16 @@ fn paging_across_long_eventless_spans_reads_each_span_at_most_twice() {
     let records = harness.history_records();
 
     let web_pages = harness.assert_pages_match_reference(0, 200, 0);
-    // The seek and the page scan may each cross one eventless span.
     assert!(
-        web_pages.max_rows_per_page < 2 * SPAN_ROWS + 600,
-        "a 200-event page read {} of {} History rows",
-        web_pages.max_rows_per_page,
+        web_pages.max_reads_per_page.rows < SPAN_ROWS + 600,
+        "a 200-event page used {:?} for {} History rows",
+        web_pages.max_reads_per_page,
         records.len()
     );
-    let tail_rows =
+    let tail_reads =
         assert_single_event_reads_match_reference(&harness, &[harness.run_record().next_event_id]);
     assert_eq!(
-        tail_rows, 0,
+        tail_reads.calls, 0,
         "a read past the last event reads no History rows"
     );
     let near_spans: Vec<i64> = (0..8)
@@ -630,25 +655,126 @@ fn paging_across_long_eventless_spans_reads_each_span_at_most_twice() {
             [span_event_id - 1, span_event_id, span_event_id + 1]
         })
         .collect();
-    let single_event_rows = assert_single_event_reads_match_reference(&harness, &near_spans);
+    let single_event_reads = assert_single_event_reads_match_reference(&harness, &near_spans);
     assert!(
-        single_event_rows < 2 * SPAN_ROWS + 300,
-        "a one-event page read {single_event_rows} History rows"
+        single_event_reads.rows < SPAN_ROWS + 300,
+        "a one-event page used {single_event_reads:?}"
     );
     harness.assert_pages_match_reference(0, 1, 0);
 }
 
 #[test]
-fn paging_after_the_oldest_rows_are_removed_starts_at_the_first_retained_event() {
+fn a_page_crossing_a_huge_eventless_span_reads_it_once_in_full_chunks() {
+    const SPAN_ROWS: usize = 50_000;
+    let mut harness = Harness::new(settings(1_000_000, 10_000));
+    for _ in 0..50 {
+        harness.append_round(0);
+    }
+    for _ in 0..SPAN_ROWS {
+        harness.heartbeat();
+    }
+    for _ in 0..50 {
+        harness.append_round(0);
+    }
+    harness.stop();
+    let records = harness.history_records();
+    let full_scan = HistoryReads {
+        rows: records.len(),
+        calls: records.len() / 256 + 1,
+    };
+    let last_event_before_span = 1 + 2 * 50;
+    let crossing_starts: Vec<i64> = (last_event_before_span - 2..=last_event_before_span + 3)
+        .map(i64::from)
+        .collect();
+    let single_event_reads = assert_single_event_reads_match_reference(&harness, &crossing_starts);
+    let web_pages = harness.assert_pages_match_reference(0, 200, 0);
+    let paged_from_span =
+        harness.assert_pages_match_reference(i64::from(last_event_before_span), 10, 0);
+    for reads in [
+        single_event_reads,
+        web_pages.max_reads_per_page,
+        paged_from_span.max_reads_per_page,
+    ] {
+        assert!(
+            reads.rows <= SPAN_ROWS + 600 && reads.calls <= SPAN_ROWS / 256 + 100,
+            "a page crossing the span used {reads:?}"
+        );
+        assert!(
+            reads.rows <= full_scan.rows + 256 && reads.calls <= full_scan.calls + 40,
+            "a page crossing the span used {reads:?}, more than the full scan {full_scan:?}"
+        );
+    }
+}
+
+#[test]
+fn a_non_increasing_event_id_in_the_lineage_is_an_invariant_violation() {
+    let mut harness = Harness::new(settings(1_000_000, 10_000));
+    for _ in 0..10 {
+        harness.append_round(1);
+    }
+    let corrupted = harness
+        .history_records()
+        .into_iter()
+        .find(|record| {
+            record
+                .events
+                .first()
+                .is_some_and(|event| event.event_id == 10)
+        })
+        .expect("a record holds event 10");
+    let mut rewritten = corrupted.clone();
+    rewritten.events[0].event_id = 5;
+    let key = history_record_key(harness.context.flow_hash, harness.run_id, corrupted.seq);
+    harness
+        .state
+        .rows
+        .insert((ColumnFamily::History, key), rewritten.encode_to_vec());
+
+    let result = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run_id,
+        0,
+        0,
+        &[],
+        0,
+    );
+    assert!(
+        matches!(
+            result,
+            Err(ReadModelError::State(ApplyError::InvariantViolation { .. }))
+        ),
+        "a decreasing event ID is reported: {result:?}"
+    );
+}
+
+#[test]
+fn paging_after_window_pruning_starts_at_the_genesis_and_the_retained_window() {
     let mut harness = Harness::new(settings(1_000_000, 10_000));
     for round in 0..500 {
         harness.append_round(usize::from(round % 4 == 0));
     }
-    let removed_before_seq = harness.history_records()[300].seq;
-    harness.remove_history_before(removed_before_seq);
-    let first_retained = harness.history_records()[0].events[0].event_id;
-    assert!(first_retained > 200, "the oldest events are gone");
-    for (start_event_id, page_size) in [(0, 7), (3, 50), (first_retained, 1), (999, 3)] {
+    let window_start_seq = harness.history_records()[300].seq;
+    harness.remove_history_after_genesis_before(window_start_seq);
+    let retained = harness.history_records();
+    assert_eq!(retained[0].seq, harness.attempt_record(1).start_seq);
+    assert!(
+        retained[1].seq > retained[0].seq + 200,
+        "a large seq gap follows genesis"
+    );
+    let first_window_event = retained[1..]
+        .iter()
+        .find_map(|record| record.events.first())
+        .expect("the window holds events")
+        .event_id;
+    for (start_event_id, page_size) in [
+        (0, 7),
+        (2, 1),
+        (3, 50),
+        (first_window_event - 1, 1),
+        (first_window_event, 2),
+        (999, 3),
+    ] {
         harness.assert_pages_match_reference(start_event_id, page_size, 0);
     }
 }

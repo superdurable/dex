@@ -20,19 +20,6 @@ use crate::{ApplyError, FlowStateReader};
 /// Most History rows read by one scan call.
 const MAX_HISTORY_SCAN_ROWS: usize = 256;
 
-/// Most History rows one seek probe reads before it reports eventless rows.
-const SEEK_PROBE_ROWS: usize = 32;
-
-/// What one seek probe found from its start seq.
-enum SeekProbe {
-    /// The first record with events, and its first event ID.
-    Event { seq: u64, event_id: i64 },
-    /// Every probed row through `last_seq` has no events.
-    Eventless { last_seq: u64 },
-    /// No record with events exists before the probe's end.
-    End,
-}
-
 /// Reads one page of events from an attempt's lineage, using event IDs as cursors.
 pub fn get_history_events(
     reader: &dyn FlowStateReader,
@@ -132,6 +119,51 @@ struct HistoryRecordRows<'view, 'reader> {
     table_prefix: Vec<u8>,
 }
 
+/// The first record with events in a scanned seq range.
+struct FirstEventRecord {
+    seq: u64,
+    last_event_id: i64,
+}
+
+/// Where a page scan starts, and the seq ranges the seek found without events.
+struct HistorySeek {
+    first_record_seq: u64,
+    eventless_ranges: EventlessRanges,
+}
+
+/// Disjoint seq ranges known to hold no events, keyed by start with exclusive ends.
+#[derive(Default)]
+struct EventlessRanges {
+    ends_by_start: BTreeMap<u64, u64>,
+}
+
+impl EventlessRanges {
+    fn insert(&mut self, range: Range<u64>) {
+        if range.start < range.end {
+            self.ends_by_start.insert(range.start, range.end);
+        }
+    }
+
+    /// Returns the first seq at or after `seq` outside every known eventless range.
+    fn skip_from(&self, mut seq: u64) -> u64 {
+        while let Some((_, end)) = self.ends_by_start.range(..=seq).next_back() {
+            if *end <= seq {
+                break;
+            }
+            seq = *end;
+        }
+        seq
+    }
+
+    /// Returns the start of the first known eventless range after `seq`, if any.
+    fn next_start_after(&self, seq: u64) -> Option<u64> {
+        self.ends_by_start
+            .range(seq.saturating_add(1)..)
+            .next()
+            .map(|(start, _)| *start)
+    }
+}
+
 impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
     fn new(view: &'view RunView<'reader>) -> Self {
         Self {
@@ -157,16 +189,27 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
         if first_event_id >= self.view.record.next_event_id {
             return Ok(Vec::new());
         }
-        let start_seq = self.seek_seq(first_event_id)?;
+        let Some(seek) = self.seek_first_record(first_event_id)? else {
+            return Ok(Vec::new());
+        };
         let mut events = Vec::new();
         let mut last_event_id = 0_i64;
         for segment in self.lineage_segments(lineage)? {
-            let mut next_seq = segment.start.max(start_seq);
+            let mut next_seq = segment.start.max(seek.first_record_seq);
             let mut chunk_rows = event_limit.clamp(1, MAX_HISTORY_SCAN_ROWS);
-            while next_seq < segment.end && events.len() < event_limit {
-                let records = self.scan(next_seq, segment.end, chunk_rows)?;
-                let Some((last_seq, _)) = records.last() else {
+            while events.len() < event_limit {
+                next_seq = seek.eventless_ranges.skip_from(next_seq);
+                if next_seq >= segment.end {
                     break;
+                }
+                let scan_end = seek
+                    .eventless_ranges
+                    .next_start_after(next_seq)
+                    .map_or(segment.end, |start| start.min(segment.end));
+                let records = self.scan_history_records(next_seq, scan_end, chunk_rows)?;
+                let Some((last_seq, _)) = records.last() else {
+                    next_seq = scan_end;
+                    continue;
                 };
                 next_seq = last_seq.saturating_add(1);
                 let collected_before = events.len();
@@ -213,82 +256,75 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
         Ok(events)
     }
 
-    /// Returns the seq of the last record whose first event ID is below `first_event_id`, or 0.
-    ///
-    /// Earlier records hold only smaller event IDs, so a scan may start at the returned seq.
-    fn seek_seq(&self, first_event_id: i64) -> Result<u64, ReadModelError> {
-        let end = self.view.record.next_run_seq;
-        // Reading from the oldest retained event skips the search that would only move left.
-        match self.probe(0, end)? {
-            SeekProbe::Event { event_id, .. } if event_id >= first_event_id => return Ok(0),
-            SeekProbe::End => return Ok(0),
-            SeekProbe::Event { .. } | SeekProbe::Eventless { .. } => {}
-        }
-        Ok(self.last_record_below(first_event_id, 0, end)?.unwrap_or(0))
-    }
-
-    /// Returns the seq of the last record in `[low, high)` whose first event ID is below
-    /// `first_event_id`, or `None` when no record there qualifies.
-    fn last_record_below(
+    /// Returns the first record holding an event at or after `first_event_id`, with the
+    /// eventless seq ranges found on the way, or `None` when no record holds such an event.
+    fn seek_first_record(
         &self,
         first_event_id: i64,
-        mut low: u64,
-        mut high: u64,
-    ) -> Result<Option<u64>, ReadModelError> {
-        let mut found = None;
+    ) -> Result<Option<HistorySeek>, ReadModelError> {
+        let mut eventless_ranges = EventlessRanges::default();
+        let mut chunk_rows = 1;
+        let mut low = 0;
+        let mut high = self.view.record.next_run_seq;
+        let mut first_record_seq = None;
+        // Probing the oldest record first answers a read from the start without a search.
+        let mut probe = low;
         while low < high {
-            let probe = low + (high - low) / 2;
-            match self.probe(probe, high)? {
-                SeekProbe::Event { seq, event_id } if event_id < first_event_id => {
-                    found = Some(seq);
-                    low = seq.saturating_add(1);
-                }
-                SeekProbe::Event { .. } | SeekProbe::End => high = probe,
-                // Searches past the eventless rows first, because a match there is the later one.
-                SeekProbe::Eventless { last_seq } => {
-                    let later =
-                        self.last_record_below(first_event_id, last_seq.saturating_add(1), high)?;
-                    if later.is_some() {
-                        return Ok(later);
+            let found = self.find_first_event_record(probe, high, &mut chunk_rows)?;
+            match found {
+                Some(record) => {
+                    eventless_ranges.insert(probe..record.seq);
+                    if record.last_event_id < first_event_id {
+                        low = record.seq.saturating_add(1);
+                    } else {
+                        first_record_seq = Some(record.seq);
+                        high = probe;
                     }
+                }
+                None => {
+                    eventless_ranges.insert(probe..high);
                     high = probe;
                 }
             }
+            probe = low + (high.saturating_sub(low)) / 2;
         }
-        Ok(found)
+        Ok(first_record_seq.map(|first_record_seq| HistorySeek {
+            first_record_seq,
+            eventless_ranges,
+        }))
     }
 
-    /// Reads at most [`SEEK_PROBE_ROWS`] rows from `start` and reports the first event found.
-    fn probe(&self, start: u64, end: u64) -> Result<SeekProbe, ReadModelError> {
+    /// Returns the first record with events in `[start, end)`, or `None` when it holds none.
+    /// `chunk_rows` carries the scan size across calls.
+    fn find_first_event_record(
+        &self,
+        start: u64,
+        end: u64,
+        chunk_rows: &mut usize,
+    ) -> Result<Option<FirstEventRecord>, ReadModelError> {
         let mut next_seq = start;
-        let mut chunk_rows = 1;
-        let mut probed_rows = 0;
-        while next_seq < end && probed_rows < SEEK_PROBE_ROWS {
-            let records = self.scan(next_seq, end, chunk_rows)?;
+        let mut is_first_chunk = true;
+        while next_seq < end {
+            let records = self.scan_history_records(next_seq, end, *chunk_rows)?;
             let Some((last_seq, _)) = records.last() else {
-                break;
+                return Ok(None);
             };
             next_seq = last_seq.saturating_add(1);
-            probed_rows += records.len();
             for (seq, record) in records {
-                if let Some(event) = record.events.first() {
-                    return Ok(SeekProbe::Event {
+                if let Some(event) = record.events.last() {
+                    if is_first_chunk {
+                        *chunk_rows = 1;
+                    }
+                    return Ok(Some(FirstEventRecord {
                         seq,
-                        event_id: event.event_id,
-                    });
+                        last_event_id: event.event_id,
+                    }));
                 }
             }
-            chunk_rows = chunk_rows
-                .saturating_mul(2)
-                .min(SEEK_PROBE_ROWS - probed_rows.min(SEEK_PROBE_ROWS))
-                .max(1);
+            is_first_chunk = false;
+            *chunk_rows = chunk_rows.saturating_mul(2).min(MAX_HISTORY_SCAN_ROWS);
         }
-        if next_seq >= end || probed_rows < SEEK_PROBE_ROWS {
-            return Ok(SeekProbe::End);
-        }
-        Ok(SeekProbe::Eventless {
-            last_seq: next_seq - 1,
-        })
+        Ok(None)
     }
 
     /// Returns each lineage attempt's seq range in seq order.
@@ -319,7 +355,7 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
     }
 
     /// Returns up to `limit` records with seqs in `[start, end)`, with the seq from each key.
-    fn scan(
+    fn scan_history_records(
         &self,
         start: u64,
         end: u64,
