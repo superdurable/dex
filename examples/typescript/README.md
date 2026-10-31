@@ -1,6 +1,6 @@
 # Dex TypeScript examples
 
-These examples target [`@superdurable/dex@1.26.0`](https://www.npmjs.com/package/@superdurable/dex).
+These examples target [`@superdurable/dex@1.29.0`](https://www.npmjs.com/package/@superdurable/dex).
 
 The sample process runs one pull Worker and an HTTP controller on port `8080`.
 The Worker needs only an outbound connection to the Dex Server. Step `execute` / `waitFor` / RPC handlers may

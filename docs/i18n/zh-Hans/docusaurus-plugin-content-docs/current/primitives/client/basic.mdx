@@ -152,17 +152,13 @@ Client 仍提供 **WaitForAttributeMatch** 作为阻塞式 observation API。当
 
 **GetAttributes** 从 Flow 外读取已注册的 Attribute 和 AttributeMap instance 的值。每个值传一个 read：一个 singleton Attribute，或一个 AttributeMap instance。这个 API 只有批量形式。只读一个值时，传一个 read。
 
-它在 Go 中叫 **GetAttributes**，在 Python 中叫 **get_attributes**，在 TypeScript 中叫 **getAttributes**。
+它在 Go 中叫 **GetAttributes**，在 Python 和 Rust 中叫 **get_attributes**，在 Java 和 TypeScript 中叫 **getAttributes**。
+
+Rust 调用会阻塞调用线程，与其他 Rust Client 方法一样。它接受由 1 到 12 个 read 组成的 tuple，并返回同样大小的 tuple。要读取更多值，请分多次调用。不同调用读到的值可能来自不同的提交。
 
 Attribute primitive 示例读取一个 status Attribute、progress AttributeMap 的 **payment** instance，以及一个 Flow 从不设置的 email Attribute。
 
-:::note 仅支持 Go、Python 和 TypeScript
-
-Java 和 Rust 暂不支持 **GetAttributes**。在这两个 SDK 中，请通过[只读 RPC](/primitives/rpc#read-only-rpcs-and-terminal-flows) 读取 Attribute。
-
-:::
-
-<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/attribute/controller.py', go: 'examples/go/primitives/attribute/controller.go', typescript: 'examples/typescript/src/primitives/attribute/controller.ts'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/attribute/controller.py', go: 'examples/go/primitives/attribute/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeController.java', typescript: 'examples/typescript/src/primitives/attribute/controller.ts', rust: 'examples/rust/src/primitives/attribute/controller.rs'}}>
 <SdkSnippet lang="python">
 
 ```python
@@ -221,6 +217,28 @@ if result.IsSet(Email) {
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+if (workflowId == null || workflowId.isEmpty()) {
+    return ResponseEntity.badRequest().body(Map.of("error", "workflowId is required"));
+}
+final AttributeMapInstance<String> paymentProgress = flow.progress.instance("payment");
+final AttributeValues values;
+try {
+    values = client.getAttributes(workflowId, flow.status, paymentProgress, flow.email);
+} catch (final FlowNotFoundException notFound) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(Map.of("error", notFound.getMessage()));
+}
+return ResponseEntity.ok(new AttributeReadResponse(
+        values.get(flow.status).orElse("not started"),
+        values.get(paymentProgress).orElse("not started"),
+        // This Flow never sets email, so get returns Optional.empty().
+        values.get(flow.email).orElse(null)));
+```
+
+</SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
@@ -252,9 +270,33 @@ try {
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let flow_id = query.workflow_id;
+if flow_id.is_empty() {
+    return error_response(StatusCode::BAD_REQUEST, "workflowId is required".to_owned());
+}
+match run_blocking(move || {
+    client.get_attributes(&flow_id, (&STATUS, &PROGRESS.instance("payment"), &EMAIL))
+}) {
+    Ok((status, payment_progress, email)) => ok_json(AttributeReadResponse {
+        status: status.unwrap_or_else(|| "not started".to_owned()),
+        payment_progress: payment_progress.unwrap_or_else(|| "not started".to_owned()),
+        // This Flow never sets EMAIL, so it reads as None.
+        email,
+    }),
+    Err(error @ SdkError::FlowNotFound { .. }) => {
+        error_response(StatusCode::NOT_FOUND, error.to_string())
+    }
+    Err(error) => map_sdk_error(error).into_response(),
+}
+```
+
+</SdkSnippet>
 </SdkTabs>
 
-可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 中运行这个 HTTP 示例。Go、Python 和 TypeScript 示例服务器提供 **Read Attributes** endpoint。
+可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 中运行这个 HTTP 示例。每个示例服务器都提供 **Read Attributes** endpoint。
 
 读取有以下语义：
 
@@ -270,16 +312,18 @@ try {
 | --- | --- |
 | Go | destination 保留原值。**AttributeReadResult.IsSet** 和 **IsMapInstanceSet** 返回 false。 |
 | Python | 返回的 **AttributeValues** 中没有这个 read。**values.get(read, default)** 返回 default，**read in values** 为 false，**values[read]** 抛出 **KeyError**。 |
+| Java | **AttributeValues.get(read)** 返回 **Optional.empty()**。 |
 | TypeScript | tuple 中对应的元素是 **undefined**。 |
+| Rust | tuple 中对应的元素是 **None**。每个元素都是 read 的 value type 的 **Option**。 |
 
-在 Python 和 TypeScript 中，解码为 **None** 或 **null** 的存储值仍算已设置。
+在 Python 和 TypeScript 中，解码为 **None** 或 **null** 的存储值仍算已设置。在 Java 中，解码为 **null** 的存储值读作 **Optional.empty()**，与未设置的值相同，因为 **Optional** 不能保存 **null**。
 
 每个 read 使用的定义都必须由 Client Registry 中的某个 Flow 声明。任何已注册 Flow 的定义都可以使用。Dex 按名称读取 key，不检查目标 Flow 的类型是否声明了它，所以同名但 value type 不同的 Attribute 会解码失败。
 
 调用会报告以下错误：
 
-- Flow ID 不存在，或其最新 run 正在被清除时，返回 Flow-not-found 错误：Go、Python 和 TypeScript 中都是 **FlowNotFoundError**。
-- 定义没有在 Client Registry 中注册，或与已注册的定义不匹配时，在发出请求前返回 **FlowDefinitionError**。Go 和 Python 会把定义与已注册的定义比较，包括 value type。TypeScript 要求传入注册时的同一个定义对象。
-- Flow ID 为空、没有 read，或两个 read 读取同一个值时，在发出请求前被拒绝。
-- 在 Python 和 TypeScript 中，传入没有调用 **instance** 的 AttributeMap 时，在发出请求前抛出 **TypeError**。在 Go 中，**ReadAttribute** 只接受 Attribute，**ReadAttributeMapInstance** 只接受 AttributeMap，所以编译器会拒绝这种错误。
-- 存储的值无法解码时，返回 **ValueMappingError**。
+- Flow ID 不存在，或其最新 run 正在被清除时，返回 Flow-not-found 错误。Go、Python 和 TypeScript 中是 **FlowNotFoundError**，Java 中是 **FlowNotFoundException**，Rust 中是 **SdkError::FlowNotFound**。
+- 定义没有在 Client Registry 中注册，或与已注册的定义不匹配时，在发出请求前失败。Go、Python 和 TypeScript 中的错误是 **FlowDefinitionError**，Java 中是 **FlowDefinitionException**，Rust 中是 **SdkError::FlowDefinition**。Go、Python 和 Rust 会把定义与已注册的定义比较，包括 value type。Java 和 TypeScript 要求传入注册时的同一个定义对象。
+- Flow ID 为空或只含空白、没有 read，或两个 read 读取同一个值时，在发出请求前被拒绝。AttributeMap instance key 为空或包含 **/** 时，同样在发出请求前被拒绝。Java 抛出 **IllegalArgumentException**，Rust 返回 **SdkError::InvalidArgument**。在 Rust 中，空的 read tuple 无法通过编译。
+- 在 Python 和 TypeScript 中，传入没有调用 **instance** 的 AttributeMap 时，在发出请求前抛出 **TypeError**。在 Go 中，**ReadAttribute** 只接受 Attribute，**ReadAttributeMapInstance** 只接受 AttributeMap，所以编译器会拒绝这种错误。在 Java 和 Rust 中，AttributeMap 不是 read，所以编译器同样会拒绝它。
+- 存储的值无法解码时，返回 value mapping 错误。Go、Python 和 TypeScript 中是 **ValueMappingError**，Java 中是 **ValueMappingException**，Rust 中是 **SdkError::ValueMapping**。

@@ -431,7 +431,6 @@ window.PLAYGROUND_CATALOG = [
     id: "attribute",
     title: "Attribute",
     flowIdPrefix: "attribute",
-    note: "Read Attributes is available in Go, Python, and TypeScript.",
     endpoints: [
       endpoint("GET", "/primitives/attribute/start", "Start", [
         flowId(),
