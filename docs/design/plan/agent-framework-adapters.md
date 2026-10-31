@@ -69,14 +69,21 @@ twice silently.
 | Effect | Where it runs | Retry | Crash mid-call | Default approval |
 | --- | --- | --- | --- | --- |
 | `read` | Inside `RunAgentTurn` | With the turn | Runs again | No |
-| `idempotent_write` | `ExecuteToolCall` | Up to 3 attempts, key `<flowId>/<toolCallId>` | Runs again with the same key | No |
+| `idempotent_write` | `ExecuteToolCall` | Up to 3 attempts, key `<flowId>/<turnId>/<toolCallId>` | Runs again with the same key | No |
 | `non_idempotent_write` | `ExecuteSingleAttemptToolCall` | One attempt | Outcome unknown | Yes |
 | `unclassified` | `ExecuteSingleAttemptToolCall` | One attempt | Outcome unknown | Yes |
 
 `ToolPolicy(effect, requires_approval)` overrides the defaults per tool name.
 A session-level `default_tool_effect` (default `unclassified`) applies to
 tools without a policy. Adapters read framework metadata where it exists, such
-as MCP `readOnlyHint` and `idempotentHint` annotations.
+as MCP `readOnlyHint` and `idempotentHint` annotations. A `read` tool whose
+policy requires approval is deferred; after approval it runs in
+`ExecuteToolCall`, so a resumed turn sees only final records.
+
+The idempotency key passed to `execute_deferred_tool_call` is
+`<flowId>/<turnId>/<toolCallId>`, the same on every attempt. Tool call IDs must
+be non-empty, contain no `/`, and be unique within one turn; they may repeat
+across turns.
 
 ## Session Flow contract
 
@@ -88,20 +95,57 @@ languages.
 
 | Step type | Kind | Next |
 | --- | --- | --- |
-| `StartAgentSession` | Start Step. Input `AgentSessionStartInput`. Initializes `AgentState`. | `RunAgentTurn` when `initial_message` is set, else `AwaitUserMessage` |
+| `StartAgentSession` | Start Step. Input `AgentSessionStartInput`. Initializes `AgentState` (`next_message_sequence` 1), `AgentUsage`, and an empty `PendingInterrupts`. | `RunAgentTurn` when `initial_message` is set and not blank, else `AwaitUserMessage` |
 | `AwaitUserMessage` | WaitFor `QueuedUserMessages.for_one()`. Execute appends the user message, starts a turn. | `RunAgentTurn` |
 | `RunAgentTurn` | Async Execute. Runs or resumes the framework. Options: method timeout 15 min, heartbeat timeout 2 min, retry 3 attempts within 30 min, failure route `RecordTurnFailure`. | `AwaitUserMessage`, `AwaitInterruptResolution`, `ExecuteToolCall`, or `ExecuteSingleAttemptToolCall` |
-| `AwaitInterruptResolution` | WaitFor any of `InterruptResolutions.for_one(id)` for every pending interrupt, plus a Timer at the earliest deadline. Execute applies resolutions; an expired deadline rejects with "approval deadline passed". | Itself while interrupts remain, then the next approved tool Step, then `RunAgentTurn` |
-| `ExecuteToolCall` | Execute one `idempotent_write` call. Options: retry 3 attempts, failure route `RecordToolFailure`. | Next approved tool Step or `RunAgentTurn` |
+| `AwaitInterruptResolution` | WaitFor any of `InterruptResolutions.for_one(id)` for every `AgentToolCalls` record in `awaiting_approval`, plus a Timer at the earliest deadline among interrupts still in `PendingInterrupts`. Execute locks `PendingInterrupts`. It applies the one consumed resolution, or, when the Timer fired, removes every pending interrupt whose deadline passed and rejects its call with `rejection_message` "approval deadline passed". | Itself while any record awaits approval, then the next approved tool Step, then `RunAgentTurn` |
+| `ExecuteToolCall` | Execute one `idempotent_write` or approved `read` call. Options: retry 3 attempts, failure route `RecordToolFailure`. | Next approved tool Step or `RunAgentTurn` |
 | `ExecuteSingleAttemptToolCall` | Execute one `non_idempotent_write` or `unclassified` call. Options: retry 1 attempt, failure route `RecordToolOutcomeUnknown`. | Next approved tool Step or `RunAgentTurn` |
-| `RecordToolFailure` | Records `failed` with the recovery error text. | Same routing |
-| `RecordToolOutcomeUnknown` | Records `outcome_unknown`. | Same routing |
-| `RecordTurnFailure` | Records `last_turn_error`, appends nothing, clears the turn. | `AwaitUserMessage` |
+| `RecordToolFailure` | Records `outcome_unknown` with the recovery detail in `error`. It is reached only through crashes, timeouts, or errors other than `ToolExecutionError` after the attempts ran out, so the write may have taken effect. | Same routing |
+| `RecordToolOutcomeUnknown` | Records `outcome_unknown` with the recovery detail in `error`. | Same routing |
+| `RecordTurnFailure` | Records `last_turn_error`. When the turn has final `AgentToolCalls` records, first appends one turn-failure note (below); otherwise appends nothing. Deletes the turn's records and `FrameworkRunState`, empties `PendingInterrupts`, and clears the turn. | `AwaitUserMessage` |
+
+Every Step sets both its WaitFor and its Execute durability to SYNC
+explicitly, so a Flow started with an ASYNC Step durability default never
+replays a Step result. `RunAgentTurn` and the tool Steps load `AgentMessages`
+or `AgentToolCalls` as they need them.
 
 The tool Steps read the call to run from `AgentState.executing_tool_call_id`,
 so failure-route Steps know which call failed. Steps are idempotent with
 respect to their own retries: a tool Step whose record is already final routes
-on without running.
+on without running. Approved calls run one at a time in `deferral_order`.
+
+Before a tool Step calls `execute_deferred_tool_call`, it writes
+`tool_call_started` and awaits a heartbeat. Dex can redeliver a task to another
+Worker at the same attempt when the first Worker disconnects before sending any
+output; that output closes the window before the tool runs. A frame that left
+the Worker but never reached Dex remains a small residual window.
+
+`ToolExecutionError` from `execute_deferred_tool_call` records `failed` with
+the error message and is not retried. Any other error fails the attempt.
+
+The turn-failure note is the user message that `build_user_message` returns
+for this text, with one line per final record in `deferral_order`:
+
+```text
+[Dex] The previous turn failed after these tool calls ran:
+- <tool_name> <arguments> -> <status>: <model-visible result>
+Do not repeat these tool calls unless the user asks again.
+```
+
+Model-visible results for final records, used in the note and when resuming:
+
+| Status | Text |
+| --- | --- |
+| `succeeded` | `output` |
+| `failed` | `The tool call failed: <error>` |
+| `rejected` | `rejection_message`, or `The user rejected this tool call.` |
+| `outcome_unknown` | `The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.` |
+
+A turn stores nothing while it is suspended. `TurnCompleted.new_messages`
+carries every item the turn produced after its user message, across all
+segments, and the session appends them in one commit. Message sequences start
+at 1. `last_turn_error` is cleared when a later turn completes.
 
 ### Persistence schema
 
@@ -150,8 +194,9 @@ AgentToolCall {
   requires_approval: bool
   status: "awaiting_approval" | "approved" | "rejected" | "succeeded" | "failed" | "outcome_unknown"
   output: str | null
-  error: str | null
+  error: str | null          # ToolExecutionError message, or the recovery detail for outcome_unknown
   rejection_message: str | null
+  deferral_order: int        # zero-based order in which the turn deferred the call
 }
 AgentInterrupt {
   interrupt_id: str          # equals the tool call ID for tool approvals
@@ -162,15 +207,27 @@ AgentInterrupt {
   created_at: str
   deadline: str | null
 }
-AgentInterruptResolution { approved: bool, rejection_message: str | null }
+AgentInterruptResolution { approved: bool, rejection_message: str | null }  # null when approved
 AgentUsage { model_calls: int, input_tokens: int, output_tokens: int, cached_input_tokens: int, reasoning_tokens: int }
 AgentUserMessage { text: str }
 AgentEvent {
   type: str                  # see Events
   turn_id: str | null
-  attempt: int
-  payload: str               # JSON text
+  attempt: int               # one-based Step attempt
+  payload: str               # JSON object text
+  step_execution_id: str     # Dex Step execution ID, shared by every attempt; "" when absent
 }
+ResolveInterruptRequest { interrupt_id: str, approved: bool, rejection_message: str | null }
+AgentSnapshot {
+  state: AgentState | null   # null until StartAgentSession commits
+  messages: list of AgentMessage           # the last 200, in sequence order
+  pending_interrupts: list of AgentInterrupt
+  tool_calls: list of AgentToolCall        # the active turn's records, in deferral_order
+  usage: AgentUsage
+  queued_message_count: int
+}
+ListAgentMessagesRequest { before_sequence: int | null, limit: int }  # limit defaults to 50
+AgentMessagesPage { messages: list of AgentMessage, next_before_sequence: int | null }
 ```
 
 `AgentToolCalls` instances for a turn are deleted when the turn completes;
@@ -180,22 +237,42 @@ their results are already messages.
 
 | RPC | Input | Output | Notes |
 | --- | --- | --- | --- |
-| `send_user_message` | `AgentUserMessage` | bool | False for blank text |
-| `resolve_interrupt` | `{ interrupt_id, approved, rejection_message }` | bool | Locks `PendingInterrupts`; false when the interrupt is not pending; removes it and publishes the resolution |
-| `get_agent_snapshot` | none | `AgentSnapshot` | Loads `AgentMessages`; returns state, the last 200 messages, pending interrupts, the active turn's tool calls, usage, and the queued message count |
-| `list_agent_messages` | `{ before_sequence: int \| null, limit: int }` | `{ messages, next_before_sequence }` | Limit clamped to 1..200 |
+| `send_user_message` | `AgentUserMessage` | bool | Transactional; false for blank text |
+| `resolve_interrupt` | `ResolveInterruptRequest` | bool | Locks `PendingInterrupts`; false when the interrupt is not pending; removes it and publishes the resolution in one commit, dropping `rejection_message` on approval |
+| `get_agent_snapshot` | none | `AgentSnapshot` | Loads `AgentMessages` and `AgentToolCalls`; returns state, the last 200 messages, pending interrupts, the active turn's tool calls, usage, and the queued message count |
+| `list_agent_messages` | `ListAgentMessagesRequest` | `AgentMessagesPage` | Oldest first. `before_sequence` null starts after the newest message. Limit clamped to 1..200. `next_before_sequence` is the page's first sequence, or null when the page starts at 1 |
 
 TypeScript uses the same RPC names.
 
 ### Events
 
-`AgentEvents` carries `turn_started`, `turn_completed`, `turn_failed`,
-`text_delta` (`{"text"}`), `reasoning_delta` (`{"text"}`), `tool_call_started`,
-`tool_call_finished` (`{"tool_call_id","tool_name","status"}`),
-`tool_call_deferred`, `interrupt_raised`, `interrupt_resolved`, and
-`usage_recorded`. Every event carries the Step attempt, so a UI drops the
-partial text of an interrupted attempt. Streams are best effort; clients
-rebuild from `get_agent_snapshot`.
+`AgentEvents` carries these types. Payloads are JSON objects with snake_case
+keys:
+
+| Type | Payload |
+| --- | --- |
+| `turn_started` | `{"sequence"}`: the turn's user message sequence |
+| `turn_completed` | `{"message_count"}`: messages the turn appended |
+| `turn_failed` | `{"error"}` |
+| `text_delta` | `{"text"}` |
+| `reasoning_delta` | `{"text"}` |
+| `tool_call_started` | `{"tool_call_id", "tool_name"}` |
+| `tool_call_finished` | `{"tool_call_id", "tool_name", "status"}` |
+| `tool_call_deferred` | `{"tool_call_id", "tool_name", "effect", "requires_approval"}` |
+| `interrupt_raised` | `{"interrupt_id", "tool_call_id", "tool_name", "deadline"}` |
+| `interrupt_resolved` | `{"interrupt_id", "approved", "rejection_message"}` |
+| `usage_recorded` | `{"recorded", "session"}`: two `AgentUsage` objects, the segment and the session total |
+
+Adapter-specific types use an adapter prefix, such as
+`openai_agents.handoff`. Every event carries `turn_id`, `step_execution_id`,
+and `attempt`. A UI groups live text by `(turn_id, step_execution_id,
+attempt)`: within one `step_execution_id` it keeps only the highest `attempt`
+seen and drops the partial text of lower attempts. Different
+`step_execution_id` values of one turn are consecutive segments and Steps, and
+each keeps its text. After `turn_completed` or `turn_failed`, the UI replaces
+the turn's live text with the stored messages. Streams are best effort;
+clients rebuild from `get_agent_snapshot`. The event writer is safe to call
+from any thread.
 
 ### Adapter interface
 
