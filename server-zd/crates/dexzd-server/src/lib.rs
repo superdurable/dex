@@ -93,6 +93,13 @@ pub enum ServerError {
         #[source]
         source: dexzd_stream_store::StreamStoreError,
     },
+    /// The local search-pending store could not be opened.
+    #[error("open local search pending store: {source}")]
+    SearchPending {
+        /// Local storage failure.
+        #[source]
+        source: dexzd_storage::StorageError,
+    },
     /// The SearchFlows backend could not be created.
     #[error("starting the search backend: {source}")]
     SearchBackend {

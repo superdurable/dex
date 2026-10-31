@@ -418,23 +418,29 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   never wait for it. When ParadeDB is unavailable, the task retries. The queue coalesces complete
   documents per run and sheds intermediate Running updates above its soft limits. Above hard
   limits it also sheds closes, then starts. Deletes from retention purges are never shed; they
-  reclaim queued Upserts in that priority order. Every shed run enters a bounded repair set. Once live frames drain, batches repair current
-  committed documents, with starts before closes before intermediates. Only Deletes that cannot
-  fit, a full repair set, unreadable documents, or diverged progress request partition rebuilds.
-  `maxRepairEntries` defaults to 1,000,000 runs and `repairBatchRuns` to 256; these identities
-  consume memory separately from the live document queue. See the
-  [queue policy and defaults](crates/dexzd-search/README.md#sql-visibility-projection).
-- On startup, every partition whose ParadeDB position differs from the local store is rebuilt.
-- SearchFlows waits up to `search.readYourWritesWait` until frames committed before the request are
-  searchable, then returns Unavailable on timeout. Dropped updates do not delay that wait. A
-  dropped close can leave a row Running and a dropped start can leave it absent until repair or
-  a later projected write. Retention purge also removes stale rows (default seven days after
-  close). Exact visibility returns once repair and live projection drain. Restart or leader loss
-  discards pending repairs; rows may then stay stale until a later write or purge. Monitor
-  `dexzd_search_projection_dropped_updates_total` by `reason`: `intermediate`,
-  `close`, and `start`, together with `dexzd_search_projection_repaired_runs_total` by reason,
-  `dexzd_search_projection_repair_pending`, and `dexzd_search_projection_repair_overflow_total`.
-  Pending includes the active batch; zero after restart does not establish pre-restart recovery.
+  reclaim queued Upserts in that priority order. Deletes alone may exceed the hard limits;
+  no condition starts an automatic partition rebuild. Shed identities persist in a separate
+  RocksDB sidecar and versioned `search-pending/partition-N` objects. SQL checkpoints cannot
+  pass unsynced shed work. Startup loads those objects and compares local committed versions
+  with bounded SQL pages to recover missing, stale, or purged rows, including a fresh schema.
+  Idle repairs use current committed documents, prioritize starts, closes, then intermediates,
+  and retain drops recorded during an in-flight SQL transaction. Local entries disappear only
+  after SQL commits, and the next object sync clears them remotely. Live frames take priority.
+  `maxRepairEntries` (1,000,000) bounds staging only; overflow requests version comparison.
+  `repairBatchRuns` defaults to 256, `pendingSyncInterval` to 1s, and `pendingSyncPartitions`
+  to 64 serialized object writes per batch. Sync continues independently of SQL retries.
+- Shedding relaxes `readYourWritesWait`: it waits for retained frames rather than pending
+  repairs. A dropped close can leave a run shown as Running; a dropped start can leave it
+  absent until a later write or repair. Purge Deletes remain protected. Monitor drop and
+  repaired counters by `reason` (`intermediate`, `close`, `start`), pending work, pending-object
+  sync failures, and `dexzd_search_projection_partitions_needing_rebuild`.
+- Corruption and unsafe SQL divergence mark and quarantine only the affected partition.
+  Run `dexcli search-projection status`, then explicitly schedule `rebuild --partitions 1,2`,
+  `rebuild --marked`, or `rebuild --all`. Requests return immediately; the active owner rebuilds
+  one partition at a time. With authentication configured, `auth.adminAudiences` defaults to
+  empty (deny administration); admin JWTs require an existing issuer and a listed audience.
+  Static tokens cannot administer. With no authentication configured, admin RPCs are open,
+  including default local dev servers. Ordinary credential and TLS flags apply.
   The coalesced and rebuild counters remain separate.
 - One ParadeDB schema belongs to one Dex cluster.
 

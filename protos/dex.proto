@@ -1590,3 +1590,36 @@ message TimerInfo {
   int64 firing_unix_timestamp_seconds = 2;
   InternalTimerStatus status = 3;
 }
+
+// Administrative operations hosted by the active Server owner.
+service AdminService {
+  // Schedules partition rebuilds and returns before SQL rebuilding starts.
+  rpc RebuildSearchProjection(RebuildSearchProjectionRequest) returns (RebuildSearchProjectionResponse);
+  // Lists partitions requiring, waiting for, or performing a manual rebuild.
+  rpc GetSearchProjectionStatus(google.protobuf.Empty) returns (GetSearchProjectionStatusResponse);
+}
+
+// Selects partitions for an explicitly requested rebuild.
+message RebuildSearchProjectionRequest {
+  repeated uint32 partition_ids = 1;
+  bool all_marked_partitions = 2;
+  bool all_partitions = 3;
+}
+
+// Partitions accepted for asynchronous rebuilding.
+message RebuildSearchProjectionResponse {
+  repeated uint32 scheduled_partition_ids = 1;
+}
+
+// Operator-visible state for one search projection partition.
+message SearchProjectionPartitionStatus {
+  uint32 partition_id = 1;
+  repeated string rebuild_reasons = 2;
+  bool is_scheduled = 3;
+  bool is_in_progress = 4;
+}
+
+// Partitions requiring operator attention or processing an explicit rebuild request.
+message GetSearchProjectionStatusResponse {
+  repeated SearchProjectionPartitionStatus partitions = 1;
+}

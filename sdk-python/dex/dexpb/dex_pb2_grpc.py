@@ -1606,3 +1606,123 @@ class WorkerTaskService:
             timeout,
             metadata,
             _registered_method=True)
+
+
+class AdminServiceStub:
+    """Administrative operations hosted by the active Server owner.
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.RebuildSearchProjection = channel.unary_unary(
+                '/dex.AdminService/RebuildSearchProjection',
+                request_serializer=dex__pb2.RebuildSearchProjectionRequest.SerializeToString,
+                response_deserializer=dex__pb2.RebuildSearchProjectionResponse.FromString,
+                _registered_method=True)
+        self.GetSearchProjectionStatus = channel.unary_unary(
+                '/dex.AdminService/GetSearchProjectionStatus',
+                request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+                response_deserializer=dex__pb2.GetSearchProjectionStatusResponse.FromString,
+                _registered_method=True)
+
+
+class AdminServiceServicer:
+    """Administrative operations hosted by the active Server owner.
+    """
+
+    def RebuildSearchProjection(self, request, context):
+        """Schedules partition rebuilds and returns before SQL rebuilding starts.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSearchProjectionStatus(self, request, context):
+        """Lists partitions requiring, waiting for, or performing a manual rebuild.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_AdminServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'RebuildSearchProjection': grpc.unary_unary_rpc_method_handler(
+                    servicer.RebuildSearchProjection,
+                    request_deserializer=dex__pb2.RebuildSearchProjectionRequest.FromString,
+                    response_serializer=dex__pb2.RebuildSearchProjectionResponse.SerializeToString,
+            ),
+            'GetSearchProjectionStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSearchProjectionStatus,
+                    request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                    response_serializer=dex__pb2.GetSearchProjectionStatusResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'dex.AdminService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('dex.AdminService', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class AdminService:
+    """Administrative operations hosted by the active Server owner.
+    """
+
+    @staticmethod
+    def RebuildSearchProjection(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.AdminService/RebuildSearchProjection',
+            dex__pb2.RebuildSearchProjectionRequest.SerializeToString,
+            dex__pb2.RebuildSearchProjectionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSearchProjectionStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.AdminService/GetSearchProjectionStatus',
+            google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            dex__pb2.GetSearchProjectionStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)

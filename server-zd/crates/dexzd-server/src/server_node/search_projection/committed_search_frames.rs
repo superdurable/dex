@@ -8,7 +8,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dexzd_apply::StateWrite;
@@ -16,7 +15,7 @@ use dexzd_engine::CommittedFlowCommand;
 use dexzd_keyspace::{
     ColumnFamily, FlowHash, PartitionId, RunId, RunTable, TenantId, parse_run_key,
 };
-use dexzd_metrics::{NodeMetrics, ProjectionDropReason};
+use dexzd_metrics::{NodeMetrics, ProjectionDropReason, ProjectionRebuildReason};
 use dexzd_protocol::dex::FlowStatus;
 use dexzd_protocol::dexzd::v1::LogPosition;
 use dexzd_search::sql_visibility::{
@@ -60,6 +59,7 @@ pub(crate) struct CommittedSearchFrames {
 struct FrameTracking {
     open_frames: BTreeMap<PartitionId, OpenSearchFrame>,
     last_sequence: u64,
+    latest_positions: BTreeMap<PartitionId, LogPosition>,
     /// Estimated bytes of frames queued or being projected.
     queued_bytes: usize,
     in_flight_upsert_bytes: usize,
@@ -68,9 +68,12 @@ struct FrameTracking {
     pending_watermarks: BTreeSet<(u64, u64)>,
     queued: BTreeMap<u64, QueuedSearchFrame>,
     queued_upserts: BTreeMap<(TenantId, RunId), u64>,
-    last_rebuild_warning: Option<Instant>,
     rebuild_requests: BTreeMap<PartitionId, RebuildRequest>,
     repairs: ProjectionRepairs,
+    diff_needed: BTreeSet<PartitionId>,
+    rebuild_reasons: BTreeMap<PartitionId, BTreeSet<ProjectionRebuildReason>>,
+    in_progress: BTreeSet<PartitionId>,
+    quarantined: BTreeSet<PartitionId>,
 }
 
 /// Frame sequences of one partition that only a rebuild can project; a range bounds memory.
@@ -129,10 +132,10 @@ impl CommittedSearchFrames {
                 }
             }
             Err(error) => {
-                tracing::error!(
+                tracing::debug!(
                     partition = partition.0,
                     %error,
-                    "a committed outcome has unreadable search documents; rebuilding its partition"
+                    "a committed outcome has unreadable search documents; manual repair is required"
                 );
                 self.lock_tracking().open_frame(partition).is_unreadable = true;
             }
@@ -142,11 +145,20 @@ impl CommittedSearchFrames {
     /// Queues the partition's open frame for projection, or requests a rebuild when it cannot queue.
     pub(crate) fn finish_frame(&self, partition: PartitionId, position: &LogPosition) {
         let mut tracking = self.lock_tracking();
+        tracking
+            .latest_positions
+            .insert(partition, position.clone());
         let Some(frame) = tracking.open_frames.remove(&partition) else {
             return;
         };
         if frame.is_unreadable {
-            self.request_rebuild(&mut tracking, partition, frame.sequence);
+            self.mark_needed(
+                &mut tracking,
+                partition,
+                ProjectionRebuildReason::Unreadable,
+            );
+            tracking.quarantined.insert(partition);
+            tracking.remove_unprojected(frame.sequence);
             return;
         }
         let mut queued = QueuedSearchFrame {
@@ -184,8 +196,11 @@ impl CommittedSearchFrames {
             return;
         }
         if tracking.exceeds_hard_limit(&queued, &self.cfg) {
-            self.request_rebuild(&mut tracking, partition, queued.sequence);
-            return;
+            self.mark_needed(
+                &mut tracking,
+                partition,
+                ProjectionRebuildReason::DeleteOverflow,
+            );
         }
         for (identity, change) in &queued.changes {
             if matches!(change.change, SearchDocumentChange::Upsert { .. }) {
@@ -208,17 +223,7 @@ impl CommittedSearchFrames {
         }
     }
 
-    pub(crate) async fn next_repair_batch(&self) -> Vec<ProjectionRepair> {
-        loop {
-            let available = self.repair_available.notified();
-            let repairs = self.take_repair_batch();
-            if !repairs.is_empty() {
-                return repairs;
-            }
-            available.await;
-        }
-    }
-
+    #[cfg(test)]
     fn take_repair_batch(&self) -> Vec<ProjectionRepair> {
         let mut tracking = self.lock_tracking();
         if !tracking.queued.is_empty() || tracking.queued_bytes != 0 {
@@ -227,6 +232,7 @@ impl CommittedSearchFrames {
         tracking.repairs.take_batch(self.cfg.repair_batch_runs)
     }
 
+    #[cfg(test)]
     pub(crate) fn finish_repair_batch(
         &self,
         repairs: &[ProjectionRepair],
@@ -242,11 +248,6 @@ impl CommittedSearchFrames {
             }
         }
         self.publish_repair_pending(&tracking);
-        self.repair_available.notify_one();
-    }
-
-    pub(crate) fn retry_repair_batch(&self, repairs: &[ProjectionRepair]) {
-        self.lock_tracking().repairs.retry_batch(repairs);
         self.repair_available.notify_one();
     }
 
@@ -267,12 +268,6 @@ impl CommittedSearchFrames {
             .collect()
     }
 
-    pub(crate) fn has_rebuild_request(&self, partition: PartitionId) -> bool {
-        self.lock_tracking()
-            .rebuild_requests
-            .contains_key(&partition)
-    }
-
     /// Marks a dequeued frame searchable and releases its bytes from the queue's limit.
     pub(crate) fn finish_projected_frame(&self, frame: &CommittedSearchFrame) {
         let mut tracking = self.lock_tracking();
@@ -290,6 +285,12 @@ impl CommittedSearchFrames {
     /// Marks the partition's frames through `sequence` searchable after a rebuild.
     pub(crate) fn finish_rebuild(&self, partition: PartitionId, sequence: u64) {
         let mut tracking = self.lock_tracking();
+        tracking.in_progress.remove(&partition);
+        tracking.rebuild_reasons.remove(&partition);
+        tracking.quarantined.remove(&partition);
+        self.metrics
+            .search_projection_partitions_needing_rebuild
+            .set(i64::try_from(tracking.rebuild_reasons.len()).expect("partition count fits i64"));
         tracking.finish_through(Some(partition), sequence);
         tracking.repairs.finish_through(Some(partition), sequence);
         self.publish_repair_pending(&tracking);
@@ -416,7 +417,7 @@ impl CommittedSearchFrames {
     fn record_dropped(
         &self,
         tracking: &mut FrameTracking,
-        sequence: u64,
+        _sequence: u64,
         partition: PartitionId,
         identity: (TenantId, RunId),
         change: &PrioritizedSearchChange,
@@ -444,7 +445,8 @@ impl CommittedSearchFrames {
             .record(repair, tracking.last_sequence, self.cfg.max_repair_entries)
         {
             self.metrics.search_projection_repair_overflow.inc();
-            self.request_rebuild(tracking, partition, sequence);
+            tracking.diff_needed.insert(partition);
+            self.mark_needed(tracking, partition, ProjectionRebuildReason::RepairOverflow);
         }
         self.publish_repair_pending(tracking);
         self.repair_available.notify_one();
@@ -456,36 +458,144 @@ impl CommittedSearchFrames {
         );
     }
 
-    fn request_rebuild(&self, tracking: &mut FrameTracking, partition: PartitionId, sequence: u64) {
-        let first_sequence = tracking.remove_unprojected(sequence).unwrap_or(sequence);
-        match tracking.rebuild_requests.get_mut(&partition) {
-            Some(request) => {
-                request.first_sequence = request.first_sequence.min(first_sequence);
-                request.last_sequence = request.last_sequence.max(sequence);
+    pub(crate) fn schedule_rebuilds(&self, partitions: &[PartitionId]) -> Vec<PartitionId> {
+        let mut tracking = self.lock_tracking();
+        let sequence = tracking.last_sequence;
+        let mut scheduled = Vec::new();
+        for partition in partitions {
+            if tracking.rebuild_requests.contains_key(partition) {
+                continue;
             }
-            None => {
-                self.metrics.search_projection_rebuild_requests.inc();
-                let now = Instant::now();
-                if tracking
-                    .last_rebuild_warning
-                    .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(1))
-                {
-                    tracing::warn!(
-                        partition = partition.0,
-                        "a committed frame could not be queued for the search projection; rebuilding its partition"
-                    );
-                    tracking.last_rebuild_warning = Some(now);
-                }
-                tracking.rebuild_requests.insert(
-                    partition,
-                    RebuildRequest {
-                        first_sequence,
-                        last_sequence: sequence,
-                    },
-                );
-            }
+            tracking.rebuild_requests.insert(
+                *partition,
+                RebuildRequest {
+                    first_sequence: sequence + 1,
+                    last_sequence: sequence,
+                },
+            );
+            self.metrics.search_projection_rebuild_requests.inc();
+            scheduled.push(*partition);
         }
         self.rebuild_requested.notify_one();
+        scheduled
+    }
+
+    pub(crate) fn rebuild_status(
+        &self,
+    ) -> (
+        BTreeMap<PartitionId, BTreeSet<ProjectionRebuildReason>>,
+        BTreeSet<PartitionId>,
+        BTreeSet<PartitionId>,
+    ) {
+        let tracking = self.lock_tracking();
+        (
+            tracking.rebuild_reasons.clone(),
+            tracking.rebuild_requests.keys().copied().collect(),
+            tracking.in_progress.clone(),
+        )
+    }
+
+    pub(crate) fn fail_rebuild(&self, partition: PartitionId) {
+        let mut tracking = self.lock_tracking();
+        tracking.in_progress.remove(&partition);
+        tracking.rebuild_requests.remove(&partition);
+        self.mark_needed(
+            &mut tracking,
+            partition,
+            ProjectionRebuildReason::Unreadable,
+        );
+        tracking.quarantined.insert(partition);
+    }
+
+    pub(crate) fn start_rebuild(&self, partition: PartitionId) {
+        self.lock_tracking().in_progress.insert(partition);
+    }
+
+    pub(crate) fn has_live_frames(&self) -> bool {
+        let tracking = self.lock_tracking();
+        !tracking.queued.is_empty()
+            || tracking.queued_bytes != 0
+            || !tracking.open_frames.is_empty()
+    }
+
+    pub(crate) fn quarantined_partitions(&self) -> BTreeSet<PartitionId> {
+        self.lock_tracking().quarantined.clone()
+    }
+
+    pub(crate) fn idle_positions(&self) -> BTreeMap<PartitionId, LogPosition> {
+        let tracking = self.lock_tracking();
+        if tracking.queued.is_empty()
+            && tracking.queued_bytes == 0
+            && tracking.open_frames.is_empty()
+        {
+            tracking.latest_positions.clone()
+        } else {
+            BTreeMap::new()
+        }
+    }
+
+    pub(crate) fn is_quarantined(&self, partition: PartitionId) -> bool {
+        self.lock_tracking().quarantined.contains(&partition)
+    }
+
+    pub(crate) fn quarantine(&self, partition: PartitionId) {
+        self.lock_tracking().quarantined.insert(partition);
+    }
+
+    pub(crate) fn take_staged_repairs(&self) -> Vec<ProjectionRepair> {
+        self.lock_tracking().repairs.drain()
+    }
+
+    pub(crate) fn has_pending_staging(&self, partition: PartitionId) -> bool {
+        let tracking = self.lock_tracking();
+        tracking.repairs.has_partition(partition) || tracking.diff_needed.contains(&partition)
+    }
+
+    pub(crate) fn diff_partitions(&self) -> Vec<PartitionId> {
+        self.lock_tracking().diff_needed.iter().copied().collect()
+    }
+
+    pub(crate) fn require_diff(&self, partition: PartitionId) {
+        self.lock_tracking().diff_needed.insert(partition);
+    }
+
+    pub(crate) fn finish_diff(&self, partition: PartitionId) {
+        self.lock_tracking().diff_needed.remove(&partition);
+    }
+
+    pub(crate) fn mark_rebuild_needed(
+        &self,
+        partition: PartitionId,
+        reason: ProjectionRebuildReason,
+    ) {
+        self.mark_needed(&mut self.lock_tracking(), partition, reason);
+    }
+
+    fn mark_needed(
+        &self,
+        tracking: &mut FrameTracking,
+        partition: PartitionId,
+        reason: ProjectionRebuildReason,
+    ) {
+        if tracking
+            .rebuild_reasons
+            .entry(partition)
+            .or_default()
+            .insert(reason)
+        {
+            self.metrics.search_projection_rebuild_needed.record(reason);
+            tracing::warn!(
+                partition = partition.0,
+                ?reason,
+                "search projection partition needs an operator rebuild"
+            );
+            self.metrics
+                .search_projection_partitions_needing_rebuild
+                .set(
+                    i64::try_from(tracking.rebuild_reasons.len())
+                        .expect("partition count fits i64"),
+                );
+        }
     }
 
     fn lock_tracking(&self) -> MutexGuard<'_, FrameTracking> {

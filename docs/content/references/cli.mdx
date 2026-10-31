@@ -180,3 +180,23 @@ Errors are JSON on stderr. They include **kind**, **operation**, **message**, an
 when applicable, **grpcCode**, **grpcCodeName**, and structured status details.
 Exit status 2 means invalid usage or missing confirmation; status 1 means the
 request failed.
+
+## Administer SQL search projection
+
+The active server owner exposes SQL search status and explicit asynchronous rebuilding:
+
+```bash
+dexcli search-projection status --server localhost:8080
+dexcli search-projection rebuild --partitions 1,2 --server localhost:8080
+dexcli search-projection rebuild --marked --server localhost:8080
+dexcli search-projection rebuild --all --server localhost:8080
+```
+
+Choose exactly one rebuild selector. The response lists scheduled partitions;
+use **status** to check pending and active rebuilds. The server rebuilds one
+partition at a time. These commands accept the ordinary connection, credential,
+TLS, timeout, and output flags. Configured authentication requires a JWT from an
+existing issuer with an audience in **auth.adminAudiences**; its empty default
+denies admin RPCs. Static tokens cannot administer. Servers with no authentication,
+including default local dev servers, allow admin calls. See
+[SQL search projection overload](../production/server-zd-operations.mdx#sql-search-projection-overload).

@@ -2119,3 +2119,37 @@ class TimerInfo(_message.Message):
     firing_unix_timestamp_seconds: int
     status: InternalTimerStatus
     def __init__(self, condition_id: _Optional[str] = ..., firing_unix_timestamp_seconds: _Optional[int] = ..., status: _Optional[_Union[InternalTimerStatus, str]] = ...) -> None: ...
+
+class RebuildSearchProjectionRequest(_message.Message):
+    __slots__ = ("partition_ids", "all_marked_partitions", "all_partitions")
+    PARTITION_IDS_FIELD_NUMBER: _ClassVar[int]
+    ALL_MARKED_PARTITIONS_FIELD_NUMBER: _ClassVar[int]
+    ALL_PARTITIONS_FIELD_NUMBER: _ClassVar[int]
+    partition_ids: _containers.RepeatedScalarFieldContainer[int]
+    all_marked_partitions: bool
+    all_partitions: bool
+    def __init__(self, partition_ids: _Optional[_Iterable[int]] = ..., all_marked_partitions: _Optional[bool] = ..., all_partitions: _Optional[bool] = ...) -> None: ...
+
+class RebuildSearchProjectionResponse(_message.Message):
+    __slots__ = ("scheduled_partition_ids",)
+    SCHEDULED_PARTITION_IDS_FIELD_NUMBER: _ClassVar[int]
+    scheduled_partition_ids: _containers.RepeatedScalarFieldContainer[int]
+    def __init__(self, scheduled_partition_ids: _Optional[_Iterable[int]] = ...) -> None: ...
+
+class SearchProjectionPartitionStatus(_message.Message):
+    __slots__ = ("partition_id", "rebuild_reasons", "is_scheduled", "is_in_progress")
+    PARTITION_ID_FIELD_NUMBER: _ClassVar[int]
+    REBUILD_REASONS_FIELD_NUMBER: _ClassVar[int]
+    IS_SCHEDULED_FIELD_NUMBER: _ClassVar[int]
+    IS_IN_PROGRESS_FIELD_NUMBER: _ClassVar[int]
+    partition_id: int
+    rebuild_reasons: _containers.RepeatedScalarFieldContainer[str]
+    is_scheduled: bool
+    is_in_progress: bool
+    def __init__(self, partition_id: _Optional[int] = ..., rebuild_reasons: _Optional[_Iterable[str]] = ..., is_scheduled: _Optional[bool] = ..., is_in_progress: _Optional[bool] = ...) -> None: ...
+
+class GetSearchProjectionStatusResponse(_message.Message):
+    __slots__ = ("partitions",)
+    PARTITIONS_FIELD_NUMBER: _ClassVar[int]
+    partitions: _containers.RepeatedCompositeFieldContainer[SearchProjectionPartitionStatus]
+    def __init__(self, partitions: _Optional[_Iterable[_Union[SearchProjectionPartitionStatus, _Mapping]]] = ...) -> None: ...

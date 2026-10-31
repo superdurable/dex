@@ -388,6 +388,16 @@ impl Config {
     fn validate_search_and_limits(&self) -> Result<(), ConfigError> {
         let queue = &self.search.projection_queue;
         ensure(
+            !queue.pending_sync_interval.is_zero(),
+            "search.projectionQueue.pendingSyncInterval",
+            "must be positive",
+        )?;
+        ensure(
+            queue.pending_sync_partitions > 0,
+            "search.projectionQueue.pendingSyncPartitions",
+            "must be positive",
+        )?;
+        ensure(
             queue.max_repair_entries > 0,
             "search.projectionQueue.maxRepairEntries",
             "must be positive",

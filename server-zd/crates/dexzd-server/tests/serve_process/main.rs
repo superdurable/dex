@@ -543,24 +543,26 @@ async fn sigterm_during_recovery_exits_zero_and_releases_the_lease() {
     primary.shutdown().await;
 }
 
-/// ParadeDB SearchFlows reads committed Flows, and a new process rebuilds a cleared projection.
+/// ParadeDB SearchFlows reads committed Flows, and a new process compares versions for a cleared projection.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn paradedb_search_projects_commits_and_rebuilds_on_startup() {
+async fn paradedb_search_projects_commits_and_compares_versions_on_startup() {
     let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
         return;
     };
-    run_search_projects_commits_and_rebuilds_on_startup_for_test(&database_url, false).await;
+    run_search_projects_commits_and_compares_versions_on_startup_for_test(&database_url, false)
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn postgres_search_projects_commits_and_rebuilds_on_startup() {
+async fn postgres_search_projects_commits_and_compares_versions_on_startup() {
     let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
         return;
     };
-    run_search_projects_commits_and_rebuilds_on_startup_for_test(&database_url, true).await;
+    run_search_projects_commits_and_compares_versions_on_startup_for_test(&database_url, true)
+        .await;
 }
 
-async fn run_search_projects_commits_and_rebuilds_on_startup_for_test(
+async fn run_search_projects_commits_and_compares_versions_on_startup_for_test(
     database_url: &str,
     is_postgres: bool,
 ) {

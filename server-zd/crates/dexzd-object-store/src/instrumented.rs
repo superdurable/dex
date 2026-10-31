@@ -14,8 +14,8 @@ use bytes::Bytes;
 use dexzd_metrics::{NodeMetrics, ObjectOperation, classify_object_kind};
 
 use crate::{
-    ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreResult,
-    WriteCondition, WriteOutcome,
+    ByteRange, ConditionalDeleteOutcome, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore,
+    ObjectStoreResult, WriteCondition, WriteOutcome,
 };
 
 /// Counts logical object storage requests after SDK retries have finished.
@@ -106,6 +106,16 @@ impl ObjectStore for InstrumentedObjectStore {
 
     async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
         let result = self.inner.delete(key).await;
+        self.record(ObjectOperation::Delete, key, &result);
+        result
+    }
+
+    async fn delete_if_etag_matches(
+        &self,
+        key: &str,
+        etag: &str,
+    ) -> ObjectStoreResult<ConditionalDeleteOutcome> {
+        let result = self.inner.delete_if_etag_matches(key, etag).await;
         self.record(ObjectOperation::Delete, key, &result);
         result
     }

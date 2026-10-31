@@ -28,6 +28,10 @@ pub struct AuthConfig {
     /// Defaults to empty, which disables public API authentication; otherwise the authenticators
     /// are tried in order. Immutable after startup.
     pub authenticators: Vec<AuthenticatorConfig>,
+    /// Defaults to empty, denying admin RPCs when authentication is configured. Unauthenticated servers allow admin RPCs.
+    /// JWTs must use an existing issuer and one audience here, for example dex-operators. Static tokens cannot authorize administration.
+    /// Immutable after startup.
+    pub admin_audiences: Vec<String>,
 }
 
 /// Selects the credential format of one authenticator.

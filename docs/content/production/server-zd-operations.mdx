@@ -965,12 +965,12 @@ graphs, and persisted payloads.
 ## Backup and restore
 
 The object storage prefix is the only source of truth. The local store is
-rebuilt from it. An external search projection is rebuilt from the local store
-after startup. With **search.backend: postgres**, restoring an older prefix can
+rebuilt from it. At startup, external search compares committed local versions
+with SQL and queues differing rows. With **search.backend: postgres**, restoring an older prefix can
 leave the database's Attribute registry version ahead of the restored registry.
 Startup then fails with an Attribute slot registry mismatch. Before restarting,
 configure a new **search.postgresSchema** or a new PostgreSQL database so the
-projection and slot assignments rebuild from the restored registry.
+projection can populate through version comparison and slot assignments use the restored registry.
 When **objectStore.hardDeleteStore** is configured, its prefix
 holds hard-delete Attribute values. Protect it the same way.
 
@@ -1049,20 +1049,31 @@ both external search backends.
 
 A schema records its search backend. Starting with a different backend fails.
 To switch between PostgreSQL and ParadeDB, select a new database or schema.
-The server rebuilds its search projection from committed state automatically.
+The server compares committed run versions and queues missing search documents automatically.
 Existing ParadeDB version-three schemas gain the dialect marker without clearing
 data or changing their version. Older releases that accept schema version 3
 can still use them. PostgreSQL uses schema version 4; older releases reject it.
 
 ## SQL search projection overload
 
-PostgreSQL and ParadeDB share an asynchronous projection queue. Flow commits
-continue when projection falls behind. Builtin search does not use this queue.
-Each queued upsert contains a complete, versioned document. A newer upsert or
-purge Delete replaces the same run's older queued upsert. Coalescing keeps the
-latest document and transfers the earlier visibility wait to it.
+PostgreSQL and ParadeDB project committed Flow documents asynchronously. Flow
+commits continue when search falls behind. Builtin search does not use this queue.
+A newer complete document or purge Delete coalesces an older queued update for
+the same run. After coalescing, the server sheds changes in this order:
 
-Both SQL backends use these defaults:
+1. Above either soft limit, drop intermediate updates to Running runs.
+2. If the kept changes exceed either hard limit, also drop close updates.
+3. If starts and Deletes still exceed a hard limit, also drop starts, including
+   a newer Running document that inherited a queued start's priority.
+4. Never shed Delete. To admit Deletes, reclaim queued intermediate updates,
+   closes, and starts in that order. Deletes alone may exceed the hard limits.
+
+Closing a run changes its status; retention purge produces Delete. A dropped
+close can leave a closed run shown as Running in **SearchFlows**. A dropped start
+can leave the run absent. These effects last until a later write to that run or
+pending repair projects its current committed document. Dropping a replacement
+never restores an older queued document. Every projected row contains a complete
+committed version. Purged runs disappear once their Deletes reach SQL.
 
 ~~~yaml
 search:
@@ -1073,80 +1084,91 @@ search:
     hardBytes: 134217728
     maxRepairEntries: 1000000
     repairBatchRuns: 256
+    pendingSyncInterval: 1s
+    pendingSyncPartitions: 64
 ~~~
 
-**softBytes** defaults to 64 MiB, and **hardBytes** defaults to 128 MiB.
-Byte accounting estimates queued documents and the live batch being projected.
-Frame limits count nonempty frames waiting for the worker. The repair set uses
-additional memory for run identities, bounded separately by **maxRepairEntries**.
-It retains at most one entry per run, including entries in the active repair
-batch. All limits must be positive; each hard limit must be at least its soft
-limit. **repairBatchRuns** bounds the number of runs read and written per repair
-transaction; it defaults to 256.
+Byte limits estimate queued documents and the active projection batch. Frame
+limits count waiting nonempty frames. All limits must be positive, and hard
+limits must be at least their soft limits. **maxRepairEntries** bounds only the
+in-memory staging area before local persistence. A full staging area records a
+partition version comparison request; it does not discard recovery work or
+schedule a rebuild. Persistent pending runs have no configured count limit.
+**repairBatchRuns** defaults to 256 runs per SQL repair transaction.
 
-After coalescing, the server sheds changes in this order:
+Pending runs are deduplicated in a local RocksDB sidecar beside the configured
+local store. Each changed partition syncs its full pending list to one versioned
+object under **search-pending/partition-N** in the configured object-store prefix.
+**pendingSyncInterval** defaults to one second. **pendingSyncPartitions** defaults
+to 64 objects per sync batch; object writes are serialized. Empty lists remove
+their objects. Sync runs independently of SQL retries.
 
-1. Above either soft limit, drop the incoming frame's intermediate updates to
-   Running runs, including Attribute, active Step, and permission changes.
-2. If the remaining changes exceed either hard limit, drop close updates
-   (Running to a terminal status, and later writes to terminal runs).
-3. If starts and Deletes still exceed a hard limit, also drop starts. A newer
-   Running document that replaced a queued start can be dropped at this stage.
-4. Never drop Delete. Deletes remove search rows when retention purges a run;
-   closing a run does not produce a Delete. To admit a Delete, reclaim queued
-   intermediate updates, then closes, then starts, oldest first within each
-   class. If Deletes alone cannot fit, request a partition rebuild.
+The server never advances a partition's SQL checkpoint past unsynced shed work.
+Local RocksDB alone does not release this guard. At takeover, the new owner
+loads pending objects before projecting. When SQL is behind, startup compares
+committed local run identities and document versions with bounded SQL pages.
+It records missing or newer documents and Deletes for SQL-only purged runs,
+syncs that pending work, then advances the checkpoint. A fresh schema uses the
+same comparison. A crash before pending work is synced leaves the checkpoint
+behind, so restart can discover the difference again. Object-store outages hold
+checkpoints until sync succeeds.
 
-Delete admission excludes Upsert bytes already taken by the worker. Total live
-queue memory can therefore exceed **hardBytes** by at most those in-flight
-Upserts. Unreadable documents and diverged SQL progress also retain their
-partition rebuild paths.
+When live frames are idle, repairs read current committed documents and apply
+ordinary versioned SQL writes. Starts have priority over closes, then intermediate
+updates. Missing or purging runs produce Deletes. A new drop during an SQL repair
+stays pending for another pass. Pending entries are removed only after the SQL
+transaction commits; the next sync clears them from object storage. Live frames
+take priority between repair batches. Repairs do not block Flow commits.
 
-Every shed update records its tenant, run, partition, and priority in the
-bounded repair set. Repeated drops for one run share an entry and keep the
-highest repair priority: start, then close, then intermediate. If a new run
-cannot enter the full set, the server requests a rebuild of its partition.
-Rebuild requests coalesce per partition; their warning is limited to once per
-second per node.
+**readYourWritesWait** waits for retained live frames, not pending repairs.
+It can succeed while shedding leaves stale or absent rows. After pending work
+and live projection drain, current committed documents are searchable again.
 
-When the live queue is idle, the worker repairs runs in priority order. It
-reads each run's current complete document from committed state and writes
-versioned batches across partitions. It omits runs already purged or being
-purged. Live frames take priority between repair batches. A drop that happens
-during a repair stays pending for another pass. Repairs never block Flow commits
-and do not advance live-frame projection progress.
+No startup, overload, corruption, or divergence path rebuilds a partition
+automatically. Unreadable state and unsafe SQL progress divergence quarantine
+only the affected partition until an operator rebuilds it. Other partitions
+continue projecting. Rebuild-needed markers persist locally, warn once per
+partition and reason, and appear in the admin status response.
 
-While shedding and until repairs catch up, **SearchFlows** can miss runs or
-show stale values. A dropped start can leave a run absent. A dropped close can
-leave a closed run shown as Running. Dropping a replacement never restores an
-older queued document; every retained row is a complete committed version.
-A later projected write or repair brings the row up to date. Retention purge
-removes it; **retention.closedFlowDuration** defaults to seven days after close,
-and the Delete still waits for SQL to recover during an outage.
+### Manually rebuild search partitions
 
-**readYourWritesWait** does not wait for dropped changes. During shedding and
-repair it can therefore succeed with stale or absent rows. Once repairs drain
-and retained frames finish projecting, all retained runs have their current
-committed documents again, and the ordinary read-your-writes guarantee applies.
+The active owner exposes **GetSearchProjectionStatus** and
+**RebuildSearchProjection**. Rebuild requests return immediately and run one
+partition at a time in the background. Select explicit partitions, all marked
+partitions, or every partition:
 
-The repair set is in memory. A restart or leader loss discards it. Startup may
-rebuild partitions whose SQL progress is behind, but it cannot detect every
-lost repair when progress has already advanced. A restart during shedding can
-therefore leave rows stale or absent until a later write or retention purge.
-A zero pending gauge after restart does not prove that pre-restart drops were
-repaired.
+```bash
+dexcli search-projection status --server localhost:8080
+dexcli search-projection rebuild --partitions 1,2 --server localhost:8080
+dexcli search-projection rebuild --marked --server localhost:8080
+dexcli search-projection rebuild --all --server localhost:8080
+```
 
-Alert on drop-counter increases by **reason**, a growing repair backlog, and
-repair overflow. A zero rebuild count alone does not mean search is current.
-During uninterrupted ownership, wait for the pending gauge to reach zero and
-the live projection to catch up before treating shedding as recovered.
+These commands use the ordinary credential and TLS flags. When authentication
+is configured, admin RPCs require a JWT from an existing configured issuer with
+an audience listed in **auth.adminAudiences**. The default empty list denies all
+admin RPCs with **PERMISSION_DENIED** and a Dex error detail. Static tokens do
+not authorize administration. Normal API audiences are unchanged. Servers with
+no authentication, including default local dev servers, allow admin RPCs.
+For example, add **adminAudiences: [dex-operators]** beside **authenticators**.
+The field is immutable after startup. Only the active lease owner accepts admin
+operations; a standby or expired owner cannot schedule work.
+
+Alert on increases in drop counters by **reason**, growing pending work, sync
+failures, and rebuild-needed partitions. A zero rebuild-request count does not
+mean search is current. Check pending work and retained projection progress
+together before treating an overload as recovered.
 
 | Metric | Meaning |
 | --- | --- |
-| **dexzd_search_projection_coalesced_changes_total** | Queued changes replaced by a newer complete document or Delete, including within one frame. No labels. |
-| **dexzd_search_projection_dropped_updates_total**, with **reason** | Shed Upserts, labeled **intermediate**, **close**, or **start**, including queued Upserts reclaimed for Deletes. |
-| **dexzd_search_projection_repair_pending** | Distinct runs awaiting repair, including the active batch. Resets on restart. |
-| **dexzd_search_projection_repaired_runs_total**, with **reason** | Current committed documents successfully offered by repair, labeled by their retained **intermediate**, **close**, or **start** repair priority. Already purged runs are omitted. |
-| **dexzd_search_projection_repair_overflow_total** | Drops for new runs that could not enter the full repair set and requested a partition rebuild. |
-| **dexzd_search_projection_rebuild_requests_total** | Newly pending partition rebuilds after Delete-only overflow, repair-set overflow, or unreadable committed documents. Repeated requests for an already pending partition do not increment it. No labels. |
-| **dexzd_search_skipped_documents_total** | Committed documents omitted because their indexed values are unsupported, separate from overload shedding. No labels. |
+| **dexzd_search_projection_coalesced_changes_total** | Queued changes replaced by a newer document or Delete. |
+| **dexzd_search_projection_dropped_updates_total**, with **reason** | Shed updates labeled **intermediate**, **close**, or **start**. |
+| **dexzd_search_projection_repair_pending** | Locally persisted runs awaiting repair, including the active batch; updated at scans. |
+| **dexzd_search_projection_repaired_runs_total**, with **reason** | Current documents successfully offered by repair, grouped by retained drop priority. |
+| **dexzd_search_projection_repair_overflow_total** | New run drops that filled the staging area and required version comparison. |
+| **dexzd_search_projection_pending_objects_synced_total** | Pending partition objects successfully written or removed. |
+| **dexzd_search_projection_pending_sync_failures_total** | Failed pending-object load or sync attempts. |
+| **dexzd_search_projection_partitions_needing_rebuild** | Partitions with persisted operator-attention markers. |
+| **dexzd_search_projection_rebuild_needed_total**, with **reason** | First observations per partition and reason: **startup_behind**, **repair_overflow**, **delete_overflow**, **divergence**, or **unreadable**. |
+| **dexzd_search_projection_rebuild_requests_total** | Explicit manual partition rebuild requests accepted by this process. |
+| **dexzd_search_skipped_documents_total** | Documents omitted because their indexed values are unsupported. |

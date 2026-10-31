@@ -24,8 +24,9 @@ use bytes::Bytes;
 use crate::file_download::TemporaryDownloadFile;
 use crate::s3_error::{is_conflict_error, is_precondition_error, map_sdk_error, required};
 use crate::{
-    ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
-    ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
+    ByteRange, ConditionalDeleteOutcome, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore,
+    ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult,
+    WriteCondition, WriteOutcome,
 };
 
 mod file_read;
@@ -738,6 +739,33 @@ impl ObjectStore for S3ObjectStore {
             .await
             .map_err(|error| map_sdk_error(ObjectStoreOperation::Delete, key, true, error))?;
         Ok(())
+    }
+
+    async fn delete_if_etag_matches(
+        &self,
+        key: &str,
+        etag: &str,
+    ) -> ObjectStoreResult<ConditionalDeleteOutcome> {
+        match self
+            .client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(self.full_key(key))
+            .if_match(etag)
+            .send()
+            .await
+        {
+            Ok(_) => Ok(ConditionalDeleteOutcome::Deleted),
+            Err(error) if is_precondition_error(&error, true) => {
+                Ok(ConditionalDeleteOutcome::PreconditionFailed)
+            }
+            Err(error) => Err(map_sdk_error(
+                ObjectStoreOperation::Delete,
+                key,
+                true,
+                error,
+            )),
+        }
     }
 
     async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()> {

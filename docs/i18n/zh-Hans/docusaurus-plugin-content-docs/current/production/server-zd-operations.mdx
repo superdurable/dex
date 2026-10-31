@@ -820,11 +820,11 @@ Flow type 名称、Step 图和已持久化的 payload。
 
 ## 备份和恢复
 
-对象存储前缀是唯一的数据源。本地存储从它重建。外部搜索投影在启动后从本地存储
-重建。使用 **search.backend: postgres** 时，恢复较旧的前缀可能导致数据库中的 Attribute
+对象存储前缀是唯一的数据源。本地存储从它重建。启动时，外部搜索比较本地已提交版本
+和 SQL，并将差异行加入待处理队列。使用 **search.backend: postgres** 时，恢复较旧的前缀可能导致数据库中的 Attribute
 注册表版本高于恢复后的注册表版本。此时启动会报 Attribute slot 注册表不匹配错误。
 重新启动前，配置新的 **search.postgresSchema** 或新的 PostgreSQL 数据库，让搜索投影和
-slot 分配从恢复后的注册表重建。
+slot 分配使用恢复后的注册表，搜索投影通过版本比较填充。
 配置了 **objectStore.hardDeleteStore** 时，它的前缀存放硬删除 Attribute 的值，
 也要用同样的方式保护。
 
@@ -892,18 +892,27 @@ Text 匹配查询中的所有 term，不按 BM25 相关度排序。
 
 schema 会记录搜索后端。使用不同后端启动时，服务端会报错。
 在 PostgreSQL 和 ParadeDB 之间切换，需要指定新的 database 或 schema。
-服务端会自动从已提交状态重建搜索投影。
+服务端会自动比较已提交 run 版本，并将缺失搜索文档加入队列。
 已有的 ParadeDB 第三版 schema 只增加后端标记，不清空数据，也不改变版本号。
 接受 schema 版本 3 的旧版服务端仍可使用它。PostgreSQL 使用 schema 版本 4，旧版服务端会拒绝它。
 
-## SQL 搜索投影过载 {#sql-search-projection-overload}
+## SQL 搜索投影过载
 
-PostgreSQL 和 ParadeDB 共用异步投影队列。投影落后时，Flow 提交仍会继续。
-Builtin 搜索不使用此队列。每个排队的 upsert 都包含带版本的完整文档。
-同一 run 的新 upsert 或清除 Delete 会替换旧的排队 upsert。合并保留最新文档，
-并将旧文档的可见性等待转移给替代文档。
+PostgreSQL 和 ParadeDB 异步投影已提交的 Flow 文档。搜索落后时，Flow 提交仍继续。
+Builtin 搜索不使用此队列。同一 run 的更新完整文档或清除 Delete 会合并较旧的排队更新。
+合并后，服务器按以下顺序丢弃变更：
 
-两个 SQL 后端使用相同的默认值：
+1. 超过任一软限制时，丢弃 Running run 的中间更新。
+2. 保留的变更仍超过任一硬限制时，也丢弃关闭更新。
+3. start 和 Delete 仍超过硬限制时，也丢弃 start，包括继承排队 start 优先级的更新 Running 文档。
+4. 永不丢弃 Delete。接纳 Delete 时，依次回收排队中间更新、关闭更新和 start。
+   如果只剩 Delete 仍超限，允许队列超过硬限制。
+
+关闭 run 只改变状态；保留期清除才产生 Delete。丢弃关闭更新后，**SearchFlows**
+可能把已关闭 run 显示为 Running。丢弃 start 后，run 可能不出现在搜索中。
+这些影响持续到该 run 后续写入或待处理修复投影其当前已提交文档为止。
+丢弃替代文档不会恢复更旧的排队文档。每行投影都是一个完整的已提交版本。
+已清除 run 在 Delete 到达 SQL 后消失。
 
 ~~~yaml
 search:
@@ -914,67 +923,75 @@ search:
     hardBytes: 134217728
     maxRepairEntries: 1000000
     repairBatchRuns: 256
+    pendingSyncInterval: 1s
+    pendingSyncPartitions: 64
 ~~~
 
-**softBytes** 默认为 64 MiB，**hardBytes** 默认为 128 MiB。
-字节计数估算排队文档和正在投影的实时批次占用的内存。帧数限制只计算等待
-worker 的非空帧。修复集合另占内存保存 run 标识，受 **maxRepairEntries**
-单独限制。每个 run 最多一个条目，包括正在修复的条目。所有限制都必须为正数，
-每个硬限制必须不小于对应的软限制。**repairBatchRuns** 限制每个修复事务
-读取和写入的 run 数量，默认为 256。
+字节限制估算排队文档及正在投影批次的大小；帧限制统计等待中的非空帧。
+所有限制必须为正，硬限制不得小于对应软限制。**maxRepairEntries** 只限制本地持久化前的
+内存暂存区。暂存区满时会记录 partition 版本比较请求，不会丢失恢复任务或自动重建。
+持久化待处理 run 没有配置数量上限。**repairBatchRuns** 默认每个 SQL 修复事务处理 256 个 run。
 
-合并后，服务器按以下顺序丢弃变更：
+待处理 run 在配置的本地存储旁的 RocksDB sidecar 中去重保存。每个变更 partition
+将完整待处理列表同步到配置对象存储前缀下的版本化对象 **search-pending/partition-N**。
+**pendingSyncInterval** 默认为一秒；**pendingSyncPartitions** 默认为每批 64 个对象，
+对象写入串行执行。列表为空时删除对象。同步独立于 SQL 重试运行。
 
-1. 超过任一软限制时，丢弃新帧中 Running run 的中间更新，包括 Attribute、
-   活跃 Step 和权限变更。
-2. 剩余变更仍会超过任一硬限制时，丢弃关闭更新（从 Running 到终态，以及
-   对已关闭 run 的后续写入）。
-3. 启动和 Delete 仍会超过硬限制时，也丢弃启动。替换了排队启动文档的
-   新 Running 文档在此阶段同样可以被丢弃。
-4. 绝不丢弃 Delete。它在保留期结束、run 被清除时删除搜索行；关闭本身不产生
-   Delete。为接纳 Delete，先回收排队的中间更新，再回收关闭和启动，每类按
-   从旧到新的顺序回收。Delete 本身也无法容纳时，才因此请求重建 partition。
+在被丢弃工作同步到对象存储前，服务器不会把 partition 的 SQL 检查点推进到该工作之后。
+仅写入本地 RocksDB 不会解除此限制。接管时，新 owner 先加载待处理对象，再开始投影。
+SQL 落后时，启动过程比较本地已提交 run 的标识与文档版本，以及分页读取的 SQL 行。
+缺失或较新的文档、以及 SQL 中存在但本地已清除 run 的 Delete，均加入待处理集合。
+这些任务同步完成后才推进检查点。新 schema 也使用同一路径。
+同步前崩溃会留下落后的检查点，因此重启后可以再次发现差异。
+对象存储故障会阻止检查点推进，直到同步成功。
 
-接纳 Delete 时，不计入 worker 已取出的 Upsert 字节。因此实时队列总内存
-最多可比 **hardBytes** 多出这些正在投影的 Upsert 所占的空间。无法读取的
-文档和不一致的 SQL 进度也保留原有的 partition 重建路径。
+实时帧空闲时，修复读取当前已提交文档并执行普通的版本化 SQL 写入。
+优先修复 start，其次关闭更新，最后中间更新。不存在或正在清除的 run 产生 Delete。
+SQL 修复期间新增的丢弃仍保持待处理。只有 SQL 事务提交后才删除本地任务；下一次同步
+从对象存储清除它。修复批次之间优先处理实时帧。修复不阻塞 Flow 提交。
 
-每次丢弃都会在有界修复集合中记录 tenant、run、partition 和优先级。
-同一 run 的重复丢弃共用一个条目，并保留最高修复优先级：启动、关闭、中间更新。
-如果集合已满，新 run 无法加入，服务器会请求重建它所在的 partition。
-同一 partition 的待处理重建请求会合并；每个节点每秒最多记录一次重建警告。
+**readYourWritesWait** 等待保留的实时帧，不等待待处理修复。
+因此它可能在丢弃导致行过时或缺失时成功。待处理任务和实时投影都排空后，
+当前已提交文档重新可搜索。
 
-实时队列空闲后，worker 按优先级修复。它从已提交状态读取每个 run 当前的
-完整文档，再跨 partition 按批次写入，并保留版本检查。已清除或正在清除的
-run 不写入。每个修复批次之间优先处理实时帧。修复过程中再次被丢弃的 run
-仍会等待下一轮修复。修复不阻塞 Flow 提交，也不推进实时帧的投影进度。
+启动、过载、损坏和进度分歧都不会自动重建 partition。
+无法读取的状态或不安全的 SQL 进度分歧只隔离受影响 partition，直到操作人员手动重建。
+其他 partition 继续投影。需要重建的标记保存在本地，同一 partition 和原因只警告一次，
+并显示在管理状态响应中。
 
-丢弃期间以及修复追赶完成之前，**SearchFlows** 可能缺少 run 或返回旧值。
-丢弃启动可能使 run 不出现；丢弃关闭可能使已关闭的 run 仍显示为 Running。
-丢弃替代文档不会恢复旧的排队文档；每个保留行都是某个完整的已提交版本。
-后续成功投影的写入或修复会使该行恢复到最新状态。保留期清除会删除该行。
-**retention.closedFlowDuration** 默认为关闭后七天；SQL 不可用时，删除仍需
-等待 Delete 完成投影。
+### 手动重建搜索 partition
 
-**readYourWritesWait** 不等待被丢弃的变更，因此在丢弃和修复期间，即使等待
-成功，搜索仍可能返回旧行或缺少行。修复集合排空且保留的实时帧完成投影后，
-所有保留 run 都再次具有当前已提交文档，正常的 read-your-writes 保证随之恢复。
+当前 owner 提供 **GetSearchProjectionStatus** 和 **RebuildSearchProjection**。
+请求立即返回，后台每次重建一个 partition。可选择指定 partition、所有已标记 partition
+或全部 partition：
 
-修复集合只保存在内存中，重启或失去 leader 身份会丢失它。启动时可能重建 SQL
-进度落后的 partition，但如果进度已经推进，无法检测全部丢失的修复。
-因此，丢弃期间重启后，行可能一直过时或缺失，直到后续写入或保留期清除。
-重启后 pending 指标为零并不能证明重启前的丢弃已经修复。
+```bash
+dexcli search-projection status --server localhost:8080
+dexcli search-projection rebuild --partitions 1,2 --server localhost:8080
+dexcli search-projection rebuild --marked --server localhost:8080
+dexcli search-projection rebuild --all --server localhost:8080
+```
 
-应按 **reason** 对丢弃计数增量设置告警，并监控修复积压增长和修复集合溢出。
-重建计数为零并不代表搜索已是最新状态。在持续持有所有权期间，应等 pending
-指标归零且实时投影追赶完成后，再认为过载已经恢复。
+命令使用普通的凭证和 TLS 参数。配置认证时，管理 RPC 要求来自现有配置 issuer 的 JWT，
+且 audience 必须包含 **auth.adminAudiences** 中的值。该字段默认空列表，拒绝全部管理 RPC，
+返回 **PERMISSION_DENIED** 及 Dex 错误详情。静态 token 不授予管理权限，普通 API 的 audience 不变。
+完全未配置认证的服务器，包括默认本地 dev 服务器，允许管理 RPC。
+例如在 **authenticators** 旁添加 **adminAudiences: [dex-operators]**。该字段启动后不可更改。
+只有持有有效 lease 的 owner 接受管理操作；standby 或 lease 过期的 owner 不能调度任务。
+
+应对按 **reason** 统计的丢弃计数增量、待处理任务增长、同步失败和需要重建的 partition 设置告警。
+重建请求计数为零不代表搜索已追上。应同时检查待处理任务和保留帧的投影进度。
 
 | 指标 | 含义 |
 | --- | --- |
-| **dexzd_search_projection_coalesced_changes_total** | 被更新的完整文档或 Delete 替换的排队变更，包括同一帧内的变更。无标签。 |
-| **dexzd_search_projection_dropped_updates_total**，带 **reason** | 被丢弃的 Upsert，标签值为 **intermediate**、**close** 或 **start**，包括为接纳 Delete 而回收的排队 Upsert。 |
-| **dexzd_search_projection_repair_pending** | 等待修复的不同 run 数量，包括正在修复的批次。重启后归零。 |
-| **dexzd_search_projection_repaired_runs_total**，带 **reason** | 修复成功提交的当前已提交文档，按保留的修复优先级标记为 **intermediate**、**close** 或 **start**。已清除的 run 不计入。 |
-| **dexzd_search_projection_repair_overflow_total** | 集合已满时，无法加入的新 run 丢弃次数；这些丢弃会请求重建 partition。 |
-| **dexzd_search_projection_rebuild_requests_total** | Delete 本身也无法容纳、修复集合溢出或已提交文档无法读取时新增的待处理 partition 重建请求。同一 partition 已有待处理请求时，后续请求不增加计数。无标签。 |
-| **dexzd_search_skipped_documents_total** | 因索引值不受支持而从搜索中省略的已提交文档，与过载丢弃更新分开计数。无标签。 |
+| **dexzd_search_projection_coalesced_changes_total** | 被新文档或 Delete 替代的排队变更。 |
+| **dexzd_search_projection_dropped_updates_total**，带 **reason** | 丢弃更新，标签为 **intermediate**、**close** 或 **start**。 |
+| **dexzd_search_projection_repair_pending** | 本地持久化的待修复 run，包含正在处理的批次；扫描时更新。 |
+| **dexzd_search_projection_repaired_runs_total**，带 **reason** | 修复成功提交的当前文档，按保留的丢弃优先级统计。 |
+| **dexzd_search_projection_repair_overflow_total** | 暂存区已满、需要版本比较的新 run 丢弃次数。 |
+| **dexzd_search_projection_pending_objects_synced_total** | 成功写入或删除的待处理 partition 对象。 |
+| **dexzd_search_projection_pending_sync_failures_total** | 待处理对象加载或同步失败次数。 |
+| **dexzd_search_projection_partitions_needing_rebuild** | 带有持久化操作人员关注标记的 partition 数量。 |
+| **dexzd_search_projection_rebuild_needed_total**，带 **reason** | 每个 partition 和原因首次出现的次数：**startup_behind**、**repair_overflow**、**delete_overflow**、**divergence** 或 **unreadable**。 |
+| **dexzd_search_projection_rebuild_requests_total** | 此进程接受的显式手动 partition 重建请求。 |
+| **dexzd_search_skipped_documents_total** | 因索引值不受支持而省略的文档。 |

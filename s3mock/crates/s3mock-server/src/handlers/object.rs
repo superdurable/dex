@@ -263,12 +263,17 @@ pub(crate) async fn delete_object(
     bucket: String,
     key: String,
     query: QueryParameters,
+    headers: &HeaderMap,
 ) -> Result<S3Response, S3Error> {
     let request = DeleteObjectRequest {
         version_id: query.get("versionId").map(str::to_owned),
     };
-    let outcome = run_store_operation(&store, move |store| {
-        store.delete_object(&bucket, &key, &request)
+    let if_match = header_text(headers, "if-match").map(str::to_owned);
+    let outcome = run_store_operation(&store, move |store| match if_match {
+        Some(etag) => store
+            .delete_object_if_etag_matches(&bucket, &key, &request, &etag)?
+            .ok_or(s3mock::StoreError::PreconditionFailed),
+        None => store.delete_object(&bucket, &key, &request),
     })
     .await?;
     let mut response_headers = Vec::new();

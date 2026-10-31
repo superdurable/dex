@@ -52,6 +52,36 @@ impl Store {
             .expect("an unguarded delete always applies"))
     }
 
+    /// Deletes a matching ETag atomically. Returns None on mismatch; missing objects succeed.
+    pub fn delete_object_if_etag_matches(
+        &self,
+        bucket: &str,
+        key: &str,
+        request: &DeleteObjectRequest,
+        etag: &str,
+    ) -> Result<Option<DeleteObjectOutcome>, StoreError> {
+        let matches_etag = |versions: &[VersionRecord]| {
+            let selected = match request.version_id.as_deref() {
+                Some(version_id) => versions
+                    .iter()
+                    .find(|version| version.version_id() == version_id),
+                None => versions.first(),
+            };
+            selected.is_none_or(|version| {
+                !version.is_delete_marker && super::object_read::etag_matches(etag, &version.etag)
+            })
+        };
+        self.delete_object_if(
+            bucket,
+            key,
+            request,
+            Some(&DeleteGuard {
+                is_still_due: &matches_etag,
+                marker_last_modified_unix_ms: None,
+            }),
+        )
+    }
+
     /// Deletes like [`Store::delete_object`] when `guard` approves the key's current versions.
     ///
     /// Returns `None`, changing nothing, when the guard rejects them.

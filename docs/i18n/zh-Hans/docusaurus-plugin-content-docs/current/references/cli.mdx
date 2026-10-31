@@ -164,3 +164,21 @@ watch 会自行管理 long-poll lifecycle，直到被中断。
 error 以 JSON 写入 stderr。其中包含 **kind**、**operation** 和 **message**；适用时还包含
 **grpcCode**、**grpcCodeName** 和结构化 status detail。exit status 2 表示 usage 无效或
 缺少 confirmation，status 1 表示 request 失败。
+
+## 管理 SQL 搜索投影
+
+当前服务器 owner 提供 SQL 搜索状态及显式异步重建：
+
+```bash
+dexcli search-projection status --server localhost:8080
+dexcli search-projection rebuild --partitions 1,2 --server localhost:8080
+dexcli search-projection rebuild --marked --server localhost:8080
+dexcli search-projection rebuild --all --server localhost:8080
+```
+
+重建时只能选择一个选择器。响应列出已调度 partition；用 **status** 查看等待和正在执行的重建。
+服务器每次重建一个 partition。命令接受普通的连接、凭证、TLS、超时和输出参数。
+配置认证时，需要来自现有 issuer 且 audience 包含 **auth.adminAudiences** 中值的 JWT；
+该字段默认空列表，拒绝管理 RPC。静态 token 不授予管理权限。
+完全未配置认证的服务器，包括默认本地 dev 服务器，允许管理调用。
+参见 [SQL 搜索投影过载](../production/server-zd-operations.mdx#sql-搜索投影过载)。

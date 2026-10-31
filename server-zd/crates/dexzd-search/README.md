@@ -21,7 +21,7 @@ inside a transaction and refuses a schema version newer than this binary.
 ParadeDB setup needs a role that can create `pg_search`, or the extension must
 already be installed. PostgreSQL setup needs no extensions. One database schema belongs to one Dex cluster because
 projection progress and rebuilds are partition scoped. Upgrading from the
-version-one schema clears derived rows and progress, so rebuild every partition.
+version-one schema clears derived rows and progress; startup version comparison repopulates missing rows.
 Upgrading version two adds skipped-document records without clearing runs.
 The caller should retry startup after a schema migration lock timeout.
 
@@ -30,58 +30,54 @@ outcome of one partition frame in apply order with
 `extract_batch_search_document_changes`, then call `apply_batch` once for the
 frame with the partition's previous and new full `LogPosition` values. The
 method writes data and progress in one transaction. Sparse log sequences are
-normal; a stored position that differs from the caller's previous position
-requires a rebuild. On a mismatch or hard queue overflow, obtain a consistent
-committed local view and call `rebuild_partition` with that view's applied
-position. Only the current partition owner may project or rebuild a partition.
-Projection failures must not affect command commits.
+normal. A stored position that differs from the caller's previous position requires
+operator attention. Confirm ambiguous commits by retrying the same operation before
+processing a later frame. Only the active partition owner may project or rebuild.
+Projection failures never prevent command commits.
 
-The server queue coalesces complete queued upserts per tenant and run. Deletes
-supersede queued upserts. Empty frames are removed, transferring their visibility
-dependency to the replacement. Version 1 identifies starts, including child
-starts; terminal documents are closes, including later writes to closed runs.
-A replacement Running document inherits its superseded start's priority and
-can still be shed at the hard limit.
+The queue coalesces complete documents per tenant and run, transferring visibility
+wait dependencies to their replacements. Above soft limits it sheds intermediate
+Running updates; above hard limits it also sheds closes, then starts, including
+Running replacements that inherited start priority. Retention-purge Deletes are
+never shed and may exceed hard limits after queued Upserts are reclaimed.
+Defaults are 4,096 frames / 64 MiB soft and 8,192 frames / 128 MiB hard.
 
-`search.projectionQueue` defaults to 4,096 frames / 64 MiB soft and 8,192 frames /
-128 MiB hard. Above a soft limit, shed incoming intermediate Running updates.
-Above a hard limit, shed closes, then starts. Retention-purge Deletes are never
-shed: reclaim queued intermediates, closes, then starts, oldest first within
-each class. Delete admission excludes in-flight Upsert bytes, allowing total
-live bytes to exceed the hard limit by at most that worker batch. Delete-only
-overflow retains the partition rebuild fallback.
+Shed run identities persist in a local RocksDB sidecar and versioned per-partition
+object-store lists. `maxRepairEntries` (default 1,000,000) bounds staging, not the
+persistent list. Overflow records a partition version-comparison request. Pending
+objects sync independently of SQL retries (default 1s, 64 serialized objects per
+batch). SQL progress never passes an unsynced shed intent. At takeover, load pending
+objects before projecting. Startup compares committed local identities and versions
+with bounded SQL pages, queues differences and SQL-only purged Deletes, syncs those
+intents, and then advances progress. An empty schema uses the same path. Unsynced
+crash gaps remain discoverable because their SQL checkpoint is held back.
 
-Every shed Upsert records its tenant, run, Flow hash, partition, and priority in
-a deduplicated in-memory repair set. `maxRepairEntries` defaults to 1,000,000
-runs, including in-flight repairs; `repairBatchRuns` defaults to 256. Both must
-be positive. This identity set uses memory separately from the document queue.
-Duplicates keep the highest repair priority: start, close, intermediate. A full
-set requests a partition rebuild for the new overflowing run. Rebuild completion
-clears only repairs covered by its committed view.
+Idle repair reads current committed documents, or emits Deletes for missing/purging
+runs. Starts have priority over closes, then intermediate updates. `repairBatchRuns`
+defaults to 256. The normal versioned upsert checks each partition's last SQL progress
+without advancing it. Pending revisions preserve drops recorded during an in-flight
+repair. Local entries are removed after SQL commit; the next sync removes remote
+entries. Live frames take priority between repair batches.
 
-When live frames drain, the worker reads current committed documents for repair
-and skips purged or purging runs. One transaction batches rows across partitions
-using the normal versioned upsert and locks each partition's progress, checking
-its last live position without advancing it. Live frames have priority between
-repair batches. New drops during an in-flight repair remain pending. Repair
-never blocks commits. Every retained row is some complete committed version.
+Read-your-writes waits cover retained frames rather than pending repairs. A dropped
+close can leave a run shown as Running; a dropped start can leave it absent until a
+later write or repair. Every retained row remains a complete committed version.
+Purges remain protected. Exact visibility returns after pending and live work drain.
 
-During shedding and repair, SearchFlows visibility waits may succeed with stale
-or missing rows. Exact visibility returns when repairs and live projection drain.
-A dropped close may appear Running; a dropped start may be absent. A later
-projected write or repair refreshes it; retention purge removes it (default seven
-days after close, subject to SQL recovery). Restart or leader loss discards the
-repair set. Startup progress comparisons cannot detect every lost repair, so a
-restart during shedding may leave stale or absent rows until a later write or
-purge. A zero pending gauge after restart does not prove past drops were repaired.
+No automatic partition rebuild path remains. Unreadable state and unsafe progress
+divergence quarantine only the affected partition and persist rebuild-needed markers.
+Use the leader-only `AdminService` or `dexcli search-projection status` and explicit
+`rebuild --partitions`, `--marked`, or `--all` requests. Rebuilding is serialized,
+returns scheduled IDs immediately, and clears markers after success. Configured
+authentication requires an existing JWT issuer and `auth.adminAudiences`; static
+tokens cannot administer. Unauthenticated development servers allow admin calls.
 
-Monitor `dexzd_search_projection_dropped_updates_total` and
-`dexzd_search_projection_repaired_runs_total` by `reason` (`intermediate`,
-`close`, `start`), `dexzd_search_projection_repair_pending` including the active
-batch, and `dexzd_search_projection_repair_overflow_total`. Coalesced and newly
-pending rebuild counters remain separate and label-free; rebuild warnings are
-limited to once per second per node. Unreadable documents and stored-position
-divergence keep their existing rebuild paths. Builtin search is unaffected.
+Monitor dropped and repaired counters by `reason` (`intermediate`, `close`, `start`),
+pending runs, pending-object sync failures, and partitions needing rebuilding.
+Coalesced changes and explicit rebuild requests remain separate counters. See the
+[operations guide](../../../docs/content/production/server-zd-operations.mdx#sql-search-projection-overload)
+and the [local pending layout](../dexzd-keyspace/README.md#local-search-pending-sidecar).
+Builtin search is unaffected.
 
 An unindexable committed document is recorded in
 `dexzd_visibility_skipped_documents`, omitted from search, and logged as an
@@ -117,7 +113,7 @@ ParadeDB schemas gain metadata without truncation, rebuilding, or a version
 change, so older version-three binaries remain compatible. PostgreSQL uses
 version four. Startup rejects a registry that disagrees with persisted slot
 assignments and requires a new database or schema. An empty
-progress table causes the server projection worker to rebuild committed data.
+progress table causes the server projection worker to compare versions and queue missing documents.
 The PostgreSQL backend enables registry capacity and 1024-byte Keyword ingress
 limits. Projection skips older oversized values only when the stored Keyword
 or KeywordArray type matches the registered type. Unregistered keys remain

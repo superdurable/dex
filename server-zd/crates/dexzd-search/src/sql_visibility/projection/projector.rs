@@ -300,6 +300,16 @@ impl SqlVisibilityProjector {
         }
     }
 
+    /// Reads a bounded keyset page of projected run identities and versions without modifying rows.
+    pub async fn read_run_versions(
+        &self,
+        partition_id: PartitionId,
+        after: Option<(&str, &str)>,
+        limit: u32,
+    ) -> Result<Vec<super::repair::ProjectedRunVersion>, ProjectionError> {
+        super::repair::read_run_versions(&self.backend, partition_id, after, limit).await
+    }
+
     /// Repairs committed documents across partitions without advancing live-frame progress.
     pub async fn repair_documents(
         &self,
@@ -307,6 +317,14 @@ impl SqlVisibilityProjector {
     ) -> Result<(), ProjectionError> {
         super::repair::repair_documents(&self.backend, self.metric_recorder.as_deref(), partitions)
             .await
+    }
+
+    /// Clears a partition with no committed state during an explicitly requested rebuild.
+    pub async fn clear_empty_partition(
+        &self,
+        partition_id: PartitionId,
+    ) -> Result<(), ProjectionError> {
+        super::repair::clear_empty_partition(&self.backend, partition_id).await
     }
 
     /// Rebuilds one partition from a consistent committed local view at `applied_position`.

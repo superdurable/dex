@@ -17,8 +17,9 @@ use dexzd_clock::{SystemWallClock, WallClock};
 
 use crate::file_download::TemporaryDownloadFile;
 use crate::{
-    ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
-    ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
+    ByteRange, ConditionalDeleteOutcome, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore,
+    ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult,
+    WriteCondition, WriteOutcome,
 };
 
 /// An injected outcome for one in-memory object-store call.
@@ -341,6 +342,30 @@ impl ObjectStore for InMemoryObjectStore {
             .objects
             .remove(key);
         self.after_call(action, ObjectStoreOperation::Delete, key, ())
+    }
+
+    async fn delete_if_etag_matches(
+        &self,
+        key: &str,
+        etag: &str,
+    ) -> ObjectStoreResult<ConditionalDeleteOutcome> {
+        let action = self.before_call(ObjectStoreOperation::Delete, key).await?;
+        let mut state = self
+            .state
+            .lock()
+            .expect("in-memory object-store mutex is not poisoned");
+        let outcome = if state
+            .objects
+            .get(key)
+            .is_some_and(|object| object.etag != etag)
+        {
+            ConditionalDeleteOutcome::PreconditionFailed
+        } else {
+            state.objects.remove(key);
+            ConditionalDeleteOutcome::Deleted
+        };
+        drop(state);
+        self.after_call(action, ObjectStoreOperation::Delete, key, outcome)
     }
 
     async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()> {

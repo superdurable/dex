@@ -271,3 +271,67 @@ impl EncodeMetric for ProjectionDropCounters {
         MetricType::Counter
     }
 }
+
+/// A condition that operators can resolve with a manual partition rebuild.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ProjectionRebuildReason {
+    /// SQL projection progress is behind committed state.
+    StartupBehind,
+    /// The bounded in-memory staging area filled before persistence.
+    RepairOverflow,
+    /// Protected Deletes exceeded queue limits.
+    DeleteOverflow,
+    /// SQL progress differs from the active owner's expected progress.
+    Divergence,
+    /// Committed search state cannot be decoded.
+    Unreadable,
+}
+label_value!(ProjectionRebuildReason {
+    StartupBehind => "startup_behind", RepairOverflow => "repair_overflow",
+    DeleteOverflow => "delete_overflow", Divergence => "divergence", Unreadable => "unreadable"
+});
+#[derive(EncodeLabelSet)]
+struct RebuildReasonLabel {
+    reason: ProjectionRebuildReason,
+}
+
+/// Fixed rebuild-needed counters for every supported reason.
+#[derive(Clone, Debug)]
+pub struct ProjectionRebuildCounters {
+    counters: Arc<[Counter; 5]>,
+}
+impl Default for ProjectionRebuildCounters {
+    fn default() -> Self {
+        Self {
+            counters: Arc::new(std::array::from_fn(|_| Counter::default())),
+        }
+    }
+}
+impl ProjectionRebuildCounters {
+    /// Counts one newly observed partition and reason pair.
+    pub fn record(&self, reason: ProjectionRebuildReason) {
+        self.counters[reason as usize].inc();
+    }
+}
+impl EncodeMetric for ProjectionRebuildCounters {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        for reason in [
+            ProjectionRebuildReason::StartupBehind,
+            ProjectionRebuildReason::RepairOverflow,
+            ProjectionRebuildReason::DeleteOverflow,
+            ProjectionRebuildReason::Divergence,
+            ProjectionRebuildReason::Unreadable,
+        ] {
+            encoder
+                .encode_family(&RebuildReasonLabel { reason })?
+                .encode_counter::<NoLabelSet, _, u64>(
+                    &self.counters[reason as usize].get(),
+                    None,
+                )?;
+        }
+        Ok(())
+    }
+    fn metric_type(&self) -> MetricType {
+        MetricType::Counter
+    }
+}

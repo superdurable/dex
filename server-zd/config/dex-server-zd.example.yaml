@@ -72,6 +72,8 @@ api:
   maxWaitSeconds: 60
   defaultRpcTimeout: 60s
 auth:
+  # Dedicated JWT audiences for admin RPCs; empty denies administration when auth is configured.
+  adminAudiences: []
   # Empty disables public API authentication. Authenticators are tried in order, for example:
   #   - kind: jwt
   #     issuer: https://issuer.example.com  # exact iss claim; https unless loopback
@@ -124,6 +126,8 @@ search:
     hardBytes: 134217728
     maxRepairEntries: 1000000
     repairBatchRuns: 256
+    pendingSyncInterval: 1s
+    pendingSyncPartitions: 64
 limits:
   maxFlowStateBytes: 67108864
   maxChannelMessages: 10000

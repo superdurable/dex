@@ -22,27 +22,46 @@ use dexzd_search::sql_visibility::{
 use prost::Message;
 
 use super::committed_search_frames::{CommittedSearchFrame, CommittedSearchFrames};
+use super::pending_store::{PendingRunStore, PendingStoreError};
 use super::projection_repairs::ProjectionRepair;
+use crate::config::SearchProjectionQueueConfig;
+use dexzd_metrics::{NodeMetrics, ProjectionRebuildReason};
 
 const FIRST_RETRY_DELAY: Duration = Duration::from_millis(100);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(10);
 
-/// Projects committed frames into SQL visibility in commit order and rebuilds partitions it cannot follow.
+pub(crate) struct PendingProjectionState {
+    pub(crate) runs: Arc<tokio::sync::Mutex<PendingRunStore>>,
+    pub(crate) ready: tokio_util::sync::CancellationToken,
+}
+
+/// Projects committed frames into SQL visibility in commit order and quarantines partitions it cannot follow.
 pub(crate) struct SearchProjectionWorker {
     projector: SqlVisibilityProjector,
     committer: CommandCommitter,
     frames: Arc<CommittedSearchFrames>,
     partition_count: u32,
+    pending: Arc<tokio::sync::Mutex<PendingRunStore>>,
+    cfg: Arc<SearchProjectionQueueConfig>,
+    metrics: Arc<NodeMetrics>,
+    pending_sync_ready: tokio_util::sync::CancellationToken,
+    processed_positions: BTreeMap<PartitionId, LogPosition>,
     /// The last position projected for each partition; the previous position of its next frame.
     projected_positions: BTreeMap<PartitionId, LogPosition>,
 }
 
 #[derive(Debug, thiserror::Error)]
-enum SearchProjectionError {
+pub(super) enum SearchProjectionError {
     #[error("read committed partition state: {detail}")]
     CommittedState { detail: String },
     #[error(transparent)]
     Projection(#[from] ProjectionError),
+    #[error(transparent)]
+    PartitionVersionRead(#[from] super::partition_diff::PartitionVersionReadError),
+    #[error(transparent)]
+    StateRead(#[from] dexzd_apply::StateReadError),
+    #[error(transparent)]
+    Pending(#[from] PendingStoreError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -54,8 +73,15 @@ struct CommittedRepairReadError {
 impl SearchProjectionError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::CommittedState { .. } => true,
+            Self::CommittedState { .. } | Self::StateRead(_) => true,
+            Self::PartitionVersionRead(_) => false,
             Self::Projection(error) => error.is_retryable(),
+            Self::Pending(
+                PendingStoreError::Fenced(_)
+                | PendingStoreError::Invalid(_)
+                | PendingStoreError::Decode(_),
+            ) => false,
+            Self::Pending(_) => true,
         }
     }
 }
@@ -66,29 +92,96 @@ impl SearchProjectionWorker {
         committer: CommandCommitter,
         frames: Arc<CommittedSearchFrames>,
         partition_count: u32,
+        pending: PendingProjectionState,
+        cfg: Arc<SearchProjectionQueueConfig>,
+        metrics: Arc<NodeMetrics>,
     ) -> Self {
         Self {
             projector,
             committer,
             frames,
             partition_count,
+            pending: pending.runs,
+            cfg,
+            metrics,
+            pending_sync_ready: pending.ready,
+            processed_positions: BTreeMap::new(),
             projected_positions: BTreeMap::new(),
         }
     }
 
     /// Catches up every partition, then projects queued frames until the queue closes.
     pub(crate) async fn run(mut self) {
+        if let Err(error) = self.restore_rebuild_markers().await {
+            tracing::error!(%error, "reading persisted search rebuild markers failed");
+            return;
+        }
+        let mut retry_delay = RetryDelay::default();
+        loop {
+            match self.pending.lock().await.load_objects().await {
+                Ok(()) => break,
+                Err(error) => {
+                    self.metrics.search_projection_pending_sync_failures.inc();
+                    if matches!(
+                        error,
+                        PendingStoreError::Fenced(_)
+                            | PendingStoreError::Invalid(_)
+                            | PendingStoreError::Decode(_)
+                    ) {
+                        self.frames
+                            .record_permanent_failure(PartitionId(0), &error.to_string());
+                        return;
+                    }
+                    tracing::warn!(%error, "loading search pending objects failed; retrying");
+                    retry_delay.wait().await;
+                }
+            }
+        }
+        if let Err(error) = self.restore_rebuild_markers().await {
+            tracing::error!(%error, "reading search pending object markers failed");
+            return;
+        }
         if !self.catch_up_partitions().await {
             return;
         }
+        self.pending_sync_ready.cancel();
+        let mut sync = tokio::time::interval(self.cfg.pending_sync_interval);
+        sync.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
+            let repairs = {
+                let pending = self.pending.lock().await;
+                if pending.count() == 0 || self.frames.has_live_frames() {
+                    Vec::new()
+                } else {
+                    match pending.take_batch_excluding(
+                        self.cfg.repair_batch_runs,
+                        &self.frames.quarantined_partitions(),
+                    ) {
+                        Ok(repairs) => repairs,
+                        Err(error) => {
+                            tracing::error!(%error, "reading pending search repair batch failed");
+                            return;
+                        }
+                    }
+                }
+            };
             tokio::select! {
                 biased;
+                _ = sync.tick() => {
+                    if let Err(error) = self.synchronize_pending().await {
+                        self.metrics.search_projection_pending_sync_failures.inc();
+                        tracing::warn!(%error, "syncing search pending runs failed; checkpoints remain held");
+                        if let SearchProjectionError::Projection(ProjectionError::PositionMismatch { partition_id, .. } | ProjectionError::RepairPositionMismatch { partition_id, .. }) = &error {
+                            self.frames.mark_rebuild_needed(*partition_id, ProjectionRebuildReason::Divergence);
+                            self.frames.quarantine(*partition_id);
+                        } else if !error.is_retryable() { return; }
+                    }
+                }
                 frame = self.frames.next_frame() => {
                     if !self.project_frame(frame).await { return; }
-                },
+                }
                 () = self.frames.rebuild_requested().notified() => {}
-                repairs = self.frames.next_repair_batch() => {
+                () = std::future::ready(()), if !repairs.is_empty() => {
                     if !self.repair_runs(repairs).await { return; }
                 }
             }
@@ -97,29 +190,111 @@ impl SearchProjectionWorker {
                     return;
                 }
             }
+            self.metrics.search_projection_repair_pending.set(
+                i64::try_from(self.pending.lock().await.count()).expect("pending count fits i64"),
+            );
             self.frames.publish_projected_through();
         }
     }
 
-    /// Frames lost before startup leave SQL visibility behind the local store, so differing partitions rebuild.
+    async fn restore_rebuild_markers(&self) -> Result<(), PendingStoreError> {
+        for (partition, reasons) in self.pending.lock().await.load_rebuild_markers()? {
+            for reason in reasons {
+                self.frames.mark_rebuild_needed(partition, reason);
+                if matches!(
+                    reason,
+                    ProjectionRebuildReason::Divergence | ProjectionRebuildReason::Unreadable
+                ) {
+                    self.frames.quarantine(partition);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn synchronize_pending(&mut self) -> Result<(), SearchProjectionError> {
+        for partition in self.frames.diff_partitions() {
+            if let Err(error) = self.diff_partition(partition).await {
+                if error.is_retryable() {
+                    return Err(error);
+                }
+                if !self.frames.is_quarantined(partition) {
+                    self.frames
+                        .mark_rebuild_needed(partition, ProjectionRebuildReason::Unreadable);
+                    self.frames.quarantine(partition);
+                }
+                tracing::error!(partition = partition.0, %error, "search version comparison requires manual rebuilding");
+            }
+            self.frames.finish_diff(partition);
+        }
+        for (partition, position) in self.frames.idle_positions() {
+            if !self.is_projected(partition, &position) {
+                self.processed_positions.insert(partition, position);
+            }
+        }
+        for (partition, position) in self.processed_positions.clone() {
+            let can_checkpoint = {
+                let pending = self.pending.lock().await;
+                !self.frames.is_quarantined(partition)
+                    && !pending.has_unsynced(partition)
+                    && !self.frames.has_pending_staging(partition)
+            };
+            if !can_checkpoint {
+                continue;
+            }
+            if self.projected_positions.get(&partition) != Some(&position) {
+                let mut retry_delay = RetryDelay::default();
+                loop {
+                    match self
+                        .projector
+                        .apply_batch(
+                            partition,
+                            self.projected_positions.get(&partition),
+                            &position,
+                            &[],
+                        )
+                        .await
+                    {
+                        Ok(()) => break,
+                        Err(error) if error.is_retryable() => {
+                            tracing::warn!(partition = partition.0, %error, "confirming a search checkpoint failed; retrying the same position");
+                            retry_delay.wait().await;
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+                self.projected_positions.insert(partition, position);
+            }
+        }
+        Ok(())
+    }
+
+    /// Frames lost before startup leave SQL visibility behind the local store, so differing partitions compare versions.
     async fn catch_up_partitions(&mut self) -> bool {
         let caught_up_sequence = self.frames.last_sequence();
-        let mut rebuilt_partitions = 0_u32;
+        let mut compared_partitions = 0_u32;
         for partition in (0..self.partition_count).map(|partition| {
             PartitionId(u16::try_from(partition).expect("validation limits partitions to 65536"))
         }) {
             let mut retry_delay = RetryDelay::default();
+            if self.frames.is_quarantined(partition) {
+                continue;
+            }
             loop {
                 match self.catch_up_partition(partition).await {
-                    Ok(was_rebuilt) => {
-                        rebuilt_partitions += u32::from(was_rebuilt);
+                    Ok(was_compared) => {
+                        compared_partitions += u32::from(was_compared);
                         break;
                     }
                     Err(error) => {
                         if !error.is_retryable() {
-                            self.frames
-                                .record_permanent_failure(partition, &error.to_string());
-                            return false;
+                            self.frames.mark_rebuild_needed(
+                                partition,
+                                ProjectionRebuildReason::Unreadable,
+                            );
+                            self.frames.quarantine(partition);
+                            tracing::error!(partition = partition.0, %error, "startup search version comparison requires operator repair");
+                            break;
                         }
                         tracing::warn!(
                             partition = partition.0,
@@ -135,49 +310,146 @@ impl SearchProjectionWorker {
         self.frames.publish_projected_through();
         tracing::info!(
             partitions = self.partition_count,
-            rebuilt_partitions,
+            compared_partitions,
             "the SQL visibility search projection caught up"
         );
         true
     }
 
-    /// Returns whether the partition had to be rebuilt.
+    /// Returns whether the partition required version comparison.
     async fn catch_up_partition(
         &mut self,
         partition: PartitionId,
     ) -> Result<bool, SearchProjectionError> {
         let progress = self.projector.read_progress(partition).await?;
         let (view, committed_position) = self.open_committed_view(partition).await?;
+        if let Some(progress) = progress.clone() {
+            self.projected_positions.insert(partition, progress);
+        }
         match (progress, committed_position) {
             (None, None) => Ok(false),
-            (Some(progress), None) => {
-                tracing::warn!(
-                    partition = partition.0,
-                    "SQL visibility has search progress for a partition without committed state"
-                );
-                self.projected_positions.insert(partition, progress);
+            (Some(_), None) => {
+                self.frames
+                    .mark_rebuild_needed(partition, ProjectionRebuildReason::Divergence);
+                self.frames.quarantine(partition);
                 Ok(false)
             }
-            (Some(progress), Some(committed_position)) if progress == committed_position => {
-                self.projected_positions.insert(partition, progress);
+            (Some(progress), Some(committed)) if progress == committed => Ok(false),
+            (Some(progress), Some(committed))
+                if progress.node_id != committed.node_id
+                    || (progress.incarnation, progress.seq)
+                        > (committed.incarnation, committed.seq) =>
+            {
+                self.frames
+                    .mark_rebuild_needed(partition, ProjectionRebuildReason::Divergence);
+                self.frames.quarantine(partition);
                 Ok(false)
             }
-            (_, Some(committed_position)) => {
+            (_, Some(committed)) => {
+                self.diff_view(partition, view).await?;
+                while self.pending.lock().await.has_unsynced(partition) {
+                    let synced = self
+                        .pending
+                        .lock()
+                        .await
+                        .sync_objects(self.cfg.pending_sync_partitions)
+                        .await?;
+                    self.metrics
+                        .search_projection_pending_objects_synced
+                        .inc_by(u64::try_from(synced).expect("partition count fits u64"));
+                }
                 self.projector
-                    .rebuild_partition(partition, &committed_position, Arc::new(view))
+                    .apply_batch(
+                        partition,
+                        self.projected_positions.get(&partition),
+                        &committed,
+                        &[],
+                    )
                     .await?;
-                self.projected_positions
-                    .insert(partition, committed_position);
+                self.projected_positions.insert(partition, committed);
                 Ok(true)
             }
         }
     }
 
+    async fn diff_partition(
+        &mut self,
+        partition: PartitionId,
+    ) -> Result<(), SearchProjectionError> {
+        let (view, _) = self.open_committed_view(partition).await?;
+        self.diff_view(partition, view).await
+    }
+
+    async fn diff_view(
+        &mut self,
+        partition: PartitionId,
+        view: CommittedStateView,
+    ) -> Result<(), SearchProjectionError> {
+        let mut local = tokio::task::spawn_blocking(move || {
+            super::partition_diff::read_local_versions(view, partition)
+        })
+        .await
+        .map_err(|error| SearchProjectionError::CommittedState {
+            detail: format!("join partition version scan: {error}"),
+        })??;
+        let mut cursor: Option<(String, String)> = None;
+        loop {
+            let rows = self
+                .projector
+                .read_run_versions(
+                    partition,
+                    cursor
+                        .as_ref()
+                        .map(|(tenant, run)| (tenant.as_str(), run.as_str())),
+                    256,
+                )
+                .await?;
+            if rows.is_empty() {
+                break;
+            }
+            let mut repairs = Vec::new();
+            for row in rows {
+                cursor = Some((row.tenant_id.0.to_string(), row.run_id.to_string()));
+                match local.remove(&(row.tenant_id, row.run_id)) {
+                    Some((repair, version)) if version > row.version => repairs.push(repair),
+                    Some((_, version)) if version < row.version => {
+                        self.frames
+                            .mark_rebuild_needed(partition, ProjectionRebuildReason::Divergence);
+                        self.frames.quarantine(partition);
+                        return Err(ProjectionError::InvalidState(format!(
+                            "projected run {} is newer than committed version {version}",
+                            row.run_id
+                        ))
+                        .into());
+                    }
+                    Some(_) => {}
+                    None => repairs.push(ProjectionRepair::new(
+                        row.tenant_id,
+                        row.run_id,
+                        dexzd_keyspace::FlowHash(0),
+                        partition,
+                        super::projection_repairs::RepairPriority::Delete,
+                    )),
+                }
+            }
+            self.pending.lock().await.record(&repairs)?;
+        }
+        let mut repairs = Vec::with_capacity(256);
+        for (_, (repair, _)) in local {
+            repairs.push(repair);
+            if repairs.len() == 256 {
+                self.pending.lock().await.record(&repairs)?;
+                repairs.clear();
+            }
+        }
+        self.pending.lock().await.record(&repairs)?;
+        Ok(())
+    }
+
     async fn project_frame(&mut self, frame: CommittedSearchFrame) -> bool {
-        if self.frames.has_rebuild_request(frame.partition)
-            && !self.rebuild_partition(frame.partition).await
-        {
-            return false;
+        if self.frames.is_quarantined(frame.partition) {
+            self.frames.finish_projected_frame(&frame);
+            return true;
         }
         if !self.is_projected(frame.partition, &frame.position) && !self.apply_frame(&frame).await {
             return false;
@@ -188,30 +460,51 @@ impl SearchProjectionWorker {
 
     async fn apply_frame(&mut self, frame: &CommittedSearchFrame) -> bool {
         let mut retry_delay = RetryDelay::default();
+        let mut should_checkpoint = false;
         loop {
-            let applied = self
-                .projector
-                .apply_batch(
-                    frame.partition,
-                    self.projected_positions.get(&frame.partition),
-                    &frame.position,
-                    &frame.changes,
-                )
-                .await;
+            let can_checkpoint = {
+                let pending = self.pending.lock().await;
+                !pending.has_unsynced(frame.partition)
+                    && !self.frames.has_pending_staging(frame.partition)
+            };
+            should_checkpoint |= can_checkpoint;
+            let applied = if should_checkpoint {
+                self.projector
+                    .apply_batch(
+                        frame.partition,
+                        self.projected_positions.get(&frame.partition),
+                        &frame.position,
+                        &frame.changes,
+                    )
+                    .await
+            } else {
+                self.projector
+                    .repair_documents(&[PartitionDocumentRepairs {
+                        partition_id: frame.partition,
+                        previous_position: self.projected_positions.get(&frame.partition).cloned(),
+                        changes: frame.changes.clone(),
+                    }])
+                    .await
+            };
             match applied {
                 Ok(()) => {
-                    self.projected_positions
+                    self.processed_positions
                         .insert(frame.partition, frame.position.clone());
+                    if should_checkpoint {
+                        self.projected_positions
+                            .insert(frame.partition, frame.position.clone());
+                    }
                     return true;
                 }
-                Err(error @ ProjectionError::PositionMismatch { .. }) => {
-                    tracing::warn!(%error, "the search projection diverged; rebuilding the partition");
-                    if !self.rebuild_partition(frame.partition).await {
-                        return false;
-                    }
-                    if self.is_projected(frame.partition, &frame.position) {
-                        return true;
-                    }
+                Err(
+                    error @ (ProjectionError::PositionMismatch { .. }
+                    | ProjectionError::RepairPositionMismatch { .. }),
+                ) => {
+                    self.frames
+                        .mark_rebuild_needed(frame.partition, ProjectionRebuildReason::Divergence);
+                    self.frames.quarantine(frame.partition);
+                    tracing::debug!(partition = frame.partition.0, %error, "search projection partition is quarantined until manual rebuilding");
+                    return true;
                 }
                 Err(error) => {
                     if !error.is_retryable() {
@@ -230,27 +523,50 @@ impl SearchProjectionWorker {
         }
     }
 
-    async fn repair_runs(&mut self, repairs: Vec<ProjectionRepair>) -> bool {
+    async fn repair_runs(&mut self, mut repairs: Vec<ProjectionRepair>) -> bool {
+        repairs.retain(|repair| !self.frames.is_quarantined(repair.partition));
+        if repairs.is_empty() {
+            return true;
+        }
         match self.try_repair_runs(&repairs).await {
             Ok(projected) => {
-                self.frames.finish_repair_batch(&repairs, &projected);
+                if let Err(error) = self.pending.lock().await.finish(&repairs) {
+                    tracing::error!(%error, "removing committed pending repairs failed");
+                    return false;
+                }
+                for repair in &repairs {
+                    if repair.priority != super::projection_repairs::RepairPriority::Delete
+                        && projected.contains(&(repair.tenant_id, repair.run_id))
+                    {
+                        self.metrics
+                            .search_projection_repaired_runs
+                            .record(repair.priority.reason());
+                    }
+                }
                 true
             }
             Err(SearchProjectionError::Projection(ProjectionError::RepairPositionMismatch {
                 partition_id,
                 ..
             })) => {
-                self.frames.retry_repair_batch(&repairs);
-                self.rebuild_partition(partition_id).await
+                self.frames
+                    .mark_rebuild_needed(partition_id, ProjectionRebuildReason::Divergence);
+                self.frames.quarantine(partition_id);
+                true
             }
             Err(error) => {
                 if !error.is_retryable() {
-                    self.frames
-                        .record_permanent_failure(repairs[0].partition, &error.to_string());
-                    return false;
+                    for repair in &repairs {
+                        self.frames.mark_rebuild_needed(
+                            repair.partition,
+                            ProjectionRebuildReason::Unreadable,
+                        );
+                        self.frames.quarantine(repair.partition);
+                    }
+                    tracing::error!(%error, "search repair partitions require manual rebuilding");
+                    return true;
                 }
                 tracing::warn!(%error, "repairing search documents failed; retrying after live frames");
-                self.frames.retry_repair_batch(&repairs);
                 tokio::time::sleep(FIRST_RETRY_DELAY).await;
                 true
             }
@@ -296,12 +612,13 @@ impl SearchProjectionWorker {
     }
 
     async fn rebuild_partition(&mut self, partition: PartitionId) -> bool {
+        self.frames.start_rebuild(partition);
         match retry_partition_rebuild(self, partition).await {
             Ok(()) => true,
             Err(error) => {
-                self.frames
-                    .record_permanent_failure(partition, &error.to_string());
-                false
+                self.frames.fail_rebuild(partition);
+                tracing::error!(partition = partition.0, %error, "manual search rebuild failed; partition remains quarantined");
+                true
             }
         }
     }
@@ -312,11 +629,18 @@ impl SearchProjectionWorker {
     ) -> Result<(), SearchProjectionError> {
         let (view, committed_position) = self.open_committed_view(partition).await?;
         let Some(committed_position) = committed_position else {
+            self.projector.clear_empty_partition(partition).await?;
+            self.pending.lock().await.finish_manual_rebuild(partition);
+            self.projected_positions.remove(&partition);
+            self.processed_positions.remove(&partition);
             return Ok(());
         };
         self.projector
             .rebuild_partition(partition, &committed_position, Arc::new(view))
             .await?;
+        self.pending.lock().await.finish_manual_rebuild(partition);
+        self.processed_positions
+            .insert(partition, committed_position.clone());
         self.projected_positions
             .insert(partition, committed_position);
         Ok(())
@@ -370,6 +694,16 @@ fn read_repair_documents(
         })?;
     let mut documents: BTreeMap<_, Vec<_>> = BTreeMap::new();
     for repair in repairs {
+        if repair.priority == super::projection_repairs::RepairPriority::Delete {
+            documents
+                .entry(repair.partition)
+                .or_default()
+                .push(SearchDocumentChange::Delete {
+                    tenant_id: repair.tenant_id,
+                    run_id: repair.run_id,
+                });
+            continue;
+        }
         let run_key = run_singleton_key(repair.flow_hash, repair.run_id, RunTable::RunRecord);
         let Some(encoded_run) =
             view.get(ColumnFamily::Flow, &run_key)
@@ -380,6 +714,13 @@ fn read_repair_documents(
                     ),
                 })?
         else {
+            documents
+                .entry(repair.partition)
+                .or_default()
+                .push(SearchDocumentChange::Delete {
+                    tenant_id: repair.tenant_id,
+                    run_id: repair.run_id,
+                });
             continue;
         };
         let record = RunRecord::decode(encoded_run.as_slice()).map_err(|error| {
@@ -391,6 +732,13 @@ fn read_repair_documents(
             }
         })?;
         if record.is_purging {
+            documents
+                .entry(repair.partition)
+                .or_default()
+                .push(SearchDocumentChange::Delete {
+                    tenant_id: repair.tenant_id,
+                    run_id: repair.run_id,
+                });
             continue;
         }
         let document_key =

@@ -22,6 +22,62 @@ use tempfile::TempDir;
 use recording_s3_proxy::RecordingS3Proxy;
 
 async fn check_store(store: &dyn ObjectStore) {
+    let key = "conditional-delete";
+    let WriteOutcome::Written { etag: first } = store
+        .put(
+            key,
+            Bytes::from_static(b"first"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("create delete fixture")
+    else {
+        panic!("fixture is absent")
+    };
+    let WriteOutcome::Written { etag: second } = store
+        .put(
+            key,
+            Bytes::from_static(b"second"),
+            WriteCondition::ReplaceIfEtagMatches {
+                etag: first.clone(),
+            },
+        )
+        .await
+        .expect("replace fixture")
+    else {
+        panic!("fixture version matches")
+    };
+    assert_eq!(
+        store
+            .delete_if_etag_matches(key, &first)
+            .await
+            .expect("reject stale delete"),
+        dexzd_object_store::ConditionalDeleteOutcome::PreconditionFailed
+    );
+    assert_eq!(
+        store
+            .get(key)
+            .await
+            .expect("read preserved replacement")
+            .expect("replacement exists")
+            .bytes,
+        Bytes::from_static(b"second")
+    );
+    assert_eq!(
+        store
+            .delete_if_etag_matches(key, &second)
+            .await
+            .expect("delete matching version"),
+        dexzd_object_store::ConditionalDeleteOutcome::Deleted
+    );
+    assert!(
+        store
+            .get(key)
+            .await
+            .expect("read deleted fixture")
+            .is_none()
+    );
+
     assert!(
         store
             .get("missing")

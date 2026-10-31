@@ -62,6 +62,15 @@ pub enum WriteOutcome {
     PreconditionFailed,
 }
 
+/// Result of deleting exactly the object version identified by an ETag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionalDeleteOutcome {
+    /// The matching object was deleted, or was already absent.
+    Deleted,
+    /// A different object version exists; it was not deleted.
+    PreconditionFailed,
+}
+
 /// Inclusive byte range of an object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ByteRange {
@@ -159,6 +168,20 @@ pub trait ObjectStore: Send + Sync + 'static {
 
     /// Deletes the object. Deleting a missing object succeeds.
     async fn delete(&self, key: &str) -> ObjectStoreResult<()>;
+
+    /// Deletes only the matching ETag. Unsupported stores fail without deleting.
+    async fn delete_if_etag_matches(
+        &self,
+        key: &str,
+        _etag: &str,
+    ) -> ObjectStoreResult<ConditionalDeleteOutcome> {
+        Err(ObjectStoreError::new(
+            ObjectStoreOperation::Delete,
+            key,
+            ObjectStoreErrorKind::Permanent,
+            "conditional deletion is not supported",
+        ))
+    }
 
     /// Deletes up to 1000 objects. Missing objects count as deleted.
     async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()>;

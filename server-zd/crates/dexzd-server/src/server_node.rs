@@ -9,9 +9,11 @@
 mod attribute_sync;
 mod bounded_teardown;
 mod client_deadline;
+mod grpc_server;
 mod lease_validity_watchdog;
 mod public_api_authentication;
 mod search_projection;
+use grpc_server::GrpcServer;
 #[cfg(test)]
 mod startup_cancellation_tests;
 
@@ -185,6 +187,7 @@ pub(crate) async fn start_server(
     let components = ComponentConfigs::from_config(config, should_take_over_held_lease)?;
     let authenticator =
         public_api_authentication::public_api_authenticator(&components.authenticators)?;
+    let admin_authenticator = public_api_authentication::admin_api_authenticator(&config.auth)?;
     let listener = TcpListener::bind(config.api.listen)
         .await
         .map_err(|source| ServerError::Listen {
@@ -220,6 +223,7 @@ pub(crate) async fn start_server(
         metrics.api_requests.clone(),
         metrics.api_latency.clone(),
         authenticator.as_ref(),
+        admin_authenticator.as_ref(),
     )
     .await;
     let lease_validity_deadline = LeaseValidityDeadline::disarmed();
@@ -290,147 +294,6 @@ pub(crate) async fn start_server(
     }))
 }
 
-struct GrpcServer {
-    health: HealthStatus,
-    flow_service_gate: StartupService<FlowServiceServer<DexFlowService>>,
-    worker_task_service_gate: StartupService<WorkerTaskServiceServer<WorkerTaskService>>,
-    max_message_bytes: usize,
-    stop: CancellationToken,
-    task: JoinHandle<Result<(), tonic::transport::Error>>,
-}
-
-impl GrpcServer {
-    async fn start(
-        listener: TcpListener,
-        max_message_bytes: usize,
-        api_requests: dexzd_metrics::ApiRequests,
-        api_latency: dexzd_metrics::ApiLatency,
-        authenticator: Option<&Arc<PublicApiAuthenticator>>,
-    ) -> Self {
-        let (health, health_server) = HealthStatus::new().await;
-        let flow_service_gate = StartupService::<FlowServiceServer<DexFlowService>>::new();
-        let worker_task_service_gate =
-            StartupService::<WorkerTaskServiceServer<WorkerTaskService>>::new();
-        let stop = CancellationToken::new();
-        let stopped = stop.clone();
-        let task = tokio::spawn(
-            tonic::transport::Server::builder()
-                .http2_keepalive_interval(Some(KEEPALIVE_INTERVAL))
-                .http2_keepalive_timeout(Some(KEEPALIVE_TIMEOUT))
-                .layer(RequestMetricsLayer::new(api_requests, api_latency))
-                .layer(tower_layer::layer_fn(
-                    client_deadline::client_deadline_layer,
-                ))
-                .add_service(health_server)
-                .add_service(public_api_authentication::authenticated(
-                    flow_service_gate.clone(),
-                    authenticator,
-                ))
-                .add_service(public_api_authentication::authenticated(
-                    worker_task_service_gate.clone(),
-                    authenticator,
-                ))
-                .serve_with_incoming_shutdown(
-                    futures::stream::unfold(listener, |listener| async move {
-                        let accepted = listener.accept().await.map(|(stream, _)| {
-                            // Without TCP_NODELAY, Nagle plus delayed ACK stalls small replies for about 40 ms.
-                            if let Err(error) = stream.set_nodelay(true) {
-                                tracing::warn!(%error, "failed to set TCP_NODELAY on a gRPC connection");
-                            }
-                            stream
-                        });
-                        Some((accepted, listener))
-                    }),
-                    async move { stopped.cancelled().await },
-                ),
-        );
-        Self {
-            health,
-            flow_service_gate,
-            worker_task_service_gate,
-            max_message_bytes,
-            stop,
-            task,
-        }
-    }
-
-    async fn abort(mut self) {
-        self.stop.cancel();
-        self.task.abort();
-        match (&mut self.task).await {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => tracing::warn!(%error, "startup gRPC server failed"),
-            Err(join_error) if join_error.is_cancelled() => {}
-            Err(join_error) => {
-                tracing::warn!(%join_error, "startup gRPC server task failed");
-            }
-        }
-    }
-}
-
-impl Drop for GrpcServer {
-    fn drop(&mut self) {
-        self.stop.cancel();
-        self.task.abort();
-    }
-}
-
-#[derive(Clone)]
-struct StartupService<S> {
-    serving: Arc<RwLock<Option<S>>>,
-}
-
-impl<S> StartupService<S> {
-    fn new() -> Self {
-        Self {
-            serving: Arc::new(RwLock::new(None)),
-        }
-    }
-
-    fn activate(&self, service: S) {
-        *self
-            .serving
-            .write()
-            .expect("startup service lock is poisoned only if a holder panicked") = Some(service);
-    }
-}
-
-impl<S: NamedService> NamedService for StartupService<S> {
-    const NAME: &'static str = S::NAME;
-}
-
-impl<S> Service<http::Request<Body>> for StartupService<S>
-where
-    S: Service<http::Request<Body>, Response = http::Response<Body>, Error = Infallible>
-        + Clone
-        + Send
-        + Sync
-        + 'static,
-    S::Future: Send + 'static,
-{
-    type Response = http::Response<Body>;
-    type Error = Infallible;
-    type Future = BoxFuture<Self::Response, Self::Error>;
-
-    fn poll_ready(&mut self, _context: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, request: http::Request<Body>) -> Self::Future {
-        let serving = self
-            .serving
-            .read()
-            .expect("startup service lock is poisoned only if a holder panicked")
-            .clone();
-        Box::pin(async move {
-            match serving {
-                Some(mut service) => service.call(request).await,
-                None => Ok(Status::unavailable("the node is starting").into_http()),
-            }
-        })
-    }
-}
-
 /// Every component of one node, in start order.
 struct ServerNode {
     metrics: Arc<NodeMetrics>,
@@ -441,6 +304,7 @@ struct ServerNode {
     stream_store: Arc<StreamStore>,
     flow_service: DexFlowService,
     search_projection: Option<SearchProjection>,
+    search_admin: search_projection::SearchProjectionAdmin,
     attribute_sync: AttributeSyncService,
 }
 
@@ -501,6 +365,8 @@ impl ServerNode {
             SearchBackendKind::Paradedb | SearchBackendKind::Postgres => match until_cancelled(
                 SqlVisibilitySearch::connect(
                     &config.search,
+                    &config.local_storage,
+                    object_stores.primary.clone(),
                     attribute_indexes.clone(),
                     metrics.clone(),
                 ),
@@ -636,12 +502,21 @@ impl ServerNode {
             effect_tasks,
             partition_hasher,
         } = parts.expect("the engine calls the runtime factory before it starts serving");
+        let search_admin = search_projection::SearchProjectionAdmin::new(
+            sql_visibility_search
+                .as_ref()
+                .map(SqlVisibilitySearch::committed_frames),
+            partition_count,
+            engine.lease_status(),
+        );
         let (search_backend, search_projection) = match sql_visibility_search {
             Some(sql_visibility_search) => (
                 Some(sql_visibility_search.search_backend()),
                 Some(sql_visibility_search.start_projection(
                     engine.committer().clone(),
                     partition_count,
+                    engine.cluster_id(),
+                    engine.node_epoch(),
                     metrics.clone(),
                     engine.wait_for_stop(),
                 )),
@@ -693,6 +568,7 @@ impl ServerNode {
             stream_store,
             flow_service,
             search_projection,
+            search_admin,
             attribute_sync,
         }))
     }
@@ -739,6 +615,7 @@ impl ServerNode {
             stream_store,
             flow_service,
             search_projection,
+            search_admin,
             attribute_sync,
         } = self;
         let worker_task_service =
@@ -748,6 +625,11 @@ impl ServerNode {
         grpc.flow_service_gate
             .activate(flow_service.into_server(grpc.max_message_bytes));
         grpc.worker_task_service_gate.activate(worker_task_service);
+        grpc.admin_service_gate.activate(
+            dexzd_protocol::dex::admin_service_server::AdminServiceServer::new(search_admin)
+                .max_decoding_message_size(grpc.max_message_bytes)
+                .max_encoding_message_size(grpc.max_message_bytes),
+        );
         grpc.health.set_serving().await;
         let node_stopped = engine.wait_for_stop();
         let registry_halted = registry.halted();

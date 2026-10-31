@@ -17,7 +17,7 @@ pub use changes::{
     SearchDocumentChange, extract_batch_search_document_changes, extract_search_document_changes,
 };
 pub use projector::{ProjectionError, ProjectionMetricRecorder, SqlVisibilityProjector};
-pub use repair::PartitionDocumentRepairs;
+pub use repair::{PartitionDocumentRepairs, ProjectedRunVersion};
 
 #[cfg(test)]
 mod integration;

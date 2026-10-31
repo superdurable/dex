@@ -260,14 +260,19 @@ pub struct SearchProjectionQueueConfig {
     pub soft_frames: usize,
     /// Defaults to 67108864 bytes (64 MiB); estimated queued and in-flight change bytes before shedding. Must be positive.
     pub soft_bytes: usize,
-    /// Defaults to 8192 frames; admission above this limit sheds closes, then starts. Delete-only overflow rebuilds. Must be at least softFrames.
+    /// Defaults to 8192 frames; admission above this limit sheds closes, then starts. Delete-only overflow may exceed this limit. Must be at least softFrames.
     pub hard_frames: usize,
     /// Defaults to 134217728 bytes (128 MiB); estimated queued and in-flight change bytes before shedding closes and starts. Must be at least softBytes.
     pub hard_bytes: usize,
-    /// Defaults to 1000000 runs; maximum deduplicated pending repairs, including in-flight repairs. Must be positive.
+    /// Defaults to 1000000 runs; maximum deduplicated staging entries before local persistence. Overflow requires version comparison. Must be positive.
     pub max_repair_entries: usize,
     /// Defaults to 256 runs; maximum repairs per SQL transaction before checking live frames. Must be positive.
     pub repair_batch_runs: usize,
+    /// Defaults to 1s; maximum interval between pending-run object sync attempts. Must be positive.
+    #[serde(with = "humantime_serde")]
+    pub pending_sync_interval: Duration,
+    /// Defaults to 64 partitions; maximum pending objects synchronized per interval. Must be positive.
+    pub pending_sync_partitions: usize,
 }
 
 impl Default for SearchProjectionQueueConfig {
@@ -279,6 +284,8 @@ impl Default for SearchProjectionQueueConfig {
             hard_bytes: 128 * 1024 * 1024,
             max_repair_entries: 1_000_000,
             repair_batch_runs: 256,
+            pending_sync_interval: Duration::from_secs(1),
+            pending_sync_partitions: 64,
         }
     }
 }

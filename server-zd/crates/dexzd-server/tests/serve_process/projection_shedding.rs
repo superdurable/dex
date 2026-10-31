@@ -29,14 +29,14 @@ async fn paradedb_tiny_projection_queue_sheds_by_priority_and_preserves_purges()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn postgres_projection_repair_overflow_rebuilds_and_converges() {
+async fn postgres_projection_staging_overflow_diffs_and_converges() {
     if let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") {
         run_tiny_projection_queue(&database_url, true, 1).await;
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn paradedb_projection_repair_overflow_rebuilds_and_converges() {
+async fn paradedb_projection_staging_overflow_diffs_and_converges() {
     if let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") {
         run_tiny_projection_queue(&database_url, false, 1).await;
     }
@@ -55,8 +55,8 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool, repair
         hard_delete_endpoint: None,
         listen: address,
         local_directory: &directory.path().join("store"),
-        lease_duration: HELD_LEASE_DURATION,
-        fail_if_held: true,
+        lease_duration: "3s",
+        fail_if_held: false,
         parade_db: Some(SqlVisibilitySettings {
             is_postgres,
             connection_string: &proxy.connection_string(database_url),
@@ -77,6 +77,8 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool, repair
     let mut server =
         ServeProcess::spawn(&config_path, address, directory.path().join("shedding.log"));
     let channel = server.wait_until_serving().await;
+    let mut admin =
+        dexzd_protocol::dex::admin_service_client::AdminServiceClient::new(channel.clone());
     let mut client = FlowServiceClient::new(channel);
     let mut committed_versions = BTreeMap::new();
     for run_number in 0..32 {
@@ -118,6 +120,8 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool, repair
         }
     }
     let exposed = scrape(metrics_address, "/metrics").await;
+    let coalesced_before_restart =
+        sample_sum(&exposed, "dexzd_search_projection_coalesced_changes_total");
     for reason in ["intermediate", "close", "start"] {
         assert!(
             sample_with_label(
@@ -131,14 +135,33 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool, repair
     }
     if repair_limit == 1 {
         assert!(sample_sum(&exposed, "dexzd_search_projection_repair_overflow_total") > 0.0);
-        assert!(sample_sum(&exposed, "dexzd_search_projection_rebuild_requests_total") > 0.0);
+        assert_eq!(
+            sample_sum(&exposed, "dexzd_search_projection_rebuild_requests_total"),
+            0.0
+        );
     } else {
         assert_eq!(
             sample_sum(&exposed, "dexzd_search_projection_rebuild_requests_total"),
             0.0
         );
     }
-    proxy.restore();
+    if repair_limit == 1 {
+        let killed = server.kill().await;
+        assert!(!killed.success());
+        fs::remove_dir_all(directory.path().join("store.search-pending"))
+            .expect("remove unsynced local pending sidecar");
+        proxy.restore();
+        server = ServeProcess::spawn(
+            &config_path,
+            address,
+            directory.path().join("after-crash.log"),
+        );
+        let channel = server.wait_until_serving().await;
+        admin = dexzd_protocol::dex::admin_service_client::AdminServiceClient::new(channel.clone());
+        client = FlowServiceClient::new(channel);
+    } else {
+        proxy.restore();
+    }
     let entries = wait_for_exact_projection(&mut client, &server, &committed_versions, &[]).await;
     assert_committed_versions(&entries, &committed_versions);
     wait_for_repairs_to_drain(metrics_address).await;
@@ -187,13 +210,29 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool, repair
     })
     .await
     .expect("closed runs purge while SQL is unavailable");
-    assert!(
+    assert_eq!(
         sample_sum(
             &scrape(metrics_address, "/metrics").await,
             "dexzd_search_projection_rebuild_requests_total"
-        ) > 0.0
+        ),
+        0.0
     );
-    proxy.restore();
+    if repair_limit == 1 {
+        assert!(!server.kill().await.success());
+        fs::remove_dir_all(directory.path().join("store.search-pending"))
+            .expect("remove local pending state before purge restart");
+        proxy.restore();
+        server = ServeProcess::spawn(
+            &config_path,
+            address,
+            directory.path().join("after-purge-crash.log"),
+        );
+        let channel = server.wait_until_serving().await;
+        admin = dexzd_protocol::dex::admin_service_client::AdminServiceClient::new(channel.clone());
+        client = FlowServiceClient::new(channel);
+    } else {
+        proxy.restore();
+    }
     let entries =
         wait_for_exact_projection(&mut client, &server, &committed_versions, &purged_runs).await;
     assert!(
@@ -216,11 +255,95 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool, repair
     );
     assert_committed_versions(&entries, &committed_versions);
     let exposed = scrape(metrics_address, "/metrics").await;
-    assert!(sample_sum(&exposed, "dexzd_search_projection_coalesced_changes_total") > 0.0);
+    assert!(
+        coalesced_before_restart
+            + sample_sum(&exposed, "dexzd_search_projection_coalesced_changes_total")
+            > 0.0
+    );
     assert_eq!(
         sample_sum(&exposed, "dexzd_search_skipped_documents_total"),
         0.0
     );
+    assert_eq!(
+        sample_sum(&exposed, "dexzd_search_projection_rebuild_requests_total"),
+        0.0
+    );
+    let divergent_partition = schema.diverge_run_partition_progress(&flow_id(32)).await;
+    write_indexed_attribute(&mut client, 32, 7).await;
+    remember_committed_version(&mut client, &mut committed_versions, 32, Some(7)).await;
+    let mut poll = tokio::time::interval(Duration::from_millis(50));
+    tokio::time::timeout(SEARCH_BUDGET, async {
+        loop {
+            poll.tick().await;
+            let status = admin
+                .get_search_projection_status(())
+                .await
+                .expect("read divergence marker")
+                .into_inner();
+            if status.partitions.iter().any(|partition| {
+                partition.partition_id == divergent_partition
+                    && partition
+                        .rebuild_reasons
+                        .iter()
+                        .any(|reason| reason == "divergence")
+            }) {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("divergence marks the partition without automatic rebuilding");
+    assert_eq!(
+        sample_sum(
+            &scrape(metrics_address, "/metrics").await,
+            "dexzd_search_projection_rebuild_requests_total"
+        ),
+        0.0
+    );
+    let scheduled = admin
+        .rebuild_search_projection(dexzd_protocol::dex::RebuildSearchProjectionRequest {
+            all_marked_partitions: true,
+            ..Default::default()
+        })
+        .await
+        .expect("explicit marked-partition rebuilding is allowed without authentication")
+        .into_inner();
+    assert!(
+        scheduled
+            .scheduled_partition_ids
+            .contains(&divergent_partition)
+    );
+    let scheduled_count = scheduled.scheduled_partition_ids.len();
+    let mut poll = tokio::time::interval(Duration::from_millis(50));
+    tokio::time::timeout(SEARCH_BUDGET, async {
+        loop {
+            poll.tick().await;
+            let status = admin
+                .get_search_projection_status(())
+                .await
+                .expect("read manual rebuild status")
+                .into_inner();
+            if status
+                .partitions
+                .iter()
+                .all(|partition| !partition.is_scheduled && !partition.is_in_progress)
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("explicit rebuild finishes asynchronously");
+    assert_eq!(
+        sample_sum(
+            &scrape(metrics_address, "/metrics").await,
+            "dexzd_search_projection_rebuild_requests_total"
+        ),
+        scheduled_count as f64
+    );
+    let entries =
+        wait_for_exact_projection(&mut client, &server, &committed_versions, &purged_runs).await;
+    assert_committed_versions(&entries, &committed_versions);
     let status = server.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", server.log());
     proxy.shutdown().await;

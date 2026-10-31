@@ -160,6 +160,14 @@ struct AuthenticatedDevServer {
 
 impl AuthenticatedDevServer {
     async fn start(issuer: &str, extra_yaml: &str) -> Self {
+        Self::start_with_admin_audiences(issuer, extra_yaml, &[]).await
+    }
+
+    async fn start_with_admin_audiences(
+        issuer: &str,
+        extra_yaml: &str,
+        audiences: &[&str],
+    ) -> Self {
         let directory = TempDir::new().expect("a temporary directory");
         let token_file = directory.path().join("tokens.yaml");
         write_static_tokens(&token_file, &[FIRST_STATIC_TOKEN], 1);
@@ -167,8 +175,8 @@ impl AuthenticatedDevServer {
         std::fs::write(
             &config,
             format!(
-                "cluster:\n  partitionCount: 16\nauth:\n  authenticators:\n    - kind: staticTokens\n      file: {}\n    - kind: jwt\n      issuer: {issuer}\n      audiences: [{AUDIENCE}]\n{extra_yaml}",
-                token_file.display()
+                "cluster:\n  partitionCount: 16\nauth:\n  adminAudiences: [{}]\n  authenticators:\n    - kind: staticTokens\n      file: {}\n    - kind: jwt\n      issuer: {issuer}\n      audiences: [{AUDIENCE}]\n{extra_yaml}",
+                audiences.join(","), token_file.display()
             ),
         )
         .expect("the configuration is written");
@@ -531,6 +539,70 @@ async fn refused_and_accepted_calls_are_counted_and_health_is_not() {
         sample_sum(&body, "dexzd_api_requests_total{"),
         2.0,
         "{body}"
+    );
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn admin_calls_require_dedicated_jwt_audience_when_authentication_is_configured() {
+    let keys = KeyServer::start().await;
+    let server =
+        AuthenticatedDevServer::start_with_admin_audiences(&keys.issuer, "", &["dex-operators"])
+            .await;
+    let mut client =
+        dexzd_protocol::dex::admin_service_client::AdminServiceClient::new(server.channel.clone());
+    for credential in [
+        None,
+        Some(FIRST_STATIC_TOKEN.to_owned()),
+        Some(keys.token(&keys.issuer, AUDIENCE, 3600)),
+        Some(keys.token(&keys.issuer, "dex-operators", -3600)),
+    ] {
+        let mut request = Request::new(());
+        if let Some(credential) = credential {
+            insert_bearer(&mut request, &credential);
+        }
+        let error = client
+            .get_search_projection_status(request)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), Code::PermissionDenied);
+        assert!(error.message().contains("auth.adminAudiences"));
+        let details = GoogleRpcStatus::decode(error.details()).unwrap();
+        assert_eq!(details.code, Code::PermissionDenied as i32);
+        let details = ServiceErrorResponse::decode(details.details[0].value.as_slice()).unwrap();
+        assert_eq!(details.sub_status, ErrorSubStatus::Uncategorized as i32);
+    }
+    let mut request = Request::new(());
+    insert_bearer(
+        &mut request,
+        &keys.token(&keys.issuer, "dex-operators", 3600),
+    );
+    let error = client
+        .get_search_projection_status(request)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.code(),
+        Code::FailedPrecondition,
+        "authorized calls reach the built-in backend check"
+    );
+    server.shutdown().await;
+    let server = AuthenticatedDevServer::start(&keys.issuer, "").await;
+    let mut client =
+        dexzd_protocol::dex::admin_service_client::AdminServiceClient::new(server.channel.clone());
+    let mut request = Request::new(());
+    insert_bearer(
+        &mut request,
+        &keys.token(&keys.issuer, "dex-operators", 3600),
+    );
+    let error = client
+        .get_search_projection_status(request)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.code(),
+        Code::PermissionDenied,
+        "empty admin audiences deny all admin JWTs"
     );
     server.shutdown().await;
 }

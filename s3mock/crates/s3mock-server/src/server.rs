@@ -462,7 +462,7 @@ async fn dispatch(
             handlers::head_object(store, bucket, key, query, &parts.headers).await
         }
         S3Operation::DeleteObject { bucket, key, query } => {
-            handlers::delete_object(store, bucket, key, query).await
+            handlers::delete_object(store, bucket, key, query, &parts.headers).await
         }
     };
     result.map_err(|error| {

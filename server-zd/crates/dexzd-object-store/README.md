@@ -23,3 +23,19 @@ File downloads write to a temporary file beside the target and rename after the 
 ## Testing
 
 The shared conformance suite exercises the in-memory implementation and an in-process s3mock in strict, process-crash-safe, and relaxed durability modes. It needs no cloud credentials or external service.
+
+## Search-pending objects
+
+The SQL projection stores one compact protobuf object at
+`search-pending/partition-<decimal partition>` under the configured store prefix.
+Format version 1 contains fields: format version (tag 1), cluster ID (2), owner
+node epoch (3), partition ID (4), and repeated pending run records (5).
+The run-record layout is documented in [dexzd-keyspace](../dexzd-keyspace/README.md#local-search-pending-sidecar).
+Only identities, Flow hashes, priorities, and revisions are stored, not documents.
+
+Changed partition lists sync in serialized batches (defaults: one second, 64 partitions).
+New owners load objects before projecting and replace them with their owner epoch.
+ETag compare-and-swap protects writes. `delete_if_etag_matches` protects empty-list
+removal from concurrent replacements; implementations without conditional deletion fail
+without deleting. A newer owner epoch fences stale writers. Empty pending lists remove
+their objects. Local SQL checkpoints remain held until shed intents reach object storage.

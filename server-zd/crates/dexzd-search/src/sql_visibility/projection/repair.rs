@@ -128,3 +128,107 @@ async fn repair_transaction(
         .map_err(|source| database_error("commit repair in", source))?;
     Ok(skipped)
 }
+
+/// One projected run's identity and committed document version.
+pub struct ProjectedRunVersion {
+    /// Tenant owning this SQL row.
+    pub tenant_id: dexzd_keyspace::TenantId,
+    /// Run represented by this SQL row.
+    pub run_id: dexzd_keyspace::RunId,
+    /// Last committed document version projected for the run.
+    pub version: u64,
+}
+
+pub(super) async fn read_run_versions(
+    backend: &SqlVisibilitySearchBackend,
+    partition: PartitionId,
+    after: Option<(&str, &str)>,
+    limit: u32,
+) -> Result<Vec<ProjectedRunVersion>, ProjectionError> {
+    let mut slot = backend.lock_next_slot().await;
+    if slot.is_disconnected() {
+        slot.reconnect(backend.configuration()).await?;
+    }
+    let partition_number = i32::from(partition.0);
+    let (tenant, run) = after.unwrap_or(("", ""));
+    let limit = i64::from(limit);
+    let result = tokio::time::timeout(DATABASE_OPERATION_TIMEOUT, slot.client.query_typed(
+        "SELECT tenant_id, run_id, version FROM dexzd_visibility_runs WHERE partition_id = $1::integer AND (tenant_id, run_id) > ($2::text, $3::text) ORDER BY tenant_id, run_id LIMIT $4::bigint",
+        &[(&partition_number as &(dyn ToSql + Sync), Type::INT4), (&tenant, Type::TEXT), (&run, Type::TEXT), (&limit, Type::INT8)],
+    )).await;
+    let rows = match result {
+        Ok(result) => result.map_err(|source| database_error("scan run versions in", source)),
+        Err(_) => {
+            slot.invalidate();
+            Err(operation_timeout("scan run versions in"))
+        }
+    }
+    .map_err(|error| error.redact_credentials(backend.configuration()))?;
+    rows.into_iter()
+        .map(|row| {
+            let tenant: String = row.get("tenant_id");
+            let run: String = row.get("run_id");
+            let version: i64 = row.get("version");
+            Ok(ProjectedRunVersion {
+                tenant_id: dexzd_keyspace::TenantId(tenant.parse().map_err(|error| {
+                    ProjectionError::InvalidState(format!(
+                        "invalid projected tenant {tenant}: {error}"
+                    ))
+                })?),
+                run_id: run.parse().map_err(|error| {
+                    ProjectionError::InvalidState(format!("invalid projected run {run}: {error}"))
+                })?,
+                version: u64::try_from(version).map_err(|error| {
+                    ProjectionError::InvalidState(format!(
+                        "invalid projected version {version}: {error}"
+                    ))
+                })?,
+            })
+        })
+        .collect()
+}
+
+pub(super) async fn clear_empty_partition(
+    backend: &SqlVisibilitySearchBackend,
+    partition: PartitionId,
+) -> Result<(), ProjectionError> {
+    let mut slot = backend.lock_next_slot().await;
+    if slot.is_disconnected() {
+        slot.reconnect(backend.configuration()).await?;
+    }
+    let partition_number = i32::from(partition.0);
+    let result = tokio::time::timeout(DATABASE_OPERATION_TIMEOUT, async {
+        let transaction = slot
+            .client
+            .transaction()
+            .await
+            .map_err(|source| database_error("begin empty partition rebuild in", source))?;
+        transaction
+            .execute_typed(
+                "DELETE FROM dexzd_visibility_runs WHERE partition_id = $1::integer",
+                &[(&partition_number as &(dyn ToSql + Sync), Type::INT4)],
+            )
+            .await
+            .map_err(|source| database_error("clear empty partition documents in", source))?;
+        transaction
+            .execute_typed(
+                "DELETE FROM dexzd_visibility_progress WHERE partition_id = $1::integer",
+                &[(&partition_number as &(dyn ToSql + Sync), Type::INT4)],
+            )
+            .await
+            .map_err(|source| database_error("clear empty partition progress in", source))?;
+        transaction
+            .commit()
+            .await
+            .map_err(|source| database_error("commit empty partition rebuild in", source))
+    })
+    .await;
+    match result {
+        Ok(result) => result,
+        Err(_) => {
+            slot.invalidate();
+            Err(operation_timeout("clear empty partition in"))
+        }
+    }
+    .map_err(|error| error.redact_credentials(backend.configuration()))
+}

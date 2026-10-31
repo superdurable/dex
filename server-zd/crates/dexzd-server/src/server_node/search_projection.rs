@@ -6,7 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+mod admin_service;
 mod committed_search_frames;
+pub(crate) use admin_service::SearchProjectionAdmin;
+mod partition_diff;
+mod pending_store;
 mod projection_repairs;
 mod projection_worker;
 
@@ -43,12 +47,17 @@ const DEFAULT_SCHEMA: &str = "public";
 pub(crate) struct SqlVisibilitySearch {
     backend: Arc<SqlVisibilitySearchBackend>,
     frames: Arc<CommittedSearchFrames>,
+    pending_local: Arc<dyn dexzd_storage::LocalStore>,
+    objects: Arc<dyn dexzd_object_store::ObjectStore>,
+    cfg: Arc<SearchConfig>,
 }
 
 impl SqlVisibilitySearch {
     /// Connects the pool and ensures the schema; call it before the engine replays the log.
     pub(crate) async fn connect(
         search: &SearchConfig,
+        local_storage: &crate::config::LocalStorageConfig,
+        objects: Arc<dyn dexzd_object_store::ObjectStore>,
         registry_reader: Arc<dyn AttributeIndexRegistryReader>,
         metrics: Arc<NodeMetrics>,
     ) -> Result<Self, ServerError> {
@@ -114,9 +123,24 @@ impl SqlVisibilitySearch {
             pool_size,
             "connected to SQL visibility database and ensured its search schema"
         );
+        let mut pending_path = local_storage.directory.as_os_str().to_os_string();
+        pending_path.push(".search-pending");
+        let pending_local = dexzd_storage::RocksDbLocalStore::open(
+            std::path::PathBuf::from(pending_path),
+            dexzd_storage::RocksDbStoreOptions {
+                block_cache_bytes: 8 * 1024 * 1024,
+                write_buffer_bytes: 4 * 1024 * 1024,
+                max_total_wal_bytes: 64 * 1024 * 1024,
+                ..Default::default()
+            },
+        )
+        .map_err(|source| ServerError::SearchPending { source })?;
         Ok(Self {
             backend: Arc::new(backend),
             frames,
+            pending_local: Arc::new(pending_local),
+            objects,
+            cfg: Arc::new(search.clone()),
         })
     }
 
@@ -134,16 +158,53 @@ impl SqlVisibilitySearch {
         self,
         committer: CommandCommitter,
         partition_count: u32,
+        cluster_id: [u8; 16],
+        epoch: u64,
         metrics: Arc<NodeMetrics>,
         node_stopped: impl Future<Output = NodeStopReason> + Send + 'static,
     ) -> SearchProjection {
         let projector = SqlVisibilityProjector::new_with_metric_recorder(
             self.backend,
-            Arc::new(SearchProjectionMetrics(metrics)),
+            Arc::new(SearchProjectionMetrics(metrics.clone())),
         );
         let backfill = refresh_attribute_slots(projector.clone());
-        let worker =
-            SearchProjectionWorker::new(projector, committer, self.frames, partition_count);
+        let worker = async move {
+            match pending_store::PendingRunStore::new(
+                self.pending_local,
+                self.objects,
+                cluster_id,
+                epoch,
+            ) {
+                Ok(pending) => {
+                    let pending = Arc::new(tokio::sync::Mutex::new(pending));
+                    let cfg = Arc::new(self.cfg.projection_queue.clone());
+                    let ready = CancellationToken::new();
+                    let sync = synchronize_pending_objects(
+                        pending.clone(),
+                        self.frames.clone(),
+                        cfg.clone(),
+                        metrics.clone(),
+                        ready.clone(),
+                    );
+                    let worker = SearchProjectionWorker::new(
+                        projector,
+                        committer,
+                        self.frames,
+                        partition_count,
+                        projection_worker::PendingProjectionState {
+                            runs: pending,
+                            ready,
+                        },
+                        cfg,
+                        metrics,
+                    );
+                    tokio::select! { () = worker.run() => {}, () = sync => {} }
+                }
+                Err(error) => self
+                    .frames
+                    .record_permanent_failure(dexzd_keyspace::PartitionId(0), &error.to_string()),
+            }
+        };
         let stop = CancellationToken::new();
         let stopped = stop.clone();
         let task = tokio::spawn(async move {
@@ -152,11 +213,56 @@ impl SqlVisibilitySearch {
                 reason = node_stopped => {
                     tracing::info!(%reason, "the search projection stopped with the node");
                 }
-                () = worker.run() => {}
+                () = worker => {}
                 () = backfill => {}
             }
         });
         SearchProjection { stop, task }
+    }
+}
+
+async fn synchronize_pending_objects(
+    pending: Arc<tokio::sync::Mutex<pending_store::PendingRunStore>>,
+    frames: Arc<CommittedSearchFrames>,
+    cfg: Arc<crate::config::SearchProjectionQueueConfig>,
+    metrics: Arc<NodeMetrics>,
+    ready: CancellationToken,
+) {
+    ready.cancelled().await;
+    let mut interval = tokio::time::interval(cfg.pending_sync_interval);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        let mut pending = pending.lock().await;
+        if let Err(error) = pending.store_rebuild_markers(&frames.rebuild_status().0) {
+            tracing::warn!(%error, "persisting search rebuild markers failed");
+        }
+        let repairs = frames.take_staged_repairs();
+        if let Err(error) = pending.record(&repairs) {
+            for repair in repairs {
+                frames.require_diff(repair.partition);
+            }
+            metrics.search_projection_pending_sync_failures.inc();
+            tracing::warn!(%error, "persisting staged search pending runs failed; checkpoints remain held");
+            continue;
+        }
+        match pending.sync_objects(cfg.pending_sync_partitions).await {
+            Ok(synced) => {
+                metrics
+                    .search_projection_pending_objects_synced
+                    .inc_by(u64::try_from(synced).expect("partition count fits u64"));
+            }
+            Err(error) => {
+                metrics.search_projection_pending_sync_failures.inc();
+                tracing::warn!(%error, "syncing search pending objects failed; checkpoints remain held");
+                if matches!(error, pending_store::PendingStoreError::Fenced(_)) {
+                    return;
+                }
+            }
+        }
+        metrics
+            .search_projection_repair_pending
+            .set(i64::try_from(pending.count()).expect("pending count fits i64"));
     }
 }
 
@@ -286,6 +392,8 @@ mod tests {
         };
         let error = match SqlVisibilitySearch::connect(
             &config,
+            &crate::config::LocalStorageConfig::default(),
+            Arc::new(dexzd_object_store::InMemoryObjectStore::new()),
             Arc::new(ExcessiveAttributeRegistry),
             Arc::new(NodeMetrics::unregistered()),
         )

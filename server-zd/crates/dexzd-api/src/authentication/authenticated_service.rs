@@ -32,6 +32,7 @@ const INVALID_CREDENTIAL_DETAIL: &str = "the credential is not valid";
 pub struct AuthenticatedService<S> {
     inner: S,
     authenticator: Option<Arc<PublicApiAuthenticator>>,
+    is_admin: bool,
 }
 
 impl<S> AuthenticatedService<S> {
@@ -40,6 +41,16 @@ impl<S> AuthenticatedService<S> {
         Self {
             inner,
             authenticator,
+            is_admin: false,
+        }
+    }
+
+    /// Requires admin JWT authorization; None allows calls on an unauthenticated development server.
+    pub fn for_admin(inner: S, authenticator: Option<Arc<PublicApiAuthenticator>>) -> Self {
+        Self {
+            inner,
+            authenticator,
+            is_admin: true,
         }
     }
 }
@@ -71,6 +82,7 @@ where
         let Some(authenticator) = self.authenticator.clone() else {
             return Box::pin(self.inner.call(request));
         };
+        let is_admin = self.is_admin;
         let credential = bearer_credential(request.headers()).map(str::to_owned);
         // The ready inner service handles this call; its clone serves the next one.
         let ready_inner = self.inner.clone();
@@ -81,7 +93,7 @@ where
                     service = S::NAME,
                     "rejected a public API call without a bearer credential"
                 );
-                return Ok(unauthenticated(MISSING_CREDENTIAL_DETAIL));
+                return Ok(rejected_credential(is_admin, MISSING_CREDENTIAL_DETAIL));
             };
             if let Err(rejection) = authenticator.authenticate(&credential).await {
                 tracing::debug!(
@@ -89,7 +101,7 @@ where
                     reason = %rejection,
                     "rejected a public API credential"
                 );
-                return Ok(unauthenticated(INVALID_CREDENTIAL_DETAIL));
+                return Ok(rejected_credential(is_admin, INVALID_CREDENTIAL_DETAIL));
             }
             inner.call(request).await
         })
@@ -113,8 +125,19 @@ fn bearer_credential(headers: &http::HeaderMap) -> Option<&str> {
     Some(credential.trim()).filter(|credential| !credential.is_empty())
 }
 
-fn unauthenticated<ResponseBody: Default>(detail: &str) -> http::Response<ResponseBody> {
-    FlowOperationError::rejected(Code::Unauthenticated, ErrorSubStatus::Uncategorized, detail)
+fn rejected_credential<ResponseBody: Default>(
+    is_admin: bool,
+    detail: &str,
+) -> http::Response<ResponseBody> {
+    let (code, detail) = if is_admin {
+        (
+            Code::PermissionDenied,
+            "admin RPCs require a configured JWT issuer and an audience in auth.adminAudiences",
+        )
+    } else {
+        (Code::Unauthenticated, detail)
+    };
+    FlowOperationError::rejected(code, ErrorSubStatus::Uncategorized, detail)
         .into_status()
         .into_http()
 }

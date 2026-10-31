@@ -1685,6 +1685,31 @@ export interface TimerInfo {
   status: InternalTimerStatus;
 }
 
+/** Selects partitions for an explicitly requested rebuild. */
+export interface RebuildSearchProjectionRequest {
+  partitionIds: number[];
+  allMarkedPartitions: boolean;
+  allPartitions: boolean;
+}
+
+/** Partitions accepted for asynchronous rebuilding. */
+export interface RebuildSearchProjectionResponse {
+  scheduledPartitionIds: number[];
+}
+
+/** Operator-visible state for one search projection partition. */
+export interface SearchProjectionPartitionStatus {
+  partitionId: number;
+  rebuildReasons: string[];
+  isScheduled: boolean;
+  isInProgress: boolean;
+}
+
+/** Partitions requiring operator attention or processing an explicit rebuild request. */
+export interface GetSearchProjectionStatusResponse {
+  partitions: SearchProjectionPartitionStatus[];
+}
+
 function createBaseServerInfo(): ServerInfo {
   return { serverVersion: "", minimumSupportedProtocolVersion: 0, currentProtocolVersion: 0, serverEngine: 0 };
 }
@@ -15274,6 +15299,284 @@ export const TimerInfo: MessageFns<TimerInfo> = {
   },
 };
 
+function createBaseRebuildSearchProjectionRequest(): RebuildSearchProjectionRequest {
+  return { partitionIds: [], allMarkedPartitions: false, allPartitions: false };
+}
+
+export const RebuildSearchProjectionRequest: MessageFns<RebuildSearchProjectionRequest> = {
+  encode(message: RebuildSearchProjectionRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    writer.uint32(10).fork();
+    for (const v of message.partitionIds) {
+      writer.uint32(v);
+    }
+    writer.join();
+    if (message.allMarkedPartitions !== false) {
+      writer.uint32(16).bool(message.allMarkedPartitions);
+    }
+    if (message.allPartitions !== false) {
+      writer.uint32(24).bool(message.allPartitions);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RebuildSearchProjectionRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRebuildSearchProjectionRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag === 8) {
+            message.partitionIds.push(reader.uint32());
+
+            continue;
+          }
+
+          if (tag === 10) {
+            const end2 = reader.uint32() + reader.pos;
+            while (reader.pos < end2) {
+              message.partitionIds.push(reader.uint32());
+            }
+
+            continue;
+          }
+
+          break;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.allMarkedPartitions = reader.bool();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.allPartitions = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<RebuildSearchProjectionRequest>, I>>(base?: I): RebuildSearchProjectionRequest {
+    return RebuildSearchProjectionRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RebuildSearchProjectionRequest>, I>>(
+    object: I,
+  ): RebuildSearchProjectionRequest {
+    const message = createBaseRebuildSearchProjectionRequest();
+    message.partitionIds = object.partitionIds?.map((e) => e) || [];
+    message.allMarkedPartitions = object.allMarkedPartitions ?? false;
+    message.allPartitions = object.allPartitions ?? false;
+    return message;
+  },
+};
+
+function createBaseRebuildSearchProjectionResponse(): RebuildSearchProjectionResponse {
+  return { scheduledPartitionIds: [] };
+}
+
+export const RebuildSearchProjectionResponse: MessageFns<RebuildSearchProjectionResponse> = {
+  encode(message: RebuildSearchProjectionResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    writer.uint32(10).fork();
+    for (const v of message.scheduledPartitionIds) {
+      writer.uint32(v);
+    }
+    writer.join();
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RebuildSearchProjectionResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRebuildSearchProjectionResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag === 8) {
+            message.scheduledPartitionIds.push(reader.uint32());
+
+            continue;
+          }
+
+          if (tag === 10) {
+            const end2 = reader.uint32() + reader.pos;
+            while (reader.pos < end2) {
+              message.scheduledPartitionIds.push(reader.uint32());
+            }
+
+            continue;
+          }
+
+          break;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<RebuildSearchProjectionResponse>, I>>(base?: I): RebuildSearchProjectionResponse {
+    return RebuildSearchProjectionResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RebuildSearchProjectionResponse>, I>>(
+    object: I,
+  ): RebuildSearchProjectionResponse {
+    const message = createBaseRebuildSearchProjectionResponse();
+    message.scheduledPartitionIds = object.scheduledPartitionIds?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseSearchProjectionPartitionStatus(): SearchProjectionPartitionStatus {
+  return { partitionId: 0, rebuildReasons: [], isScheduled: false, isInProgress: false };
+}
+
+export const SearchProjectionPartitionStatus: MessageFns<SearchProjectionPartitionStatus> = {
+  encode(message: SearchProjectionPartitionStatus, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.partitionId !== 0) {
+      writer.uint32(8).uint32(message.partitionId);
+    }
+    for (const v of message.rebuildReasons) {
+      writer.uint32(18).string(v!);
+    }
+    if (message.isScheduled !== false) {
+      writer.uint32(24).bool(message.isScheduled);
+    }
+    if (message.isInProgress !== false) {
+      writer.uint32(32).bool(message.isInProgress);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SearchProjectionPartitionStatus {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSearchProjectionPartitionStatus();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.partitionId = reader.uint32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.rebuildReasons.push(reader.string());
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.isScheduled = reader.bool();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.isInProgress = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<SearchProjectionPartitionStatus>, I>>(base?: I): SearchProjectionPartitionStatus {
+    return SearchProjectionPartitionStatus.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SearchProjectionPartitionStatus>, I>>(
+    object: I,
+  ): SearchProjectionPartitionStatus {
+    const message = createBaseSearchProjectionPartitionStatus();
+    message.partitionId = object.partitionId ?? 0;
+    message.rebuildReasons = object.rebuildReasons?.map((e) => e) || [];
+    message.isScheduled = object.isScheduled ?? false;
+    message.isInProgress = object.isInProgress ?? false;
+    return message;
+  },
+};
+
+function createBaseGetSearchProjectionStatusResponse(): GetSearchProjectionStatusResponse {
+  return { partitions: [] };
+}
+
+export const GetSearchProjectionStatusResponse: MessageFns<GetSearchProjectionStatusResponse> = {
+  encode(message: GetSearchProjectionStatusResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.partitions) {
+      SearchProjectionPartitionStatus.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetSearchProjectionStatusResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetSearchProjectionStatusResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.partitions.push(SearchProjectionPartitionStatus.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<GetSearchProjectionStatusResponse>, I>>(
+    base?: I,
+  ): GetSearchProjectionStatusResponse {
+    return GetSearchProjectionStatusResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetSearchProjectionStatusResponse>, I>>(
+    object: I,
+  ): GetSearchProjectionStatusResponse {
+    const message = createBaseGetSearchProjectionStatusResponse();
+    message.partitions = object.partitions?.map((e) => SearchProjectionPartitionStatus.fromPartial(e)) || [];
+    return message;
+  },
+};
+
 /** Hosted by Dex server; SDKs call these RPCs. */
 export type FlowServiceService = typeof FlowServiceService;
 export const FlowServiceService = {
@@ -16115,6 +16418,84 @@ export const WorkerTaskServiceClient = makeGenericClientConstructor(
 ) as unknown as {
   new (address: string, credentials: ChannelCredentials, options?: Partial<ClientOptions>): WorkerTaskServiceClient;
   service: typeof WorkerTaskServiceService;
+  serviceName: string;
+};
+
+/** Administrative operations hosted by the active Server owner. */
+export type AdminServiceService = typeof AdminServiceService;
+export const AdminServiceService = {
+  /** Schedules partition rebuilds and returns before SQL rebuilding starts. */
+  rebuildSearchProjection: {
+    path: "/dex.AdminService/RebuildSearchProjection" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: RebuildSearchProjectionRequest): Buffer =>
+      Buffer.from(RebuildSearchProjectionRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): RebuildSearchProjectionRequest => RebuildSearchProjectionRequest.decode(value),
+    responseSerialize: (value: RebuildSearchProjectionResponse): Buffer =>
+      Buffer.from(RebuildSearchProjectionResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): RebuildSearchProjectionResponse =>
+      RebuildSearchProjectionResponse.decode(value),
+  },
+  /** Lists partitions requiring, waiting for, or performing a manual rebuild. */
+  getSearchProjectionStatus: {
+    path: "/dex.AdminService/GetSearchProjectionStatus" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
+    requestDeserialize: (value: Buffer): Empty => Empty.decode(value),
+    responseSerialize: (value: GetSearchProjectionStatusResponse): Buffer =>
+      Buffer.from(GetSearchProjectionStatusResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): GetSearchProjectionStatusResponse =>
+      GetSearchProjectionStatusResponse.decode(value),
+  },
+} as const;
+
+export interface AdminServiceServer extends UntypedServiceImplementation {
+  /** Schedules partition rebuilds and returns before SQL rebuilding starts. */
+  rebuildSearchProjection: handleUnaryCall<RebuildSearchProjectionRequest, RebuildSearchProjectionResponse>;
+  /** Lists partitions requiring, waiting for, or performing a manual rebuild. */
+  getSearchProjectionStatus: handleUnaryCall<Empty, GetSearchProjectionStatusResponse>;
+}
+
+export interface AdminServiceClient extends Client {
+  /** Schedules partition rebuilds and returns before SQL rebuilding starts. */
+  rebuildSearchProjection(
+    request: RebuildSearchProjectionRequest,
+    callback: (error: ServiceError | null, response: RebuildSearchProjectionResponse) => void,
+  ): ClientUnaryCall;
+  rebuildSearchProjection(
+    request: RebuildSearchProjectionRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: RebuildSearchProjectionResponse) => void,
+  ): ClientUnaryCall;
+  rebuildSearchProjection(
+    request: RebuildSearchProjectionRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: RebuildSearchProjectionResponse) => void,
+  ): ClientUnaryCall;
+  /** Lists partitions requiring, waiting for, or performing a manual rebuild. */
+  getSearchProjectionStatus(
+    request: Empty,
+    callback: (error: ServiceError | null, response: GetSearchProjectionStatusResponse) => void,
+  ): ClientUnaryCall;
+  getSearchProjectionStatus(
+    request: Empty,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: GetSearchProjectionStatusResponse) => void,
+  ): ClientUnaryCall;
+  getSearchProjectionStatus(
+    request: Empty,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: GetSearchProjectionStatusResponse) => void,
+  ): ClientUnaryCall;
+}
+
+export const AdminServiceClient = makeGenericClientConstructor(AdminServiceService, "dex.AdminService") as unknown as {
+  new (address: string, credentials: ChannelCredentials, options?: Partial<ClientOptions>): AdminServiceClient;
+  service: typeof AdminServiceService;
   serviceName: string;
 };
 

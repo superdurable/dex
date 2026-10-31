@@ -16,6 +16,7 @@ pub(crate) enum RepairPriority {
     Start,
     Close,
     Intermediate,
+    Delete,
 }
 
 impl RepairPriority {
@@ -24,6 +25,7 @@ impl RepairPriority {
             Self::Start => ProjectionDropReason::Start,
             Self::Close => ProjectionDropReason::Close,
             Self::Intermediate => ProjectionDropReason::Intermediate,
+            Self::Delete => panic!("Deletes are never counted as shed updates"),
         }
     }
 }
@@ -35,7 +37,7 @@ pub(crate) struct ProjectionRepair {
     pub(crate) flow_hash: FlowHash,
     pub(crate) partition: PartitionId,
     pub(crate) priority: RepairPriority,
-    generation: u64,
+    pub(super) generation: u64,
 }
 
 struct PendingRepair {
@@ -91,6 +93,21 @@ impl ProjectionRepairs {
         true
     }
 
+    pub(crate) fn has_partition(&self, partition: PartitionId) -> bool {
+        self.entries
+            .values()
+            .any(|pending| pending.repair.partition == partition)
+    }
+
+    pub(crate) fn drain(&mut self) -> Vec<ProjectionRepair> {
+        self.order.clear();
+        std::mem::take(&mut self.entries)
+            .into_values()
+            .map(|pending| pending.repair)
+            .collect()
+    }
+
+    #[cfg(test)]
     pub(crate) fn take_batch(&mut self, limit: usize) -> Vec<ProjectionRepair> {
         let mut repairs = Vec::new();
         while repairs.len() < limit {
@@ -107,6 +124,7 @@ impl ProjectionRepairs {
         repairs
     }
 
+    #[cfg(test)]
     pub(crate) fn finish_batch(&mut self, repairs: &[ProjectionRepair]) {
         for repair in repairs {
             let identity = (repair.tenant_id, repair.run_id);
@@ -116,17 +134,6 @@ impl ProjectionRepairs {
             if pending.repair.generation == repair.generation {
                 self.entries.remove(&identity);
             } else {
-                pending.is_in_flight = false;
-                self.order
-                    .insert((pending.repair.priority, identity.0, identity.1));
-            }
-        }
-    }
-
-    pub(crate) fn retry_batch(&mut self, repairs: &[ProjectionRepair]) {
-        for repair in repairs {
-            let identity = (repair.tenant_id, repair.run_id);
-            if let Some(pending) = self.entries.get_mut(&identity) {
                 pending.is_in_flight = false;
                 self.order
                     .insert((pending.repair.priority, identity.0, identity.1));

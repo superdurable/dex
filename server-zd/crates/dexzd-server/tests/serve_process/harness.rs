@@ -632,7 +632,7 @@ impl SqlVisibilitySchema {
         &self.name
     }
 
-    /// Deletes every projected run and position, so only a rebuild can restore them.
+    /// Deletes every projected run and position, so startup version comparison must restore them.
     pub(crate) async fn clear_projection(&self) {
         self.client
             .batch_execute(&format!(
@@ -641,6 +641,13 @@ impl SqlVisibilitySchema {
             ))
             .await
             .expect("the projection tables are cleared");
+    }
+
+    pub(crate) async fn diverge_run_partition_progress(&self, flow_id: &str) -> u32 {
+        let row = self.client.query_one(&format!(
+            "UPDATE {0}.dexzd_visibility_progress SET applied_node_id = 'unexpected-owner' WHERE partition_id = (SELECT partition_id FROM {0}.dexzd_visibility_runs WHERE workflow_id = $1 LIMIT 1) RETURNING partition_id", self.name
+        ), &[&flow_id]).await.expect("inject a divergent partition checkpoint");
+        u32::try_from(row.get::<_, i32>(0)).expect("partition fits u32")
     }
 
     pub(crate) async fn drop_schema(self) {

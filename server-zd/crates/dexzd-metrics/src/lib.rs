@@ -36,7 +36,8 @@ pub use api_requests::{ApiLatency, ApiRequests, GrpcCode, RpcClass, classify_rpc
 pub use commit_latency::CommitLatency;
 pub use fixed_labels::{
     AttributeSyncFailureKind, AttributeSyncWriteFailures, ObjectErrorCounters, OutcomeCounters,
-    ProjectionDropCounters, ProjectionDropReason, RoleGauges,
+    ProjectionDropCounters, ProjectionDropReason, ProjectionRebuildCounters,
+    ProjectionRebuildReason, RoleGauges,
 };
 pub use histogram::AtomicHistogram;
 use histogram::{FLOW_LATENCY_BOUNDS, SCHEDULE_LATENCY_BOUNDS};
@@ -138,6 +139,14 @@ pub struct NodeMetrics {
     pub search_projection_repaired_runs: ProjectionDropCounters,
     /// Dropped runs that could not enter the bounded repair set.
     pub search_projection_repair_overflow: Counter,
+    /// Partitions requiring an explicitly requested rebuild.
+    pub search_projection_partitions_needing_rebuild: Gauge,
+    /// First rebuild-needed observations by partition and reason.
+    pub search_projection_rebuild_needed: ProjectionRebuildCounters,
+    /// Pending partition objects successfully synchronized or removed.
+    pub search_projection_pending_objects_synced: Counter,
+    /// Failed pending-object synchronization attempts.
+    pub search_projection_pending_sync_failures: Counter,
 }
 
 /// A lifecycle role for one node.
@@ -417,6 +426,26 @@ impl NodeMetrics {
             "Dropped runs that overflowed the bounded projection repair set.",
             metrics.search_projection_repair_overflow.clone(),
         );
+        registry.register(
+            "dexzd_search_projection_partitions_needing_rebuild",
+            "Partitions needing an operator requested search rebuild.",
+            metrics.search_projection_partitions_needing_rebuild.clone(),
+        );
+        registry.register(
+            "dexzd_search_projection_rebuild_needed",
+            "Rebuild-needed observations by reason.",
+            metrics.search_projection_rebuild_needed.clone(),
+        );
+        registry.register(
+            "dexzd_search_projection_pending_objects_synced",
+            "Pending partition objects synchronized or removed.",
+            metrics.search_projection_pending_objects_synced.clone(),
+        );
+        registry.register(
+            "dexzd_search_projection_pending_sync_failures",
+            "Failed pending partition object synchronization attempts.",
+            metrics.search_projection_pending_sync_failures.clone(),
+        );
         registry.register_collector(Box::new(LocalStorageCollector {
             directory: local_store_directory,
             gauge: metrics.local_storage_bytes.clone(),
@@ -474,6 +503,10 @@ impl NodeMetrics {
             search_projection_repair_pending: Gauge::default(),
             search_projection_repaired_runs: ProjectionDropCounters::default(),
             search_projection_repair_overflow: Counter::default(),
+            search_projection_partitions_needing_rebuild: Gauge::default(),
+            search_projection_rebuild_needed: ProjectionRebuildCounters::default(),
+            search_projection_pending_objects_synced: Counter::default(),
+            search_projection_pending_sync_failures: Counter::default(),
         }
     }
 

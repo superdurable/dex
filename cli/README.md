@@ -654,6 +654,21 @@ object to stderr with the operation, error kind, gRPC code/name, and status
 details when supplied. Usage and missing-confirmation failures exit with status
 2; connection and RPC failures exit with status 1.
 
+## Administer SQL search projection
+
+`dexcli search-projection status` lists marked, scheduled, and active partitions.
+`dexcli search-projection rebuild` accepts exactly one selector: `--partitions 1,2`,
+`--marked`, or `--all`. It returns scheduled partition IDs immediately; the server
+rebuilds one partition at a time. These commands use the regular server, credential,
+TLS, timeout, and output flags.
+
+When server authentication is configured, administration requires a JWT from an
+existing issuer with an audience in `auth.adminAudiences` (empty by default, denying
+admin calls). Static tokens cannot administer. With no authentication configured,
+including the default local dev server, admin calls are allowed. Administration
+requires PostgreSQL or ParadeDB search and the active lease owner. Older servers
+without AdminService return Unimplemented.
+
 ## Build and test
 
 Requirements are Go 1.26+, Node.js 22+, and a `dex-server-zd` binary for dev
@@ -667,6 +682,9 @@ make -C cli test
 make -C cli integration-test
 make -C cli integration-test TEST_ARGS='-run TestVisualizeSubFlow'
 ```
+
+The current-server SQL administration E2E target is `make -C cli search-projection-e2e`.
+It requires `DEX_SERVER_ZD_BINARY` and `DEX_ZD_POSTGRES_URL`; CI supplies its temporary PostgreSQL service.
 
 The Web build is embedded into the resulting `cli/dexcli` binary. Running that
 binary does not read `web/`, `node_modules`, or the source tree.

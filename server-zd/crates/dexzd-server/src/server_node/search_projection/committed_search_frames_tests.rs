@@ -62,9 +62,9 @@ fn commit_frame(frames: &CommittedSearchFrames, run_number: u8) {
     );
 }
 
-/// A stalled projection, as during a SQL visibility outage, holds at most the byte limit in memory.
+/// A stalled projection, as during a SQL visibility outage, retains every protected Delete above the byte limit.
 #[test]
-fn queued_bytes_stay_bounded_while_the_projection_is_stalled() {
+fn deletes_survive_byte_overflow_while_the_projection_is_stalled() {
     let frame_bytes = CHANGE_OVERHEAD_BYTES;
     let frames = new_frames(1_000, 3 * frame_bytes);
     for run_number in 1..=20 {
@@ -73,15 +73,15 @@ fn queued_bytes_stay_bounded_while_the_projection_is_stalled() {
     }
     assert_eq!(
         frames.lock_tracking().queued.len(),
-        3,
-        "frames beyond the byte limit are not queued"
+        20,
+        "protected Deletes remain queued beyond the byte limit"
     );
-    assert!(frames.lock_tracking().queued_bytes <= 3 * frame_bytes);
-    assert_eq!(frames.rebuild_requests(), vec![PARTITION]);
+    assert_eq!(frames.lock_tracking().queued_bytes, 20 * frame_bytes);
+    assert!(frames.rebuild_requests().is_empty());
     frames.publish_projected_through();
     assert_eq!(*frames.projected_through.borrow(), Some(0));
 
-    // The projection recovers: it drains the queue, then rebuilds the partition.
+    // The projection recovers: it drains every queued Delete without rebuilding the partition.
     while let Some(frame) = take_frame(&frames) {
         frames.finish_projected_frame(&frame);
     }
@@ -102,17 +102,17 @@ fn queued_bytes_stay_bounded_while_the_projection_is_stalled() {
 }
 
 #[test]
-fn frame_count_overflow_coalesces_into_a_partition_rebuild() {
+fn delete_frame_overflow_does_not_schedule_an_automatic_rebuild() {
     let max_queued_bytes = 1024 * 1024;
     let frames = new_frames(2, max_queued_bytes);
     for run_number in 1..=20 {
         record_delete(&frames, run_number);
         finish_frame(&frames, u64::from(run_number));
     }
-    assert_eq!(frames.lock_tracking().queued.len(), 2);
+    assert_eq!(frames.lock_tracking().queued.len(), 20);
     assert!(frames.lock_tracking().queued_bytes < max_queued_bytes);
-    assert_eq!(frames.rebuild_requests(), vec![PARTITION]);
-    assert_eq!(frames.lock_tracking().rebuild_requests.len(), 1);
+    assert!(frames.rebuild_requests().is_empty());
+    assert_eq!(frames.lock_tracking().rebuild_requests.len(), 0);
     frames.publish_projected_through();
     assert_eq!(*frames.projected_through.borrow(), Some(0));
 
@@ -398,8 +398,8 @@ fn delete_reclaims_queued_upserts_in_priority_and_oldest_order() {
     finish_frame(&frames, 7);
     record_delete(&frames, 8);
     finish_frame(&frames, 8);
-    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 1);
-    assert_eq!(frames.rebuild_requests(), vec![PARTITION]);
+    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 0);
+    assert!(frames.rebuild_requests().is_empty());
     while let Some(frame) = take_frame(&frames) {
         assert!(
             frame
@@ -441,7 +441,7 @@ fn delete_admission_excludes_in_flight_upserts_but_counts_in_flight_deletes() {
     let in_flight_delete = take_frame(&frames).unwrap();
     record_delete(&frames, 34);
     finish_frame(&frames, 34);
-    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 1);
+    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 0);
     frames.finish_projected_frame(&in_flight_delete);
 }
 
@@ -482,7 +482,7 @@ fn one_frame_coalesces_repeated_commands_and_a_delete() {
 }
 
 #[test]
-fn hard_byte_limit_sheds_upserts_and_only_rebuilds_for_deletes() {
+fn hard_byte_limit_sheds_upserts_and_retains_overflowing_deletes() {
     for (priority, reason) in [
         (ChangePriority::Start, ProjectionDropReason::Start),
         (ChangePriority::Close, ProjectionDropReason::Close),
@@ -501,8 +501,8 @@ fn hard_byte_limit_sheds_upserts_and_only_rebuilds_for_deletes() {
     let frames = frames_with_limits(1, 1, 2, CHANGE_OVERHEAD_BYTES - 1);
     record_delete(&frames, 1);
     finish_frame(&frames, 1);
-    assert_eq!(frames.rebuild_requests(), vec![PARTITION]);
-    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 1);
+    assert!(frames.rebuild_requests().is_empty());
+    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 0);
 }
 
 #[test]
@@ -643,7 +643,7 @@ fn live_frames_and_in_flight_bytes_take_priority_over_repairs() {
 }
 
 #[test]
-fn repair_set_overflow_requests_a_bounded_partition_rebuild() {
+fn staging_overflow_requires_version_comparison_without_automatic_rebuilding() {
     let frames = CommittedSearchFrames::new(
         Arc::new(SearchProjectionQueueConfig {
             soft_frames: 1,
@@ -658,7 +658,9 @@ fn repair_set_overflow_requests_a_bounded_partition_rebuild() {
     commit_frame(&frames, 3);
     assert_eq!(frames.metrics.search_projection_repair_pending.get(), 1);
     assert_eq!(frames.metrics.search_projection_repair_overflow.get(), 1);
-    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 1);
+    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 0);
+    assert_eq!(frames.diff_partitions(), vec![PARTITION]);
+    assert!(frames.has_pending_staging(PARTITION));
     frames.finish_rebuild(PARTITION, frames.last_sequence());
     assert_eq!(frames.metrics.search_projection_repair_pending.get(), 0);
 }
