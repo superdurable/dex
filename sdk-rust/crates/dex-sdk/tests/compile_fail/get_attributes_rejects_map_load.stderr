@@ -1,0 +1,16 @@
+error[E0277]: `&AttributeMapLoad` is not an Attribute read
+  --> tests/compile_fail/get_attributes_rejects_map_load.rs:12:26
+   |
+12 |     let _values = client.get_attributes("order-1", (&notes.load("n1"),));
+   |                          ^^^^^^^^^^^^^^ pass an Attribute or `AttributeMap::instance(key)`
+   |
+   = help: the trait `AttributeRead` is not implemented for `&AttributeMapLoad`
+   = note: `AttributeMap::load` selects an instance for a handler Context, not for `Client::get_attributes`
+help: the following other types implement trait `AttributeRead`
+  --> src/client/attribute_reads.rs
+   |
+   | impl<T: Value> AttributeRead for Attribute<T> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Attribute<T>`
+...
+   | impl<T: Value> AttributeRead for AttributeMapInstance<T> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AttributeMapInstance<T>`

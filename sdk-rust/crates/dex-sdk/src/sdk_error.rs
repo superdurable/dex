@@ -51,6 +51,7 @@ pub struct ServiceError {
     flow_id: Option<String>,
     source: Status,
     pull_registration_error: Option<Box<crate::PullRegistrationError>>,
+    call_context: Option<String>,
 }
 
 impl ServiceError {
@@ -89,13 +90,17 @@ impl ServiceError {
             flow_id: None,
             source: Status::unknown(detail),
             pull_registration_error: None,
+            call_context: None,
         }
     }
 }
 
 impl Display for ServiceError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.detail)
+        match &self.call_context {
+            Some(call_context) => write!(formatter, "{call_context}: {}", self.detail),
+            None => formatter.write_str(&self.detail),
+        }
     }
 }
 
@@ -298,6 +303,7 @@ impl SdkError {
                 flow_id: None,
                 source: rejection.status.clone(),
                 pull_registration_error: Some(Box::new(rejection)),
+                call_context: None,
             },
         }
     }
@@ -353,6 +359,7 @@ impl SdkError {
             flow_id: flow_id.map(str::to_string),
             source: status,
             pull_registration_error: None,
+            call_context: None,
         };
         if decoded.is_err() {
             return Self::Service { service };
@@ -398,6 +405,90 @@ impl SdkError {
                 flow_id: Some(flow_id.to_string()),
                 source: Status::deadline_exceeded(detail),
                 pull_registration_error: None,
+                call_context: None,
+            },
+        }
+    }
+
+    /// Returns the target-specific variant for a missing Flow reported under
+    /// [`FlowTargetRequirement::None`], and returns every other error unchanged.
+    pub(crate) fn with_flow_target_requirement(self, requirement: FlowTargetRequirement) -> Self {
+        match self {
+            Self::Service { service } if service.sub_status == ErrorSubStatus::FlowNotExists => {
+                match requirement {
+                    FlowTargetRequirement::Active => Self::FlowNotActiveOrNotFound { service },
+                    FlowTargetRequirement::Existing => Self::FlowNotFound { service },
+                    FlowTargetRequirement::None => Self::Service { service },
+                }
+            }
+            other => other,
+        }
+    }
+
+    /// Returns the same variant with `call_context` before its message and, for service-backed
+    /// variants, with `operation` and `flow_id` as its service metadata.
+    pub(crate) fn with_call_context(
+        self,
+        operation: &'static str,
+        flow_id: &str,
+        call_context: String,
+    ) -> Self {
+        let with_service_context = |mut service: ServiceError| {
+            service.operation = operation;
+            service.flow_id = Some(flow_id.to_string());
+            service.call_context = Some(call_context.clone());
+            service
+        };
+        let with_message_context = |message: String| format!("{call_context}: {message}");
+        match self {
+            Self::Service { service } => Self::Service {
+                service: with_service_context(service),
+            },
+            Self::FlowAlreadyStarted { service } => Self::FlowAlreadyStarted {
+                service: with_service_context(service),
+            },
+            Self::FlowClosing { service } => Self::FlowClosing {
+                service: with_service_context(service),
+            },
+            Self::FlowNotFound { service } => Self::FlowNotFound {
+                service: with_service_context(service),
+            },
+            Self::FlowNotActiveOrNotFound { service } => Self::FlowNotActiveOrNotFound {
+                service: with_service_context(service),
+            },
+            Self::WorkerInvocation { service, worker } => Self::WorkerInvocation {
+                service: with_service_context(service),
+                worker,
+            },
+            Self::RpcLockConflict { service } => Self::RpcLockConflict {
+                service: with_service_context(service),
+            },
+            Self::LongPollTimeout { service } => Self::LongPollTimeout {
+                service: with_service_context(service),
+            },
+            Self::ChannelMessageNotFound { service } => Self::ChannelMessageNotFound {
+                service: with_service_context(service),
+            },
+            Self::RequestTimeout { service } => Self::RequestTimeout {
+                service: with_service_context(service),
+            },
+            Self::FlowDefinition { message } => Self::FlowDefinition {
+                message: with_message_context(message),
+            },
+            Self::InvalidArgument { message } => Self::InvalidArgument {
+                message: with_message_context(message),
+            },
+            Self::ValueMapping { message } => Self::ValueMapping {
+                message: with_message_context(message),
+            },
+            Self::InvalidStepResult {
+                flow_type,
+                step_type,
+                detail,
+            } => Self::InvalidStepResult {
+                flow_type,
+                step_type,
+                detail: with_message_context(detail),
             },
         }
     }
@@ -473,6 +564,63 @@ mod tests {
             FlowTargetRequirement::Active,
         );
         assert!(matches!(active, SdkError::FlowNotActiveOrNotFound { .. }));
+    }
+
+    #[test]
+    fn call_context_names_the_call_without_changing_the_variant_or_detail() {
+        let missing = SdkError::from_status(
+            rich_status(GrpcCode::NotFound, ProtoErrorSubStatus::FlowNotExists),
+            "load_blobs",
+            None,
+            FlowTargetRequirement::None,
+        )
+        .with_call_context(
+            "get_attributes",
+            "flow-id",
+            "get_attributes Flow \"flow-id\"".to_string(),
+        );
+        assert!(matches!(missing, SdkError::Service { .. }));
+        let service = missing.service_error().expect("service metadata");
+        assert_eq!("service detail", service.detail());
+        assert_eq!("get_attributes", service.operation());
+        assert_eq!(Some("flow-id"), service.flow_id());
+        assert_eq!(
+            "get_attributes Flow \"flow-id\": service detail",
+            missing.to_string()
+        );
+
+        let mapping = SdkError::ValueMapping {
+            message: "blob cache failed".to_string(),
+        }
+        .with_call_context("get_attributes", "flow-id", "context".to_string());
+        assert!(
+            matches!(mapping, SdkError::ValueMapping { message } if message == "context: blob cache failed")
+        );
+    }
+
+    #[test]
+    fn missing_flow_during_load_blobs_maps_to_the_caller_target() {
+        let load_blobs_error = || {
+            SdkError::from_status(
+                rich_status(GrpcCode::NotFound, ProtoErrorSubStatus::FlowNotExists),
+                "load_blobs",
+                None,
+                FlowTargetRequirement::None,
+            )
+        };
+        assert!(matches!(load_blobs_error(), SdkError::Service { .. }));
+        assert!(matches!(
+            load_blobs_error().with_flow_target_requirement(FlowTargetRequirement::Existing),
+            SdkError::FlowNotFound { .. }
+        ));
+        let unrelated = SdkError::from_status(
+            Status::internal("broken"),
+            "load_blobs",
+            None,
+            FlowTargetRequirement::None,
+        )
+        .with_flow_target_requirement(FlowTargetRequirement::Existing);
+        assert!(matches!(unrelated, SdkError::Service { .. }));
     }
 
     #[test]

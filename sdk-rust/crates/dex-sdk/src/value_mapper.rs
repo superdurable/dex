@@ -26,6 +26,17 @@ pub(crate) fn decode<T: Value>(input: &ProtoValue) -> SdkResult<T> {
     serde_json::from_value(json).map_err(mapping_error)
 }
 
+/// Returns the decoded value, or a [`SdkError::ValueMapping`] whose message never quotes it.
+pub(crate) fn decode_without_value_detail<T: Value>(input: &ProtoValue) -> SdkResult<T> {
+    let json = match input.kind.as_ref() {
+        Some(value::Kind::ObjValue(object)) if object.encoding == "json" => {
+            serde_json::from_slice(&object.payload).map_err(value_free_mapping_error)?
+        }
+        _ => decode_json(input)?,
+    };
+    serde_json::from_value(json).map_err(value_free_mapping_error)
+}
+
 pub(crate) fn decode_handler<T: Value>(input: &ProtoValue) -> HandlerResult<T> {
     decode(input).map_err(handler_mapping_error)
 }
@@ -104,6 +115,40 @@ fn decode_json(input: &ProtoValue) -> SdkResult<JsonValue> {
         Some(value::Kind::NullValue(_)) => Ok(JsonValue::Null),
         None => Err(value_error("Value has no concrete kind")),
     }
+}
+
+fn value_free_mapping_error(error: serde_json::Error) -> SdkError {
+    let category = match error.classify() {
+        serde_json::error::Category::Io => "I/O error",
+        serde_json::error::Category::Syntax => "syntax error",
+        serde_json::error::Category::Data => "data error",
+        serde_json::error::Category::Eof => "unexpected end of input",
+    };
+    let message = error.to_string();
+    let mut detail = match field_name_detail(&message) {
+        Some(field_detail) => format!("{category}: {field_detail}"),
+        // An unknown field name comes from the stored object, so it is omitted.
+        None if message.starts_with("unknown field `") => format!("{category}: unknown field"),
+        None => category.to_string(),
+    };
+    if error.line() != 0 {
+        detail.push_str(&format!(
+            " at line {} column {}",
+            error.line(),
+            error.column()
+        ));
+    }
+    value_error(detail)
+}
+
+/// Returns the leading declared-field clause of a serde message, such as "missing field `id`".
+fn field_name_detail(message: &str) -> Option<&str> {
+    ["missing field `", "duplicate field `"]
+        .into_iter()
+        .find_map(|prefix| {
+            let field_name_length = message.strip_prefix(prefix)?.find('`')?;
+            Some(&message[..prefix.len() + field_name_length + 1])
+        })
 }
 
 fn mapping_error(error: impl std::fmt::Display) -> SdkError {

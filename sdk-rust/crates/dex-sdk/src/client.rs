@@ -27,6 +27,10 @@ use tokio::runtime::Runtime;
 use tonic::{Code, Request, transport::Endpoint};
 use uuid::Uuid;
 
+mod attribute_reads;
+
+pub use attribute_reads::{AttributeRead, AttributeReads};
+
 use crate::credential::{CredentialChannel, CredentialInterceptor};
 use crate::sdk_error::{FlowTargetRequirement, ServiceError};
 use crate::server_protocol::{

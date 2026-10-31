@@ -1,0 +1,15 @@
+error[E0277]: `()` is not a tuple of 1 to 12 Attribute reads
+  --> tests/compile_fail/get_attributes_rejects_empty_reads.rs:12:52
+   |
+12 |     let _values = client.get_attributes("order-1", ());
+   |                          --------------            ^^ pass a tuple such as `(&ORDER_STATUS, &NOTES.instance("n1"))`
+   |                          |
+   |                          required by a bound introduced by this call
+   |
+   = help: the trait `AttributeReads` is not implemented for `()`
+   = note: use a one-element tuple such as `(&ORDER_STATUS,)` to read one Attribute
+note: required by a bound in `dex_sdk::client::attribute_reads::<impl Client>::get_attributes`
+  --> src/client/attribute_reads.rs
+   |
+   |     pub fn get_attributes<Reads: AttributeReads>(
+   |                                  ^^^^^^^^^^^^^^ required by this bound in `dex_sdk::client::attribute_reads::<impl Client>::get_attributes`

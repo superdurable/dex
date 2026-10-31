@@ -175,6 +175,42 @@ impl Registry {
         self.flow(flow_name)
     }
 
+    /// Returns `Ok` when some registered Flow declares an Attribute or AttributeMap definition
+    /// equal to `definition`, including its value type and write settings.
+    pub(crate) fn require_registered_attribute(
+        &self,
+        definition: &PersistenceDefinition,
+    ) -> SdkResult<()> {
+        let mut differing_flow_names = Vec::new();
+        for flow in self.inner.flows.values() {
+            let Some(registered) = flow.persistence.get(&definition.name) else {
+                continue;
+            };
+            if !matches!(
+                registered.kind,
+                PersistenceKind::Attribute | PersistenceKind::AttributeMap
+            ) {
+                continue;
+            }
+            if registered == definition {
+                return Ok(());
+            }
+            differing_flow_names.push(flow.name);
+        }
+        differing_flow_names.sort_unstable();
+        let name = &definition.name;
+        Err(match differing_flow_names.first() {
+            Some(flow_name) => definition_error(format!(
+                "Attribute {name} differs from the definition registered by Flow {flow_name}; \
+                 the kind, value type, index, sync_to_attribute_store, and hard_delete_on_null \
+                 settings must all match"
+            )),
+            None => definition_error(format!(
+                "Attribute {name} is not registered by any Flow in the Registry"
+            )),
+        })
+    }
+
     pub(crate) fn attribute_indexes(&self) -> &HashMap<String, i32> {
         &self.inner.attribute_indexes
     }
@@ -736,5 +772,72 @@ mod tests {
         let persistence =
             assemble_persistence("TestFlow", valid.definitions()).expect("valid definitions");
         assert!(persistence["secret"].is_hard_delete_on_null);
+    }
+
+    #[test]
+    fn registered_attribute_lookup_matches_kind_value_type_and_settings() {
+        struct StatusFlow;
+        impl crate::Flow for StatusFlow {
+            type StartInput = ();
+            fn steps(&self) -> crate::StepList<'_, ()> {
+                crate::StepList::empty()
+            }
+            fn persistence(&self) -> PersistenceSchema {
+                PersistenceSchema::new()
+                    .attribute(&Attribute::<String>::new("status"))
+                    .attribute_map(&AttributeMap::<u32>::new("quantities"))
+                    .attribute(&Attribute::<String>::new("secret").hard_delete_on_null())
+                    .channel(&crate::Channel::<String>::new("approvals"))
+            }
+        }
+        let registry = super::Registry::new()
+            .register(StatusFlow)
+            .expect("register StatusFlow");
+        let lookup = |definition: PersistenceDefinition| {
+            registry
+                .require_registered_attribute(&definition)
+                .map_err(|error| error.to_string())
+        };
+
+        assert!(
+            lookup(PersistenceDefinition::for_attribute(
+                &Attribute::<String>::new("status")
+            ))
+            .is_ok()
+        );
+        assert!(
+            lookup(PersistenceDefinition::for_attribute_map(
+                &AttributeMap::<u32>::new("quantities")
+            ))
+            .is_ok()
+        );
+        assert!(
+            lookup(PersistenceDefinition::for_attribute(
+                &Attribute::<String>::new("secret").hard_delete_on_null()
+            ))
+            .is_ok()
+        );
+        for mismatched in [
+            PersistenceDefinition::for_attribute(&Attribute::<i64>::new("status")),
+            PersistenceDefinition::for_attribute_map(&AttributeMap::<String>::new("status")),
+            PersistenceDefinition::for_attribute(&Attribute::<String>::new("secret")),
+            PersistenceDefinition::for_attribute(
+                &Attribute::<String>::new("status").indexed(AttributeIndex::keyword()),
+            ),
+        ] {
+            let message = lookup(mismatched).expect_err("mismatched definition");
+            assert!(
+                message.contains("differs from the definition registered by Flow StatusFlow"),
+                "{message}"
+            );
+        }
+        let channel_name = lookup(PersistenceDefinition::for_attribute(
+            &Attribute::<String>::new("approvals"),
+        ))
+        .expect_err("a Channel is not an Attribute");
+        assert!(
+            channel_name.contains("approvals is not registered"),
+            "{channel_name}"
+        );
     }
 }

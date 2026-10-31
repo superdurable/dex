@@ -23,6 +23,60 @@ pub struct AttributeMapLoad {
     pub(crate) instance: Option<String>,
 }
 
+/// Selects one AttributeMap instance for [`Client::get_attributes`](crate::Client::get_attributes).
+///
+/// Create it with [`AttributeMap::instance`] and pass a reference to it in the tuple of reads.
+/// It carries the AttributeMap definition, the instance key, and the value type `T`.
+/// The read returns `Option<T>`, which is `None` when the instance is not set.
+///
+/// It is a different type from [`AttributeMapLoad`].
+/// An [`AttributeMap::load`] result selects an instance to load into a handler Context.
+/// [`Client::get_attributes`](crate::Client::get_attributes) does not accept it.
+///
+/// Creating an instance selector does not validate the key.
+/// [`Client::get_attributes`](crate::Client::get_attributes) rejects an empty key or a key that
+/// contains `/` with [`SdkError::InvalidArgument`](crate::SdkError::InvalidArgument).
+///
+/// # Examples
+///
+/// ```no_run
+/// use dex_sdk::{AttributeMap, Client};
+/// use std::sync::LazyLock;
+///
+/// static LINE_QUANTITIES: LazyLock<AttributeMap<u32>> =
+///     LazyLock::new(|| AttributeMap::new("line-quantities"));
+///
+/// fn read_line_quantity(client: &Client, order_id: &str) -> dex_sdk::SdkResult<u32> {
+///     let (quantity,) = client.get_attributes(order_id, (&LINE_QUANTITIES.instance("line-1"),))?;
+///     Ok(quantity.unwrap_or(0))
+/// }
+/// ```
+pub struct AttributeMapInstance<T> {
+    attribute_map: AttributeMap<T>,
+    instance: String,
+}
+
+impl<T> AttributeMapInstance<T> {
+    /// Returns the AttributeMap definition this selector reads.
+    pub fn attribute_map(&self) -> &AttributeMap<T> {
+        &self.attribute_map
+    }
+
+    /// Returns the instance key exactly as it was passed to [`AttributeMap::instance`].
+    pub fn instance(&self) -> &str {
+        &self.instance
+    }
+}
+
+impl<T> Clone for AttributeMapInstance<T> {
+    fn clone(&self) -> Self {
+        Self {
+            attribute_map: self.attribute_map.clone(),
+            instance: self.instance.clone(),
+        }
+    }
+}
+
 /// Defines one durable, typed value stored with a Flow.
 ///
 /// Declare Attributes on the Flow, add them to [`crate::PersistenceSchema`], and reuse the same
@@ -408,6 +462,28 @@ impl<T> AttributeMap<T> {
         AttributeMapLoad {
             name: self.name.clone(),
             instance: Some(instance.into()),
+        }
+    }
+
+    /// Selects one map `instance` for [`Client::get_attributes`](crate::Client::get_attributes).
+    ///
+    /// Use it to read one AttributeMap instance from outside the Flow.
+    /// The selector copies this definition and the key.
+    /// It does not contact Dex or validate the key.
+    /// [`Client::get_attributes`](crate::Client::get_attributes) rejects an empty key or a key
+    /// that contains `/`.
+    /// Use [`Self::load`] instead to load an instance into a Step or RPC Context.
+    /// See [`AttributeMapInstance`] for an example.
+    ///
+    /// # Parameters
+    ///
+    /// - `instance` is the map instance key. The SDK percent-encodes it into the physical key.
+    ///
+    /// Returns a typed selector whose read yields `Option<T>`.
+    pub fn instance(&self, instance: impl Into<String>) -> AttributeMapInstance<T> {
+        AttributeMapInstance {
+            attribute_map: self.clone(),
+            instance: instance.into(),
         }
     }
 

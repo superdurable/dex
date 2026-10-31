@@ -12,6 +12,67 @@ fn flow_start_input_is_checked_at_compile_time() {
 }
 
 #[test]
+fn get_attributes_reads_are_checked_at_compile_time() {
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/compile_fail/get_attributes_rejects_map_load.rs");
+    cases.compile_fail("tests/compile_fail/get_attributes_rejects_map_definition.rs");
+    cases.compile_fail("tests/compile_fail/get_attributes_rejects_empty_reads.rs");
+}
+
+#[test]
+fn get_attributes_tuple_reads_compile() {
+    static ORDER_STATUS: std::sync::LazyLock<dex_sdk::Attribute<String>> =
+        std::sync::LazyLock::new(|| dex_sdk::Attribute::new("order-status"));
+    static NOTES: std::sync::LazyLock<dex_sdk::AttributeMap<u32>> =
+        std::sync::LazyLock::new(|| dex_sdk::AttributeMap::new("notes"));
+
+    type TwelveReadValues = (
+        Option<String>,
+        Option<u32>,
+        Option<String>,
+        Option<u32>,
+        Option<String>,
+        Option<u32>,
+        Option<String>,
+        Option<u32>,
+        Option<String>,
+        Option<u32>,
+        Option<String>,
+        Option<u32>,
+    );
+
+    fn calls_compile(client: &dex_sdk::Client) -> dex_sdk::SdkResult<()> {
+        let (_status, _note): (Option<String>, Option<u32>) =
+            client.get_attributes("flow-1", (&ORDER_STATUS, &NOTES.instance("n1")))?;
+        let is_paid = dex_sdk::Attribute::<bool>::new("is-paid");
+        let instance: dex_sdk::AttributeMapInstance<u32> = NOTES.instance("n2");
+        assert_eq!("n2", instance.instance());
+        let (_is_paid,): (Option<bool>,) = client.get_attributes("flow-1", (&is_paid,))?;
+        let (_owned_note,): (Option<u32>,) = client.get_attributes("flow-1", (instance,))?;
+        let _twelve_reads: TwelveReadValues = client.get_attributes(
+            "flow-1",
+            (
+                &ORDER_STATUS,
+                &NOTES.instance("1"),
+                &ORDER_STATUS,
+                &NOTES.instance("2"),
+                &ORDER_STATUS,
+                &NOTES.instance("3"),
+                &ORDER_STATUS,
+                &NOTES.instance("4"),
+                &ORDER_STATUS,
+                &NOTES.instance("5"),
+                &ORDER_STATUS,
+                &NOTES.instance("6"),
+            ),
+        )?;
+        Ok(())
+    }
+
+    let _calls_compile = calls_compile;
+}
+
+#[test]
 fn attribute_store_sync_builders_compile() {
     let _attribute = dex_sdk::Attribute::<String>::new("email").sync_to_attribute_store();
     let _attribute_map =

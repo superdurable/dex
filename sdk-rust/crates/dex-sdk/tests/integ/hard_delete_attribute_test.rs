@@ -187,7 +187,8 @@ fn hard_delete_string_write(api_key: &str) -> AttributeWrite {
     }
 }
 
-/// Calls GetAttributes and SetAttributes directly because the Rust Client exposes neither API.
+/// Calls GetAttributes and SetAttributes directly because the Rust Client exposes no
+/// SetAttributes API and its get_attributes returns decoded values, not raw Value kinds.
 struct AttributeService {
     runtime: Runtime,
     client: FlowServiceClient<TransportChannel>,
