@@ -161,7 +161,7 @@ connector README for the connection, key fields, and exact API.
 
 Connector UI components are application components, not new Dex primitives. Browser code uses the application API or typed Flow RPCs.
 
-Use a durable snapshot RPC for canonical state. Streams may improve live presentation but are best-effort; reconnect through the durable snapshot rather than treating retained Stream data as authoritative.
+Read canonical state through the application API, which uses Go `Client.GetAttributes` for stored Attributes or a durable snapshot RPC when Flow code must shape the response. Streams may improve live presentation but are best-effort; reconnect through the durable snapshot rather than treating retained Stream data as authoritative.
 
 ## Local development configuration
 

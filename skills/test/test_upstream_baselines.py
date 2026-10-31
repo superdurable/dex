@@ -1111,6 +1111,112 @@ class Release128StatementsTest(unittest.TestCase):
         self.mutate_tag(self.TAGS["typescript"], "sdk-typescript/src/context.ts", "readonly flowStartedAt: Date;")
 
 
+class ClientAttributeReadTest(unittest.TestCase):
+    TAGS = {
+        "go": "sdk-go/v1.29.0",
+        "python": "sdk-python/v1.29.0",
+        "typescript": "sdk-typescript/v1.29.0",
+        "java": "sdk-java/v1.26.0",
+        "rust": "sdk-rust/v1.26.0",
+    }
+    PAGES = tuple(page for page, _ in CHECKER.CLIENT_ATTRIBUTE_READ_REFERENCES)
+    SOURCE_ROOT = Path(__file__).resolve().parents[2]
+    # Per language: (new file, matching declaration, non-matching declarations).
+    ABSENCE_CASES = {
+        "java": (
+            "sdk-java/src/main/java/io/superdurable/dex/AttributeReader.java",
+            "public final class AttributeReader {\n    public AttributeValues getAttributes(\n"
+            "            final String flowId, AttributeRead<?>... reads) {\n        return null;\n    }\n}\n",
+            ("public final class AttributeReader {\n    public List<String> getAttributes() {\n        return null;\n    }\n}\n",),
+        ),
+        "rust": (
+            "sdk-rust/crates/dex-sdk/src/attribute_reads.rs",
+            "impl Client {\n    pub async fn get_attributes(\n        &self,\n        flow_id: &str,\n    ) {}\n}\n",
+            ("impl Client {\n    pub(crate) fn get_attributes(&self) {}\n}\n",),
+        ),
+    }
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        paths = {}
+        for language, path, _ in CHECKER.CLIENT_ATTRIBUTE_READ_TAGGED_STATEMENTS:
+            paths.setdefault(language, []).append(path)
+        for language, tree, suffix, token, _ in CHECKER.CLIENT_ATTRIBUTE_READ_ABSENT:
+            paths.setdefault(language, []).extend(CHECKER.tagged_files_containing(
+                self.SOURCE_ROOT, self.TAGS[language], tree, suffix, token,
+            ))
+        self.sources = {}
+        for language, language_paths in paths.items():
+            tag = self.TAGS[language]
+            self.sources[tag] = tagged_sources(tag, *language_paths)
+            self.repository.commit_and_tag(tag, self.sources[tag])
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.references = copy_references(Path(temporary.name), *self.PAGES)
+
+    def check(self):
+        CHECKER.check_client_attribute_reads(self.repository.root, self.TAGS, self.references)
+
+    def mutate_tag(self, tag: str, path: str, old: str, new: str):
+        self.repository.commit_and_tag(tag, {path: replace_once(self.sources[tag][path], old, new)})
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn(path, str(raised.exception))
+
+    def test_real_tagged_sources_pass(self):
+        self.check()
+
+    def test_each_tagged_statement_must_be_enforced(self):
+        for language, path, needles in CHECKER.CLIENT_ATTRIBUTE_READ_TAGGED_STATEMENTS:
+            for needle in needles:
+                with self.subTest(language=language, needle=needle):
+                    self.setUp()
+                    self.mutate_tag(self.TAGS[language], path, needle, needle[:-1] + "?")
+
+    def test_java_and_rust_trees_are_seeded_with_real_candidates(self):
+        self.assertIn("sdk-java/src/main/java/io/superdurable/dex/Client.java", self.sources[self.TAGS["java"]])
+        self.assertIn("sdk-java/src/main/java/io/superdurable/dex/StartFlowOptions.java", self.sources[self.TAGS["java"]])
+
+    def test_added_api_in_java_or_rust_fails(self):
+        for language, (path, declaration, _) in self.ABSENCE_CASES.items():
+            with self.subTest(language=language):
+                self.setUp()
+                self.repository.commit_and_tag(self.TAGS[language], {path: declaration})
+                with self.assertRaises(SystemExit) as raised:
+                    self.check()
+                self.assertIn(path, str(raised.exception))
+
+    def test_added_api_in_an_existing_java_client_file_fails(self):
+        tag, path = self.TAGS["java"], "sdk-java/src/main/java/io/superdurable/dex/Client.java"
+        source = self.sources[tag][path]
+        closing = source.rindex("}")
+        method = "\n    public AttributeValues getAttributes(final String flowId,\n            AttributeRead<?>... reads) {\n        return null;\n    }\n"
+        self.repository.commit_and_tag(tag, {path: source[:closing] + method + source[closing:]})
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn(path, str(raised.exception))
+
+    def test_non_matching_declarations_and_generated_code_pass(self):
+        for language, (path, _, declarations) in self.ABSENCE_CASES.items():
+            for declaration in declarations:
+                with self.subTest(language=language, declaration=declaration):
+                    self.setUp()
+                    self.repository.commit_and_tag(self.TAGS[language], {path: declaration})
+                    self.check()
+        _, _, suffix, _, _ = CHECKER.CLIENT_ATTRIBUTE_READ_ABSENT[1]
+        self.setUp()
+        self.repository.commit_and_tag(self.TAGS["rust"], {
+            "sdk-rust/crates/dex-sdk/src/gen/flow_service" + suffix: self.ABSENCE_CASES["rust"][1],
+        })
+        self.check()
+
+    def test_each_reference_statement_must_be_enforced(self):
+        for page, needles in CHECKER.CLIENT_ATTRIBUTE_READ_REFERENCES:
+            for needle in needles:
+                with self.subTest(page=page, needle=needle):
+                    mutate_page(self, self.check, self.references / page, needle, needle[:-1] + "?")
+
+
 class FlowServiceTlsTest(unittest.TestCase):
     GO_TAG = "sdk-go/v1.26.0"
     SDK_TAGS = {

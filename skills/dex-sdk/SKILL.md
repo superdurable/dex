@@ -18,7 +18,7 @@ lifecycle hook status; run the Skill fallback only when that status is
 
 - Model behavior with Flows, Steps, Waits, Attributes, Channels, Streams, RPCs, Timers, SubFlows, Workers, and the Client.
 - Use Dex Web, dexcli, SDK errors, and application logs for inspection and recovery.
-- Use typed Flow RPCs as the application boundary for reading and writing Attributes, AttributeMaps, Channels, and ChannelMaps. Do not use removed Client state APIs. Attribute match remains the blocking observation API.
+- Use typed Flow RPCs as the application boundary for writing Attributes, AttributeMaps, Channels, and ChannelMaps, and for reads that need Flow code or pending Channel messages. Read committed Attributes and exact AttributeMap instances from outside a Flow with the Client Attribute read (Go **GetAttributes**, Python **get_attributes**, TypeScript **getAttributes**); Java and Rust do not have it yet and use a typed read-only RPC. Follow the [Attribute read rules](references/core/primitives.md#read-attributes-from-outside-a-flow). The Client has no direct state write. Attribute match remains the blocking observation API.
 - Do not expose Dex Server internals as application requirements. Discuss them only when the user explicitly asks to develop Dex itself.
 - Diagnose read-only by default. Do not stop, time travel, publish, invoke, delete, edit, or otherwise mutate a Flow unless the user authorizes it.
 
@@ -48,7 +48,7 @@ Always read the entry page for the project's language first:
 
 Before writing or reviewing any Client boundary—including Flow start, RPC, cleanup, admission, waits, or external Stream writes—read [Error handling](references/core/error-handling.md) and the selected language's **error-handling.md**. This is implementation guidance; do not defer it until a failure needs troubleshooting.
 
-For mutations followed by reads or completion checks, also read [Read-after-write consistency](references/core/read-after-write.md). Classify the write/read pair. A typed read-only RPC after a successful direct-state RPC write observes the write; search/projections and triggered business work have separate confirmation boundaries. Do not add polling or callbacks to that strong pair.
+For mutations followed by reads or completion checks, also read [Read-after-write consistency](references/core/read-after-write.md). Classify the write/read pair. A typed read-only RPC or a Client Attribute read after a successful direct-state RPC write observes the write; search/projections and triggered business work have separate confirmation boundaries. Do not add polling or callbacks to that strong pair.
 
 Then load only the references required by the task:
 
@@ -58,6 +58,7 @@ Then load only the references required by the task:
 | Go FDG, Summary/Display, Start forms or Actions | [Go FDG authoring](../dex-app-builder/references/fdg-authoring.md) | Read this focused syntax reference before parser source |
 | Flow boundary or state model | [Modeling](references/core/modeling.md) | selected language's **primitives.md** |
 | Primitive selection or exact API | [Primitives](references/core/primitives.md) | selected language's **primitives.md** |
+| Read Flow state from outside a Flow, or choose between a Client Attribute read and a read-only RPC | [Attribute reads](references/core/primitives.md#read-attributes-from-outside-a-flow) and [Read-after-write consistency](references/core/read-after-write.md) | selected language's **primitives.md** and **error-handling.md** |
 | StepOptions, durability, timeout, heartbeat, retry, loads, locks, or failure route | [StepOptions](references/core/step-options.md) | selected language's **advanced-features.md** |
 | Design-pattern choice | [Patterns](references/core/patterns.md) | selected language's **patterns.md** |
 | Client calls, admission, RPC, cleanup, waits, or external Streams | [Error handling](references/core/error-handling.md) and [Read-after-write consistency](references/core/read-after-write.md) | selected language's **error-handling.md** |
@@ -111,7 +112,8 @@ Default durable application state to typed Flow Attributes and AttributeMaps,
 not to a new database dependency. Prefer a stable domain/entity Flow when Dex
 can own facts shared by multiple processes; cross-Flow reuse is an
 ownership-design question, not by itself a storage gap. Use indexed Attributes
-and Dex search for supported lookup paths, typed RPCs for reads and mutations,
+and Dex search for supported lookup paths, the Client Attribute read or typed
+read-only RPCs for reads, typed RPCs for mutations,
 Channels for queued intent, bounded AttributeMap chunks or partitions for
 growing collections, and Dex blob storage for large values. Assign application indexes explicit
 generic typed slots shared across Flow types; keep business names on Attributes.
@@ -135,7 +137,7 @@ Deduplicate root Flow starts with Dex start identity, not an application-owned d
 
 At application boundaries, preserve typed Dex failures until domain policy can distinguish business rejection, a closed-Flow race, a retryable service failure, and a local defect. Reconcile a not-active result from existing authoritative state; inspect the Flow only when an otherwise unknown terminal distinction changes the outcome. Use retained Streams only for best-effort observation, never as authoritative business state.
 
-For terminal business reads, apply the [terminal read RPC rule](references/core/error-handling.md#terminal-read-rpc-rule): inspect RPC options and handler effects, read retained state through a typed read-only RPC, and never replace that snapshot with historical Step-output decoding. Verify this path with the [terminal entity read integration scenario](references/core/testing.md#terminal-entity-reads).
+For terminal business reads, apply the [terminal read RPC rule](references/core/error-handling.md#terminal-read-rpc-rule): inspect RPC options and handler effects, read retained state through a Client Attribute read or a typed read-only RPC, and never replace that snapshot with historical Step-output decoding. Verify this path with the [terminal entity read integration scenario](references/core/testing.md#terminal-entity-reads).
 
 Prefer the nearest official pattern to an ad hoc coordination loop. Preserve its Flow shape while replacing the domain and integrations. When changing a Go, Python, or TypeScript Flow, use `dexcli visualize SOURCE` after the shape is explicit; the visualizer does not currently support Java or Rust. In local development, as soon as the first graph renders, write it to a `--flow-rendering-dir`, start a long-lived `dexcli dev` for the user with that directory, and share the Dex Web URL before continuing; keep it running while you implement and test on separate isolated stacks.
 

@@ -106,14 +106,14 @@ Write interruption intent to an Attribute through an RPC and check it at bounded
 ## Responsive update
 
 - **Step completion**: wait for a selected named Step to commit when the caller needs durable acceptance before full Flow completion.
-- **Attribute match**: wait for an application-owned revision Attribute to advance, then reload canonical state through a Describe or read RPC.
+- **Attribute match**: wait for an application-owned revision Attribute to advance, then reload canonical state through a [Client Attribute read](primitives.md#read-attributes-from-outside-a-flow), a Describe RPC, or a read RPC.
 - **Stream**: publish low-latency progress when loss or duplication is acceptable; reload durable Attributes for canonical state.
 
 Use Channels for durable commands, Attributes for durable state, and Streams for best-effort progress.
 
 Initialize the revision to zero. Every Step and RPC that advances the represented state must declare the same Attribute lock, then read, increment, and write the revision inside that invocation. Do not advance it through concurrent Client Attribute writes.
 
-Call **WaitForAttributeMatch** with greater-than and the last observed revision. The wait returns the current matched revision; use that value as the next watermark, then call the application's Describe or read RPC. A rapid `0 → 1 → 2 → 3` transition may return `3` from one wait for greater than `0`. This is coalescing, not an event stream, and it does not expose Flow history or run IDs. WaitForAttributeMatch rejects [hard-delete Attributes](data-handling.md#hard-delete-attributes-for-short-lived-secrets); keep the revision in a regular Attribute and read the hard-delete value through a typed RPC when a caller needs it.
+Call **WaitForAttributeMatch** with greater-than and the last observed revision. The wait returns the current matched revision; use that value as the next watermark, then read canonical state with a Client Attribute read or the application's Describe or read RPC. A rapid `0 → 1 → 2 → 3` transition may return `3` from one wait for greater than `0`. This is coalescing, not an event stream, and it does not expose Flow history or run IDs. WaitForAttributeMatch rejects [hard-delete Attributes](data-handling.md#hard-delete-attributes-for-short-lived-secrets); keep the revision in a regular Attribute and read the hard-delete value through a Client Attribute read or a typed RPC when a caller needs it.
 
 Request IDs are optional for both waits, and server-zd does not use a wait's Request ID. A wait reads current committed state, so repeating it is safe. The SDK automatically reattaches transport long polls.
 
@@ -125,7 +125,7 @@ String and Boolean Attributes support equal and not-equal. Integer and floating-
 
 ## Entity store
 
-Represent one entity lifecycle as a Flow, keep its current state in Attributes, mutate it through RPCs or Channels, and synchronize selected Attributes to an application-owned relational schema when external queries need them. Define optimistic concurrency, deletion, retention, and open-Flow compatibility. A store with a `rowKey` template can key the projected row by the entity's business ID taken from the Flow ID, and an AttributeMap table can project the entity's keyed records as rows of their own. Choose the Flow ID format and the template together; see [row keys, column names, and AttributeMap tables](data-handling.md#row-keys-column-names-and-attributemap-tables).
+Represent one entity lifecycle as a Flow, keep its current state in Attributes, mutate it through RPCs or Channels, read stored state through a Client Attribute read or a read-only RPC, and synchronize selected Attributes to an application-owned relational schema when external queries need them. Define optimistic concurrency, deletion, retention, and open-Flow compatibility. A store with a `rowKey` template can key the projected row by the entity's business ID taken from the Flow ID, and an AttributeMap table can project the entity's keyed records as rows of their own. Choose the Flow ID format and the template together; see [row keys, column names, and AttributeMap tables](data-handling.md#row-keys-column-names-and-attributemap-tables).
 
 ## Partitioned AttributeMap state
 
@@ -151,4 +151,4 @@ Sources:
 - Polling: https://docs.superdurable.io/design-patterns/polling
 - Sequential chunking: https://docs.superdurable.io/design-patterns/sequentially-chunked-attribute-map
 - Hash partitioning: https://docs.superdurable.io/design-patterns/hash-partitioned-attribute-map
-- Baseline runnable implementations: https://github.com/superdurable/dex/tree/sdk-go/v1.26.0/examples
+- Baseline runnable implementations: https://github.com/superdurable/dex/tree/sdk-go/v1.29.0/examples

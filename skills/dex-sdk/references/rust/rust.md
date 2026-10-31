@@ -1,6 +1,6 @@
 # Rust SDK guide
 
-The SDK API reference uses the [released v1.25.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current error API.
+The SDK API reference uses the [released v1.26.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current error API.
 
 Use this page first for every Rust application task. Then load only the topic pages needed by the request. The examples on this page are pinned to the Dex source baseline recorded by this skill.
 

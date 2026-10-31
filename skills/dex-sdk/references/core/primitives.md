@@ -84,7 +84,7 @@ Docs: https://docs.superdurable.io/primitives/channel
 
 ## RPC
 
-Use an RPC for every application read or write of Flow-owned Attribute, AttributeMap, Channel, or ChannelMap state. RPC handlers may return snapshots, update or delete Attributes, and publish, list, move, or delete pending Channel messages. Protect shared mutations with Attribute locks when they can race with Steps or other RPCs.
+Use an RPC for every application write of Flow-owned Attribute, AttributeMap, Channel, or ChannelMap state. Use a read-only RPC for a read that needs Flow code, pending Channel messages, or a whole AttributeMap. Read stored Attribute values directly with the Client's [Attribute read](#read-attributes-from-outside-a-flow) where the SDK has it. RPC handlers may return snapshots, update or delete Attributes, and publish, list, move, or delete pending Channel messages. Protect shared mutations with Attribute locks when they can race with Steps or other RPCs.
 
 Use a Channel instead when the caller should enqueue work without synchronous application-level handling.
 
@@ -94,9 +94,9 @@ Use a lifecycle API when a response needs current execution status. A read-only 
 
 Do not search for a Run ID before an ordinary read-only RPC. Omit an optional Run ID so the Server resolves and pins the current execution for that invocation. Supply one only when the application must target an exact execution across Flow ID reuse.
 
-Keep application read models cohesive. When one page needs conversation Attributes, a description, and pending queues, prefer one read-only snapshot RPC that explicitly loads those collections over several independently timed requests.
+Keep application read models cohesive. When one page needs conversation Attributes, a description, and pending queues, prefer one read-only snapshot RPC that explicitly loads those collections over several independently timed requests. When a view needs only stored Attributes and exact AttributeMap instances, one Client Attribute read call serves it.
 
-When one response requires multiple Attributes or AttributeMap instances, assemble it in one dedicated read-only RPC rather than issuing sequential Client reads. Select only the required map instances so the invocation has one coherent read boundary and avoids repeated round trips. Keep separate views as separate RPCs; do not combine unrelated read models merely to reduce calls.
+When one response requires multiple Attributes or AttributeMap instances, read them in one Client Attribute read call or assemble them in one dedicated read-only RPC. Do not issue sequential Client reads. Select only the required map instances so the invocation has one coherent read boundary and avoids repeated round trips. Keep separate views as separate RPCs; do not combine unrelated read models merely to reduce calls.
 
 Select transactional execution when an RPC must atomically validate a pending Channel message ID and commit its deletion with other Flow-state writes. Handle the Channel-message-not-found error as a stale queue view and refresh before retrying.
 
@@ -144,6 +144,49 @@ Docs: https://docs.superdurable.io/primitives/subflow
 
 ## Client
 
-Use the Client at application boundaries to start, stop, inspect, search, invoke typed Flow RPCs, wait for Attribute matches, consume Streams, and manage Flow lifecycle. Do not model application state access with removed direct Attribute or Channel Client methods. Handle typed SDK failures for duplicate starts, missing Flows, closed Flows, lock conflicts, missing messages, long-poll expiry, and uncompleted closure.
+Use the Client at application boundaries to start, stop, inspect, search, read committed Attributes, invoke typed Flow RPCs, wait for Attribute matches, consume Streams, and manage Flow lifecycle. The Client has no direct Attribute write, Channel publication, or pending-message method; write through typed RPCs or Channels. Handle typed SDK failures for duplicate starts, missing Flows, closed Flows, lock conflicts, missing messages, long-poll expiry, and uncompleted closure.
+
+### Read Attributes from outside a Flow
+
+Read committed Attribute values from outside a Flow with the Client Attribute read API. Go has **Client.GetAttributes** from Go SDK v1.25.0. Python has **Client.get_attributes** and **AsyncClient.get_attributes** from Python SDK v1.29.0. TypeScript has **Client.getAttributes** from TypeScript SDK v1.29.0. The Java and Rust SDKs do not have this API yet; read Flow state there through a typed read-only RPC. Inside a Step or RPC handler, read through the Context, never through a Client.
+
+- **One server read.** The Client sends every requested key in one request, so all values come from the same commit.
+- **No Worker.** Dex serves the read itself. It uses no Worker capacity and works while no Worker is available for the Flow type.
+- **Closed runs.** The call reads the current run, or the latest run when no run is open. A closed run stays readable until Dex purges it. The call takes no run ID.
+- **Committed state only.** Unlike an Attribute read inside an RPC handler, the call never sees writes that a running Step or RPC has staged but not committed. Hard-delete values are no exception: the call returns only committed values.
+- **Batch only.** There is no single-Attribute method. Pass every Attribute and AttributeMap instance the response needs in one call. To read one value, pass one read. Never issue one call per Attribute.
+- **Exact keys.** Each read is a singleton Attribute or one exact AttributeMap instance. The call cannot enumerate an AttributeMap and does not read Channels.
+- **Registered definitions.** Each definition must be registered by some Flow in the Client's Registry. Go and Python compare by value: the same name, Attribute or AttributeMap kind, index, Attribute Store sync, hard-delete setting, and value type. TypeScript requires the exact registered definition object. Dex reads the key by name and does not check that the target Flow type declares it, so a same-named Attribute with another value type fails to decode.
+- **Values.** The Client hydrates large values through LoadBlobs and its BlobCache before decoding. Hard-delete Attributes are readable; Dex resolves their values, and the SDK never caches them.
+- **Not a wait or a status.** Use Attribute match to wait for a value, and DescribeFlow for lifecycle status.
+
+Each SDK represents an unset Attribute or AttributeMap instance in its own way:
+
+| SDK | Call shape | Unset value |
+| --- | --- | --- |
+| Go | `client.GetAttributes(ctx, flowID, dex.ReadAttribute(orderStatus, &status), dex.ReadAttributeMapInstance(notes, "n1", &note))` | The destination is unchanged. `AttributeReadResult.IsSet` or `IsMapInstanceSet` reports false. |
+| Python | `values = client.get_attributes(flow_id, ORDER_STATUS, NOTES.instance("n1"))` | The key is absent from `AttributeValues`. `values[key]` raises `KeyError`, `values.get(key, default)` returns the default, and `key in values` is false. A stored value that decodes to `None` is present. |
+| TypeScript | `const [status, note] = await client.getAttributes(flowId, orderStatus, notes.instance("n1"))` | The tuple element is `undefined`. Writing `null` or `undefined` deletes the value, so it then reads as `undefined`. |
+| Java, Rust | Not available yet | Use a typed read-only RPC. |
+
+Errors are typed and name the Flow ID:
+
+- A missing Flow, or a latest run that is being purged, returns the SDK's Flow-not-found error, not the combined missing-or-inactive error. Closure is not an error. At a business Get boundary, return the contract's not-found result directly, as the [missing query target rule](error-handling.md#missing-query-targets) requires.
+- A definition that no registered Flow declares, or one whose value type differs, returns the SDK's Flow definition error before any request.
+- A value that cannot be decoded returns the SDK's value mapping error. When LoadBlobs omits a large value, Python and TypeScript also return their value mapping error, while Go returns a plain error.
+- An empty Flow ID, no reads, or a duplicate read fails before any request: a plain error in Go, `ValueError` or `TypeError` in Python, and `TypeError` in TypeScript.
+- A failed FlowService or LoadBlobs request is a service error: Go `*dex.ServiceError` or a concrete error wrapping it, Python `DexServiceError` (`FlowNotFoundError` when LoadBlobs reports a missing Flow), and TypeScript `DexServiceError` with operation `loadBlobs`. In Go, a failure that is not a gRPC status, such as a context error or an invalid response, is a plain error.
+- On any error, the call returns no values and, in Go, writes no destination.
+
+Choose GetAttributes when the caller needs the stored values of known Attributes or exact AttributeMap instances as they are. Typical uses are an entity snapshot API, a status page, a read after closure, and a read that must not depend on Worker availability. It has lower latency than an RPC because no Worker is dispatched.
+
+Choose a typed read-only RPC when:
+
+- Flow code must compute, validate, or reshape the response;
+- the response needs pending Channel or ChannelMap messages, or every instance of an AttributeMap;
+- the read must exclude concurrent writers through an Attribute lock, which requires an active Flow;
+- the SDK is Java or Rust.
+
+Write through typed RPCs or Channels; the Client has no direct Attribute write. Existing read-only RPCs keep working, and applications can replace pure-read RPCs at their own pace. Language details: [Go](../go/primitives.md#client-attribute-reads), [Python](../python/primitives.md#client-attribute-reads), [TypeScript](../typescript/primitives.md#client-attribute-reads), [Java](../java/primitives.md#client-interaction), and [Rust](../rust/primitives.md#client).
 
 Docs: https://docs.superdurable.io/primitives/client

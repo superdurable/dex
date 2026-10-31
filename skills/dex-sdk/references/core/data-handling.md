@@ -8,9 +8,11 @@ For a Dex application, begin with Dex as the durable system of record for every
 fact its Flow model can own. A cohesive process snapshot belongs in typed
 Attributes. Dynamically keyed or independently loaded records belong in
 AttributeMaps using stable instances, bounded chunks, or fixed partitions.
-Use indexed Attributes and Dex search for the lookup paths they support, typed
-RPCs for application reads and mutations, Channels for queued intent, and the
-built-in blob path for large values.
+Use indexed Attributes and Dex search for the lookup paths they support, the
+[Client Attribute read](primitives.md#read-attributes-from-outside-a-flow) for
+direct reads of stored Attributes, typed RPCs for application mutations and
+reads that need Flow code, Channels for queued intent, and the built-in blob
+path for large values.
 
 Data shared by several processes does not automatically need a database. Give
 shared facts one stable domain/entity Flow owner and expose typed application
@@ -46,6 +48,8 @@ The SDK hydrates each blob-backed value before application code uses it:
 
 [Hard-delete Attributes](#hard-delete-attributes-for-short-lived-secrets) skip this path: handlers receive their values inline, and the SDK never stores them in the BlobCache.
 
+The [Client Attribute read](primitives.md#read-attributes-from-outside-a-flow) uses the same path in the Client: it hydrates blob-backed values through LoadBlobs and the Client's BlobCache before decoding them.
+
 A cache hit avoids another remote blob fetch. It still incurs local cache reading and decoding. Treat the BlobCache as disposable acceleration; Dex remains the durable source of truth.
 
 Create one cache-owned, writable directory per Worker replica. Share the opened BlobCache between that process's Worker and Client when the SDK supports it, size it for the hot set, and close it after both stop. A persistent volume can preserve entries across process restarts, but correctness must not depend on that volume or on cache admission.
@@ -70,7 +74,7 @@ Check these constraints before choosing it:
 
 - Only string and object values are supported, including bytes. Definitions reject numeric and Boolean value types. When the declared type is broader, a write that encodes a number or Boolean fails. Null is always allowed. To store a numeric secret, such as a one-time code, wrap it in an object type with one field.
 - The option cannot be combined with an index or Attribute Store sync. A hard-delete value therefore never appears in Dex search or an external projection.
-- WaitForAttributeMatch rejects a hard-delete Attribute, and Action conditions cannot use one. When a caller needs the value, read it through an RPC.
+- WaitForAttributeMatch rejects a hard-delete Attribute, and Action conditions cannot use one. When a caller needs the value, read it through the [Client Attribute read](primitives.md#read-attributes-from-outside-a-flow) where the SDK has it, or through an RPC. That read returns the committed value, and the SDK never caches it. Return it only to callers authorized to hold the secret.
 - It requires SDK v1.11.0 or later.
 - SDKs fail closed against an older Server. A Worker fails the Step, RPC, or timeout-handler result that writes a hard-delete Attribute or starts a SubFlow with one. A Client fails a StartFlow that carries a hard-delete initial value.
 - On server-zd, a SubFlow whose initial Attributes include a hard-delete Attribute needs v0.1.10 or later. Earlier releases could stop the node on that start.

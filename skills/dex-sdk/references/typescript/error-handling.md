@@ -1,6 +1,6 @@
 # TypeScript error handling
 
-Before designing sequential writes and reads, use the [shared read-after-write matrix](../core/read-after-write.md). A typed read-only RPC issued after a successful direct-state RPC write observes that write when it loads the written state; search indexes, Attribute Store projections and triggered business completion are separate. Follow this page for the language-specific error and timeout model.
+Before designing sequential writes and reads, use the [shared read-after-write matrix](../core/read-after-write.md). A typed read-only RPC or `client.getAttributes` call issued after a successful direct-state RPC write observes that write when it reads the written state; search indexes, Attribute Store projections and triggered business completion are separate. Follow this page for the language-specific error and timeout model.
 
 ## Worker handler failures
 
@@ -20,7 +20,7 @@ For an idempotent start, set one stable `StartFlowOptions.requestId` and `ignore
 
 For an explicitly best-effort external `client.writeStream`, log sanitized identity and discard only an `instanceof DexServiceError` failure. Rethrow other values so codec, definition, and programming defects remain visible.
 
-[Pinned example error classification](https://github.com/superdurable/dex/blob/sdk-typescript/v1.28.0/examples/typescript/src/service-errors.ts)
+[Pinned example error classification](https://github.com/superdurable/dex/blob/sdk-typescript/v1.29.0/examples/typescript/src/service-errors.ts)
 <!-- dex-source: examples/typescript/src/service-errors.ts -->
 ```typescript
 export function isFlowAlreadyStarted(error: unknown): boolean {
@@ -39,15 +39,17 @@ The runnable examples classify with the exported concrete errors and treat `Flow
 
 ## Flow close cleanup
 
-From TypeScript SDK v1.20.0 or later, narrow the caught value with `instanceof FlowClosingError` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error](https://github.com/superdurable/dex/blob/sdk-typescript/v1.28.0/sdk-typescript/src/errors.ts)
+From TypeScript SDK v1.20.0 or later, narrow the caught value with `instanceof FlowClosingError` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error](https://github.com/superdurable/dex/blob/sdk-typescript/v1.29.0/sdk-typescript/src/errors.ts)
 
 ## Closed-Flow races
 
-Follow the shared [closed-Flow race rule](../core/error-handling.md#closed-flow-races). `FlowNotActiveOrNotFoundError` from a mutation says it found no active target; it does not say the requested action succeeded. First reconcile from authoritative domain state and operation invariants. Call `await client.describeFlow(flowId)` only when an otherwise unknown terminal distinction changes the outcome. It reads the current or latest run without waiting. It resolves to `FlowInfo` with `flowId`, `runId`, `flowType`, `status`, and `startedAt`; it has no close time. Treat status `"completed"` as idempotent success only when successful completion guarantees the requested condition. For another terminal status or a `FlowNotFoundError`, return an explicit domain failure or unknown outcome. An incomplete server summary rejects with `TypeError`. If the Flow still appears running, query its domain state before a bounded, idempotent retry. [Released Client](https://github.com/superdurable/dex/blob/sdk-typescript/v1.28.0/sdk-typescript/src/client.ts) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-typescript/v1.28.0/sdk-typescript/src/options.ts)
+Follow the shared [closed-Flow race rule](../core/error-handling.md#closed-flow-races). `FlowNotActiveOrNotFoundError` from a mutation says it found no active target; it does not say the requested action succeeded. First reconcile from authoritative domain state and operation invariants. Call `await client.describeFlow(flowId)` only when an otherwise unknown terminal distinction changes the outcome. It reads the current or latest run without waiting. It resolves to `FlowInfo` with `flowId`, `runId`, `flowType`, `status`, and `startedAt`; it has no close time. Treat status `"completed"` as idempotent success only when successful completion guarantees the requested condition. For another terminal status or a `FlowNotFoundError`, return an explicit domain failure or unknown outcome. An incomplete server summary rejects with `TypeError`. If the Flow still appears running, query its domain state before a bounded, idempotent retry. [Released Client](https://github.com/superdurable/dex/blob/sdk-typescript/v1.29.0/sdk-typescript/src/client.ts) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-typescript/v1.29.0/sdk-typescript/src/options.ts)
 
 ## Query-only Get failures
 
 Follow the shared [missing query target rule](../core/error-handling.md#missing-query-targets). For a business Get confirmed to have no registration or invocation locks, no transaction, no returned durable effects, and no Server policy that runs every RPC transactionally, catch `FlowNotActiveOrNotFoundError` or `FlowNotFoundError` with `instanceof` and return the contract's not-found result directly. Retained closed executions remain readable, so do not call WaitForFlow, describe/search/history APIs, or add a timeout probe or retry to distinguish missing from closed. Preserve other errors and any explicit retention/unavailable contract. Do not apply this translation to mutations or active-only RPC paths.
+
+A business Get that reads with `client.getAttributes` translates `FlowNotFoundError` the same way. That call never rejects with `FlowNotActiveOrNotFoundError`, because a closed run stays readable until purge. Let `FlowDefinitionError`, `ValueMappingError`, and `TypeError` stay visible as local defects. See [Client Attribute reads](primitives.md#client-attribute-reads) for the full error list.
 
 ## Async discipline
 

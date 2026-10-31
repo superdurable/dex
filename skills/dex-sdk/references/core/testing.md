@@ -19,7 +19,7 @@ Use deadline-based polling or the SDK's long-poll result API. Do not use a fixed
 - Invoke read-only and mutating RPCs. After terminal status, verify query-only reads, not-active rejection of a non-transactional RPC's returned effects, and rejection of transactional or locked RPCs before handler execution. For transactional RPCs, verify all effects commit or none do.
 - Fire and skip Timers where supported; verify the business deadline and timeout-handler path.
 - Exercise parallel branches and SubFlows with a deliberate failure and cancellation policy.
-- Lose or reconnect a Stream consumer and recover canonical state through a typed snapshot RPC.
+- Lose or reconnect a Stream consumer and recover canonical state through a typed snapshot RPC or a Client Attribute read.
 - Retry the same logical start with the same Flow ID and Request ID and verify it attaches or converges without duplicate effects.
 - Start the same Flow ID with a different Request ID and assert the language SDK's typed conflict.
 - Make start acceptance ambiguous, retry with the same identities, and verify correctness without an application-owned start-deduplication table.
@@ -60,6 +60,8 @@ For an operation that launches separately owned work, run a real-server applicat
 For every Flow-owned business entity whose contract permits reads after closure, run a real Dex Server integration test with the application's registry, Worker, and Server routing policy. Persist the final business snapshot, close the Flow, establish terminal status in the test harness, then call its typed `Get*` read-only RPC directly through the application read boundary. Cover each readable terminal outcome supported by the entity contract and assert the returned snapshot includes the final committed Attributes/AttributeMaps.
 
 For a nonexistent Flow ID, call the same query-only Get through the real application boundary and assert its typed missing/not-active error becomes the declared not-found result directly. Assert no lifecycle/status probe, search, history call, retry, or short-timeout wait is issued. Keep a Worker/service failure case distinct from not-found, and cover the application's retention/unavailable contract when relevant.
+
+When the Get reads through the [Client Attribute read](primitives.md#read-attributes-from-outside-a-flow), run the same scenarios with no Worker running after closure. Assert the closed run returns the final committed values, an unset Attribute or map instance uses the language's unset representation, and a nonexistent Flow ID returns the SDK's Flow-not-found error translated to the not-found result.
 
 Also assert that the business read performs no `WaitForFlow`, history lookup, or historical Step-output decoding. A test-side spy/counter or a guard that fails on those calls may observe the real Client boundary; keep the snapshot RPC on the real Server/Worker path. A harness wait used to establish closure is allowed and must be counted separately. A mock-only test or a handler invoked directly cannot prove terminal query support. If production policy forces active-only RPC execution, resolve that conflict explicitly before claiming the entity remains terminal-readable; do not make a history fallback pass the test.
 

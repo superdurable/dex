@@ -85,3 +85,5 @@ Return `StepDecision.goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `fo
 ## Client interaction
 
 Use `startFlow` for a new execution, `waitForFlow` for terminal status, a typed RPC stub for Flow-owned Attribute and Channel state, and Attribute match for blocking observation. Direct Client state methods are not part of the application API. Use bounded waits at service boundaries and continue polling after a long-poll timeout. `searchFlows` is for indexed discovery, not coordination.
+
+The Java SDK does not have the Client Attribute read API yet; the Go, Python, and TypeScript SDKs have it. To read Flow state from outside a Flow in Java, define a typed read-only RPC without Attribute locks, transactional execution, or returned durable effects, and invoke it through the Client. That RPC dispatches to a Worker, so it needs an available Worker, and it can read a retained closed run. Do not call the FlowService GetAttributes RPC through the generated protocol bindings; that skips the SDK's definition checks, typed decoding, and large-value hydration. See the shared [Attribute read rules](../core/primitives.md#read-attributes-from-outside-a-flow).

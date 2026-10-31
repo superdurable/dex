@@ -26,15 +26,22 @@ database, cache, or ORM.
 - Use AttributeMaps with exact instance loads for independently accessed
   records, bounded chunks, partitions, and keyed entities.
 - Use indexed Attributes and Dex search for supported list and lookup paths,
-  typed RPCs for application reads and mutations, Channels for queued intent,
-  and Dex's blob path for large durable values.
+  typed RPCs for application mutations, Channels for queued intent, and Dex's
+  blob path for large durable values.
+- Read committed Attributes and exact AttributeMap instances from the
+  application API with Go `Client.GetAttributes`, in one call per response. It
+  needs no Worker and reads a closed run until purge. Use a typed read-only RPC
+  instead when Flow code must compute the response or it needs pending Channel
+  messages or a whole AttributeMap. Follow the SDK
+  [Attribute read rules](../../dex-sdk/references/core/primitives.md#read-attributes-from-outside-a-flow)
+  and the Go [Client Attribute reads](../../dex-sdk/references/go/primitives.md#client-attribute-reads).
 - When a Flow must carry a short-lived secret, such as an API key supplied at
   start, use a Go
   [hard-delete Attribute](../../dex-sdk/references/go/data-handling.md#hard-delete-attributes)
   and delete it after its last use. Never index it, sync it, use it in an Action
   condition, or expose it in Summary, Display, or anything else Dex Web shows to
-  users. Return it only from an RPC whose callers are authorized to hold the
-  secret. Model the Step to request a fresh secret when the value is absent.
+  users. Return it only from an RPC or a `Client.GetAttributes` read whose
+  callers are authorized to hold the secret. Model the Step to request a fresh secret when the value is absent.
 - When several processes need the same durable domain facts, prefer a dedicated
   stable domain/entity Flow that owns those Attributes or AttributeMaps and
   exposes typed application operations. Cross-Flow reuse alone is not a reason
