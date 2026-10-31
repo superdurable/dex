@@ -4,6 +4,15 @@
 
 ### Added and fixed
 
+- Add `Client.getAttributes(flowId, ...reads)`, which reads committed values of
+  registered Attributes and AttributeMap instances in one request, without an
+  RPC or Worker. It returns a typed tuple in read order whose elements are
+  `T | undefined`. Add `AttributeMap.instance(key)`, the `AttributeMapInstance`
+  class, and the `AttributeRead` and `AttributeReadValues` types for it.
+- Add `DexServiceErrorOptions`, which lets a `DexServiceError` carry a message
+  with call context while `detail` keeps the unchanged service detail. The
+  `DexServiceError` and `WorkerInvocationError` constructors accept it in place
+  of `ErrorOptions`; existing calls are unchanged.
 - Add `Context.deadline`, an absolute UTC Date for the current Step method attempt; RPC handlers return `undefined`.
 - Make `AsyncContext.recordHeartbeat` reject its returned Promise for every failure, including inactive tasks and closed streams, instead of throwing synchronously. A caller that does not await or catch the Promise now sees an unhandled rejection, which terminates a Node.js process by default; await `recordHeartbeat` or attach a rejection handler.
 - Register multiple instances of one Step class under distinct Step types.

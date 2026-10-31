@@ -54,6 +54,25 @@ export const FlowErrorType = Object.freeze({
 /** Represents a value from {@link FlowErrorType}. */
 export type FlowErrorType = (typeof FlowErrorType)[keyof typeof FlowErrorType];
 
+/**
+ * Configures construction of a {@link DexServiceError}.
+ *
+ * It extends the standard Error options with an optional message. Use it when the message must add
+ * call context, such as a Flow ID or Attribute keys, while `detail` keeps the unchanged service
+ * detail.
+ *
+ * @example
+ * ```ts
+ * const error = new DexServiceError(status.UNAVAILABLE, ErrorSubStatus.UNCATEGORIZED,
+ *   "connection refused", "getAttributes", "order-42",
+ *   { message: "getAttributes Flow order-42: connection refused" });
+ * ```
+ */
+export interface DexServiceErrorOptions extends ErrorOptions {
+  /** Error message. Defaults to `detail` when omitted. */
+  readonly message?: string;
+}
+
 /** Exposes structured metadata returned by a failed FlowService operation. */
 export class DexServiceError extends Error {
   /**
@@ -63,7 +82,8 @@ export class DexServiceError extends Error {
    * @param detail - Human-readable service detail.
    * @param operation - Client operation that failed.
    * @param flowId - Target Flow ID, or `undefined` for service-wide calls.
-   * @param options - Standard Error construction options.
+   * @param options - Standard Error construction options, plus an optional message that defaults
+   * to `detail`.
    */
   public constructor(
     public readonly code: status,
@@ -71,9 +91,9 @@ export class DexServiceError extends Error {
     public readonly detail: string,
     public readonly operation: string,
     public readonly flowId: string | undefined,
-    options?: ErrorOptions,
+    options?: DexServiceErrorOptions,
   ) {
-    super(detail, options);
+    super(options?.message ?? detail, options);
     this.name = new.target.name;
   }
 }
@@ -141,7 +161,8 @@ export class WorkerInvocationError extends DexServiceError {
    * @param workerCode - Nested Worker gRPC status, when available.
    * @param workerErrorType - Worker-reported application error type.
    * @param workerErrorDetail - Worker-reported human-readable detail.
-   * @param options - Standard Error construction options.
+   * @param options - Standard Error construction options, plus an optional message that defaults
+   * to `detail`.
    */
   public constructor(
     code: status,
@@ -152,7 +173,7 @@ export class WorkerInvocationError extends DexServiceError {
     public readonly workerCode: status | undefined,
     public readonly workerErrorType: string,
     public readonly workerErrorDetail: string,
-    options?: ErrorOptions,
+    options?: DexServiceErrorOptions,
   ) {
     super(code, subStatus, detail, operation, flowId, options);
   }

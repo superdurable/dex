@@ -16,6 +16,7 @@ import {
   Attribute,
   AttributeMatch,
   AttributeMap,
+  AttributeMapInstance,
   AttributeMapNotLoadedError,
   ApiKeyCredential,
   Channel,
@@ -41,6 +42,9 @@ import {
   rpc,
   stringCodec,
   voidCodec,
+  type AttributeMapLoad,
+  type AttributeRead,
+  type AttributeReadValues,
   type BlobCache,
   type AsyncContext,
   type Context,
@@ -1037,6 +1041,12 @@ test("persistence definitions and map instances reserve slash", () => {
   assert.throws(() => messages.forOne("orders/by-id"), /map instances must not contain/);
   const items = new AttributeMap("items", stringCodec);
   assert.throws(() => items.lock("orders/by-id"), /map instances must not contain/);
+  assert.throws(() => items.instance("orders/by-id"), /map instances must not contain/);
+  assert.throws(() => items.instance(""), TypeError);
+  const selection = items.instance("order-1");
+  assert.ok(selection instanceof AttributeMapInstance);
+  assert.equal(selection.attributeMap, items);
+  assert.equal(selection.instance, "order-1");
 });
 
 test("blob cache contract opens the native DXBC cache", () => {
@@ -1114,6 +1124,76 @@ async function compileStrongTypes(client: Client): Promise<void> {
 }
 
 void compileStrongTypes;
+
+type IsExactType<Actual, Expected> =
+  (<Probe>() => Probe extends Actual ? 1 : 2) extends (<Probe>() => Probe extends Expected ? 1 : 2)
+    ? true
+    : false;
+
+function assertExactType<Actual, Expected>(
+  ..._proof: IsExactType<Actual, Expected> extends true ? [] : [never]
+): void {}
+
+interface ContractNote {
+  readonly text: string;
+}
+
+async function compileGetAttributesTypes(
+  client: Client,
+  unionRead: AttributeRead<ContractNote>,
+  mixedRead: Attribute<bigint> | AttributeMapInstance<string>,
+  dynamicReads: readonly AttributeRead<string>[],
+): Promise<void> {
+  const orderStatus = new Attribute("order-status", stringCodec);
+  const retries = new Attribute("retries", int64Codec);
+  const notes = new AttributeMap("notes", jsonCodec<ContractNote>());
+  const secret = new Attribute("secret", stringCodec).hardDeleteOnNull();
+
+  const [status, note] = await client.getAttributes("order-1", orderStatus, notes.instance("n1"));
+  assertExactType<typeof status, string | undefined>();
+  assertExactType<typeof note, ContractNote | undefined>();
+
+  const single = await client.getAttributes("order-1", retries);
+  assertExactType<typeof single, [bigint | undefined]>();
+
+  const mixed = await client.getAttributes("order-1", retries, secret, notes.instance("n2"), orderStatus);
+  assertExactType<typeof mixed, [bigint | undefined, string | undefined, ContractNote | undefined, string | undefined]>();
+
+  const selection: AttributeMapInstance<ContractNote> = notes.instance("n3");
+  const read: AttributeRead<ContractNote> = selection;
+  const [selected] = await client.getAttributes("order-1", read);
+  assertExactType<typeof selected, ContractNote | undefined>();
+  const [unionValue, mixedValue] = await client.getAttributes("order-1", unionRead, mixedRead);
+  assertExactType<typeof unionValue, ContractNote | undefined>();
+  assertExactType<typeof mixedValue, bigint | string | undefined>();
+  const firstRead: AttributeRead<string> = orderStatus;
+  const dynamic = await client.getAttributes("order-1", firstRead, ...dynamicReads);
+  assertExactType<typeof dynamic, [string | undefined, ...(string | undefined)[]]>();
+  assertExactType<
+    AttributeReadValues<[Attribute<string>, AttributeMapInstance<ContractNote>]>,
+    [string | undefined, ContractNote | undefined]
+  >();
+
+  // @ts-expect-error getAttributes requires at least one read.
+  await client.getAttributes("order-1");
+  // @ts-expect-error A plain array may be empty; pass its first read separately.
+  await client.getAttributes("order-1", ...dynamicReads);
+  // @ts-expect-error An AttributeMap read requires an instance selection.
+  await client.getAttributes("order-1", notes);
+  // @ts-expect-error A handler snapshot load is not an Attribute read; use notes.instance("n1").
+  await client.getAttributes("order-1", notes.load("n1"));
+  // @ts-expect-error An object literal is not an AttributeMapInstance.
+  await client.getAttributes("order-1", { attributeMap: notes, instance: "n1" });
+  const snapshotLoad: AttributeMapLoad = notes.instance("n1");
+  void snapshotLoad;
+  // @ts-expect-error Channels are not Attribute reads.
+  await client.getAttributes("order-1", commands);
+  // @ts-expect-error The result element is string | undefined, not string.
+  const [requiredStatus]: [string] = await client.getAttributes("order-1", orderStatus);
+  void requiredStatus;
+}
+
+void compileGetAttributesTypes;
 
 function compileRemovedWorkerSettings(worker: Worker): void {
   // @ts-expect-error Worker listeners have been removed.

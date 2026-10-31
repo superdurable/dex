@@ -2,9 +2,33 @@
 
 ## Flow state I/O
 
-Applications read and write Flow state through typed RPCs. The Client does not
-expose direct Attribute reads or writes, Channel publication, or pending-message
-mutation. This keeps each external state transition behind a Flow-owned method.
+Applications write Flow state through typed RPCs. The Client does not expose
+direct Attribute writes, Channel publication, or pending-message mutation. This
+keeps each external state transition behind a Flow-owned method.
+
+`Client.getAttributes` reads committed Attribute values without an RPC. Pass one
+or more registered Attributes, or AttributeMap instances selected with
+`attributeMap.instance(key)`. The call returns a typed tuple in read order, and
+each element is `T | undefined`; `undefined` means the value is not set:
+
+```typescript
+const [status, note] = await client.getAttributes(
+  "order-42",
+  orderStatus,
+  notes.instance("n1"),
+);
+```
+
+- One FlowService request reads every key from the same committed state. No
+  Worker runs, and writes staged by a running RPC or Step are not visible.
+- The call reads the current run, or the latest run when none is open. A closed
+  run stays readable until Dex purges it.
+- Large values are hydrated through LoadBlobs and the BlobCache. Hard-delete
+  Attributes are supported. On any error, the call returns no values.
+- Each definition must be the exact object a Flow in the Client's Registry
+  returns from `getPersistenceSchema`; otherwise the call throws
+  `FlowDefinitionError` before contacting Dex. Duplicate reads and calls with no
+  reads are rejected before contacting Dex.
 
 An RPC can stage `channel.delete(context, messageId)`. Set the decorator option
 `isTransactional: true` when a missing ID must abort all other RPC writes.
@@ -683,7 +707,7 @@ the network path between the application and Dex.
 ## Errors
 
 Client calls reject with concrete `DexServiceError` subclasses. Existing-Flow
-reads (`describeFlow`, `waitForFlow`, and `timeTravel`) use
+reads (`describeFlow`, `getAttributes`, `waitForFlow`, and `timeTravel`) use
 `FlowNotFoundError`; operations that require a running Flow use
 `FlowNotActiveOrNotFoundError`. Start conflicts, worker failures, RPC lock contention,
 and long-poll timeouts use `FlowAlreadyStartedError`,

@@ -289,6 +289,29 @@ export class AttributeMap<T> {
   }
 
   /**
+   * Selects one instance of this AttributeMap for {@link Client.getAttributes}.
+   *
+   * Use the result as one read in a `getAttributes` call. The selection keeps this AttributeMap's
+   * value type, so the matching result element has type `T | undefined`. To load an instance into a
+   * Step, RPC, or timeout-handler snapshot, use {@link AttributeMap.load}.
+   *
+   * @example
+   * ```ts
+   * type Note = { readonly text: string };
+   * const notes = new AttributeMap("notes", jsonCodec<Note>());
+   * const [note] = await client.getAttributes("order-42", notes.instance("n1"));
+   * const text = note?.text ?? "no note yet";
+   * ```
+   * @param instance - Non-empty logical map key. Slash is prohibited because it is a reserved
+   * character. The SDK escapes the key for the protocol.
+   * @returns A new selection of this AttributeMap and `instance`. It does not contact Dex.
+   * @throws {TypeError} When `instance` is empty, contains only whitespace, or contains `/`.
+   */
+  public instance(instance: string): AttributeMapInstance<T> {
+    return new AttributeMapInstance(this, instance);
+  }
+
+  /**
    * Returns the number of existing instances, including buffered writes.
    * @param context - Current Step or RPC Context.
    * @returns The number of keys visible after decision-local writes and deletions.
@@ -427,6 +450,80 @@ export class AttributeMap<T> {
     return { attribute: this as AttributeMap<unknown>, instance };
   }
 }
+
+/**
+ * Selects one AttributeMap instance for {@link Client.getAttributes}.
+ *
+ * Create a selection with {@link AttributeMap.instance}. The selection keeps the AttributeMap's
+ * value type, so `getAttributes` returns `T | undefined` for it. A selection is immutable and can
+ * be reused across calls.
+ *
+ * @example
+ * ```ts
+ * const notes = new AttributeMap("notes", jsonCodec<Note>());
+ * const firstNote: AttributeMapInstance<Note> = notes.instance("n1");
+ * const [note] = await client.getAttributes("order-42", firstNote);
+ * ```
+ * @typeParam T - Value type of the selected AttributeMap.
+ */
+export class AttributeMapInstance<T> {
+  /** Makes the type nominal, so a plain AttributeMapLoad is not accepted as a read. */
+  readonly #isAttributeMapInstance = true;
+
+  /**
+   * Creates a selection of one AttributeMap instance.
+   *
+   * Prefer {@link AttributeMap.instance}, which calls this constructor.
+   * @param attributeMap - AttributeMap definition. {@link Client.getAttributes} requires the exact
+   * definition registered by a Flow in the Client's Registry.
+   * @param instance - Non-empty logical map key. Slash is prohibited because it is a reserved
+   * character.
+   * @throws {TypeError} When `instance` is empty, contains only whitespace, or contains `/`.
+   */
+  public constructor(
+    public readonly attributeMap: AttributeMap<T>,
+    public readonly instance: string,
+  ) {
+    requireMapInstance(instance);
+  }
+}
+
+/**
+ * Selects one value for {@link Client.getAttributes}.
+ *
+ * Pass a singleton {@link Attribute} directly. Select an AttributeMap instance with
+ * {@link AttributeMap.instance}.
+ *
+ * @example
+ * ```ts
+ * const reads: readonly AttributeRead<unknown>[] = [orderStatus, notes.instance("n1")];
+ * ```
+ * @typeParam T - Value type of the selected Attribute or AttributeMap.
+ */
+export type AttributeRead<T> = Attribute<T> | AttributeMapInstance<T>;
+
+/**
+ * Maps a tuple of {@link AttributeRead} values to the result tuple of {@link Client.getAttributes}.
+ *
+ * Each element has the selected value type or `undefined`. `undefined` means the Attribute or
+ * AttributeMap instance is not set. The elements keep the order of the reads.
+ *
+ * @example
+ * ```ts
+ * type Values = AttributeReadValues<[Attribute<string>, AttributeMapInstance<Note>]>;
+ * // Values is [string | undefined, Note | undefined].
+ * ```
+ * @typeParam Reads - Tuple of reads passed to `getAttributes`.
+ */
+export type AttributeReadValues<Reads extends readonly AttributeRead<unknown>[]> = {
+  -readonly [Index in keyof Reads]: Reads[Index] extends infer Read
+    ? Read extends Attribute<infer T>
+      ? T | undefined
+      : Read extends AttributeMapInstance<infer T>
+        ? T | undefined
+        : never
+    : never;
+};
 
 /** Declares the Attributes, Channels, and Streams owned by a Flow type. */
 export interface PersistenceSchema {
