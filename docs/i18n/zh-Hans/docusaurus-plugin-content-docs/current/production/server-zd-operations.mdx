@@ -843,6 +843,7 @@ search:
 
 每个租户有 10 个 Keyword 槽位，Int、Datetime、Double、Bool、KeywordArray 和 Text
 各有 3 个槽位。槽位按注册顺序分配，服务端上的应用共用 registry。
+系统字段（包括 **DexWorkQueuePermissions**）不占用槽位。
 某种类型的槽位用满后，再注册 Attribute 会返回 **FAILED_PRECONDITION**。
 如果已有 registry 超过这些上限，服务端也会拒绝启动。
 registry 没有删除操作，用满后需要使用新的 server。
@@ -850,11 +851,18 @@ registry 没有删除操作，用满后需要使用新的 server。
 索引 Keyword 值以及 KeywordArray 中的每个元素最多包含 1024 个 UTF-8 字节。
 新的写入超过上限时返回 **INVALID_ARGUMENT**。
 如果被拒绝的是 Worker 的 Step 结果，该 Step 会失败。
-对于此前已提交的超长索引值，投影会跳过对应文档并记录 skipped document；
-Flow 状态仍然保持已提交。
+对于此前已提交、存储类型与注册的 Keyword 或 KeywordArray 类型一致的超长值，
+投影会跳过对应文档并记录 skipped document；Flow 状态仍然保持已提交。
+未注册的索引键不会触发这种跳过。
 
 新注册的 Attribute 在槽位回填完成前使用现有 JSONB 查询路径。
-回填期间结果正确，但查询可能较慢。未注册的索引键也使用 JSONB。
+回填期间结果正确，但查询可能较慢。回填分批提交，重启后会继续，
+不会暂停其他分区的投影。未注册的索引键也使用 JSONB。
+**IS NULL**、**IS NOT NULL** 和否定条件根据已存储的键是否存在判断，
+即使存储类型与注册类型不同也如此。Int 和 Double 值保持不同类型。
+KeywordArray 下存储的标量字符串按一个元素匹配。
+一种类型不一致情况采用更严格的结果：Keyword 的肯定条件不匹配已存储的 KeywordArray。
+文档仍可搜索，否定条件保持 builtin evaluator 的结果。
 **!=** 和 **NOT IN** 等否定条件通常无法使用索引。
 显式 **ORDER BY StartTime** 和 **ORDER BY CloseTime** 会对所有匹配行排序，
 开销随匹配行数量增加。
@@ -865,4 +873,5 @@ Text 匹配查询中的所有 term，不按 BM25 相关度排序。
 schema 会记录搜索后端。使用不同后端启动时，服务端会报错。
 在 PostgreSQL 和 ParadeDB 之间切换，需要指定新的 database 或 schema。
 服务端会自动从已提交状态重建搜索投影。
-已有的 ParadeDB 第三版 schema 会原地升级，不清空数据。
+已有的 ParadeDB 第三版 schema 只增加后端标记，不清空数据，也不改变版本号。
+接受 schema 版本 3 的旧版服务端仍可使用它。PostgreSQL 使用 schema 版本 4，旧版服务端会拒绝它。

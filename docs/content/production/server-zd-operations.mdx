@@ -990,6 +990,7 @@ redacts it. The default pool size is 10, and the default schema is **public**.
 
 Each tenant has 10 Keyword slots and 3 slots each for Int, Datetime, Double,
 Bool, KeywordArray, and Text. Registrations take slots in registration order.
+System fields, including **DexWorkQueuePermissions**, do not consume slots.
 The registry is shared by the applications on the server. Registering another
 Attribute after a type reaches its limit returns **FAILED_PRECONDITION**.
 Startup also fails if the existing registry exceeds these limits. The registry
@@ -998,12 +999,20 @@ has no delete operation. A full registry requires a new server.
 An indexed Keyword value or KeywordArray element may contain at most 1024
 UTF-8 bytes. A larger new write returns **INVALID_ARGUMENT**. A rejected
 Worker Step result causes that Step to fail. A previously committed document
-with an oversized indexed value is omitted from search and recorded as a
-skipped document; its Flow state remains committed.
+with an oversized value whose stored type matches its registered Keyword or
+KeywordArray type is omitted from search and recorded as a skipped document.
+Its Flow state remains committed. Unregistered keys do not trigger this skip.
 
 A newly registered Attribute uses the existing JSONB query path until its
 slot backfill finishes. Results stay correct during that window, but queries
-can be slower. Unregistered index keys also use JSONB. Negative predicates,
+can be slower. Backfill commits bounded batches and resumes after a restart.
+It does not pause projection of other partitions. Unregistered index keys also
+use JSONB. **IS NULL**, **IS NOT NULL**, and negations use stored key presence,
+including when the stored type differs from the registered type. Int and Double
+values remain distinct. A scalar string stored under KeywordArray matches as
+one element. One mismatch has a stricter result: positive Keyword predicates
+do not match a stored KeywordArray. The document remains searchable, and
+negations retain the builtin evaluator result. Negative predicates,
 such as **!=** and **NOT IN**, often cannot use an index. Explicit
 **ORDER BY StartTime** and **ORDER BY CloseTime** sort all matching rows.
 Their cost grows with the number of matching rows.
@@ -1015,4 +1024,6 @@ both external search backends.
 A schema records its search backend. Starting with a different backend fails.
 To switch between PostgreSQL and ParadeDB, select a new database or schema.
 The server rebuilds its search projection from committed state automatically.
-Existing ParadeDB version-three schemas upgrade in place without clearing data.
+Existing ParadeDB version-three schemas gain the dialect marker without clearing
+data or changing their version. Older releases that accept schema version 3
+can still use them. PostgreSQL uses schema version 4; older releases reject it.

@@ -7,10 +7,10 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use dexzd_protocol::dex::IndexType;
-use tokio_postgres::types::{ToSql, Type};
-use tokio_postgres::{Client, Transaction};
 #[cfg(test)]
 use tokio_postgres::GenericClient;
+use tokio_postgres::types::{ToSql, Type};
+use tokio_postgres::{Client, Transaction};
 
 use super::AttributeSlot;
 use super::registry::{assignment_from_row, registry_database_error, slot_database_error};
@@ -63,7 +63,8 @@ pub(crate) async fn apply_backfill_batch(
         return Ok(true);
     };
     let bucket = slot_bucket(assignment.index_type);
-    let rows = transaction.query_typed(&format!("SELECT run_id FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND partition_id = $3::integer AND run_id > $4::text AND {} IS NULL AND {bucket} ? $2::text ORDER BY run_id LIMIT $5::bigint", assignment.slot_column), &[
+    let presence = "(sa_keyword ? $2::text OR sa_text ? $2::text OR sa_number ? $2::text OR sa_datetime ? $2::text OR sa_bool ? $2::text)";
+    let rows = transaction.query_typed(&format!("SELECT run_id FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND partition_id = $3::integer AND run_id > $4::text AND {} IS NULL AND {presence} ORDER BY run_id LIMIT $5::bigint", assignment.slot_column), &[
         (&tenant as &(dyn ToSql + Sync), Type::TEXT), (&assignment.index_key, Type::TEXT), (&partition_id, Type::INT4), (&after_run_id, Type::TEXT), (&BACKFILL_BATCH_SIZE, Type::INT8)
     ]).await.map_err(|source| slot_database_error("read backfill batch for", &assignment, source))?;
     if rows.is_empty() {
@@ -80,7 +81,7 @@ pub(crate) async fn apply_backfill_batch(
         .map(|row| row.get::<_, String>(0))
         .collect::<Vec<_>>();
     let expression = slot_value_expression(assignment.index_type, bucket, "$2::text");
-    transaction.execute_typed(&format!("UPDATE dexzd_visibility_runs SET {} = {expression} WHERE tenant_id = $1::text AND run_id = ANY($3::text[]) AND {} IS NULL AND {bucket} ? $2::text", assignment.slot_column, assignment.slot_column), &[
+    transaction.execute_typed(&format!("UPDATE dexzd_visibility_runs SET {} = {expression} WHERE tenant_id = $1::text AND run_id = ANY($3::text[]) AND {} IS NULL AND {presence}", assignment.slot_column, assignment.slot_column), &[
         (&tenant as &(dyn ToSql + Sync), Type::TEXT), (&assignment.index_key, Type::TEXT), (&run_ids, Type::TEXT_ARRAY)
     ]).await.map_err(|source| slot_database_error("update backfill batch for", &assignment, source))?;
     record_checkpoint(

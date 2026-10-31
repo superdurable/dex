@@ -125,6 +125,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Compare ParadeDB and builtin search
         run: cargo test -p dexzd-search sql_visibility::integration::paradedb_matches_builtin_evaluator -- --exact --nocapture
+      - name: Preserve legacy ParadeDB mixed-type errors
+        run: cargo test -p dexzd-search paradedb_mixed_numeric_and_scalar_array_errors_are_preexisting -- --nocapture
       - name: Write the Postgres Attribute Store
         run: cargo test -p dexzd-attribute-store postgres_integration_tests -- --skip postgres_verify_full
       - name: Start PostgreSQL with a self-signed TLS certificate

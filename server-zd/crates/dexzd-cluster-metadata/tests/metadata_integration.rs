@@ -26,6 +26,7 @@ use dexzd_object_store::{
     ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
     ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
 };
+use dexzd_protocol::dex::IndexType;
 use dexzd_protocol::dexzd::v1::{
     ClusterObject, ControllerLease, Manifest, NodeLease, SnapshotReference,
 };

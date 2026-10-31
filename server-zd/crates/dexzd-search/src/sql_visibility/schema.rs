@@ -38,7 +38,7 @@ pub enum SchemaError {
     /// The database has a schema newer than this binary supports.
     #[error("SQL visibility schema version {found} exceeds supported version {supported}")]
     NewerVersion {
-        /// Version stored in ParadeDB.
+        /// Version stored in the SQL visibility schema.
         found: i32,
         /// Highest version this binary supports.
         supported: i32,

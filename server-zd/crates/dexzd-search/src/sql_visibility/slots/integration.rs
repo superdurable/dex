@@ -382,7 +382,14 @@ async fn verify_projection_skip(
                 .into(),
                 index_type: index_type as i32,
                 value: Some(dex::Value {
-                    kind: Some(dex::value::Kind::StringValue(value)),
+                    kind: Some(if index_type == IndexType::KeywordArray {
+                        dex::value::Kind::ObjValue(dex::EncodedObject {
+                            encoding: "json".into(),
+                            payload: value.into_bytes(),
+                        })
+                    } else {
+                        dex::value::Kind::StringValue(value)
+                    }),
                 }),
             }],
             ..Default::default()
@@ -490,6 +497,56 @@ async fn verify_projection_skip(
         .await
         .unwrap();
     assert!(unmatched.entries.is_empty());
+    let unregistered_run = RunId([32; 16]);
+    let unregistered = SearchDocumentRecord {
+        version: 1,
+        tenant_id: 1,
+        run_id: unregistered_run.as_bytes().to_vec(),
+        flow_id: "unregistered-oversized".into(),
+        flow_type: "UnregisteredOversizedFlow".into(),
+        status: dex::FlowStatus::Running as i32,
+        started_at_micros: 1,
+        attributes: vec![SearchAttributeValue {
+            index_key: "unregistered".into(),
+            index_type: IndexType::Keyword as i32,
+            value: Some(dex::Value {
+                kind: Some(dex::value::Kind::StringValue("x".repeat(1025))),
+            }),
+        }],
+        ..Default::default()
+    };
+    projector
+        .apply_batch(
+            PartitionId(9),
+            Some(&LogPosition {
+                node_id: "slot-test".into(),
+                incarnation: 1,
+                seq: 4,
+            }),
+            &LogPosition {
+                node_id: "slot-test".into(),
+                incarnation: 1,
+                seq: 5,
+            },
+            &[SearchDocumentChange::Upsert {
+                tenant_id: TenantId(1),
+                run_id: unregistered_run,
+                encoded_document: unregistered.encode_to_vec(),
+            }],
+        )
+        .await
+        .unwrap();
+    let preserved = backend
+        .search(SearchRequest {
+            tenant_id: TenantId(1),
+            query: "FlowType = 'UnregisteredOversizedFlow'",
+            page_size: 10,
+            page_token: None,
+            field_registry: &FieldRegistry::new(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(preserved.entries.len(), 1);
     assert_eq!(metrics.0.load(Ordering::Relaxed), 2);
     let page = backend
         .search(SearchRequest {

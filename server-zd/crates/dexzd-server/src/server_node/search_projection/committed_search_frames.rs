@@ -33,7 +33,7 @@ pub(crate) struct CommittedSearchFrame {
     pub(crate) size_bytes: usize,
 }
 
-/// Feeds committed frames' search document changes to the ParadeDB projection without delaying commits.
+/// Feeds committed frames' search document changes to the SQL visibility projection without delaying commits.
 pub(crate) struct CommittedSearchFrames {
     tracking: Mutex<FrameTracking>,
     queue: mpsc::Sender<CommittedSearchFrame>,
@@ -229,7 +229,7 @@ impl CommittedSearchFrames {
 
     pub(crate) fn record_permanent_failure(&self, partition: PartitionId, error: &str) {
         let reason = format!(
-            "ParadeDB projection partition {} failed: {error}",
+            "SQL visibility projection partition {} failed: {error}",
             partition.0
         );
         tracing::error!(partition = partition.0, %error, "the search projection stopped");
@@ -372,7 +372,7 @@ mod tests {
         );
     }
 
-    /// A stalled projection, as during a ParadeDB outage, holds at most the byte limit in memory.
+    /// A stalled projection, as during a SQL visibility outage, holds at most the byte limit in memory.
     #[test]
     fn queued_bytes_stay_bounded_while_the_projection_is_stalled() {
         let frame_bytes = DOCUMENT_BYTES + CHANGE_OVERHEAD_BYTES + 32;

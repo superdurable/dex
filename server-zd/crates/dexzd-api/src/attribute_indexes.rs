@@ -76,28 +76,6 @@ impl AttributeIndexes {
         }
     }
 
-    async fn registry_snapshot(&self) -> Result<AttributeIndexRegistry, MetadataError> {
-        if let Some(registry) = self.cached_registry.lock().await.as_ref() {
-            return Ok(registry.clone());
-        }
-        let registry = read_attribute_index_registry(self.object_store.as_ref()).await?;
-        Ok(self.cache_registry(registry).await)
-    }
-
-    async fn cache_registry(&self, registry: AttributeIndexRegistry) -> AttributeIndexRegistry {
-        let mut cached = self.cached_registry.lock().await;
-        if cached
-            .as_ref()
-            .is_none_or(|existing| existing.version < registry.version)
-        {
-            *cached = Some(registry);
-        }
-        cached
-            .as_ref()
-            .expect("the registry was loaded before caching")
-            .clone()
-    }
-
     /// Validates and registers the declarations of `request` for `tenant_id`.
     ///
     /// Returns `InvalidArgument` for an empty name or unknown type, `FailedPrecondition` when a
@@ -164,6 +142,27 @@ impl AttributeIndexes {
             fields.insert(registration.index_key.clone(), index_type);
         }
         Ok(fields)
+    }
+    async fn registry_snapshot(&self) -> Result<AttributeIndexRegistry, MetadataError> {
+        if let Some(registry) = self.cached_registry.lock().await.as_ref() {
+            return Ok(registry.clone());
+        }
+        let registry = read_attribute_index_registry(self.object_store.as_ref()).await?;
+        Ok(self.cache_registry(registry).await)
+    }
+
+    async fn cache_registry(&self, registry: AttributeIndexRegistry) -> AttributeIndexRegistry {
+        let mut cached = self.cached_registry.lock().await;
+        if cached
+            .as_ref()
+            .is_none_or(|existing| existing.version < registry.version)
+        {
+            *cached = Some(registry);
+        }
+        cached
+            .as_ref()
+            .expect("the registry was loaded before caching")
+            .clone()
     }
 }
 

@@ -155,10 +155,10 @@ impl SqlVisibilitySearchBackend {
     ) -> Result<Arc<super::slots::AttributeSlotSnapshot>, SearchError> {
         super::slots::lock_attribute_slots_shared(transaction).await?;
         let version = super::slots::read_slot_registry_version(transaction).await?;
-        if let Some(snapshot) = self.attribute_slot_snapshot() {
-            if snapshot.registry_version == version {
-                return Ok(snapshot);
-            }
+        if let Some(snapshot) = self.attribute_slot_snapshot()
+            && snapshot.registry_version == version
+        {
+            return Ok(snapshot);
         }
         let snapshot = super::slots::load_attribute_slot_snapshot(transaction, version).await?;
         Ok(self.cache_attribute_slot_snapshot(snapshot))
