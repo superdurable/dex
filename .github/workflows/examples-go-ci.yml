@@ -43,8 +43,8 @@ jobs:
             github.com/superdurable/dex/sdk-go \
             github.com/superdurable/dex/blob-cache-go \
             github.com/superdurable/dex-connectors-library/sdkgo \
-            github.com/superdurable/dex-connectors-library/connectors/openai \
-            github.com/superdurable/dex-connectors-library/connectors/slack; do
+            github.com/superdurable/dex-connectors-library/connectors/openai/go \
+            github.com/superdurable/dex-connectors-library/connectors/slack/go; do
             required_version="$(go mod edit -json | jq -r --arg module "$module" '.Require[] | select(.Path == $module) | .Version')"
             resolved_version="$(go list -m -f '{{.Version}}' "$module")"
             replacement="$(go list -m -f '{{if .Replace}}{{.Replace.Path}}{{end}}' "$module")"

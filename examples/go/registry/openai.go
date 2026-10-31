@@ -25,7 +25,7 @@ import (
 	"net/http"
 	"strings"
 
-	openai "github.com/superdurable/dex-connectors-library/connectors/openai"
+	openai "github.com/superdurable/dex-connectors-library/connectors/openai/go"
 	"github.com/superdurable/dex-connectors-library/sdkgo"
 	"github.com/superdurable/dex/examples/go/products/customer-refund/agentic"
 )

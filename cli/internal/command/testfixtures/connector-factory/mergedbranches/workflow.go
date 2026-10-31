@@ -9,7 +9,7 @@
 package mergedbranches
 
 import (
-	openaifactory "github.com/superdurable/dex-connectors-library/connectors/openai"
+	openaifactory "github.com/superdurable/dex-connectors-library/connectors/openai/go"
 	"github.com/superdurable/dex-connectors-library/sdkgo"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -42,7 +42,8 @@ func (flow *MergedBranchesFlow) GetSteps() []dex.StepDef {
 				GroupID: "generation", GroupLabel: "Generation", Explanation: "Retrieve an uncertain summary.",
 			},
 			Connection: flow.connection, ConnectionName: "summary-model", MapToOperationInput: mapToRetrieveRequest,
-			Found: sdkgo.GoTo(inspectRetrievedSummary{}), Failed: sdkgo.GoTo(inspectRetrievedSummary{}),
+			Found: sdkgo.GoTo(inspectRetrievedSummary{}), NotFound: sdkgo.GoTo(inspectRetrievedSummary{}),
+			ProviderRejected: sdkgo.GoTo(closeSummary{}), InvalidResponse: sdkgo.GoTo(closeSummary{}),
 			Defect: sdkgo.GoTo(closeSummary{}),
 		})),
 		dex.DefineStep(saveSummary{}),

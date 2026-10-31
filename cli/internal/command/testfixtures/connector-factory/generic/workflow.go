@@ -9,7 +9,7 @@
 package connectorfactorygeneric
 
 import (
-	openai "github.com/superdurable/dex-connectors-library/connectors/openai"
+	openai "github.com/superdurable/dex-connectors-library/connectors/openai/go"
 	"github.com/superdurable/dex-connectors-library/sdkgo"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -34,7 +34,9 @@ func (flow *genericFactoryFlow) GetSteps() []dex.StepDef {
 			Operation: flow.client.RetrieveResponse(), Connection: flow.connection, MapToOperationInput: mapToOperationInput,
 			Branches: []sdkgo.BranchTarget[factoryOutput]{
 				sdkgo.GoToBranch(openai.RetrieveResponseBranchFound, finishStep{}),
-				sdkgo.GoToBranch(openai.RetrieveResponseBranchFailed, finishStep{}),
+				sdkgo.GoToBranch(openai.RetrieveResponseBranchNotFound, finishStep{}),
+				sdkgo.GoToBranch(openai.RetrieveResponseBranchProviderRejected, finishStep{}),
+				sdkgo.GoToBranch(openai.RetrieveResponseBranchInvalidResponse, finishStep{}),
 				sdkgo.GoToBranch(openai.RetrieveResponseBranchDefect, finishStep{}),
 			},
 			ResultAttribute: &result,

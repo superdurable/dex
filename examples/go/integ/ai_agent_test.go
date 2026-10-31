@@ -235,7 +235,7 @@ func writeDexWebSlackConnection(t *testing.T, endpoint, channelID string) string
 		"connections": []map[string]any{{
 			"connectorId": channelSetting.ConnectorID, "provider": channelSetting.ConnectorID,
 			"connectionName": channelSetting.ConnectionName,
-			"modulePath":     "github.com/superdurable/dex-connectors-library/connectors/slack", "moduleVersion": "v1.2.0",
+			"modulePath":     "github.com/superdurable/dex-connectors-library/connectors/slack/go", "moduleVersion": "v1.3.0",
 			"configuration": map[string]string{"endpoint": endpoint},
 			"credentials":   map[string]string{"bot_token": "xoxb-test-token", "user_token": "xoxp-test-token"},
 		}},

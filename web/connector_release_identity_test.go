@@ -50,6 +50,47 @@ func TestConnectorLanguageNeutralReleaseLookup(t *testing.T) {
 	}
 }
 
+func TestConnectorGoReleaseTagModuleIdentity(t *testing.T) {
+	for _, scenario := range []struct {
+		connectorID   string
+		releaseTag    string
+		modulePath    string
+		moduleVersion string
+	}{
+		{"stripe", "connectors/stripe/go/v0.25.0", "github.com/superdurable/dex-connectors-library/connectors/stripe/go", "v0.25.0"},
+		{"gmail", "connectors/google/gmail/go/v0.25.0-rc.1", "github.com/superdurable/dex-connectors-library/connectors/google/gmail/go", "v0.25.0-rc.1"},
+	} {
+		t.Run(scenario.connectorID, func(t *testing.T) {
+			identity := connectorDefinitionIdentity{
+				ConnectorID: scenario.connectorID, ReleaseTag: scenario.releaseTag,
+				Package: &connectorPackageIdentity{Ecosystem: "go", Name: scenario.modulePath, Version: scenario.moduleVersion},
+			}
+			resolved, err := connectorReleaseModuleIdentity(identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resolved.ModulePath != scenario.modulePath || resolved.ModuleVersion != scenario.moduleVersion {
+				t.Fatalf("module identity = %+v", resolved)
+			}
+			if _, err := connectorReleaseModuleIdentity(resolved); err != nil {
+				t.Fatalf("matching explicit module identity rejected: %v", err)
+			}
+			for _, change := range []func(*connectorDefinitionIdentity){
+				func(candidate *connectorDefinitionIdentity) {
+					candidate.ModulePath = strings.TrimSuffix(scenario.modulePath, "/go")
+				},
+				func(candidate *connectorDefinitionIdentity) { candidate.ModuleVersion = "v0.1.0" },
+			} {
+				candidate := identity
+				change(&candidate)
+				if _, err := connectorReleaseModuleIdentity(candidate); err == nil {
+					t.Fatalf("conflicting module identity accepted: %+v", candidate)
+				}
+			}
+		})
+	}
+}
+
 func TestConnectorLanguageNeutralIdentityRejectsAmbiguity(t *testing.T) {
 	identity := connectorDefinitionIdentity{ConnectorID: "gmail", ReleaseTag: "connectors/google/gmail/v0.1.1", Package: &connectorPackageIdentity{Ecosystem: "pypi", Name: "dex-gmail", Version: "0.1.1rc1"}}
 	for _, change := range []func(*connectorDefinitionIdentity){

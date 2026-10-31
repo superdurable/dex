@@ -294,9 +294,11 @@ func TestVisualizeV2PreservesGenericConnectorFactoryEscapeHatch(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 	require.Equal(t, map[string]string{
-		"found":  "step:finishStep",
-		"failed": "step:finishStep",
-		"defect": "step:finishStep",
+		"found":            "step:finishStep",
+		"notFound":         "step:finishStep",
+		"providerRejected": "step:finishStep",
+		"invalidResponse":  "step:finishStep",
+		"defect":           "step:finishStep",
 	}, connectorBranchTargets(graph, "step:GenericRetrieveResponse"))
 }
 
