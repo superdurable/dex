@@ -96,21 +96,27 @@ export function translateServiceError(
   operation: string,
   flowId: string | undefined,
   requirement: FlowTargetRequirement,
+  messagePrefix?: string,
 ): DexServiceError {
   let response: ServiceErrorResponse | undefined;
   try {
     response = serviceErrorResponse(error);
   } catch (failure) {
+    const detail = `Dex returned malformed error details: ${failure instanceof Error ? failure.message : String(failure)}`;
     return new DexServiceError(
       error.code,
       ErrorSubStatus.UNCATEGORIZED,
-      `Dex returned malformed error details: ${failure instanceof Error ? failure.message : String(failure)}`,
+      detail,
       operation,
       flowId,
-      { cause: error },
+      { cause: error, ...(messagePrefix === undefined ? {} : { message: `${messagePrefix}: ${detail}` }) },
     );
   }
   const detail = response?.detail || error.details || error.message;
+  const options = {
+    cause: error,
+    ...(messagePrefix === undefined ? {} : { message: `${messagePrefix}: ${detail}` }),
+  };
   const subStatus =
     response === undefined ? ErrorSubStatus.UNCATEGORIZED : mapSubStatus(response.subStatus);
   const parameters = [
@@ -119,7 +125,7 @@ export function translateServiceError(
     detail,
     operation,
     flowId,
-    { cause: error },
+    options,
   ] as const;
   switch (subStatus) {
     case ErrorSubStatus.FLOW_ALREADY_STARTED:
@@ -147,7 +153,7 @@ export function translateServiceError(
         workerCode(response),
         response?.originalWorkerErrorType ?? "",
         response?.originalWorkerErrorDetail ?? "",
-        { cause: error },
+        options,
       );
     case ErrorSubStatus.LONG_POLL_TIMEOUT:
       return new LongPollTimeoutError(...parameters);

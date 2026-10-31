@@ -26,11 +26,15 @@ import {
   Channel,
   ChannelMap,
   Client,
+  DexServiceError,
+  FlowDefinitionError,
+  FlowNotFoundError,
   FlowTimeoutHandlerFailure,
   FlowTimeoutPolicy,
   Registry,
   Stream,
   StepList,
+  ValueMappingError,
   doubleCodec,
   jsonCodec,
   rpc,
@@ -53,6 +57,8 @@ import {
   ServiceErrorResponse,
   Value,
   type FlowServiceServer,
+  type GetAttributesRequest,
+  type GetAttributesResponse,
   type InvokeRPCRequest,
   type InvokeRPCResponse,
   type LoadBlobsRequest,
@@ -509,6 +515,239 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     await shutdown(server);
   }
 });
+
+test("Client getAttributes sends one request, hydrates references, and validates responses", async () => {
+  const getAttributesRequests: GetAttributesRequest[] = [];
+  const loadBlobsRequests: LoadBlobsRequest[] = [];
+  const responses: Record<string, GetAttributesResponse> = {
+    "flow-1": {
+      attributes: [
+        { key: "revision", value: Value.create({ kind: { $case: "doubleValue", value: 0 } }) },
+        {
+          key: "items/tenant%20a",
+          value: Value.create({ kind: { $case: "internalBlobIdForStringValue", value: "blob-3" } }),
+        },
+      ],
+    },
+    unexpected: { attributes: [{ key: "other", value: protoJson(1) }] },
+    duplicate: {
+      attributes: [
+        { key: "revision", value: Value.create({ kind: { $case: "doubleValue", value: 1 } }) },
+        { key: "revision", value: Value.create({ kind: { $case: "doubleValue", value: 2 } }) },
+      ],
+    },
+    "missing-value": { attributes: [{ key: "revision", value: undefined }] },
+    "blob-error": {
+      attributes: [{
+        key: "revision",
+        value: Value.create({ kind: { $case: "internalBlobIdForObjValue", value: "blob-error" } }),
+      }],
+    },
+    "blob-missing": {
+      attributes: [{
+        key: "revision",
+        value: Value.create({ kind: { $case: "internalBlobIdForObjValue", value: "blob-missing" } }),
+      }],
+    },
+    "json-null": { attributes: [{ key: "revision", value: protoJson(null) }] },
+    "bad-value": {
+      attributes: [{ key: "revision", value: Value.create({ kind: { $case: "stringValue", value: "x" } }) }],
+    },
+  };
+  const server = new Server();
+  server.addService(FlowServiceService, {
+    getAttributes(call, callback: sendUnaryData<GetAttributesResponse>) {
+      const request = call.request as GetAttributesRequest;
+      getAttributesRequests.push(request);
+      const response = responses[request.flowId];
+      if (response === undefined) {
+        callback(serviceError(status.NOT_FOUND, ErrorSubStatus.ERROR_SUB_STATUS_FLOW_NOT_EXISTS));
+        return;
+      }
+      callback(null, response);
+    },
+    loadBlobs(call, callback: sendUnaryData<LoadBlobsResponse>) {
+      const request = call.request as LoadBlobsRequest;
+      loadBlobsRequests.push(request);
+      if (request.entries[0]?.flowId === "blob-error") {
+        callback(Object.assign(new Error("blob store unavailable"), {
+          code: status.UNAVAILABLE,
+          details: "blob store unavailable",
+          metadata: new Metadata(),
+        }));
+        return;
+      }
+      callback(null, { values: { "blob-3": Value.create({ kind: { $case: "stringValue", value: "hydrated" } }) } });
+    },
+  } as Partial<FlowServiceServer> as FlowServiceServer);
+
+  const port = await bind(server);
+  const cache = new MemoryBlobCache();
+  const client = new Client(new Registry([new TestFlow()]), cache, {
+    serverAddress: `127.0.0.1:${port}`,
+  });
+  try {
+    const [revisionValue, itemA, itemB] = await client.getAttributes(
+      "flow-1",
+      revision,
+      items.instance("tenant a"),
+      items.instance("tenant-b"),
+    );
+    assert.equal(revisionValue, 0);
+    assert.equal(itemA, "hydrated");
+    assert.equal(itemB, undefined);
+    assert.deepEqual(getAttributesRequests, [{
+      flowId: "flow-1",
+      runId: "",
+      keys: ["revision", "items/tenant%20a", "items/tenant-b"],
+      allKeys: false,
+    }]);
+    assert.equal(loadBlobsRequests.length, 1);
+    assert.equal(loadBlobsRequests[0]?.entries[0]?.flowId, "flow-1");
+    const [, cachedItemA] = await client.getAttributes("flow-1", revision, items.instance("tenant a"));
+    assert.equal(cachedItemA, "hydrated");
+    assert.equal(getAttributesRequests.length, 2);
+    assert.equal(loadBlobsRequests.length, 1, "the second read uses the BlobCache");
+
+    await assert.rejects(
+      client.getAttributes("blob-error", revision),
+      (error) => error instanceof DexServiceError
+        && error.code === status.UNAVAILABLE
+        && error.detail === "blob store unavailable"
+        && error.flowId === "blob-error"
+        && error.operation === "loadBlobs"
+        && error.message === "getAttributes Flow blob-error Attributes revision LoadBlobs: blob store unavailable",
+    );
+    await assert.rejects(
+      client.getAttributes("blob-missing", revision),
+      (error) => error instanceof ValueMappingError
+        && error.operation === "hydrate"
+        && /getAttributes Flow blob-missing Attributes revision: Dex did not hydrate blob blob-missing/.test(error.message),
+    );
+
+    const nullableRevision = new Attribute("revision", jsonCodec<number | null>());
+    const nullableClient = new Client(new Registry([new NullableRevisionFlow(nullableRevision)]), cache, {
+      serverAddress: `127.0.0.1:${port}`,
+    });
+    try {
+      const [nullRevision] = await nullableClient.getAttributes("json-null", nullableRevision);
+      assert.equal(nullRevision, null);
+    } finally {
+      await nullableClient.close();
+    }
+
+    const requestCountBeforeRejections = getAttributesRequests.length;
+    const sameKeyRead = new AttributeMap("items", stringCodec);
+    await assert.rejects(
+      client.getAttributes("flow-1", revision, revision),
+      (error) => error instanceof TypeError && /Flow flow-1 has duplicate Attribute read revision/.test(error.message),
+    );
+    await assert.rejects(
+      client.getAttributes("flow-1", items.instance("tenant-b"), items.instance("tenant-b")),
+      /Flow flow-1 has duplicate Attribute read items\/tenant-b/,
+    );
+    await assert.rejects(
+      client.getAttributes("flow-1", sameKeyRead.instance("tenant-b")),
+      (error) => error instanceof FlowDefinitionError
+        && /Flow flow-1: AttributeMap items differs from the definition registered by Flow TestFlow/.test(error.message),
+    );
+    await assert.rejects(
+      client.getAttributes("flow-1", new Attribute("unregistered", stringCodec)),
+      (error) => error instanceof FlowDefinitionError
+        && /Flow flow-1: Attribute unregistered is not registered by any Flow/.test(error.message),
+    );
+    await assert.rejects(
+      client.getAttributes("", revision),
+      (error) => error instanceof TypeError && /non-empty Flow ID/.test(error.message),
+    );
+    const noReads: readonly [] = [];
+    await assert.rejects(
+      // @ts-expect-error getAttributes requires at least one read.
+      client.getAttributes("flow-1", ...noReads),
+      /Flow flow-1 requires at least one Attribute read/,
+    );
+    await assert.rejects(
+      // @ts-expect-error An AttributeMap read requires an instance selection.
+      client.getAttributes("flow-1", items),
+      /Flow flow-1 AttributeMap items requires an instance/,
+    );
+    assert.equal(getAttributesRequests.length, requestCountBeforeRejections);
+
+    await assert.rejects(
+      client.getAttributes("unexpected", revision),
+      /Flow unexpected returned unexpected Attribute other/,
+    );
+    await assert.rejects(
+      client.getAttributes("duplicate", revision),
+      /Flow duplicate returned duplicate Attribute revision/,
+    );
+    await assert.rejects(
+      client.getAttributes("missing-value", revision),
+      /Flow missing-value returned Attribute revision without a value/,
+    );
+    await assert.rejects(
+      client.getAttributes("bad-value", revision),
+      (error) => error instanceof ValueMappingError
+        && error.operation === "decode"
+        && /getAttributes Flow bad-value Attribute revision: expected double, got string/.test(error.message),
+    );
+    await assert.rejects(
+      client.getAttributes("missing", revision, items.instance("tenant-a")),
+      (error) => error instanceof FlowNotFoundError
+        && error.flowId === "missing"
+        && error.operation === "getAttributes"
+        && error.message.startsWith("getAttributes Flow missing Attributes revision, items/tenant-a: "),
+    );
+  } finally {
+    await client.close();
+    await shutdown(server);
+  }
+});
+
+class ChannelOnlyFlow implements Flow<void> {
+  public getFlowType(): string {
+    return "ChannelOnlyFlow";
+  }
+
+  public getSteps() {
+    return StepList.empty();
+  }
+
+  public getPersistenceSchema() {
+    return { channels: [new Channel("x", stringCodec)] };
+  }
+}
+
+test("Client getAttributes does not treat a same-named Channel as a conflicting Attribute", async () => {
+  const client = new Client(new Registry([new ChannelOnlyFlow()]), new MemoryBlobCache(), {
+    serverAddress: "127.0.0.1:1",
+  });
+  try {
+    await assert.rejects(
+      client.getAttributes("flow-1", new Attribute("x", stringCodec)),
+      (error) => error instanceof FlowDefinitionError
+        && error.message === "getAttributes Flow flow-1: Attribute x is not registered by any Flow in the Registry",
+    );
+  } finally {
+    await client.close();
+  }
+});
+
+class NullableRevisionFlow implements Flow<void> {
+  public constructor(private readonly revision: Attribute<number | null>) {}
+
+  public getFlowType(): string {
+    return "NullableRevisionFlow";
+  }
+
+  public getSteps() {
+    return StepList.empty();
+  }
+
+  public getPersistenceSchema() {
+    return { attributes: [this.revision] };
+  }
+}
 
 class MemoryBlobCache implements BlobCache {
   public readonly config = { directory: "memory", maxBytes: 1_024 };

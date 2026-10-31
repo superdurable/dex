@@ -31,6 +31,7 @@ import {
   IdReusePolicy as ProtoIdReusePolicy,
   IndexType as ProtoIndexType,
   ExecuteMethodFailurePolicy,
+  type GetAttributesResponse,
   type GetFlowSummaryResponse,
   type InvokeRPCResponse,
   type ListStreamMessagesResponse,
@@ -53,6 +54,7 @@ import {
   type IndexConfig,
   type WaitForStepCompletionResponse,
   type WaitForAttributeResponse,
+  type Value as ProtoValue,
 } from "./gen/dex.js";
 import type { Empty } from "./gen/google/protobuf/empty.js";
 import {
@@ -66,6 +68,7 @@ import {
   type FlowErrorType as FlowErrorTypeValue,
 } from "./errors.js";
 import {
+  registeredAttributeFlow,
   registeredFlow,
   registeredStepTarget,
   registeredRPC,
@@ -104,7 +107,15 @@ import {
   type WaitForAttributeOptions,
   type WaitForStepCompletionOptions,
 } from "./options.js";
-import { Attribute, AttributeMap, IndexType, type AttributeLock } from "./persistence.js";
+import {
+  Attribute,
+  AttributeMap,
+  AttributeMapInstance,
+  IndexType,
+  type AttributeLock,
+  type AttributeRead,
+  type AttributeReadValues,
+} from "./persistence.js";
 import type { RPCInvokeOptions, RPCResult } from "./rpc.js";
 import { sdkVersion } from "./sdk-version.generated.js";
 import { negotiateServerProtocol, serverInfoRequestError } from "./server-protocol.js";
@@ -748,6 +759,187 @@ export class Client {
       status: mapFlowStatus(response.flowStatus),
       startedAt: response.startTime,
     };
+  }
+
+  /**
+   * Reads committed Attribute and AttributeMap instance values from the current or latest Flow run.
+   *
+   * Use `getAttributes` to read Flow state from outside the Flow without defining an RPC. Pass one
+   * read per value: a singleton {@link Attribute}, or an AttributeMap instance selected with
+   * {@link AttributeMap.instance}. The returned Promise resolves to a tuple with one element per
+   * read, in read order. Each element has the read's value type, or `undefined` when that Attribute
+   * or AttributeMap instance is not set. Writing `null` or `undefined` deletes an Attribute, so it
+   * then reads as `undefined`. A stored value that its codec decodes to `null` stays `null`. Falsy
+   * values such as `""`, `0n`, and `false` are set values.
+   *
+   * The Client sends all keys in one FlowService request, so every value comes from the same
+   * committed state. No Worker runs. The read targets the current run, or the latest run when no
+   * run is open. A closed run stays readable until Dex purges it. The call sees only committed
+   * state. It does not see writes staged by an RPC or Step that is still running, unlike an
+   * Attribute read inside an RPC handler.
+   *
+   * Hard-delete Attributes from {@link Attribute.hardDeleteOnNull} are supported; Dex returns their
+   * current stored values. The Client hydrates large values through LoadBlobs and its BlobCache,
+   * then decodes every value with its definition's codec. The Promise resolves only after every
+   * value decodes. On any error it rejects and returns no values.
+   *
+   * Every definition must be registered by some Flow in this Client's Registry. Registered means
+   * the exact definition object returned by that Flow's `getPersistenceSchema`. A different object
+   * with the same name, such as one with another codec or one created by calling
+   * `hardDeleteOnNull()` again, is rejected. The definition need not belong to the target Flow's
+   * type; Dex reads the key by name. A same-named Attribute with another value type in the target
+   * Flow fails to decode.
+   *
+   * The reads parameter requires at least one read at compile time. A plain array can be empty, so
+   * spreading it alone does not compile. Pass its first read separately, as in
+   * `client.getAttributes(flowId, first, ...rest)`. The result then has one element for `first`,
+   * followed by one element per read in `rest`.
+   *
+   * @example
+   * ```ts
+   * type Note = { readonly text: string };
+   * const orderStatus = new Attribute("order-status", stringCodec);
+   * const notes = new AttributeMap("notes", jsonCodec<Note>());
+   * // Register orderStatus and notes in a Flow's getPersistenceSchema.
+   *
+   * try {
+   *   const [status, note] = await client.getAttributes(
+   *     "order-42",
+   *     orderStatus,
+   *     notes.instance("n1"),
+   *   );
+   *   console.log(status ?? "new", note?.text ?? "no note yet");
+   * } catch (error) {
+   *   if (error instanceof FlowNotFoundError) {
+   *     console.log(`order ${error.flowId} does not exist`);
+   *   } else {
+   *     throw error;
+   *   }
+   * }
+   * ```
+   * @typeParam Reads - Tuple of reads. TypeScript infers it from the arguments, and the result
+   * tuple maps each read to its value type or `undefined`.
+   * @param flowId - Non-empty Flow ID.
+   * @param reads - At least one Attribute or AttributeMap instance selection. Two reads of the same
+   * Attribute or AttributeMap instance are rejected.
+   * @returns A tuple with one decoded value or `undefined` per read, in read order.
+   * @throws {@link TypeError} before any request when `flowId` is empty, no read is passed, a read
+   * is not an Attribute or AttributeMap instance selection, or two reads select the same value.
+   * @throws {@link FlowDefinitionError} before any request when a definition is not registered by a
+   * Flow in the Client's Registry, or differs from the registered definition object.
+   * @throws {@link FlowNotFoundError} when the Flow does not exist or its latest run is being purged.
+   * @throws {@link ValueMappingError} when a value cannot be hydrated or decoded with its codec.
+   * @throws {@link DexServiceError} for other FlowService failures, including a failed LoadBlobs
+   * request. The error keeps the gRPC `code` and the server `detail`, and its `operation` is
+   * `loadBlobs` for a LoadBlobs failure.
+   * @throws {@link Error} when Dex returns an invalid response, or the BlobCache fails while large
+   * values are hydrated.
+   * Every error message names the Flow ID. An error about one read or value also names its
+   * Attribute name or physical key.
+   */
+  public async getAttributes<
+    Reads extends readonly [AttributeRead<unknown>, ...AttributeRead<unknown>[]],
+  >(flowId: string, ...reads: Reads): Promise<AttributeReadValues<Reads>> {
+    const selected = this.selectAttributeReads(flowId, reads);
+    const keys = selected.map((read) => read.key);
+    const values = await this.fetchAttributeValues(flowId, keys);
+    const decoded = selected.map((read) => {
+      const value = values.get(read.key);
+      if (value === undefined) {
+        return undefined;
+      }
+      try {
+        return decodeValue(read.codec, value);
+      } catch (failure) {
+        throw new ValueMappingError(
+          "decode",
+          `getAttributes Flow ${flowId} Attribute ${read.key}: ${valueMappingDetail(failure)}`,
+          { cause: failure },
+        );
+      }
+    });
+    return decoded as AttributeReadValues<Reads>;
+  }
+
+  private selectAttributeReads(
+    flowId: string,
+    reads: readonly AttributeRead<unknown>[],
+  ): SelectedAttributeRead[] {
+    if (flowId.trim().length === 0) {
+      throw new TypeError(`getAttributes requires a non-empty Flow ID; received ${JSON.stringify(flowId)}`);
+    }
+    if (reads.length === 0) {
+      throw new TypeError(`getAttributes Flow ${flowId} requires at least one Attribute read`);
+    }
+    const seen = new Set<string>();
+    return reads.map((read, position) => {
+      const selected = selectAttributeRead(flowId, read, position);
+      try {
+        registeredAttributeFlow(this.registry, selected.definition);
+      } catch (failure) {
+        if (failure instanceof FlowDefinitionError) {
+          throw new FlowDefinitionError(`getAttributes Flow ${flowId}: ${failure.message}`, { cause: failure });
+        }
+        throw failure;
+      }
+      if (seen.has(selected.key)) {
+        throw new TypeError(`getAttributes Flow ${flowId} has duplicate Attribute read ${selected.key}`);
+      }
+      seen.add(selected.key);
+      return selected;
+    });
+  }
+
+  private async fetchAttributeValues(
+    flowId: string,
+    keys: readonly string[],
+  ): Promise<Map<string, ProtoValue>> {
+    const joinedKeys = keys.join(", ");
+    const response = await unary<GetAttributesResponse>(
+      {
+        operation: "getAttributes",
+        flowId,
+        requirement: "existing",
+        messagePrefix: `getAttributes Flow ${flowId} Attributes ${joinedKeys}`,
+      },
+      (callback) => this.service.getAttributes(
+        { flowId, runId: "", keys: [...keys], allKeys: false },
+        callback,
+      ),
+    );
+    const requested = new Set(keys);
+    const returned = new Set<string>();
+    const returnedKeys: string[] = [];
+    const returnedValues: ProtoValue[] = [];
+    for (const attribute of response.attributes) {
+      if (!requested.has(attribute.key)) {
+        throw new Error(`getAttributes Flow ${flowId} returned unexpected Attribute ${attribute.key}`);
+      }
+      if (returned.has(attribute.key)) {
+        throw new Error(`getAttributes Flow ${flowId} returned duplicate Attribute ${attribute.key}`);
+      }
+      if (attribute.value?.kind === undefined) {
+        throw new Error(`getAttributes Flow ${flowId} returned Attribute ${attribute.key} without a value`);
+      }
+      returned.add(attribute.key);
+      returnedKeys.push(attribute.key);
+      returnedValues.push(attribute.value);
+    }
+    let hydrated: ProtoValue[];
+    try {
+      hydrated = await this.hydrator.hydrateAll(flowId, returnedValues);
+    } catch (failure) {
+      const context = `getAttributes Flow ${flowId} Attributes ${returnedKeys.join(", ")}`;
+      if (failure instanceof ValueMappingError) {
+        throw new ValueMappingError("hydrate", `${context}: ${valueMappingDetail(failure)}`, { cause: failure });
+      }
+      if (isGrpcServiceError(failure)) {
+        throw translateServiceError(failure, "loadBlobs", flowId, "none", `${context} LoadBlobs`);
+      }
+      const detail = failure instanceof Error ? failure.message : String(failure);
+      throw new Error(`${context}: ${detail}`, { cause: failure });
+    }
+    return new Map(returnedKeys.map((key, index) => [key, hydrated[index] as ProtoValue]));
   }
 
   /**
@@ -1555,6 +1747,53 @@ function physicalName(name: string, instance?: string): string {
   return physicalMapName(name, instance);
 }
 
+interface SelectedAttributeRead {
+  readonly definition: Attribute<unknown> | AttributeMap<unknown>;
+  readonly codec: Codec<unknown>;
+  readonly key: string;
+}
+
+function selectAttributeRead(
+  flowId: string,
+  read: AttributeRead<unknown>,
+  position: number,
+): SelectedAttributeRead {
+  if (read instanceof Attribute) {
+    return { definition: read, codec: read.codec, key: physicalName(read.name) };
+  }
+  if (read instanceof AttributeMapInstance) {
+    return {
+      definition: read.attributeMap,
+      codec: read.attributeMap.codec,
+      key: physicalName(read.attributeMap.name, read.instance),
+    };
+  }
+  const value: unknown = read;
+  if (value instanceof AttributeMap) {
+    throw new TypeError(
+      `getAttributes Flow ${flowId} AttributeMap ${value.name} requires an instance; ` +
+        "pass attributeMap.instance(key)",
+    );
+  }
+  throw new TypeError(
+    `getAttributes Flow ${flowId} read ${position} must be an Attribute or an AttributeMap instance selection`,
+  );
+}
+
+function isGrpcServiceError(failure: unknown): failure is ServiceError {
+  return failure instanceof Error
+    && typeof (failure as Partial<ServiceError>).code === "number"
+    && (failure as Partial<ServiceError>).metadata instanceof Metadata;
+}
+
+function valueMappingDetail(failure: unknown): string {
+  if (failure instanceof ValueMappingError) {
+    const prefix = `Cannot ${failure.operation} Dex Value: `;
+    return failure.message.startsWith(prefix) ? failure.message.slice(prefix.length) : failure.message;
+  }
+  return failure instanceof Error ? failure.message : String(failure);
+}
+
 function requireRPCInvokeDefinition(
   flow: RegisteredFlow,
   definition: { readonly name: string },
@@ -1662,13 +1901,20 @@ function unary<Response>(
     readonly operation: string;
     readonly flowId?: string;
     readonly requirement: "none" | "existing" | "active";
+    readonly messagePrefix?: string;
   },
   invoke: (callback: (error: ServiceError | null, response: Response) => void) => unknown,
 ): Promise<Response> {
   return new Promise((resolve, reject) => {
     invoke((error, response) => {
       if (error !== null) {
-        reject(translateServiceError(error, target.operation, target.flowId, target.requirement));
+        reject(translateServiceError(
+          error,
+          target.operation,
+          target.flowId,
+          target.requirement,
+          target.messagePrefix,
+        ));
         return;
       }
       resolve(response);

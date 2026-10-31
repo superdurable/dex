@@ -42,6 +42,9 @@ Each invocation starts its own `dexcli dev` environment on server-zd. Set
 - Hard-delete Attribute integration covers initial values, Step reads and
   overwrites, RPC writes and deletions, inline `GetAttributes` values, and
   absence after deletion.
+- `Client.getAttributes` integration covers typed scalar, object, falsy, unset,
+  AttributeMap instance, hard-delete, and LoadBlobs-backed values, closed-run
+  reads with a fresh BlobCache, and missing-Flow and definition errors.
 - Step streaming covers repeated and cross-Stream writes, duplicate source
   metadata, heartbeat detail recovery and clearing, local-activity fallback, and
   buffered text timer/final-result ordering.

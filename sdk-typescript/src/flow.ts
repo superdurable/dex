@@ -9,7 +9,7 @@
 import {
   booleanCodec, bytesCodec, doubleCodec, int64Codec, stringCodec, voidCodec, type Codec,
 } from "./codec.js";
-import { AttributeMap, IndexType, type Attribute, type PersistenceSchema } from "./persistence.js";
+import { Attribute, AttributeMap, IndexType, type PersistenceSchema } from "./persistence.js";
 import { IndexType as ProtoIndexType } from "./gen/dex.js";
 import { FlowDefinitionError } from "./errors.js";
 import { registeredRPCs, type RegisteredRPC } from "./rpc.js";
@@ -241,6 +241,31 @@ export function registeredStream(
     throw new FlowDefinitionError(`Stream is not registered: ${stream.name}`);
   }
   return flow;
+}
+
+/** Returns the first Flow whose schema registers this exact Attribute or AttributeMap definition object. */
+export function registeredAttributeFlow(
+  registry: Registry,
+  definition: Attribute<unknown> | AttributeMap<unknown>,
+): RegisteredFlow {
+  const kind = definition instanceof AttributeMap ? "AttributeMap" : "Attribute";
+  let conflictingFlow: RegisteredFlow | undefined;
+  for (const flow of metadata(registry).flowsByName.values()) {
+    const registered = flow.persistence.get(definition.name);
+    if (registered === definition) {
+      return flow;
+    }
+    if (registered instanceof Attribute || registered instanceof AttributeMap) {
+      conflictingFlow ??= flow;
+    }
+  }
+  if (conflictingFlow !== undefined) {
+    throw new FlowDefinitionError(
+      `${kind} ${definition.name} differs from the definition registered by Flow ${conflictingFlow.name}; ` +
+        "use the registered definition object",
+    );
+  }
+  throw new FlowDefinitionError(`${kind} ${definition.name} is not registered by any Flow in the Registry`);
 }
 
 export function requireFlowStream(flow: RegisteredFlow, stream: Stream<unknown>): void {
