@@ -7,6 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 mod changes;
+mod checkpoints;
+pub use checkpoints::PartitionCheckpoint;
 mod progress;
 mod projector;
 mod repair;

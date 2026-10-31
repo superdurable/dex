@@ -14,6 +14,7 @@ mod pending_store;
 mod projection_repairs;
 mod projection_worker;
 
+use futures::StreamExt;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -299,9 +300,11 @@ async fn sync_pending_objects(
 ) -> Result<usize, pending_store::PendingStoreError> {
     let snapshots = pending.lock().await.snapshot_sync(limit)?;
     let count = snapshots.len();
-    for snapshot in snapshots {
-        let completed = snapshot.execute().await;
-        pending.lock().await.reconcile_sync(completed)?;
+    let operations =
+        futures::stream::iter(snapshots.into_iter().map(|snapshot| snapshot.execute()));
+    let mut completed = operations.buffer_unordered(8);
+    while let Some(result) = completed.next().await {
+        pending.lock().await.reconcile_sync(result)?;
     }
     Ok(count)
 }

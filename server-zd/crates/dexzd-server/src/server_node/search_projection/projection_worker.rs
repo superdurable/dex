@@ -17,7 +17,8 @@ use dexzd_keyspace::row_keys::run_singleton_key;
 use dexzd_keyspace::{ColumnFamily, PartitionId, RunId, RunTable, TenantId, partition_meta_key};
 use dexzd_protocol::dexzd::v1::{LogPosition, PartitionMeta, RunRecord};
 use dexzd_search::sql_visibility::{
-    PartitionDocumentRepairs, ProjectionError, SearchDocumentChange, SqlVisibilityProjector,
+    PartitionCheckpoint, PartitionDocumentRepairs, ProjectionError, SearchDocumentChange,
+    SqlVisibilityProjector,
 };
 use prost::Message;
 
@@ -266,22 +267,15 @@ impl SearchProjectionWorker {
             }
             self.frames.finish_diff(partition, generation);
         }
-        for partition_number in 0..self.partition_count {
-            let partition =
-                PartitionId(u16::try_from(partition_number).expect("validated partition count"));
-            if !self.frames.is_partition_idle(partition)
-                || self.pending.lock().await.has_pending_runs(partition)?
-            {
-                continue;
-            }
-            let (_, applied) = self.open_committed_view(partition).await?;
+        for (partition, position) in self.read_applied_positions().await? {
             if self.frames.is_partition_idle(partition)
-                && let Some(position) = applied
+                && !self.pending.lock().await.has_pending_runs(partition)?
                 && !self.is_projected(partition, &position)
             {
                 self.processed_positions.insert(partition, position);
             }
         }
+        let mut checkpoints = Vec::new();
         for (partition, position) in self.processed_positions.clone() {
             let can_checkpoint = {
                 let pending = self.pending.lock().await;
@@ -293,30 +287,63 @@ impl SearchProjectionWorker {
                 continue;
             }
             if self.projected_positions.get(&partition) != Some(&position) {
-                let mut retry_delay = RetryDelay::default();
-                loop {
-                    match self
-                        .projector
-                        .apply_batch(
-                            partition,
-                            self.projected_positions.get(&partition),
-                            &position,
-                            &[],
-                        )
-                        .await
-                    {
-                        Ok(()) => break,
-                        Err(error) if error.is_retryable() => {
-                            tracing::warn!(partition = partition.0, %error, "confirming a search checkpoint failed; retrying the same position");
-                            retry_delay.wait().await;
-                        }
-                        Err(error) => return Err(error.into()),
-                    }
-                }
-                self.projected_positions.insert(partition, position);
+                checkpoints.push(PartitionCheckpoint {
+                    partition_id: partition,
+                    previous_position: self.projected_positions.get(&partition).cloned(),
+                    applied_position: position,
+                });
             }
         }
+        let mut retry_delay = RetryDelay::default();
+        loop {
+            match self.projector.checkpoint_partitions(&checkpoints).await {
+                Ok(()) => break,
+                Err(error) if error.is_retryable() => {
+                    tracing::warn!(%error, "confirming search checkpoints failed; retrying the same positions");
+                    retry_delay.wait().await;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        for checkpoint in checkpoints {
+            self.projected_positions
+                .insert(checkpoint.partition_id, checkpoint.applied_position);
+        }
         Ok(())
+    }
+
+    async fn read_applied_positions(
+        &self,
+    ) -> Result<BTreeMap<PartitionId, LogPosition>, SearchProjectionError> {
+        let committer = self.committer.clone();
+        let partition_count = self.partition_count;
+        tokio::task::spawn_blocking(move || {
+            let view = committer
+                .committed_view()
+                .map_err(|error| error.to_string())?;
+            let mut positions = BTreeMap::new();
+            for partition_number in 0..partition_count {
+                let partition = PartitionId(
+                    u16::try_from(partition_number).expect("validated partition count"),
+                );
+                let metadata = view
+                    .get(ColumnFamily::PartitionMeta, &partition_meta_key(partition))
+                    .map_err(|error| format!("read partition {partition}: {error}"))?;
+                if let Some(encoded) = metadata {
+                    let metadata = PartitionMeta::decode(encoded.as_slice())
+                        .map_err(|error| format!("decode partition {partition}: {error}"))?;
+                    if let Some(position) = metadata.applied {
+                        positions.insert(partition, position);
+                    }
+                }
+            }
+            Ok::<_, String>(positions)
+        })
+        .await
+        .map_err(|error| SearchProjectionError::CommittedState {
+            detail: format!("join applied position read: {error}"),
+        })?
+        .map_err(|detail| SearchProjectionError::CommittedState { detail })
     }
 
     /// Frames lost before startup leave SQL visibility behind the local store, so differing partitions compare versions.

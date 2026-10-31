@@ -332,6 +332,15 @@ impl SqlVisibilityProjector {
         }
     }
 
+    /// Atomically advances permitted partition checkpoints, rejecting stale owner epochs and conflicting positions.
+    pub async fn checkpoint_partitions(
+        &self,
+        checkpoints: &[super::checkpoints::PartitionCheckpoint],
+    ) -> Result<(), ProjectionError> {
+        super::checkpoints::checkpoint_partitions(&self.backend, checkpoints, self.owner_epoch)
+            .await
+    }
+
     /// Reads a bounded keyset page of projected run identities and versions without modifying rows.
     pub async fn read_run_versions(
         &self,

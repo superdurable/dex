@@ -31,6 +31,11 @@ COUNTERS = (
     "dexzd_search_projection_pending_sync_failures_total",
     "dexzd_search_projection_partitions_needing_rebuild",
 )
+OPTIONAL_COUNTERS = (
+    "dexzd_search_projection_delete_overflow_total",
+    "dexzd_search_projection_unknown_pending_objects_total",
+    "dexzd_search_projection_permanent_failures_total",
+)
 OVERFLOW = "a committed frame could not be queued for the search projection; rebuilding its partition"
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -41,9 +46,9 @@ def read_counters(path):
         if line.startswith("#") or not line.strip():
             continue
         name, value = line.split()[:2]
-        if name in COUNTERS:
+        if name in COUNTERS or name in OPTIONAL_COUNTERS:
             samples[name] = int(value)
-    assert set(samples) == set(COUNTERS), (path, samples)
+    assert set(COUNTERS).issubset(samples), (path, samples)
     return samples
 
 
@@ -52,7 +57,7 @@ def summarize_pending_object_requests(lines):
                 "server_duration_ms_sum": 0, "server_duration_ms_max": 0}
     request_pattern = re.compile(r"operation=(PutObject|DeleteObject).* status=(\d+) duration_ms=(\d+) bytes_received=(\d+)")
     for line in lines:
-        if "key=search-pending/partition-" not in line:
+        if "key=search-pending/" not in line:
             continue
         matched = request_pattern.search(line)
         if matched is None:
@@ -96,7 +101,7 @@ def summarize(point):
         "error_level_match": " ERROR ",
         "metrics_before_file": "metrics-before.openmetrics",
         "metrics_after_file": "metrics-after.openmetrics",
-        "projection_counter_deltas": {name: after[name] - before[name] for name in COUNTERS},
+        "projection_counter_deltas": {name: after[name] - before[name] for name in (*COUNTERS, *(name for name in OPTIONAL_COUNTERS if name in before and name in after))},
         "pending_object_request_activity": summarize_pending_object_requests(lines),
     }
     assert summary["error_level_line_count"] == 0, point

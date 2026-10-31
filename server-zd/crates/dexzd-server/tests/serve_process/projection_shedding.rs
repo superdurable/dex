@@ -42,6 +42,64 @@ async fn paradedb_projection_staging_overflow_diffs_and_converges() {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn postgres_idle_projection_checkpoints_1024_partitions_within_shutdown_budget() {
+    let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") else {
+        return;
+    };
+    let schema = SqlVisibilitySchema::create_for_dialect(&database_url, true).await;
+    let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
+    let directory = TempDir::new().expect("test directory exists");
+    let address = free_loopback_address();
+    let config_path = directory.path().join("idle-checkpoints.yaml");
+    ServeConfig {
+        primary_endpoint: &primary.endpoint(),
+        hard_delete_endpoint: None,
+        listen: address,
+        local_directory: &directory.path().join("store"),
+        lease_duration: "3s",
+        fail_if_held: false,
+        parade_db: Some(SqlVisibilitySettings {
+            is_postgres: true,
+            connection_string: &database_url,
+            schema: schema.name(),
+        }),
+    }
+    .write(&config_path);
+    let configuration = fs::read_to_string(&config_path)
+        .expect("read configuration")
+        .replace("partitionCount: 16", "partitionCount: 1024");
+    fs::write(&config_path, configuration).expect("write 1024-partition configuration");
+    let mut server = ServeProcess::spawn(
+        &config_path,
+        address,
+        directory.path().join("idle-checkpoints.log"),
+    );
+    let mut client = FlowServiceClient::new(server.wait_until_serving().await);
+    start_idle_flow(&mut client, 0).await;
+    let mut poll = tokio::time::interval(Duration::from_millis(20));
+    tokio::time::timeout(SEARCH_BUDGET, async {
+        loop {
+            poll.tick().await;
+            match search_shedding_flows(&mut client).await {
+                Ok(entries) if entries.len() == 1 => break,
+                Ok(_) => {}
+                Err(status) if status.code() == tonic::Code::Unavailable => {}
+                Err(status) => panic!("search failed: {status}; {}", server.log()),
+            }
+        }
+    })
+    .await
+    .expect("startup projection catches up");
+    let status = server.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", server.log());
+    schema
+        .assert_idle_checkpoints_match_local_store(&directory.path().join("store"), &server.log())
+        .await;
+    primary.shutdown().await;
+    schema.drop_schema().await;
+}
+
 async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool, repair_limit: usize) {
     let schema = SqlVisibilitySchema::create_for_dialect(database_url, is_postgres).await;
     let mut proxy = SqlVisibilityTcpProxy::start(database_url).await;

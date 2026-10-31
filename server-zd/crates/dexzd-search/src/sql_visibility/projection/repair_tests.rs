@@ -162,6 +162,52 @@ pub(super) async fn verify_owner_fencing_and_keyset_index_for_test(
             .expect("owner-fencing scenario succeeds")
             .is_empty()
     );
+    let checkpoints: Vec<_> = (1000..2024)
+        .map(|partition| crate::sql_visibility::PartitionCheckpoint {
+            partition_id: PartitionId(partition),
+            previous_position: None,
+            applied_position: position(1),
+        })
+        .collect();
+    successor
+        .checkpoint_partitions(&checkpoints)
+        .await
+        .expect("checkpoint 1024 partitions atomically");
+    successor
+        .checkpoint_partitions(&checkpoints)
+        .await
+        .expect("retry an ambiguously committed checkpoint batch");
+    assert!(matches!(
+        predecessor.checkpoint_partitions(&checkpoints).await,
+        Err(ProjectionError::OwnerFenced { .. })
+    ));
+    assert!(matches!(
+        successor
+            .checkpoint_partitions(&[
+                crate::sql_visibility::PartitionCheckpoint {
+                    partition_id: PartitionId(1000),
+                    previous_position: Some(position(1)),
+                    applied_position: position(2)
+                },
+                crate::sql_visibility::PartitionCheckpoint {
+                    partition_id: PartitionId(1001),
+                    previous_position: None,
+                    applied_position: position(2)
+                },
+            ])
+            .await,
+        Err(ProjectionError::PositionMismatch {
+            partition_id: PartitionId(1001),
+            ..
+        })
+    ));
+    assert_eq!(
+        successor
+            .read_progress(PartitionId(1000))
+            .await
+            .expect("read rolled-back checkpoint"),
+        Some(position(1))
+    );
     let mut slot = backend.lock_next_slot().await;
     let transaction = slot
         .client

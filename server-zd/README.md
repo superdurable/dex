@@ -767,3 +767,8 @@ disk-backed sort and streaming merge, supported by the additive partition/tenant
 ParadeDB stays at schema version 3; the added index and owner-epoch column do not change
 existing columns or queries used by older binaries. Every projection SQL transaction,
 including repairs and empty rebuilds, checks the owner epoch before writing.
+
+Idle checkpoint advancement batches partition positions into one fenced SQL transaction.
+It reads applied positions from one committed view, avoiding a separate store snapshot
+and transaction for each partition during shutdown. Pending object sync runs at most
+eight independent operations concurrently.
