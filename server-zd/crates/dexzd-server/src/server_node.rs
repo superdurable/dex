@@ -664,6 +664,7 @@ impl ServerNode {
                 attribute_indexes: Arc::new(AttributeIndexes::new(
                     object_stores.primary.clone(),
                     clock,
+                    None,
                 )),
                 search_backend,
             },

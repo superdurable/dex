@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_keyspace::row_keys::{flow_list_index_key, tenant_run_index_key};
 use dexzd_keyspace::{ColumnFamily, IndexKind, TenantId};
+use dexzd_protocol::attribute_index::inferred_index_type;
 use dexzd_protocol::dex::{
     ActiveStepSearchMode, EncodedObject, FlowStatus, IndexConfig, IndexType, Value, value,
 };
@@ -270,16 +271,6 @@ fn value_payload_size(value: &Value) -> usize {
         Some(value::Kind::StringValue(text)) => text.len(),
         Some(value::Kind::ObjValue(object)) => object.payload.len(),
         _ => prost::Message::encoded_len(value),
-    }
-}
-
-fn inferred_index_type(value: &Value) -> IndexType {
-    match value.kind {
-        Some(value::Kind::StringValue(_) | value::Kind::ObjValue(_)) => IndexType::Keyword,
-        Some(value::Kind::IntValue(_)) => IndexType::Int,
-        Some(value::Kind::DoubleValue(_)) => IndexType::Double,
-        Some(value::Kind::BoolValue(_)) => IndexType::Bool,
-        _ => IndexType::Unspecified,
     }
 }
 

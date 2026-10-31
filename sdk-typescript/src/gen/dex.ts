@@ -241,6 +241,10 @@ export enum ErrorSubStatus {
   ERROR_SUB_STATUS_REQUEST_TIMEOUT = 7,
   /** ERROR_SUB_STATUS_FLOW_CLOSING - An update-class request arrived while Flow close cleanup is in progress. */
   ERROR_SUB_STATUS_FLOW_CLOSING = 8,
+  /** ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED - A tenant exhausted its slots for an Attribute index type. */
+  ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED = 9,
+  /** ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG - An indexed Keyword value or KeywordArray element exceeds the byte limit. */
+  ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG = 10,
   UNRECOGNIZED = -1,
 }
 

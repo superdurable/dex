@@ -1316,6 +1316,7 @@ name = "dexzd-request-validation"
 version = "0.1.0"
 dependencies = [
  "dexzd-protocol",
+ "serde_json",
  "thiserror",
 ]
 

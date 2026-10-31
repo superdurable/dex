@@ -13,6 +13,7 @@ mod commit_failure_tests;
 mod concurrency_tests;
 mod fixtures;
 mod hard_delete_upload_tests;
+mod keyword_index_tests;
 mod lock_tests;
 mod long_poll_tests;
 mod model_applier;

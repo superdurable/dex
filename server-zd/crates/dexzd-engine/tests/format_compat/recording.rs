@@ -64,6 +64,7 @@ pub(crate) async fn record_workload() -> Recording {
             index_key: "status".to_owned(),
             index_type: IndexType::Keyword as i32,
         }],
+        None,
     )
     .await
     .expect("register an Attribute index");

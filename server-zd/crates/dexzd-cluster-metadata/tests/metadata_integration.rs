@@ -16,10 +16,11 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{
-    AttributeIndexDeclaration, ClusterConfig, LeaseConfig, LeaseHandle, LeaseReleaseError,
-    LeaseStatus, ManifestChange, MetadataError, NodeConfig, acquire_lease, bootstrap_or_validate,
-    bump_node_epoch, create_initial_manifest, raise_version_barrier, read_attribute_index_registry,
-    read_manifest, register_attribute_indexes, update_manifest, update_partition_snapshot,
+    AttributeIndexCapacity, AttributeIndexDeclaration, ClusterConfig, LeaseConfig, LeaseHandle,
+    LeaseReleaseError, LeaseStatus, ManifestChange, MetadataError, NodeConfig, acquire_lease,
+    bootstrap_or_validate, bump_node_epoch, create_initial_manifest, raise_version_barrier,
+    read_attribute_index_registry, read_manifest, register_attribute_indexes, update_manifest,
+    update_partition_snapshot, validate_attribute_index_capacity,
 };
 use dexzd_object_store::{
     ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
@@ -54,6 +55,7 @@ struct MemoryStore {
     block_next_manifest_write: AtomicBool,
     manifest_write_blocked: Notify,
     manifest_read_barrier: Mutex<Option<(Arc<Barrier>, usize)>>,
+    registry_read_barrier: Mutex<Option<(Arc<Barrier>, usize)>>,
     lease_read_instants: Mutex<Vec<Instant>>,
 }
 
@@ -254,9 +256,14 @@ impl ObjectStore for MemoryStore {
                     etag: etag.clone(),
                     object_size: body.len() as u64,
                 });
-        if key == "manifest" {
+        if key == "manifest" || key == "registry/attribute-indexes" {
             let barrier = {
-                let mut pending = self.manifest_read_barrier.lock().expect("test store mutex");
+                let pending_barrier = if key == "manifest" {
+                    &self.manifest_read_barrier
+                } else {
+                    &self.registry_read_barrier
+                };
+                let mut pending = pending_barrier.lock().expect("test store mutex");
                 if let Some((barrier, remaining)) = pending.as_mut() {
                     let barrier = Arc::clone(barrier);
                     *remaining -= 1;
@@ -1359,12 +1366,13 @@ async fn registry_adds_keys_and_rejects_type_conflicts_without_noop_writes() {
         index_key: "status".to_owned(),
         index_type: 1,
     };
-    let first = register_attribute_indexes(&store, &clock, 7, std::slice::from_ref(&declaration))
-        .await
-        .unwrap();
+    let first =
+        register_attribute_indexes(&store, &clock, 7, std::slice::from_ref(&declaration), None)
+            .await
+            .unwrap();
     assert_eq!(first.version, 1);
     let write_count = store.next_etag.load(Ordering::SeqCst);
-    let second = register_attribute_indexes(&store, &clock, 7, &[declaration])
+    let second = register_attribute_indexes(&store, &clock, 7, &[declaration], None)
         .await
         .unwrap();
     assert_eq!(second.version, 1);
@@ -1382,7 +1390,7 @@ async fn registry_adds_keys_and_rejects_type_conflicts_without_noop_writes() {
         index_type: 2,
     };
     assert!(matches!(
-        register_attribute_indexes(&store, &clock, 7, &[conflicting]).await,
+        register_attribute_indexes(&store, &clock, 7, &[conflicting], None).await,
         Err(MetadataError::AttributeIndexConflict { .. })
     ));
     let fresh_store = MemoryStore::default();
@@ -1401,9 +1409,165 @@ async fn registry_adds_keys_and_rejects_type_conflicts_without_noop_writes() {
                     index_type: 2
                 },
             ],
+            None,
         )
         .await,
         Err(MetadataError::AttributeIndexConflict { .. })
     ));
     assert_eq!(fresh_store.object_count(), 0);
+}
+
+#[tokio::test]
+async fn registry_capacity_is_per_type_and_tenant_and_preserves_objects_on_rejection() {
+    use dexzd_protocol::dex::IndexType;
+
+    let capacity = AttributeIndexCapacity::postgres();
+    let store = MemoryStore::default();
+    let clock = TestClock::default();
+    for (index_type, limit) in [
+        (IndexType::Keyword, 10),
+        (IndexType::Int, 3),
+        (IndexType::Double, 3),
+        (IndexType::Bool, 3),
+        (IndexType::Datetime, 3),
+        (IndexType::KeywordArray, 3),
+        (IndexType::Text, 3),
+    ] {
+        let declarations: Vec<_> = (0..limit)
+            .map(|index| AttributeIndexDeclaration {
+                index_key: format!("{index_type:?}-{index}"),
+                index_type: index_type as i32,
+            })
+            .collect();
+        let registry =
+            register_attribute_indexes(&store, &clock, 7, &declarations, Some(&capacity))
+                .await
+                .unwrap();
+        let before = store
+            .get("registry/attribute-indexes")
+            .await
+            .unwrap()
+            .unwrap();
+        let write_count = store.next_etag.load(Ordering::SeqCst);
+        let duplicate =
+            register_attribute_indexes(&store, &clock, 7, &declarations, Some(&capacity))
+                .await
+                .unwrap();
+        assert_eq!(duplicate, registry);
+        assert_eq!(store.next_etag.load(Ordering::SeqCst), write_count);
+        let additional = AttributeIndexDeclaration {
+            index_key: format!("{index_type:?}-extra"),
+            index_type: index_type as i32,
+        };
+        let error = register_attribute_indexes(
+            &store,
+            &clock,
+            7,
+            std::slice::from_ref(&additional),
+            Some(&capacity),
+        )
+        .await
+        .unwrap_err();
+        match error {
+            MetadataError::AttributeIndexCapacityExceeded {
+                tenant_id,
+                index_type: rejected_type,
+                limit: rejected_limit,
+                registered_keys,
+            } => {
+                assert_eq!(tenant_id, 7);
+                assert_eq!(rejected_type, index_type);
+                assert_eq!(rejected_limit, limit);
+                assert_eq!(
+                    registered_keys,
+                    declarations
+                        .iter()
+                        .map(|declaration| declaration.index_key.clone())
+                        .collect::<Vec<_>>()
+                );
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        let after = store
+            .get("registry/attribute-indexes")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(before.bytes, after.bytes);
+        assert_eq!(before.etag, after.etag);
+        assert_eq!(store.next_etag.load(Ordering::SeqCst), write_count);
+        register_attribute_indexes(&store, &clock, 8, &[additional], Some(&capacity))
+            .await
+            .unwrap();
+    }
+    validate_attribute_index_capacity(
+        &read_attribute_index_registry(&store).await.unwrap(),
+        &capacity,
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn registry_without_capacity_allows_existing_behavior_and_startup_detects_overflow() {
+    let capacity = AttributeIndexCapacity::postgres();
+    let store = MemoryStore::default();
+    let clock = TestClock::default();
+    let declarations: Vec<_> = (0..11)
+        .map(|index| AttributeIndexDeclaration {
+            index_key: format!("key-{index}"),
+            index_type: 1,
+        })
+        .collect();
+    validate_attribute_index_capacity(&Default::default(), &capacity).unwrap();
+    let registry = register_attribute_indexes(&store, &clock, 7, &declarations, None)
+        .await
+        .unwrap();
+    assert!(
+        matches!(validate_attribute_index_capacity(&registry, &capacity),
+        Err(MetadataError::AttributeIndexCapacityExceeded { tenant_id: 7, index_type: dexzd_protocol::dex::IndexType::Keyword, limit: 10, registered_keys }) if registered_keys.len() == 11)
+    );
+    let mut duplicate_registry = registry;
+    duplicate_registry.registrations.truncate(10);
+    duplicate_registry
+        .registrations
+        .push(duplicate_registry.registrations[0].clone());
+    validate_attribute_index_capacity(&duplicate_registry, &capacity).unwrap();
+}
+
+#[tokio::test]
+async fn concurrent_registry_cas_never_exceeds_capacity() {
+    let capacity = AttributeIndexCapacity::postgres();
+    let store = MemoryStore::default();
+    let clock = TestClock::default();
+    let declarations: Vec<_> = (0..9)
+        .map(|index| AttributeIndexDeclaration {
+            index_key: format!("key-{index}"),
+            index_type: 1,
+        })
+        .collect();
+    register_attribute_indexes(&store, &clock, 7, &declarations, Some(&capacity))
+        .await
+        .unwrap();
+    *store.registry_read_barrier.lock().unwrap() = Some((Arc::new(Barrier::new(2)), 2));
+    let first = [AttributeIndexDeclaration {
+        index_key: "first".to_owned(),
+        index_type: 1,
+    }];
+    let second = [AttributeIndexDeclaration {
+        index_key: "second".to_owned(),
+        index_type: 1,
+    }];
+    let (first, second) = tokio::join!(
+        register_attribute_indexes(&store, &clock, 7, &first, Some(&capacity)),
+        register_attribute_indexes(&store, &clock, 7, &second, Some(&capacity)),
+    );
+    assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+    let error = first.err().or_else(|| second.err()).unwrap();
+    assert!(matches!(
+        error,
+        MetadataError::AttributeIndexCapacityExceeded { limit: 10, .. }
+    ));
+    let registry = read_attribute_index_registry(&store).await.unwrap();
+    assert_eq!(registry.registrations.len(), 10);
+    assert_eq!(registry.version, 2);
 }

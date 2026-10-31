@@ -13,6 +13,7 @@ mod attribute_sync_tests;
 mod deadline_tests;
 mod dispatch_tests;
 mod hard_delete_tests;
+mod keyword_index_tests;
 mod outbox_and_purge_tests;
 mod rebuild_tests;
 mod timer_tests;
@@ -871,6 +872,23 @@ impl EffectHarness {
         config: EffectsConfig,
         ledger: Arc<dyn HardDeleteUploadLedger>,
     ) -> Self {
+        Self::with_validation(
+            durable,
+            config,
+            ledger,
+            ValidationConfig {
+                has_blob_store: true,
+                ..ValidationConfig::default()
+            },
+        )
+    }
+
+    pub(super) fn with_validation(
+        durable: DurableState,
+        config: EffectsConfig,
+        ledger: Arc<dyn HardDeleteUploadLedger>,
+        validation_config: ValidationConfig,
+    ) -> Self {
         let hasher = PartitionHasher::new(&[7; 16], 16).expect("valid partition hasher");
         let clock = Arc::clone(&durable.clock);
         let hard_delete_objects = HardDeleteObjects::new(
@@ -897,10 +915,7 @@ impl EffectHarness {
                 hard_delete_objects: hard_delete_objects.clone(),
                 partition_hasher: hasher.clone(),
                 clock: Arc::clone(&clock) as _,
-                validation_config: ValidationConfig {
-                    has_blob_store: true,
-                    ..ValidationConfig::default()
-                },
+                validation_config,
                 stream_store: Arc::clone(&stream_store),
                 id_source: Arc::new(SystemEngineIdSource),
                 attribute_sync_waker: attribute_sync_waker.clone(),

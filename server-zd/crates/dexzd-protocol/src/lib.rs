@@ -8,6 +8,8 @@
 
 //! Generated protobuf and gRPC bindings for the public Dex protocol and the server-zd internal formats.
 
+pub mod attribute_index;
+
 /// Generated public Dex protocol from `protos/dex.proto`.
 #[expect(
     clippy::allow_attributes,

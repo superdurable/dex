@@ -51,6 +51,22 @@ public enum ErrorSubStatus
    * <code>ERROR_SUB_STATUS_FLOW_CLOSING = 8;</code>
    */
   ERROR_SUB_STATUS_FLOW_CLOSING(8),
+  /**
+   * <pre>
+   * A tenant exhausted its slots for an Attribute index type.
+   * </pre>
+   *
+   * <code>ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED = 9;</code>
+   */
+  ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED(9),
+  /**
+   * <pre>
+   * An indexed Keyword value or KeywordArray element exceeds the byte limit.
+   * </pre>
+   *
+   * <code>ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG = 10;</code>
+   */
+  ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG(10),
   UNRECOGNIZED(-1),
   ;
 
@@ -103,6 +119,22 @@ public enum ErrorSubStatus
    * <code>ERROR_SUB_STATUS_FLOW_CLOSING = 8;</code>
    */
   public static final int ERROR_SUB_STATUS_FLOW_CLOSING_VALUE = 8;
+  /**
+   * <pre>
+   * A tenant exhausted its slots for an Attribute index type.
+   * </pre>
+   *
+   * <code>ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED = 9;</code>
+   */
+  public static final int ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED_VALUE = 9;
+  /**
+   * <pre>
+   * An indexed Keyword value or KeywordArray element exceeds the byte limit.
+   * </pre>
+   *
+   * <code>ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG = 10;</code>
+   */
+  public static final int ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG_VALUE = 10;
 
 
   public final int getNumber() {
@@ -138,6 +170,8 @@ public enum ErrorSubStatus
       case 6: return ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND;
       case 7: return ERROR_SUB_STATUS_REQUEST_TIMEOUT;
       case 8: return ERROR_SUB_STATUS_FLOW_CLOSING;
+      case 9: return ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED;
+      case 10: return ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG;
       default: return null;
     }
   }

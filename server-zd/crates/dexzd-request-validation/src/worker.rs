@@ -14,6 +14,7 @@ use dexzd_protocol::dex::{
     StepDecision, value,
 };
 
+use crate::keyword_index::validate_indexed_keyword;
 use crate::shared::{
     ValidationCategory, ValidationConfig, ValidationError, invalid, quote_go_string,
     validate_action_permissions, validate_blob_value, validate_hard_delete_write,
@@ -160,6 +161,7 @@ fn validate_common_response(
             ));
         }
         validate_hard_delete_write(&path, write, config, true)?;
+        validate_indexed_keyword(&path, write, config)?;
     }
     validate_action_permissions("action_permission_mappings", permissions)?;
     validate_kv_blob_values("record_events", events)?;
