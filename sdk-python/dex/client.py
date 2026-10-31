@@ -19,6 +19,7 @@ from uuid import uuid4
 import grpc
 from google.protobuf import empty_pb2
 
+from dex._attribute_reads import plan_attribute_reads
 from dex._credential_transport import sync_channel
 from dex._grpc_errors import FlowTargetRequirement, translate_rpc_error
 from dex._server_protocol import (
@@ -34,12 +35,14 @@ from dex._worker_dispatcher import WorkerDispatcher
 from dex.attribute import (
     Attribute,
     AttributeMap,
+    AttributeMapInstance,
     _apply_attribute_store_sync,
     _apply_hard_delete_on_null,
     _require_attribute_wait_supported,
     _require_matching_hard_delete_on_null,
 )
 from dex.attribute_match import AttributeMatch, _encode_attribute_match
+from dex.attribute_values import AttributeValues
 from dex.blob_cache import BlobCache
 from dex.channel import Channel, ChannelMap
 from dex.client_options import ClientOptions
@@ -654,6 +657,99 @@ class Client:
             self._map_flow_status(response.flow_status),
             response.start_time.ToDatetime(tzinfo=timezone.utc),
         )
+
+    def get_attributes(
+        self,
+        flow_id: str,
+        *reads: Attribute[Any] | AttributeMapInstance[Any],
+    ) -> AttributeValues:
+        """Read committed Attribute values from the current or latest Flow run.
+
+        Use ``get_attributes`` to read Flow state from outside the Flow without
+        defining an RPC. Pass one or more reads. A read is a singleton
+        ``Attribute`` or one AttributeMap instance selected with
+        ``AttributeMap.instance(key)``. To read one Attribute, pass a single read.
+        The Client sends every key in one FlowService request, so all values come
+        from the same committed state. No Worker runs.
+
+        The call targets the current run, or the latest run when no run is open. A
+        closed run stays readable until Dex purges it. The call sees only committed
+        state. Unlike reading inside an RPC handler, it never sees writes that a
+        running Step or RPC has staged but not yet committed.
+
+        Each read must use a definition that some Flow in this Client's Registry
+        declares in its ``PersistenceSchema``. The definition matches when it is
+        equal to the registered one: same class (``Attribute`` or
+        ``AttributeMap``), name, ``value_type``, ``index``,
+        ``sync_to_attribute_store``, and ``hard_delete_on_null``. The definition
+        may come from any registered Flow. The server does not check that the
+        target Flow's type declares it, so a same-named Attribute of another type
+        in the target Flow fails to decode.
+
+        Attributes defined with ``hard_delete_on_null=True`` are readable; the
+        server resolves their stored values. The Client resolves other large
+        values through LoadBlobs and the Client's BlobCache, and then decodes every
+        value. On any error the call returns nothing, so no partial result is
+        visible. Every error message names the Flow ID. An error about one read or
+        value also names its Attribute name or physical key.
+
+        Example::
+
+            ORDER_STATUS = Attribute("order-status", str)
+            NOTES = AttributeMap("notes", Note)
+
+            try:
+                values = client.get_attributes(
+                    "order-42", ORDER_STATUS, NOTES.instance("n1")
+                )
+            except FlowNotFoundError:
+                return None
+            status = values.get(ORDER_STATUS, "new")
+            if NOTES.instance("n1") in values:
+                note = values[NOTES.instance("n1")]
+
+        Args:
+            flow_id: The non-empty Flow ID.
+            *reads: At least one ``Attribute`` or ``AttributeMapInstance``. Two
+                reads of the same Attribute or AttributeMap instance are rejected.
+
+        Returns:
+            The set values, keyed by the reads passed to this call. An Attribute or
+            AttributeMap instance without a stored value is absent from the result.
+
+        Raises:
+            ValueError: If ``flow_id`` is empty, no read is given, two reads select
+                the same Attribute or AttributeMap instance, or the response has an
+                unexpected key, a duplicate key, or an entry without a value.
+            TypeError: If a read is not an ``Attribute`` or
+                ``AttributeMapInstance``, such as an ``AttributeMap`` without an
+                instance.
+            FlowDefinitionError: If no Flow in the Registry declares a matching
+                definition, including a same-named definition with another value
+                type.
+            FlowNotFoundError: If the Flow does not exist or its latest run is
+                being purged.
+            ValueMappingError: If a returned value cannot be resolved or decoded
+                as its value type. This includes an empty or non-finite value, an
+                unsupported object encoding, and a large value that LoadBlobs omits.
+            DexServiceError: If FlowService or LoadBlobs otherwise fails. A LoadBlobs
+                failure for a missing Flow raises ``FlowNotFoundError``.
+        """
+        plan = plan_attribute_reads(self.registry, self._values, flow_id, reads)
+        try:
+            response = self._service.GetAttributes(plan.request())
+        except grpc.RpcError as error:
+            raise plan.service_error(error, "GetAttributes") from error
+        entries = plan.set_entries(response)
+        try:
+            hydrated = self._hydrator.hydrate_all(
+                flow_id, [entry.value for entry in entries]
+            )
+        except grpc.RpcError as error:
+            raise plan.service_error(error, "LoadBlobs") from error
+        except (ValueError, RuntimeError) as error:
+            raise plan.hydration_error(error) from error
+        return plan.decode(self._values, entries, hydrated)
 
     def search_flows(
         self,

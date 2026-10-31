@@ -228,10 +228,38 @@ to assess reserve pressure. It never resets and remains available after shutdown
 
 ## Flow state I/O
 
-Applications read and write Flow state through typed RPCs. Client and AsyncClient
-do not expose direct Attribute reads or writes, Channel publication, or
-pending-message mutation. This keeps each external state transition behind a
-Flow-owned method.
+Applications write Flow state through typed RPCs. Client and AsyncClient do not
+expose direct Attribute writes, Channel publication, or pending-message
+mutation. This keeps each external state transition behind a Flow-owned method.
+
+Read committed Attribute values without an RPC through `get_attributes`. Pass
+one or more singleton Attributes or AttributeMap instances selected with
+`AttributeMap.instance(key)`:
+
+```python
+values = client.get_attributes(flow_id, ORDER_STATUS, NOTES.instance("n1"))
+status = values.get(ORDER_STATUS, "new")
+if NOTES.instance("n1") in values:
+    note = values[NOTES.instance("n1")]
+```
+
+`AsyncClient.get_attributes` is the awaitable form. There is no single-Attribute
+method; pass one read to read one value. The Client sends every key in one
+request and no Worker runs, so all values come from the same committed state.
+The call reads the current run, or the latest run when no run is open, and a
+closed run stays readable until Dex purges it. Unlike a read inside an RPC
+handler, it never sees writes that a running Step or RPC has not committed.
+
+The result `AttributeValues` is keyed by the reads passed to the call, and type
+checkers infer each value type from its key. An unset Attribute or map instance
+is absent: `values[key]` raises `KeyError`, `values.get(key)` returns `None`,
+`values.get(key, default)` returns `default`, and `key in values` is `False`. A
+stored value that decodes to `None` is still present. Each read must equal a
+definition declared by some Flow in the Client's Registry, with the same name,
+value type, index, `sync_to_attribute_store`, and `hard_delete_on_null`;
+otherwise the call raises `FlowDefinitionError` before contacting Dex. Two
+reads of the same key, or no read at all, raise `ValueError`. Large values are
+resolved through LoadBlobs and the BlobCache before decoding.
 
 RPC handlers can stage `channel.delete(context, message_id)`. Declare the RPC as
 `@rpc(is_transactional=True)` when a missing message must abort its other writes.
@@ -423,7 +451,8 @@ the Attribute or setting it to `None` permanently deletes the stored value, and 
 deleted value reads as absent. Only string and object values, including
 `bytes`, are supported; `int`, `bool`, and `float` types are rejected. The
 option cannot be combined with an index or `sync_to_attribute_store`, and
-`wait_for_attribute_match` rejects it. Handlers receive the value inline, and
+`wait_for_attribute_match` rejects it. `get_attributes` reads it; Dex resolves
+the stored value. Handlers and `get_attributes` receive the value inline, and
 the SDK never stores it in the local blob cache.
 
 Hard-delete writes require a Server with an enabled blob store and Server
@@ -780,7 +809,7 @@ SubFlow.
 ### Errors
 
 Client calls raise concrete `DexServiceError` subclasses. Existing-Flow reads
-(`describe_flow`, `wait_for_flow`, and `time_travel`) raise
+(`describe_flow`, `get_attributes`, `wait_for_flow`, and `time_travel`) raise
 `FlowNotFoundError` when the Flow does not exist. Mutations, RPCs, timer/Step
 waits, config updates, and state-transfer triggers raise
 `FlowNotActiveOrNotFoundError` when no running Flow can accept the operation.

@@ -216,7 +216,13 @@ class ChannelMessageNotFoundError(DexServiceError):
 
 
 class FlowDefinitionError(RuntimeError):
-    """Indicate that Registry construction found an invalid Flow definition."""
+    """Indicate an invalid Flow definition or a definition the Registry lacks.
+
+    Registry construction raises it for an invalid Flow definition. Client calls
+    raise it before contacting Dex when an argument is not registered or does not
+    match the registered definition. For example, ``get_attributes`` raises it for
+    an Attribute whose value type differs from the one a Flow declares.
+    """
 
     pass
 

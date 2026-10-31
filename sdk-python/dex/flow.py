@@ -1048,6 +1048,36 @@ class Registry:
                 f"Stream is not registered: {stream.name}"
             ) from error
 
+    def _require_registered_attribute(
+        self,
+        definition: Attribute[Any] | AttributeMap[Any],
+    ) -> None:
+        """Require some registered Flow to declare an equal Attribute definition.
+
+        Args:
+            definition: The Attribute or AttributeMap definition to find.
+
+        Raises:
+            FlowDefinitionError: If no Flow declares an equal definition.
+        """
+        flows_with_name: list[str] = []
+        for flow in self._registered_flows.values():
+            registered = flow.persistence.get(definition.name)
+            if registered == definition:
+                return
+            if isinstance(registered, (Attribute, AttributeMap)):
+                flows_with_name.append(flow.name)
+        kind = "AttributeMap" if isinstance(definition, AttributeMap) else "Attribute"
+        if flows_with_name:
+            raise FlowDefinitionError(
+                f"{kind} {definition.name} does not match the definition registered "
+                f"by Flow {', '.join(flows_with_name)}; the kind, value type, index, "
+                "sync_to_attribute_store, and hard_delete_on_null must be equal"
+            )
+        raise FlowDefinitionError(
+            f"{kind} {definition.name} is not registered by any Flow in the Registry"
+        )
+
     def _rpc_for_method(
         self,
         method: Callable[..., Any],

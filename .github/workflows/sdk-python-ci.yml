@@ -104,6 +104,7 @@ jobs:
           --color=always \
           --files \
             dex/__init__.py \
+            dex/_attribute_reads.py \
             dex/_credential_transport.py \
             dex/_grpc_errors.py \
             dex/_invocation_context.py \
@@ -116,6 +117,7 @@ jobs:
             dex/_worker_dispatcher.py \
             dex/attribute.py \
             dex/attribute_match.py \
+            dex/attribute_values.py \
             dex/async_worker.py \
             dex/blob_cache.py \
             dex/channel.py \
