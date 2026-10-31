@@ -14,7 +14,7 @@ use dexzd_apply::diagnostics::{
     current_semantic_point_hash, time_travel_target_close, time_travel_target_hash,
 };
 use dexzd_apply::read_model::{
-    get_flow_state, get_search_document, search_order_index_keys_of_document,
+    get_flow_state, get_history_events, get_search_document, search_order_index_keys_of_document,
 };
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyError, ApplyOutcome, FlowStateReader, StateReadError, StateRow,
@@ -31,13 +31,14 @@ use dexzd_keyspace::{
 use dexzd_protocol::dex::{
     ActionPermissionMapping, ActionPermissionMappings, AttributeWrite, ChannelMessage,
     ChannelMessageDeletion, CloseDecision, CloseDecisionType, DeleteChannelMessageRequest,
-    EncodedObject, FlowResetStepMethod, FlowResetType, FlowStartOptions, FlowStatus,
-    FlowTimeoutPolicy, IndexConfig, InternalTimerStatus, InvokeExecuteMethodResponse,
+    EncodedObject, ExecuteMethodFailurePolicy, FlowHistoryEvent, FlowResetStepMethod,
+    FlowResetType, FlowStartOptions, FlowStatus, FlowTimeoutPolicy, GetHistoryEventsResponse,
+    HistoryEventIdRange, IndexConfig, InternalTimerStatus, InvokeExecuteMethodResponse,
     InvokeRpcRequest, InvokeWaitForMethodResponse, InvokeWorkerRpcResponse,
     PublishToChannelRequest, ResetFlowRequest, RetryPolicy, SetAttributesRequest, SkipTimerRequest,
-    StartFlowRequest, StepDecision, StepMovement, StepOptions, StopFlowRequest, StopType,
-    SubFlowCondition, TimerCondition, Value, WaitingCondition, WaitingConditionType,
-    WorkerErrorResponse, WorkerTarget, flow_history_event, value,
+    StartFlowRequest, StepDecision, StepMethodEventContext, StepMovement, StepOptions,
+    StopFlowRequest, StopType, SubFlowCondition, TimerCondition, Value, WaitingCondition,
+    WaitingConditionType, WorkerErrorResponse, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, ChannelMessageDeleteCommand,
@@ -3504,4 +3505,381 @@ fn permission_write(permissions: &[&str]) -> AttributeWrite {
         }),
         ..AttributeWrite::default()
     }
+}
+
+fn history_page(harness: &Harness, run_attempt: i32) -> GetHistoryEventsResponse {
+    get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run(),
+        0,
+        0,
+        &[],
+        run_attempt,
+    )
+    .expect("history reads")
+}
+
+fn event_ids(events: &[FlowHistoryEvent]) -> Vec<i64> {
+    events.iter().map(|event| event.event_id).collect()
+}
+
+fn method_context(event: &FlowHistoryEvent) -> Option<&StepMethodEventContext> {
+    use flow_history_event::Payload;
+    match event.payload.as_ref()? {
+        Payload::StepWaitForCompleted(event) => event.context.as_ref(),
+        Payload::StepWaitForFailed(event) => event.context.as_ref(),
+        Payload::StepExecuteCompleted(event) => event.context.as_ref(),
+        Payload::StepExecuteFailed(event) => event.context.as_ref(),
+        Payload::StepWaitForPending(event) | Payload::StepExecutePending(event) => {
+            event.context.as_ref()
+        }
+        _ => None,
+    }
+}
+
+/// The source event ID, WaitFor event ID, and WaitFor time that a Step method event names.
+fn related_event_ids(event: &FlowHistoryEvent) -> (i64, i64, Option<prost_types::Timestamp>) {
+    let context = method_context(event).expect("a Step method event has a context");
+    (
+        context.from_event_id,
+        context.wait_for_completed_event_id,
+        context.wait_for_completed_time,
+    )
+}
+
+fn step_event<'events>(
+    events: &'events [FlowHistoryEvent],
+    step_execution_id: &str,
+) -> &'events FlowHistoryEvent {
+    events
+        .iter()
+        .find(|event| {
+            method_context(event)
+                .is_some_and(|context| context.step_execution_id == step_execution_id)
+        })
+        .expect("the Step execution has an event")
+}
+
+#[test]
+fn step_events_record_their_wait_for_and_source_event_ids() {
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.complete_wait_for("ChargeStep-1");
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    harness.complete_execute("ChargeStep-1", 1, next_steps(&["ShipStep"]));
+    harness.start_attempt("ShipStep-1", StepMethod::Execute, 1);
+    harness.complete_execute("ShipStep-1", 1, force_complete());
+    let events = history_page(&harness, 0).events;
+    assert_eq!(event_ids(&events), [1, 2, 3, 4, 5]);
+    assert!(matches!(
+        events[1].payload,
+        Some(flow_history_event::Payload::StepWaitForCompleted(_))
+    ));
+    assert_eq!(
+        related_event_ids(&events[1]),
+        (1, 0, None),
+        "the start Step's WaitFor names the FlowStart event and no WaitFor"
+    );
+    assert_eq!(
+        related_event_ids(&events[2]),
+        (1, 2, events[1].event_time),
+        "Execute names its source and its WaitFor event"
+    );
+    assert_eq!(
+        related_event_ids(&events[3]),
+        (3, 0, None),
+        "ShipStep-1 skipped WaitFor and was started by event 3"
+    );
+    assert_eq!(harness.step("ChargeStep-1").wait_for_completed_event_id, 2);
+    assert_eq!(harness.step("ShipStep-1").from_event_id, 3);
+}
+
+#[test]
+fn rpc_and_failure_recovery_steps_record_their_source_event_ids() {
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    let recovering_options = StepOptions {
+        skip_wait_for: true,
+        execute_retry_policy: Some(RetryPolicy {
+            maximum_attempts: 1,
+            ..RetryPolicy::default()
+        }),
+        execute_failure_policy: ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
+        execute_failure_proceed_step_type: "RefundStep".to_owned(),
+        ..StepOptions::default()
+    };
+    commit_rpc(
+        &mut harness,
+        "rpc-1",
+        InvokeWorkerRpcResponse {
+            step_decision: Some(StepDecision {
+                next_steps: vec![StepMovement {
+                    step_type: "ShipStep".to_owned(),
+                    step_options: Some(recovering_options),
+                    ..StepMovement::default()
+                }],
+                ..StepDecision::default()
+            }),
+            ..InvokeWorkerRpcResponse::default()
+        },
+        true,
+    );
+    let events = history_page(&harness, 0).events;
+    assert!(matches!(
+        events[1].payload,
+        Some(flow_history_event::Payload::RpcExecutionCompleted(_))
+    ));
+    assert_eq!(harness.step("ShipStep-1").from_event_id, events[1].event_id);
+    harness.start_attempt("ShipStep-1", StepMethod::Execute, 1);
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(key("ShipStep-1", StepMethod::Execute)),
+        attempt: 1,
+        kind: 1,
+        worker_error: Some(WorkerErrorResponse {
+            detail: "declined".to_owned(),
+            ..WorkerErrorResponse::default()
+        }),
+        is_non_retryable: true,
+        ..StepAttemptFailedCommand::default()
+    }));
+    let events = history_page(&harness, 0).events;
+    let failed = events.last().expect("the failure is recorded");
+    assert!(matches!(
+        failed.payload,
+        Some(flow_history_event::Payload::StepExecuteFailed(_))
+    ));
+    assert_eq!(related_event_ids(failed), (2, 0, None));
+    assert_eq!(harness.step("RefundStep-1").from_event_id, failed.event_id);
+    harness.apply(Command::FlowStop(FlowStopCommand {
+        request: Some(StopFlowRequest {
+            stop_type: StopType::Cancel as i32,
+            ..StopFlowRequest::default()
+        }),
+    }));
+    let events = history_page(&harness, 0).events;
+    let charge_pending = step_event(&events, "ChargeStep-1");
+    let refund_pending = step_event(&events, "RefundStep-1");
+    assert!(matches!(
+        refund_pending.payload,
+        Some(flow_history_event::Payload::StepWaitForPending(_))
+    ));
+    assert_eq!(related_event_ids(charge_pending), (1, 0, None));
+    assert_eq!(
+        related_event_ids(refund_pending),
+        (failed.event_id, 0, None)
+    );
+}
+
+#[test]
+fn time_travel_keeps_the_related_event_ids_of_restored_steps() {
+    // Only the genesis checkpoint exists, so the rebuild replays the WaitFor completion.
+    let mut harness = Harness::new();
+    run_charge_then_ship(&mut harness);
+    let original_events = history_page(&harness, 0).events;
+    let wait_for_time = original_events[1].event_time;
+    assert_eq!(harness.step("ShipStep-2").from_event_id, 3);
+    let (attempt, _) = harness.travel_to(ResetFlowRequest {
+        step_execution_id: "ChargeStep-1".to_owned(),
+        step_method: FlowResetStepMethod::Execute as i32,
+        ..reset(FlowResetType::StepExecutionId)
+    });
+    assert_eq!(attempt, 2);
+    let restored = harness.step("ChargeStep-1");
+    assert_eq!(restored.from_event_id, 1);
+    assert_eq!(restored.wait_for_completed_event_id, 2);
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    harness.complete_execute("ChargeStep-1", 1, next_steps(&["PackStep"]));
+    let events = history_page(&harness, 0).events;
+    let execute = events.last().expect("the new Execute is recorded");
+    assert_eq!(execute.run_attempt, 2);
+    assert_eq!(
+        related_event_ids(execute),
+        (1, 2, wait_for_time),
+        "the restored Step names the WaitFor event of the earlier run attempt"
+    );
+    assert!(event_ids(&events).contains(&2));
+    assert_eq!(harness.step("PackStep-1").from_event_id, execute.event_id);
+}
+
+#[test]
+fn a_reapplied_rpc_links_its_steps_to_the_reapplied_event() {
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    commit_rpc(
+        &mut harness,
+        "rpc-1",
+        InvokeWorkerRpcResponse {
+            step_decision: Some(next_steps(&["ShipStep"])),
+            ..InvokeWorkerRpcResponse::default()
+        },
+        true,
+    );
+    assert_eq!(harness.step("ShipStep-1").from_event_id, 2);
+    harness.travel_to(reapplying(reset(FlowResetType::Beginning)));
+    let fork = harness.history_record(harness.last_seq()).unwrap();
+    let reapplied_rpc = fork
+        .events
+        .iter()
+        .find(|event| {
+            matches!(
+                event.payload,
+                Some(flow_history_event::Payload::RpcExecutionCompleted(_))
+            )
+        })
+        .expect("the fork records the reapplied RPC");
+    assert!(reapplied_rpc.event_id > 2);
+    assert_eq!(
+        harness.step("ShipStep-1").from_event_id,
+        reapplied_rpc.event_id
+    );
+    assert_eq!(harness.step("ChargeStep-1").from_event_id, 1);
+}
+
+#[test]
+fn history_reads_report_the_event_ids_the_window_pruned() {
+    let mut harness = Harness::with_settings(RunSettings {
+        history_window_semantic_events: 4,
+        history_prune_chunk_semantic_events: 2,
+        checkpoint_max_commands: 3,
+        ..settings()
+    });
+    harness.start(start_request());
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.complete_wait_for("ChargeStep-1");
+    let unpruned = history_page(&harness, 0);
+    assert_eq!(unpruned.pruned_event_id_range, None);
+    assert_eq!(unpruned.first_retained_event_id, 2);
+    for index in 0..9 {
+        harness.set_attribute("status", &format!("v{index}"), "");
+    }
+    // Seqs 2 to 6 are pruned: the WaitFor (event 2) and SetAttributes events 3 to 5.
+    assert!(harness.history_record(6).is_none());
+    assert!(harness.history_record(7).is_some());
+    let pruned = Some(HistoryEventIdRange {
+        start_event_id: 2,
+        end_event_id: 5,
+    });
+    let first_attempt = history_page(&harness, 0);
+    assert_eq!(first_attempt.pruned_event_id_range, pruned);
+    assert_eq!(first_attempt.first_retained_event_id, 6);
+    assert_eq!(event_ids(&first_attempt.events), [1, 6, 7, 8, 9, 10, 11]);
+    let first_page = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run(),
+        0,
+        2,
+        &[],
+        0,
+    )
+    .unwrap();
+    let second_page = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run(),
+        0,
+        2,
+        &first_page.next_page_token,
+        0,
+    )
+    .unwrap();
+    assert_eq!(event_ids(&second_page.events), [7, 8]);
+    assert_eq!(first_page.pruned_event_id_range, pruned);
+    assert_eq!(second_page.pruned_event_id_range, pruned);
+    assert_eq!(second_page.first_retained_event_id, 6);
+
+    let point = harness.history_record(9).unwrap().timestamp_micros;
+    let (attempt, _) = harness.travel_to(reset_to_time(point));
+    assert_eq!(attempt, 2);
+    let second_attempt = history_page(&harness, 0);
+    assert_eq!(second_attempt.pruned_event_id_range, pruned);
+    assert_eq!(second_attempt.first_retained_event_id, 6);
+    assert_eq!(event_ids(&second_attempt.events), [1, 6, 7, 8, 12]);
+    assert_eq!(history_page(&harness, 1).pruned_event_id_range, pruned);
+
+    // Pruning continues past the fork, through events that only run attempt 1 recorded.
+    for index in 9..17 {
+        harness.set_attribute("status", &format!("v{index}"), "");
+    }
+    let range = history_page(&harness, 0)
+        .pruned_event_id_range
+        .expect("the window pruned events");
+    assert_eq!(range.start_event_id, 2);
+    assert!(
+        range.end_event_id > 11,
+        "the range covers attempt 1's later events: {range:?}"
+    );
+    let first_retained_seq = (2..harness.last_seq())
+        .find(|seq| harness.history_record(*seq).is_some())
+        .expect("a record after FlowStart is kept");
+    let first_retained = harness.history_record(first_retained_seq).unwrap();
+    assert_eq!(
+        first_retained.events.first().map(|event| event.event_id),
+        Some(range.end_event_id + 1),
+        "the first kept record follows the range"
+    );
+    for run_attempt in [1, 2] {
+        let page = history_page(&harness, run_attempt);
+        assert_eq!(page.pruned_event_id_range, Some(range));
+        assert_eq!(page.first_retained_event_id, range.end_event_id + 1);
+        assert!(
+            page.events
+                .iter()
+                .all(|event| event.event_id == 1 || event.event_id > range.end_event_id)
+        );
+    }
+}
+
+#[test]
+fn rows_and_events_written_without_related_event_ids_still_read_and_run() {
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.complete_wait_for("ChargeStep-1");
+    // Zero fields encode to nothing, so these rows have the bytes an older Server wrote.
+    let run = harness.run();
+    for ((column_family, key), value) in harness.state.rows.iter_mut() {
+        let Ok(parsed) = parse_run_key(key) else {
+            continue;
+        };
+        if parsed.run_id != run {
+            continue;
+        }
+        match (*column_family, parsed.table) {
+            (ColumnFamily::Flow, RunTable::StepExecution) => {
+                let mut step = StepExecutionRecord::decode(value.as_slice()).unwrap();
+                step.from_event_id = 0;
+                step.wait_for_completed_event_id = 0;
+                step.wait_for_completed_at_micros = 0;
+                *value = step.encode_to_vec();
+            }
+            (ColumnFamily::History, RunTable::HistoryRecord) => {
+                let mut record = HistoryRecord::decode(value.as_slice()).unwrap();
+                for event in &mut record.events {
+                    if let Some(flow_history_event::Payload::StepWaitForCompleted(completed)) =
+                        event.payload.as_mut()
+                        && let Some(context) = completed.context.as_mut()
+                    {
+                        context.from_event_id = 0;
+                    }
+                }
+                *value = record.encode_to_vec();
+            }
+            _ => {}
+        }
+    }
+    let events = history_page(&harness, 0).events;
+    assert_eq!(event_ids(&events), [1, 2]);
+    assert_eq!(related_event_ids(&events[1]), (0, 0, None));
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    harness.complete_execute("ChargeStep-1", 1, force_complete());
+    let events = history_page(&harness, 0).events;
+    assert_eq!(
+        related_event_ids(&events[2]),
+        (0, 0, None),
+        "a Step row without the IDs records none"
+    );
+    assert_eq!(history_page(&harness, 0).pruned_event_id_range, None);
 }

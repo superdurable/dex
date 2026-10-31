@@ -354,6 +354,19 @@ All three fail when the purging-run guard in `read_run` is removed and pass with
 Restoring randomized #847 detection is tracked in
 [issue #1033](https://github.com/superdurable/dex/issues/1033).
 
+### Related event ID digest change
+
+Step executions now store the event IDs of the event that started them and of their WaitFor
+completion, and Step method events report them (issue #1095). The added Step row and history
+bytes moved the `FIRST_SEED` pin from `0x35042b471c77b18ee1855f1943097b62` to
+`0xc70d6441310a4d8c7851792e0a5204d1`. The other seven pins, including every regression seed,
+did not move.
+
+The v1 format pin changes from `2bdc08183cd17d874252abb5985d4a1c` to
+`4802bd4fc77e15286f5bf796009ed500`. The regenerated snapshot store, its manifest, and
+`state.txt` carry the new fields. Log objects, the workload, and the fixture README are
+unchanged. Before regeneration, the old fixture decoded with the new protobuf types.
+
 ### Running
 
 ```bash

@@ -29,6 +29,7 @@ use crate::command_handlers::flow_close::{FlowClosing, close_flow_immediately};
 use crate::command_handlers::flow_data::apply_attribute_writes;
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
+use crate::projections::history_event_links::StepEventLink;
 use crate::projections::history_events;
 use crate::state_access::{FlowTransaction, RunRows, read_flow_directory, write_flow_directory};
 use crate::steps::{
@@ -188,6 +189,7 @@ pub(crate) fn start_run(
         return Ok(HandlerResult::from(rejection));
     }
     pin_genesis_attributes(transaction, &cursor, &options.attributes)?;
+    let mut start_step_execution_id = None;
     // Without a start Step type the Flow waits for RPCs or a close, as in the Go Server.
     if request.start_step_type.is_empty() {
         // The unused input still reaches history, so it must respect the value limit.
@@ -230,6 +232,7 @@ pub(crate) fn start_run(
         {
             hold_stored_value(transaction, cursor.rows, input, &ValueHolder::Genesis)?;
         }
+        start_step_execution_id = Some(start_step_id);
     }
     if cursor.record.timeout_deadline_micros > 0 {
         let deadline = cursor.record.timeout_deadline_micros;
@@ -270,7 +273,14 @@ pub(crate) fn start_run(
         ),
         Vec::new(),
     );
-    history_events::record_flow_started(&mut cursor, request, &start.flow_config);
+    let flow_started_event =
+        history_events::record_flow_started(&mut cursor, request, &start.flow_config);
+    if let Some(step_execution_id) = start_step_execution_id {
+        cursor.link_step_event(
+            flow_started_event,
+            StepEventLink::StartedStepExecution(step_execution_id),
+        );
+    }
     let reply = CommandReply {
         reply: Some(command_reply::Reply::StartFlow(
             history_events::start_flow_reply(&cursor, false),

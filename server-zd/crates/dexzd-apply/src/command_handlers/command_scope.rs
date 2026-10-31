@@ -7,9 +7,10 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use dexzd_keyspace::{RunId, TenantId};
-use dexzd_protocol::dex::flow_history_event;
+use dexzd_protocol::dex::FlowHistoryEvent;
 use dexzd_protocol::dexzd::v1::{CommandReply, FlowCommand};
 
+use crate::projections::history_event_links::PendingHistoryEvents;
 use crate::values::ValueIdAllocator;
 use crate::{ApplyEffect, ApplyOutcome, BehaviorVersion, StateWrite};
 
@@ -27,6 +28,8 @@ pub(crate) struct CommandScope<'command> {
     /// Time travel re-marks synced Attributes after reapplied input, so a reapplied natural close
     /// waits.
     pub(crate) has_pending_time_travel_remarks: bool,
+    /// A rebuild's recorded events; their IDs resolve the replayed command's event links.
+    pub(crate) recorded_events: &'command [FlowHistoryEvent],
 }
 
 /// What decides whether a natural close waits for the Attribute Sync outbox.
@@ -48,6 +51,7 @@ impl<'command> CommandScope<'command> {
             is_replay: false,
             close_barrier_source: CloseBarrierSource::Outbox,
             has_pending_time_travel_remarks: false,
+            recorded_events: &[],
         }
     }
 
@@ -75,7 +79,7 @@ pub(crate) struct HandlerOutput {
 
 /// History a replayed command did not record, and the counters the next input continues.
 pub(crate) struct ReplayedCommandOutput {
-    pub(crate) events: Vec<flow_history_event::Payload>,
+    pub(crate) events: PendingHistoryEvents,
     pub(crate) counters: ReplayedCommandCounters,
 }
 

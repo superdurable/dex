@@ -768,6 +768,53 @@ message GetHistoryEventsResponse {
   repeated FlowHistoryEvent events = 1;
   bytes next_page_token = 2;
   int64 next_internal_event_id = 3;
+  // The event IDs that the history window removed from this run.
+  //
+  // The Server keeps a recent window of each run's history. It always keeps the
+  // FlowStartedOrContinued event, and it removes older events after it in
+  // chunks. Every event whose ID is inside this inclusive range is gone. No page
+  // and no run attempt returns it again.
+  //
+  // Use the range to classify a related event ID, such as
+  // StepMethodEventContext.from_event_id or
+  // StepMethodEventContext.wait_for_completed_event_id. An ID inside the range
+  // names a removed event. An ID outside the range names an event that a page of
+  // the same run attempt lineage can still return.
+  //
+  // Event IDs grow across the whole run, and removal follows that order, so the
+  // removed IDs form one range. The range is the same on every page and for
+  // every run attempt of the run. It can include IDs of events that belong only
+  // to other run attempts. The range grows while the run records new events.
+  //
+  // Unset when the history window has removed no event. Also unset from a Server
+  // that does not report removed events.
+  HistoryEventIdRange pruned_event_id_range = 4;
+  // The smallest event ID after the FlowStartedOrContinued event that the
+  // history window has not removed.
+  //
+  // FlowStartedOrContinued is always kept and has a smaller ID. The window never
+  // removes an event whose ID is first_retained_event_id or larger. When
+  // pruned_event_id_range is set, this value is its end_event_id plus one.
+  // Otherwise it is the ID that follows the FlowStartedOrContinued event, so a
+  // run without removed events usually reports 2.
+  //
+  // Use it to place a notice about removed events before the oldest kept page.
+  // The event with this ID can belong to another run attempt, and it may not
+  // exist yet when the run has recorded no later event. Like
+  // pruned_event_id_range, the value is the same on every page and for every run
+  // attempt of the run. Zero from a Server that does not report it.
+  int64 first_retained_event_id = 5;
+}
+
+// HistoryEventIdRange is an inclusive range of history event IDs of one run.
+//
+// Both ends are history event IDs, the same values as FlowHistoryEvent.event_id.
+// Both ends belong to the range, and a range always contains at least one ID.
+message HistoryEventIdRange {
+  // The smallest event ID in the range.
+  int64 start_event_id = 1;
+  // The largest event ID in the range. It is never smaller than start_event_id.
+  int64 end_event_id = 2;
 }
 
 message FlowHistoryEvent {
@@ -906,6 +953,51 @@ message StepMethodEventContext {
   StepMethodOptions method_options = 8;
   StepMethodFailure last_failure_info = 9;
   PullRouting pull_routing = 10;
+  // The event ID of the history event that started this Step execution.
+  //
+  // The event depends on what started the Step execution:
+  //   - The start Step: the FlowStartedOrContinued event.
+  //   - A Step decision: the StepExecuteCompleted event of
+  //     from_step_execution_id.
+  //   - A failure recovery Step: the StepExecuteFailed event of
+  //     from_step_execution_id.
+  //   - An RPC Step decision: the RpcExecutionCompleted event.
+  // Every event of the Step execution carries the same value.
+  //
+  // Use it to link a Step execution to its source without scanning history.
+  // The event can be on another history page. It can also belong to an earlier
+  // run attempt of the lineage after time travel. When the ID is inside
+  // GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+  // the event.
+  //
+  // Zero when no history event started the Step execution, such as for the Flow
+  // timeout handler. Zero also for events that a Server recorded before it
+  // reported this field. Then find the source through from_step_execution_id.
+  int64 from_event_id = 11;
+  // The event ID of the StepWaitForCompleted event of this Step execution.
+  //
+  // It is set only on Execute events: StepExecuteCompleted, StepExecuteFailed,
+  // and StepExecutePending. The Step's WaitFor must have completed. Use it to
+  // link Execute to the WaitFor that registered its waiting conditions. The
+  // event can be on another history page, or in an earlier run attempt of the
+  // lineage after time travel. When the ID is inside
+  // GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+  // the event.
+  //
+  // Zero on WaitFor events. Zero also when the Step skipped WaitFor, or when
+  // WaitFor failed and the Step proceeded to Execute. Zero also for events that
+  // a Server recorded before it reported this field. Then find the WaitFor event
+  // through step_execution_id.
+  int64 wait_for_completed_event_id = 12;
+  // The event time of the StepWaitForCompleted event that
+  // wait_for_completed_event_id names.
+  //
+  // The time from it to started_time is how long the Step waited between
+  // WaitFor completion and the start of the reported Execute attempt. It stays
+  // available after the history window removes that event.
+  //
+  // Unset whenever wait_for_completed_event_id is zero.
+  google.protobuf.Timestamp wait_for_completed_time = 13;
 }
 
 message StepWaitForCompletedOutput {
@@ -980,11 +1072,30 @@ message ChannelExternalDeleteEvent {
 message WaitForHistoryEventRequest {
   string flow_id = 1;
   string run_id = 2;
+  // The first history event ID that the caller has not read. It must be
+  // positive.
+  //
+  // The call returns at once when the run already has an event with this ID or
+  // a larger one. Otherwise it waits until the run records such an event or
+  // closes. When the Server's long poll wait ends first, the call fails with
+  // DEADLINE_EXCEEDED and LONG_POLL_TIME_OUT; call it again to keep waiting.
   int64 next_internal_event_id = 3;
 }
 
 message WaitForHistoryEventResponse {
+  // True when the run has an event whose ID is next_internal_event_id or
+  // larger. False when the run closed before it recorded such an event.
   bool event_available = 1;
+  // The ID of the newest history event of the run when the call returned.
+  //
+  // It is not the first event at or after next_internal_event_id: it is the
+  // last event the run has recorded. Use it to find the newest history page,
+  // for example by calling with next_internal_event_id set to 1. The newest
+  // event always belongs to the current run attempt. A GetHistoryEvents read of
+  // an older run attempt can end before this ID.
+  //
+  // It is set when event_available is false too. Then it is the ID of the last
+  // event of the closed run.
   int64 available_internal_event_id = 2;
   FlowStatus flow_status = 3;
 }

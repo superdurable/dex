@@ -238,6 +238,8 @@ impl FlowCoordinatorRegistry {
     /// Waits until history of the run contains an event at or after `next_internal_event_id`,
     /// or the run closes (`event_available` is then false).
     ///
+    /// The response reports the run's newest event ID, not the first event at the cursor.
+    ///
     /// Returns `DEADLINE_EXCEEDED` + `LONG_POLL_TIME_OUT` after the default wait time.
     pub async fn wait_for_history_event(
         &self,

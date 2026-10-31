@@ -137,4 +137,104 @@ public interface StepMethodEventContextOrBuilder extends
    * <code>.dex.PullRouting pull_routing = 10;</code>
    */
   io.superdurable.gen.PullRoutingOrBuilder getPullRoutingOrBuilder();
+
+  /**
+   * <pre>
+   * The event ID of the history event that started this Step execution.
+   *
+   * The event depends on what started the Step execution:
+   * - The start Step: the FlowStartedOrContinued event.
+   * - A Step decision: the StepExecuteCompleted event of
+   * from_step_execution_id.
+   * - A failure recovery Step: the StepExecuteFailed event of
+   * from_step_execution_id.
+   * - An RPC Step decision: the RpcExecutionCompleted event.
+   * Every event of the Step execution carries the same value.
+   *
+   * Use it to link a Step execution to its source without scanning history.
+   * The event can be on another history page. It can also belong to an earlier
+   * run attempt of the lineage after time travel. When the ID is inside
+   * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+   * the event.
+   *
+   * Zero when no history event started the Step execution, such as for the Flow
+   * timeout handler. Zero also for events that a Server recorded before it
+   * reported this field. Then find the source through from_step_execution_id.
+   * </pre>
+   *
+   * <code>int64 from_event_id = 11;</code>
+   * @return The fromEventId.
+   */
+  long getFromEventId();
+
+  /**
+   * <pre>
+   * The event ID of the StepWaitForCompleted event of this Step execution.
+   *
+   * It is set only on Execute events: StepExecuteCompleted, StepExecuteFailed,
+   * and StepExecutePending. The Step's WaitFor must have completed. Use it to
+   * link Execute to the WaitFor that registered its waiting conditions. The
+   * event can be on another history page, or in an earlier run attempt of the
+   * lineage after time travel. When the ID is inside
+   * GetHistoryEventsResponse.pruned_event_id_range, the history window removed
+   * the event.
+   *
+   * Zero on WaitFor events. Zero also when the Step skipped WaitFor, or when
+   * WaitFor failed and the Step proceeded to Execute. Zero also for events that
+   * a Server recorded before it reported this field. Then find the WaitFor event
+   * through step_execution_id.
+   * </pre>
+   *
+   * <code>int64 wait_for_completed_event_id = 12;</code>
+   * @return The waitForCompletedEventId.
+   */
+  long getWaitForCompletedEventId();
+
+  /**
+   * <pre>
+   * The event time of the StepWaitForCompleted event that
+   * wait_for_completed_event_id names.
+   *
+   * The time from it to started_time is how long the Step waited between
+   * WaitFor completion and the start of the reported Execute attempt. It stays
+   * available after the history window removes that event.
+   *
+   * Unset whenever wait_for_completed_event_id is zero.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+   * @return Whether the waitForCompletedTime field is set.
+   */
+  boolean hasWaitForCompletedTime();
+  /**
+   * <pre>
+   * The event time of the StepWaitForCompleted event that
+   * wait_for_completed_event_id names.
+   *
+   * The time from it to started_time is how long the Step waited between
+   * WaitFor completion and the start of the reported Execute attempt. It stays
+   * available after the history window removes that event.
+   *
+   * Unset whenever wait_for_completed_event_id is zero.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+   * @return The waitForCompletedTime.
+   */
+  com.google.protobuf.Timestamp getWaitForCompletedTime();
+  /**
+   * <pre>
+   * The event time of the StepWaitForCompleted event that
+   * wait_for_completed_event_id names.
+   *
+   * The time from it to started_time is how long the Step waited between
+   * WaitFor completion and the start of the reported Execute attempt. It stays
+   * available after the history window removes that event.
+   *
+   * Unset whenever wait_for_completed_event_id is zero.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_for_completed_time = 13;</code>
+   */
+  com.google.protobuf.TimestampOrBuilder getWaitForCompletedTimeOrBuilder();
 }

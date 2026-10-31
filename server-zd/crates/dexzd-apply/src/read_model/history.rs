@@ -10,11 +10,12 @@ use std::collections::BTreeMap;
 
 use dexzd_keyspace::row_keys::prefix_range;
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, run_table_prefix};
-use dexzd_protocol::dex::GetHistoryEventsResponse;
+use dexzd_protocol::dex::{GetHistoryEventsResponse, HistoryEventIdRange};
 use dexzd_protocol::dexzd::v1::HistoryRecord;
 
-use crate::FlowStateReader;
+use crate::history::{genesis_seq, history_page};
 use crate::read_model::{ReadModelError, RunView};
+use crate::{ApplyError, FlowStateReader};
 
 /// Reads one page of events from an attempt's lineage, using event IDs as cursors.
 pub fn get_history_events(
@@ -98,10 +99,13 @@ pub fn get_history_events(
     } else {
         Vec::new()
     };
+    let retained_boundary = retained_history_boundary(&view)?;
     Ok(GetHistoryEventsResponse {
         events,
         next_page_token,
         next_internal_event_id,
+        pruned_event_id_range: retained_boundary.pruned_event_id_range(),
+        first_retained_event_id: retained_boundary.first_retained_event_id,
     })
 }
 
@@ -129,4 +133,62 @@ fn lineage_cutoffs(
         attempt = record.parent_attempt;
     }
     Ok(lineage)
+}
+
+/// Event IDs that window pruning removed: every ID from `first_pruned_event_id` up to before
+/// `first_retained_event_id`.
+struct RetainedHistoryBoundary {
+    first_pruned_event_id: i64,
+    first_retained_event_id: i64,
+}
+
+impl RetainedHistoryBoundary {
+    /// Returns the removed IDs as an inclusive range, or `None` when pruning removed none.
+    fn pruned_event_id_range(&self) -> Option<HistoryEventIdRange> {
+        let end_event_id = self.first_retained_event_id - 1;
+        (self.first_pruned_event_id <= end_event_id).then_some(HistoryEventIdRange {
+            start_event_id: self.first_pruned_event_id,
+            end_event_id,
+        })
+    }
+}
+
+/// Returns the boundary between the event IDs that window pruning removed and those it kept.
+///
+/// Pruning deletes a seq prefix after FlowStart, and event IDs grow with seq, so they form one range.
+fn retained_history_boundary(
+    view: &RunView<'_>,
+) -> Result<RetainedHistoryBoundary, ReadModelError> {
+    let genesis_seq = genesis_seq(&view.transaction, view.rows)?;
+    let genesis = view
+        .rows
+        .history_record(&view.transaction, genesis_seq)?
+        .ok_or_else(|| ApplyError::InvariantViolation {
+            detail: format!("the FlowStart history record at seq {genesis_seq} is missing"),
+        })?;
+    let first_pruned_event_id = genesis
+        .events
+        .iter()
+        .map(|event| event.event_id)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    let mut next_seq = genesis_seq.saturating_add(1);
+    let first_retained_event_id = loop {
+        let page = history_page(&view.transaction, view.rows, next_seq)?;
+        if let Some(event_id) = page
+            .iter()
+            .find_map(|record| record.events.iter().map(|event| event.event_id).min())
+        {
+            break event_id;
+        }
+        let Some(last_record) = page.last() else {
+            break view.record.next_event_id.max(1);
+        };
+        next_seq = last_record.seq.saturating_add(1);
+    };
+    Ok(RetainedHistoryBoundary {
+        first_pruned_event_id,
+        first_retained_event_id,
+    })
 }

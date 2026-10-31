@@ -285,6 +285,11 @@ message StepExecutionRecord {
   dex.RecoveryErrorInfo recovery_error = 17;
   // Timer indexes skipped through SkipTimer, retained through Execute.
   repeated uint32 skipped_timer_indexes = 18;
+  // Event ID of the history event that started this execution; zero when none or in older rows.
+  int64 from_event_id = 19;
+  // Event ID and time of the StepWaitForCompleted event; zero before it and in older rows.
+  int64 wait_for_completed_event_id = 20;
+  int64 wait_for_completed_at_micros = 21;
 }
 
 // Phase of one logical method call.
