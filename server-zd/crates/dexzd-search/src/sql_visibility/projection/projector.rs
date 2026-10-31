@@ -27,6 +27,8 @@ use super::super::search_backend::{
 use super::super::upsert::upsert_statements_with_slots;
 use super::super::{AttributeSlot, VisibilityDialect};
 use super::changes::{SearchDocumentChange, decode_search_index_key};
+use super::progress::{is_replay, same_stream, update_progress, validate_position};
+pub(super) use super::progress::{lock_progress, position_from_row};
 use super::skipped_document::{SkippedSearchDocument, record_skipped_documents};
 use crate::SearchError;
 use crate::builtin::document::IndexedDocument;
@@ -83,6 +85,18 @@ pub enum ProjectionError {
         stored: Option<LogPosition>,
         /// Position last projected by the repair owner.
         expected: Option<LogPosition>,
+    },
+    /// A successor has claimed the SQL partition with a newer epoch.
+    #[error(
+        "SQL visibility partition {partition_id} belongs to owner epoch {stored_epoch}, rejecting {offered_epoch}"
+    )]
+    OwnerFenced {
+        /// Partition being written.
+        partition_id: PartitionId,
+        /// Epoch recorded by the successor.
+        stored_epoch: i64,
+        /// Epoch offered by the stale owner.
+        offered_epoch: i64,
     },
     /// A rebuild source is older than the committed projection.
     #[error(
@@ -179,6 +193,7 @@ impl ProjectionError {
 pub struct SqlVisibilityProjector {
     backend: Arc<SqlVisibilitySearchBackend>,
     metric_recorder: Option<Arc<dyn ProjectionMetricRecorder>>,
+    owner_epoch: u64,
 }
 
 impl SqlVisibilityProjector {
@@ -188,6 +203,7 @@ impl SqlVisibilityProjector {
         Self {
             backend,
             metric_recorder: None,
+            owner_epoch: 0,
         }
     }
 
@@ -200,6 +216,21 @@ impl SqlVisibilityProjector {
         Self {
             backend,
             metric_recorder: Some(metric_recorder),
+            owner_epoch: 0,
+        }
+    }
+
+    /// Fences projection writes with a monotonically increasing owner epoch; zero preserves existing constructor behavior.
+    #[must_use]
+    pub fn new_with_metric_recorder_and_epoch(
+        backend: Arc<SqlVisibilitySearchBackend>,
+        metric_recorder: Arc<dyn ProjectionMetricRecorder>,
+        owner_epoch: u64,
+    ) -> Self {
+        Self {
+            backend,
+            metric_recorder: Some(metric_recorder),
+            owner_epoch,
         }
     }
 
@@ -278,6 +309,7 @@ impl SqlVisibilityProjector {
                     applied_position,
                     changes,
                     &self.backend,
+                    self.owner_epoch,
                 ),
             )
             .await;
@@ -315,8 +347,35 @@ impl SqlVisibilityProjector {
         &self,
         partitions: &[super::repair::PartitionDocumentRepairs],
     ) -> Result<(), ProjectionError> {
-        super::repair::repair_documents(&self.backend, self.metric_recorder.as_deref(), partitions)
-            .await
+        super::repair::repair_documents(
+            &self.backend,
+            self.metric_recorder.as_deref(),
+            partitions,
+            self.owner_epoch,
+        )
+        .await
+    }
+
+    /// Repairs one partition from borrowed documents without changing its live-frame progress.
+    /// The previous position and owner epoch must match the locked SQL progress row.
+    /// Returns a projection error if the owner is stale or SQL rejects the transaction.
+    pub async fn repair_partition_documents(
+        &self,
+        partition_id: PartitionId,
+        previous_position: Option<&LogPosition>,
+        changes: &[SearchDocumentChange],
+    ) -> Result<(), ProjectionError> {
+        super::repair::repair_borrowed_documents(
+            &self.backend,
+            self.metric_recorder.as_deref(),
+            &[super::repair::BorrowedPartitionDocumentRepairs {
+                partition_id,
+                previous_position,
+                changes,
+            }],
+            self.owner_epoch,
+        )
+        .await
     }
 
     /// Clears a partition with no committed state during an explicitly requested rebuild.
@@ -324,7 +383,7 @@ impl SqlVisibilityProjector {
         &self,
         partition_id: PartitionId,
     ) -> Result<(), ProjectionError> {
-        super::repair::clear_empty_partition(&self.backend, partition_id).await
+        super::repair::clear_empty_partition(&self.backend, partition_id, self.owner_epoch).await
     }
 
     /// Rebuilds one partition from a consistent committed local view at `applied_position`.
@@ -349,6 +408,7 @@ impl SqlVisibilityProjector {
                     applied_position,
                     committed_view.clone(),
                     &self.backend,
+                    self.owner_epoch,
                 ),
             )
             .await;
@@ -379,13 +439,14 @@ async fn apply_batch_transaction(
     applied_position: &LogPosition,
     changes: &[SearchDocumentChange],
     backend: &SqlVisibilitySearchBackend,
+    owner_epoch: u64,
 ) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
     let transaction = client
         .transaction()
         .await
         .map_err(|source| database_error("begin", source))?;
     let assignments = prepare_attribute_slots(&transaction, backend).await?;
-    let current = lock_progress(&transaction, partition_id).await?;
+    let current = lock_progress(&transaction, partition_id, owner_epoch).await?;
     if is_replay(current.as_ref(), applied_position) {
         transaction
             .commit()
@@ -426,13 +487,14 @@ async fn rebuild_transaction(
     applied_position: &LogPosition,
     committed_view: Arc<dyn FlowStateReader + Send + Sync>,
     backend: &SqlVisibilitySearchBackend,
+    owner_epoch: u64,
 ) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
     let transaction = client
         .transaction()
         .await
         .map_err(|source| database_error("begin rebuild of", source))?;
     let assignments = prepare_attribute_slots(&transaction, backend).await?;
-    let current = lock_progress(&transaction, partition_id).await?;
+    let current = lock_progress(&transaction, partition_id, owner_epoch).await?;
     if current.as_ref().is_some_and(|stored| {
         same_stream(stored, applied_position) && stored.seq > applied_position.seq
     }) {
@@ -577,10 +639,20 @@ pub(super) async fn apply_changes(
 ) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
     let mut pending_rows = Vec::new();
     let mut skipped_documents = Vec::new();
-    let first_partition = changes
+    let mut pending_partition = changes
         .first()
         .map_or(PartitionId(0), |(partition, _)| *partition);
     for &(partition_id, change) in changes {
+        if partition_id != pending_partition {
+            flush_upserts(
+                transaction,
+                pending_partition,
+                &mut pending_rows,
+                assignments,
+            )
+            .await?;
+            pending_partition = partition_id;
+        }
         match change {
             SearchDocumentChange::Upsert {
                 tenant_id,
@@ -623,7 +695,13 @@ pub(super) async fn apply_changes(
             }
         }
     }
-    flush_upserts(transaction, first_partition, &mut pending_rows, assignments).await?;
+    flush_upserts(
+        transaction,
+        pending_partition,
+        &mut pending_rows,
+        assignments,
+    )
+    .await?;
     Ok(skipped_documents)
 }
 
@@ -814,102 +892,6 @@ fn row_from_document_for_dialect(
         .map_err(|error| ProjectionError::InvalidState(error.to_string()))?;
     row.partition_id = i32::from(partition_id.0);
     Ok(row)
-}
-
-async fn lock_progress(
-    transaction: &Transaction<'_>,
-    partition_id: PartitionId,
-) -> Result<Option<LogPosition>, ProjectionError> {
-    let partition_number = i32::from(partition_id.0);
-    transaction
-        .execute_typed(
-            "INSERT INTO dexzd_visibility_progress (partition_id, applied_position) VALUES ($1::integer, 0) ON CONFLICT (partition_id) DO NOTHING",
-            &[(&partition_number as &(dyn ToSql + Sync), Type::INT4)],
-        )
-        .await
-        .map_err(|source| database_error("initialize progress for", source))?;
-    let row = transaction
-        .query_typed_one(
-            "SELECT applied_node_id, applied_incarnation, applied_seq, applied_position FROM dexzd_visibility_progress WHERE partition_id = $1::integer FOR UPDATE",
-            &[(&partition_number as &(dyn ToSql + Sync), Type::INT4)],
-        )
-        .await
-        .map_err(|source| database_error("lock progress for", source))?;
-    position_from_row(&row)
-}
-
-async fn update_progress(
-    transaction: &Transaction<'_>,
-    partition_id: PartitionId,
-    position: &LogPosition,
-) -> Result<(), ProjectionError> {
-    let sequence = i64::try_from(position.seq)
-        .map_err(|_| ProjectionError::InvalidState("log sequence exceeds bigint".into()))?;
-    let partition_number = i32::from(partition_id.0);
-    let incarnation = i64::from(position.incarnation);
-    transaction
-        .execute_typed(
-            "UPDATE dexzd_visibility_progress SET applied_position = $2::bigint, applied_node_id = $3::text, applied_incarnation = $4::bigint, applied_seq = $5::bigint WHERE partition_id = $1::integer",
-            &[
-                (&partition_number as &(dyn ToSql + Sync), Type::INT4),
-                (&sequence, Type::INT8),
-                (&position.node_id, Type::TEXT),
-                (&incarnation, Type::INT8),
-                (&sequence, Type::INT8),
-            ],
-        )
-        .await
-        .map_err(|source| database_error("update progress for", source))?;
-    Ok(())
-}
-
-pub(super) fn position_from_row(
-    row: &tokio_postgres::Row,
-) -> Result<Option<LogPosition>, ProjectionError> {
-    let node_id: Option<String> = row
-        .try_get(0)
-        .map_err(|source| database_error("decode progress node from", source))?;
-    let incarnation: Option<i64> = row
-        .try_get(1)
-        .map_err(|source| database_error("decode progress incarnation from", source))?;
-    let sequence: Option<i64> = row
-        .try_get(2)
-        .map_err(|source| database_error("decode progress sequence from", source))?;
-    let legacy_sequence: i64 = row
-        .try_get(3)
-        .map_err(|source| database_error("decode legacy progress from", source))?;
-    match (node_id, incarnation, sequence) {
-        (None, None, None) if legacy_sequence == 0 => Ok(None),
-        (Some(node_id), Some(incarnation), Some(sequence)) => Ok(Some(LogPosition {
-            node_id,
-            incarnation: u32::try_from(incarnation).map_err(|_| {
-                ProjectionError::InvalidState("invalid SQL visibility progress incarnation".into())
-            })?,
-            seq: u64::try_from(sequence).map_err(|_| {
-                ProjectionError::InvalidState("invalid SQL visibility progress sequence".into())
-            })?,
-        })),
-        _ => Err(ProjectionError::InvalidState(
-            "incomplete SQL visibility projection position".into(),
-        )),
-    }
-}
-
-fn validate_position(position: &LogPosition) -> Result<(), ProjectionError> {
-    if position.node_id.is_empty() || position.seq == 0 {
-        return Err(ProjectionError::InvalidState("invalid log position".into()));
-    }
-    i64::try_from(position.seq)
-        .map(|_| ())
-        .map_err(|_| ProjectionError::InvalidState("log sequence exceeds bigint".into()))
-}
-
-fn same_stream(left: &LogPosition, right: &LogPosition) -> bool {
-    left.node_id == right.node_id && left.incarnation == right.incarnation
-}
-
-fn is_replay(stored: Option<&LogPosition>, offered: &LogPosition) -> bool {
-    stored.is_some_and(|stored| same_stream(stored, offered) && stored.seq >= offered.seq)
 }
 
 /// Keeps only the message and classification, so no raw Postgres text survives redaction.

@@ -356,3 +356,30 @@ async fn authenticators_are_tried_in_order_and_an_issuer_match_decides() {
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
+
+#[tokio::test]
+async fn admin_audiences_share_the_public_issuer_key_cache() {
+    let key = TestSigningKey::generate(JwsAlgorithm::Rs256);
+    let source = ScriptedKeySetSource::serving(key_set_document(&[key.public_jwk(KEY_ID)]));
+    let public = PublicApiAuthenticator {
+        authenticators: vec![CredentialAuthenticator::Jwt(verifier(
+            source.clone(),
+            ManualWallClock::starting_at_test_start(),
+        ))],
+    };
+    let admin = public.for_admin_audiences(&["dex-admin".into()]);
+    let public_token = key.token(KEY_ID, &valid_claims());
+    let admin_token = key.token(KEY_ID, &claims_with(&[("aud", json!("dex-admin"))]));
+    public.authenticate(&public_token).await.unwrap();
+    admin.authenticate(&admin_token).await.unwrap();
+    assert_eq!(source.fetch_count(), 1);
+    assert!(admin.authenticate(&public_token).await.is_err());
+    assert!(public.authenticate(&admin_token).await.is_err());
+    assert!(
+        public
+            .for_admin_audiences(&[])
+            .authenticate(&admin_token)
+            .await
+            .is_err()
+    );
+}

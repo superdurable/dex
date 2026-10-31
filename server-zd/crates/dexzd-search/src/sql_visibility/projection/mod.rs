@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 mod changes;
+mod progress;
 mod projector;
 mod repair;
 mod skipped_document;

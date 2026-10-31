@@ -170,8 +170,18 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_attribute_sync_dropped_entries_total` | counter | — | Attribute Sync entries dropped after `syncRetryPolicy` was exhausted or the store rejected them |
 | `dexzd_attribute_sync_fenced_writes_total` | counter | — | Attribute Store writes rejected because a newer owner raised the fencing token |
 | `dexzd_search_projection_coalesced_changes_total` | counter | — | Queued changes superseded by newer documents or deletes |
-| `dexzd_search_projection_dropped_updates_total` | counter | — | Intermediate Running updates dropped above a soft queue limit |
-| `dexzd_search_projection_rebuild_requests_total` | counter | — | Newly pending partition rebuild requests after admission failure or unreadable committed documents |
+| `dexzd_search_projection_dropped_updates_total` | counter | `reason` | Shed intermediate, close, or start updates |
+| `dexzd_search_projection_rebuild_requests_total` | counter | — | Explicit manual partition rebuild requests accepted by this process |
+| `dexzd_search_projection_repair_pending` | gauge | — | Locally persisted runs awaiting repair |
+| `dexzd_search_projection_repaired_runs_total` | counter | `reason` | Successfully repaired documents by shedding priority |
+| `dexzd_search_projection_repair_overflow_total` | counter | — | Staging overflows requiring version comparison |
+| `dexzd_search_projection_delete_overflow_total` | counter | — | Delete-only overflow; Deletes remain queued |
+| `dexzd_search_projection_partitions_needing_rebuild` | gauge | — | Partitions marked for manual rebuilding |
+| `dexzd_search_projection_rebuild_needed_total` | counter | `reason` | Divergence or unreadable partition observations |
+| `dexzd_search_projection_pending_objects_synced_total` | counter | — | Pending partition objects written or removed |
+| `dexzd_search_projection_pending_sync_failures_total` | counter | — | Pending-object load or sync failures |
+| `dexzd_search_projection_unknown_pending_objects_total` | counter | — | Unknown pending keys or format versions skipped |
+| `dexzd_search_projection_permanent_failures_total` | counter | — | Terminal projection stops, also returned to visibility waiters |
 | `dexzd_search_skipped_documents_total` | counter | — | Committed documents omitted because their indexed values are unsupported |
 
 Worker polling uses a persistent stream, so there is no empty poll outcome. The stream event metric counts each task delivery and each stream close.
@@ -420,7 +430,7 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   limits it also sheds closes, then starts. Deletes from retention purges are never shed; they
   reclaim queued Upserts in that priority order. Deletes alone may exceed the hard limits;
   no condition starts an automatic partition rebuild. Shed identities persist in a separate
-  RocksDB sidecar and versioned `search-pending/partition-N` objects. SQL checkpoints cannot
+  RocksDB sidecar and versioned `search-pending/v1/partition-N` objects. SQL checkpoints cannot
   pass unsynced shed work. Startup loads those objects and compares local committed versions
   with bounded SQL pages to recover missing, stale, or purged rows, including a fresh schema.
   Idle repairs use current committed documents, prioritize starts, closes, then intermediates,
@@ -747,3 +757,13 @@ are limited to 1024 UTF-8 bytes; ingress rejects larger writes, and projection
 records previously committed oversized documents as skipped. Attributes use
 JSONB until backfill finishes. Explicit StartTime/CloseTime ordering sorts all
 matches; negative predicates may not use an index.
+
+Projection repair receives one batch after at most `search.projectionQueue.repairEveryFrames`
+live frames (default 32), even under continuous traffic. Pending object I/O runs outside
+the local pending mutex. Manual rebuilds interleave one partition with each worker loop.
+Idle partitions checkpoint their applied position, including at graceful shutdown, when
+no retained frame or unsynced shed work blocks progress. Startup comparison uses a paged
+disk-backed sort and streaming merge, supported by the additive partition/tenant/run index.
+ParadeDB stays at schema version 3; the added index and owner-epoch column do not change
+existing columns or queries used by older binaries. Every projection SQL transaction,
+including repairs and empty rebuilds, checks the owner epoch before writing.

@@ -107,6 +107,17 @@ fn is_empty_path(path: &Path) -> bool {
 impl AuthConfig {
     /// Checks every authenticator like the Go Server's `ValidateGeneralAccess`.
     pub(super) fn validate(&self) -> Result<(), ConfigError> {
+        if !self.admin_audiences.is_empty()
+            && !self
+                .authenticators
+                .iter()
+                .any(|authenticator| authenticator.kind == AuthenticatorKind::Jwt)
+        {
+            return Err(ConfigError::Invalid {
+                field: "auth.adminAudiences",
+                message: "requires a JWT authenticator".into(),
+            });
+        }
         let mut issuers = BTreeSet::new();
         for (index, authenticator) in self.authenticators.iter().enumerate() {
             authenticator
@@ -383,5 +394,14 @@ auth:
                 "{yaml}"
             );
         }
+    }
+    #[test]
+    fn admin_audiences_require_a_jwt_authenticator() {
+        let auth = auth_section("auth:\n  adminAudiences: [dex-admin]\n");
+        let error = auth
+            .validate()
+            .expect_err("admin audiences without JWT must fail");
+        assert!(error.to_string().contains("auth.adminAudiences"));
+        assert!(error.to_string().contains("JWT authenticator"));
     }
 }

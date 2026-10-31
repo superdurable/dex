@@ -27,12 +27,24 @@ pub(crate) enum PendingStoreError {
     Object(#[from] dexzd_object_store::ObjectStoreError),
     #[error("decode search pending object: {0}")]
     Decode(#[from] prost::DecodeError),
+    #[error("{operation} search pending partitions {partitions:?}: {source}")]
+    PartitionOperation {
+        operation: &'static str,
+        partitions: Vec<PartitionId>,
+        source: Box<PendingStoreError>,
+    },
     #[error("invalid search pending state: {0}")]
     Invalid(String),
-    #[error("search pending object belongs to newer owner epoch {0}")]
-    Fenced(u64),
-    #[error("search pending object changed concurrently")]
-    ConcurrentWrite,
+    #[error(
+        "search pending partition {partition} object {key} belongs to newer owner epoch {epoch}"
+    )]
+    Fenced {
+        partition: PartitionId,
+        key: String,
+        epoch: u64,
+    },
+    #[error("search pending partition {partition} object {key} changed concurrently")]
+    ConcurrentWrite { partition: PartitionId, key: String },
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -60,6 +72,9 @@ pub(crate) struct PendingRunStore {
     known_partitions: BTreeSet<PartitionId>,
     last_attempted_partition: Option<PartitionId>,
     etags: BTreeMap<PartitionId, String>,
+    revisions: BTreeMap<PartitionId, u64>,
+    object_keys: BTreeMap<PartitionId, String>,
+    pub(crate) unknown_objects: u64,
     count: usize,
 }
 
@@ -83,32 +98,65 @@ impl PendingRunStore {
             known_partitions: BTreeSet::new(),
             last_attempted_partition: None,
             etags: BTreeMap::new(),
+            revisions: BTreeMap::new(),
+            object_keys: BTreeMap::new(),
+            unknown_objects: 0,
             count: 0,
         };
-        for (key, _) in store.local.scan_prefix(
-            ColumnFamily::NodeMeta,
-            &store.prefix(b'e'),
-            ScanDirection::Forward,
-            usize::MAX,
-        )? {
-            let offset = store.namespace.len() + 1;
-            let bytes = key.get(offset..offset + 2).ok_or_else(|| {
-                PendingStoreError::Invalid("truncated pending partition key".into())
-            })?;
-            store.dirty.insert(PartitionId(u16::from_be_bytes(
-                bytes.try_into().expect("slice contains two bytes"),
-            )));
-            store
-                .known_partitions
-                .insert(PartitionId(u16::from_be_bytes(
+        let prefix = store.prefix(b'e');
+        let mut start = prefix.clone();
+        loop {
+            let rows = store.local.scan(
+                ColumnFamily::NodeMeta,
+                Some(&start),
+                None,
+                ScanDirection::Forward,
+                256,
+            )?;
+            let mut has_rows = false;
+            for (key, _) in rows
+                .into_iter()
+                .take_while(|(key, _)| key.starts_with(&prefix))
+            {
+                start = key.clone();
+                start.push(0);
+                has_rows = true;
+                let offset = store.namespace.len() + 1;
+                let bytes = key.get(offset..offset + 2).ok_or_else(|| {
+                    PendingStoreError::Invalid("truncated pending partition key".into())
+                })?;
+                store.dirty.insert(PartitionId(u16::from_be_bytes(
                     bytes.try_into().expect("slice contains two bytes"),
                 )));
-            store.count += 1;
+                store
+                    .known_partitions
+                    .insert(PartitionId(u16::from_be_bytes(
+                        bytes.try_into().expect("slice contains two bytes"),
+                    )));
+                store.count += 1;
+            }
+            if !has_rows {
+                break;
+            }
         }
         Ok(store)
     }
 
     pub(crate) fn record(&mut self, repairs: &[ProjectionRepair]) -> Result<(), PendingStoreError> {
+        self.do_record(repairs)
+            .map_err(|source| PendingStoreError::PartitionOperation {
+                operation: "record",
+                partitions: repairs
+                    .iter()
+                    .map(|repair| repair.partition)
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
+                source: Box::new(source),
+            })
+    }
+
+    fn do_record(&mut self, repairs: &[ProjectionRepair]) -> Result<(), PendingStoreError> {
         let mut batch = WriteBatch::new();
         let mut updates: BTreeMap<Vec<u8>, PendingRunRecord> = BTreeMap::new();
         let mut added_count = 0;
@@ -152,8 +200,13 @@ impl PendingRunStore {
         self.count += added_count;
         self.known_partitions
             .extend(repairs.iter().map(|repair| repair.partition));
-        self.dirty
-            .extend(repairs.iter().map(|repair| repair.partition));
+        for partition in repairs
+            .iter()
+            .map(|repair| repair.partition)
+            .collect::<BTreeSet<_>>()
+        {
+            self.mark_dirty(partition);
+        }
         Ok(())
     }
 
@@ -221,8 +274,23 @@ impl PendingRunStore {
     }
 
     pub(crate) fn finish(&mut self, repairs: &[ProjectionRepair]) -> Result<(), PendingStoreError> {
+        self.do_finish(repairs)
+            .map_err(|source| PendingStoreError::PartitionOperation {
+                operation: "finish",
+                partitions: repairs
+                    .iter()
+                    .map(|repair| repair.partition)
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
+                source: Box::new(source),
+            })
+    }
+
+    fn do_finish(&mut self, repairs: &[ProjectionRepair]) -> Result<(), PendingStoreError> {
         let mut batch = WriteBatch::new();
         let mut removed_count = 0;
+        let mut changed_partitions = BTreeSet::new();
         for repair in repairs {
             let key = self.entry_key(repair.partition, repair.tenant_id, repair.run_id);
             if let Some(encoded) = self.local.get(ColumnFamily::NodeMeta, &key)? {
@@ -236,13 +304,31 @@ impl PendingRunStore {
                 );
                 batch.delete(ColumnFamily::NodeMeta, key);
                 removed_count += 1;
+                changed_partitions.insert(repair.partition);
             }
         }
         self.local.write(batch)?;
         self.count -= removed_count;
-        self.dirty
-            .extend(repairs.iter().map(|repair| repair.partition));
+        for partition in changed_partitions {
+            self.mark_dirty(partition);
+        }
         Ok(())
+    }
+
+    pub(crate) fn has_pending_runs(
+        &self,
+        partition: PartitionId,
+    ) -> Result<bool, PendingStoreError> {
+        let mut prefix = self.prefix(b'e');
+        prefix.extend_from_slice(&partition.0.to_be_bytes());
+        self.local
+            .scan_prefix(ColumnFamily::NodeMeta, &prefix, ScanDirection::Forward, 1)
+            .map(|rows| !rows.is_empty())
+            .map_err(|source| PendingStoreError::PartitionOperation {
+                operation: "check pending runs for",
+                partitions: vec![partition],
+                source: Box::new(source.into()),
+            })
     }
 
     pub(crate) fn count(&self) -> usize {
@@ -255,7 +341,21 @@ impl PendingRunStore {
 
     pub(crate) fn finish_manual_rebuild(&mut self, partition: PartitionId) {
         self.blocked_partitions.remove(&partition);
+        self.mark_dirty(partition);
+    }
+
+    pub(super) fn version_spool(&self, partition: PartitionId) -> (Arc<dyn LocalStore>, Vec<u8>) {
+        let mut prefix = self.prefix(b'v');
+        prefix.extend_from_slice(&partition.0.to_be_bytes());
+        (self.local.clone(), prefix)
+    }
+
+    fn mark_dirty(&mut self, partition: PartitionId) {
         self.dirty.insert(partition);
+        let revision = self.revisions.entry(partition).or_default();
+        *revision = revision
+            .checked_add(1)
+            .expect("partition revision cannot exhaust u64");
     }
 
     fn prefix(&self, kind: u8) -> Vec<u8> {

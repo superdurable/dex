@@ -23,6 +23,13 @@ use recording_s3_proxy::RecordingS3Proxy;
 
 async fn check_store(store: &dyn ObjectStore) {
     let key = "conditional-delete";
+    assert_eq!(
+        store
+            .delete_if_etag_matches(key, "missing-etag")
+            .await
+            .expect("conditional deletion of a missing key succeeds"),
+        dexzd_object_store::ConditionalDeleteOutcome::Deleted
+    );
     let WriteOutcome::Written { etag: first } = store
         .put(
             key,
@@ -1575,6 +1582,15 @@ async fn s3_conflicts_and_ambiguous_writes() {
     let object_store = S3ObjectStore::new(config)
         .await
         .expect("the conformance operation succeeds");
+
+    set_s3mock_fault(server.local_address(), r#"{"operation":"DeleteObject","bucket":"fault-bucket","key_prefix":"conflicting-delete/","action":{"type":"error","status":409}}"#).await;
+    assert_eq!(
+        object_store
+            .delete_if_etag_matches("conflicting-delete/key", "old-etag")
+            .await
+            .unwrap(),
+        dexzd_object_store::ConditionalDeleteOutcome::PreconditionFailed
+    );
 
     set_s3mock_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"conflict-once/","has_conditional_header":true,"probability":0.5,"action":{"type":"error","status":409}}"#).await;
     assert!(matches!(

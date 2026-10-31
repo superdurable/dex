@@ -63,7 +63,7 @@ async fn pending_runs_survive_local_restart_and_new_owner_takeover() {
     pending.record(&[repair(5, RepairPriority::Start)]).unwrap();
     assert!(matches!(
         pending.sync_objects(1).await,
-        Err(PendingStoreError::Fenced(2))
+        Err(PendingStoreError::Fenced { epoch: 2, .. })
     ));
     let repaired = successor.take_batch(10).unwrap();
     successor
@@ -82,7 +82,7 @@ async fn pending_runs_survive_local_restart_and_new_owner_takeover() {
     assert_eq!(successor.sync_objects(1).await.unwrap(), 1);
     assert!(
         objects
-            .get("search-pending/partition-4")
+            .get("search-pending/v1/partition-4")
             .await
             .unwrap()
             .is_none()
@@ -132,7 +132,7 @@ async fn unreadable_object_quarantines_only_its_partition_until_manual_rebuildin
     let objects = Arc::new(InMemoryObjectStore::new());
     objects
         .put(
-            "search-pending/partition-4",
+            "search-pending/v1/partition-4",
             vec![255].into(),
             dexzd_object_store::WriteCondition::CreateOnly,
         )
@@ -157,10 +157,10 @@ async fn unreadable_object_quarantines_only_its_partition_until_manual_rebuildin
     assert!(successor.has_unsynced(PartitionId(4)));
     let markers = successor.load_rebuild_markers().unwrap();
     assert!(markers[&PartitionId(4)].contains(&dexzd_metrics::ProjectionRebuildReason::Unreadable));
-    assert_eq!(successor.sync_objects(10).await.unwrap(), 1);
+    assert_eq!(successor.sync_objects(10).await.unwrap(), 0);
     assert!(
         objects
-            .get("search-pending/partition-4")
+            .get("search-pending/v1/partition-4")
             .await
             .unwrap()
             .is_some()
@@ -171,7 +171,7 @@ async fn unreadable_object_quarantines_only_its_partition_until_manual_rebuildin
     assert_eq!(successor.sync_objects(10).await.unwrap(), 1);
     assert!(
         objects
-            .get("search-pending/partition-4")
+            .get("search-pending/v1/partition-4")
             .await
             .unwrap()
             .is_none()
@@ -221,7 +221,7 @@ async fn hot_partitions_cannot_starve_other_pending_object_syncs() {
     pending.sync_objects(1).await.unwrap();
     assert!(
         objects
-            .get("search-pending/partition-4")
+            .get("search-pending/v1/partition-4")
             .await
             .unwrap()
             .is_some()
@@ -230,11 +230,74 @@ async fn hot_partitions_cannot_starve_other_pending_object_syncs() {
     pending.sync_objects(1).await.unwrap();
     assert!(
         objects
-            .get("search-pending/partition-5")
+            .get("search-pending/v1/partition-5")
             .await
             .unwrap()
             .is_some()
     );
     assert!(pending.has_unsynced(PartitionId(4)));
     assert!(!pending.has_unsynced(PartitionId(5)));
+}
+
+#[tokio::test]
+async fn a_record_during_unlocked_sync_keeps_the_new_revision_dirty() {
+    let directory = TempDir::new().unwrap();
+    let objects = Arc::new(InMemoryObjectStore::new());
+    let mut pending =
+        PendingRunStore::new(local_store(&directory), objects.clone(), [1; 16], 1).unwrap();
+    pending.record(&[repair(1, RepairPriority::Start)]).unwrap();
+    let snapshot = pending.snapshot_sync(1).unwrap().pop().unwrap();
+    pending.record(&[repair(2, RepairPriority::Close)]).unwrap();
+    pending.reconcile_sync(snapshot.execute().await).unwrap();
+    assert!(pending.has_unsynced(PartitionId(4)));
+    pending.sync_objects(1).await.unwrap();
+    assert!(!pending.has_unsynced(PartitionId(4)));
+    let next_directory = TempDir::new().unwrap();
+    let mut successor =
+        PendingRunStore::new(local_store(&next_directory), objects, [1; 16], 2).unwrap();
+    successor.load_objects().await.unwrap();
+    assert_eq!(successor.count(), 2);
+}
+
+#[tokio::test]
+async fn rebuilt_markers_do_not_return_on_failback_and_unknown_keys_are_ignored() {
+    let first_directory = TempDir::new().unwrap();
+    let next_directory = TempDir::new().unwrap();
+    let objects = Arc::new(InMemoryObjectStore::new());
+    let mut first =
+        PendingRunStore::new(local_store(&first_directory), objects.clone(), [1; 16], 1).unwrap();
+    let markers = BTreeMap::from([(
+        PartitionId(4),
+        BTreeSet::from([dexzd_metrics::ProjectionRebuildReason::Divergence]),
+    )]);
+    first.store_rebuild_markers(&markers).unwrap();
+    first.sync_objects(1).await.unwrap();
+    let mut successor =
+        PendingRunStore::new(local_store(&next_directory), objects.clone(), [1; 16], 2).unwrap();
+    successor.load_objects().await.unwrap();
+    assert_eq!(successor.load_rebuild_markers().unwrap(), markers);
+    successor.store_rebuild_markers(&BTreeMap::new()).unwrap();
+    successor.sync_objects(1).await.unwrap();
+    objects
+        .put(
+            "search-pending/v2/partition-4",
+            vec![255].into(),
+            dexzd_object_store::WriteCondition::CreateOnly,
+        )
+        .await
+        .unwrap();
+    objects
+        .put(
+            "search-pending/v1/unrelated",
+            vec![255].into(),
+            dexzd_object_store::WriteCondition::CreateOnly,
+        )
+        .await
+        .unwrap();
+    drop(first);
+    let mut returned =
+        PendingRunStore::new(local_store(&first_directory), objects, [1; 16], 3).unwrap();
+    returned.load_objects().await.unwrap();
+    assert!(returned.load_rebuild_markers().unwrap().is_empty());
+    assert_eq!(returned.unknown_objects, 2);
 }

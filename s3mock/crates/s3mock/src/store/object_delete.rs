@@ -60,7 +60,7 @@ impl Store {
         request: &DeleteObjectRequest,
         etag: &str,
     ) -> Result<Option<DeleteObjectOutcome>, StoreError> {
-        let matches_etag = |versions: &[VersionRecord]| {
+        let has_matching_etag = |versions: &[VersionRecord]| {
             let selected = match request.version_id.as_deref() {
                 Some(version_id) => versions
                     .iter()
@@ -76,7 +76,7 @@ impl Store {
             key,
             request,
             Some(&DeleteGuard {
-                is_still_due: &matches_etag,
+                is_still_due: &has_matching_etag,
                 marker_last_modified_unix_ms: None,
             }),
         )

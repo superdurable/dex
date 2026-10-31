@@ -1084,6 +1084,7 @@ search:
     hardBytes: 134217728
     maxRepairEntries: 1000000
     repairBatchRuns: 256
+    repairEveryFrames: 32
     pendingSyncInterval: 1s
     pendingSyncPartitions: 64
 ~~~
@@ -1096,18 +1097,27 @@ partition version comparison request; it does not discard recovery work or
 schedule a rebuild. Persistent pending runs have no configured count limit.
 **repairBatchRuns** defaults to 256 runs per SQL repair transaction.
 
-Pending runs are deduplicated in a local RocksDB sidecar beside the configured
-local store. Each changed partition syncs its full pending list to one versioned
-object under **search-pending/partition-N** in the configured object-store prefix.
+Pending runs are deduplicated in a local RocksDB sidecar at
+**localStorage.directory/search-pending**. Existing sibling sidecars ending in
+**.search-pending** move inside automatically when possible. Across filesystems,
+stop the node and copy the old sidecar inside before restarting. Each changed partition syncs its full pending list to one versioned
+object under **search-pending/v1/partition-N** in the configured object-store prefix.
 **pendingSyncInterval** defaults to one second. **pendingSyncPartitions** defaults
 to 64 objects per sync batch; object writes are serialized. Dirty partitions rotate,
-so a full pass can span several intervals when the batch limit is reached. Empty lists remove
-their objects. Sync runs independently of SQL retries.
+so a full pass can span several intervals when the batch limit is reached. Empty lists without rebuild markers remove
+their objects. Rebuild markers are stored with the owner epoch in these objects;
+takeover reloads them from object storage. Sync runs independently of SQL retries,
+with network I/O outside the pending-store mutex. Each regular interval rewrites a
+changed partition at most once. Upload memory and bytes still scale with its full
+pending list; local scans use 256-entry pages.
 
 The server never advances a partition's SQL checkpoint past unsynced shed work.
 Local RocksDB alone does not release this guard. At takeover, the new owner
-loads pending objects before projecting. When SQL is behind, startup compares
-committed local run identities and document versions with bounded SQL pages.
+loads pending objects and rewrites them under its epoch before projecting. When SQL is behind, startup compares
+committed local run identities and document versions with bounded SQL pages,
+using a disk-backed sort and streaming merge. Idle partitions advance SQL progress
+to the applied position when retained frames and unsynced work have drained,
+including at graceful shutdown.
 It records missing or newer documents and Deletes for SQL-only purged runs,
 syncs that pending work, then advances the checkpoint. A fresh schema uses the
 same comparison. A crash before pending work is synced leaves the checkpoint
@@ -1119,7 +1129,10 @@ ordinary versioned SQL writes. Starts have priority over closes, then intermedia
 updates. Missing or purging runs produce Deletes. A new drop during an SQL repair
 stays pending for another pass. Pending entries are removed only after the SQL
 transaction commits; the next sync clears them from object storage. Live frames
-take priority between repair batches. Repairs do not block Flow commits.
+take priority between repair batches. **repairEveryFrames** defaults to 32:
+a pending repair batch runs after at most that many live frames, even under continuous
+load. Repairs verify the owner epoch in the SQL progress row, so a replaced owner
+cannot reinsert documents deleted by its successor. Repairs do not block Flow commits.
 
 **readYourWritesWait** waits for retained live frames, not pending repairs.
 It can succeed while shedding leaves stale or absent rows. After pending work
@@ -1170,6 +1183,9 @@ together before treating an overload as recovered.
 | **dexzd_search_projection_pending_objects_synced_total** | Pending partition objects successfully written or removed. |
 | **dexzd_search_projection_pending_sync_failures_total** | Failed pending-object load or sync attempts. |
 | **dexzd_search_projection_partitions_needing_rebuild** | Partitions with persisted operator-attention markers. |
-| **dexzd_search_projection_rebuild_needed_total**, with **reason** | First observations per partition and reason: **startup_behind**, **repair_overflow**, **delete_overflow**, **divergence**, or **unreadable**. |
+| **dexzd_search_projection_rebuild_needed_total**, with **reason** | First observations per partition and reason: **divergence** or **unreadable**. |
 | **dexzd_search_projection_rebuild_requests_total** | Explicit manual partition rebuild requests accepted by this process. |
+| **dexzd_search_projection_delete_overflow_total** | Delete-only queue overflow events; Deletes remain queued. |
+| **dexzd_search_projection_unknown_pending_objects_total** | Unknown pending keys or format versions skipped during loading. |
+| **dexzd_search_projection_permanent_failures_total** | Terminal projection stops; visibility waiters also receive the failure. |
 | **dexzd_search_skipped_documents_total** | Documents omitted because their indexed values are unsupported. |

@@ -923,6 +923,7 @@ search:
     hardBytes: 134217728
     maxRepairEntries: 1000000
     repairBatchRuns: 256
+    repairEveryFrames: 32
     pendingSyncInterval: 1s
     pendingSyncPartitions: 64
 ~~~
@@ -932,15 +933,21 @@ search:
 内存暂存区。暂存区满时会记录 partition 版本比较请求，不会丢失恢复任务或自动重建。
 持久化待处理 run 没有配置数量上限。**repairBatchRuns** 默认每个 SQL 修复事务处理 256 个 run。
 
-待处理 run 在配置的本地存储旁的 RocksDB sidecar 中去重保存。每个变更 partition
-将完整待处理列表同步到配置对象存储前缀下的版本化对象 **search-pending/partition-N**。
+待处理 run 在 **localStorage.directory/search-pending** 的 RocksDB sidecar 中去重保存。
+已有的相邻 **.search-pending** 目录会在可能时自动移入；跨文件系统时，先停止节点，
+将旧目录复制到本地存储目录内，再重新启动。每个变更 partition
+将完整待处理列表同步到配置对象存储前缀下的版本化对象 **search-pending/v1/partition-N**。
 **pendingSyncInterval** 默认为一秒；**pendingSyncPartitions** 默认为每批 64 个对象，
 对象写入串行执行。变更 partition 轮流同步；达到每批上限时，完整轮次可能跨越多个间隔。
-列表为空时删除对象。同步独立于 SQL 重试运行。
+没有重建标记且列表为空时删除对象。重建标记及 owner epoch 一同存入对象；
+接管时从对象存储重新加载，随后立即用新 epoch 重写。网络 I/O 不持有待处理存储锁。
+每个常规间隔内，同一变更 partition 最多重写一次。上传内存与字节数仍与完整列表大小成正比，
+本地扫描每页最多 256 条。同步独立于 SQL 重试运行。
 
 在被丢弃工作同步到对象存储前，服务器不会把 partition 的 SQL 检查点推进到该工作之后。
 仅写入本地 RocksDB 不会解除此限制。接管时，新 owner 先加载待处理对象，再开始投影。
-SQL 落后时，启动过程比较本地已提交 run 的标识与文档版本，以及分页读取的 SQL 行。
+SQL 落后时，启动过程通过磁盘排序和流式合并，比较本地已提交 run 的标识与文档版本，以及分页读取的 SQL 行。
+保留帧和未同步工作排空后，空闲 partition 将 SQL 进度推进到 applied 位置；正常关闭时也如此。
 缺失或较新的文档、以及 SQL 中存在但本地已清除 run 的 Delete，均加入待处理集合。
 这些任务同步完成后才推进检查点。新 schema 也使用同一路径。
 同步前崩溃会留下落后的检查点，因此重启后可以再次发现差异。
@@ -949,7 +956,10 @@ SQL 落后时，启动过程比较本地已提交 run 的标识与文档版本�
 实时帧空闲时，修复读取当前已提交文档并执行普通的版本化 SQL 写入。
 优先修复 start，其次关闭更新，最后中间更新。不存在或正在清除的 run 产生 Delete。
 SQL 修复期间新增的丢弃仍保持待处理。只有 SQL 事务提交后才删除本地任务；下一次同步
-从对象存储清除它。修复批次之间优先处理实时帧。修复不阻塞 Flow 提交。
+从对象存储清除它。修复批次之间优先处理实时帧。**repairEveryFrames** 默认为 32，
+即使持续有流量，每处理至多 32 个实时帧也会执行一个待处理修复批次。
+修复在 SQL 进度行上检查 owner epoch，防止旧 owner 重新插入后继 owner 已删除的文档。
+修复不阻塞 Flow 提交。
 
 **readYourWritesWait** 等待保留的实时帧，不等待待处理修复。
 因此它可能在丢弃导致行过时或缺失时成功。待处理任务和实时投影都排空后，
@@ -993,6 +1003,9 @@ dexcli search-projection rebuild --all --server localhost:8080
 | **dexzd_search_projection_pending_objects_synced_total** | 成功写入或删除的待处理 partition 对象。 |
 | **dexzd_search_projection_pending_sync_failures_total** | 待处理对象加载或同步失败次数。 |
 | **dexzd_search_projection_partitions_needing_rebuild** | 带有持久化操作人员关注标记的 partition 数量。 |
-| **dexzd_search_projection_rebuild_needed_total**，带 **reason** | 每个 partition 和原因首次出现的次数：**startup_behind**、**repair_overflow**、**delete_overflow**、**divergence** 或 **unreadable**。 |
+| **dexzd_search_projection_rebuild_needed_total**，带 **reason** | 每个 partition 和原因首次出现的次数：**divergence** 或 **unreadable**。 |
 | **dexzd_search_projection_rebuild_requests_total** | 此进程接受的显式手动 partition 重建请求。 |
+| **dexzd_search_projection_delete_overflow_total** | 仅 Delete 的队列溢出次数；Delete 仍保留在队列中。 |
+| **dexzd_search_projection_unknown_pending_objects_total** | 加载时跳过的未知待处理对象键或格式版本次数。 |
+| **dexzd_search_projection_permanent_failures_total** | 投影终止次数；可见性等待者也会收到该错误。 |
 | **dexzd_search_skipped_documents_total** | 因索引值不受支持而省略的文档。 |

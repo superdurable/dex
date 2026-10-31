@@ -47,7 +47,7 @@ const DEFAULT_SCHEMA: &str = "public";
 pub(crate) struct SqlVisibilitySearch {
     backend: Arc<SqlVisibilitySearchBackend>,
     frames: Arc<CommittedSearchFrames>,
-    pending_local: Arc<dyn dexzd_storage::LocalStore>,
+    local_directory: std::path::PathBuf,
     objects: Arc<dyn dexzd_object_store::ObjectStore>,
     cfg: Arc<SearchConfig>,
 }
@@ -123,22 +123,10 @@ impl SqlVisibilitySearch {
             pool_size,
             "connected to SQL visibility database and ensured its search schema"
         );
-        let mut pending_path = local_storage.directory.as_os_str().to_os_string();
-        pending_path.push(".search-pending");
-        let pending_local = dexzd_storage::RocksDbLocalStore::open(
-            std::path::PathBuf::from(pending_path),
-            dexzd_storage::RocksDbStoreOptions {
-                block_cache_bytes: 8 * 1024 * 1024,
-                write_buffer_bytes: 4 * 1024 * 1024,
-                max_total_wal_bytes: 64 * 1024 * 1024,
-                ..Default::default()
-            },
-        )
-        .map_err(|source| ServerError::SearchPending { source })?;
         Ok(Self {
             backend: Arc::new(backend),
             frames,
-            pending_local: Arc::new(pending_local),
+            local_directory: local_storage.directory.clone(),
             objects,
             cfg: Arc::new(search.clone()),
         })
@@ -163,14 +151,24 @@ impl SqlVisibilitySearch {
         metrics: Arc<NodeMetrics>,
         node_stopped: impl Future<Output = NodeStopReason> + Send + 'static,
     ) -> SearchProjection {
-        let projector = SqlVisibilityProjector::new_with_metric_recorder(
+        let projector = SqlVisibilityProjector::new_with_metric_recorder_and_epoch(
             self.backend,
             Arc::new(SearchProjectionMetrics(metrics.clone())),
+            epoch,
         );
+        let stop = CancellationToken::new();
+        let worker_stop = stop.clone();
         let backfill = refresh_attribute_slots(projector.clone());
         let worker = async move {
+            let pending_local = match open_pending_local(&self.local_directory) {
+                Ok(local) => local,
+                Err(error) => {
+                    self.frames.record_global_failure(&error.to_string());
+                    return;
+                }
+            };
             match pending_store::PendingRunStore::new(
-                self.pending_local,
+                pending_local,
                 self.objects,
                 cluster_id,
                 epoch,
@@ -198,27 +196,54 @@ impl SqlVisibilitySearch {
                         cfg,
                         metrics,
                     );
-                    tokio::select! { () = worker.run() => {}, () = sync => {} }
+                    tokio::select! { () = worker.run(worker_stop) => {}, () = sync => {} }
                 }
-                Err(error) => self
-                    .frames
-                    .record_permanent_failure(dexzd_keyspace::PartitionId(0), &error.to_string()),
+                Err(error) => self.frames.record_global_failure(&error.to_string()),
             }
         };
-        let stop = CancellationToken::new();
         let stopped = stop.clone();
         let task = tokio::spawn(async move {
+            tokio::pin!(worker);
             tokio::select! {
-                () = stopped.cancelled() => {}
+                () = stopped.cancelled() => { worker.await; }
                 reason = node_stopped => {
                     tracing::info!(%reason, "the search projection stopped with the node");
+                    stopped.cancel();
+                    worker.await;
                 }
-                () = worker => {}
+                () = &mut worker => {}
                 () = backfill => {}
             }
         });
         SearchProjection { stop, task }
     }
+}
+
+fn open_pending_local(
+    local_directory: &std::path::Path,
+) -> Result<Arc<dyn dexzd_storage::LocalStore>, ServerError> {
+    let pending_path = local_directory.join("search-pending");
+    let mut legacy_path = local_directory.as_os_str().to_os_string();
+    legacy_path.push(".search-pending");
+    let legacy_path = std::path::PathBuf::from(legacy_path);
+    if legacy_path.exists() && !pending_path.exists() {
+        std::fs::rename(&legacy_path, &pending_path).map_err(|source| {
+            ServerError::SearchPending {
+                source: source.into(),
+            }
+        })?;
+    }
+    let pending_local = dexzd_storage::RocksDbLocalStore::open(
+        pending_path,
+        dexzd_storage::RocksDbStoreOptions {
+            block_cache_bytes: 8 * 1024 * 1024,
+            write_buffer_bytes: 4 * 1024 * 1024,
+            max_total_wal_bytes: 64 * 1024 * 1024,
+            ..Default::default()
+        },
+    )
+    .map_err(|source| ServerError::SearchPending { source })?;
+    Ok(Arc::new(pending_local))
 }
 
 async fn synchronize_pending_objects(
@@ -233,12 +258,12 @@ async fn synchronize_pending_objects(
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         interval.tick().await;
-        let mut pending = pending.lock().await;
-        if let Err(error) = pending.store_rebuild_markers(&frames.rebuild_status().0) {
+        let mut pending_guard = pending.lock().await;
+        if let Err(error) = pending_guard.store_rebuild_markers(&frames.rebuild_status().0) {
             tracing::warn!(%error, "persisting search rebuild markers failed");
         }
         let repairs = frames.take_staged_repairs();
-        if let Err(error) = pending.record(&repairs) {
+        if let Err(error) = pending_guard.record(&repairs) {
             for repair in repairs {
                 frames.require_diff(repair.partition);
             }
@@ -246,7 +271,8 @@ async fn synchronize_pending_objects(
             tracing::warn!(%error, "persisting staged search pending runs failed; checkpoints remain held");
             continue;
         }
-        match pending.sync_objects(cfg.pending_sync_partitions).await {
+        drop(pending_guard);
+        match sync_pending_objects(&pending, cfg.pending_sync_partitions).await {
             Ok(synced) => {
                 metrics
                     .search_projection_pending_objects_synced
@@ -255,15 +281,29 @@ async fn synchronize_pending_objects(
             Err(error) => {
                 metrics.search_projection_pending_sync_failures.inc();
                 tracing::warn!(%error, "syncing search pending objects failed; checkpoints remain held");
-                if matches!(error, pending_store::PendingStoreError::Fenced(_)) {
+                if matches!(error, pending_store::PendingStoreError::Fenced { .. }) {
+                    frames.record_global_failure(&error.to_string());
                     return;
                 }
             }
         }
         metrics
             .search_projection_repair_pending
-            .set(i64::try_from(pending.count()).expect("pending count fits i64"));
+            .set(i64::try_from(pending.lock().await.count()).expect("pending count fits i64"));
     }
+}
+
+async fn sync_pending_objects(
+    pending: &Arc<tokio::sync::Mutex<pending_store::PendingRunStore>>,
+    limit: usize,
+) -> Result<usize, pending_store::PendingStoreError> {
+    let snapshots = pending.lock().await.snapshot_sync(limit)?;
+    let count = snapshots.len();
+    for snapshot in snapshots {
+        let completed = snapshot.execute().await;
+        pending.lock().await.reconcile_sync(completed)?;
+    }
+    Ok(count)
 }
 
 async fn refresh_attribute_slots(projector: SqlVisibilityProjector) {

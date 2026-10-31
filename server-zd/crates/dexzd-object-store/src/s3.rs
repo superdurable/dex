@@ -756,7 +756,19 @@ impl ObjectStore for S3ObjectStore {
             .await
         {
             Ok(_) => Ok(ConditionalDeleteOutcome::Deleted),
-            Err(error) if is_precondition_error(&error, true) => {
+            Err(error)
+                if error
+                    .raw_response()
+                    .is_some_and(|response| response.status().as_u16() == 404) =>
+            {
+                Ok(ConditionalDeleteOutcome::Deleted)
+            }
+            Err(error)
+                if is_precondition_error(&error, false)
+                    || error
+                        .raw_response()
+                        .is_some_and(|response| response.status().as_u16() == 409) =>
+            {
                 Ok(ConditionalDeleteOutcome::PreconditionFailed)
             }
             Err(error) => Err(map_sdk_error(

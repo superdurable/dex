@@ -182,6 +182,23 @@ impl PublicApiAuthenticator {
         Ok(Self { authenticators })
     }
 
+    /// Shares issuer key caches while accepting only JWTs for admin audiences. Empty audiences deny every JWT.
+    #[must_use]
+    pub fn for_admin_audiences(&self, audiences: &[String]) -> Self {
+        Self {
+            authenticators: self
+                .authenticators
+                .iter()
+                .filter_map(|authenticator| match authenticator {
+                    CredentialAuthenticator::Jwt(verifier) => Some(CredentialAuthenticator::Jwt(
+                        verifier.for_audiences(audiences),
+                    )),
+                    CredentialAuthenticator::StaticTokens(_) => None,
+                })
+                .collect(),
+        }
+    }
+
     /// Accepts `credential` when an authenticator recognizes it.
     pub(crate) async fn authenticate(&self, credential: &str) -> Result<(), CredentialRejection> {
         let credential_hash = sha256(credential);

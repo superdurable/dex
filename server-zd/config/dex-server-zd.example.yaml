@@ -126,6 +126,7 @@ search:
     hardBytes: 134217728
     maxRepairEntries: 1000000
     repairBatchRuns: 256
+    repairEveryFrames: 32
     pendingSyncInterval: 1s
     pendingSyncPartitions: 64
 limits:

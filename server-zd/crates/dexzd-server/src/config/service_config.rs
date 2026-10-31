@@ -268,6 +268,8 @@ pub struct SearchProjectionQueueConfig {
     pub max_repair_entries: usize,
     /// Defaults to 256 runs; maximum repairs per SQL transaction before checking live frames. Must be positive.
     pub repair_batch_runs: usize,
+    /// Defaults to 32 live frames; repair one pending batch after this many frames even under continuous load. Must be positive.
+    pub repair_every_frames: usize,
     /// Defaults to 1s; maximum interval between pending-run object sync attempts. Must be positive.
     #[serde(with = "humantime_serde")]
     pub pending_sync_interval: Duration,
@@ -284,6 +286,7 @@ impl Default for SearchProjectionQueueConfig {
             hard_bytes: 128 * 1024 * 1024,
             max_repair_entries: 1_000_000,
             repair_batch_runs: 256,
+            repair_every_frames: 32,
             pending_sync_interval: Duration::from_secs(1),
             pending_sync_partitions: 64,
         }

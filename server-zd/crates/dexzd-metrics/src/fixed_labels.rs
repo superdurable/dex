@@ -277,12 +277,6 @@ impl EncodeMetric for ProjectionDropCounters {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum ProjectionRebuildReason {
-    /// SQL projection progress is behind committed state.
-    StartupBehind,
-    /// The bounded in-memory staging area filled before persistence.
-    RepairOverflow,
-    /// Protected Deletes exceeded queue limits.
-    DeleteOverflow,
     /// SQL progress differs from the active owner's expected progress.
     Divergence,
     /// Committed search state cannot be decoded.
@@ -292,9 +286,6 @@ impl ProjectionRebuildReason {
     /// Returns the stable reason label used by projection metrics and administrative status responses.
     pub fn metric_label_value(self) -> &'static str {
         match self {
-            Self::StartupBehind => "startup_behind",
-            Self::RepairOverflow => "repair_overflow",
-            Self::DeleteOverflow => "delete_overflow",
             Self::Divergence => "divergence",
             Self::Unreadable => "unreadable",
         }
@@ -316,7 +307,7 @@ struct RebuildReasonLabel {
 /// Fixed rebuild-needed counters for every supported reason.
 #[derive(Clone, Debug)]
 pub struct ProjectionRebuildCounters {
-    counters: Arc<[Counter; 5]>,
+    counters: Arc<[Counter; 2]>,
 }
 impl Default for ProjectionRebuildCounters {
     fn default() -> Self {
@@ -334,9 +325,6 @@ impl ProjectionRebuildCounters {
 impl EncodeMetric for ProjectionRebuildCounters {
     fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
         for reason in [
-            ProjectionRebuildReason::StartupBehind,
-            ProjectionRebuildReason::RepairOverflow,
-            ProjectionRebuildReason::DeleteOverflow,
             ProjectionRebuildReason::Divergence,
             ProjectionRebuildReason::Unreadable,
         ] {

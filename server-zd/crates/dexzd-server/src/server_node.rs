@@ -187,7 +187,8 @@ pub(crate) async fn start_server(
     let components = ComponentConfigs::from_config(config, should_take_over_held_lease)?;
     let authenticator =
         public_api_authentication::public_api_authenticator(&components.authenticators)?;
-    let admin_authenticator = public_api_authentication::admin_api_authenticator(&config.auth)?;
+    let admin_authenticator =
+        public_api_authentication::admin_api_authenticator(&config.auth, authenticator.as_ref());
     let listener = TcpListener::bind(config.api.listen)
         .await
         .map_err(|source| ServerError::Listen {

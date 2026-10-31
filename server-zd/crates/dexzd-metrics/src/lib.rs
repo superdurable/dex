@@ -147,6 +147,12 @@ pub struct NodeMetrics {
     pub search_projection_pending_objects_synced: Counter,
     /// Failed pending-object synchronization attempts.
     pub search_projection_pending_sync_failures: Counter,
+    /// Pending object keys or format versions skipped during loading.
+    pub search_projection_unknown_pending_objects: Counter,
+    /// Terminal SQL search projection stops.
+    pub search_projection_permanent_failures: Counter,
+    /// Delete-only queue overflow events; Deletes remain queued.
+    pub search_projection_delete_overflow: Counter,
 }
 
 /// A lifecycle role for one node.
@@ -442,6 +448,21 @@ impl NodeMetrics {
             metrics.search_projection_pending_objects_synced.clone(),
         );
         registry.register(
+            "dexzd_search_projection_delete_overflow",
+            "Delete-only queue overflow events; Deletes remain queued.",
+            metrics.search_projection_delete_overflow.clone(),
+        );
+        registry.register(
+            "dexzd_search_projection_permanent_failures",
+            "Terminal SQL search projection stops.",
+            metrics.search_projection_permanent_failures.clone(),
+        );
+        registry.register(
+            "dexzd_search_projection_unknown_pending_objects",
+            "Pending object keys or format versions skipped during loading.",
+            metrics.search_projection_unknown_pending_objects.clone(),
+        );
+        registry.register(
             "dexzd_search_projection_pending_sync_failures",
             "Failed pending partition object synchronization attempts.",
             metrics.search_projection_pending_sync_failures.clone(),
@@ -507,6 +528,9 @@ impl NodeMetrics {
             search_projection_rebuild_needed: ProjectionRebuildCounters::default(),
             search_projection_pending_objects_synced: Counter::default(),
             search_projection_pending_sync_failures: Counter::default(),
+            search_projection_unknown_pending_objects: Counter::default(),
+            search_projection_permanent_failures: Counter::default(),
+            search_projection_delete_overflow: Counter::default(),
         }
     }
 

@@ -71,13 +71,21 @@ struct CommittedRepairReadError {
 }
 
 impl SearchProjectionError {
+    fn is_fenced(&self) -> bool {
+        matches!(
+            self,
+            Self::Pending(PendingStoreError::Fenced { .. })
+                | Self::Projection(ProjectionError::OwnerFenced { .. })
+        )
+    }
+
     fn is_retryable(&self) -> bool {
         match self {
             Self::CommittedState { .. } | Self::StateRead(_) => true,
             Self::PartitionVersionRead(_) => false,
             Self::Projection(error) => error.is_retryable(),
             Self::Pending(
-                PendingStoreError::Fenced(_)
+                PendingStoreError::Fenced { .. }
                 | PendingStoreError::Invalid(_)
                 | PendingStoreError::Decode(_),
             ) => false,
@@ -111,11 +119,7 @@ impl SearchProjectionWorker {
     }
 
     /// Catches up every partition, then projects queued frames until the queue closes.
-    pub(crate) async fn run(mut self) {
-        if let Err(error) = self.restore_rebuild_markers().await {
-            tracing::error!(%error, "reading persisted search rebuild markers failed");
-            return;
-        }
+    pub(crate) async fn run(mut self, stop: tokio_util::sync::CancellationToken) {
         let mut retry_delay = RetryDelay::default();
         loop {
             match self.pending.lock().await.load_objects().await {
@@ -124,12 +128,11 @@ impl SearchProjectionWorker {
                     self.metrics.search_projection_pending_sync_failures.inc();
                     if matches!(
                         error,
-                        PendingStoreError::Fenced(_)
+                        PendingStoreError::Fenced { .. }
                             | PendingStoreError::Invalid(_)
                             | PendingStoreError::Decode(_)
                     ) {
-                        self.frames
-                            .record_permanent_failure(PartitionId(0), &error.to_string());
+                        self.frames.record_global_failure(&error.to_string());
                         return;
                     }
                     tracing::warn!(%error, "loading search pending objects failed; retrying");
@@ -138,19 +141,25 @@ impl SearchProjectionWorker {
             }
         }
         if let Err(error) = self.restore_rebuild_markers().await {
-            tracing::error!(%error, "reading search pending object markers failed");
+            self.frames.record_global_failure(&error.to_string());
             return;
         }
+        self.metrics
+            .search_projection_unknown_pending_objects
+            .inc_by(self.pending.lock().await.unknown_objects);
         if !self.catch_up_partitions().await {
             return;
         }
         self.pending_sync_ready.cancel();
         let mut sync = tokio::time::interval(self.cfg.pending_sync_interval);
         sync.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut live_frames_since_repair = 0;
         loop {
+            let should_repair = !self.frames.has_live_frames()
+                || live_frames_since_repair >= self.cfg.repair_every_frames;
             let repairs = {
                 let pending = self.pending.lock().await;
-                if pending.count() == 0 || self.frames.has_live_frames() {
+                if pending.count() == 0 || !should_repair {
                     Vec::new()
                 } else {
                     match pending.take_batch_excluding(
@@ -159,7 +168,7 @@ impl SearchProjectionWorker {
                     ) {
                         Ok(repairs) => repairs,
                         Err(error) => {
-                            tracing::error!(%error, "reading pending search repair batch failed");
+                            self.frames.record_global_failure(&error.to_string());
                             return;
                         }
                     }
@@ -167,6 +176,12 @@ impl SearchProjectionWorker {
             };
             tokio::select! {
                 biased;
+                () = stop.cancelled() => {
+                    if let Err(error) = self.synchronize_pending().await {
+                        self.frames.record_global_failure(&error.to_string());
+                    }
+                    return;
+                }
                 _ = sync.tick() => {
                     if let Err(error) = self.synchronize_pending().await {
                         self.metrics.search_projection_pending_sync_failures.inc();
@@ -174,21 +189,26 @@ impl SearchProjectionWorker {
                         if let SearchProjectionError::Projection(ProjectionError::PositionMismatch { partition_id, .. } | ProjectionError::RepairPositionMismatch { partition_id, .. }) = &error {
                             self.frames.mark_rebuild_needed(*partition_id, ProjectionRebuildReason::Divergence);
                             self.frames.quarantine(*partition_id);
-                        } else if !error.is_retryable() { return; }
+                        } else if !error.is_retryable() {
+                            self.frames.record_global_failure(&error.to_string());
+                            return;
+                        }
                     }
+                }
+                () = std::future::ready(()), if !repairs.is_empty() => {
+                    if !self.repair_runs(repairs).await { return; }
+                    live_frames_since_repair = 0;
                 }
                 frame = self.frames.next_frame() => {
                     if !self.project_frame(frame).await { return; }
+                    live_frames_since_repair += 1;
                 }
                 () = self.frames.rebuild_requested().notified() => {}
-                () = std::future::ready(()), if !repairs.is_empty() => {
-                    if !self.repair_runs(repairs).await { return; }
-                }
             }
-            for partition in self.frames.rebuild_requests() {
-                if !self.rebuild_partition(partition).await {
-                    return;
-                }
+            if let Some(partition) = self.frames.rebuild_requests().into_iter().next()
+                && !self.rebuild_partition(partition).await
+            {
+                return;
             }
             self.metrics.search_projection_repair_pending.set(
                 i64::try_from(self.pending.lock().await.count()).expect("pending count fits i64"),
@@ -213,8 +233,11 @@ impl SearchProjectionWorker {
     }
 
     async fn synchronize_pending(&mut self) -> Result<(), SearchProjectionError> {
-        for partition in self.frames.diff_partitions() {
+        for (partition, generation) in self.frames.diff_partitions() {
             if let Err(error) = self.diff_partition(partition).await {
+                if error.is_fenced() {
+                    return Err(error);
+                }
                 if error.is_retryable() {
                     return Err(error);
                 }
@@ -225,10 +248,21 @@ impl SearchProjectionWorker {
                 }
                 tracing::error!(partition = partition.0, %error, "search version comparison requires manual rebuilding");
             }
-            self.frames.finish_diff(partition);
+            self.frames.finish_diff(partition, generation);
         }
-        for (partition, position) in self.frames.idle_positions() {
-            if !self.is_projected(partition, &position) {
+        for partition_number in 0..self.partition_count {
+            let partition =
+                PartitionId(u16::try_from(partition_number).expect("validated partition count"));
+            if !self.frames.is_partition_idle(partition)
+                || self.pending.lock().await.has_pending_runs(partition)?
+            {
+                continue;
+            }
+            let (_, applied) = self.open_committed_view(partition).await?;
+            if self.frames.is_partition_idle(partition)
+                && let Some(position) = applied
+                && !self.is_projected(partition, &position)
+            {
                 self.processed_positions.insert(partition, position);
             }
         }
@@ -287,6 +321,11 @@ impl SearchProjectionWorker {
                         break;
                     }
                     Err(error) => {
+                        if error.is_fenced() {
+                            self.frames
+                                .record_permanent_failure(partition, &error.to_string());
+                            return false;
+                        }
                         if !error.is_retryable() {
                             self.frames.mark_rebuild_needed(
                                 partition,
@@ -322,6 +361,9 @@ impl SearchProjectionWorker {
         partition: PartitionId,
     ) -> Result<bool, SearchProjectionError> {
         let progress = self.projector.read_progress(partition).await?;
+        self.projector
+            .repair_partition_documents(partition, progress.as_ref(), &[])
+            .await?;
         let (view, committed_position) = self.open_committed_view(partition).await?;
         if let Some(progress) = progress.clone() {
             self.projected_positions.insert(partition, progress);
@@ -348,12 +390,11 @@ impl SearchProjectionWorker {
             (_, Some(committed)) => {
                 self.diff_view(partition, view).await?;
                 while self.pending.lock().await.has_unsynced(partition) {
-                    let synced = self
-                        .pending
-                        .lock()
-                        .await
-                        .sync_objects(self.cfg.pending_sync_partitions)
-                        .await?;
+                    let synced = super::sync_pending_objects(
+                        &self.pending,
+                        self.cfg.pending_sync_partitions,
+                    )
+                    .await?;
                     self.metrics
                         .search_projection_pending_objects_synced
                         .inc_by(u64::try_from(synced).expect("partition count fits u64"));
@@ -385,14 +426,17 @@ impl SearchProjectionWorker {
         partition: PartitionId,
         view: CommittedStateView,
     ) -> Result<(), SearchProjectionError> {
+        let (local_store, prefix) = self.pending.lock().await.version_spool(partition);
         let mut local = tokio::task::spawn_blocking(move || {
-            super::partition_diff::read_local_versions(view, partition)
+            super::partition_diff::read_local_versions(view, partition, local_store, prefix)
         })
         .await
         .map_err(|error| SearchProjectionError::CommittedState {
             detail: format!("join partition version scan: {error}"),
         })??;
+        let mut next_local = local.next()?;
         let mut cursor: Option<(String, String)> = None;
+        let mut repairs = Vec::with_capacity(256);
         loop {
             let rows = self
                 .projector
@@ -407,42 +451,63 @@ impl SearchProjectionWorker {
             if rows.is_empty() {
                 break;
             }
-            let mut repairs = Vec::new();
             for row in rows {
-                cursor = Some((row.tenant_id.0.to_string(), row.run_id.to_string()));
-                match local.remove(&(row.tenant_id, row.run_id)) {
-                    Some((repair, version)) if version > row.version => repairs.push(repair),
-                    Some((_, version)) if version < row.version => {
+                let identity = (row.tenant_id.0.to_string(), row.run_id.to_string());
+                cursor = Some(identity.clone());
+                while next_local
+                    .as_ref()
+                    .is_some_and(|local| local.identity < identity)
+                {
+                    repairs.push(next_local.take().expect("checked local row").repair);
+                    next_local = local.next()?;
+                    if repairs.len() == 256 {
+                        self.pending.lock().await.record(&repairs)?;
+                        repairs.clear();
+                    }
+                }
+                if next_local
+                    .as_ref()
+                    .is_some_and(|local| local.identity == identity)
+                {
+                    let local_version = next_local.take().expect("checked local row");
+                    if local_version.version > row.version {
+                        repairs.push(local_version.repair);
+                    } else if local_version.version < row.version {
                         self.frames
                             .mark_rebuild_needed(partition, ProjectionRebuildReason::Divergence);
                         self.frames.quarantine(partition);
                         return Err(ProjectionError::InvalidState(format!(
-                            "projected run {} is newer than committed version {version}",
-                            row.run_id
+                            "projected run {} is newer than committed version {}",
+                            row.run_id, local_version.version
                         ))
                         .into());
                     }
-                    Some(_) => {}
-                    None => repairs.push(ProjectionRepair::new(
+                    next_local = local.next()?;
+                } else {
+                    repairs.push(ProjectionRepair::new(
                         row.tenant_id,
                         row.run_id,
                         dexzd_keyspace::FlowHash(0),
                         partition,
                         super::projection_repairs::RepairPriority::Delete,
-                    )),
+                    ));
+                }
+                if repairs.len() == 256 {
+                    self.pending.lock().await.record(&repairs)?;
+                    repairs.clear();
                 }
             }
-            self.pending.lock().await.record(&repairs)?;
         }
-        let mut repairs = Vec::with_capacity(256);
-        for (_, (repair, _)) in local {
-            repairs.push(repair);
+        while let Some(version) = next_local.take() {
+            repairs.push(version.repair);
+            next_local = local.next()?;
             if repairs.len() == 256 {
                 self.pending.lock().await.record(&repairs)?;
                 repairs.clear();
             }
         }
         self.pending.lock().await.record(&repairs)?;
+        local.clear()?;
         Ok(())
     }
 
@@ -479,11 +544,11 @@ impl SearchProjectionWorker {
                     .await
             } else {
                 self.projector
-                    .repair_documents(&[PartitionDocumentRepairs {
-                        partition_id: frame.partition,
-                        previous_position: self.projected_positions.get(&frame.partition).cloned(),
-                        changes: frame.changes.clone(),
-                    }])
+                    .repair_partition_documents(
+                        frame.partition,
+                        self.projected_positions.get(&frame.partition),
+                        &frame.changes,
+                    )
                     .await
             };
             match applied {
@@ -531,7 +596,7 @@ impl SearchProjectionWorker {
         match self.try_repair_runs(&repairs).await {
             Ok(projected) => {
                 if let Err(error) = self.pending.lock().await.finish(&repairs) {
-                    tracing::error!(%error, "removing committed pending repairs failed");
+                    self.frames.record_global_failure(&error.to_string());
                     return false;
                 }
                 for repair in &repairs {
@@ -555,6 +620,10 @@ impl SearchProjectionWorker {
                 true
             }
             Err(error) => {
+                if error.is_fenced() {
+                    self.frames.record_global_failure(&error.to_string());
+                    return false;
+                }
                 if !error.is_retryable() {
                     for repair in &repairs {
                         self.frames.mark_rebuild_needed(
@@ -614,8 +683,36 @@ impl SearchProjectionWorker {
     async fn rebuild_partition(&mut self, partition: PartitionId) -> bool {
         self.frames.start_rebuild(partition);
         match retry_partition_rebuild(self, partition).await {
-            Ok(()) => true,
+            Ok(()) => {
+                let stored = self
+                    .pending
+                    .lock()
+                    .await
+                    .store_rebuild_markers(&self.frames.rebuild_status().0);
+                if let Err(error) = stored {
+                    self.frames
+                        .record_permanent_failure(partition, &error.to_string());
+                    return false;
+                }
+                if let Err(error) =
+                    super::sync_pending_objects(&self.pending, self.cfg.pending_sync_partitions)
+                        .await
+                {
+                    if matches!(error, PendingStoreError::Fenced { .. }) {
+                        self.frames
+                            .record_permanent_failure(partition, &error.to_string());
+                        return false;
+                    }
+                    tracing::warn!(partition = partition.0, %error, "syncing rebuilt partition markers failed; retrying on next interval");
+                }
+                true
+            }
             Err(error) => {
+                if error.is_fenced() {
+                    self.frames
+                        .record_permanent_failure(partition, &error.to_string());
+                    return false;
+                }
                 self.frames.fail_rebuild(partition);
                 tracing::error!(partition = partition.0, %error, "manual search rebuild failed; partition remains quarantined");
                 true
@@ -846,103 +943,5 @@ impl RetryDelay {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Mutex;
-
-    use async_trait::async_trait;
-    use dexzd_keyspace::PartitionId;
-
-    use dexzd_search::sql_visibility::ProjectionError;
-
-    use super::{PartitionRebuilder, SearchProjectionError, retry_partition_rebuild};
-
-    struct RecoveringRebuilder {
-        attempts: u64,
-        finished: Mutex<Option<(PartitionId, u64)>>,
-    }
-
-    #[async_trait]
-    impl PartitionRebuilder for RecoveringRebuilder {
-        fn last_sequence(&self) -> u64 {
-            self.attempts
-        }
-
-        async fn attempt_rebuild(
-            &mut self,
-            _partition: PartitionId,
-        ) -> Result<(), SearchProjectionError> {
-            self.attempts += 1;
-            if self.attempts < 3 {
-                return Err(SearchProjectionError::CommittedState {
-                    detail: "search backend unavailable".into(),
-                });
-            }
-            Ok(())
-        }
-
-        fn finish_rebuild(&self, partition: PartitionId, covered_sequence: u64) {
-            *self
-                .finished
-                .lock()
-                .expect("fake rebuild record is unlocked") = Some((partition, covered_sequence));
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn rebuild_retries_until_the_search_backend_recovers() {
-        let partition = PartitionId(3);
-        let mut rebuilder = RecoveringRebuilder {
-            attempts: 0,
-            finished: Mutex::new(None),
-        };
-        let started = tokio::time::Instant::now();
-        retry_partition_rebuild(&mut rebuilder, partition)
-            .await
-            .expect("the backend recovers");
-        assert_eq!(rebuilder.attempts, 3);
-        assert_eq!(
-            tokio::time::Instant::now() - started,
-            std::time::Duration::from_millis(300)
-        );
-        assert_eq!(
-            *rebuilder
-                .finished
-                .lock()
-                .expect("fake rebuild record is unlocked"),
-            Some((partition, 2))
-        );
-    }
-
-    struct PermanentlyFailingRebuilder {
-        attempts: u64,
-    }
-
-    #[async_trait]
-    impl PartitionRebuilder for PermanentlyFailingRebuilder {
-        fn last_sequence(&self) -> u64 {
-            1
-        }
-
-        async fn attempt_rebuild(
-            &mut self,
-            _partition: PartitionId,
-        ) -> Result<(), SearchProjectionError> {
-            self.attempts += 1;
-            Err(ProjectionError::InvalidState("invalid search document".into()).into())
-        }
-
-        fn finish_rebuild(&self, _partition: PartitionId, _covered_sequence: u64) {
-            panic!("a failed partition cannot become searchable");
-        }
-    }
-
-    #[tokio::test]
-    async fn permanent_rebuild_failure_does_not_retry() {
-        let mut rebuilder = PermanentlyFailingRebuilder { attempts: 0 };
-        let error = retry_partition_rebuild(&mut rebuilder, PartitionId(3))
-            .await
-            .expect_err("invalid committed state cannot recover by retrying");
-        assert!(error.to_string().contains("invalid search document"));
-        assert_eq!(rebuilder.attempts, 1);
-    }
-}
+#[path = "projection_worker_tests.rs"]
+mod tests;

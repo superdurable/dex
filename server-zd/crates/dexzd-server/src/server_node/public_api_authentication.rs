@@ -40,22 +40,8 @@ pub(super) fn authenticated<S>(
 /// Builds JWT-only admin authorization without changing normal API audiences.
 pub(super) fn admin_api_authenticator(
     config: &crate::config::AuthConfig,
-) -> Result<Option<Arc<PublicApiAuthenticator>>, ServerError> {
-    if config.authenticators.is_empty() {
-        return Ok(None);
-    }
-    let authenticators: Vec<_> = config
-        .credential_authenticators()
-        .into_iter()
-        .filter_map(|authenticator| match authenticator {
-            CredentialAuthenticatorConfig::Jwt(mut jwt) => {
-                jwt.audiences = config.admin_audiences.clone();
-                Some(CredentialAuthenticatorConfig::Jwt(jwt))
-            }
-            CredentialAuthenticatorConfig::StaticTokens { .. } => None,
-        })
-        .collect();
-    PublicApiAuthenticator::new(&authenticators, Arc::new(SystemWallClock))
-        .map(|authenticator| Some(Arc::new(authenticator)))
-        .map_err(|source| ServerError::Authentication { source })
+    authenticator: Option<&Arc<PublicApiAuthenticator>>,
+) -> Option<Arc<PublicApiAuthenticator>> {
+    authenticator
+        .map(|authenticator| Arc::new(authenticator.for_admin_audiences(&config.admin_audiences)))
 }

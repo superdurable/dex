@@ -721,6 +721,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
 
         verify_ordered_batch_changes(&backend).await;
         repair_tests::verify_cross_partition_repairs_for_test(&backend).await;
+        repair_tests::verify_owner_fencing_and_keyset_index_for_test(&backend).await;
 
         let mut held_slots = Vec::new();
         for _ in 0..pool_size {

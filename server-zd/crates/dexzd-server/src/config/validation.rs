@@ -408,6 +408,11 @@ impl Config {
             "must be positive",
         )?;
         ensure(
+            queue.repair_every_frames > 0,
+            "search.projectionQueue.repairEveryFrames",
+            "must be positive",
+        )?;
+        ensure(
             queue.soft_frames > 0,
             "search.projectionQueue.softFrames",
             "must be positive",

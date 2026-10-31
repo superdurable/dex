@@ -148,7 +148,7 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool, repair
     if repair_limit == 1 {
         let killed = server.kill().await;
         assert!(!killed.success());
-        fs::remove_dir_all(directory.path().join("store.search-pending"))
+        fs::remove_dir_all(directory.path().join("store/search-pending"))
             .expect("remove unsynced local pending sidecar");
         proxy.restore();
         server = ServeProcess::spawn(
@@ -219,7 +219,7 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool, repair
     );
     if repair_limit == 1 {
         assert!(!server.kill().await.success());
-        fs::remove_dir_all(directory.path().join("store.search-pending"))
+        fs::remove_dir_all(directory.path().join("store/search-pending"))
             .expect("remove local pending state before purge restart");
         proxy.restore();
         server = ServeProcess::spawn(

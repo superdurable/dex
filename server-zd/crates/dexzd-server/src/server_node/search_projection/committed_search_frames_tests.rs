@@ -659,7 +659,14 @@ fn staging_overflow_requires_version_comparison_without_automatic_rebuilding() {
     assert_eq!(frames.lock_tracking().repairs.len(), 1);
     assert_eq!(frames.metrics.search_projection_repair_overflow.get(), 1);
     assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 0);
-    assert_eq!(frames.diff_partitions(), vec![PARTITION]);
+    assert_eq!(
+        frames
+            .diff_partitions()
+            .iter()
+            .map(|(partition, _)| *partition)
+            .collect::<Vec<_>>(),
+        vec![PARTITION]
+    );
     assert!(frames.has_pending_staging(PARTITION));
     frames.finish_rebuild(PARTITION, frames.last_sequence());
     assert_eq!(frames.lock_tracking().repairs.len(), 0);
@@ -673,4 +680,20 @@ fn staging_updates_do_not_overwrite_the_persisted_pending_run_gauge() {
     commit_frame(&frames, 2);
     assert_eq!(frames.lock_tracking().repairs.len(), 1);
     assert_eq!(frames.metrics.search_projection_repair_pending.get(), 17);
+}
+
+#[test]
+fn a_new_diff_request_during_comparison_keeps_the_checkpoint_guard_closed() {
+    let frames = CommittedSearchFrames::new(
+        Arc::new(SearchProjectionQueueConfig::default()),
+        Arc::new(NodeMetrics::unregistered()),
+    );
+    frames.require_diff(PARTITION);
+    let (_, generation) = frames.diff_partitions()[0];
+    frames.require_diff(PARTITION);
+    frames.finish_diff(PARTITION, generation);
+    assert!(frames.has_pending_staging(PARTITION));
+    let (_, generation) = frames.diff_partitions()[0];
+    frames.finish_diff(PARTITION, generation);
+    assert!(!frames.has_pending_staging(PARTITION));
 }

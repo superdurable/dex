@@ -14,13 +14,27 @@ use dexzd_storage::{ScanDirection, WriteBatch};
 
 use super::{PendingRunStore, PendingStoreError};
 
-const REASONS: [ProjectionRebuildReason; 5] = [
-    ProjectionRebuildReason::StartupBehind,
-    ProjectionRebuildReason::RepairOverflow,
-    ProjectionRebuildReason::DeleteOverflow,
-    ProjectionRebuildReason::Divergence,
-    ProjectionRebuildReason::Unreadable,
+const DIVERGENCE_MASK: u8 = 1 << 3;
+const UNREADABLE_MASK: u8 = 1 << 4;
+const REASONS: [(ProjectionRebuildReason, u8); 2] = [
+    (ProjectionRebuildReason::Divergence, DIVERGENCE_MASK),
+    (ProjectionRebuildReason::Unreadable, UNREADABLE_MASK),
 ];
+
+pub(super) fn reason_mask(reasons: &BTreeSet<ProjectionRebuildReason>) -> u8 {
+    REASONS
+        .iter()
+        .filter(|(reason, _)| reasons.contains(reason))
+        .fold(0, |mask, (_, bit)| mask | bit)
+}
+
+pub(super) fn reasons_from_mask(mask: u8) -> BTreeSet<ProjectionRebuildReason> {
+    REASONS
+        .iter()
+        .filter(|(_, bit)| mask & bit != 0)
+        .map(|(reason, _)| *reason)
+        .collect()
+}
 
 impl PendingRunStore {
     pub(crate) fn load_rebuild_markers(
@@ -52,19 +66,13 @@ impl PendingRunStore {
                         "unknown rebuild reason mask".into(),
                     ));
                 }
-                Ok((
-                    partition,
-                    REASONS
-                        .into_iter()
-                        .filter(|reason| mask & (1 << (*reason as u8)) != 0)
-                        .collect(),
-                ))
+                Ok((partition, reasons_from_mask(*mask)))
             })
             .collect()
     }
 
     pub(crate) fn store_rebuild_markers(
-        &self,
+        &mut self,
         markers: &BTreeMap<PartitionId, BTreeSet<ProjectionRebuildReason>>,
     ) -> Result<(), PendingStoreError> {
         let previous = self.load_rebuild_markers()?;
@@ -77,15 +85,18 @@ impl PendingRunStore {
             key.extend_from_slice(&partition.0.to_be_bytes());
             match markers.get(partition) {
                 Some(reasons) => {
-                    let mask = reasons
-                        .iter()
-                        .fold(0_u8, |mask, reason| mask | (1 << (*reason as u8)));
+                    let mask = reason_mask(reasons);
                     batch.put(ColumnFamily::NodeMeta, key, vec![mask]);
                 }
                 None => batch.delete(ColumnFamily::NodeMeta, key),
             }
         }
         self.local.write(batch)?;
+        for partition in previous.keys().chain(markers.keys()) {
+            if previous.get(partition) != markers.get(partition) {
+                self.mark_dirty(*partition);
+            }
+        }
         Ok(())
     }
 }

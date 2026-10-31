@@ -83,6 +83,7 @@ pub async fn ensure_schema_for_dialect(
         check_dialect(&transaction, dialect).await?;
     }
     if is_current_version(previous_version, dialect)? && has_recorded_dialect(&transaction).await? {
+        ensure_projection_extensions(&transaction).await?;
         return commit_schema(transaction).await;
     }
     transaction
@@ -100,6 +101,7 @@ pub async fn ensure_schema_for_dialect(
         check_dialect(&transaction, dialect).await?;
     }
     if is_current_version(previous_version, dialect)? && has_recorded_dialect(&transaction).await? {
+        ensure_projection_extensions(&transaction).await?;
         return commit_schema(transaction).await;
     }
     if dialect == VisibilityDialect::Postgres {
@@ -124,6 +126,7 @@ pub async fn ensure_schema_for_dialect(
         })?;
     transaction.batch_execute("ALTER TABLE dexzd_visibility_schema_version ADD COLUMN IF NOT EXISTS dialect text NOT NULL DEFAULT 'paradedb'").await.map_err(|source| SchemaError::Database { operation: "add dialect to", source })?;
     if previous_version == Some(3) && dialect == VisibilityDialect::ParadeDb {
+        ensure_projection_extensions(&transaction).await?;
         return commit_schema(transaction).await;
     }
     transaction
@@ -163,7 +166,17 @@ pub async fn ensure_schema_for_dialect(
             operation: "record version of",
             source,
         })?;
+    ensure_projection_extensions(&transaction).await?;
     commit_schema(transaction).await
+}
+
+async fn ensure_projection_extensions(transaction: &Transaction<'_>) -> Result<(), SchemaError> {
+    let row = transaction.query_one("SELECT EXISTS (SELECT 1 FROM pg_class object JOIN pg_namespace namespace ON namespace.oid = object.relnamespace WHERE namespace.nspname = current_schema() AND object.relname = 'dexzd_visibility_partition_run_versions') AND EXISTS (SELECT 1 FROM pg_attribute attribute JOIN pg_class object ON object.oid = attribute.attrelid JOIN pg_namespace namespace ON namespace.oid = object.relnamespace WHERE namespace.nspname = current_schema() AND object.relname = 'dexzd_visibility_progress' AND attribute.attname = 'owner_epoch' AND NOT attribute.attisdropped)", &[]).await.map_err(|source| SchemaError::Database { operation: "inspect projection extensions in", source })?;
+    if row.get::<_, bool>(0) {
+        return Ok(());
+    }
+    transaction.batch_execute("CREATE INDEX IF NOT EXISTS dexzd_visibility_partition_run_versions ON dexzd_visibility_runs (partition_id, tenant_id COLLATE \"C\", run_id COLLATE \"C\"); ALTER TABLE dexzd_visibility_progress ADD COLUMN IF NOT EXISTS owner_epoch bigint NOT NULL DEFAULT 0")
+        .await.map_err(|source| SchemaError::Database { operation: "extend projection metadata in", source })
 }
 
 async fn schema_version(transaction: &Transaction<'_>) -> Result<Option<i32>, SchemaError> {

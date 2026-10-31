@@ -70,7 +70,7 @@ struct FrameTracking {
     queued_upserts: BTreeMap<(TenantId, RunId), u64>,
     rebuild_requests: BTreeMap<PartitionId, RebuildRequest>,
     repairs: ProjectionRepairs,
-    diff_needed: BTreeSet<PartitionId>,
+    diff_needed: BTreeMap<PartitionId, u64>,
     rebuild_reasons: BTreeMap<PartitionId, BTreeSet<ProjectionRebuildReason>>,
     in_progress: BTreeSet<PartitionId>,
     quarantined: BTreeSet<PartitionId>,
@@ -142,7 +142,7 @@ impl CommittedSearchFrames {
         }
     }
 
-    /// Queues the partition's open frame for projection, or requests a rebuild when it cannot queue.
+    /// Queues the partition's open frame for projection, or records repairs when it sheds changes.
     pub(crate) fn finish_frame(&self, partition: PartitionId, position: &LogPosition) {
         let mut tracking = self.lock_tracking();
         tracking
@@ -168,9 +168,9 @@ impl CommittedSearchFrames {
             changes: frame.changes,
         };
         tracking.coalesce_upserts(&mut queued, &self.metrics);
-        let would_exceed_soft_limit = tracking.queued.len() >= self.cfg.soft_frames
+        let is_over_soft_limit = tracking.queued.len() >= self.cfg.soft_frames
             || tracking.queued_bytes.saturating_add(queued.size_bytes()) > self.cfg.soft_bytes;
-        if would_exceed_soft_limit {
+        if is_over_soft_limit {
             self.drop_priority(&mut tracking, &mut queued, ChangePriority::Intermediate);
         }
         let has_delete = queued
@@ -196,11 +196,7 @@ impl CommittedSearchFrames {
             return;
         }
         if tracking.exceeds_hard_limit(&queued, &self.cfg) {
-            self.mark_needed(
-                &mut tracking,
-                partition,
-                ProjectionRebuildReason::DeleteOverflow,
-            );
+            self.metrics.search_projection_delete_overflow.inc();
         }
         for (identity, change) in &queued.changes {
             if matches!(change.change, SearchDocumentChange::Upsert { .. }) {
@@ -342,7 +338,24 @@ impl CommittedSearchFrames {
             partition.0
         );
         tracing::error!(partition = partition.0, %error, "the search projection stopped");
+        self.metrics.search_projection_permanent_failures.inc();
         self.permanent_failure.send_replace(Some(reason));
+    }
+
+    pub(crate) fn record_global_failure(&self, error: &str) {
+        tracing::error!(%error, "the search projection stopped");
+        self.metrics.search_projection_permanent_failures.inc();
+        self.permanent_failure
+            .send_replace(Some(format!("SQL visibility projection failed: {error}")));
+    }
+
+    pub(crate) fn is_partition_idle(&self, partition: PartitionId) -> bool {
+        let tracking = self.lock_tracking();
+        !tracking.open_frames.contains_key(&partition)
+            && !tracking
+                .unprojected
+                .values()
+                .any(|frame| frame.partition == partition)
     }
 
     fn drop_priority(
@@ -442,8 +455,7 @@ impl CommittedSearchFrames {
             .record(repair, tracking.last_sequence, self.cfg.max_repair_entries)
         {
             self.metrics.search_projection_repair_overflow.inc();
-            tracking.diff_needed.insert(partition);
-            self.mark_needed(tracking, partition, ProjectionRebuildReason::RepairOverflow);
+            tracking.require_diff(partition);
         }
         self.repair_available.notify_one();
     }
@@ -512,18 +524,6 @@ impl CommittedSearchFrames {
         self.lock_tracking().quarantined.clone()
     }
 
-    pub(crate) fn idle_positions(&self) -> BTreeMap<PartitionId, LogPosition> {
-        let tracking = self.lock_tracking();
-        if tracking.queued.is_empty()
-            && tracking.queued_bytes == 0
-            && tracking.open_frames.is_empty()
-        {
-            tracking.latest_positions.clone()
-        } else {
-            BTreeMap::new()
-        }
-    }
-
     pub(crate) fn is_quarantined(&self, partition: PartitionId) -> bool {
         self.lock_tracking().quarantined.contains(&partition)
     }
@@ -538,19 +538,26 @@ impl CommittedSearchFrames {
 
     pub(crate) fn has_pending_staging(&self, partition: PartitionId) -> bool {
         let tracking = self.lock_tracking();
-        tracking.repairs.has_partition(partition) || tracking.diff_needed.contains(&partition)
+        tracking.repairs.has_partition(partition) || tracking.diff_needed.contains_key(&partition)
     }
 
-    pub(crate) fn diff_partitions(&self) -> Vec<PartitionId> {
-        self.lock_tracking().diff_needed.iter().copied().collect()
+    pub(crate) fn diff_partitions(&self) -> Vec<(PartitionId, u64)> {
+        self.lock_tracking()
+            .diff_needed
+            .iter()
+            .map(|(partition, generation)| (*partition, *generation))
+            .collect()
     }
 
     pub(crate) fn require_diff(&self, partition: PartitionId) {
-        self.lock_tracking().diff_needed.insert(partition);
+        self.lock_tracking().require_diff(partition);
     }
 
-    pub(crate) fn finish_diff(&self, partition: PartitionId) {
-        self.lock_tracking().diff_needed.remove(&partition);
+    pub(crate) fn finish_diff(&self, partition: PartitionId, generation: u64) {
+        let mut tracking = self.lock_tracking();
+        if tracking.diff_needed.get(&partition) == Some(&generation) {
+            tracking.diff_needed.remove(&partition);
+        }
     }
 
     pub(crate) fn mark_rebuild_needed(
@@ -596,6 +603,13 @@ impl CommittedSearchFrames {
 }
 
 impl FrameTracking {
+    fn require_diff(&mut self, partition: PartitionId) {
+        let generation = self.diff_needed.entry(partition).or_default();
+        *generation = generation
+            .checked_add(1)
+            .expect("diff generation cannot exhaust u64");
+    }
+
     fn open_frame(&mut self, partition: PartitionId) -> &mut OpenSearchFrame {
         if !self.open_frames.contains_key(&partition) {
             self.last_sequence += 1;

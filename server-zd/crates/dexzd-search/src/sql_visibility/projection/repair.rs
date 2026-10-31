@@ -12,8 +12,8 @@ use tokio_postgres::types::{ToSql, Type};
 
 use super::changes::SearchDocumentChange;
 use super::projector::{
-    ProjectionError, ProjectionMetricRecorder, apply_changes, database_error, operation_timeout,
-    position_from_row, prepare_attribute_slots, should_retry,
+    ProjectionError, ProjectionMetricRecorder, apply_changes, database_error, lock_progress,
+    operation_timeout, prepare_attribute_slots, should_retry,
 };
 use super::skipped_document::{SkippedSearchDocument, record_skipped_documents};
 use crate::sql_visibility::search_backend::{
@@ -30,10 +30,34 @@ pub struct PartitionDocumentRepairs {
     pub changes: Vec<SearchDocumentChange>,
 }
 
+pub(super) struct BorrowedPartitionDocumentRepairs<'a> {
+    pub(super) partition_id: PartitionId,
+    pub(super) previous_position: Option<&'a LogPosition>,
+    pub(super) changes: &'a [SearchDocumentChange],
+}
+
 pub(super) async fn repair_documents(
     backend: &SqlVisibilitySearchBackend,
     metric_recorder: Option<&dyn ProjectionMetricRecorder>,
     partitions: &[PartitionDocumentRepairs],
+    owner_epoch: u64,
+) -> Result<(), ProjectionError> {
+    let borrowed: Vec<_> = partitions
+        .iter()
+        .map(|partition| BorrowedPartitionDocumentRepairs {
+            partition_id: partition.partition_id,
+            previous_position: partition.previous_position.as_ref(),
+            changes: &partition.changes,
+        })
+        .collect();
+    repair_borrowed_documents(backend, metric_recorder, &borrowed, owner_epoch).await
+}
+
+pub(super) async fn repair_borrowed_documents(
+    backend: &SqlVisibilitySearchBackend,
+    metric_recorder: Option<&dyn ProjectionMetricRecorder>,
+    partitions: &[BorrowedPartitionDocumentRepairs<'_>],
+    owner_epoch: u64,
 ) -> Result<(), ProjectionError> {
     if partitions.is_empty() {
         return Ok(());
@@ -46,7 +70,7 @@ pub(super) async fn repair_documents(
         }
         let result = tokio::time::timeout(
             DATABASE_OPERATION_TIMEOUT,
-            repair_transaction(&mut slot.client, backend, partitions),
+            repair_transaction(&mut slot.client, backend, partitions, owner_epoch),
         )
         .await;
         let result = match result {
@@ -71,37 +95,23 @@ pub(super) async fn repair_documents(
 async fn repair_transaction(
     client: &mut tokio_postgres::Client,
     backend: &SqlVisibilitySearchBackend,
-    partitions: &[PartitionDocumentRepairs],
+    partitions: &[BorrowedPartitionDocumentRepairs<'_>],
+    owner_epoch: u64,
 ) -> Result<Vec<SkippedSearchDocument>, ProjectionError> {
     let transaction = client
         .transaction()
         .await
         .map_err(|source| database_error("begin repair in", source))?;
     let assignments = prepare_attribute_slots(&transaction, backend).await?;
-    let partition_numbers: Vec<_> = partitions
-        .iter()
-        .map(|partition| i32::from(partition.partition_id.0))
-        .collect();
-    transaction.execute_typed(
-        "INSERT INTO dexzd_visibility_progress (partition_id, applied_position) SELECT partition_id, 0 FROM unnest($1::integer[]) AS partition_id ON CONFLICT (partition_id) DO NOTHING",
-        &[(&partition_numbers as &(dyn ToSql + Sync), Type::INT4_ARRAY)],
-    ).await.map_err(|source| database_error("initialize repair progress in", source))?;
-    let rows = transaction.query_typed(
-        "SELECT applied_node_id, applied_incarnation, applied_seq, applied_position, partition_id FROM dexzd_visibility_progress WHERE partition_id = ANY($1::integer[]) ORDER BY partition_id FOR UPDATE",
-        &[(&partition_numbers as &(dyn ToSql + Sync), Type::INT4_ARRAY)],
-    ).await.map_err(|source| database_error("lock repair progress in", source))?;
-    for row in rows {
-        let partition_number: i32 = row.get("partition_id");
-        let partition = partitions
-            .iter()
-            .find(|partition| i32::from(partition.partition_id.0) == partition_number)
-            .expect("locked partition was requested");
-        let stored = position_from_row(&row)?;
-        if stored.as_ref() != partition.previous_position.as_ref() {
+    let mut ordered: Vec<_> = partitions.iter().collect();
+    ordered.sort_by_key(|partition| partition.partition_id);
+    for partition in ordered {
+        let stored = lock_progress(&transaction, partition.partition_id, owner_epoch).await?;
+        if stored.as_ref() != partition.previous_position {
             return Err(ProjectionError::RepairPositionMismatch {
                 partition_id: partition.partition_id,
                 stored,
-                expected: partition.previous_position.clone(),
+                expected: partition.previous_position.cloned(),
             });
         }
     }
@@ -153,7 +163,7 @@ pub(super) async fn read_run_versions(
     let (tenant, run) = after.unwrap_or(("", ""));
     let limit = i64::from(limit);
     let result = tokio::time::timeout(DATABASE_OPERATION_TIMEOUT, slot.client.query_typed(
-        "SELECT tenant_id, run_id, version FROM dexzd_visibility_runs WHERE partition_id = $1::integer AND (tenant_id, run_id) > ($2::text, $3::text) ORDER BY tenant_id, run_id LIMIT $4::bigint",
+        "SELECT tenant_id, run_id, version FROM dexzd_visibility_runs WHERE partition_id = $1::integer AND (tenant_id COLLATE \"C\", run_id COLLATE \"C\") > ($2::text, $3::text) ORDER BY tenant_id COLLATE \"C\", run_id COLLATE \"C\" LIMIT $4::bigint",
         &[(&partition_number as &(dyn ToSql + Sync), Type::INT4), (&tenant, Type::TEXT), (&run, Type::TEXT), (&limit, Type::INT8)],
     )).await;
     let rows = match result {
@@ -191,6 +201,7 @@ pub(super) async fn read_run_versions(
 pub(super) async fn clear_empty_partition(
     backend: &SqlVisibilitySearchBackend,
     partition: PartitionId,
+    owner_epoch: u64,
 ) -> Result<(), ProjectionError> {
     let mut slot = backend.lock_next_slot().await;
     if slot.is_disconnected() {
@@ -203,6 +214,8 @@ pub(super) async fn clear_empty_partition(
             .transaction()
             .await
             .map_err(|source| database_error("begin empty partition rebuild in", source))?;
+        lock_progress(&transaction, partition, owner_epoch).await?;
+        transaction.execute_typed("DELETE FROM dexzd_visibility_skipped_documents WHERE partition_id = $1::integer", &[(&partition_number as &(dyn ToSql + Sync), Type::INT4)]).await.map_err(|source| database_error("clear empty partition skipped documents in", source))?;
         transaction
             .execute_typed(
                 "DELETE FROM dexzd_visibility_runs WHERE partition_id = $1::integer",
@@ -212,7 +225,7 @@ pub(super) async fn clear_empty_partition(
             .map_err(|source| database_error("clear empty partition documents in", source))?;
         transaction
             .execute_typed(
-                "DELETE FROM dexzd_visibility_progress WHERE partition_id = $1::integer",
+                "UPDATE dexzd_visibility_progress SET applied_node_id = NULL, applied_incarnation = NULL, applied_seq = NULL, applied_position = 0 WHERE partition_id = $1::integer",
                 &[(&partition_number as &(dyn ToSql + Sync), Type::INT4)],
             )
             .await
