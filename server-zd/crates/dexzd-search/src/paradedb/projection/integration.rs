@@ -104,8 +104,21 @@ struct FailingDocuments {
     reads: AtomicUsize,
 }
 
-#[derive(Default)]
-struct CountingProjectionMetrics(AtomicUsize);
+struct CountingProjectionMetrics {
+    skipped_documents: AtomicUsize,
+    partition_id: PartitionId,
+    tenant_id: TenantId,
+}
+
+impl CountingProjectionMetrics {
+    fn new(partition_id: PartitionId, tenant_id: TenantId) -> Self {
+        Self {
+            skipped_documents: AtomicUsize::new(0),
+            partition_id,
+            tenant_id,
+        }
+    }
+}
 
 impl ProjectionMetricRecorder for CountingProjectionMetrics {
     fn record_skipped_search_document(
@@ -114,9 +127,9 @@ impl ProjectionMetricRecorder for CountingProjectionMetrics {
         tenant_id: TenantId,
         _run_id: RunId,
     ) {
-        assert_eq!(partition_id, PartitionId(4));
-        assert_eq!(tenant_id, TenantId(17));
-        self.0.fetch_add(1, Ordering::Relaxed);
+        assert_eq!(partition_id, self.partition_id);
+        assert_eq!(tenant_id, self.tenant_id);
+        self.skipped_documents.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -219,12 +232,11 @@ async fn skipped_reason(
         .map(|row| row.get(0))
 }
 
-async fn verify_ordered_batch_changes(
-    projector: &ParadeDbProjector,
-    backend: &ParadeDbSearchBackend,
-) {
+async fn verify_ordered_batch_changes(backend: &Arc<ParadeDbSearchBackend>) {
     let partition_id = PartitionId(6);
     let tenant_id = TenantId(19);
+    let metrics = Arc::new(CountingProjectionMetrics::new(partition_id, tenant_id));
+    let projector = ParadeDbProjector::new_with_metric_recorder(backend.clone(), metrics.clone());
     let run_id = RunId([9; 16]);
     let newest = document(tenant_id, run_id, 10);
     let older = document(tenant_id, run_id, 1);
@@ -234,7 +246,7 @@ async fn verify_ordered_batch_changes(
         run_id,
         encoded_document: vec![0xff],
     };
-    for (sequence, changes, should_exist, should_be_skipped) in [
+    for (sequence, changes, should_exist, should_be_skipped, skipped_count) in [
         (
             1,
             vec![
@@ -244,6 +256,7 @@ async fn verify_ordered_batch_changes(
             ],
             true,
             false,
+            0,
         ),
         (
             2,
@@ -254,18 +267,21 @@ async fn verify_ordered_batch_changes(
             ],
             true,
             false,
+            1,
         ),
         (
             3,
             vec![upsert(tenant_id, run_id, &newest), invalid],
             false,
             true,
+            2,
         ),
         (
             4,
             vec![upsert(tenant_id, run_id, &older), deleted],
             false,
             false,
+            2,
         ),
     ] {
         let previous = (sequence > 1).then(|| position(sequence - 1));
@@ -298,6 +314,10 @@ async fn verify_ordered_batch_changes(
             assert_eq!(stored.get::<_, i64>(0), 1);
         }
         assert_eq!(
+            metrics.skipped_documents.load(Ordering::Relaxed),
+            skipped_count
+        );
+        assert_eq!(
             projector.read_progress(partition_id).await.unwrap(),
             Some(position(sequence))
         );
@@ -328,7 +348,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await
                 .expect("create schema on empty database"),
         );
-        let metrics = Arc::new(CountingProjectionMetrics::default());
+        let metrics = Arc::new(CountingProjectionMetrics::new(PartitionId(4), TenantId(17)));
         let projector = Arc::new(ParadeDbProjector::new_with_metric_recorder(
             backend.clone(),
             metrics.clone(),
@@ -448,12 +468,12 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await
                 .is_some_and(|reason| reason.contains("decode committed search document"))
         );
-        assert_eq!(metrics.0.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.skipped_documents.load(Ordering::Relaxed), 1);
         projector
             .apply_batch(partition_id, Some(&position(10)), &position(11), &[])
             .await
             .expect("skip replay without recording poison twice");
-        assert_eq!(metrics.0.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.skipped_documents.load(Ordering::Relaxed), 1);
         let second_record = document(tenant_id, second_run, 1);
         projector
             .apply_batch(
@@ -629,7 +649,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
                 .await
                 .is_some()
         );
-        assert_eq!(metrics.0.load(Ordering::Relaxed), 2);
+        assert_eq!(metrics.skipped_documents.load(Ordering::Relaxed), 2);
         projector
             .apply_batch(
                 partition_id,
@@ -650,7 +670,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
             Err(ProjectionError::StaleRebuild { .. })
         ));
 
-        verify_ordered_batch_changes(&projector, &backend).await;
+        verify_ordered_batch_changes(&backend).await;
 
         let mut held_slots = Vec::new();
         for _ in 0..pool_size {
