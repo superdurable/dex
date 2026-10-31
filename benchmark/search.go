@@ -24,19 +24,32 @@ import (
 
 // SearchConfig selects the isolated S7 search dataset and measurement settings.
 type SearchConfig struct {
-	ProjectionOnly    bool          `json:"projection_only"`
-	Address           string        `json:"address"`
-	Backend           string        `json:"backend"`
-	Runs              int           `json:"runs"`
-	Attributes        int           `json:"attributes"`
-	Concurrency       int           `json:"concurrency"`
-	Samples           int           `json:"samples"`
-	Warmup            int           `json:"warmup"`
-	DeepPage          int           `json:"deep_page"`
-	Timeout           time.Duration `json:"timeout_ns"`
-	DatabaseContainer string        `json:"database_container,omitempty"`
-	Backfill          bool          `json:"backfill"`
-	GitCommit         string        `json:"git_commit"`
+	// ProjectionOnly omits queries. The command default is false.
+	ProjectionOnly bool `json:"projection_only"`
+	// Address serves FlowService. The command default is 127.0.0.1:8801.
+	Address string `json:"address"`
+	// Backend selects builtin, postgres, or paradedb. The command default is builtin.
+	Backend string `json:"backend"`
+	// Runs sets the fresh tenant's run count. The command default is 100000.
+	Runs int `json:"runs"`
+	// Attributes selects 0, 3, or 10 indexed values per run. The command default is 10.
+	Attributes int `json:"attributes"`
+	// Concurrency sets simultaneous seed clients. The command default is 128.
+	Concurrency int `json:"concurrency"`
+	// Samples caps measured requests per query. The command default is 200.
+	Samples int `json:"samples"`
+	// Warmup sets untimed requests per ready query. The command default is 10.
+	Warmup int `json:"warmup"`
+	// DeepPage selects the token-reached page to measure. The command default is 500.
+	DeepPage int `json:"deep_page"`
+	// Timeout bounds each seed run and query. The command default is 30 seconds.
+	Timeout time.Duration `json:"timeout_ns"`
+	// DatabaseContainer names the owned database container. Default: empty; required for external backends.
+	DatabaseContainer string `json:"database_container,omitempty"`
+	// Backfill defers Keyword registration until after seeding. Default: false; requires postgres and 10 Attributes.
+	Backfill bool `json:"backfill"`
+	// GitCommit records the source revision. Default: empty.
+	GitCommit string `json:"git_commit"`
 }
 
 // SearchResult records S7 seed, projection, query, and optional backfill measurements.

@@ -123,9 +123,13 @@ func (benchmark *searchBenchmark) measureQueries(ctx context.Context, phase stri
 }
 
 func (benchmark *searchBenchmark) measureQuery(ctx context.Context, name, query, token, phase string, shouldCheckBackfill bool) (SearchQueryResult, error) {
+	return benchmark.measureQuerySamples(ctx, name, query, token, phase, shouldCheckBackfill, benchmark.config.Samples, benchmark.config.Warmup)
+}
+
+func (benchmark *searchBenchmark) measureQuerySamples(ctx context.Context, name, query, token, phase string, shouldCheckBackfill bool, samples, warmup int) (SearchQueryResult, error) {
 	result := SearchQueryResult{Name: name, Query: query, Phase: phase, Errors: map[string]int{}}
-	latencies := make([]time.Duration, 0, benchmark.config.Samples)
-	for index := -benchmark.config.Warmup; index < benchmark.config.Samples; index++ {
+	latencies := make([]time.Duration, 0, samples)
+	for index := -warmup; index < samples; index++ {
 		if shouldCheckBackfill {
 			state, err := benchmark.slotState(ctx)
 			if err != nil {
@@ -163,7 +167,9 @@ func (benchmark *searchBenchmark) measureQuery(ctx context.Context, name, query,
 		result.RawMilliseconds = append(result.RawMilliseconds, float64(elapsed)/float64(time.Millisecond))
 	}
 	result.Latency = calculatePercentiles(latencies)
-	fmt.Fprintf(os.Stderr, "%s %s: n=%d p50=%.3fms p99=%.3fms errors=%v\n", phase, name, result.Samples, result.Latency.P50, result.Latency.P99, result.Errors)
+	if samples > 1 {
+		fmt.Fprintf(os.Stderr, "%s %s: n=%d p50=%.3fms p99=%.3fms errors=%v\n", phase, name, result.Samples, result.Latency.P50, result.Latency.P99, result.Errors)
+	}
 	return result, ctx.Err()
 }
 
@@ -204,12 +210,8 @@ func (benchmark *searchBenchmark) measureBackfill(ctx context.Context) error {
 	monitorContext, stopMonitor := context.WithCancel(ctx)
 	defer stopMonitor()
 	go benchmark.monitorBackfill(monitorContext, started, readyResult)
-	for _, query := range []searchQuery{{"keyword-equality", "SearchField00 = 'rare'"}, {"keyword-common-equality", "SearchField00 = 'common'"}} {
-		result, err := benchmark.measureQuery(ctx, query.name, query.query, "", "backfilling", true)
-		benchmark.result.Queries = append(benchmark.result.Queries, result)
-		if err != nil {
-			return err
-		}
+	if err := benchmark.measureBackfillQueries(ctx); err != nil {
+		return err
 	}
 	completion := <-readyResult
 	if completion.err != nil {
@@ -219,6 +221,48 @@ func (benchmark *searchBenchmark) measureBackfill(ctx context.Context) error {
 	result, err := benchmark.measureQuery(ctx, "keyword-common-equality", "SearchField00 = 'common'", "", "ready", false)
 	benchmark.result.Queries = append(benchmark.result.Queries, result)
 	return err
+}
+
+func (benchmark *searchBenchmark) measureBackfillQueries(ctx context.Context) error {
+	queries := []searchQuery{{"keyword-equality", "SearchField00 = 'rare'"}, {"keyword-common-equality", "SearchField00 = 'common'"}}
+	results := make([]SearchQueryResult, len(queries))
+	latencies := make([][]time.Duration, len(queries))
+	for index, query := range queries {
+		results[index] = SearchQueryResult{Name: query.name, Query: query.query, Phase: "backfilling", Errors: map[string]int{}}
+	}
+	for sample := 0; sample < benchmark.config.Samples; sample++ {
+		hasSamples := false
+		for index, query := range queries {
+			measured, err := benchmark.measureQuerySamples(ctx, query.name, query.query, "", "backfilling", true, 1, 0)
+			if err != nil {
+				return err
+			}
+			result := &results[index]
+			for failure, count := range measured.Errors {
+				result.Errors[failure] += count
+			}
+			if measured.Samples == 0 {
+				continue
+			}
+			hasSamples = true
+			if result.Samples == 0 {
+				result.FirstPageRows = measured.FirstPageRows
+			}
+			result.LastPageRows = measured.LastPageRows
+			result.Samples += measured.Samples
+			result.RawMilliseconds = append(result.RawMilliseconds, measured.RawMilliseconds...)
+			latencies[index] = append(latencies[index], time.Duration(measured.RawMilliseconds[0]*float64(time.Millisecond)))
+		}
+		if !hasSamples {
+			break
+		}
+	}
+	for index := range results {
+		results[index].Latency = calculatePercentiles(latencies[index])
+		benchmark.result.Queries = append(benchmark.result.Queries, results[index])
+		fmt.Fprintf(os.Stderr, "backfilling %s: n=%d p50=%.3fms p99=%.3fms\n", results[index].Name, results[index].Samples, results[index].Latency.P50, results[index].Latency.P99)
+	}
+	return nil
 }
 
 type searchBackfillCompletion struct {
