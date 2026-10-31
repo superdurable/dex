@@ -242,6 +242,7 @@ impl RunCursor {
                 pending_step_methods,
                 reapplied_inputs: std::mem::take(&mut self.reapplied_inputs),
             },
+            self.record.next_event_id - 1,
         );
         search_document::refresh_search_document(transaction, &self, scope)?;
         history::after_command(transaction, &mut self, kind)?;

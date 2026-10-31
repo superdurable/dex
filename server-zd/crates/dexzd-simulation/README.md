@@ -363,9 +363,11 @@ bytes moved the `FIRST_SEED` pin from `0x35042b471c77b18ee1855f1943097b62` to
 did not move.
 
 The v1 format pin changes from `2bdc08183cd17d874252abb5985d4a1c` to
-`4802bd4fc77e15286f5bf796009ed500`. The regenerated snapshot store, its manifest, and
-`state.txt` carry the new fields. Log objects, the workload, and the fixture README are
-unchanged. Before regeneration, the old fixture decoded with the new protobuf types.
+`ba2f13425c89f94eee68ca7e8c041c3f`. The regenerated snapshot store, its manifest, and
+`state.txt` carry the new Step fields, event context fields, and the history row metadata
+field `last_assigned_event_id`. Log objects, the workload, and the fixture README are
+unchanged. Before each regeneration, the previous fixture decoded with the new protobuf types.
+Adding `last_assigned_event_id` and `RunRecord.max_pruned_event_id` moved no simulation pin.
 
 ### Running
 

@@ -76,8 +76,6 @@ type historyPage struct {
 	NextInternalEventID int64          `json:"nextInternalEventId"`
 	// PrunedEventIDRange is the event ID range the history window removed; omitted when none.
 	PrunedEventIDRange *historyEventIDRange `json:"prunedEventIdRange,omitempty"`
-	// FirstRetainedEventID is the first kept event ID after FlowStart, or zero from older Servers.
-	FirstRetainedEventID int64 `json:"firstRetainedEventId"`
 }
 
 // historyEventIDRange is an inclusive range of history event IDs.

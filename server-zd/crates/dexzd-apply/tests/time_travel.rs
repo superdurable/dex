@@ -32,13 +32,14 @@ use dexzd_protocol::dex::{
     ActionPermissionMapping, ActionPermissionMappings, AttributeWrite, ChannelMessage,
     ChannelMessageDeletion, CloseDecision, CloseDecisionType, DeleteChannelMessageRequest,
     EncodedObject, ExecuteMethodFailurePolicy, FlowHistoryEvent, FlowResetStepMethod,
-    FlowResetType, FlowStartOptions, FlowStatus, FlowTimeoutPolicy, GetHistoryEventsResponse,
-    HistoryEventIdRange, IndexConfig, InternalTimerStatus, InvokeExecuteMethodResponse,
-    InvokeRpcRequest, InvokeWaitForMethodResponse, InvokeWorkerRpcResponse,
-    PublishToChannelRequest, ResetFlowRequest, RetryPolicy, SetAttributesRequest, SkipTimerRequest,
-    StartFlowRequest, StepDecision, StepMethodEventContext, StepMovement, StepOptions,
-    StopFlowRequest, StopType, SubFlowCondition, TimerCondition, Value, WaitingCondition,
-    WaitingConditionType, WorkerErrorResponse, WorkerTarget, flow_history_event, value,
+    FlowResetType, FlowStartOptions, FlowStatus, FlowTimeoutHandlerOptions, FlowTimeoutPolicy,
+    GetHistoryEventsResponse, HistoryEventIdRange, IndexConfig, InternalTimerStatus,
+    InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWaitForMethodResponse,
+    InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, RetryPolicy,
+    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StepDecision, StepMethodEventContext,
+    StepMovement, StepOptions, StopFlowRequest, StopType, SubFlowCondition, TimerCondition, Value,
+    WaitForMethodFailurePolicy, WaitingCondition, WaitingConditionType, WorkerErrorResponse,
+    WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, ChannelMessageDeleteCommand,
@@ -3750,7 +3751,6 @@ fn history_reads_report_the_event_ids_the_window_pruned() {
     harness.complete_wait_for("ChargeStep-1");
     let unpruned = history_page(&harness, 0);
     assert_eq!(unpruned.pruned_event_id_range, None);
-    assert_eq!(unpruned.first_retained_event_id, 2);
     for index in 0..9 {
         harness.set_attribute("status", &format!("v{index}"), "");
     }
@@ -3763,7 +3763,6 @@ fn history_reads_report_the_event_ids_the_window_pruned() {
     });
     let first_attempt = history_page(&harness, 0);
     assert_eq!(first_attempt.pruned_event_id_range, pruned);
-    assert_eq!(first_attempt.first_retained_event_id, 6);
     assert_eq!(event_ids(&first_attempt.events), [1, 6, 7, 8, 9, 10, 11]);
     let first_page = get_history_events(
         &harness.state,
@@ -3788,14 +3787,12 @@ fn history_reads_report_the_event_ids_the_window_pruned() {
     assert_eq!(event_ids(&second_page.events), [7, 8]);
     assert_eq!(first_page.pruned_event_id_range, pruned);
     assert_eq!(second_page.pruned_event_id_range, pruned);
-    assert_eq!(second_page.first_retained_event_id, 6);
 
     let point = harness.history_record(9).unwrap().timestamp_micros;
     let (attempt, _) = harness.travel_to(reset_to_time(point));
     assert_eq!(attempt, 2);
     let second_attempt = history_page(&harness, 0);
     assert_eq!(second_attempt.pruned_event_id_range, pruned);
-    assert_eq!(second_attempt.first_retained_event_id, 6);
     assert_eq!(event_ids(&second_attempt.events), [1, 6, 7, 8, 12]);
     assert_eq!(history_page(&harness, 1).pruned_event_id_range, pruned);
 
@@ -3823,7 +3820,6 @@ fn history_reads_report_the_event_ids_the_window_pruned() {
     for run_attempt in [1, 2] {
         let page = history_page(&harness, run_attempt);
         assert_eq!(page.pruned_event_id_range, Some(range));
-        assert_eq!(page.first_retained_event_id, range.end_event_id + 1);
         assert!(
             page.events
                 .iter()
@@ -3882,4 +3878,207 @@ fn rows_and_events_written_without_related_event_ids_still_read_and_run() {
         "a Step row without the IDs records none"
     );
     assert_eq!(history_page(&harness, 0).pruned_event_id_range, None);
+}
+
+fn fail_attempt(harness: &mut Harness, step_execution_id: &str, attempt: u32, is_final: bool) {
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(key(step_execution_id, StepMethod::Execute)),
+        attempt,
+        kind: 1,
+        worker_error: Some(WorkerErrorResponse {
+            detail: "declined".to_owned(),
+            ..WorkerErrorResponse::default()
+        }),
+        is_non_retryable: is_final,
+        ..StepAttemptFailedCommand::default()
+    }));
+}
+
+fn fire_retry(harness: &mut Harness, step_execution_id: &str, next_attempt: u32) {
+    harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![TimerId {
+            run_attempt: harness.run_record().current_attempt,
+            kind: Some(timer_id::Kind::RetryBackoff(RetryBackoffTimerId {
+                invocation: Some(key(step_execution_id, StepMethod::Execute)),
+                next_attempt,
+            })),
+        }],
+    }));
+}
+
+#[test]
+fn later_execute_events_name_the_wait_for_event_through_retries_failures_and_close() {
+    // A retried Execute that completes, then one that fails for good.
+    for is_final_failure in [false, true] {
+        let mut harness = Harness::new();
+        harness.start(start_request());
+        harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+        harness.complete_wait_for("ChargeStep-1");
+        let wait_for_time = history_page(&harness, 0).events[1].event_time;
+        harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+        fail_attempt(&mut harness, "ChargeStep-1", 1, false);
+        fire_retry(&mut harness, "ChargeStep-1", 2);
+        harness.start_attempt("ChargeStep-1", StepMethod::Execute, 2);
+        if is_final_failure {
+            fail_attempt(&mut harness, "ChargeStep-1", 2, true);
+        } else {
+            harness.complete_execute("ChargeStep-1", 2, force_complete());
+        }
+        let events = history_page(&harness, 0).events;
+        let execute = &events[2];
+        assert!(
+            matches!(
+                (&execute.payload, is_final_failure),
+                (
+                    Some(flow_history_event::Payload::StepExecuteFailed(_)),
+                    true
+                ) | (
+                    Some(flow_history_event::Payload::StepExecuteCompleted(_)),
+                    false
+                )
+            ),
+            "the final Execute outcome: {:?}",
+            execute.payload
+        );
+        assert_eq!(related_event_ids(execute), (1, 2, wait_for_time));
+    }
+
+    // Execute is still pending when the Flow stops several commands later.
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.complete_wait_for("ChargeStep-1");
+    let wait_for_time = history_page(&harness, 0).events[1].event_time;
+    harness.set_attribute("status", "waiting", "");
+    harness.apply(Command::FlowStop(FlowStopCommand {
+        request: Some(StopFlowRequest {
+            stop_type: StopType::Cancel as i32,
+            ..StopFlowRequest::default()
+        }),
+    }));
+    let events = history_page(&harness, 0).events;
+    let pending = step_event(&events[2..], "ChargeStep-1");
+    assert!(matches!(
+        pending.payload,
+        Some(flow_history_event::Payload::StepExecutePending(_))
+    ));
+    assert_eq!(related_event_ids(pending), (1, 2, wait_for_time));
+}
+
+#[test]
+fn the_timeout_handler_and_a_proceeding_wait_for_failure_have_no_related_ids() {
+    let mut harness = Harness::new();
+    let outcome = harness.apply(Command::FlowStart(FlowStartCommand {
+        new_run_id: vec![9; 16],
+        request: Some(StartFlowRequest {
+            flow_timeout_seconds: 30,
+            step_options: Some(StepOptions {
+                wait_for_failure_policy: WaitForMethodFailurePolicy::ProceedOnFailure as i32,
+                ..StepOptions::default()
+            }),
+            flow_start_options: Some(FlowStartOptions {
+                timeout_handler_options: Some(FlowTimeoutHandlerOptions::default()),
+                ..FlowStartOptions::default()
+            }),
+            ..start_request()
+        }),
+        settings: Some(harness.settings),
+        resolved_timeout_policy: FlowTimeoutPolicy::Handler as i32,
+        worker_target: Some(WorkerTarget { is_pull_mode: true }),
+        ..FlowStartCommand::default()
+    }));
+    if let Some(command_reply::Reply::StartFlow(reply)) = &outcome.reply.reply {
+        harness.run_id = reply.run_id.clone();
+    }
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+        invocation: Some(key("ChargeStep-1", StepMethod::WaitFor)),
+        attempt: 1,
+        kind: 1,
+        worker_error: Some(WorkerErrorResponse {
+            detail: "no answer".to_owned(),
+            ..WorkerErrorResponse::default()
+        }),
+        is_non_retryable: true,
+        ..StepAttemptFailedCommand::default()
+    }));
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    harness.complete_execute("ChargeStep-1", 1, StepDecision::default());
+    harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![TimerId {
+            run_attempt: 1,
+            kind: Some(timer_id::Kind::FlowTimeout(
+                dexzd_protocol::dexzd::v1::FlowTimeoutTimerId {},
+            )),
+        }],
+    }));
+    harness.start_attempt("sys:timeout_handler-1", StepMethod::Execute, 1);
+    harness.complete_execute("sys:timeout_handler-1", 1, force_complete());
+    let events = history_page(&harness, 0).events;
+    let failed_wait_for = step_event(&events, "ChargeStep-1");
+    assert!(matches!(
+        failed_wait_for.payload,
+        Some(flow_history_event::Payload::StepWaitForFailed(_))
+    ));
+    let proceeded_execute = events
+        .iter()
+        .find(|event| {
+            matches!(
+                event.payload,
+                Some(flow_history_event::Payload::StepExecuteCompleted(_))
+            )
+        })
+        .expect("the proceeding Execute completes");
+    assert_eq!(
+        related_event_ids(proceeded_execute),
+        (1, 0, None),
+        "a failed WaitFor that proceeds names no WaitFor event"
+    );
+    let handler = step_event(&events, "sys:timeout_handler-1");
+    assert_eq!(
+        related_event_ids(handler),
+        (0, 0, None),
+        "no event started the timeout handler"
+    );
+}
+
+#[test]
+fn a_rebuild_from_a_later_checkpoint_replays_the_deciding_command_to_the_same_rows() {
+    let mut harness = Harness::with_settings(RunSettings {
+        checkpoint_max_commands: 3,
+        ..settings()
+    });
+    let (_, decision_seq) = run_charge_then_ship(&mut harness);
+    let checkpoint_seqs = harness.attempt_record(1).checkpoint_seqs;
+    assert!(
+        checkpoint_seqs
+            .iter()
+            .any(|seq| *seq > 1 && *seq < decision_seq),
+        "a non-genesis checkpoint precedes the decision: {checkpoint_seqs:?}"
+    );
+    assert!(!checkpoint_seqs.contains(&decision_seq));
+    let ship_steps = |rows: &AttemptRows| -> Vec<StepExecutionRecord> {
+        rows.iter()
+            .filter(|((table, _), _)| *table == RunTable::StepExecution as u8)
+            .map(|(_, value)| StepExecutionRecord::decode(value.as_slice()).unwrap())
+            .filter(|step| step.step_type == "ShipStep")
+            .collect()
+    };
+    let original = ship_steps(&harness.attempt_rows());
+    assert_eq!(
+        original
+            .iter()
+            .map(|step| (step.step_execution_id.as_str(), step.from_event_id))
+            .collect::<Vec<_>>(),
+        [("ShipStep-1", 3), ("ShipStep-2", 3)],
+        "both next Steps of one decision share its event"
+    );
+    harness.set_attribute("status", "later", "");
+    let decision_time = harness
+        .history_record(decision_seq)
+        .unwrap()
+        .timestamp_micros;
+    let (attempt, _) = harness.travel_to(reset_to_time(decision_time));
+    assert_eq!(harness.attempt_record(attempt).parent_seq, decision_seq);
+    assert_eq!(ship_steps(&harness.attempt_rows()), original);
 }

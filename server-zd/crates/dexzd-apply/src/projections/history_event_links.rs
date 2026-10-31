@@ -113,8 +113,8 @@ pub(crate) fn resolve_step_event_links(
     Ok(())
 }
 
-/// Returns the replayed events with their recorded IDs, or ID zero where the recorded payload
-/// kind differs.
+/// Returns the replayed events with their recorded IDs, or ID zero where the recorded event
+/// differs in payload kind or Step execution.
 pub(crate) fn with_recorded_event_ids(
     payloads: Vec<flow_history_event::Payload>,
     recorded_events: &[FlowHistoryEvent],
@@ -123,14 +123,14 @@ pub(crate) fn with_recorded_event_ids(
         .into_iter()
         .enumerate()
         .map(|(index, payload)| {
-            let event_id = recorded_events
+            let recorded = recorded_events
                 .get(index)
-                .filter(|recorded| {
-                    recorded.payload.as_ref().is_some_and(|recorded_payload| {
-                        std::mem::discriminant(recorded_payload) == std::mem::discriminant(&payload)
-                    })
-                })
-                .map_or(0, |recorded| recorded.event_id);
+                .filter(|recorded| is_same_recorded_event(recorded, &payload));
+            debug_assert!(
+                recorded.is_some(),
+                "replayed event {index} differs from the recorded event"
+            );
+            let event_id = recorded.map_or(0, |recorded| recorded.event_id);
             FlowHistoryEvent {
                 event_id,
                 payload: Some(payload),
@@ -138,6 +138,39 @@ pub(crate) fn with_recorded_event_ids(
             }
         })
         .collect()
+}
+
+/// Whether a recorded event has the replayed payload's kind and Step execution.
+fn is_same_recorded_event(
+    recorded: &FlowHistoryEvent,
+    payload: &flow_history_event::Payload,
+) -> bool {
+    recorded.payload.as_ref().is_some_and(|recorded_payload| {
+        std::mem::discriminant(recorded_payload) == std::mem::discriminant(payload)
+            && method_event_step_execution_id(recorded_payload)
+                == method_event_step_execution_id(payload)
+    })
+}
+
+/// The Step execution ID of a Step method event, or `None` for other events.
+fn method_event_step_execution_id(payload: &flow_history_event::Payload) -> Option<&str> {
+    use flow_history_event::Payload;
+    let context = match payload {
+        Payload::StepWaitForCompleted(event) => event.context.as_ref(),
+        Payload::StepWaitForFailed(event) => event.context.as_ref(),
+        Payload::StepExecuteCompleted(event) => event.context.as_ref(),
+        Payload::StepExecuteFailed(event) => event.context.as_ref(),
+        Payload::StepWaitForPending(event) | Payload::StepExecutePending(event) => {
+            event.context.as_ref()
+        }
+        Payload::FlowStartedOrContinued(_)
+        | Payload::FlowClosed(_)
+        | Payload::RpcExecutionCompleted(_)
+        | Payload::ChannelExternalPublish(_)
+        | Payload::TimeTravelFork(_)
+        | Payload::ChannelExternalDelete(_) => None,
+    };
+    context.map(|context| context.step_execution_id.as_str())
 }
 
 /// Copies a resolved link into a Step method event of the same Step execution.
@@ -352,6 +385,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        debug_assertions,
+        should_panic(expected = "replayed event 0 differs from the recorded event")
+    )]
     fn an_event_without_an_id_leaves_its_link_unresolved() {
         let flow_hash = FlowHash(7);
         let rows = RunRows::new(flow_hash, RunId([3; 16]));

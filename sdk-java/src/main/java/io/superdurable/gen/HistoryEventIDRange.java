@@ -7,19 +7,19 @@ package io.superdurable.gen;
 
 /**
  * <pre>
- * HistoryEventIdRange is an inclusive range of history event IDs of one run.
+ * HistoryEventIDRange is an inclusive range of history event IDs of one run.
  *
  * Both ends are history event IDs, the same values as FlowHistoryEvent.event_id.
  * Both ends belong to the range, and a range always contains at least one ID.
  * </pre>
  *
- * Protobuf type {@code dex.HistoryEventIdRange}
+ * Protobuf type {@code dex.HistoryEventIDRange}
  */
 @com.google.protobuf.Generated
-public final class HistoryEventIdRange extends
+public final class HistoryEventIDRange extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.HistoryEventIdRange)
-    HistoryEventIdRangeOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.HistoryEventIDRange)
+    HistoryEventIDRangeOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -28,31 +28,31 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "HistoryEventIdRange");
+      "HistoryEventIDRange");
   }
-  // Use HistoryEventIdRange.newBuilder() to construct.
-  private HistoryEventIdRange(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use HistoryEventIDRange.newBuilder() to construct.
+  private HistoryEventIDRange(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private HistoryEventIdRange() {
+  private HistoryEventIDRange() {
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIdRange_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIDRange_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIdRange_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIDRange_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIdRange_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIDRange_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.HistoryEventIdRange.class, io.superdurable.gen.HistoryEventIdRange.Builder.class);
+            io.superdurable.gen.HistoryEventIDRange.class, io.superdurable.gen.HistoryEventIDRange.Builder.class);
   }
 
   public static final int START_EVENT_ID_FIELD_NUMBER = 1;
@@ -136,10 +136,10 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.HistoryEventIdRange)) {
+    if (!(obj instanceof io.superdurable.gen.HistoryEventIDRange)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.HistoryEventIdRange other = (io.superdurable.gen.HistoryEventIdRange) obj;
+    io.superdurable.gen.HistoryEventIDRange other = (io.superdurable.gen.HistoryEventIDRange) obj;
 
     if (getStartEventId()
         != other.getStartEventId()) return false;
@@ -167,44 +167,44 @@ private static final long serialVersionUID = 0L;
     return hash;
   }
 
-  public static io.superdurable.gen.HistoryEventIdRange parseFrom(
+  public static io.superdurable.gen.HistoryEventIDRange parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.HistoryEventIdRange parseFrom(
+  public static io.superdurable.gen.HistoryEventIDRange parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.HistoryEventIdRange parseFrom(
+  public static io.superdurable.gen.HistoryEventIDRange parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.HistoryEventIdRange parseFrom(
+  public static io.superdurable.gen.HistoryEventIDRange parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.HistoryEventIdRange parseFrom(byte[] data)
+  public static io.superdurable.gen.HistoryEventIDRange parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.HistoryEventIdRange parseFrom(
+  public static io.superdurable.gen.HistoryEventIDRange parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.HistoryEventIdRange parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.HistoryEventIDRange parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.HistoryEventIdRange parseFrom(
+  public static io.superdurable.gen.HistoryEventIDRange parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -212,26 +212,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.HistoryEventIdRange parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.HistoryEventIDRange parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.HistoryEventIdRange parseDelimitedFrom(
+  public static io.superdurable.gen.HistoryEventIDRange parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.HistoryEventIdRange parseFrom(
+  public static io.superdurable.gen.HistoryEventIDRange parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.HistoryEventIdRange parseFrom(
+  public static io.superdurable.gen.HistoryEventIDRange parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -244,7 +244,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.HistoryEventIdRange prototype) {
+  public static Builder newBuilder(io.superdurable.gen.HistoryEventIDRange prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -261,32 +261,32 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * HistoryEventIdRange is an inclusive range of history event IDs of one run.
+   * HistoryEventIDRange is an inclusive range of history event IDs of one run.
    *
    * Both ends are history event IDs, the same values as FlowHistoryEvent.event_id.
    * Both ends belong to the range, and a range always contains at least one ID.
    * </pre>
    *
-   * Protobuf type {@code dex.HistoryEventIdRange}
+   * Protobuf type {@code dex.HistoryEventIDRange}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.HistoryEventIdRange)
-      io.superdurable.gen.HistoryEventIdRangeOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.HistoryEventIDRange)
+      io.superdurable.gen.HistoryEventIDRangeOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIdRange_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIDRange_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIdRange_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIDRange_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.HistoryEventIdRange.class, io.superdurable.gen.HistoryEventIdRange.Builder.class);
+              io.superdurable.gen.HistoryEventIDRange.class, io.superdurable.gen.HistoryEventIDRange.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.HistoryEventIdRange.newBuilder()
+    // Construct using io.superdurable.gen.HistoryEventIDRange.newBuilder()
     private Builder() {
 
     }
@@ -308,17 +308,17 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIdRange_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_HistoryEventIDRange_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.HistoryEventIdRange getDefaultInstanceForType() {
-      return io.superdurable.gen.HistoryEventIdRange.getDefaultInstance();
+    public io.superdurable.gen.HistoryEventIDRange getDefaultInstanceForType() {
+      return io.superdurable.gen.HistoryEventIDRange.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.HistoryEventIdRange build() {
-      io.superdurable.gen.HistoryEventIdRange result = buildPartial();
+    public io.superdurable.gen.HistoryEventIDRange build() {
+      io.superdurable.gen.HistoryEventIDRange result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -326,14 +326,14 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.HistoryEventIdRange buildPartial() {
-      io.superdurable.gen.HistoryEventIdRange result = new io.superdurable.gen.HistoryEventIdRange(this);
+    public io.superdurable.gen.HistoryEventIDRange buildPartial() {
+      io.superdurable.gen.HistoryEventIDRange result = new io.superdurable.gen.HistoryEventIDRange(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(io.superdurable.gen.HistoryEventIdRange result) {
+    private void buildPartial0(io.superdurable.gen.HistoryEventIDRange result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.startEventId_ = startEventId_;
@@ -345,16 +345,16 @@ private static final long serialVersionUID = 0L;
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.HistoryEventIdRange) {
-        return mergeFrom((io.superdurable.gen.HistoryEventIdRange)other);
+      if (other instanceof io.superdurable.gen.HistoryEventIDRange) {
+        return mergeFrom((io.superdurable.gen.HistoryEventIDRange)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.HistoryEventIdRange other) {
-      if (other == io.superdurable.gen.HistoryEventIdRange.getDefaultInstance()) return this;
+    public Builder mergeFrom(io.superdurable.gen.HistoryEventIDRange other) {
+      if (other == io.superdurable.gen.HistoryEventIDRange.getDefaultInstance()) return this;
       if (other.getStartEventId() != 0L) {
         setStartEventId(other.getStartEventId());
       }
@@ -502,23 +502,23 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.HistoryEventIdRange)
+    // @@protoc_insertion_point(builder_scope:dex.HistoryEventIDRange)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.HistoryEventIdRange)
-  private static final io.superdurable.gen.HistoryEventIdRange DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.HistoryEventIDRange)
+  private static final io.superdurable.gen.HistoryEventIDRange DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.HistoryEventIdRange();
+    DEFAULT_INSTANCE = new io.superdurable.gen.HistoryEventIDRange();
   }
 
-  public static io.superdurable.gen.HistoryEventIdRange getDefaultInstance() {
+  public static io.superdurable.gen.HistoryEventIDRange getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<HistoryEventIdRange>
-      PARSER = new com.google.protobuf.AbstractParser<HistoryEventIdRange>() {
+  private static final com.google.protobuf.Parser<HistoryEventIDRange>
+      PARSER = new com.google.protobuf.AbstractParser<HistoryEventIDRange>() {
     @java.lang.Override
-    public HistoryEventIdRange parsePartialFrom(
+    public HistoryEventIDRange parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -537,17 +537,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<HistoryEventIdRange> parser() {
+  public static com.google.protobuf.Parser<HistoryEventIDRange> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<HistoryEventIdRange> getParserForType() {
+  public com.google.protobuf.Parser<HistoryEventIDRange> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.HistoryEventIdRange getDefaultInstanceForType() {
+  public io.superdurable.gen.HistoryEventIDRange getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

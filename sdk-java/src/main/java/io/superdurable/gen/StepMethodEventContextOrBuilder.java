@@ -195,9 +195,13 @@ public interface StepMethodEventContextOrBuilder extends
    * The event time of the StepWaitForCompleted event that
    * wait_for_completed_event_id names.
    *
-   * The time from it to started_time is how long the Step waited between
-   * WaitFor completion and the start of the reported Execute attempt. It stays
-   * available after the history window removes that event.
+   * It stays available after the history window removes that event. The time
+   * from it to started_time is not only the condition wait. started_time is the
+   * start of the attempt that this event reports, so the difference also
+   * includes Execute dispatch and lock waits, and every earlier failed Execute
+   * attempt with its retry backoff. On a StepExecutePending event in the
+   * SCHEDULED phase whose Execute never started an attempt, started_time is
+   * when Execute was first scheduled, not an attempt start.
    *
    * Unset whenever wait_for_completed_event_id is zero.
    * </pre>
@@ -211,9 +215,13 @@ public interface StepMethodEventContextOrBuilder extends
    * The event time of the StepWaitForCompleted event that
    * wait_for_completed_event_id names.
    *
-   * The time from it to started_time is how long the Step waited between
-   * WaitFor completion and the start of the reported Execute attempt. It stays
-   * available after the history window removes that event.
+   * It stays available after the history window removes that event. The time
+   * from it to started_time is not only the condition wait. started_time is the
+   * start of the attempt that this event reports, so the difference also
+   * includes Execute dispatch and lock waits, and every earlier failed Execute
+   * attempt with its retry backoff. On a StepExecutePending event in the
+   * SCHEDULED phase whose Execute never started an attempt, started_time is
+   * when Execute was first scheduled, not an attempt start.
    *
    * Unset whenever wait_for_completed_event_id is zero.
    * </pre>
@@ -227,9 +235,13 @@ public interface StepMethodEventContextOrBuilder extends
    * The event time of the StepWaitForCompleted event that
    * wait_for_completed_event_id names.
    *
-   * The time from it to started_time is how long the Step waited between
-   * WaitFor completion and the start of the reported Execute attempt. It stays
-   * available after the history window removes that event.
+   * It stays available after the history window removes that event. The time
+   * from it to started_time is not only the condition wait. started_time is the
+   * start of the attempt that this event reports, so the difference also
+   * includes Execute dispatch and lock waits, and every earlier failed Execute
+   * attempt with its retry backoff. On a StepExecutePending event in the
+   * SCHEDULED phase whose Execute never started an attempt, started_time is
+   * when Execute was first scheduled, not an attempt start.
    *
    * Unset whenever wait_for_completed_event_id is zero.
    * </pre>

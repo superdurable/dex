@@ -1055,20 +1055,18 @@ class GetHistoryEventsRequest(_message.Message):
     def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., start_internal_event_id: _Optional[int] = ..., estimate_page_size: _Optional[int] = ..., next_page_token: _Optional[bytes] = ..., run_attempt: _Optional[int] = ...) -> None: ...
 
 class GetHistoryEventsResponse(_message.Message):
-    __slots__ = ("events", "next_page_token", "next_internal_event_id", "pruned_event_id_range", "first_retained_event_id")
+    __slots__ = ("events", "next_page_token", "next_internal_event_id", "pruned_event_id_range")
     EVENTS_FIELD_NUMBER: _ClassVar[int]
     NEXT_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
     NEXT_INTERNAL_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     PRUNED_EVENT_ID_RANGE_FIELD_NUMBER: _ClassVar[int]
-    FIRST_RETAINED_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     events: _containers.RepeatedCompositeFieldContainer[FlowHistoryEvent]
     next_page_token: bytes
     next_internal_event_id: int
-    pruned_event_id_range: HistoryEventIdRange
-    first_retained_event_id: int
-    def __init__(self, events: _Optional[_Iterable[_Union[FlowHistoryEvent, _Mapping]]] = ..., next_page_token: _Optional[bytes] = ..., next_internal_event_id: _Optional[int] = ..., pruned_event_id_range: _Optional[_Union[HistoryEventIdRange, _Mapping]] = ..., first_retained_event_id: _Optional[int] = ...) -> None: ...
+    pruned_event_id_range: HistoryEventIDRange
+    def __init__(self, events: _Optional[_Iterable[_Union[FlowHistoryEvent, _Mapping]]] = ..., next_page_token: _Optional[bytes] = ..., next_internal_event_id: _Optional[int] = ..., pruned_event_id_range: _Optional[_Union[HistoryEventIDRange, _Mapping]] = ...) -> None: ...
 
-class HistoryEventIdRange(_message.Message):
+class HistoryEventIDRange(_message.Message):
     __slots__ = ("start_event_id", "end_event_id")
     START_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     END_EVENT_ID_FIELD_NUMBER: _ClassVar[int]

@@ -6,8 +6,8 @@
 package io.superdurable.gen;
 
 @com.google.protobuf.Generated
-public interface HistoryEventIdRangeOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:dex.HistoryEventIdRange)
+public interface HistoryEventIDRangeOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:dex.HistoryEventIDRange)
     com.google.protobuf.MessageOrBuilder {
 
   /**

@@ -21,6 +21,9 @@ use crate::{ApplyError, FlowStateReader};
 /// Most History rows read by one scan call.
 const MAX_HISTORY_SCAN_ROWS: usize = 256;
 
+/// FlowStart records the first event of every run, so window pruning removes IDs from 2.
+const FIRST_PRUNABLE_EVENT_ID: i64 = 2;
+
 /// Reads one page of events from an attempt's lineage, using event IDs as cursors.
 pub fn get_history_events(
     reader: &dyn FlowStateReader,
@@ -80,13 +83,12 @@ pub fn get_history_events(
     } else {
         Vec::new()
     };
-    let retained_boundary = retained_history_boundary(&view)?;
+    let pruned_event_id_range = pruned_event_id_range(&view)?;
     Ok(GetHistoryEventsResponse {
         events,
         next_page_token,
         next_internal_event_id,
-        pruned_event_id_range: retained_boundary.pruned_event_id_range(),
-        first_retained_event_id: retained_boundary.first_retained_event_id,
+        pruned_event_id_range,
     })
 }
 
@@ -126,6 +128,7 @@ struct HistoryRecordRows<'view, 'reader> {
 /// The first record with events in a scanned seq range.
 struct FirstEventRecord {
     seq: u64,
+    first_event_id: i64,
     last_event_id: i64,
 }
 
@@ -315,13 +318,14 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
             };
             next_seq = last_seq.saturating_add(1);
             for (seq, record) in records {
-                if let Some(event) = record.events.last() {
+                if let (Some(first), Some(last)) = (record.events.first(), record.events.last()) {
                     if is_first_chunk {
                         *chunk_rows = 1;
                     }
                     return Ok(Some(FirstEventRecord {
                         seq,
-                        last_event_id: event.event_id,
+                        first_event_id: first.event_id,
+                        last_event_id: last.event_id,
                     }));
                 }
             }
@@ -396,81 +400,35 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
     }
 }
 
-/// History records one boundary probe reads; the first record after FlowStart usually has events.
-const RETAINED_BOUNDARY_PROBE_RECORDS: usize = 4;
-
-/// Event IDs that window pruning removed: every ID from `first_pruned_event_id` up to before
-/// `first_retained_event_id`.
-struct RetainedHistoryBoundary {
-    first_pruned_event_id: i64,
-    first_retained_event_id: i64,
-}
-
-impl RetainedHistoryBoundary {
-    /// Returns the removed IDs as an inclusive range, or `None` when pruning removed none.
-    fn pruned_event_id_range(&self) -> Option<HistoryEventIdRange> {
-        let end_event_id = self.first_retained_event_id - 1;
-        (self.first_pruned_event_id <= end_event_id).then_some(HistoryEventIdRange {
-            start_event_id: self.first_pruned_event_id,
-            end_event_id,
-        })
-    }
-}
-
-/// Returns the boundary between the event IDs that window pruning removed and those it kept.
+/// Returns the event IDs that window pruning removed, or `None` when it removed none.
 ///
-/// Pruning deletes a seq prefix after FlowStart, and event IDs grow with seq, so they form one range.
-fn retained_history_boundary(
+/// Runs whose window advanced before `max_pruned_event_id` existed scan for their first kept event.
+fn pruned_event_id_range(
     view: &RunView<'_>,
-) -> Result<RetainedHistoryBoundary, ReadModelError> {
+) -> Result<Option<HistoryEventIdRange>, ReadModelError> {
     let genesis_seq = genesis_seq(&view.transaction, view.rows)?;
-    let genesis = view
-        .rows
-        .history_record(&view.transaction, genesis_seq)?
-        .ok_or_else(|| ApplyError::InvariantViolation {
-            detail: format!("the FlowStart history record at seq {genesis_seq} is missing"),
-        })?;
-    let first_pruned_event_id = genesis
-        .events
-        .iter()
-        .map(|event| event.event_id)
-        .max()
-        .unwrap_or(0)
-        .saturating_add(1);
-    let prefix = run_table_prefix(
-        view.rows.flow_hash,
-        view.rows.run_id,
-        RunTable::HistoryRecord,
-    );
-    let (_, end) = prefix_range(&prefix);
-    let mut next_seq = genesis_seq.saturating_add(1);
-    let first_retained_event_id = loop {
-        let start = history_record_key(view.rows.flow_hash, view.rows.run_id, next_seq);
-        let page: Vec<HistoryRecord> = view
-            .transaction
-            .scan_messages(
-                ColumnFamily::History,
-                &start,
-                &end,
-                RETAINED_BOUNDARY_PROBE_RECORDS,
-                "history record",
-            )?
-            .into_iter()
-            .map(|(_, record)| record)
-            .collect();
-        if let Some(event_id) = page
-            .iter()
-            .find_map(|record| record.events.iter().map(|event| event.event_id).min())
-        {
-            break event_id;
+    // Pruning deletes rows only below the window start, so an unmoved window deleted none.
+    if view.record.window_start_seq <= genesis_seq.saturating_add(1) {
+        return Ok(None);
+    }
+    let end_event_id = if view.record.max_pruned_event_id > 0 {
+        view.record.max_pruned_event_id
+    } else {
+        let history = HistoryRecordRows::new(view);
+        let mut chunk_rows = 1;
+        match history.find_first_event_record(
+            genesis_seq.saturating_add(1),
+            view.record.next_run_seq,
+            &mut chunk_rows,
+        )? {
+            Some(record) => record.first_event_id.saturating_sub(1),
+            None => view.record.next_event_id.saturating_sub(1),
         }
-        let Some(last_record) = page.last() else {
-            break view.record.next_event_id.max(1);
-        };
-        next_seq = last_record.seq.saturating_add(1);
     };
-    Ok(RetainedHistoryBoundary {
-        first_pruned_event_id,
-        first_retained_event_id,
-    })
+    Ok(
+        (end_event_id >= FIRST_PRUNABLE_EVENT_ID).then_some(HistoryEventIdRange {
+            start_event_id: FIRST_PRUNABLE_EVENT_ID,
+            end_event_id,
+        }),
+    )
 }

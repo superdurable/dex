@@ -118,9 +118,8 @@ func TestMapHistoryPagePassesPrunedRangeAndRelatedEventIDs(t *testing.T) {
 				},
 			}},
 		}},
-		NextInternalEventId:  13,
-		PrunedEventIdRange:   &dexpb.HistoryEventIdRange{StartEventId: 2, EndEventId: 8},
-		FirstRetainedEventId: 9,
+		NextInternalEventId: 13,
+		PrunedEventIdRange:  &dexpb.HistoryEventIDRange{StartEventId: 2, EndEventId: 8},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -134,8 +133,8 @@ func TestMapHistoryPagePassesPrunedRangeAndRelatedEventIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	pruned := decoded["prunedEventIdRange"].(map[string]interface{})
-	if pruned["startEventId"] != float64(2) || pruned["endEventId"] != float64(8) || decoded["firstRetainedEventId"] != float64(9) {
-		t.Fatalf("retained boundary: %s", encoded)
+	if pruned["startEventId"] != float64(2) || pruned["endEventId"] != float64(8) {
+		t.Fatalf("pruned range: %s", encoded)
 	}
 	event := decoded["events"].([]interface{})[0].(map[string]interface{})
 	context := event["payload"].(map[string]interface{})["context"].(map[string]interface{})
@@ -144,7 +143,6 @@ func TestMapHistoryPagePassesPrunedRangeAndRelatedEventIDs(t *testing.T) {
 	}
 
 	unpruned, err := mapHistoryPage(&dexpb.GetHistoryEventsResponse{
-		FirstRetainedEventId: 2,
 		Events: []*dexpb.FlowHistoryEvent{{
 			EventId: 2,
 			Payload: &dexpb.FlowHistoryEvent_StepExecuteCompleted{StepExecuteCompleted: &dexpb.StepExecuteCompletedEvent{
@@ -163,7 +161,7 @@ func TestMapHistoryPagePassesPrunedRangeAndRelatedEventIDs(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := decoded["prunedEventIdRange"]; ok || decoded["firstRetainedEventId"] != float64(2) {
+	if _, ok := decoded["prunedEventIdRange"]; ok {
 		t.Fatalf("unpruned history must omit the range: %s", encoded)
 	}
 	context = decoded["events"].([]interface{})[0].(map[string]interface{})["payload"].(map[string]interface{})["context"].(map[string]interface{})

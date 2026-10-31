@@ -25,6 +25,9 @@ use crate::state_access::FlowTransaction;
 
 const HISTORY_ROWS_PER_COMMAND: usize = 128;
 
+/// FlowStart records event 1 of every run, and the window always keeps it.
+const FLOW_START_EVENT_ID: i64 = 1;
+
 pub(crate) enum WindowAdvanceTarget {
     SemanticPoints(u64),
     GarbageSeq(u64),
@@ -78,7 +81,12 @@ pub(crate) fn advance_window(
     let Some(pruned) = find_new_window_start(transaction, cursor, target)? else {
         return Ok(false);
     };
+    let genesis = genesis_seq(transaction, cursor.rows)?;
     let record = &mut cursor.record;
+    // Before W first passes FlowStart nothing was pruned, so the watermark can start exact.
+    if record.window_start_seq <= genesis + 1 && record.max_pruned_event_id == 0 {
+        record.max_pruned_event_id = FLOW_START_EVENT_ID;
+    }
     record.window_start_seq = pruned.window_start_seq;
     record.window_scan_seq = 0;
     record.pruned_semantic_event_count += pruned.semantic_points;
@@ -187,7 +195,7 @@ fn find_new_window_start(
 /// Deletes history records and checkpoints older than the checkpoint that rebuilds W.
 pub(crate) fn prune_window_history(
     transaction: &mut FlowTransaction<'_>,
-    cursor: &RunCursor,
+    cursor: &mut RunCursor,
 ) -> Result<usize, ApplyError> {
     let rows = cursor.rows;
     let window_start_seq = cursor.record.window_start_seq;
@@ -243,8 +251,22 @@ pub(crate) fn prune_window_history(
     )?;
     let mut deleted_checkpoints = BTreeMap::<u32, BTreeSet<u64>>::new();
     let count = page.len();
-    for (key, _) in page {
-        let (seq, history_table, attempt) = metadata_identity(&key, &prefix)?;
+    let mut identities = Vec::with_capacity(count);
+    let mut max_pruned_event_id = cursor.record.max_pruned_event_id;
+    for (key, metadata) in &page {
+        let (seq, history_table, attempt) = metadata_identity(key, &prefix)?;
+        if history_table == RunTable::HistoryRecord {
+            // A row without the field may hold unseen events; reads scan until a newer row is pruned.
+            max_pruned_event_id = if metadata.last_assigned_event_id > 0 {
+                max_pruned_event_id.max(metadata.last_assigned_event_id)
+            } else {
+                0
+            };
+        }
+        identities.push((seq, history_table, attempt));
+    }
+    cursor.record.max_pruned_event_id = max_pruned_event_id;
+    for (seq, history_table, attempt) in identities {
         match history_table {
             RunTable::HistoryRecord => transaction.delete(
                 ColumnFamily::History,

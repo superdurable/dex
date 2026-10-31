@@ -22,12 +22,12 @@ use dexzd_keyspace::row_keys::{
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix};
 use dexzd_protocol::dex::{
     ChannelMessage, DeleteChannelMessageRequest, FlowHistoryEvent, FlowResetType,
-    FlowTimeoutPolicy, PublishToChannelRequest, ResetFlowRequest, StartFlowRequest, StepOptions,
-    StopFlowRequest, StopType, Value, WorkerTarget, value,
+    FlowTimeoutPolicy, HistoryEventIdRange, PublishToChannelRequest, ResetFlowRequest,
+    StartFlowRequest, StepOptions, StopFlowRequest, StopType, Value, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, ChannelMessageDeleteCommand, ChannelPublishCommand, CommandReply, FlowCommand,
-    FlowStartCommand, FlowStopCommand, HistoryRecord, RunRecord, RunSettings,
+    FlowStartCommand, FlowStopCommand, HistoryRecord, HistoryRowMetadata, RunRecord, RunSettings,
     StepAttemptHeartbeatCommand, StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey,
     StepInvocationPhase, StepMethod, TimeTravelCommand, command_reply, flow_command::Command,
 };
@@ -842,4 +842,150 @@ fn paging_each_time_travel_attempt_matches_its_lineage() {
             .unwrap_or(1);
         harness.assert_pages_match_reference(fork_event_id - 2, 4, run_attempt);
     }
+}
+
+impl Harness {
+    /// Reads the pruned range through an empty page and returns the History reads it used.
+    fn pruned_range_and_reads(&self) -> (Option<HistoryEventIdRange>, HistoryReads) {
+        let reader = CountingReader::new(&self.state);
+        let response = get_history_events(
+            &reader,
+            self.context.flow_hash,
+            self.run_id,
+            self.run_record().next_event_id,
+            1,
+            &[],
+            0,
+        )
+        .expect("the history page reads");
+        assert!(
+            response.events.is_empty(),
+            "the page starts after the last event"
+        );
+        (response.pruned_event_id_range, reader.take_history_reads())
+    }
+
+    /// The removed event IDs according to the History rows still stored.
+    fn reference_pruned_range(&self) -> Option<HistoryEventIdRange> {
+        let records = self.history_records();
+        let first_kept_event_id = records[1..]
+            .iter()
+            .find_map(|record| record.events.first())
+            .map_or(self.run_record().next_event_id, |event| event.event_id);
+        let end_event_id = first_kept_event_id - 1;
+        (end_event_id >= 2).then_some(HistoryEventIdRange {
+            start_event_id: 2,
+            end_event_id,
+        })
+    }
+
+    /// Clears the pruning watermark and every metadata row's event ID, as rows written before them.
+    fn strip_pruning_watermark(&mut self) {
+        let run_key = run_singleton_key(self.context.flow_hash, self.run_id, RunTable::RunRecord);
+        let mut run = self.run_record();
+        run.max_pruned_event_id = 0;
+        self.state
+            .rows
+            .insert((ColumnFamily::Flow, run_key), run.encode_to_vec());
+        let prefix = run_table_prefix(
+            self.context.flow_hash,
+            self.run_id,
+            RunTable::HistoryRowMetadata,
+        );
+        let (start, end) = prefix_range(&prefix);
+        for (_, value) in self
+            .state
+            .rows
+            .range_mut((ColumnFamily::Flow, start)..(ColumnFamily::Flow, end))
+        {
+            let mut metadata = HistoryRowMetadata::decode(value.as_slice()).expect("metadata");
+            metadata.last_assigned_event_id = 0;
+            *value = metadata.encode_to_vec();
+        }
+    }
+}
+
+#[test]
+fn the_pruned_range_follows_window_pruning_without_history_reads() {
+    let mut harness = Harness::new(settings(20, 5));
+    let mut deleted_rows = Vec::new();
+    let mut is_first_kept_record_eventless = false;
+    let mut check = |harness: &Harness, rows_before: usize| {
+        let (range, reads) = harness.pruned_range_and_reads();
+        assert_eq!(range, harness.reference_pruned_range());
+        assert_eq!(reads.calls, 0, "the range costs no History reads");
+        let records = harness.history_records();
+        deleted_rows.push((rows_before + 1).saturating_sub(records.len()));
+        if range.is_some()
+            && records
+                .get(1)
+                .is_some_and(|record| record.events.is_empty())
+        {
+            is_first_kept_record_eventless = true;
+        }
+    };
+    for round in 0..40 {
+        let rows_before = harness.history_records().len();
+        harness.append_round(0);
+        check(&harness, rows_before + 1);
+        let hole_rows = if round % 10 == 9 { 300 } else { 2 };
+        for _ in 0..hole_rows {
+            let rows_before = harness.history_records().len();
+            harness.heartbeat();
+            check(&harness, rows_before);
+        }
+    }
+    assert!(
+        harness.run_record().max_pruned_event_id > 2,
+        "the window pruned events"
+    );
+    assert!(
+        is_first_kept_record_eventless,
+        "the first kept record after FlowStart had no events at some point"
+    );
+    assert!(
+        deleted_rows
+            .windows(2)
+            .any(|pair| pair[0] > 0 && pair[1] > 0 && pair[0] + pair[1] > 128),
+        "one pruning target spanned commands: {deleted_rows:?}"
+    );
+}
+
+#[test]
+fn an_unmoved_window_reports_no_range_without_history_reads() {
+    let mut harness = Harness::new(settings(1_000_000, 10_000));
+    for _ in 0..20 {
+        harness.append_round(3);
+    }
+    let (range, reads) = harness.pruned_range_and_reads();
+    assert_eq!(range, None);
+    assert_eq!(reads.calls, 0);
+    assert_eq!(harness.run_record().max_pruned_event_id, 0);
+}
+
+#[test]
+fn runs_pruned_before_the_watermark_scan_until_newer_rows_are_pruned() {
+    let mut harness = Harness::new(settings(20, 5));
+    for _ in 0..30 {
+        harness.append_round(2);
+    }
+    let expected = harness.reference_pruned_range();
+    assert!(expected.is_some(), "the window pruned events");
+    harness.strip_pruning_watermark();
+    let (range, reads) = harness.pruned_range_and_reads();
+    assert_eq!(range, expected);
+    assert!(reads.calls > 0, "a run without the watermark scans");
+    let mut is_restored = false;
+    for _ in 0..30 {
+        harness.append_round(2);
+        let (range, reads) = harness.pruned_range_and_reads();
+        assert_eq!(range, harness.reference_pruned_range());
+        if harness.run_record().max_pruned_event_id > 0 {
+            assert_eq!(reads.calls, 0, "a restored watermark needs no scan");
+            is_restored = true;
+        } else {
+            assert!(reads.calls > 0);
+        }
+    }
+    assert!(is_restored, "pruning a newer row restores the watermark");
 }

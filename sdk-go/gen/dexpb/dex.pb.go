@@ -5910,44 +5910,34 @@ type GetHistoryEventsResponse struct {
 	Events              []*FlowHistoryEvent    `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
 	NextPageToken       []byte                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	NextInternalEventId int64                  `protobuf:"varint,3,opt,name=next_internal_event_id,json=nextInternalEventId,proto3" json:"next_internal_event_id,omitempty"`
-	// The event IDs that the history window removed from this run.
+	// The event IDs that the history window removed from this run, as of this
+	// response.
 	//
 	// The Server keeps a recent window of each run's history. It always keeps the
-	// FlowStartedOrContinued event, and it removes older events after it in
-	// chunks. Every event whose ID is inside this inclusive range is gone. No page
-	// and no run attempt returns it again.
+	// FlowStartedOrContinued event, which is event 1, and it removes older events
+	// after it in chunks. The range therefore starts at event ID 2. Every event
+	// whose ID is inside this inclusive range is gone. No page and no run attempt
+	// returns it again. The range only grows while the run records new events.
 	//
 	// Use the range to classify a related event ID, such as
 	// StepMethodEventContext.from_event_id or
 	// StepMethodEventContext.wait_for_completed_event_id. An ID inside the range
-	// names a removed event. An ID outside the range names an event that a page of
-	// the same run attempt lineage can still return.
+	// names a removed event. An ID outside the range was not removed as of this
+	// response. Such an ID can still name an event outside the run attempt lineage
+	// that GetHistoryEventsRequest.run_attempt selects, or an event the run has not
+	// recorded yet. The related IDs that Step method events carry always name
+	// events of their own lineage.
 	//
 	// Event IDs grow across the whole run, and removal follows that order, so the
 	// removed IDs form one range. The range is the same on every page and for
 	// every run attempt of the run. It can include IDs of events that belong only
-	// to other run attempts. The range grows while the run records new events.
+	// to other run attempts.
 	//
 	// Unset when the history window has removed no event. Also unset from a Server
 	// that does not report removed events.
-	PrunedEventIdRange *HistoryEventIdRange `protobuf:"bytes,4,opt,name=pruned_event_id_range,json=prunedEventIdRange,proto3" json:"pruned_event_id_range,omitempty"`
-	// The smallest event ID after the FlowStartedOrContinued event that the
-	// history window has not removed.
-	//
-	// FlowStartedOrContinued is always kept and has a smaller ID. The window never
-	// removes an event whose ID is first_retained_event_id or larger. When
-	// pruned_event_id_range is set, this value is its end_event_id plus one.
-	// Otherwise it is the ID that follows the FlowStartedOrContinued event, so a
-	// run without removed events usually reports 2.
-	//
-	// Use it to place a notice about removed events before the oldest kept page.
-	// The event with this ID can belong to another run attempt, and it may not
-	// exist yet when the run has recorded no later event. Like
-	// pruned_event_id_range, the value is the same on every page and for every run
-	// attempt of the run. Zero from a Server that does not report it.
-	FirstRetainedEventId int64 `protobuf:"varint,5,opt,name=first_retained_event_id,json=firstRetainedEventId,proto3" json:"first_retained_event_id,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	PrunedEventIdRange *HistoryEventIDRange `protobuf:"bytes,4,opt,name=pruned_event_id_range,json=prunedEventIdRange,proto3" json:"pruned_event_id_range,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *GetHistoryEventsResponse) Reset() {
@@ -6001,25 +5991,18 @@ func (x *GetHistoryEventsResponse) GetNextInternalEventId() int64 {
 	return 0
 }
 
-func (x *GetHistoryEventsResponse) GetPrunedEventIdRange() *HistoryEventIdRange {
+func (x *GetHistoryEventsResponse) GetPrunedEventIdRange() *HistoryEventIDRange {
 	if x != nil {
 		return x.PrunedEventIdRange
 	}
 	return nil
 }
 
-func (x *GetHistoryEventsResponse) GetFirstRetainedEventId() int64 {
-	if x != nil {
-		return x.FirstRetainedEventId
-	}
-	return 0
-}
-
-// HistoryEventIdRange is an inclusive range of history event IDs of one run.
+// HistoryEventIDRange is an inclusive range of history event IDs of one run.
 //
 // Both ends are history event IDs, the same values as FlowHistoryEvent.event_id.
 // Both ends belong to the range, and a range always contains at least one ID.
-type HistoryEventIdRange struct {
+type HistoryEventIDRange struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The smallest event ID in the range.
 	StartEventId int64 `protobuf:"varint,1,opt,name=start_event_id,json=startEventId,proto3" json:"start_event_id,omitempty"`
@@ -6029,20 +6012,20 @@ type HistoryEventIdRange struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *HistoryEventIdRange) Reset() {
-	*x = HistoryEventIdRange{}
+func (x *HistoryEventIDRange) Reset() {
+	*x = HistoryEventIDRange{}
 	mi := &file_dex_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *HistoryEventIdRange) String() string {
+func (x *HistoryEventIDRange) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*HistoryEventIdRange) ProtoMessage() {}
+func (*HistoryEventIDRange) ProtoMessage() {}
 
-func (x *HistoryEventIdRange) ProtoReflect() protoreflect.Message {
+func (x *HistoryEventIDRange) ProtoReflect() protoreflect.Message {
 	mi := &file_dex_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -6054,19 +6037,19 @@ func (x *HistoryEventIdRange) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use HistoryEventIdRange.ProtoReflect.Descriptor instead.
-func (*HistoryEventIdRange) Descriptor() ([]byte, []int) {
+// Deprecated: Use HistoryEventIDRange.ProtoReflect.Descriptor instead.
+func (*HistoryEventIDRange) Descriptor() ([]byte, []int) {
 	return file_dex_proto_rawDescGZIP(), []int{64}
 }
 
-func (x *HistoryEventIdRange) GetStartEventId() int64 {
+func (x *HistoryEventIDRange) GetStartEventId() int64 {
 	if x != nil {
 		return x.StartEventId
 	}
 	return 0
 }
 
-func (x *HistoryEventIdRange) GetEndEventId() int64 {
+func (x *HistoryEventIDRange) GetEndEventId() int64 {
 	if x != nil {
 		return x.EndEventId
 	}
@@ -7169,9 +7152,13 @@ type StepMethodEventContext struct {
 	// The event time of the StepWaitForCompleted event that
 	// wait_for_completed_event_id names.
 	//
-	// The time from it to started_time is how long the Step waited between
-	// WaitFor completion and the start of the reported Execute attempt. It stays
-	// available after the history window removes that event.
+	// It stays available after the history window removes that event. The time
+	// from it to started_time is not only the condition wait. started_time is the
+	// start of the attempt that this event reports, so the difference also
+	// includes Execute dispatch and lock waits, and every earlier failed Execute
+	// attempt with its retry backoff. On a StepExecutePending event in the
+	// SCHEDULED phase whose Execute never started an attempt, started_time is
+	// when Execute was first scheduled, not an attempt start.
 	//
 	// Unset whenever wait_for_completed_event_id is zero.
 	WaitForCompletedTime *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=wait_for_completed_time,json=waitForCompletedTime,proto3" json:"wait_for_completed_time,omitempty"`
@@ -12127,14 +12114,13 @@ const file_dex_proto_rawDesc = "" +
 	"\x12estimate_page_size\x18\x04 \x01(\x05R\x10estimatePageSize\x12&\n" +
 	"\x0fnext_page_token\x18\x05 \x01(\fR\rnextPageToken\x12\x1f\n" +
 	"\vrun_attempt\x18\x06 \x01(\x05R\n" +
-	"runAttempt\"\xaa\x02\n" +
+	"runAttempt\"\xf3\x01\n" +
 	"\x18GetHistoryEventsResponse\x12-\n" +
 	"\x06events\x18\x01 \x03(\v2\x15.dex.FlowHistoryEventR\x06events\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\fR\rnextPageToken\x123\n" +
 	"\x16next_internal_event_id\x18\x03 \x01(\x03R\x13nextInternalEventId\x12K\n" +
-	"\x15pruned_event_id_range\x18\x04 \x01(\v2\x18.dex.HistoryEventIdRangeR\x12prunedEventIdRange\x125\n" +
-	"\x17first_retained_event_id\x18\x05 \x01(\x03R\x14firstRetainedEventId\"]\n" +
-	"\x13HistoryEventIdRange\x12$\n" +
+	"\x15pruned_event_id_range\x18\x04 \x01(\v2\x18.dex.HistoryEventIDRangeR\x12prunedEventIdRange\"]\n" +
+	"\x13HistoryEventIDRange\x12$\n" +
 	"\x0estart_event_id\x18\x01 \x01(\x03R\fstartEventId\x12 \n" +
 	"\fend_event_id\x18\x02 \x01(\x03R\n" +
 	"endEventId\"\x8e\t\n" +
@@ -12947,7 +12933,7 @@ var file_dex_proto_goTypes = []any{
 	(*GetFlowSummaryResponse)(nil),             // 86: dex.GetFlowSummaryResponse
 	(*GetHistoryEventsRequest)(nil),            // 87: dex.GetHistoryEventsRequest
 	(*GetHistoryEventsResponse)(nil),           // 88: dex.GetHistoryEventsResponse
-	(*HistoryEventIdRange)(nil),                // 89: dex.HistoryEventIdRange
+	(*HistoryEventIDRange)(nil),                // 89: dex.HistoryEventIDRange
 	(*FlowHistoryEvent)(nil),                   // 90: dex.FlowHistoryEvent
 	(*TimeTravelForkHistoryEvent)(nil),         // 91: dex.TimeTravelForkHistoryEvent
 	(*FlowStartedOrContinuedHistoryEvent)(nil), // 92: dex.FlowStartedOrContinuedHistoryEvent
@@ -13124,7 +13110,7 @@ var file_dex_proto_depIdxs = []int32{
 	175, // 82: dex.GetFlowSummaryResponse.start_time:type_name -> google.protobuf.Timestamp
 	175, // 83: dex.GetFlowSummaryResponse.close_time:type_name -> google.protobuf.Timestamp
 	90,  // 84: dex.GetHistoryEventsResponse.events:type_name -> dex.FlowHistoryEvent
-	89,  // 85: dex.GetHistoryEventsResponse.pruned_event_id_range:type_name -> dex.HistoryEventIdRange
+	89,  // 85: dex.GetHistoryEventsResponse.pruned_event_id_range:type_name -> dex.HistoryEventIDRange
 	175, // 86: dex.FlowHistoryEvent.event_time:type_name -> google.protobuf.Timestamp
 	92,  // 87: dex.FlowHistoryEvent.flow_started_or_continued:type_name -> dex.FlowStartedOrContinuedHistoryEvent
 	95,  // 88: dex.FlowHistoryEvent.flow_closed:type_name -> dex.FlowClosedHistoryEvent

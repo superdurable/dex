@@ -76,11 +76,10 @@ func mapHistoryPage(response *dexpb.GetHistoryEventsResponse) (historyPage, erro
 		}
 	}
 	return historyPage{
-		Events:               events,
-		NextPageToken:        base64.StdEncoding.EncodeToString(response.GetNextPageToken()),
-		NextInternalEventID:  response.GetNextInternalEventId(),
-		PrunedEventIDRange:   prunedEventIDRange,
-		FirstRetainedEventID: response.GetFirstRetainedEventId(),
+		Events:              events,
+		NextPageToken:       base64.StdEncoding.EncodeToString(response.GetNextPageToken()),
+		NextInternalEventID: response.GetNextInternalEventId(),
+		PrunedEventIDRange:  prunedEventIDRange,
 	}, nil
 }
 

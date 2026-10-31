@@ -48,108 +48,100 @@ public interface GetHistoryEventsResponseOrBuilder extends
 
   /**
    * <pre>
-   * The event IDs that the history window removed from this run.
+   * The event IDs that the history window removed from this run, as of this
+   * response.
    *
    * The Server keeps a recent window of each run's history. It always keeps the
-   * FlowStartedOrContinued event, and it removes older events after it in
-   * chunks. Every event whose ID is inside this inclusive range is gone. No page
-   * and no run attempt returns it again.
+   * FlowStartedOrContinued event, which is event 1, and it removes older events
+   * after it in chunks. The range therefore starts at event ID 2. Every event
+   * whose ID is inside this inclusive range is gone. No page and no run attempt
+   * returns it again. The range only grows while the run records new events.
    *
    * Use the range to classify a related event ID, such as
    * StepMethodEventContext.from_event_id or
    * StepMethodEventContext.wait_for_completed_event_id. An ID inside the range
-   * names a removed event. An ID outside the range names an event that a page of
-   * the same run attempt lineage can still return.
+   * names a removed event. An ID outside the range was not removed as of this
+   * response. Such an ID can still name an event outside the run attempt lineage
+   * that GetHistoryEventsRequest.run_attempt selects, or an event the run has not
+   * recorded yet. The related IDs that Step method events carry always name
+   * events of their own lineage.
    *
    * Event IDs grow across the whole run, and removal follows that order, so the
    * removed IDs form one range. The range is the same on every page and for
    * every run attempt of the run. It can include IDs of events that belong only
-   * to other run attempts. The range grows while the run records new events.
+   * to other run attempts.
    *
    * Unset when the history window has removed no event. Also unset from a Server
    * that does not report removed events.
    * </pre>
    *
-   * <code>.dex.HistoryEventIdRange pruned_event_id_range = 4;</code>
+   * <code>.dex.HistoryEventIDRange pruned_event_id_range = 4;</code>
    * @return Whether the prunedEventIdRange field is set.
    */
   boolean hasPrunedEventIdRange();
   /**
    * <pre>
-   * The event IDs that the history window removed from this run.
+   * The event IDs that the history window removed from this run, as of this
+   * response.
    *
    * The Server keeps a recent window of each run's history. It always keeps the
-   * FlowStartedOrContinued event, and it removes older events after it in
-   * chunks. Every event whose ID is inside this inclusive range is gone. No page
-   * and no run attempt returns it again.
+   * FlowStartedOrContinued event, which is event 1, and it removes older events
+   * after it in chunks. The range therefore starts at event ID 2. Every event
+   * whose ID is inside this inclusive range is gone. No page and no run attempt
+   * returns it again. The range only grows while the run records new events.
    *
    * Use the range to classify a related event ID, such as
    * StepMethodEventContext.from_event_id or
    * StepMethodEventContext.wait_for_completed_event_id. An ID inside the range
-   * names a removed event. An ID outside the range names an event that a page of
-   * the same run attempt lineage can still return.
+   * names a removed event. An ID outside the range was not removed as of this
+   * response. Such an ID can still name an event outside the run attempt lineage
+   * that GetHistoryEventsRequest.run_attempt selects, or an event the run has not
+   * recorded yet. The related IDs that Step method events carry always name
+   * events of their own lineage.
    *
    * Event IDs grow across the whole run, and removal follows that order, so the
    * removed IDs form one range. The range is the same on every page and for
    * every run attempt of the run. It can include IDs of events that belong only
-   * to other run attempts. The range grows while the run records new events.
+   * to other run attempts.
    *
    * Unset when the history window has removed no event. Also unset from a Server
    * that does not report removed events.
    * </pre>
    *
-   * <code>.dex.HistoryEventIdRange pruned_event_id_range = 4;</code>
+   * <code>.dex.HistoryEventIDRange pruned_event_id_range = 4;</code>
    * @return The prunedEventIdRange.
    */
-  io.superdurable.gen.HistoryEventIdRange getPrunedEventIdRange();
+  io.superdurable.gen.HistoryEventIDRange getPrunedEventIdRange();
   /**
    * <pre>
-   * The event IDs that the history window removed from this run.
+   * The event IDs that the history window removed from this run, as of this
+   * response.
    *
    * The Server keeps a recent window of each run's history. It always keeps the
-   * FlowStartedOrContinued event, and it removes older events after it in
-   * chunks. Every event whose ID is inside this inclusive range is gone. No page
-   * and no run attempt returns it again.
+   * FlowStartedOrContinued event, which is event 1, and it removes older events
+   * after it in chunks. The range therefore starts at event ID 2. Every event
+   * whose ID is inside this inclusive range is gone. No page and no run attempt
+   * returns it again. The range only grows while the run records new events.
    *
    * Use the range to classify a related event ID, such as
    * StepMethodEventContext.from_event_id or
    * StepMethodEventContext.wait_for_completed_event_id. An ID inside the range
-   * names a removed event. An ID outside the range names an event that a page of
-   * the same run attempt lineage can still return.
+   * names a removed event. An ID outside the range was not removed as of this
+   * response. Such an ID can still name an event outside the run attempt lineage
+   * that GetHistoryEventsRequest.run_attempt selects, or an event the run has not
+   * recorded yet. The related IDs that Step method events carry always name
+   * events of their own lineage.
    *
    * Event IDs grow across the whole run, and removal follows that order, so the
    * removed IDs form one range. The range is the same on every page and for
    * every run attempt of the run. It can include IDs of events that belong only
-   * to other run attempts. The range grows while the run records new events.
+   * to other run attempts.
    *
    * Unset when the history window has removed no event. Also unset from a Server
    * that does not report removed events.
    * </pre>
    *
-   * <code>.dex.HistoryEventIdRange pruned_event_id_range = 4;</code>
+   * <code>.dex.HistoryEventIDRange pruned_event_id_range = 4;</code>
    */
-  io.superdurable.gen.HistoryEventIdRangeOrBuilder getPrunedEventIdRangeOrBuilder();
-
-  /**
-   * <pre>
-   * The smallest event ID after the FlowStartedOrContinued event that the
-   * history window has not removed.
-   *
-   * FlowStartedOrContinued is always kept and has a smaller ID. The window never
-   * removes an event whose ID is first_retained_event_id or larger. When
-   * pruned_event_id_range is set, this value is its end_event_id plus one.
-   * Otherwise it is the ID that follows the FlowStartedOrContinued event, so a
-   * run without removed events usually reports 2.
-   *
-   * Use it to place a notice about removed events before the oldest kept page.
-   * The event with this ID can belong to another run attempt, and it may not
-   * exist yet when the run has recorded no later event. Like
-   * pruned_event_id_range, the value is the same on every page and for every run
-   * attempt of the run. Zero from a Server that does not report it.
-   * </pre>
-   *
-   * <code>int64 first_retained_event_id = 5;</code>
-   * @return The firstRetainedEventId.
-   */
-  long getFirstRetainedEventId();
+  io.superdurable.gen.HistoryEventIDRangeOrBuilder getPrunedEventIdRangeOrBuilder();
 }

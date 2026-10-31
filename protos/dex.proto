@@ -768,49 +768,39 @@ message GetHistoryEventsResponse {
   repeated FlowHistoryEvent events = 1;
   bytes next_page_token = 2;
   int64 next_internal_event_id = 3;
-  // The event IDs that the history window removed from this run.
+  // The event IDs that the history window removed from this run, as of this
+  // response.
   //
   // The Server keeps a recent window of each run's history. It always keeps the
-  // FlowStartedOrContinued event, and it removes older events after it in
-  // chunks. Every event whose ID is inside this inclusive range is gone. No page
-  // and no run attempt returns it again.
+  // FlowStartedOrContinued event, which is event 1, and it removes older events
+  // after it in chunks. The range therefore starts at event ID 2. Every event
+  // whose ID is inside this inclusive range is gone. No page and no run attempt
+  // returns it again. The range only grows while the run records new events.
   //
   // Use the range to classify a related event ID, such as
   // StepMethodEventContext.from_event_id or
   // StepMethodEventContext.wait_for_completed_event_id. An ID inside the range
-  // names a removed event. An ID outside the range names an event that a page of
-  // the same run attempt lineage can still return.
+  // names a removed event. An ID outside the range was not removed as of this
+  // response. Such an ID can still name an event outside the run attempt lineage
+  // that GetHistoryEventsRequest.run_attempt selects, or an event the run has not
+  // recorded yet. The related IDs that Step method events carry always name
+  // events of their own lineage.
   //
   // Event IDs grow across the whole run, and removal follows that order, so the
   // removed IDs form one range. The range is the same on every page and for
   // every run attempt of the run. It can include IDs of events that belong only
-  // to other run attempts. The range grows while the run records new events.
+  // to other run attempts.
   //
   // Unset when the history window has removed no event. Also unset from a Server
   // that does not report removed events.
-  HistoryEventIdRange pruned_event_id_range = 4;
-  // The smallest event ID after the FlowStartedOrContinued event that the
-  // history window has not removed.
-  //
-  // FlowStartedOrContinued is always kept and has a smaller ID. The window never
-  // removes an event whose ID is first_retained_event_id or larger. When
-  // pruned_event_id_range is set, this value is its end_event_id plus one.
-  // Otherwise it is the ID that follows the FlowStartedOrContinued event, so a
-  // run without removed events usually reports 2.
-  //
-  // Use it to place a notice about removed events before the oldest kept page.
-  // The event with this ID can belong to another run attempt, and it may not
-  // exist yet when the run has recorded no later event. Like
-  // pruned_event_id_range, the value is the same on every page and for every run
-  // attempt of the run. Zero from a Server that does not report it.
-  int64 first_retained_event_id = 5;
+  HistoryEventIDRange pruned_event_id_range = 4;
 }
 
-// HistoryEventIdRange is an inclusive range of history event IDs of one run.
+// HistoryEventIDRange is an inclusive range of history event IDs of one run.
 //
 // Both ends are history event IDs, the same values as FlowHistoryEvent.event_id.
 // Both ends belong to the range, and a range always contains at least one ID.
-message HistoryEventIdRange {
+message HistoryEventIDRange {
   // The smallest event ID in the range.
   int64 start_event_id = 1;
   // The largest event ID in the range. It is never smaller than start_event_id.
@@ -992,9 +982,13 @@ message StepMethodEventContext {
   // The event time of the StepWaitForCompleted event that
   // wait_for_completed_event_id names.
   //
-  // The time from it to started_time is how long the Step waited between
-  // WaitFor completion and the start of the reported Execute attempt. It stays
-  // available after the history window removes that event.
+  // It stays available after the history window removes that event. The time
+  // from it to started_time is not only the condition wait. started_time is the
+  // start of the attempt that this event reports, so the difference also
+  // includes Execute dispatch and lock waits, and every earlier failed Execute
+  // attempt with its retry backoff. On a StepExecutePending event in the
+  // SCHEDULED phase whose Execute never started an attempt, started_time is
+  // when Execute was first scheduled, not an attempt start.
   //
   // Unset whenever wait_for_completed_event_id is zero.
   google.protobuf.Timestamp wait_for_completed_time = 13;
