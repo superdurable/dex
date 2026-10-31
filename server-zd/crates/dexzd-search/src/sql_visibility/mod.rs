@@ -145,3 +145,6 @@ mod tests;
 
 #[cfg(test)]
 mod integration;
+
+#[cfg(test)]
+mod index_tests;

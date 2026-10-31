@@ -299,6 +299,9 @@ async fn run_differential_for_test(
     ensure_schema_for_dialect(&mut client, dialect)
         .await
         .expect("record visibility schema version");
+    if dialect == VisibilityDialect::ParadeDb {
+        super::index_tests::assert_paradedb_system_indexes_for_test(&client).await;
+    }
 
     let mut documents = vec![
         run("r1", "flow-a", "Running", 1_000_000_000, None)
@@ -415,6 +418,12 @@ async fn run_differential_for_test(
             Some(18_000_000_000),
         )
         .with("number", SearchValue::Int(i64::MAX - 2)),
+        run("r-é", "flow-é", "Running", 14_000_000_000, None)
+            .with("FlowType", SearchValue::String("ÉclairFlow".into())),
+        run("r-é", "flow-é", "Running", 15_000_000_000, None)
+            .with("FlowType", SearchValue::String("ÉclairFlow".into())),
+        run("r-中", "flow-中", "Running", 16_000_000_000, None)
+            .with("FlowType", SearchValue::String("订单Flow".into())),
     ];
     let (registry, application_fields) = fields();
     let parity_tenant_id = TenantId(3);
@@ -469,6 +478,18 @@ async fn run_differential_for_test(
         "WorkflowId != 'flow-a'",
         "WorkflowId IN ('flow-a', 'flow-c')",
         "WorkflowId STARTS_WITH 'flow-'",
+        "FlowType = 'ÉclairFlow'",
+        "FlowType IN ('ÉclairFlow', '订单Flow')",
+        "FlowType > 'Z'",
+        "FlowType STARTS_WITH 'É'",
+        "WorkflowId = 'flow-é'",
+        "WorkflowId IN ('flow-é', 'flow-中')",
+        "WorkflowId > 'flow-z'",
+        "WorkflowId STARTS_WITH 'flow-é'",
+        "RunId = 'r-é'",
+        "RunId IN ('r-é', 'r-中')",
+        "RunId > 'r-z'",
+        "RunId STARTS_WITH 'r-é'",
         "keyword = 'red'",
         "keyword STARTS_WITH 'r'",
         "keyword NOT IN ('red')",
