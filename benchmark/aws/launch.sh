@@ -98,8 +98,9 @@ launch_instance() {
     echo "shutdown -h +$shutdown_minutes"
     echo 'apt-get -o DPkg::Lock::Timeout=300 update && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y sysstat elfutils'
     # perf comes from the kernel-specific package; a missing one only disables profiling.
+    echo 'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y linux-tools-aws || true'
     # shellcheck disable=SC2016
-    echo 'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y linux-tools-aws "linux-tools-$(uname -r)" || true'
+    echo 'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y "linux-tools-$(uname -r)" || true'
     if [[ "$role" == server ]]; then
       # Pick the instance store by model name; device numbering is not stable.
       echo "device=\$(lsblk -dpno NAME,MODEL | awk '/Instance Storage/ {print \$1; exit}')"

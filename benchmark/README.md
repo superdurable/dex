@@ -340,6 +340,10 @@ before its timer runs out.
 
 #### Run
 
+Wait for boot setup to finish on both hosts with `cloud-init status --wait`.
+It mounts the instance store, sets the core dump path, and installs `iostat`,
+`eu-stack`, and perf.
+
 Copy `dexbench`, `dex-server-zd`, and `serve.sh` to `~/dexbench/` on the
 server host. Clone this repository on the load host at the commit under test,
 and copy `dexbench` there. Connect to the load host with `ssh -A`, so it can
@@ -446,8 +450,13 @@ Next to `<point id>.json`, the directory `<point id>.server/` holds:
   `/mnt/nvme/cores` on the server host, so copy one off before teardown when
   you need it.
 
-The profile slows the server slightly while it runs. Set `DEXBENCH_PROFILE=0`
-for the trials whose numbers you report.
+The profile slows the server while it runs: `eu-stack` pauses every thread
+briefly, and perf copies each sampled stack. The profile is symbolized after
+the measurement. Set `DEXBENCH_PROFILE=0` for the trials whose numbers you
+report.
+
+Only cores written during the point are reported. Cores are never deleted, so
+a series of crashes can fill `/mnt/nvme`.
 
 `report.md` shows server CPU, its share of the server host, the load host CPU
 share, and PUT requests per second. A point whose load host CPU is above 70%

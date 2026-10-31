@@ -109,7 +109,7 @@ stop_collectors() {
   if [[ -f "$collectors_path" ]]; then
     local collector_pid
     while read -r collector_pid; do
-      kill -TERM "$collector_pid" 2>/dev/null || true
+      stop_profile "$collector_pid"
     done < "$collectors_path"
     rm -f "$collectors_path"
   fi
@@ -142,7 +142,7 @@ start_server() {
   rm -rf "$storage_dir"
   mkdir -p "$storage_dir"
   # A crash leaves a core in core_dir when launch.sh set kernel.core_pattern.
-  ulimit -c unlimited
+  ulimit -c unlimited || echo "cannot raise the core size limit" >&2
   nohup "$zd_binary" serve --config "$config_path" </dev/null >"$log_path" 2>&1 &
   echo $! > "$pid_path"
 }
@@ -153,6 +153,8 @@ collect_start() {
   stop_collectors
   mkdir -p "$directory"
   cp "$config_path" "$directory/zd-config.yaml"
+  # record_crash only reports cores written after this marker.
+  touch "$directory/.collect-start"
   scrape_metrics "$directory/metrics-before.txt"
   nohup "$bench_binary" sample --pid "$(cat "$pid_path")" --out "$directory/server-samples.json" \
     </dev/null >"$directory/sampler.log" 2>&1 &
@@ -175,6 +177,7 @@ collect_start() {
 }
 
 # capture_profile records thread stacks and a perf profile in the middle of the measurement.
+# collect-stop symbolizes the profile after the measurement, so that work does not compete with the server.
 capture_profile() {
   local directory="$1" server_pid="$2"
   sleep "$profile_delay"
@@ -188,15 +191,27 @@ capture_profile() {
     sleep "$profile_seconds"
   fi
   capture_thread_stacks "$server_pid" > "$directory/thread-stacks-2.txt"
-  if [[ -s "$directory/perf.data" ]]; then
-    # shellcheck disable=SC2024 # The outputs stay owned by the benchmark user.
-    sudo -n perf report -i "$directory/perf.data" --stdio --no-children --sort comm,symbol --percent-limit 0.3 \
-      > "$directory/perf-report.txt" 2>/dev/null || echo "perf report failed"
-    sudo -n perf script -i "$directory/perf.data" 2>/dev/null | gzip > "$directory/perf-script.txt.gz" \
-      || echo "perf script failed"
-    # perf.data needs this exact binary to symbolize; the text outputs do not.
-    sudo -n rm -f "$directory/perf.data"
-  fi
+}
+
+symbolize_profile() {
+  local directory="$1"
+  [[ -s "$directory/perf.data" ]] || return 0
+  # shellcheck disable=SC2024 # The outputs stay owned by the benchmark user.
+  sudo -n perf report -i "$directory/perf.data" --stdio --no-children --sort comm,symbol --percent-limit 0.3 \
+    > "$directory/perf-report.txt" 2>/dev/null || echo "perf report failed" >> "$directory/profile.log"
+  sudo -n perf script -i "$directory/perf.data" 2>/dev/null | gzip > "$directory/perf-script.txt.gz" \
+    || echo "perf script failed" >> "$directory/profile.log"
+  # perf.data needs this exact binary to symbolize; the text outputs do not.
+  sudo -n rm -f "$directory/perf.data" || true
+}
+
+# stop_profile ends a profile capture and its root-owned perf child.
+stop_profile() {
+  local profile_pid="$1"
+  kill -0 "$profile_pid" 2>/dev/null || return 0
+  sudo -n pkill -INT -f "perf record .* -p $(cat "$pid_path" 2>/dev/null || echo none) " 2>/dev/null || true
+  pkill -TERM -P "$profile_pid" 2>/dev/null || true
+  kill -TERM "$profile_pid" 2>/dev/null || true
 }
 
 capture_thread_stacks() {
@@ -220,14 +235,14 @@ collect_stop() {
     kill -TERM "$(cat "$directory/.iostat.pid")" 2>/dev/null || true
   fi
   if [[ -f "$directory/.profile.pid" ]]; then
-    # Symbolizing the profile can outlast the measurement.
     local profile_pid
     profile_pid="$(cat "$directory/.profile.pid")"
-    for _ in $(seq 1 1200); do
+    for _ in $(seq 1 300); do
       kill -0 "$profile_pid" 2>/dev/null || break
       sleep 0.1
     done
-    kill -TERM "$profile_pid" 2>/dev/null || true
+    stop_profile "$profile_pid"
+    symbolize_profile "$directory"
   fi
   rm -f "$directory/.sampler.pid" "$directory/.iostat.pid" "$directory/.profile.pid" "$collectors_path"
   [[ -s "$directory/server-samples.json" ]] || fail "the sampler wrote no samples; see $directory/sampler.log"
@@ -243,18 +258,18 @@ collect_stop() {
   if ! is_running; then
     record_crash "$directory"
   fi
+  rm -f "$directory/.collect-start"
 }
 
 # record_crash keeps the backtrace of every core; the cores stay on the server host.
 record_crash() {
   local directory="$1" core
   echo "server was not running at collect-stop" > "$directory/crash.txt"
-  for core in "$core_dir"/core.*; do
-    [[ -f "$core" ]] || continue
+  find "$core_dir" -maxdepth 1 -name 'core.*' -newer "$directory/.collect-start" 2>/dev/null | while read -r core; do
     {
       echo "== $core"
       if command -v eu-stack >/dev/null; then
-        sudo -n eu-stack --core="$core" --executable="$zd_binary" 2>&1 || true
+        timeout 300 sudo -n eu-stack --core="$core" --executable="$zd_binary" 2>&1 || true
       fi
     } >> "$directory/crash.txt"
   done
