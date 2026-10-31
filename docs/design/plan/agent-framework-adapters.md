@@ -1,11 +1,20 @@
 # Agent Framework Adapters
 
 Status: in progress. Parent design: [long-running-agents.md](../long-running-agents.md).
+Direction: the [owner review of #1132](https://github.com/superdurable/dex/pull/1132#pullrequestreview-5724027276)
+and its follow-up comments ([turn replay](https://github.com/superdurable/dex/pull/1132#issuecomment-6546651218),
+[Step mode](https://github.com/superdurable/dex/pull/1132#issuecomment-6547044614)).
 
-This plan builds the framework adapters before the Step Journal. Every guarantee
-here rests on Dex Step boundaries that exist today. The Step Journal, if it is
-adopted later, only removes repeated model calls after a crash and lets writes
-run inside the framework loop. No adapter API in this plan depends on it.
+The adapters run in **Step mode**. Every model call is one Dex Step, and every
+tool call is its own Step, READ tools included. The tool calls of one model
+response run as parallel Steps, and a `ResumeTurn` Step waits for their results
+before the next model call. Each call therefore has its own retry policy,
+timeout, failure route, history entry, and Dex Web node. A crash repeats at most
+the one call that was running.
+
+Dex adds no new primitive for this. There is no Step Journal, and no framework
+loop runs several model calls or inline tools inside one Step. Every guarantee
+rests on ordinary Steps, Attributes, Channels, and Timers.
 
 ## Scope
 
@@ -32,53 +41,85 @@ Python `dex-python-sdk==1.30.0`, TypeScript the latest released
 `@superdurable/dex` on npm.
 
 Source files use the Sustainable Use License header (`new`), the same as
-`sdk-python/dex`. `agents` is added to `included_prefixes` and
-`forced_new_prefixes` in `script/licenseheaders/policy.json`.
+`sdk-python/dex`. `agents` is in `included_prefixes` and `forced_new_prefixes`
+in `script/licenseheaders/policy.json`.
 
 ## Model
 
-One Flow execution is one agent session. The Flow ID is the session ID.
-Each adapter registers the shared session Flow with its own framework runner.
-An application can register several agents; each gets its own Flow type.
+One Flow execution is one agent session. The Flow ID is the session ID. Each
+adapter registers the shared session Flow with its own framework runner. An
+application can register several agents; each gets its own Flow type.
 
 ```python
-registry.add_flow(openai_agents_session_flow(triage_agent, flow_type="TriageAgent"))
+flow = AgentSessionFlow(PydanticAiRunner(agent), flow_type="TriageAgent")
+registry = Registry([flow], allow_async_handlers=True)
 ```
 
-### Turn segments and deferred writes
+A turn starts when the session consumes a user message and ends when the model
+produces a final answer. Within the turn, the state of the agent loop is the
+message list plus the framework's own run state. A runner loads that state,
+lets the framework make **exactly one model call**, and stops it before it runs
+any tool. If the response asks for tools, the runner returns the framework's
+serialized run state and the tool calls. The session stores both, runs each
+tool call in its own Step, and calls the runner again with the final tool
+results:
 
-A turn starts when the session consumes a user message and ends when the
-framework produces a final answer. `RunAgentTurn` runs the framework's own loop.
-Model calls and READ tools run inside it. Writes never do.
+```text
+RunModel -> tool calls requested -> CallTool, CallTool, AwaitToolApproval -> ... (parallel)
+         -> ResumeTurn (waits for every result) -> RunModel -> ... -> final answer
+```
 
-When the model asks for a tool whose effect is not READ, or a tool whose policy
-requires approval, the adapter makes the framework defer the call with the
-framework's own mechanism. The Step commits the framework's serialized run
-state and the deferred calls, then moves to `AwaitInterruptResolution` or an
-execute Step. The tool runs in its own Dex Step. `RunAgentTurn` then restores
-the framework and resumes it with the recorded result. The framework's tool
-wrapper returns the recorded result instead of calling the tool again.
+A turn with two model calls and one READ tool produces
+`RunModel -> CallTool -> ResumeTurn -> RunModel`. Nothing re-runs the loop, so
+application code follows no determinism rule. A code change takes effect at the
+next Step. The framework keeps its own features, such as handoffs, guardrails,
+and structured output, because it still makes each model call itself.
 
-A crash in `RunAgentTurn` reruns the turn segment from the last committed state.
-Model calls and READ tools in that segment run again. A crash in a single-attempt
-tool Step records an unknown outcome and reports it to the model. No write runs
-twice silently.
+**Turn replay** is a documented fallback for a framework that cannot stop after
+one model call or cannot accept external tool results. It re-runs the framework
+loop from the start of the turn in every model Step, returns recorded results
+for calls already made (keyed `model#<n>`, `tool:<toolCallId>`,
+`approval:<toolCallId>`), and parks at the first unrecorded call. No adapter in
+this plan needs it, and the cores do not implement it.
 
-### Effects and policies
+## Integration modes
 
-| Effect | Where it runs | Retry | Crash mid-call | Default approval |
+| Framework | Mode | Stop after one model call | Run state | Feed tool results back |
 | --- | --- | --- | --- | --- |
-| `read` | Inside `RunAgentTurn` | With the turn | Runs again | No |
-| `idempotent_write` | `ExecuteToolCall` | Up to 3 attempts, key `<flowId>/<turnId>/<toolCallId>` | Runs again with the same key | No |
-| `non_idempotent_write` | `ExecuteSingleAttemptToolCall` | One attempt | Outcome unknown | Yes |
-| `unclassified` | `ExecuteSingleAttemptToolCall` | One attempt | Outcome unknown | Yes |
+| Pydantic AI | Step mode | Deferred tools (`ExternalToolset` or `CallDeferred`, with `DeferredToolRequests` in `output_type`) end the run right after the model call | Message history as `ModelMessagesTypeAdapter` JSON plus the pending requests | `agent.run(..., message_history=..., deferred_tool_results=DeferredToolResults(calls={tool_call_id: value}))` |
+| Vercel AI SDK | Step mode | Tools without `execute` return their calls from `generateText`; `stopWhen: isStepCount(1)` (`stepCountIs` before v7) | The plain-JSON `ModelMessage[]` | Append a `tool` message with `tool-result` parts and call `generateText` again |
+| LangGraph / LangChain `create_agent` | Step mode | An interrupt for every tool call: `HumanInTheLoopMiddleware`, or `wrap_tool_call` middleware that calls `interrupt()` | Graph checkpoint, from a Dex `BaseCheckpointSaver` kept in `FrameworkRunState` | `Command(resume=...)` whose decision supplies the recorded result |
+| Google ADK | Step mode | A confirmation for every tool call: `FunctionTool(require_confirmation=True)` or `tool_context.request_confirmation()` | Session events with `ResumabilityConfig(is_resumable=True)` | The confirmation response, sent with the original `invocation_id`, carries the recorded result; the prototype confirms the details |
+| Mastra | Step mode | Client tools: the agent stops with their calls instead of running them | Agent messages | Send the tool results back as client tool results and call the agent again |
+| OpenAI Agents SDK | Step mode | A `needs_approval` gate on every function tool; the run stops with `result.interruptions` after one model call | `RunState.to_json()` / `RunState.from_json()`, which also holds the current agent after a handoff | Approve each interruption whose record is final, and the tool wrapper's `on_invoke_tool` returns the Dex result instead of running the tool; reject with the rejection message |
+| Claude Agent SDK | Whole-turn harness | No clean stop: the CLI runs the turn's model calls and tools itself | Session transcript through `SessionStore`, resumed by session ID | No injection; tools run inside the harness |
 
-`ToolPolicy(effect, requires_approval)` overrides the defaults per tool name.
-A session-level `default_tool_effect` (default `unclassified`) applies to
-tools without a policy. Adapters read framework metadata where it exists, such
-as MCP `readOnlyHint` and `idempotentHint` annotations. A `read` tool whose
-policy requires approval is deferred; after approval it runs in
-`ExecuteToolCall`, so a resumed turn sees only final records.
+Notes:
+
+- OpenAI Agents SDK handoffs are not function tools. The SDK runs a handoff
+  itself and continues with the next agent's model call, so a `RunModel` that
+  hands off makes more than one model call. The adapter documents this.
+- The whole-turn harness runs one turn inside one `RunModel` Step. Its tools
+  run in the harness and are at-least-once: a `RunModel` retry repeats them.
+- Each adapter documents every tool kind it cannot defer and treats it as
+  at-least-once.
+
+## Effects and policies
+
+| Effect | Step | Retry | Crash mid-call | Default approval |
+| --- | --- | --- | --- | --- |
+| `read` | `CallTool` | Up to 3 attempts; then `failed` | Runs again | No |
+| `idempotent_write` | `CallTool` | Up to 3 attempts, key `<flowId>/<turnId>/<toolCallId>`; then `outcome_unknown` | Runs again with the same key | No |
+| `non_idempotent_write` | `CallSingleAttemptTool` | One attempt; then `outcome_unknown` | Outcome unknown | Yes |
+| `unclassified` | `CallSingleAttemptTool` | One attempt; then `outcome_unknown` | Outcome unknown | Yes |
+
+`ToolPolicy(effect, requires_approval)` overrides the defaults per tool name;
+an unset `requires_approval` uses the effect's default. A session-level
+`default_tool_effect` (default `unclassified`) applies to tools without a policy
+or framework metadata. Adapters read framework metadata where it exists, such as
+MCP `readOnlyHint` (`read`) and `idempotentHint` (`idempotent_write`)
+annotations. No tool runs inside `RunModel` unless the framework cannot defer
+it.
 
 The idempotency key passed to `execute_deferred_tool_call` is
 `<flowId>/<turnId>/<toolCallId>`, the same on every attempt. Tool call IDs must
@@ -93,36 +134,45 @@ languages.
 
 ### Steps
 
-| Step type | Kind | Next |
-| --- | --- | --- |
-| `StartAgentSession` | Start Step. Input `AgentSessionStartInput`. Initializes `AgentState` (`next_message_sequence` 1), `AgentUsage`, and an empty `PendingInterrupts`. | `RunAgentTurn` when `initial_message` is set and not blank, else `AwaitUserMessage` |
-| `AwaitUserMessage` | WaitFor `QueuedUserMessages.for_one()`. Execute appends the user message, starts a turn. | `RunAgentTurn` |
-| `RunAgentTurn` | Async Execute. Runs or resumes the framework. Options: method timeout 15 min, heartbeat timeout 2 min, retry 3 attempts within 30 min, failure route `RecordTurnFailure`. | `AwaitUserMessage`, `AwaitInterruptResolution`, `ExecuteToolCall`, or `ExecuteSingleAttemptToolCall` |
-| `AwaitInterruptResolution` | WaitFor any of `InterruptResolutions.for_one(id)` for every `AgentToolCalls` record in `awaiting_approval`, plus a Timer at the earliest deadline among interrupts still in `PendingInterrupts`. Execute locks `PendingInterrupts`. It applies the one consumed resolution, or, when the Timer fired, removes every pending interrupt whose deadline passed and rejects its call with `rejection_message` "approval deadline passed". | Itself while any record awaits approval, then the next approved tool Step, then `RunAgentTurn` |
-| `ExecuteToolCall` | Execute one `idempotent_write` or approved `read` call. Options: retry 3 attempts, failure route `RecordToolFailure`. | Next approved tool Step or `RunAgentTurn` |
-| `ExecuteSingleAttemptToolCall` | Execute one `non_idempotent_write` or `unclassified` call. Options: retry 1 attempt, failure route `RecordToolOutcomeUnknown`. | Next approved tool Step or `RunAgentTurn` |
-| `RecordToolFailure` | Records `outcome_unknown` with the recovery detail in `error`. It is reached only through crashes, timeouts, or errors other than `ToolExecutionError` after the attempts ran out, so the write may have taken effect. | Same routing |
-| `RecordToolOutcomeUnknown` | Records `outcome_unknown` with the recovery detail in `error`. | Same routing |
-| `RecordTurnFailure` | Records `last_turn_error`. When the turn has final `AgentToolCalls` records, first appends one turn-failure note (below); otherwise appends nothing. Deletes the turn's records and `FrameworkRunState`, empties `PendingInterrupts`, and clears the turn. | `AwaitUserMessage` |
+| Step type | Input | Kind | Next |
+| --- | --- | --- | --- |
+| `StartAgentSession` | `AgentSessionStartInput` | Start Step. Initializes `AgentState` (`next_message_sequence` 1), `AgentUsage`, and an empty `PendingInterrupts`. With a non-blank `initial_message`, appends it as the turn's user message. | `RunModel` when `initial_message` is set and not blank, else `AwaitUserMessage` |
+| `AwaitUserMessage` | none | WaitFor `QueuedUserMessages.for_one()`. Execute appends the user message and starts a turn. | `RunModel` |
+| `RunModel` | none | Async Execute. Calls `run_model_step` for one model call. Options: method timeout 15 min, heartbeat timeout 2 min, retry 3 attempts within 30 min, failure route `RecordTurnFailure`. | `TurnCompleted`: appends `new_messages`, clears the turn, `AwaitUserMessage`. `ToolCallsRequested`: stores `FrameworkRunState`, one `AgentToolCalls` record per call, and the interrupts, then `go_to_many` with one Step per call plus `ResumeTurn(<call count>)` |
+| `AwaitToolApproval` | tool call ID | WaitFor any of `InterruptResolutions.for_one(id)` and, while the interrupt is in `PendingInterrupts` with a deadline, a Timer at that deadline. Execute locks `PendingInterrupts`. | Approved: records `approved`, then `CallTool` or `CallSingleAttemptTool` (id). Rejected or deadline passed: records `rejected`, publishes `ToolCallResults`, ends (dead end). Timer fired after `resolve_interrupt` already removed the interrupt: itself (id), which consumes that answer |
+| `CallTool` | tool call ID | Execute one `read` or `idempotent_write` call. Options: retry 3 attempts, failure route `RecordToolFailure`. Records `succeeded`, or `failed` for `ToolExecutionError`, and publishes `ToolCallResults`. | Ends |
+| `CallSingleAttemptTool` | tool call ID | Execute one `non_idempotent_write` or `unclassified` call. Options: retry 1 attempt, failure route `RecordToolOutcomeUnknown`. Same recording. | Ends |
+| `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for an `idempotent_write` call, with the recovery detail in `error`, and publishes `ToolCallResults`. It is reached only through crashes, timeouts, or errors other than `ToolExecutionError` after the attempts ran out. | Ends |
+| `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery detail in `error`, and publishes `ToolCallResults`. | Ends |
+| `ResumeTurn` | expected result count | WaitFor `ToolCallResults.for_n(count)`. Execute checks that every record of the turn is final; if a consumed result belonged to an earlier turn, it waits again for the unfinished count. | `RunModel`, resumed with the final records |
+| `RecordTurnFailure` | none | Records `last_turn_error`. When the turn has final `AgentToolCalls` records, first appends one turn-failure note; otherwise appends nothing. Deletes the turn's records and `FrameworkRunState`, empties `PendingInterrupts`, and clears the turn. | `AwaitUserMessage` |
 
-Every Step sets both its WaitFor and its Execute durability to SYNC
-explicitly, so a Flow started with an ASYNC Step durability default never
-replays a Step result. `RunAgentTurn` and the tool Steps load `AgentMessages`
-or `AgentToolCalls` as they need them.
+Rules:
 
-The tool Steps read the call to run from `AgentState.executing_tool_call_id`,
-so failure-route Steps know which call failed. Steps are idempotent with
-respect to their own retries: a tool Step whose record is already final routes
-on without running. Approved calls run one at a time in `deferral_order`.
+- Every Step sets both its WaitFor and its Execute durability to SYNC
+  explicitly, so a Flow started with an ASYNC Step durability default never
+  replays a Step result.
+- A failure-route Step receives the failing Step's input, so each tool call
+  Step and its failure route know their tool call from the input. There is no
+  shared current tool call, because tool call Steps run in parallel.
+- Every tool call publishes exactly one `ToolCallCompleted` message, in the same
+  commit that makes its record final. A tool Step whose record is already final
+  ends without running or publishing.
+- Before a tool Step calls `execute_deferred_tool_call`, it writes
+  `tool_call_started` and awaits a heartbeat. Dex can redeliver a task to
+  another Worker at the same attempt when the first Worker disconnects before
+  sending any output; that output closes the window before the tool runs. A
+  frame that left the Worker but never reached Dex remains a small residual
+  window.
+- `ToolExecutionError` from `execute_deferred_tool_call` records `failed` with
+  the error message and is not retried. Any other error fails the attempt.
+- A turn stores no messages while tool calls run. `TurnCompleted.new_messages`
+  carries every item the turn produced after its user message, across all of
+  its model calls, and the session appends them in one commit. Message
+  sequences start at 1. `last_turn_error` is cleared when a later turn
+  completes.
 
-Before a tool Step calls `execute_deferred_tool_call`, it writes
-`tool_call_started` and awaits a heartbeat. Dex can redeliver a task to another
-Worker at the same attempt when the first Worker disconnects before sending any
-output; that output closes the window before the tool runs. A frame that left
-the Worker but never reached Dex remains a small residual window.
-
-`ToolExecutionError` from `execute_deferred_tool_call` records `failed` with
-the error message and is not retried. Any other error fails the attempt.
+### Turn-failure note and model-visible results
 
 The turn-failure note is the user message that `build_user_message` returns
 for this text, with one line per final record in `deferral_order`:
@@ -142,10 +192,8 @@ Model-visible results for final records, used in the note and when resuming:
 | `rejected` | `rejection_message`, or `The user rejected this tool call.` |
 | `outcome_unknown` | `The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically.` |
 
-A turn stores nothing while it is suspended. `TurnCompleted.new_messages`
-carries every item the turn produced after its user message, across all
-segments, and the session appends them in one commit. Message sequences start
-at 1. `last_turn_error` is cleared when a later turn completes.
+An expired approval deadline records `rejected` with `rejection_message`
+`approval deadline passed`.
 
 ### Persistence schema
 
@@ -153,12 +201,13 @@ at 1. `last_turn_error` is cleared when a later turn completes.
 | --- | --- | --- |
 | `AgentState` | Attribute | `AgentState` |
 | `AgentMessages` | AttributeMap, key = sequence as 12-digit zero-padded decimal | `AgentMessage` |
-| `FrameworkRunState` | Attribute | string, opaque framework JSON; present only while a turn is suspended |
-| `AgentToolCalls` | AttributeMap, key = tool call ID | `AgentToolCall` |
+| `FrameworkRunState` | Attribute | string, opaque framework JSON; present only while a turn waits for tool calls |
+| `AgentToolCalls` | AttributeMap, key = tool call ID | `AgentToolCall`; deleted when the turn ends |
 | `PendingInterrupts` | Attribute | list of `AgentInterrupt` |
 | `AgentUsage` | Attribute | `AgentUsage` |
 | `QueuedUserMessages` | Channel | `AgentUserMessage` |
 | `InterruptResolutions` | ChannelMap, key = interrupt ID | `AgentInterruptResolution` |
+| `ToolCallResults` | Channel, internal | `ToolCallCompleted` |
 | `AgentEvents` | Stream, capacity 10 MiB by default, configurable | `AgentEvent` |
 
 Value types:
@@ -166,11 +215,10 @@ Value types:
 ```text
 AgentSessionStartInput { initial_message: str | null }
 AgentState {
-  status: "waiting_for_user_message" | "running_turn" | "waiting_for_interrupt" | "executing_tool"
+  status: "waiting_for_user_message" | "running_model" | "running_tools"
   turn_count: int            # completed or failed turns
   active_turn_id: str | null # "turn-<n>"
   next_message_sequence: int
-  executing_tool_call_id: str | null
   last_turn_error: str | null
 }
 AgentMessage {
@@ -194,9 +242,9 @@ AgentToolCall {
   requires_approval: bool
   status: "awaiting_approval" | "approved" | "rejected" | "succeeded" | "failed" | "outcome_unknown"
   output: str | null
-  error: str | null          # ToolExecutionError message, or the recovery detail for outcome_unknown
+  error: str | null          # ToolExecutionError message, or the recovery detail
   rejection_message: str | null
-  deferral_order: int        # zero-based order in which the turn deferred the call
+  deferral_order: int        # zero-based order of the call within its turn
 }
 AgentInterrupt {
   interrupt_id: str          # equals the tool call ID for tool approvals
@@ -208,6 +256,7 @@ AgentInterrupt {
   deadline: str | null
 }
 AgentInterruptResolution { approved: bool, rejection_message: str | null }  # null when approved
+ToolCallCompleted { tool_call_id: str }
 AgentUsage { model_calls: int, input_tokens: int, output_tokens: int, cached_input_tokens: int, reasoning_tokens: int }
 AgentUserMessage { text: str }
 AgentEvent {
@@ -229,9 +278,6 @@ AgentSnapshot {
 ListAgentMessagesRequest { before_sequence: int | null, limit: int }  # limit defaults to 50
 AgentMessagesPage { messages: list of AgentMessage, next_before_sequence: int | null }
 ```
-
-`AgentToolCalls` instances for a turn are deleted when the turn completes;
-their results are already messages.
 
 ### RPCs
 
@@ -257,58 +303,47 @@ keys:
 | `text_delta` | `{"text"}` |
 | `reasoning_delta` | `{"text"}` |
 | `tool_call_started` | `{"tool_call_id", "tool_name"}` |
-| `tool_call_finished` | `{"tool_call_id", "tool_name", "status"}` |
-| `tool_call_deferred` | `{"tool_call_id", "tool_name", "effect", "requires_approval"}` |
+| `tool_call_finished` | `{"tool_call_id", "tool_name", "status"}`, once per tool call when its record becomes final, rejections included |
+| `tool_call_deferred` | `{"tool_call_id", "tool_name", "effect", "requires_approval"}`, once per requested tool call |
 | `interrupt_raised` | `{"interrupt_id", "tool_call_id", "tool_name", "deadline"}` |
 | `interrupt_resolved` | `{"interrupt_id", "approved", "rejection_message"}` |
-| `usage_recorded` | `{"recorded", "session"}`: two `AgentUsage` objects, the segment and the session total |
+| `usage_recorded` | `{"recorded", "session"}`: two `AgentUsage` objects, the model call and the session total |
 
 Adapter-specific types use an adapter prefix, such as
 `openai_agents.handoff`. Every event carries `turn_id`, `step_execution_id`,
 and `attempt`. A UI groups live text by `(turn_id, step_execution_id,
 attempt)`: within one `step_execution_id` it keeps only the highest `attempt`
 seen and drops the partial text of lower attempts. Different
-`step_execution_id` values of one turn are consecutive segments and Steps, and
-each keeps its text. After `turn_completed` or `turn_failed`, the UI replaces
-the turn's live text with the stored messages. Streams are best effort;
-clients rebuild from `get_agent_snapshot`. The event writer is safe to call
-from any thread.
+`step_execution_id` values of one turn are separate model call and tool call
+Steps, and each keeps its text. After `turn_completed` or `turn_failed`, the UI
+replaces the turn's live text with the stored messages. Streams are best
+effort; clients rebuild from `get_agent_snapshot`. The event writer is safe to
+call from any thread.
 
 ### Adapter interface
 
 ```python
 class AgentFrameworkRunner(Protocol):
     def build_user_message(self, text: str) -> FrameworkMessage: ...
-    async def run_turn(self, turn: AgentTurnContext) -> AgentTurnOutcome: ...
+    async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome: ...
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult: ...
 ```
 
 `AgentTurnContext` gives the runner the session's stored messages, the
-framework run state when resuming, the current turn's tool call records, the
-tool policy lookup, an event writer, a heartbeat function, the Flow ID, the turn
-ID, and the attempt. `AgentTurnOutcome` is either `TurnCompleted(new_messages,
-usage)` or `TurnSuspended(framework_run_state, deferred_tool_calls, usage)`.
+framework run state when continuing the turn, the turn's tool call records (all
+final when `RunModel` runs), the tool policy lookup `resolve_tool_policy`, an
+event writer, a heartbeat function, the Flow ID, the turn ID, and the attempt.
+`AgentTurnOutcome` is either `TurnCompleted(new_messages, usage)` or
+`ToolCallsRequested(framework_run_state, tool_calls, usage)`, where each tool
+call is a `DeferredToolCall(tool_call_id, tool_name, arguments, policy)`.
+`run_model_step` makes at most one model call and runs no tool it can defer.
 `FrameworkMessage` is the `AgentMessage` projection plus `framework_item`.
-`execute_deferred_tool_call` runs the real tool once and returns its output
-text, or raises `ToolExecutionError` for a failure the model should see.
+`execute_deferred_tool_call` runs the real tool once, possibly concurrently
+with other calls, and returns `ToolExecutionResult(output)`, or raises
+`ToolExecutionError` for a failure the model should see.
 
 The TypeScript core mirrors these names in camelCase for code and keeps the
 snake_case wire format.
-
-## Per-adapter deferral
-
-| Framework | History | Defer | Resume |
-| --- | --- | --- | --- |
-| OpenAI Agents SDK | `result.to_input_list()` items | Wrap non-READ tools with `needs_approval=True`; `result.interruptions` | `RunState.from_json`; `approve` when a record is final, the wrapper returns the recorded output; `reject` with the rejection message |
-| Pydantic AI | `ModelMessagesTypeAdapter` JSON | Deferred tools (`requires_approval` or `CallDeferred`) produce `DeferredToolRequests` | `DeferredToolResults` with recorded outputs or denials |
-| LangChain `create_agent` / LangGraph | Message dicts from graph state | `wrap_tool_call` middleware calls `interrupt()` for non-READ tools | `Command(resume=...)` with the recorded result; checkpoint in `FrameworkRunState` |
-| Google ADK | Session events | `FunctionTool(require_confirmation=...)` or `request_confirmation` | Confirmation response with recorded output |
-| Claude Agent SDK | Session transcript entries | `PreToolUse` hook returns `defer` | Resume the session; the hook allows the call and the tool returns the recorded output |
-| Vercel AI SDK | `ModelMessage` JSON | Non-READ tools have no `execute`, so the loop stops with tool calls | Append tool result messages and call again |
-| Mastra | Agent messages | `requireToolApproval` and suspend | `resume` with the recorded output |
-
-Each adapter documents which tool kinds it cannot defer, for example tools that
-run inside a harness subprocess, and treats them as at-least-once.
 
 ## Tests
 
@@ -316,29 +351,41 @@ Each package runs integration tests against a real Dex Server, using `dexcli
 dev --engine zd` from the released dexcli bundle, with a scripted model so no
 model key is needed. Every adapter covers this matrix:
 
-1. A turn with a READ tool completes, and the history replays on the next turn.
-2. A write tool that needs approval waits, survives a Worker restart while
-   waiting, runs once after approval, and its result reaches the model.
-3. A rejected write never runs, and the model sees the rejection message.
-4. A Worker killed with SIGKILL during a single-attempt write records
+1. A turn with two model calls and a READ tool produces
+   `RunModel -> CallTool -> ResumeTurn -> RunModel`, and the history replays
+   on the next turn.
+2. Parallel tool calls of one model response run as parallel Steps.
+3. A write tool that needs approval waits in parallel with an unapproved READ
+   tool, survives a Worker restart while waiting, runs once after approval, and
+   its result reaches the model.
+4. A rejected write never runs, and the model sees the rejection message.
+5. A Worker killed with SIGKILL during `CallSingleAttemptTool` records
    `outcome_unknown`, the tool is not run again, and the model sees the unknown
    outcome.
-5. A Worker killed during `RunAgentTurn` reruns the segment and completes.
-6. `resolve_interrupt` called twice returns false the second time.
-7. `get_agent_snapshot` returns the conversation after the session completes a
-   turn.
+6. A Worker killed during `RunModel` reruns only that one model call.
+7. `resolve_interrupt` called twice returns false the second time, and an
+   approval deadline rejects the call.
+8. A turn that fails after a write ran leaves the turn-failure note, and the
+   write is not repeated.
+9. A session started with an ASYNC Step durability default never reruns a
+   single-attempt write.
+10. A message sent during a turn is queued and handled after the turn.
+11. `get_agent_snapshot` returns the conversation after the session completes a
+    turn.
 
 Kill tests run the Worker as a child process in its own process group, as
-`examples/python/tests/integ/ai_agent_processes.py` does.
+`examples/python/tests/integ/ai_agent_processes.py` does. Tests assert the Step
+shape of a turn from the Flow's history (`dexcli flow history`).
 
 ## CI
 
 `.github/workflows/agents-ci.yml` (workflow name `Agents CI`) discovers every
 package that has an executable `agents/<language>/<package>/ci.sh` and runs
-one matrix job per package, so adding a package never edits the workflow. Each
-job downloads the pinned dexcli release bundle and verifies its checksum, then
-runs `ci.sh` with `DEXCLI` set to the `dexcli` binary; `dex-server-zd` sits in
-the same directory. `ci.sh` installs the package's locked dependencies, runs
+one matrix job per package, so adding a package never edits the workflow.
+Discovery fails when a `ci.sh` is not executable or when it finds no package.
+Each job downloads the pinned dexcli release bundle and verifies its checksum,
+then runs `ci.sh` with `DEXCLI` set to the `dexcli` binary; `dex-server-zd` sits
+in the same directory. `ci.sh` installs the package's locked dependencies, runs
 its type checks and lint, and runs its integration tests. Tests start private
 `dexcli dev --engine zd` instances on free ports. The Check Gate maps
 `agents/**` and the workflow file to `Agents CI`.
@@ -346,7 +393,7 @@ its type checks and lint, and runs its integration tests. Tests start private
 ## Documentation
 
 - Each package has a README with installation, a complete example, the effect
-  table, and its limits.
+  table, its integration mode, and its limits.
 - Product docs in English and zh-Hans follow in a separate change, with
   snippets copied from runnable examples.
 - Skills follow the first release that contains the packages.
@@ -354,4 +401,5 @@ its type checks and lint, and runs its integration tests. Tests start private
 ## UI/UX
 
 N/A: the packages add no Dex Web UI. The Dex Web agent view in the parent
-design reads the contract above.
+design reads the contract above, and Step mode gives every framework the same
+Step shapes.
