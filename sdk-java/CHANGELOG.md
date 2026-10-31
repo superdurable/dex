@@ -37,6 +37,21 @@ Workers that previously omitted pull settings used push handler concurrency of
 maximum is at least two. Set `maxConcurrentTasks` and `reservedRpcTasks` explicitly
 when preserving application capacity during migration.
 
+### Added
+
+Added `Client.getAttributes(flowId, reads...)` and a
+`getAttributes(flowId, List<? extends AttributeRead<?>>)` overload. They read
+committed Attribute and AttributeMap instance values from the current or latest
+Flow run in one request, without an RPC or a Worker. A closed run stays readable
+until Dex purges it. `AttributeMap.instance(key)` returns a new
+`AttributeMapInstance<T>` selector, and `Attribute<T>` now implements the new
+`AttributeRead<T>` interface. The call returns `AttributeValues`, whose
+`get(read)` returns an `Optional<T>` that is empty for an unset value.
+Hard-delete Attributes are readable, and large values are loaded through
+LoadBlobs and the BlobCache. Unregistered or mismatched definitions raise
+`FlowDefinitionException` before any request, and a missing Flow raises
+`FlowNotFoundException`.
+
 ### Fixed
 
 Reject heartbeat and Stream writes from a cancelled or completed Step invocation,

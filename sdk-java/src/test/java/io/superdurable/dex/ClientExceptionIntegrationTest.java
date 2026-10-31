@@ -31,10 +31,13 @@ import io.superdurable.dex.exceptions.FlowClosingException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RequestTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
+import io.superdurable.dex.exceptions.ValueMappingException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
 import io.superdurable.gen.ServiceErrorResponse;
 import io.superdurable.gen.EncodedObject;
 import io.superdurable.gen.FlowServiceGrpc;
+import io.superdurable.gen.GetAttributesRequest;
+import io.superdurable.gen.GetAttributesResponse;
 import io.superdurable.gen.GetFlowSummaryRequest;
 import io.superdurable.gen.GetFlowSummaryResponse;
 import io.superdurable.gen.LoadBlobsRequest;
@@ -76,6 +79,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class ClientExceptionIntegrationTest {
     private static final Stream<String> THINKING =
             Stream.define("thinking", String.class, 1_048_576);
+    private static final Attribute<String> STATUS = Attribute.define("status", String.class);
+    private static final Attribute<Integer> COUNT = Attribute.define("count", Integer.class);
+    private static final AttributeMap<String> NOTES = AttributeMap.define("notes", String.class);
     private Server server;
     private Client client;
     private ErrorFlowService flowService;
@@ -305,8 +311,181 @@ final class ClientExceptionIntegrationTest {
         assertEquals("WorkflowId = 'flow-1'", flowService.searchFlowsRequest.getQuery());
     }
 
+    @Test
+    void getAttributesSendsOneRequestAndHydratesValues() {
+        final AttributeValues values = client.getAttributes(
+                "attributes-blob",
+                STATUS,
+                COUNT,
+                NOTES.instance("n 1"),
+                NOTES.instance("n2"));
+        assertEquals("attributes-blob", flowService.getAttributesRequest.getFlowId());
+        assertEquals(
+                Arrays.asList("status", "count", "notes/n%201", "notes/n2"),
+                flowService.getAttributesRequest.getKeysList());
+        assertEquals(1, flowService.getAttributesCalls.get());
+        assertEquals(Optional.of("one"), values.get(STATUS));
+        assertEquals(Optional.of(3), values.get(COUNT));
+        assertEquals(Optional.of("first"), values.get(NOTES.instance("n 1")));
+        assertEquals(Optional.empty(), values.get(NOTES.instance("n2")));
+
+        final AttributeValues nullValue = client.getAttributes("attributes-null", STATUS);
+        assertEquals(Optional.empty(), nullValue.get(STATUS));
+    }
+
+    @Test
+    void getAttributesNamesTheFlowAndKeysInErrors() {
+        final FlowNotFoundException missing = assertThrows(
+                FlowNotFoundException.class,
+                () -> client.getAttributes("attributes-missing", STATUS, COUNT));
+        assertEquals(Status.Code.NOT_FOUND, missing.getCode());
+        assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, missing.getSubStatus());
+        assertEquals(
+                "getAttributes Flow attributes-missing Attributes status, count: flow is missing",
+                missing.getMessage());
+
+        final DexServiceException unavailable = assertThrows(
+                DexServiceException.class,
+                () -> client.getAttributes("attributes-unavailable", STATUS));
+        assertEquals(Status.Code.UNAVAILABLE, unavailable.getCode());
+        assertFalse(unavailable instanceof FlowNotFoundException);
+        assertFalse(unavailable instanceof FlowNotActiveOrNotFoundException);
+        assertEquals(
+                "getAttributes Flow attributes-unavailable Attributes status: server is restarting",
+                unavailable.getMessage());
+        assertEquals(unavailable.getMessage(), unavailable.getDetail());
+
+        final FlowNotFoundException purgedBeforeLoadBlobs = assertThrows(
+                FlowNotFoundException.class,
+                () -> client.getAttributes("attributes-blob-purged", STATUS));
+        assertEquals(Status.Code.NOT_FOUND, purgedBeforeLoadBlobs.getCode());
+        assertEquals(
+                "getAttributes Flow attributes-blob-purged Attributes status LoadBlobs: "
+                        + "flow was purged",
+                purgedBeforeLoadBlobs.getMessage());
+
+        assertMessage(
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> client.getAttributes("attributes-unexpected", STATUS)),
+                "getAttributes Flow attributes-unexpected returned unexpected Attribute other");
+        assertMessage(
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> client.getAttributes("attributes-duplicate", STATUS)),
+                "getAttributes Flow attributes-duplicate returned duplicate Attribute status");
+        assertMessage(
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> client.getAttributes("attributes-no-value", STATUS)),
+                "getAttributes Flow attributes-no-value returned Attribute status without a value");
+
+        final ValueMappingException badType = assertThrows(
+                ValueMappingException.class,
+                () -> client.getAttributes("attributes-bad-type", STATUS));
+        assertTrue(badType.getMessage().startsWith(
+                "getAttributes Flow attributes-bad-type Attribute status cannot be decoded as "
+                        + "java.lang.String"),
+                badType.getMessage());
+
+        final DexServiceException loadBlobsFailure = assertThrows(
+                DexServiceException.class,
+                () -> client.getAttributes("attributes-blob-failure", STATUS, COUNT));
+        assertEquals(Status.Code.UNAVAILABLE, loadBlobsFailure.getCode());
+        assertEquals(
+                "getAttributes Flow attributes-blob-failure Attributes status, count LoadBlobs: "
+                        + "blob store unavailable",
+                loadBlobsFailure.getMessage());
+
+        final ValueMappingException omittedBlob = assertThrows(
+                ValueMappingException.class,
+                () -> client.getAttributes("attributes-blob-omitted", STATUS));
+        assertTrue(omittedBlob.getMessage().startsWith(
+                "getAttributes Flow attributes-blob-omitted Attributes status returned a value "
+                        + "that cannot be loaded"),
+                omittedBlob.getMessage());
+    }
+
+    private static void assertMessage(final RuntimeException exception, final String expected) {
+        assertEquals(expected, exception.getMessage());
+    }
+
     private static final class ErrorFlowService
             extends FlowServiceGrpc.FlowServiceImplBase {
+        private final AtomicInteger getAttributesCalls = new AtomicInteger();
+        private GetAttributesRequest getAttributesRequest;
+
+        @Override
+        public void getAttributes(
+                final GetAttributesRequest request,
+                final StreamObserver<GetAttributesResponse> observer) {
+            getAttributesCalls.incrementAndGet();
+            getAttributesRequest = request;
+            final GetAttributesResponse.Builder response = GetAttributesResponse.newBuilder();
+            switch (request.getFlowId()) {
+                case "attributes-missing":
+                    observer.onError(error(
+                            Status.Code.NOT_FOUND,
+                            io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
+                            "flow is missing"));
+                    return;
+                case "attributes-unavailable":
+                    observer.onError(Status.UNAVAILABLE
+                            .withDescription("server is restarting")
+                            .asRuntimeException());
+                    return;
+                case "attributes-blob":
+                    response.addAttributes(attribute("status", Value.newBuilder()
+                                    .setInternalBlobIdForStringValue("status-blob")))
+                            .addAttributes(attribute("count", Value.newBuilder().setIntValue(3)))
+                            .addAttributes(attribute("notes/n%201", Value.newBuilder()
+                                    .setStringValue("first")));
+                    break;
+                case "attributes-null":
+                    response.addAttributes(attribute("status", Value.newBuilder()
+                            .setNullValue(com.google.protobuf.NullValue.NULL_VALUE)));
+                    break;
+                case "attributes-unexpected":
+                    response.addAttributes(attribute("other", Value.newBuilder()
+                            .setStringValue("value")));
+                    break;
+                case "attributes-duplicate":
+                    response.addAttributes(attribute("status", Value.newBuilder()
+                                    .setStringValue("first")))
+                            .addAttributes(attribute("status", Value.newBuilder()
+                                    .setStringValue("second")));
+                    break;
+                case "attributes-no-value":
+                    response.addAttributes(io.superdurable.gen.KV.newBuilder().setKey("status"));
+                    break;
+                case "attributes-bad-type":
+                    response.addAttributes(attribute("status", Value.newBuilder().setIntValue(4)));
+                    break;
+                case "attributes-blob-failure":
+                    response.addAttributes(attribute("status", Value.newBuilder()
+                            .setInternalBlobIdForStringValue("failing-blob")));
+                    break;
+                case "attributes-blob-purged":
+                    response.addAttributes(attribute("status", Value.newBuilder()
+                            .setInternalBlobIdForStringValue("purged-blob")));
+                    break;
+                case "attributes-blob-omitted":
+                    response.addAttributes(attribute("status", Value.newBuilder()
+                            .setInternalBlobIdForStringValue("omitted-blob")));
+                    break;
+                default:
+                    break;
+            }
+            observer.onNext(response.build());
+            observer.onCompleted();
+        }
+
+        private static io.superdurable.gen.KV attribute(
+                final String key,
+                final Value.Builder value) {
+            return io.superdurable.gen.KV.newBuilder().setKey(key).setValue(value).build();
+        }
+
         private final AtomicInteger stepReattachCalls = new AtomicInteger();
         private final List<String> stepReattachRequestIds = new ArrayList<>();
         private SearchFlowsRequest searchFlowsRequest;
@@ -504,6 +683,22 @@ final class ClientExceptionIntegrationTest {
             for (final io.superdurable.gen.LoadBlobRequestEntry entry
                     : request.getEntriesList()) {
                 final Value value = entry.getBlobValue();
+                if ("failing-blob".equals(value.getInternalBlobIdForStringValue())) {
+                    observer.onError(Status.UNAVAILABLE
+                            .withDescription("blob store unavailable")
+                            .asRuntimeException());
+                    return;
+                }
+                if ("purged-blob".equals(value.getInternalBlobIdForStringValue())) {
+                    observer.onError(error(
+                            Status.Code.NOT_FOUND,
+                            io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
+                            "flow was purged"));
+                    return;
+                }
+                if ("omitted-blob".equals(value.getInternalBlobIdForStringValue())) {
+                    continue;
+                }
                 if (value.hasInternalBlobIdForStringValue()) {
                     response.putValues(
                             value.getInternalBlobIdForStringValue(),
@@ -569,7 +764,7 @@ final class ClientExceptionIntegrationTest {
 
         @Override
         public PersistenceSchema getPersistenceSchema() {
-            return PersistenceSchema.of(THINKING);
+            return PersistenceSchema.of(THINKING, STATUS, COUNT, NOTES);
         }
     }
 

@@ -123,7 +123,8 @@ public final class AttributeMap<T> extends PersistenceDefinition {
      * <p>This option cannot be combined with an {@link AttributeIndex} or with
      * {@link #syncToAttributeStore()}. {@link Client#waitForAttributeMatch} rejects a hard-delete
      * Attribute map before it contacts the Server. Use an RPC that reads the instance when a caller
-     * needs the value.
+     * needs the value. {@link Client#getAttributes(String, AttributeRead...)} also reads a
+     * hard-delete instance's committed value.
      *
      * <p>The Dex Server must have an enabled blob store and must support Server protocol version 3
      * or later. A Step, RPC, StartFlow, or SubFlow start that writes this Attribute map fails with
@@ -233,6 +234,33 @@ public final class AttributeMap<T> extends PersistenceDefinition {
     @Override
     boolean isHardDeleteOnNull() {
         return hardDeleteOnNull;
+    }
+
+    /**
+     * Selects one typed instance of this AttributeMap for a Client Attribute read.
+     *
+     * <p>Pass the result to {@link Client#getAttributes(String, AttributeRead...)}, and pass the
+     * same selector, or an equal one, to {@link AttributeValues#get(AttributeRead)} to obtain the
+     * value. The selector keeps this map's value type, so {@code get} returns
+     * {@code Optional<T>}. Selecting an instance does not contact the Server and does not check
+     * that the instance exists.
+     *
+     * <p>This method selects an instance that a Client reads from outside the Flow. It differs from
+     * {@link #get(Context, String)}, which reads an instance inside a Step or RPC handler.
+     *
+     * <pre>{@code
+     * AttributeMap<Note> notes = orderFlow.notes;
+     * AttributeValues values = client.getAttributes("order-42", notes.instance("n1"));
+     * Optional<Note> firstNote = values.get(notes.instance("n1"));
+     * }</pre>
+     *
+     * @param instance the non-blank logical instance key; it must not contain {@code /}
+     * @return an immutable selector for this AttributeMap object and {@code instance}
+     * @throws IllegalArgumentException if {@code instance} is {@code null}, blank, or contains
+     *     {@code /}
+     */
+    public AttributeMapInstance<T> instance(final String instance) {
+        return new AttributeMapInstance<T>(this, instance);
     }
 
     /**

@@ -624,6 +624,36 @@ A caller timeout or cancellation does not finish an accepted durable wait. Set `
 request timeouts and reconnect gaps. Zero disables timed rollover. Request
 expiry throws `RequestTimeoutException`.
 
+`client.getAttributes(flowId, reads...)` reads committed Attribute values
+from outside the Flow without an RPC. Pass singleton `Attribute` definitions
+and AttributeMap instances selected with `AttributeMap.instance(key)`. A
+`List<AttributeRead<?>>` overload accepts reads built at runtime. The Client
+sends one request for all keys, so every value comes from the same committed
+state, and no Worker runs. The call reads the current run, or the latest run
+when none is open, so a closed run stays readable until Dex purges it. It does
+not see writes that a running Step or RPC has not committed yet.
+
+```java
+AttributeValues values = client.getAttributes(
+        "order-42",
+        orderFlow.orderStatus,
+        orderFlow.notes.instance("n1"));
+String status = values.get(orderFlow.orderStatus).orElse("new");
+Optional<Note> note = values.get(orderFlow.notes.instance("n1"));
+```
+
+`AttributeValues.get` returns `Optional.empty()` for an unset Attribute or
+instance, and also for a stored value that decodes to `null`. It throws
+`IllegalArgumentException` for a read that was not part of the call. An equal
+`AttributeMapInstance` (same AttributeMap object and instance key) works. Every
+definition must be the exact object that a registered Flow's persistence
+schema returns; another object with the same name fails with
+`FlowDefinitionException` before any request. A missing Flow fails with
+`FlowNotFoundException`. Hard-delete Attributes are readable, large values are
+loaded through LoadBlobs and the BlobCache, and a value that cannot be decoded
+fails with `ValueMappingException`. Every error names the Flow ID, and an error
+about one read names its Attribute key.
+
 ## Exceptions
 
 Public exceptions live in `io.superdurable.dex.exceptions`. Catch concrete
@@ -645,7 +675,7 @@ try {
 ```
 
 `FlowNotFoundException` is returned by read and history operations such as
-`describeFlow`, `waitForFlow`, and `timeTravel`. These operations
+`describeFlow`, `getAttributes`, `waitForFlow`, and `timeTravel`. These operations
 can read a closed Flow, so failure means no matching execution was found.
 `FlowNotActiveOrNotFoundException` is returned by RPC, stop, timer,
 configuration, and step-wait operations that require an open Flow.
@@ -730,7 +760,8 @@ the Attribute then reads as absent. Only string and object values, including
 `byte[]`, are supported. Numeric and Boolean value types fail at definition
 time; broader types such as `Object` fail when a numeric or Boolean value is
 written. The option cannot be combined with an index or
-`syncToAttributeStore()`, and `waitForAttributeMatch` rejects it. Steps and RPC
+`syncToAttributeStore()`, and `waitForAttributeMatch` rejects it.
+`client.getAttributes` reads its committed value. Steps and RPC
 handlers receive values inline, and the SDK never caches them in the local
 BlobCache. Writes require a Server with an enabled blob store and protocol
 version 3 or later. See the `Attribute.hardDeleteOnNull()` Javadoc for retry,

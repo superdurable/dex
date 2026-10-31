@@ -265,7 +265,7 @@ final class ValueHydrator {
         return index;
     }
 
-    private List<Value> hydrateAll(final String flowId, final List<Value> values) {
+    List<Value> hydrateAll(final String flowId, final List<Value> values) {
         if (flowId == null || flowId.isEmpty()) {
             throw new IllegalArgumentException("Flow ID is required");
         }

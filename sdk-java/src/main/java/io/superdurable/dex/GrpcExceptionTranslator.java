@@ -41,6 +41,15 @@ final class GrpcExceptionTranslator {
             final StatusRuntimeException exception,
             final FlowTargetRequirement requirement,
             final String flowId) {
+        return translate(exception, requirement, flowId, null);
+    }
+
+    // A non-null detailPrefix starts the detail, so the message names the call's target.
+    static DexServiceException translate(
+            final StatusRuntimeException exception,
+            final FlowTargetRequirement requirement,
+            final String flowId,
+            final String detailPrefix) {
         final ServiceErrorResponse details;
         try {
             details = unpackDetails(exception);
@@ -48,14 +57,14 @@ final class GrpcExceptionTranslator {
             final DexServiceException translated = new DexServiceException(
                     exception.getStatus().getCode(),
                     ErrorSubStatus.UNCATEGORIZED,
-                    "Dex returned malformed error details",
+                    prefixDetail(detailPrefix, "Dex returned malformed error details"),
                     exception);
             translated.addSuppressed(malformed);
             return translated;
         }
 
         final Status.Code code = exception.getStatus().getCode();
-        final String detail = errorDetail(exception, details);
+        final String detail = prefixDetail(detailPrefix, errorDetail(exception, details));
         final ErrorSubStatus subStatus = details == null
                 ? ErrorSubStatus.UNCATEGORIZED
                 : mapSubStatus(details.getSubStatus());
@@ -92,6 +101,10 @@ final class GrpcExceptionTranslator {
             }
         }
         return null;
+    }
+
+    private static String prefixDetail(final String detailPrefix, final String detail) {
+        return detailPrefix == null ? detail : detailPrefix + ": " + detail;
     }
 
     private static String errorDetail(

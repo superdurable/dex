@@ -120,6 +120,31 @@ public final class Registry {
         return flow;
     }
 
+    // A same-named Channel or Stream is not a mismatch; only Attribute and AttributeMap are.
+    void requireRegisteredAttribute(final PersistenceDefinition definition) {
+        String mismatchedFlowType = null;
+        for (RegisteredFlow flow : registeredFlows.values()) {
+            final PersistenceDefinition registered = flow.getPersistence().get(definition.getName());
+            if (registered == definition) {
+                return;
+            }
+            if (mismatchedFlowType == null
+                    && (registered instanceof Attribute || registered instanceof AttributeMap)) {
+                mismatchedFlowType = flow.getName();
+            }
+        }
+        final String kind = definition instanceof AttributeMap ? "AttributeMap " : "Attribute ";
+        if (mismatchedFlowType != null) {
+            throw new FlowDefinitionException(
+                    kind + definition.getName()
+                            + " differs from the definition registered by Flow "
+                            + mismatchedFlowType
+                            + "; pass the same definition object that the Flow registers");
+        }
+        throw new FlowDefinitionException(
+                kind + definition.getName() + " is not registered by any Flow in the Registry");
+    }
+
     private static Map<String, RegisteredFlow> assemble(
             final List<Flow<?>> flows,
             final Map<String, IndexType> attributeIndexes) {

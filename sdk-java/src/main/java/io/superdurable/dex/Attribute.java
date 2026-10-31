@@ -42,7 +42,7 @@ import java.util.Objects;
  *
  * @param <T> the Java value type stored in the Attribute
  */
-public final class Attribute<T> extends PersistenceDefinition {
+public final class Attribute<T> extends PersistenceDefinition implements AttributeRead<T> {
     private final String name;
     private final Class<T> valueType;
     private final AttributeIndex index;
@@ -133,7 +133,8 @@ public final class Attribute<T> extends PersistenceDefinition {
      * <p>This option cannot be combined with an {@link AttributeIndex} or with
      * {@link #syncToAttributeStore()}. {@link Client#waitForAttributeMatch} rejects a hard-delete
      * Attribute before it contacts the Server. Use an RPC that reads the Attribute when a caller
-     * needs the value.
+     * needs the value. {@link Client#getAttributes(String, AttributeRead...)} also reads a
+     * hard-delete Attribute's committed value.
      *
      * <p>The Dex Server must have an enabled blob store and must support Server protocol version 3
      * or later. A Step, RPC, StartFlow, or SubFlow start that writes this Attribute fails with
