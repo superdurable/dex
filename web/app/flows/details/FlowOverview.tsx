@@ -7,7 +7,6 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useState } from 'react';
-import { displayEventNumber } from '@/lib/timeline';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowRouting, PullRouting, flowRoutingData } from './PullRouting';
 import { JsonView } from '../../components/JsonView';
@@ -340,7 +339,7 @@ export function FlowOverview({
                 <p className="eyebrow">Selected event</p>
                 <h2>{eventTitle(selectedEvent)}</h2>
                 <div className="event-meta">
-                  <span>Event {displayEventNumber(events, selectedEvent)}</span>
+                  <span>Event #{selectedEvent.eventId}</span>
                   <span>{selectedEvent.eventTime || 'No timestamp'}</span>
                 </div>
               </header>

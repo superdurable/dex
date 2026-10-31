@@ -7,13 +7,15 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { describe, expect, it } from 'vitest';
+import { sequentialStepHistory, stepEvent } from './historyTestServer';
 import {
   buildSelectedTimelineLinks,
+  buildSelectedTimelineRelations,
   buildTimelineLinks,
   buildTimelineStepLinks,
-  displayEventNumber,
   formatElapsedDuration,
   newestTimelineEvents,
+  timelineRelatedEventLabel,
 } from './timeline';
 import type { FlowHistoryEvent } from './types';
 
@@ -39,15 +41,6 @@ describe('timeline', () => {
     expect(history.map((entry) => entry.eventId)).toEqual([1, 8, 4]);
   });
 
-  it('numbers Dex events contiguously instead of displaying backend IDs', () => {
-    const history = [
-      event(1, 'FlowStartedOrContinued'),
-      event(8, 'StepWaitForCompleted'),
-      event(14, 'StepExecuteCompleted'),
-      event(16, 'FlowClosed'),
-    ];
-    expect(history.map((entry) => displayEventNumber(history, entry))).toEqual([1, 2, 3, 4]);
-  });
 
   it('pairs each WaitFor start with the following Execute result for the same execution', () => {
     const links = buildTimelineStepLinks([
@@ -284,3 +277,142 @@ describe('timeline', () => {
     expect(formatElapsedDuration(3_720_000)).toBe('1h 2m');
   });
 });
+
+describe('selected event relations across pages', () => {
+  const newestPage = { hasOlder: true, hasNewer: false };
+  const review = { stepExecutionId: 'Review-3', fromStepExecutionId: 'Intake-1', stepType: 'Review' };
+
+  function executeAfterWaitFor(context: Record<string, unknown>): FlowHistoryEvent {
+    return {
+      ...stepEvent(1234, 'StepExecuteCompleted', { ...review, startedTime: '2026-10-24T19:05:00Z', ...context }),
+      payload: {
+        context: { ...review, startedTime: '2026-10-24T19:05:00Z', ...context },
+        input: { conditionResults: {} },
+      },
+    };
+  }
+
+  it('draws a loaded condition-wait link and lists it as loaded', () => {
+    const waitFor = stepEvent(10, 'StepWaitForCompleted', review);
+    const execute = { ...executeAfterWaitFor({}), eventId: 11 };
+    const relations = buildSelectedTimelineRelations([waitFor, execute], execute, newestPage);
+
+    expect(relations.links.map((link) => [link.kind, link.fromEventId, link.toEventId])).toEqual([['condition-wait', 10, 11]]);
+    expect(relations.stubs).toEqual([]);
+    expect(relations.related.map((entry) => [entry.relation, entry.location, entry.eventId])).toEqual([['wait-for', 'loaded', 10]]);
+  });
+
+  it('labels a WaitFor on another page by its reported event ID and wait time', () => {
+    const execute = executeAfterWaitFor({ waitForCompletedEventId: '1001', waitForCompletedTime: '2026-10-24T17:00:00Z' });
+    const relations = buildSelectedTimelineRelations([execute], execute, newestPage);
+
+    expect(relations.stubs).toHaveLength(1);
+    expect(timelineRelatedEventLabel(relations.stubs[0]))
+      .toBe('from Review-3 WaitFor completed, event #1001 (older page), waited 2h 5m');
+  });
+
+  it('falls back to an unknown far end without the reported event ID', () => {
+    const execute = executeAfterWaitFor({});
+    const relations = buildSelectedTimelineRelations([execute], execute, newestPage);
+
+    expect(relations.stubs.map((stub) => [stub.relation, stub.location])).toEqual([['wait-for', 'unknown']]);
+    expect(timelineRelatedEventLabel(relations.stubs[0])).toBe('from Review-3 WaitFor completed (event not on this page)');
+  });
+
+  it('does not invent a WaitFor for an Execute that skipped it', () => {
+    const execute = stepEvent(20, 'StepExecuteCompleted', review);
+    const relations = buildSelectedTimelineRelations([execute], execute, newestPage);
+
+    expect(relations.related.map((entry) => entry.relation)).toEqual(['source']);
+  });
+
+  it('marks a far end inside the pruned range as pruned', () => {
+    const execute = executeAfterWaitFor({ waitForCompletedEventId: 900 });
+    const relations = buildSelectedTimelineRelations([execute], execute, {
+      ...newestPage,
+      prunedEventIdRange: { firstEventId: 2, lastEventId: 1000 },
+    });
+
+    expect(relations.stubs[0].location).toBe('pruned');
+    expect(timelineRelatedEventLabel(relations.stubs[0]))
+      .toBe('from Review-3 WaitFor completed (event #900, removed by the history window)');
+  });
+
+  it('marks a missing older event on the oldest retained page as pruned', () => {
+    const flowStart: FlowHistoryEvent = { eventId: 1, eventTime: null, type: 'FlowStartedOrContinued', payload: {}, runAttempt: 1 };
+    const execute = executeAfterWaitFor({});
+    const relations = buildSelectedTimelineRelations([flowStart, execute], execute, {
+      hasOlder: false,
+      hasNewer: true,
+      prunedEventIdRange: { firstEventId: 2, lastEventId: 1233 },
+    });
+
+    expect(relations.stubs.map((stub) => [stub.relation, stub.location])).toEqual([['wait-for', 'pruned']]);
+  });
+
+  it('points a Step started by Flow start at event 1 on another page', () => {
+    const waitFor = stepEvent(2001, 'StepWaitForCompleted', { stepExecutionId: 'Step-1', fromStepExecutionId: '__start__', stepType: 'Step' });
+    const relations = buildSelectedTimelineRelations([waitFor], waitFor, { hasOlder: true, hasNewer: true });
+
+    expect(relations.related.map((entry) => [entry.relation, entry.location, entry.eventId])).toEqual([
+      ['source', 'other-page', 1],
+      ['execute', 'unknown', undefined],
+    ]);
+  });
+
+  it('uses the reported deciding event ID for a source on another page', () => {
+    const waitFor = stepEvent(2001, 'StepWaitForCompleted', { ...review, fromEventId: '77' });
+    const relations = buildSelectedTimelineRelations([waitFor], waitFor, newestPage);
+
+    expect(timelineRelatedEventLabel(relations.stubs[0])).toBe('from Intake-1 decision, event #77 (older page)');
+  });
+
+  it('lists started executions on the page and on a newer page', () => {
+    const decision: FlowHistoryEvent = {
+      ...stepEvent(50, 'StepExecuteCompleted', { stepExecutionId: 'Intake-1', stepType: 'Intake' }),
+      payload: {
+        context: { stepExecutionId: 'Intake-1', stepType: 'Intake' },
+        output: { stepDecision: { nextSteps: [{ stepType: 'Review' }, { stepType: 'Notify' }] } },
+      },
+    };
+    const started = stepEvent(51, 'StepWaitForCompleted', review);
+    const relations = buildSelectedTimelineRelations([decision, started], decision, { hasOlder: true, hasNewer: true });
+
+    expect(relations.related.filter((entry) => entry.relation === 'started').map((entry) => [entry.description, entry.location]))
+      .toEqual([['Review-3 first event', 'loaded'], ['Notify execution', 'unknown']]);
+  });
+
+  it('builds every link of a 20,000-event page in O(n log n)', () => {
+    const events = sequentialStepHistory(20_000);
+    const startedAt = performance.now();
+    const links = buildTimelineLinks(events);
+    const relations = buildSelectedTimelineRelations(events, events[10_000], { hasOlder: false, hasNewer: false });
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(links).toHaveLength(19_999);
+    expect(relations.related.map((entry) => entry.relation)).toEqual(['wait-for', 'started']);
+    expect(elapsedMs).toBeLessThan(1000);
+  });
+
+  it('prefers the reported deciding event over the in-page source search', () => {
+    const rpc = (eventId: number): FlowHistoryEvent => ({
+      eventId,
+      eventTime: null,
+      type: 'RpcExecutionCompleted',
+      payload: { rpcName: 'approve' },
+    });
+    const started = stepEvent(9, 'StepWaitForCompleted', {
+      stepExecutionId: 'Approval-1',
+      fromStepExecutionId: '__rpc/approve',
+      stepType: 'Approval',
+    });
+    const reported = { ...started, payload: { context: { ...(started.payload.context as object), fromEventId: '5' } } };
+
+    expect(buildTimelineLinks([rpc(5), rpc(8), started]).map((link) => link.fromEventId)).toEqual([8]);
+    expect(buildTimelineLinks([rpc(5), rpc(8), reported]).map((link) => link.fromEventId)).toEqual([5]);
+    const offPage = buildSelectedTimelineRelations([rpc(8), reported], reported, newestPage);
+    expect(offPage.links).toEqual([]);
+    expect(offPage.related.map((entry) => [entry.relation, entry.location, entry.eventId])).toEqual([['source', 'other-page', 5]]);
+  });
+});
+

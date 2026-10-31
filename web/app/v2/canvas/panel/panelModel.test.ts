@@ -196,4 +196,29 @@ describe('buildPanel', () => {
       expect(executeOutput.body.nextStepTypes).toEqual([])
     }
   })
+
+  it('marks a partial overlay and a WaitFor that ran before the loaded window', () => {
+    const model = step(true)
+    const partial = {
+      ...overlay([{
+        stepExecutionId: 'exec-7',
+        stepType: 'RefundStep',
+        ordinal: 1,
+        waitFor: { status: 'completed', conditions: [] },
+        isWaitForNotLoaded: true,
+        execute: { status: 'completed' },
+        attempts: 1,
+      }]),
+      hasEarlierExecutions: true,
+    }
+    const panel = buildPanel(flow(model), model, partial, 'exec-7', false, true, 1)
+
+    expect(panel.isPartial).toBe(true)
+    expect(panel.executions[0].wait).toBe('earlier, not loaded')
+    const waitOutput = panel.phases[0].tabs.find((tab) => tab.id === 'output')
+    if (waitOutput?.body.kind !== 'waitOutput') throw new Error('missing WaitFor output')
+    expect(waitOutput.body.isWaitForBeforeWindow).toBe(true)
+    expect(buildPanel(flow(model), model, overlay([]), null).isPartial).toBe(false)
+  })
 })
+

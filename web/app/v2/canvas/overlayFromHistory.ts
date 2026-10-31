@@ -6,14 +6,22 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { loadCompleteHistory } from '@/lib/history';
+import {
+  appendToNewestHistoryWindow,
+  createHistoryPageLoader,
+  loadLatestEventIdHint,
+  loadNewestHistoryWindow,
+  loadOldestRetainedEvents,
+  withFlowStart,
+  type HistoryWindow,
+} from '@/lib/history';
 import { readResponseJSON } from '@/lib/http';
+import { positiveRunAttempt } from '@/lib/timeTravel';
 import type {
   ActiveStepExecution,
   FlowHistoryEvent,
   FlowState,
   FlowSummary,
-  HistoryPage,
 } from '@/lib/types';
 import type { FdgConditionKind } from './model/fdg';
 import type { PhaseStatus, RunCondition, RunOverlay, StepExecution } from './model/run';
@@ -39,33 +47,74 @@ export interface RunOverlayBundle {
   overlay: RunOverlay;
   previousRunId: string;
   records: ExecutionRecord[];
+  /** The first loaded event ID; executions recorded before it are missing when it is above 1. */
+  loadedFromEventId: number;
+  /** The newest loaded event ID. */
+  loadedThroughEventId: number;
 }
 
-export async function loadRunHistory(flowId: string, runId: string): Promise<FlowHistoryEvent[]> {
-  const complete = await loadCompleteHistory(async (nextPageToken, startInternalEventId) => {
-    const params = new URLSearchParams({
-      flowId,
-      runId,
-      startInternalEventId: String(startInternalEventId),
-      estimatePageSize: '200',
-    });
-    if (nextPageToken) params.set('nextPageToken', nextPageToken);
-    return readResponseJSON<HistoryPage>(await fetch(`/api/flows/history?${params}`, { cache: 'no-store' }));
-  });
-  return complete.events;
+/** The newest history window of one run; executions before it are absent from the overlay. */
+export interface RecentRunHistory {
+  runId: string;
+  runAttempt: number;
+  flowStart: FlowHistoryEvent | null;
+  historyWindow: HistoryWindow;
 }
 
-export async function loadCurrentRun(flowId: string): Promise<{
+/** Loads the newest window, or appends to `previous` when it belongs to the same run attempt. */
+export async function loadRecentRunHistory(
+  flowId: string,
+  runId: string,
+  runAttempt = 0,
+  previous?: RecentRunHistory,
+): Promise<RecentRunHistory> {
+  const loadPage = createHistoryPageLoader(flowId, runId, 0);
+  if (previous && previous.runId === runId && previous.runAttempt === runAttempt) {
+    return {
+      ...previous,
+      historyWindow: await appendToNewestHistoryWindow(loadPage, previous.historyWindow, 0),
+    };
+  }
+  const [latestEventIdHint, oldest] = await Promise.all([
+    loadLatestEventIdHint(flowId, runId),
+    loadOldestRetainedEvents(loadPage),
+  ]);
+  const flowStart = oldest.events[0]?.type === 'FlowStartedOrContinued' ? oldest.events[0] : null;
+  return {
+    runId,
+    runAttempt,
+    flowStart,
+    historyWindow: await loadNewestHistoryWindow(loadPage, latestEventIdHint),
+  };
+}
+
+export function recentRunEvents(history: RecentRunHistory): FlowHistoryEvent[] {
+  return withFlowStart(history.historyWindow.events, history.flowStart);
+}
+
+/** The first event ID of the newest window, which the overlay reports as its loaded range. */
+export function recentRunLoadedFromEventId(history: RecentRunHistory): number {
+  return history.historyWindow.events[0]?.eventId ?? 1;
+}
+
+export async function loadCurrentRun(flowId: string, previous?: RecentRunHistory): Promise<{
   summary: FlowSummary;
   events: FlowHistoryEvent[];
+  history: RecentRunHistory;
   state: FlowState | null;
 }> {
   const summary = await readResponseJSON<FlowSummary>(
     await fetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, { cache: 'no-store' }),
   );
-  const events = await loadRunHistory(flowId, summary.runId);
+  const history = await loadRecentRunHistory(
+    flowId,
+    summary.runId,
+    positiveRunAttempt(summary.runAttempt),
+    previous,
+  );
+  const events = recentRunEvents(history);
   if (summary.flowStatusCode !== 1) {
-    return { summary, events, state: null };
+    return { summary, events, history, state: null };
   }
   try {
     const state = await readResponseJSON<FlowState>(
@@ -74,9 +123,9 @@ export async function loadCurrentRun(flowId: string): Promise<{
         { cache: 'no-store' },
       ),
     );
-    return { summary, events, state };
+    return { summary, events, history, state };
   } catch {
-    return { summary, events, state: null };
+    return { summary, events, history, state: null };
   }
 }
 
@@ -92,6 +141,7 @@ export function overlayFromHistory({
   events,
   activeSteps = [],
   now = Date.now(),
+  loadedFromEventId = 1,
 }: {
   flowId: string;
   runId: string;
@@ -99,9 +149,12 @@ export function overlayFromHistory({
   events: FlowHistoryEvent[];
   activeSteps?: ActiveStepExecution[];
   now?: number;
+  /** The first loaded event ID; FlowStart may still be included before it. */
+  loadedFromEventId?: number;
 }): RunOverlayBundle {
   const records = new Map<string, ExecutionRecord>();
   const order: string[] = [];
+  const hasEarlierEvents = loadedFromEventId > 1;
 
   for (const event of events) {
     if (!STEP_EVENT_TYPES.has(event.type)) continue;
@@ -125,6 +178,7 @@ export function overlayFromHistory({
       };
       records.set(stepExecutionId, record);
       order.push(stepExecutionId);
+      if (hasEarlierEvents) markWaitForBeforeWindow(record, event);
     }
     applyEvent(record, event);
   }
@@ -147,7 +201,7 @@ export function overlayFromHistory({
       records.set(active.stepExecutionId, record);
       order.push(active.stepExecutionId);
     }
-    applyActive(record, active);
+    applyActive(record, active, hasEarlierEvents);
   }
 
   const executions = order.map((id, index) => {
@@ -159,16 +213,31 @@ export function overlayFromHistory({
   return {
     previousRunId: previousRunIdFromEvents(events),
     records: order.map((id) => records.get(id)!),
+    loadedFromEventId,
+    loadedThroughEventId: events.reduce((newest, event) => Math.max(newest, event.eventId), 0),
     overlay: {
       runId,
       flowId,
       status,
       executions,
       simulated: false,
+      hasEarlierExecutions: hasEarlierEvents,
       note: runId,
       now,
     },
   };
+}
+
+/** Execute input carries condition results only after WaitFor, so a first Execute event means an earlier WaitFor. */
+function markWaitForBeforeWindow(record: ExecutionRecord, firstEvent: FlowHistoryEvent): void {
+  if (!firstEvent.type.startsWith('StepExecute')) return;
+  const input = asData(firstEvent.payload.input);
+  if (!Object.hasOwn(input, 'conditionResults')) return;
+  record.execution.waitFor = {
+    status: asData(input.conditionResults).waitForFailed === true ? 'failed' : 'completed',
+    conditions: [],
+  };
+  record.execution.isWaitForNotLoaded = true;
 }
 
 export function prependStepRecords(
@@ -179,7 +248,7 @@ export function prependStepRecords(
   if (older.length === 0) return bundle;
   const newer = bundle.records.filter((record) => record.execution.stepType === stepType);
   const others = bundle.records.filter((record) => record.execution.stepType !== stepType);
-  const merged = [...older, ...newer].map((record, index) => ({
+  const merged = mergeOlderExecutionRecords(older, newer).map((record, index) => ({
     ...record,
     execution: { ...record.execution, ordinal: index + 1 },
   }));
@@ -192,6 +261,67 @@ export function prependStepRecords(
       executions: records
         .map((record) => record.execution)
         .sort((left, right) => left.ordinal - right.ordinal),
+    },
+  };
+}
+
+/** Whether the next window starts where the previous one could still be extended, in the same run. */
+export function isWindowSlideContiguous(previous: RunOverlayBundle, next: RunOverlayBundle): boolean {
+  return previous.overlay.runId === next.overlay.runId
+    && next.loadedFromEventId <= previous.loadedThroughEventId + 1;
+}
+
+/**
+ * Moves executions that slid out of the newest window into the older records of each Step.
+ *
+ * Returns `olderByStep` itself when nothing slid out; callers check `isWindowSlideContiguous` first.
+ */
+export function olderRecordsAfterWindowSlide(
+  olderByStep: Record<string, ExecutionRecord[]>,
+  previous: RunOverlayBundle,
+  next: RunOverlayBundle,
+): Record<string, ExecutionRecord[]> {
+  if (Object.keys(olderByStep).length === 0 || next.loadedFromEventId <= previous.loadedFromEventId) {
+    return olderByStep;
+  }
+  const slidOut = previous.records.filter((record) => {
+    const firstEventId = record.waitEvent?.eventId ?? record.executeEvent?.eventId;
+    return firstEventId !== undefined && firstEventId < next.loadedFromEventId;
+  });
+  return Object.fromEntries(Object.entries(olderByStep).map(([stepType, older]) => [
+    stepType,
+    mergeOlderExecutionRecords(older, slidOut.filter((record) => record.execution.stepType === stepType)),
+  ]));
+}
+
+/** Puts older records first; an execution in both keeps the newer record with the older WaitFor. */
+export function mergeOlderExecutionRecords(older: ExecutionRecord[], newer: ExecutionRecord[]): ExecutionRecord[] {
+  // An execution that straddles a window edge has its WaitFor in the older records.
+  const olderByExecution = new Map(older.map((record) => [executionKey(record), record]));
+  const newerKeys = new Set(newer.map(executionKey));
+  return [
+    ...older.filter((record) => !newerKeys.has(executionKey(record))),
+    ...newer.map((record) => {
+      const earlier = olderByExecution.get(executionKey(record));
+      return earlier ? withEarlierRecord(record, earlier) : record;
+    }),
+  ];
+}
+
+function executionKey(record: ExecutionRecord): string {
+  return `${record.runId}\n${record.execution.stepExecutionId}`;
+}
+
+function withEarlierRecord(record: ExecutionRecord, earlier: ExecutionRecord): ExecutionRecord {
+  if (record.waitEvent || !earlier.waitEvent) return record;
+  return {
+    ...record,
+    waitEvent: earlier.waitEvent,
+    execution: {
+      ...record.execution,
+      waitFor: earlier.execution.waitFor,
+      isWaitForNotLoaded: false,
+      startedAt: earlier.execution.startedAt ?? record.execution.startedAt,
     },
   };
 }
@@ -292,21 +422,30 @@ function applyEvent(record: ExecutionRecord, event: FlowHistoryEvent): void {
   }
 }
 
-function applyActive(record: ExecutionRecord, active: ActiveStepExecution): void {
+function applyActive(record: ExecutionRecord, active: ActiveStepExecution, hasEarlierEvents: boolean): void {
   record.activeStep = active;
   if (active.phase === 'Waiting') {
     record.execution.waitFor = {
       status: 'waiting',
       conditions: conditionsFromWaiting(active.waitingCondition),
     };
-  } else if (record.execution.execute.status === 'notStarted') {
-    record.execution.execute = { status: 'running' };
+  } else {
+    if (record.execution.execute.status === 'notStarted') record.execution.execute = { status: 'running' };
+    if (hasEarlierEvents && !record.waitEvent && record.execution.waitFor === null && hasCompletedWaitFor(active)) {
+      record.execution.waitFor = { status: 'completed', conditions: [] };
+      record.execution.isWaitForNotLoaded = true;
+    }
   }
   if (active.lastFailureInfo) {
     record.execution.lastFailure = failureMessage(active.lastFailureInfo) ?? record.execution.lastFailure;
     const attempt = numberField(asData(active.lastFailureInfo).attempt);
     if (attempt > 0) record.execution.attempts = Math.max(record.execution.attempts, attempt);
   }
+}
+
+/** Completed conditions and WaitFor routing exist only after WaitFor ran; empty results are omitted. */
+function hasCompletedWaitFor(active: ActiveStepExecution): boolean {
+  return active.completedConditions !== undefined || active.waitForPullRouting !== undefined;
 }
 
 function conditionsFromEvent(event: FlowHistoryEvent): RunCondition[] {

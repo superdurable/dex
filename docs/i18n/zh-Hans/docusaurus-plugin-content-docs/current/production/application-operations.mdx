@@ -53,6 +53,18 @@ Flow 超时是 Flow 启动时配置的持久化 Dex timer；零会禁用它。�
 使用 Flow ID 和 Run ID 打开 Flow，选择 **Timeline**，然后选择正在等待、已完成或失败的
 Step 事件。右侧的 **Selected event** 面板会显示事件编号和类型。
 
+事件编号就是事件 ID，在每一页上以及 pruning 之后都保持不变。**Timeline** 每页最多显示
+1,000 个事件，并默认打开最新的一页。使用 **Older events** 和 **Newer events** 在页面之间
+切换。使用 **Newest** 回到 **Live** 持续追加事件的最新一页。
+
+**Selected event** 面板会列出 **Related events**：该事件的 WaitFor、它的来源 execution，
+以及它启动的 execution。每一项都会标明已加载、位于其他页面、已被 pruned，或 **Not on this page**。
+**Not on this page** 表示 Dex Web 知道相关事件存在但无法定位它，因此不提供跳转。选择位于其他页面的
+条目，或 **Timeline** 顶部或底部对应的 stub，即可加载该页面并高亮该事件。**Back** 会返回上一个
+页面。Dex Server 只保留[最近的 history 窗口](/production/server-zd-operations#history-window)。
+已被 pruned 的相关事件会以弱化样式显示，并带有 **pruned** 标记。最早保留的一页会说明哪些事件编号
+已被移除。
+
 <img
   src="/img/production/dex-web-timeline-step-input.png"
   alt="Dex Web Timeline 中已选择 WaitForCondition 事件，右侧显示 Step input"

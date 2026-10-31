@@ -15,8 +15,9 @@ import type {
 } from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
 import { hydrateBlobs } from '@/lib/blobs';
-import { loadCompleteHistory } from '@/lib/history';
+import { latestEventIdOfWait, withFlowStart } from '@/lib/history';
 import { isTransientGatewayResponse, readResponseJSON } from '@/lib/http';
+import { buildSelectedTimelineRelations } from '@/lib/timeline';
 import { positiveRunAttempt, RUN_ATTEMPT_SEARCH_PARAM } from '@/lib/timeTravel';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
 import type {
@@ -35,6 +36,7 @@ import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
+import { useRunHistory } from './useRunHistory';
 
 type RunTab = 'overview' | 'steps' | 'timeline' | 'stream';
 
@@ -46,6 +48,7 @@ interface SelectedEventConnector {
 }
 
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
+const noHistoryEvents: FlowHistoryEvent[] = [];
 const sidebarWidthStorageKey = 'dex.run.selected-event-width';
 const runTabStorageKey = 'dex.run.selected-tab';
 const runTabs = new Set<RunTab>(['overview', 'steps', 'timeline', 'stream']);
@@ -119,9 +122,9 @@ export function RunDetailsPage({
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedRunAttempt = positiveRunAttempt(searchParams.get(RUN_ATTEMPT_SEARCH_PARAM));
   const [summary, setSummary] = useState<FlowSummary | null>(null);
-  const [history, setHistory] = useState<FlowHistoryEvent[]>([]);
+  const runHistory = useRunHistory(flowId, runId);
+  const { appendNewest, clear: clearRunHistory, loadNewest } = runHistory;
   const [state, setState] = useState<FlowState | null>(null);
-  const [nextInternalEventId, setNextInternalEventId] = useState(0);
   const [tab, setTab] = useState<RunTab>(storedRunTab);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -256,15 +259,14 @@ export function RunDetailsPage({
   }, [requestedRunAttempt]);
 
   const clearLoadedRun = useCallback(() => {
-    setHistory([]);
-    setNextInternalEventId(0);
+    clearRunHistory();
     setSelectedEvent(null);
     setHydratedEvents({});
     setDataWarnings([]);
     blobCache.current.clear();
     hydratingEventIDs.current.clear();
     hydratedEventIDs.current.clear();
-  }, []);
+  }, [clearRunHistory]);
 
   const loadSummary = useCallback(async () => {
     const value = await readResponseJSON<FlowSummary>(await fetch(summaryURL, { cache: 'no-store' }));
@@ -272,38 +274,15 @@ export function RunDetailsPage({
     return value;
   }, [summaryURL]);
 
-  const loadHistory = useCallback(async (
-    initialPageToken: string,
-    initialInternalEventId: number,
-    append: boolean,
-    runAttempt: number,
-  ) => {
+  /** Loads only the newest history window, so a refresh never rereads the whole history. */
+  const loadHistory = useCallback(async (runAttempt: number) => {
     setPendingRunRequestCount((current) => current + 1);
     try {
-      const complete = await loadCompleteHistory(async (nextPageToken, startInternalEventId) => {
-        const params = new URLSearchParams({
-          flowId,
-          runId,
-          startInternalEventId: String(startInternalEventId),
-          estimatePageSize: '200',
-        });
-        if (nextPageToken) params.set('nextPageToken', nextPageToken);
-        if (runAttempt > 0) params.set(RUN_ATTEMPT_SEARCH_PARAM, String(runAttempt));
-        return readResponseJSON(
-          await fetch(`/api/flows/history?${params}`, { cache: 'no-store' }),
-        );
-      }, initialPageToken, initialInternalEventId);
-      setHistory((current) => {
-        const combined = append ? [...current, ...complete.events] : complete.events;
-        return [...new Map(combined.map((event) => [event.eventId, event])).values()]
-          .sort((left, right) => left.eventId - right.eventId);
-      });
-      setNextInternalEventId(complete.nextInternalEventId);
-      return complete;
+      await loadNewest(runAttempt);
     } finally {
       setPendingRunRequestCount((current) => current - 1);
     }
-  }, [flowId, runId]);
+  }, [loadNewest]);
 
   const refresh = useCallback(async () => {
     setPendingRunRequestCount((current) => current + 1);
@@ -315,7 +294,7 @@ export function RunDetailsPage({
       if (latestRunAttempt !== followedRunAttempt.current) clearLoadedRun();
       followedRunAttempt.current = latestRunAttempt;
       await Promise.all([
-        loadHistory('', 0, false, historyRunAttempt(latestSummary)),
+        loadHistory(historyRunAttempt(latestSummary)),
         loadState(latestSummary.flowStatusCode),
       ]);
     } catch (refreshError) {
@@ -342,6 +321,7 @@ export function RunDetailsPage({
   }, [clearLoadedRun, refresh]);
 
   const isViewingEarlierRunAttempt = summary !== null && historyRunAttempt(summary) > 0;
+  const nextInternalEventId = runHistory.newest?.nextInternalEventId ?? 0;
 
   useEffect(() => {
     if (
@@ -370,7 +350,7 @@ export function RunDetailsPage({
           window.setTimeout(() => setWaitCycle((current) => current + 1), 1000);
           return;
         }
-        await readResponseJSON(response);
+        const latestEventId = latestEventIdOfWait(await readResponseJSON(response));
         const latestSummary = await loadSummary();
         const latestRunAttempt = positiveRunAttempt(latestSummary.runAttempt);
         if (latestRunAttempt !== followedRunAttempt.current) {
@@ -378,13 +358,13 @@ export function RunDetailsPage({
           followedRunAttempt.current = latestRunAttempt;
           clearLoadedRun();
           await Promise.all([
-            loadHistory('', 0, false, historyRunAttempt(latestSummary)),
+            loadHistory(historyRunAttempt(latestSummary)),
             loadState(latestSummary.flowStatusCode),
           ]);
           return;
         }
         await Promise.all([
-          loadHistory('', nextInternalEventId, true, 0),
+          appendNewest(latestEventId),
           loadState(latestSummary.flowStatusCode),
         ]);
       })
@@ -395,6 +375,7 @@ export function RunDetailsPage({
       });
     return () => controller.abort();
   }, [
+    appendNewest,
     autoRefresh,
     clearLoadedRun,
     flowId,
@@ -415,23 +396,83 @@ export function RunDetailsPage({
     ['timeline', 'Timeline'],
     ['stream', 'Streams'],
   ];
+  const history = runHistory.newest?.events ?? noHistoryEvents;
+  const timelineWindow = runHistory.timelineWindow;
+  const timelineEvents = timelineWindow?.events ?? noHistoryEvents;
+  const flowStartEvent = runHistory.flowStartEvent;
+  const prunedEventIdRange = runHistory.prunedEventIdRange;
   const latestEvent = history.at(-1);
   const selectedRaw = selectedEvent ?? latestEvent ?? null;
   const selected = selectedRaw ? hydratedEvents[selectedRaw.eventId] ?? selectedRaw : null;
+  // Views outside Timeline read the newest window, with FlowStart for start details and routing.
+  const historyWithFlowStart = useMemo(() => withFlowStart(history, flowStartEvent), [flowStartEvent, history]);
   const displayedHistory = useMemo(
-    () => history.map((event) => hydratedEvents[event.eventId] ?? event),
-    [history, hydratedEvents],
+    () => historyWithFlowStart.map((event) => hydratedEvents[event.eventId] ?? event),
+    [historyWithFlowStart, hydratedEvents],
   );
+  const displayedTimelineEvents = useMemo(
+    () => timelineEvents.map((event) => hydratedEvents[event.eventId] ?? event),
+    [hydratedEvents, timelineEvents],
+  );
+  const isSelectionOnTimeline = tab === 'timeline';
+  const selectionEvents = isSelectionOnTimeline ? displayedTimelineEvents : displayedHistory;
+  const selectionWindow = isSelectionOnTimeline ? timelineWindow : runHistory.newest;
+  const selectionHasOlder = selectionWindow?.hasOlder ?? false;
+  const selectionHasNewer = isSelectionOnTimeline && runHistory.timelineHasNewer;
+  const selectedRelations = useMemo(() => buildSelectedTimelineRelations(selectionEvents, selectedRaw, {
+    hasOlder: selectionHasOlder,
+    hasNewer: selectionHasNewer,
+    prunedEventIdRange,
+  }), [prunedEventIdRange, selectedRaw, selectionEvents, selectionHasNewer, selectionHasOlder]);
+  const { back: backInTimeline, highlightEvent, jumpToEvent: jumpInTimeline } = runHistory;
+
+  const jumpToEvent = useCallback(async (eventId: number) => {
+    setError('');
+    setTab('timeline');
+    persistRunTab('timeline');
+    try {
+      const result = await jumpInTimeline(eventId, selectedEvent);
+      // A pruned target needs no error: the refreshed pruned range turns its stub into a pruned stub.
+      if (result.kind === 'loaded') setSelectedEvent(result.event);
+      else if (result.kind === 'missing') setError(`Event #${eventId} is not in the retained history.`);
+    } catch (jumpError) {
+      setError(jumpError instanceof Error ? jumpError.message : 'History page failed to load');
+    }
+  }, [jumpInTimeline, selectedEvent]);
+
+  const selectTimelineEvent = useCallback((event: FlowHistoryEvent) => {
+    highlightEvent(null);
+    setSelectedEvent(event);
+  }, [highlightEvent]);
+
+  const selectRelatedEvent = useCallback((eventId: number) => {
+    const target = selectionEvents.find((event) => event.eventId === eventId);
+    if (!target) return;
+    setSelectedEvent(target);
+    highlightEvent(eventId);
+  }, [highlightEvent, selectionEvents]);
+
+  const navigateTimeline = useCallback((navigation: () => Promise<void>) => {
+    setError('');
+    void navigation().catch((navigationError: unknown) => {
+      setError(navigationError instanceof Error ? navigationError.message : 'History page failed to load');
+    });
+  }, []);
+
+  const goBackInTimeline = useCallback(() => {
+    navigateTimeline(async () => {
+      const result = await backInTimeline();
+      if (result.kind === 'restored') setSelectedEvent(result.selectedEvent);
+    });
+  }, [backInTimeline, navigateTimeline]);
 
   useEffect(() => {
     if (selectedRaw) void hydrateEvent(selectedRaw);
   }, [hydrateEvent, selectedRaw?.eventId]);
 
   useEffect(() => {
-    if (tab !== 'overview') return;
-    const startEvent = history.find((event) => event.type === 'FlowStartedOrContinued');
-    if (startEvent) void hydrateEvent(startEvent);
-  }, [hydrateEvent, history, tab]);
+    if (tab === 'overview' && flowStartEvent) void hydrateEvent(flowStartEvent);
+  }, [flowStartEvent, hydrateEvent, tab]);
 
   useLayoutEffect(() => {
     const content = runContent.current;
@@ -484,7 +525,7 @@ export function RunDetailsPage({
       window.removeEventListener('resize', scheduleUpdate);
       window.removeEventListener('scroll', scheduleUpdate, true);
     };
-  }, [selectedEvent, sidebarWidth, tab]);
+  }, [selectedEvent, sidebarWidth, tab, timelineEvents]);
 
   const runChain = useMemo(() => {
     if (!summary) return [];
@@ -593,7 +634,7 @@ export function RunDetailsPage({
             ) : (
               <div><span>Run chain</span><b>{runChain.length}</b></div>
             )}
-            <div><span>Semantic events</span><b>{history.length}</b></div>
+            <div><span>Latest event</span><b>{latestEvent ? `#${latestEvent.eventId}` : 'None'}</b></div>
           </div>
         )}
       </section>
@@ -662,10 +703,17 @@ export function RunDetailsPage({
               onOpenStateWrite={setStateWriteKind}
             />
           )}
+          {tab === 'steps' && !isWaitingForHistory && runHistory.newest?.hasOlder && (
+            <p className="muted run-window-note">
+              The graph shows Steps from events #{history[0]?.eventId} to #{latestEvent?.eventId}. Older events are
+              on earlier Timeline pages.
+            </p>
+          )}
           {tab === 'steps' && !isWaitingForHistory && (
             <ExecutionGraph
               flowId={flowId}
               events={displayedHistory}
+              hasEarlierEvents={runHistory.newest?.hasOlder ?? false}
               state={state}
               selectedEvent={selectedEvent}
               onSelectEvent={setSelectedEvent}
@@ -674,9 +722,24 @@ export function RunDetailsPage({
           {tab === 'timeline' && !isWaitingForHistory && (
             <Timeline
               flowId={flowId}
-              events={displayedHistory}
+              events={displayedTimelineEvents}
               selectedEvent={selectedEvent}
-              onSelectEvent={setSelectedEvent}
+              onSelectEvent={selectTimelineEvent}
+              relations={selectedEvent ? selectedRelations : undefined}
+              paging={{
+                hasOlder: timelineWindow?.hasOlder ?? false,
+                hasNewer: runHistory.timelineHasNewer,
+                isNewest: runHistory.isTimelineOnNewest,
+                isLoading: runHistory.isLoadingTimelinePage,
+                canGoBack: runHistory.canGoBack,
+                onOlder: () => navigateTimeline(runHistory.showOlder),
+                onNewer: () => navigateTimeline(runHistory.showNewer),
+                onNewest: runHistory.showNewest,
+                onBack: goBackInTimeline,
+              }}
+              prunedEventIdRange={prunedEventIdRange}
+              highlightedEventId={runHistory.highlightedEventId}
+              onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
             />
           )}
           {tab === 'stream' && summary && (
@@ -700,8 +763,12 @@ export function RunDetailsPage({
             />
             <FlowStatePanel
               selectedEvent={selected}
-              history={displayedHistory}
+              history={withFlowStart(selectionEvents, flowStartEvent)}
               parentFlowId={flowId}
+              relatedEvents={selectedRelations.related}
+              onSelectRelatedEvent={selectRelatedEvent}
+              onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
+              isJumpDisabled={runHistory.isLoadingTimelinePage}
             />
           </aside>
         )}
@@ -712,7 +779,7 @@ export function RunDetailsPage({
           key={timeTravelEvent?.eventId ?? 'manual'}
           open={timeTravelOpen}
           summary={summary}
-          events={history}
+          events={historyWithFlowStart}
           initialEvent={timeTravelEvent}
           runAttempt={isViewingEarlierRunAttempt ? displayedRunAttempt : 0}
           timezone={timezone}

@@ -64,4 +64,24 @@ describe('Timeline run attempts', () => {
 
     expect(markup).not.toContain('Run attempt');
   });
+
+  it('numbers events by event ID, so numbers stay stable across pages and pruning', () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <Timeline
+            flowId="order-1"
+            events={[started, { ...zdFork, eventId: 4001, runAttempt: 1 }]}
+            selectedEvent={null}
+            onSelectEvent={() => {}}
+            prunedEventIdRange={{ firstEventId: 2, lastEventId: 4000 }}
+          />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain('#4001');
+    expect(markup).not.toContain('>#2<');
+    expect(markup).toContain('Events #2 to #4000 were removed by the history window; FlowStart is kept.');
+  });
 });
