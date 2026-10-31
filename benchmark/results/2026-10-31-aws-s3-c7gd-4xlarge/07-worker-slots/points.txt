@@ -1,2 +1,0 @@
-sequential-steps 2048
-sequential-steps 3072

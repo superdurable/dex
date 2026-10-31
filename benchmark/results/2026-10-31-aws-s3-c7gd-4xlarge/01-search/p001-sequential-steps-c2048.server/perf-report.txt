@@ -1,0 +1,93 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 128
+#
+# Samples: 11K of event 'armv8_pmuv3_0/cycles/P'
+# Event count (approx.): 156530291511
+#
+# Overhead  Command          Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           IPC   [IPC Coverage]
+# ........  ...............  ..........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+     2.96%  tokio-rt-worker  [.] rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+     2.63%  tokio-rt-worker  [.] malloc
+            |
+             --0.31%--malloc
+
+     2.02%  tokio-rt-worker  [.] memcmp
+     1.86%  tokio-rt-worker  [.] __aarch64_cas4_acq
+     1.77%  tokio-rt-worker  [k] _raw_spin_unlock_irqrestore
+            |
+            ---_raw_spin_unlock_irqrestore
+               |
+                --1.60%--wake_up_q
+                          futex_wake
+                          do_futex
+                          __arm64_sys_futex
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     1.72%  tokio-rt-worker  [.] cfree
+     1.49%  tokio-rt-worker  [.] 0x0000000000140a04
+     1.34%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     1.25%  tokio-rt-worker  [.] non-virtual thunk to rocksdb::(anonymous namespace)::BytewiseComparatorImpl::Compare(rocksdb::Slice const&, rocksdb::Slice const&) const
+     1.09%  tokio-rt-worker  [k] el0_svc
+            |
+            ---el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     1.08%  tokio-rt-worker  [.] rocksdb::MemTable::KeyComparator::operator()(char const*, rocksdb::Slice const&) const
+     0.89%  tokio-rt-worker  [.] __aarch64_ldadd8_relax
+     0.82%  tokio-rt-worker  [k] handle_softirqs
+            |
+            ---handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               |
+                --0.63%--el0_interrupt
+                          __el0_irq_handler_common
+                          el0t_64_irq_handler
+                          el0t_64_irq
+
+     0.82%  tokio-rt-worker  [.] 0x00000000000a2e84
+     0.81%  tokio-rt-worker  [.] __aarch64_swp4_rel
+     0.80%  tokio-rt-worker  [.] 0x00000000001406f4
+     0.78%  tokio-rt-worker  [.] __aarch64_ldadd8_rel
+     0.78%  tokio-rt-worker  [.] bool rocksdb::BlockIter<rocksdb::IndexValue>::GetRestartKey<rocksdb::DecodeKeyV4>(unsigned int, rocksdb::Slice*)
+     0.77%  tokio-rt-worker  [.] bool rocksdb::BlockIter<rocksdb::Slice>::BinarySeekRestartPointIndex<rocksdb::DecodeKey>(rocksdb::Slice const&, unsigned int*, bool*)
+     0.73%  tokio-rt-worker  [.] rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::Slice const&, rocksdb::DBImpl::GetImplOptions&)
+     0.64%  tokio-rt-worker  [.] __aarch64_cas8_acq_rel
+     0.63%  tokio-rt-worker  [.] HUF_buildCTable_wksp
+     0.62%  tokio-rt-worker  [.] 0x00000000000a1ba4
+     0.60%  tokio-rt-worker  [.] 0x0000000000095498
+     0.53%  tokio-rt-worker  [.] 0x0000000000095040
+     0.51%  tokio-rt-worker  [.] 0x0000000000092a00
+     0.51%  tokio-rt-worker  [.] 0x0000000000092a50
+     0.49%  tokio-rt-worker  [.] 0x00000000001407b4
+     0.48%  tokio-rt-worker  [.] rocksdb::DecodeEntry::operator()(char const*, char const*, unsigned int*, unsigned int*, unsigned int*, unsigned int*) [clone .isra.0]
+     0.48%  tokio-rt-worker  [.] void rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindSpliceForLevel<true>(rocksdb::Slice const&, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node*, int, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**) const
+     0.45%  tokio-rt-worker  [.] 0x00000000000a1c40
+     0.41%  tokio-rt-worker  [.] TLS init function for rocksdb::perf_context
+     0.40%  tokio-rt-worker  [.] <dexzd_engine::flow_coordination::registry::RegistryInner>::lease
+     0.39%  tokio-rt-worker  [.] rocksdb::IndexBlockIter::SeekImpl(rocksdb::Slice const&)
+     0.36%  tokio-rt-worker  [.] <dexzd_apply::state_access::run_rows::RunRows>::put_history_record
+     0.35%  tokio-rt-worker  [.] rocksdb::WriteThread::AwaitState(rocksdb::WriteThread::Writer*, unsigned char, rocksdb::WriteThread::AdaptationContext*)
+     0.35%  tokio-rt-worker  [.] rocksdb::MergingIterator::SeekImpl(rocksdb::Slice const&, unsigned long, bool)
+     0.33%  tokio-rt-worker  [.] 0x00000000000a1c34
+     0.32%  tokio-rt-worker  [.] memcpy@plt
+     0.32%  tokio-rt-worker  [.] prost::encoding::varint::decode_varint::<&mut &[u8]>
+     0.31%  tokio-rt-worker  [.] memcmp@plt
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

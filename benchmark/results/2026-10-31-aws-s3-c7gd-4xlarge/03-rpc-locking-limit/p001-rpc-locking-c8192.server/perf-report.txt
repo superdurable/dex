@@ -1,0 +1,401 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 823  of event 'armv8_pmuv3_0/cycles/P'
+# Event count (approx.): 503601032
+#
+# Overhead  Command          Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           IPC   [IPC Coverage]
+# ........  ...............  ..................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+     7.52%  tokio-rt-worker  [.] core::slice::sort::shared::smallsort::insert_tail::<aws_smithy_runtime_api::client::runtime_components::Tracked<aws_smithy_runtime_api::client::retries::classifiers::SharedRetryClassifier>, <[aws_smithy_runtime_api::client::runtime_components::Tracked<aws_smithy_runtime_api::client::retries::classifiers::SharedRetryClassifier>]>::sort_by_key<aws_smithy_runtime_api::client::retries::classifiers::RetryClassifierPriority, <aws_smithy_runtime_api::client::runtime_components::RuntimeComponents>::sort::{closure#0}>::{closure#0}>
+     6.62%  tokio-rt-worker  [.] 0x00000000000a2e84
+     5.21%  tokio-rt-worker  [.] 0x0000000000095358
+     4.59%  tokio-rt-worker  [.] __aarch64_cas4_acq
+     4.49%  tokio-rt-worker  [.] ZSTD_compressBlock_doubleFast
+     4.41%  tokio-rt-worker  [.] __aarch64_ldadd8_rel
+            |
+             --3.90%--__aarch64_ldadd8_rel
+                       <aws_smithy_runtime::client::interceptors::Interceptors<core::iter::adapters::map::Map<core::slice::iter::Iter<aws_smithy_runtime_api::client::runtime_components::Tracked<aws_smithy_runtime_api::client::interceptors::SharedInterceptor>>, <aws_smithy_runtime_api::client::runtime_components::RuntimeComponents>::interceptors::{closure#0}>>>::modify_before_completion
+                       <aws_smithy_async::future::timeout::Timeout<aws_smithy_runtime::client::orchestrator::invoke_with_stop_point::{closure#0}::{closure#0}::{closure#0}, aws_smithy_async::rt::sleep::Sleep> as core::future::future::Future>::poll
+                       <aws_smithy_runtime::client::timeout::MaybeTimeoutFuture<aws_smithy_runtime::client::orchestrator::invoke_with_stop_point::{closure#0}::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+
+     3.23%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     2.35%  tokio-rt-worker  [.] <core::hash::sip::Hasher<core::hash::sip::Sip13Rounds> as core::hash::Hasher>::write
+     2.32%  tokio-rt-worker  [.] <aws_smithy_checksums::body::cache::ChecksumCache as core::default::Default>::default
+     1.92%  tokio-rt-worker  [.] tonic::transport::server::serve_connection::<tonic::body::Body, hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::stream::TcpStream, core::io::error::Error, tonic::body::Body>::{closure#0}::{closure#1}>>, hyper_util::rt::tokio::TokioExecutor>::{closure#0}
+     1.91%  tokio-rt-worker  [.] cfree
+     1.90%  tokio-rt-worker  [.] 0x0000000000095498
+     1.82%  tokio-rt-worker  [.] unsigned int rocksdb::crc32c::ExtendImpl<&rocksdb::crc32c::DefaultCRC32>(unsigned int, char const*, unsigned long)
+     1.78%  tokio-rt-worker  [.] void rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindSpliceForLevel<true>(rocksdb::Slice const&, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node*, int, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**) const
+     1.50%  tokio-rt-worker  [.] 0x00000000000a2e80
+     1.41%  tokio-rt-worker  [.] sha2::sha256::aarch64_sha2::compress
+     1.38%  tokio-rt-worker  [.] malloc
+     1.31%  tokio-rt-worker  [.] <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry as dexzd_api::flow_operations::FlowOperations>::start_flow::{closure#0}
+            |
+            ---<dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry as dexzd_api::flow_operations::FlowOperations>::start_flow::{closure#0}
+               <dexzd_api::flow_service::DexFlowService as dexzd_protocol::dex::flow_service_server::FlowService>::start_flow::{closure#0}
+               <<dexzd_protocol::dex::flow_service_server::FlowServiceServer<_> as tower_service::Service<http::request::Request<_>>>::call::StartFlowSvc<dexzd_api::flow_service::DexFlowService> as tonic::server::service::UnaryService<dexzd_protocol::dex::StartFlowRequest>>::call::{closure#0}
+
+     0.96%  tokio-rt-worker  [k] begin_current_label_crit_section
+            |
+            ---begin_current_label_crit_section
+               apparmor_file_permission
+               security_file_permission
+               rw_verify_area
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.86%  tokio-rt-worker  [k] __schedule
+            |
+            ---__schedule
+               schedule
+               do_sched_yield
+               __arm64_sys_sched_yield
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.83%  tokio-rt-worker  [.] memcmp
+     0.83%  tokio-rt-worker  [.] rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+     0.82%  tokio-rt-worker  [.] 0x0000000000140a04
+     0.82%  tokio-rt-worker  [.] __aarch64_ldadd8_relax
+            |
+             --0.42%--__aarch64_ldadd8_relax
+                       aws_smithy_runtime::client::retries::classifiers::run_classifiers_on_ctx::<core::iter::adapters::map::Map<core::slice::iter::Iter<aws_smithy_runtime_api::client::runtime_components::Tracked<aws_smithy_runtime_api::client::retries::classifiers::SharedRetryClassifier>>, <aws_smithy_runtime_api::client::runtime_components::RuntimeComponents>::retry_classifiers::{closure#0}>>
+                       <aws_smithy_runtime::client::http::connection_poisoning::ConnectionPoisoningInterceptor as aws_smithy_runtime_api::client::interceptors::Intercept>::read_after_deserialization
+                       <aws_smithy_runtime::client::interceptors::Interceptors<core::iter::adapters::map::Map<core::slice::iter::Iter<aws_smithy_runtime_api::client::runtime_components::Tracked<aws_smithy_runtime_api::client::interceptors::SharedInterceptor>>, <aws_smithy_runtime_api::client::runtime_components::RuntimeComponents>::interceptors::{closure#0}>>>::read_after_deserialization
+                       aws_smithy_runtime::client::orchestrator::try_attempt::{closure#0}
+                       <aws_smithy_runtime::client::timeout::MaybeTimeoutFuture<aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}::{closure#2}> as core::future::future::Future>::poll
+                       aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}
+
+     0.76%  tokio-rt-worker  [.] 0x00000000001406ec
+     0.68%  tokio-rt-worker  [.] memcpy@plt
+     0.62%  tokio-rt-worker  [.] rocksdb::ColumnFamilySet::GetColumnFamily(unsigned int) const
+     0.59%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     0.54%  tokio-rt-worker  [.] <tokio::sync::mpsc::list::Rx<core::result::Result<dexzd_protocol::dex::PollWorkerTaskResponse, tonic::status::Status>>>::pop
+     0.53%  tokio-rt-worker  [.] prost::encoding::bytes::merge::<alloc::vec::Vec<u8>, &mut &[u8]>
+     0.53%  tokio-rt-worker  [.] xxhash_rust::xxh3::xxh3_128_129to240
+     0.52%  tokio-rt-worker  [k] memblock_is_map_memory
+            |
+            ---memblock_is_map_memory
+               check_heap_object
+               __check_object_size.part.0
+               __check_object_size
+               simple_copy_to_iter
+               __skb_datagram_iter
+               skb_copy_datagram_iter
+               tcp_recvmsg_locked
+               tcp_recvmsg
+               inet_recvmsg
+               sock_recvmsg
+               __sys_recvfrom
+               __arm64_sys_recvfrom
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.52%  tokio-rt-worker  [.] 0x0000000000092a00
+     0.50%  tokio-rt-worker  [.] <aws_smithy_types::config_bag::ConfigBag>::sourced_get::<aws_smithy_types::config_bag::storable::StoreReplace<aws_types::app_name::AppName>>
+            |
+            ---<aws_smithy_types::config_bag::ConfigBag>::sourced_get::<aws_smithy_types::config_bag::storable::StoreReplace<aws_types::app_name::AppName>>
+               <aws_runtime::user_agent::interceptor::UserAgentInterceptor as aws_smithy_runtime_api::client::interceptors::Intercept>::read_after_serialization
+               <aws_smithy_runtime::client::interceptors::Interceptors<core::iter::adapters::map::Map<core::slice::iter::Iter<aws_smithy_runtime_api::client::runtime_components::Tracked<aws_smithy_runtime_api::client::interceptors::SharedInterceptor>>, <aws_smithy_runtime_api::client::runtime_components::RuntimeComponents>::interceptors::{closure#0}>>>::read_after_serialization
+               aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}
+               <aws_smithy_async::future::timeout::Timeout<aws_smithy_runtime::client::orchestrator::invoke_with_stop_point::{closure#0}::{closure#0}::{closure#0}, aws_smithy_async::rt::sleep::Sleep> as core::future::future::Future>::poll
+
+     0.50%  tokio-rt-worker  [.] bool rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Insert<false>(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Splice*, bool)
+     0.49%  tokio-rt-worker  [.] dexzd_engine::commit::committed_state_view::read_row
+     0.49%  tokio-rt-worker  [.] 0x00000000001406f4
+     0.49%  tokio-rt-worker  [.] <tokio::runtime::time::handle::Handle>::process_at_time
+     0.48%  tokio-rt-worker  [.] core::ptr::drop_glue::<aws_smithy_runtime_api::client::runtime_components::RuntimeComponentsBuilder>
+     0.48%  tokio-rt-worker  [.] <dexzd_protocol::dex::value::Kind>::encode::<alloc::vec::Vec<u8>>
+     0.48%  tokio-rt-worker  [.] rocksdb::ArenaWrappedDBIter::Init(rocksdb::Env*, rocksdb::ReadOptions const&, rocksdb::ImmutableOptions const&, rocksdb::MutableCFOptions const&, rocksdb::Version const*, unsigned long const&, unsigned long, rocksdb::ReadCallback*, rocksdb::ColumnFamilyHandleImpl*, bool, bool, rocksdb::ReadOnlyMemTable*, rocksdb::DBImpl*, rocksdb::ColumnFamilyData*)
+     0.47%  tokio-rt-worker  [.] rocksdb_writeoptions_create
+     0.47%  tokio-rt-worker  [k] errseq_check
+            |
+            ---errseq_check
+               __ext4_journal_get_write_access
+               ext4_reserve_inode_write
+               __ext4_mark_inode_dirty
+               ext4_dirty_inode
+               __mark_inode_dirty
+               file_update_time_flags
+               file_modified
+               ext4_buffered_write_iter
+               ext4_file_write_iter
+               vfs_write
+               ksys_write
+               __arm64_sys_write
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.46%  tokio-rt-worker  [.] <tokio::runtime::blocking::pool::Inner>::run
+     0.46%  tokio-rt-worker  [.] 0x00000000000a2e8c
+     0.46%  tokio-rt-worker  [.] rocksdb::MemTableListVersion::GetFromList(std::__cxx11::list<rocksdb::ReadOnlyMemTable*, std::allocator<rocksdb::ReadOnlyMemTable*> >*, rocksdb::LookupKey const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::PinnableWideColumns*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::Status*, rocksdb::MergeContext*, unsigned long*, unsigned long*, rocksdb::ReadOptions const&, rocksdb::ReadCallback*, bool*, rocksdb::BlobFetcher const*)
+     0.46%  tokio-rt-worker  [.] <aws_runtime::auth::sigv4::SigV4Signer as aws_smithy_runtime_api::client::auth::Sign>::sign_http_request
+     0.45%  tokio-rt-worker  [k] tcp_gso_segment
+            |
+            ---tcp_gso_segment
+               tcp4_gso_segment
+               inet_gso_segment
+               skb_mac_gso_segment
+               __skb_gso_segment
+               validate_xmit_skb
+               validate_xmit_skb_list
+               sch_direct_xmit
+               __dev_xmit_skb
+               __dev_queue_xmit
+               neigh_hh_output
+               ip_finish_output2
+               __ip_finish_output
+               ip_finish_output
+               ip_output
+               __ip_queue_xmit
+               ip_queue_xmit
+               __tcp_transmit_skb
+               tcp_write_xmit
+               __tcp_push_pending_frames
+               tcp_push
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.45%  tokio-rt-worker  [.] <http::header::name::HdrName>::from_bytes::<<&str as http::header::map::as_header_name::Sealed>::find<aws_smithy_runtime_api::http::headers::header_value::HeaderValue>::{closure#0}, core::option::Option<(usize, usize)>>
+     0.45%  tokio-rt-worker  [.] 0x0000000000095348
+     0.45%  tokio-rt-worker  [.] rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::Slice const&, rocksdb::DBImpl::GetImplOptions&)
+     0.45%  tokio-rt-worker  [.] std::chrono::_V2::steady_clock::now()
+     0.45%  tokio-rt-worker  [.] 0x0000000000140734
+     0.45%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::RunRecord as prost::message::Message>::encode_to_vec
+     0.45%  tokio-rt-worker  [.] 0x00000000001409a4
+     0.45%  tokio-rt-worker  [.] 0x0000000000094344
+     0.44%  tokio-rt-worker  [.] <dexzd_engine::flow_coordination::registry::RegistryInner>::lease_existing
+     0.44%  tokio-rt-worker  [.] core::fmt::write
+     0.44%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::AttemptRecord as prost::message::Message>::encode_to_vec
+     0.43%  tokio-rt-worker  [.] <dexzd_engine::commit::partition_applier::FrameApplier>::apply_frame
+     0.43%  tokio-rt-worker  [k] is_mergeable_anon_vma
+            |
+            ---is_mergeable_anon_vma
+               vma_merge_existing_range
+               vma_modify
+               vma_modify_flags
+               mprotect_fixup
+               do_mprotect_pkey
+               __arm64_sys_mprotect
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.43%  tokio-rt-worker  [.] <tokio::runtime::task::core::Core<<dexzd_worker_dispatch::worker_registry::worker_protocol::WorkerTaskService as dexzd_protocol::dex::worker_task_service_server::WorkerTaskService>::poll_worker_task::{closure#0}::{closure#1}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+     0.43%  tokio-rt-worker  [k] handle_softirqs
+            |
+            ---handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               |
+                --0.43%--el0_interrupt
+                          __el0_irq_handler_common
+                          el0t_64_irq_handler
+                          el0t_64_irq
+
+     0.43%  tokio-rt-worker  [.] rocksdb::log::Writer::AddRecord(rocksdb::WriteOptions const&, rocksdb::Slice const&, unsigned long const&)
+     0.43%  tokio-rt-worker  [.] 0x0000000000092a04
+     0.43%  tokio-rt-worker  [.] 0x00000000000928c0
+     0.43%  tokio-rt-worker  [.] <aws_smithy_runtime_api::client::auth::AuthSchemeOptionsFuture as core::future::future::Future>::poll
+            |
+            ---<aws_smithy_runtime_api::client::auth::AuthSchemeOptionsFuture as core::future::future::Future>::poll
+               aws_smithy_runtime::client::orchestrator::try_attempt::{closure#0}
+               <aws_smithy_runtime::client::timeout::MaybeTimeoutFuture<aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}::{closure#2}> as core::future::future::Future>::poll
+               aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}
+
+     0.42%  tokio-rt-worker  [.] rocksdb::MemTable::Add(unsigned long, rocksdb::ValueType, rocksdb::Slice const&, rocksdb::Slice const&, rocksdb::ProtectionInfoKVOS<unsigned long> const*, bool, rocksdb::MemTablePostProcessInfo*, void**)
+     0.42%  tokio-rt-worker  [k] el0_da
+            |
+            ---el0_da
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.42%  tokio-rt-worker  [.] <h2::hpack::table::Table>::index
+     0.42%  tokio-rt-worker  [.] core::ptr::drop_glue::<aws_smithy_types::config_bag::value::Value<aws_runtime::auth::SigV4OperationSigningConfig>>
+     0.42%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::MethodSnapshotRecord as prost::message::Message>::encode_raw::<alloc::vec::Vec<u8>>
+     0.42%  tokio-rt-worker  [.] <alloc::sync::Arc<core::option::Option<(aws_sdk_s3::config::endpoint::Params, aws_smithy_types::endpoint::Endpoint)>>>::drop_slow
+     0.42%  tokio-rt-worker  [.] core::ptr::drop_glue::<dexzd_protocol::dexzd::v1::RunRecord>
+     0.42%  tokio-rt-worker  [.] 0x000000000009411c
+     0.41%  tokio-rt-worker  [.] <dexzd_storage::snapshot::RestoredLocalStore as dexzd_storage::local_store::LocalReadView>::partition_meta
+     0.41%  tokio-rt-worker  [.] <tokio::runtime::task::harness::Harness<dexzd_engine::commit::log_proposer::run_log_proposer::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+     0.41%  tokio-rt-worker  [k] tcp_ack
+            |
+            ---tcp_ack
+               tcp_rcv_established
+               tcp_v4_do_rcv
+               tcp_v4_rcv
+               ip_protocol_deliver_rcu
+               ip_local_deliver_finish
+               ip_local_deliver
+               ip_sublist_rcv_finish
+               ip_list_rcv_finish
+               ip_sublist_rcv
+               ip_list_rcv
+               __netif_receive_skb_list_core
+               netif_receive_skb_list_internal
+               napi_complete_done
+               ena_io_poll
+               __napi_poll
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               el1_interrupt
+               el1h_64_irq_handler
+               el1h_64_irq
+               finish_task_switch.isra.0
+               __schedule
+               schedule
+               futex_do_wait
+               __futex_wait
+               futex_wait
+               do_futex
+               __arm64_sys_futex
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.41%  tokio-rt-worker  [.] 0x00000000001407b4
+     0.40%  tokio-rt-worker  [.] <aws_smithy_runtime::client::timeout::MaybeTimeoutFuture<aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}::{closure#2}> as core::future::future::Future>::poll
+     0.40%  tokio-rt-worker  [k] skb_attempt_defer_free
+            |
+            ---skb_attempt_defer_free
+               tcp_recvmsg_locked
+               tcp_recvmsg
+               inet_recvmsg
+               sock_recvmsg
+               __sys_recvfrom
+               __arm64_sys_recvfrom
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.40%  tokio-rt-worker  [.] <aws_sdk_s3::operation::put_object::PutObjectResponseDeserializer as aws_smithy_runtime_api::client::ser_de::DeserializeResponse>::deserialize_nonstreaming_with_config
+     0.40%  tokio-rt-worker  [.] __aarch64_ldadd8_acq_rel
+     0.40%  tokio-rt-worker  [.] <alloc::collections::btree::map::BTreeMap<alloc::vec::Vec<u8>, alloc::vec::Vec<u8>>>::insert
+     0.40%  tokio-rt-worker  [.] rocksdb_iter_valid
+     0.40%  tokio-rt-worker  [.] rocksdb::(anonymous namespace)::MemTableInserter::CheckMemtableFull()
+     0.39%  tokio-rt-worker  [.] __sched_yield
+     0.38%  tokio-rt-worker  [.] dexzd_keyspace::row_keys::search_order_index_keys
+     0.38%  tokio-rt-worker  [.] core::ptr::drop_glue::<aws_smithy_runtime::client::orchestrator::invoke_with_stop_point::{closure#0}::{closure#0}>
+     0.38%  tokio-rt-worker  [.] 0x000000000009562c
+     0.38%  tokio-rt-worker  [.] dexzd_apply::values::garbage::prune_garbage
+     0.37%  tokio-rt-worker  [.] dexzd_apply::steps::step_results::load_invocation
+     0.37%  tokio-rt-worker  [.] rocksdb::WriteThread::AwaitState(rocksdb::WriteThread::Writer*, unsigned char, rocksdb::WriteThread::AdaptationContext*)
+     0.37%  tokio-rt-worker  [.] rocksdb::MemTable::KeyComparator::operator()(char const*, rocksdb::Slice const&) const
+     0.37%  tokio-rt-worker  [.] rocksdb::DBImpl::NewIterator(rocksdb::ReadOptions const&, rocksdb::ColumnFamilyHandle*)
+     0.37%  tokio-rt-worker  [.] core::ptr::drop_glue::<dexzd_protocol::dexzd::v1::StepInvocationRecord>
+     0.37%  tokio-rt-worker  [.] <dexzd_apply::state_access::flow_transaction::FlowTransaction>::get
+     0.36%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::log_record::Body>::merge::<&mut bytes::bytes::Bytes>
+     0.36%  tokio-rt-worker  [.] <rocksdb::db::DBCommon<rocksdb::db::SingleThreaded, rocksdb::db::DBWithThreadModeInner>>::get_cf_opt::<&[u8], rocksdb::column_family::ColumnFamily>
+     0.35%  tokio-rt-worker  [.] <dexzd_apply::state_access::flow_transaction::FlowTransaction>::get_message::<dexzd_protocol::dexzd::v1::RunRecord>
+     0.35%  tokio-rt-worker  [.] <dexzd_engine::flow_coordination::speculative_overlay::OverlayEntry>::new
+     0.34%  tokio-rt-worker  [.] rocksdb::EncodeVarint32(char*, unsigned int)
+     0.34%  tokio-rt-worker  [k] _raw_spin_unlock_irqrestore
+            |
+            ---_raw_spin_unlock_irqrestore
+               wake_up_q
+               futex_wake
+               do_futex
+               __arm64_sys_futex
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.33%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::StepExecutionRecord as prost::message::Message>::encode_to_vec
+     0.32%  tokio-rt-worker  [.] core::str::converts::from_utf8
+     0.32%  tokio-rt-worker  [.] 0x000000000009503c
+     0.32%  tokio-rt-worker  [.] core::ptr::drop_glue::<aws_smithy_types::config_bag::value::Value<aws_smithy_runtime_api::client::ser_de::SharedRequestSerializer>>
+            |
+            ---core::ptr::drop_glue::<aws_smithy_types::config_bag::value::Value<aws_smithy_runtime_api::client::ser_de::SharedRequestSerializer>>
+               core::ptr::drop_glue::<aws_smithy_types::type_erasure::TypeErasedBox>
+               <alloc::sync::Arc<aws_smithy_types::config_bag::Layer>>::drop_slow
+               core::ptr::drop_glue::<aws_smithy_types::config_bag::ConfigBag>
+               <tracing::instrument::Instrumented<aws_smithy_runtime::client::orchestrator::invoke_with_stop_point::{closure#0}> as core::future::future::Future>::poll
+
+     0.31%  tokio-rt-worker  [.] <http_body_util::combinators::map_err::MapErr<http_body_util::combinators::map_err::MapErr<aws_smithy_runtime::client::http::body::minimum_throughput::MinimumThroughputDownloadBody<aws_smithy_types::body::SdkBody>, <alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync> as core::convert::Into<alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>>::into>, <alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync> as core::convert::Into<alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>>::into> as http_body::Body>::poll_frame
+     0.30%  tokio-rt-worker  [k] __refill_objects_node
+            |
+            ---__refill_objects_node
+               refill_objects
+               refill_sheaf
+               __pcs_replace_empty_main
+               kmem_cache_alloc_noprof
+               alloc_buffer_head
+               folio_alloc_buffers
+               create_empty_buffers
+               ext4_block_write_begin
+               ext4_da_write_begin
+               generic_perform_write
+               ext4_buffered_write_iter
+               ext4_file_write_iter
+               vfs_write
+               ksys_write
+               __arm64_sys_write
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

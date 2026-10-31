@@ -1,8 +1,0 @@
-sequential-steps 2048 DEXBENCH_ZD_MAX_IN_FLIGHT=8
-sequential-steps 2048 DEXBENCH_ZD_MAX_IN_FLIGHT=16
-sequential-steps 3072
-sequential-steps 2048 DEXBENCH_ZD_APPLIER_LANES=32
-sequential-steps-async 128
-sequential-steps-async 256 DEXBENCH_ZD_MAX_IN_FLIGHT=8
-sequential-steps-async 256 DEXBENCH_ZD_MAX_IN_FLIGHT=16
-sequential-steps-async 256 DEXBENCH_ZD_APPLIER_LANES=32

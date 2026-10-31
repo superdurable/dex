@@ -1,0 +1,598 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 933  of event 'armv8_pmuv3_0/cycles/P'
+# Event count (approx.): 44337926823
+#
+# Overhead  Command          Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           IPC   [IPC Coverage]
+# ........  ...............  .............................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+     2.66%  tokio-rt-worker  [.] __aarch64_cas4_acq
+            |
+             --1.11%--__aarch64_cas4_acq
+                       |
+                        --0.33%--<tokio::runtime::time::handle::Handle>::clear_entry
+                                  core::ptr::drop_glue::<core::option::Option<tokio::runtime::Timer>>
+                                  <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::search_queue::{closure#0}
+                                  <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}
+                                  <tokio::runtime::task::core::Core<<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+
+     1.63%  tokio-rt-worker  [.] __aarch64_ldadd8_relax
+            |
+             --1.10%--__aarch64_ldadd8_relax
+
+     1.56%  tokio-rt-worker  [k] handle_softirqs
+            |
+            ---handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               |
+               |--1.23%--el0_interrupt
+               |          __el0_irq_handler_common
+               |          el0t_64_irq_handler
+               |          el0t_64_irq
+               |
+                --0.34%--el1_interrupt
+                          el1h_64_irq_handler
+                          el1h_64_irq
+
+     1.42%  tokio-rt-worker  [.] __aarch64_swp4_rel
+            |
+             --0.33%--__aarch64_swp4_rel
+
+     1.31%  tokio-rt-worker  [k] __pi_memcpy_generic
+            |
+            ---__pi_memcpy_generic
+               |
+                --1.20%--ena_clean_rx_irq
+                          ena_io_poll
+                          __napi_poll
+                          net_rx_action
+                          handle_softirqs
+                          __do_softirq
+                          ____do_softirq
+                          call_on_irq_stack
+                          do_softirq_own_stack
+                          |
+                           --1.09%--__irq_exit_rcu
+                                     irq_exit_rcu
+                                     |
+                                     |--0.76%--el0_interrupt
+                                     |          __el0_irq_handler_common
+                                     |          el0t_64_irq_handler
+                                     |          el0t_64_irq
+                                     |
+                                      --0.33%--el1_interrupt
+                                                el1h_64_irq_handler
+                                                el1h_64_irq
+
+     1.23%  tokio-rt-worker  [.] rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+            |
+             --0.59%--rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+                       rocksdb::(anonymous namespace)::SkipListRep::Get(rocksdb::LookupKey const&, void*, bool (*)(void*, char const*))
+                       rocksdb::MemTable::GetFromTable(rocksdb::LookupKey const&, unsigned long, bool, rocksdb::ReadCallback*, bool*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::PinnableWideColumns*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::Status*, rocksdb::MergeContext*, unsigned long*, bool*, bool*, rocksdb::BlobFetcher const*)
+                       rocksdb::MemTable::Get(rocksdb::LookupKey const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::PinnableWideColumns*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::Status*, rocksdb::MergeContext*, unsigned long*, unsigned long*, rocksdb::ReadOptions const&, bool, rocksdb::ReadCallback*, bool*, bool, rocksdb::BlobFetcher const*)
+                       rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::Slice const&, rocksdb::DBImpl::GetImplOptions&)
+                       rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::ColumnFamilyHandle*, rocksdb::Slice const&, rocksdb::PinnableSlice*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*)
+                       rocksdb::DBImpl::Get(rocksdb::ReadOptions const&, rocksdb::ColumnFamilyHandle*, rocksdb::Slice const&, rocksdb::PinnableSlice*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*)
+                       rocksdb_get_pinned_cf
+                       <rocksdb::db::DBCommon<rocksdb::db::SingleThreaded, rocksdb::db::DBWithThreadModeInner>>::get_cf_opt::<&[u8], rocksdb::column_family::ColumnFamily>
+                       <dexzd_storage::rocksdb_store::RocksView as dexzd_storage::local_store::LocalReadView>::get
+                       dexzd_engine::commit::committed_state_view::read_row
+                       dexzd_engine::flow_coordination::read_operations::state_rows::read_directory
+                       dexzd_engine::flow_coordination::read_operations::state_rows::resolve_command_run
+                       dexzd_engine::flow_coordination::read_operations::state_rows::read_run
+                       <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry as dexzd_api::flow_operations::FlowOperations>::invoke_rpc::{closure#0}
+
+     1.19%  tokio-rt-worker  [k] el0_svc
+            |
+            ---el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               |
+                --0.32%--getrandom
+
+     1.10%  tokio-rt-worker  [.] malloc
+            |
+             --0.77%--malloc
+
+     1.10%  tokio-rt-worker  [.] cfree
+            |
+             --0.43%--cfree
+
+     1.10%  tokio-rt-worker  [.] memcmp
+            |
+             --0.87%--memcmp
+                       |
+                        --0.44%--<h2::hpack::header::Header>::value_eq
+                                  <h2::hpack::table::Table>::index
+                                  <h2::hpack::encoder::Encoder>::encode::<h2::frame::headers::Iter>
+                                  <h2::frame::headers::Headers>::encode
+                                  <h2::codec::framed_write::Encoder<h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::buffer
+                                  <h2::proto::streams::prioritize::Prioritize>::buffer_pending::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+                                  <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+                                  <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+                                  <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.98%  tokio-rt-worker  [.] 0x00000000001406f4
+     0.87%  tokio-rt-worker  [.] 0x0000000000140a04
+            |
+             --0.43%--0xeab91a970a04
+
+     0.86%  tokio-rt-worker  [.] __aarch64_cas8_acq_rel
+            |
+             --0.42%--__aarch64_cas8_acq_rel
+                       |
+                        --0.31%--<tokio::sync::task::atomic_waker::AtomicWaker>::register_by_ref
+                                  <tokio::time::sleep::Sleep as core::future::future::Future>::poll
+
+     0.79%  tokio-rt-worker  [k] ena_start_xmit
+            |
+            ---ena_start_xmit
+               dev_hard_start_xmit
+               sch_direct_xmit
+               __dev_xmit_skb
+               __dev_queue_xmit
+               neigh_hh_output
+               ip_finish_output2
+               __ip_finish_output
+               ip_finish_output
+               ip_output
+               __ip_queue_xmit
+               ip_queue_xmit
+               __tcp_transmit_skb
+               tcp_write_xmit
+               __tcp_push_pending_frames
+               tcp_push
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               |
+                --0.69%--writev
+                          <&std::net::tcp::TcpStream as core::io::write::Write>::write_vectored
+                          <&mio::net::tcp::stream::TcpStream as core::io::write::Write>::write_vectored
+                          <tokio::runtime::io::registration::Registration>::poll_io::<usize, <tokio::io::poll_evented::PollEvented<mio::net::tcp::stream::TcpStream>>::poll_write_vectored::{closure#0}>
+                          <tokio::net::tcp::stream::TcpStream as tokio::io::async_write::AsyncWrite>::poll_write_vectored
+                          tokio_util::util::poll_buf::poll_write_buf::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, core::io::cursor::Cursor<bytes::bytes_mut::BytesMut>>
+                          <h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::flush
+                          <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+                          <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+                          <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.77%  tokio-rt-worker  [.] <h2::hpack::table::Table>::index
+            |
+            ---<h2::hpack::table::Table>::index
+               <h2::hpack::encoder::Encoder>::encode::<h2::frame::headers::Iter>
+               <h2::frame::headers::Headers>::encode
+               <h2::codec::framed_write::Encoder<h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::buffer
+               <h2::proto::streams::prioritize::Prioritize>::buffer_pending::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+               <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.76%  tokio-rt-worker  [.] 0x00000000000a1c40
+            |
+             --0.33%--0xeab91a8d1c40
+
+     0.70%  tokio-rt-worker  [.] <h2::frame::headers::HeaderBlock>::load::{closure#0}
+            |
+             --0.47%--<h2::frame::headers::HeaderBlock>::load::{closure#0}
+                       <h2::hpack::decoder::Decoder>::decode::<<h2::frame::headers::HeaderBlock>::load::{closure#0}>
+                       <h2::frame::headers::HeaderBlock>::load
+                       <h2::codec::framed_read::FrameDecoder>::decode
+                       <h2::codec::framed_read::FramedRead<h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>> as futures_core::stream::Stream>::poll_next
+                       <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+                       <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.68%  tokio-rt-worker  [.] __aarch64_cas8_acq
+            |
+             --0.33%--__aarch64_cas8_acq
+
+     0.67%  tokio-rt-worker  [.] <slab::Slab<h2::proto::streams::buffer::Slot<h2::frame::Frame<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>>::insert_at
+     0.59%  tokio-rt-worker  [k] _raw_spin_lock_bh
+            |
+            ---_raw_spin_lock_bh
+               |
+                --0.36%--tcp_sendmsg
+                          inet_sendmsg
+                          __sock_sendmsg
+                          sock_write_iter
+                          do_iter_readv_writev
+                          vfs_writev
+                          do_writev
+                          __arm64_sys_writev
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+                          writev
+                          <&std::net::tcp::TcpStream as core::io::write::Write>::write_vectored
+                          <&mio::net::tcp::stream::TcpStream as core::io::write::Write>::write_vectored
+                          <tokio::runtime::io::registration::Registration>::poll_io::<usize, <tokio::io::poll_evented::PollEvented<mio::net::tcp::stream::TcpStream>>::poll_write_vectored::{closure#0}>
+                          <tokio::net::tcp::stream::TcpStream as tokio::io::async_write::AsyncWrite>::poll_write_vectored
+                          tokio_util::util::poll_buf::poll_write_buf::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, core::io::cursor::Cursor<bytes::bytes_mut::BytesMut>>
+                          <h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::flush
+                          <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+                          <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+                          <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.57%  tokio-rt-worker  [k] _raw_spin_unlock_irqrestore
+            |
+            ---_raw_spin_unlock_irqrestore
+
+     0.57%  tokio-rt-worker  [k] kfree
+            |
+            ---kfree
+               |
+                --0.46%--skb_free_head
+                          skb_release_data
+
+     0.56%  tokio-rt-worker  [k] tcp_sendmsg_locked
+            |
+            ---tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               |
+                --0.45%--writev
+                          <&std::net::tcp::TcpStream as core::io::write::Write>::write_vectored
+                          <&mio::net::tcp::stream::TcpStream as core::io::write::Write>::write_vectored
+                          <tokio::runtime::io::registration::Registration>::poll_io::<usize, <tokio::io::poll_evented::PollEvented<mio::net::tcp::stream::TcpStream>>::poll_write_vectored::{closure#0}>
+                          <tokio::net::tcp::stream::TcpStream as tokio::io::async_write::AsyncWrite>::poll_write_vectored
+                          tokio_util::util::poll_buf::poll_write_buf::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, core::io::cursor::Cursor<bytes::bytes_mut::BytesMut>>
+                          <h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::flush
+                          <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+                          <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+                          <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.56%  tokio-rt-worker  [.] __aarch64_ldadd8_acq_rel
+            |
+             --0.34%--__aarch64_ldadd8_acq_rel
+
+     0.55%  tokio-rt-worker  [.] 0x00000000001407b4
+            |
+             --0.34%--0xeab91a9707b4
+                       0xeab91a8c4307
+                       cfree
+
+     0.55%  tokio-rt-worker  [k] __pi_memset_generic
+            |
+            ---__pi_memset_generic
+
+     0.55%  tokio-rt-worker  [.] <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::pick_worker
+            |
+             --0.33%--<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::pick_worker
+                       <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::search_queue::{closure#0}
+                       <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}
+                       <tokio::runtime::task::core::Core<<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+
+     0.55%  tokio-rt-worker  [k] _raw_spin_lock
+            |
+            ---_raw_spin_lock
+
+     0.55%  tokio-rt-worker  [k] ena_clean_rx_irq
+            |
+            ---ena_clean_rx_irq
+               ena_io_poll
+               __napi_poll
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               |
+                --0.44%--el0_interrupt
+                          __el0_irq_handler_common
+                          el0t_64_irq_handler
+                          el0t_64_irq
+
+     0.54%  tokio-rt-worker  [.] <core::hash::sip::Hasher<core::hash::sip::Sip13Rounds> as core::hash::Hasher>::write
+            |
+             --0.33%--<core::hash::sip::Hasher<core::hash::sip::Sip13Rounds> as core::hash::Hasher>::write
+                       <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&(u64, alloc::string::String)>
+
+     0.54%  tokio-rt-worker  [k] _raw_spin_unlock_irq
+            |
+            ---_raw_spin_unlock_irq
+
+     0.53%  tokio-rt-worker  [.] 0x0000000000092a00
+            |
+            ---0xeab91a8c2a00
+               0xeab91a8c5147
+               |
+                --0.42%--malloc
+
+     0.45%  tokio-rt-worker  [.] <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}
+     0.45%  tokio-rt-worker  [.] 0x00000000000a1c38
+     0.45%  tokio-rt-worker  [.] __aarch64_ldadd8_rel
+     0.45%  tokio-rt-worker  [.] <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+     0.45%  tokio-rt-worker  [.] __aarch64_ldset8_acq_rel
+            |
+             --0.34%--__aarch64_ldset8_acq_rel
+                       <tokio::runtime::time::handle::Handle>::clear_entry
+
+     0.44%  tokio-rt-worker  [.] prost::encoding::string::merge::<&mut &mut tonic::codec::buffer::DecodeBuf>
+     0.44%  tokio-rt-worker  [.] 0x00000000000a1c34
+     0.44%  tokio-rt-worker  [.] 0x0000000000000568
+     0.44%  tokio-rt-worker  [.] core::ptr::drop_glue::<dexzd_protocol::dexzd::v1::RunRecord>
+            |
+            ---core::ptr::drop_glue::<dexzd_protocol::dexzd::v1::RunRecord>
+               |
+                --0.33%--<dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::invoke_rpc_once::{closure#0}
+
+     0.44%  tokio-rt-worker  [k] __tcp_transmit_skb
+            |
+            ---__tcp_transmit_skb
+               tcp_write_xmit
+               __tcp_push_pending_frames
+               tcp_push
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.44%  tokio-rt-worker  [k] lock_timer_base
+            |
+            ---lock_timer_base
+               |
+                --0.33%--__mod_timer
+                          mod_timer
+                          sk_reset_timer
+                          tcp_rearm_rto
+                          tcp_event_new_data_sent
+                          tcp_write_xmit
+                          __tcp_push_pending_frames
+                          tcp_push
+                          tcp_sendmsg_locked
+                          tcp_sendmsg
+                          inet_sendmsg
+                          __sock_sendmsg
+                          sock_write_iter
+                          do_iter_readv_writev
+                          vfs_writev
+                          do_writev
+                          __arm64_sys_writev
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     0.43%  tokio-rt-worker  [k] tcp_wfree
+            |
+            ---tcp_wfree
+               |
+                --0.33%--skb_release_head_state
+                          consume_skb
+                          ena_clean_tx_irq
+                          ena_io_poll
+                          __napi_poll
+                          net_rx_action
+                          handle_softirqs
+                          __do_softirq
+                          ____do_softirq
+                          call_on_irq_stack
+                          do_softirq_own_stack
+                          __irq_exit_rcu
+                          irq_exit_rcu
+                          el0_interrupt
+                          __el0_irq_handler_common
+                          el0t_64_irq_handler
+                          el0t_64_irq
+
+     0.43%  tokio-rt-worker  [.] memcpy@plt
+     0.35%  tokio-rt-worker  [.] <indexmap::map::IndexMap<h2::frame::stream_id::StreamId, h2::proto::streams::store::SlabIndex>>::get::<h2::frame::stream_id::StreamId>
+            |
+            ---<indexmap::map::IndexMap<h2::frame::stream_id::StreamId, h2::proto::streams::store::SlabIndex>>::get::<h2::frame::stream_id::StreamId>
+               <h2::proto::streams::store::Store>::find_mut
+               <h2::proto::streams::streams::DynStreams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::recv_data
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.34%  tokio-rt-worker  [k] __check_object_size.part.0
+            |
+            ---__check_object_size.part.0
+               __check_object_size
+
+     0.34%  tokio-rt-worker  [.] <dexzd_worker_dispatch::worker_registry::worker_protocol::WorkerTaskService as dexzd_protocol::dex::worker_task_service_server::WorkerTaskService>::poll_worker_task::{closure#0}::{closure#1}
+     0.33%  tokio-rt-worker  [.] <std::sys::pal::unix::time::Timespec>::sub_timespec
+     0.33%  tokio-rt-worker  [.] <tonic::codec::decode::StreamingInner>::decode_chunk
+     0.33%  tokio-rt-worker  [.] <tokio::net::tcp::stream::TcpStream>::poll_read_priv
+     0.33%  tokio-rt-worker  [.] <h2::proto::streams::store::Ptr as core::ops::deref::DerefMut>::deref_mut
+     0.33%  tokio-rt-worker  [.] rocksdb::DBIter::~DBIter()
+     0.33%  tokio-rt-worker  [k] __dev_queue_xmit
+            |
+            ---__dev_queue_xmit
+
+     0.33%  tokio-rt-worker  [k] __arch_copy_to_user
+            |
+            ---__arch_copy_to_user
+
+     0.33%  tokio-rt-worker  [k] tcp_clean_rtx_queue
+            |
+            ---tcp_clean_rtx_queue
+               tcp_ack
+               tcp_rcv_established
+               tcp_v4_do_rcv
+               tcp_v4_rcv
+               ip_protocol_deliver_rcu
+               ip_local_deliver_finish
+               ip_local_deliver
+               ip_sublist_rcv_finish
+               ip_list_rcv_finish
+               ip_sublist_rcv
+               ip_list_rcv
+               __netif_receive_skb_list_core
+               netif_receive_skb_list_internal
+               napi_complete_done
+               ena_io_poll
+               __napi_poll
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+
+     0.33%  tokio-rt-worker  [.] 0x0000000000000584
+     0.33%  tokio-rt-worker  [k] ena_com_cdesc_rx_pkt_get
+            |
+            ---ena_com_cdesc_rx_pkt_get
+               ena_com_rx_pkt
+               ena_clean_rx_irq
+               ena_io_poll
+               __napi_poll
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+
+     0.33%  tokio-rt-worker  [.] <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::invoke_rpc_once::{closure#0}
+     0.32%  tokio-rt-worker  [.] <h2::codec::framed_write::Encoder<h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::buffer
+     0.32%  tokio-rt-worker  [.] <bytes::bytes_mut::BytesMut>::split_to
+     0.32%  tokio-rt-worker  [.] 0x00000000001409a4
+     0.32%  tokio-rt-worker  [k] skb_release_data
+            |
+            ---skb_release_data
+
+     0.32%  tokio-rt-worker  [.] <dexzd_protocol::dex::flow_service_server::FlowServiceServer<dexzd_api::flow_service::DexFlowService> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#20}
+     0.32%  tokio-rt-worker  [.] <h2::proto::streams::prioritize::Prioritize>::reclaim_frame::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+     0.32%  tokio-rt-worker  [k] tcp_rcv_established
+            |
+            ---tcp_rcv_established
+               tcp_v4_do_rcv
+               tcp_v4_rcv
+               ip_protocol_deliver_rcu
+               ip_local_deliver_finish
+               ip_local_deliver
+               ip_sublist_rcv_finish
+               ip_list_rcv_finish
+               ip_sublist_rcv
+               ip_list_rcv
+               __netif_receive_skb_list_core
+               netif_receive_skb_list_internal
+               napi_complete_done
+               ena_io_poll
+               __napi_poll
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               el0_interrupt
+               __el0_irq_handler_common
+               el0t_64_irq_handler
+               el0t_64_irq
+
+     0.32%  tokio-rt-worker  [.] <h2::server::Peer as h2::proto::peer::Peer>::convert_poll_message
+     0.32%  tokio-rt-worker  [.] <h2::proto::streams::prioritize::Prioritize>::buffer_pending::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+            |
+            ---<h2::proto::streams::prioritize::Prioritize>::buffer_pending::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+               <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.32%  tokio-rt-worker  [k] skb_defer_free_flush
+            |
+            ---skb_defer_free_flush
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+
+     0.32%  tokio-rt-worker  [k] fib_table_lookup
+            |
+            ---fib_table_lookup
+               __fib_validate_source
+               fib_validate_source
+               ip_route_use_hint
+               ip_rcv_finish_core
+               ip_list_rcv_finish
+               ip_sublist_rcv
+               ip_list_rcv
+               __netif_receive_skb_list_core
+               netif_receive_skb_list_internal
+               napi_complete_done
+               ena_io_poll
+               __napi_poll
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               el0_interrupt
+               __el0_irq_handler_common
+               el0t_64_irq_handler
+               el0t_64_irq
+
+     0.32%  tokio-rt-worker  [.] <h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::flush
+     0.32%  tokio-rt-worker  [k] dev_gro_receive
+            |
+            ---dev_gro_receive
+
+     0.31%  tokio-rt-worker  [.] 0x0000000000094344
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

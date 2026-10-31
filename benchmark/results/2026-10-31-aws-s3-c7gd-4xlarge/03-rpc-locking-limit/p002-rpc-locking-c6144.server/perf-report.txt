@@ -1,0 +1,379 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 773  of event 'armv8_pmuv3_0/cycles/P'
+# Event count (approx.): 595042143
+#
+# Overhead  Command          Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           IPC   [IPC Coverage]
+# ........  ...............  ..................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+    18.85%  tokio-rt-worker  [.] 0x00000000001407b4
+     6.26%  tokio-rt-worker  [.] rocksdb::DBIter::Seek(rocksdb::Slice const&)
+     6.10%  tokio-rt-worker  [k] _raw_spin_unlock_irq
+            |
+            ---_raw_spin_unlock_irq
+               vfs_write
+               ksys_write
+               __arm64_sys_write
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     5.43%  tokio-rt-worker  [.] http::header::map::hash_elem_using::<http::header::name::HeaderName>
+     5.08%  tokio-rt-worker  [k] __ip_queue_xmit
+            |
+            ---__ip_queue_xmit
+               ip_queue_xmit
+               __tcp_transmit_skb
+               tcp_write_xmit
+               __tcp_push_pending_frames
+               tcp_push
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     4.80%  tokio-rt-worker  [.] <http::header::value::HeaderValue>::try_from_generic::<&str, <http::header::value::HeaderValue>::from_str::{closure#0}>
+     4.70%  tokio-rt-worker  [.] <tokio::runtime::task::join::JoinHandle<core::result::Result<core::option::Option<dexzd_engine::effects::method_request::MethodAttemptState>, dexzd_engine::effects::EffectError>> as core::future::future::Future>::poll
+     3.39%  tokio-rt-worker  [.] rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+     3.18%  tokio-rt-worker  [.] memmove@plt
+     2.50%  tokio-rt-worker  [.] rocksdb::Version::Get(rocksdb::ReadOptions const&, rocksdb::LookupKey const&, rocksdb::PinnableSlice*, rocksdb::PinnableWideColumns*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::Status*, rocksdb::MergeContext*, unsigned long*, rocksdb::PinnedIteratorsManager*, bool*, bool*, unsigned long*, rocksdb::ReadCallback*, bool*, bool)
+     2.15%  tokio-rt-worker  [.] <rustls::msgs::deframer::buffers::DeframerVecBuffer>::read
+            |
+            ---<rustls::msgs::deframer::buffers::DeframerVecBuffer>::read
+               <tokio_rustls::common::Stream<hyper_util::rt::tokio::TokioIo<hyper_util::rt::tokio::TokioIo<tokio::net::tcp::stream::TcpStream>>, rustls::client::client_conn::connection::ClientConnection>>::read_io
+               <tokio_rustls::client::TlsStream<hyper_util::rt::tokio::TokioIo<hyper_util::rt::tokio::TokioIo<tokio::net::tcp::stream::TcpStream>>> as tokio::io::async_buf_read::AsyncBufRead>::poll_fill_buf
+               <tokio_rustls::client::TlsStream<hyper_util::rt::tokio::TokioIo<hyper_util::rt::tokio::TokioIo<tokio::net::tcp::stream::TcpStream>>> as tokio::io::async_read::AsyncRead>::poll_read
+               <hyper_util::rt::tokio::TokioIo<tokio_rustls::client::TlsStream<hyper_util::rt::tokio::TokioIo<hyper_util::rt::tokio::TokioIo<tokio::net::tcp::stream::TcpStream>>>> as hyper::rt::io::Read>::poll_read
+               <hyper::proto::h1::io::Buffered<aws_smithy_http_client::client::connect::Conn, hyper::proto::h1::encode::EncodedBuf<bytes::bytes::Bytes>>>::poll_read_from_io
+               <hyper::proto::h1::io::Buffered<aws_smithy_http_client::client::connect::Conn, hyper::proto::h1::encode::EncodedBuf<bytes::bytes::Bytes>>>::parse::<hyper::proto::h1::role::Client>
+               <hyper::proto::h1::conn::Conn<aws_smithy_http_client::client::connect::Conn, bytes::bytes::Bytes, hyper::proto::h1::role::Client>>::poll_read_head
+               <hyper::proto::h1::dispatch::Dispatcher<hyper::proto::h1::dispatch::Client<aws_smithy_types::body::SdkBody>, aws_smithy_types::body::SdkBody, aws_smithy_http_client::client::connect::Conn, hyper::proto::h1::role::Client>>::poll_catch
+               <hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody> as core::future::future::Future>::poll
+               <futures_util::future::future::map::Map<futures_util::future::try_future::into_future::IntoFuture<hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody>>, futures_util::fns::MapErrFn<<hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#2}>> as core::future::future::Future>::poll
+               <futures_util::future::future::map::Map<futures_util::future::try_future::MapErr<hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody>, <hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#2}>, <hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#3}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = ()> + core::marker::Send>>, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::task::harness::Harness<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = ()> + core::marker::Send>>, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xeb9008c0582b
+               0xeb9008c6bb4b
+
+     1.94%  tokio-rt-worker  [.] 0x00000000000929ec
+     1.84%  tokio-rt-worker  [.] 0x0000000000140a04
+     1.29%  tokio-rt-worker  [.] malloc
+     1.12%  tokio-rt-worker  [k] __fq_codel_dequeue
+            |
+            ---__fq_codel_dequeue
+               fq_codel_dequeue
+               dequeue_skb
+               __qdisc_run
+               __dev_xmit_skb
+               __dev_queue_xmit
+               neigh_hh_output
+               ip_finish_output2
+               __ip_finish_output
+               ip_finish_output
+               ip_output
+               __ip_queue_xmit
+               ip_queue_xmit
+               __tcp_transmit_skb
+               tcp_write_xmit
+               __tcp_push_pending_frames
+               tcp_push
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               writev
+               <&std::net::tcp::TcpStream as core::io::write::Write>::write_vectored
+               <&mio::net::tcp::stream::TcpStream as core::io::write::Write>::write_vectored
+               <tokio::runtime::io::registration::Registration>::poll_io::<usize, <tokio::io::poll_evented::PollEvented<mio::net::tcp::stream::TcpStream>>::poll_write_vectored::{closure#0}>
+               <tokio::net::tcp::stream::TcpStream as tokio::io::async_write::AsyncWrite>::poll_write_vectored
+               tokio_util::util::poll_buf::poll_write_buf::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, core::io::cursor::Cursor<bytes::bytes_mut::BytesMut>>
+               <h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::flush
+               <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.86%  tokio-rt-worker  [.] realloc
+     0.84%  tokio-rt-worker  [.] <http::header::map::HeaderMap>::try_append2::<http::header::name::HeaderName>
+     0.80%  tokio-rt-worker  [.] void rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindSpliceForLevel<true>(rocksdb::Slice const&, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node*, int, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**) const
+     0.77%  tokio-rt-worker  [.] rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::Slice const&, rocksdb::DBImpl::GetImplOptions&)
+     0.77%  tokio-rt-worker  [.] memcpy@plt
+     0.74%  tokio-rt-worker  [k] el0_svc
+            |
+            ---el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               |
+                --0.39%--syscall
+                          <tokio::runtime::blocking::pool::Spawner>::spawn_task
+                          tokio::runtime::blocking::pool::spawn_blocking::<<tokio_util::task::task_tracker::TaskTracker>::spawn_blocking<<dexzd_engine::effects::dispatch::method_attempt::MethodAttempt>::read_off_task<core::option::Option<dexzd_engine::effects::method_request::MethodAttemptState>, <dexzd_engine::effects::dispatch::method_attempt::MethodAttempt>::read_attempt_state::{closure#0}::{closure#0}>::{closure#0}::{closure#0}, core::result::Result<core::option::Option<dexzd_engine::effects::method_request::MethodAttemptState>, dexzd_engine::effects::EffectError>>::{closure#0}, core::result::Result<core::option::Option<dexzd_engine::effects::method_request::MethodAttemptState>, dexzd_engine::effects::EffectError>>
+                          <dexzd_engine::effects::dispatch::method_attempt::MethodAttempt>::run_attempt::{closure#0}
+
+     0.56%  tokio-rt-worker  [.] rocksdb::WriteThread::AwaitState(rocksdb::WriteThread::Writer*, unsigned char, rocksdb::WriteThread::AdaptationContext*)
+     0.50%  tokio-rt-worker  [.] prost::encoding::varint::decode_varint::<&mut bytes::bytes::Bytes>
+     0.48%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+            |
+            ---prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+               <dexzd_protocol::dex::StartFlowRequest as prost::message::Message>::encode_to_vec
+               dexzd_engine::flow_coordination::client_operations::request_fingerprint::request_fingerprint::<dexzd_protocol::dex::StartFlowRequest>
+               <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry as dexzd_api::flow_operations::FlowOperations>::start_flow::{closure#0}
+               <dexzd_api::flow_service::DexFlowService as dexzd_protocol::dex::flow_service_server::FlowService>::start_flow::{closure#0}
+               <<dexzd_protocol::dex::flow_service_server::FlowServiceServer<_> as tower_service::Service<http::request::Request<_>>>::call::StartFlowSvc<dexzd_api::flow_service::DexFlowService> as tonic::server::service::UnaryService<dexzd_protocol::dex::StartFlowRequest>>::call::{closure#0}
+
+     0.47%  tokio-rt-worker  [.] __aarch64_ldadd8_rel
+     0.45%  tokio-rt-worker  [.] <aws_smithy_types::config_bag::value::Value<aws_runtime::service_clock_skew::AttemptSkew> as core::any::Any>::type_id
+     0.45%  tokio-rt-worker  [k] handle_softirqs
+            |
+            ---handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               |
+                --0.44%--el0_interrupt
+                          __el0_irq_handler_common
+                          el0t_64_irq_handler
+                          el0t_64_irq
+
+     0.44%  tokio-rt-worker  [.] std::_Function_handler<void (), rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::Slice const&, rocksdb::DBImpl::GetImplOptions&)::{lambda()#1}>::_M_invoke(std::_Any_data const&)
+     0.44%  tokio-rt-worker  [.] __rustc::__rdl_realloc
+     0.44%  tokio-rt-worker  [.] rocksdb::GetLengthPrefixedSlice(rocksdb::Slice*, rocksdb::Slice*)
+     0.44%  tokio-rt-worker  [.] getrandom
+     0.43%  tokio-rt-worker  [.] operator new(unsigned long)@plt
+     0.42%  tokio-rt-worker  [k] do_el0_svc
+            |
+            ---do_el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.42%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     0.41%  tokio-rt-worker  [.] rocksdb::Status::operator=(rocksdb::Status&&) [clone .isra.0]
+     0.41%  tokio-rt-worker  [.] 0x0000000000094308
+            |
+            ---0xeb9008c14308
+               cfree
+               <hashbrown::raw::RawTable<(alloc::string::String, aws_smithy_observability::attributes::AttributeValue)> as core::ops::drop::Drop>::drop
+               core::ptr::drop_glue::<aws_smithy_types::body::SdkBody>
+               core::ptr::drop_glue::<aws_smithy_types::body::SdkBody>
+               <hyper::proto::h1::dispatch::Dispatcher<hyper::proto::h1::dispatch::Client<aws_smithy_types::body::SdkBody>, aws_smithy_types::body::SdkBody, aws_smithy_http_client::client::connect::Conn, hyper::proto::h1::role::Client>>::poll_write
+               <hyper::proto::h1::dispatch::Dispatcher<hyper::proto::h1::dispatch::Client<aws_smithy_types::body::SdkBody>, aws_smithy_types::body::SdkBody, aws_smithy_http_client::client::connect::Conn, hyper::proto::h1::role::Client>>::poll_catch
+               <hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody> as core::future::future::Future>::poll
+               <futures_util::future::future::map::Map<futures_util::future::try_future::into_future::IntoFuture<hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody>>, futures_util::fns::MapErrFn<<hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#2}>> as core::future::future::Future>::poll
+               <futures_util::future::future::map::Map<futures_util::future::try_future::MapErr<hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody>, <hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#2}>, <hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#3}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = ()> + core::marker::Send>>, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::task::harness::Harness<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = ()> + core::marker::Send>>, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xeb9008c0582b
+               0xeb9008c6bb4b
+
+     0.40%  tokio-rt-worker  [.] dexzd_request_validation::keyword_index::validate_indexed_keyword
+     0.40%  tokio-rt-worker  [.] aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}
+     0.40%  tokio-rt-worker  [.] <alloc::vec::Vec<dexzd_engine::commit::partition_applier::DecodedCommand> as alloc::vec::spec_from_iter::SpecFromIter<dexzd_engine::commit::partition_applier::DecodedCommand, core::iter::adapters::GenericShunt<core::iter::adapters::map::Map<core::slice::iter::Iter<bytes::bytes::Bytes>, <dexzd_engine::commit::partition_applier::FrameApplier>::try_apply_frame::{closure#3}>, core::result::Result<core::convert::Infallible, dexzd_engine::commit::partition_applier::FrameFailure>>>>::from_iter
+     0.40%  tokio-rt-worker  [.] __rustc::__rdl_dealloc
+     0.40%  tokio-rt-worker  [.] dexzd_keyspace::row_keys::tenant_run_index_key
+     0.40%  tokio-rt-worker  [.] rocksdb::MemTable::KeyComparator::operator()(char const*, rocksdb::Slice const&) const
+     0.40%  tokio-rt-worker  [.] <aws_sdk_s3::http_request_checksum::RequestChecksumInterceptor<<aws_sdk_s3::operation::upload_part::UploadPart as aws_smithy_runtime_api::client::runtime_plugin::RuntimePlugin>::runtime_components::{closure#0}, <aws_sdk_s3::operation::upload_part::UploadPart as aws_smithy_runtime_api::client::runtime_plugin::RuntimePlugin>::runtime_components::{closure#1}> as aws_smithy_runtime_api::client::interceptors::Intercept>::modify_before_retry_loop
+     0.39%  tokio-rt-worker  [k] __schedule
+            |
+            ---__schedule
+               schedule
+               do_sched_yield
+               __arm64_sys_sched_yield
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.39%  tokio-rt-worker  [.] 0x00000000000928cc
+     0.39%  tokio-rt-worker  [k] _raw_spin_unlock_irqrestore
+            |
+            ---_raw_spin_unlock_irqrestore
+               |
+                --0.38%--wake_up_q
+                          futex_wake
+                          do_futex
+                          __arm64_sys_futex
+                          invoke_syscall
+                          el0_svc_common.constprop.0
+                          do_el0_svc
+                          el0_svc
+                          el0t_64_sync_handler
+                          el0t_64_sync
+
+     0.38%  tokio-rt-worker  [.] 0x00000000000a1ba4
+     0.37%  tokio-rt-worker  [.] prost::encoding::merge_loop::<dexzd_protocol::dexzd::v1::RunSettings, prost::encoding::message::merge<dexzd_protocol::dexzd::v1::RunSettings, &mut &[u8]>::{closure#0}, &mut &[u8]>
+     0.37%  tokio-rt-worker  [.] core::ptr::drop_glue::<core::option::Option<dexzd_protocol::dex::FlowTimeoutHandlerOptions>>
+     0.37%  tokio-rt-worker  [.] <http::extensions::Extensions>::insert::<aws_runtime::service_clock_skew::ResponseClockSkew>
+            |
+            ---<http::extensions::Extensions>::insert::<aws_runtime::service_clock_skew::ResponseClockSkew>
+               <aws_runtime::service_clock_skew::ServiceClockSkewInterceptor as aws_smithy_runtime_api::client::interceptors::Intercept>::modify_before_deserialization
+               <aws_smithy_runtime::client::interceptors::Interceptors<core::iter::adapters::map::Map<core::slice::iter::Iter<aws_smithy_runtime_api::client::runtime_components::Tracked<aws_smithy_runtime_api::client::interceptors::SharedInterceptor>>, <aws_smithy_runtime_api::client::runtime_components::RuntimeComponents>::interceptors::{closure#0}>>>::modify_before_deserialization
+               aws_smithy_runtime::client::orchestrator::try_attempt::{closure#0}
+               <aws_smithy_runtime::client::timeout::MaybeTimeoutFuture<aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}::{closure#2}> as core::future::future::Future>::poll
+               aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}
+
+     0.37%  tokio-rt-worker  [.] 0x00000000000952e8
+     0.36%  tokio-rt-worker  [.] <dexzd_apply::command_handlers::run_cursor::RunCursor>::finish
+     0.36%  tokio-rt-worker  [.] prost::encoding::merge_loop::<dexzd_protocol::dexzd::v1::RunStorageUsage, prost::encoding::message::merge<dexzd_protocol::dexzd::v1::RunStorageUsage, &mut &[u8]>::{closure#0}, &mut &[u8]>
+     0.36%  tokio-rt-worker  [.] rocksdb::DBImpl::CleanupIteratorSuperVersion(rocksdb::SuperVersion*, bool)
+     0.35%  tokio-rt-worker  [.] dexzd_apply::steps::step_results::load_invocation
+     0.35%  tokio-rt-worker  [.] core::ptr::drop_glue::<core::option::Option<dexzd_protocol::dexzd::v1::flow_command::Command>>
+     0.35%  tokio-rt-worker  [.] rocksdb::DBImpl::WriteImpl(rocksdb::WriteOptions const&, rocksdb::WriteBatch*, rocksdb::WriteCallback*, rocksdb::UserWriteCallback*, unsigned long*, unsigned long, bool, unsigned long*, unsigned long, rocksdb::PreReleaseCallback*, rocksdb::PostMemTableCallback*, std::shared_ptr<rocksdb::WriteBatchWithIndex>, rocksdb::WriteBatch*, bool, rocksdb::DBImpl::DeferredPutEntityBatch const*)
+     0.35%  tokio-rt-worker  [.] 0x000000000008188c
+     0.34%  tokio-rt-worker  [.] <core::hash::sip::Hasher<core::hash::sip::Sip13Rounds> as core::hash::Hasher>::write
+     0.34%  tokio-rt-worker  [.] <tokio::runtime::scheduler::multi_thread::park::Inner>::park_condvar
+            |
+            ---<tokio::runtime::scheduler::multi_thread::park::Inner>::park_condvar
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xeb9008c0582b
+               0xeb9008c6bb4b
+
+     0.34%  tokio-rt-worker  [k] udp_lib_get_port
+            |
+            ---udp_lib_get_port
+               udp_v4_get_port
+               inet_autobind
+               inet_dgram_connect
+               __sys_connect_file
+               __sys_connect
+               __arm64_sys_connect
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.33%  tokio-rt-worker  [.] core::ptr::drop_glue::<dexzd_protocol::dex::FlowStartOptions>
+     0.33%  tokio-rt-worker  [k] __rmqueue_pcplist
+            |
+            ---__rmqueue_pcplist
+               rmqueue.isra.0
+               get_page_from_freelist
+               __alloc_frozen_pages_noprof
+               alloc_pages_mpol
+               alloc_frozen_pages_noprof
+               folio_alloc_noprof
+               filemap_alloc_folio_noprof.part.0
+               __filemap_get_folio_mpol
+               ext4_da_write_begin
+               generic_perform_write
+               ext4_buffered_write_iter
+               ext4_file_write_iter
+               vfs_write
+               ksys_write
+               __arm64_sys_write
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.33%  tokio-rt-worker  [.] __aarch64_cas8_acq_rel
+            |
+            ---__aarch64_cas8_acq_rel
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xeb9008c0582b
+               0xeb9008c6bb4b
+
+     0.33%  tokio-rt-worker  [.] dexzd_apply::command_handlers::flow_data::apply_attribute_writes
+     0.33%  tokio-rt-worker  [.] prost::encoding::varint::decode_varint::<&mut &[u8]>
+     0.33%  tokio-rt-worker  [.] core::ptr::drop_glue::<alloc::vec::into_iter::IntoIter<(dexzd_engine::commit::commit_state::PendingCommand, dexzd_engine::flow_coordination::commit_port::CommittedCommand)>>
+     0.32%  tokio-rt-worker  [.] 0x0000000000095368
+     0.31%  tokio-rt-worker  [.] <alloc::vec::Vec<alloc::string::String> as core::clone::Clone>::clone
+     0.31%  tokio-rt-worker  [.] bytes::bytes::promotable_even_drop
+     0.31%  tokio-rt-worker  [.] __aarch64_ldadd8_relax
+     0.31%  tokio-rt-worker  [.] <dexzd_apply::state_access::flow_transaction::FlowTransaction>::put
+     0.31%  tokio-rt-worker  [.] rocksdb::WriteThread::ExitAsBatchGroupLeader(rocksdb::WriteThread::WriteGroup&, rocksdb::Status&)
+     0.31%  tokio-rt-worker  [k] __pi_memset_generic
+            |
+            ---__pi_memset_generic
+               do_sve_acc
+               el0_sve_acc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.30%  tokio-rt-worker  [.] core::ptr::drop_glue::<core::option::Option<dexzd_protocol::dex::WaitingCondition>>
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

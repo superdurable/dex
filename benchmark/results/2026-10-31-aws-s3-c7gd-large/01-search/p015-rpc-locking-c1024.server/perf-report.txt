@@ -1,0 +1,1105 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 269  of event 'armv8_pmuv3_0/cycles/P'
+# Event count (approx.): 6021217660
+#
+# Overhead  Command          Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           IPC   [IPC Coverage]
+# ........  ...............  .............................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+     5.65%  tokio-rt-worker  [.] rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+            |
+             --4.17%--rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+                       rocksdb::(anonymous namespace)::SkipListRep::Get(rocksdb::LookupKey const&, void*, bool (*)(void*, char const*))
+                       rocksdb::MemTable::GetFromTable(rocksdb::LookupKey const&, unsigned long, bool, rocksdb::ReadCallback*, bool*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::PinnableWideColumns*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::Status*, rocksdb::MergeContext*, unsigned long*, bool*, bool*, rocksdb::BlobFetcher const*)
+                       rocksdb::MemTable::Get(rocksdb::LookupKey const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::PinnableWideColumns*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::Status*, rocksdb::MergeContext*, unsigned long*, unsigned long*, rocksdb::ReadOptions const&, bool, rocksdb::ReadCallback*, bool*, bool, rocksdb::BlobFetcher const*)
+                       rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::Slice const&, rocksdb::DBImpl::GetImplOptions&)
+                       rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::ColumnFamilyHandle*, rocksdb::Slice const&, rocksdb::PinnableSlice*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*)
+                       rocksdb::DBImpl::Get(rocksdb::ReadOptions const&, rocksdb::ColumnFamilyHandle*, rocksdb::Slice const&, rocksdb::PinnableSlice*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*)
+                       rocksdb_get_pinned_cf
+                       <rocksdb::db::DBCommon<rocksdb::db::SingleThreaded, rocksdb::db::DBWithThreadModeInner>>::get_cf_opt::<&[u8], rocksdb::column_family::ColumnFamily>
+                       <dexzd_storage::rocksdb_store::RocksView as dexzd_storage::local_store::LocalReadView>::get
+                       dexzd_engine::commit::committed_state_view::read_row
+                       |
+                       |--2.50%--dexzd_engine::flow_coordination::read_operations::state_rows::read_directory
+                       |          dexzd_engine::flow_coordination::read_operations::state_rows::resolve_command_run
+                       |          dexzd_engine::flow_coordination::read_operations::state_rows::read_run
+                       |          <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry as dexzd_api::flow_operations::FlowOperations>::invoke_rpc::{closure#0}
+                       |
+                        --1.67%--dexzd_engine::flow_coordination::client_operations::rpc_invocation::replay_recorded_rpc
+                                  <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry as dexzd_api::flow_operations::FlowOperations>::invoke_rpc::{closure#0}
+
+     3.51%  tokio-rt-worker  [k] __pi_memcpy_generic
+            |
+            ---__pi_memcpy_generic
+               |
+               |--2.71%--tcp_gso_segment
+               |          tcp4_gso_segment
+               |          inet_gso_segment
+               |          skb_mac_gso_segment
+               |          __skb_gso_segment
+               |          validate_xmit_skb
+               |          validate_xmit_skb_list
+               |          sch_direct_xmit
+               |          __dev_xmit_skb
+               |          __dev_queue_xmit
+               |          neigh_hh_output
+               |          ip_finish_output2
+               |          __ip_finish_output
+               |          ip_finish_output
+               |          ip_output
+               |          __ip_queue_xmit
+               |          ip_queue_xmit
+               |          __tcp_transmit_skb
+               |          tcp_write_xmit
+               |          __tcp_push_pending_frames
+               |          tcp_push
+               |          tcp_sendmsg_locked
+               |          tcp_sendmsg
+               |          inet_sendmsg
+               |          __sock_sendmsg
+               |          sock_write_iter
+               |          do_iter_readv_writev
+               |          vfs_writev
+               |          do_writev
+               |          __arm64_sys_writev
+               |          invoke_syscall
+               |          el0_svc_common.constprop.0
+               |          do_el0_svc
+               |          el0_svc
+               |          el0t_64_sync_handler
+               |          el0t_64_sync
+               |
+                --0.80%--ena_clean_rx_irq
+                          ena_io_poll
+                          __napi_poll
+                          net_rx_action
+                          handle_softirqs
+                          __do_softirq
+                          ____do_softirq
+                          call_on_irq_stack
+                          do_softirq_own_stack
+                          __irq_exit_rcu
+                          irq_exit_rcu
+                          el0_interrupt
+                          __el0_irq_handler_common
+                          el0t_64_irq_handler
+                          el0t_64_irq
+
+     3.22%  tokio-rt-worker  [.] rocksdb::MemTable::KeyComparator::operator()(char const*, rocksdb::Slice const&) const
+            |
+             --0.81%--rocksdb::MemTable::KeyComparator::operator()(char const*, rocksdb::Slice const&) const
+                       rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<rocksdb::MemTableRep::KeyComparator const&>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const
+                       rocksdb::(anonymous namespace)::SkipListRep::Get(rocksdb::LookupKey const&, void*, bool (*)(void*, char const*))
+                       rocksdb::MemTable::GetFromTable(rocksdb::LookupKey const&, unsigned long, bool, rocksdb::ReadCallback*, bool*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::PinnableWideColumns*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::Status*, rocksdb::MergeContext*, unsigned long*, bool*, bool*, rocksdb::BlobFetcher const*)
+                       rocksdb::MemTable::Get(rocksdb::LookupKey const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::PinnableWideColumns*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*, rocksdb::Status*, rocksdb::MergeContext*, unsigned long*, unsigned long*, rocksdb::ReadOptions const&, bool, rocksdb::ReadCallback*, bool*, bool, rocksdb::BlobFetcher const*)
+                       rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::Slice const&, rocksdb::DBImpl::GetImplOptions&)
+                       rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::ColumnFamilyHandle*, rocksdb::Slice const&, rocksdb::PinnableSlice*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*)
+                       rocksdb::DBImpl::Get(rocksdb::ReadOptions const&, rocksdb::ColumnFamilyHandle*, rocksdb::Slice const&, rocksdb::PinnableSlice*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*)
+                       rocksdb_get_pinned_cf
+                       <rocksdb::db::DBCommon<rocksdb::db::SingleThreaded, rocksdb::db::DBWithThreadModeInner>>::get_cf_opt::<&[u8], rocksdb::column_family::ColumnFamily>
+                       <dexzd_storage::rocksdb_store::RocksView as dexzd_storage::local_store::LocalReadView>::get
+                       dexzd_engine::commit::committed_state_view::read_row
+                       dexzd_engine::flow_coordination::read_operations::state_rows::read_run
+                       <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry as dexzd_api::flow_operations::FlowOperations>::invoke_rpc::{closure#0}
+
+     3.12%  tokio-rt-worker  [.] 0x00000000000941d8
+     3.02%  tokio-rt-worker  [k] _raw_spin_unlock_irqrestore
+            |
+            ---_raw_spin_unlock_irqrestore
+               hrtimer_sleeper_start_expires
+               schedule_hrtimeout_range_clock
+               schedule_hrtimeout_range
+               ep_poll
+               do_epoll_wait
+               do_epoll_pwait.part.0
+               __arm64_sys_epoll_pwait
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               epoll_pwait
+               <mio::poll::Poll>::poll
+               <tokio::runtime::io::driver::Driver>::turn
+               <tokio::runtime::time::Driver>::park_internal
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xee6c0de7582b
+               0xee6c0dedbb4b
+
+     2.22%  tokio-rt-worker  [.] malloc
+            |
+             --1.63%--malloc
+                       |
+                       |--1.00%--<dexzd_protocol::dexzd::v1::StepExecutionRecord as prost::message::Message>::encode_to_vec
+                       |          <dexzd_apply::state_access::run_rows::RunRows>::put_step_execution
+                       |          dexzd_apply::steps::step_results::apply_attempt_started
+                       |          dexzd_apply::command_handlers::step_commands::apply_step_command
+                       |          dexzd_apply::command_handlers::apply_in_scope
+                       |
+                        --0.63%--operator new(unsigned long)
+                                  0x61bb7e8c27ea83
+                                  0x61bb7e8c27ea83
+                                  <rocksdb::db::DBCommon<rocksdb::db::SingleThreaded, rocksdb::db::DBWithThreadModeInner>>::get_cf_opt::<&[u8], rocksdb::column_family::ColumnFamily>
+                                  dexzd_engine::commit::committed_state_view::read_row
+                                  dexzd_engine::flow_coordination::read_operations::state_rows::read_run
+                                  <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::invoke_rpc_once::{closure#0}
+
+     2.08%  tokio-rt-worker  [.] <matchit::tree::Node<axum::routing::RouteId>>::at
+            |
+            ---<matchit::tree::Node<axum::routing::RouteId>>::at
+               <axum::routing::path_router::Node>::at
+               <axum::routing::Router>::call_with_state
+               <tonic::service::router::Routes as tower_service::Service<http::request::Request<tonic::body::Body>>>::call
+               <dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call
+               <dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#0}
+               <tower::util::either::EitherResponseFuture<tower::load_shed::future::ResponseFuture<tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>>, tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, t
+               <tonic::transport::server::SvcFuture<tonic::service::recover_error::ResponseFuture<tower::util::either::EitherResponseFuture<tower::load_shed::future::ResponseFuture<tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>>, tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Re
+               <hyper_util::service::oneshot::Oneshot<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::stream::TcpStream, core::io::error::Error, tonic::b
+               <hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::s
+               <tokio::runtime::task::core::Core<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}
+               <tokio::runtime::task::harness::Harness<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{clos
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+
+     1.67%  tokio-rt-worker  [.] 0x00000000000a1ba4
+            |
+            ---0xee6c0de91ba4
+               |
+               |--0.87%--<core::iter::adapters::map::Map<core::slice::iter::Iter<aws_runtime::user_agent::metrics::BusinessMetric>, <aws_runtime::user_agent::metrics::BusinessMetrics as core::fmt::Display>::fmt::{closure#0}> as core::iter::traits::iterator::Iterator>::fold::<(), core::iter::traits::iterator::Iterator::for_each::call<alloc::borrow::Cow<str>, <alloc::vec::Vec<alloc::borrow::Cow<str>>>::extend_trusted<core::iter::adapters::map::Map<core::slice::iter::Iter<aws_runtime::user_agent::metrics::BusinessMetric>, <aws_runtime::user_agent::metrics::BusinessMetrics as core::fmt::Display>::fmt::{closure#0}>>::{closure#0}>::{closure#0}>
+               |          <alloc::vec::Vec<alloc::borrow::Cow<str>> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<alloc::borrow::Cow<str>, core::iter::adapters::map::Map<core::slice::iter::Iter<aws_runtime::user_agent::metrics::BusinessMetric>, <aws_runtime::user_agent::metrics::BusinessMetrics as core::fmt::Display>::fmt::{closure#0}>>>::from_iter
+               |          <aws_runtime::user_agent::metrics::BusinessMetrics as core::fmt::Display>::fmt
+               |          core::fmt::write
+               |          <aws_runtime::user_agent::AwsUserAgent>::aws_ua_header
+               |          <aws_runtime::user_agent::interceptor::UserAgentInterceptor as aws_smithy_runtime_api::client::interceptors::Intercept>::modify_before_signing
+               |          <aws_smithy_runtime::client::interceptors::Interceptors<core::iter::adapters::map::Map<core::slice::iter::Iter<aws_smithy_runtime_api::client::runtime_components::Tracked<aws_smithy_runtime_api::client::interceptors::SharedInterceptor>>, <aws_smithy_runtime_api::client::runtime_components::RuntimeComponents>::interceptors::{closure#0}>>>::modify_before_signing
+               |          aws_smithy_runtime::client::orchestrator::try_attempt::{closure#0}
+               |          <aws_smithy_runtime::client::timeout::MaybeTimeoutFuture<aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}::{closure#2}> as core::future::future::Future>::poll
+               |
+                --0.80%--<bytes::bytes_mut::BytesMut as bytes::buf::buf_mut::BufMut>::put::<bytes::buf::take::Take<&mut &[u8]>>
+                          <&[u8] as bytes::buf::buf_impl::Buf>::copy_to_bytes
+                          prost::encoding::bytes::merge::<alloc::vec::Vec<u8>, &mut &[u8]>
+                          <dexzd_protocol::dexzd::v1::FlowDirectoryRun as prost::message::Message>::merge_field::<&mut &[u8]>
+                          prost::encoding::merge_loop::<dexzd_protocol::dexzd::v1::FlowDirectoryRun, prost::encoding::message::merge<dexzd_protocol::dexzd::v1::FlowDirectoryRun, &mut &[u8]>::{closure#0}, &mut &[u8]>
+                          prost::encoding::message::merge_repeated::<dexzd_protocol::dexzd::v1::FlowDirectoryRun, &mut &[u8]>
+                          <dexzd_protocol::dexzd::v1::FlowDirectoryRecord as prost::message::Message>::decode::<&[u8]>
+                          dexzd_engine::flow_coordination::read_operations::state_rows::read_directory
+                          dexzd_engine::flow_coordination::read_operations::state_rows::resolve_command_run
+                          dexzd_engine::flow_coordination::read_operations::state_rows::read_run
+                          <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry as dexzd_api::flow_operations::FlowOperations>::invoke_rpc::{closure#0}
+
+     1.58%  tokio-rt-worker  [.] <dexzd_apply::state_access::flow_transaction::FlowTransaction>::get
+            |
+             --0.82%--<dexzd_apply::state_access::flow_transaction::FlowTransaction>::get
+                       <dexzd_apply::state_access::flow_transaction::FlowTransaction>::get_message::<dexzd_protocol::dexzd::v1::RunRecord>
+                       <dexzd_apply::command_handlers::run_cursor::RunCursor>::open
+                       dexzd_apply::command_handlers::apply_in_scope
+
+     1.57%  tokio-rt-worker  [.] 0x0000000000140a04
+     1.43%  tokio-rt-worker  [k] el0_svc
+            |
+            ---el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               |
+                --0.70%--__lll_lock_wait_private
+                          0xee6c0de844af
+                          cfree
+                          <zstd::stream::write::Encoder<&mut alloc::vec::Vec<u8>>>::finish
+                          zstd::stream::functions::encode_all::<core::io::cursor::Cursor<&bytes::bytes_mut::BytesMut>>
+                          dexzd_log::batch_codec::encode_batch
+                          dexzd_log::commit_pipeline::run_pipeline::{closure#0}
+                          <tokio::runtime::task::core::Core<dexzd_log::commit_pipeline::run_pipeline::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+                          <tokio::runtime::task::harness::Harness<dexzd_log::commit_pipeline::run_pipeline::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+                          <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+                          <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+                          <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+                          tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+                          tokio::runtime::scheduler::multi_thread::worker::run
+                          <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+                          <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+                          <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+
+     1.18%  tokio-rt-worker  [.] cfree
+            |
+            ---cfree
+               |
+               |--0.66%--core::ptr::drop_glue::<dexzd_apply::apply_outcome::ApplyOutcome>
+               |          <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::propose_and_wait_for_commit::<<dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::commit_rpc::{closure#0}::{closure#0}>::{closure#0}
+               |          <tokio::time::timeout::Timeout<<dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::commit_rpc::{closure#0}> as core::future::future::Future>::poll
+               |          <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::invoke_rpc_once::{closure#0}
+               |
+                --0.52%--core::ptr::drop_glue::<hyper_util::service::oneshot::Oneshot<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::stream::TcpStream, core::io::
+                          <hyper_util::service::oneshot::Oneshot<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::stream::TcpStream, core::io::error::Error, tonic::b
+                          <hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::s
+                          <tokio::runtime::task::core::Core<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}
+                          <tokio::runtime::task::harness::Harness<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{clos
+                          <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+                          <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+                          <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+                          tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+                          tokio::runtime::scheduler::multi_thread::worker::run
+                          <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+                          <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+                          <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+                          <tokio::runtime::blocking::pool::Inner>::run
+                          std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+                          <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+                          <std::sys::thread::unix::Thread>::new::thread_start
+                          0xee6c0de7582b
+                          0xee6c0dedbb4b
+
+     1.17%  tokio-rt-worker  [.] __aarch64_ldadd8_rel
+            |
+             --0.65%--__aarch64_ldadd8_rel
+                       bytes::bytes_mut::shared_v_drop
+                       <h2::hpack::decoder::Decoder>::decode::<<h2::frame::headers::HeaderBlock>::load::{closure#0}>
+                       <h2::frame::headers::HeaderBlock>::load
+                       <h2::codec::framed_read::FrameDecoder>::decode
+                       <h2::codec::framed_read::FramedRead<h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>> as futures_core::stream::Stream>::poll_next
+                       <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+                       <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     1.03%  tokio-rt-worker  [k] check_heap_object
+            |
+            ---check_heap_object
+               __check_object_size.part.0
+               __check_object_size
+               skb_do_copy_data_nocache
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.98%  tokio-rt-worker  [.] <alloc::vec::Vec<core::option::Option<dexzd_protocol::dexzd::v1::StoredFlowResult>> as core::ops::drop::Drop>::drop
+            |
+            ---<alloc::vec::Vec<core::option::Option<dexzd_protocol::dexzd::v1::StoredFlowResult>> as core::ops::drop::Drop>::drop
+               dexzd_apply::steps::wait_conditions::evaluate_waiting_step
+               dexzd_apply::steps::wait_conditions::register_wait
+               dexzd_apply::steps::step_results::apply_method_completed
+               dexzd_apply::command_handlers::step_commands::apply_step_command
+               dexzd_apply::command_handlers::apply_in_scope
+
+     0.97%  tokio-rt-worker  [.] ZSTD_compressLiterals
+            |
+            ---ZSTD_compressLiterals
+               ZSTD_compressBlock_internal
+               ZSTD_compress_frameChunk
+               ZSTD_compressEnd_public
+               ZSTD_compressStream_generic
+               ZSTD_endStream
+               <zstd_safe::CCtx>::end_stream::<alloc::vec::Vec<u8>>
+               <zstd::stream::zio::writer::Writer<&mut alloc::vec::Vec<u8>, zstd::stream::raw::Encoder>>::finish
+               <zstd::stream::write::Encoder<&mut alloc::vec::Vec<u8>>>::finish
+               zstd::stream::functions::encode_all::<core::io::cursor::Cursor<&bytes::bytes_mut::BytesMut>>
+               dexzd_log::batch_codec::encode_batch
+               dexzd_log::commit_pipeline::run_pipeline::{closure#0}
+               <tokio::runtime::task::core::Core<dexzd_log::commit_pipeline::run_pipeline::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::task::harness::Harness<dexzd_log::commit_pipeline::run_pipeline::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+
+     0.95%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     0.92%  tokio-rt-worker  [.] <h2::proto::streams::recv::Recv>::release_capacity
+            |
+            ---<h2::proto::streams::recv::Recv>::release_capacity
+               <h2::proto::streams::streams::OpaqueStreamRef>::release_capacity
+               <h2::share::FlowControl>::release_capacity
+               <hyper::body::incoming::Incoming as http_body::Body>::poll_frame
+               <http_body_util::combinators::map_err::MapErr<hyper::body::incoming::Incoming, <tonic::status::Status>::map_error<hyper::error::Error>> as http_body::Body>::poll_frame
+               <http_body_util::combinators::map_err::MapErr<tonic::body::Body, <axum_core::error::Error>::new<tonic::status::Status>> as http_body::Body>::poll_frame
+               <http_body_util::combinators::map_err::MapErr<axum_core::body::Body, <tonic::status::Status>::map_error<axum_core::error::Error>> as http_body::Body>::poll_frame
+               <http_body_util::combinators::map_frame::MapFrame<tonic::body::Body, <tonic::codec::decode::Streaming<tonic_health::generated::grpc_health_v1::HealthCheckRequest>>::new<tonic::body::Body, tonic_prost::codec::ProstDecoder<tonic_health::generated::grpc_health_v1::HealthCheckRequest>>::{closure#0}> as http_body::Body>::poll_frame
+               <http_body_util::combinators::map_err::MapErr<http_body_util::combinators::map_err::MapErr<http_body_util::combinators::map_frame::MapFrame<tonic::body::Body, <tonic::codec::decode::Streaming<dexzd_protocol::dex::StartFlowRequest>>::new<tonic::body::Body, tonic_prost::codec::ProstDecoder<dexzd_protocol::dex::StartFlowRequest>>::{closure#0}>, <tonic::codec::decode::Streaming<dexzd_protocol::dex::StartFlowRequest>>::new<tonic::body::Body, tonic_prost::codec::ProstDecoder<dexzd_protocol::dex::StartFlowRequest>>::{closure#1}>, <tonic::status::Status>::map_error<tonic::status::Status>> as http_body::Body>::poll_frame
+               <tonic::codec::decode::StreamingInner>::poll_frame
+               <tonic::codec::decode::Streaming<dexzd_protocol::dex::StartFlowRequest> as futures_core::stream::Stream>::poll_next
+               <dexzd_protocol::dex::flow_service_server::FlowServiceServer<dexzd_api::flow_service::DexFlowService> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#1}
+
+     0.92%  tokio-rt-worker  [.] memcpy@plt
+            |
+            ---memcpy@plt
+               <h2::frame::head::Head>::encode::<bytes::buf::limit::Limit<&mut bytes::bytes_mut::BytesMut>>
+               <h2::codec::framed_write::Encoder<h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::buffer
+               <h2::proto::streams::prioritize::Prioritize>::buffer_pending::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+               <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.92%  tokio-rt-worker  [.] 0x00000000000952a4
+     0.91%  tokio-rt-worker  [.] core::ptr::drop_glue::<core::option::Option<tokio::runtime::Timer>>
+            |
+            ---core::ptr::drop_glue::<core::option::Option<tokio::runtime::Timer>>
+               dexzd_engine::commit::log_proposer::run_log_proposer::{closure#0}
+               <tokio::runtime::task::core::Core<dexzd_engine::commit::log_proposer::run_log_proposer::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::task::harness::Harness<dexzd_engine::commit::log_proposer::run_log_proposer::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xee6c0de7582b
+               0xee6c0dedbb4b
+
+     0.90%  tokio-rt-worker  [.] <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry as dexzd_api::flow_operations::FlowOperations>::invoke_rpc::{closure#0}
+            |
+            ---<dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry as dexzd_api::flow_operations::FlowOperations>::invoke_rpc::{closure#0}
+
+     0.88%  tokio-rt-worker  [.] <tonic::codec::decode::Streaming<dexzd_protocol::dex::InvokeRpcRequest> as futures_core::stream::Stream>::poll_next
+     0.87%  tokio-rt-worker  [k] __import_iovec
+            |
+            ---__import_iovec
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.87%  tokio-rt-worker  [.] <dexzd_engine::flow_coordination::registry::RpcLockGuard as core::ops::drop::Drop>::drop
+     0.86%  tokio-rt-worker  [.] <hyper::proto::h2::ping::Ponger>::poll
+            |
+            ---<hyper::proto::h2::ping::Ponger>::poll
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.85%  tokio-rt-worker  [.] <dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#0}
+     0.85%  tokio-rt-worker  [k] ep_done_scan
+            |
+            ---ep_done_scan
+               ep_send_events
+               ep_poll
+               do_epoll_wait
+               do_epoll_pwait.part.0
+               __arm64_sys_epoll_pwait
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.84%  tokio-rt-worker  [.] <core::future::poll_fn::PollFn<dexzd_worker_dispatch::worker_registry::worker_protocol::read_worker_stream::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+     0.84%  tokio-rt-worker  [.] <core::future::poll_fn::PollFn<<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::search_queue::{closure#0}::{closure#2}> as core::future::future::Future>::poll
+            |
+            ---<core::future::poll_fn::PollFn<<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::search_queue::{closure#0}::{closure#2}> as core::future::future::Future>::poll
+               <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::search_queue::{closure#0}
+               <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}
+               <tokio::runtime::task::core::Core<<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+
+     0.82%  tokio-rt-worker  [k] tcp_schedule_loss_probe.part.0
+            |
+            ---tcp_schedule_loss_probe.part.0
+               tcp_write_xmit
+               __tcp_push_pending_frames
+               tcp_push
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               writev
+               <&std::net::tcp::TcpStream as core::io::write::Write>::write_vectored
+               <&mio::net::tcp::stream::TcpStream as core::io::write::Write>::write_vectored
+               <tokio::runtime::io::registration::Registration>::poll_io::<usize, <tokio::io::poll_evented::PollEvented<mio::net::tcp::stream::TcpStream>>::poll_write_vectored::{closure#0}>
+               <tokio::net::tcp::stream::TcpStream as tokio::io::async_write::AsyncWrite>::poll_write_vectored
+               tokio_util::util::poll_buf::poll_write_buf::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, core::io::cursor::Cursor<bytes::bytes_mut::BytesMut>>
+               <h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::flush
+               <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.82%  tokio-rt-worker  [.] memcmp
+     0.82%  tokio-rt-worker  [.] 0x00000000000a1c38
+     0.82%  tokio-rt-worker  [.] 0x00000000000929ec
+     0.82%  tokio-rt-worker  [.] 0x0000000000096994
+     0.82%  tokio-rt-worker  [k] ena_unmask_interrupt
+            |
+            ---ena_unmask_interrupt
+               ena_io_poll
+               __napi_poll
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               el0_interrupt
+               __el0_irq_handler_common
+               el0t_64_irq_handler
+               el0t_64_irq
+
+     0.82%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::RunSettings as prost::message::Message>::merge_field::<&mut &[u8]>
+            |
+            ---<dexzd_protocol::dexzd::v1::RunSettings as prost::message::Message>::merge_field::<&mut &[u8]>
+               prost::encoding::merge_loop::<dexzd_protocol::dexzd::v1::RunSettings, prost::encoding::message::merge<dexzd_protocol::dexzd::v1::RunSettings, &mut &[u8]>::{closure#0}, &mut &[u8]>
+               <dexzd_protocol::dexzd::v1::RunRecord as prost::message::Message>::decode::<&[u8]>
+               <dexzd_apply::state_access::flow_transaction::FlowTransaction>::get_message::<dexzd_protocol::dexzd::v1::RunRecord>
+               <dexzd_apply::command_handlers::run_cursor::RunCursor>::open
+               dexzd_apply::command_handlers::apply_in_scope
+
+     0.81%  tokio-rt-worker  [.] rocksdb::ArenaWrappedDBIter::Valid() const
+            |
+            ---rocksdb::ArenaWrappedDBIter::Valid() const
+               <rocksdb::db_iterator::DBIteratorWithThreadMode<rocksdb::db::DBCommon<rocksdb::db::SingleThreaded, rocksdb::db::DBWithThreadModeInner>> as core::iter::traits::iterator::Iterator>::next
+               dexzd_storage::rocksdb_store::scan_rocksdb
+               <dexzd_storage::rocksdb_store::RocksView as dexzd_storage::local_store::LocalReadView>::scan
+               dexzd_engine::commit::committed_state_view::scan_rows
+               <dexzd_engine::flow_coordination::speculative_overlay::OverlayStateReader as dexzd_apply::state_access::FlowStateReader>::scan
+               <dexzd_apply::state_access::flow_transaction::FlowTransaction>::scan
+               <dexzd_apply::state_access::run_rows::RunRows>::put_request_dedup
+               dexzd_apply::command_handlers::rpc_committed::remember_reply
+               dexzd_apply::command_handlers::apply_run_command
+
+     0.81%  tokio-rt-worker  [.] rocksdb::MemTableIterator::status() const
+     0.81%  tokio-rt-worker  [k] static_key_count
+            |
+            ---static_key_count
+               mprotect_fixup
+               do_mprotect_pkey
+               __arm64_sys_mprotect
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.81%  tokio-rt-worker  [.] <alloc::collections::vec_deque::VecDeque<uuid::Uuid>>::retain::<<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::disconnect::{closure#0}>
+     0.81%  tokio-rt-worker  [.] <dexzd_engine::commit::command_committer::CommandCommitter>::committed_view
+     0.81%  tokio-rt-worker  [.] malloc@plt
+     0.80%  tokio-rt-worker  [.] clock_gettime
+            |
+            ---clock_gettime
+               <std::sys::pal::unix::time::Timespec>::now
+               <tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>>> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call
+               <tower::util::either::Either<tower::load_shed::LoadShed<tower::util::either::Either<tower::limit::concurrency::service::ConcurrencyLimit<tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>>>>, tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>>>>>, tower::util::either::Either<tower::limit::concurrency::service::ConcurrencyLimit<tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>>>>, tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>>>>> as tower_ser
+               <tonic::transport::server::Svc<tonic::service::recover_error::RecoverError<tower::util::either::Either<tower::load_shed::LoadShed<tower::util::either::Either<tower::limit::concurrency::service::ConcurrencyLimit<tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>>>>, tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>>>>>, tower::util::either::Either<tower::limit::concurrency::service::ConcurrencyLimit<tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>>>>, tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client
+               <tower::util::map_future::MapFuture<tonic::transport::server::service::io::ConnectInfo<tonic::transport::server::Svc<tonic::service::recover_error::RecoverError<tower::util::either::Either<tower::load_shed::LoadShed<tower::util::either::Either<tower::limit::concurrency::service::ConcurrencyLimit<tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>>>>, tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>>>>>, tower::util::either::Either<tower::limit::concurrency::service::ConcurrencyLimit<tonic::transport::service::grpc_timeout::GrpcTimeout<dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>>>>, tonic::transport::service::grpc_timeout::GrpcTimeo
+               <hyper_util::service::oneshot::Oneshot<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::stream::TcpStream, core::io::error::Error, tonic::b
+               <hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::s
+               <tokio::runtime::task::core::Core<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}
+               <tokio::runtime::task::harness::Harness<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{clos
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xee6c0de7582b
+               0xee6c0dedbb4b
+
+     0.80%  tokio-rt-worker  [.] <alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle> as tokio::runtime::task::Schedule>::schedule
+            |
+            ---<alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle> as tokio::runtime::task::Schedule>::schedule
+               tokio::runtime::task::waker::wake_by_val
+               <h2::proto::streams::prioritize::Prioritize>::schedule_send
+               <h2::proto::streams::prioritize::Prioritize>::queue_frame::<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+               <h2::proto::streams::send::Send>::send_headers::<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+               <h2::proto::streams::counts::Counts>::transition::<<h2::proto::streams::streams::StreamRef<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::send_response::{closure#0}, core::result::Result<(), h2::codec::error::UserError>>
+               <h2::proto::streams::streams::StreamRef<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::send_response
+               <hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::s
+               <tokio::runtime::task::core::Core<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}
+               <tokio::runtime::task::harness::Harness<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{clos
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xee6c0de7582b
+               0xee6c0dedbb4b
+
+     0.80%  tokio-rt-worker  [.] <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&alloc::string::String>
+     0.80%  tokio-rt-worker  [.] <dexzd_protocol::dex::value::Kind>::encode::<tonic::codec::buffer::EncodeBuf>
+     0.80%  tokio-rt-worker  [k] queue_work_on
+            |
+            ---queue_work_on
+               net_dim
+               ena_io_poll
+               __napi_poll
+               net_rx_action
+               handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               el0_interrupt
+               __el0_irq_handler_common
+               el0t_64_irq_handler
+               el0t_64_irq
+               <tokio::time::timeout::Timeout<<dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::commit_rpc::{closure#0}> as core::future::future::Future>::poll
+               <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::invoke_rpc_once::{closure#0}
+
+     0.80%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::HistoryRecord as prost::message::Message>::encode_to_vec
+     0.80%  tokio-rt-worker  [.] rocksdb::DBImpl::GetImpl(rocksdb::ReadOptions const&, rocksdb::Slice const&, rocksdb::DBImpl::GetImplOptions&)
+     0.79%  tokio-rt-worker  [.] <dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}
+            |
+            ---<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}
+               <tokio::runtime::task::core::Core<<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::task::harness::Harness<<dexzd_worker_dispatch::worker_registry::WorkerDispatch>::dispatch_with_schedule::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+
+     0.79%  tokio-rt-worker  [k] lruvec_stat_mod_folio
+            |
+            ---lruvec_stat_mod_folio
+               __folio_mod_stat
+               folio_add_new_anon_rmap
+               do_anonymous_page
+               handle_pte_fault
+               __handle_mm_fault
+               handle_mm_fault
+               do_page_fault
+               do_translation_fault
+               do_mem_abort
+               el0_da
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.79%  tokio-rt-worker  [.] 0x00000000001406f4
+     0.78%  tokio-rt-worker  [.] <alloc::vec::Vec<dexzd_apply::state_access::flow_transaction::StateRowChange> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<dexzd_apply::state_access::flow_transaction::StateRowChange, alloc::collections::btree::map::IntoValues<(dexzd_keyspace::key_layout::ColumnFamily, alloc::vec::Vec<u8>), dexzd_apply::state_access::flow_transaction::StateRowChange>>>::from_iter
+     0.78%  tokio-rt-worker  [k] memcg1_commit_charge
+            |
+            ---memcg1_commit_charge
+               charge_memcg
+               __mem_cgroup_charge
+               alloc_anon_folio
+               do_anonymous_page
+               handle_pte_fault
+               __handle_mm_fault
+               handle_mm_fault
+               do_page_fault
+               do_translation_fault
+               do_mem_abort
+               el0_da
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.78%  tokio-rt-worker  [.] __aarch64_cas8_acq
+            |
+            ---__aarch64_cas8_acq
+               <atomic_waker::AtomicWaker>::register
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.78%  tokio-rt-worker  [.] __aarch64_cas4_acq
+     0.78%  tokio-rt-worker  [k] up_write
+            |
+            ---up_write
+               do_mprotect_pkey
+               __arm64_sys_mprotect
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               __mprotect
+               0xee6c0de84913
+               0xee6c0de85a5b
+               malloc
+               <dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call
+               <dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#0}
+               <tower::util::either::EitherResponseFuture<tower::load_shed::future::ResponseFuture<tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>>, tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, t
+               <tonic::transport::server::SvcFuture<tonic::service::recover_error::ResponseFuture<tower::util::either::EitherResponseFuture<tower::load_shed::future::ResponseFuture<tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>>, tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Re
+               <hyper_util::service::oneshot::Oneshot<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::stream::TcpStream, core::io::error::Error, tonic::b
+               <hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::s
+               <tokio::runtime::task::core::Core<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}
+               <tokio::runtime::task::harness::Harness<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{clos
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xee6c0de7582b
+               0xee6c0dedbb4b
+
+     0.78%  tokio-rt-worker  [.] <h2::proto::streams::store::Queue<h2::proto::streams::stream::NextSend>>::push
+            |
+            ---<h2::proto::streams::store::Queue<h2::proto::streams::stream::NextSend>>::push
+               <h2::proto::streams::prioritize::Prioritize>::schedule_send
+               <h2::proto::streams::prioritize::Prioritize>::queue_frame::<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+               <h2::proto::streams::send::Send>::send_headers::<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+               <h2::proto::streams::counts::Counts>::transition::<<h2::proto::streams::streams::StreamRef<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::send_response::{closure#0}, core::result::Result<(), h2::codec::error::UserError>>
+               <h2::proto::streams::streams::StreamRef<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::send_response
+               <hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::s
+               <tokio::runtime::task::core::Core<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}
+               <tokio::runtime::task::harness::Harness<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{clos
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xee6c0de7582b
+               0xee6c0dedbb4b
+
+     0.77%  tokio-rt-worker  [.] <h2::proto::streams::prioritize::Prioritize>::buffer_pending::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+            |
+            ---<h2::proto::streams::prioritize::Prioritize>::buffer_pending::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>
+               <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.77%  tokio-rt-worker  [.] core::ptr::drop_glue::<aws_smithy_types::body::SdkBody>
+     0.77%  tokio-rt-worker  [.] core::ptr::drop_glue::<core::option::Option<dexzd_protocol::dexzd::v1::ConditionResultsRecord>>
+     0.76%  tokio-rt-worker  [.] HIST_countFast_wksp
+     0.76%  tokio-rt-worker  [.] <hashbrown::map::HashMap<core::any::TypeId, alloc::boxed::Box<dyn http::extensions::AnyClone + core::marker::Send + core::marker::Sync>, core::hash::BuildHasherDefault<http::extensions::IdHasher>>>::insert
+            |
+            ---<hashbrown::map::HashMap<core::any::TypeId, alloc::boxed::Box<dyn http::extensions::AnyClone + core::marker::Send + core::marker::Sync>, core::hash::BuildHasherDefault<http::extensions::IdHasher>>>::insert
+               <http::extensions::Extensions>::insert::<tonic::status::Status>
+               <tonic::status::Status>::into_http::<tonic::body::Body>
+               <dexzd_protocol::dex::flow_service_server::FlowServiceServer<dexzd_api::flow_service::DexFlowService> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#20}
+               <dexzd_server::server_node::StartupService<dexzd_protocol::dex::flow_service_server::FlowServiceServer<dexzd_api::flow_service::DexFlowService>> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#0}
+               <axum::util::MapIntoResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>> as core::future::future::Future>::poll
+               <tower::util::oneshot::Oneshot<tower::util::boxed_clone_sync::BoxCloneSyncService<http::request::Request<axum_core::body::Body>, http::response::Response<axum_core::body::Body>, core::convert::Infallible>, http::request::Request<axum_core::body::Body>> as core::future::future::Future>::poll
+               <tonic::service::router::RoutesFuture as core::future::future::Future>::poll
+               <dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#2}
+               <dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#0}
+               <tower::util::either::EitherResponseFuture<tower::load_shed::future::ResponseFuture<tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>>, tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, t
+
+     0.76%  tokio-rt-worker  [.] prost::encoding::merge_loop::<dexzd_protocol::dexzd::v1::FlowDirectoryRun, prost::encoding::message::merge<dexzd_protocol::dexzd::v1::FlowDirectoryRun, &mut &[u8]>::{closure#0}, &mut &[u8]>
+     0.76%  tokio-rt-worker  [.] FSE_compress_usingCTable_generic
+     0.76%  tokio-rt-worker  [.] <h2::proto::streams::streams::OpaqueStreamRef as core::ops::drop::Drop>::drop
+     0.76%  tokio-rt-worker  [k] handle_softirqs
+            |
+            ---handle_softirqs
+               __do_softirq
+               ____do_softirq
+               call_on_irq_stack
+               do_softirq_own_stack
+               __irq_exit_rcu
+               irq_exit_rcu
+               |
+                --0.76%--el0_interrupt
+                          __el0_irq_handler_common
+                          el0t_64_irq_handler
+                          el0t_64_irq
+                          <tokio::sync::mpsc::list::Rx<dexzd_engine::commit::command_committer::LogProposal>>::pop
+                          <tokio::sync::mpsc::chan::Rx<dexzd_engine::commit::command_committer::LogProposal, tokio::sync::mpsc::unbounded::Semaphore>>::recv
+                          <core::future::poll_fn::PollFn<dexzd_engine::commit::log_proposer::run_log_proposer::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+                          dexzd_engine::commit::log_proposer::run_log_proposer::{closure#0}
+                          <tokio::runtime::task::core::Core<dexzd_engine::commit::log_proposer::run_log_proposer::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+                          <tokio::runtime::task::harness::Harness<dexzd_engine::commit::log_proposer::run_log_proposer::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+                          <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+                          <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+                          <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+                          tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+                          tokio::runtime::scheduler::multi_thread::worker::run
+                          <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+                          <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+                          <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+                          <tokio::runtime::blocking::pool::Inner>::run
+                          std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+                          <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+                          <std::sys::thread::unix::Thread>::new::thread_start
+                          0xee6c0de7582b
+                          0xee6c0dedbb4b
+
+     0.76%  tokio-rt-worker  [.] <alloc::vec::Vec<u8> as prost::encoding::sealed::BytesAdapter>::replace_with::<bytes::buf::take::Take<&mut &mut &mut tonic::codec::buffer::DecodeBuf>>
+     0.75%  tokio-rt-worker  [.] <h2::hpack::decoder::Table>::get
+            |
+            ---<h2::hpack::decoder::Table>::get
+               <h2::hpack::decoder::Decoder>::decode::<<h2::frame::headers::HeaderBlock>::load::{closure#0}>
+               <h2::frame::headers::HeaderBlock>::load
+               <h2::codec::framed_read::FrameDecoder>::decode
+               <h2::codec::framed_read::FramedRead<h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>> as futures_core::stream::Stream>::poll_next
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.75%  tokio-rt-worker  [.] aws_smithy_runtime::client::orchestrator::try_attempt::{closure#0}
+            |
+            ---aws_smithy_runtime::client::orchestrator::try_attempt::{closure#0}
+               <aws_smithy_runtime::client::timeout::MaybeTimeoutFuture<aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}::{closure#2}> as core::future::future::Future>::poll
+               aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}
+
+     0.75%  tokio-rt-worker  [k] __local_bh_enable_ip
+            |
+            ---__local_bh_enable_ip
+               __dev_queue_xmit
+               neigh_hh_output
+               ip_finish_output2
+               __ip_finish_output
+               ip_finish_output
+               ip_output
+               __ip_queue_xmit
+               ip_queue_xmit
+               __tcp_transmit_skb
+               tcp_write_xmit
+               __tcp_push_pending_frames
+               tcp_push
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.73%  tokio-rt-worker  [k] __alloc_skb
+            |
+            ---__alloc_skb
+               tcp_stream_alloc_skb
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               writev
+               <&std::net::tcp::TcpStream as core::io::write::Write>::write_vectored
+               <&mio::net::tcp::stream::TcpStream as core::io::write::Write>::write_vectored
+               <tokio::runtime::io::registration::Registration>::poll_io::<usize, <tokio::io::poll_evented::PollEvented<mio::net::tcp::stream::TcpStream>>::poll_write_vectored::{closure#0}>
+               <tokio::net::tcp::stream::TcpStream as tokio::io::async_write::AsyncWrite>::poll_write_vectored
+               tokio_util::util::poll_buf::poll_write_buf::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, core::io::cursor::Cursor<bytes::bytes_mut::BytesMut>>
+               <h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::flush
+               <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.73%  tokio-rt-worker  [.] <dexzd_protocol::dexzd::v1::flow_command::Command>::encode::<alloc::vec::Vec<u8>>
+            |
+            ---<dexzd_protocol::dexzd::v1::flow_command::Command>::encode::<alloc::vec::Vec<u8>>
+               <dexzd_protocol::dexzd::v1::LogRecord as prost::message::Message>::encode_to_vec
+               <dexzd_engine::commit::command_committer::CommandCommitter>::submit_with_final_stamp
+               <dexzd_engine::commit::command_committer::CommandCommitter as dexzd_engine::flow_coordination::commit_port::FlowCommandCommitter>::submit
+               <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::propose_and_wait_for_commit::<<dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::start_flow::{closure#0}::{closure#0}>::{closure#0}
+
+     0.73%  tokio-rt-worker  [k] apparmor_socket_sendmsg
+            |
+            ---apparmor_socket_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+               writev
+               <&std::net::tcp::TcpStream as core::io::write::Write>::write_vectored
+               <&mio::net::tcp::stream::TcpStream as core::io::write::Write>::write_vectored
+               <tokio::runtime::io::registration::Registration>::poll_io::<usize, <tokio::io::poll_evented::PollEvented<mio::net::tcp::stream::TcpStream>>::poll_write_vectored::{closure#0}>
+               <tokio::net::tcp::stream::TcpStream as tokio::io::async_write::AsyncWrite>::poll_write_vectored
+               tokio_util::util::poll_buf::poll_write_buf::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, core::io::cursor::Cursor<bytes::bytes_mut::BytesMut>>
+               <h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>>::flush
+               <h2::proto::streams::streams::Streams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>, h2::server::Peer>>::poll_complete::<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>>
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.73%  tokio-rt-worker  [.] <hyper_rustls::stream::MaybeHttpsStream<hyper_util::rt::tokio::TokioIo<tokio::net::tcp::stream::TcpStream>> as hyper::rt::io::Write>::poll_write_vectored
+            |
+            ---<hyper_rustls::stream::MaybeHttpsStream<hyper_util::rt::tokio::TokioIo<tokio::net::tcp::stream::TcpStream>> as hyper::rt::io::Write>::poll_write_vectored
+               <hyper::proto::h1::io::Buffered<aws_smithy_http_client::client::connect::Conn, hyper::proto::h1::encode::EncodedBuf<bytes::bytes::Bytes>>>::poll_flush
+               <hyper::proto::h1::conn::Conn<aws_smithy_http_client::client::connect::Conn, bytes::bytes::Bytes, hyper::proto::h1::role::Client>>::poll_flush
+               <hyper::proto::h1::dispatch::Dispatcher<hyper::proto::h1::dispatch::Client<aws_smithy_types::body::SdkBody>, aws_smithy_types::body::SdkBody, aws_smithy_http_client::client::connect::Conn, hyper::proto::h1::role::Client>>::poll_catch
+               <hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody> as core::future::future::Future>::poll
+               <futures_util::future::future::map::Map<futures_util::future::try_future::into_future::IntoFuture<hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody>>, futures_util::fns::MapErrFn<<hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#2}>> as core::future::future::Future>::poll
+               <futures_util::future::future::map::Map<futures_util::future::try_future::MapErr<hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody>, <hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#2}>, <hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#3}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = ()> + core::marker::Send>>, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::task::harness::Harness<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = ()> + core::marker::Send>>, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xee6c0de7582b
+               0xee6c0dedbb4b
+
+     0.72%  tokio-rt-worker  [.] 0x00000000000954dc
+            |
+            ---0xee6c0de854dc
+               malloc
+               <http::request::Request<axum_core::body::Body>>::map::<<tonic::body::Body>::new<axum_core::body::Body>, tonic::body::Body>
+               <tower::util::map_future::MapFuture<axum::util::MapIntoResponse<tower::util::map_request::MapRequest<dexzd_api::authentication::authenticated_service::AuthenticatedService<dexzd_server::server_node::StartupService<dexzd_protocol::dex::flow_service_server::FlowServiceServer<dexzd_api::flow_service::DexFlowService>>>, <tonic::service::router::Routes>::add_service<dexzd_api::authentication::authenticated_service::AuthenticatedService<dexzd_server::server_node::StartupService<dexzd_protocol::dex::flow_service_server::FlowServiceServer<dexzd_api::flow_service::DexFlowService>>>>::{closure#0}>>, <tower::util::boxed_clone_sync::BoxCloneSyncService<http::request::Request<axum_core::body::Body>, http::response::Response<axum_core::body::Body>, core::convert::Infallible>>::new<axum::util::MapIntoResponse<tower::util::map_request::MapRequest<dexzd_api::authentication::authenticated_service::AuthenticatedService<dexzd_server::server_node::StartupService<dexzd_protocol::dex::flow_service_server::FlowServiceServer<dexzd_a
+               <tower::util::oneshot::Oneshot<tower::util::boxed_clone_sync::BoxCloneSyncService<http::request::Request<axum_core::body::Body>, http::response::Response<axum_core::body::Body>, core::convert::Infallible>, http::request::Request<axum_core::body::Body>> as core::future::future::Future>::poll
+               <tonic::service::router::RoutesFuture as core::future::future::Future>::poll
+               <dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#2}
+               <dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#0}
+               <tower::util::either::EitherResponseFuture<tower::load_shed::future::ResponseFuture<tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>>, tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, t
+               <tonic::transport::server::SvcFuture<tonic::service::recover_error::ResponseFuture<tower::util::either::EitherResponseFuture<tower::load_shed::future::ResponseFuture<tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>>, tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Re
+               <hyper_util::service::oneshot::Oneshot<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::stream::TcpStream, core::io::error::Error, tonic::b
+               <hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::s
+               <tokio::runtime::task::core::Core<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}
+               <tokio::runtime::task::harness::Harness<hyper::proto::h2::server::H2Stream<hyper_util::service::glue::TowerToHyperServiceFuture<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{clos
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+
+     0.71%  tokio-rt-worker  [.] <tonic::status::Status>::into_http::<tonic::body::Body>
+            |
+            ---<tonic::status::Status>::into_http::<tonic::body::Body>
+               <dexzd_protocol::dex::flow_service_server::FlowServiceServer<dexzd_api::flow_service::DexFlowService> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#20}
+               <dexzd_server::server_node::StartupService<dexzd_protocol::dex::flow_service_server::FlowServiceServer<dexzd_api::flow_service::DexFlowService>> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#0}
+               <axum::util::MapIntoResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>> as core::future::future::Future>::poll
+               <tower::util::oneshot::Oneshot<tower::util::boxed_clone_sync::BoxCloneSyncService<http::request::Request<axum_core::body::Body>, http::response::Response<axum_core::body::Body>, core::convert::Infallible>, http::request::Request<axum_core::body::Body>> as core::future::future::Future>::poll
+               <tonic::service::router::RoutesFuture as core::future::future::Future>::poll
+               <dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#2}
+               <dexzd_api::request_metrics::RequestMetricsService<dexzd_server::server_node::client_deadline::ClientDeadline<tonic::service::router::Routes>> as tower_service::Service<http::request::Request<tonic::body::Body>>>::call::{closure#0}
+               <tower::util::either::EitherResponseFuture<tower::load_shed::future::ResponseFuture<tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>>, tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, t
+               <tonic::transport::server::SvcFuture<tonic::service::recover_error::ResponseFuture<tower::util::either::EitherResponseFuture<tower::load_shed::future::ResponseFuture<tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>, tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Response<tonic::body::Body>, core::convert::Infallible>> + core::marker::Send>>>>>, tower::util::either::EitherResponseFuture<tower::limit::concurrency::future::ResponseFuture<tonic::transport::service::grpc_timeout::ResponseFuture<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = core::result::Result<http::response::Re
+
+     0.71%  tokio-rt-worker  [.] 0x0000000000094010
+            |
+            ---0xee6c0de84010
+               0xee6c0de842a7
+               cfree
+               core::ptr::drop_glue::<core::iter::adapters::map::Map<http::header::map::IntoIter<http::header::value::HeaderValue>, <aws_smithy_runtime_api::http::headers::Headers as core::convert::TryFrom<http::header::map::HeaderMap>>::try_from::{closure#0}>>
+               <http::header::map::HeaderMap<aws_smithy_runtime_api::http::headers::header_value::HeaderValue> as core::iter::traits::collect::Extend<(core::option::Option<http::header::name::HeaderName>, aws_smithy_runtime_api::http::headers::header_value::HeaderValue)>>::extend::<core::iter::adapters::map::Map<http::header::map::IntoIter<http::header::value::HeaderValue>, <aws_smithy_runtime_api::http::headers::Headers as core::convert::TryFrom<http::header::map::HeaderMap>>::try_from::{closure#0}>>
+               <aws_smithy_runtime_api::http::headers::Headers as core::convert::TryFrom<http::header::map::HeaderMap>>::try_from
+               <aws_smithy_runtime_api::http::response::Response as core::convert::TryFrom<http::response::Response<aws_smithy_types::body::SdkBody>>>::try_from
+               <aws_smithy_http_client::client::Adapter<aws_smithy_http_client::client::connect::HttpProxyConnector<hyper_util::client::legacy::connect::http::HttpConnector>> as aws_smithy_runtime_api::client::http::HttpConnector>::call::{closure#1}
+               <aws_smithy_runtime::client::http::body::minimum_throughput::UploadThroughputCheckFuture as core::future::future::Future>::poll
+               aws_smithy_runtime::client::orchestrator::try_attempt::{closure#0}
+               <aws_smithy_runtime::client::timeout::MaybeTimeoutFuture<aws_smithy_runtime::client::orchestrator::try_op::{closure#0}::{closure#0}::{closure#2}> as core::future::future::Future>::poll
+
+     0.71%  tokio-rt-worker  [.] <tokio::runtime::task::core::Core<tonic::transport::server::serve_connection<tonic::body::Body, hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}::{closure#0}>, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#1}, tokio::net::tcp::stream::TcpStream, core::io::error::Error, tonic::body::Body>::{closure#0}::{closure#1}>>, hyper_util::rt::tokio::TokioExecutor>::{closure#0}, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+            |
+            ---<tokio::runtime::task::core::Core<tonic::transport::server::serve_connection<tonic::body::Body, hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_se
+               <tokio::runtime::task::harness::Harness<tonic::transport::server::serve_connection<tonic::body::Body, hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <de
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xee6c0de7582b
+               0xee6c0dedbb4b
+
+     0.71%  tokio-rt-worker  [.] <h2::codec::framed_read::FramedRead<h2::codec::framed_write::FramedWrite<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, h2::proto::streams::prioritize::Prioritized<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>> as futures_core::stream::Stream>::poll_next
+     0.70%  tokio-rt-worker  [.] <tokio::runtime::io::registration::Registration>::poll_io::<usize, <tokio::io::poll_evented::PollEvented<mio::net::tcp::stream::TcpStream>>::poll_write_vectored::{closure#0}>
+     0.70%  tokio-rt-worker  [.] <h2::proto::streams::state::State>::recv_open
+            |
+            ---<h2::proto::streams::state::State>::recv_open
+               <h2::proto::streams::recv::Recv>::recv_headers
+               <h2::proto::streams::counts::Counts>::transition::<<h2::proto::streams::streams::Inner>::recv_headers<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>::{closure#0}, core::result::Result<(), h2::proto::error::Error>>
+               <h2::proto::streams::streams::DynStreams<hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::recv_headers
+               <h2::server::Connection<hyper::common::io::compat::Compat<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>>, hyper::proto::h2::SendBuf<bytes::bytes::Bytes>>>::poll_closed
+               <hyper::proto::h2::server::Server<hyper_util::common::rewind::Rewind<hyper_util::rt::tokio::TokioIo<tonic::transport::server::service::io::ServerIo<tokio::net::tcp::stream::TcpStream>>>, hyper_util::service::glue::TowerToHyperService<tower::util::map_request::MapRequest<tower::util::boxed_clone::BoxCloneService<http::request::Request<tonic::body::Body>, http::response::Response<tonic::body::Body>, alloc::boxed::Box<dyn core::error::Error + core::marker::Send + core::marker::Sync>>, <tonic::transport::server::Server<tower_layer::stack::Stack<tower_layer::layer_fn::LayerFn<dexzd_server::server_node::client_deadline::client_deadline_layer<tonic::service::router::Routes>>, tower_layer::stack::Stack<dexzd_api::request_metrics::RequestMetricsLayer, tower_layer::identity::Identity>>>>::serve_internal<tonic::service::router::Routes, futures_util::stream::unfold::Unfold<tokio::net::tcp::listener::TcpListener, <dexzd_server::server_node::GrpcServer>::start::{closure#0}::{closure#0}, <dexzd_server::server_node::GrpcSer
+
+     0.68%  tokio-rt-worker  [.] 0x00000000000956f8
+     0.68%  tokio-rt-worker  [.] realloc
+     0.68%  tokio-rt-worker  [.] __aarch64_ldadd8_relax
+            |
+            ---__aarch64_ldadd8_relax
+               <hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to
+               <hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::send_request::{closure#0}
+               <aws_smithy_http_client::client::timeout::MaybeTimeoutFuture<hyper_util::client::legacy::client::ResponseFuture> as core::future::future::Future>::poll
+               <aws_smithy_http_client::client::Adapter<aws_smithy_http_client::client::connect::HttpProxyConnector<hyper_util::client::legacy::connect::http::HttpConnector>> as aws_smithy_runtime_api::client::http::HttpConnector>::call::{closure#1}
+
+     0.67%  tokio-rt-worker  [.] core::ptr::drop_glue::<dexzd_apply::apply_outcome::ApplyEffect>
+            |
+            ---core::ptr::drop_glue::<dexzd_apply::apply_outcome::ApplyEffect>
+               core::ptr::drop_glue::<dexzd_apply::apply_outcome::ApplyOutcome>
+               <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::propose_and_wait_for_commit::<<dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::commit_rpc::{closure#0}::{closure#0}>::{closure#0}
+               <tokio::time::timeout::Timeout<<dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::commit_rpc::{closure#0}> as core::future::future::Future>::poll
+               <dexzd_engine::flow_coordination::registry::FlowCoordinatorRegistry>::invoke_rpc_once::{closure#0}
+
+     0.67%  tokio-rt-worker  [.] <http::header::map::HeaderMap<aws_smithy_runtime_api::http::headers::header_value::HeaderValue> as core::iter::traits::collect::Extend<(core::option::Option<http::header::name::HeaderName>, aws_smithy_runtime_api::http::headers::header_value::HeaderValue)>>::extend::<core::iter::adapters::map::Map<http::header::map::IntoIter<http::header::value::HeaderValue>, <aws_smithy_runtime_api::http::headers::Headers as core::convert::TryFrom<http::header::map::HeaderMap>>::try_from::{closure#0}>>
+     0.67%  tokio-rt-worker  [.] 0x00000000000a2e84
+            |
+            ---0xee6c0de92e84
+               ZSTD_resetCCtx_internal
+               ZSTD_compressBegin_internal
+               ZSTD_CCtx_init_compressStream2
+               ZSTD_compressStream
+               <zstd_safe::CCtx>::compress_stream::<alloc::vec::Vec<u8>>
+               <zstd::stream::zio::writer::Writer<&mut alloc::vec::Vec<u8>, zstd::stream::raw::Encoder> as core::io::write::Write>::write
+               alloc::io::copy::generic::generic_copy::<core::io::cursor::Cursor<&bytes::bytes_mut::BytesMut>, zstd::stream::write::Encoder<&mut alloc::vec::Vec<u8>>>
+
+     0.66%  tokio-rt-worker  [.] <alloc::collections::btree::map::BTreeMap<(dexzd_keyspace::key_layout::ColumnFamily, alloc::vec::Vec<u8>), core::option::Option<alloc::vec::Vec<u8>>>>::insert
+            |
+            ---<alloc::collections::btree::map::BTreeMap<(dexzd_keyspace::key_layout::ColumnFamily, alloc::vec::Vec<u8>), core::option::Option<alloc::vec::Vec<u8>>>>::insert
+               <dexzd_apply::state_access::flow_transaction::FlowTransaction>::put
+               <dexzd_apply::state_access::run_rows::RunRows>::put_history_record
+               <dexzd_apply::command_handlers::run_cursor::RunCursor>::finish
+               dexzd_apply::command_handlers::apply_run_command
+
+     0.65%  tokio-rt-worker  [k] hrtimer_setup_sleeper_on_stack
+            |
+            ---hrtimer_setup_sleeper_on_stack
+               schedule_hrtimeout_range
+               ep_poll
+               do_epoll_wait
+               do_epoll_pwait.part.0
+               __arm64_sys_epoll_pwait
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.62%  tokio-rt-worker  [k] __dev_xmit_skb
+            |
+            ---__dev_xmit_skb
+               __dev_queue_xmit
+               neigh_hh_output
+               ip_finish_output2
+               __ip_finish_output
+               ip_finish_output
+               ip_output
+               __ip_queue_xmit
+               ip_queue_xmit
+               __tcp_transmit_skb
+               tcp_write_xmit
+               __tcp_push_pending_frames
+               tcp_push
+               tcp_sendmsg_locked
+               tcp_sendmsg
+               inet_sendmsg
+               __sock_sendmsg
+               sock_write_iter
+               do_iter_readv_writev
+               vfs_writev
+               do_writev
+               __arm64_sys_writev
+               invoke_syscall
+               el0_svc_common.constprop.0
+               do_el0_svc
+               el0_svc
+               el0t_64_sync_handler
+               el0t_64_sync
+
+     0.61%  tokio-rt-worker  [.] __rustc::__rdl_alloc
+     0.61%  tokio-rt-worker  [.] <http::header::name::HeaderName>::from_bytes
+     0.59%  tokio-rt-worker  [.] <alloc::collections::btree::map::IntoIter<usize, alloc::vec::Vec<dexzd_protocol::dexzd::v1::ChannelMessageRecord>>>::dying_next
+     0.57%  tokio-rt-worker  [.] <hyper::proto::h1::io::WriteBuf<hyper::proto::h1::encode::EncodedBuf<bytes::bytes::Bytes>> as bytes::buf::buf_impl::Buf>::chunks_vectored
+            |
+            ---<hyper::proto::h1::io::WriteBuf<hyper::proto::h1::encode::EncodedBuf<bytes::bytes::Bytes>> as bytes::buf::buf_impl::Buf>::chunks_vectored
+               <hyper::proto::h1::io::Buffered<aws_smithy_http_client::client::connect::Conn, hyper::proto::h1::encode::EncodedBuf<bytes::bytes::Bytes>>>::poll_flush
+               <hyper::proto::h1::conn::Conn<aws_smithy_http_client::client::connect::Conn, bytes::bytes::Bytes, hyper::proto::h1::role::Client>>::poll_flush
+               <hyper::proto::h1::dispatch::Dispatcher<hyper::proto::h1::dispatch::Client<aws_smithy_types::body::SdkBody>, aws_smithy_types::body::SdkBody, aws_smithy_http_client::client::connect::Conn, hyper::proto::h1::role::Client>>::poll_catch
+               <hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody> as core::future::future::Future>::poll
+               <futures_util::future::future::map::Map<futures_util::future::try_future::into_future::IntoFuture<hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody>>, futures_util::fns::MapErrFn<<hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#2}>> as core::future::future::Future>::poll
+               <futures_util::future::future::map::Map<futures_util::future::try_future::MapErr<hyper::client::conn::http1::upgrades::UpgradeableConnection<aws_smithy_http_client::client::connect::Conn, aws_smithy_types::body::SdkBody>, <hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#2}>, <hyper_util::client::legacy::client::Client<aws_smithy_http_client::client::timeout::ConnectTimeout<aws_smithy_http_client::client::tls::rustls_provider::connect::RustTlsConnector<hyper_util::client::legacy::connect::dns::GaiResolver>>, aws_smithy_types::body::SdkBody>>::connect_to::{closure#0}::{closure#1}::{closure#0}::{closure#3}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = ()> + core::marker::Send>>, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::task::harness::Harness<core::pin::Pin<alloc::boxed::Box<dyn core::future::future::Future<Output = ()> + core::marker::Send>>, alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle>>>::poll
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+               <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+               <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}::{closure#0}, ()>
+               tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closure#0}, ()>
+               tokio::runtime::scheduler::multi_thread::worker::run
+               <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runtime::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+               <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>>::poll
+               <tokio::runtime::blocking::pool::Inner>::run
+               std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>
+               <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+               <std::sys::thread::unix::Thread>::new::thread_start
+               0xee6c0de7582b
+               0xee6c0dedbb4b
+
+     0.56%  tokio-rt-worker  [.] prost::encoding::varint::encode_varint::<alloc::vec::Vec<u8>>
+     0.50%  tokio-rt-worker  [.] TLS init function for rocksdb::perf_context
+     0.43%  tokio-rt-worker  [.] 0x0000000000094f50
+     0.42%  tokio-rt-worker  [.] <dexzd_protocol::dex::StepWaitForCompletedEvent as prost::message::Message>::encode_raw::<alloc::vec::Vec<u8>>
+     0.38%  tokio-rt-worker  [.] rocksdb::Status rocksdb::(anonymous namespace)::MemTableInserter::PutCFImpl<rocksdb::(anonymous namespace)::MemTableInserter::PutCF(unsigned int, rocksdb::Slice const&, rocksdb::Slice const&)::{lambda(rocksdb::WriteBatch*, unsigned int, rocksdb::Slice const&, rocksdb::Slice const&)#1}>(unsigned int, rocksdb::Slice const&, rocksdb::Slice const&, rocksdb::ValueType, rocksdb::(anonymous namespace)::MemTableInserter::PutCF(unsigned int, rocksdb::Slice const&, rocksdb::Slice const&)::{lambda(rocksdb::WriteBatch*, unsigned int, rocksdb::Slice const&, rocksdb::Slice const&)#1}, rocksdb::ProtectionInfoKVOS<unsigned long> const*) [clone .constprop.0]
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

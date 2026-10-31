@@ -6,42 +6,33 @@ CPU and memory, and object storage requests for each run.
 
 ## Latest results
 
-These results were measured on 2026-10-31 in AWS us-west-2.
+These results were measured on 2026-10-31 in AWS us-west-2, after the Worker dispatch fix in #1131.
 
 - **Server:** one server-zd node on a c7gd instance. RocksDB was on the local NVMe instance store, and the log went to S3 Standard in the same Region.
-- **Load host:** a separate c7g.8xlarge ran `dexbench` in the same cluster placement group. Its mean CPU stayed below 31% at every point.
-- **Version:** server-zd was built from commit `479ef22a9`, which merged as `121a3c156`.
-- **Measurement:** each point is a 10-second warmup and a 45-second measurement on a newly started server. The headline S2 and S3 numbers are the median of three trials.
+- **Load host:** a separate c7g.8xlarge ran `dexbench` in the same Availability Zone. Its CPU stayed below 47% of the host at every point.
+- **Version:** server-zd was built from commit `3784ba838`, which merged as `f2e9dd611`; both have the same server-zd tree.
+- **Measurement:** each point is a 10-second warmup and a 45-second measurement on a newly started server. Every headline point ran three times with profiling off. The table shows the median and the maximum of the three runs.
 
 | Scenario | c7gd.large (2 vCPU) | c7gd.4xlarge (16 vCPU) |
 | --- | --- | --- |
-| S2 SYNC Steps | **1,305 Steps/s** median, 1,361 max, at C=256; Step p50 173 ms | **7,544 Steps/s** median, 8,506 max, at C=2,048; Step p50 243 ms |
-| S3 ASYNC Steps | **1,492 Steps/s** median, 1,537 max, at C=32; Step p50 7.1 ms | **10,007 Steps/s** median, 10,050 max, at C=256; Step p50 5.8 ms |
-| S1 Flows started and completed | 855 Flows/s at C=256 | 5,104 Flows/s at C=3,072 |
-| S4 plain RPC | 6,681 RPCs/s at C=32; p50 3.5 ms | 34,611 RPCs/s at C=48; p50 1.2 ms |
-| S4 Attribute-locking RPC | 1,324 RPCs/s at C=256 | 8,359 RPCs/s at C=1,024 |
-| S5 reads of ten 16 KiB Attributes | 6,034 reads/s at C=512 | 11,257 reads/s at C=256 |
-| S6 Channel wake latency, p50 / p99 | 106 / 258 ms at C=64 | 83 / 216 ms at C=64 |
+| S2 SYNC Steps | **1,436 Steps/s** median, 1,440 max, at C=512; Step p50 361 ms | **10,765 Steps/s** median, 10,842 max, at C=8,192; Step p50 683 ms |
+| S3 ASYNC Steps | **1,538 Steps/s** median, 1,562 max, at C=32; Step p50 8.8 ms | **10,647 Steps/s** median, 10,655 max, at C=4,096; Step p50 284 ms |
+| S1 Flows started and completed | 889 Flows/s median, 892 max, at C=512 | 6,176 Flows/s median, 6,212 max, at C=12,288 |
+| S4 plain RPC | 7,426 RPCs/s median, 7,544 max, at C=32; p50 4.4 ms | 49,327 RPCs/s median, 49,592 max, at C=128; p50 2.6 ms |
+| S4 Attribute-locking RPC | 1,805 RPCs/s median, 1,834 max, at C=768 | 13,124 RPCs/s median, 13,180 max, at C=8,192 |
+| S5 reads of ten 16 KiB Attributes | 6,032 reads/s median, 6,332 max, at C=256 | 11,258 reads/s median, 11,259 max, at C=256 |
+| S6 Channel wake latency, p50 / p99 | 93 / 217 ms at C=64 | 84 / 181 ms at C=64 |
 
-C is the number of concurrent clients. Every number is the best point found by searching concurrency.
+C is the number of concurrent clients. Each concurrency was chosen by searching first; the per-instance `README.md` files list every point.
 
-For S2 and S3, the median is over the three final trials. The max is the best single run with the same settings and concurrency, from any round. Each of the other scenarios was measured once at each concurrency.
-
-| Runs with the headline settings | Steps/s, sorted | Median of final trials | Max |
-| --- | --- | --- | --- |
-| c7gd.large S2, C=256 | 1,295 · 1,305 · 1,319 · 1,361 | 1,305 | 1,361 |
-| c7gd.large S3, C=32 | 1,472 · 1,492 · 1,529 · 1,537 | 1,492 | 1,537 |
-| c7gd.4xlarge S2, C=2,048 | 7,343 · 7,544 · 7,666 · 8,506 | 7,544 | 8,506 |
-| c7gd.4xlarge S3, C=256 | 9,451 · 9,900 · 10,007 · 10,050 | 10,007 | 10,050 |
-
-The extra run in each row is from an earlier round: `04-scenarios` on c7gd.large and `01-concurrency` on c7gd.4xlarge. Single runs vary by about 10%, so the median is the number to compare.
-
-S4 plain RPC on c7gd.large peaked at the lowest concurrency tested, so a lower one may do slightly better. S5 on c7gd.4xlarge was flat from 256 to 1,024.
+- **ASYNC with low latency:** on c7gd.4xlarge, S3 at C=256 reaches 10,210 Steps/s median with a Step p50 of 7.1 ms. The C=4,096 point is only 4% higher.
+- **Attribute-locking RPC on c7gd.4xlarge:** the C=8,192 point raises `limits.maxInFlightRpcsPerNode` to 16,384. With the 4,096 limit used everywhere else, C=4,096 gives 12,174 RPCs/s median.
+- **Before the fix:** the previous run of this benchmark, before #1131, measured 7,544 SYNC Steps/s and 34,611 plain RPCs/s on c7gd.4xlarge. Throughput then collapsed above about 2,048 concurrent Flows. It now stays flat: S2 gives 9.8k–10.8k Steps/s from C=8,192 to 16,384.
 
 ### Settings that produced these numbers
 
 - **c7gd.large:** the default server-zd configuration, 4 gRPC connections.
-- **c7gd.4xlarge:** the defaults plus the settings below, with 8 gRPC connections.
+- **c7gd.4xlarge:** the defaults plus the settings below, with 16 gRPC connections. Attribute-locking RPC at C=8,192 also sets `limits.maxInFlightRpcsPerNode: 16384`.
 
   ```yaml
   commit:
@@ -64,6 +55,8 @@ Each set's `README.md` lists every round of the search and its outcome. Each rou
 - `zd-config.yaml`: the exact server-zd configuration.
 - `points.txt`: every point in the round.
 
+Search rounds also keep a perf profile and thread stacks for every point, in `<point>.server/`.
+
 Rerun a headline point with `benchmark/aws/reproduce.sh`. See [Reproduce a result](#reproduce-a-result).
 
 The [local search backend results](results/2026-10-31-search-local/README.md)
@@ -76,17 +69,16 @@ type index collation finding.
 ### What the numbers mean
 
 - **A SYNC Step waits for its commits to reach S3, and an ASYNC Step does not.**
-  - Each log commit is one S3 PUT round trip. Commits averaged 30–41 ms on c7gd.large and 32–71 ms on c7gd.4xlarge in this run.
-  - Under load, a SYNC Step also waits for its batch and for a free PUT slot, so its per-Step latency is about 170–250 ms.
+  - Each log commit is one S3 PUT round trip. At the SYNC peaks, commits averaged 36–39 ms on c7gd.large and 51–57 ms on c7gd.4xlarge.
+  - Under load, a SYNC Step also waits for its batch and for a free PUT slot, so its per-Step latency is 360–700 ms at the peaks.
   - Closed-loop SYNC throughput is roughly concurrency divided by Step latency, so SYNC Steps need thousands of concurrent Flows to reach the peak.
-  - An ASYNC Step moves on before its commit, so its per-Step latency is 5–7 ms. ASYNC throughput is limited by the server, not by latency, and it peaks at a few hundred Flows or fewer.
-- **S3 PUTs scale with batches, not with Steps.** Commands are grouped into log batches, with at most `commit.maxInFlight` (default 4) PUTs in flight. A busy node made 60–125 log PUTs per second at every peak, independent of instance size. At USD 0.005 per 1,000 PUTs, that is about USD 1.1–2.3 per busy hour per node.
-- **c7gd.large is limited by CPU.** Both cores are close to saturation at every throughput peak. No tunable improved on the defaults. Fewer or more PUTs in flight (`commit.maxInFlight` 2 or 8) made S2 7–14% slower.
-- **c7gd.4xlarge is not limited by CPU.**
-  - Server CPU stays at 60–80% at the S1–S4 peaks. RocksDB never stalls, and the load host is far from busy.
-  - Throughput collapses when concurrency rises past the peak, for example S2 above 2,048 Flows. Issue #1118 tracks this.
-  - S5 there is limited by the 15 Gbps network, not by the server.
-- **Tuning beyond the defaults did not help.** The search tried `commit.maxInFlight` from 2 to 16, applier lanes from 2 to 32, and `commit.batchWindow` of 50 ms. None beat the defaults beyond run-to-run noise. The per-instance `README.md` files show every attempt.
+  - An ASYNC Step moves on before its commit, so its per-Step latency is 7–9 ms at low concurrency. ASYNC throughput is limited by the server, not by latency.
+- **S3 PUTs scale with batches, not with Steps.** Commands are grouped into log batches, with at most `commit.maxInFlight` (default 4) PUTs in flight. A busy node made 30–130 log PUTs per second at the peaks, independent of instance size. At USD 0.005 per 1,000 PUTs, that is at most about USD 2.3 per busy hour per node.
+- **Both instance types are now limited by CPU.**
+  - c7gd.large uses 92–98% of its two cores at every throughput peak.
+  - c7gd.4xlarge uses 78–86% of its 16 cores at the S1–S4 peaks. RocksDB never stalls, and the load host is far from busy.
+  - S5 on c7gd.4xlarge is limited by the 15 Gbps network, not by the server, so its CPU stays near 28%.
+- **Tuning beyond the defaults did not help.** The earlier search tried `commit.maxInFlight` from 2 to 16, applier lanes from 2 to 32, and `commit.batchWindow` of 50 ms. None beat the defaults beyond run-to-run noise. This run kept those defaults.
 
 Each run writes one JSON file per scenario variant and concurrency, plus
 `report.md`, `charts.html`, and `host.txt`. `report.md` has one table per

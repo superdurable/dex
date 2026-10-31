@@ -1,0 +1,7 @@
+sequential-steps 512
+sequential-steps-async 32
+start-complete 512
+rpc-plain 32
+rpc-locking 768
+attribute-read-direct 256
+channel-wake 64
