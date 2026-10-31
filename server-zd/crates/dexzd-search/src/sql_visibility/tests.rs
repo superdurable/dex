@@ -585,7 +585,7 @@ fn golden_sql_covers_operators_and_types() {
         ("", "TRUE", vec![]),
         (
             "WorkflowId = 'a'",
-            "(workflow_id) COLLATE \"C\" = $2::text",
+            "workflow_id = $2::text",
             vec![SqlValue::Text("a".into())],
         ),
         (
@@ -620,7 +620,7 @@ fn golden_sql_covers_operators_and_types() {
         ),
         (
             "WorkflowId IN ('a', 'b')",
-            "((workflow_id) COLLATE \"C\" = $2::text OR (workflow_id) COLLATE \"C\" = $3::text)",
+            "(workflow_id = $2::text OR workflow_id = $3::text)",
             vec![SqlValue::Text("a".into()), SqlValue::Text("b".into())],
         ),
         (
@@ -842,11 +842,7 @@ fn application_predicates_keep_coalesce_while_system_predicates_use_indexes() {
     use dexzd_visibility_query::parse_and_check;
 
     for (input, expected_predicate, has_application_field) in [
-        (
-            "FlowType = 'CheckoutFlow'",
-            "(flow_type) COLLATE \"C\" = $2::text",
-            false,
-        ),
+        ("FlowType = 'CheckoutFlow'", "flow_type = $2::text", false),
         (
             "tags IS NOT NULL",
             "sa_keyword -> $2::text IS NOT NULL",
@@ -880,7 +876,9 @@ fn tenant_scope_boolean_precedence_and_keyset_are_bound() {
     let query =
         parse_and_check("WorkflowId = 'a' OR WorkflowId = 'b'", &query_fields()).expect("OR query");
     let statement = translate_query(&query, "tenant-a", 3, None).expect("translate OR query");
-    assert!(statement.sql.contains("WHERE tenant_id = $1::text AND (((workflow_id) COLLATE \"C\" = $2::text) OR ((workflow_id) COLLATE \"C\" = $3::text))"));
+    assert!(statement.sql.contains(
+        "WHERE tenant_id = $1::text AND ((workflow_id = $2::text) OR (workflow_id = $3::text))"
+    ));
     assert_eq!(
         statement.parameters,
         vec![

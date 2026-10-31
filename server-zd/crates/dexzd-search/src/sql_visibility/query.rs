@@ -504,11 +504,16 @@ impl Renderer<'_> {
     ) -> Result<String, SqlTranslationError> {
         let (parameter, sql_type) = literal_parameter(literal)?;
         let bound = self.bind(parameter, sql_type);
-        let left = if predicate.index_type() == IndexType::Keyword {
-            format!("({expression}) COLLATE \"C\"")
-        } else {
-            expression.to_owned()
-        };
+        // Deterministic default-collation equality preserves byte equality and matches ParadeDB's existing B-tree indexes.
+        let has_default_collation_equality = self.dialect == VisibilityDialect::ParadeDb
+            && matches!(predicate.field(), "FlowType" | "WorkflowId" | "RunId")
+            && matches!(predicate.operator(), Operator::Equal | Operator::In);
+        let left =
+            if predicate.index_type() == IndexType::Keyword && !has_default_collation_equality {
+                format!("({expression}) COLLATE \"C\"")
+            } else {
+                expression.to_owned()
+            };
         let comparison = format!("{left} {operator} {bound}");
         if self.dialect == VisibilityDialect::Postgres
             && !should_use_slots
