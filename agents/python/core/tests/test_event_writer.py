@@ -25,7 +25,7 @@ async def test_writes_from_an_executor_thread_run_on_the_event_loop_thread() -> 
         lambda event: delivered.append((threading.get_ident(), event)),
         "turn-1",
         2,
-        "RunAgentTurn-1",
+        "RunModel-1",
     )
 
     def write_from_thread() -> int:
@@ -48,7 +48,7 @@ async def test_writes_from_an_executor_thread_run_on_the_event_loop_thread() -> 
         "from the loop",
     ]
     assert {(event.turn_id, event.attempt, event.step_execution_id) for _, event in delivered} == {
-        ("turn-1", 2, "RunAgentTurn-1")
+        ("turn-1", 2, "RunModel-1")
     }
 
 

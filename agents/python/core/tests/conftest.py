@@ -18,7 +18,13 @@ from uuid import uuid4
 import pytest_asyncio
 
 from dex_agents import AgentEvent, AgentSessionClient, AgentSessionFlow, AgentSnapshot
-from dex_agents.testing import AgentTestStack, FileGate, InvocationLog, wait_for_agent_snapshot
+from dex_agents.testing import (
+    EXECUTE_COMPLETED_EVENT,
+    AgentTestStack,
+    FileGate,
+    InvocationLog,
+    wait_for_agent_snapshot,
+)
 from tests.scripted_agent import (
     IDEMPOTENCY_KEY_LOG_NAME,
     INVOCATION_LOG_NAME,
@@ -54,6 +60,10 @@ class ScriptedAgentHarness:
     async def agent_events(self, session_id: str) -> list[AgentEvent]:
         page = await self.stack.client.list_stream_messages(session_id, self.flow.agent_events, 500)
         return [message.value for message in reversed(page.messages)]
+
+    async def executed_step_types(self, session_id: str) -> list[str]:
+        history = await self.stack.read_step_history(session_id)
+        return [entry.step_type for entry in history if entry.event_type == EXECUTE_COMPLETED_EVENT]
 
     async def wait_for_turns(self, session_id: str, turn_count: int) -> AgentSnapshot:
         return await wait_for_agent_snapshot(

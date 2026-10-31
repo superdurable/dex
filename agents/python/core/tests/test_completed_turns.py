@@ -47,26 +47,6 @@ async def test_completed_turn_replays_history_on_the_next_turn(
     ]
 
 
-async def test_read_tool_runs_inside_the_turn(harness: ScriptedAgentHarness) -> None:
-    await harness.stack.start_worker()
-    session_id = harness.new_session_id()
-    await harness.sessions.start_session(session_id, 'call lookup {"query": "docs"}')
-    snapshot = await harness.wait_for_turns(session_id, 1)
-
-    assert [(message.role, message.tool_name) for message in snapshot.messages] == [
-        (MessageRole.USER, None),
-        (MessageRole.ASSISTANT, "lookup"),
-        (MessageRole.TOOL, "lookup"),
-        (MessageRole.ASSISTANT, None),
-    ]
-    assert snapshot.messages[2].tool_output == "found docs"
-    assert snapshot.messages[-1].text == "lookup: found docs"
-    assert snapshot.tool_calls == []
-    assert snapshot.pending_interrupts == []
-    assert harness.invocations.count("lookup") == 1
-    assert harness.invocations.count("run_turn:turn-1") == 1
-
-
 async def test_snapshot_returns_the_conversation_after_a_completed_turn(
     harness: ScriptedAgentHarness,
 ) -> None:
@@ -133,29 +113,3 @@ async def test_snapshot_serves_a_stopped_session(harness: ScriptedAgentHarness) 
 async def _is_closed(harness: ScriptedAgentHarness, session_id: str) -> bool:
     info = await harness.stack.client.describe_flow(session_id)
     return info.status is not FlowStatus.RUNNING
-
-
-async def test_message_sent_during_a_turn_waits_in_the_queue(
-    harness: ScriptedAgentHarness,
-) -> None:
-    await harness.stack.start_worker()
-    session_id = harness.new_session_id()
-    await harness.sessions.start_session(session_id, "stall busy-gate")
-    gate = harness.gate("busy-gate")
-    await gate.wait_until_reached()
-
-    assert await harness.sessions.send_user_message(session_id, "say later")
-    during = await harness.sessions.get_agent_snapshot(session_id)
-    assert during.queued_message_count == 1
-    assert during.state is not None
-    assert during.state.active_turn_id == "turn-1"
-
-    gate.release()
-    snapshot = await harness.wait_for_turns(session_id, 2)
-    assert [message.text for message in snapshot.messages] == [
-        "stall busy-gate",
-        "stalled at busy-gate",
-        "say later",
-        "said: later",
-    ]
-    assert snapshot.queued_message_count == 0

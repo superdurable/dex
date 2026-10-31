@@ -1,9 +1,10 @@
 # Agent framework adapters
 
 These packages run agents built with popular agent frameworks as durable Dex
-agent sessions. One Flow execution is one session. The framework runs its own
-loop inside a Dex Step; tool calls that write run in their own Steps, so a
-crash never repeats a write silently. The plan is
+agent sessions. One Flow execution is one session. The session runs in Step
+mode: every model call is one Dex Step and every tool call is its own Step,
+with tool calls running in parallel, so a crash repeats at most the one call
+that was running and never repeats a write silently. The plan is
 [agent-framework-adapters.md](../docs/design/plan/agent-framework-adapters.md).
 
 Each language has a core package with the shared session Flow and one adapter

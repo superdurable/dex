@@ -30,6 +30,7 @@ from dex_agents.values import (
     AgentToolCall,
     AgentUsage,
     AgentUserMessage,
+    ToolCallCompleted,
 )
 
 #: Current session position. Unset until ``StartAgentSession`` commits.
@@ -59,6 +60,9 @@ QUEUED_USER_MESSAGES: Channel[AgentUserMessage] = Channel("QueuedUserMessages", 
 INTERRUPT_RESOLUTIONS: ChannelMap[AgentInterruptResolution] = ChannelMap(
     "InterruptResolutions", AgentInterruptResolution
 )
+
+#: Internal results of tool call Steps; ``ResumeTurn`` waits for one per tool call.
+TOOL_CALL_RESULTS: Channel[ToolCallCompleted] = Channel("ToolCallResults", ToolCallCompleted)
 
 #: Default ``AgentEvents`` Stream capacity: 10 MiB.
 DEFAULT_AGENT_EVENTS_CAPACITY_BYTES = 10 * 1024 * 1024

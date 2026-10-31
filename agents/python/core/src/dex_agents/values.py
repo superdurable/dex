@@ -28,16 +28,14 @@ class AgentSessionStatus(StrEnum):
 
     Attributes:
         WAITING_FOR_USER_MESSAGE: The session waits for the next user message.
-        RUNNING_TURN: ``RunAgentTurn`` runs or resumes the framework.
-        WAITING_FOR_INTERRUPT: The turn waits for ``resolve_interrupt`` on at
-            least one pending interrupt.
-        EXECUTING_TOOL: A tool Step runs one deferred tool call.
+        RUNNING_MODEL: ``RunModel`` makes one model call of the active turn.
+        RUNNING_TOOLS: The tool call Steps of the active turn run, or wait for
+            approval, in parallel; ``ResumeTurn`` waits for their results.
     """
 
     WAITING_FOR_USER_MESSAGE = "waiting_for_user_message"
-    RUNNING_TURN = "running_turn"
-    WAITING_FOR_INTERRUPT = "waiting_for_interrupt"
-    EXECUTING_TOOL = "executing_tool"
+    RUNNING_MODEL = "running_model"
+    RUNNING_TOOLS = "running_tools"
 
 
 class MessageRole(StrEnum):
@@ -57,13 +55,12 @@ class MessageRole(StrEnum):
 class ToolEffect(StrEnum):
     """Classify what a tool call does to the world outside the session.
 
-    The effect decides where the call runs and how often it may run. ``READ``
-    tools run inside ``RunAgentTurn`` and run again when a turn segment
-    reruns. ``IDEMPOTENT_WRITE`` tools run in ``ExecuteToolCall`` with up to
+    Every tool call runs in its own Step, and the effect picks that Step.
+    ``READ`` and ``IDEMPOTENT_WRITE`` tools run in ``CallTool`` with up to
     three attempts and a stable idempotency key. ``NON_IDEMPOTENT_WRITE`` and
-    ``UNCLASSIFIED`` tools run in ``ExecuteSingleAttemptToolCall`` exactly
-    once; a crash during the call records ``outcome_unknown``. The values are
-    JSON strings on the wire.
+    ``UNCLASSIFIED`` tools run in ``CallSingleAttemptTool`` exactly once; a
+    crash during the call records ``outcome_unknown``. The values are JSON
+    strings on the wire.
 
     Attributes:
         READ: The tool only reads. Running it again is harmless.
@@ -161,8 +158,6 @@ class AgentState:
             turns. ``n`` is ``turn_count + 1`` when the turn starts.
         next_message_sequence: Sequence the next stored message receives.
             Sequences start at 1 and have no gaps.
-        executing_tool_call_id: Tool call ID that the current or next tool Step
-            runs, or ``None``.
         last_turn_error: Recovery error text of the last finished turn when it
             failed, or ``None`` when it completed.
     """
@@ -171,7 +166,6 @@ class AgentState:
     turn_count: int = 0
     active_turn_id: str | None = None
     next_message_sequence: int = 1
-    executing_tool_call_id: str | None = None
     last_turn_error: str | None = None
 
 
@@ -282,7 +276,7 @@ class AgentInterruptResolution:
     """Carry one answer to an interrupt through ``InterruptResolutions``.
 
     ``resolve_interrupt`` publishes it to the ChannelMap instance named by the
-    interrupt ID. ``AwaitInterruptResolution`` consumes it.
+    interrupt ID. ``AwaitToolApproval`` consumes it.
 
     Attributes:
         approved: Whether the tool call may run.
@@ -311,10 +305,10 @@ class ResolveInterruptRequest:
 
 @dataclass(frozen=True, kw_only=True)
 class AgentUsage:
-    """Count model usage, for one turn segment or for the whole session.
+    """Count model usage, for one model call or for the whole session.
 
-    A runner returns the usage of one turn segment in ``TurnCompleted`` or
-    ``TurnSuspended``. The session adds it to the ``AgentUsage`` Attribute.
+    A runner returns the usage of one model call in ``TurnCompleted`` or
+    ``ToolCallsRequested``. The session adds it to the ``AgentUsage`` Attribute.
     Report zero for a count the framework does not expose.
 
     Attributes:
@@ -365,6 +359,21 @@ class AgentUserMessage:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ToolCallCompleted:
+    """Report that one tool call of the active turn has a final record.
+
+    Every tool call Step publishes exactly one to the internal
+    ``ToolCallResults`` Channel when it records a final status. ``ResumeTurn``
+    waits for one per tool call the model requested.
+
+    Attributes:
+        tool_call_id: The tool call whose ``AgentToolCall`` record is final.
+    """
+
+    tool_call_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class AgentEvent:
     """Carry one live update on the ``AgentEvents`` Stream.
 
@@ -374,8 +383,8 @@ class AgentEvent:
     Group live text by ``(turn_id, step_execution_id, attempt)``. Within one
     ``step_execution_id``, keep only the events of the highest ``attempt``
     seen, and drop the partial text of lower attempts. Different
-    ``step_execution_id`` values of one turn are consecutive turn segments
-    and Steps, and each keeps its own events. After ``turn_completed`` or
+    ``step_execution_id`` values of one turn are separate model call and tool
+    call Steps, and each keeps its own events. After ``turn_completed`` or
     ``turn_failed``, replace the turn's live text with the stored messages.
 
     Attributes:

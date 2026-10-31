@@ -18,12 +18,20 @@ Every adapter package tests against a real Dex Server with these tools:
 * ``FileGate`` pauses Worker code until the test kills or releases it, and
   ``InvocationLog`` counts real tool runs across Worker processes.
 * ``wait_until`` and ``wait_for_agent_snapshot`` poll with a deadline.
+* ``read_step_history`` lists the completed Steps of a session, so a test can
+  assert the Step shape of a turn.
 
 The tools read ``DEXCLI`` for the ``dexcli`` executable and expect
 ``dex-server-zd`` in the same directory, or ``DEX_SERVER_ZD_BINARY``.
 """
 
 from dex_agents.testing.coordination import FileGate, InvocationLog
+from dex_agents.testing.history import (
+    EXECUTE_COMPLETED_EVENT,
+    WAIT_FOR_COMPLETED_EVENT,
+    StepHistoryEntry,
+    read_step_history,
+)
 from dex_agents.testing.polling import (
     DEFAULT_POLL_INTERVAL,
     DEFAULT_WAIT_TIMEOUT,
@@ -58,7 +66,9 @@ __all__ = [
     "DEXCLI_ENVIRONMENT_VARIABLE",
     "DEX_SERVER_ZD_ENVIRONMENT_VARIABLE",
     "ENGINE_READY_LINE",
+    "EXECUTE_COMPLETED_EVENT",
     "SERVER_ADDRESS_ENVIRONMENT_VARIABLE",
+    "WAIT_FOR_COMPLETED_EVENT",
     "WORKER_READY_LINE",
     "AgentTestStack",
     "AgentWorkerProcess",
@@ -66,8 +76,10 @@ __all__ = [
     "InvocationLog",
     "KillableProcess",
     "PrivateDexEngine",
+    "StepHistoryEntry",
     "find_free_port",
     "find_free_ports",
+    "read_step_history",
     "resolve_dexcli_path",
     "resolve_server_zd_path",
     "run_agent_worker",

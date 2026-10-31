@@ -34,15 +34,15 @@ class AgentEventType(StrEnum):
         TEXT_DELTA: Visible model text. Payload ``{"text"}``.
         REASONING_DELTA: A provider-authored reasoning summary. Payload ``{"text"}``.
         TOOL_CALL_STARTED: A tool started. Payload ``{"tool_call_id", "tool_name"}``.
-        TOOL_CALL_FINISHED: A tool finished. Payload
-            ``{"tool_call_id", "tool_name", "status"}``.
-        TOOL_CALL_DEFERRED: The turn deferred a tool call to a Dex Step.
+        TOOL_CALL_FINISHED: A tool call's record became final, including a
+            rejection. Payload ``{"tool_call_id", "tool_name", "status"}``.
+        TOOL_CALL_DEFERRED: The model asked for a tool call, which runs in its own Step.
             Payload ``{"tool_call_id", "tool_name", "effect", "requires_approval"}``.
         INTERRUPT_RAISED: A tool call waits for approval. Payload
             ``{"interrupt_id", "tool_call_id", "tool_name", "deadline"}``.
         INTERRUPT_RESOLVED: An interrupt was answered or expired. Payload
             ``{"interrupt_id", "approved", "rejection_message"}``.
-        USAGE_RECORDED: The session added segment usage. Payload
+        USAGE_RECORDED: The session added one model call's usage. Payload
             ``{"recorded", "session"}``, each an ``AgentUsage`` object.
     """
 
@@ -73,7 +73,7 @@ class AgentEventWriter:
     call order. Events written after the runner call returns are dropped.
 
     Example:
-        >>> async def run_turn(self, turn: AgentTurnContext) -> AgentTurnOutcome:
+        >>> async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
         ...     async for chunk in model.stream(...):
         ...         turn.events.write_text_delta(chunk.text)
     """
@@ -190,8 +190,8 @@ class AgentEventWriter:
     def write_tool_call_started(self, tool_call_id: str, tool_name: str) -> None:
         """Report that a tool started running.
 
-        The session writes this event for deferred tool calls. A runner writes
-        it for READ tools that run inside the turn.
+        The session writes this event when a tool call Step starts. A runner
+        writes it only for a tool its framework cannot defer.
 
         Args:
             tool_call_id: Framework tool call ID.
