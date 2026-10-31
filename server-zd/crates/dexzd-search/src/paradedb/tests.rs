@@ -394,10 +394,10 @@ fn batched_upsert_keeps_highest_versions_and_first_equal_version() {
     other_tenant.tenant_id = "2".into();
     let mut other_run = first.clone();
     other_run.run_id = "run-2".into();
-    let statements =
-        upsert_statements(&[first, other_tenant, newer, equal_version, other_run]).unwrap();
+    let rows = [first, other_tenant, newer, equal_version, other_run];
+    let statements = upsert_statements(&rows).unwrap();
     assert_eq!(statements.len(), 1);
-    let statement = &statements[0];
+    let statement = &statements[0].statement;
     assert_eq!(statement.parameters.len(), 39);
     assert_eq!(statement.sql.matches("ON CONFLICT").count(), 1);
     assert!(statement.sql.contains("), ($14::text"));
@@ -432,8 +432,8 @@ fn batched_upsert_chunks_by_row_and_parameter_limits() {
         .collect::<Vec<_>>();
     let statements = upsert_statements(&rows).unwrap();
     assert_eq!(statements.len(), 2);
-    assert_eq!(statements[0].parameters.len(), 100 * 13);
-    assert_eq!(statements[1].parameters.len(), 13);
+    assert_eq!(statements[0].statement.parameters.len(), 100 * 13);
+    assert_eq!(statements[1].statement.parameters.len(), 13);
 
     let mut boundary_row = rows[0].clone();
     for index in 0..32_761 {
@@ -442,14 +442,14 @@ fn batched_upsert_chunks_by_row_and_parameter_limits() {
             SearchValue::String("value".into()),
         );
     }
-    let statements =
-        upsert_statements(&[rows[1].clone(), boundary_row.clone(), rows[2].clone()]).unwrap();
+    let boundary_rows = [rows[1].clone(), boundary_row.clone(), rows[2].clone()];
+    let statements = upsert_statements(&boundary_rows).unwrap();
     assert_eq!(statements.len(), 3);
-    assert_eq!(statements[1].parameters.len(), 65_535);
-    assert!(statements[1].sql.contains("$65535::text"));
-    for statement in &statements {
-        assert!(statement.parameters.len() <= 65_535);
-        assert!(!statement.sql.contains("$65536"));
+    assert_eq!(statements[1].statement.parameters.len(), 65_535);
+    assert!(statements[1].statement.sql.contains("$65535::text"));
+    for chunk in &statements {
+        assert!(chunk.statement.parameters.len() <= 65_535);
+        assert!(!chunk.statement.sql.contains("$65536"));
     }
     boundary_row
         .sa_keyword
@@ -812,18 +812,62 @@ fn golden_sql_covers_operators_and_types() {
         } else {
             ""
         };
+        let filtered_predicate = if bm25_anchor.is_empty() {
+            format!("({expected_predicate})")
+        } else {
+            format!("coalesce(({expected_predicate}), FALSE)")
+        };
         let expected_sql = format!(
-            "SELECT {} FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND ({expected_predicate}){bm25_anchor} {} LIMIT ${}::bigint",
+            "SELECT {} FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND {filtered_predicate}{bm25_anchor} {} LIMIT ${}::bigint",
             super::query::SELECT_COLUMNS,
             super::query::DEFAULT_ORDER,
             values.len() + 2
         );
         assert_eq!(statement.sql, expected_sql, "{input}");
-        assert!(!statement.sql.contains("coalesce"), "{input}");
+        assert_eq!(
+            statement.sql.contains("coalesce"),
+            !bm25_anchor.is_empty(),
+            "{input}"
+        );
         let mut expected_parameters = vec![SqlValue::Text("tenant".into())];
         expected_parameters.extend(values);
         expected_parameters.push(SqlValue::Int(10));
         assert_eq!(statement.parameters, expected_parameters, "{input}");
+    }
+}
+
+#[test]
+fn application_predicates_keep_coalesce_while_system_predicates_use_indexes() {
+    use super::translate_query;
+    use dexzd_visibility_query::parse_and_check;
+
+    for (input, expected_predicate, has_application_field) in [
+        (
+            "FlowType = 'CheckoutFlow'",
+            "(flow_type) COLLATE \"C\" = $2::text",
+            false,
+        ),
+        (
+            "tags IS NOT NULL",
+            "sa_keyword -> $2::text IS NOT NULL",
+            true,
+        ),
+    ] {
+        let query = parse_and_check(input, &query_fields()).unwrap();
+        let statement = translate_query(&query, "tenant", 10, None).unwrap();
+        let expected_filter = if has_application_field {
+            format!(
+                "AND coalesce(({expected_predicate}), FALSE) AND tenant_id @@@ pdb.term($1::text)"
+            )
+        } else {
+            format!("AND ({expected_predicate})")
+        };
+        assert!(
+            statement.sql.contains(&expected_filter),
+            "{}",
+            statement.sql
+        );
+        assert_eq!(statement.sql.contains("coalesce"), has_application_field);
     }
 }
 

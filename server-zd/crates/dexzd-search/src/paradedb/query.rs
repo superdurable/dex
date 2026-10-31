@@ -79,10 +79,17 @@ pub fn translate_query(
         parameters: vec![SqlValue::Text(tenant_id.to_owned())],
     };
     let predicate = renderer.render_expression(query.expression())?;
+    let has_application_field = contains_application_field(query.expression());
+    let filtered_predicate = if has_application_field {
+        // Coalesce prevents pg_search pushdown from dropping empty arrays that satisfy IS NOT NULL.
+        format!("coalesce(({predicate}), FALSE)")
+    } else {
+        format!("({predicate})")
+    };
     let mut sql = format!(
-        "SELECT {SELECT_COLUMNS} FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND ({predicate})"
+        "SELECT {SELECT_COLUMNS} FROM dexzd_visibility_runs WHERE tenant_id = $1::text AND {filtered_predicate}"
     );
-    if contains_application_field(query.expression()) {
+    if has_application_field {
         sql.push_str(" AND tenant_id @@@ pdb.term($1::text)");
     }
     if let Some(cursor) = cursor {

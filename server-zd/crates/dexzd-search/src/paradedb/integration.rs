@@ -471,6 +471,7 @@ async fn paradedb_matches_builtin_evaluator() {
             .map(|row| row.get::<_, String>("run_id"))
             .collect();
         assert_eq!(actual_ids, expected_ids, "{input}");
+        println!("ParadeDB differential case passed: {input}");
     }
 
     for (input, expected_ids) in [
@@ -493,6 +494,7 @@ async fn paradedb_matches_builtin_evaluator() {
             .map(|row| row.get::<_, String>("run_id"))
             .collect();
         assert_eq!(actual_ids, expected_ids, "{input}");
+        println!("ParadeDB differential case passed: {input}");
     }
 
     for (input, expected_ids) in [
@@ -540,6 +542,7 @@ async fn paradedb_matches_builtin_evaluator() {
             .collect();
         let expected_ids: BTreeSet<String> = expected_ids.into_iter().map(str::to_owned).collect();
         assert_eq!(actual_ids, expected_ids, "{input}");
+        println!("ParadeDB differential case passed: {input}");
     }
     for input in [
         "number = '9223372036854775808'",
@@ -561,41 +564,19 @@ async fn paradedb_matches_builtin_evaluator() {
     }
 
     for document in [
-        run(
-            "running-tie-a",
-            "flow-tie-a",
-            "Running",
-            1_000_000_000,
-            None,
-        ),
-        run(
-            "running-tie-b",
-            "flow-tie-b",
-            "Running",
-            1_000_000_000,
-            None,
-        ),
+        run("running-tie-a", "flow-a", "Running", 1_000_000_000, None),
+        run("running-tie-b", "flow-b", "Running", 1_000_000_000, None),
         run(
             "closed-tie",
-            "flow-closed-tie",
+            "flow-tie",
             "Completed",
             2_000_000_000,
             Some(5_000_000_000),
         ),
-        run(
-            "closed-null-a",
-            "flow-null-a",
-            "Completed",
-            2_000_000_000,
-            None,
-        ),
-        run(
-            "closed-null-b",
-            "flow-null-b",
-            "Failed",
-            2_000_000_000,
-            None,
-        ),
+        run("closed-null-a", "flow-a", "Completed", 2_000_000_000, None)
+            .with("tags", SearchValue::StringArray(Vec::new())),
+        run("closed-null-b", "flow-b", "Failed", 2_000_000_000, None)
+            .with("keyword", SearchValue::String("red".into())),
     ] {
         let row = SearchRow::from_document(parity_tenant_id, 1, &document, &application_fields)
             .expect("map pagination document");
@@ -608,9 +589,18 @@ async fn paradedb_matches_builtin_evaluator() {
         documents.push(document);
     }
 
-    for order in ["", "ORDER BY StartTime ASC", "ORDER BY CloseTime DESC"] {
-        let query = parse_and_check(order, &registry).expect("ordered query");
-        let mut expected: Vec<&Document> = documents.iter().collect();
+    for input in [
+        "",
+        "ORDER BY StartTime ASC",
+        "ORDER BY CloseTime DESC",
+        "tags IS NOT NULL",
+        "keyword = 'red'",
+    ] {
+        let query = parse_and_check(input, &registry).expect("ordered query");
+        let mut expected: Vec<&Document> = documents
+            .iter()
+            .filter(|document| evaluate(&query, *document))
+            .collect();
         expected.sort_by(|left, right| compare_documents(&query, *left, *right));
         let expected_ids: Vec<String> = expected
             .iter()
@@ -643,7 +633,11 @@ async fn paradedb_matches_builtin_evaluator() {
                     rows.get(&last_id).expect("cursor row"),
                 ));
             }
-            assert_eq!(actual_ids, expected_ids, "{order}, page size {page_size}");
+            assert_eq!(actual_ids, expected_ids, "{input}, page size {page_size}");
+            println!(
+                "ParadeDB differential paging passed: {input:?}, page_size={page_size}, rows={}",
+                actual_ids.len()
+            );
         }
     }
 

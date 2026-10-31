@@ -19,6 +19,28 @@ const MAX_JSONB_OBJECT_FIELDS: usize = 50;
 const MAX_UPSERT_ROWS: usize = 100;
 const MAX_BIND_PARAMETERS: usize = 65_535;
 
+const FIXED_COLUMNS: &[(&str, &str)] = &[
+    ("tenant_id", "text"),
+    ("partition_id", "integer"),
+    ("run_id", "text"),
+    ("workflow_id", "text"),
+    ("workflow_type", "text"),
+    ("flow_type", "text"),
+    ("execution_status", "text"),
+    ("start_time_ns", "bigint"),
+    ("close_time_ns", "bigint"),
+    ("dex_parent_flow_id", "text"),
+    ("active_step_types", "text[]"),
+    ("dex_work_queue_permissions", "text[]"),
+    ("version", "bigint"),
+];
+const FIXED_PARAMETER_COUNT: usize = FIXED_COLUMNS.len();
+
+pub(super) struct UpsertChunk<'rows> {
+    pub(super) statement: SqlStatement,
+    pub(super) rows: Vec<&'rows SearchRow>,
+}
+
 #[derive(Debug, Error)]
 #[error(
     "search row {run_id} in tenant {tenant_id} requires {parameter_count} bind parameters, exceeding {MAX_BIND_PARAMETERS}"
@@ -35,7 +57,9 @@ pub fn upsert_statement(row: &SearchRow) -> SqlStatement {
     build_upsert_statement(&[row])
 }
 
-pub(super) fn upsert_statements(rows: &[SearchRow]) -> Result<Vec<SqlStatement>, UpsertBatchError> {
+pub(super) fn upsert_statements(
+    rows: &[SearchRow],
+) -> Result<Vec<UpsertChunk<'_>>, UpsertBatchError> {
     let mut statements = Vec::new();
     let mut chunk = Vec::new();
     let mut parameter_count = 0;
@@ -63,7 +87,7 @@ pub(super) fn upsert_statements(rows: &[SearchRow]) -> Result<Vec<SqlStatement>,
     Ok(statements)
 }
 
-fn build_deduplicated_upsert(rows: &[&SearchRow]) -> SqlStatement {
+fn build_deduplicated_upsert<'rows>(rows: &[&'rows SearchRow]) -> UpsertChunk<'rows> {
     let mut row_positions: BTreeMap<(&str, &str), usize> = BTreeMap::new();
     let mut unique_rows: Vec<&SearchRow> = Vec::new();
     for &row in rows {
@@ -77,7 +101,10 @@ fn build_deduplicated_upsert(rows: &[&SearchRow]) -> SqlStatement {
             unique_rows.push(row);
         }
     }
-    build_upsert_statement(&unique_rows)
+    UpsertChunk {
+        statement: build_upsert_statement(&unique_rows),
+        rows: unique_rows,
+    }
 }
 
 fn build_upsert_statement(rows: &[&SearchRow]) -> SqlStatement {
@@ -87,14 +114,19 @@ fn build_upsert_statement(rows: &[&SearchRow]) -> SqlStatement {
         .map(|row| row_values(row, &mut parameters))
         .collect::<Vec<_>>()
         .join(", ");
+    let fixed_columns = FIXED_COLUMNS
+        .iter()
+        .map(|(column, _)| *column)
+        .collect::<Vec<_>>()
+        .join(", ");
     let sql = format!(
-        "INSERT INTO dexzd_visibility_runs (tenant_id, partition_id, run_id, workflow_id, workflow_type, flow_type, execution_status, start_time_ns, close_time_ns, dex_parent_flow_id, active_step_types, dex_work_queue_permissions, version, sa_keyword, sa_text, sa_number, sa_number_types, sa_datetime, sa_bool, sa_wire) VALUES {values} ON CONFLICT (tenant_id, run_id) DO UPDATE SET partition_id = EXCLUDED.partition_id, workflow_id = EXCLUDED.workflow_id, workflow_type = EXCLUDED.workflow_type, flow_type = EXCLUDED.flow_type, execution_status = EXCLUDED.execution_status, start_time_ns = EXCLUDED.start_time_ns, close_time_ns = EXCLUDED.close_time_ns, dex_parent_flow_id = EXCLUDED.dex_parent_flow_id, active_step_types = EXCLUDED.active_step_types, dex_work_queue_permissions = EXCLUDED.dex_work_queue_permissions, version = EXCLUDED.version, sa_keyword = EXCLUDED.sa_keyword, sa_text = EXCLUDED.sa_text, sa_number = EXCLUDED.sa_number, sa_number_types = EXCLUDED.sa_number_types, sa_datetime = EXCLUDED.sa_datetime, sa_bool = EXCLUDED.sa_bool, sa_wire = EXCLUDED.sa_wire WHERE EXCLUDED.version > dexzd_visibility_runs.version"
+        "INSERT INTO dexzd_visibility_runs ({fixed_columns}, sa_keyword, sa_text, sa_number, sa_number_types, sa_datetime, sa_bool, sa_wire) VALUES {values} ON CONFLICT (tenant_id, run_id) DO UPDATE SET partition_id = EXCLUDED.partition_id, workflow_id = EXCLUDED.workflow_id, workflow_type = EXCLUDED.workflow_type, flow_type = EXCLUDED.flow_type, execution_status = EXCLUDED.execution_status, start_time_ns = EXCLUDED.start_time_ns, close_time_ns = EXCLUDED.close_time_ns, dex_parent_flow_id = EXCLUDED.dex_parent_flow_id, active_step_types = EXCLUDED.active_step_types, dex_work_queue_permissions = EXCLUDED.dex_work_queue_permissions, version = EXCLUDED.version, sa_keyword = EXCLUDED.sa_keyword, sa_text = EXCLUDED.sa_text, sa_number = EXCLUDED.sa_number, sa_number_types = EXCLUDED.sa_number_types, sa_datetime = EXCLUDED.sa_datetime, sa_bool = EXCLUDED.sa_bool, sa_wire = EXCLUDED.sa_wire WHERE EXCLUDED.version > dexzd_visibility_runs.version"
     );
     SqlStatement { sql, parameters }
 }
 
 fn row_values(row: &SearchRow, parameters: &mut Vec<SqlValue>) -> String {
-    let fixed_values = [
+    let fixed_values: [SqlValue; FIXED_PARAMETER_COUNT] = [
         SqlValue::Text(row.tenant_id.clone()),
         SqlValue::Int32(row.partition_id),
         SqlValue::Text(row.run_id.clone()),
@@ -109,12 +141,8 @@ fn row_values(row: &SearchRow, parameters: &mut Vec<SqlValue>) -> String {
         SqlValue::OptionalTextArray(row.dex_work_queue_permissions.clone()),
         SqlValue::Int(row.version),
     ];
-    let fixed_types = [
-        "text", "integer", "text", "text", "text", "text", "text", "bigint", "bigint", "text",
-        "text[]", "text[]", "bigint",
-    ];
     let mut placeholders = Vec::with_capacity(fixed_values.len());
-    for (value, sql_type) in fixed_values.into_iter().zip(fixed_types) {
+    for (value, (_, sql_type)) in fixed_values.into_iter().zip(FIXED_COLUMNS) {
         parameters.push(value);
         placeholders.push(format!("${}::{sql_type}", parameters.len()));
     }
@@ -132,8 +160,8 @@ fn row_values(row: &SearchRow, parameters: &mut Vec<SqlValue>) -> String {
 }
 
 fn row_parameter_count(row: &SearchRow) -> usize {
-    13 + 2
-        * (row.sa_keyword.len()
+    FIXED_PARAMETER_COUNT
+        + 2 * (row.sa_keyword.len()
             + row.sa_text.len()
             + row.sa_number.len()
             + row.sa_number_types.len()

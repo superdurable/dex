@@ -124,7 +124,7 @@ jobs:
           shared-key: server-zd-paradedb
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Compare ParadeDB and builtin search
-        run: cargo test -p dexzd-search paradedb::integration::paradedb_matches_builtin_evaluator -- --exact
+        run: cargo test -p dexzd-search paradedb::integration::paradedb_matches_builtin_evaluator -- --exact --nocapture
       - name: Write the Postgres Attribute Store
         run: cargo test -p dexzd-attribute-store postgres_integration_tests -- --skip postgres_verify_full
       - name: Start PostgreSQL with a self-signed TLS certificate
