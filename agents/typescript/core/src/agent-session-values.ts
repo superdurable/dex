@@ -92,7 +92,8 @@ export interface AgentMessage extends FrameworkMessage {
  * Side-effect class of a tool, which decides where and how often the session runs it.
  *
  * - `read`: runs inside `RunAgentTurn` and reruns with the turn segment.
- * - `idempotent_write`: runs in `ExecuteToolCall`, up to 3 attempts with one idempotency key.
+ * - `idempotent_write`: runs in `ExecuteToolCall`, up to 3 attempts with one idempotency key; when
+ *   they run out, the session records `outcome_unknown`.
  * - `non_idempotent_write`: runs once in `ExecuteSingleAttemptToolCall`; a crash records `outcome_unknown`.
  * - `unclassified`: treated like `non_idempotent_write`; the default for tools without a policy.
  */
@@ -103,6 +104,8 @@ export type ToolEffect = "read" | "idempotent_write" | "non_idempotent_write" | 
  *
  * `awaiting_approval` and `approved` are open. The other statuses are final: the session
  * never runs a call whose record is final, and the runner reports the result to the model.
+ * `failed` means the tool threw {@link ToolExecutionError}. `outcome_unknown` means the tool Step ended
+ * without a result, through a Worker crash, a timeout, or another error after its attempts ran out.
  */
 export type AgentToolCallStatus =
   | "awaiting_approval"
@@ -130,7 +133,10 @@ export interface AgentToolCall {
   readonly status: AgentToolCallStatus;
   /** Tool output text after `succeeded`, otherwise `null`. Wire field: `output`. */
   readonly output: string | null;
-  /** Error text after `failed` or `outcome_unknown`, otherwise `null`. Wire field: `error`. */
+  /**
+   * The `ToolExecutionError` message after `failed`, the failed Step's recovery detail after
+   * `outcome_unknown`, otherwise `null`. Wire field: `error`.
+   */
   readonly error: string | null;
   /** Rejection text after `rejected`, otherwise `null`. Wire field: `rejection_message`. */
   readonly rejectionMessage: string | null;
@@ -227,11 +233,19 @@ export interface AgentEvent {
   readonly type: string;
   /** Turn the event belongs to, or `null`. Wire field: `turn_id`. */
   readonly turnId: string | null;
-  /**
-   * One-based attempt of the Step that wrote the event. Wire field: `attempt`.
-   * A UI drops partial text of an earlier attempt when a later attempt of the same turn appears.
-   */
+  /** One-based attempt of the Step that wrote the event. Wire field: `attempt`. */
   readonly attempt: number;
+  /**
+   * Dex Step execution ID of the Step that wrote the event; all attempts of one Step execution share
+   * it. Events written before this field existed decode with `""`. Wire field: `step_execution_id`.
+   *
+   * Group live text by `(turnId, stepExecutionId, attempt)`. Within one `stepExecutionId`, keep only the
+   * events of the highest `attempt` seen and drop the partial text of lower attempts. Different
+   * `stepExecutionId` values of one turn are consecutive turn segments and Steps, and each keeps its
+   * own events. After `turn_completed` or `turn_failed`, replace the turn's live text with the stored
+   * messages.
+   */
+  readonly stepExecutionId: string;
   /** Event payload as JSON text. Wire field: `payload`. */
   readonly payload: string;
 }
@@ -331,14 +345,49 @@ export function isFinalToolCallStatus(status: AgentToolCallStatus): boolean {
 
 /** Tool result text the model sees for an `outcome_unknown` call; the same text as the Python core. */
 export const outcomeUnknownToolResult =
-  "The tool call's outcome is unknown: the Worker stopped while the tool ran, so it may " +
-  "or may not have taken effect. It was not retried.";
+  "The tool call's outcome is unknown: it stopped without returning a result, so it may " +
+  "or may not have taken effect. It will not be retried automatically.";
+
+/** First line of the note `RecordTurnFailure` stores after a failed turn ran tools. */
+export const turnFailureNoteHeader = "[Dex] The previous turn failed after these tool calls ran:";
+
+/** Last line of that note. */
+export const turnFailureNoteFooter = "Do not repeat these tool calls unless the user asks again.";
 
 /** Tool result text the model sees for a rejection without a message; the same text as the Python core. */
 export const defaultRejectionToolResult = "The user rejected this tool call.";
 
 /** Rejection message recorded when an approval deadline passes. */
 export const approvalDeadlinePassed = "approval deadline passed";
+
+/**
+ * Returns the note text that tells the model what a failed turn already did.
+ *
+ * `RecordTurnFailure` stores this note through {@link AgentFrameworkRunner.buildUserMessage} when a
+ * failed turn has final tool call records, as the failed turn's last message, so the next turn's model
+ * does not repeat a write. The text matches the Python core's `build_turn_failure_note`:
+ *
+ * ```text
+ * [Dex] The previous turn failed after these tool calls ran:
+ * - charge {"amount": 5} -> succeeded: charged 5
+ * Do not repeat these tool calls unless the user asks again.
+ * ```
+ *
+ * @param toolCalls - Final records of the failed turn; they are listed in `deferralOrder`.
+ * @returns {@link turnFailureNoteHeader}, one `- <toolName> <arguments> -> <status>: <outcome>` line
+ * per record, with the outcome from {@link describeToolCallOutcome}, and {@link turnFailureNoteFooter},
+ * joined with newlines.
+ * @throws {TypeError} When a record is not final.
+ */
+export function buildTurnFailureNote(toolCalls: readonly AgentToolCall[]): string {
+  const lines = [turnFailureNoteHeader];
+  for (const toolCall of [...toolCalls].sort((left, right) => left.deferralOrder - right.deferralOrder)) {
+    const outcome = describeToolCallOutcome(toolCall);
+    lines.push(`- ${toolCall.toolName} ${toolCall.arguments} -> ${toolCall.status}: ${outcome}`);
+  }
+  lines.push(turnFailureNoteFooter);
+  return lines.join("\n");
+}
 
 /**
  * Returns the tool result text a runner shows the model for a final tool call record.

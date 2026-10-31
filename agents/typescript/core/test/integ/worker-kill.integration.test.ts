@@ -90,7 +90,7 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     assert.equal(
       snapshot.messages.at(-1)?.text,
-      `send_email -> email sent for ${sessionId}/turn-1-send_email`,
+      `send_email -> email sent for ${sessionId}/turn-1/turn-1-send_email`,
     );
     assert.deepEqual(new InvocationLog(join(markerDirectory, "send_email.log")).names(), [
       `${sessionId} turn-1-send_email attempt 1`,
@@ -132,6 +132,55 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
       finishedEvents.map((payload) => payload.status),
       ["outcome_unknown"],
     );
+  });
+
+  test("approval then a single-attempt write killed under an ASYNC step durability FlowConfig never reruns", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `async-durability-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call charge_card", {
+      configOverride: { stepDurability: "async" },
+    });
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "charge_card");
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const chargeGate = new FileGate(markerDirectory, "charge_card");
+    await chargeGate.waitUntilReached();
+    await waitForEvent(sessionId, "tool_call_started");
+
+    await firstWorker.kill();
+    chargeGate.release();
+    await startWorker(markerDirectory);
+
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.at(-1)?.text, `charge_card -> ${outcomeUnknownToolResult}`);
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "charge_card.log")).names(), [
+      `${sessionId} turn-1-charge_card attempt 1`,
+    ]);
+    assert.equal(chargeGate.reachedCount(), 1);
+  });
+
+  test("a Worker killed during ExecuteToolCall retries the idempotent write with the same key", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `idempotent-retry-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call transfer_funds");
+    const transferGate = new FileGate(markerDirectory, "transfer_funds");
+    await transferGate.waitUntilReached();
+    await waitForEvent(sessionId, "tool_call_started");
+
+    await firstWorker.kill();
+    transferGate.release();
+    await startWorker(markerDirectory);
+
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    const key = `${sessionId}/turn-1/turn-1-transfer_funds`;
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "transfer_funds-keys.log")).names(), [
+      `${key} attempt 1`,
+      `${key} attempt 2`,
+    ]);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.at(-1)?.text, "transfer_funds -> funds transferred");
   });
 
   test("a Worker killed during RunAgentTurn before any output reruns the turn segment", async () => {

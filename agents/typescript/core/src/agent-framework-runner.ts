@@ -205,7 +205,10 @@ export interface AgentTurnContext {
 
 /** One tool call that the runner deferred, returned in {@link TurnSuspended}. */
 export interface DeferredToolCall {
-  /** Framework tool call ID; must be non-empty, slash-free, and unique within the turn. */
+  /**
+   * Framework tool call ID. It must be non-empty, contain no `/`, and be unique within the turn;
+   * frameworks may reuse IDs across turns.
+   */
   readonly toolCallId: string;
   /** Tool name. */
   readonly toolName: string;
@@ -258,8 +261,9 @@ export interface DeferredToolExecution {
   /** The approved record; its `effect` selected `ExecuteToolCall` or `ExecuteSingleAttemptToolCall`. */
   readonly toolCall: AgentToolCall;
   /**
-   * Stable key `<flowId>/<toolCallId>`, identical across attempts. Pass it to services that
-   * deduplicate requests; `ExecuteToolCall` retries an `idempotent_write` call with the same key.
+   * Stable key `<flowId>/<turnId>/<toolCallId>`, identical across attempts of the call. Pass it to
+   * services that deduplicate requests; `ExecuteToolCall` retries an `idempotent_write` call with the
+   * same key. The turn ID keeps keys distinct when a framework reuses tool call IDs across turns.
    */
   readonly idempotencyKey: string;
   /**
@@ -290,8 +294,9 @@ export interface ToolExecutionResult {
  * Tool failure that the model should see, thrown from {@link AgentFrameworkRunner.executeDeferredToolCall}.
  *
  * The session records the call as `failed` with this error's message and does not retry it. Throw any
- * other error for an unexpected failure: `ExecuteToolCall` retries it, and `ExecuteSingleAttemptToolCall`
- * records `outcome_unknown` because the effect may have happened.
+ * other error for an unexpected failure: `ExecuteToolCall` retries it and, once its attempts run out,
+ * records `outcome_unknown`; `ExecuteSingleAttemptToolCall` records `outcome_unknown` at once. Either
+ * way the write may have taken effect.
  *
  * @example
  * ```ts
@@ -377,7 +382,8 @@ export interface AgentFrameworkRunner {
    * @param call - Deferred call to run.
    * @returns The tool output text.
    * @throws {ToolExecutionError} For a failure the model should see; the call is recorded as `failed`.
-   * @throws Any other error for an unexpected failure; see {@link ToolExecutionError} for retry rules.
+   * @throws Any other error for an unexpected failure; after the last attempt the record becomes
+   * `outcome_unknown`. See {@link ToolExecutionError}.
    */
   executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult>;
 }

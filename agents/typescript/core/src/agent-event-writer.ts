@@ -109,6 +109,7 @@ export class StreamAgentEventWriter implements AgentEventWriter {
       type,
       turnId: this.turnId,
       attempt: this.context.attempt,
+      stepExecutionId: this.context.stepExecutionId,
       payload: stringifyWithSortedKeys(payload),
     });
   }

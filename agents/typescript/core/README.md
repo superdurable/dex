@@ -173,8 +173,9 @@ The runner must:
 7. Throw for an unexpected failure. The segment reruns from the same committed
    state, up to 3 attempts within 30 minutes; then the turn fails.
 
-Tool call IDs must be non-empty, contain no `/`, and be unique within the turn.
-Do not re-defer a call that already has a record. The session treats both as
+Tool call IDs must be non-empty, contain no `/`, and be unique within one turn;
+they may repeat across turns, because records and idempotency keys are scoped
+to the turn. Do not re-defer a call that already has a record. The session treats both as
 runner defects and fails the attempt. Keep no state between calls: a later call
 may run in another Worker process. Do not rely on `attempt` to detect a rerun;
 see Limits.
@@ -182,16 +183,19 @@ see Limits.
 ### `executeDeferredToolCall(call)`
 
 `DeferredToolExecution` has `flowId`, `toolCall` (the approved
-`AgentToolCall` record), `idempotencyKey` (`<flowId>/<toolCallId>`, stable across
-attempts), `attempt`, `events`, `cancellationSignal`, `deadline`, and
+`AgentToolCall` record), `idempotencyKey` (`<flowId>/<turnId>/<toolCallId>`,
+the same on every attempt), `attempt`, `events`, `cancellationSignal`, `deadline`, and
 `heartbeat()`.
 
 - Run the real tool and return `{ output }`; the text is recorded and shown to
   the model.
 - Throw `ToolExecutionError(message)` for a failure the model should see. The
   call is recorded as `failed` and not retried.
-- Throw anything else for an unexpected failure. `ExecuteToolCall` retries it;
-  `ExecuteSingleAttemptToolCall` records `outcome_unknown`.
+- Throw anything else for an unexpected failure. `ExecuteToolCall` retries it
+  and, once its attempts run out, records `outcome_unknown`;
+  `ExecuteSingleAttemptToolCall` records `outcome_unknown` at once. A crash or
+  timeout is handled the same way. The model then sees
+  `outcomeUnknownToolResult`, because the write may have taken effect.
 
 ### Events
 
@@ -220,14 +224,31 @@ ExecuteSingleAttemptToolCall failure route -> RecordToolOutcomeUnknown
 
 | Step type | Behavior | Options |
 | --- | --- | --- |
-| `StartAgentSession` | Initializes `AgentState`, `AgentUsage`, `PendingInterrupts`; starts a turn when `initial_message` is set | Defaults |
-| `AwaitUserMessage` | Waits for one queued message, appends it, starts `turn-<n>` | Defaults |
+| `StartAgentSession` | Initializes `AgentState`, `AgentUsage`, `PendingInterrupts`; starts a turn when `initial_message` is set | SYNC durability only |
+| `AwaitUserMessage` | Waits for one queued message, appends it, starts `turn-<n>` | SYNC durability only |
 | `RunAgentTurn` | Runs or resumes the runner; on completion appends messages and deletes the turn's records; on suspension stores the run state, records, and interrupts | 15 min method timeout, 2 min heartbeat timeout, 3 attempts within 30 min, failure route `RecordTurnFailure` |
 | `AwaitInterruptResolution` | Waits for any pending interrupt's resolution or the earliest deadline; applies it; loops while approvals remain | Locks `PendingInterrupts` in Execute |
 | `ExecuteToolCall` | Runs one `idempotent_write` or approved `read` call | 3 attempts, failure route `RecordToolFailure` |
 | `ExecuteSingleAttemptToolCall` | Runs one `non_idempotent_write` or `unclassified` call | 1 attempt, failure route `RecordToolOutcomeUnknown` |
-| `RecordToolFailure` / `RecordToolOutcomeUnknown` | Records `failed` / `outcome_unknown` with the recovery error text | Retry backoff capped at 5 s |
-| `RecordTurnFailure` | Records `last_turn_error`, clears the turn, appends nothing | Retry backoff capped at 5 s |
+| `RecordToolFailure` / `RecordToolOutcomeUnknown` | Both record `outcome_unknown` with the recovery error text; `failed` comes only from `ToolExecutionError` | Retry backoff capped at 5 s |
+| `RecordTurnFailure` | Records `last_turn_error` and clears the turn. When the turn has final tool call records, it first appends the turn failure note (below) | Retry backoff capped at 5 s |
+
+Every Step method sets SYNC durability explicitly, so a Flow started with an
+ASYNC `stepDurability` FlowConfig still commits each result before the session
+advances and never replays a committed single-attempt write.
+
+When a turn fails after deferred tool calls finished, the messages its
+segments produced are lost with the framework run state. `RecordTurnFailure`
+therefore appends one note, built with `runner.buildUserMessage`, as the failed
+turn's last message, so the next turn's model does not repeat a write. The text
+is `buildTurnFailureNote(records)`, identical to the Python core:
+
+```text
+[Dex] The previous turn failed after these tool calls ran:
+- send_email {"to":"ops"} -> succeeded: email sent
+- charge_card {"amount":5} -> outcome_unknown: The tool call's outcome is unknown: ...
+Do not repeat these tool calls unless the user asks again.
+```
 
 After a tool record changes, the session routes: any `awaiting_approval` record
 goes to `AwaitInterruptResolution`; otherwise the first `approved` record in
@@ -270,15 +291,19 @@ camelCase. Message sequences start at 1 and have no gaps. Turn IDs are
 | `interrupt_resolved` | `{"interrupt_id","approved","rejection_message"}` |
 | `usage_recorded` | `{"recorded","session"}`, each an `AgentUsage` object |
 
-Every event carries `turn_id` and the Step `attempt`; drop a turn's partial text
-when a later attempt of that turn starts writing.
+Every event carries `turn_id`, the Step `attempt`, and `step_execution_id`.
+Group live text by `(turn_id, step_execution_id, attempt)`: within one
+`step_execution_id`, keep only the highest `attempt` seen and drop the partial
+text of lower attempts; different `step_execution_id` values of one turn are
+consecutive segments and Steps. After `turn_completed` or `turn_failed`, replace
+the turn's live text with the stored messages.
 
 ## Effects
 
 | Effect | Where it runs | Retry | Crash mid-call | Default approval |
 | --- | --- | --- | --- | --- |
 | `read` | Inside `RunAgentTurn` | With the turn | Runs again | No |
-| `idempotent_write` | `ExecuteToolCall` | Up to 3 attempts, key `<flowId>/<toolCallId>` | Runs again with the same key | No |
+| `idempotent_write` | `ExecuteToolCall` | Up to 3 attempts, key `<flowId>/<turnId>/<toolCallId>` | Runs again with the same key; `outcome_unknown` after the last attempt | No |
 | `non_idempotent_write` | `ExecuteSingleAttemptToolCall` | One attempt | `outcome_unknown` | Yes |
 | `unclassified` | `ExecuteSingleAttemptToolCall` | One attempt | `outcome_unknown` | Yes |
 
@@ -300,6 +325,7 @@ real Dex Server with no model key:
 | `AgentSessionTestClient` | Typed RPC calls (`resolveInterrupt` retries lock conflicts) and Worker-free waits on committed Attributes |
 | `FileGate`, `InvocationLog` | Pause Worker code at an exact point; count real tool runs across processes |
 | `pollUntil(probe, options)` | Deadline polling where the Client has no direct wait |
+| `findFreeLoopbackPorts(count)` | Distinct free loopback ports, chosen with every listener held open until all are picked |
 
 Engines and Workers still running when the test process exits receive SIGKILL.
 
@@ -343,10 +369,15 @@ DEXCLI=/path/to/dexcli ./ci.sh
 which builds with `tsc` and runs `node --test` over `dist/test/integ`. The
 tests use a scripted runner (`test/fixtures/scripted-agent-runner.ts`) and
 cover a completed turn with history replay, approval across a Worker restart,
-rejection, `outcome_unknown` after a SIGKILL during a single-attempt write,
-SIGKILL during `RunAgentTurn` before and after output, duplicate
-`resolve_interrupt`, snapshots and paging, idempotent and failing tools,
-parallel deferred calls, and an approval deadline on a second Flow type.
+rejection, `outcome_unknown` after a SIGKILL during a single-attempt write (also
+under an ASYNC step durability FlowConfig), a SIGKILL during `ExecuteToolCall`
+retried with the same key, exhausted `ExecuteToolCall` retries, SIGKILL during
+`RunAgentTurn` before and after output, a resumed segment that fails after a
+write ran, duplicate `resolve_interrupt`, `send_user_message` during a turn,
+snapshots and paging, idempotent and failing tools, parallel deferred calls,
+and approval deadlines, including two interrupts where one is resolved first.
+Strict `tsc` (`noUnusedLocals`, `noUncheckedIndexedAccess`,
+`exactOptionalPropertyTypes`, and related flags) is the lint gate.
 
 ## Design decisions
 
@@ -378,14 +409,18 @@ parallel deferred calls, and an approval deadline on a second Flow type.
   `read` tools. When the crashed attempt sent no output, Dex re-delivers it
   with the same `attempt`, so `attempt` does not reliably count reruns.
 - The single-attempt guarantee depends on the tool Step's output frame reaching
-  Dex before the tool's effect. A Worker that dies after the frame left the
-  process but before Dex received it can still see the call re-delivered.
+  Dex before the tool runs. The Step awaits a heartbeat first, but that only
+  proves the Worker's gRPC stream accepted the frame, not that Dex received it.
+  If the Worker dies in that window, within the 10 second dispatch wait, Dex can
+  re-deliver the attempt and the tool can run a second time. The window is the
+  time from the local write to Dex's receipt, normally well under a second.
 - Writes inside a framework's own loop are not durable. Tools that a framework
   runs where the runner cannot defer them, such as inside a harness
   subprocess, are at-least-once; each adapter documents them.
 - Interrupts are only tool approvals. Queued user messages are consumed one per
   turn; there is no steering of a running turn.
-- A failed turn keeps its user message in history without an assistant reply.
+- A failed turn keeps its user message in history without an assistant reply;
+  only the turn failure note records what its tools did.
 - Deadlines use the Worker clock when the Timer is computed.
 - Sessions never complete on their own; stop them with `Client.stopFlow`.
 - `AgentEvents` is best effort and its byte budget is shared by every session

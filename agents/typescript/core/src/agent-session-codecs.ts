@@ -305,6 +305,7 @@ export function encodeAgentEvent(value: AgentEvent): unknown {
     type: value.type,
     turn_id: value.turnId,
     attempt: value.attempt,
+    step_execution_id: value.stepExecutionId,
     payload: value.payload,
   };
 }
@@ -315,6 +316,7 @@ export function decodeAgentEvent(value: unknown): AgentEvent {
     type: reader.readString("type"),
     turnId: reader.readNullableString("turn_id"),
     attempt: reader.readInteger("attempt"),
+    stepExecutionId: reader.readNullableString("step_execution_id") ?? "",
     payload: reader.readString("payload"),
   };
 }

@@ -38,6 +38,7 @@ import {
 } from "./agent-session-transitions.js";
 import {
   approvalDeadlinePassed,
+  buildTurnFailureNote,
   emptyAgentUsage,
   isFinalToolCallStatus,
   type AgentInterrupt,
@@ -45,12 +46,13 @@ import {
   type AgentSessionStartInput,
   type AgentState,
   type AgentToolCall,
-  type AgentToolCallStatus,
 } from "./agent-session-values.js";
 
 const minuteMs = 60_000;
 // Recovery Steps must eventually run; cap their backoff so a returning Worker picks them up quickly.
 const recoveryRetry: RetryPolicy = { maximumIntervalMs: 5_000 };
+// An ASYNC FlowConfig could replay a committed result after a Server failover, re-running a write.
+const syncDurability = { waitForDurability: "sync", executeDurability: "sync" } as const;
 
 export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
   public readonly inputCodec = agentSessionStartInputCodec;
@@ -59,6 +61,10 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
 
   public getStepType(): string {
     return agentSessionStepTypes.startAgentSession;
+  }
+
+  public getStepOptions(): StepOptions {
+    return syncDurability;
   }
 
   public execute(context: Context, input: AgentSessionStartInput): StepDecision {
@@ -91,6 +97,10 @@ export class AwaitUserMessageStep implements Step<void> {
     return agentSessionStepTypes.awaitUserMessage;
   }
 
+  public getStepOptions(): StepOptions {
+    return syncDurability;
+  }
+
   public waitFor(): Wait {
     return Wait.until(this.transitions.persistence.queuedUserMessages.forOne());
   }
@@ -116,6 +126,7 @@ export class RunAgentTurnStep implements Step<void> {
   public getStepOptions(): StepOptions {
     const persistence = this.transitions.persistence;
     return {
+      ...syncDurability,
       executeMethodTimeoutMs: 15 * minuteMs,
       heartbeatTimeoutMs: 2 * minuteMs,
       executeRetry: { maximumAttempts: 3, totalDurationMs: 30 * minuteMs },
@@ -277,6 +288,7 @@ export class AwaitInterruptResolutionStep implements Step<void> {
     const persistence = this.transitions.persistence;
     // The deadline path rewrites PendingInterrupts, which resolve_interrupt also writes.
     return {
+      ...syncDurability,
       waitForLoadAttributeMaps: [persistence.agentToolCalls],
       executeLoadAttributeMaps: [persistence.agentToolCalls],
       executeLockAttributes: [persistence.pendingInterrupts.lock()],
@@ -396,6 +408,7 @@ export class ToolCallExecutionStep implements Step<void> {
 
   public getStepOptions(): StepOptions {
     return {
+      ...syncDurability,
       executeRetry: { maximumAttempts: this.maximumAttempts },
       executeFailure: ExecuteFailure.proceedTo(new StepRef(this.failureStepType)),
       executeLoadAttributeMaps: [this.transitions.persistence.agentToolCalls],
@@ -420,7 +433,7 @@ export class ToolCallExecutionStep implements Step<void> {
       const execution: DeferredToolExecution = {
         flowId: context.flowId,
         toolCall,
-        idempotencyKey: `${context.flowId}/${toolCall.toolCallId}`,
+        idempotencyKey: `${context.flowId}/${toolCall.turnId}/${toolCall.toolCallId}`,
         attempt: context.attempt,
         events,
         cancellationSignal: context.cancellationSignal,
@@ -451,14 +464,16 @@ export class ToolCallExecutionStep implements Step<void> {
   }
 }
 
-/** Failure route of a tool Step; one class serves `RecordToolFailure` and `RecordToolOutcomeUnknown`. */
-export class ToolCallFailureRecordingStep implements Step<void> {
+/**
+ * Failure route of a tool Step; one class serves `RecordToolFailure` and `RecordToolOutcomeUnknown`.
+ * Both record `outcome_unknown`: a crash, timeout, or unexpected error leaves the effect unknown.
+ */
+export class ToolCallOutcomeUnknownRecordingStep implements Step<void> {
   public readonly inputCodec = voidCodec;
 
   public constructor(
     private readonly transitions: AgentSessionTransitions,
     private readonly stepType: string,
-    private readonly recordedStatus: Extract<AgentToolCallStatus, "failed" | "outcome_unknown">,
   ) {}
 
   public getStepType(): string {
@@ -467,6 +482,7 @@ export class ToolCallFailureRecordingStep implements Step<void> {
 
   public getStepOptions(): StepOptions {
     return {
+      ...syncDurability,
       executeRetry: recoveryRetry,
       executeLoadAttributeMaps: [this.transitions.persistence.agentToolCalls],
     };
@@ -481,11 +497,11 @@ export class ToolCallFailureRecordingStep implements Step<void> {
     }
     transitions.writeToolCall(context, {
       ...toolCall,
-      status: this.recordedStatus,
+      status: "outcome_unknown",
       error: readRecoveryDetail(context),
     });
     transitions.writeEvents(context, state.activeTurnId, (events) =>
-      events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, this.recordedStatus),
+      events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, "outcome_unknown"),
     );
     return transitions.routeToolCalls(context, state);
   }
@@ -502,6 +518,7 @@ export class RecordTurnFailureStep implements Step<void> {
 
   public getStepOptions(): StepOptions {
     return {
+      ...syncDurability,
       executeRetry: recoveryRetry,
       executeLoadAttributeMaps: [this.transitions.persistence.agentToolCalls],
     };
@@ -510,9 +527,19 @@ export class RecordTurnFailureStep implements Step<void> {
   public execute(context: Context): StepDecision {
     const transitions = this.transitions;
     const persistence = transitions.persistence;
-    const state = transitions.readAgentState(context);
+    let state = transitions.readAgentState(context);
     const turnError = readRecoveryDetail(context);
-    for (const toolCall of transitions.readTurnToolCalls(context, state.activeTurnId)) {
+    const toolCalls = transitions.readTurnToolCalls(context, state.activeTurnId);
+    const finalToolCalls = toolCalls.filter((toolCall) => isFinalToolCallStatus(toolCall.status));
+    // The records are deleted below; the note keeps the next model from repeating writes.
+    if (state.activeTurnId !== null && finalToolCalls.length > 0) {
+      const note = transitions.runner.buildUserMessage(buildTurnFailureNote(finalToolCalls));
+      if (note.role !== "user") {
+        throw new TypeError("buildUserMessage must return a message with role user");
+      }
+      state = transitions.appendMessages(context, state, state.activeTurnId, [note]);
+    }
+    for (const toolCall of toolCalls) {
       persistence.agentToolCalls.delete(context, toolCall.toolCallId);
     }
     persistence.frameworkRunState.delete(context);

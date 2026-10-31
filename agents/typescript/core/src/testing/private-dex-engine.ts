@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
+import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -88,8 +88,10 @@ export class PrivateDexEngine {
     const logPath = join(stateDirectory, "dexcli.log");
     let lastFailure: unknown;
     for (let attempt = 1; attempt <= startAttempts; attempt += 1) {
-      const dexPort = await findFreeLoopbackPort();
-      const webPort = await findFreeLoopbackPort();
+      const [dexPort, webPort] = await findFreeLoopbackPorts(2);
+      if (dexPort === undefined || webPort === undefined) {
+        throw new Error("findFreeLoopbackPorts returned too few ports");
+      }
       const commandArguments = [
         "dev",
         "-engine",
@@ -165,21 +167,66 @@ export class PrivateDexEngine {
  * Returns a TCP port on 127.0.0.1 that was free when checked.
  *
  * Another process can still take the port before it is used, so callers retry on bind failures.
+ * Use {@link findFreeLoopbackPorts} when a caller needs several ports at once.
  * @returns A port number chosen by the operating system.
  */
-export function findFreeLoopbackPort(): Promise<number> {
+export async function findFreeLoopbackPort(): Promise<number> {
+  const [port] = await findFreeLoopbackPorts(1);
+  if (port === undefined) {
+    throw new Error("no loopback port was chosen");
+  }
+  return port;
+}
+
+/**
+ * Returns distinct TCP ports on 127.0.0.1 that were free when checked.
+ *
+ * Every listener stays open until all ports are chosen, so the operating system never hands out
+ * the same port twice. Another process can still take a port after the listeners close, so callers
+ * retry on bind failures.
+ * @param count - Number of ports, at least 1.
+ * @returns `count` distinct port numbers chosen by the operating system.
+ * @throws {RangeError} When `count` is not a positive integer.
+ */
+export async function findFreeLoopbackPorts(count: number): Promise<number[]> {
+  if (!Number.isSafeInteger(count) || count <= 0) {
+    throw new RangeError(`port count must be a positive integer: ${count}`);
+  }
+  const servers: Server[] = [];
+  try {
+    const ports: number[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const server = createServer();
+      servers.push(server);
+      ports.push(await listenOnFreeLoopbackPort(server));
+    }
+    return ports;
+  } finally {
+    await Promise.all(servers.map((server) => closeServer(server)));
+  }
+}
+
+function listenOnFreeLoopbackPort(server: Server): Promise<number> {
   return new Promise((resolve, reject) => {
-    const server = createServer();
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
       if (address === null || typeof address === "string") {
-        server.close();
         reject(new Error("loopback listener has no port"));
         return;
       }
-      server.close(() => resolve(address.port));
+      resolve(address.port);
     });
+  });
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve) => {
+    if (!server.listening) {
+      resolve();
+      return;
+    }
+    server.close(() => resolve());
   });
 }
 

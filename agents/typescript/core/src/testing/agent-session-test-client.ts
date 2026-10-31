@@ -8,7 +8,7 @@
 
 import { setTimeout as delay } from "node:timers/promises";
 
-import { RpcLockConflictError, type Client } from "@superdurable/dex";
+import { RpcLockConflictError, type Client, type StartFlowOptions } from "@superdurable/dex";
 
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import type {
@@ -64,10 +64,15 @@ export class AgentSessionTestClient {
    * Starts a session.
    * @param sessionId - Flow ID of the new session.
    * @param initialMessage - First user message, or `null` to start idle. Defaults to `null`.
+   * @param startFlowOptions - Start options, such as a `configOverride` with `stepDurability`.
    * @returns A Promise that resolves after Dex accepted the start.
    */
-  public async startSession(sessionId: string, initialMessage: string | null = null): Promise<void> {
-    await this.client.startFlow(this.flow, sessionId, { initialMessage });
+  public async startSession(
+    sessionId: string,
+    initialMessage: string | null = null,
+    startFlowOptions: StartFlowOptions = {},
+  ): Promise<void> {
+    await this.client.startFlow(this.flow, sessionId, { initialMessage }, startFlowOptions);
   }
 
   /**

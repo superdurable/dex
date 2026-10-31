@@ -12,10 +12,15 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
-import { messageSequenceKey, type AgentMessage } from "../../src/index.js";
+import {
+  messageSequenceKey,
+  outcomeUnknownToolResult,
+  type AgentMessage,
+} from "../../src/index.js";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
+  FileGate,
   InvocationLog,
   PrivateDexEngine,
 } from "../../src/testing/index.js";
@@ -34,7 +39,7 @@ describe("agent session turns with an in-process Worker", () => {
     const flow = createScriptedAgentFlow(markerDirectory);
     const deadlineFlow = createScriptedAgentFlow(markerDirectory, {
       flowType: "ScriptedAgentWithApprovalDeadline",
-      interruptDeadlineMs: 1_000,
+      interruptDeadlineMs: 3_000,
     });
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
@@ -96,6 +101,9 @@ describe("agent session turns with an in-process Worker", () => {
       '{"recorded":{"cached_input_tokens":0,"input_tokens":10,"model_calls":1,"output_tokens":5,"reasoning_tokens":0},' +
         '"session":{"cached_input_tokens":0,"input_tokens":30,"model_calls":3,"output_tokens":15,"reasoning_tokens":0}}',
     );
+    for (const event of events.filter((candidate) => candidate.type === "text_delta")) {
+      assert.match(event.stepExecutionId, /RunAgentTurn/);
+    }
     const eventTypes = events.map((event) => event.type);
     for (const expectedType of [
       "turn_started",
@@ -199,7 +207,7 @@ describe("agent session turns with an in-process Worker", () => {
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     assert.equal(
       snapshot.messages.at(-1)?.text,
-      `send_email -> email sent for ${sessionId}/turn-1-send_email`,
+      `send_email -> email sent for ${sessionId}/turn-1/turn-1-send_email`,
     );
     assert.deepEqual(toolLog("send_email", sessionId), [`${sessionId} turn-1-send_email attempt 1`]);
   });
@@ -248,7 +256,7 @@ describe("agent session turns with an in-process Worker", () => {
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     assert.equal(
       snapshot.messages.at(-1)?.text,
-      `send_email -> email sent for ${sessionId}/turn-1-send_email | refund_order -> refund issued | ` +
+      `send_email -> email sent for ${sessionId}/turn-1/turn-1-send_email | refund_order -> refund issued | ` +
         "get_weather -> sunny in Paris",
     );
     assert.deepEqual(
@@ -262,7 +270,7 @@ describe("agent session turns with an in-process Worker", () => {
     await deadlineSessions.startSession(sessionId, "call send_email");
     const interrupt = await deadlineSessions.waitForPendingInterrupt(sessionId, "send_email");
     assert.ok(interrupt.deadline !== null);
-    assert.equal(Date.parse(interrupt.deadline) - Date.parse(interrupt.createdAt), 1_000);
+    assert.equal(Date.parse(interrupt.deadline) - Date.parse(interrupt.createdAt), 3_000);
 
     await deadlineSessions.waitForCompletedTurns(sessionId, 1);
     assert.equal(await deadlineSessions.resolveInterrupt(sessionId, interrupt.interruptId, true), false);
@@ -281,6 +289,119 @@ describe("agent session turns with an in-process Worker", () => {
       approved: false,
       rejection_message: "approval deadline passed",
     });
+  });
+
+  test("a resumed segment that fails after a write ran appends a note and never repeats the write", async () => {
+    const sessionId = newSessionId("failed-resume");
+    await sessions.startSession(sessionId, "call send_email then fail");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const state = await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.match(state.lastTurnError ?? "", /scripted failure after the tool calls of turn-1/);
+    assert.deepEqual(toolLog("send_email", sessionId), [`${sessionId} turn-1-send_email attempt 1`]);
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(snapshot.toolCalls, []);
+    assert.deepEqual(
+      snapshot.messages.map((message) => [message.sequence, message.turnId, message.role]),
+      [
+        [1, "turn-1", "user"],
+        [2, "turn-1", "user"],
+      ],
+    );
+    assert.equal(
+      snapshot.messages[1]?.text,
+      "[Dex] The previous turn failed after these tool calls ran:\n" +
+        `- send_email {"requested_by":"call send_email then fail"} -> succeeded: ` +
+        `email sent for ${sessionId}/turn-1/turn-1-send_email\n` +
+        "Do not repeat these tool calls unless the user asks again.",
+    );
+    assert.deepEqual(
+      (await sessions.listAgentEvents(sessionId))
+        .filter((event) => event.type === "turn_failed")
+        .map((event) => event.turnId),
+      ["turn-1"],
+    );
+
+    assert.equal(await sessions.sendUserMessage(sessionId, "history"), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+    const answer = (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text ?? "";
+    assert.ok(answer.includes("user: [Dex] The previous turn failed"), answer);
+    assert.deepEqual(toolLog("send_email", sessionId), [`${sessionId} turn-1-send_email attempt 1`]);
+  });
+
+  test("exhausted ExecuteToolCall retries record outcome_unknown", async () => {
+    const sessionId = newSessionId("exhausted");
+    await sessions.startSession(sessionId, "call sync_inventory");
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.deepEqual(toolLog("sync_inventory", sessionId), [
+      `${sessionId} turn-1-sync_inventory attempt 1`,
+      `${sessionId} turn-1-sync_inventory attempt 2`,
+      `${sessionId} turn-1-sync_inventory attempt 3`,
+    ]);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    const toolResult = snapshot.messages.find((message) => message.role === "tool");
+    assert.equal(toolResult?.toolOutput, outcomeUnknownToolResult);
+    const finished = (await sessions.listAgentEvents(sessionId)).filter(
+      (event) => event.type === "tool_call_finished",
+    );
+    assert.deepEqual(
+      finished.map((event) => (JSON.parse(event.payload) as { status: string }).status),
+      ["outcome_unknown"],
+    );
+  });
+
+  test("send_user_message during a turn queues the message for the next turn", async () => {
+    const sessionId = newSessionId("queued");
+    await sessions.startSession(sessionId, "slow");
+    const gate = new FileGate(markerDirectory, "turn");
+    await gate.waitUntilReached();
+    assert.equal(await sessions.sendUserMessage(sessionId, "second"), true);
+    const runningSnapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(runningSnapshot.state?.status, "running_turn");
+    assert.equal(runningSnapshot.queuedMessageCount, 1);
+    assert.deepEqual(runningSnapshot.messages.map((message) => message.text), ["slow"]);
+
+    gate.release();
+    await sessions.waitForCompletedTurns(sessionId, 2);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      snapshot.messages.map((message) => `${message.turnId} ${message.text}`),
+      ["turn-1 slow", "turn-1 slow turn done", "turn-2 second", "turn-2 echo: second"],
+    );
+    assert.equal(snapshot.queuedMessageCount, 0);
+  });
+
+  test("with two interrupts, one is resolved and the deadline then rejects the other", async () => {
+    const sessionId = newSessionId("two-interrupts");
+    await deadlineSessions.startSession(sessionId, "call send_email and charge_card");
+    const emailInterrupt = await deadlineSessions.waitForPendingInterrupt(sessionId, "send_email");
+    await deadlineSessions.waitForPendingInterrupt(sessionId, "charge_card");
+    assert.equal(
+      await deadlineSessions.resolveInterrupt(sessionId, emailInterrupt.interruptId, true),
+      true,
+    );
+    await deadlineSessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.deepEqual(toolLog("send_email", sessionId), [`${sessionId} turn-1-send_email attempt 1`]);
+    assert.deepEqual(toolLog("charge_card", sessionId), []);
+    const snapshot = await deadlineSessions.getAgentSnapshot(sessionId);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      `send_email -> email sent for ${sessionId}/turn-1/turn-1-send_email | ` +
+        "charge_card -> approval deadline passed",
+    );
+    const resolutions = (await deadlineSessions.listAgentEvents(sessionId))
+      .filter((event) => event.type === "interrupt_resolved")
+      .map((event) => JSON.parse(event.payload) as Record<string, unknown>);
+    assert.deepEqual(resolutions, [
+      { interrupt_id: "turn-1-send_email", approved: true, rejection_message: null },
+      {
+        interrupt_id: "turn-1-charge_card",
+        approved: false,
+        rejection_message: "approval deadline passed",
+      },
+    ]);
   });
 
   function toolLog(toolName: string, sessionId: string): string[] {

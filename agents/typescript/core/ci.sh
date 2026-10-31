@@ -8,7 +8,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-# Installs locked dependencies, typechecks and builds, then runs the integration tests.
+# Installs locked dependencies, runs the strict typecheck (the lint gate), then the integration tests.
 # DEXCLI must name the dexcli binary; dex-server-zd must sit in the same directory.
 
 set -euo pipefail

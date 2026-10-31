@@ -65,6 +65,7 @@ interface ScriptedRunState {
  * - `call <tool> [and <tool> ...]`: the model calls every listed tool in one response, then answers
  *   `<tool> -> <result>` per tool, joined with ` | `.
  * - `history`: the model answers with every earlier user and assistant text it was replayed.
+ * - `call ... then fail`: like `call`, but every resumed segment throws after the tools finished.
  * - `slow`: the runner records its attempt in `turn.log`, then waits at the `turn` FileGate.
  * - `slow stream`: like `slow`, after streaming partial text tagged with the attempt.
  * - anything else: the model answers `echo: <text>`.
@@ -100,6 +101,9 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
       }
     }
     const userText = lastUserText(history);
+    if (turn.isResuming && userText.endsWith(" then fail")) {
+      throw new Error(`scripted failure after the tool calls of ${turn.turnId}`);
+    }
     if (userText === "slow" || userText === "slow stream") {
       if (userText === "slow stream") {
         turn.events.writeTextDelta(`partial text of attempt ${turn.attempt}`);
@@ -170,6 +174,15 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner {
       }
       case "refund_order":
         return { output: "refund issued" };
+      case "transfer_funds": {
+        this.invocationLog("transfer_funds-keys").record(`${call.idempotencyKey} attempt ${call.attempt}`);
+        const gate = new FileGate(this.markerDirectory, "transfer_funds");
+        gate.markReached();
+        await gate.waitForRelease(call.cancellationSignal);
+        return { output: "funds transferred" };
+      }
+      case "sync_inventory":
+        throw new Error("inventory service unavailable");
       case "delete_account":
         throw new ToolExecutionError("account deletion is disabled");
       default:
@@ -203,6 +216,8 @@ export function createScriptedAgentFlow(
       get_weather: { effect: "read" },
       charge_card: { effect: "non_idempotent_write" },
       refund_order: { effect: "idempotent_write" },
+      transfer_funds: { effect: "idempotent_write" },
+      sync_inventory: { effect: "idempotent_write" },
     },
   });
 }
@@ -215,6 +230,7 @@ function decideScriptedModelAction(
   if (userText.startsWith("call ")) {
     const toolNames = userText
       .slice("call ".length)
+      .replace(/ then fail$/, "")
       .split(" and ")
       .map((toolName) => toolName.trim());
     const results = toolNames.map((toolName) =>

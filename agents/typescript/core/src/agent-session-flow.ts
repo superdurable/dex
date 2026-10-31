@@ -36,7 +36,7 @@ import {
   RunAgentTurnStep,
   StartAgentSessionStep,
   ToolCallExecutionStep,
-  ToolCallFailureRecordingStep,
+  ToolCallOutcomeUnknownRecordingStep,
 } from "./agent-session-steps.js";
 import {
   AgentSessionTransitions,
@@ -253,11 +253,10 @@ export function createAgentSessionFlow(
         1,
         agentSessionStepTypes.recordToolOutcomeUnknown,
       ),
-      new ToolCallFailureRecordingStep(transitions, agentSessionStepTypes.recordToolFailure, "failed"),
-      new ToolCallFailureRecordingStep(
+      new ToolCallOutcomeUnknownRecordingStep(transitions, agentSessionStepTypes.recordToolFailure),
+      new ToolCallOutcomeUnknownRecordingStep(
         transitions,
         agentSessionStepTypes.recordToolOutcomeUnknown,
-        "outcome_unknown",
       ),
       new RecordTurnFailureStep(transitions),
     );

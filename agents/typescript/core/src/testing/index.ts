@@ -27,5 +27,6 @@ export { pollUntil, type PollOptions } from "./polling.js";
 export {
   PrivateDexEngine,
   findFreeLoopbackPort,
+  findFreeLoopbackPorts,
   type PrivateDexEngineOptions,
 } from "./private-dex-engine.js";
