@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import pytest
+from dex import FlowNotActiveOrNotFoundError, FlowStatus, StopFlowOptions, StopType
+
 from dex_agents import (
     AGENT_STATE,
     FRAMEWORK_RUN_STATE,
@@ -17,6 +20,7 @@ from dex_agents import (
     AgentUsage,
     MessageRole,
 )
+from dex_agents.testing import wait_until
 from tests.conftest import ScriptedAgentHarness
 
 
@@ -106,3 +110,26 @@ async def test_list_agent_messages_pages_backward(harness: ScriptedAgentHarness)
     )
     assert [message.text for message in oldest.messages] == ["say one"]
     assert oldest.next_before_sequence is None
+
+
+async def test_snapshot_serves_a_stopped_session(harness: ScriptedAgentHarness) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "say goodbye")
+    before = await harness.wait_for_turns(session_id, 1)
+
+    await harness.stack.client.stop_flow(session_id, StopFlowOptions(type=StopType.TERMINATE))
+    await wait_until(
+        "the session to close",
+        lambda: _is_closed(harness, session_id),
+    )
+
+    after = await harness.sessions.get_agent_snapshot(session_id)
+    assert after == before
+    with pytest.raises(FlowNotActiveOrNotFoundError):
+        await harness.sessions.send_user_message(session_id, "say again")
+
+
+async def _is_closed(harness: ScriptedAgentHarness, session_id: str) -> bool:
+    info = await harness.stack.client.describe_flow(session_id)
+    return info.status is not FlowStatus.RUNNING
