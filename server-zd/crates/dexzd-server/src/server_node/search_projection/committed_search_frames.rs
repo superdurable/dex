@@ -247,7 +247,6 @@ impl CommittedSearchFrames {
                     .record(repair.priority.reason());
             }
         }
-        self.publish_repair_pending(&tracking);
         self.repair_available.notify_one();
     }
 
@@ -293,7 +292,6 @@ impl CommittedSearchFrames {
             .set(i64::try_from(tracking.rebuild_reasons.len()).expect("partition count fits i64"));
         tracking.finish_through(Some(partition), sequence);
         tracking.repairs.finish_through(Some(partition), sequence);
-        self.publish_repair_pending(&tracking);
         if let Some(request) = tracking.rebuild_requests.get_mut(&partition) {
             if request.last_sequence <= sequence {
                 tracking.rebuild_requests.remove(&partition);
@@ -308,7 +306,6 @@ impl CommittedSearchFrames {
         let mut tracking = self.lock_tracking();
         tracking.finish_through(None, sequence);
         tracking.repairs.finish_through(None, sequence);
-        self.publish_repair_pending(&tracking);
         tracking.rebuild_requests.retain(|_, request| {
             request.first_sequence = request.first_sequence.max(sequence + 1);
             request.last_sequence > sequence
@@ -448,14 +445,7 @@ impl CommittedSearchFrames {
             tracking.diff_needed.insert(partition);
             self.mark_needed(tracking, partition, ProjectionRebuildReason::RepairOverflow);
         }
-        self.publish_repair_pending(tracking);
         self.repair_available.notify_one();
-    }
-
-    fn publish_repair_pending(&self, tracking: &FrameTracking) {
-        self.metrics.search_projection_repair_pending.set(
-            i64::try_from(tracking.repairs.len()).expect("the bounded repair set fits in i64"),
-        );
     }
 
     pub(crate) fn schedule_rebuilds(&self, partitions: &[PartitionId]) -> Vec<PartitionId> {

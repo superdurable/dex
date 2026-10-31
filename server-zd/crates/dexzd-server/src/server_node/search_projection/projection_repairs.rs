@@ -61,7 +61,7 @@ impl ProjectionRepairs {
         limit: usize,
     ) -> bool {
         let identity = (repair.tenant_id, repair.run_id);
-        if !self.entries.contains_key(&identity) && self.entries.len() >= limit {
+        if !self.entries.contains_key(&identity) && self.len() >= limit {
             return false;
         }
         self.last_generation += 1;

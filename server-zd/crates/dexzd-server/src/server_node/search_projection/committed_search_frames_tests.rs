@@ -622,7 +622,7 @@ fn live_frames_and_in_flight_bytes_take_priority_over_repairs() {
     commit_frame(&frames, 1);
     record_document(&frames, 2, 8, FlowStatus::Completed);
     finish_frame(&frames, 2);
-    assert_eq!(frames.metrics.search_projection_repair_pending.get(), 1);
+    assert_eq!(frames.lock_tracking().repairs.len(), 1);
     assert!(frames.take_repair_batch().is_empty());
     let live = take_frame(&frames).unwrap();
     assert!(frames.take_repair_batch().is_empty());
@@ -632,7 +632,7 @@ fn live_frames_and_in_flight_bytes_take_priority_over_repairs() {
     commit_frame(&frames, 3);
     assert!(frames.take_repair_batch().is_empty());
     frames.finish_repair_batch(&repairs, &BTreeSet::from([(TenantId(1), RunId([2; 16]))]));
-    assert_eq!(frames.metrics.search_projection_repair_pending.get(), 0);
+    assert_eq!(frames.lock_tracking().repairs.len(), 0);
     assert_eq!(
         frames
             .metrics
@@ -656,11 +656,21 @@ fn staging_overflow_requires_version_comparison_without_automatic_rebuilding() {
     commit_frame(&frames, 1);
     commit_frame(&frames, 2);
     commit_frame(&frames, 3);
-    assert_eq!(frames.metrics.search_projection_repair_pending.get(), 1);
+    assert_eq!(frames.lock_tracking().repairs.len(), 1);
     assert_eq!(frames.metrics.search_projection_repair_overflow.get(), 1);
     assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 0);
     assert_eq!(frames.diff_partitions(), vec![PARTITION]);
     assert!(frames.has_pending_staging(PARTITION));
     frames.finish_rebuild(PARTITION, frames.last_sequence());
-    assert_eq!(frames.metrics.search_projection_repair_pending.get(), 0);
+    assert_eq!(frames.lock_tracking().repairs.len(), 0);
+}
+
+#[test]
+fn staging_updates_do_not_overwrite_the_persisted_pending_run_gauge() {
+    let frames = frames_with_limits(1, 1024 * 1024, 1, 2 * 1024 * 1024);
+    frames.metrics.search_projection_repair_pending.set(17);
+    commit_frame(&frames, 1);
+    commit_frame(&frames, 2);
+    assert_eq!(frames.lock_tracking().repairs.len(), 1);
+    assert_eq!(frames.metrics.search_projection_repair_pending.get(), 17);
 }
