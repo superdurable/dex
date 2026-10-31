@@ -75,7 +75,8 @@ export class AgentTestEnvironment {
     if (options.isWorkerInProcess) {
       worker = new Worker(registry, blobCache, {
         serverAddress: options.serverAddress,
-        pull: { appWorkerID: `dex-agents-test-worker-${randomUUID()}` },
+        // Parallel tool Steps must not depend on the CI machine's CPU count.
+        pull: { appWorkerID: `dex-agents-test-worker-${randomUUID()}`, maxConcurrentTasks: 8 },
       });
       await worker.start();
       await worker.waitPullRegistered({ timeoutMs: 30_000 });

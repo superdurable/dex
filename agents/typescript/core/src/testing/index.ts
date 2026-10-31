@@ -25,6 +25,13 @@ export {
 export { FileGate, InvocationLog } from "./coordination.js";
 export { pollUntil, type PollOptions } from "./polling.js";
 export {
+  executeCompletedEvent,
+  readStepHistory,
+  waitForCompletedEvent,
+  type ReadStepHistoryOptions,
+  type StepHistoryEntry,
+} from "./step-history.js";
+export {
   PrivateDexEngine,
   findFreeLoopbackPort,
   findFreeLoopbackPorts,

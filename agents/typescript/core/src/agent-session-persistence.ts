@@ -17,6 +17,7 @@ import {
   agentToolCallCodec,
   agentUsageCodec,
   agentUserMessageCodec,
+  toolCallCompletedCodec,
 } from "./agent-session-codecs.js";
 import type {
   AgentEvent,
@@ -27,6 +28,7 @@ import type {
   AgentToolCall,
   AgentUsage,
   AgentUserMessage,
+  ToolCallCompleted,
 } from "./agent-session-values.js";
 
 /** Default byte budget of the `AgentEvents` Stream: 10 MiB. */
@@ -63,6 +65,11 @@ export interface AgentSessionPersistence {
   readonly queuedUserMessages: Channel<AgentUserMessage>;
   /** The `InterruptResolutions` ChannelMap, keyed by interrupt ID. */
   readonly interruptResolutions: ChannelMap<AgentInterruptResolution>;
+  /**
+   * The internal `ToolCallResults` Channel. Every tool call of a batch publishes one message when its
+   * record becomes final, and `ResumeTurn` consumes them. Applications never publish to it.
+   */
+  readonly toolCallResults: Channel<ToolCallCompleted>;
   /** The best-effort `AgentEvents` Stream. Rebuild durable state with `get_agent_snapshot`. */
   readonly agentEvents: Stream<AgentEvent>;
 }
@@ -79,6 +86,7 @@ export function createAgentSessionPersistence(
     agentUsage: new Attribute("AgentUsage", agentUsageCodec),
     queuedUserMessages: new Channel("QueuedUserMessages", agentUserMessageCodec),
     interruptResolutions: new ChannelMap("InterruptResolutions", agentInterruptResolutionCodec),
+    toolCallResults: new Channel("ToolCallResults", toolCallCompletedCodec),
     agentEvents: new Stream("AgentEvents", agentEventCodec, agentEventsCapacityBytes),
   };
 }

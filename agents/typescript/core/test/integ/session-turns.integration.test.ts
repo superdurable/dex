@@ -23,6 +23,9 @@ import {
   FileGate,
   InvocationLog,
   PrivateDexEngine,
+  executeCompletedEvent,
+  readStepHistory,
+  waitForCompletedEvent,
 } from "../../src/testing/index.js";
 import { createScriptedAgentFlow } from "../fixtures/scripted-agent-runner.js";
 
@@ -31,6 +34,7 @@ describe("agent session turns with an in-process Worker", () => {
   let environment: AgentTestEnvironment;
   let sessions: AgentSessionTestClient;
   let deadlineSessions: AgentSessionTestClient;
+  let longDeadlineSessions: AgentSessionTestClient;
   let markerDirectory: string;
 
   before(async () => {
@@ -41,11 +45,16 @@ describe("agent session turns with an in-process Worker", () => {
       flowType: "ScriptedAgentWithApprovalDeadline",
       interruptDeadlineMs: 3_000,
     });
+    const longDeadlineFlow = createScriptedAgentFlow(markerDirectory, {
+      flowType: "ScriptedAgentWithLongApprovalDeadline",
+      interruptDeadlineMs: 60_000,
+    });
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
-      flows: [flow, deadlineFlow],
+      flows: [flow, deadlineFlow, longDeadlineFlow],
       isWorkerInProcess: true,
     });
+    longDeadlineSessions = new AgentSessionTestClient(environment.client, longDeadlineFlow);
     sessions = new AgentSessionTestClient(environment.client, flow);
     deadlineSessions = new AgentSessionTestClient(environment.client, deadlineFlow);
   });
@@ -55,7 +64,7 @@ describe("agent session turns with an in-process Worker", () => {
     await engine?.stop();
   });
 
-  test("a turn with a read tool completes and its history replays on the next turn", async () => {
+  test("a read tool runs as RunModel, CallTool, ResumeTurn, RunModel, and the history replays", async () => {
     const sessionId = newSessionId("read-tool");
     await sessions.startSession(sessionId, "call get_weather");
     await sessions.waitForCompletedTurns(sessionId, 1);
@@ -67,7 +76,7 @@ describe("agent session turns with an in-process Worker", () => {
       "3 turn-1 tool tool_result get_weather sunny in Paris",
       "4 turn-1 assistant get_weather -> sunny in Paris",
     ]);
-    assert.deepEqual(toolLog("get_weather", sessionId), [`${sessionId} turn-1-get_weather inline`]);
+    assert.deepEqual(toolLog("get_weather", sessionId), [`${sessionId} turn-1-get_weather attempt 1`]);
     assert.deepEqual(firstSnapshot.toolCalls, []);
 
     assert.equal(await sessions.sendUserMessage(sessionId, "history"), true);
@@ -101,9 +110,32 @@ describe("agent session turns with an in-process Worker", () => {
       '{"recorded":{"cached_input_tokens":0,"input_tokens":10,"model_calls":1,"output_tokens":5,"reasoning_tokens":0},' +
         '"session":{"cached_input_tokens":0,"input_tokens":30,"model_calls":3,"output_tokens":15,"reasoning_tokens":0}}',
     );
-    for (const event of events.filter((candidate) => candidate.type === "text_delta")) {
-      assert.match(event.stepExecutionId, /RunAgentTurn/);
+    const turnOneSteps = (type: string): string[] =>
+      events
+        .filter((event) => event.type === type && event.turnId === "turn-1")
+        .map((event) => event.stepExecutionId);
+    const modelStepIds = turnOneSteps("usage_recorded");
+    assert.equal(modelStepIds.length, 2);
+    assert.notEqual(modelStepIds[0], modelStepIds[1]);
+    for (const stepExecutionId of modelStepIds) {
+      assert.match(stepExecutionId, /RunModel/);
     }
+    const toolStepIds = turnOneSteps("tool_call_started");
+    assert.equal(toolStepIds.length, 1);
+    assert.match(toolStepIds[0] ?? "", /CallTool/);
+    assert.deepEqual(turnOneSteps("tool_call_deferred"), [modelStepIds[0]]);
+    const executedSteps = (await readStepHistory(engine.serverAddress, sessionId))
+      .filter((entry) => entry.eventType === executeCompletedEvent)
+      .map((entry) => entry.stepType);
+    assert.deepEqual(executedSteps, [
+      "StartAgentSession",
+      "RunModel",
+      "CallTool",
+      "ResumeTurn",
+      "RunModel",
+      "AwaitUserMessage",
+      "RunModel",
+    ]);
     const eventTypes = events.map((event) => event.type);
     for (const expectedType of [
       "turn_started",
@@ -130,7 +162,6 @@ describe("agent session turns with an in-process Worker", () => {
       turnCount: 1,
       activeTurnId: null,
       nextMessageSequence: 3,
-      executingToolCallId: null,
       lastTurnError: null,
     });
     assert.deepEqual(snapshot.messages.map(describeMessage), [
@@ -164,7 +195,7 @@ describe("agent session turns with an in-process Worker", () => {
     assert.equal(interrupt.kind, "tool_approval");
     assert.equal(interrupt.deadline, null);
     const waitingState = await sessions.readAgentState(sessionId);
-    assert.equal(waitingState?.status, "waiting_for_interrupt");
+    assert.equal(waitingState?.status, "running_tools");
     const waitingSnapshot = await sessions.getAgentSnapshot(sessionId);
     assert.deepEqual(
       waitingSnapshot.toolCalls.map((toolCall) => [
@@ -192,6 +223,7 @@ describe("agent session turns with an in-process Worker", () => {
     assert.ok(eventTypes.includes("tool_call_deferred"));
     assert.ok(eventTypes.includes("interrupt_raised"));
     assert.ok(eventTypes.includes("interrupt_resolved"));
+    assert.ok(eventTypes.includes("tool_call_finished"));
   });
 
   test("resolve_interrupt called twice returns false the second time and the write runs once", async () => {
@@ -232,37 +264,75 @@ describe("agent session turns with an in-process Worker", () => {
     );
   });
 
-  test("deferred calls of one model response run approvals first, then in deferral order", async () => {
+  test("tool calls of one model response run in parallel Steps", async () => {
     const sessionId = newSessionId("parallel");
-    await sessions.startSession(sessionId, "call send_email and refund_order and get_weather");
+    await sessions.startSession(sessionId, "call lookup_a and lookup_b");
+    const gate = new FileGate(markerDirectory, "lookups");
+    // Both tools are inside their Steps at once, so the Steps run in parallel.
+    await gate.waitUntilReached(2);
+    const runningState = await sessions.readAgentState(sessionId);
+    assert.equal(runningState?.status, "running_tools");
+    gate.release();
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.at(-1)?.text, "lookup_a -> lookup_a found | lookup_b -> lookup_b found");
+    assert.equal(snapshot.usage.modelCalls, 2);
+    assert.deepEqual((await executedStepTypes(sessionId)).sort(), [
+      "CallTool",
+      "CallTool",
+      "ResumeTurn",
+      "RunModel",
+      "RunModel",
+      "StartAgentSession",
+    ]);
+  });
+
+  test("a read tool runs while a sibling write waits for approval", async () => {
+    const sessionId = newSessionId("approval-and-read");
+    await sessions.startSession(sessionId, "call send_email and get_weather and refund_order");
     const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    await sessions.waitForToolCall(sessionId, "turn-1-get_weather", (toolCall) => toolCall.status === "succeeded");
+    await sessions.waitForToolCall(sessionId, "turn-1-refund_order", (toolCall) => toolCall.status === "succeeded");
     const waitingSnapshot = await sessions.getAgentSnapshot(sessionId);
     assert.deepEqual(
       waitingSnapshot.toolCalls.map((toolCall) => [toolCall.toolName, toolCall.status, toolCall.deferralOrder]),
       [
         ["send_email", "awaiting_approval", 0],
-        ["refund_order", "approved", 1],
+        ["get_weather", "succeeded", 1],
+        ["refund_order", "succeeded", 2],
       ],
     );
-    assert.deepEqual(toolLog("refund_order", sessionId), []);
-    assert.deepEqual(toolLog("get_weather", sessionId), [`${sessionId} turn-1-get_weather inline`]);
+    assert.deepEqual(toolLog("send_email", sessionId), []);
 
     assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
     await sessions.waitForCompletedTurns(sessionId, 1);
-    assert.deepEqual(toolLog("deferred-tools", sessionId), [
-      `${sessionId} send_email`,
+    const toolRuns = toolLog("tool-runs", sessionId);
+    assert.equal(toolRuns.at(-1), `${sessionId} send_email`);
+    assert.deepEqual([...toolRuns].sort(), [
+      `${sessionId} get_weather`,
       `${sessionId} refund_order`,
+      `${sessionId} send_email`,
     ]);
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     assert.equal(
       snapshot.messages.at(-1)?.text,
-      `send_email -> email sent for ${sessionId}/turn-1/turn-1-send_email | refund_order -> refund issued | ` +
-        "get_weather -> sunny in Paris",
+      `send_email -> email sent for ${sessionId}/turn-1/turn-1-send_email | ` +
+        "get_weather -> sunny in Paris | refund_order -> refund issued",
     );
     assert.deepEqual(
       snapshot.messages.map((message) => message.role),
       ["user", "assistant", "assistant", "assistant", "tool", "tool", "tool", "assistant"],
     );
+    assert.deepEqual((await executedStepTypes(sessionId)).sort(), [
+      "AwaitToolApproval",
+      "CallSingleAttemptTool",
+      "CallTool",
+      "CallTool",
+      "ResumeTurn",
+      "RunModel",
+      "RunModel",
+      "StartAgentSession",
+    ]);
   });
 
   test("a second agent Flow type rejects an approval whose deadline passed", async () => {
@@ -274,6 +344,7 @@ describe("agent session turns with an in-process Worker", () => {
 
     await deadlineSessions.waitForCompletedTurns(sessionId, 1);
     assert.equal(await deadlineSessions.resolveInterrupt(sessionId, interrupt.interruptId, true), false);
+    assert.deepEqual(await approvalWaitAttempts(sessionId), [1]);
     const snapshot = await deadlineSessions.getAgentSnapshot(sessionId);
     assert.equal(
       snapshot.messages.at(-1)?.text,
@@ -291,7 +362,7 @@ describe("agent session turns with an in-process Worker", () => {
     });
   });
 
-  test("a resumed segment that fails after a write ran appends a note and never repeats the write", async () => {
+  test("a model call that fails after a write ran appends the turn failure note and never repeats the write", async () => {
     const sessionId = newSessionId("failed-resume");
     await sessions.startSession(sessionId, "call send_email then fail");
     const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
@@ -330,24 +401,31 @@ describe("agent session turns with an in-process Worker", () => {
     assert.deepEqual(toolLog("send_email", sessionId), [`${sessionId} turn-1-send_email attempt 1`]);
   });
 
-  test("exhausted ExecuteToolCall retries record outcome_unknown", async () => {
+  test("exhausted CallTool retries record outcome_unknown for a write and failed for a read", async () => {
     const sessionId = newSessionId("exhausted");
-    await sessions.startSession(sessionId, "call sync_inventory");
+    await sessions.startSession(sessionId, "call sync_inventory and check_stock");
     await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
-    assert.deepEqual(toolLog("sync_inventory", sessionId), [
-      `${sessionId} turn-1-sync_inventory attempt 1`,
-      `${sessionId} turn-1-sync_inventory attempt 2`,
-      `${sessionId} turn-1-sync_inventory attempt 3`,
-    ]);
+    for (const toolName of ["sync_inventory", "check_stock"]) {
+      assert.deepEqual(toolLog(toolName, sessionId), [
+        `${sessionId} turn-1-${toolName} attempt 1`,
+        `${sessionId} turn-1-${toolName} attempt 2`,
+        `${sessionId} turn-1-${toolName} attempt 3`,
+      ]);
+    }
     const snapshot = await sessions.getAgentSnapshot(sessionId);
-    const toolResult = snapshot.messages.find((message) => message.role === "tool");
-    assert.equal(toolResult?.toolOutput, outcomeUnknownToolResult);
-    const finished = (await sessions.listAgentEvents(sessionId)).filter(
-      (event) => event.type === "tool_call_finished",
-    );
+    const toolOutputs = snapshot.messages
+      .filter((message) => message.role === "tool")
+      .map((message) => [message.toolName, message.toolOutput]);
+    assert.equal(toolOutputs.length, 2);
+    assert.deepEqual(toolOutputs[0], ["sync_inventory", outcomeUnknownToolResult]);
+    assert.equal(toolOutputs[1]?.[0], "check_stock");
+    assert.match(toolOutputs[1]?.[1] ?? "", /^The tool call failed: .*stock service unavailable/);
+    const finished = (await sessions.listAgentEvents(sessionId))
+      .filter((event) => event.type === "tool_call_finished")
+      .map((event) => JSON.parse(event.payload) as { tool_name: string; status: string });
     assert.deepEqual(
-      finished.map((event) => (JSON.parse(event.payload) as { status: string }).status),
-      ["outcome_unknown"],
+      finished.map((payload) => `${payload.tool_name} ${payload.status}`).sort(),
+      ["check_stock failed", "sync_inventory outcome_unknown"],
     );
   });
 
@@ -358,7 +436,7 @@ describe("agent session turns with an in-process Worker", () => {
     await gate.waitUntilReached();
     assert.equal(await sessions.sendUserMessage(sessionId, "second"), true);
     const runningSnapshot = await sessions.getAgentSnapshot(sessionId);
-    assert.equal(runningSnapshot.state?.status, "running_turn");
+    assert.equal(runningSnapshot.state?.status, "running_model");
     assert.equal(runningSnapshot.queuedMessageCount, 1);
     assert.deepEqual(runningSnapshot.messages.map((message) => message.text), ["slow"]);
 
@@ -370,6 +448,92 @@ describe("agent session turns with an in-process Worker", () => {
       ["turn-1 slow", "turn-1 slow turn done", "turn-2 second", "turn-2 echo: second"],
     );
     assert.equal(snapshot.queuedMessageCount, 0);
+  });
+
+  test("an approval with a 60 second deadline resolves at once, on the first WaitFor attempt", async () => {
+    const sessionId = newSessionId("long-deadline");
+    await longDeadlineSessions.startSession(sessionId, "call send_email");
+    const interrupt = await longDeadlineSessions.waitForPendingInterrupt(sessionId, "send_email");
+    assert.equal(Date.parse(interrupt.deadline ?? "") - Date.parse(interrupt.createdAt), 60_000);
+    const approvedAt = Date.now();
+    assert.equal(
+      await longDeadlineSessions.resolveInterrupt(sessionId, interrupt.interruptId, true),
+      true,
+    );
+    await longDeadlineSessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 10_000 });
+    assert.ok(Date.now() - approvedAt < 5_000, `turn took ${Date.now() - approvedAt} ms after approval`);
+    assert.deepEqual(await approvalWaitAttempts(sessionId), [1]);
+    assert.deepEqual(toolLog("send_email", sessionId), [`${sessionId} turn-1-send_email attempt 1`]);
+  });
+
+  test("a turn with two tool batches offsets deferral order and resumes after each batch", async () => {
+    const sessionId = newSessionId("two-batches");
+    await sessions.startSession(
+      sessionId,
+      "call get_weather and refund_order, then call send_email and get_weather",
+    );
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    assert.equal(interrupt.interruptId, "turn-1-b1-send_email");
+    await sessions.waitForToolCall(sessionId, "turn-1-b1-get_weather", (toolCall) => toolCall.status === "succeeded");
+    const waitingSnapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      waitingSnapshot.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.status, toolCall.deferralOrder]),
+      [
+        ["turn-1-get_weather", "succeeded", 0],
+        ["turn-1-refund_order", "succeeded", 1],
+        ["turn-1-b1-send_email", "awaiting_approval", 2],
+        ["turn-1-b1-get_weather", "succeeded", 3],
+      ],
+    );
+    const [runState] = await environment.client.getAttributes(sessionId, sessions.flow.frameworkRunState);
+    assert.deepEqual((JSON.parse(runState ?? "null") as { pendingToolCallIds: string[] }).pendingToolCallIds, [
+      "turn-1-b1-send_email",
+      "turn-1-b1-get_weather",
+    ]);
+
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      "get_weather -> sunny in Paris | refund_order -> refund issued | " +
+        `send_email -> email sent for ${sessionId}/turn-1/turn-1-b1-send_email | get_weather -> sunny in Paris`,
+    );
+    assert.equal(snapshot.usage.modelCalls, 3);
+    assert.deepEqual(snapshot.toolCalls, []);
+    const [clearedRunState] = await environment.client.getAttributes(sessionId, sessions.flow.frameworkRunState);
+    assert.equal(clearedRunState, undefined);
+    assert.deepEqual(toolLog("get_weather", sessionId), [
+      `${sessionId} turn-1-get_weather attempt 1`,
+      `${sessionId} turn-1-b1-get_weather attempt 1`,
+    ]);
+    const executed = (await executedStepTypes(sessionId)).filter((stepType) => stepType !== "StartAgentSession");
+    assert.deepEqual(executed.filter((stepType) => stepType === "RunModel").length, 3);
+    assert.deepEqual(executed.filter((stepType) => stepType === "ResumeTurn").length, 2);
+    assert.deepEqual(executed.filter((stepType) => stepType === "CallTool").length, 3);
+    assert.deepEqual(executed.filter((stepType) => stepType === "CallSingleAttemptTool").length, 1);
+    assert.equal(executed.at(-1), "RunModel");
+  });
+
+  test("a turn that fails after two batches lists both batches in the note, and a reused ID is rejected", async () => {
+    const sessionId = newSessionId("two-batches-fail");
+    await sessions.startSession(sessionId, "call refund_order, then call send_email, then repeat");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const state = await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.match(state.lastTurnError ?? "", /tool call turn-1-refund_order was already requested in turn-1/);
+    assert.deepEqual(toolLog("refund_order", sessionId), [`${sessionId} turn-1-refund_order attempt 1`]);
+    assert.deepEqual(toolLog("send_email", sessionId), [`${sessionId} turn-1-b1-send_email attempt 1`]);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(snapshot.toolCalls, []);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      "[Dex] The previous turn failed after these tool calls ran:\n" +
+        `- refund_order {"requested_by":"call refund_order, then call send_email, then repeat"} -> succeeded: refund issued\n` +
+        `- send_email {"requested_by":"call refund_order, then call send_email, then repeat"} -> succeeded: ` +
+        `email sent for ${sessionId}/turn-1/turn-1-b1-send_email\n` +
+        "Do not repeat these tool calls unless the user asks again.",
+    );
   });
 
   test("with two interrupts, one is resolved and the deadline then rejects the other", async () => {
@@ -391,6 +555,7 @@ describe("agent session turns with an in-process Worker", () => {
       `send_email -> email sent for ${sessionId}/turn-1/turn-1-send_email | ` +
         "charge_card -> approval deadline passed",
     );
+    assert.deepEqual(await approvalWaitAttempts(sessionId), [1, 1]);
     const resolutions = (await deadlineSessions.listAgentEvents(sessionId))
       .filter((event) => event.type === "interrupt_resolved")
       .map((event) => JSON.parse(event.payload) as Record<string, unknown>);
@@ -403,6 +568,19 @@ describe("agent session turns with an in-process Worker", () => {
       },
     ]);
   });
+
+  /** Final attempts of every completed AwaitToolApproval WaitFor; 1 means no WaitFor failure was retried. */
+  async function approvalWaitAttempts(sessionId: string): Promise<number[]> {
+    return (await readStepHistory(engine.serverAddress, sessionId))
+      .filter((entry) => entry.eventType === waitForCompletedEvent && entry.stepType === "AwaitToolApproval")
+      .map((entry) => entry.finalAttempt);
+  }
+
+  async function executedStepTypes(sessionId: string): Promise<string[]> {
+    return (await readStepHistory(engine.serverAddress, sessionId))
+      .filter((entry) => entry.eventType === executeCompletedEvent)
+      .map((entry) => entry.stepType);
+  }
 
   function toolLog(toolName: string, sessionId: string): string[] {
     return new InvocationLog(join(markerDirectory, `${toolName}.log`)).names().filter((line) =>

@@ -129,7 +129,7 @@ export class KillableWorkerProcess {
  * Runs a pull Worker for the given Flows until SIGTERM or SIGINT; call it from a Worker child module.
  *
  * It reads the server address from {@link agentWorkerServerAddressVariable} and the BlobCache directory
- * from {@link agentWorkerBlobCacheDirectoryVariable}, uses a fresh app Worker ID, waits for pull
+ * from {@link agentWorkerBlobCacheDirectoryVariable}, uses a fresh app Worker ID and 8 concurrent tasks, waits for pull
  * registration, then prints {@link agentWorkerReadyLine} to standard output. On SIGTERM or SIGINT it
  * closes the Worker and exits with status 0.
  *
@@ -152,7 +152,8 @@ export async function runAgentWorkerProcess(flows: readonly Flow<any>[]): Promis
   const blobCache = openBlobCache({ directory: cacheDirectory, maxBytes: 64 * 1024 * 1024 });
   const worker = new Worker(new Registry(flows), blobCache, {
     serverAddress,
-    pull: { appWorkerID: `dex-agents-test-worker-${randomUUID()}` },
+    // Parallel tool Steps must not depend on the CI machine's CPU count.
+    pull: { appWorkerID: `dex-agents-test-worker-${randomUUID()}`, maxConcurrentTasks: 8 },
   });
   const closeAndExit = async (): Promise<void> => {
     try {

@@ -38,12 +38,13 @@ import {
 export const agentSessionStepTypes = {
   startAgentSession: "StartAgentSession",
   awaitUserMessage: "AwaitUserMessage",
-  runAgentTurn: "RunAgentTurn",
-  awaitInterruptResolution: "AwaitInterruptResolution",
-  executeToolCall: "ExecuteToolCall",
-  executeSingleAttemptToolCall: "ExecuteSingleAttemptToolCall",
+  runModel: "RunModel",
+  awaitToolApproval: "AwaitToolApproval",
+  callTool: "CallTool",
+  callSingleAttemptTool: "CallSingleAttemptTool",
   recordToolFailure: "RecordToolFailure",
   recordToolOutcomeUnknown: "RecordToolOutcomeUnknown",
+  resumeTurn: "ResumeTurn",
   recordTurnFailure: "RecordTurnFailure",
 } as const;
 
@@ -117,16 +118,18 @@ export class AgentSessionTransitions {
       .sort((left, right) => left.deferralOrder - right.deferralOrder);
   }
 
-  public readExecutingToolCall(context: Context, state: AgentState): AgentToolCall {
-    const toolCallId = state.executingToolCallId;
-    if (toolCallId === null) {
-      throw new Error(`the agent session ${context.flowId} has no executing tool call`);
-    }
+  /** Returns one tool call record; requires the AgentToolCalls load. */
+  public readToolCall(context: Context, toolCallId: string): AgentToolCall {
     const toolCall = this.persistence.agentToolCalls.get(context, toolCallId) as AgentToolCall | undefined;
     if (toolCall === undefined) {
       throw new Error(`tool call ${toolCallId} has no record in session ${context.flowId}`);
     }
     return toolCall;
+  }
+
+  /** Tells `ResumeTurn` that one tool call of the batch has a final record. */
+  public publishToolCallResult(context: Context, toolCallId: string): void {
+    this.persistence.toolCallResults.publish(context, { toolCallId });
   }
 
   public writeToolCall(context: Context, toolCall: AgentToolCall): void {
@@ -163,7 +166,7 @@ export class AgentSessionTransitions {
     return advancedState;
   }
 
-  /** Appends the user message, opens the next turn, and moves to RunAgentTurn. */
+  /** Appends the user message, opens the next turn, and moves to RunModel. */
   public beginTurn(context: Context, state: AgentState, text: string): StepDecision {
     const turnId = `turn-${state.turnCount + 1}`;
     const userMessage = this.runner.buildUserMessage(text);
@@ -172,45 +175,13 @@ export class AgentSessionTransitions {
     }
     const sequence = state.nextMessageSequence;
     const stateWithMessage = this.appendMessages(context, state, turnId, [userMessage]);
-    this.writeAgentState(context, {
-      ...stateWithMessage,
-      status: "running_turn",
-      activeTurnId: turnId,
-      executingToolCallId: null,
-    });
+    this.writeAgentState(context, { ...stateWithMessage, status: "running_model", activeTurnId: turnId });
     this.writeEvents(context, turnId, (events) => events.writeEvent("turn_started", { sequence }));
-    return goTo(new StepRef(agentSessionStepTypes.runAgentTurn), undefined);
+    return goTo(new StepRef(agentSessionStepTypes.runModel), undefined);
   }
 
   public goToAwaitUserMessage(): StepDecision {
     return goTo(new StepRef(agentSessionStepTypes.awaitUserMessage), undefined);
-  }
-
-  /**
-   * Picks the Step after a tool call record changed.
-   * Order: approvals first, then approved calls in deferral order, then resume the turn.
-   */
-  public routeToolCalls(context: Context, state: AgentState): StepDecision {
-    const toolCalls = this.readTurnToolCalls(context, state.activeTurnId);
-    if (toolCalls.some((toolCall) => toolCall.status === "awaiting_approval")) {
-      this.writeAgentState(context, {
-        ...state,
-        status: "waiting_for_interrupt",
-        executingToolCallId: null,
-      });
-      return goTo(new StepRef(agentSessionStepTypes.awaitInterruptResolution), undefined);
-    }
-    const approvedToolCall = toolCalls.find((toolCall) => toolCall.status === "approved");
-    if (approvedToolCall === undefined) {
-      this.writeAgentState(context, { ...state, status: "running_turn", executingToolCallId: null });
-      return goTo(new StepRef(agentSessionStepTypes.runAgentTurn), undefined);
-    }
-    this.writeAgentState(context, {
-      ...state,
-      status: "executing_tool",
-      executingToolCallId: approvedToolCall.toolCallId,
-    });
-    return goTo(new StepRef(toolStepTypeForEffect(approvedToolCall.effect)), undefined);
   }
 
   public resolveToolPolicy(toolName: string, frameworkEffect?: ToolEffect): ResolvedToolPolicy {
@@ -273,10 +244,10 @@ export function toolStepTypeForEffect(effect: ToolEffect): string {
   switch (effect) {
     case "read":
     case "idempotent_write":
-      return agentSessionStepTypes.executeToolCall;
+      return agentSessionStepTypes.callTool;
     case "non_idempotent_write":
     case "unclassified":
-      return agentSessionStepTypes.executeSingleAttemptToolCall;
+      return agentSessionStepTypes.callSingleAttemptTool;
   }
 }
 

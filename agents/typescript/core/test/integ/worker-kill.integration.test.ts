@@ -107,8 +107,8 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     const chargeGate = new FileGate(markerDirectory, "charge_card");
     await chargeGate.waitUntilReached();
     const executingState = await sessions.readAgentState(sessionId);
-    assert.equal(executingState?.status, "executing_tool");
-    assert.equal(executingState?.executingToolCallId, "turn-1-charge_card");
+    assert.equal(executingState?.status, "running_tools");
+    assert.equal((await sessions.readToolCall(sessionId, "turn-1-charge_card"))?.status, "approved");
     await waitForEvent(sessionId, "tool_call_started");
 
     await firstWorker.kill();
@@ -160,7 +160,7 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     assert.equal(chargeGate.reachedCount(), 1);
   });
 
-  test("a Worker killed during ExecuteToolCall retries the idempotent write with the same key", async () => {
+  test("a Worker killed during CallTool retries the idempotent write with the same key", async () => {
     const markerDirectory = newMarkerDirectory();
     const firstWorker = await startWorker(markerDirectory);
     const sessionId = `idempotent-retry-${randomUUID()}`;
@@ -183,13 +183,14 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     assert.equal(snapshot.messages.at(-1)?.text, "transfer_funds -> funds transferred");
   });
 
-  test("a Worker killed during RunAgentTurn before any output reruns the turn segment", async () => {
+  test("a Worker killed during RunModel reruns only that model call, not the tools before it", async () => {
     const markerDirectory = newMarkerDirectory();
     const firstWorker = await startWorker(markerDirectory);
-    const sessionId = `turn-rerun-${randomUUID()}`;
-    await sessions.startSession(sessionId, "slow");
+    const sessionId = `model-rerun-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call get_weather then pause");
     const turnGate = new FileGate(markerDirectory, "turn");
     await turnGate.waitUntilReached();
+    assert.equal((await sessions.readAgentState(sessionId))?.status, "running_model");
 
     await firstWorker.kill();
     turnGate.release();
@@ -198,16 +199,16 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     const state = await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
     assert.equal(state.lastTurnError, null);
     const snapshot = await sessions.getAgentSnapshot(sessionId);
-    assert.deepEqual(
-      snapshot.messages.map((message) => message.text),
-      ["slow", "slow turn done"],
-    );
+    assert.equal(snapshot.messages.at(-1)?.text, "get_weather -> sunny in Paris");
     // Dex re-delivers an attempt that produced no output, so the rerun may keep attempt 1.
     assert.equal(turnGate.reachedCount(), 2);
-    assert.equal(snapshot.usage.modelCalls, 1);
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "get_weather.log")).names(), [
+      `${sessionId} turn-1-get_weather attempt 1`,
+    ]);
+    assert.equal(snapshot.usage.modelCalls, 2);
   });
 
-  test("a Worker killed during RunAgentTurn after streaming text retries the segment as a new attempt", async () => {
+  test("a Worker killed during RunModel after streaming text retries the model call as a new attempt", async () => {
     const markerDirectory = newMarkerDirectory();
     const firstWorker = await startWorker(markerDirectory);
     const sessionId = `turn-retry-${randomUUID()}`;

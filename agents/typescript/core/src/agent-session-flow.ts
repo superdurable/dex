@@ -30,13 +30,14 @@ import {
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
 import {
-  AwaitInterruptResolutionStep,
+  AwaitToolApprovalStep,
   AwaitUserMessageStep,
   RecordTurnFailureStep,
-  RunAgentTurnStep,
+  ResumeTurnStep,
+  RunModelStep,
   StartAgentSessionStep,
-  ToolCallExecutionStep,
-  ToolCallOutcomeUnknownRecordingStep,
+  ToolCallFailureRecordingStep,
+  ToolCallStep,
 } from "./agent-session-steps.js";
 import {
   AgentSessionTransitions,
@@ -80,7 +81,7 @@ export interface AgentSessionOptions {
    */
   readonly eventStreamCapacityBytes?: number;
   /**
-   * Milliseconds an approval may stay pending before `AwaitInterruptResolution` rejects it with
+   * Milliseconds an approval may stay pending before `AwaitToolApproval` rejects it with
    * `"approval deadline passed"`. Defaults to no deadline: approvals wait indefinitely.
    */
   readonly interruptDeadlineMs?: number;
@@ -145,12 +146,13 @@ export interface AgentSessionFlow extends Flow<AgentSessionStartInput>, AgentSes
    *
    * It removes the interrupt from `PendingInterrupts` and publishes the answer in one commit, so only
    * one call succeeds per interrupt. It locks `PendingInterrupts`, so a call that races
-   * `AwaitInterruptResolution` can fail with `RpcLockConflictError`, which is safe to retry. The
+   * `AwaitToolApproval` can fail with `RpcLockConflictError`, which is safe to retry. The
    * rejection message is dropped when `approved` is `true`.
    *
    * @param context - RPC Context supplied by Dex.
    * @param input - Interrupt ID and decision.
-   * @returns `true` when the interrupt was pending and is now resolved; `false` otherwise.
+   * @returns `true` when the interrupt was pending and is now resolved; `false` when it is unknown,
+   * already resolved, or past its deadline.
    */
   resolveInterrupt(context: Context, input: ResolveInterruptInput): RPCResult<boolean>;
   /**
@@ -234,30 +236,23 @@ export function createAgentSessionFlow(
     public readonly agentUsage = persistence.agentUsage;
     public readonly queuedUserMessages = persistence.queuedUserMessages;
     public readonly interruptResolutions = persistence.interruptResolutions;
+    public readonly toolCallResults = persistence.toolCallResults;
     public readonly agentEvents = persistence.agentEvents;
     private readonly steps = StepList.startStep<AgentSessionStartInput>(
       new StartAgentSessionStep(transitions),
     ).otherSteps(
       new AwaitUserMessageStep(transitions),
-      new RunAgentTurnStep(transitions),
-      new AwaitInterruptResolutionStep(transitions),
-      new ToolCallExecutionStep(
-        transitions,
-        agentSessionStepTypes.executeToolCall,
-        3,
-        agentSessionStepTypes.recordToolFailure,
-      ),
-      new ToolCallExecutionStep(
-        transitions,
-        agentSessionStepTypes.executeSingleAttemptToolCall,
-        1,
-        agentSessionStepTypes.recordToolOutcomeUnknown,
-      ),
-      new ToolCallOutcomeUnknownRecordingStep(transitions, agentSessionStepTypes.recordToolFailure),
-      new ToolCallOutcomeUnknownRecordingStep(
+      new RunModelStep(transitions),
+      new AwaitToolApprovalStep(transitions),
+      new ToolCallStep(transitions, agentSessionStepTypes.callTool),
+      new ToolCallStep(transitions, agentSessionStepTypes.callSingleAttemptTool),
+      new ToolCallFailureRecordingStep(transitions, agentSessionStepTypes.recordToolFailure, true),
+      new ToolCallFailureRecordingStep(
         transitions,
         agentSessionStepTypes.recordToolOutcomeUnknown,
+        false,
       ),
+      new ResumeTurnStep(transitions),
       new RecordTurnFailureStep(transitions),
     );
 
@@ -279,7 +274,11 @@ export function createAgentSessionFlow(
           persistence.pendingInterrupts,
           persistence.agentUsage,
         ],
-        channels: [persistence.queuedUserMessages, persistence.interruptResolutions],
+        channels: [
+          persistence.queuedUserMessages,
+          persistence.interruptResolutions,
+          persistence.toolCallResults,
+        ],
         streams: [persistence.agentEvents],
       };
     }
@@ -305,7 +304,12 @@ export function createAgentSessionFlow(
     })
     public resolveInterrupt(context: Context, input: ResolveInterruptInput): RPCResult<boolean> {
       const pendingInterrupts = transitions.readPendingInterrupts(context);
-      if (!pendingInterrupts.some((interrupt) => interrupt.interruptId === input.interruptId)) {
+      const interrupt = pendingInterrupts.find((pending) => pending.interruptId === input.interruptId);
+      // After the deadline, AwaitToolApproval rejects the call; a late answer must not win.
+      if (
+        interrupt === undefined ||
+        (interrupt.deadline !== null && Date.parse(interrupt.deadline) <= Date.now())
+      ) {
         return { output: false };
       }
       persistence.pendingInterrupts.set(
@@ -390,7 +394,7 @@ function resolveAgentSessionConfig(
 ): AgentSessionConfig {
   if (
     typeof runner?.buildUserMessage !== "function" ||
-    typeof runner.runTurn !== "function" ||
+    typeof runner.runModelStep !== "function" ||
     typeof runner.executeDeferredToolCall !== "function"
   ) {
     throw new TypeError("createAgentSessionFlow requires an AgentFrameworkRunner");
