@@ -277,7 +277,7 @@ async fn run_differential_for_test(
     };
     let (mut client, connection) = tokio_postgres::connect(database_url, NoTls)
         .await
-        .expect("connect to CI ParadeDB");
+        .expect("connect to CI SQL visibility database");
     let connection_task = tokio::spawn(connection);
     if dialect == VisibilityDialect::ParadeDb {
         client
@@ -544,7 +544,7 @@ async fn run_differential_for_test(
             .map(|row| row.get::<_, String>("run_id"))
             .collect();
         assert_eq!(actual_ids, expected_ids, "{input}");
-        println!("ParadeDB differential case passed: {input}");
+        println!("SQL visibility differential case passed: {input}");
     }
 
     for (input, expected_ids) in [
@@ -567,7 +567,7 @@ async fn run_differential_for_test(
             .map(|row| row.get::<_, String>("run_id"))
             .collect();
         assert_eq!(actual_ids, expected_ids, "{input}");
-        println!("ParadeDB differential case passed: {input}");
+        println!("SQL visibility differential case passed: {input}");
     }
 
     for (input, expected_ids) in [
@@ -615,7 +615,7 @@ async fn run_differential_for_test(
             .collect();
         let expected_ids: BTreeSet<String> = expected_ids.into_iter().map(str::to_owned).collect();
         assert_eq!(actual_ids, expected_ids, "{input}");
-        println!("ParadeDB differential case passed: {input}");
+        println!("SQL visibility differential case passed: {input}");
     }
     for input in [
         "number = '9223372036854775808'",
@@ -708,7 +708,7 @@ async fn run_differential_for_test(
             }
             assert_eq!(actual_ids, expected_ids, "{input}, page size {page_size}");
             println!(
-                "ParadeDB differential paging passed: {input:?}, page_size={page_size}, rows={}",
+                "SQL visibility differential paging passed: {input:?}, page_size={page_size}, rows={}",
                 actual_ids.len()
             );
         }
@@ -769,7 +769,7 @@ async fn run_differential_for_test(
             .expect("insert backend fixture");
     }
     let mut configuration: tokio_postgres::Config =
-        database_url.parse().expect("parse CI ParadeDB URL");
+        database_url.parse().expect("parse CI SQL visibility URL");
     configuration.options(format!("-c search_path={schema_name},public,pdb"));
     configuration.application_name(&schema_name);
     let visibility_wait = Arc::new(CountVisibilityWait(AtomicUsize::new(0)));

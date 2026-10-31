@@ -743,7 +743,7 @@ async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_t
 
     proxy.cut().await;
     const WRITE_COUNT: usize = 600;
-    let value_text = "x".repeat(1024);
+    let value_text = "x".repeat(if is_postgres { 1019 } else { 1024 });
     for write_number in 0..WRITE_COUNT {
         let attribute_name = format!("outage-{write_number:04}");
         let value = string_value(&format!("{write_number:04}-{value_text}"));
@@ -766,8 +766,8 @@ async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_t
             }),
         )
         .await
-        .expect("commits continue during the ParadeDB outage")
-        .expect("an Attribute write commits during the ParadeDB outage");
+        .expect("commits continue during the SQL visibility outage")
+        .expect("an Attribute write commits during the SQL visibility outage");
     }
     assert!(
         server
@@ -794,7 +794,7 @@ async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_t
                     }
                 }
                 Err(status) if status.code() == tonic::Code::Unavailable => {}
-                Err(status) => panic!("SearchFlows failed after ParadeDB recovery: {status}"),
+                Err(status) => panic!("SearchFlows failed after SQL visibility recovery: {status}"),
             }
         }
     })
@@ -815,7 +815,7 @@ async fn run_outage_overflows_the_queue_and_rebuilds_every_committed_write_for_t
             .and_then(|attribute| attribute.value.as_ref());
         assert_eq!(actual_value, Some(&expected_value), "{attribute_name}");
     }
-    // Overflowed frames reach ParadeDB only through the partition rebuild.
+    // Overflowed frames reach SQL visibility only through the partition rebuild.
     let exit_status = server.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(exit_status.code(), Some(0), "{}", server.log());
     proxy.shutdown().await;

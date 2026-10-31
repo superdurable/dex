@@ -347,7 +347,7 @@ pub(crate) async fn run_projector_scenarios_for_test(
             .batch_execute(&format!("CREATE SCHEMA {schema_name}"))
             .await
             .expect("create empty projector schema");
-        let mut configuration: Config = database_url.parse().expect("parse CI ParadeDB URL");
+        let mut configuration: Config = database_url.parse().expect("parse CI SQL visibility URL");
         configuration.options(format!("-c search_path={schema_name},public,pdb"));
         let backend = Arc::new(
             SqlVisibilitySearchBackend::connect_dialect_with_settings(
