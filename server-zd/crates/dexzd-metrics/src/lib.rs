@@ -36,7 +36,7 @@ pub use api_requests::{ApiLatency, ApiRequests, GrpcCode, RpcClass, classify_rpc
 pub use commit_latency::CommitLatency;
 pub use fixed_labels::{
     AttributeSyncFailureKind, AttributeSyncWriteFailures, ObjectErrorCounters, OutcomeCounters,
-    RoleGauges,
+    ProjectionDropCounters, ProjectionDropReason, RoleGauges,
 };
 pub use histogram::AtomicHistogram;
 use histogram::{FLOW_LATENCY_BOUNDS, SCHEDULE_LATENCY_BOUNDS};
@@ -128,8 +128,8 @@ pub struct NodeMetrics {
     pub search_skipped_documents: Counter,
     /// Queued search changes superseded by a newer complete document or delete.
     pub search_projection_coalesced_changes: Counter,
-    /// Intermediate Running search updates dropped during queue overload.
-    pub search_projection_dropped_updates: Counter,
+    /// Search Upserts dropped during queue overload, counted by priority.
+    pub search_projection_dropped_updates: ProjectionDropCounters,
     /// New pending partition rebuild requests after queue admission fails or documents are unreadable.
     pub search_projection_rebuild_requests: Counter,
 }
@@ -388,7 +388,7 @@ impl NodeMetrics {
         );
         registry.register(
             "dexzd_search_projection_dropped_updates",
-            "Intermediate Running search updates dropped during overload.",
+            "Search Upserts dropped during overload by priority.",
             metrics.search_projection_dropped_updates.clone(),
         );
         registry.register(
@@ -448,7 +448,7 @@ impl NodeMetrics {
             attribute_sync_fenced_writes: Counter::default(),
             search_skipped_documents: Counter::default(),
             search_projection_coalesced_changes: Counter::default(),
-            search_projection_dropped_updates: Counter::default(),
+            search_projection_dropped_updates: ProjectionDropCounters::default(),
             search_projection_rebuild_requests: Counter::default(),
         }
     }

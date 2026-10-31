@@ -899,10 +899,9 @@ schema 会记录搜索后端。使用不同后端启动时，服务端会报错�
 ## SQL 搜索投影过载 {#sql-search-projection-overload}
 
 PostgreSQL 和 ParadeDB 共用异步投影队列。投影落后时，Flow 提交仍会继续。
-Builtin 搜索不使用此队列。每个排队的 upsert 都包含该 run 的完整最新文档。
-同一 run 的新 upsert 会替换尚未取出的旧 upsert。清除操作的 delete 也会替换
-该 run 排队的 upsert。合并会保留最新文档；空帧的投影水位线会等待替代文档
-完成投影后再推进。
+Builtin 搜索不使用此队列。每个排队的 upsert 都包含带版本的完整文档。
+同一 run 的新 upsert 或清除 Delete 会替换旧的排队 upsert。合并只保留最新
+文档，并将旧文档的可见性等待转移给替代文档。
 
 队列有软限制和硬限制。两个 SQL 后端使用相同的默认值：
 
@@ -917,26 +916,49 @@ search:
 
 **softBytes** 默认为 64 MiB，**hardBytes** 默认为 128 MiB。
 字节计数估算文档和变更占用的内存，包括正在投影的批次。帧数限制只计算
-等待 worker 的帧。所有限制都必须为正数。每个硬限制必须不小于对应的软限制。
+等待 worker 的非空帧。所有限制都必须为正数。每个硬限制必须不小于对应的软限制。
 
-合并后，如果接纳一帧会超过任一软限制，队列会丢弃该帧中 Running run 的中间
-更新，包括 Attribute、活跃 Step 和权限变更。Flow 启动、清除 delete 和终态
-文档都会保留。替换排队启动文档的新文档会继承其优先级。保留的变更可以使用
-软限制和硬限制之间的空间。如果仍会超过任一硬限制，服务器会沿用现有机制，
-从已提交状态重建该 partition。同一 partition 的待处理重建请求会合并。
-每个节点每秒最多记录一次溢出警告。
+合并后，服务器按以下顺序丢弃变更：
 
-被丢弃的中间更新只记录计数，不会补偿。run 的下一次更新或关闭会使搜索文档
-恢复到最新状态。丢弃更新期间，即使 **readYourWritesWait** 成功，
-**SearchFlows** 仍可能返回过时的 Running 文档。启动、关闭和删除仍会等待
-投影或重建完成。没有更新被丢弃时，read-your-writes 行为不变。提高队列限制
-会增加内存用量，也可能延长追赶时间。
+1. 超过任一软限制时，丢弃新帧中 Running run 的中间更新，包括 Attribute、
+   活跃 Step 和权限变更。
+2. 剩余变更仍会超过任一硬限制时，丢弃关闭更新（从 Running 到终态，以及
+   对已关闭 run 的后续写入）。
+3. 启动和 Delete 仍会超过硬限制时，也丢弃启动。替换了排队启动文档的
+   新 Running 文档在此阶段同样可以被丢弃。
+4. 绝不丢弃 Delete。它在保留期结束、run 被清除时删除搜索行；关闭本身不产生
+   Delete。为接纳 Delete，先回收排队的中间更新，再回收关闭和启动，每类按
+   从旧到新的顺序回收。只有 Delete 本身也无法容纳时，才请求重建 partition。
 
-指标端点提供以下无标签计数器：
+接纳 Delete 时，不计入 worker 已取出的 Upsert 字节。因此总内存最多可比
+**hardBytes** 多出这些正在投影的 Upsert 所占的空间。无法读取的已提交文档
+也会请求重建。同一 partition 的待处理重建请求会合并；每个节点每秒最多
+记录一次重建警告。
+
+被丢弃的变更只记录计数，不会补偿，也不会为此请求重建。对 **SearchFlows**
+的影响如下：
+
+- 丢弃中间更新后，保留上次投影的值。
+- 丢弃关闭更新后，已关闭的 run 可能仍显示为 Running，并保留旧值。
+  后续成功投影的写入会使其恢复到最新状态。否则，保留期清除会删除该行。
+  **retention.closedFlowDuration** 默认为关闭后七天；如果 SQL 不可用，
+  删除仍需等待 Delete 完成投影。
+- 丢弃启动后，run 不会出现，直到它的后续写入（例如关闭）成功投影。
+  如果后续写入也被丢弃，run 可能在清除之前始终不出现在搜索中。
+
+每个保留行都是某个完整的已提交版本。丢弃替代文档不会恢复旧的排队文档。
+容量恢复后，该 run 的后续写入照常投影。丢弃期间，**readYourWritesWait**
+不等待被丢弃的变更，因此即使等待成功，搜索仍可能返回旧行或缺少行。
+它仍等待保留的变更和 Delete。没有丢弃时，read-your-writes 行为不变。
+提高队列限制会增加内存用量，也可能延长追赶时间。
+
+指标端点提供以下计数器。按 **reason** 对
+**dexzd_search_projection_dropped_updates_total** 的增量设置告警，可以判断
+哪些变更被丢弃。重建计数为零并不代表搜索已是最新状态；应检查全部三种丢弃原因。
 
 | 计数器 | 含义 |
 | --- | --- |
-| **dexzd_search_projection_coalesced_changes_total** | 被更新的完整文档或 delete 替换的排队变更，包括同一帧内的变更。 |
-| **dexzd_search_projection_dropped_updates_total** | 超过软限制时丢弃的 Running 中间更新。 |
-| **dexzd_search_projection_rebuild_requests_total** | 队列接纳失败或已提交文档无法读取时新增的待处理 partition 重建请求。同一 partition 已有待处理请求时，后续请求不增加计数。 |
-| **dexzd_search_skipped_documents_total** | 因索引值不受支持而从搜索中省略的已提交文档，与过载丢弃更新分开计数。 |
+| **dexzd_search_projection_coalesced_changes_total** | 被更新的完整文档或 Delete 替换的排队变更，包括同一帧内的变更。无标签。 |
+| **dexzd_search_projection_dropped_updates_total**，带 **reason** | 被丢弃的 Upsert，标签值为 **intermediate**、**close** 或 **start**。包括为接纳 Delete 而回收的排队 Upsert。 |
+| **dexzd_search_projection_rebuild_requests_total** | Delete 本身也无法容纳或已提交文档无法读取时新增的待处理 partition 重建请求。同一 partition 已有待处理请求时，后续请求不增加计数。无标签。 |
+| **dexzd_search_skipped_documents_total** | 因索引值不受支持而从搜索中省略的已提交文档，与过载丢弃更新分开计数。无标签。 |

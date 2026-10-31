@@ -120,5 +120,6 @@ if [[ "$backend" == paradedb && "$attributes" == 10 ]]; then
 fi
 if [[ "$has_container" == true ]]; then
   docker exec "$container" psql -U postgres -d dexzd -XAtc "SELECT count(*), count(*) FILTER (WHERE execution_status = 'Running') FROM dexzd_visibility_runs" > "$output_directory/projected-counts.txt"
+  docker exec "$container" psql -U postgres -d dexzd -XAtc "SELECT count(*), count(*) FILTER (WHERE execution_status = 'Running' AND right(workflow_id, 9)::bigint % 20 <> 0), count(*) FILTER (WHERE execution_status = 'Completed' AND right(workflow_id, 9)::bigint % 20 = 0), count(*) FILTER (WHERE execution_status NOT IN ('Running', 'Completed')) FROM dexzd_visibility_runs" > "$output_directory/projected-state.txt"
   docker exec "$container" psql -U postgres -d dexzd -XAtc 'SELECT pg_size_pretty(pg_total_relation_size('\''dexzd_visibility_runs'\''))' > "$output_directory/table-size.txt"
 fi

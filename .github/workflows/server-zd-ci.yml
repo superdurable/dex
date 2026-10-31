@@ -219,8 +219,8 @@ jobs:
         run: cargo test -p dexzd-server --test serve_process paradedb_search_projects_commits_and_rebuilds_on_startup -- --exact
       - name: Recover ParadeDB search after an outage
         run: cargo test -p dexzd-server --test serve_process paradedb_outage_coalesces_the_queue_and_projects_every_committed_write -- --exact
-      - name: Preserve starts, closes, and purges under projection overload
-        run: cargo test -p dexzd-server --test serve_process projection_shedding::paradedb_tiny_projection_queue_preserves_starts_closes_and_purges -- --exact
+      - name: Shed by priority and preserve purges under projection overload
+        run: cargo test -p dexzd-server --test serve_process projection_shedding::paradedb_tiny_projection_queue_sheds_by_priority_and_preserves_purges -- --exact
       - name: Search Flows with work queue permissions in ParadeDB
         run: cargo test -p dexzd-server --test serve_process paradedb_search_finds_flows_with_work_queue_permissions -- --exact
       - name: Sync Attributes to PostgreSQL through the dev server

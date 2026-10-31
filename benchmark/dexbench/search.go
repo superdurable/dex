@@ -23,10 +23,14 @@ import (
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // SearchConfig selects the isolated S7 search dataset and measurement settings.
 type SearchConfig struct {
+	// ShouldAllowShedding waits for kept changes rather than exact final counts. Default: false; requires projection-only SQL.
+	ShouldAllowShedding bool `json:"allow_shedding"`
 	// ShouldMeasureProjectionOnly omits queries. The command default is false.
 	ShouldMeasureProjectionOnly bool `json:"projection_only"`
 	// Address serves FlowService. The command default is 127.0.0.1:8801.
@@ -139,6 +143,9 @@ func (benchmark *searchBenchmark) validate() error {
 	}
 	if config.Backend != "builtin" && config.DatabaseContainer == "" {
 		return fmt.Errorf("external search requires database-container for convergence and WAL measurements")
+	}
+	if config.ShouldAllowShedding && (!config.ShouldMeasureProjectionOnly || config.Backend == "builtin") {
+		return fmt.Errorf("allow-shedding requires projection-only and a SQL backend")
 	}
 	if config.ShouldMeasureBackfill && (config.Backend != "postgres" || config.Attributes != 10) {
 		return fmt.Errorf("backfill requires postgres with 10 Attributes")
@@ -568,6 +575,9 @@ func (benchmark *searchBenchmark) waitForProjection(ctx context.Context) error {
 		_, err := benchmark.connection.client.SearchFlows(ctx, "", 20, "")
 		return err
 	}
+	if benchmark.config.ShouldAllowShedding {
+		return benchmark.waitForKeptProjection(ctx)
+	}
 	deadline := time.Now().Add(15 * time.Minute)
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
@@ -583,6 +593,29 @@ func (benchmark *searchBenchmark) waitForProjection(ctx context.Context) error {
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("projection did not converge: got %s, expected %s", counts, expected)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (benchmark *searchBenchmark) waitForKeptProjection(ctx context.Context) error {
+	deadline := time.Now().Add(15 * time.Minute)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		_, err := benchmark.connection.service.SearchFlows(ctx, &dexpb.SearchFlowsRequest{PageSize: 1})
+		if err == nil {
+			return nil
+		}
+		if status.Code(err) != codes.Unavailable {
+			return fmt.Errorf("wait for kept search projection: %w", err)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("kept search projection did not drain: %w", err)
 		}
 		select {
 		case <-ctx.Done():

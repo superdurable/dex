@@ -416,14 +416,18 @@ seconds to transfer. Later snapshots from the same owner can reuse unchanged fil
   A transaction pooler must pass that startup option through; otherwise keep the tables in `public`.
 - A background task copies each committed partition frame's search documents to ParadeDB. Commits
   never wait for it. When ParadeDB is unavailable, the task retries. The queue coalesces complete
-  documents per run, sheds intermediate Running updates above its soft limits, and keeps starts,
-  deletes, and terminal documents up to its hard limits. Admission beyond a hard limit or a
-  diverged stored position rebuilds the partition from committed local state. See the
+  documents per run and sheds intermediate Running updates above its soft limits. Above hard
+  limits it also sheds closes, then starts. Deletes from retention purges are never shed; they
+  reclaim queued Upserts in that priority order. Only Deletes that cannot fit, unreadable
+  documents, or a diverged stored position request a partition rebuild. See the
   [queue policy and defaults](crates/dexzd-search/README.md#sql-visibility-projection).
 - On startup, every partition whose ParadeDB position differs from the local store is rebuilt.
 - SearchFlows waits up to `search.readYourWritesWait` until frames committed before the request are
-  searchable, then returns Unavailable on timeout. While shedding, dropped intermediate updates
-  can leave a Running document stale even after the wait succeeds; its next update or close catches it up.
+  searchable, then returns Unavailable on timeout. Dropped updates do not delay that wait. A
+  dropped close can leave a row Running until a later projected write or its retention purge
+  (default seven days after close). A dropped start leaves the run absent until a later write
+  projects. Monitor `dexzd_search_projection_dropped_updates_total` by `reason`: `intermediate`,
+  `close`, and `start`. The coalesced and rebuild counters remain separate.
 - One ParadeDB schema belongs to one Dex cluster.
 
 On SIGTERM or SIGINT the node stops within 14.5 seconds. Health reports NOT_SERVING, Workers are

@@ -9,20 +9,20 @@
 use std::collections::BTreeMap;
 use std::fs;
 
-use dexzd_protocol::dex::{StopFlowRequest, StopType};
+use dexzd_protocol::dex::{Kv, StopFlowRequest, StopType};
 
-use super::metrics::{sample_sum, scrape};
+use super::metrics::{sample_sum, sample_with_label, scrape};
 use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn postgres_tiny_projection_queue_preserves_starts_closes_and_purges() {
+async fn postgres_tiny_projection_queue_sheds_by_priority_and_preserves_purges() {
     if let Ok(database_url) = std::env::var("DEX_ZD_POSTGRES_URL") {
         run_tiny_projection_queue(&database_url, true).await;
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn paradedb_tiny_projection_queue_preserves_starts_closes_and_purges() {
+async fn paradedb_tiny_projection_queue_sheds_by_priority_and_preserves_purges() {
     if let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") {
         run_tiny_projection_queue(&database_url, false).await;
     }
@@ -49,7 +49,7 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool) {
             schema: schema.name(),
         }),
     }
-    .write_with_closed_flow_retention(&config_path, "5s");
+    .write_with_closed_flow_retention(&config_path, "30s");
     let configuration = fs::read_to_string(&config_path).expect("test configuration exists");
     let configuration = configuration.replace(
         "search:\n",
@@ -64,8 +64,10 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool) {
         ServeProcess::spawn(&config_path, address, directory.path().join("shedding.log"));
     let channel = server.wait_until_serving().await;
     let mut client = FlowServiceClient::new(channel);
-    for run_number in 0..16 {
+    let mut committed_versions = BTreeMap::new();
+    for run_number in 0..32 {
         start_idle_flow(&mut client, run_number).await;
+        remember_committed_version(&mut client, &mut committed_versions, run_number, None).await;
         search_shedding_flows(&mut client)
             .await
             .expect("initial start is projected");
@@ -74,23 +76,72 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool) {
     for run_number in 0..16 {
         for version in 1..=5 {
             write_indexed_attribute(&mut client, run_number, version).await;
+            remember_committed_version(
+                &mut client,
+                &mut committed_versions,
+                run_number,
+                Some(version),
+            )
+            .await;
         }
     }
     for run_number in 16..32 {
+        terminate_flow(&mut client, run_number).await;
+        remember_committed_version(&mut client, &mut committed_versions, run_number, None).await;
+    }
+    for run_number in 32..48 {
         start_idle_flow(&mut client, run_number).await;
+        remember_committed_version(&mut client, &mut committed_versions, run_number, None).await;
         for version in 1..=5 {
             write_indexed_attribute(&mut client, run_number, version).await;
+            remember_committed_version(
+                &mut client,
+                &mut committed_versions,
+                run_number,
+                Some(version),
+            )
+            .await;
         }
     }
+    let exposed = scrape(metrics_address, "/metrics").await;
+    for reason in ["intermediate", "close", "start"] {
+        assert!(
+            sample_with_label(
+                &exposed,
+                "dexzd_search_projection_dropped_updates_total",
+                "reason",
+                reason
+            ) > 0.0,
+            "{reason}: {exposed}"
+        );
+    }
+    assert_eq!(
+        sample_sum(&exposed, "dexzd_search_projection_rebuild_requests_total"),
+        0.0
+    );
+    proxy.restore();
+    let entries = wait_for_projected_set(&mut client, &server).await;
+    assert!(entries.len() < 48, "dropped starts remain absent");
+    assert!(
+        entries.iter().any(|entry| {
+            (16..32).any(|run_number| entry.flow_id == flow_id(run_number))
+                && entry.flow_status == FlowStatus::Running as i32
+        }),
+        "a dropped close leaves its committed Running version"
+    );
+    assert_committed_versions(&entries, &committed_versions);
+
+    proxy.cut().await;
     for run_number in 0..2 {
         terminate_flow(&mut client, run_number).await;
     }
+    let purged_runs: Vec<_> = (0..2).chain(16..32).collect();
     let mut poll = tokio::time::interval(Duration::from_millis(100));
-    tokio::time::timeout(Duration::from_secs(30), async {
+    tokio::time::timeout(Duration::from_secs(90), async {
         loop {
             poll.tick().await;
-            let mut has_purged_both = true;
-            for run_number in 0..2 {
+            let mut has_purged_all = true;
+            for &run_number in &purged_runs {
                 match client
                     .get_flow_summary(GetFlowSummaryRequest {
                         flow_id: flow_id(run_number),
@@ -99,61 +150,45 @@ async fn run_tiny_projection_queue(database_url: &str, is_postgres: bool) {
                     .await
                 {
                     Err(status) if status.code() == tonic::Code::NotFound => {}
-                    Ok(_) => has_purged_both = false,
+                    Ok(_) => has_purged_all = false,
                     Err(status) => panic!("purge read failed: {status}"),
                 }
             }
-            if has_purged_both {
+            if has_purged_all {
                 break;
             }
         }
     })
     .await
     .expect("closed runs purge while SQL is unavailable");
+    assert!(
+        sample_sum(
+            &scrape(metrics_address, "/metrics").await,
+            "dexzd_search_projection_rebuild_requests_total"
+        ) > 0.0
+    );
     proxy.restore();
-    wait_for_projected_set(&mut client, &server).await;
-    for run_number in 2..8 {
-        terminate_flow(&mut client, run_number).await;
-    }
-    let entries = search_shedding_flows(&mut client)
-        .await
-        .expect("closed documents project");
-    assert_eq!(entries.len(), 30, "purged runs remain absent");
-    let by_flow_id: BTreeMap<_, _> = entries
-        .iter()
-        .map(|entry| (entry.flow_id.clone(), entry))
-        .collect();
-    for run_number in 2..32 {
-        let entry = by_flow_id
-            .get(&flow_id(run_number))
-            .expect("every retained run is projected");
-        let expected_status = if run_number < 8 {
-            FlowStatus::Terminated
-        } else {
-            FlowStatus::Running
-        };
-        assert_eq!(entry.flow_status, expected_status as i32);
-        if run_number < 8 {
-            let actual = entry
-                .indexed_attributes
-                .iter()
-                .find(|attribute| attribute.key == "revision")
-                .and_then(|attribute| attribute.value.as_ref());
-            assert_eq!(
-                actual,
-                Some(&string_value("5")),
-                "closed run has its final document"
-            );
-        }
-    }
+    let entries = wait_for_projected_set(&mut client, &server).await;
+    assert!(
+        entries.iter().all(|entry| purged_runs
+            .iter()
+            .all(|&run_number| entry.flow_id != flow_id(run_number))),
+        "every purged run is absent"
+    );
+    assert_committed_versions(&entries, &committed_versions);
+    write_indexed_attribute(&mut client, 32, 6).await;
+    remember_committed_version(&mut client, &mut committed_versions, 32, Some(6)).await;
+    let entries = wait_for_projected_set(&mut client, &server).await;
+    assert!(
+        entries.iter().any(|entry| entry
+            == committed_versions[&flow_id(32)]
+                .last()
+                .expect("the later committed version was recorded")),
+        "a later write projects a previously absent run normally"
+    );
+    assert_committed_versions(&entries, &committed_versions);
     let exposed = scrape(metrics_address, "/metrics").await;
-    for metric in [
-        "dexzd_search_projection_coalesced_changes_total",
-        "dexzd_search_projection_dropped_updates_total",
-        "dexzd_search_projection_rebuild_requests_total",
-    ] {
-        assert!(sample_sum(&exposed, metric) > 0.0, "{metric}: {exposed}");
-    }
+    assert!(sample_sum(&exposed, "dexzd_search_projection_coalesced_changes_total") > 0.0);
     assert_eq!(
         sample_sum(&exposed, "dexzd_search_skipped_documents_total"),
         0.0
@@ -221,28 +256,72 @@ async fn terminate_flow(client: &mut FlowServiceClient<Channel>, run_number: usi
         .expect("close commits during overload");
 }
 
-async fn wait_for_projected_set(client: &mut FlowServiceClient<Channel>, server: &ServeProcess) {
+async fn wait_for_projected_set(
+    client: &mut FlowServiceClient<Channel>,
+    server: &ServeProcess,
+) -> Vec<SearchFlowsResponseEntry> {
     let mut poll = tokio::time::interval(Duration::from_millis(100));
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             poll.tick().await;
             match search_shedding_flows(client).await {
-                Ok(entries)
-                    if entries.len() == 30
-                        && entries.iter().all(|entry| {
-                            entry.flow_id != flow_id(0) && entry.flow_id != flow_id(1)
-                        }) =>
-                {
-                    break;
-                }
-                Ok(_) => {}
+                Ok(entries) => return entries,
                 Err(status) if status.code() == tonic::Code::Unavailable => {}
                 Err(status) => panic!("projection recovery failed: {status}; {}", server.log()),
             }
         }
     })
     .await
-    .unwrap_or_else(|error| panic!("projected set did not converge: {error}; {}", server.log()));
+    .unwrap_or_else(|error| panic!("projection did not drain: {error}; {}", server.log()))
+}
+
+async fn remember_committed_version(
+    client: &mut FlowServiceClient<Channel>,
+    versions: &mut BTreeMap<String, Vec<SearchFlowsResponseEntry>>,
+    run_number: usize,
+    revision: Option<usize>,
+) {
+    let summary = client
+        .get_flow_summary(GetFlowSummaryRequest {
+            flow_id: flow_id(run_number),
+            ..Default::default()
+        })
+        .await
+        .expect("committed summary is readable")
+        .into_inner();
+    let execution_id = summary.flow_execution_id.expect("committed run has an ID");
+    versions
+        .entry(execution_id.flow_id.clone())
+        .or_default()
+        .push(SearchFlowsResponseEntry {
+            flow_id: execution_id.flow_id,
+            run_id: execution_id.run_id,
+            flow_type: summary.flow_type,
+            flow_status: summary.flow_status,
+            start_time: summary.start_time,
+            close_time: summary.close_time,
+            indexed_attributes: std::iter::once(Kv {
+                key: "FlowType".to_owned(),
+                value: Some(string_value(FLOW_TYPE)),
+            })
+            .chain(revision.into_iter().map(|revision| Kv {
+                key: "revision".to_owned(),
+                value: Some(string_value(&revision.to_string())),
+            }))
+            .collect(),
+        });
+}
+
+fn assert_committed_versions(
+    entries: &[SearchFlowsResponseEntry],
+    versions: &BTreeMap<String, Vec<SearchFlowsResponseEntry>>,
+) {
+    for entry in entries {
+        assert!(
+            versions[&entry.flow_id].contains(entry),
+            "projected row must equal a complete committed version: {entry:?}"
+        );
+    }
 }
 
 fn flow_id(run_number: usize) -> String {

@@ -63,6 +63,13 @@ The [local search backend results](results/2026-10-31-search-local/README.md)
 measure S7 at 100k and 1M runs on builtin, ParadeDB, and PostgreSQL. They include
 projection throughput, WAL, Attribute backfill, and a confirmed ParadeDB Flow
 type index collation finding.
+The [projection shedding comparison](results/2026-10-31-search-shedding-local/README.md)
+records coalescing, dropped updates by reason, and Delete-only rebuild fallback.
+Use `--projection-only --allow-shedding` for workloads that deliberately shed
+starts or closes: catch-up ends when SearchFlows' visibility barrier passes for
+kept changes. Record projected totals and status counts separately; this mode
+does not promise exact final-state convergence and is unsuitable for latency
+comparisons that assume the complete dataset.
 
 ## Reading the results
 

@@ -200,3 +200,74 @@ impl EncodeMetric for AttributeSyncWriteFailures {
         MetricType::Counter
     }
 }
+
+/// The priority of an Upsert omitted during search projection overload.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum ProjectionDropReason {
+    /// An update to an existing Running run.
+    Intermediate,
+    /// A terminal document, including updates after close.
+    Close,
+    /// A start document or its coalesced Running replacement.
+    Start,
+}
+
+label_value!(ProjectionDropReason { Intermediate => "intermediate", Close => "close", Start => "start" });
+
+impl ProjectionDropReason {
+    const ALL: [Self; 3] = [Self::Intermediate, Self::Close, Self::Start];
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Intermediate => 0,
+            Self::Close => 1,
+            Self::Start => 2,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct ProjectionDropLabel {
+    reason: ProjectionDropReason,
+}
+
+/// Fixed search projection drop counters, partitioned by priority.
+#[derive(Clone, Debug)]
+pub struct ProjectionDropCounters {
+    values: Arc<[Counter; 3]>,
+}
+
+impl Default for ProjectionDropCounters {
+    fn default() -> Self {
+        Self {
+            values: Arc::new(std::array::from_fn(|_| Counter::default())),
+        }
+    }
+}
+
+impl ProjectionDropCounters {
+    /// Records one omitted search Upsert for the given priority.
+    pub fn record(&self, reason: ProjectionDropReason) {
+        self.values[reason.index()].inc();
+    }
+
+    /// Returns the omitted Upserts for the given priority.
+    pub fn count(&self, reason: ProjectionDropReason) -> u64 {
+        self.values[reason.index()].get()
+    }
+}
+
+impl EncodeMetric for ProjectionDropCounters {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        for reason in ProjectionDropReason::ALL {
+            encoder
+                .encode_family(&ProjectionDropLabel { reason })?
+                .encode_counter::<NoLabelSet, _, u64>(&self.values[reason.index()].get(), None)?;
+        }
+        Ok(())
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Counter
+    }
+}

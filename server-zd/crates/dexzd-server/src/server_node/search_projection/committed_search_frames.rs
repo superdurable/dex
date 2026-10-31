@@ -6,16 +6,16 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dexzd_engine::CommittedFlowCommand;
 use dexzd_keyspace::{PartitionId, RunId, TenantId};
-use dexzd_metrics::NodeMetrics;
+use dexzd_metrics::{NodeMetrics, ProjectionDropReason};
 use dexzd_protocol::dex::FlowStatus;
-use dexzd_protocol::dexzd::v1::{LogPosition, SearchDocumentRecord};
+use dexzd_protocol::dexzd::v1::LogPosition;
 use dexzd_search::sql_visibility::{
     ProjectionVisibilityWait, SearchDocumentChange, extract_search_document_changes,
 };
@@ -56,11 +56,11 @@ struct FrameTracking {
     last_sequence: u64,
     /// Estimated bytes of frames queued or being projected.
     queued_bytes: usize,
+    in_flight_upsert_bytes: usize,
     /// Open and queued frames; frames waiting for a rebuild move to `rebuild_requests`.
     unprojected: BTreeMap<u64, FrameWatermark>,
     pending_watermarks: BTreeSet<(u64, u64)>,
     queued: BTreeMap<u64, QueuedSearchFrame>,
-    queue_order: VecDeque<u64>,
     queued_upserts: BTreeMap<(TenantId, RunId), u64>,
     last_rebuild_warning: Option<Instant>,
     rebuild_requests: BTreeMap<PartitionId, RebuildRequest>,
@@ -99,14 +99,19 @@ impl CommittedSearchFrames {
         if matches!(&extracted, Ok(changes) if changes.is_empty()) {
             return;
         }
-        let mut tracking = self.lock_tracking();
-        let frame = tracking.open_frame(partition);
         match extracted {
             Ok(changes) => {
-                for change in changes {
-                    let priority = change_priority(&change);
-                    let identity = change_identity(&change);
-                    let mut prioritized = PrioritizedSearchChange { change, priority };
+                let changes: Vec<_> = changes
+                    .into_iter()
+                    .map(|change| PrioritizedSearchChange {
+                        priority: change_priority(&change),
+                        change,
+                    })
+                    .collect();
+                let mut tracking = self.lock_tracking();
+                let frame = tracking.open_frame(partition);
+                for mut prioritized in changes {
+                    let identity = change_identity(&prioritized.change);
                     if let Some(previous) = frame.changes.remove(&identity) {
                         prioritized.inherit_priority(&previous);
                         self.metrics.search_projection_coalesced_changes.inc();
@@ -120,7 +125,7 @@ impl CommittedSearchFrames {
                     %error,
                     "a committed outcome has unreadable search documents; rebuilding its partition"
                 );
-                frame.is_unreadable = true;
+                self.lock_tracking().open_frame(partition).is_unreadable = true;
             }
         }
     }
@@ -142,28 +147,34 @@ impl CommittedSearchFrames {
             changes: frame.changes,
         };
         tracking.coalesce_upserts(&mut queued, &self.metrics);
-        let mut size_bytes = queued.size_bytes();
-        let would_exceed_soft_limit = tracking.queue_order.len() >= self.cfg.soft_frames
-            || tracking.queued_bytes.saturating_add(size_bytes) > self.cfg.soft_bytes;
+        let would_exceed_soft_limit = tracking.queued.len() >= self.cfg.soft_frames
+            || tracking.queued_bytes.saturating_add(queued.size_bytes()) > self.cfg.soft_bytes;
         if would_exceed_soft_limit {
-            queued.changes.retain(|_, change| {
-                if change.priority == ChangePriority::Intermediate {
-                    self.metrics.search_projection_dropped_updates.inc();
-                    false
-                } else {
-                    true
-                }
-            });
-            size_bytes = queued.size_bytes();
+            queued.drop_priority(ChangePriority::Intermediate, &self.metrics);
+        }
+        let has_delete = queued
+            .changes
+            .values()
+            .any(|change| change.priority == ChangePriority::Delete);
+        for priority in [
+            ChangePriority::Intermediate,
+            ChangePriority::Close,
+            ChangePriority::Start,
+        ] {
+            if !tracking.exceeds_hard_limit(&queued, &self.cfg) {
+                break;
+            }
+            queued.drop_priority(priority, &self.metrics);
+            if has_delete {
+                tracking.reclaim_queued_priority(&queued, priority, &self.cfg, &self.metrics);
+            }
         }
         if queued.changes.is_empty() {
             tracking.remove_unprojected(queued.sequence);
             self.available.notify_one();
             return;
         }
-        if tracking.queue_order.len() >= self.cfg.hard_frames
-            || tracking.queued_bytes.saturating_add(size_bytes) > self.cfg.hard_bytes
-        {
+        if tracking.exceeds_hard_limit(&queued, &self.cfg) {
             self.request_rebuild(&mut tracking, partition, queued.sequence);
             return;
         }
@@ -172,8 +183,7 @@ impl CommittedSearchFrames {
                 tracking.queued_upserts.insert(*identity, queued.sequence);
             }
         }
-        tracking.queued_bytes += size_bytes;
-        tracking.queue_order.push_back(queued.sequence);
+        tracking.queued_bytes += queued.size_bytes();
         tracking.queued.insert(queued.sequence, queued);
         self.available.notify_one();
     }
@@ -217,6 +227,12 @@ impl CommittedSearchFrames {
         let mut tracking = self.lock_tracking();
         tracking.remove_unprojected(frame.sequence);
         tracking.queued_bytes = tracking.queued_bytes.saturating_sub(frame.size_bytes);
+        tracking.in_flight_upsert_bytes -= frame
+            .changes
+            .iter()
+            .filter(|change| matches!(change, SearchDocumentChange::Upsert { .. }))
+            .map(change_size_bytes)
+            .sum::<usize>();
     }
 
     /// Marks the partition's frames through `sequence` searchable after a rebuild.
@@ -365,21 +381,93 @@ impl FrameTracking {
                 self.pending_watermarks
                     .insert((watermark.first_sequence, frame.sequence));
             }
+            if self.queued[&previous_sequence].changes.is_empty() {
+                self.queued.remove(&previous_sequence);
+                self.remove_unprojected(previous_sequence);
+            }
+        }
+    }
+
+    fn exceeds_hard_limit(
+        &self,
+        frame: &QueuedSearchFrame,
+        cfg: &SearchProjectionQueueConfig,
+    ) -> bool {
+        if frame.changes.is_empty() {
+            return false;
+        }
+        let has_only_deletes = frame
+            .changes
+            .values()
+            .all(|change| change.priority == ChangePriority::Delete);
+        // Delete admission may exceed total bytes by at most the worker's in-flight Upserts.
+        let counted_bytes = if has_only_deletes {
+            self.queued_bytes - self.in_flight_upsert_bytes
+        } else {
+            self.queued_bytes
+        };
+        self.queued.len() >= cfg.hard_frames
+            || counted_bytes.saturating_add(frame.size_bytes()) > cfg.hard_bytes
+    }
+
+    fn reclaim_queued_priority(
+        &mut self,
+        incoming: &QueuedSearchFrame,
+        priority: ChangePriority,
+        cfg: &SearchProjectionQueueConfig,
+        metrics: &NodeMetrics,
+    ) {
+        let sequences: Vec<_> = self.queued.keys().copied().collect();
+        for sequence in sequences {
+            if !self.exceeds_hard_limit(incoming, cfg) {
+                break;
+            }
+            let frame = self.queued.get_mut(&sequence).expect("queued frame exists");
+            let identities: Vec<_> = frame
+                .changes
+                .iter()
+                .filter(|(_, change)| change.priority == priority)
+                .map(|(identity, _)| *identity)
+                .collect();
+            for identity in identities {
+                let change = self
+                    .queued
+                    .get_mut(&sequence)
+                    .expect("queued frame exists")
+                    .changes
+                    .remove(&identity)
+                    .expect("selected change exists");
+                self.queued_bytes -= change_size_bytes(&change.change);
+                self.queued_upserts.remove(&identity);
+                metrics
+                    .search_projection_dropped_updates
+                    .record(priority.drop_reason());
+                if self.queued[&sequence].changes.is_empty() {
+                    self.queued.remove(&sequence);
+                    self.remove_unprojected(sequence);
+                    break;
+                }
+                if !self.exceeds_hard_limit(incoming, cfg) {
+                    break;
+                }
+            }
         }
     }
 
     fn take_frame(&mut self) -> Option<CommittedSearchFrame> {
-        let sequence = self.queue_order.pop_front()?;
-        let queued = self
-            .queued
-            .remove(&sequence)
-            .expect("queued frame exists until taken");
+        let (sequence, queued) = self.queued.pop_first()?;
         for identity in queued.changes.keys() {
             if self.queued_upserts.get(identity) == Some(&sequence) {
                 self.queued_upserts.remove(identity);
             }
         }
         let size_bytes = queued.size_bytes();
+        self.in_flight_upsert_bytes += queued
+            .changes
+            .values()
+            .filter(|change| matches!(change.change, SearchDocumentChange::Upsert { .. }))
+            .map(|change| change_size_bytes(&change.change))
+            .sum::<usize>();
         Some(CommittedSearchFrame {
             sequence,
             partition: queued.partition,
@@ -451,6 +539,19 @@ struct QueuedSearchFrame {
 }
 
 impl QueuedSearchFrame {
+    fn drop_priority(&mut self, priority: ChangePriority, metrics: &NodeMetrics) {
+        self.changes.retain(|_, change| {
+            if change.priority == priority {
+                metrics
+                    .search_projection_dropped_updates
+                    .record(priority.drop_reason());
+                false
+            } else {
+                true
+            }
+        });
+    }
+
     fn size_bytes(&self) -> usize {
         self.changes
             .values()
@@ -467,9 +568,29 @@ enum ChangePriority {
     Intermediate,
 }
 
+impl ChangePriority {
+    fn drop_reason(self) -> ProjectionDropReason {
+        match self {
+            Self::Intermediate => ProjectionDropReason::Intermediate,
+            Self::Close => ProjectionDropReason::Close,
+            Self::Start => ProjectionDropReason::Start,
+            Self::Delete => panic!("Deletes are never shed"),
+        }
+    }
+}
+
 struct PrioritizedSearchChange {
     change: SearchDocumentChange,
     priority: ChangePriority,
+}
+
+// Classification skips document values already validated by extraction, avoiding a second allocation-heavy decode.
+#[derive(Message)]
+struct SearchChangeState {
+    #[prost(uint64, tag = "1")]
+    version: u64,
+    #[prost(int32, tag = "6")]
+    status: i32,
 }
 
 impl PrioritizedSearchChange {
@@ -497,7 +618,7 @@ fn change_priority(change: &SearchDocumentChange) -> ChangePriority {
         SearchDocumentChange::Upsert {
             encoded_document, ..
         } => {
-            let document = SearchDocumentRecord::decode(encoded_document.as_slice())
+            let document = SearchChangeState::decode(encoded_document.as_slice())
                 .expect("extraction has already decoded the committed search document");
             // The first run command creates the document, including child starts.
             if document.version == 1 {

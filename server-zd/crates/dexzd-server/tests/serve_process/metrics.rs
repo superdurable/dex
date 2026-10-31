@@ -390,7 +390,7 @@ pub(crate) fn sample_sum(body: &str, name: &str) -> f64 {
         .sum()
 }
 
-fn sample_with_label(body: &str, name: &str, label: &str, value: &str) -> f64 {
+pub(crate) fn sample_with_label(body: &str, name: &str, label: &str, value: &str) -> f64 {
     let prefix = format!("{name}{{{label}=\"{value}\"}}");
     body.lines()
         .find(|line| line.starts_with(&prefix))

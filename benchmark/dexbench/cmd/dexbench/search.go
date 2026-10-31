@@ -35,6 +35,7 @@ func runSearch(args []string) error {
 	flags.IntVar(&config.DeepPage, "deep-page", 500, "page reached through opaque next-page tokens")
 	flags.DurationVar(&config.Timeout, "timeout", 30*time.Second, "timeout per seed run or query")
 	flags.StringVar(&config.DatabaseContainer, "database-container", "", "owned PostgreSQL container for WAL and convergence probes")
+	flags.BoolVar(&config.ShouldAllowShedding, "allow-shedding", false, "wait for kept SQL changes; record stale or absent rows separately (requires projection-only)")
 	flags.BoolVar(&config.ShouldMeasureProjectionOnly, "projection-only", false, "measure seeding without query latency")
 	flags.BoolVar(&config.ShouldMeasureBackfill, "backfill", false, "defer Keyword registration, then compare backfilling and ready")
 	flags.StringVar(&config.GitCommit, "git-commit", "", "checkout revision")

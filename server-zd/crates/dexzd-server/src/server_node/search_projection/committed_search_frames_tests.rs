@@ -65,13 +65,14 @@ fn commit_frame(frames: &CommittedSearchFrames, run_number: u8) {
 /// A stalled projection, as during a SQL visibility outage, holds at most the byte limit in memory.
 #[test]
 fn queued_bytes_stay_bounded_while_the_projection_is_stalled() {
-    let frame_bytes = DOCUMENT_BYTES + CHANGE_OVERHEAD_BYTES + 32;
+    let frame_bytes = CHANGE_OVERHEAD_BYTES;
     let frames = new_frames(1_000, 3 * frame_bytes);
     for run_number in 1..=20 {
-        commit_frame(&frames, run_number);
+        record_delete(&frames, run_number);
+        finish_frame(&frames, u64::from(run_number));
     }
     assert_eq!(
-        frames.lock_tracking().queue_order.len(),
+        frames.lock_tracking().queued.len(),
         3,
         "frames beyond the byte limit are not queued"
     );
@@ -90,9 +91,10 @@ fn queued_bytes_stay_bounded_while_the_projection_is_stalled() {
     assert_eq!(frames.lock_tracking().queued_bytes, 0);
     assert!(frames.rebuild_requests().is_empty());
 
-    commit_frame(&frames, 21);
+    record_delete(&frames, 21);
+    finish_frame(&frames, 21);
     assert_eq!(
-        frames.lock_tracking().queue_order.len(),
+        frames.lock_tracking().queued.len(),
         1,
         "freed bytes let new frames queue again"
     );
@@ -104,9 +106,10 @@ fn frame_count_overflow_coalesces_into_a_partition_rebuild() {
     let max_queued_bytes = 1024 * 1024;
     let frames = new_frames(2, max_queued_bytes);
     for run_number in 1..=20 {
-        commit_frame(&frames, run_number);
+        record_delete(&frames, run_number);
+        finish_frame(&frames, u64::from(run_number));
     }
-    assert_eq!(frames.lock_tracking().queue_order.len(), 2);
+    assert_eq!(frames.lock_tracking().queued.len(), 2);
     assert!(frames.lock_tracking().queued_bytes < max_queued_bytes);
     assert_eq!(frames.rebuild_requests(), vec![PARTITION]);
     assert_eq!(frames.lock_tracking().rebuild_requests.len(), 1);
@@ -207,14 +210,8 @@ fn coalescing_keeps_latest_complete_document_and_delays_earlier_watermarks() {
     record_document(&frames, 1, 3, FlowStatus::Completed);
     finish_frame(&frames, 3);
     assert_eq!(frames.metrics.search_projection_coalesced_changes.get(), 2);
-    for sequence in 1..=2 {
-        let frame = take_frame(&frames).unwrap();
-        assert_eq!(frame.sequence, sequence);
-        assert!(frame.changes.is_empty());
-        frames.finish_projected_frame(&frame);
-        frames.publish_projected_through();
-        assert_eq!(*frames.projected_through.borrow(), Some(0));
-    }
+    frames.publish_projected_through();
+    assert_eq!(*frames.projected_through.borrow(), Some(0));
     let frame = take_frame(&frames).unwrap();
     let [
         SearchDocumentChange::Upsert {
@@ -240,9 +237,6 @@ fn delete_supersedes_queued_upsert_and_inherits_its_watermark() {
     commit_frame(&frames, 1);
     record_delete(&frames, 1);
     finish_frame(&frames, 2);
-    let emptied = take_frame(&frames).unwrap();
-    assert!(emptied.changes.is_empty());
-    frames.finish_projected_frame(&emptied);
     frames.publish_projected_through();
     assert_eq!(*frames.projected_through.borrow(), Some(0));
     let deleted = take_frame(&frames).unwrap();
@@ -265,7 +259,13 @@ fn soft_limit_sheds_only_intermediates_and_preserves_starts_closes_and_deletes()
     record_document(&frames, 4, 9, FlowStatus::Completed);
     record_delete(&frames, 5);
     finish_frame(&frames, 2);
-    assert_eq!(frames.metrics.search_projection_dropped_updates.get(), 1);
+    assert_eq!(
+        frames
+            .metrics
+            .search_projection_dropped_updates
+            .count(ProjectionDropReason::Intermediate),
+        1
+    );
     assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 0);
     let first = take_frame(&frames).unwrap();
     frames.finish_projected_frame(&first);
@@ -288,7 +288,13 @@ fn intermediate_is_kept_below_both_soft_limits() {
     record_document(&frames, 1, 7, FlowStatus::Running);
     finish_frame(&frames, 1);
     assert_eq!(take_frame(&frames).unwrap().changes.len(), 1);
-    assert_eq!(frames.metrics.search_projection_dropped_updates.get(), 0);
+    assert_eq!(
+        frames
+            .metrics
+            .search_projection_dropped_updates
+            .count(ProjectionDropReason::Intermediate),
+        0
+    );
 }
 
 #[test]
@@ -297,9 +303,14 @@ fn coalesced_start_cannot_be_shed_as_an_intermediate() {
     commit_frame(&frames, 1);
     record_document(&frames, 1, 7, FlowStatus::Running);
     finish_frame(&frames, 2);
-    assert!(take_frame(&frames).unwrap().changes.is_empty());
     assert_eq!(take_frame(&frames).unwrap().changes.len(), 1);
-    assert_eq!(frames.metrics.search_projection_dropped_updates.get(), 0);
+    assert_eq!(
+        frames
+            .metrics
+            .search_projection_dropped_updates
+            .count(ProjectionDropReason::Intermediate),
+        0
+    );
     assert_eq!(frames.metrics.search_projection_coalesced_changes.get(), 1);
 }
 
@@ -309,39 +320,135 @@ fn bytes_trigger_shedding_and_protected_changes_use_the_hard_headroom() {
     record_document(&frames, 1, 7, FlowStatus::Running);
     finish_frame(&frames, 1);
     assert!(take_frame(&frames).is_none());
-    assert_eq!(frames.metrics.search_projection_dropped_updates.get(), 1);
+    assert_eq!(
+        frames
+            .metrics
+            .search_projection_dropped_updates
+            .count(ProjectionDropReason::Intermediate),
+        1
+    );
     commit_frame(&frames, 2);
     record_document(&frames, 3, 8, FlowStatus::Completed);
     finish_frame(&frames, 3);
     record_delete(&frames, 4);
     finish_frame(&frames, 4);
-    assert_eq!(frames.lock_tracking().queue_order.len(), 3);
+    assert_eq!(frames.lock_tracking().queued.len(), 3);
     assert!(frames.rebuild_requests().is_empty());
 }
 
 #[test]
-fn hard_limit_requests_rebuild_once_per_pending_partition_and_preserves_dependencies() {
+fn hard_limit_sheds_closes_then_inherited_starts_without_resurrecting_older_documents() {
     let frames = frames_with_limits(1, 1024 * 1024, 2, 2 * 1024 * 1024);
     commit_frame(&frames, 1);
     commit_frame(&frames, 2);
-    record_document(&frames, 1, 8, FlowStatus::Completed);
+    record_document(&frames, 3, 8, FlowStatus::Completed);
     finish_frame(&frames, 3);
-    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 1);
-    assert_eq!(
-        frames.lock_tracking().rebuild_requests[&PARTITION].first_sequence,
-        1
-    );
+    assert_eq!(dropped(&frames, ProjectionDropReason::Close), 1);
+    record_document(&frames, 1, 7, FlowStatus::Running);
+    record_document(&frames, 3, 1, FlowStatus::Running);
+    finish_frame(&frames, 4);
+    assert_eq!(frames.lock_tracking().queued.len(), 2);
     commit_frame(&frames, 4);
-    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 1);
+    assert_eq!(dropped(&frames, ProjectionDropReason::Start), 1);
+    assert!(frames.rebuild_requests().is_empty());
     while let Some(frame) = take_frame(&frames) {
+        for change in &frame.changes {
+            if change_identity(change).1 == RunId([1; 16]) {
+                let SearchDocumentChange::Upsert {
+                    encoded_document, ..
+                } = change
+                else {
+                    panic!("retained change is an Upsert")
+                };
+                assert_eq!(
+                    SearchDocumentRecord::decode(encoded_document.as_slice())
+                        .unwrap()
+                        .version,
+                    7
+                );
+            }
+        }
         frames.finish_projected_frame(&frame);
     }
     frames.publish_projected_through();
-    assert_eq!(*frames.projected_through.borrow(), Some(0));
-    frames.finish_rebuild(PARTITION, 4);
+    assert_eq!(*frames.projected_through.borrow(), Some(5));
+}
+
+#[test]
+fn delete_reclaims_queued_upserts_in_priority_and_oldest_order() {
+    let frames = frames_with_limits(3, 1024 * 1024, 3, 2 * 1024 * 1024);
+    record_document(&frames, 1, 2, FlowStatus::Running);
+    finish_frame(&frames, 1);
+    record_document(&frames, 2, 3, FlowStatus::Completed);
+    finish_frame(&frames, 2);
+    commit_frame(&frames, 3);
+    for (run_number, reason) in [
+        (4, ProjectionDropReason::Intermediate),
+        (5, ProjectionDropReason::Close),
+        (6, ProjectionDropReason::Start),
+    ] {
+        record_delete(&frames, run_number);
+        finish_frame(&frames, u64::from(run_number));
+        assert_eq!(dropped(&frames, reason), 1);
+        assert_eq!(frames.lock_tracking().queued.len(), 3);
+        assert!(frames.rebuild_requests().is_empty());
+    }
+    record_delete(&frames, 7);
+    finish_frame(&frames, 7);
+    record_delete(&frames, 8);
+    finish_frame(&frames, 8);
+    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 1);
+    assert_eq!(frames.rebuild_requests(), vec![PARTITION]);
+    while let Some(frame) = take_frame(&frames) {
+        assert!(
+            frame
+                .changes
+                .iter()
+                .all(|change| matches!(change, SearchDocumentChange::Delete { .. }))
+        );
+        frames.finish_projected_frame(&frame);
+    }
+    frames.finish_rebuild(PARTITION, frames.last_sequence());
     frames.publish_projected_through();
-    assert_eq!(*frames.projected_through.borrow(), Some(4));
-    assert_eq!(frames.lock_tracking().queued_bytes, 0);
+    assert_eq!(*frames.projected_through.borrow(), Some(8));
+
+    let frames = new_frames(2, 1024 * 1024);
+    commit_frame(&frames, 1);
+    commit_frame(&frames, 2);
+    record_delete(&frames, 3);
+    finish_frame(&frames, 3);
+    assert_eq!(
+        change_identity(&take_frame(&frames).unwrap().changes[0]).1,
+        RunId([2; 16])
+    );
+}
+
+#[test]
+fn delete_admission_excludes_in_flight_upserts_but_counts_in_flight_deletes() {
+    let frames = frames_with_limits(100, DOCUMENT_BYTES, 100, 2 * DOCUMENT_BYTES);
+    commit_frame(&frames, 1);
+    let in_flight = take_frame(&frames).unwrap();
+    for run_number in 2..=33 {
+        record_delete(&frames, run_number);
+        finish_frame(&frames, u64::from(run_number));
+    }
+    assert_eq!(frames.lock_tracking().queued.len(), 32);
+    assert!(frames.lock_tracking().queued_bytes > frames.cfg.hard_bytes);
+    assert!(frames.rebuild_requests().is_empty());
+    frames.finish_projected_frame(&in_flight);
+    assert_eq!(frames.lock_tracking().queued_bytes, frames.cfg.hard_bytes);
+    let in_flight_delete = take_frame(&frames).unwrap();
+    record_delete(&frames, 34);
+    finish_frame(&frames, 34);
+    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 1);
+    frames.finish_projected_frame(&in_flight_delete);
+}
+
+fn dropped(frames: &CommittedSearchFrames, reason: ProjectionDropReason) -> u64 {
+    frames
+        .metrics
+        .search_projection_dropped_updates
+        .count(reason)
 }
 
 #[test]
@@ -374,23 +481,54 @@ fn one_frame_coalesces_repeated_commands_and_a_delete() {
 }
 
 #[test]
-fn hard_byte_limit_rebuilds_instead_of_dropping_starts_closes_or_deletes() {
-    for priority in [
-        ChangePriority::Start,
-        ChangePriority::Close,
-        ChangePriority::Delete,
+fn hard_byte_limit_sheds_upserts_and_only_rebuilds_for_deletes() {
+    for (priority, reason) in [
+        (ChangePriority::Start, ProjectionDropReason::Start),
+        (ChangePriority::Close, ProjectionDropReason::Close),
     ] {
         let frames = frames_with_limits(1, 1, 2, CHANGE_OVERHEAD_BYTES - 1);
         match priority {
             ChangePriority::Start => record_document(&frames, 1, 1, FlowStatus::Running),
             ChangePriority::Close => record_document(&frames, 1, 9, FlowStatus::Completed),
-            ChangePriority::Delete => record_delete(&frames, 1),
-            ChangePriority::Intermediate => unreachable!("only protected classes are tested"),
+            _ => panic!("only Start and Close are tested"),
         }
         finish_frame(&frames, 1);
-        assert_eq!(frames.rebuild_requests(), vec![PARTITION]);
-        assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 1);
-        assert_eq!(frames.metrics.search_projection_dropped_updates.get(), 0);
+        assert!(frames.rebuild_requests().is_empty());
+        assert_eq!(dropped(&frames, reason), 1);
         assert!(take_frame(&frames).is_none());
     }
+    let frames = frames_with_limits(1, 1, 2, CHANGE_OVERHEAD_BYTES - 1);
+    record_delete(&frames, 1);
+    finish_frame(&frames, 1);
+    assert_eq!(frames.rebuild_requests(), vec![PARTITION]);
+    assert_eq!(frames.metrics.search_projection_rebuild_requests.get(), 1);
+}
+
+#[test]
+fn coalesced_start_can_be_shed_at_the_hard_limit_without_restoring_its_old_version() {
+    let frames = frames_with_limits(10, 2048, 10, 2048);
+    commit_frame(&frames, 1);
+    record_document(&frames, 1, 7, FlowStatus::Running);
+    record_document(&frames, 2, 1, FlowStatus::Running);
+    finish_frame(&frames, 2);
+    assert!(take_frame(&frames).is_none());
+    assert_eq!(dropped(&frames, ProjectionDropReason::Start), 2);
+    assert_eq!(frames.metrics.search_projection_coalesced_changes.get(), 1);
+    frames.publish_projected_through();
+    assert_eq!(*frames.projected_through.borrow(), Some(2));
+    record_document(&frames, 1, 8, FlowStatus::Running);
+    finish_frame(&frames, 3);
+    let projected = take_frame(&frames).unwrap();
+    let SearchDocumentChange::Upsert {
+        encoded_document, ..
+    } = &projected.changes[0]
+    else {
+        panic!("later committed document projects normally")
+    };
+    assert_eq!(
+        SearchDocumentRecord::decode(encoded_document.as_slice())
+            .unwrap()
+            .version,
+        8
+    );
 }
