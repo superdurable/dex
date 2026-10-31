@@ -188,8 +188,8 @@ benchmark/bin/dexbench chart <result-directory>/*.json > charts.html
 ```
 
 By default the script writes to a new temporary directory outside the
-repository and prints its path at the end. `benchmark/results/` holds only
-committed result sets from a recorded cloud host. To write one, set
+repository and prints its path at the end. `benchmark/results/` holds
+committed result sets from recorded benchmark hosts. To write one, set
 `DEXBENCH_OUT=benchmark/results/<run>`. Never commit a smoke run. The temporary
 server data and logs are removed when the script exits.
 
@@ -497,7 +497,8 @@ The runner starts a release server with embedded s3mock and the default 1,024
 partitions. External backends use temporary, uniquely named Docker containers:
 PostgreSQL 17 or ParadeDB 0.26.1, matching server-zd CI. It removes its server,
 data directory, and container on exit. It does not use docker compose.
-`DEXBENCH_PARTITIONS`, `DEXBENCH_SEARCH_SAMPLES` (default 100),
+`DEXBENCH_PARTITIONS`, `DEXBENCH_SEARCH_SCAN_BUDGET` (100000),
+`DEXBENCH_SEARCH_SAMPLES` (default 100),
 `DEXBENCH_SEARCH_CONCURRENCY` (128), `DEXBENCH_SEARCH_PORT` (18815), and
 `DEXBENCH_SEARCH_METRICS_PORT` (19195) override runner settings.
 
@@ -532,7 +533,8 @@ request is timed. These are end-to-end Go Client timings, including transport
 and indexed-value hydration; compare them cautiously with SQL EXPLAIN results.
 Raw JSON retains each successful latency and each error. PostgreSQL ten-Attribute
 points also retain matching SQL EXPLAIN ANALYZE plans after the timed queries. Builtin scan-budget
-failures are recorded rather than changing the server's default scan budget.
+failures are recorded. For full-scan timings above 100k runs, set
+`DEXBENCH_SEARCH_SCAN_BUDGET` to the dataset size and record that override.
 
 PostgreSQL and ParadeDB record pg_current_wal_lsn before and after seeding and
 catchup. Their difference divided by N includes all database WAL in that

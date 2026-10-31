@@ -101,7 +101,6 @@ type searchBackfillCompletion struct {
 }
 
 // RunSearch seeds a fresh server and measures search, projection, and backfill; partial results accompany errors.
-
 func RunSearch(ctx context.Context, config SearchConfig) (SearchResult, error) {
 	benchmark := &searchBenchmark{config: config, prefix: fmt.Sprintf("search-%d", time.Now().UnixNano())}
 	benchmark.result = SearchResult{Config: config, StartedAt: time.Now().UTC(), Machine: machineInfo()}

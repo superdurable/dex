@@ -41,6 +41,7 @@ metrics:
   listen: 127.0.0.1:${DEXBENCH_SEARCH_METRICS_PORT:-19195}
 search:
   backend: $backend
+  builtinScanBudgetDocuments: ${DEXBENCH_SEARCH_SCAN_BUDGET:-100000}
 YAML
 arguments=()
 if [[ "$backend" != builtin ]]; then
