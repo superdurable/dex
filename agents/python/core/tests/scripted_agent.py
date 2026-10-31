@@ -13,12 +13,14 @@ The scripted model reads commands from the user message:
 * ``say <text>`` answers ``said: <text>``.
 * ``recall`` answers with every earlier user message, proving history replay.
 * ``call <tool> <json>`` asks for one tool call; join several with `` && ``.
+* ``call-then-fail <tool> <json>`` does the same, then fails on resume.
 * ``stall <gate>`` runs ``lookup`` inline, then waits at a ``FileGate``.
 * ``fail`` raises on every attempt.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -51,13 +53,16 @@ SCRIPTED_AGENT_FLOW_TYPE = "ScriptedAgent"
 STATE_DIR_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_STATE_DIR"
 INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_INTERRUPT_DEADLINE_SECONDS"
 SLOW_WRITE_GATE = "slow_write"
+GATED_PUBLISH_GATE = "gated_publish"
 INVOCATION_LOG_NAME = "invocations.log"
+IDEMPOTENCY_KEY_LOG_NAME = "idempotency-keys.log"
 MODEL_CALL_USAGE = AgentUsage(model_calls=1, input_tokens=10, output_tokens=5)
 TOOL_POLICIES = {
     "lookup": ToolPolicy(ToolEffect.READ),
     "publish": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
     "charge": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE),
     "slow_write": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
+    "gated_publish": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
 }
 
 
@@ -73,6 +78,7 @@ class ScriptedRunner(AgentFrameworkRunner):
     def __init__(self, state_dir: Path) -> None:
         self._state_dir = state_dir
         self._invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+        self._idempotency_keys = InvocationLog(state_dir / IDEMPOTENCY_KEY_LOG_NAME)
 
     def build_user_message(self, text: str) -> FrameworkMessage:
         return FrameworkMessage(
@@ -95,7 +101,7 @@ class ScriptedRunner(AgentFrameworkRunner):
                 if message.role is MessageRole.USER and message.turn_id != turn.turn_id
             ]
             return _answer(command, "history: " + " | ".join(earlier))
-        if command.startswith("call "):
+        if command.startswith(("call ", "call-then-fail ")):
             return await self._start_tool_calls(turn, command)
         if command.startswith("stall "):
             return await self._stall(turn, command.removeprefix("stall "))
@@ -108,8 +114,21 @@ class ScriptedRunner(AgentFrameworkRunner):
         self._invocations.record(record.tool_name)
         arguments = json.loads(record.arguments)
         if record.tool_name == "publish":
+            await asyncio.to_thread(
+                call.events.write_text_delta, f"publishing {arguments['message']}"
+            )
+            return ToolExecutionResult(output=f"published {arguments['message']}")
+        if record.tool_name == "gated_publish":
+            gate = FileGate(self._state_dir, GATED_PUBLISH_GATE)
+            gate.mark_reached()
+            await gate.wait_for_release()
             return ToolExecutionResult(output=f"published {arguments['message']}")
         if record.tool_name == "charge":
+            self._idempotency_keys.record(f"{call.idempotency_key} attempt {call.attempt}")
+            if "gate" in arguments:
+                gate = FileGate(self._state_dir, str(arguments["gate"]))
+                gate.mark_reached()
+                await gate.wait_for_release()
             if call.attempt <= int(arguments.get("fail_attempts", 0)):
                 raise RuntimeError(f"charge attempt {call.attempt} lost its connection")
             if int(arguments["amount"]) <= 0:
@@ -127,8 +146,9 @@ class ScriptedRunner(AgentFrameworkRunner):
     async def _start_tool_calls(self, turn: AgentTurnContext, command: str) -> AgentTurnOutcome:
         calls: list[ScriptedToolCall] = []
         deferred: list[DeferredToolCall] = []
-        for index, request in enumerate(command.split(" && ")):
-            _, tool_name, arguments = request.split(" ", 2)
+        requests = command.split(" ", 1)[1]
+        for index, request in enumerate(requests.split(" && call ")):
+            tool_name, arguments = request.removeprefix("call ").split(" ", 1)
             tool_call_id = f"{turn.turn_id}-call-{index}"
             policy = turn.resolve_tool_policy(tool_name)
             inline_result = None
@@ -157,6 +177,8 @@ class ScriptedRunner(AgentFrameworkRunner):
 
     def _resume_turn(self, turn: AgentTurnContext, framework_run_state: str) -> AgentTurnOutcome:
         state = json.loads(framework_run_state)
+        if state["command"].startswith("call-then-fail "):
+            raise RuntimeError("scripted failure after the tool calls ran")
         calls = [ScriptedToolCall(**call) for call in state["calls"]]
         results: dict[str, str] = {}
         for call in calls:

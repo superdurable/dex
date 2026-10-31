@@ -93,9 +93,11 @@ class ToolCallStatus(StrEnum):
         APPROVED: The call may run; its tool Step has not finished yet.
         REJECTED: The user or an expired deadline rejected the call. It never ran.
         SUCCEEDED: The tool ran and returned ``output``.
-        FAILED: The tool ran and reported ``error`` for the model to see.
-        OUTCOME_UNKNOWN: The Worker stopped while a single-attempt tool ran,
-            so the effect may or may not have happened.
+        FAILED: The tool raised ``ToolExecutionError``; ``error`` holds the
+            message for the model to see.
+        OUTCOME_UNKNOWN: The tool Step ended without a result, through a
+            Worker crash, a timeout, or another exception after its attempts
+            ran out, so the effect may or may not have happened.
     """
 
     AWAITING_APPROVAL = "awaiting_approval"
@@ -225,8 +227,8 @@ class AgentToolCall:
         requires_approval: Whether ``resolve_interrupt`` must approve the call.
         status: Lifecycle state of the call.
         output: Tool output text after ``SUCCEEDED``.
-        error: Error text after ``FAILED``, or the recovery detail after
-            ``OUTCOME_UNKNOWN``.
+        error: The ``ToolExecutionError`` message after ``FAILED``, or the
+            recovery detail of the failed Step after ``OUTCOME_UNKNOWN``.
         rejection_message: Message after ``REJECTED``, or ``None`` when the
             person gave none.
         deferral_order: Zero-based order in which the turn deferred the call.
@@ -369,18 +371,28 @@ class AgentEvent:
     Streams are best effort. A Step retry can repeat events, and a lost
     consumer can miss them. Rebuild durable state from ``get_agent_snapshot``.
 
+    Group live text by ``(turn_id, step_execution_id, attempt)``. Within one
+    ``step_execution_id``, keep only the events of the highest ``attempt``
+    seen, and drop the partial text of lower attempts. Different
+    ``step_execution_id`` values of one turn are consecutive turn segments
+    and Steps, and each keeps its own events. After ``turn_completed`` or
+    ``turn_failed``, replace the turn's live text with the stored messages.
+
     Attributes:
         type: One of the ``AgentEventType`` values.
         turn_id: Turn the event belongs to, or ``None``.
-        attempt: One-based attempt of the Step that wrote the event. Drop the
-            partial text of a turn when a later attempt starts writing.
+        attempt: One-based attempt of the Step that wrote the event.
         payload: Event-specific JSON object text.
+        step_execution_id: Dex Step execution ID of the Step that wrote the
+            event. All attempts of one Step execution share it. Events written
+            before this field existed decode with ``""``.
     """
 
     type: str
     turn_id: str | None
     attempt: int
     payload: str
+    step_execution_id: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)

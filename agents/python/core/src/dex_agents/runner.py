@@ -36,9 +36,15 @@ from dex_agents.values import (
 
 #: Model-visible text for a call whose outcome is unknown.
 OUTCOME_UNKNOWN_TOOL_RESULT = (
-    "The tool call's outcome is unknown: the Worker stopped while the tool ran, so it may "
-    "or may not have taken effect. It was not retried."
+    "The tool call's outcome is unknown: it stopped without returning a result, so it may "
+    "or may not have taken effect. It will not be retried automatically."
 )
+
+#: First line of the note ``RecordTurnFailure`` stores after a failed turn ran tools.
+TURN_FAILURE_NOTE_HEADER = "[Dex] The previous turn failed after these tool calls ran:"
+
+#: Last line of that note.
+TURN_FAILURE_NOTE_FOOTER = "Do not repeat these tool calls unless the user asks again."
 
 #: Model-visible text for a rejection without a message.
 DEFAULT_REJECTION_TOOL_RESULT = "The user rejected this tool call."
@@ -148,6 +154,40 @@ def describe_tool_call_outcome(tool_call: AgentToolCall) -> str:
     raise ValueError(f"tool call {tool_call.tool_call_id} has no final outcome yet")
 
 
+def build_turn_failure_note(tool_calls: Sequence[AgentToolCall]) -> str:
+    """Return the note text that tells the model what a failed turn already did.
+
+    ``RecordTurnFailure`` stores this note through ``build_user_message`` when a
+    failed turn has final tool call records, so the next turn's model does not
+    repeat a write. The note has one line per record, in ``deferral_order``:
+
+    .. code-block:: text
+
+        [Dex] The previous turn failed after these tool calls ran:
+        - charge {"amount": 5} -> succeeded: charged 5
+        Do not repeat these tool calls unless the user asks again.
+
+    Args:
+        tool_calls: Final records of the failed turn.
+
+    Returns:
+        ``TURN_FAILURE_NOTE_HEADER``, one ``"- <tool_name> <arguments> ->
+        <status>: <describe_tool_call_outcome(record)>"`` line per record, and
+        ``TURN_FAILURE_NOTE_FOOTER``, joined with newlines.
+
+    Raises:
+        ValueError: If a record is not final.
+    """
+    lines = [TURN_FAILURE_NOTE_HEADER]
+    for tool_call in sorted(tool_calls, key=lambda record: record.deferral_order):
+        outcome = describe_tool_call_outcome(tool_call)
+        lines.append(
+            f"- {tool_call.tool_name} {tool_call.arguments} -> {tool_call.status}: {outcome}"
+        )
+    lines.append(TURN_FAILURE_NOTE_FOOTER)
+    return "\n".join(lines)
+
+
 @dataclass(frozen=True, kw_only=True)
 class FrameworkMessage:
     """Describe one framework item that the session should store.
@@ -191,7 +231,7 @@ class DeferredToolCall:
 
     Attributes:
         tool_call_id: Framework tool call ID. It must be non-empty, contain no
-            ``/``, and be unique within the turn.
+            ``/``, and be unique within one turn. IDs may repeat across turns.
         tool_name: Tool name the model called.
         arguments: Tool arguments as JSON text.
         policy: Policy from ``AgentTurnContext.resolve_tool_policy``.
@@ -331,8 +371,9 @@ class DeferredToolExecution:
     Attributes:
         flow_id: Session ID, which is the Flow ID.
         tool_call: The approved record.
-        idempotency_key: ``"<flow_id>/<tool_call_id>"``. Pass it to the external
-            system when it supports idempotency.
+        idempotency_key: ``"<flow_id>/<turn_id>/<tool_call_id>"``. It is the same
+            on every attempt. Pass it to the external system when it supports
+            idempotency.
         attempt: One-based Step attempt. ``IDEMPOTENT_WRITE`` and approved
             ``READ`` calls get up to three attempts; other calls get one.
         events: Writer for live events, bound to the turn and attempt.
@@ -365,8 +406,9 @@ class ToolExecutionError(Exception):
     Raise it from ``execute_deferred_tool_call`` when the tool ran and failed
     in a way the model can react to, such as invalid arguments. The session
     records ``FAILED`` with ``str(error)`` and does not retry. Any other
-    exception is a Step failure: an ``IDEMPOTENT_WRITE`` call retries, and a
-    single-attempt call records ``OUTCOME_UNKNOWN``.
+    exception is a Step failure: an ``IDEMPOTENT_WRITE`` call retries, and once
+    its attempts run out, or at once for a single-attempt call, the session
+    records ``OUTCOME_UNKNOWN`` because the write may have taken effect.
 
     Example:
         >>> raise ToolExecutionError("order 42 is already shipped")
@@ -450,6 +492,7 @@ class AgentFrameworkRunner(Protocol):
 
         Raises:
             ToolExecutionError: The tool failed in a way the model should see.
-            Exception: Any other exception fails the Step attempt.
+            Exception: Any other exception fails the Step attempt. After the
+                last attempt the record becomes ``OUTCOME_UNKNOWN``.
         """
         ...

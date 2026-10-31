@@ -60,6 +60,7 @@ from dex_agents.runner import (
     ToolPolicy,
     TurnCompleted,
     TurnSuspended,
+    build_turn_failure_note,
 )
 from dex_agents.values import (
     AgentEvent,
@@ -634,10 +635,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             raise RuntimeError(f"tool call {tool_call.tool_call_id} is not approved")
         events = self._event_writer(context, state.active_turn_id)
         events.write_tool_call_started(tool_call.tool_call_id, tool_call.tool_name)
+        # Dex may redeliver a task without output to another Worker, at the same attempt.
+        await context.heartbeat()
         execution = DeferredToolExecution(
             flow_id=context.flow_id,
             tool_call=tool_call,
-            idempotency_key=f"{context.flow_id}/{tool_call.tool_call_id}",
+            idempotency_key=f"{context.flow_id}/{tool_call.turn_id}/{tool_call.tool_call_id}",
             attempt=context.attempt,
             events=events,
             heartbeat=context.heartbeat,
@@ -650,16 +653,14 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 finished = replace(tool_call, status=ToolCallStatus.FAILED, error=str(error))
         return self._finish_tool_call(context, state, finished, events)
 
-    def _record_tool_call_recovery(
-        self,
-        context: AsyncContext,
-        status: ToolCallStatus,
-    ) -> StepDecision:
+    def _record_unknown_tool_outcome(self, context: AsyncContext) -> StepDecision:
         state = _require_agent_state(context)
         tool_call = _executing_tool_call(context, state)
         if tool_call.status.is_final:
             return self._route_tool_calls(context, state)
-        finished = replace(tool_call, status=status, error=_recovery_detail(context))
+        finished = replace(
+            tool_call, status=ToolCallStatus.OUTCOME_UNKNOWN, error=_recovery_detail(context)
+        )
         return self._finish_tool_call(
             context, state, finished, self._event_writer(context, state.active_turn_id)
         )
@@ -677,8 +678,15 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
     def _fail_active_turn(self, context: AsyncContext) -> StepDecision:
         state = _require_agent_state(context)
+        turn_id = _require_active_turn_id(state)
         error = _recovery_detail(context)
-        for tool_call in _turn_tool_calls(context, state.active_turn_id):
+        tool_calls = _turn_tool_calls(context, turn_id)
+        finished_tool_calls = [tool_call for tool_call in tool_calls if tool_call.status.is_final]
+        if finished_tool_calls:
+            # The records are deleted below; the note keeps the next model from repeating writes.
+            note = self._runner.build_user_message(build_turn_failure_note(finished_tool_calls))
+            state = _append_messages(context, state, turn_id, [note])
+        for tool_call in tool_calls:
             AGENT_TOOL_CALLS.delete(context, tool_call.tool_call_id)
         if FRAMEWORK_RUN_STATE.get(context) is not None:
             FRAMEWORK_RUN_STATE.delete(context)
@@ -694,7 +702,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 last_turn_error=error,
             ),
         )
-        self._event_writer(context, state.active_turn_id).write_event(
+        self._event_writer(context, turn_id).write_event(
             AgentEventType.TURN_FAILED, {"error": error}
         )
         return go_to(self._await_user_message, None)
@@ -735,7 +743,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
     def _event_writer(self, context: AsyncContext, turn_id: str | None) -> AgentEventWriter:
         return AgentEventWriter(
-            lambda event: self.agent_events.write(context, event), turn_id, context.attempt
+            lambda event: self.agent_events.write(context, event),
+            turn_id,
+            context.attempt,
+            context.step_execution_id,
         )
 
 
@@ -744,6 +755,9 @@ class StartAgentSession(Step[AgentSessionStartInput]):
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_durability=StepDurability.SYNC)
 
     async def execute(  # type: ignore[override]
         self,
@@ -763,6 +777,12 @@ class AwaitUserMessage(Step[None]):
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            wait_for_durability=StepDurability.SYNC,
+            execute_durability=StepDurability.SYNC,
+        )
 
     def wait_for(self, context: Context, input: None) -> Wait:
         return Wait.until(QUEUED_USER_MESSAGES.for_one())
@@ -810,6 +830,8 @@ class AwaitInterruptResolution(Step[None]):
     def get_step_options(self) -> StepOptions:
         # The deadline path rewrites PendingInterrupts, which resolve_interrupt also writes.
         return StepOptions(
+            wait_for_durability=StepDurability.SYNC,
+            execute_durability=StepDurability.SYNC,
             wait_for_load_attribute_maps=(AGENT_TOOL_CALLS,),
             execute_load_attribute_maps=(AGENT_TOOL_CALLS,),
             execute_lock_attributes=(PENDING_INTERRUPTS.lock(),),
@@ -869,7 +891,7 @@ class ExecuteSingleAttemptToolCall(Step[None]):
 
 
 class RecordToolFailure(Step[None]):
-    """Record a failed tool call after its attempts ran out."""
+    """Record an unknown outcome for a multi-attempt tool call whose attempts ran out."""
 
     def __init__(self, session: AgentSessionFlow) -> None:
         self._session = session
@@ -877,6 +899,7 @@ class RecordToolFailure(Step[None]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RECOVERY_RETRY,
+            execute_durability=StepDurability.SYNC,
             execute_load_attribute_maps=(AGENT_TOOL_CALLS,),
         )
 
@@ -885,7 +908,7 @@ class RecordToolFailure(Step[None]):
         context: AsyncContext,
         input: None,
     ) -> StepDecision:
-        return self._session._record_tool_call_recovery(context, ToolCallStatus.FAILED)
+        return self._session._record_unknown_tool_outcome(context)
 
 
 class RecordToolOutcomeUnknown(Step[None]):
@@ -897,6 +920,7 @@ class RecordToolOutcomeUnknown(Step[None]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RECOVERY_RETRY,
+            execute_durability=StepDurability.SYNC,
             execute_load_attribute_maps=(AGENT_TOOL_CALLS,),
         )
 
@@ -905,7 +929,7 @@ class RecordToolOutcomeUnknown(Step[None]):
         context: AsyncContext,
         input: None,
     ) -> StepDecision:
-        return self._session._record_tool_call_recovery(context, ToolCallStatus.OUTCOME_UNKNOWN)
+        return self._session._record_unknown_tool_outcome(context)
 
 
 class RecordTurnFailure(Step[None]):
@@ -917,6 +941,7 @@ class RecordTurnFailure(Step[None]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RECOVERY_RETRY,
+            execute_durability=StepDurability.SYNC,
             execute_load_attribute_maps=(AGENT_TOOL_CALLS,),
         )
 

@@ -93,7 +93,7 @@ other role fails the Step.
 | `framework_run_state` | `None` on the first segment; otherwise the value from this turn's last `TurnSuspended`. `is_resuming` tests it. |
 | `tool_calls` | This turn's `AgentToolCall` records by tool call ID. When resuming, every record is final. `recorded_tool_call(id)` reads one. |
 | `resolve_tool_policy(name, framework_effect=None)` | The policy for a tool: explicit policy, else framework metadata, else `default_tool_effect`. |
-| `events` | `AgentEventWriter` bound to the turn and attempt: `write_text_delta`, `write_reasoning_delta`, `write_tool_call_started`, `write_tool_call_finished`, `write_event`. |
+| `events` | `AgentEventWriter` bound to the turn, Step execution, and attempt: `write_text_delta`, `write_reasoning_delta`, `write_tool_call_started`, `write_tool_call_finished`, `write_event`. Safe to call from any thread, such as a sync tool in an executor; writes after the call returns are dropped. |
 | `heartbeat()` | Records liveness. The session already heartbeats every 20 seconds in the background. |
 
 A runner must:
@@ -111,13 +111,16 @@ A runner must:
    `DeferredToolCall(tool_call_id, tool_name, arguments, policy)` carries the
    resolved policy. `framework_run_state` must be non-empty. There must be at
    least one deferred call. Tool call IDs must be non-empty, contain no `/`,
-   and be new within the turn; never defer an ID that is in `turn.tool_calls`.
+   and be unique within one turn; never defer an ID that is in
+   `turn.tool_calls`. IDs may repeat in later turns, because the idempotency
+   key includes the turn ID.
 4. When resuming, give each deferred call the result from its final record
    instead of running the tool. `describe_tool_call_outcome(record)` renders
-   the model-visible text: the output, `"The tool call failed: <error>"`, the
-   rejection message (or `DEFAULT_REJECTION_TOOL_RESULT`), or
-   `OUTCOME_UNKNOWN_TOOL_RESULT`. A framework with a native rejection API may
-   pass `record.rejection_message` there instead.
+   the model-visible text: the output, `"The tool call failed: <error>"` for a
+   `ToolExecutionError`, the rejection message (or
+   `DEFAULT_REJECTION_TOOL_RESULT`), or `OUTCOME_UNKNOWN_TOOL_RESULT`. A
+   framework with a native rejection API may pass `record.rejection_message`
+   there instead.
 5. Return `TurnCompleted(new_messages, usage)` once the framework produces the
    final answer. `new_messages` holds every item the turn produced after its
    user message, in order, across all segments: model output, tool requests,
@@ -130,23 +133,40 @@ Any exception fails the attempt. `RunAgentTurn` retries up to three attempts
 within 30 minutes, rerunning the segment's model calls and READ tools, then
 routes to `RecordTurnFailure`. Each attempt has a 15 minute timeout.
 
+When a failed turn already has final tool call records, `RecordTurnFailure`
+stores one note before it deletes them, built with `build_user_message`, so
+the next turn's model does not repeat a write. `build_turn_failure_note`
+renders it, one line per record in `deferral_order`:
+
+```text
+[Dex] The previous turn failed after these tool calls ran:
+- <tool_name> <arguments> -> <status>: <describe_tool_call_outcome(record)>
+Do not repeat these tool calls unless the user asks again.
+```
+
 ### `execute_deferred_tool_call(call)`
 
 `DeferredToolExecution` carries `flow_id`, the approved `tool_call` record,
-`idempotency_key` (`"<flow_id>/<tool_call_id>"`), `attempt`, `events`, and
-`heartbeat`. Run the real tool once and return `ToolExecutionResult(output)`.
-Raise `ToolExecutionError(message)` for a failure the model should see; the
-session records `failed` with that message and does not retry. Any other
-exception is a Step failure: `IDEMPOTENT_WRITE` and approved `READ` calls retry
-up to three attempts and then record `failed` with the error text;
-single-attempt calls record `outcome_unknown`.
+`idempotency_key` (`"<flow_id>/<turn_id>/<tool_call_id>"`, the same on every
+attempt), `attempt`, `events`, and `heartbeat`. Run the real tool once and
+return `ToolExecutionResult(output)`. Raise `ToolExecutionError(message)` for a
+failure the model should see; the session records `failed` with that message
+and does not retry. Any other exception is a Step failure: `IDEMPOTENT_WRITE`
+and approved `READ` calls retry up to three attempts, single-attempt calls do
+not retry, and then the session records `outcome_unknown`, because the write
+may have taken effect.
+
+Before calling the runner, the tool Step writes `tool_call_started` and awaits
+a heartbeat. Dex can redeliver a task to another Worker at the same attempt
+when the first Worker disconnects before any output; this output ends that
+window before the tool runs.
 
 ## Effects and policies
 
 | Effect | Where it runs | Retry | Crash mid-call | Default approval |
 | --- | --- | --- | --- | --- |
 | `read` | Inside `RunAgentTurn` | With the turn | Runs again | No |
-| `idempotent_write` | `ExecuteToolCall` | Up to 3 attempts, key `<flowId>/<toolCallId>` | Runs again with the same key | No |
+| `idempotent_write` | `ExecuteToolCall` | Up to 3 attempts, key `<flowId>/<turnId>/<toolCallId>` | Runs again with the same key | No |
 | `non_idempotent_write` | `ExecuteSingleAttemptToolCall` | One attempt | Outcome unknown | Yes |
 | `unclassified` | `ExecuteSingleAttemptToolCall` | One attempt | Outcome unknown | Yes |
 
@@ -165,15 +185,17 @@ that requires approval is deferred; after approval it runs in
 | `AwaitUserMessage` | Waits for `QueuedUserMessages.for_one()`, stores the user message, starts the turn. | `RunAgentTurn` |
 | `RunAgentTurn` | Calls `run_turn`. 15 min timeout, 2 min heartbeat timeout, 3 attempts in 30 min, SYNC durability, failure route `RecordTurnFailure`. | `AwaitUserMessage`, `AwaitInterruptResolution`, or a tool Step |
 | `AwaitInterruptResolution` | Waits for `InterruptResolutions.for_one(id)` of every awaiting call, plus a Timer at the earliest pending deadline. Applies one answer, or rejects expired calls with `"approval deadline passed"`. | Itself while calls await approval, then the next approved tool Step, then `RunAgentTurn` |
-| `ExecuteToolCall` | Runs one `idempotent_write` or approved `read` call. 3 attempts, SYNC, failure route `RecordToolFailure`. | Next approved tool Step or `RunAgentTurn` |
-| `ExecuteSingleAttemptToolCall` | Runs one `non_idempotent_write` or `unclassified` call. 1 attempt, SYNC, failure route `RecordToolOutcomeUnknown`. | Same routing |
-| `RecordToolFailure` | Records `failed` with the recovery error text. | Same routing |
-| `RecordToolOutcomeUnknown` | Records `outcome_unknown`, with the recovery detail in `error`. | Same routing |
-| `RecordTurnFailure` | Records `last_turn_error`, appends nothing, clears the turn's records and run state. | `AwaitUserMessage` |
+| `ExecuteToolCall` | Runs one `idempotent_write` or approved `read` call. 3 attempts, failure route `RecordToolFailure`. | Next approved tool Step or `RunAgentTurn` |
+| `ExecuteSingleAttemptToolCall` | Runs one `non_idempotent_write` or `unclassified` call. 1 attempt, failure route `RecordToolOutcomeUnknown`. | Same routing |
+| `RecordToolFailure` | Records `outcome_unknown` with the recovery detail in `error`; the call's attempts ran out without a result. | Same routing |
+| `RecordToolOutcomeUnknown` | Records `outcome_unknown` with the recovery detail in `error`. | Same routing |
+| `RecordTurnFailure` | Records `last_turn_error`. When the turn has final tool call records, appends one turn-failure note; otherwise appends nothing. Clears the turn's records and run state. | `AwaitUserMessage` |
 
-Approved calls run one at a time in `deferral_order`. Tool Steps read their
-call from `AgentState.executing_tool_call_id`, and a tool Step whose record is
-already final routes on without running.
+Every Step sets `wait_for` and `execute` durability to SYNC explicitly, so a
+`FlowConfig(step_durability=ASYNC)` never replays a Step result. Approved
+calls run one at a time in `deferral_order`. Tool Steps read their call from
+`AgentState.executing_tool_call_id`, and a tool Step whose record is already
+final routes on without running.
 
 Persistence, shared by every agent Flow type and exported from `dex_agents`:
 
@@ -205,10 +227,16 @@ and `reasoning_delta` `{"text"}`, `tool_call_started` `{"tool_call_id",
 `tool_call_deferred` `{"tool_call_id", "tool_name", "effect",
 "requires_approval"}`, `interrupt_raised` `{"interrupt_id", "tool_call_id",
 "tool_name", "deadline"}`, `interrupt_resolved` `{"interrupt_id", "approved",
-"rejection_message"}`, and `usage_recorded` `{"recorded", "session"}`. Every
-event carries `turn_id` and the Step `attempt`; drop a turn's partial text when
-a later attempt writes. Streams are best effort; rebuild from
-`get_agent_snapshot`.
+"rejection_message"}`, and `usage_recorded` `{"recorded", "session"}`.
+
+Every event carries `turn_id`, `step_execution_id` (shared by all attempts of
+one Step execution), and the Step `attempt`. A UI groups live text by
+`(turn_id, step_execution_id, attempt)`: within one `step_execution_id` it
+keeps only the highest `attempt` seen and drops the partial text of lower
+attempts. Different `step_execution_id` values of a turn are consecutive
+segments and Steps, and each keeps its text. After `turn_completed` or
+`turn_failed`, replace the turn's live text with the stored messages. Streams
+are best effort; rebuild from `get_agent_snapshot`.
 
 ## Testing an adapter
 
@@ -265,7 +293,9 @@ Each package's `ci.sh` installs locked dependencies, runs lint and type
 checks, and runs the integration tests with `DEXCLI` set. `Agents CI`
 discovers every `agents/*/*/ci.sh`.
 
-## Decisions beyond the plan
+## Design decisions
+
+The plan records each of these decisions too.
 
 - `AgentToolCall` has an extra `deferral_order` field, so approved calls run in
   the order the turn deferred them. AttributeMap keys alone do not keep order.
@@ -280,6 +310,14 @@ discovers every `agents/*/*/ci.sh`.
   fires is consumed on the next wait instead of being lost. Deadlines apply
   only to interrupts that are still pending.
 - `resolve_interrupt` drops `rejection_message` on approval.
+- A failed turn that ran tools leaves a note message (see `run_turn`) instead
+  of appending nothing, so its writes are not repeated by the next turn.
+- `RecordToolFailure` records `outcome_unknown`, not `failed`: it is reached
+  only through crashes, timeouts, or exceptions other than
+  `ToolExecutionError`, so the write may have taken effect.
+- Every Step sets SYNC durability explicitly.
+- The idempotency key includes the turn ID, and `AgentEvent` has an extra
+  `step_execution_id` field.
 - `AgentSnapshot.state` is `None` until `StartAgentSession` commits.
 - Status, role, effect, and record status values are `StrEnum` types in Python;
   the wire carries the plain strings.
@@ -297,3 +335,7 @@ discovers every `agents/*/*/ci.sh`.
 - Interrupt deadlines use the Worker clock.
 - One `text_delta` call writes one Stream message; batch very small chunks.
 - Tool call IDs that are empty or contain `/` fail the turn.
+- A tool Step's first output ends Dex's redelivery window, but a frame that
+  left the Worker and never reached Dex leaves a small gap: if the Worker dies
+  then, Dex can redeliver the same attempt and a single-attempt tool can run
+  twice.

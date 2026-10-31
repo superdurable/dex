@@ -17,9 +17,10 @@ from uuid import uuid4
 
 import pytest_asyncio
 
-from dex_agents import AgentSessionClient, AgentSessionFlow, AgentSnapshot
+from dex_agents import AgentEvent, AgentSessionClient, AgentSessionFlow, AgentSnapshot
 from dex_agents.testing import AgentTestStack, FileGate, InvocationLog, wait_for_agent_snapshot
 from tests.scripted_agent import (
+    IDEMPOTENCY_KEY_LOG_NAME,
     INVOCATION_LOG_NAME,
     STATE_DIR_ENVIRONMENT_VARIABLE,
     build_scripted_agent_flow,
@@ -40,11 +41,19 @@ class ScriptedAgentHarness:
     def invocations(self) -> InvocationLog:
         return InvocationLog(self.state_dir / INVOCATION_LOG_NAME)
 
+    @property
+    def idempotency_keys(self) -> InvocationLog:
+        return InvocationLog(self.state_dir / IDEMPOTENCY_KEY_LOG_NAME)
+
     def gate(self, name: str) -> FileGate:
         return FileGate(self.state_dir, name)
 
     def new_session_id(self) -> str:
         return f"session-{uuid4().hex}"
+
+    async def agent_events(self, session_id: str) -> list[AgentEvent]:
+        page = await self.stack.client.list_stream_messages(session_id, self.flow.agent_events, 500)
+        return [message.value for message in reversed(page.messages)]
 
     async def wait_for_turns(self, session_id: str, turn_count: int) -> AgentSnapshot:
         return await wait_for_agent_snapshot(

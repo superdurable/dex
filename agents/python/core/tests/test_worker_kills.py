@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import json
 
+from dex import FlowConfig, StartFlowOptions, Step, StepDurability
+
 from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, AgentEvent, AgentEventType, MessageRole
-from dex_agents.testing import wait_until
+from dex_agents.testing import wait_for_agent_snapshot, wait_until
 from tests.conftest import ScriptedAgentHarness
-from tests.scripted_agent import SLOW_WRITE_GATE
+from tests.scripted_agent import GATED_PUBLISH_GATE, SLOW_WRITE_GATE
 
 
 async def test_worker_killed_during_a_single_attempt_write_records_outcome_unknown(
@@ -67,6 +69,94 @@ async def test_worker_killed_during_run_agent_turn_reruns_the_segment(
     second_attempt_delta = await _text_delta(harness, session_id, attempt=2)
     assert second_attempt_delta is not None
     assert first_attempt_delta.turn_id == second_attempt_delta.turn_id == "turn-1"
+    assert first_attempt_delta.step_execution_id == second_attempt_delta.step_execution_id
+
+
+async def test_worker_killed_during_an_idempotent_write_retries_with_the_same_key(
+    harness: ScriptedAgentHarness,
+) -> None:
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call charge {"amount": 9, "gate": "charge-gate"}'
+    )
+    gate = harness.gate("charge-gate")
+    await gate.wait_until_reached()
+
+    worker.kill()
+    gate.release()
+    await harness.stack.start_worker()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    key = f"{session_id}/turn-1/turn-1-call-0"
+    assert snapshot.messages[-1].text == f"charge: charged 9 with key {key}"
+    assert harness.idempotency_keys.names() == [f"{key} attempt 1", f"{key} attempt 2"]
+
+
+async def test_worker_killed_during_an_approved_single_attempt_write_records_outcome_unknown(
+    harness: ScriptedAgentHarness,
+) -> None:
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, 'call gated_publish {"message": "once"}')
+    await _approve_pending_interrupt(harness, session_id)
+    gate = harness.gate(GATED_PUBLISH_GATE)
+    await gate.wait_until_reached()
+
+    worker.kill()
+    await harness.stack.start_worker()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == f"gated_publish: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert harness.invocations.count("gated_publish") == 1
+    assert gate.reached_count() == 1
+
+
+async def test_async_flow_durability_never_reruns_a_single_attempt_write(
+    harness: ScriptedAgentHarness,
+) -> None:
+    for step in harness.flow.get_steps():
+        options = step.step.get_step_options()
+        assert options is not None
+        assert options.execute_durability is StepDurability.SYNC, step.step.get_step_type()
+        if type(step.step).wait_for is not Step.wait_for:
+            assert options.wait_for_durability is StepDurability.SYNC, step.step.get_step_type()
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        'call publish {"message": "async"}',
+        StartFlowOptions(config_override=FlowConfig(step_durability=StepDurability.ASYNC)),
+    )
+    await _approve_pending_interrupt(harness, session_id)
+    approved = await harness.wait_for_turns(session_id, 1)
+    assert approved.messages[-1].text == "publish: published async"
+    assert harness.invocations.count("publish") == 1
+
+    assert await harness.sessions.send_user_message(
+        session_id, 'call slow_write {"message": "async"}'
+    )
+    gate = harness.gate(SLOW_WRITE_GATE)
+    await gate.wait_until_reached()
+    worker.kill()
+    await harness.stack.start_worker()
+    snapshot = await harness.wait_for_turns(session_id, 2)
+
+    assert snapshot.messages[-1].text == f"slow_write: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert harness.invocations.count("slow_write") == 1
+    assert gate.reached_count() == 1
+
+
+async def _approve_pending_interrupt(harness: ScriptedAgentHarness, session_id: str) -> None:
+    interrupt = await wait_for_agent_snapshot(
+        harness.sessions,
+        session_id,
+        lambda snapshot: next(iter(snapshot.pending_interrupts), None),
+        description="a pending interrupt",
+    )
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
 
 
 async def _text_delta(
@@ -74,11 +164,7 @@ async def _text_delta(
     session_id: str,
     attempt: int,
 ) -> AgentEvent | None:
-    page = await harness.stack.client.list_stream_messages(
-        session_id, harness.flow.agent_events, 100
-    )
-    for message in page.messages:
-        event = message.value
+    for event in await harness.agent_events(session_id):
         if event.type == AgentEventType.TEXT_DELTA and event.attempt == attempt:
             assert json.loads(event.payload)["text"] == "thinking after found stall"
             return event
