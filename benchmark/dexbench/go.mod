@@ -1,4 +1,4 @@
-module github.com/superdurable/dex/benchmark
+module github.com/superdurable/dex/benchmark/dexbench
 
 go 1.24.0
 
@@ -20,4 +20,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/superdurable/dex/sdk-go => ../sdk-go
+replace github.com/superdurable/dex/sdk-go => ../../sdk-go

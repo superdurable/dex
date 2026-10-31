@@ -74,12 +74,12 @@ func TestSearchLocalReadinessTimeoutStopsBeforeBenchmark(t *testing.T) {
 func newSearchLocalFixture(t *testing.T) *searchLocalFixture {
 	t.Helper()
 	fixture := &searchLocalFixture{root: t.TempDir()}
-	source, err := os.ReadFile("search-local.sh")
+	source, err := os.ReadFile("../local/search-local.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"benchmark/search-local.sh": string(source),
+		"benchmark/local/search-local.sh": string(source),
 		"benchmark/bin/dexbench": `#!/usr/bin/env bash
 if [[ "$1" == wait-ready ]]; then
   for attempt in {1..1000}; do
@@ -133,7 +133,7 @@ printf '%s\n' "$FIXTURE_ROOT/run-data"
 }
 
 func (fixture *searchLocalFixture) run(failure string, shouldFailReadiness bool) ([]byte, error) {
-	command := exec.Command("bash", filepath.Join(fixture.root, "benchmark/search-local.sh"), "postgres", "100", "0", filepath.Join(fixture.root, "out"))
+	command := exec.Command("bash", filepath.Join(fixture.root, "benchmark/local/search-local.sh"), "postgres", "100", "0", filepath.Join(fixture.root, "out"))
 	readiness := "false"
 	if shouldFailReadiness {
 		readiness = "true"

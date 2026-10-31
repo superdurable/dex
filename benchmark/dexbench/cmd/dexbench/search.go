@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/superdurable/dex/benchmark"
+	"github.com/superdurable/dex/benchmark/dexbench"
 )
 
 func runSearch(args []string) error {

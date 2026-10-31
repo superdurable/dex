@@ -179,7 +179,7 @@ results. It needs a `dexcli` whose `dexcli dev --help` lists `-engine`, and a
 DEXBENCH_DURATION=10 DEXBENCH_WARMUP=1 DEXBENCH_CONCURRENCY=2 \
   DEXBENCH_DEXCLI_BINARY="$(command -v dexcli)" \
   DEXBENCH_ZD_BINARY=/path/to/dex-server-zd \
-  benchmark/run.sh
+  benchmark/local/run.sh
 ```
 
 To build both binaries from this checkout, run the commands below. The
@@ -200,7 +200,7 @@ does not start Docker or use AWS.
 ### Full local run
 
 ```bash
-benchmark/run.sh
+benchmark/local/run.sh
 benchmark/bin/dexbench report <result-directory>/*.json
 benchmark/bin/dexbench chart <result-directory>/*.json > charts.html
 ```
@@ -299,7 +299,7 @@ The scripts live in `benchmark/aws/`:
 - Linux arm64 builds of `dexbench` and `dex-server-zd`. Both hosts run Ubuntu
   24.04, so build both binaries on Ubuntu 24.04 arm64, such as on the load
   host, to match its glibc. Build `dexbench` with
-  `cd benchmark && go build -buildvcs=true -o dexbench ./cmd/dexbench`, so
+  `cd benchmark/dexbench && go build -buildvcs=true -o ../bin/dexbench ./cmd/dexbench`, so
   `config.env` records its revision.
 - The `DEXBENCH_ZD_APPLIER_LANES`, `DEXBENCH_ZD_APPLIER_QUEUE_FRAMES`,
   `DEXBENCH_ZD_MAX_BATCH_RECORDS`, `DEXBENCH_ZD_MAX_UNAPPLIED_BYTES`,
@@ -528,11 +528,11 @@ empty search database for each point. Build the release server and harness:
 
 ```bash
 (cd server-zd && cargo build --release -p dexzd-server)
-(cd benchmark && GOWORK=off go build -o bin/dexbench ./cmd/dexbench)
-benchmark/search-local.sh builtin 100000 10 /tmp/search-builtin-100k
-benchmark/search-local.sh paradedb 100000 10 /tmp/search-paradedb-100k
-benchmark/search-local.sh postgres 100000 10 /tmp/search-postgres-100k
-benchmark/search-local.sh postgres 100000 10 /tmp/search-backfill-100k --backfill
+(cd benchmark/dexbench && GOWORK=off go build -o ../bin/dexbench ./cmd/dexbench)
+benchmark/local/search-local.sh builtin 100000 10 /tmp/search-builtin-100k
+benchmark/local/search-local.sh paradedb 100000 10 /tmp/search-paradedb-100k
+benchmark/local/search-local.sh postgres 100000 10 /tmp/search-postgres-100k
+benchmark/local/search-local.sh postgres 100000 10 /tmp/search-backfill-100k --backfill
 ```
 
 The runner starts a release server with embedded s3mock and the default 1,024
@@ -562,7 +562,7 @@ seeding. Run 0, 3, and 10 Attributes on separate fresh servers:
 
 ```bash
 for attributes in 0 3 10; do
-  benchmark/search-local.sh postgres 100000 "$attributes" "/tmp/search-pg-$attributes"
+  benchmark/local/search-local.sh postgres 100000 "$attributes" "/tmp/search-pg-$attributes"
 done
 ```
 

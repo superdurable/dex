@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 mode="${1:-quick}"
 if [[ "$mode" != quick ]]; then echo "usage: $0 [quick]" >&2; exit 2; fi
 
@@ -45,7 +45,7 @@ if compgen -G "$output_dir/*.json" >/dev/null; then
   exit 1
 fi
 wait_for_load
-(cd "$repo_root/benchmark" && nice -n 10 env GOWORK=off go build -o "$benchmark_binary" ./cmd/dexbench)
+(cd "$repo_root/benchmark/dexbench" && nice -n 10 env GOWORK=off go build -o "$benchmark_binary" ./cmd/dexbench)
 dexcli_binary="${DEXBENCH_DEXCLI_BINARY:-$(command -v dexcli || true)}"
 zd_binary="${DEXBENCH_ZD_BINARY:-$(command -v dex-server-zd || true)}"
 if [[ -z "$dexcli_binary" ]]; then echo "set DEXBENCH_DEXCLI_BINARY or install dexcli" >&2; exit 1; fi

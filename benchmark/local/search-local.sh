@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 backend="${1:?usage: search-local.sh builtin|postgres|paradedb RUNS ATTRIBUTES OUTPUT_DIRECTORY [--backfill]}"
 runs="${2:?runs required}"
 attributes="${3:?Attributes required}"
@@ -108,11 +108,11 @@ server_pid=$!
 "$binary" wait-ready --address "$address" --pid "$server_pid" --timeout 5m
 "$binary" search --address "$address" --backend "$backend" --runs "$runs" --attributes "$attributes" --samples "${DEXBENCH_SEARCH_SAMPLES:-100}" --warmup 10 --concurrency "${DEXBENCH_SEARCH_CONCURRENCY:-128}" --git-commit "$(git -C "$repo_root" rev-parse HEAD)" --out "$output_directory/search.json" ${arguments[@]+"${arguments[@]}"} "$@" 2>&1 | tee "$output_directory/client.txt"
 if [[ "$backend" == postgres && "$attributes" == 10 ]]; then
-  cp "$repo_root/benchmark/search-explain.sql" "$output_directory/explain.sql"
+  cp "$repo_root/benchmark/local/search-explain.sql" "$output_directory/explain.sql"
   docker exec -i "$container" psql -U postgres -d dexzd -X < "$output_directory/explain.sql" > "$output_directory/explain.txt"
 fi
 if [[ "$backend" == paradedb && "$attributes" == 10 ]]; then
-  cp "$repo_root/benchmark/search-system-explain.sql" "$output_directory/explain.sql"
+  cp "$repo_root/benchmark/local/search-system-explain.sql" "$output_directory/explain.sql"
   docker exec -i "$container" psql -U postgres -d dexzd -X < "$output_directory/explain.sql" > "$output_directory/explain.txt"
 fi
 if [[ "$has_container" == true ]]; then

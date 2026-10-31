@@ -22,7 +22,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/superdurable/dex/benchmark"
+	"github.com/superdurable/dex/benchmark/dexbench"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
