@@ -90,11 +90,7 @@ type searchBenchmark struct {
 	result         SearchResult
 }
 
-// RunSearch seeds a fresh server, waits for projection convergence, and measures SearchFlows.
-// DatabaseContainer names an exclusively owned PostgreSQL container with psql available.
-// Backfill defers Keyword registration until seeding finishes and measures its transition to ready.
-// The caller must provide an empty server and database for each invocation.
-// Results are returned even on failure so callers can preserve diagnostic evidence.
+// RunSearch seeds a fresh server and measures search, projection, and backfill; partial results accompany errors.
 func RunSearch(ctx context.Context, config SearchConfig) (SearchResult, error) {
 	benchmark := &searchBenchmark{config: config, prefix: fmt.Sprintf("search-%d", time.Now().UnixNano())}
 	benchmark.result = SearchResult{Config: config, StartedAt: time.Now().UTC(), Machine: machineInfo()}

@@ -530,7 +530,8 @@ KeywordArray membership, Text terms, explicit StartTime descending, and page
 500 reached by following 499 opaque next-page tokens. Only the final page
 request is timed. These are end-to-end Go Client timings, including transport
 and indexed-value hydration; compare them cautiously with SQL EXPLAIN results.
-Raw JSON retains each successful latency and each error. Builtin scan-budget
+Raw JSON retains each successful latency and each error. PostgreSQL ten-Attribute
+points also retain matching SQL EXPLAIN ANALYZE plans after the timed queries. Builtin scan-budget
 failures are recorded rather than changing the server's default scan budget.
 
 PostgreSQL and ParadeDB record pg_current_wal_lsn before and after seeding and
