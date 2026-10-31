@@ -18,15 +18,16 @@ These results were measured on 2026-10-31 in AWS us-west-2, after the Worker dis
 | S2 SYNC Steps | **1,436 Steps/s** median, 1,440 max, at C=512; Step p50 361 ms | **10,765 Steps/s** median, 10,842 max, at C=8,192; Step p50 683 ms |
 | S3 ASYNC Steps | **1,538 Steps/s** median, 1,562 max, at C=32; Step p50 8.8 ms | **10,647 Steps/s** median, 10,655 max, at C=4,096; Step p50 284 ms |
 | S1 Flows started and completed | 889 Flows/s median, 892 max, at C=512 | 6,176 Flows/s median, 6,212 max, at C=12,288 |
-| S4 plain RPC | 7,426 RPCs/s median, 7,544 max, at C=32; p50 4.4 ms | 49,327 RPCs/s median, 49,592 max, at C=128; p50 2.6 ms |
-| S4 Attribute-locking RPC | 1,805 RPCs/s median, 1,834 max, at C=768 | 13,124 RPCs/s median, 13,180 max, at C=8,192 |
-| S5 reads of ten 16 KiB Attributes | 6,032 reads/s median, 6,332 max, at C=256 | 11,258 reads/s median, 11,259 max, at C=256 |
+| S4 plain RPC, reads one 8-byte Attribute | 7,426 RPCs/s median, 7,544 max, at C=32; p50 4.4 ms | 49,327 RPCs/s median, 49,592 max, at C=128; p50 2.6 ms |
+| S4 Attribute-locking RPC, updates one 8-byte Attribute | 1,805 RPCs/s median, 1,834 max, at C=768 | 13,124 RPCs/s median, 13,180 max, at C=8,192 |
+| S5 direct read of ten 16 KiB Attributes, 160 KiB and two calls per read | 6,032 reads/s median, 6,332 max, at C=256 | 11,258 reads/s median, 11,259 max, at C=256 |
 | S6 Channel wake latency, p50 / p99 | 93 / 217 ms at C=64 | 84 / 181 ms at C=64 |
 
 C is the number of concurrent clients. Each concurrency was chosen by searching first; the per-instance `README.md` files list every point.
 
 - **ASYNC with low latency:** on c7gd.4xlarge, S3 at C=256 reaches 10,210 Steps/s median with a Step p50 of 7.1 ms. The C=4,096 point is only 4% higher.
 - **Attribute-locking RPC on c7gd.4xlarge:** the C=8,192 point raises `limits.maxInFlightRpcsPerNode` to 16,384. With the 4,096 limit used everywhere else, C=4,096 gives 12,174 RPCs/s median.
+- **S4 and S5 are not comparable.** An S4 RPC reads or updates one 8-byte counter and returns 8 bytes. An S5 read returns 160 KiB and takes two calls. At its peak, S5 on c7gd.4xlarge moves about 1.8 GB/s, the 15 Gbps network limit of that instance.
 - **Before the fix:** the previous run of this benchmark, before #1131, measured 7,544 SYNC Steps/s and 34,611 plain RPCs/s on c7gd.4xlarge. Throughput then collapsed above about 2,048 concurrent Flows. It now stays flat: S2 gives 9.8k–10.8k Steps/s from C=8,192 to 16,384.
 
 ### Settings that produced these numbers
@@ -92,8 +93,8 @@ concurrency.
 | S1 | `start-complete` | Start and complete a Flow with one Step |
 | S2 | `sequential-steps` | Ten sequential SYNC Steps in one Flow |
 | S3 | `sequential-steps-async` | Ten sequential ASYNC Steps in one Flow |
-| S4 | `rpc-plain`, `rpc-locking` | A plain RPC, and an RPC that locks one Attribute |
-| S5 | `attribute-read-direct` | Read ten 16 KiB Attributes from the client |
+| S4 | `rpc-plain`, `rpc-locking` | An RPC that reads one 8-byte Attribute, and an RPC that locks and updates it |
+| S5 | `attribute-read-direct` | Read ten 16 KiB Attributes, 160 KiB in total, from the client without a Worker |
 | S6 | `channel-wake` | Latency from a Channel publish to the waiting Step |
 | S7 | `dexbench search` | Search latency, seed projection throughput, WAL, and PostgreSQL backfill |
 
@@ -123,21 +124,26 @@ the Flow latency of S3 still includes commit time. Per-Step latency shows the
 effect of ASYNC most directly.
 
 **S4 `rpc-plain` and `rpc-locking`.** Before warmup, each client starts one
-Flow that stays open. The plain variant invokes an RPC that reads an
-Attribute. The locking variant invokes an RPC that locks the Attribute, reads
-it, and writes it back. Each client uses its own Flow, so the lock has no
+Flow that stays open. The Flow has one `int64` counter Attribute, 8 bytes on
+the wire. The plain variant invokes an RPC that reads the counter and returns
+it. The locking variant invokes an RPC that locks the counter, reads it, and
+writes it back. Both RPCs run on the Worker and return only the `int64`. Each client uses its own Flow, so the lock has no
 contention. The timed operation is one InvokeRPC call. Throughput is in RPCs
 per second. Keep the concurrency below the server's
 `limits.maxInFlightRpcsPerNode`, which defaults to 1000.
 
 **S5 `attribute-read-direct`.** Before warmup, each client starts one Flow
 that stays open and holds ten 16 KiB string Attributes. Each read calls
-FlowService GetAttributes through the generated gRPC client. Values over the
-server's inline limit come back as blob references. The client resolves every
+FlowService GetAttributes through the generated gRPC client. No Worker is
+involved. Values over the server's inline limit,
+`values.wireInlineThresholdBytes` (default 100 bytes), come back as blob
+references, so all ten 16 KiB values do. The client resolves every
 reference with one LoadBlobs call, as an uncached client would. It then
 compares every value with the value written at Flow start. The timed
-operation is GetAttributes plus LoadBlobs plus the check. Throughput is in
-reads per second. JSON results record the verified bytes per read and the
+operation is GetAttributes plus LoadBlobs plus the check. Each read is
+therefore two calls and returns 160 KiB, about 20,000 times the data of an S4
+RPC. Throughput is in reads per second, and it is limited by bandwidth: at
+11,258 reads per second, c7gd.4xlarge moves about 1.8 GB/s. JSON results record the verified bytes per read and the
 number of blobs loaded.
 
 **S6 `channel-wake`.** Each client starts a new Flow whose Step waits on a
