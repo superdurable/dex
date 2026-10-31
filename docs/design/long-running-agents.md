@@ -13,15 +13,15 @@ Dex will support long-running agents through three additions:
 1. **Dex Agents**, a library that packages the agent loop the AI Agent
    examples build by hand: a session Flow, model and tool Steps, approvals,
    durable waits, steering, compaction, usage, and a standard event Stream.
-   The Python core (#1134) and the TypeScript core (#1136) are on main. Go
-   follows.
+   The Python and TypeScript cores are on main in Step mode (#1134, #1146;
+   #1136, #1145). Go follows.
 2. **Framework adapters in Step mode** that run Pydantic AI, OpenAI Agents
    SDK, LangChain and LangGraph, Google ADK, Vercel AI SDK, and Mastra agents
    on Dex by wrapping the agent instead of rewriting it. The framework makes
    one model call per Dex Step and hands its tool calls to Dex, so every model
    call, tool call, and approval is an ordinary Step. Claude Agent SDK, whose
    loop runs in a CLI subprocess, runs as a whole-turn harness. The adapters
-   are under way in #1137 to #1144.
+   are on main: #1137 to #1144 and #1149.
 3. **Agent surfaces and operations**: tool calling in the `llm` connector,
    MCP in both directions, UI stream protocols over Dex Streams,
    OpenTelemetry GenAI traces, a Dex Web agent view, budgets and model
@@ -114,8 +114,8 @@ gaps below are what stands between a builder and these properties.
 
 | # | Missing piece | Dex today | What builders get elsewhere | Proposal | Milestone |
 | --- | --- | --- | --- | --- | --- |
-| G1 | Framework integrations | None released | Temporal 7 GA plus previews; Restate 6; DBOS 5; Pydantic AI durability interface | C3 adapters | M1 (under way), M4 |
-| G2 | Durable calls inside a framework loop | Steps; a framework loop has no Step boundary inside it | Activities, `ctx.run`, DBOS steps | Closed by C3 Step mode on existing primitives: each model call and tool call is its own Step | M1 (under way) |
+| G1 | Framework integrations | None released | Temporal 7 GA plus previews; Restate 6; DBOS 5; Pydantic AI durability interface | C3 adapters | M1 (done), M4 |
+| G2 | Durable calls inside a framework loop | Steps; a framework loop has no Step boundary inside it | Activities, `ctx.run`, DBOS steps | Closed by C3 Step mode on existing primitives: each model call and tool call is its own Step | M1 (done) |
 | G3 | A reusable agent loop | Two hand-built examples; session cores in `agents/` (#1134, #1136) | Vercel DurableAgent, Cloudflare harnesses, Trigger.dev chat agents | C2 Dex Agents | M1, M2 |
 | G4 | Tool calling in model calls | `generateText` sends text only, no tools | Every framework's model layer | C4 `llm` connector tools | M3 |
 | G5 | A tool side-effect contract | Connector **uncertain** branch only | At-least-once everywhere; Cloudflare Pi marks replay-safe tools | C4 effect classes and tool Steps | M1 |
@@ -435,7 +435,7 @@ replay; none in the current set does.
 | OpenAI Agents SDK (Python, TypeScript) | A **needs_approval** gate on every function tool, so the SDK stops with `result.interruptions` after a reply that calls tools | **RunState.to_json** and **from_json** (TypeScript **fromStringWithContext**): the current agent after a handoff, turn counters, guardrail results, and pending calls | **approve** each interruption, and the gated tool's wrapper returns the Dex result instead of running the tool; **reject** with the rejection message | Step mode through the gate. Tools the SDK cannot gate, such as MCP tools, run inline and are at-least-once | #1137, #1140 |
 | Google ADK (Python) | A plugin calls **request_confirmation** for each tool call, and the resumable App pauses the invocation | The turn's ADK events, rebuilt into a turn-local session service | Answer each `adk_request_confirmation` call; ADK re-executes the call, and the plugin returns the Dex result | Step mode | #1139 |
 | Mastra (TypeScript) | Tools go to Mastra as client tools without **execute**, so its loop stops at the tool calls of a model response | Mastra messages (**MastraDBMessage** JSON), with no Memory thread | AI SDK tool-result messages, then **agent.stream()** again | Step mode. Tools Mastra adds outside the agent's tools run inline and are at-least-once | #1143 |
-| Claude Agent SDK (Python, TypeScript) | No clean stop: **PreToolUse** **defer** ends the turn only in `-p` mode and only for a lone tool call | The transcript through a **SessionStore** on Attributes, resumed by session ID | No injection. On resume the hook allows the re-run call, and the adapter's handler returns the Dex result. Built-in CLI tools run inside the CLI | Whole-turn harness | #1144; TypeScript in progress |
+| Claude Agent SDK (Python, TypeScript) | No clean stop: **PreToolUse** **defer** ends the turn only in `-p` mode and only for a lone tool call | The transcript through a **SessionStore** on Attributes, resumed by session ID | No injection. On resume the hook allows the re-run call, and the adapter's handler returns the Dex result. Built-in CLI tools run inside the CLI | Whole-turn harness | #1144, #1149 |
 | Microsoft Agent Framework, Strands, CrewAI, LlamaIndex Workflows | Checked per framework | **CheckpointStorage**, **SessionRepository**, **FlowPersistence**, context snapshots | Checked per framework | Decided by the same three questions; M4, by demand | none |
 
 Interface names are those in each framework's current documentation and in
@@ -944,27 +944,27 @@ come first, on the Step boundaries that exist today.
 
 | Item | Size | Status |
 | --- | --- | --- |
-| This design, reviewed | M | In review |
-| Session state schema, Step and RPC names, `AgentEvent` schema, interrupt contract, and tool effect classes | M | In the adapter plan |
-| Step mode contract: `RunModel`, `CallTool`, `CallSingleAttemptTool`, `AwaitToolApproval`, `ResumeTurn`, the `ToolCallResults` Channel, and `runner.run_model_step` | S | Under way in the adapter plan |
+| This design, reviewed | M | In review (#1132) |
+| Session state schema, Step and RPC names, `AgentEvent` schema, interrupt contract, and tool effect classes | M | Done (`docs/design/plan/agent-framework-adapters.md`) |
+| Step mode contract: `RunModel`, `CallTool`, `CallSingleAttemptTool`, `AwaitToolApproval`, `ResumeTurn`, the `ToolCallResults` Channel, and `runner.run_model_step` | S | Done (#1145, #1146) |
 
 Exit: the adapter plan describes Step mode, and both cores implement it.
 
-### M1. Bring your framework (under way)
+### M1. Bring your framework (done)
 
 | Item | Area | Size | Status |
 | --- | --- | --- | --- |
-| Python core: session Flow, persistence schema, RPCs, events, usage, effect classes | agents | L | Merged (#1134); moving to Step mode |
-| TypeScript core, the same contract | agents | L | Merged (#1136); moving to Step mode |
-| OpenAI Agents SDK adapter (Python) | adapters | L | #1137 |
-| OpenAI Agents SDK adapter (TypeScript) | adapters | M | #1140 |
-| LangChain `create_agent` and LangGraph adapter (Python) | adapters | L | #1138 |
-| Google ADK adapter (Python) | adapters | L | #1139 |
-| Pydantic AI adapter (Python) | adapters | M | #1141 |
-| Vercel AI SDK adapter (TypeScript) | adapters | L | #1142 |
-| Mastra adapter (TypeScript) | adapters | M | #1143 |
-| Claude Agent SDK adapter (Python), whole-turn harness | adapters | L | #1144 |
-| Claude Agent SDK adapter (TypeScript), whole-turn harness | adapters | L | In progress |
+| Python core: session Flow, persistence schema, RPCs, events, usage, effect classes | agents | L | Merged (#1134), Step mode (#1146) |
+| TypeScript core, the same contract | agents | L | Merged (#1136), Step mode (#1145) |
+| OpenAI Agents SDK adapter (Python) | adapters | L | Merged (#1137) |
+| OpenAI Agents SDK adapter (TypeScript) | adapters | M | Merged (#1140) |
+| LangChain `create_agent` and LangGraph adapter (Python) | adapters | L | Merged (#1138) |
+| Google ADK adapter (Python) | adapters | L | Merged (#1139) |
+| Pydantic AI adapter (Python) | adapters | M | Merged (#1141) |
+| Vercel AI SDK adapter (TypeScript) | adapters | L | Merged (#1142) |
+| Mastra adapter (TypeScript) | adapters | M | Merged (#1143) |
+| Claude Agent SDK adapter (Python), whole-turn harness | adapters | L | Merged (#1144) |
+| Claude Agent SDK adapter (TypeScript), whole-turn harness | adapters | L | Merged (#1149) |
 
 Exit: the adapter test matrix and the conformance suite pass for every
 adapter, a Worker kill during `RunModel` repeats only that model call, and
