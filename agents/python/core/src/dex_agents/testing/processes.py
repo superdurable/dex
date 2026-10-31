@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import shutil
 import signal
@@ -43,14 +44,39 @@ def find_free_port() -> int:
     """Return a TCP port on 127.0.0.1 that was free a moment ago.
 
     Tests on a shared machine must never use fixed ports. A port can still be
-    taken between this call and its use, which is rare enough for tests.
+    taken between this call and its use, which is rare enough for tests. Use
+    ``find_free_ports`` when one process needs several ports.
 
     Returns:
         A port number.
     """
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
+    return find_free_ports(1)[0]
+
+
+def find_free_ports(count: int) -> list[int]:
+    """Return distinct TCP ports on 127.0.0.1 that were free a moment ago.
+
+    Every probe socket stays open until all ports are chosen, so the ports
+    are distinct. A port can still be taken after this call returns.
+
+    Args:
+        count: Number of ports, at least one.
+
+    Returns:
+        ``count`` distinct port numbers.
+
+    Raises:
+        ValueError: If ``count`` is less than one.
+    """
+    if count < 1:
+        raise ValueError("count must be at least one")
+    with contextlib.ExitStack() as probes:
+        ports: list[int] = []
+        for _ in range(count):
+            probe = probes.enter_context(socket.socket())
+            probe.bind(("127.0.0.1", 0))
+            ports.append(int(probe.getsockname()[1]))
+        return ports
 
 
 def resolve_dexcli_path() -> Path:
@@ -265,8 +291,7 @@ class PrivateDexEngine:
         self._state_dir = state_dir
         self._dexcli = dexcli or resolve_dexcli_path()
         self._server_zd = server_zd or resolve_server_zd_path(self._dexcli)
-        self.dex_port = find_free_port()
-        self.web_port = find_free_port()
+        self.dex_port, self.web_port = find_free_ports(2)
         self._process = KillableProcess("dexcli dev", state_dir / "dexcli.log")
 
     @property

@@ -38,6 +38,7 @@ from dex_agents.testing.processes import (
     KillableProcess,
     PrivateDexEngine,
     find_free_port,
+    find_free_ports,
     resolve_dexcli_path,
     resolve_server_zd_path,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "KillableProcess",
     "PrivateDexEngine",
     "find_free_port",
+    "find_free_ports",
     "resolve_dexcli_path",
     "resolve_server_zd_path",
     "run_agent_worker",
